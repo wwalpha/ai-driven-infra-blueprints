@@ -98,7 +98,7 @@ def contract_scope(root, scope):
 
 
 def record_outputs(root, identity, sources, views, consumers=None):
-    """Record selected IMPORT outputs and direct consumers in the task plan."""
+    """Check the predeclared plan without changing an approved Task/acquisition."""
     from import_scope import allowed_source
     consumers = set(consumers or {identity})
     environment, target, service = identity
@@ -117,19 +117,12 @@ def record_outputs(root, identity, sources, views, consumers=None):
     name = selected.relative_to(root).as_posix()
     text = task_contract.selected_text(root, records, name)
     fixed = '- IMPORT target: `' + '/'.join(identity) + '`'
-    if not re.search(r'^- IMPORT target:', text, re.M):
-        text = text.replace('- Workflow: `import`', '- Workflow: `import`\n' + fixed)
     declared = active_scope(root)
-    body = '## Validation scope\n\n' + ''.join('- `' + '/'.join(item) + '`\n' for item in sorted(declared | consumers)) + '\n'
-    text = re.sub(r'^## Validation scope\n.*?(?=^## |\Z)', lambda _: body, text, flags=re.M | re.S)
+    if fixed not in section(text, '## Task contract') or not consumers <= declared:
+        raise ValueError('IMPORT Task must declare its fixed target and direct consumers before acquisition')
     for heading in ('## Allowed paths', '## Modified files'):
-        existing = task_contract.paths_in(text, heading)
-        if paths - existing:
-            body = heading + '\n\n' + ''.join('- `' + path + '`\n' for path in sorted(existing | paths)) + '\n'
-            text = re.sub(r'^' + heading + r'\n.*?(?=^## |\Z)', lambda _: body, text, flags=re.M | re.S)
-    if text != records[name]:
-        atomic_files({selected: text}, staging_directory=root)
-
+        if not paths <= task_contract.paths_in(text, heading):
+            raise ValueError('IMPORT Task must declare exact output paths before acquisition: ' + heading)
 
 
 
@@ -295,6 +288,9 @@ def acquire(root, environment, service, selector=None, dry_run=False, cli_runner
     with restrict(identity), read_consumers({identity}):
         if not dry_run:
             contract_scope(root, {identity})
+            from import_guard import proof_path
+            if proof_path(root).exists():
+                raise ValueError('IMPORT Task already published; use display recovery or a new Task')
             require_import_changes(root, generation=True)
         path = root / 'model' / identity[0] / identity[1] / (service + '.properties')
         from model_templates import Expansion
@@ -322,6 +318,24 @@ def pending_items(selection, selected, values):
 
 
 @input_scope
+def resume_acquisition(root, environment, service, evidence, selector=None, dry_run=False):
+    """Read the LLM's checkpoint after verifying the original session and live baseline."""
+    from model_templates import safe
+    root = root.resolve()
+    target = target_for(root, environment, service, selector)
+    identity = (environment, target['directory'], service)
+    evidence = Path(evidence).absolute()
+    with publication_lock(root, read_only=True):
+        acquisition = read_acquisition(root, evidence, identity, dry_run)
+        unchanged(root, acquisition['sources'])
+        file = evidence.parent / 'checkpoint.json'
+        safe(evidence.parent, file)
+        answers = import_approval.verify_checkpoint(acquisition, json_read(file.read_text(encoding='utf-8')))
+    return {'status': 'resumed', 'answers': answers, 'model': 'unchanged',
+            'markdown': 'not-run', 'designValidation': 'not-run'}
+
+
+@input_scope
 def review_acquisition(root, environment, service, evidence, selector=None, dry_run=False):
     """Normalize a proposed expanded snapshot without preparing or saving Model sources."""
     from import_scope import restrict, read_consumers
@@ -344,14 +358,22 @@ def review_acquisition(root, environment, service, evidence, selector=None, dry_
         draft, selection = json_read(draft_text), json_read(selection_text)
         if not {'proposedValues', 'risks'} <= draft.keys() or set(draft) - {'proposedValues', 'risks', 'referenceProvenance'}:
             raise ValueError('IMPORT Review input requires proposedValues, risks and optional referenceProvenance; approval flags are forbidden')
+        selected = selection_records(selection, acquisition['records'], before.values,
+                                     {**before.values, **draft['proposedValues']}, property_schema)
+        impacts = []
+        impact_inputs, impact_services = replacement_inputs(root, identity, selected, impacts)
+        impact = {'inputs': {p.relative_to(root).as_posix(): text_hash(text) for p, text in impact_inputs.items()},
+                  'warnings': impacts}
         review = import_approval.build_review(acquisition, selection, before, draft['proposedValues'], draft['risks'], property_schema,
-                                             proposed_references=draft.get('referenceProvenance'))
+                                             proposed_references=draft.get('referenceProvenance'), reference_impact=impact)
         if comparator().redacted(review) != review:
             raise ValueError('IMPORT Review contains sensitive data; remove it before review')
         with publication_lock(root):
             if read_acquisition(root, evidence, identity, dry_run) != acquisition:
                 raise ValueError('IMPORT acquisition changed during review')
-            unchanged(root, acquisition['sources'])
+            unchanged(root, {**acquisition['sources'], **impact['inputs']})
+            if impact_services and tuple(sorted((root / 'model/parameters' / identity[0] / identity[1]).glob('*'))) != impact_services:
+                raise ValueError('IMPORT reference consumer services changed during review')
             if draft_file.read_text(encoding='utf-8') != draft_text or selection_file.read_text(encoding='utf-8') != selection_text:
                 raise ValueError('IMPORT Review inputs changed during verification')
             destination = evidence.parent / 'review.json'
@@ -382,8 +404,10 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
     safe(evidence.parent, review_file)
     if not dry_run and not review_file.is_file():
         raise ValueError('IMPORT normal Publish requires review.json')
+    binding = None
     if not dry_run:
-        import_approval.require_human_approval()
+        binding = import_approval.approval_binding(json_read(review_file.read_text(encoding='utf-8')), acquisition)
+        import_approval.require_human_approval(binding)
     from model_templates import consumers
     from sync_runtime import owned_artifacts, view_plan
     path = root / 'model' / identity[0] / identity[1] / (identity[2] + '.properties')
@@ -432,7 +456,11 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
     references = Resolver(root, identity[0], identity[1], local={identity[2]: after})
     changes = verify_values(before, after, selected, property_schema, references, warnings=warnings)
     warnings.extend(references.warnings)
-    incoming_inputs, incoming_services = replacement_inputs(root, identity, selected, warnings)
+    impacts = []
+    incoming_inputs, incoming_services = replacement_inputs(root, identity, selected, impacts)
+    warnings.extend(impacts)
+    impact = {'inputs': {p.relative_to(root).as_posix(): text_hash(text) for p, text in incoming_inputs.items()},
+              'warnings': impacts}
     for file, text in incoming_inputs.items():
         checksums.setdefault(file.relative_to(root).as_posix(), text_hash(text))
     # Producers are read dependencies, never candidate writes or display targets.
@@ -449,8 +477,12 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
         review_text = review_file.read_text(encoding='utf-8')
         reviewed = json_read(review_text)
         expected = import_approval.build_review(acquisition, selection, before, after.values, draft['risks'],
-                                               property_schema, proposed_references=import_approval.reference_provenance(after))
+                                               property_schema, proposed_references=import_approval.reference_provenance(after), reference_impact=impact)
         import_approval.verify_review(reviewed, expected)
+        if not dry_run and binding != import_approval.approval_binding(expected, acquisition):
+            raise ValueError('IMPORT approved Review changed while preparing candidates')
+    if any('property' not in item for item in selection['unreflected']):
+        raise ValueError('IMPORT all Resource selections must be answered before publication')
     complete = not pending and acquisition_complete(acquisition)
     result = {'status': 'incomplete' if not complete else 'dry-run' if dry_run else 'complete',
               'scope': ['/'.join(identity)], 'model': 'unchanged', 'markdown': 'not-run',
@@ -458,6 +490,7 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
               'resources': {'added': sum(item['action'] == 'add' for item in selection['resources']),
                             'refreshed': sum(item['action'] == 'refresh' for item in selection['resources']),
                             'replaced': sum(item['action'] == 'replace' for item in selection['resources']),
+                            'bound': sum(item['action'] == 'bind' for item in selection['resources']),
                             'excluded': len(selection['excluded']), 'unresolved': sum('property' not in item for item in pending)},
               'unreflected': pending, 'inventory': acquisition.get('inventory', {}), 'warnings': warnings, 'changes': changes, 'files': sorted(p.relative_to(root).as_posix() for p in output),
               'preservedConsumers': sorted('/'.join(item) for item in preserved)}
@@ -488,11 +521,7 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
         'acquisition': acquisition, 'selection': selection,
         'sources': {file.relative_to(root).as_posix(): {'before': file.read_text(encoding='utf-8') if file.is_file() else None, 'after': text}
                     for file, text in output.items()}})
-    record_outputs(root, identity, set(output), set(), preserved)
-    task_relative = task_path(root).relative_to(root).as_posix()
-    checksums[task_relative] = file_hash(task_path(root))
-    acquisition['sources'][task_relative] = checksums[task_relative]
-    write_sealed(root, evidence, acquisition)
+    record_outputs(root, identity, set(output), set(publication), preserved)
     snapshot = {root / name: (root / name).read_bytes() if checksum is not None else None for name, checksum in checksums.items()}
     snapshot.update(view_inputs)
     with publication_lock(root):
@@ -500,7 +529,7 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
                 or draft_file.read_text(encoding='utf-8') != draft_text):
             raise ValueError('IMPORT Review inputs changed before publication')
         import_approval.verify_review(reviewed, expected)
-        import_approval.require_human_approval()
+        import_approval.require_human_approval(binding, {p.relative_to(root).as_posix(): text_hash(text) for p, text in output.items()})
         contract_scope(root, {identity})
         unchanged(root, checksums)
         if (candidate_sources(root, evidence.parent / 'candidates', identity) != output
@@ -516,7 +545,7 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
         previous = proof.read_text(encoding='utf-8') if proof.is_file() else None
         record_import(root, output, evidence, {'sources': {p.relative_to(root).as_posix(): text for p, text in output.items()},
                       'selection': selection, 'changes': changes,
-                      'ownedArtifacts': sorted(p.relative_to(root).as_posix() for p in managed)}, complete=complete)
+                      'ownedArtifacts': sorted(p.relative_to(root).as_posix() for p in managed)}, complete=complete, approval=binding)
         try:
             publish(root, output, inputs=snapshot, verify=lambda: finish_import(root, 'reflected' if output else 'unchanged'))
         except (OSError, ValueError):
@@ -530,7 +559,6 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
             result['status'] = 'incomplete'
             return result
         record_outputs(root, identity, set(), set(publication), preserved)
-        snapshot[task_path(root)] = task_path(root).read_bytes()
         with publication_lock(root):
             contract_scope(root, {identity})
             publish(root, publication, inputs={**snapshot, **view_inputs})
@@ -561,17 +589,17 @@ def main():
     parser.add_argument('--service', required=True)
     parser.add_argument('--target')
     parser.add_argument('--resource-type', action='append', dest='resource_types')
-    parser.add_argument('--phase', choices=('acquire', 'review', 'publish'), required=True)
+    parser.add_argument('--phase', choices=('acquire', 'resume', 'review', 'publish'), required=True)
     parser.add_argument('--evidence', type=Path)
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--no-profile', action='store_true', help='Acquire with the default credential chain, retaining Region and STS account verification')
     args = parser.parse_args()
     if (args.phase == 'acquire' and args.evidence is not None or
-            args.phase in {'review', 'publish'} and (args.evidence is None or args.no_profile or args.resource_types)):
-        parser.error('acquire accepts --no-profile; review/publish require --evidence and never access AWS')
+            args.phase in {'resume', 'review', 'publish'} and (args.evidence is None or args.no_profile or args.resource_types)):
+        parser.error('acquire accepts --no-profile; resume/review/publish require --evidence and never access AWS')
     try:
         result = (acquire(args.repository_root, args.environment, args.service, args.target, args.dry_run, no_profile=args.no_profile, resource_types=args.resource_types)
-                  if args.phase == 'acquire' else (review_acquisition if args.phase == 'review' else publish_acquisition)(args.repository_root, args.environment, args.service,
+                  if args.phase == 'acquire' else {'resume': resume_acquisition, 'review': review_acquisition, 'publish': publish_acquisition}[args.phase](args.repository_root, args.environment, args.service,
                                                                     args.evidence, args.target, args.dry_run))
         print(json.dumps(result, ensure_ascii=False))
         return 2 if result['status'] == 'incomplete' else 3 if result['markdown'] == 'failed' else 0

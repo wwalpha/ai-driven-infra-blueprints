@@ -238,7 +238,7 @@ def fixture(root, service='cloudwatch-logs', register=True):
         text = '\n'.join(['# Import fixture', '## Task contract', '- Task type: `design`', '- Workflow: `import`',
                            '- Task status: `running`', '- IMPORT target: `dev/' + TARGET + '/' + service + '`',
                            '## Goal', 'Apply authored synthetic candidates', '## Required changes', '- [R1] Reflect selected synthetic values',
-                           '## Validation scope', '- `dev/' + TARGET + '/' + service + '`',
+                           '## Validation scope', '- `dev/' + TARGET + '/' + service + '`', '- `stg/' + TARGET + '/' + service + '`',
                            '## Allowed paths', *['- `' + p + '`' for p in paths],
                            '## Modified files', *['- `' + p + '`' for p in paths],
                            '## Acceptance checks', '- [R1] `exists:docs/designs/dev/' + TARGET + '/' + service + '.md`']) + '\n'
@@ -306,6 +306,43 @@ def logs_edit(root, acquisition, days=90):
     return files
 
 
+# Synthetic Host state only. Production never imports this test helper.
+_approved = {}
+
+
+def approve_fixture(root, evidence):
+    from import_approval import approval_binding
+    from import_guard import read_sealed, digest, text_hash
+    evidence = Path(evidence)
+    acquisition = read_sealed(root, evidence)
+    reviewed = json.loads((evidence.parent / 'review.json').read_text(encoding='utf-8'))
+    binding = approval_binding(reviewed, acquisition)
+    output = m.candidate_sources(root, evidence.parent / 'candidates', tuple(acquisition['scope']))
+    _approved[digest(binding)] = (binding, {p.relative_to(root).as_posix(): text_hash(text) for p, text in output.items()})
+
+
+def approve_proof_fixture(root, proof):
+    """Authored authenticated proof for guard-only tests, never production evidence."""
+    from datetime import datetime, timedelta
+    from import_guard import digest
+    binding = {name: digest(name) for name in ('sourceBaselineDigest', 'reviewDigest', 'recordsDigest',
+               'selectionDigest', 'referencesDigest', 'proposedValuesDigest', 'impactDigest')}
+    binding.update(task=proof['task'], worktree=str(root.resolve()), scope=proof['scope'],
+                   acquisitionDigest=proof['acquisition'], acquiredAt=proof['acquiredAt'],
+                   expiresAt=(datetime.fromisoformat(proof['acquiredAt']) + timedelta(days=7)).isoformat())
+    proof.update(version=4, approval=binding)
+    _approved[digest(binding)] = (copy.deepcopy(binding), copy.deepcopy(proof['sources']))
+
+
+def mock_host_approval(binding, sources):
+    from import_guard import digest
+    expected, hashes = _approved.get(digest(binding), (None, None))
+    if expected != binding or expected is None or sources is not None and sources != hashes:
+        raise ValueError('IMPORT mock Host rejected unapproved Review/candidate')
+    return {'binding': copy.deepcopy(expected), 'sources': copy.deepcopy(sources), 'decision': 'approved',
+            'issuer': 'synthetic-host', 'human': 'synthetic-human', 'expiresAt': expected['expiresAt']}
+
+
 def review_fixture(root, acquisition, service='cloudwatch-logs'):
     from import_approval import reference_provenance
     from import_scope import new_references
@@ -324,7 +361,9 @@ def review_fixture(root, acquisition, service='cloudwatch-logs'):
         'proposedValues': proposed.values,
         'referenceProvenance': reference_provenance(proposed),
         'risks': {record['record']: [] for record in acquisition['records']}}), encoding='utf-8')
-    return m.review_acquisition(root, 'dev', service, evidence, TARGET)
+    result = m.review_acquisition(root, 'dev', service, evidence, TARGET)
+    approve_fixture(root, evidence)
+    return result
 
 
 def publish_fixture(root, acquisition, service='cloudwatch-logs', dry_run=False):

@@ -303,9 +303,6 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
         return warnings
     import_task = '- Workflow: `import`' in section(text, '## Task contract')
     if import_task:
-        if output:
-            from import_approval import require_human_approval
-            require_human_approval()
         if not sources and generation:
             return
         proof = read_proof(root, contract_file=contract_file) if contract_file is not None else read_proof(root)
@@ -338,7 +335,7 @@ def read_proof(root, *, contract_file=None):
             raise ValueError('symlink import evidence')
         proof = read_sealed(root, source)
         require_fresh_acquisition(proof)
-        if (proof['version'] != 3
+        if (proof['version'] != 4
                 or proof['task'] != workflow(root, **reference) or proof['base'] != base_revision(root, **reference)
                 or proof['scope'] != list(selected(root, **reference)) or not proof['acquisition']
                 or not isinstance(proof['sources'], dict) or not proof['plan']
@@ -353,6 +350,12 @@ def read_proof(root, *, contract_file=None):
                 raise ValueError('invalid source checksum')
         for relative in proof['ownedArtifacts']:
             safe_path(root, relative)
+        from import_approval import require_human_approval
+        binding = proof['approval']
+        if (binding['task'] != proof['task'] or binding['worktree'] != str(root.resolve())
+                or binding['scope'] != proof['scope'] or binding['acquisitionDigest'] != proof['acquisition']):
+            raise ValueError('IMPORT approval belongs to another Task/Worktree/scope/acquisition')
+        require_human_approval(binding, proof['sources'])
         if legacy.exists():
             if any(file_hash(safe_path(root, relative)) != checksum for relative, checksum in proof['sources'].items()):
                 raise ValueError('legacy IMPORT sources differ from acquired change plan')
@@ -368,10 +371,11 @@ def read_proof(root, *, contract_file=None):
         raise ValueError('IMPORT change has no verified /import evidence; flags and contract declarations are insufficient') from error
 
 
-def record_import(root, output, evidence, plan, complete=True):
+def record_import(root, output, evidence, plan, complete=True, *, approval=None):
     """Bind a verified cross-process acquisition and checked candidate to exact bytes."""
     from import_approval import require_human_approval
-    require_human_approval()
+    source_hashes = {p.relative_to(root).as_posix(): text_hash(text) for p, text in output.items()}
+    require_human_approval(approval, source_hashes)
     from import_scope import selected
     identity = selected(root)
     acquisition = read_acquisition(root, evidence, identity, False)
@@ -379,14 +383,18 @@ def record_import(root, output, evidence, plan, complete=True):
             or acquisition['scope'] != list(identity) or acquisition['dryRun']):
         raise ValueError('IMPORT evidence does not authorize this source publication')
     planned = {p.relative_to(root).as_posix(): text for p, text in output.items()}
+    if (not isinstance(approval, dict) or approval.get('task') != acquisition['task']
+            or approval.get('worktree') != acquisition['root'] or approval.get('scope') != acquisition['scope']
+            or approval.get('acquisitionDigest') != digest(acquisition)
+            or approval.get('sourceBaselineDigest') != digest(acquisition['sources'])
+            or approval.get('selectionDigest') != digest(plan.get('selection'))):
+        raise ValueError('IMPORT approval differs from acquisition/selection/baseline')
     if plan.get('sources') != planned:
         raise ValueError('IMPORT evidence requires the checked candidate sources')
-    prior = {}
-    if changed_sources(root):
-        require_import_changes(root, generation=True)
-        prior = read_proof(root)['sources']
-    sources = {**prior, **{name: text_hash(text) for name, text in planned.items()}}
-    proof = {'version': 3, 'task': workflow(root), 'base': base_revision(root),
+    if proof_path(root).exists():
+        raise ValueError('IMPORT Task already published; use display recovery or a new Task')
+    sources = source_hashes
+    proof = {'version': 4, 'approval': approval, 'task': workflow(root), 'base': base_revision(root),
              'scope': list(identity), 'sources': sources,
              'before': {p.relative_to(root).as_posix(): file_hash(p) for p in output},
              'plan': digest(plan), 'acquisition': digest(acquisition),

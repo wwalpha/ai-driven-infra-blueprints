@@ -101,13 +101,19 @@ save routes cannot bypass ownership, one-use context, snapshot or publication ch
 The following transfer/removal requirements apply to merge/delete only.
 
 AWS actual configuration is authoritative for IMPORT. The dedicated [import
-workflow](../prompts/codex/08_import.md) permits user-selected add/refresh/replace from
+workflow](../prompts/codex/08_import.md) permits user-selected add/refresh/replace/bind from
 captured AWS facts. Present the complete normalized Review with concrete IDs, typed
 Before/After, references and risks before Human approval of any addition or overwrite.
 Python verifies identity, values, nonselected preservation and atomic publication.
 The current runtime has no agent-inaccessible Human approval issuer/verifier: normal
 Import publication fails closed after Review. Local flags, JSON and acquisition HMAC
-seals do not prove Human approval. Follow 08_import for the required trusted interface.
+seals do not prove Human approval. The central verifier compares authenticated Host
+claims at publication and completion boundaries; the protected adapter is unavailable
+by default. Follow 08_import for its exact connection and privilege separation.
+The LLM owns chat questions, answers, recommendations, corrections and external-session
+checkpoints. Python validates their binding and final selections, never orchestrates them.
+All Resource answers are required before the one-service transaction; unresolved entries
+cannot be silently excluded or partially published.
 Other
 Apart from the standalone exception above, IMPORT configuration changes remain forbidden
 except explicit Model-only merge/delete
@@ -158,18 +164,21 @@ persists no Model, displays, contract or completion receipt; retain its session 
 explicit Human termination. Pre-save failure, incomplete display or display I/O failure
 retains acquisition/review evidence for diagnosis and display-only recovery.
 Never save raw responses. Acquisition/receipt timestamps expire after seven days;
-future timestamps beyond five minutes are rejected. Existing legacy receipts are verified
-before migration, then only the owned file and empty ancestor directories are removed.
-Mixed or unverified legacy data is retained. Snapshot receipts are re-signed for their
-private root and removed in finally; source evidence remains retryable. Worktree evidence
+future timestamps beyond five minutes are rejected. Existing legacy receipts without the new approval binding are rejected; authenticated
+receipts are verified before location migration, then only the owned file and empty ancestor directories are removed.
+Mixed or unverified legacy data is retained. Snapshot integrity seals do not transfer
+Human approval to another Worktree: the approval binding rejects that reuse. Temporary
+snapshot receipts are removed in finally; source evidence remains retryable. Worktree evidence
 is removed only after verified integration and successful checkout/branch cleanup.
 See 08_import for failure/cancellation cleanup.
 
-Import reflection uses explicit `add`, `refresh` and `replace` correspondence in the
+Import reflection uses explicit `add`, `refresh`, `replace` and `bind` correspondence in the
 existing selection.json. Add requires new fixed IDs and IMPORT mode. Refresh requires
 one matching physical ID. Replace requires the Human-selected existing IMPORT ID,
 verified previous identity/Model digest and no duplicate destination physical ID.
-Both overwrite actions preserve Resource ID/type/mode/anchor and existing Row IDs;
+Bind requires an explicit existing IMPORT ID with unknown physical identity, a matching
+before-Model digest, valid acquired identity and no known duplicate owner; its duplicate
+risk is reviewed. All overwrite actions preserve Resource ID/type/mode/anchor and existing Row IDs;
 only captured Properties and their observations may change or gain rows. Unacquired
 Properties, nonselected resources and CREATE remain protected. Unknown or ambiguous
 matching never authorizes guessing. No implicit deletion, mode conversion or retargeting.
@@ -182,7 +191,7 @@ Environment inputs stay unchanged. Preserve native value types, arrays and forma
 references. Use the existing physical Reference Resolver only for captured Properties
 of selected resources. Do not infer/generated ARNs or persist secrets.
 
-For replace, existing incoming-reference analysis reads registered same-target services
+For replace/bind, existing incoming-reference analysis reads registered same-target services
 as preservation evidence and returns non-self incoming usages and unresolved analysis as warnings.
 It does not edit them or authorize a Model-only operation; transfer/retarget/delete and
 value-preserving detach retain their separate contracts. No other Environment is edited.

@@ -1,5 +1,5 @@
 """Read-only Import review. Local integrity seals are not Human authorization."""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from model_core import LINK, entries
 from model_files import resource_row_index
 from model_templates import Expansion, REFERENCE_NAME_SUFFIXES
@@ -8,14 +8,103 @@ from import_sources import selection_records, verify_values, typed_row, typed_eq
 from import_inventory import type_name
 
 
-def require_human_approval():
-    # No agent-inaccessible approval issuer/verifier is available in this runtime.
-    raise ValueError('IMPORT Human approval unavailable: a Human-only trusted interface must bind '
-                     'the Review digest, Task, Worktree, scope, acquisition, baseline, selected '
-                     'records/changes/risks and expiry; local JSON, flags and HMAC seals cannot authorize publication')
+def verify_host_approval(binding, sources):
+    """Host integration seam, NOT an agent-configurable verifier or signing endpoint.
+
+    A protected publisher must authenticate its issuer and independently validate the
+    candidate before returning authenticated claims for these exact source hashes.
+    No CLI, environment, local receipt, import hook or agent-selected key configures it.
+    Tests replace only this seam; that does not install a production trust boundary.
+    """
+    raise ValueError('IMPORT Human approval unavailable: connect a protected Human-only Host '
+                     'issuer/verifier and publisher; local JSON, flags and HMAC cannot authorize publication')
 
 
-def build_review(acquisition, selection, before, proposed, risks, property_schema, *, proposed_references=None):
+def approval_binding(review, acquisition):
+    """Derive the approval request from a verified Review, never from an approval flag."""
+    verify_review(review, review)
+    require_fresh_acquisition(acquisition)
+    expected = {'task': acquisition['task'], 'worktree': acquisition['root'],
+                'scope': acquisition['scope'], 'acquisitionDigest': digest(acquisition),
+                'sourceBaselineDigest': digest(acquisition['sources'])}
+    if any(not typed_equal(review.get(k), v) for k, v in expected.items()):
+        raise ValueError('IMPORT approval Review belongs to another acquisition/Task/Worktree/baseline')
+    if any(item['operation'] == 'unresolved' for item in review['dispositions']):
+        raise ValueError('IMPORT all Resource selections must be answered before final approval/publication')
+    return {**expected, 'reviewDigest': review['reviewDigest'],
+            'recordsDigest': digest(review['dispositions']), 'selectionDigest': digest(review['selection']),
+            'referencesDigest': digest(review['referenceProvenance']),
+            'proposedValuesDigest': review['proposedValuesDigest'],
+            'impactDigest': digest(review.get('referenceImpact', {})),
+            'acquiredAt': acquisition['acquiredAt'], 'expiresAt': review['expiresAt']}
+
+
+def require_human_approval(binding=None, sources=None):
+    """One verifier used by Publish, source guards and completion-proof checks.
+
+    sources=None checks permission to prepare a candidate. A hash map requires the
+    protected publisher's attestation for the actual verified candidate/persisted bytes.
+    The adapter must authenticate claims before returning them, never echo requests.
+    """
+    claims = verify_host_approval(binding, sources)
+    fields = {'task', 'worktree', 'scope', 'acquisitionDigest', 'sourceBaselineDigest',
+              'reviewDigest', 'recordsDigest', 'selectionDigest', 'referencesDigest',
+              'proposedValuesDigest', 'impactDigest', 'acquiredAt', 'expiresAt'}
+    if not isinstance(binding, dict) or set(binding) != fields:
+        raise ValueError('IMPORT invalid approval binding')
+    require_fresh_acquisition(binding)
+    if (not isinstance(claims, dict) or set(claims) != {'binding', 'sources', 'decision', 'issuer', 'human', 'expiresAt'}
+            or claims['decision'] != 'approved' or not isinstance(claims['issuer'], str) or not claims['issuer']
+            or not isinstance(claims['human'], str) or not claims['human']
+            or not typed_equal(claims['binding'], binding) or not typed_equal(claims['sources'], sources)):
+        raise ValueError('IMPORT Human approval does not match the Review/candidate')
+    try:
+        expiry = datetime.fromisoformat(claims['expiresAt'])
+        limit = datetime.fromisoformat(binding['expiresAt'])
+        acquired = datetime.fromisoformat(binding['acquiredAt'])
+        if (expiry.tzinfo is None or limit.tzinfo is None or not datetime.now(timezone.utc) < expiry <= limit
+                or limit > acquired + timedelta(days=7)):
+            raise ValueError('expiry')
+    except (ValueError, TypeError) as error:
+        raise ValueError('IMPORT Human approval expired or has invalid expiry') from error
+    return claims
+
+
+def checkpoint(acquisition, answers):
+    """Wrap LLM-owned partial answers; never choose a question, target or default."""
+    value = {'acquisitionDigest': digest(acquisition), 'sourceBaselineDigest': digest(acquisition['sources']),
+             'task': acquisition['task'], 'worktree': acquisition['root'], 'scope': acquisition['scope'],
+             'answers': answers}
+    verify_checkpoint(acquisition, value)
+    return value
+
+
+def verify_checkpoint(acquisition, value):
+    """Mechanical resume check; caller first reloads evidence and compares live sources."""
+    require_fresh_acquisition(acquisition)
+    expected = {'acquisitionDigest': digest(acquisition), 'sourceBaselineDigest': digest(acquisition['sources']),
+                'task': acquisition['task'], 'worktree': acquisition['root'], 'scope': acquisition['scope']}
+    if (not isinstance(value, dict) or set(value) != {*expected, 'answers'}
+            or any(not typed_equal(value[k], v) for k, v in expected.items())
+            or not isinstance(value['answers'], list)):
+        raise ValueError('IMPORT stale or invalid answer checkpoint')
+    records = {r['record'] for r in acquisition['records']}
+    seen, targets = set(), set()
+    for answer in value['answers']:
+        if (not isinstance(answer, dict) or answer.get('record') not in records
+                or answer['record'] in seen or answer.get('action') not in {'add', 'refresh', 'replace', 'bind', 'excluded'}
+                or not isinstance(answer.get('reason'), str) or not answer['reason'].strip()):
+            raise ValueError('IMPORT invalid or duplicate checkpoint answer')
+        seen.add(answer['record'])
+        if answer['action'] != 'excluded':
+            target = answer.get('resource')
+            if not isinstance(target, str) or not target or target in targets:
+                raise ValueError('IMPORT duplicate or missing checkpoint Model Resource ID')
+            targets.add(target)
+    return value['answers']
+
+
+def build_review(acquisition, selection, before, proposed, risks, property_schema, *, proposed_references=None, reference_impact=None):
     """Validate an LLM-authored proposed expanded snapshot; never edit source files."""
     require_fresh_acquisition(acquisition)
     if not isinstance(proposed, dict) or any(not isinstance(k, str) or not isinstance(v, str)
@@ -31,7 +120,8 @@ def build_review(acquisition, selection, before, proposed, risks, property_schem
             not isinstance(items, list) or any(not isinstance(item, str) or not item.strip() for item in items)
             for items in risks.values()):
         raise ValueError('IMPORT Review risks must cover every acquired record exactly once')
-    warnings, matching = [], {}
+    reference_impact = reference_impact or {'inputs': {}, 'warnings': []}
+    warnings, matching = list(reference_impact['warnings']), {}
     selected = selection_records(selection, records, before.values, proposed, property_schema,
                                  warnings, matching=matching)
     for key, value in before.values.items():
@@ -120,7 +210,8 @@ def build_review(acquisition, selection, before, proposed, risks, property_schem
               'inventory': inventory, 'selection': selection,
               'dispositions': dispositions, 'warnings': warnings,
               'referenceProvenance': {'before': prior_references, 'after': proposed_references},
-              'proposedValuesDigest': digest(proposed), 'approvalBoundary': 'unavailable'}
+              'referenceImpact': reference_impact,
+              'proposedValuesDigest': digest(proposed), 'approvalBoundary': 'trusted-host-required'}
     return {**review, 'reviewDigest': digest(review)}
 
 

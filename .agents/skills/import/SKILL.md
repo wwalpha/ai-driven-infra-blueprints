@@ -1,6 +1,6 @@
 ---
 name: import
-description: Acquire once, prepare and present the complete normalized Import Review, and require trusted Human approval before source candidate edits. Follow 08_import for the fail-closed approval boundary, pre-save checks and sequential single-service workflow. Never directly edit generated design Markdown/JSON.
+description: Acquire once, let the LLM ask and checkpoint Human chat selections (including explicit bind), present the complete normalized Review, and verify trusted Host approval before candidate edits and one service publication. Follow 08_import for the fail-closed approval boundary, pre-save checks and sequential single-service workflow. Never directly edit generated design Markdown/JSON.
 ---
 
 Read `framework/prompts/codex/08_import.md` at the repository root in full and execute

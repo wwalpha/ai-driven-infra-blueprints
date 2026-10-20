@@ -252,7 +252,7 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
                           else 'unresolved' if uncertain or record.get('identityStatus', 'known') != 'known' else 'no-match'}
     selected, used, selected_identities = {}, set(), set()
     for item in selection['resources']:
-        required = {'record', 'resource', 'action', 'reason', 'basis'} | ({'before'} if item.get('action') == 'replace' else set())
+        required = {'record', 'resource', 'action', 'reason', 'basis'} | ({'before'} if item.get('action') in {'replace', 'bind'} else set())
         if set(item) != required or not isinstance(item['reason'], str) or not item['reason'].strip():
             raise ValueError('IMPORT correspondence requires an action, reason and basis')
         record = acquired.get(item['record'])
@@ -262,18 +262,33 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
         if new_resources[rid].get('resourceMode') != 'IMPORT' or record['kind'] != new_resources[rid]['resourceType']:
             raise ValueError('IMPORT correspondence cannot change CREATE or resource type')
         action = item['action']
-        if action not in {'add', 'refresh', 'replace'} or action == 'add' and rid in old_resources:
-            raise ValueError('IMPORT accepts add only with a new Resource ID; use explicit refresh/replace for existing resources')
+        if action not in {'add', 'refresh', 'replace', 'bind'} or action == 'add' and rid in old_resources:
+            raise ValueError('IMPORT accepts add only with a new Resource ID; use explicit refresh/replace/bind for existing resources')
         if action != 'add' and (rid not in old_resources or old_resources[rid].get('resourceMode') != 'IMPORT'
                                 or old_resources[rid]['resourceType'] != record['kind']):
-            raise ValueError('IMPORT refresh/replace requires an existing IMPORT Resource of the acquired type; CREATE is protected')
+            raise ValueError('IMPORT refresh/replace/bind requires an existing IMPORT Resource of the acquired type; CREATE is protected')
         basis = item['basis']
         if not isinstance(basis, list) or any(not isinstance(p, str) for p in basis) or len(basis) != len(set(basis)):
             raise ValueError('IMPORT correspondence basis must name distinct acquired Properties')
         if 'identityComponents' in record:
             if record.get('identityStatus') != 'known':
                 raise ValueError('IMPORT acquired primary identity is unknown')
+        if (not isinstance(record['identity'], str) or not record['identity'].strip()
+                or record['identity'] in {'PENDING_DEPLOY', 'UNSET'}
+                or LINK.fullmatch(record['identity']) or '<<' in record['identity']):
+            raise ValueError('IMPORT acquired physical identity is invalid')
         identity_key, collisions = correspondences[record['record']]
+        if action == 'bind':
+            from import_guard import digest
+            from model_operation_checks import operation_values
+            if rid not in unknown.get(record['kind'], []):
+                raise ValueError('IMPORT bind requires an unobserved/unknown existing physical identity')
+            if not typed_equal(item['before'], {'identity': None, 'model': digest(operation_values(old, rid))}):
+                raise ValueError('IMPORT bind previous Model state differs from the explicit selection')
+            if warnings is not None:
+                warnings.append({'record': record['record'], 'resource': rid,
+                                 'existingResources': unknown[record['kind']],
+                                 'reason': 'Physical identity was unknown; Human-selected binding may duplicate another unobserved resource'})
         if action == 'refresh' and collisions != {rid}:
             raise ValueError('IMPORT refresh requires one matching physical identity')
         if action == 'replace':
@@ -384,7 +399,7 @@ def verify_values(before, after, selected, property_schema, references=None, *, 
     for key, value in changed_observed.items():
         row_id = key.split('.')[2]
         observed_value(row_id, new_rows[row_id], value, ())
-    updated = {rid for rid, record in selected.items() if record.get('_action') in {'refresh', 'replace'}}
+    updated = {rid for rid, record in selected.items() if record.get('_action') in {'refresh', 'replace', 'bind'}}
     if any(old_resources.get(rid, {}).get('resourceMode') != 'IMPORT' for rid in updated):
         raise ValueError('IMPORT updates require existing IMPORT resources; CREATE is protected')
     changed_properties = {rid: set() for rid in updated}

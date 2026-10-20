@@ -740,6 +740,9 @@ def check_external_completion_proof(tmp_path, monkeypatch, failure):
              'acquisition': 'receipt', 'sources': {}, 'plan': 'verified', 'complete': True,
              'model': 'unchanged', 'markdown': 'unchanged', 'ownedArtifacts': [],
              'acquiredAt': datetime.now(timezone.utc).isoformat()}
+    from support.import_model_fixtures import approve_proof_fixture, mock_host_approval
+    approve_proof_fixture(root, proof)
+    monkeypatch.setattr('import_approval.verify_host_approval', mock_host_approval)
     if failure == 'expired':
         proof['acquiredAt'] = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
     elif failure in {'task', 'base'}:
@@ -783,9 +786,11 @@ def check_legacy_proof_migration(tmp_path, monkeypatch, mixed):
     other = legacy.parent / 'unowned.txt'
     if mixed:
         other.write_text('preserve')
-    assert import_guard.read_proof(root) == proof
-    assert not legacy.exists() and import_guard.proof_path(root).exists()
-    assert (root / '.blueprint').exists() == mixed
+    # A legacy local seal without authenticated approval cannot be migrated into authority.
+    with pytest.raises(ValueError, match='no verified'):
+        import_guard.read_proof(root)
+    assert legacy.exists() and not import_guard.proof_path(root).exists()
+    assert (root / '.blueprint').exists()
     if mixed:
         assert other.read_text() == 'preserve'
     import_guard.discard_import_proof(root, 'tasks/example.md')
@@ -805,9 +810,13 @@ def check_snapshot_proof_resigning_and_cleanup(tmp_path, monkeypatch):
              'acquisition': 'receipt', 'sources': {}, 'plan': 'verified', 'complete': True,
              'model': 'unchanged', 'markdown': 'unchanged', 'ownedArtifacts': [],
              'acquiredAt': datetime.now(timezone.utc).isoformat()}
+    from support.import_model_fixtures import approve_proof_fixture, mock_host_approval
+    approve_proof_fixture(root, proof)
+    monkeypatch.setattr('import_approval.verify_host_approval', mock_host_approval)
     import_guard.write_sealed(root, import_guard.proof_path(root), proof)
     import_guard.copy_import_proof(root, snapshot)
-    assert import_guard.read_proof(snapshot) == proof
+    with pytest.raises(ValueError, match='no verified'):
+        import_guard.read_proof(snapshot)
     assert import_guard.proof_path(root).read_bytes() != import_guard.proof_path(snapshot).read_bytes()
     import_guard.discard_import_proof(snapshot, 'tasks/example.md')
     assert not import_guard.proof_path(snapshot).exists() and import_guard.read_proof(root) == proof
@@ -1970,7 +1979,7 @@ def check_import_llm_choice_contract():
     assert 'Ask the Human if Environment or Service is missing' in prompt
     assert 'Same physical ID, IMPORT' in prompt and 'Different physical ID, same IMPORT type' in prompt
     assert 'No existing Resources' in prompt and 'Same physical ID, CREATE' in prompt
-    assert 'Unknown or multiple matching physical IDs' in prompt
+    assert 'Unknown physical ID on an existing IMPORT Resource' in prompt and 'Multiple matching physical IDs' in prompt
     assert 'explicitly selected existing Resource ID' in prompt
     assert 'publish the combined service candidate once' in prompt
     assert 'sequentially' in prompt and 'independent Task/acquisition/publication' in prompt

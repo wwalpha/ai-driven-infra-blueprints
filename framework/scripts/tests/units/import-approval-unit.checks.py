@@ -61,7 +61,7 @@ def check_complete_typed_before_after_and_digest():
     assert identifier['after'][0]['reference'] == '[Main](#main)' and identifier['after'][0]['observed'] == 'vpc-one'
     assert entry['name'] == {'status': 'not-acquired'}
     approval.verify_review(result, review(data))
-    assert result['approvalBoundary'] == 'unavailable'
+    assert result['approvalBoundary'] == 'trusted-host-required'
 
 
 @pytest.mark.parametrize('field', ['disposition', 'risk', 'inventory'])
@@ -187,11 +187,13 @@ def check_no_local_claim_can_publish(tmp_path, claim):
     evidence = tmp_path / 'acquisition.json'
     evidence.write_text('{}')
     (tmp_path / 'approval.json').write_text(json.dumps(claim))
-    (tmp_path / 'review.json').write_text('{}')
+    data = proposal()
+    data[0]['root'] = str(tmp_path)
+    (tmp_path / 'review.json').write_text(json.dumps(review(data)))
     before = {p: p.read_bytes() for p in tmp_path.iterdir()}
     with patch.object(m, 'candidate_sources') as candidates, patch.object(m, 'publish') as save:
         with pytest.raises(ValueError, match='Human approval unavailable'):
-            m.publish_selected(tmp_path, ('dev', 'cde', 'vpc'), evidence, {'approved': claim}, False)
+            m.publish_selected(tmp_path, ('dev', 'cde', 'vpc'), evidence, data[0], False)
         with pytest.raises(ValueError, match='Human approval unavailable'):
             import_guard.record_import(tmp_path, {}, evidence, {'approved': claim})
         candidates.assert_not_called()
@@ -206,10 +208,10 @@ def check_alternate_source_guard_rejects_legacy_receipt(tmp_path):
     with patch.object(import_guard, 'changed_sources', return_value={'model/templates/cde/vpc.properties.tpl'}), \
             patch.object(import_guard, 'task_path', return_value=task), \
             patch.object(import_guard, 'contracts', return_value={'tasks/import.md': text}), \
-            patch.object(import_guard, 'read_proof') as receipt:
-        with pytest.raises(ValueError, match='Human approval unavailable'):
+            patch.object(import_guard, 'read_proof', side_effect=ValueError('IMPORT change has no verified /import evidence')) as receipt:
+        with pytest.raises(ValueError, match='no verified /import evidence'):
             import_guard.require_import_changes(tmp_path, output={tmp_path / 'model/templates/cde/vpc.properties.tpl': 'forged'})
-        receipt.assert_not_called()
+        receipt.assert_called_once()
 
 
 def check_expiry_and_digest_tampering():
@@ -520,7 +522,7 @@ def publication_case(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('failure', [None, 'review', 'draft', 'candidate', 'acquisition', 'baseline',
-                                    'approval-expired', 'source-save', 'display-save'])
+                                    'approval-expired', 'source-save', 'display-save', 'task-baseline'])
 def check_publication_transaction_with_stubbed_authority(publication_case, monkeypatch, failure):
     case = publication_case
     def change_inputs(*args):
@@ -534,6 +536,8 @@ def check_publication_transaction_with_stubbed_authority(publication_case, monke
             monkeypatch.setattr(m, 'read_acquisition', lambda *a: {**case.acquisition, 'status': 'changed'})
         elif failure == 'baseline':
             case.source.write_text('external edit', encoding='utf-8')
+        elif failure == 'task-baseline':
+            case.task.write_text(case.task.read_text() + '\n# external Task change', encoding='utf-8')
     m.record_outputs.side_effect = change_inputs
     if failure == 'approval-expired':
         case.authorize.side_effect = [None, ValueError('mock approval expired')]
@@ -565,7 +569,7 @@ def check_publication_transaction_with_stubbed_authority(publication_case, monke
         assert plan['selection']['resources'][0]['record'] == 'r1'
         assert case.proof.read_text(encoding='utf-8') == 'candidate proof'
         assert case.document.exists() is (failure is None)
-    assert import_guard.read_sealed(case.root, case.evidence) == case.acquisition
+    assert case.evidence.read_text(encoding='utf-8') == 'retained acquisition'
     assert (case.evidence.parent / 'review.json').exists()
 
 
@@ -612,6 +616,157 @@ def check_unapproved_candidate_rejected_with_stubbed_authority(publication_case,
     assert case.evidence.read_text(encoding='utf-8') == 'retained acquisition'
     assert case.proof.read_text(encoding='utf-8') == 'previous proof'
     case.record.assert_not_called()
+
+
+
+@pytest.mark.parametrize('failure', [None, 'known', 'stale', 'create', 'type', 'collision', 'duplicate-target',
+                                     'duplicate-physical', 'invalid-id', 'anchor', 'row', 'uncaptured'])
+def check_explicit_bind_preserves_identity(failure):
+    from model_operation_checks import operation_values
+    acquisition, selection, before, proposed, risks = proposal()
+    before.values.pop('observed.row.001-001.value')
+    decision = selection['resources'][0]
+    decision.update(action='bind', before={'identity': None, 'model': import_guard.digest(operation_values(before.values, '001'))})
+    if failure == 'known':
+        before.values['observed.row.001-001.value'] = '`vpc-old`'
+    elif failure == 'stale':
+        decision['before']['model'] = 'changed'
+    elif failure == 'create':
+        before.values['desired.resource.001.resourceMode'] = 'CREATE'
+    elif failure == 'type':
+        before.values['desired.resource.001.resourceType'] = 'EC2.Subnet'
+    elif failure == 'invalid-id':
+        acquisition['records'][0]['identity'] = 'PENDING_DEPLOY'
+    elif failure in {'collision', 'duplicate-target', 'duplicate-physical'}:
+        extra = {k.replace('.001', '.002'): 'other' if k.endswith('.anchor') else v.replace('#main', '#other')
+                 for k, v in before.values.items()}
+        before.values.update(extra)
+        proposed.update(extra)
+        if failure == 'collision':
+            before.values['observed.row.002-001.value'] = '`vpc-one`'
+            proposed['observed.row.002-001.value'] = '`vpc-one`'
+        else:
+            record = copy.deepcopy(acquisition['records'][0])
+            record['record'] = 'r2'
+            acquisition['records'].append(record)
+            risks['r2'] = []
+            selection['resources'].append({**decision, 'record': 'r2',
+                'resource': '001' if failure == 'duplicate-target' else '002',
+                'before': {'identity': None, 'model': import_guard.digest(operation_values(before.values, '002'))}})
+    elif failure == 'anchor':
+        proposed['desired.resource.001.anchor'] = 'changed'
+    elif failure == 'row':
+        proposed['desired.row.001-002.property'] = 'EC2.VPC.Other'
+    elif failure == 'uncaptured':
+        acquisition['records'][0]['properties']['EC2.VPC.CidrBlock'] = {'status': 'unavailable'}
+    data = acquisition, selection, before, proposed, risks
+    if failure:
+        with pytest.raises(ValueError):
+            review(data)
+    else:
+        result = review(data)
+        entry = result['dispositions'][0]
+        assert entry['operation'] == 'bind' and entry['targetResource'] == '001'
+        assert entry['risks'] and 'unknown' in entry['risks'][0]['reason']
+        assert entry['beforeResource'] == entry['afterResource']
+        assert entry['properties'][1]['after'][0]['row'] == '001-001'
+        assert entry['properties'][1]['after'][0]['observed'] == 'vpc-one'
+
+
+def check_subnet_answers_correction_and_resume(tmp_path):
+    acquisition = proposal()[0]
+    acquisition['records'] = [{'record': 'subnet-' + str(n), 'kind': 'EC2.Subnet', 'identity': 'subnet-' + str(n)} for n in range(4)]
+    acquisition['inventory'] = {'EC2.Subnet': {'status': 'complete'}}
+    acquisition['root'] = str(tmp_path)
+    baseline = tmp_path / 'baseline'
+    baseline.write_text('same source')
+    acquisition['sources'] = {'baseline': import_guard.file_hash(baseline)}
+    answers = []
+    session = tmp_path / 'session'
+    session.mkdir()
+    evidence = session / 'acquisition.json'
+    evidence.write_text('sealed elsewhere in this unit')
+    for n, action in enumerate(['bind', 'refresh', 'add', 'excluded']):
+        answer = {'record': 'subnet-' + str(n), 'action': action, 'reason': 'Human selected in chat'}
+        if action != 'excluded':
+            answer.update(resource=str(n + 1).zfill(3), basis=[])
+        answers.append(answer)
+        checkpoint = approval.checkpoint(acquisition, copy.deepcopy(answers))
+        (session / 'checkpoint.json').write_text(json.dumps(checkpoint))
+        assert approval.verify_checkpoint(acquisition, checkpoint) == answers
+    answers[1] = {'record': 'subnet-1', 'action': 'excluded', 'reason': 'Human corrected the previous answer'}
+    saved = approval.checkpoint(acquisition, answers)
+    (session / 'checkpoint.json').write_text(json.dumps(saved))
+    with patch.object(m, 'target_for', return_value={'directory': 'cde'}), \
+            patch.object(m, 'read_acquisition', return_value=acquisition):
+        restored = m.resume_acquisition(tmp_path, 'dev', 'vpc', evidence)
+        assert restored['answers'] == answers
+        assert restored['answers'][0] == checkpoint['answers'][0]
+        baseline.write_text('changed Model baseline')
+        with pytest.raises(ValueError, match='Model sources changed'):
+            m.resume_acquisition(tmp_path, 'dev', 'vpc', evidence)
+    assert baseline.read_text() == 'changed Model baseline'
+
+
+@pytest.mark.parametrize('failure', ['expired', 'baseline', 'task', 'worktree', 'scope', 'acquisition', 'duplicate', 'target'])
+def check_checkpoint_rejects_stale_or_competing_answers(failure):
+    acquisition = proposal()[0]
+    answers = [{'record': 'r1', 'action': 'bind', 'resource': '001', 'reason': 'Human answer'}]
+    saved = approval.checkpoint(acquisition, answers)
+    if failure == 'expired':
+        acquisition['acquiredAt'] = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+    elif failure == 'baseline':
+        acquisition['sources']['synthetic'] = 'changed'
+    elif failure in {'task', 'worktree', 'scope', 'acquisition'}:
+        saved[{'acquisition': 'acquisitionDigest'}.get(failure, failure)] = 'wrong'
+    elif failure == 'duplicate':
+        answers.append(copy.deepcopy(answers[0]))
+    else:
+        acquisition['records'].append({**acquisition['records'][0], 'record': 'r2'})
+        saved['acquisitionDigest'] = import_guard.digest(acquisition)
+        answers.append({**answers[0], 'record': 'r2'})
+    with pytest.raises(ValueError):
+        approval.verify_checkpoint(acquisition, saved)
+
+
+@pytest.mark.parametrize('failure', [None, 'declined', 'issuer', 'human', 'expired', 'timezone', 'extension',
+                                     'task', 'worktree', 'scope', 'acquisitionDigest', 'sourceBaselineDigest',
+                                     'recordsDigest', 'reviewDigest', 'referencesDigest', 'selectionDigest',
+                                     'proposedValuesDigest', 'impactDigest', 'sources'])
+def check_authenticated_host_claims_match_exact_request(failure):
+    data = proposal()
+    binding = approval.approval_binding(review(data), data[0])
+    sources = {'model/templates/cde/vpc.properties.tpl': import_guard.text_hash('verified candidate')}
+    claims = {'binding': copy.deepcopy(binding), 'sources': copy.deepcopy(sources), 'decision': 'approved',
+              'issuer': 'protected-fixture-host', 'human': 'fixture-human', 'expiresAt': binding['expiresAt']}
+    if failure == 'declined':
+        claims['decision'] = 'declined'
+    elif failure in {'issuer', 'human'}:
+        claims[failure] = ''
+    elif failure in {'expired', 'extension', 'timezone'}:
+        claims['expiresAt'] = ((datetime.now(timezone.utc) + timedelta(days=8 if failure == 'extension' else -1)).isoformat()
+                               if failure != 'timezone' else datetime.now().isoformat())
+    elif failure == 'sources':
+        claims['sources']['model/templates/cde/vpc.properties.tpl'] = import_guard.text_hash('unapproved candidate')
+    elif failure:
+        claims['binding'][failure] = 'different'
+    with patch.object(approval, 'verify_host_approval', return_value=claims):
+        if failure:
+            with pytest.raises(ValueError, match='approval'):
+                approval.require_human_approval(binding, sources)
+        else:
+            assert approval.require_human_approval(binding, sources) == claims
+    with pytest.raises(ValueError, match='Human approval unavailable'):
+        approval.require_human_approval(binding, sources)
+
+
+def check_unanswered_review_cannot_be_approved():
+    data = proposal()
+    data[1]['resources'].clear()
+    data[1]['unreflected'] = [{'record': 'r1', 'reason': 'waiting for Human'}]
+    result = review((*data[:3], data[2].values, data[4]))
+    with pytest.raises(ValueError, match='all Resource selections'):
+        approval.approval_binding(result, data[0])
 
 
 if __name__ == '__main__':

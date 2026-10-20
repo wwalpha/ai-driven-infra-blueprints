@@ -582,7 +582,7 @@ def check_approved_model_reads():
                         call()
             cli(root, 'finalize', success=False)
             with mapping_alias(SCRIPT.parents[2], target), patch.object(wt.python_env, 'runtime', return_value=(Path(sys.executable), wt.python_env.environment(Path(sys.prefix)))):
-                if mode in ('preserved', 'proof'):
+                if mode == 'preserved':
                     # Keep the checkout for byte-for-byte status inspection, then exercise cleanup retry.
                     (target / 'secret.bin').write_text('preserve')
                     with pytest.raises(wt.Blocked, match='ignored files'):

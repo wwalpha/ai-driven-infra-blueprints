@@ -138,7 +138,7 @@ def preserve_consumers(path, expansion, output, identities, selected=None):
     changed = changed_properties(before, after)
     selected_bindings = json_read(expansion.files.get(directory / 'bindings.json', '{"instances":{}}'))
     candidate_bindings = json_read(output.get(directory / 'bindings.json', expansion.files.get(directory / 'bindings.json', '{"instances":{}}')))
-    updated = {rid for rid, record in (selected or {}).items() if record.get('_action') in {'refresh', 'replace'}}
+    updated = {rid for rid, record in (selected or {}).items() if record.get('_action') in {'refresh', 'replace', 'bind'}}
     preserve_bindings(selected_bindings, candidate_bindings, updated)
     old_parameters = yaml_read(expansion.files.get(directory / 'parameters.yaml', 'instances: {}'))
     parameters = yaml_read(output.get(directory / 'parameters.yaml', expansion.files.get(directory / 'parameters.yaml', 'instances: {}')))
@@ -180,7 +180,7 @@ def preserve_consumers(path, expansion, output, identities, selected=None):
 def replacement_inputs(root, identity, selected, warnings=None):
     """Reuse incoming-reference analysis and its input snapshot; never retarget here."""
     warnings = warnings if warnings is not None else []
-    replacements = {rid for rid, record in selected.items() if record.get('_action') == 'replace'}
+    replacements = {rid for rid, record in selected.items() if record.get('_action') in {'replace', 'bind'}}
     if not replacements:
         return {}, ()
     from import_scope import read_consumers
@@ -196,9 +196,9 @@ def replacement_inputs(root, identity, selected, warnings=None):
         for rid in sorted(replacements):
             address = '/'.join((*identity, rid))
             diagnosis = incoming_references(root, address)
-            warnings.extend(diagnosis['warnings'])
+            warnings.extend({**warning, 'resource': rid} for warning in diagnosis['warnings'])
             warnings.extend({'code': 'reference.replace_impact',
-                             'message': 'replacement affects an incoming reference', **item}
+                             'message': 'replacement or first binding affects an incoming reference', **item, 'resource': rid}
                             for item in diagnosis['references'] if item['consumer'] != address)
     return inputs, directories
 

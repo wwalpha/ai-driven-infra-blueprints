@@ -12,8 +12,8 @@ atomic source saving/rollback and generated views. Do not implement a Python dec
 engine, mutation DSL, batch orchestrator or another Model editing/publication API.
 Do not invoke another LLM API or the whole `/update` to perform reflection.
 
-This is a design Task with `Workflow: import`, never IaC/deploy. Every add, refresh and
-replace requires Human approval of the concrete record, target, values, references and
+This is a design Task with `Workflow: import`, never IaC/deploy. Every add, refresh, replace and
+bind requires Human approval of the concrete record, target, values, references and
 risks. A request to import or a count-only question ("add 7", "update 8") is insufficient.
 Unchanged approved content needs no repeated confirmation. Candidate source edits never authorize AWS mutations.
 Generated Markdown/JSON is never edited directly, including display-only recovery.
@@ -89,6 +89,58 @@ retains its separately authorized development tests.
    Use only normalized non-secret captured Properties. Do not save raw responses,
    credentials, secret Properties or new snapshot files in the repository.
 
+## Continuous chat selection (LLM-owned)
+
+After acquisition, the LLM compares each record with the existing `load_for_edit()`
+Resource/Row identities. A unique physical-ID match can be proposed as refresh;
+similarity in Name, CIDR, VPC or AZ is supporting evidence, never proof of identity.
+For unclear correspondence, multiple candidates or duplicate risk, ask one Resource
+at a time in chat. Show its type, physical ID, Name, relevant settings, all plausible
+existing IMPORT candidates with fixed Model IDs, plus **new addition** and **excluded**.
+Mark a recommendation and explain its evidence and uncertainty. CREATE candidates
+are protected; explain why they cannot be overwritten. Use the available user-input
+question tool for selections or ordinary chat; never require Human JSON/file edits.
+If an option UI has a small limit, list all numbered candidates in the question and
+accept the stable ID as free text. Do not discard candidates to fit the widget.
+
+For example: SUBNET subnet-0abc123 / app-private-a / 10.0.1.0/24 / ap-northeast-1a:
+001 (recommended: same Name/CIDR/VPC, physical ID unknown), 002 (10.0.2.0/24),
+003 (10.0.3.0/24), 004 (10.0.4.0/24), new, excluded. State that the recommendation
+is not proof of physical identity; choosing 001 requires explicit bind and its risk.
+
+The LLM accumulates actual Human answers by acquired record ID and fixed Model ID,
+including action, reason, basis and replace/bind before state. Echo each decision,
+then ask the next unanswered Resource. Corrections replace only the named prior
+answer and invalidate its Review/approval; retain unaffected answers. Detect competing
+assignments to one Model ID immediately and ask the Human to resolve them. Never
+choose on the Human's behalf, default an unanswered record to add/excluded, or publish
+while any Resource remains unanswered. No Python question loop, recommendation,
+matching decision, next-question selector or multi-service controller is permitted.
+
+After each answer the LLM writes `checkpoint.json` beside the returned acquisition,
+using `import_approval.checkpoint(acquisition, answers)` and the existing atomic file
+helper. This is an LLM-authored decision record, not approval. `answers` is a list of
+selection resource entries or excluded entries with `action: excluded`. Keep unanswered
+records absent; retain stable IDs, never option indexes alone. Do not store secrets.
+On interruption, use the original session, not another acquisition:
+
+```console
+python3 -B framework/scripts/run-python.py -B framework/scripts/import-model.py --phase resume --environment dev --target cde --service vpc --evidence <returned-acquisition.json>
+```
+
+Resume mechanically checks the sealed acquisition, seven-day lifetime, Task/Worktree/
+scope and live source baseline, then validates and returns the saved answers. The LLM
+continues from those answers without casually asking them again. Missing checkpoints
+require recovery from actual Human chat answers; never manufacture them. Expired or
+changed baselines invalidate old decisions; report and obtain new instructions rather
+than silently reacquiring/reusing. The checkpoint is editable by the LLM and proves no
+Human identity; final Host approval covers the complete verified result.
+
+Once every Resource is decided, the LLM constructs the existing `selection.json`:
+resource answers go in `resources`, exclusions lose their `action` field and go in
+`excluded`; property omissions go in `unreflected`. Whole-resource unreflected entries
+may be shown in a diagnostic Review, but cannot authorize final approval or Publish.
+
 ## Full review and Human approval boundary
 
 Before editing source candidates, prepare `selection.json` and an external
@@ -132,43 +184,72 @@ risks. Additions show every captured Property and its destination or explicit om
 updates always show Before/After. Failed/permission-denied/requires-filter is never
 empty. Excluded and unresolved records remain visible. Never show or save secrets.
 
-Offer individual approval, approval of the entire displayed list, exclusion or correction.
-Whole-list approval binds the whole Review. Individual approval must bind only selected
-record/change digests, preserving every other resource. A changed target, action, value,
-reference or risk requires renewed approval for that part; unchanged parts need none.
-An unknown existing physical ID makes duplicate risk an explicit approval item.
+Ask for final approval of the complete displayed service Review in chat, with correction
+or exclusion available. Resource selection alone is not final approval. A changed target,
+action, value, Reference, selector or risk requires a rebuilt Review and approval of the
+changed part. The trusted Host may retain verified unchanged record approvals, but must
+issue a single complete-current-Review authorization before the service transaction.
+There is no partial-resource Publish. Unknown existing physical IDs and incoming
+replace/bind reference impacts are explicit Review risks.
 
-**Current runtime: no trusted Human approval issuer/verifier is available.** Stop after
-Review presentation even if chat says approved. Normal Publish fails closed before
-candidate loading, and source publication/receipt guards reject alternate Import saves.
-Do not create `approved=true`, handwritten approval JSON, a signing CLI the LLM can run,
-an environment override or a local-HMAC approval workaround. No legacy acquisition or
-selection is exempt. Candidate editing and successful whole/individual approval apply
-only after a trusted interface is implemented; they are not supported here.
+### Host connection and current availability
 
-Required unresolved interface: a Human-only UI must display the normalized review and
-issue an authenticated receipt from an issuer inaccessible to agent tools. The verifier
-must pin its public identity outside agent-writable configuration and bind Review/record
-digests, Task, Worktree, scope, acquisition/baseline, selected changes/risks and expiry
-(within the existing seven-day acquisition lifetime). It must verify these again under
-the publication lock against the actual expanded candidate, not claimed file diffs.
-Same-user local files, the local seal key and agent-executable code are not that boundary.
-The inspected Codex surface exposes command/file permission approvals and user-input
-questions, but no authenticated Import receipt API. In this session permission escalation
-uses auto-review, so command success is not evidence of a Human decision. Starting another
-agent-owned app-server client or approval CLI cannot create that missing trust boundary.
-To unblock production, the host must provide a Human-only review surface and an issuer
-outside the agent identity, plus a verifier identity/configuration the agent cannot replace.
-It must deliver record-scoped approvals (including whole-list decisions and exclusions)
-for the fields above to the trusted publisher. That publisher must own authoritative
-source writes and receipt storage; agent tools should have read-only authority there.
-The completion/integration guard must verify the receipt and persisted source hashes;
-display-only recovery can retain the sealed source result without issuing a new approval.
-These host/OS changes are not implemented by this Framework patch; approval verification,
-record-scoped successful Publish and approval-bound publication proof remain unresolved.
-This environment permits direct filesystem writes: these Python guards cannot prevent
-an agent bypassing them with raw I/O or changed code. Complete enforcement requires a
-separate trusted writer/OS access boundary; do not claim it is already guaranteed.
+`import_approval.approval_binding(review, acquisition)` binds Task, Worktree, scope,
+acquisition/source-baseline digests, Review digest, dispositions/risks, selection,
+Reference meaning, proposed values, incoming-reference inputs and expiry.
+`require_human_approval(binding, sources)` is the single approval verifier used by
+Publish, `record_import()` and `read_proof()`/the existing save guard. `sources=None`
+checks approval before candidate preparation; an exact relative-path/SHA-256 map checks
+the protected publisher's attestation for the verified candidate. It compares all claims,
+requires a Human/issuer identity and explicit approved decision, and rejects expired or
+mismatched claims. Publish repeats it inside `publication_lock()`; proof verification
+retains the same binding and exact saved hashes, so completion cannot use a local seal
+as substitute authority. Old receipts without approval bindings are rejected.
+
+**This repository does not supply a trusted issuer or publisher.** Its
+`verify_host_approval(binding, sources)` adapter fails closed. Chat approval records
+Human intent but cannot alone unlock source editing/publication in this runtime.
+Continue the chat selections and read-only Review; report approval as pending Host
+verification when no protected integration is installed. Never create `approved=true`,
+agent-signed JSON/HMAC, environment overrides, signing CLIs or configurable verifier
+callbacks to bypass the adapter. Dry-run remains read-only.
+
+The inspected tool surface supports user questions and execution permission requests;
+this session's execution permission reviewer is automatic, not a Human attestation.
+The [official Codex App Server protocol](https://learn.chatgpt.com/docs/app-server)
+documents input/approval messages, but does not establish a Framework-verifiable,
+Human-only receipt API on this installed Host. A `serverRequest/resolved` notification
+is not evidence of explicit Human approval. Do not start an agent-owned app-server
+client and treat its responses as trusted.
+
+The minimal Host integration is one protected review/approval operation plus the
+existing publisher running under a separate identity:
+
+1. The Host displays the normalized full Review and records an explicit authenticated
+   Human action, with no timeout auto-accept or agent approval substitute. It keeps
+   record decisions and a full binding in Host-owned storage through expiry.
+2. A protected adapter retrieves/authenticates that receipt by binding; issuer trust,
+   transport authentication and Human identity live outside agent-writable configuration.
+   It returns exactly `binding`, `sources`, `decision`, `issuer`, `human`, `expiresAt`.
+   These are authenticated claims, not an echo of the caller's request. No local
+   `approval.json` is read. With `sources=None`, the receipt authorizes candidate editing.
+3. After the LLM edits ordinary external candidates, the trusted publisher loads them,
+   runs this same `publish_selected()` validation/Review comparison, pins the exact
+   candidate bytes and records their hashes against that approved binding. Only then
+   may its adapter return a matching non-null `sources` attestation. The issuer must
+   never sign arbitrary hashes merely because an agent supplies a valid Review digest.
+4. The same protected runtime owns source writes, completion receipts and verification
+   code. Agent tools get read-only Model sources/receipt/trust configuration and writable
+   external candidates. Recheck under the existing publication lock and use the existing
+   rollback transaction. Completion and display recovery authenticate the stored result;
+   verifying existing approval does not ask the Human to approve again.
+
+Connect the Host-owned transport at `verify_host_approval` in the protected deployment;
+there is deliberately no repository flag or agent-controlled adapter loader. This
+runtime's ordinary filesystem permissions are not that OS boundary. Repository-only
+Python checks cannot prevent raw writes or modified verification code by the same user.
+Mock Host tests establish only interface/transaction behavior, not production authorization.
+A staged copy is a different Worktree and cannot reuse the original approval implicitly.
 
 ## Agent selection and source edits
 
@@ -188,12 +269,14 @@ account/Region singleton scope never identify an existing Resource.
   are different; preserve their returned statuses.
 - **Same physical ID, CREATE:** neither overwrite nor duplicate-add; report the
   management boundary. Never convert CREATE to IMPORT implicitly.
-- **Unknown or multiple matching physical IDs:** request missing facts; unresolved
+- **Unknown physical ID on an existing IMPORT Resource:** offer explicit `bind` to
+  its fixed Model ID, add or excluded, showing duplicate risk.
+- **Multiple matching physical IDs:** request missing facts; unresolved
   correspondence stays pending. Do not guess an overwrite target. An independently
   explicit managed addition retains the existing unknown-ID duplicate-risk warning;
   that warning is not evidence that an ambiguous resource is new.
 
-After trusted approval is available, the LLM processes each approved resource in order: read the confirmed decision,
+After the Host verifies final Human approval, the LLM processes each approved resource in order: read the confirmed decision,
 select the ordinary source edit, edit the external candidate files, retain that result,
 and continue to the next resource. Acquire once per service, reuse records/evidence,
 Mapping/Schema/identity caches, and publish the combined service candidate once.
@@ -204,13 +287,20 @@ and reuse the existing addition procedure below. Preserve existing resources.
 For **refresh**, retain Resource ID, anchor, mode, type, placement and existing Row IDs;
 update only captured Properties/observations, add necessary captured rows, and retain
 native types and arrays. Preserve Properties not acquired; report them as unreflected.
+For **bind**, require the Human-selected existing IMPORT ID/type, an actually unknown
+previous physical identity, a valid acquired identity and no other known owner. Use
+`before: {"identity": null, "model": <digest(operation_values(before.values, rid))>}`
+in the ordinary selection entry. Preserve Resource ID, Row IDs, anchor and every
+uncaptured setting just as refresh does. This is not permission to weaken refresh's
+same-ID check or replace's known-different-ID check. Include unknown-ID duplicate
+risk and incoming-reference impact in the final Review.
 For **replace**, retain the explicitly selected fixed identity and use the acquired
 resource's values. Record the previous physical identity and Model digest below.
 Reject a replacement physical ID already registered to another Resource, including
 CREATE. Read incoming usages with `model_reference_usage.incoming_references()`.
 The publication guard reuses that analysis across registered services of the same
 Environment/Target. Non-self incoming references and unresolved analysis produce warnings
-while replace continues; never edit unrelated references implicitly. This read-only check is the
+while replace/bind continues; never edit unrelated references implicitly. This read-only check is the
 necessary exception to the usual single-service read boundary, not a write permission.
 If transfer/retarget/delete or dependency detach is necessary, use its existing separate
 Model-only contract/permission procedure only when authorized; no implicit deletion.
@@ -289,15 +379,15 @@ record identifier with the actual returned identifier):
 }
 ```
 
-`action` is `add`, `refresh` or `replace`. `resource` always names the fixed Resource
-ID: new for add, existing IMPORT for refresh/replace. `reason` records the management
+`action` is `add`, `refresh`, `replace` or `bind`. `resource` always names the fixed Resource
+ID: new for add, existing IMPORT for refresh/replace/bind. `reason` records the management
 basis and the Human's confirmed action/target; `basis` remains a list of acquired
 Property names (or empty), never a name/CIDR matching rule. Each acquired record needs
 one disposition and each Resource may receive at most one operation. Excluded entries
 retain `record` and `reason`; `unreflected` retains `record`, `reason` and optional
 `property`. Selection declares the LLM's decision, not instructions for Python edits.
 
-For replace only, add a required `before` object:
+For replace, add a required `before` object (bind uses the same shape with `identity: null`):
 
 ```json
 {"identity": "<previous-physical-id>", "model": "<previous-resource-digest>"}
@@ -344,7 +434,7 @@ Definition per resource or environment; do not change an existing Definition's c
 or declarations to accommodate a new addition.
 
 Publication reuses `selection_records`, `verify_values`, the source hash comparison,
-publication lock and rollback transaction. New fixed IDs and captured Properties of validated refresh/replace targets may
+publication lock and rollback transaction. New fixed IDs and captured Properties of validated refresh/replace/bind targets may
 resolve external source references. Unacquired Properties gain no resolver permission. Acquired values and explicit producer
 identities are checked together, including literal leaves beside links in arrays/objects.
 Unchanged old selectors may be read for selected-service display generation after source
@@ -387,9 +477,9 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/import-model.py 
 Publish does not access AWS. Normal Publish currently rejects unavailable trusted
 Human approval; the following checks also remain available for read-only dry-run.
 It verifies the sealed external acquisition, Task/Worktree,
-scope, source hashes, syntax/native types, declared add/refresh/replace correspondence,
+scope, source hashes, syntax/native types, declared add/refresh/replace/bind correspondence,
 captured changed values, preserved fixed identities and nonselected values/references,
-and direct-consumer preservation. Replace additionally reports incoming-reference impact.
+and direct-consumer preservation. Replace/bind additionally bind incoming-reference impact into Review.
 Apply [Reference diagnostics](../../rules/model-information.md#reference-diagnostics);
 reference warnings never cancel a saved Model or require repair before completion.
 Logical design names need not equal AWS strings. Unacquired values cannot pass merely
@@ -399,7 +489,9 @@ requires `review.json` even when a verifier is supplied by a future trusted runt
 Dry-run may omit Review; when present, it must match. The actual candidate expansion
 and `load_for_edit()` Reference provenance must match the Review's typed content,
 selectors, declarations and digest, even if expanded values are identical. Publication
-checks the Review and draft bytes again inside the publication lock. These comparisons
+checks the Review and draft bytes again inside the publication lock. Task output paths
+and read-only direct consumers must be declared before acquisition; Publish validates
+them without rewriting the approved Task or acquisition. These comparisons
 are integrity gates; they do not establish Human approval. New/changed
 observed rows reuse the desired logical-reference rule and acquired-value checks;
 ordinary Name/CIDR/Boolean/Number settings stay desired. Unrelated existing observed
@@ -424,7 +516,8 @@ No other environment or service is written or generated.
 Acquisition values, source before/after contents and correspondence details live in a
 private temporary session outside the repository. The small external
 `evidence_store(root)/<task-name>.json` completion receipt retains hashes, scope, connection
-and statuses, protected by a local integrity seal. Remove the temporary session only
+and statuses, protected by a local integrity seal. After a successful source transaction this Task cannot acquire/publish again; use display
+recovery or a new independently authorized Task for another import. Remove the temporary session only
 after complete source/display success or explicit Human termination. Review, failed
 preflight, pending items, dry-run and display failure retain acquisition and review evidence.
 Preserve the seven-day expiry. Baseline changes invalidate the old Review/approval;
@@ -452,7 +545,7 @@ the same inventory twice as a preview/apply procedure.
 
 Report Model (`reflected` / `unchanged` / `failed`), Markdown/JSON (`generated` /
 `unchanged` / `failed` / `not-run`) and `Design validation: not-run` separately. Include
-scope/connection/STS, selected additions/refreshes/replacements/exclusions with fixed IDs and Human decisions, possible duplicate warnings for unknown existing IDs, pending resource/Property
+scope/connection/STS, selected additions/refreshes/replacements/bindings/exclusions with fixed IDs and Human decisions, possible duplicate warnings for unknown existing IDs, pending resource/Property
 counts and reasons, changed sources, consumer preservation and display status. Acquired
 but unreflected Properties are reported, never silently treated as fully reflected.
 

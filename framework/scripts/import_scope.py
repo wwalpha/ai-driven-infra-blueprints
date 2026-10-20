@@ -21,7 +21,7 @@ def new_references(before, selected):
     from model_core import entries
     resources = dict(entries(before.values, 'desired.resource.'))
     existing = set(selected) & resources.keys()
-    if any(selected[rid].get('_action') not in {'refresh', 'replace'} or
+    if any(selected[rid].get('_action') not in {'refresh', 'replace', 'bind'} or
            resources[rid].get('resourceMode') != 'IMPORT' for rid in existing):
         raise ValueError('IMPORT references require selected new Resource IDs')
     token = _additions.set(frozenset(set(selected) - existing))

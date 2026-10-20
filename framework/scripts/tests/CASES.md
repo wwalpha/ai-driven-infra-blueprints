@@ -2,10 +2,9 @@
 
 ## Import Human Approval Gate
 
-`units/import-approval-unit.checks.py` は合成データのみの24関数・76 pytestケース。
+`units/import-approval-unit.checks.py` は合成データのみの29関数・118 pytestケース。
 本番の信頼できるHuman承認経路は未接続で、正常Publishをfail-closedにする。
-実運用の一覧一括／個別承認は未提供。UTでは承認verifierをstub化し、通常Publish・lock内の拒否・実保存/rollback・表示回復を検証する。既存Import ITの保存・Rollback検証は
-この未接続境界をテスト内だけでstubにし、Human承認の証明として数えない。
+実運用の承認Hostは未提供。UTは中央照合とHost adapter Mock、既存の保存transaction stubを区別する。Import ITは認証済みclaimsの発行部分だけをMockし、中央承認検証・保存guard・正常Publish・rollbackを実行する。これを実Human承認の証明として数えない。
 cross-processケースはstubのない子プロセスで実際の拒否も確認する。
 Boolean設定のobserved誤用は拒否→desiredのみの成功へ更新。
 表示構造エラーは保存前拒否、保存後I/Oエラーと表示回復は別に検証する。
@@ -35,9 +34,17 @@ dry-run／未完了／表示失敗の証跡は保持し、成功時削除と区�
 | `import-approval::unselected-selector` | `check_unselected_reference_selector_is_rejected` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 未選択Resourceのselector変更を拒否 | Import Review |
 | `import-approval::loader-provenance` | `check_real_loader_retains_unresolved_reference_declaration` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 実loaderが未解決参照のService/type/Property/selectorを保持、Review構造検証は非ブロック | Import Review |
 
-| `import-approval::publication-transaction` | `check_publication_transaction_with_stubbed_authority` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 9 | 承認stub下の正常保存、lock前Review/draft/candidate/acquisition/baseline変更・期限切れ拒否、実rollbackと表示保存失敗時のModel/証跡保持 | Publication |
+| `import-approval::publication-transaction` | `check_publication_transaction_with_stubbed_authority` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 10 | 承認stub下の正常保存、lock前Review/draft/candidate/acquisition/baseline変更・期限切れ拒否、実rollbackと表示保存失敗時のModel/証跡保持 | Publication |
 | `import-approval::display-recovery` | `check_saved_display_recovery_needs_no_new_approval` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | sync-modelの既存回復workerで保存済みModelを保持して表示のみ保存、取得/承認呼出なし | Recovery |
 | `import-approval::unapproved-candidate` | `check_unapproved_candidate_rejected_with_stubbed_authority` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 4 | 承認stub後もProperty・反映先・追加Resource・selector不一致を保存前拒否 | Publication |
+
+| `import-chat::check_explicit_bind_preserves_identity` | `check_explicit_bind_preserves_identity` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 12 | bind正常、既知ID・stale・CREATE・型・重複・無効ID・Anchor/Row/未取得変更拒否 | Chat approval |
+| `import-chat::check_subnet_answers_correction_and_resume` | `check_subnet_answers_correction_and_resume` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 複数SUBNET回答保持・訂正・session再開・baseline変更拒否。LLM判断品質の評価ではない | Chat approval |
+| `import-chat::check_checkpoint_rejects_stale_or_competing_answers` | `check_checkpoint_rejects_stale_or_competing_answers` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 8 | 期限・基準・Task/Worktree/scope・取得差替え・競合回答拒否 | Chat approval |
+| `import-chat::check_authenticated_host_claims_match_exact_request` | `check_authenticated_host_claims_match_exact_request` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 19 | Host Mock claimsの全binding・candidate hash・Human/issuer・有効期限照合、実Hostは拒否 | Chat approval |
+| `import-chat::check_unanswered_review_cannot_be_approved` | `check_unanswered_review_cannot_be_approved` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 未回答を含むReviewは最終承認に渡せない | Chat approval |
+
+| `import-chat::save-guard` | `check_approval_bound_save_guard` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py) | pytest / 6 | 承認済み保存後の別候補・source hash・Task/Worktree・risk・旧証跡改ざんを保存guardで拒否 | Publication |
 
 元パスは分離前の `framework/scripts/tests/` 相対。現在のリンクはこのファイルからの相対。分類は検証責務による。変更不要のケースも掲載。
 
@@ -505,10 +512,10 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `import-agent-sources::check_foreign_source_writes_rejected` | `check_foreign_source_writes_rejected` | IT | [integrations/import-model.checks.py:342](integrations/import-model.checks.py#L342) | pytest / 5 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
 | `import-agent-sources::check_add_identity_boundary` | `check_add_identity_boundary` | IT | [integrations/import-model.checks.py:359](integrations/import-model.checks.py#L359) | pytest / 4 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
 | `import-agent-sources::check_unacquired_property_rejection` | `check_unacquired_property_rejection` | IT | [integrations/import-model.checks.py:404](integrations/import-model.checks.py#L404) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_repeat_without_reformat` | `check_repeat_without_reformat` | IT | [integrations/import-model.checks.py:414](integrations/import-model.checks.py#L414) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
+| `import-agent-sources::check_repeat_without_reformat` | `check_repeat_without_reformat` | IT | [integrations/import-model.checks.py:414](integrations/import-model.checks.py#L414) | pytest / 1 | 同一Taskの再取得拒否、API未実行と保存済みModel不変 | Append-only Import |
 | `import-agent-sources::check_fixed_identity_rejection` | `check_fixed_identity_rejection` | IT | [integrations/import-model.checks.py:426](integrations/import-model.checks.py#L426) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
 | `import-agent-sources::check_empty_inventory_preserves_sources` | `check_empty_inventory_preserves_sources` | IT | [integrations/import-model.checks.py:440](integrations/import-model.checks.py#L440) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_partial_reflection` | `check_partial_reflection` | IT | [integrations/import-model.checks.py:453](integrations/import-model.checks.py#L453) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
+| `import-agent-sources::check_partial_reflection` | `check_partial_reflection` | IT | [integrations/import-model.checks.py:453](integrations/import-model.checks.py#L453) | pytest / 1 | 未回答Resourceがある全サービスPublish拒否、部分保存なし | Append-only Import |
 | `import-agent-sources::check_native_types_preserved` | `check_native_types_preserved` | IT | [integrations/import-model.checks.py:465](integrations/import-model.checks.py#L465) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
 | `import-agent-sources::check_consumer_set_race` | `check_consumer_set_race` | IT | [integrations/import-model.checks.py:477](integrations/import-model.checks.py#L477) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
 | `import-agent-sources::check_source_transaction_rollback` | `check_source_transaction_rollback` | IT | [integrations/import-model.checks.py:491](integrations/import-model.checks.py#L491) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
@@ -1857,7 +1864,7 @@ partial-cache validation spies on compare_generation with the full consumer scop
 | `import-selected::check_selected_binding_switch_preserves_fixed_maps` | `check_selected_binding_switch_preserves_fixed_maps` | UT | [units/import-model-unit.checks.py:1630](units/import-model-unit.checks.py#L1630) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
 | `import-selected::check_overwrite_reference_permission_is_property_scoped` | `check_overwrite_reference_permission_is_property_scoped` | UT | [units/import-model-unit.checks.py:1642](units/import-model-unit.checks.py#L1642) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
 | `import-selected::check_import_llm_choice_contract` | `check_import_llm_choice_contract` | UT | [units/import-model-unit.checks.py:1660](units/import-model-unit.checks.py#L1660) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
-| `import-selected::check_user_selected_overwrite_publication` | `check_user_selected_overwrite_publication` | IT | [integrations/import-model.checks.py:933](integrations/import-model.checks.py#L933) | pytest / 4 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_user_selected_overwrite_publication` | `check_user_selected_overwrite_publication` | IT | [integrations/import-model.checks.py:933](integrations/import-model.checks.py#L933) | pytest / 6 | refresh/replace/bindの通常保存・dry-run、非選択・他環境保護 | User-selected Import |
 | `import-selected::check_mixed_add_refresh_single_publication` | `check_mixed_add_refresh_single_publication` | IT | [integrations/import-model.checks.py:970](integrations/import-model.checks.py#L970) | pytest / 2 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
 | `import-selected::check_replace_rejects_incoming_references` | `check_replace_warns_incoming_references` | IT | [integrations/import-model.checks.py:1005](integrations/import-model.checks.py#L1005) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
 | `import-selected::check_first_resource_uses_existing_source_format` | `check_first_resource_uses_existing_source_format` | IT | [integrations/import-model.checks.py:1032](integrations/import-model.checks.py#L1032) | pytest / 4 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |

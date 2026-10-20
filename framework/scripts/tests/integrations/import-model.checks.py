@@ -21,14 +21,14 @@ from model_core import entries
 from model_parameter_inputs import yaml_read
 from model_templates import json_text, load_for_edit
 from support.import_model_fixtures import (ACCOUNT, TARGET, SERVICES, SUBNETS, VPC_ID, AwsCli,
-    aws, correspondence, exclusions, fixture, logs_edit, m, publish_fixture, review_fixture, snapshot, spec, stage)
+    approve_fixture, mock_host_approval, aws, correspondence, exclusions, fixture, logs_edit, m, publish_fixture, review_fixture, snapshot, spec, stage)
 
 
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):
     import import_approval
-    # Exercise existing transactions below the unavailable trust boundary, never prove Human approval.
-    monkeypatch.setattr(import_approval, 'require_human_approval', lambda: None)
+    # Mock only the Host authentication adapter; exercise central verification and all guards.
+    monkeypatch.setattr(import_approval, 'verify_host_approval', mock_host_approval)
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/import-fixture.md')
     monkeypatch.setattr(socket.socket, 'connect', lambda *a, **k: (_ for _ in ()).throw(AssertionError('live network forbidden')))
 
@@ -440,11 +440,12 @@ def check_repeat_without_reformat(tmp_path):
     logs_edit(root, acquired)
     publish_fixture(root, acquired)
     before = source_files(root)
-    second = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=aws(changed=True))
-    stage(second, {}, excluded=exclusions(second, []))
-    result = publish_fixture(root, second)
-    assert result['model'] == 'unchanged' and result['markdown'] == 'unchanged' and result['files'] == []
-    assert source_files(root) == before
+    cli = aws(changed=True)
+    with pytest.raises(ValueError, match='Task already published'):
+        m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli)
+    assert not cli.calls and source_files(root) == before
+    import_guard.require_import_changes(root)
+
 
 
 def check_fixed_identity_rejection(tmp_path):
@@ -480,10 +481,10 @@ def check_partial_reflection(tmp_path):
     selected = [correspondence(acquired, 'managed-new')]
     unresolved = next(r for r in acquired['records'] if r['identity'] == 'fixture-002')
     stage(acquired, files, selected, excluded=[item for item in exclusions(acquired, selected) if item['record'] != unresolved['record']], pending=[{'record': unresolved['record'], 'reason': 'ownership not confirmed'}])
-    result = publish_fixture(root, acquired)
-    assert result['model'] == 'reflected' and result['status'] == 'incomplete' and result['unreflected']
-    with pytest.raises(ValueError, match='incomplete'):
-        import_guard.require_import_changes(root)
+    original = source_files(root)
+    with pytest.raises(ValueError, match='all Resource selections'):
+        publish_fixture(root, acquired)
+    assert source_files(root) == original and Path(acquired['evidence']).exists()
 
 
 def check_native_types_preserved(tmp_path):
@@ -570,7 +571,7 @@ def check_cross_process_evidence(tmp_path):
     assert rejected.returncode != 0 and 'Human approval unavailable' in rejected.stderr
     assert Path(acquired['evidence']).is_file()
     # Explicit synthetic seam for legacy cross-process receipt/rollback coverage only.
-    publish_code = setup + 'import import_approval; import_approval.require_human_approval = lambda: None; ' + publish_code[len(setup):]
+    publish_code = setup + f'import import_approval; from support.import_model_fixtures import approve_fixture, mock_host_approval; approve_fixture(Path({str(root)!r}), Path({acquired["evidence"]!r})); import_approval.verify_host_approval = mock_host_approval; ' + publish_code[len(setup):]
     result = subprocess.run([sys.executable, '-B', '-c', publish_code], capture_output=True, text=True, encoding='utf-8', check=True)
     report = json.loads(result.stdout)
     assert report['model'] == 'reflected' and report['markdown'] == 'generated'
@@ -958,12 +959,25 @@ def check_reference_publication(tmp_path, present, race):
         assert document.read_text() == markdown
 
 
-@pytest.mark.parametrize('action', ['refresh', 'replace'])
+@pytest.mark.parametrize('action', ['refresh', 'replace', 'bind'])
 @pytest.mark.parametrize('dry_run', [False, True])
 def check_user_selected_overwrite_publication(tmp_path, action, dry_run):
     from import_guard import digest
     from model_operation_checks import operation_values
-    root, acquired, cli = prepare(tmp_path, dry_run=dry_run)
+    if action == 'bind':
+        root = tmp_path / 'case'
+        fixture(root, register=not dry_run)
+        file = input_file(root)
+        parameters = yaml_read(file.read_text())
+        parameters['instances']['application-log']['parameters']['LogGroupName'] = 'UNSET'
+        file.write_text(parameter_edit(file.read_text(), parameters))
+        subprocess.run(['git', 'add', 'model'], cwd=root, check=True)
+        subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                        'commit', '-qm', 'unknown existing IMPORT identity'], cwd=root, check=True)
+        cli = aws(changed=True)
+        acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, dry_run, cli)
+    else:
+        root, acquired, cli = prepare(tmp_path, dry_run=dry_run)
     path = root / 'model/dev/cde/cloudwatch-logs.properties'
     before = load_for_edit(path)
     original = snapshot(root)
@@ -972,13 +986,13 @@ def check_user_selected_overwrite_publication(tmp_path, action, dry_run):
     identity = 'fixture-001' if action == 'refresh' else 'managed-new'
     parameters['instances']['application-log']['parameters'].update(LogGroupName=identity, RetentionDays=90)
     selected = [correspondence(acquired, identity, '001', action)]
-    if action == 'replace':
-        selected[0]['before'] = {'identity': 'fixture-001', 'model': digest(operation_values(before.values, '001'))}
+    if action in {'replace', 'bind'}:
+        selected[0]['before'] = {'identity': None if action == 'bind' else 'fixture-001', 'model': digest(operation_values(before.values, '001'))}
     stage(acquired, {file.relative_to(root).as_posix(): parameter_edit(file.read_text(), parameters)},
           selected, exclusions(acquired, selected))
     result = publish_fixture(root, acquired, dry_run=dry_run)
     assert result['status'] == ('dry-run' if dry_run else 'complete')
-    assert result['resources']['refreshed' if action == 'refresh' else 'replaced'] == 1
+    assert result['resources'][{'refresh': 'refreshed', 'replace': 'replaced', 'bind': 'bound'}[action]] == 1
     assert result['resources']['added'] == 0
     assert cli.calls == [('sts', 'get-caller-identity', {}), ('logs', 'describe-log-groups', {})]
     assert Path(acquired['evidence']).parent.exists() is dry_run
@@ -1131,6 +1145,34 @@ def check_refresh_switches_definition_without_foreign_changes(tmp_path):
     from import_scope import read_consumers
     with read_consumers({('stg', TARGET, 'cloudwatch-logs')}):
         assert load_for_edit(root / 'model/stg/cde/cloudwatch-logs.properties').values['desired.row.001-004.value'] == '`STANDARD`'
+
+
+
+@pytest.mark.parametrize('tamper', ['candidate', 'sources', 'task', 'worktree', 'risk', 'legacy'])
+def check_approval_bound_save_guard(tmp_path, tamper):
+    root, acquired, _ = prepare(tmp_path)
+    logs_edit(root, acquired)
+    publish_fixture(root, acquired)
+    original = source_files(root)
+    if tamper == 'candidate':
+        file = input_file(root)
+        with pytest.raises(ValueError, match='differs from acquired change plan'):
+            m.publish(root, {file: file.read_text() + '\n# unapproved candidate bytes\n'})
+    else:
+        proof = import_guard.read_proof(root)
+        if tamper == 'sources':
+            name = next(iter(proof['sources']))
+            proof['sources'][name] = '0' * 64
+        elif tamper == 'legacy':
+            proof['version'] = 3
+            del proof['approval']
+        else:
+            proof['approval'][{'risk': 'recordsDigest'}.get(tamper, tamper)] = 'forged'
+        # Knowing the local integrity key still cannot invent Host approval.
+        import_guard.write_sealed(root, import_guard.proof_path(root), proof)
+        with pytest.raises(ValueError, match='no verified /import evidence'):
+            import_guard.require_import_changes(root)
+    assert source_files(root) == original
 
 
 if __name__ == '__main__':
