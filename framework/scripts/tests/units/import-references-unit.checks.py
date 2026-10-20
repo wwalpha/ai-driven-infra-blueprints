@@ -66,6 +66,7 @@ CASES = [
     ('CodeBuild.Project.VpcConfig.Subnets[]', 'EC2.Subnet', {'SubnetId': 'subnet-confirmed'}, 'subnet-confirmed'),
     ('Lambda.Function.VpcConfig.SecurityGroupIds[]', 'EC2.SecurityGroup', {'GroupId': 'sg-confirmed'}, 'sg-confirmed'),
     ('Glue.Job.Role', 'IAM.Role', {'RoleName': 'glue-role'}, 'glue-role'),
+    ('GuardDuty.MalwareProtectionPlan.Role', 'IAM.Role', {'RoleName': 'scanner', 'Path': '/service-role/'}, 'arn:aws:iam::123456789012:role/service-role/scanner'),
     ('KMS.Alias.TargetKeyId', 'KMS.Key', {'KeyId': '12345678-1234-1234-1234-123456789012'}, '12345678-1234-1234-1234-123456789012'),
     ('CloudTrail.Trail.KMSKeyId', 'KMS.Alias', {'AliasName': 'alias/audit'}, 'alias/audit'),
 ]
@@ -352,13 +353,70 @@ def check_mixed_literals_cannot_hide_behind_observations(tmp_path):
         resolver.verify_resource(source, '009')
 
 
-def check_role_arn_requires_account_and_explicit_path(tmp_path):
-    prop = 'Lambda.Function.Role'
+@pytest.mark.parametrize('prop', ['Lambda.Function.Role', 'GuardDuty.MalwareProtectionPlan.Role'])
+def check_role_arn_requires_account_and_explicit_path(tmp_path, prop):
     producer(tmp_path, 'IAM.Role', {'RoleName': 'runner', 'Path': '/service-role/'})
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
     assert resolver.match(prop, 'arn:aws:iam::123456789012:role/service-role/runner')
     assert resolver.match(prop, 'arn:aws:iam::123456789012:role/runner') is None
     assert resolver.match(prop, 'arn:aws:iam::999999999999:role/service-role/runner') is None
+    assert resolver.match(prop, 'arn:aws-cn:iam::123456789012:role/service-role/runner') is None
+    assert resolver.match(prop, 'runner') is None
+
+
+def check_guardduty_role_acquired_value_consistency(tmp_path):
+    prop = 'GuardDuty.MalwareProtectionPlan.Role'
+    assert contract(prop) == {'IAM.Role': ('Arn',)}
+    assert contract('Unknown.Resource.Role') == {}
+    service, _ = producer(tmp_path, 'IAM.Role', {'RoleName': 'scanner', 'Path': '/service-role/'})
+    physical = 'arn:aws:iam::123456789012:role/service-role/scanner'
+    source = values('GuardDuty.MalwareProtectionPlan', {'Role': 'unused'}, rid='002')
+    source['desired.row.002-001.value'] = '[role](' + service + '.md#producer)'
+    source['observed.row.002-001.value'] = physical
+    record = {'record': 'synthetic', 'identityProperty': None, 'identity': 'synthetic-plan',
+              'properties': {prop: {'status': 'captured', 'value': physical}}}
+    resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
+    before = Expansion({}, {}, {})
+    with patch('subprocess.run', side_effect=AssertionError('no AWS or other subprocess')):
+        assert verify_values(before, Expansion(source, {}, {}), {'002': record}, lambda _: {'type': 'string'}, resolver)
+        resolver.verify_resource(source, '002', require_links=False, observed_only=True)
+        assert not resolver.warnings
+        wrong = {**source, 'desired.row.002-001.value': '[wrong](s3.md#producer)'}
+        with warned(resolver, 'differs from acquired physical reference'):
+            verify_values(before, Expansion(wrong, {}, {}), {'002': record}, lambda _: {'type': 'string'}, resolver)
+        wrong = {**source, 'observed.row.002-001.value': 'arn:aws:iam::123456789012:role/other'}
+        with pytest.raises(ValueError, match='differs from the acquired Property'):
+            verify_values(before, Expansion(wrong, {}, {}), {'002': record}, lambda _: {'type': 'string'}, resolver)
+        with warned(resolver, 'differs from acquired physical reference'):
+            resolver.verify_resource(wrong, '002', require_links=False, observed_only=True)
+
+
+def check_import_reference_observation_sync_remains_guarded(tmp_path):
+    from import_guard import resource_config, digest, require_import_changes
+    from task_contract import start
+    producer(tmp_path, 'EC2.VPC', {'VpcId': 'vpc-confirmed'})
+    source = values('EC2.TransitGatewayVpcAttachment', {'VpcId': 'unused'})
+    source['desired.row.001-001.value'] = '[vpc](vpc.md#producer)'
+    source['observed.row.001-001.value'] = 'PENDING_DEPLOY'
+    updated = {**source, 'observed.row.001-001.value': 'vpc-confirmed'}
+    resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
+    with warned(resolver, 'differs from acquired physical reference'):
+        resolver.verify_resource(source, '001', require_links=False, observed_only=True)
+    resolver.warnings.clear()
+    resolver.verify_resource(updated, '001', require_links=False, observed_only=True)
+    assert not resolver.warnings
+    old, new = resource_config(source, '001'), resource_config(updated, '001')
+    assert old['rows'] == new['rows'] and old['resource'] == new['resource']
+    assert digest(old) != digest(new)
+    (tmp_path / '.git').mkdir()
+    start(tmp_path, 'tasks/sync.md', '## Task contract\n- Task type: `governance`\n- Task status: `running`\n'
+          '## Validation scope\n- `framework`\n## Required changes\n- [R1] Synthetic sync guard\n'
+          '## Acceptance checks\n- [R1] `exists:tasks/sync.md`\n## Modified files\n- `tasks/sync.md`\n'
+          '## Allowed paths\n- `tasks/sync.md`\n')
+    with patch('import_guard.changes', return_value=('synthetic-base', {'dev/cde/transit-gateway/001':
+              {'before': digest(old), 'after': digest(new), 'mode': 'IMPORT', 'action': 'update'}})):
+        with pytest.raises(ValueError, match='require the registered design /import workflow'):
+            require_import_changes(tmp_path, supplied={'model/parameters/dev/cde/transit-gateway/observed.json'})
 
 
 

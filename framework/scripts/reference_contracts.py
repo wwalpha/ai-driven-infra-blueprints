@@ -101,6 +101,8 @@ IMPORT_PROPERTIES = {
     'ECR.Repository.EncryptionConfiguration.KmsKey': (('KMS.Key', 'KMS.Alias'), None),
     'S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID': (('KMS.Key', 'KMS.Alias'), None),
     'Config.ConfigurationRecorder.RoleARN': ('IAM.Role', 'Arn'),
+    # aws-resource-guardduty-malwareprotectionplan.html: Role requires an IAM role ARN.
+    'GuardDuty.MalwareProtectionPlan.Role': ('IAM.Role', 'Arn'),
     'KinesisFirehose.DeliveryStream.DeliveryStreamEncryptionConfigurationInput.KeyARN': ('KMS.Key', 'Arn'),
     'KinesisFirehose.DeliveryStream.S3DestinationConfiguration.BucketARN': ('S3.Bucket', 'Arn'),
     'KinesisFirehose.DeliveryStream.S3DestinationConfiguration.RoleARN': ('IAM.Role', 'Arn'),
