@@ -118,6 +118,97 @@ def check_retained_common_key(tmp_path):
     else:
         raise AssertionError('changed common inputs accepted')
 
+    # Contract reuse belongs only to a read-only invocation, never to authority saves.
+    from unittest.mock import patch
+    import task_contract as tasks
+    import import_scope
+    from validation_cache import input_context, memoized
+    project = tmp_path/'contracts'
+    (project/'tasks').mkdir(parents=True)
+    def contract(name, service):
+        return f'''## Task contract
+- Task type: `migration`
+- Task status: `running`
+- Workflow: `import`
+- IMPORT target: `dev/cde/{service}`
+## Modified files
+- `tasks/{name}.md`
+## Allowed paths
+- `tasks/{name}.md`
+## Validation scope
+- `dev/cde/{service}`
+'''
+    first = project/'tasks/first.md'
+    second = project/'tasks/second.md'
+    original = contract('first', 'sqs')
+    first.write_text(original)
+    second.write_text(contract('second', 's3'))
+    @import_scope.scoped_read
+    @memoized
+    def read(path, context=None):
+        return object()
+    with tasks.selected_task(project, 'tasks/first.md'), input_context():
+        with patch.object(tasks, '_contracts', wraps=tasks._contracts) as scans, \
+                patch.object(tasks, '_select_contract', wraps=tasks._select_contract) as selections:
+            with tasks.contract_reads(project):
+                for _ in range(1000):
+                    assert import_scope.selected(project) == ('dev', 'cde', 'sqs')
+                assert scans.call_count == 1
+                assert selections.call_count == 1
+                with tasks.selected_task(project, 'tasks/second.md'):
+                    assert import_scope.selected(project) == ('dev', 'cde', 's3')
+                assert import_scope.selected(project) == ('dev', 'cde', 'sqs')
+                with import_scope.read_consumers({('dev', 'cde', 'sqs')}):
+                    path = project/'model/dev/cde/sqs.properties'
+                    before = import_scope.read_context(project)
+                    cached = read(path)
+                    with import_scope.reference_reader(path):
+                        assert import_scope.read_context(project)[2] == path.absolute()
+                        assert read(path) is not cached
+                    assert import_scope.read_context(project) == before
+                    assert read(path) is cached
+                with import_scope.read_consumers({('dev', 'cde', 'sqs'), ('dev', 'cde', 'iam')}):
+                    assert read(path) is not cached
+                with tasks.selected_task(project, 'tasks/second.md'):
+                    try:
+                        read(path)
+                    except ValueError as error:
+                        assert 'outside selected' in str(error)
+                    else:
+                        raise AssertionError('cached result bypassed Task read permission')
+                    with import_scope.reference_reader(path):
+                        assert read(path) is not cached
+                assert read(path) is cached
+            assert scans.call_count == 2
+        for change in ('content', 'line-endings', 'addition', 'deletion', 'selector'):
+            try:
+                with tasks.contract_reads(project):
+                    assert import_scope.selected(project) == ('dev', 'cde', 'sqs')
+                    if change == 'content':
+                        first.write_text(contract('first', 'iam'))
+                    elif change == 'line-endings':
+                        first.write_bytes(original.replace('\n', '\r\n').encode('utf-8'))
+                    elif change == 'addition':
+                        (project/'tasks/third.md').write_text(contract('third', 'iam'))
+                    elif change == 'deletion':
+                        second.unlink()
+                    else:
+                        with patch.dict(os.environ, {tasks.SELECTOR: 'tasks/second.md'}):
+                            tasks.verify_contract_reads(project)
+            except ValueError as error:
+                assert 'changed during validation' in str(error)
+            else:
+                raise AssertionError(f'contract {change} was not detected')
+            finally:
+                first.write_text(original)
+                second.write_text(contract('second', 's3'))
+                (project/'tasks/third.md').unlink(missing_ok=True)
+        first.write_text(contract('first', 'iam'))
+        with tasks.contract_reads(project):
+            assert import_scope.selected(project) == ('dev', 'cde', 'iam')
+        first.write_text(original)
+        assert tasks.contracts(project)['tasks/first.md'] == original
+
 
 if __name__ == '__main__':
     from support.pytest_cli import run

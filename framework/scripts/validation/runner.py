@@ -21,7 +21,7 @@ from design_layout import STACK_DESIGN
 from model_core import properties
 from validation_scope import active_scope, scoped_files
 from design_document import DesignIndex
-from task_contract import SELECTOR
+from task_contract import SELECTOR, contract_reads, verify_contract_reads
 
 def owned_field(owner, name):
     """Keep the used Validator attributes attached to their specific state owner."""
@@ -328,17 +328,19 @@ class Validator:
         @selected_task(self.root, selected_name if selected_text is not None else None)
         @input_scope
         def validate(scope):
-            validator = Validator(self.root, scope, definitions_root=self.definitions_root)
-            validator.accounts = self.accounts
-            validator.schema_catalog = self.schema_catalog or DesignSchemaCatalog(self.definitions_root)
-            validator.generated_models_checked = True
-            validator.check_designs()
-            validator.check_observed_values(scoped_files(self.root, "model", ".properties", scope))
+            with contract_reads(self.root):
+                validator = Validator(self.root, scope, definitions_root=self.definitions_root)
+                validator.accounts = self.accounts
+                validator.schema_catalog = self.schema_catalog or DesignSchemaCatalog(self.definitions_root)
+                validator.generated_models_checked = True
+                validator.check_designs()
+                validator.check_observed_values(scoped_files(self.root, "model", ".properties", scope))
             return validator
 
         with ThreadPoolExecutor(max_workers=min(self.workers, len(missing) or 1)) as executor:
             mapper = map if self.workers == 1 or len(missing) == 1 else executor.map
             results = dict(zip(sorted(missing), mapper(validate, [{entry} for entry in sorted(missing)])))
+        verify_contract_reads(self.root)
         successful = []
         for entry in sorted(self.scope):
             if entry in skipped:

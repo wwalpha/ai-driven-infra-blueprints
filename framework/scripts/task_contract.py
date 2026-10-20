@@ -5,12 +5,13 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 import fnmatch
+from functools import wraps
 import os
 from pathlib import Path, PurePosixPath
 import re
 
 from sync_files import atomic_files
-from validation_cache import memoized, input_is_dir, input_is_file, input_is_symlink, input_select, input_text
+from validation_cache import memoized, input_is_dir, input_is_file, input_is_symlink, input_select, input_text, recording_inputs, input_bytes, digest_files
 
 
 SELECTOR = "BLUEPRINT_TASK_FILE"
@@ -82,7 +83,56 @@ def selected_text(root, records, name):
     return records[name]
 
 
+_read_contracts = ContextVar('task_read_contracts', default=None)
+
+
+@contextmanager
+def contract_reads(root):
+    """Pin read-only validation inputs; authority writers must remain outside."""
+    current = _read_contracts.get()
+    if current is not None and current[0] == root:
+        yield
+        return
+    records = _contracts(root)
+    selector = (_selected_tasks.get(), os.environ.get(SELECTOR))
+    paths = [root / name for name in records]
+    digest = digest_files(root, paths, {path: input_bytes(path) for path in paths})
+    token = _read_contracts.set((root, records, {}, selector, digest))
+    try:
+        yield
+        verify_contract_reads(root)
+    finally:
+        _read_contracts.reset(token)
+
+
+def verify_contract_reads(root):
+    current = _read_contracts.get()
+    if current is not None and current[0] == root:
+        if current[3] != (_selected_tasks.get(), os.environ.get(SELECTOR)):
+            raise ValueError('task selection changed during validation')
+        # Compare live bytes/file sets even when generation has an input recorder.
+        with recording_inputs(None):
+            records = _contracts(root)
+            if current[1] != records or current[4] != digest_files(root, [root / name for name in records]):
+                raise ValueError('task contracts changed during validation')
+
+
+def contract_read_scope(function):
+    @wraps(function)
+    def wrapped(root, *args, **kwargs):
+        with contract_reads(root):
+            return function(root, *args, **kwargs)
+    return wrapped
+
+
 def contracts(root):
+    current = _read_contracts.get()
+    if current is not None and current[0] == root:
+        return dict(current[1])
+    return _contracts(root)
+
+
+def _contracts(root):
     directory = root / "tasks"
     if input_is_symlink(directory):
         raise ValueError("tasks directory must not use symlinks")
@@ -378,8 +428,16 @@ def selected_task(root: Path, task_file: str | None):
 
 
 def _selected_contract(root, selected=None):
-    records = contracts(root)
     selected = selected or _selected_tasks.get().get(root.resolve()) or os.environ.get(SELECTOR)
+    current = _read_contracts.get()
+    if current is not None and current[0] == root:
+        if selected not in current[2]:
+            current[2][selected] = _select_contract(root, selected, current[1])
+        return current[2][selected]
+    return _select_contract(root, selected, contracts(root))
+
+
+def _select_contract(root, selected, records):
     if selected:
         selected_text(root, records, selected)
     if "tasks/active.md" in records and len(records) != 1:

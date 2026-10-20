@@ -24,7 +24,7 @@ from model_references import catalog_outputs
 from model_core import entries, ReferenceResolutionError
 from policy_tables import literal
 from validation_cache import input_scope, digest_files, PassCache
-from task_contract import SELECTOR
+from task_contract import SELECTOR, contract_read_scope
 from issues_iac import Comparison
 from script_loader import module
 from iac_values import safe_value
@@ -45,6 +45,7 @@ def selected_scope(environment, directory, services):
     return {(environment, directory, service) for service in services}
 
 
+@contract_read_scope
 def mechanical(root, scope, *, fresh=False, jobs=4, catalog=None, fingerprint_out=None, warnings=None):
     """Reuse service checks/cache/parallelism, without contract/deploy/full-loop execution."""
     os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
