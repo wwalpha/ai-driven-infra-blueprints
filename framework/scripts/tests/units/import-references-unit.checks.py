@@ -58,6 +58,7 @@ def producer(root, kind, attributes, mode='IMPORT', env='dev', rid='001', anchor
 
 
 CASES = [
+    ('GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.BucketName', 'S3.Bucket', {'BucketName': 'audit-bucket'}, 'audit-bucket'),
     ('CloudTrail.Trail.S3BucketName', 'S3.Bucket', {'BucketName': 'audit-bucket'}, 'audit-bucket'),
     ('KinesisFirehose.DeliveryStream.S3DestinationConfiguration.BucketARN', 'S3.Bucket', {'BucketName': 'audit-bucket'}, 'arn:aws:s3:::audit-bucket'),
     ('EC2.SecurityGroup.VpcId', 'EC2.VPC', {'VpcId': 'vpc-confirmed'}, 'vpc-confirmed'),
@@ -89,6 +90,34 @@ def check_exact_reference(tmp_path, prop, kind, attrs, raw, mode, present):
             resolver.verify(prop, '`' + raw + '`', raw)
             with warned(resolver, 'differs from acquired'):
                 resolver.verify(prop, '[label](s3.md#producer)', raw)
+
+
+def check_guardduty_bucket_reference_contract(tmp_path):
+    prop = 'GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.BucketName'
+    assert contract(prop) == {'S3.Bucket': ('BucketName',)}
+    assert contract('Unknown.Resource.ProtectedResource.S3Bucket.BucketName') == {}
+    first = values('S3.Bucket', {'BucketName': 'audit-bucket'})
+    producer(tmp_path, 'S3.Bucket', {'BucketName': 'other-bucket'}, rid='002', anchor='other', previous=first)
+    resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
+    source = values('GuardDuty.MalwareProtectionPlan', {'ProtectedResource.S3Bucket.BucketName': 'unused'}, rid='009')
+    source['desired.row.009-001.value'] = '[bucket](s3.md#producer)'
+    source['observed.row.009-001.value'] = 'audit-bucket'
+    record = {'record': 'synthetic', 'identityProperty': None, 'identity': 'synthetic-plan',
+              'properties': {prop: {'status': 'captured', 'value': 'audit-bucket'}}}
+    before = Expansion({}, {}, {})
+    with patch('subprocess.run', side_effect=AssertionError('no AWS or other subprocess')):
+        assert verify_values(before, Expansion(source, {}, {}), {'009': record}, lambda _: {'type': 'string'}, resolver)
+        resolver.verify_resource(source, '009', require_links=False, observed_only=True)
+        assert not resolver.warnings
+        source['desired.row.009-001.value'] = '[wrong](s3.md#other)'
+        with warned(resolver, 'differs from acquired physical reference'):
+            verify_values(before, Expansion(source, {}, {}), {'009': record}, lambda _: {'type': 'string'}, resolver)
+        source['desired.row.009-001.value'] = '[bucket](s3.md#producer)'
+        source['observed.row.009-001.value'] = 'other-bucket'
+        with pytest.raises(ValueError, match='differs from the acquired Property'):
+            verify_values(before, Expansion(source, {}, {}), {'009': record}, lambda _: {'type': 'string'}, resolver)
+        with pytest.raises(ValueError, match='literal differs from acquired physical value'):
+            resolver.verify(prop, '`other-bucket`', 'audit-bucket')
 
 
 def check_no_guessed_or_foreign_identity(tmp_path):

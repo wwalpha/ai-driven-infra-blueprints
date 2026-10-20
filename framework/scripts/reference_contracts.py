@@ -68,6 +68,7 @@ REFERENCE_PROPERTIES = {
     'Glue.Job.Connections.Connections[]': ('Glue.Connection', 'Name'),
     'Glue.Job.Role': ('IAM.Role', 'RoleName'),
     'Glue.Job.SecurityConfiguration': ('Glue.SecurityConfiguration', 'Name'),
+    'GuardDuty.MalwareProtectionPlan.ProtectedResource.S3Bucket.BucketName': ('S3.Bucket', 'BucketName'),
     'IAM.ManagedPolicy.Roles[]': ('IAM.Role', 'RoleName'),
     'IAM.InstanceProfile.Roles[]': ('IAM.Role', 'RoleName'),
     'Lambda.Function.Code.S3Bucket': ('S3.Bucket', 'BucketName'),
