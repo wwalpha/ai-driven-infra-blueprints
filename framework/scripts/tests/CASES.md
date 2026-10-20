@@ -1,5 +1,12 @@
 # UT / IT 全ケース台帳
 
+## Limited Route53 ImportValue expressions
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `route53-import-expression::syntax` | `check_limited_import_expression` | UT | [units/route53-import-expression.checks.py](units/route53-import-expression.checks.py) | pytest / 1 | 限定式・file-level linkの形式、境界、通常literal制約 | Route53 |
+| `route53-import-expression::validation` | `check_route53_import_expression_validation` | IT | [integrations/route53-import-expression.checks.py](integrations/route53-import-expression.checks.py) | pytest / 1 | 合成Model入力と生成Markdownの正常・異常判定一致 | Route53 |
+
 ## Import conversational consent and integrity
 
 `units/import-approval-unit.checks.py` uses synthetic data only. The LLM owns explicit

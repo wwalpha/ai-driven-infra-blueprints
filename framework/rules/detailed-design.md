@@ -364,6 +364,30 @@ Local loops calculate expected listings/tables with the same generation processi
 - For properties referencing catalog identifier outputs, linked anchors are authoritative logical references; display text contains referenced current physical IDs. Use `[PENDING_DEPLOY](#vpc-vpc-app-dev)` before deployment and after destruction, and `[vpc-0123456789abcdef0](#vpc-vpc-app-dev)` after successful deployment.
 - IaC generation resolves logical IDs in hidden metadata corresponding to linked anchors without using physical IDs in display text. Resources omitting markers use confirmed heading resource names as internal identity. For CREATE references, CloudFormation uses `!Ref` and Terraform uses resource attribute references; do not hardcode physical IDs. Do not treat IMPORT references as generation targets; stop without existing approved handoff designs. Do not automatically add new external input mechanisms.
 
+### Limited Route53 ImportValue notation
+
+Only `Route53.RecordSet.AliasTarget.HostedZoneId` additionally permits the exact Model
+notation `Fn::ImportValue: <ExportBase>${Suffix}`. ExportBase is a fixed PascalCase
+name matching `[A-Z][A-Za-z0-9]*`; `${Suffix}` occurs exactly once at the end.
+This denotes ImportValue of an Export name composed with Sub, not arbitrary YAML.
+Permit the expression alone (optionally backtick-quoted), or as the entire label of an
+unquoted file-level link, for example
+`[Fn::ImportValue: QuickSightWebsiteInterfaceEndpointHostedZoneId${Suffix}](vpc-endpoint.md)`.
+The link destination must be an existing service design in the same target directory,
+with a single lower-kebab-case `.md` filename. Reject external/absolute paths, traversal,
+queries, fragments, missing files and symlinks escaping that directory. The link is
+explanatory; it does not prove Export ownership or return values.
+
+Model input and Markdown validation share this syntax/link check. Reject unknown or
+nested functions, empty/whitespace-containing Export bases, missing/repeated/misplaced
+Suffix, other variables, malformed substitutions/links, extra text and use of this
+notation on other properties. A file-level link for this property must use the exact
+permitted expression; ordinary anchor references retain their existing checks.
+Do not compare accepted expression text with the provider's HostedZoneId length limit.
+Retain provider type/length/enum/pattern checks for ordinary literals. This exception
+does not verify Suffix values, Export existence/ownership or resolved return type/length;
+IaC and deployment preflight retain those responsibilities and their existing checks.
+
 ## Generated values and deployment state
 
 - Place required non-ARN generated current identifiers as formal catalog properties designated `IDENTIFIER_OUTPUT` in `framework/materials/aws/*.properties` at catalog-order positions in corresponding resource tables, rather than independent sections. Do not create synthetic labels such as `VPC ID` or `Subnet ID`.

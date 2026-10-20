@@ -4,7 +4,7 @@
 from __future__ import annotations
 from model_core import ReferenceResolutionError
 from validation_cache import input_is_file, input_text
-from model_references import bound_resource_anchors
+from model_references import bound_resource_anchors, is_import_expression
 import json
 import re
 from pathlib import Path
@@ -358,8 +358,14 @@ def check_design_tables(
                             cells[1].startswith(schema_type + "."),
                             f"grouped property must use its full catalog name: {findings.relative(path)}: {cells[1]}",
                         )
+                    try:
+                        import_expression = is_import_expression(cells[1], cells[2], path)
+                    except ValueError as error:
+                        findings.check(False, f"invalid Model expression: {findings.relative(path)}: {error}")
+                        import_expression = True
                     if (
                         schema_catalog is not None
+                        and not import_expression
                         and schema_type
                         and schema_type not in schema_catalog.api_schemas
                         and cells[1] != REQUIRED_NAME_PROPERTIES.get(schema_type)

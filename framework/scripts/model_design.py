@@ -10,7 +10,7 @@ from collections import Counter
 from pathlib import Path
 import iac_values
 from array_display import indexed_rows
-from model_references import bound_resource_anchors, deployment_bucket, catalog_outputs, resource_rows, design_target, resource_display_rows
+from model_references import bound_resource_anchors, deployment_bucket, catalog_outputs, resource_rows, design_target, resource_display_rows, is_import_expression
 from model_display import display_rows, catalog_display_rows, row_table, sg_tables
 from aws_mapping_display import selected_rows
 from model_templates import service_source
@@ -344,6 +344,7 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
     from aws_mapping_display import validate_mappings
     findings = Findings(root)
     definitions = definitions_root or root
+    view = (root / 'docs/designs' / path.relative_to(root / 'model')).with_suffix('.md') if path.is_relative_to(root / 'model') else path
     def structure():
         validate_model_keys(values)
         resource_row_index(values)
@@ -371,6 +372,8 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
         for row_id, row in entries(selected, 'desired.row.'):
             def literal_check():
                 prop, value = row['property'], row.get('document', literal(row['value']))
+                if 'document' not in row and is_import_expression(prop, row['value'], view):
+                    return
                 if 'document' not in row and LINK.fullmatch(row['value']):
                     return
                 if '<<' in value and not value.startswith(('{', '[')):

@@ -9,6 +9,28 @@ from design_layout import HIDDEN_PROPERTIES
 from validation_cache import memoized
 
 
+def is_import_expression(prop: str, raw_value: str, design: Path) -> bool:
+    """Validate the narrow Model ImportValue notation, not arbitrary CFn/YAML."""
+    value = literal(raw_value)
+    link = re.fullmatch(r"\[([^\]]+)\]\(([^)]*)\)", value)
+    expression = link[1] if link else value
+    hosted_zone = prop == 'Route53.RecordSet.AliasTarget.HostedZoneId'
+    if not (expression.startswith(('Fn::', 'Ref:')) or
+            hosted_zone and ('Fn::' in value or '${' in value or expression.startswith('!')) or
+            hosted_zone and value.startswith('[') and LINK.fullmatch(value) is None):
+        return False
+    if (not hosted_zone or
+            re.fullmatch(r'Fn::ImportValue: [A-Z][A-Za-z0-9]*\$\{Suffix\}', expression) is None):
+        raise ValueError('invalid or unsupported Model ImportValue expression: ' + prop)
+    if link:
+        if raw_value != value or re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*\.md', link[2]) is None:
+            raise ValueError('ImportValue link requires a same-target service Markdown filename')
+        target = (design.parent / link[2]).resolve()
+        if target.parent != design.parent.resolve() or not input_is_file(target):
+            raise ValueError('ImportValue link requires an existing same-target service design: ' + link[2])
+    return True
+
+
 def reference_attribute(kind: str, attribute: str) -> str:
     """Map proven Model attributes to provider attributes, never GetAtt aliases."""
     # Ref/GetAtt Id return the Secret ARN; ManagedPolicy uses PolicyArn, not Arn.
