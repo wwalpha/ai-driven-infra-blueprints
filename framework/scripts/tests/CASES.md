@@ -2,9 +2,9 @@
 
 ## Import Human Approval Gate
 
-`units/import-approval-unit.checks.py` は合成データのみの15関数・42 pytestケース。
+`units/import-approval-unit.checks.py` は合成データのみの24関数・76 pytestケース。
 本番の信頼できるHuman承認経路は未接続で、正常Publishをfail-closedにする。
-一覧一括／個別の承認成功は未検証・未提供。既存Import ITの保存・Rollback検証は
+実運用の一覧一括／個別承認は未提供。UTでは承認verifierをstub化し、通常Publish・lock内の拒否・実保存/rollback・表示回復を検証する。既存Import ITの保存・Rollback検証は
 この未接続境界をテスト内だけでstubにし、Human承認の証明として数えない。
 cross-processケースはstubのない子プロセスで実際の拒否も確認する。
 Boolean設定のobserved誤用は拒否→desiredのみの成功へ更新。
@@ -27,7 +27,17 @@ dry-run／未完了／表示失敗の証跡は保持し、成功時削除と区�
 | `import-approval::expiry` | `check_expiry_and_digest_tampering` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 7日有効期限・digest改ざん拒否 | Import Review |
 | `import-approval::unselected` | `check_unselected_reference_changes_are_not_reviewed_as_selected` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 非選択Resourceの変更拒否 | Import Review |
 | `import-approval::review-command` | `check_review_command_is_read_only` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 4 | Review出力・baseline競合・承認flag・機密候補拒否、Model未変更 | Import Review |
-| `import-approval::display` | `check_preflight_before_any_save` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 3 | 表示用展開・メモリ生成と構造エラー時のModel/証跡保持 | Pre-save |
+| `import-approval::display` | `check_preflight_before_any_save` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 8 | Review一致・値/反映先/baseline/provenance不一致拒否、表示用展開・メモリ生成と構造エラー時のModel/証跡保持 | Pre-save |
+| `import-approval::required-review` | `check_missing_review_rejected_before_candidate_load` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | Reviewなしの通常Publishは候補読込前に拒否 | Pre-save |
+| `import-approval::reference-meaning` | `check_same_value_reference_meaning_is_bound` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 6 | 同一展開値でもselector・Definition参照宣言・Service・Property・Definition・input名変更でReview不一致 | Import Review |
+| `import-approval::reference-metadata` | `check_reference_location_and_description_are_not_meaning` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 位置・説明文と派生observed traceはReference意味から除外 | Import Review |
+| `import-approval::reference-schema` | `check_reference_proposal_uses_existing_contract` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 5 | 参照提案は既存宣言/type/fixed-target契約と正規化形式で検証 | Import Review |
+| `import-approval::unselected-selector` | `check_unselected_reference_selector_is_rejected` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 未選択Resourceのselector変更を拒否 | Import Review |
+| `import-approval::loader-provenance` | `check_real_loader_retains_unresolved_reference_declaration` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 実loaderが未解決参照のService/type/Property/selectorを保持、Review構造検証は非ブロック | Import Review |
+
+| `import-approval::publication-transaction` | `check_publication_transaction_with_stubbed_authority` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 9 | 承認stub下の正常保存、lock前Review/draft/candidate/acquisition/baseline変更・期限切れ拒否、実rollbackと表示保存失敗時のModel/証跡保持 | Publication |
+| `import-approval::display-recovery` | `check_saved_display_recovery_needs_no_new_approval` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | sync-modelの既存回復workerで保存済みModelを保持して表示のみ保存、取得/承認呼出なし | Recovery |
+| `import-approval::unapproved-candidate` | `check_unapproved_candidate_rejected_with_stubbed_authority` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 4 | 承認stub後もProperty・反映先・追加Resource・selector不一致を保存前拒否 | Publication |
 
 元パスは分離前の `framework/scripts/tests/` 相対。現在のリンクはこのファイルからの相対。分類は検証責務による。変更不要のケースも掲載。
 

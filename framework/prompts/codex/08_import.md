@@ -92,10 +92,20 @@ retains its separately authorized development tests.
 ## Full review and Human approval boundary
 
 Before editing source candidates, prepare `selection.json` and an external
-`review-input.json` beside the acquisition. The latter has exactly `proposedValues`
+`review-input.json` beside the acquisition. The latter requires `proposedValues`
 (the proposed new/changed expanded Model string fields; Python retains the unchanged
 baseline in memory, so do not copy secret or unrelated baseline values) and `risks` (each acquired record ID mapped to a list of concrete
-risk descriptions, including empty lists). This is a read-only proposal, not source
+risk descriptions, including empty lists). Optional `referenceProvenance` contains the
+complete proposed Reference meaning map, keyed by expanded desired Resource/Row field.
+Omitting it preserves the baseline meaning map. Use `import_approval.reference_provenance()`
+on the baseline to inspect its shape: each entry contains Definition/Instance/local key,
+`references` (template declarations) and `inputs` (reference declarations with selector
+`value`). Propose changes to that map before candidate edits. Include declared service,
+resource type, identifier property/format, fixed target or Instance, and input name.
+Python reuses the input schema/type contract; absent producers remain nonblocking.
+The Review binds the before/after map alongside the logical expressions and acquired
+physical values. Source paths, line numbers and descriptions are not Reference meaning.
+This is a read-only proposal, not source
 files or a mutation language. Python never converts it into templates or parameters.
 Do not edit authoritative Models or populate source candidates at this step.
 
@@ -143,6 +153,19 @@ digests, Task, Worktree, scope, acquisition/baseline, selected changes/risks and
 (within the existing seven-day acquisition lifetime). It must verify these again under
 the publication lock against the actual expanded candidate, not claimed file diffs.
 Same-user local files, the local seal key and agent-executable code are not that boundary.
+The inspected Codex surface exposes command/file permission approvals and user-input
+questions, but no authenticated Import receipt API. In this session permission escalation
+uses auto-review, so command success is not evidence of a Human decision. Starting another
+agent-owned app-server client or approval CLI cannot create that missing trust boundary.
+To unblock production, the host must provide a Human-only review surface and an issuer
+outside the agent identity, plus a verifier identity/configuration the agent cannot replace.
+It must deliver record-scoped approvals (including whole-list decisions and exclusions)
+for the fields above to the trusted publisher. That publisher must own authoritative
+source writes and receipt storage; agent tools should have read-only authority there.
+The completion/integration guard must verify the receipt and persisted source hashes;
+display-only recovery can retain the sealed source result without issuing a new approval.
+These host/OS changes are not implemented by this Framework patch; approval verification,
+record-scoped successful Publish and approval-bound publication proof remain unresolved.
 This environment permits direct filesystem writes: these Python guards cannot prevent
 an agent bypassing them with raw I/O or changed code. Complete enforcement requires a
 separate trusted writer/OS access boundary; do not claim it is already guaranteed.
@@ -371,8 +394,13 @@ Apply [Reference diagnostics](../../rules/model-information.md#reference-diagnos
 reference warnings never cancel a saved Model or require repair before completion.
 Logical design names need not equal AWS strings. Unacquired values cannot pass merely
 because an agent says they were checked. A conflict or invalid candidate rejects the
-whole publication; no old plan is applied over concurrent changes. When a Review exists,
-the actual candidate expansion must match its typed content and digest. New/changed
+whole publication; no old plan is applied over concurrent changes. Normal Publish
+requires `review.json` even when a verifier is supplied by a future trusted runtime.
+Dry-run may omit Review; when present, it must match. The actual candidate expansion
+and `load_for_edit()` Reference provenance must match the Review's typed content,
+selectors, declarations and digest, even if expanded values are identical. Publication
+checks the Review and draft bytes again inside the publication lock. These comparisons
+are integrity gates; they do not establish Human approval. New/changed
 observed rows reuse the desired logical-reference rule and acquired-value checks;
 ordinary Name/CIDR/Boolean/Number settings stay desired. Unrelated existing observed
 rows are not revalidated by this new observation check.

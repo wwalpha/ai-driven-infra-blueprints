@@ -4,7 +4,7 @@ from model_core import LINK, entries
 from model_files import resource_row_index
 from model_templates import Expansion, REFERENCE_NAME_SUFFIXES
 from import_guard import digest, require_fresh_acquisition, validate_inventory
-from import_sources import selection_records, verify_values, typed_row, typed_equal, has_reference, pending_items
+from import_sources import selection_records, verify_values, typed_row, typed_equal, has_reference, pending_items, reference_state
 from import_inventory import type_name
 
 
@@ -15,7 +15,7 @@ def require_human_approval():
                      'records/changes/risks and expiry; local JSON, flags and HMAC seals cannot authorize publication')
 
 
-def build_review(acquisition, selection, before, proposed, risks, property_schema):
+def build_review(acquisition, selection, before, proposed, risks, property_schema, *, proposed_references=None):
     """Validate an LLM-authored proposed expanded snapshot; never edit source files."""
     require_fresh_acquisition(acquisition)
     if not isinstance(proposed, dict) or any(not isinstance(k, str) or not isinstance(v, str)
@@ -41,8 +41,18 @@ def build_review(acquisition, selection, before, proposed, risks, property_schem
         owner = parts[2].rpartition('-')[0] if len(parts) == 4 and parts[1] == 'row' else parts[2] if len(parts) == 4 and parts[1] == 'resource' else None
         if owner not in selected:
             raise ValueError('IMPORT Review changes an unselected Resource or service field: ' + key)
-    after = Expansion(proposed, {}, {})
-    verify_values(before, after, selected, property_schema, warnings=warnings)
+    prior_references = reference_provenance(before)
+    proposed_references = prior_references if proposed_references is None else proposed_references
+    validate_reference_proposal(proposed_references, proposed)
+    for key in prior_references.keys() | proposed_references.keys():
+        if typed_equal(prior_references.get(key), proposed_references.get(key)):
+            continue
+        parts = key.split('.')
+        owner = parts[2].rpartition('-')[0] if parts[1] == 'row' else parts[2]
+        if owner not in selected:
+            raise ValueError('IMPORT Review changes an unselected Resource reference: ' + key)
+    after = Expansion(proposed, proposed_references, {})
+    verify_values(before._replace(provenance=prior_references), after, selected, property_schema, warnings=warnings)
     pending = pending_items(selection, selected, proposed, property_schema)
     old_resources = dict(entries(before.values, 'desired.resource.'))
     new_resources = dict(entries(proposed, 'desired.resource.'))
@@ -102,13 +112,14 @@ def build_review(acquisition, selection, before, proposed, risks, property_schem
             'unreflected': [item for item in pending if item['record'] == record['record']],
             'risks': [*risks[record['record']], *[w for w in warnings if w.get('record') == record['record']
                       or rid is not None and w.get('resource') == rid]]})
-    review = {'version': 1, 'task': acquisition['task'], 'worktree': acquisition['root'],
+    review = {'version': 2, 'task': acquisition['task'], 'worktree': acquisition['root'],
               'scope': acquisition['scope'], 'connection': acquisition['connection'],
               'acquiredAt': acquisition['acquiredAt'], 'acquisitionDigest': digest(acquisition),
               'expiresAt': (datetime.fromisoformat(acquisition['acquiredAt']) + timedelta(days=7)).isoformat(),
               'sourceBaselineDigest': digest(acquisition['sources']),
               'inventory': inventory, 'selection': selection,
               'dispositions': dispositions, 'warnings': warnings,
+              'referenceProvenance': {'before': prior_references, 'after': proposed_references},
               'proposedValuesDigest': digest(proposed), 'approvalBoundary': 'unavailable'}
     return {**review, 'reviewDigest': digest(review)}
 
@@ -118,3 +129,50 @@ def verify_review(review, expected):
     content = {key: value for key, value in review.items() if key != 'reviewDigest'}
     if review.get('reviewDigest') != digest(content) or not typed_equal(review, expected):
         raise ValueError('IMPORT Review changed or stale; present the changed records/values/references/risks again')
+
+
+def reference_provenance(expansion):
+    """Extract the same declarations/selectors checked by verify_values()."""
+    result = {}
+    fields = {'type', 'source', 'service', 'resourceType', 'format', 'property', 'target', 'instance'}
+    for key, trace in expansion.provenance.items():
+        state = {group: {name: {k: v for k, v in spec.items() if k in fields | ({'value'} if group == 'inputs' else set())}
+                         for name, spec in declarations.items()}
+                 for group, declarations in reference_state(trace).items()}
+        if key.startswith(('desired.row.', 'desired.resource.')) and (state['references'] or state['inputs']):
+            result[key] = {**state, **{name: trace[name] for name in ('definition', 'instance', 'key') if name in trace}}
+    return result
+
+
+def validate_reference_proposal(proposal, values):
+    """Validate declarations with the existing input contract, without resolving producers."""
+    from model_parameter_inputs import schema, check_type, reference_schema
+    if not isinstance(proposal, dict):
+        raise ValueError('IMPORT Review referenceProvenance must be an object')
+    for key, state in proposal.items():
+        if (key not in values or not key.startswith('desired.') or len(key.split('.')) != 4
+                or key.split('.')[1] not in {'row', 'resource'} or not isinstance(state, dict)
+                or set(state) - {'references', 'inputs', 'definition', 'instance', 'key'}
+                or not {'references', 'inputs'} <= state.keys()):
+            raise ValueError('IMPORT Review invalid Reference provenance: ' + str(key))
+        for group in ('references', 'inputs'):
+            if not isinstance(state[group], dict):
+                raise ValueError('IMPORT Review invalid Reference declarations')
+            for name, declaration in state[group].items():
+                if not isinstance(name, str) or not isinstance(declaration, dict):
+                    raise ValueError('IMPORT Review invalid Reference declaration')
+                spec = {k: v for k, v in declaration.items() if k != 'value'}
+                if spec.get('source') == 'instance':
+                    spec.pop('source')
+                checked = schema({**spec, 'description': 'Import Review reference', 'required': True})
+                if checked['type'] != 'reference' or group == 'references' and checked.get('source') != 'template':
+                    raise ValueError('IMPORT Review requires a Reference declaration')
+                if group == 'inputs':
+                    check_type(checked, declaration.get('value'), name)
+                else:
+                    target = {k: checked[k] for k in ('service', 'resourceType', 'format', 'property') if k in checked}
+                    target['instance' if 'instance' in checked or 'service' not in checked else 'resource'] = checked.get('target')
+                    reference_schema(target)
+        normalized = reference_provenance(Expansion(values, {key: state}, {}))
+        if normalized.get(key) != state:
+            raise ValueError('IMPORT Review requires normalized Reference provenance')

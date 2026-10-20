@@ -342,9 +342,10 @@ def review_acquisition(root, environment, service, evidence, selector=None, dry_
             safe(evidence.parent, file)
         draft_text, selection_text = draft_file.read_text(encoding='utf-8'), selection_file.read_text(encoding='utf-8')
         draft, selection = json_read(draft_text), json_read(selection_text)
-        if set(draft) != {'proposedValues', 'risks'}:
-            raise ValueError('IMPORT Review input requires proposedValues and risks only; approval flags are forbidden')
-        review = import_approval.build_review(acquisition, selection, before, draft['proposedValues'], draft['risks'], property_schema)
+        if not {'proposedValues', 'risks'} <= draft.keys() or set(draft) - {'proposedValues', 'risks', 'referenceProvenance'}:
+            raise ValueError('IMPORT Review input requires proposedValues, risks and optional referenceProvenance; approval flags are forbidden')
+        review = import_approval.build_review(acquisition, selection, before, draft['proposedValues'], draft['risks'], property_schema,
+                                             proposed_references=draft.get('referenceProvenance'))
         if comparator().redacted(review) != review:
             raise ValueError('IMPORT Review contains sensitive data; remove it before review')
         with publication_lock(root):
@@ -376,6 +377,11 @@ def publish_acquisition(root, environment, service, evidence, selector=None, dry
 
 
 def publish_selected(root, identity, evidence, acquisition, dry_run):
+    review_file = evidence.parent / 'review.json'
+    from model_templates import safe
+    safe(evidence.parent, review_file)
+    if not dry_run and not review_file.is_file():
+        raise ValueError('IMPORT normal Publish requires review.json')
     if not dry_run:
         import_approval.require_human_approval()
     from model_templates import consumers
@@ -434,13 +440,16 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
         if file not in output:
             checksums.setdefault(file.relative_to(root).as_posix(), text_hash(text))
     pending = pending_items(selection, selected, after.values)
-    review_file = evidence.parent / 'review.json'
-    if review_file.is_file():
-        from model_templates import safe
+    if not dry_run or review_file.is_file():
         safe(evidence.parent, review_file)
-        reviewed = json_read(review_file.read_text(encoding='utf-8'))
-        draft = json_read((evidence.parent / 'review-input.json').read_text(encoding='utf-8'))
-        expected = import_approval.build_review(acquisition, selection, before, after.values, draft['risks'], property_schema)
+        draft_file = evidence.parent / 'review-input.json'
+        safe(evidence.parent, draft_file)
+        draft_text = draft_file.read_text(encoding='utf-8')
+        draft = json_read(draft_text)
+        review_text = review_file.read_text(encoding='utf-8')
+        reviewed = json_read(review_text)
+        expected = import_approval.build_review(acquisition, selection, before, after.values, draft['risks'],
+                                               property_schema, proposed_references=import_approval.reference_provenance(after))
         import_approval.verify_review(reviewed, expected)
     complete = not pending and acquisition_complete(acquisition)
     result = {'status': 'incomplete' if not complete else 'dry-run' if dry_run else 'complete',
@@ -487,6 +496,10 @@ def publish_selected(root, identity, evidence, acquisition, dry_run):
     snapshot = {root / name: (root / name).read_bytes() if checksum is not None else None for name, checksum in checksums.items()}
     snapshot.update(view_inputs)
     with publication_lock(root):
+        if (review_file.read_text(encoding='utf-8') != review_text
+                or draft_file.read_text(encoding='utf-8') != draft_text):
+            raise ValueError('IMPORT Review inputs changed before publication')
+        import_approval.verify_review(reviewed, expected)
         import_approval.require_human_approval()
         contract_scope(root, {identity})
         unchanged(root, checksums)

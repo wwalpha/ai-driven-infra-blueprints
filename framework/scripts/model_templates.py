@@ -1120,6 +1120,8 @@ def load_sources(path, expander, source_files=None):
                                                     parameters['instances'][source['instance']]['parameters'].get(name, definition.parameters[name].get('default'))),
                                           'source': definition.parameters[name].get('source', 'instance'),
                                           'type':definition.parameters[name]['type'], 'required':definition.parameters[name]['required'],
+                                          **({k: definition.parameters[name][k] for k in ('service', 'resourceType', 'format', 'property')
+                                              if k in definition.parameters[name]} if definition.parameters[name]['type'] == 'reference' else {}),
                                           'modelKey': source['key'],
                                           'constraints':definition.parameters[name].get('constraints', {}),
                                           **({'default':definition.parameters[name]['default']} if 'default' in definition.parameters[name] else {})}

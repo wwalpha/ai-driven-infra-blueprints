@@ -358,6 +358,12 @@ def reference_value_equal(left, right):
     return typed_equal(left, right)
 
 
+def reference_state(trace):
+    """Shared declaration/selector boundary; keep the existing warning comparison."""
+    return {'references': trace.get('references', {}),
+            'inputs': {n: v for n, v in trace.get('inputs', {}).items() if v.get('type') == 'reference'}}
+
+
 def verify_values(before, after, selected, property_schema, references=None, *, warnings=None):
     """Prove every changed real value against its selected acquired Property."""
     warnings = warnings if warnings is not None else []
@@ -423,7 +429,6 @@ def verify_values(before, after, selected, property_schema, references=None, *, 
             raise ValueError('IMPORT additions must belong to a new resource: ' + key)
     for key, previous in before.provenance.items():
         current = after.provenance.get(key, {})
-        reference_state = lambda trace: (trace.get('references', {}), {n: v for n, v in trace.get('inputs', {}).items() if v.get('type') == 'reference'})
         if reference_state(previous) != reference_state(current) and not acquired_key(key):
             warn('reference declaration or selector changed', key=key)
     indexed_old, indexed_new = resource_row_index(old), resource_row_index(new)
