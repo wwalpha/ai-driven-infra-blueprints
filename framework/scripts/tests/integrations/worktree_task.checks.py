@@ -616,7 +616,9 @@ def check_registered_normal_model_guard():
         (root / '.gitignore').write_text((root / '.gitignore').read_text() + '.venv/\n')
         git(root, 'add', '.'); git(root, 'commit', '-qm', 'synthetic runtime fixture')
         target, state = start(root, files=(relative,))
-        directory = target / '.venv'
+        directory = wt.python_env.shared_directory(root)
+        directory.mkdir()
+        (directory / '.blueprint-owner').write_text(str(directory))
         venv.EnvBuilder(with_pip=False).create(directory)
         interpreter = wt.python_env.python_path(directory)
         site = subprocess.run([str(interpreter), '-c', 'import sysconfig; print(sysconfig.get_path("purelib"))'],
@@ -639,8 +641,9 @@ sys.setprofile(profile)
 atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(counts)))
 """, encoding='utf-8')
         Path(site, 'guard-probe.pth').write_text('import guard_probe\n', encoding='utf-8')
-        state['python_setup'] = dict(status='ready', kind='venv', installed=False,
-                                    interpreter=str(interpreter), bin=str(interpreter.parent), **wt.python_env.signature(target))
+        (directory / '.blueprint-ready').write_text(str(directory))
+        state['python_setup'] = dict(status='ready', kind='shared', installed=False,
+                                    interpreter=str(interpreter), bin=str(interpreter.parent))
         _, _, state_path, _ = wt.load(root, 'example')
         wt.save(state_path, state)
         (target / relative).write_text((target / relative).read_text() + '\n# ordinary save\n')
@@ -659,8 +662,9 @@ atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(co
         counts = json.loads(probe.read_text())
         assert counts['_symbolic'] >= 4 and counts['_load_for_analysis'] >= 4
         assert not target.exists()
+        assert wt.python_env.shared_ready(directory)
         assert (root / relative).read_text().endswith('# ordinary save\n')
-    print('Ordinary Model guard in registered venv with dependency-free parent: PASS')
+    print('Ordinary Model guard in registered shared venv with dependency-free parent: PASS')
 
 
 def main():

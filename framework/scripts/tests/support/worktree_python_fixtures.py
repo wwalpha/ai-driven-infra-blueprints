@@ -1,4 +1,4 @@
-"""Offline global selection, per-worktree venvs and deletion boundary regression."""
+"""Offline shared setup, runtime registration and deletion boundary regression."""
 
 import sys
 

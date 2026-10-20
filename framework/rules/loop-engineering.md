@@ -23,7 +23,7 @@ The OS-independent entrypoint is `framework/scripts/blueprint-loop.py`. In comma
 
 In managed worktrees, replace the launcher in Python examples with
 `python3 -B framework/scripts/run-python.py` (use an available Python 3 launcher on Windows).
-The wrapper runs the task's registered ready Python Interpreter (global or its owned worktree-local venv)
+The wrapper runs the task's registered ready shared Python Interpreter
 and sets its CLI PATH for this process
 and all children; fresh shells need no activation. Use the same wrapper for standalone
 checks/pytest and `--command cfn-lint` for Python CLIs. Failed/stale setup must be recovered
