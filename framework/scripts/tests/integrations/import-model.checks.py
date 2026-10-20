@@ -21,7 +21,7 @@ from model_core import entries
 from model_parameter_inputs import yaml_read
 from model_templates import json_text, load_for_edit
 from support.import_model_fixtures import (ACCOUNT, TARGET, SERVICES, SUBNETS, VPC_ID, AwsCli,
-    aws, correspondence, exclusions, fixture, logs_edit, m, publish_fixture, snapshot, spec, stage)
+    aws, correspondence, exclusions, fixture, logs_edit, m, publish_fixture, review_fixture, snapshot, spec, stage)
 
 
 @pytest.fixture(autouse=True)
@@ -564,6 +564,7 @@ def check_cross_process_evidence(tmp_path):
     completed = subprocess.run([sys.executable, '-B', '-c', acquire_code], capture_output=True, text=True, encoding='utf-8', check=True)
     acquired = json.loads(completed.stdout)
     logs_edit(root, acquired)
+    review_fixture(root, acquired)
     publish_code = setup + f"import json; print(json.dumps(m.publish_acquisition(Path({str(root)!r}), 'dev', 'cloudwatch-logs', Path({acquired['evidence']!r}), 'cde')))"
     rejected = subprocess.run([sys.executable, '-B', '-c', publish_code], capture_output=True, text=True, encoding='utf-8')
     assert rejected.returncode != 0 and 'Human approval unavailable' in rejected.stderr
@@ -907,6 +908,7 @@ def check_reference_publication(tmp_path, present, race):
         if observed:
             output[(directory / 'observed.json').relative_to(root).as_posix()] = json_text({'version': 1, 'values': observed})
         stage(acquired, output, [{'record': record['record'], 'resource': '009', 'action': 'add', 'reason': 'Explicit synthetic management', 'basis': []}])
+        review_fixture(root, acquired, 'cloudtrail')
         calls = len(cli.calls)
         import model_templates
         real_parse = model_templates.parse_template

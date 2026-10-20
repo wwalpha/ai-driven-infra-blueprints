@@ -306,7 +306,30 @@ def logs_edit(root, acquisition, days=90):
     return files
 
 
+def review_fixture(root, acquisition, service='cloudwatch-logs'):
+    from import_approval import reference_provenance
+    from import_scope import new_references
+    from model_templates import Expansion
+    evidence = Path(acquisition['evidence'])
+    identity = ('dev', TARGET, service)
+    path = root / 'model/dev' / TARGET / (service + '.properties')
+    before = load_for_edit(path) or Expansion({}, {}, {})
+    output = m.candidate_sources(root, evidence.parent / 'candidates', identity)
+    proposed = load_for_edit(path, output)
+    selection = json.loads(Path(acquisition['selection']).read_text(encoding='utf-8'))
+    selected = m.selection_records(selection, acquisition['records'], before.values, proposed.values, m.property_schema)
+    with new_references(before, selected):
+        proposed = load_for_edit(path, output)
+    (evidence.parent / 'review-input.json').write_text(json_text({
+        'proposedValues': proposed.values,
+        'referenceProvenance': reference_provenance(proposed),
+        'risks': {record['record']: [] for record in acquisition['records']}}), encoding='utf-8')
+    return m.review_acquisition(root, 'dev', service, evidence, TARGET)
+
+
 def publish_fixture(root, acquisition, service='cloudwatch-logs', dry_run=False):
+    if not dry_run:
+        review_fixture(root, acquisition, service)
     return m.publish_acquisition(root, 'dev', service, acquisition['evidence'], TARGET, dry_run)
 
 
