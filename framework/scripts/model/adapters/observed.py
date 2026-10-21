@@ -154,6 +154,7 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
         stack_model(values)
     target = target or (load_target(root, environment, directory) if (root / "project.json").is_file() else {})
     result, owners, errors = {}, {}, {}
+    row_indexes = {}
     if values:
         names = set(bound) or {stack["name"] for _, stack in entries(values, "desired.stack.")}
         for name, logical in direct:
@@ -209,7 +210,16 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
                     raise ValueError(f"model resource also owned by {previous[0]}/{previous[1]}")
                 owners[owner] = (name, logical)
                 outputs = set() if rule else catalog_outputs(root, resource["resourceType"]) - HIDDEN_PROPERTIES
-                rows = [(rid, row) for rid, row in entries(loaded[path], "desired.row.") if rid.startswith(identity + "-")]
+                if path not in row_indexes:
+                    # Every hyphen prefix preserves startswith ownership, including
+                    # overlapping and empty owners. Parse all rows before indexing.
+                    index = {}
+                    for rid, row in entries(loaded[path], "desired.row."):
+                        for offset, char in enumerate(rid):
+                            if char == "-":
+                                index.setdefault(rid[:offset], []).append((rid, row))
+                    row_indexes[path] = index
+                rows = [(rid, dict(row)) for rid, row in row_indexes[path].get(identity, ())]
                 if rule:
                     rows = [(rid, row) for rid, row in rows if row["property"].startswith(kind + ".")]
                     if not rows:
