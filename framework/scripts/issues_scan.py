@@ -228,9 +228,16 @@ def verify_inputs(root, artifact):
 
 
 def verify_service_keys(root, artifact):
+    cache = None
     for entry, expected_key in artifact.get('service_keys', {}).items():
-        if expected_key is not None and PassCache(root).service_key(tuple(entry.split('/'))) != expected_key:
+        if expected_key is None:
+            continue
+        if cache is None:
+            cache = PassCache(root)
+        if cache.service_key(tuple(entry.split('/'))) != expected_key:
             raise ValueError('stale scan: validation/reference dependency changed')
+    if cache is not None and cache.common_key() != cache.common:
+        raise ValueError('stale scan: validation/reference dependency changed')
 
 
 @input_scope

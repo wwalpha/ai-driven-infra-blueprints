@@ -201,6 +201,140 @@ def summary_scale_cases():
 
 check_summary_scale = summary_scale_cases
 
+
+def check_operation_pass_cache():
+    import issues_scan
+    from validation_cache import PassCache, digest_files
+
+    def baseline(root, artifact):
+        for entry, key in artifact.get('service_keys', {}).items():
+            if key is not None and PassCache(root).service_key(tuple(entry.split('/'))) != key:
+                raise ValueError('stale scan: validation/reference dependency changed')
+
+    def outcome(call):
+        try:
+            return call()
+        except (ValueError, OSError) as error:
+            return type(error), str(error)
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        common = root / 'project.json'
+        project = json.dumps({'projectName': 'fixture', 'targets': [{'environment': 'dev', 'alias': 'team',
+            'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n'
+        write(common, project)
+        docs = root / 'docs/designs/dev/team'
+        for service in ('first', 'second', 'producer'):
+            write_model(root / f'model/dev/team/{service}.properties', {
+                f'desired.service.{service}.serviceId': service,
+                f'desired.service.{service}.ownedCatalogResourceTypes': 'S3.Bucket',
+                'display.service.title': '# 合成入力'})
+            write(docs / f'{service}.md', '# 合成入力\n')
+        write(docs / 'first.md', '[producer](producer.md)\n[policy](policy.json)\n')
+        write(docs / 'policy.json', '{}\n')
+        orphan = docs / 'first/extra.json'
+        write(orphan, '{}\n')
+        entries = [('dev', 'team', service) for service in ('first', 'second')]
+
+        def artifact():
+            return {'service_keys': {'/'.join(entry): PassCache(root).service_key(entry) for entry in entries},
+                    'fingerprint': {'paths': [], 'digest': digest_files(root, []),
+                                    'file_sets': {}, 'framework': PassCache(root).common_key()}}
+
+        saved = artifact()
+        calls = []
+        original_common = PassCache.common_key
+
+        def counted(cache, *args, **kwargs):
+            calls.append(cache)
+            return original_common(cache, *args, **kwargs)
+
+        with patch.object(PassCache, 'common_key', counted):
+            assert baseline(root, saved) is None
+            assert len(calls) == len(entries)
+            calls.clear()
+            assert issues_scan.verify_service_keys(root, saved) is None
+            assert len(calls) == 2 and calls[0] is calls[1]
+            calls.clear()
+            assert issues_scan.verify_inputs(root, saved) is None
+            assert len(calls) == 3 and calls[-1] is not calls[0]
+        # Three services also demonstrate fewer common hashes, without a timing threshold.
+        saved['service_keys']['dev/team/producer'] = PassCache(root).service_key(('dev', 'team', 'producer'))
+        with patch.object(PassCache, 'common_key', counted):
+            calls.clear()
+            baseline(root, saved)
+            assert len(calls) == 3
+            calls.clear()
+            issues_scan.verify_service_keys(root, saved)
+            assert len(calls) == 2
+
+        paths = [common, docs / 'first.md', root / 'model/dev/team/first.properties',
+                 root / 'model/dev/team/producer.properties', docs / 'producer.md',
+                 docs / 'policy.json', orphan]
+        paths += sorted((root / 'model/dev/team/first').rglob('*.properties'))
+        for path in paths:
+            original = path.read_bytes()
+            for replacement in (original + b'\n', None):
+                if replacement is None:
+                    path.unlink()
+                else:
+                    path.write_bytes(replacement)
+                expected = outcome(lambda: baseline(root, saved))
+                assert expected is not None
+                assert outcome(lambda: issues_scan.verify_service_keys(root, saved)) == expected
+                path.write_bytes(original)
+        for path in (docs / 'first/new.json', docs / 'producer/new.json',
+                     root / 'model/dev/team/first/new.properties'):
+            write(path, '{}\n')
+            assert outcome(lambda: issues_scan.verify_service_keys(root, saved)) == outcome(lambda: baseline(root, saved))
+            assert outcome(lambda: baseline(root, saved)) is not None
+            path.unlink()
+        for target in (docs / 'policy.json', docs / 'first.md', root / 'model/dev/team/first.properties', common):
+            original = target.read_bytes()
+            target.unlink()
+            target.symlink_to(orphan)
+            assert outcome(lambda: issues_scan.verify_service_keys(root, saved)) == outcome(lambda: baseline(root, saved))
+            assert outcome(lambda: baseline(root, saved)) is not None
+            target.unlink()
+            target.write_bytes(original)
+
+        service_key = PassCache.service_key
+        seen = []
+
+        def mutate(cache, entry):
+            key = service_key(cache, entry)
+            seen.append(entry)
+            if len(seen) == 1:
+                write(common, project + '\n')
+            return key
+
+        first = next(iter(saved['service_keys']))
+        single = {'service_keys': {first: saved['service_keys'][first]}}
+        with patch.object(PassCache, 'service_key', mutate):
+            assert outcome(lambda: issues_scan.verify_service_keys(root, single)) == (
+                ValueError, 'stale scan: validation/reference dependency changed')
+        # A new operation must observe the new common inputs rather than reuse the previous key.
+        assert outcome(lambda: issues_scan.verify_service_keys(root, saved)) == outcome(lambda: baseline(root, saved))
+        refreshed = artifact()
+        assert issues_scan.verify_inputs(root, refreshed) is None
+        with patch.object(issues_scan, 'PassCache', side_effect=AssertionError('None key must not construct a cache')):
+            assert issues_scan.verify_service_keys(root, {'service_keys': {'missing/service/key': None}}) is None
+            assert issues_scan.verify_service_keys(root, {}) is None
+        ordered = {'service_keys': {'dev/team/missing': 'bad', 'dev/team/first': 'bad'}}
+        assert outcome(lambda: issues_scan.verify_service_keys(root, ordered)) == outcome(lambda: baseline(root, ordered))
+        refreshed['fingerprint']['paths'] = ['docs/designs/dev/team/policy.json']
+        refreshed['fingerprint']['digest'] = digest_files(root, [docs / 'policy.json'])
+        write(docs / 'policy.json', '{"changed": true}\n')
+        assert outcome(lambda: issues_scan.verify_inputs(root, refreshed)) == (
+            ValueError, 'stale scan: scoped model/IaC/parameter/reference input changed; rescan affected scope')
+        write(docs / 'policy.json', '{}\n')
+        # Keep verify_inputs' earlier file-set guard and its final independent framework guard.
+        refreshed['fingerprint']['file_sets'] = {'docs/designs/dev/team/first': []}
+        assert outcome(lambda: issues_scan.verify_inputs(root, refreshed)) == (ValueError, 'stale scan: input file set changed')
+        refreshed['fingerprint']['file_sets'] = {}
+        with patch.object(issues_scan, 'verify_service_keys', side_effect=lambda *_: write(common, '{}\n')):
+            assert outcome(lambda: issues_scan.verify_inputs(root, refreshed)) == (ValueError, 'stale scan: framework/project input changed')
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))
