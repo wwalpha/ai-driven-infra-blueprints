@@ -508,7 +508,8 @@ def check_managed_properties_save(monkeypatch, failure):
 - Model operation: `import-delete`
 - AWS API execution: `forbidden`
 - deploy/apply: `forbidden`
-- Source resource: `qa-synthetic/team-a/network/007`
+## Model delete sources
+- `qa-synthetic/team-a/network/007`
 ## Validation scope
 - `qa-synthetic/team-a/network`
 ## Required changes
@@ -656,7 +657,7 @@ def check_properties_model_operation_preservation(tmp_path, monkeypatch, change)
     destination = '/'.join((*identity, '008'))
     operation = ModelOperation('import-delete' if change == 'delete' else 'import-merge', identity,
         pairs=() if change == 'delete' else (MergePair(source, destination),),
-        delete_source=source if change == 'delete' else None, delete_sources=(source,) if change == 'delete' else ())
+        delete_sources=(source,) if change == 'delete' else ())
     candidate = {key: value for key, value in values.items() if owner(key, values) != ('resource', '007')}
     if change != 'delete':
         candidate['observed.row.008-001.value'] = values['observed.row.007-001.value']
@@ -675,7 +676,7 @@ def check_properties_model_operation_preservation(tmp_path, monkeypatch, change)
     if change in {'delete', 'merge'}:
         verify_model_operation(before, after, operation, sources)
     else:
-        with pytest.raises(ValueError, match='identity|observation|undeclared|unspecified'):
+        with pytest.raises(ValueError, match='identity|logicalId|observation|undeclared|unspecified'):
             verify_model_operation(before, after, operation, sources)
 
 
@@ -861,7 +862,7 @@ def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, c
                     before = load_model(path, context.snapshot)
                     candidate = patch(before.documents[path], fields)
                     if change in {'import-config', 'fixed-id'}:
-                        with pytest.raises(ValueError, match='IMPORT configuration|fixed identity'):
+                        with pytest.raises(ValueError, match='IMPORT configuration|saved logicalId cannot change'):
                             plan = prepare_edit(before, {path: candidate}, context)
                             publish_edit(plan, context)
                         assert path.read_bytes() == original

@@ -183,6 +183,7 @@ def check_task_service_validation(tmp_path):
 desired.service.logs.ownedCatalogResourceTypes=Logs.LogGroup
 desired.resource.001.resourceType=Logs.LogGroup
 desired.resource.001.logicalId=Logs_LogGroup_001
+desired.resource.001.cfn-logicalId=fixture-LogGroup
 desired.service.identity.lastAllocated={"Logs.LogGroup":1}
 desired.row.001-001.property=Logs.LogGroup.LogGroupName
 desired.row.001-001.value=cwlogs-app-dev-flow
@@ -194,6 +195,10 @@ display.service.title=# CloudWatch Logs 詳細設計
 display.resource.001.comment=通信ログを保存するLog Group
 """
     write_model(model, original)
+    write_model(model.with_name('cloudformation-stacks.properties'), {
+        'desired.stack.001.name': 'fixture', 'desired.stack.001.placementName': 'fixture',
+        'desired.stack.001.template': 'fixture.yaml', 'desired.stack.001.parameters': 'fixture.json',
+        'desired.stack.001.deployOrder': '1', 'display.stack.001.comment': '合成Stack'})
     environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0"}
     environment.pop("BLUEPRINT_PROFILE_DIR", None)  # The fixture profiles only its explicit --profile run.
     result = subprocess.run([sys.executable, str(scripts / "sync-model.py"), "--write", "--all"],
@@ -801,7 +806,7 @@ def check_workflow(tmp_path) -> None:
     subprocess.run(["git", "add", str(model)], cwd=root, check=True)
     result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode != 0 and "FAIL git-diff-check" in result.stdout, result.stdout
-    active.write_text("# missing scope\n", encoding="utf-8")
+    active.write_text("## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n", encoding="utf-8")
     before = set(log_parent.glob("blueprint-loop-*"))
     result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode and "validation scope missing" in result.stderr

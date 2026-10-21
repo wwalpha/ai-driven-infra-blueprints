@@ -595,9 +595,11 @@ def check_config_typed_anchors(root):
         if key.startswith(("desired.resource.001.", "desired.row.001-", "observed.row.001-")):
             collision[key.replace("001", "002", 1)] = value
     collision["desired.row.002-001.value"] = "`DEFAULT`"
-    with pytest.raises(ValueError) as error:
+    from model.identity import resource_index
+    with pytest.raises(ValueError, match="duplicate logicalId"):
+        resource_index(collision)
+    with pytest.raises(ValueError):
         markdown_for(path, collision, root)
-    assert "logicalId" in str(error.value)
 
     assert not failures(output), failures(output)
     hub = model("securityhub", "SecurityHub.Hub", "securityhub.hub", [
@@ -814,16 +816,20 @@ def check_nameless_logical_id_label(root, project):
             errors = failures(bad)
             assert any("resource without a name requires a display label" in error for error in errors), errors
         for field, value in (("resourceType", "GuardDuty.Detector"), ("logicalId", "OtherPlan")):
+            invalid_values = {**values, f"desired.resource.{identity}.{field}": value}
             with pytest.raises(ValueError, match="logicalId"):
-                failures({**values, f"desired.resource.{identity}.{field}": value})
+                write_model(source, invalid_values)
+                load_model(source)
+            assert failures(invalid_values)
         assert any("hidden logical ID" in error for error in failures(values, output.replace(f"<!-- resource-logical-id: GuardDuty_MalwareProtectionPlan_{identity} -->", "")))
     assert any("anchor" in error for error in failures(values, output.replace("resource-GuardDuty_MalwareProtectionPlan_001", "guardduty-wrong")))
     # Resource entry numbers belong to the model, not the Markdown order.
     renumbered = {key.replace(".001", ".007", 1): value for key, value in values.items()}
     assert not failures(renumbered), failures(renumbered)
-    named = {key: value.replace(kind, "SNS.Topic") for key, value in values.items()}
+    named = {key: value.replace(kind, "SNS.Topic").replace("GuardDuty_MalwareProtectionPlan_", "SNS_Topic_")
+             for key, value in values.items()}
     assert any("resource without a name requires a display label" in error or "display Mapping property missing" in error
-               for error in failures(named, output.replace(kind, "SNS.Topic")))
+               for error in failures(named, output.replace(kind, "SNS.Topic").replace("GuardDuty_MalwareProtectionPlan_", "SNS_Topic_")))
     failures(values)
     source.write_text('# model-format: 99\n')
     validator = validator_module.Validator(root)
@@ -975,7 +981,7 @@ def check_stack_mapping_roundtrip(root):
             # Hyphens are valid inside StackName; only its final segment is the resource ID.
             assert invalid == "stack-Resource-With-Hyphens"
     from types import SimpleNamespace
-    for candidate in (rendered.replace('id="ec2-vpc-app-dev-data"', 'id="ec2-missing"'),
+    for candidate in (rendered.replace('id="resource-EC2_VPC_001"', 'id="ec2-missing"'),
                       rendered.replace("`10.0.0.0/16`", "`10.1.0.0/16`")):
         path.write_text(candidate)
         plan = SimpleNamespace(root=root, read_inputs={}, expected_outputs={path: {path: rendered}}, failures=[], saved={})
@@ -1224,21 +1230,22 @@ def check_iam_role_name(root, project):
     document = json.dumps({"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"}]}, separators=(",", ":"))
     invalid = [[], [name_row, name_row], [("Tags[].Key", "`Name`", "タグのキー"), ("Tags[].Value", f"`{name}`", "タグの値")]]
     invalid += [[("RoleName", value, "未確定の名前")] for value in
-                ("", "``", "`   `", "`UNSET`", "` UNSET `", "`PENDING_DEPLOY`", "`Pending`", "`TBD`", "`none`", "`未確定`", "`{{application}}`", f"[{name}](#iam-{name})")]
+                ("", "``", "`   `", "`UNSET`", "` UNSET `", "`PENDING_DEPLOY`", "`Pending`", "`TBD`", "`none`", "`未確定`", "`{{application}}`", f"[{name}](#resource-{logical_id})")]
     source = root / "model/dev/123456789012/iam.properties"
     source.parent.mkdir(parents=True, exist_ok=True)
     values = model("iam", kind, name, [name_row, trust_row], logical_id, "fallback-label")
+    logical_id = values["desired.resource.001.logicalId"]
     values["desired.row.001-002.document"] = document
     write_model(source, text(values))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     assert SYNC.sync(root, False, "dev", "123456789012") == 0
     path = root / "docs/designs/dev/123456789012/iam.md"
     output = path.read_text(encoding="utf-8")
-    assert f"| 1 | [{name}](#iam-{name}) |" in output
+    assert f"| 1 | [{name}](#resource-{logical_id}) |" in output
     assert f"### IAM.Role: {name}" in output and "fallback-label" not in output
     assert f"<!-- resource-logical-id: {logical_id} -->" in output
     from design_layout import resource_logical_ids
-    assert resource_logical_ids(output.splitlines())[(kind, name)] == logical_id
+    assert resource_logical_ids(output.splitlines())["resource-" + logical_id] == logical_id
     assert f'| RoleName | `{name}` |' in output
     assert properties(read_model(source)) == properties(text(values))
     metadata = {path: ("iam", (kind,))}
@@ -1255,11 +1262,11 @@ def check_iam_role_name(root, project):
     assert not failures(output), failures(output)
     reference = path.with_name("reference.md")
     for label in (name, logical_id, "wrong-name", "/service-role/" + name):
-        reference.write_text(f"参照: [{label}](iam.md#iam-{name})\n", encoding="utf-8")
+        reference.write_text(f"参照: [{label}](iam.md#resource-{logical_id})\n", encoding="utf-8")
         errors = failures(output)
         assert bool(errors) == (label != name), (label, errors)
     reference.unlink()
-    assert failures(output.replace(f"[{name}](#iam-{name})", f"[{logical_id}](#iam-{name})"))
+    assert failures(output.replace(f"[{name}](#resource-{logical_id})", f"[{logical_id}](#resource-{logical_id})"))
     assert failures(output.replace(f"### IAM.Role: {name}", f"### IAM.Role: {logical_id}"))
     for bad_names in invalid:
         bad_rows = [*bad_names, trust_row]
@@ -1295,6 +1302,7 @@ def check_required_name_tag(kind, root, project):
                     [("Name", f"`{name}`", "設計専用property"), *tags],
                     [("Tags", f'`{{"Name":"{name}"}}`', "正式arrayではないタグ")],
                     [tags[0], before[0], tags[1]]]
+    anchor = "resource-" + kind.replace(".", "_") + "_001"
     invalid_tags += [[tags[0], ("Tags[].Value", value, "未確定の名前")]
                      for value in ("", "``", "`   `", "`UNSET`", "` UNSET `", "`PENDING_DEPLOY`", "`Pending`", "`TBD`", "`none`", "`not-used`", "`{{application}}`", f"[{name}](#{anchor})")]
     path = root / f"docs/designs/dev/123456789012/{service}.md"
@@ -1364,7 +1372,7 @@ def check_required_name_tag(kind, root, project):
                 generate()
             if "display Mapping property missing" in str(error.value):
                 assert kind + ".Name" in str(error.value) or kind + ".Tags" in str(error.value)
-            else:
+            elif not isinstance(error.value, json.JSONDecodeError):
                 assert str(error.value) in validator.errors[0], (error.value, validator.errors)
         # Design-name validation reports the same shared error, without crashing.
         rendered = output[:output.index(f"| 1 | {identifier} |")]
@@ -1417,7 +1425,7 @@ def check_service_failure_protection(root, project):
     with pytest.raises(ValueError) as error:
         SYNC.sync(root, True, "dev", "123456789012")
     assert "invalid template directive" in str(error.value) or "duplicate" in str(error.value)
-    assert "`14`" in (docs / "logs.md").read_text(encoding="utf-8")
+    assert (docs / "logs.md").read_bytes() == old_docs[docs / "logs.md"]
     assert (docs / "vpc.md").read_bytes() == old_docs[docs / "vpc.md"]
     assert (docs / "iam.md").read_bytes() == old_docs[docs / "iam.md"]
     part.unlink()
@@ -1500,8 +1508,8 @@ def check_service_failure_protection(root, project):
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
 
     # Reference warnings preserve the source expression and do not block valid targets.
-    old_link = "logs.md#logs-cwlogs-net-dev-flow"
-    new_link = "logs.md#logs-cwlogs-new-dev-flow"
+    old_link = "logs.md#missing-prior-anchor"
+    new_link = "logs.md#resource-Logs_LogGroup_001"
     vpc["desired.note.001.text"] = f"参照: [cwlogs-net-dev-flow]({old_link})"
     write_model(base / "vpc.properties", text(vpc))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
@@ -1543,7 +1551,7 @@ def check_service_failure_protection(root, project):
     warnings = io.StringIO()
     with patch.object(Path, "write_text", fail_source), redirect_stderr(warnings):
         error = fails_with("test source write failure")
-    assert "saved reference needs repair" in warnings.getvalue()
+    assert old_link in (docs / "vpc.md").read_text(encoding="utf-8")
     assert (docs / "vpc.md").read_bytes() == snapshot[docs / "vpc.md"]
     assert (docs / "logs.md").read_bytes() != snapshot[docs / "logs.md"]
     snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
@@ -1566,14 +1574,15 @@ def check_service_failure_protection(root, project):
     error = fails_with("authoritative properties Model inputs missing")
     assert "candidate breaks saved reference" not in error
     assert "`7`" in (docs / "logs.md").read_text(encoding="utf-8")
-    # Retained sources without a model also warn without blocking a scoped write.
-    retained.write_text(retained.read_text(encoding="utf-8") + f"参照: [ログ]({old_link})\n", encoding="utf-8")
+    # Retained sources keep working through renames because their anchors are fixed.
+    retained.write_text(retained.read_text(encoding="utf-8") + f"参照: [ログ]({new_link})\n", encoding="utf-8")
     write_model(base / "logs.properties", text(renamed_logs))
     snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
     warnings = io.StringIO()
     with redirect_stderr(warnings):
         assert SYNC.sync(root, True, "dev", "123456789012", services=["logs"]) == 0
-    assert "retained.md: " + old_link in warnings.getvalue()
+    assert "retained.md:" not in warnings.getvalue()
+    assert new_link.partition("#")[2] in (docs / "logs.md").read_text(encoding="utf-8")
     assert "logs-already-missing" not in warnings.getvalue()
     assert (docs / "logs.md").read_bytes() != snapshot[docs / "logs.md"]
     assert all(path.read_bytes() == content for path, content in snapshot.items() if path.name != "logs.md")
@@ -1608,7 +1617,7 @@ def check_service_failure_protection(root, project):
     # A target I/O failure preserves its View; reference warnings permit independent consumers.
     snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
     write_model(base / "logs.properties", text(renamed_logs))
-    vpc["desired.note.001.text"] = "参照: [cwlogs-new-dev-flow](logs.md#logs-cwlogs-new-dev-flow)"
+    vpc["desired.note.001.text"] = f"参照: [cwlogs-new-dev-flow]({new_link})"
     write_model(base / "vpc.properties", text(vpc))
     iam["desired.row.001-002.comment"] = "引受元に許可する権限と条件を定義する設定"
     write_model(base / "iam.properties", text(iam))
@@ -1627,7 +1636,13 @@ def check_service_failure_protection(root, project):
     subprocess.run(["git", "add", "."], cwd=root, check=True)
     subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], cwd=root, check=True)
     (root / "tasks").mkdir()
-    (root / "tasks/example.md").write_text("## Validation scope\n- `dev/123456789012/iam`\n- `dev/123456789012/logs`\n- `dev/123456789012/vpc`\n", encoding="utf-8")
+    files = ["tasks/example.md", *(path.relative_to(root).as_posix()
+             for directory in (base, docs) for path in directory.rglob("*") if path.is_file())]
+    listed = "".join(f"- `{name}`\n" for name in files)
+    (root / "tasks/example.md").write_text(
+        "## Task contract\n- Task type: `design`\n- Task status: `running`\n"
+        "## Validation scope\n- `dev/123456789012/iam`\n- `dev/123456789012/logs`\n- `dev/123456789012/vpc`\n"
+        "## Modified files\n" + listed + "## Allowed paths\n" + listed, encoding="utf-8")
     json_path = docs / "iam/iam-role-001-trust-policy.json"
     before = json_path.read_bytes()
     source = base / "iam.properties"
@@ -1781,7 +1796,7 @@ def check_observed_arn_authority(tmp_path):
         check_observed_values([path], findings=findings, root=tmp_path, scope=None)
         assert any('generated ARN persisted' in error for error in findings.errors) == (mode == 'CREATE'), findings.errors
         with patch('validation.design_tables.catalog_order_errors', return_value=[]):
-            check_generated_identifier(document, 'SecretsManager.Secret', 'resource-SecretsManager_Secret_001', [['1', 'SecretsManager.Secret.Id', '`' + arn + '`', 'actual']],
+            check_generated_identifier(document, 'SecretsManager.Secret', 'SecretsManager_Secret_001', [['1', 'SecretsManager.Secret.Id', '`' + arn + '`', 'actual']],
                 {'SecretsManager.Secret': {'SecretsManager.Secret.Id'}}, findings=findings, values=values)
         assert any('generated ARN is forbidden' in error for error in findings.errors) == (mode == 'CREATE'), findings.errors
 

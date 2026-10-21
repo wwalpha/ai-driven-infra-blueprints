@@ -115,7 +115,8 @@ def checks(root, values, template):
               'desired.row.legacy-id-001.value': '`bucket`', 'desired.row.legacy-id-001.comment': '設定'}
     assert list(resource_row_index(legacy)) == ['legacy-id']
     legacy['desired.resource.legacy.resourceType'] = 'S3.Bucket'
-    expect_error(lambda: resource_row_index(legacy), 'ambiguous')
+    assert resource_row_index(legacy)['legacy'] == []
+    assert len(resource_row_index(legacy)['legacy-id']) == 1
     @input_scope
     def shared_parse():
         import model.sources as sources
@@ -1977,7 +1978,7 @@ def check_added_reference_properties(_network):
                     comparison.desired_reference('s3', links[wrong], kind, path)
                 with pytest.raises(Blocked):
                     comparison.desired_reference('s3', links[logical], kind, path, 'Unknown')
-                with pytest.raises(Blocked, match='Resource URI target'):
+                with pytest.raises(Blocked, match='reference mapping matches=0'):
                     comparison.desired_reference('s3', links[logical].rsplit('_', 1)[0] + '_999', kind, path)
                 service, identity = symbol['$resource']
                 comparison.resources[service][identity]['resourceMode'] = 'IMPORT'

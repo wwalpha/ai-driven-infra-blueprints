@@ -210,13 +210,21 @@ def check_service_generated_equality():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve() / "repo"
         fixture(root)
+        from model.files import load_model
+        source = root / "model/dev/123456789012/iam.properties"
+        values = dict(load_model(source).authoritative)
+        values["desired.resource.001.cfn-logicalId"] = STACKS[0] + "-WorkerRole"
+        values["desired.row.001-002.value"] = "[Trust](iam/iam-role-001-trust-policy.json)"
+        write_model(source, values)
+        (root / "docs/designs/dev/123456789012/iam/worker-role-trust-policy.json").rename(
+            root / "docs/designs/dev/123456789012/iam/iam-role-001-trust-policy.json")
         sync = M.module("equality_sync", ROOT / "framework/scripts/sync-model.py")
         contract, _, _, _ = M.candidate(root, "tasks/deploy-offline.md", "dev", "123456789012", TARGET, STACKS, ["iam"])
         start(root, "tasks/deploy-offline.md", contract)
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             assert sync.sync(root, True, "dev", "123456789012", services=["iam"]) == 0
             assert sync.sync(root, False, "dev", "123456789012", services=["iam"]) == 0
-            for relative in ("iam.md", "iam/worker-role-trust-policy.json"):
+            for relative in ("iam.md", "iam/iam-role-001-trust-policy.json"):
                 path = root / "docs/designs/dev/123456789012" / relative
                 original = path.read_text(encoding="utf-8")
                 path.write_text(original + "\nchanged\n", encoding="utf-8")

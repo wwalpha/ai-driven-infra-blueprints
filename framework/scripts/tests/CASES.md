@@ -2086,3 +2086,9 @@ producer を読まず、構文・I/O・scope の不正を WARNING へ握り潰�
 移行exportの環境変数は実値のみ。名前・タグ・JSONの環境名を保持し、account・Resource・Stackの参照意味と比較を継続する。retarget fixtureは通常の環境名prefixに加え同一leafのexecutionAccountId参照を持ち、literal断片と他の現役参照の保護を検証する。
 
 Model v2 移行完了に伴い、固定旧 Framework の export/convert/compare と限定移行契約の10関数・23条件を廃止した。現行保存・Import・Deploy・参照更新・rollback の15関数・82条件は、ケースIDとparameter matrixを保ち model-properties-v2（42条件）、cloudformation-deploy（9条件）、import-model（31条件）へ統合する。
+
+## Required reference input with pending observation
+
+| ケース | 層 | ファイル | 実行 | 検証目的 |
+| --- | --- | --- | --- | --- |
+| `check_pending_reference_is_required_input` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py) | pytest / 1 | 保存済みResource URIは観測値が未配備でも必須入力として保持し、空値・未確定literalは拒否、入力不変 |

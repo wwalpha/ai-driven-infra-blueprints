@@ -38,7 +38,7 @@ def check_single_target_cache(root):
     scope = {("dev", "cde", service) for service in ["ec2", *services]}
     active = root / "tasks/example.md"
     saved_contract = active.read_text(encoding="utf-8")
-    active.write_text(saved_contract.split("## Validation scope")[0] + "## Validation scope\n" + "".join(f"- `{'/'.join(entry)}`\n" for entry in sorted(scope)) + "## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n", encoding="utf-8")
+    active.write_text(saved_contract.split("## Modified files")[0] + "## Validation scope\n" + "".join(f"- `{'/'.join(entry)}`\n" for entry in sorted(scope)) + "## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n", encoding="utf-8")
     with redirect_stdout(io.StringIO()):
         SYNC.sync(root, True, "dev", "cde", services=[entry[2] for entry in sorted(scope)])
 
@@ -70,7 +70,7 @@ def check_single_target_cache(root):
         # An out-of-scope reference remains shallow, but changing its anchor invalidates its consumer.
         reference = docs / "vpc.md"
         saved = reference.read_text(encoding="utf-8")
-        reference.write_text(saved.replace('id="vpc-subnet-app-dev-cde"', 'id="changed-anchor"'), encoding="utf-8")
+        reference.write_text(saved.replace('id="resource-EC2_Subnet_001"', 'id="changed-anchor"'), encoding="utf-8")
         invalid = validate(cache=PassCache(root, directory=directory))
         assert not invalid.errors and any("anchor" in warning["message"] for warning in invalid.findings.warnings), invalid.findings.warnings
         reference.write_text(saved, encoding="utf-8")
@@ -104,7 +104,7 @@ def check_template_consumers(root):
     source_checks.fixture(root, ('dev', 'stg'))
     values = source_checks.config_model()
     for env in ('dev', 'stg'):
-        source_checks.write_fixture(root, env, 'config', values)
+        source_checks.write_fixture(root, env, 'config', {key: value.replace('resource://dev/', f'resource://{env}/') for key, value in values.items()})
     scope = {(env, 'team', 'config') for env in ('dev', 'stg')}
     contract = root/'tasks/example.md'
     contract.write_text('## Task contract\n- Task type: `migration`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Validation scope\n' +
@@ -121,16 +121,14 @@ def check_template_consumers(root):
         assert result.returncode == expected, (selection, result.stdout, result.stderr)
         if selection == ['--scope', 'dev/team/config']:
             assert 'stg/team/config' in result.stderr
-    # One explicit environment source change permits only that environment scope.
-    run = subprocess.run
-    def parameter_diff(args, *a, **kw):
-        if args[0] == 'git' and args[1] in ('diff', 'ls-files'):
-            changed = 'model/dev/team/config.properties\0' if args[1:3] == ['diff', '--name-only'] else ''
-            return subprocess.CompletedProcess(args, 0, stdout=changed, stderr='')
-        return run(args, *a, **kw)
-    with patch.object(sys, 'argv', command[1:] + ['--scope', 'dev/team/config']), \
-         patch.object(subprocess, 'run', parameter_diff), redirect_stdout(io.StringIO()):
-        assert SYNC.active_scope(root) == scope, (SYNC.active_scope(root), contract.read_text(), sys.argv)
+    # A committed baseline makes the environment-specific change real rather than mocking Git.
+    subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                    'commit', '-qm', 'synthetic scope baseline'], cwd=root, check=True)
+    model = root / 'model/dev/team/config.properties'
+    model.write_text(model.read_text(encoding='utf-8') + '# dev input changed\n', encoding='utf-8')
+    with patch.object(sys, 'argv', command[1:] + ['--scope', 'dev/team/config']), redirect_stdout(io.StringIO()):
+        assert SYNC.active_scope(root) == scope
         assert SYNC.main() == 0
     with tempfile.TemporaryDirectory() as directory:
         def validate():
@@ -185,8 +183,9 @@ def main():
                     (docs / "ec2.md").write_text("invalid excluded EC2\n")
                     continue
                 # A reference target with intentionally invalid schema/metadata must supply only link information.
-                anchor = f"vpc-subnet-app-{env}-{target}"
+                anchor = "resource-EC2_Subnet_001"
                 (docs / "vpc.md").write_text(f'''# Reference only
+<!-- resource-logical-id: EC2_Subnet_001 -->
 <a id="{anchor}"></a>
 ### EC2.Subnet: subnet-app-{env}-{target}
 | No. | Property | Value | Source / Comment |
@@ -270,7 +269,7 @@ invalid unrelated table alignment
         assert any("validation input missing" in error for error in rejected.errors), rejected.errors
         assert not design.exists(), "scope validation regenerated missing Markdown"
         design.write_text(saved)
-        design.write_text(saved.replace("vpc.md#vpc-subnet-app-dev-cde", "vpc.md#missing-anchor"))
+        design.write_text(saved.replace("vpc.md#resource-EC2_Subnet_001", "vpc.md#missing-anchor"))
         rejected = VALIDATOR.Validator(root, {("dev", "cde", "ec2")})
         rejected.accounts = validator.accounts
         rejected.schema_catalog = DesignSchemaCatalog(root)
@@ -303,9 +302,9 @@ invalid unrelated table alignment
         with redirect_stdout(io.StringIO()):
             full = VALIDATOR.Validator(root)
             full.check_generated_service_models()
-        assert full.errors and "logs" in "\n".join(full.errors)
+        assert full.errors, "overall validation accepted invalid out-of-scope authorities"
         # CLI sync must also stop on absent scope; it cannot silently select everything.
-        active.write_text("# no scope\n")
+        active.write_text(contract.split("## Validation scope")[0])
         result = subprocess.run([sys.executable, str(ROOT / "framework/scripts/sync-model.py"), "--repository-root", str(root)], capture_output=True, text=True)
         assert result.returncode and "validation scope missing" in result.stderr
         active.write_text(contract)

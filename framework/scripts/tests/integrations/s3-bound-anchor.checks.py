@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fixed YAML S3 anchors retain strict IDs, names, links and legacy validation."""
+"""Fixed S3 anchors retain strict IDs, names and links in canonical Models."""
 
 import sys
 from pathlib import Path
@@ -78,8 +78,9 @@ def check(root):
     rejected(lambda: load_model(path), 's3.properties')
     path.write_bytes(original)
     legacy = root / 'model/parameters'; legacy.mkdir()
-    rejected(lambda: bound_resource_anchors(path), 'explicit migration')
-    print('Fixed S3 anchors: PASS (explicit rename/consumer update; fixed names/links/IDs; generation; syntax/identity/legacy rejection)')
+    assert bound_resource_anchors(path) == {('S3.Bucket', 'S3_Bucket_003'): 'resource-S3_Bucket_003'}
+    assert path.read_bytes() == original
+    print('Fixed S3 anchors: PASS (explicit rename/consumer update; fixed names/links/IDs; generation; syntax/identity rejection; unrelated directory isolation)')
 
 
 if __name__ == '__main__':

@@ -447,7 +447,8 @@ def check_observed(managed_destroy_root):
         source = root / "model/dev/123456789012/ec2.properties"
         design = root / "docs/designs/dev/123456789012/ec2.md"
         # A planned resource's legacy ID is not a stack mapping (SnowCatConn case).
-        values = properties(read_model(source))
+        baseline_values = properties(read_model(source))
+        values = dict(baseline_values)
         for key, value in list(values.items()):
             if key.startswith(("desired.resource.003.", "display.resource.003.", "desired.row.003-", "observed.row.003-")):
                 values[key.replace(".003", ".004", 1)] = value.replace("test-dev-c", "test-dev-unimplemented").replace("vpc-old-C", "PENDING_DEPLOY").replace("[003]", "[SnowCatConn]")
@@ -466,6 +467,10 @@ def check_observed(managed_destroy_root):
         assert all(not key.startswith("observed.row.004-")
                    for changes in plan["observed"]["updates"].values() for updates in changes.values() for key in updates)
         assert set(plan["observed"]["paths"]) == {design.relative_to(root).as_posix(), source.relative_to(root).as_posix()}
+        write_model(source, baseline_values)
+        before = properties(read_model(source))
+        plan = M.local_plan(root, "dev", "123456789012", ["A", "B", "C"])
+        assert not plan["observed"]["unmappedResources"]
         backend = Fake(["A", "B", "C"])
         backend.root, backend.environment, backend.directory = root, "dev", "123456789012"
         states = session({"A": 30, "B": 20, "C": 10})["states"]
@@ -483,7 +488,7 @@ def check_observed(managed_destroy_root):
         assert after["observed.row.099-002.value"] == "PENDING_DEPLOY"
         assert after["observed.row.002-002.value"] == before["observed.row.002-002.value"]
         assert after["observed.row.003-002.value"] == before["observed.row.003-002.value"]
-        assert after["observed.row.004-002.value"] == before["observed.row.004-002.value"]
+        assert "observed.row.004-002.value" not in after
         assert {key: value for key, value in before.items() if key.startswith("desired.")} == {key: value for key, value in after.items() if key.startswith("desired.")}
         assert states["A"]["observedSynced"] and not states["B"]["observedSynced"]
         assert "PENDING_DEPLOY" in design.read_text() and "vpc-old-A" not in design.read_text()
@@ -518,7 +523,7 @@ def check_observed(managed_destroy_root):
         # Pending/absent identifiers can stay unmapped, even with a legacy ID.
         pending = M.local_plan(root, "dev", "123456789012", ["A"])
         assert pending["observed"]["owners"]["A"] == []
-        assert {entry["resource"] for entry in pending["observed"]["unmappedResources"]} == {"001", "004"}
+        assert {entry["resource"] for entry in pending["observed"]["unmappedResources"]} == {"001"}
         write_model(source, read_model(source).replace("observed.row.001-002.value=`PENDING_DEPLOY`", "observed.row.001-002.value=`vpc-existing`"))
         rejects(lambda: M.local_plan(root, "dev", "123456789012", ["A"]), "explicit cfn-logicalId")
         write_model(source, original.replace("desired.resource.002.cfn-logicalId=B-Vpc", "desired.resource.002.cfn-logicalId=A-Vpc"))

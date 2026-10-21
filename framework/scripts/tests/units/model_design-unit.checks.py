@@ -271,6 +271,31 @@ def check_one_way_model_contract():
 
 
 
+
+def check_pending_reference_is_required_input():
+    from model.validation import validate_required_properties
+    values = {
+        'desired.resource.001.resourceType': 'EC2.Subnet',
+        'desired.resource.001.logicalId': 'EC2_Subnet_001',
+        'desired.resource.001.resourceMode': 'IMPORT',
+        'desired.service.identity.lastAllocated': '{"EC2.Subnet":1}',
+        'desired.row.001-001.property': 'EC2.Subnet.VpcId',
+        'desired.row.001-001.value': 'resource://preview/team/vpc/EC2_VPC_001',
+        'desired.row.001-001.comment': '所属するVPC',
+        'desired.row.001-002.property': 'EC2.Subnet.CidrBlock',
+        'desired.row.001-002.value': '`10.0.0.0/24`',
+        'desired.row.001-002.comment': 'Subnet範囲',
+    }
+    for observation in ('PENDING_DEPLOY', '`PENDING_DEPLOY`', '`vpc-current`'):
+        candidate = {**values, 'observed.row.001-001.value': observation}
+        before = dict(candidate)
+        assert validate_required_properties(candidate, ROOT) == []
+        assert candidate == before
+    for missing in ('', '`PENDING_DEPLOY`'):
+        with pytest.raises(ValueError, match='required provider schema property missing: EC2.Subnet.VpcId'):
+            validate_required_properties({**values, 'desired.row.001-001.value': missing}, ROOT)
+
+
 def check_selected_model_row_consumption(monkeypatch):
     import model.render as model_design
     resource = {'resourceType': 'Config.ConfigurationRecorder', 'resourceMode': 'IMPORT'}

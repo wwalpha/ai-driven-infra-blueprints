@@ -1220,9 +1220,7 @@ def check_parallel_and_restart():
     assert session["observedError"] == "AMBIGUOUS_OBSERVED_MAPPING"
 
 
-def check_observed_collector(managed_framework_root):
-    from model.adapters.observed import sync_successful, mappings
-    root = managed_framework_root
+def observed_collector_seed(root):
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET, "awsExecutionAccountId": "999999999999"}]}) + "\n")
     source = root / "model/dev/123456789012/ec2.properties"
     source.parent.mkdir(parents=True)
@@ -1252,11 +1250,33 @@ def check_observed_collector(managed_framework_root):
     def save_model():
         write_model(source, "\n".join(k + "=" + v for k, v in values.items()) + "\n")
         design.write_text(markdown_for(design, values, root))
-    save_model()
     stack_values = {}
     for number, unit in enumerate(units(10, 20), 1):
         stack_values.update({f'desired.stack.{number:03d}.' + key: value for key, value in unit.items()})
     write_model(source.with_name('cloudformation-stacks.properties'), stack_values)
+    save_model()
+
+
+@pytest.fixture
+def observed_collector_root():
+    from support.worktree_task_fixtures import fixture, git, start
+    from task_contract import selected_task
+    with fixture() as primary:
+        copy_framework(primary / 'framework')
+        observed_collector_seed(primary)
+        git(primary, 'add', 'framework', 'project.json', 'model', 'docs')
+        git(primary, 'commit', '-qm', 'synthetic observed baseline')
+        root, state = start(primary, task_id='observation-fixture', files=('file.txt',))
+        with selected_task(root, state['task_file']):
+            yield root
+
+
+def check_observed_collector(observed_collector_root):
+    from model.adapters.observed import sync_successful, mappings
+    root = observed_collector_root
+    source = root / "model/dev/123456789012/ec2.properties"
+    design = root / "docs/designs/dev/123456789012/ec2.md"
+    values = properties(read_model(source))
     task = root / "tasks/observation-fixture.md"
     task.parent.mkdir(exist_ok=True)
     task.write_text(observation_contract(root, ['ec2']))
@@ -1292,7 +1312,7 @@ def check_observed_collector(managed_framework_root):
         with pytest.raises(observed.MappingError) as error:
             mappings(root, "dev", "123456789012", broken_templates, units(10, 20))
         assert set(error.value.errors) == {"A", "B"} and len(error.value.errors["A"]) == 2
-        assert "MissingVpc" in str(error.value) and "MissingRole" in str(error.value) and "EC2.Subnet.SubnetId" in str(error.value)
+        assert "MissingVpc" in str(error.value) and "MissingRole" in str(error.value) and "SbntTestDevPrivateAppA01" in str(error.value) and "explicit mapping required" in str(error.value)
         assert scan.call_count == 1
     values["desired.row.002-003.value"] = subnet_identifier
     write_model(source, values)
@@ -1304,7 +1324,7 @@ def check_observed_collector(managed_framework_root):
     duplicate = copy.deepcopy(document)
     duplicate["Resources"]["VpcTestDev"].pop("Condition")
     backend.templates["B"] = (duplicate, {})
-    rejects(lambda: mappings(root, "dev", "123456789012", backend.templates, units(10, 10)), "also owned")
+    rejects(lambda: mappings(root, "dev", "123456789012", backend.templates, units(10, 10)), "cfn-logicalId matches=0")
     assert snapshot_model(source) == before
     # Out-of-scope incoming references block before writes, even with broad Allowed paths.
     consumer = source.with_name("consumer.properties")
@@ -2317,7 +2337,7 @@ def check_secret_runtime_bootstrap(tmp_path):
     parameter_dir = root / 'infra/cloudformation/parameters/dev/123456789012'
     template_dir.mkdir(parents=True); parameter_dir.mkdir(parents=True)
     task = root / 'tasks/example.md'; task.parent.mkdir()
-    task.write_text('\n'.join(['- Controlled repair: `allowed`', '- AWS API execution: `allowed`', '- Deploy/apply: `allowed`',
+    task.write_text('\n'.join(['## Task contract', '- Task type: `infrastructure`', '- Task status: `running`', '- Infrastructure phase: `deploy`', '- Controlled repair: `allowed`', '- AWS API execution: `allowed`', '- Deploy/apply: `allowed`',
         '## Validation scope', '- `dev/123456789012/secretsmanager`', '- `dev/123456789012/quicksight`',
         '## Modified files', '- `tasks/example.md`', '## Allowed paths', '- `tasks/example.md`']), encoding='utf-8')
     write_model(modeldir / 'cloudformation-stacks.properties', '\n'.join(

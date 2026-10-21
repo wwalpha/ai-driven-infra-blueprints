@@ -76,7 +76,7 @@ def markdown(values):
 
 ## リソース詳細
 
-<!-- resource-logical-id: Session -->
+<!-- resource-logical-id: Macie_Session_001 -->
 <a id="macie-session"></a>
 
 ### Macie.Session: session
@@ -86,7 +86,7 @@ def markdown(values):
 | 1 | AwsAccountId | `123456789012` | Macieを使用するAWS accountのID |
 | 2 | Status | `ENABLED` | Macieの有効状態 |
 
-<!-- resource-logical-id: Job -->
+<!-- resource-logical-id: Macie_ClassificationJob_001 -->
 <a id="macie-daily-data-scan"></a>
 
 ### Macie.ClassificationJob: daily-data-scan

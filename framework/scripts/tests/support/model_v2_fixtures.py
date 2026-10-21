@@ -432,7 +432,7 @@ def properties_fixture(root):
     scope.path.parent.mkdir(parents=True)
     scope.path.write_text(serialize({'desired.resource.007.resourceType': 'EC2.VPC',
         'desired.resource.007.logicalId': 'EC2_VPC_001',
-        'desired.resource.007.cfn-logicalId': 'OriginalVpc',
+        'desired.resource.007.cfn-logicalId': 'fixture-OriginalVpc',
         'desired.service.identity.lastAllocated': '{"EC2.VPC":1}',
         'desired.resource.007.resourceMode': 'IMPORT', 'desired.row.007-001.property': 'EC2.VPC.VpcId',
         'desired.row.007-001.value': 'resource://qa-synthetic/team-a/network/EC2_VPC_001', 'desired.row.007-001.comment': '合成 ID',
@@ -456,6 +456,10 @@ def deploy_properties_fixture(root):
 - Task status: `running`
 ## Validation scope
 - `qa-synthetic/team-a/network`
+## Modified files
+- `tasks/active.md`
+## Allowed paths
+- `tasks/active.md`
 ''', encoding='utf-8')
     return scope, stacks
 

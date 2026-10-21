@@ -16,7 +16,7 @@ import pytest
 import import_guard
 import sync_files
 import sync_runtime
-from model.core import entries
+from model.core import entries, properties
 from model.format import parse, serialize
 from model.operations import operation_values
 from model.sources import json_text, load_model

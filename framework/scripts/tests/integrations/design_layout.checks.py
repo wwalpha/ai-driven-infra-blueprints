@@ -708,6 +708,9 @@ observed.row.001-001.comment=設定する属性
 desired.row.001-002.property=Config.ConfigurationRecorder.RoleARN
 desired.row.001-002.value=`AWSServiceRoleForConfig`
 desired.row.001-002.comment=設定する属性
+desired.row.001-003.property=Config.ConfigurationRecorder.Name
+desired.row.001-003.value=`recorder`
+desired.row.001-003.comment=記録するrecorderの名前
 """)
     values.update({"display.service.title": "# Config 詳細設計", "display.resource.001.label": "recorder", "display.resource.001.comment": "AWSリソースの設定を記録するrecorder"})
     model_path = root / "model/dev/123456789012/config.properties"

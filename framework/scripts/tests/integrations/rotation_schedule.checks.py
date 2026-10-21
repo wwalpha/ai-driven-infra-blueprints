@@ -166,26 +166,25 @@ def main():
             values[f"observed.row.{identity}-002.value"] = "key-current"
         save()
         SYNC.sync(root, True, "dev", "123456789012")
-        assert path.read_text().count("[key-current](kms.md#kms-app-dev-key)") == 2
+        assert path.read_text().count("[key-current](kms.md#resource-KMS_Key_001)") == 2
         saved = {file: file.read_bytes() for file in path.parent.glob("*.md")}
         # Rejected Secret generation retains its old link, while valid KMS saves.
         del values["desired.resource.002.parentReference"]
-        key = {name: value.replace("kms-app-dev-key", "kms-app-dev-renamed") for name, value in key.items()}
         key["display.resource.001.label"] = "app-dev-renamed"
         save()
         rejects(lambda: SYNC.sync(root, True, "dev", "123456789012"), "SecretsManager_RotationSchedule_001", "parentReference")
         assert path.read_bytes() == saved[path]
         assert (path.parent / "kms.md").read_bytes() != saved[path.parent / "kms.md"]
-        assert "kms-app-dev-renamed" in (path.parent / "kms.md").read_text()
+        assert "app-dev-renamed" in (path.parent / "kms.md").read_text()
+        assert 'id="resource-KMS_Key_001"' in (path.parent / "kms.md").read_text()
         assert properties(read_model(models / 'secretsmanager.properties')) == properties(HELPERS.text(values))
         # Repair only the source in a later task against the already saved KMS view.
-        values["desired.resource.002.parentReference"] = "[Secret1](#resource-SecretsManager_Secret_001)"
-        values = {name: value.replace("kms-app-dev-key", "kms-app-dev-renamed") for name, value in values.items()}
+        values["desired.resource.002.parentReference"] = "resource://dev/123456789012/secretsmanager/SecretsManager_Secret_001"
         save()
         SYNC.sync(root, True, "dev", "123456789012", services=["secretsmanager"])
         SYNC.sync(root, False, "dev", "123456789012")
         assert "kms-app-dev-key" not in path.read_text()
-        assert path.read_text().count("[key-current](kms.md#kms-app-dev-renamed)") == 2
+        assert path.read_text().count("[key-current](kms.md#resource-KMS_Key_001)") == 2
     print("rotation-schedule: PASS (single/multiple parents, identity, formal rows, invalid references, projection, KMS updates and deferred source repair)")
 
 

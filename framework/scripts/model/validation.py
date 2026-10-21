@@ -157,20 +157,22 @@ def validate_required_properties(values: dict[str, str], root: Path, *, warnings
         rows = resource_rows(values, identity, kind, root)
         from aws_mapping_display import rule
         from design_layout import RESOURCE_REFERENCE_PROPERTIES, is_service_role_reference, is_import_role_arn
-        for _, prop, value, _ in rows:
+        references = {rid for rid, _, _, _ in rows
+                      if URI.fullmatch(values[f'desired.row.{rid}.value'])}
+        for rid, prop, value, _ in rows:
             rule(prop, root)
             owner = '.'.join(prop.split('.')[:2])
             if owner not in {kind, *GROUPED_RESOURCE_TYPES.get(kind, set())}:
                 raise ValueError(f"property does not belong to resource: {identity}: {prop}")
             if prop in RESOURCE_REFERENCE_PROPERTIES and not (
-                (LINK.fullmatch(value) or URI.fullmatch(value)) or is_service_role_reference(prop, value) or
+                rid in references or (LINK.fullmatch(value) or URI.fullmatch(value)) or is_service_role_reference(prop, value) or
                 resource_mode(resource) == 'IMPORT' and (prop != 'Config.ConfigurationRecorder.RoleARN' or is_import_pending_reference(prop, value)) or
                 is_import_role_arn(prop, value, resource_mode(resource))
             ):
                 warnings.append({'code': 'reference.expected_link', 'message': f'{prop} must be a resource link or an allowed IMPORT reference',
                                  'resource': identity, 'property': prop, 'reference': value})
         properties = {row[1] for row in rows
-                      if (resource_mode(resource) == "IMPORT" and is_import_pending_reference(row[1], row[2]))
+                      if row[0] in references or (resource_mode(resource) == "IMPORT" and is_import_pending_reference(row[1], row[2]))
                       or literal(row[2]).strip().strip('"').strip().lower()
                       not in {"", "unset", "pending", "pending_deploy", "tbd", "未確定"}}
         if "parentProperty" in resource:

@@ -103,6 +103,7 @@ def check_idle_without_active_task() -> None:
         assert not validator.errors, validator.errors
         assert not validator.task_type
         (root / "tasks" / "example.md").unlink()
+        commit(root, ["tasks/example.md"], "remove-completed-task")
         validator = MODULE.Validator(root)
         validator.check_task_scope()
         assert not validator.errors, validator.errors
@@ -110,7 +111,7 @@ def check_idle_without_active_task() -> None:
         write(root / "README.md", "changed\n")
         validator = MODULE.Validator(root)
         validator.check_task_scope()
-        assert any("active task prompt missing" in error for error in validator.errors)
+        assert any("selected task contract missing" in error for error in validator.errors)
 
 
 @it_case
