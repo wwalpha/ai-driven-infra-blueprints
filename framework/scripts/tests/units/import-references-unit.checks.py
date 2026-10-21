@@ -770,6 +770,77 @@ def check_preserved_read_does_not_authorize_writes(tmp_path):
             verify_values(before, Expansion(fields), {}, lambda _: {'type': 'string'})
 
 
+def check_configuration_index_reuses_scans_and_keeps_raw_fields():
+    from model.operations import ConfigurationIndex, resource_configuration
+    from model.core import resource_row_index
+    from model.references import declarations
+    source = {**values('Logs.LogGroup', {'LogGroupName': 'first'}, rid='001'),
+              **values('Logs.LogGroup', {'LogGroupName': 'second'}, rid='002')}
+    del source['desired.resource.001.logicalId']
+    source['observed.row.001-001.value'] = 'first'
+    source['desired.row.002-001.document'] = '{"items":[1,true,"[first](logs.md#producer)"]}'
+    del source['desired.row.002-001.value']
+    source['desired.row.001-001.value'] = '[first](logs.md#producer)'
+    for identity in ('z-last', 'a-first'):
+        for field, value in {'consumerKey': 'desired.row.001-001.value',
+                'text': '[first](logs.md#producer)', 'occurrence': '1',
+                'producerKind': 'resource', 'producerScope': 'dev/cde/logs', 'producerId': '002',
+                'resourceType': 'Logs.LogGroup', 'format': 'link', 'labelPolicy': 'fixed'}.items():
+            source[f'desired.reference.{identity}.{field}'] = value
+    index = ConfigurationIndex(source)
+    with patch('model.core.resource_row_index', wraps=resource_row_index) as rows, \
+         patch('model.operations.declarations', wraps=declarations) as refs:
+        actual = [resource_configuration(source, rid, index=index) for rid in ('001', '002')]
+        assert rows.call_count == refs.call_count == 1
+    assert list(actual[0]['references']) == ['a-first', 'z-last']
+    assert actual[1]['references'] == {}
+    assert index.values is source
+    assert 'logicalId' not in actual[0]['resource']
+    assert actual[0]['observed'] == {'observed.row.001-001.value': 'first'}
+    assert actual[1]['rows'][0][2] == {'object': {'items': {'array': [
+        {'int': 1}, {'bool': True}, {'string': ['', {'link': ['logs', 'producer']}, '']}]}}}
+    assert actual == [resource_configuration(source, rid) for rid in ('001', '002')]
+    source['desired.row.001-001.value'] = 'changed [first](logs.md#producer)'
+    assert resource_configuration(source, '001')['rows'][0][2] == {'string': ['changed ', {'link': ['logs', 'producer']}, '']}
+
+
+def check_configuration_index_preserves_exception_priority():
+    from model.operations import ConfigurationIndex, resource_configuration
+    source = values('Logs.LogGroup', {'LogGroupName': 'first'})
+    source['desired.reference.bad.consumerKey'] = 'missing'
+    for indexed in (False, True):
+        kwargs = {'index': ConfigurationIndex(source)} if indexed else {}
+        with pytest.raises(KeyError) as error:
+            resource_configuration(source, 'missing', **kwargs)
+        assert error.value.args == ('missing',)
+        with pytest.raises(ValueError, match='invalid reference fields: bad'):
+            resource_configuration(source, '001', **kwargs)
+    source['desired.row.orphan-001.property'] = 'Logs.LogGroup.LogGroupName'
+    with pytest.raises(ValueError, match='orphan desired row: orphan-001'):
+        resource_configuration(source, '001', index=ConfigurationIndex(source))
+
+
+def check_observation_index_keeps_every_legacy_prefix():
+    from model.operations import _observed_index, preserve_fixed_fields
+    from types import SimpleNamespace
+    source = {**values('Logs.LogGroup', {}, rid='legacy'),
+              **values('Logs.LogGroup', {}, rid='legacy-child'),
+              'observed.row.legacy-child-001.value': 'old',
+              'observed.row.legacy-002.value': 'same'}
+    indexed = _observed_index(source)
+    for rid in ('legacy', 'legacy-child'):
+        assert indexed[rid] == {key: value for key, value in source.items()
+                                if key.startswith(f'observed.row.{rid}-')}
+    updated = {**source, 'observed.row.legacy-child-001.value': 'new'}
+    with patch('model.observed.require_observable_row') as require, \
+         patch('model.operations._observed_index', wraps=_observed_index) as build:
+        preserve_fixed_fields(SimpleNamespace(authoritative=source),
+                              SimpleNamespace(authoritative=updated), SimpleNamespace(action='design'))
+        assert build.call_count == 2
+        assert require.call_count == 2
+        assert all(call.args[1] == 'legacy-child-001' for call in require.call_args_list)
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

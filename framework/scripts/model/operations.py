@@ -34,8 +34,52 @@ def operation_values(values, number):
     return {key: value for key, value in values.items() if owner(key, values) == ('resource', number)}
 
 
+def _observed_index(values):
+    result = {}
+    for key, value in values.items():
+        if key.startswith('observed.row.'):
+            identity = key.removeprefix('observed.row.')
+            for offset, char in enumerate(identity):
+                if char == '-':
+                    result.setdefault(identity[:offset], {})[key] = value
+    return result
+
+
+class ConfigurationIndex:
+    """Lazy indexes owned by one comparison; retain the source authority itself."""
+    def __init__(self, values):
+        self.values = values
+        self.resources = {}
+        for key, value in values.items():
+            if key.startswith('desired.resource.'):
+                number, _, field = key.removeprefix('desired.resource.').partition('.')
+                self.resources.setdefault(number, {})[field] = value
+        self.rows = self.references = self.observed = None
+
+    def resource_rows(self, number):
+        if self.rows is None:
+            from model.core import resource_row_index
+            self.rows = resource_row_index(self.values)
+        return self.rows[number]
+
+    def resource_references(self, number):
+        if self.references is None:
+            references = {}
+            for identity, spec in declarations(self.values).items():
+                kind, rid = owner(spec['consumerKey'], self.values)
+                if kind == 'resource':
+                    references.setdefault(rid, {})[identity] = spec
+            self.references = references
+        return self.references.get(number, {})
+
+    def resource_observed(self, number):
+        if self.observed is None:
+            self.observed = _observed_index(self.values)
+        return self.observed.get(number, {})
+
+
 def preserve_fixed_fields(before, after, operation):
-    from model.core import entries, resource_row_index
+    from model.core import entries
     old, new = before.authoritative, after.authoritative
     previous_refs, current_refs = declarations(old), declarations(new)
     removed_refs = previous_refs.keys() - current_refs.keys()
@@ -59,6 +103,7 @@ def preserve_fixed_fields(before, after, operation):
     parent_changes = {ref.consumer.rsplit('/', 1)[1] for ref in getattr(operation, 'references', ())
                       if ref.field == 'parentReference' and tuple(ref.consumer.split('/')[:3]) ==
                       (before.scope.environment, before.scope.target, before.scope.service)}
+    old_observed = new_observed = None
     for rid in previous.keys() & current.keys():
         fields = {'resourceType', 'logicalId', 'anchor', 'resourceMode', 'cfn-logicalId', 'parentProperty'}
         if rid not in parent_changes:
@@ -66,8 +111,9 @@ def preserve_fixed_fields(before, after, operation):
         if any(old.get(f'desired.resource.{rid}.' + field) != new.get(f'desired.resource.{rid}.' + field) for field in fields):
             raise ValueError('Model fixed identity or parent relationship changed: ' + rid)
         if previous[rid].get('resourceMode') == 'IMPORT' and operation.action != 'import' and rid not in moved:
-            before_observed = {key: value for key, value in old.items() if key.startswith(f'observed.row.{rid}-')}
-            after_observed = {key: value for key, value in new.items() if key.startswith(f'observed.row.{rid}-')}
+            if old_observed is None:
+                old_observed, new_observed = _observed_index(old), _observed_index(new)
+            before_observed, after_observed = old_observed.get(rid, {}), new_observed.get(rid, {})
             if before_observed != after_observed:
                 from model.observed import require_observable_row
                 for key in before_observed.keys() | after_observed.keys():
@@ -677,9 +723,8 @@ def verify_model_operation(before, after, operation, sources):
     return warnings
 
 
-def resource_configuration(values, number, path=None, expansion=None):
+def resource_configuration(values, number, path=None, expansion=None, *, index=None):
     """Compare configuration/native values and fixed reference meaning, excluding display labels."""
-    from model.core import resource_row_index
     from model.references import LINKS
     service = path.stem if path is not None else None
     def native(value):
@@ -698,21 +743,21 @@ def resource_configuration(values, number, path=None, expansion=None):
             cursor = link.end()
         pieces.append(value[cursor:])
         return {'string': pieces}
-    prefix = f'desired.resource.{number}.'
-    resource = {key[len(prefix):]: native(value) for key, value in values.items() if key.startswith(prefix)}
+    index = index if index is not None else ConfigurationIndex(values)
+    resource = {key: native(value) for key, value in index.resources.get(number, {}).items()}
     rows = []
-    for row_id, row in resource_row_index(values)[number]:
+    for row_id, row in index.resource_rows(number):
         key = f'desired.row.{row_id}.' + ('document' if 'document' in row else 'value')
         rows.append([row_id, row['property'], native(_field_value(key, values[key]))])
     references = {}
-    for identity, spec in declarations(values).items():
+    for identity, spec in index.resource_references(number).items():
         consumer = spec['consumerKey']
         if owner(consumer, values) != ('resource', number) or not (consumer.startswith('desired.resource.') or
                 consumer.startswith('desired.row.') and consumer.endswith(('.value', '.document'))):
             continue
         references[identity] = {field: native(value) if field == 'text' and spec['format'] == 'link' else value
                                 for field, value in spec.items()}
-    observed = {key: value for key, value in values.items() if key.startswith(f'observed.row.{number}-')}
+    observed = index.resource_observed(number)
     if observed and path is not None and values.get(f'desired.resource.{number}.resourceMode') == 'IMPORT':
         from types import SimpleNamespace
         from model.sources import scope_for

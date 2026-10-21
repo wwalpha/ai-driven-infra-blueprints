@@ -158,7 +158,7 @@ def snapshots(root, base, output, definitions_root=None, *, detached=False):
 @input_scope
 def changes(root, sources, output=None, include_create=False, *, contract_file=None, final_candidate=None):
     from model.sources import model_paths, load_model, source_scope
-    from model.operations import preserve_fixed_fields
+    from model.operations import preserve_fixed_fields, ConfigurationIndex
     from types import SimpleNamespace
     root = root.resolve()
     base = final_candidate.base_commit if final_candidate is not None else base_revision(root, contract_file=contract_file)
@@ -184,13 +184,14 @@ def changes(root, sources, output=None, include_create=False, *, contract_file=N
                 preserve_fixed_fields(old, new, SimpleNamespace(action='design'))
             left, right = dict(old.authoritative) if old else {}, dict(new.authoritative) if new else {}
             old_resources, new_resources = dict(entries(left, 'desired.resource.')), dict(entries(right, 'desired.resource.'))
+            left_index, right_index = ConfigurationIndex(left), ConfigurationIndex(right)
             for number in old_resources.keys() | new_resources.keys():
                 previous, current = old_resources.get(number, {}), new_resources.get(number, {})
                 imported = previous.get('resourceMode') == 'IMPORT' or current.get('resourceMode') == 'IMPORT'
                 if not imported and not include_create:
                     continue
-                a = resource_config(left, number, before / relative) if previous else None
-                b = resource_config(right, number, after / relative) if current else None
+                a = resource_config(left, number, before / relative, index=left_index) if previous else None
+                b = resource_config(right, number, after / relative, index=right_index) if current else None
                 if a != b:
                     found['/'.join((env, target, service, number))] = {'before': digest(a), 'after': digest(b),
                         'mode': 'IMPORT' if imported else 'CREATE',
