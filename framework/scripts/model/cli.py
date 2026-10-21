@@ -11,7 +11,7 @@ if __name__ == '__main__' and not __package__:
 import argparse
 import json
 from model.sources import load_model, list_models
-from model.format import strict_json
+from utils.json_format import strict_json
 from validation_cache import input_scope
 
 

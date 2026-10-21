@@ -4,7 +4,7 @@ import uuid
 from pathlib import Path
 
 from cloudformation_inputs import Blocked, resolve_value
-from iac_values import fingerprint
+from utils.json_format import fingerprint
 from deployment.scheduler import SUCCESS
 
 

@@ -5,7 +5,6 @@ from contextlib import contextmanager
 import argparse
 import difflib
 import hashlib
-import json
 import re
 import task_contract
 from task_contract import task_path, section, selected_task
@@ -15,8 +14,8 @@ from generation_inputs import GenerationInputs
 from script_loader import module as load_script
 from sync_files import atomic_files
 from model.core import ReferenceResolutionError, entries, resource_row_index
-from model.sources import (Scope, ModelSnapshot, FileReads, SourceWriteContext, load_model, runtime_values, candidate_sources,
-                           safe, publication_lock, _publish_transaction, json_read, json_text)
+from model.sources import Scope, ModelSnapshot, FileReads, SourceWriteContext, load_model, runtime_values, candidate_sources, safe, publication_lock, _publish_transaction, json_read
+from utils.json_format import json_text
 from model.operations import CandidateReads, prepare_edit, publish_edit
 from model.render import view_plan, owned_artifacts
 from model.importing import approval as import_approval

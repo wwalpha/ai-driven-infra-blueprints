@@ -48,8 +48,8 @@ def validate_runtime_keys(values):
     validate_model_keys(authority)
     for key, value in derived.items():
         if key.endswith('.artifactSha256'):
-            from model.projection import document_sha256
-            from model.format import strict_json
+            from utils.json_format import document_sha256
+            from utils.json_format import strict_json
             document = authority.get(key.removesuffix('artifactSha256') + 'document')
             if document is None or document_sha256(strict_json(document)) != value:
                 raise ValueError('invalid derived artifactSha256: ' + key)

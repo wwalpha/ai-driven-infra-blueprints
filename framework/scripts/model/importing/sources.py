@@ -1,7 +1,8 @@
 """Check explicit acquired correspondences and preserve every unselected canonical field."""
 import json
 from model.core import LINK, entries, literal, resource_row_index
-from model.format import strict_json as json_read, owner
+from model.format import owner
+from utils.json_format import strict_json as json_read
 
 def typed_equal(left, right):
     return json.dumps(left, sort_keys=True, allow_nan=False) == json.dumps(right, sort_keys=True, allow_nan=False)

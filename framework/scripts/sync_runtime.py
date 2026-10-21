@@ -1,4 +1,5 @@
 """Select, stage, validate and publish model views; independent of the CLI."""
+from utils.json_format import policy_json
 
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager, nullcontext
@@ -18,7 +19,7 @@ from model.projection import design_target
 from model.projection import JSON_LINK
 from model.sources import load_model
 from model.sources import _publish_transaction, publication_lock, safe, model_exists, model_paths as registered_models
-from policy_tables import rendered_design, unique_object, invalid_constant
+from policy_tables import rendered_design
 from task_contract import task_path, task_revision
 from issue_gate import require_no_issues
 from validation_scope import scoped_files
@@ -155,7 +156,7 @@ def generate_views(stage, root, destinations, failures, definitions_root=None, *
                     continue
                 if "document" not in row:
                     raise ValueError(f"authoritative JSON document missing: {path.name}: {identity}")
-                document = json.loads(row["document"], object_pairs_hook=unique_object, parse_constant=invalid_constant)
+                document = policy_json(row["document"])
                 if not isinstance(document, dict):
                     raise ValueError(f"JSON document must be an object: {identity}")
                 artifact = (staged.parent / match.group(1)).resolve()

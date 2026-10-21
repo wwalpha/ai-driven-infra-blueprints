@@ -2053,3 +2053,14 @@ producer を読まず、構文・I/O・scope の不正を WARNING へ握り潰�
 | `model-v2::legacy-reference-equivalence` | `check_export_real_stack_links_root_names_and_retained_display` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 1 | Real-value legacy validation, Stack placement/buckets, root Name, KMS default label and retained display-only comments | Model v2 |
 | `model-v2::macie-authority` | `check_macie_renders_current_document_without_artifact_reads` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py) | pytest / 3 | Missing/stale/broken JSON never overrides the current document or changes properties bytes | Model v2 |
 | `model-v2::display-diagnostics` | `check_shared_display_selection_and_diagnostics` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py) | pytest / 4 | Root name, explicit fallback label, rule-table and grouped KMS alias share final display selection | Model v2 |
+
+## Shared JSON compatibility
+
+| Case ID | Entry | Class | File | Execution | Responsibility | Origin |
+| --- | --- | --- | --- | --- | --- | --- |
+| json-format/parse | check_parse | UT | [JSON](units/json-format.checks.py) | pytest / 4 | Model/Policy native values and Unicode | Added |
+| json-format/errors | check_errors | UT | [JSON](units/json-format.checks.py) | pytest / 12 | Exact duplicate/constant/syntax messages | Added |
+| json-format/overflow | check_model_overflow_only | UT | [JSON](units/json-format.checks.py) | pytest / 3 | Model rejects overflow; Policy retains infinity | Added |
+| json-format/bytes | check_output_bytes_and_hashes | UT | [JSON](units/json-format.checks.py) | pytest / 1 | Fixed pre-refactor UTF-8 bytes and distinct hashes | Added |
+| json-format/exports | check_compatibility_exports | UT | [JSON](units/json-format.checks.py) | pytest / 1 | Existing public exports remain identical | Added |
+| json-format/isolation | check_isolated_imports_and_standalone_audit | UT | [JSON](units/json-format.checks.py) | pytest / 4 | Fresh isolated imports and standalone audit parser | Added |

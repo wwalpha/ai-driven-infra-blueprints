@@ -2,6 +2,7 @@
 """Render service policy tables from the linked design JSON, never the reverse."""
 
 from __future__ import annotations
+from utils.json_format import policy_json, unique_object, invalid_constant
 
 from validation_cache import input_scope
 import argparse
@@ -12,7 +13,6 @@ from pathlib import Path
 import re
 import sys
 
-from iac_values import unique_object, invalid_constant
 from model.core import literal
 from array_display import restored_rows
 from design_layout import ANCHOR, HEADER, RESOURCE, formal_property, resource_heading_lines
@@ -229,7 +229,7 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
     artifact = (path.parent / policy.link).resolve()
     if artifact.parent != (path.parent / path.stem).resolve():
         raise ValueError(f"policy artifact must belong to the owning service: {policy.link}")
-    document = json.loads(artifact.read_text(encoding="utf-8"), object_pairs_hook=unique_object, parse_constant=invalid_constant)
+    document = policy_json(artifact.read_text(encoding="utf-8"))
     if not isinstance(document, dict):
         raise ValueError(f"policy JSON must be an object: {policy.link}")
     validate_policy_document(document, policy)
@@ -243,7 +243,7 @@ def validate_policy_document(document, policy):
             raw = document['LifecyclePolicyText']
             if not isinstance(raw, str):
                 raise ValueError('LifecyclePolicyText must be a JSON string')
-            if not isinstance(json.loads(raw, object_pairs_hook=unique_object, parse_constant=invalid_constant), dict):
+            if not isinstance(policy_json(raw), dict):
                 raise ValueError('LifecyclePolicyText must encode an object')
         return
     if style == 'wrapped-statement':
@@ -299,7 +299,7 @@ def policy_document_lines(document, policy):
             if not isinstance(encoded, str):
                 return raw_policy_lines(original, policy)
             try:
-                decoded = json.loads(encoded, object_pairs_hook=unique_object, parse_constant=invalid_constant)
+                decoded = policy_json(encoded)
             except ValueError:
                 return raw_policy_lines(original, policy)
             if not isinstance(decoded, dict):

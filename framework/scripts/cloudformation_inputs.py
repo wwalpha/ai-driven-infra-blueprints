@@ -1,4 +1,5 @@
 """Shared local CloudFormation input decoding and intrinsic evaluation (no AWS calls)."""
+from utils.json_format import policy_json
 import json
 import math
 import re
@@ -151,8 +152,7 @@ def load_template_inputs(template, parameter_file, *, strict_parameters=False, d
         if errors or not isinstance(document, dict) or document.get("Transform"):
             raise Blocked("invalid/transform template; inputs must be resolvable locally")
     if strict_parameters:
-        from policy_tables import unique_object, invalid_constant
-        inputs = json.loads(parameter_file.read_text(encoding="utf-8"), object_pairs_hook=unique_object, parse_constant=invalid_constant)
+        inputs = policy_json(parameter_file.read_text(encoding="utf-8"))
     else:
         inputs = json.loads(parameter_file.read_text(encoding="utf-8"))
     if not isinstance(inputs, list) or not all(isinstance(item, dict) and isinstance(item.get("ParameterKey"), str)

@@ -1,10 +1,10 @@
 """Explicit design validation over canonical metadata and runtime fields."""
 
 from __future__ import annotations
+from utils.json_format import policy_json
 
 from model.core import ReferenceResolutionError
 
-import json
 import re
 from collections import Counter
 from pathlib import Path
@@ -31,7 +31,7 @@ from design_layout import (
     LAMBDA_PERMISSION,
     SUBNET_LIST_SOURCE,
 )
-from policy_tables import literal, table, unique_object, invalid_constant
+from policy_tables import literal, table
 from design_catalog import DesignSchemaCatalog, property_paths_with_parents, selected_properties
 from validation_cache import input_scope, memoized
 
@@ -200,7 +200,7 @@ def validate_kms_policy_accounts(values: dict[str, str], target: dict) -> None:
         if not any(identity.startswith(key + "-") for key in keys) or row.get("property") != "KMS.Key.KeyPolicy" or "document" not in row:
             continue
         external = set(re.findall(r"\bcross-account:(arn:[A-Za-z0-9_+=,.@:/-]+)(?=$|[\s`])", row.get("comment", "")))
-        document = json.loads(row["document"], object_pairs_hook=unique_object, parse_constant=invalid_constant)
+        document = policy_json(row["document"])
         if not isinstance(document, dict):
             raise ValueError(f"KMS.Key.KeyPolicy {identity}: document must be an object")
         statements = document.get("Statement", [])

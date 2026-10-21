@@ -1,21 +1,7 @@
 """Symbolic IaC values, strict/selected comparison and display masking. No I/O."""
-import hashlib
-import json
+from utils.json_format import unique_object, invalid_constant, policy_json as strict_json, fingerprint
 import re
 from dataclasses import dataclass
-
-def unique_object(pairs: list[tuple[str, object]]) -> dict:
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate policy JSON key: {key}")
-        result[key] = value
-    return result
-
-
-def invalid_constant(value: str) -> None:
-    raise ValueError(f"invalid JSON constant: {value}")
-
 
 def cfn_resource_identity(value):
     """A hyphen cannot occur in a template resource ID, so the final one is unambiguous."""
@@ -23,10 +9,6 @@ def cfn_resource_identity(value):
     if not separator or not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,127}", stack) or not re.fullmatch(r"[A-Z][A-Za-z0-9]*", logical):
         raise ValueError(f"invalid cfn-logicalId (expected StackName-TemplateResourceId): {value!r}")
     return stack, logical
-
-
-def strict_json(text):
-    return json.loads(text, object_pairs_hook=unique_object, parse_constant=invalid_constant)
 
 
 class ResourceReference(dict):
@@ -139,9 +121,3 @@ def selected_same(desired, actual, property_name='', *, reference=None, path='')
         return len(desired) == len(actual) and comparison_result(
             selected_same(a, b, reference=reference, path=path + '[]') for a, b in zip(desired, actual))
     return desired == actual
-
-
-
-
-def fingerprint(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()

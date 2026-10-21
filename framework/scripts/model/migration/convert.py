@@ -3,7 +3,8 @@ import hashlib
 import os
 from pathlib import Path
 import tempfile
-from model.format import owner, split, strict_json
+from model.format import owner, split
+from utils.json_format import strict_json
 from model.sources import Scope
 
 

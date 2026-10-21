@@ -1,10 +1,8 @@
 """Export through a pinned legacy checkout and its interpreter in an isolated child."""
 import hashlib
-import json
 from pathlib import Path
 import subprocess
-from model.format import strict_json
-from model.sources import json_text
+from utils.json_format import strict_json, json_text
 
 # This adapter invokes the old public reader. It contains no copy of that reader.
 CHILD = r'''

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from cloudformation_inputs import Blocked
 from script_loader import module
-from iac_values import strict_json, fingerprint
+from utils.json_format import policy_json as strict_json, fingerprint
 from model.core import LINK
 from policy_tables import literal
 

@@ -25,6 +25,8 @@ def check_registered_guard_process(tmp_path, capsys, approved, outcome):
     import shutil
     for name in ('task_contract.py', 'sync_files.py', 'validation_cache.py', 'iac_values.py'):
         shutil.copyfile(Path(wt.__file__).with_name(name), scripts / name)
+    (scripts / 'utils').mkdir()
+    shutil.copyfile(Path(wt.__file__).parent / 'utils/json_format.py', scripts / 'utils/json_format.py')
     task = 'tasks/selected.md'
     (tmp_path / 'tasks').mkdir()
     (tmp_path / task).write_text(contract('selected', ['file.txt']))

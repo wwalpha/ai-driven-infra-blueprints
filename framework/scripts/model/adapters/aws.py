@@ -5,6 +5,7 @@ Exit 0: complete match; 1: differences; 2: incomplete (possibly with differences
 --coverage is offline. No AI, CloudFormation template comparison, or model writes.
 """
 from __future__ import annotations
+from utils.json_format import policy_json
 
 import argparse
 from collections import Counter, defaultdict
@@ -31,7 +32,7 @@ from model.references import link_scope
 from model.core import LINK, entries, properties
 from model.sources import model_paths
 from model.files import load_model, read_model
-from policy_tables import invalid_constant, literal, unique_object
+from policy_tables import literal
 from validation_cache import input_scope
 
 SERVICES = tuple("athena cloudformation-stacks cloudtrail cloudwatch-logs codebuild codecommit "
@@ -166,9 +167,9 @@ def policy(value):
     """IAM policy sets may reorder; paired statement fields remain one object."""
     if isinstance(value, str):
         try:
-            value = json.loads(value, object_pairs_hook=unique_object, parse_constant=invalid_constant)
+            value = policy_json(value)
         except json.JSONDecodeError:
-            value = json.loads(unquote(value), object_pairs_hook=unique_object, parse_constant=invalid_constant)
+            value = policy_json(unquote(value))
     if not isinstance(value, dict):
         raise Unresolved("policy must be a JSON object")
     def walk(item, name=""):
@@ -237,7 +238,7 @@ class Context:
                                      **({"AWS_MAX_ATTEMPTS": "1"} if self.import_mode else {})})
         if result.returncode:
             raise subprocess.CalledProcessError(result.returncode, command[:3], stderr=result.stderr)
-        response = json.loads(result.stdout, object_pairs_hook=unique_object, parse_constant=invalid_constant)
+        response = policy_json(result.stdout)
         if not isinstance(response, dict):
             raise ValueError("AWS CLI response must be a JSON object")
         return response
@@ -497,7 +498,7 @@ class Resource:
         except KeyError:
             schema, schema_type = {}, "string"
         if "document" in row:
-            value = json.loads(raw, object_pairs_hook=unique_object, parse_constant=invalid_constant)
+            value = policy_json(raw)
         elif LINK.fullmatch(raw):
             target = self.reference(raw)
             mode = "arn" if norm in {"arn", "policy", "iam_role", "log_group_arn"} else "name" if norm in {"name", "string"} else "id"
@@ -508,12 +509,12 @@ class Resource:
             if (not value and not explicit_empty) or value in {"UNSET", "PENDING_DEPLOY", "未確定", "TBD", "TODO"}:
                 raise Unresolved("design value is unresolved")
             if path.endswith("[]") and value.startswith("["):
-                value = json.loads(value, object_pairs_hook=unique_object, parse_constant=invalid_constant)
+                value = policy_json(value)
                 if not isinstance(value, list):
                     raise Unresolved("design array row must be a list")
             elif schema_type != "string" or norm in {"json", "policy", "set"}:
                 try:
-                    value = json.loads(value, object_pairs_hook=unique_object, parse_constant=invalid_constant)
+                    value = policy_json(value)
                 except ValueError:
                     if schema_type not in {"array", "object"}:
                         raise Unresolved("design value has an invalid type") from None
@@ -623,7 +624,7 @@ def normalize(ctx, value, norm):
         text = str(value)
         return {"6": "tcp", "17": "udp", "1": "icmp", "58": "icmpv6"}.get(text, text) if norm == "protocol" else text
     if norm == "json" and isinstance(value, str):
-        return json.loads(value, object_pairs_hook=unique_object, parse_constant=invalid_constant)
+        return policy_json(value)
     return value
 
 

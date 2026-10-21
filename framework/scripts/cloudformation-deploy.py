@@ -19,7 +19,7 @@ from model.core import properties, stack_model, deployment_settings, ARTIFACT_PR
 from model.files import read_model
 from deploy_preparation import Timing
 from issue_gate import require_target_no_issues
-from iac_values import fingerprint
+from utils.json_format import fingerprint
 from task_contract import task_path
 from cloudformation_inputs import Blocked, load_template_inputs
 from model.adapters.observed import mappings, removed_resources

@@ -1,7 +1,8 @@
 """Enforce IMPORT configuration authority at existing save, validation and Git boundaries."""
 from contextlib import contextmanager, ExitStack
 from collections.abc import Iterator
-from model.sources import SourceWriteContext, safe, json_text
+from model.sources import SourceWriteContext, safe
+from utils.json_format import json_text
 from contextvars import ContextVar
 import hashlib
 import io

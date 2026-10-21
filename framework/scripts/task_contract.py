@@ -223,7 +223,7 @@ class ModelOperation:
 
 def model_operation(text: str) -> ModelOperation | None:
     """Parse only reserved operation declarations; never expand or read Model sources."""
-    from iac_values import strict_json
+    from utils.json_format import policy_json as strict_json
     lines = section(text, '## Task contract')
     fields = ('Model operation', 'Source resource', 'Destination resource')
     headings = ('## Model merge pairs', '## Model reference changes', '## Model delete sources')
@@ -366,7 +366,7 @@ class DependencyDetach:
 
 def model_refactor(text: str, *, operation=None) -> tuple[DependencyDetach, ...] | None:
     """Opt-in design declaration, independent of Model operation and ordinary design."""
-    from iac_values import strict_json
+    from utils.json_format import policy_json as strict_json
     lines = section(text, '## Task contract')
     heading = '## Model dependency detach'
     reserved = [line for line in lines if re.match(r'-\s*Model refactor\b', line)]

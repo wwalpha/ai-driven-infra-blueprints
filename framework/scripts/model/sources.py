@@ -1,5 +1,6 @@
 """Properties discovery, immutable raw snapshots and journalled publication."""
 from __future__ import annotations
+from utils.json_format import json_text, strict_json
 import base64
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -16,15 +17,11 @@ from validation_cache import (input_bytes, input_exists, input_is_dir, input_is_
     input_is_symlink, input_select, memo_table, memoized)
 from sync_progress import phase, thread_lock
 import sync_files
-from model.format import FORMAT, INDEX, PART, parse, strict_json, validate_blocks
+from model.format import FORMAT, INDEX, PART, parse, validate_blocks
 
 _locks = {}
 _guard = threading.Lock()
 _local = threading.local()
-
-
-def json_text(value):
-    return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
 
 
 json_read = strict_json
@@ -397,7 +394,7 @@ def runtime_values(authoritative):
                 if prefix + field in authoritative:
                     values[key.removesuffix('value') + field] = authoritative[prefix + field]
         elif key.startswith('desired.row.') and key.endswith('.document'):
-            from model.projection import document_sha256
+            from utils.json_format import document_sha256
             values[key.removesuffix('document') + 'artifactSha256'] = document_sha256(strict_json(value))
     return values
 

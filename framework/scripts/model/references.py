@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 import re
 from model.core import entries, literal
-from model.format import strict_json, owner, json_field
+from model.format import owner, json_field
+from utils.json_format import strict_json
 from model.sources import Scope, load_model, _source_snapshot, list_models, target_for, FileReads
 
 LINKS = re.compile(r'\[([^\]]+)\]\(([^)]*?)#([^)]+)\)')

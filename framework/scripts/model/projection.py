@@ -1,5 +1,5 @@
 """Derived execution/display fields; never serialize these into Model authority."""
-import hashlib
+from utils.json_format import document_sha256
 import json
 import re
 from pathlib import Path
@@ -19,13 +19,6 @@ REFERENCE_NAME_SUFFIXES = ('.Name', '.RoleName', '.LogGroupName', '.BucketName',
 def json_sha256(path: Path) -> str:
     content = json.loads(input_text(path, encoding="utf-8"))
     return document_sha256(content)
-
-
-def document_sha256(content) -> str:
-    canonical = json.dumps(
-        content, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    return hashlib.sha256(canonical).hexdigest()
 
 
 @memoized

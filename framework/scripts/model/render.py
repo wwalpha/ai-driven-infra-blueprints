@@ -1,6 +1,7 @@
 """Render detailed designs from authoritative service properties."""
 
 from __future__ import annotations
+from utils.json_format import policy_json
 
 from model.core import ReferenceResolutionError
 
@@ -31,7 +32,7 @@ from design_layout import (
     LAMBDA_PERMISSION,
     SUBNET_LIST_SOURCE,
 )
-from policy_tables import literal, table, unique_object, invalid_constant
+from policy_tables import literal, table
 from design_catalog import DesignSchemaCatalog, property_paths_with_parents, selected_properties
 from validation_cache import input_scope, memoized
 
@@ -273,7 +274,7 @@ def render_markdown(path, values, root, owned, details, grouped, policy_views=No
             if definitions:
                 row_id = definitions[0][0]
                 raw = values[f"desired.row.{row_id}.document"]
-                document = json.loads(raw, object_pairs_hook=unique_object, parse_constant=invalid_constant)
+                document = policy_json(raw)
                 if "bucketDefinitions" in document:
                     mappings = [[f'[{name}](#{resource["anchor"]})', f'`{group["accountId"]}`', f"`{bucket}`"] for group in document["bucketDefinitions"] for bucket in group["buckets"]]
                     output += ["", "#### 対象S3 bucket", "", *table(["Job", "AWS account ID", "Bucket"], mappings)]
@@ -328,7 +329,7 @@ def generate_files(path, values, root):
         safe(root, artifact)
         if artifact.parent != path.with_suffix('').resolve():
             raise ValueError('JSON artifact must belong to owning service')
-        document = json.loads(row['document'], object_pairs_hook=unique_object, parse_constant=invalid_constant)
+        document = policy_json(row['document'])
         content = json.dumps(document, ensure_ascii=False, indent=2) + '\n'
         if artifact in artifacts and artifacts[artifact] != content:
             raise ValueError('conflicting authoritative JSON documents')

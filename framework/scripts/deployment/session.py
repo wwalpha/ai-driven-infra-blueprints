@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from model.sources import model_paths, load_model, authority_snapshot, source_scope, FileReads
-from iac_values import fingerprint
+from utils.json_format import fingerprint
 from cloudformation_inputs import Blocked
 from model.adapters.observed import MappingError, mappings, sync_successful, removed_resources
 from task_contract import task_path, status, paths_in

@@ -1,7 +1,6 @@
 """Version 2 properties syntax. Scalars are text; only explicit JSON is parsed."""
+from utils.json_format import strict_json
 from dataclasses import dataclass
-import json
-import math
 import re
 
 FORMAT = '# model-format: 2'
@@ -9,30 +8,6 @@ INDEX = '# model-index: 2'
 PART = '# part: '
 LIMIT = 600
 KEY = re.compile(r'[A-Za-z0-9_.-]+')
-
-
-def _object(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError('duplicate JSON key: ' + key)
-        result[key] = value
-    return result
-
-
-def _constant(value):
-    raise ValueError('invalid JSON constant: ' + value)
-
-
-def _number(raw):
-    number = float(raw)
-    if not math.isfinite(number):
-        raise ValueError('nonfinite JSON number: ' + raw)
-    return number
-
-
-def strict_json(value):
-    return json.loads(value, object_pairs_hook=_object, parse_constant=_constant, parse_float=_number)
 
 
 @dataclass(frozen=True)

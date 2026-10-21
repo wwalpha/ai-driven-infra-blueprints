@@ -14,6 +14,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Any
+from utils.json_format import canonical_json
 
 
 REGION = "ap-northeast-1"
@@ -46,10 +47,6 @@ def design_type(material: Path) -> str:
 
 def material_files(root: Path) -> list[Path]:
     return sorted(input_select(root / "framework" / "materials" / "aws", "*.properties"))
-
-
-def canonical_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
 def manifest_text(root: Path, files: list[Path]) -> str:

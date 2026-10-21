@@ -2,7 +2,8 @@
 import hashlib
 import json
 from pathlib import Path
-from model.format import strict_json, json_field
+from model.format import json_field
+from utils.json_format import strict_json
 from model.sources import Scope, load_model, list_models, FileReads
 from model.migration.convert import checked_export
 

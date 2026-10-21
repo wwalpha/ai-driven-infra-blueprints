@@ -5,7 +5,7 @@ from pathlib import Path, PurePosixPath
 import re
 import tempfile
 
-from model.format import strict_json
+from utils.json_format import strict_json
 from model.migration.compare import compare_export, semantic
 from model.migration.convert import checked_export
 from model.migration.export import export_legacy

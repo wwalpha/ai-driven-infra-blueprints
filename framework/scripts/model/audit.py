@@ -183,7 +183,8 @@ def generate(root, environment, selector, service):
               'def memo_table(): return None\n')
     engine += definitions(scripts / 'model/references.py', ['link_scope'])
     engine += definitions(scripts / 'utils/lazy_definitions.py', ['load_once'])
-    engine += definitions(scripts / 'iac_values.py', ['unique_object', 'invalid_constant', 'cfn_resource_identity'])
+    engine += definitions(scripts / 'utils/json_format.py', ['unique_object', 'invalid_constant', 'policy_json'])
+    engine += definitions(scripts / 'iac_values.py', ['cfn_resource_identity'])
     engine += definitions(scripts / 'model/core.py', ['entries', 'literal'])
     engine += definitions(scripts / 'comparison_rows.py', ['Unresolved', 'select', 'put_row'])
     engine += 'MISSING = {"absent": True}\n'

@@ -13,7 +13,7 @@ import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from iac_values import fingerprint
+from utils.json_format import fingerprint
 
 from cloudformation_inputs import Blocked
 from model.adapters.observed import destroy_plan, sync_destroyed

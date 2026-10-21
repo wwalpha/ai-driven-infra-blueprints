@@ -3,7 +3,7 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import shutil
 import tempfile
-from model.sources import json_text
+from utils.json_format import json_text
 
 FORMAT_FIELDS = {'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1}
 

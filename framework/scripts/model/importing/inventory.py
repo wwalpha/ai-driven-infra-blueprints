@@ -1,4 +1,5 @@
 """One acquisition inventory per verified Context; static definitions remain shared."""
+from utils.json_format import policy_json
 from copy import deepcopy
 import json
 from threading import RLock
@@ -6,7 +7,6 @@ from threading import RLock
 from aws_mapping import readonly
 from aws_mapping_compare import import_comparison
 from aws_mapping_catalog import project
-from policy_tables import invalid_constant, unique_object
 from script_loader import module
 from utils.aws_mappings import owners
 from utils.aws_schemas import schemas_for
@@ -20,7 +20,7 @@ def comparator():
 def properties_json(value):
     if not isinstance(value, str):
         raise ValueError('Cloud Control Properties must be a JSON string')
-    result = json.loads(value, object_pairs_hook=unique_object, parse_constant=invalid_constant)
+    result = policy_json(value)
     if not isinstance(result, dict):
         raise ValueError('Cloud Control Properties must be an object')
     return result

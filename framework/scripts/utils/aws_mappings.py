@@ -1,8 +1,8 @@
 """Process-local static Mapping definitions, shared by exact source/stage roots."""
+from utils.json_format import policy_json
 from validation_cache import input_text
 from concurrent.futures import Future
 from contextlib import contextmanager
-import json
 from pathlib import Path
 import re
 from threading import Lock
@@ -36,10 +36,8 @@ def _once(table, key, load):
 
 class Mappings:
     def __init__(self, root):
-        from policy_tables import unique_object, invalid_constant
         self._root = Path(root)
-        index = json.loads(input_text(self._root / 'framework/mappings/aws/owners.json', encoding='utf-8'),
-                           object_pairs_hook=unique_object, parse_constant=invalid_constant)
+        index = policy_json(input_text(self._root / 'framework/mappings/aws/owners.json', encoding='utf-8'))
         if not isinstance(index, dict) or not index or any(
                 not re.fullmatch(r'[A-Za-z0-9]+\.[A-Za-z0-9]+', kind)
                 or not isinstance(service, str) or not re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*', service)

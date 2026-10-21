@@ -1,10 +1,10 @@
 """Paired Glue, CodeBuild and CodePipeline row display/restoration."""
+from utils.json_format import policy_json
 
 import html
 import json
 import re
 from model.core import LINK, literal, ReferenceResolutionError
-from iac_values import unique_object, invalid_constant
 
 
 CODEBUILD_VARIABLE = "CodeBuild.Project.Environment.Variables."
@@ -184,7 +184,7 @@ def pipeline_rows(rows: list[list[str]]) -> list[list[str]]:
         if field != "Configuration":
             result.append([identity, prefix + field, value, comment])
             continue
-        config = json.loads(literal(value), object_pairs_hook=unique_object, parse_constant=invalid_constant)
+        config = policy_json(literal(value))
         if not isinstance(config, dict) or not config or any(not isinstance(item, str) for item in config.values()):
             raise ValueError("CodePipeline Configuration must be a non-empty string object")
         comments = dict(part.split(": ", 1) for part in comment.split(" / ") if ": " in part)
@@ -280,14 +280,14 @@ GLUE_ARGUMENT_SOURCE = re.compile(r"^<!-- glue-arguments-source: (.+?) --> ")
 
 
 def glue_argument_rows(rows: list[list[str]], kind: str) -> list[list[str]]:
-    from policy_tables import code, literal, unique_object, invalid_constant
+    from policy_tables import code, literal
 
     result = []
     for identity, prop, value, comment in rows:
         if kind != "Glue.Job" or prop not in GLUE_ARGUMENTS:
             result.append([identity, prop, value, comment])
             continue
-        arguments = json.loads(literal(value), object_pairs_hook=unique_object, parse_constant=invalid_constant)
+        arguments = policy_json(literal(value))
         if not isinstance(arguments, dict) or any(not isinstance(item, str) for item in arguments.values()):
             raise ValueError(f"Glue.Job.{prop} must be a string object")
         if not arguments:

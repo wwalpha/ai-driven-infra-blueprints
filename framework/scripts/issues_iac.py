@@ -21,7 +21,8 @@ from iac_evaluation import Evaluation
 from comparison_rows import Unresolved, cloudtrail_rows, put_row, select
 from service_rows import pipeline_rows
 from array_display import indexed_rows
-from iac_values import ResourceReference, Expression, safe_value, same, selected_same, strict_json, unordered_same
+from iac_values import ResourceReference, Expression, safe_value, same, selected_same, unordered_same
+from utils.json_format import policy_json as strict_json
 
 
 from reference_contracts import REFERENCE_FORMS, REFERENCE_PROPERTIES
