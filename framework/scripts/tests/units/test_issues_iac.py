@@ -12,6 +12,149 @@ import tempfile
 import issues_iac
 
 
+def legacy_comparison(root, count=3, services=1, stacks=2):
+  """Synthetic legacy Models and real local templates; no consumer inputs."""
+  models, documents, units = {}, [{'Resources': {}} for _ in range(stacks)], []
+  for number in range(count):
+    service, identity = f'service-{number % services}', f'{number:04d}'
+    values = models.setdefault(service, {f'desired.service.{service}.serviceId': service})
+    values.update({f'desired.resource.{identity}.resourceType': 'Logs.LogGroup',
+                   f'desired.resource.{identity}.logicalId': f'Log{number}',
+                   f'desired.row.{identity}-001.property': 'Logs.LogGroup.RetentionInDays',
+                   f'desired.row.{identity}-001.value': '`7`'})
+    documents[number % stacks]['Resources'][f'Log{number}'] = {
+        'Type': 'AWS::Logs::LogGroup', 'Properties': {'RetentionInDays': 7}}
+  loaded = {}
+  for service, values in models.items():
+    path = root / 'model/fixture/team' / (service + '.properties')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    raw = json.dumps(values).encode()
+    path.write_bytes(raw)
+    loaded[path] = SimpleNamespace(values=values, dependencies={path: raw}, locations={})
+  for number, document in enumerate(documents):
+    unit = {'name': f'stack{number}', 'template': f'{number}.json', 'parameters': f'{number}.json'}
+    units.append((str(number), unit))
+    for path, value in [(root / 'infra/cloudformation/templates' / unit['template'], document),
+                        (root / 'infra/cloudformation/parameters/fixture/team' / unit['parameters'], [])]:
+      path.parent.mkdir(parents=True, exist_ok=True)
+      path.write_text(json.dumps(value), encoding='utf-8')
+  catalog = issues_iac.DesignSchemaCatalog(Path(__file__).resolve().parents[4])
+  target = {'iacEngine': 'cloudformation', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1'}
+  with patch('issues_iac.load_target', return_value=target), patch('issues_iac.load_model', side_effect=loaded.__getitem__):
+    comparison = issues_iac.Comparison(root, 'fixture', 'team', models, catalog=catalog)
+  comparison.templates = lambda: units
+  return comparison
+
+
+class LegacySearchTests(unittest.TestCase):
+  def test_order_failures_and_explicit_priority(self):
+    for case in ('normal', 'ambiguous', 'missing', 'broken', 'duplicate', 'explicit', 'mixed-errors'):
+      with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+        comparison = legacy_comparison(Path(directory))
+        template = comparison.root / 'infra/cloudformation/templates/1.json'
+        if case == 'ambiguous':
+          document = json.loads(template.read_text(encoding='utf-8'))
+          document['Resources']['Log0'] = {'Type': 'AWS::Logs::LogGroup', 'Properties': {'RetentionInDays': 7}}
+          template.write_text(json.dumps(document), encoding='utf-8')
+        elif case == 'missing':
+          template.unlink()
+        elif case == 'broken':
+          template.write_text('{broken', encoding='utf-8')
+        elif case in ('duplicate', 'explicit', 'mixed-errors'):
+          values = comparison.models['service-0'].values
+          values['desired.resource.0001.logicalId'] = 'Log0'
+          comparison.resources['service-0']['0001']['logicalId'] = 'Log0'
+          if case == 'explicit':
+            values['desired.resource.0000.cfn-logicalId'] = 'stack0-Log0'
+            comparison.resources['service-0']['0000']['cfn-logicalId'] = 'stack0-Log0'
+          if case == 'mixed-errors':
+            template.unlink()
+        reads = []
+        original = comparison.stack_input
+        def stack_input(unit):
+          reads.append(unit['name'])
+          return original(unit)
+        comparison.stack_input = stack_input
+        results = comparison.run()
+        self.assertEqual([item['resource'] for item in results], ['0000', '0001', '0002'])
+        self.assertEqual(list(dict.fromkeys(reads)), ['stack0', 'stack1'])
+        self.assertEqual(len(comparison.inputs), 6)
+        self.assertEqual(set(comparison.read_hashes), comparison.inputs - {comparison.root / 'project.json'})
+        if case == 'normal':
+          self.assertEqual([item['category'] for item in results], ['matched'] * 3)
+          self.assertEqual(reads, ['stack0', 'stack1'])
+        elif case == 'explicit':
+          self.assertEqual(results[0]['category'], 'matched')
+          self.assertIn('legacy fallback forbidden', results[1]['reason'])
+        elif case == 'ambiguous':
+          self.assertIn('legacy correspondence matches=2', results[0]['reason'])
+          self.assertEqual(results[1]['category'], 'matched')
+        elif case in ('missing', 'mixed-errors'):
+          self.assertTrue(all(item['category'] == 'uncompared' for item in results))
+          if case == 'missing':
+            self.assertTrue(all(item['cause']['relationship'] == 'legacy-search-incomplete' for item in results))
+          else:
+            self.assertTrue(all('cause' not in item for item in results))
+            self.assertLess(results[0]['reason'].index('stack0/Log0'), results[0]['reason'].index('stack1:'))
+        elif case == 'broken':
+          self.assertTrue(all(item['category'] == 'error' and 'invalid template' in item['reason'] for item in results))
+        else:
+          self.assertTrue(all('model resource matches=2' in item['reason'] for item in results))
+
+  def test_index_invalidation_and_run_isolation(self):
+    with tempfile.TemporaryDirectory() as directory:
+      comparison = legacy_comparison(Path(directory))
+      compare_rows = comparison.compare_rows
+      def change_index(*args):
+        compare_rows(*args)
+        if args[1] == '0000':
+          values = comparison.models['service-0'].values
+          values['desired.resource.0001.logicalId'] = 'Changed'
+          comparison._index = None
+      comparison.compare_rows = change_index
+      results = comparison.run()
+      self.assertEqual(results[0]['category'], 'matched')
+      self.assertIn('model resource matches=0', results[1]['reason'])
+      self.assertIn('model resource matches=0', results[2]['reason'])
+      comparison.models['service-0'].values['desired.resource.0001.logicalId'] = 'Log1'
+      comparison._index = None
+      comparison.compare_rows = compare_rows
+      comparison.results = []
+      self.assertEqual([item['category'] for item in comparison.run()], ['matched'] * 3)
+      # Mutate the existing document and retain the Model index across runs.
+      del comparison.stack_inputs['stack1'][0]['Resources']['Log1']
+      comparison.results = []
+      self.assertIn('legacy correspondence matches=0', comparison.run()[1]['reason'])
+
+  def test_types_are_separate_and_model_load_invalidates(self):
+    with tempfile.TemporaryDirectory() as directory:
+      comparison = legacy_comparison(Path(directory))
+      comparison.resources['service-0']['0001']['resourceType'] = 'SQS.Queue'
+      comparison.models['service-0'].values['desired.resource.0001.resourceType'] = 'SQS.Queue'
+      path = comparison.root / 'infra/cloudformation/templates/1.json'
+      path.write_text(json.dumps({'Resources': {'Log1': {'Type': 'AWS::SQS::Queue',
+          'Properties': {'VisibilityTimeout': 30}}}}), encoding='utf-8')
+      comparison.rows['service-0']['0001'] = [('0001-001', {
+          'property': 'SQS.Queue.VisibilityTimeout', 'value': '`30`'})]
+      original = comparison.compare_rows
+      def load_duplicate(*args):
+        original(*args)
+        if args[1] == '0000':
+          source = comparison.root / 'model/fixture/team/extra.properties'
+          raw = b'synthetic extra model'
+          source.write_bytes(raw)
+          loaded = SimpleNamespace(values={'desired.service.extra.serviceId': 'extra',
+              'desired.resource.001.resourceType': 'Logs.LogGroup',
+              'desired.resource.001.logicalId': 'Log2'}, dependencies={source: raw}, locations={})
+          with patch('issues_iac.load_model', return_value=loaded):
+            comparison.model('extra')
+      comparison.compare_rows = load_duplicate
+      results = comparison.run()
+      self.assertEqual(results[0]['category'], 'matched')
+      self.assertEqual(results[1]['category'], 'matched')
+      self.assertIn('model resource matches=2', results[2]['reason'])
+
+
 class ImportValueResolutionTests(unittest.TestCase):
   def test_codebuild_plaintext_resource_attributes(self):
     # Authored identities and templates only; no consumer inputs or physical identifiers.

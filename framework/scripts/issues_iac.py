@@ -885,6 +885,7 @@ class Comparison:
                 self.record('uncompared', service, '*', '*', 'Terraform: no existing local resource correspondence/evaluator; no init/plan/provider calls')
             return self.results
         stacks = dict((unit['name'], unit) for _, unit in self.templates())
+        legacy_searches = {}
         # Load/evaluate only stacks assigned to selected resources (legacy candidates need all declared stacks).
         for service in self.services:
             for identity, resource in self.resources[service].items():
@@ -924,26 +925,33 @@ class Comparison:
                         if len(direct.get((name, logical), [])) != 1:
                             raise Blocked(f'duplicate resource correspondence: {name}/{logical}')
                     else:
-                        candidates, unresolved, causes = [], [], []
-                        for name, unit in stacks.items():
-                            try:
-                                template, (document, parameters, pseudo) = self.stack(unit)
-                            except Blocked as error:
-                                unresolved.append(f'{name}: {error}')
-                                causes.append(getattr(error, 'iac_cause', None))
-                                continue
-                            direct, legacy = self.index()
-                            for logical, definition in document.get('Resources', {}).items():
-                                if definition.get('Type') != cfn_type:
-                                    continue
+                        cached = legacy_searches.get(cfn_type)
+                        if cached is None or cached[0] is not self._index:
+                            matches, unresolved, causes = {}, [], []
+                            for name, unit in stacks.items():
                                 try:
-                                    entry = mapped_resource(direct, legacy, name, logical, cfn_type, any(n == name for n, _ in direct))
-                                except ValueError as error:
-                                    unresolved.append(f'{name}/{logical}: {error}')
-                                    causes.append(None)
+                                    template, (document, parameters, pseudo) = self.stack(unit)
+                                except Blocked as error:
+                                    unresolved.append(f'{name}: {error}')
+                                    causes.append(getattr(error, 'iac_cause', None))
                                     continue
-                                if entry[0].stem == service and entry[1] == identity:
-                                    candidates.append((name, template, document, parameters, pseudo, logical, definition))
+                                direct, legacy = self.index()
+                                explicit = any(n == name for n, _ in direct)
+                                for logical, definition in document.get('Resources', {}).items():
+                                    if definition.get('Type') != cfn_type:
+                                        continue
+                                    try:
+                                        entry = mapped_resource(direct, legacy, name, logical, cfn_type, explicit)
+                                    except ValueError as error:
+                                        unresolved.append(f'{name}/{logical}: {error}')
+                                        causes.append(None)
+                                        continue
+                                    matches.setdefault((entry[0].stem, entry[1]), []).append(
+                                        (name, template, document, parameters, pseudo, logical, definition))
+                            cached = self._index, matches, unresolved, causes
+                            legacy_searches[cfn_type] = cached
+                        _, matches, unresolved, causes = cached
+                        candidates = matches.get((service, identity), [])
                         if unresolved:
                             blocked = Blocked('incomplete legacy candidate search; ' + '; '.join(unresolved))
                             if all(causes) and len({(cause['kind'], cause['path']) for cause in causes}) == 1:
