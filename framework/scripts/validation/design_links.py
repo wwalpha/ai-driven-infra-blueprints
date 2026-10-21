@@ -198,7 +198,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
     imported = {}
     for source in sources:
         values = source_values[source] or {}
-        imported[source] = {resource['anchor']: rid for rid, resource in entries(values, 'desired.resource.')
+        imported[source] = {'resource-' + resource['logicalId']: rid for rid, resource in entries(values, 'desired.resource.')
                             if resource.get('resourceMode') == 'IMPORT'}
         if not imported[source]:
             continue
@@ -221,7 +221,10 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 prop = formal_property(cells[1], kind, definitions_root)
                 rows = queues[imported[source][anchor], prop]
                 if rows:
-                    candidate['desired.row.' + rows.popleft() + '.value'] = cells[2]
+                    row_key = 'desired.row.' + rows.popleft() + '.value'
+                    from model.identity import URI
+                    if not URI.fullmatch(values[row_key]):
+                        candidate[row_key] = cells[2]
             relative = source.relative_to(root / 'docs/designs')
             from model.sources import load_model
             resolver = Resolver(root, relative.parts[0], relative.parts[1], definitions_root=definitions_root,
@@ -234,6 +237,10 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             findings.warn(error, source=str(source))
         except (OSError, ValueError) as error:
             findings.check(False, f'invalid IMPORT physical reference: {findings.relative(source)}: {error}')
+    from model.projection import reference_display
+    authority_values = source_values
+    source_values = {source: reference_display(values or {}, source, root, definitions_root=definitions_root)
+                     for source, values in authority_values.items()}
     references = {path.resolve() for path in sources}
     fragments = {}
     visible_text = {}
@@ -379,7 +386,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             for row_id, row in rows:
                 observed = values.get(f"observed.row.{row_id}.value")
                 reference = LINK.fullmatch(row.get("value", ""))
-                if reference and expansion is not None and expansion.values == values and any(spec['consumerKey'] == 'desired.row.' + row_id + '.value' and spec['format'] == 'link' for spec in declarations(expansion.authoritative).values()):
+                if reference and expansion is not None and expansion.values == authority_values[source] and any(spec['consumerKey'] == 'desired.row.' + row_id + '.value' and spec['format'] == 'link' for spec in declarations(expansion.authoritative).values()):
                     target = (source.parent / reference.group(2) if reference.group(2) else source).resolve()
                     automatic_references.add((anchor, row['property'], target, reference.group(3), reference.group(1)))
                 if observed is not None and reference:

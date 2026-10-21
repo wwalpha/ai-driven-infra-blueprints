@@ -1,7 +1,7 @@
 """One-use Model save authority issued by the existing managed Task boundary."""
 from contextlib import contextmanager
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from model.sources import (SourceWriteContext, list_models, load_model,
                            publication_lock, source_scope, _safe)
@@ -81,6 +81,10 @@ def _write_context(root, task_file, *, requested=None):
             if not (design or infrastructure) or model_operation(text) is not None or model_refactor(text) is not None:
                 raise ValueError('observation publication requires its ordinary design/update or infrastructure observation Task')
         if operation.action == 'edit':
+            from task_contract import section, model_identity_rewrite
+            if model_identity_rewrite(text):
+                operation = replace(operation, action='identity-rewrite')
+        if operation.action == 'edit':
             from task_contract import section
             lines = section(text, '## Task contract')
             if '- Task type: `design`' not in lines or '- Workflow: `import`' in lines:
@@ -120,7 +124,11 @@ def _write_context(root, task_file, *, requested=None):
                     targets = {identity[:2] for identity in required}
                     for selected in list_models(root, snapshot):
                         if (selected.environment, selected.target) in targets:
-                            load_model(selected, snapshot)
+                            if operation.action == 'identity-rewrite':
+                                from model.identity_rewrite import baseline_snapshot
+                                baseline_snapshot(selected, snapshot)
+                            else:
+                                load_model(selected, snapshot)
                     for identity in operation.scopes:
                         file = root / 'model' / identity[0] / identity[1] / (identity[2] + '.properties')
                         snapshot.read(file)

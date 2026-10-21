@@ -149,9 +149,10 @@ def check_glue():
         assert before.authoritative[property_key(before, 'Glue.Job.Timeout')] == '`30`'
         key = property_key(before, 'Glue.Job.SecurityConfiguration')
         name = property_key(before, 'Glue.SecurityConfiguration.Name')
-        old_anchor = before.authoritative['desired.resource.002.anchor']
-        after = candidate(before, {key: '[glsc-a1b2c3](#' + old_anchor + ')', name: '`glsc-a1b2c3`'})
-        assert after.authoritative['desired.resource.002.anchor'] == old_anchor
+        logical = before.authoritative['desired.resource.002.logicalId']
+        from model.identity import address
+        after = candidate(before, {key: address(before.scope, logical), name: '`glsc-a1b2c3`'})
+        assert after.authoritative['desired.resource.002.logicalId'] == logical
         raw = after.authoritative[property_key(before, 'Glue.Job.DefaultArguments')]
         arguments = json.loads(literal(raw))
         assert isinstance(arguments, dict) and all(isinstance(value, str) for value in arguments.values())

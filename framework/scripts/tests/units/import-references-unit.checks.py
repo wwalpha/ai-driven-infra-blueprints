@@ -15,7 +15,8 @@ from model.importing.sources import verify_values, property_values
 from model.importing.scope import restrict, read_consumers
 from model.sources import load_model as load_for_edit, json_text
 from support.model_v2_fixtures import value_snapshot as Expansion
-from model.core import LINK, entries, literal
+from model.core import entries, literal
+from model.identity import URI
 from reference_contracts import contract
 from support.model_sources import write_model
 from validation_cache import input_context
@@ -40,14 +41,22 @@ def project(tmp_path):
 
 
 def values(kind, attributes, rid='001', mode='IMPORT', anchor='producer'):
+    serial = (int(rid) - 8 if int(rid) >= 9 else int(rid)) if rid.isdigit() else (2 if rid.endswith('-child') else 1)
     result = {f'desired.resource.{rid}.resourceType': kind,
               f'desired.resource.{rid}.resourceMode': mode,
-              f'desired.resource.{rid}.anchor': anchor,
-              f'desired.resource.{rid}.logicalId': 'Producer'}
+              f'desired.resource.{rid}.logicalId': kind.replace('.', '_') + f'_{serial:03d}',
+              'desired.service.identity.lastAllocated': json.dumps({kind: serial})}
     for n, (prop, raw) in enumerate(attributes.items(), 1):
         prefix = f'desired.row.{rid}-{n:03d}.'
         result.update({prefix + 'property': kind + '.' + prop, prefix + 'value': '`' + raw + '`', prefix + 'comment': '合成入力'})
     return result
+
+
+def local_snapshot(source, root, service):
+    from model.sources import Scope
+    snapshot = Expansion(source, {}, {})
+    snapshot.scope = Scope(root, 'dev', 'cde', service)
+    return snapshot
 
 
 def producer(root, kind, attributes, mode='IMPORT', env='dev', rid='001', anchor='producer', previous=None):
@@ -56,7 +65,7 @@ def producer(root, kind, attributes, mode='IMPORT', env='dev', rid='001', anchor
     path = root / 'model' / env / 'cde' / (service + '.properties')
     fields = {**(previous or {}), **values(kind, attributes, rid, mode, anchor)}
     for index, raw in enumerate(attributes.values(), 1):
-        if LINK.fullmatch(raw):
+        if URI.fullmatch(raw):
             fields[f'desired.row.{rid}-{index:03d}.value'] = raw
     write_model(path, fields)
     return service, path
@@ -89,13 +98,13 @@ def check_exact_reference(tmp_path, prop, kind, attrs, raw, mode, present):
         assert bool(result) == present
         if present:
             assert result['service'] == service and result['id'] == '001'
-            resolver.verify(prop, '[label](' + service + '.md#producer)', raw)
-            with warned(resolver, 'requires a reference link'):
+            resolver.verify(prop, 'resource://dev/cde/' + service + '/' + kind.replace('.', '_') + '_001', raw)
+            with warned(resolver, 'requires a Resource URI'):
                 resolver.verify(prop, '`' + raw + '`', raw)
         else:
             resolver.verify(prop, '`' + raw + '`', raw)
             with warned(resolver, 'differs from acquired'):
-                resolver.verify(prop, '[label](s3.md#producer)', raw)
+                resolver.verify(prop, 'resource://dev/cde/s3/S3_Bucket_001', raw)
 
 
 def check_guardduty_bucket_reference_contract(tmp_path):
@@ -106,7 +115,7 @@ def check_guardduty_bucket_reference_contract(tmp_path):
     producer(tmp_path, 'S3.Bucket', {'BucketName': 'other-bucket'}, rid='002', anchor='other', previous=first)
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
     source = values('GuardDuty.MalwareProtectionPlan', {'ProtectedResource.S3Bucket.BucketName': 'unused'}, rid='009')
-    source['desired.row.009-001.value'] = '[bucket](s3.md#producer)'
+    source['desired.row.009-001.value'] = 'resource://dev/cde/s3/S3_Bucket_001'
     source['observed.row.009-001.value'] = 'audit-bucket'
     record = {'record': 'synthetic', 'identityProperty': None, 'identity': 'synthetic-plan',
               'properties': {prop: {'status': 'captured', 'value': 'audit-bucket'}}}
@@ -115,10 +124,10 @@ def check_guardduty_bucket_reference_contract(tmp_path):
         assert verify_values(before, Expansion(source, {}, {}), {'009': record}, lambda _: {'type': 'string'}, resolver)
         resolver.verify_resource(source, '009', require_links=False, observed_only=True)
         assert not resolver.warnings
-        source['desired.row.009-001.value'] = '[wrong](s3.md#other)'
+        source['desired.row.009-001.value'] = 'resource://dev/cde/s3/S3_Bucket_002'
         with warned(resolver, 'differs from acquired physical reference'):
             verify_values(before, Expansion(source, {}, {}), {'009': record}, lambda _: {'type': 'string'}, resolver)
-        source['desired.row.009-001.value'] = '[bucket](s3.md#producer)'
+        source['desired.row.009-001.value'] = 'resource://dev/cde/s3/S3_Bucket_001'
         source['observed.row.009-001.value'] = 'other-bucket'
         with pytest.raises(ValueError, match='differs from the acquired Property'):
             verify_values(before, Expansion(source, {}, {}), {'009': record}, lambda _: {'type': 'string'}, resolver)
@@ -146,15 +155,15 @@ def check_ambiguous_and_wrong_explicit_link(tmp_path):
     producer(tmp_path, 'EC2.VPC', {'VpcId': 'vpc-confirmed'})
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
     with warned(resolver, 'differs from acquired'):
-        resolver.verify('EC2.SecurityGroup.VpcId', '[wrong](vpc.md#other)', 'vpc-confirmed')
+        resolver.verify('EC2.SecurityGroup.VpcId', 'resource://dev/cde/vpc/EC2_VPC_002', 'vpc-confirmed')
     with warned(resolver, 'differs from acquired'):
-        resolver.verify('EC2.SecurityGroup.VpcId', '[wrong](../other/vpc.md#producer)', 'vpc-confirmed')
+        resolver.verify('EC2.SecurityGroup.VpcId', 'resource://dev/other/vpc/EC2_VPC_001', 'vpc-confirmed')
 
 
 def check_publication_mixed_array_and_physical_value(tmp_path):
     service, _ = producer(tmp_path, 'EC2.Subnet', {'SubnetId': 'subnet-confirmed'})
     prop = 'CodeBuild.Project.VpcConfig.Subnets[]'
-    raw = '["[subnet](' + service + '.md#producer)","subnet-external"]'
+    raw = json.dumps(['resource://dev/cde/' + service + '/EC2_Subnet_001', 'subnet-external'])
     new = values('CodeBuild.Project', {'VpcConfig.Subnets[]': raw}, rid='009', anchor='consumer')
     new['observed.row.009-001.value'] = '["subnet-confirmed","subnet-external"]'
     after, before = Expansion(new, {}, {}), Expansion({}, {}, {})
@@ -171,7 +180,7 @@ def check_publication_mixed_array_and_physical_value(tmp_path):
 def check_observed_and_reused_index(tmp_path):
     import model.sources
     observed = values('EC2.VPC', {'VpcId': 'PENDING_DEPLOY'})
-    observed['desired.row.001-001.value'] = '[Producer](#producer)'
+    observed['desired.row.001-001.value'] = 'resource://dev/cde/vpc/EC2_VPC_001'
     observed['observed.row.001-001.value'] = 'vpc-confirmed'
     write_model(tmp_path / 'model/dev/cde/vpc.properties', observed)
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
@@ -187,26 +196,26 @@ def check_observed_and_reused_index(tmp_path):
 @pytest.mark.parametrize('local', [None, 'vpc', 'ec2'])
 def check_pending_explicit_reference_after_destroy(tmp_path, physical, local):
     source = values('EC2.VPC', {'VpcId': physical})
-    source['desired.row.001-001.value'] = '[Producer](#producer)'
+    source['desired.row.001-001.value'] = 'resource://dev/cde/vpc/EC2_VPC_001'
     source['observed.row.001-001.value'] = physical
     write_model(tmp_path / 'model/dev/cde/vpc.properties', source)
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT,
-                        local={local: Expansion(source, {}, {})} if local else None)
+                        local={local: local_snapshot(source, tmp_path, local)} if local else None)
     prop = 'EC2.Subnet.VpcId'
-    reference = '[Producer](' + ('' if local else 'vpc.md') + '#producer)'
+    reference = 'resource://dev/cde/' + (local or 'vpc') + '/EC2_VPC_001'
     assert resolver.match(prop, 'PENDING_DEPLOY') is None
     if physical == 'PENDING_DEPLOY':
         resolver.verify(prop, reference, 'PENDING_DEPLOY', require_links=False)
     else:
         with warned(resolver, 'differs from acquired'):
             resolver.verify(prop, reference, 'PENDING_DEPLOY', require_links=False)
-    for wrong in ('[missing](vpc.md#absent)', '[foreign](../other/vpc.md#producer)',
-                  '[wrong type](subnet.md#producer)'):
+    for wrong in ('resource://dev/cde/vpc/EC2_VPC_999', 'resource://dev/other/vpc/EC2_VPC_001',
+                  'resource://dev/cde/subnet/EC2_Subnet_001'):
         with warned(resolver, 'differs from acquired'):
             resolver.verify(prop, wrong, 'PENDING_DEPLOY', require_links=False)
     with warned(resolver, 'differs from acquired'):
         resolver.verify(prop, reference, 'PENDING_DEPLOY')
-    with warned(resolver, 'no physical identification contract'):
+    with warned(resolver, 'differs from acquired'):
         resolver.verify('Unknown.Resource.Value', reference, 'PENDING_DEPLOY', require_links=False)
 
 
@@ -217,7 +226,7 @@ def check_append_only_and_later_import(tmp_path):
     producer(tmp_path, 'S3.Bucket', {'BucketName': 'audit-bucket'})
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
     assert verify_values(expansion, expansion, {}, lambda _: {'type': 'string'}, resolver) == []
-    changed = {**old, 'desired.row.001-001.value': '[audit-bucket](s3.md#producer)'}
+    changed = {**old, 'desired.row.001-001.value': 'resource://dev/cde/s3/S3_Bucket_001'}
     warnings = []
     with pytest.raises(ValueError, match='unselected Resource'):
         verify_values(expansion, Expansion(changed, {}, {}), {}, lambda _: {'type': 'string'}, resolver, warnings=warnings)
@@ -235,11 +244,11 @@ def check_selected_new_import_can_resolve_only_its_declared_producer(tmp_path):
     write_model(path, {'desired.service.codebuild.serviceId': 'codebuild'})
     before = load_for_edit(path)
     fields = {**before.authoritative, **values('CodeBuild.Project', {'VpcConfig.Subnets': 'unused'}, rid='009', anchor='codebuild-new')}
-    fields['desired.row.009-001.value'] = '[private-subnet](vpc.md#producer)'
+    fields['desired.row.009-001.value'] = 'resource://dev/cde/vpc/EC2_Subnet_001'
     fields['observed.row.009-001.value'] = 'subnet-confirmed'
     with restrict(('dev', 'cde', 'codebuild')), read_consumers({('dev', 'cde', 'codebuild')}):
         candidate = load_for_edit(path, CandidateReads(FileReads(), {path: serialize(fields)}))
-        assert candidate.authoritative['desired.row.009-001.value'] == '[private-subnet](vpc.md#producer)'
+        assert candidate.authoritative['desired.row.009-001.value'] == 'resource://dev/cde/vpc/EC2_Subnet_001'
         assert producer_path in candidate.dependencies
         with pytest.raises(ValueError, match='outside selected'):
             load_for_edit(producer_path)
@@ -280,10 +289,10 @@ def check_import_compact_display_and_create_guards():
     from design_layout import expanded_display_rows, HEADER, ALIGNMENT
     from service_rows import codebuild_display_row, codebuild_formal_rows, CODEBUILD_FORMAL_VARIABLE
     prop = 'CodeBuild.Project.VpcConfig.Subnets'
-    raw = '`["[private](vpc.md#producer)","subnet-external"]`'
+    raw = '`["[private](vpc.md#resource-EC2_Subnet_001)","subnet-external"]`'
     rows = [['001-001', prop, raw, '合成入力']]
     rendered = display_rows('CodeBuild.Project', rows, ROOT, mode='IMPORT')
-    assert [r[2] for r in rendered] == ['[private](vpc.md#producer)', '`subnet-external`']
+    assert [r[2] for r in rendered] == ['[private](vpc.md#resource-EC2_Subnet_001)', '`subnet-external`']
     lines = ['<a id="codebuild-new"></a>', '### CodeBuild.Project: audit', HEADER, ALIGNMENT]
     lines += ['| ' + ' | '.join([str(i), *row[1:]]) + ' |' for i, row in enumerate(rendered, 1)]
     restored = expanded_display_rows(lines, ROOT, modes={'codebuild-new': 'IMPORT'})
@@ -301,9 +310,9 @@ def check_import_compact_display_and_create_guards():
 
 
 @pytest.mark.parametrize('kind,name,prop,desired,observed', [
-    ('KinesisFirehose.DeliveryStream', 'DeliveryStreamName', 'S3DestinationConfiguration.BucketARN', '[audit-bucket](s3.md#producer)', '`arn:aws:s3:::audit-bucket`'),
-    ('CloudTrail.Trail', 'TrailName', 'S3BucketName', '[audit-bucket](s3.md#producer)', '`audit-bucket`'),
-    ('CodeBuild.Project', 'Name', 'VpcConfig.Subnets', '`["[private](vpc.md#producer)","subnet-external"]`', '["subnet-confirmed","subnet-external"]'),
+    ('KinesisFirehose.DeliveryStream', 'DeliveryStreamName', 'S3DestinationConfiguration.BucketARN', 'resource://dev/cde/s3/S3_Bucket_001', '`arn:aws:s3:::audit-bucket`'),
+    ('CloudTrail.Trail', 'TrailName', 'S3BucketName', 'resource://dev/cde/s3/S3_Bucket_001', '`audit-bucket`'),
+    ('CodeBuild.Project', 'Name', 'VpcConfig.Subnets', '`["resource://dev/cde/vpc/EC2_Subnet_001","subnet-external"]`', '["subnet-confirmed","subnet-external"]'),
 ])
 def check_markdown_roundtrip_keeps_physical_values(tmp_path, kind, name, prop, desired, observed):
     from model.render import generate_markdown
@@ -319,8 +328,12 @@ def check_markdown_roundtrip_keeps_physical_values(tmp_path, kind, name, prop, d
     first = generate_markdown(path, source, ROOT)
     path.write_text(first)
     from design_layout import expanded_display_rows
-    normalized = expanded_display_rows(first.splitlines(), ROOT, modes={service + '-audit': 'IMPORT'})
-    expected = '[' + literal(observed) + ']' + desired[desired.index(']') + 1:] if desired.startswith('[') else desired
+    normalized = expanded_display_rows(first.splitlines(), ROOT, modes={'resource-' + kind.replace('.', '_') + '_001': 'IMPORT'})
+    if desired.startswith('resource://'):
+        expected = '[' + literal(observed) + '](s3.md#resource-S3_Bucket_001)'
+    else:
+        expected = '[EC2_Subnet_001](vpc.md#resource-EC2_Subnet_001)'
+    assert 'resource://' not in first
     assert any(expected in line for line in normalized), normalized
     assert source['desired.row.009-002.value'] == desired
     assert source['observed.row.009-002.value'] == observed
@@ -330,7 +343,7 @@ def check_markdown_roundtrip_keeps_physical_values(tmp_path, kind, name, prop, d
 def check_mixed_literals_cannot_hide_behind_observations(tmp_path):
     producer(tmp_path, 'EC2.Subnet', {'SubnetId': 'subnet-confirmed'})
     source = values('CodeBuild.Project', {'VpcConfig.Subnets': 'unused'}, rid='009')
-    source['desired.row.009-001.value'] = '`["[private](vpc.md#producer)","subnet-wrong"]`'
+    source['desired.row.009-001.value'] = '`["resource://dev/cde/vpc/EC2_Subnet_001","subnet-wrong"]`'
     source['observed.row.009-001.value'] = '["subnet-confirmed","subnet-external"]'
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
     with pytest.raises(ValueError, match='literal differs'):
@@ -355,7 +368,9 @@ def check_guardduty_role_acquired_value_consistency(tmp_path):
     service, _ = producer(tmp_path, 'IAM.Role', {'RoleName': 'scanner', 'Path': '/service-role/'})
     physical = 'arn:aws:iam::123456789012:role/service-role/scanner'
     source = values('GuardDuty.MalwareProtectionPlan', {'Role': 'unused'}, rid='002')
-    source['desired.row.002-001.value'] = '[role](' + service + '.md#producer)'
+    source['desired.resource.002.logicalId'] = 'GuardDuty_MalwareProtectionPlan_001'
+    source['desired.service.identity.lastAllocated'] = json.dumps({'GuardDuty.MalwareProtectionPlan': 1})
+    source['desired.row.002-001.value'] = 'resource://dev/cde/' + service + '/IAM_Role_001'
     source['observed.row.002-001.value'] = physical
     record = {'record': 'synthetic', 'identityProperty': None, 'identity': 'synthetic-plan',
               'properties': {prop: {'status': 'captured', 'value': physical}}}
@@ -365,7 +380,7 @@ def check_guardduty_role_acquired_value_consistency(tmp_path):
         assert verify_values(before, Expansion(source, {}, {}), {'002': record}, lambda _: {'type': 'string'}, resolver)
         resolver.verify_resource(source, '002', require_links=False, observed_only=True)
         assert not resolver.warnings
-        wrong = {**source, 'desired.row.002-001.value': '[wrong](s3.md#producer)'}
+        wrong = {**source, 'desired.row.002-001.value': 'resource://dev/cde/s3/S3_Bucket_001'}
         with warned(resolver, 'differs from acquired physical reference'):
             verify_values(before, Expansion(wrong, {}, {}), {'002': record}, lambda _: {'type': 'string'}, resolver)
         wrong = {**source, 'observed.row.002-001.value': 'arn:aws:iam::123456789012:role/other'}
@@ -380,7 +395,7 @@ def check_import_reference_observation_sync_remains_guarded(tmp_path):
     from task_contract import start
     producer(tmp_path, 'EC2.VPC', {'VpcId': 'vpc-confirmed'})
     source = values('EC2.TransitGatewayVpcAttachment', {'VpcId': 'unused'})
-    source['desired.row.001-001.value'] = '[vpc](vpc.md#producer)'
+    source['desired.row.001-001.value'] = 'resource://dev/cde/vpc/EC2_VPC_001'
     source['observed.row.001-001.value'] = 'PENDING_DEPLOY'
     updated = {**source, 'observed.row.001-001.value': 'vpc-confirmed'}
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
@@ -416,7 +431,7 @@ def check_design_link_validation_uses_physical_identity(tmp_path, wrong, observe
     source.update({'desired.service.data-firehose.serviceId': 'data-firehose',
         'desired.service.data-firehose.ownedCatalogResourceTypes': 'KinesisFirehose.DeliveryStream',
         'display.service.title': '# Firehose', 'display.resource.009.comment': '合成入力',
-        'desired.row.009-002.value': '[audit-bucket](s3.md#producer)',
+        'desired.row.009-002.value': 'resource://dev/cde/s3/S3_Bucket_001',
         'observed.row.009-002.value': '`arn:aws:s3:::audit-bucket`'})
     if not observed:
         del source['observed.row.009-002.value']
@@ -443,7 +458,7 @@ def check_unknown_link_like_aws_data_is_not_inferred(tmp_path):
     raw = '[a literal AWS string](foreign.md#something)'
     resolver.verify('Custom.Resource.Configuration.Text', raw, raw)
     assert resolver.metrics['referenceModelReads'] == 0
-    with warned(resolver, 'no physical identification contract'):
+    with pytest.raises(ValueError, match='literal differs'):
         resolver.verify('Custom.Resource.Configuration.Text', raw, 'actual-id')
 
 
@@ -471,7 +486,7 @@ def check_packed_pipeline_configuration_roundtrip(tmp_path):
     from model.render import generate_markdown
     kind = 'CodePipeline.Pipeline'
     producer(tmp_path, 'CodeBuild.Project', {'Name': 'audit-build'})
-    config = [[{'ProjectName': '[audit-build](codebuild.md#producer)', 'EnvironmentVariables': 'literal-json'}]]
+    config = [[{'ProjectName': 'resource://dev/cde/codebuild/CodeBuild_Project_001', 'EnvironmentVariables': 'literal-json'}]]
     actual = [[{'ProjectName': 'audit-build', 'EnvironmentVariables': 'literal-json'}]]
     attrs = {'Name': 'pipeline-audit', 'Stages[].Actions[].ActionTypeId.Provider': json.dumps([['CodeBuild']]),
         'Stages[].Actions[].Configuration': json.dumps(config), 'Stages[].Actions[].Name': json.dumps([['Build']]),
@@ -487,10 +502,10 @@ def check_packed_pipeline_configuration_roundtrip(tmp_path):
     path.parent.mkdir(parents=True)
     first = generate_markdown(path, source, ROOT)
     path.write_text(first)
-    assert '[audit-build](codebuild.md#producer)' in first
+    assert '[audit-build](codebuild.md#resource-CodeBuild_Project_001)' in first
     from design_layout import expanded_display_rows
-    normalized = expanded_display_rows(first.splitlines(), ROOT, modes={'codepipeline-audit': 'IMPORT'})
-    assert any('literal-json' in line and '[audit-build](codebuild.md#producer)' in line for line in normalized)
+    normalized = expanded_display_rows(first.splitlines(), ROOT, modes={'resource-CodePipeline_Pipeline_001': 'IMPORT'})
+    assert any('literal-json' in line and '[audit-build](codebuild.md#resource-CodeBuild_Project_001)' in line for line in normalized)
     assert source['observed.row.009-003.value'] == json.dumps(actual)
     assert path.read_text() == first
     wrong = json.loads(json.dumps(config))
@@ -522,34 +537,34 @@ def check_native_array_literals_cannot_evade_matching_model(tmp_path):
         'EventSelectors[].DataResources[].Type': '[["AWS::S3::Object"]]',
         'EventSelectors[].DataResources[].Values': '[[["arn:aws:s3:::audit-bucket/"]]]'}, rid='009')
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
-    with warned(resolver, 'requires a reference link'):
+    with warned(resolver, 'requires a Resource URI'):
         resolver.verify_resource(source, '009')
     # Old literals remain untouched when a producer is imported later.
     resolver.verify_resource(source, '009', require_links=False)
 
 
 @pytest.mark.parametrize('reference', [
-    '[group](cloudwatch-logs.md#producer)',
-    '[missing](cloudwatch-logs.md#absent)',
-    '[wrong type](s3.md#producer)',
-    '[missing service](missing.md#producer)',
-    '[foreign](../other/cloudwatch-logs.md#producer)',
+    'resource://dev/cde/cloudwatch-logs/Logs_LogGroup_001',
+    'resource://dev/cde/cloudwatch-logs/Logs_LogGroup_999',
+    'resource://dev/cde/s3/S3_Bucket_001',
+    'resource://dev/cde/missing/EC2_VPC_001',
+    'resource://dev/other/cloudwatch-logs/Logs_LogGroup_001',
 ])
 def check_unobserved_link_requires_typed_target(tmp_path, reference):
     # A producer's logical identity is sufficient even without any physical identifier.
-    producer(tmp_path, 'Logs.LogGroup', {'LogGroupName': '[group](#producer)'})
+    producer(tmp_path, 'Logs.LogGroup', {'LogGroupName': 'resource://dev/cde/cloudwatch-logs/Logs_LogGroup_001'})
     producer(tmp_path, 'S3.Bucket', {'BucketName': 'audit-bucket'})
     source = values('CloudTrail.Trail', {'CloudWatchLogsLogGroupArn': 'unused'}, rid='009')
     source['desired.row.009-001.value'] = reference
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
-    if reference == '[group](cloudwatch-logs.md#producer)':
+    if reference == 'resource://dev/cde/cloudwatch-logs/Logs_LogGroup_001':
         with patch.object(resolver, 'match', side_effect=AssertionError('unobserved physical comparison')):
             resolver.verify_resource(source, '009', require_links=False, observed_only=True)
     else:
-        with warned(resolver, 'no unique design target'):
+        with warned(resolver, 'no unique producer'):
             resolver.verify_resource(source, '009', require_links=False, observed_only=True)
     source['desired.row.009-001.property'] = 'CloudTrail.Trail.Unknown'
-    with warned(resolver, 'no physical identification contract'):
+    with warned(resolver, 'no unique producer'):
         resolver.verify_resource(source, '009', require_links=False, observed_only=True)
 
 
@@ -558,10 +573,10 @@ def check_unobserved_structured_links_and_strict_import(tmp_path, shape):
     if shape == 'scalar':
         producer(tmp_path, 'Logs.LogGroup', {'LogGroupName': 'audit'})
         source = values('CloudTrail.Trail', {'CloudWatchLogsLogGroupArn': 'unused'}, rid='009')
-        source['desired.row.009-001.value'] = '[group](cloudwatch-logs.md#producer)'
+        source['desired.row.009-001.value'] = 'resource://dev/cde/cloudwatch-logs/Logs_LogGroup_001'
     elif shape in {'array', 'document'}:
         producer(tmp_path, 'EC2.Subnet', {'SubnetId': 'subnet-confirmed'})
-        raw = ['[subnet](vpc.md#producer)', 'subnet-external']
+        raw = ['resource://dev/cde/vpc/EC2_Subnet_001', 'subnet-external']
         prop = 'VpcConfig.Subnets' if shape == 'array' else 'VpcConfig'
         source = values('CodeBuild.Project', {prop: json.dumps(raw if shape == 'array' else {'Subnets': raw})}, rid='009')
         if shape == 'document':
@@ -570,13 +585,13 @@ def check_unobserved_structured_links_and_strict_import(tmp_path, shape):
         producer(tmp_path, 'CodeBuild.Project', {'Name': 'audit-build'})
         source = values('CodePipeline.Pipeline', {
             'Stages[].Actions[].ActionTypeId.Provider': '[["CodeBuild"]]',
-            'Stages[].Actions[].Configuration': '[[{"ProjectName":"[build](codebuild.md#producer)"}]]'}, rid='009')
+            'Stages[].Actions[].Configuration': '[[{"ProjectName":"resource://dev/cde/codebuild/CodeBuild_Project_001"}]]'}, rid='009')
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
     snapshot = dict(source)
     resolver.verify_resource(source, '009', require_links=False, observed_only=True)
     assert source == snapshot
-    invalid = {key: value.replace('#producer)', '#absent)') for key, value in source.items()}
-    with warned(resolver, 'no unique design target'):
+    invalid = {key: value.replace('_001', '_999') for key, value in source.items()}
+    with warned(resolver, 'no unique producer'):
         resolver.verify_resource(invalid, '009', require_links=False, observed_only=True)
     for require_links in (True, False):
         with warned(resolver, 'differs from acquired physical reference'):
@@ -586,7 +601,7 @@ def check_unobserved_structured_links_and_strict_import(tmp_path, shape):
         verify_values(Expansion({}, {}, {}), Expansion(source, {}, {}), {'009': record},
                       lambda _: {'type': 'string'}, resolver)
     for key in list(source):
-        if key.startswith('desired.row.') and key.endswith('.value') and '[' in source[key]:
+        if key.startswith('desired.row.') and key.endswith('.value') and 'resource://' in source[key]:
             source['observed.' + key.removeprefix('desired.')] = 'null'
     if shape == 'scalar':
         with warned(resolver, 'differs from acquired'):
@@ -600,7 +615,7 @@ def check_unobserved_structured_links_and_strict_import(tmp_path, shape):
 def check_observed_comparison_in_design_and_import(tmp_path, physical):
     producer(tmp_path, 'S3.Bucket', {'BucketName': 'audit-bucket'})
     source = values('CloudTrail.Trail', {'S3BucketName': 'unused'}, rid='009')
-    source['desired.row.009-001.value'] = '[bucket](s3.md#producer)'
+    source['desired.row.009-001.value'] = 'resource://dev/cde/s3/S3_Bucket_001'
     source['observed.row.009-001.value'] = physical
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
     for kwargs in ({}, {'require_links': False}, {'require_links': False, 'observed_only': True}):
@@ -613,14 +628,15 @@ def check_observed_comparison_in_design_and_import(tmp_path, physical):
 
 def check_unobserved_local_and_identity_self_links(tmp_path):
     source = values('EC2.VPC', {'VpcId': 'unused'})
-    source['desired.row.001-001.value'] = '[self](#producer)'
+    source['desired.row.001-001.value'] = 'resource://dev/cde/vpc/EC2_VPC_001'
     source.update(values('EC2.Subnet', {'VpcId': 'unused'}, rid='009', anchor='consumer'))
-    source['desired.row.009-001.value'] = '[vpc](#producer)'
-    resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT, local={'vpc': Expansion(source, {}, {})})
+    source['desired.service.identity.lastAllocated'] = json.dumps({'EC2.VPC': 1, 'EC2.Subnet': 1})
+    source['desired.row.009-001.value'] = 'resource://dev/cde/vpc/EC2_VPC_001'
+    resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT, local={'vpc': local_snapshot(source, tmp_path, 'vpc')})
     resolver.verify_resource(source, '001', require_links=False, observed_only=True)
     resolver.verify_resource(source, '009', require_links=False, observed_only=True)
-    source['desired.row.009-001.value'] = '[absent](#missing)'
-    with warned(resolver, 'no unique design target'):
+    source['desired.row.009-001.value'] = 'resource://dev/cde/vpc/EC2_VPC_999'
+    with warned(resolver, 'no unique producer'):
         resolver.verify_resource(source, '009', require_links=False, observed_only=True)
 
 
@@ -628,7 +644,7 @@ def check_unobserved_local_and_identity_self_links(tmp_path):
 def check_design_pending_observation_retains_target_guard(tmp_path, physical):
     producer(tmp_path, 'EC2.VPC', {'VpcId': physical})
     source = values('EC2.Subnet', {'VpcId': 'unused'}, rid='009')
-    source['desired.row.009-001.value'] = '[vpc](vpc.md#producer)'
+    source['desired.row.009-001.value'] = 'resource://dev/cde/vpc/EC2_VPC_001'
     source['observed.row.009-001.value'] = 'PENDING_DEPLOY'
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
     if physical == 'PENDING_DEPLOY':
@@ -647,16 +663,16 @@ def impact_fixture(root):
     path = root / 'model/dev/cde/codebuild.properties'
     source = values('CodeBuild.Project', {'VpcConfig.Subnets': 'unused'}, rid='009', anchor='build')
     source.update(values('CodeBuild.Project', {'Name': 'sibling'}, rid='010', anchor='sibling'))
-    source['desired.row.009-001.value'] = '[private-subnet](vpc.md#producer)'
+    source['desired.row.009-001.value'] = 'resource://dev/cde/vpc/EC2_Subnet_001'
     source['observed.row.009-001.value'] = 'subnet-confirmed'
-    source['desired.row.010-001.value'] = '[build](#build)'
+    source['desired.row.010-001.value'] = 'resource://dev/cde/codebuild/CodeBuild_Project_001'
     for key, value in {'consumerKey': 'desired.row.009-001.value', 'text': source['desired.row.009-001.value'],
-            'occurrence': '1', 'producerKind': 'resource', 'producerScope': 'dev/cde/vpc', 'producerId': '001',
+            'occurrence': '1', 'producerKind': 'resource', 'producerScope': 'dev/cde/vpc', 'producerLogicalId': 'EC2_Subnet_001',
             'resourceType': 'EC2.Subnet', 'format': 'link', 'labelPolicy': 'fixed'}.items():
         source['desired.reference.subnet.' + key] = value
     write_model(path, source)
     consumer = values('CodePipeline.Pipeline', {'RoleArn': 'unused'}, rid='003', anchor='pipeline')
-    consumer['desired.row.003-001.value'] = '[build](codebuild.md#build)'
+    consumer['desired.row.003-001.value'] = 'resource://dev/cde/codebuild/CodeBuild_Project_001'
     write_model(root / 'model/dev/cde/codepipeline.properties', consumer)
     return path
 
@@ -695,7 +711,7 @@ def check_preserved_analysis_cache_boundary(tmp_path, permission_first):
             assert not first.warnings
             assert load_for_edit(producer_path) is first
         assert load_for_edit(path) is before
-        assert before.authoritative['desired.row.009-001.value'] == '[private-subnet](vpc.md#producer)'
+        assert before.authoritative['desired.row.009-001.value'] == 'resource://dev/cde/vpc/EC2_Subnet_001'
         with pytest.raises(ValueError, match='outside selected'):
             load_for_edit(producer_path)
 
@@ -708,7 +724,7 @@ def check_impact_keeps_invalid_reference_diagnostics(tmp_path, invalid):
     path = impact_fixture(tmp_path)
     fields = dict(load_for_edit(path).authoritative)
     field, value = ('consumerKey', 'desired.row.absent.value') if invalid == 'undeclared' else (
-        ('resourceType', 'EC2.VPC') if invalid == 'wrong-type' else ('producerId', invalid))
+        ('resourceType', 'EC2.VPC') if invalid == 'wrong-type' else ('producerLogicalId', 'EC2_Subnet_999' if invalid == '999' else invalid))
     fields['desired.reference.subnet.' + field] = value
     path.write_text(serialize(fields), encoding='utf-8')
     with restrict(('dev', 'cde', 'codebuild')):
@@ -784,7 +800,7 @@ def check_configuration_index_reuses_scans_and_keeps_raw_fields():
     for identity in ('z-last', 'a-first'):
         for field, value in {'consumerKey': 'desired.row.001-001.value',
                 'text': '[first](logs.md#producer)', 'occurrence': '1',
-                'producerKind': 'resource', 'producerScope': 'dev/cde/logs', 'producerId': '002',
+                'producerKind': 'resource', 'producerScope': 'dev/cde/logs', 'producerLogicalId': 'Logs_LogGroup_002',
                 'resourceType': 'Logs.LogGroup', 'format': 'link', 'labelPolicy': 'fixed'}.items():
             source[f'desired.reference.{identity}.{field}'] = value
     index = ConfigurationIndex(source)
@@ -798,10 +814,10 @@ def check_configuration_index_reuses_scans_and_keeps_raw_fields():
     assert 'logicalId' not in actual[0]['resource']
     assert actual[0]['observed'] == {'observed.row.001-001.value': 'first'}
     assert actual[1]['rows'][0][2] == {'object': {'items': {'array': [
-        {'int': 1}, {'bool': True}, {'string': ['', {'link': ['logs', 'producer']}, '']}]}}}
+        {'int': 1}, {'bool': True}, {'string': '[first](logs.md#producer)'}]}}}
     assert actual == [resource_configuration(source, rid) for rid in ('001', '002')]
     source['desired.row.001-001.value'] = 'changed [first](logs.md#producer)'
-    assert resource_configuration(source, '001')['rows'][0][2] == {'string': ['changed ', {'link': ['logs', 'producer']}, '']}
+    assert resource_configuration(source, '001')['rows'][0][2] == {'string': 'changed [first](logs.md#producer)'}
 
 
 def check_configuration_index_preserves_exception_priority():

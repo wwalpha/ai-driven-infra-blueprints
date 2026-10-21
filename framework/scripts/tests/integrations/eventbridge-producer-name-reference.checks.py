@@ -14,16 +14,17 @@ def check(root, service, kind, property_name):
     original = resource('052', kind, service + '-original', [(property_name, '`Original-Case_01`'), ('Nested.Name', '`unrelated-nested-name`')])
     if service == 'lambda':
         original.update(resource('053', 'Lambda.Permission', 'lambda-invoke-permission', [
-            ('FunctionName', '[052](#lambda-original)'), ('Principal', '`events.amazonaws.com`'),
-            ('SourceArn', '[rule](eventbridge.md#eventbridge-rule)')]))
+            ('FunctionName', 'resource://preview/team/lambda/Lambda_Function_052'), ('Principal', '`events.amazonaws.com`'),
+            ('SourceArn', 'resource://preview/team/eventbridge/Events_Rule_021')]))
         original.update({'desired.resource.053.parentProperty': 'Lambda.Permission.FunctionName',
-                         'desired.resource.053.parentReference': '[052](#lambda-original)'})
+                         'desired.resource.053.parentReference': 'resource://preview/team/lambda/Lambda_Function_052'})
+    original['desired.service.identity.lastAllocated'] = json.dumps({kind: 52, **({'Lambda.Permission': 53} if service == 'lambda' else {})})
     write_model(producer, original)
     path = producer.with_name('eventbridge.properties')
     values = resource('021', 'Events.Rule', 'eventbridge-rule', [('Name', '`rule`'), ('EventPattern', '[config](eventbridge/raw.json)')])
     key = 'desired.row.021-002.document'
     values[key] = json.dumps({'name': 'Original-Case_01', 'count': 2, 'enabled': True})
-    link = '[PENDING_DEPLOY](' + service + '.md#' + service + '-original)'
+    link = 'resource://preview/team/' + service + '/' + kind.replace('.', '_') + '_052'
     values['desired.note.link.text'] = link
     values.update(reference('link', 'desired.note.link.text', link, service, '052', kind, mode='link', label='fixed'))
     values.update(reference('raw', key, 'Original-Case_01', service, '052', kind, prop=kind + '.' + property_name, pointer='/name'))
@@ -39,8 +40,8 @@ def check(root, service, kind, property_name):
     assert design_source_digest(path) == digest and dependency_hashes(path) != dependencies
     assert affected(root, [producer.relative_to(root)]) == {('preview', 'team', service), ('preview', 'team', 'eventbridge')}
     for bad, phrase in [
-        ({**original, 'desired.resource.052.resourceType': 'EC2.VPC'}, 'Type differs'),
-        ({key.replace('.052', '.054', 1): value for key, value in original.items()}, 'absent or ambiguous'),
+        ({**original, 'desired.resource.052.resourceType': 'EC2.VPC'}, 'logicalId'),
+        ({key: value for key, value in original.items() if not key.startswith(('desired.resource.052.', 'desired.row.052-'))}, 'absent or ambiguous'),
         ({**original, 'desired.row.052-001.property': kind + '.Description'}, 'Property is absent'),
         ({**original, 'desired.row.052-001.value': '``'}, 'differs from saved text'),
         ({**original, 'desired.row.052-003.property': kind + '.' + property_name, 'desired.row.052-003.value': '`duplicate`', 'desired.row.052-003.comment': '重複'}, 'Property is absent or ambiguous')]:

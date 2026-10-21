@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 
 from model.core import LINK, entries, literal, ReferenceResolutionError
+from model.identity import URI, address
 from reference_contracts import (ARN_FORMS, VALUE_IDENTITIES, CONFIGURATION_PROPERTIES, CONTEXT_PROPERTIES,
                                  attributes_for, contract)
 
@@ -14,12 +15,12 @@ _UNOBSERVED = object()
 def known(value):
     return (isinstance(value, str) and bool(value) and value not in
             {'UNSET', 'PENDING_DEPLOY', 'Pending', 'TBD', 'TODO', '未確定'} and
-            not LINK.fullmatch(value) and not any(text in value for text in ('${', '{{resolve:')))
+            not URI.fullmatch(value) and not any(text in value for text in ('${', '{{resolve:')))
 
 
 def elements(raw):
     value = literal(raw)
-    if value.startswith('[') and not LINK.fullmatch(value):
+    if value.startswith('[') and not URI.fullmatch(value):
         try:
             result = json.loads(value)
         except ValueError:
@@ -95,12 +96,13 @@ class Resolver:
         for model in models:
             self.files.update(model.files)
             values = model.values
-            rows = entries(values, 'desired.row.')
+            from model.core import resource_row_index
+            rows = resource_row_index(values)
             for rid, resource in entries(values, 'desired.resource.'):
                 if resource.get('resourceType') != kind:
                     continue
                 physical = {}
-                for row_id, row in rows:
+                for row_id, row in rows[rid]:
                     if row_id.rpartition('-')[0] != rid or row.get('property') not in selected_properties:
                         continue
                     raw = values.get('observed.row.' + row_id + '.value', row.get('value', ''))
@@ -110,7 +112,7 @@ class Resolver:
                         for prop, group in aliases.items():
                             if row['property'] in group:
                                 physical.setdefault(prop.removeprefix(kind + '.'), set()).add(value)
-                candidate = {'service': service, 'id': rid, 'anchor': resource['anchor'], 'kind': kind}
+                candidate = {'service': service, 'id': rid, 'logicalId': resource['logicalId'], 'uri': address(model.scope, resource['logicalId']), 'kind': kind}
                 self.targets[kind][service, rid] = candidate
                 for form, candidates in physical.items():
                     if len(candidates) != 1:
@@ -173,57 +175,46 @@ class Resolver:
                                   **(location or {})})
 
     def _verify(self, prop, raw, physical, context=None, *, contracts=None, require_links=True):
-        reference = LINK.fullmatch(raw) if isinstance(raw, str) else None
-        from model.importing.sources import reference_value_equal
-        expression = isinstance(raw, str) and re.search(r'\[[^\]]+\]\([^)]*#[^)]+\)', raw)
-        if expression and reference is None:
-            if physical is not _UNOBSERVED and not reference_value_equal(raw, physical):
-                raise ValueError('IMPORT literal portion differs from acquired physical value: ' + prop)
-            raise ReferenceResolutionError('IMPORT reference expression cannot be matched to a physical target: ' + prop)
+        reference = URI.fullmatch(raw) if isinstance(raw, str) else None
         if not require_links and reference is None:
             return
         declared = contract(prop, context) if contracts is None else contracts
         if physical is _UNOBSERVED:
             if reference:
-                if not declared:
-                    raise ReferenceResolutionError('IMPORT explicit reference has no physical identification contract: ' + prop)
                 candidates = []
                 for kind in declared:
                     self.index(kind)
-                    candidates.extend(candidate for candidate in self.targets[kind].values()
-                                      if (reference[2], reference[3]) in {
-                                          (candidate['service'] + '.md', candidate['anchor']),
-                                          ('', candidate['anchor']) if candidate['service'] in self.local else (None, None)})
+                    candidates.extend(candidate for candidate in self.targets[kind].values() if candidate['uri'] == raw)
                 if len(candidates) != 1:
-                    raise ReferenceResolutionError('IMPORT explicit link has no unique design target: ' + prop)
+                    raise ReferenceResolutionError('IMPORT URI has no unique producer: ' + prop)
             return
-        if reference and not declared and raw == physical:
-            return  # An identical acquired string is data, not an inferred reference.
         if reference is None:
             from model.importing.sources import typed_equal
             if not typed_equal(literal(raw) if isinstance(raw, str) else raw, physical):
                 raise ValueError('IMPORT literal differs from acquired physical value: ' + prop)
         expected = self.match(prop, physical, context, contracts=contracts)
         if reference and physical == 'PENDING_DEPLOY' and not require_links:
-            # Destruction clears both identifiers; validate the explicit pending target only.
             candidates = {identity: candidate for kind, forms in declared.items() for form in forms
                           for identity, candidate in self.index(kind).get((form, physical), {}).items()
-                          if (reference[2], reference[3]) in {
-                              (candidate['service'] + '.md', candidate['anchor']),
-                              ('', candidate['anchor']) if candidate['service'] in self.local else (None, None)}}
+                          if candidate['uri'] == raw}
             if len(candidates) == 1:
                 expected = next(iter(candidates.values()))
         if reference:
-            if not declared:
-                raise ReferenceResolutionError('IMPORT explicit reference has no physical identification contract: ' + prop)
-            if expected is None or (reference[2], reference[3]) not in {
-                    (expected['service'] + '.md', expected['anchor']),
-                    ('', expected['anchor']) if expected['service'] in self.local else (None, None)}:
-                raise ReferenceResolutionError('IMPORT explicit link differs from acquired physical reference: ' + prop)
+            if expected is None or expected['uri'] != raw:
+                raise ReferenceResolutionError('IMPORT URI differs from acquired physical reference: ' + prop)
         elif expected is not None:
-            raise ReferenceResolutionError('IMPORT matching Model requires a reference link: ' + prop)
+            raise ReferenceResolutionError('IMPORT matching Model requires a Resource URI: ' + prop)
 
     def verify_tree(self, prop, desired, actual, context, *, require_links=True, location=None):
+        if isinstance(desired, dict) and '$resource' in desired:
+            if set(desired) - {'$resource', '$attribute'} or not URI.fullmatch(desired['$resource']):
+                raise ValueError('invalid structured Resource reference')
+            declared = contract(prop, context)
+            if attribute := desired.get('$attribute'):
+                declared = {kind: (attribute,) for kind, forms in declared.items() if attribute in forms}
+            self.verify(prop, desired['$resource'], actual, context, contracts=declared,
+                        require_links=require_links, location=location)
+            return
         if isinstance(desired, (list, dict)):
             if actual is not _UNOBSERVED and (type(desired) is not type(actual) or (desired.keys() != actual.keys() if isinstance(desired, dict) else len(desired) != len(actual))):
                 raise ValueError('IMPORT reference/observation structure differs: ' + prop)
@@ -292,10 +283,10 @@ class Resolver:
                         elements(observed if observed is not None else raw))
             if len(links) != len(physical):
                 raise ValueError('IMPORT reference/observation element count differs: ' + prop)
-            if not contract(prop, context) and not any(isinstance(value, str) and LINK.fullmatch(value) for value in links):
+            if not contract(prop, context) and not any(isinstance(value, str) and URI.fullmatch(value) for value in links):
                 continue
             for value, actual in zip(links, physical):
-                link = LINK.fullmatch(value)
-                if link and prop in identity_properties and not link[2] and link[3] == values.get(f'desired.resource.{rid}.anchor'):
+                link = URI.fullmatch(value)
+                if link and prop in identity_properties and link[1] == self.environment and link[2] == self.target and values.get(f'desired.service.{link[3]}.serviceId') == link[3] and link[4] == values.get(f'desired.resource.{rid}.logicalId'):
                     continue
                 self.verify(prop, value, _UNOBSERVED if actual is _UNOBSERVED else literal(actual), context, require_links=require_links, location=location)

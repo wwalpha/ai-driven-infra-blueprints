@@ -193,13 +193,13 @@ For naming rules, additionally read only service files corresponding to target r
 
 Update design inputs are only authoritative model properties. Do not read generated Markdown bodies or generated JSON artifacts as input at start, IaC generation, or reference resolution. `cloudformation-stacks.md` is also a display generated artifact; the Agent must not retrieve/compare the same stack scope information twice. Use `desired.row.*.document` for JSON bodies. Full 03/04 prompt reads are unnecessary; follow this prompt for Update procedures and existing rules above for common contracts. Retain Markdown/JSON generation/saving and consistency validation by controllers/local loops.
 
-For limited resources, use existing partial reading for both single files and split entry indexes. Selectors require exact resource number, logical ID, or anchor matches; stop if unmatched/ambiguous.
+For limited resources, use existing partial reading for both single files and split entry indexes. Selectors require exact resource number or logicalId matches; stop if unmatched/ambiguous.
 
 ```console
 python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service-id>.properties <resource-selector>
 ```
 
-Load only target resources, parents/children/siblings in the same group, and service metadata/notes into context. Service-wide changes may read entire target service properties, without unconditional expansion to all services/models. Resolve properties logical references from `desired.resource.*.anchor` / `.logicalId` and `parentReference`. Map other services' `.md#anchor` links from path/file stem to producer properties; additionally retrieve only necessary resources with the same `model/cli.py resource`. Do not read generated Markdown bodies as fallback. Report unknown reference targets as warnings without guessing; they do not stop Model saving/completion. Missing non-reference required desired values, deployment stack assignments or human decisions still stop the dependent infrastructure action.
+Load only target resources, parents/children/siblings in the same group, and service metadata/notes into context. Service-wide changes may read entire target service properties, without unconditional expansion to all services/models. Resolve full scoped Resource URIs and parentReference with the common resolver; retrieve only selected groups. No generated Markdown fallback. Unknown targets remain reference warnings for ordinary Model saves; missing configuration or deployment decisions still stop dependent infrastructure actions.
 
 Limit reads to Design scope resources/properties and portions needed for reference resolution. For split models, read only required parts from entry indexes. Do not reread material already confirmed in the same task unless content changes, validation fails, or unresolved dependencies exist.
 

@@ -25,7 +25,7 @@ def setup(root, services, kinds, environments=('preview',)):
 def reference(identity, key, text, service, rid, kind, *, mode='name', prop=None, pointer=None,
               environment='preview', label='none'):
     fields = {'consumerKey': key, 'text': text, 'occurrence': '1', 'producerKind': 'resource',
-              'producerScope': environment + '/team/' + service, 'producerId': rid,
+              'producerScope': environment + '/team/' + service, 'producerLogicalId': kind.replace('.', '_') + '_' + rid,
               'resourceType': kind, 'format': mode, 'labelPolicy': label}
     if prop is not None:
         fields['property'] = prop

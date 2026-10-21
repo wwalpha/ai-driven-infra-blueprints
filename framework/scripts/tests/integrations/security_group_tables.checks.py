@@ -38,13 +38,13 @@ def main():
         assert not errors(DESIGN), errors(DESIGN)
         original = path.read_bytes()
         generated = """# Synthetic authoritative Model fixture.
+desired.service.identity.lastAllocated={"EC2.SecurityGroup":2,"EC2.SecurityGroupIngress":3,"EC2.SecurityGroupEgress":1}
 desired.service.security-group.serviceId=security-group
 desired.service.security-group.ownedCatalogResourceTypes=EC2.SecurityGroup,EC2.SecurityGroupIngress,EC2.SecurityGroupEgress
 desired.resource.001.resourceType=EC2.SecurityGroup
-desired.resource.001.anchor=security-group-groupone
-desired.resource.001.logicalId=GroupOne
+desired.resource.001.logicalId=EC2_SecurityGroup_001
 desired.row.001-001.property=EC2.SecurityGroup.Id
-desired.row.001-001.value=[GroupOne](#security-group-groupone)
+desired.row.001-001.value=resource://dev/123456789012/security-group/EC2_SecurityGroup_001
 desired.row.001-001.comment=一意に識別するID
 observed.row.001-001.property=EC2.SecurityGroup.Id
 observed.row.001-001.value=`sg-00000001`
@@ -56,7 +56,7 @@ desired.row.001-003.property=EC2.SecurityGroup.GroupName
 desired.row.001-003.value=`group-one`
 desired.row.001-003.comment=名前
 desired.row.001-004.property=EC2.SecurityGroup.VpcId
-desired.row.001-004.value=[vpc-app-dev](vpc.md#vpc-vpc-app-dev)
+desired.row.001-004.value=resource://dev/123456789012/vpc/EC2_VPC_001
 desired.row.001-004.comment=所属するVPCのID
 observed.row.001-004.property=EC2.SecurityGroup.VpcId
 observed.row.001-004.value=vpc-00000001
@@ -89,12 +89,11 @@ desired.row.001-013.property=EC2.SecurityGroup.SecurityGroupEgress[].CidrIp
 desired.row.001-013.value=`10.1.0.0/16`
 desired.row.001-013.comment=通信を許可するIPv4アドレス範囲
 desired.resource.002.resourceType=EC2.SecurityGroupIngress
-desired.resource.002.anchor=security-group-ingressone
-desired.resource.002.logicalId=IngressOne
+desired.resource.002.logicalId=EC2_SecurityGroupIngress_001
 desired.resource.002.parentProperty=EC2.SecurityGroupIngress.GroupId
-desired.resource.002.parentReference=[GroupOne](#security-group-groupone)
+desired.resource.002.parentReference=resource://dev/123456789012/security-group/EC2_SecurityGroup_001
 desired.row.002-001.property=EC2.SecurityGroupIngress.Id
-desired.row.002-001.value=[IngressOne](#security-group-ingressone)
+desired.row.002-001.value=resource://dev/123456789012/security-group/EC2_SecurityGroupIngress_001
 desired.row.002-001.comment=一意に識別するID
 observed.row.002-001.property=EC2.SecurityGroupIngress.Id
 observed.row.002-001.value=`sgr-00000001`
@@ -109,7 +108,7 @@ desired.row.002-004.property=EC2.SecurityGroupIngress.ToPort
 desired.row.002-004.value=`443`
 desired.row.002-004.comment=許可するport範囲の終了値、またはICMP code
 desired.row.002-005.property=EC2.SecurityGroupIngress.SourceSecurityGroupId
-desired.row.002-005.value=[GroupTwo](#security-group-grouptwo)
+desired.row.002-005.value=resource://dev/123456789012/security-group/EC2_SecurityGroup_002
 desired.row.002-005.comment=通信元として許可するSecurity GroupのID
 observed.row.002-005.property=EC2.SecurityGroupIngress.SourceSecurityGroupId
 observed.row.002-005.value=PENDING_DEPLOY
@@ -121,12 +120,11 @@ desired.row.002-007.property=EC2.SecurityGroupIngress.Description
 desired.row.002-007.value=`Application access`
 desired.row.002-007.comment=用途の説明
 desired.resource.003.resourceType=EC2.SecurityGroupIngress
-desired.resource.003.anchor=security-group-ingresstwo
-desired.resource.003.logicalId=IngressTwo
+desired.resource.003.logicalId=EC2_SecurityGroupIngress_002
 desired.resource.003.parentProperty=EC2.SecurityGroupIngress.GroupId
-desired.resource.003.parentReference=[GroupOne](#security-group-groupone)
+desired.resource.003.parentReference=resource://dev/123456789012/security-group/EC2_SecurityGroup_001
 desired.row.003-001.property=EC2.SecurityGroupIngress.Id
-desired.row.003-001.value=[IngressTwo](#security-group-ingresstwo)
+desired.row.003-001.value=resource://dev/123456789012/security-group/EC2_SecurityGroupIngress_002
 desired.row.003-001.comment=一意に識別するID
 observed.row.003-001.property=EC2.SecurityGroupIngress.Id
 observed.row.003-001.value=`PENDING_DEPLOY`
@@ -144,12 +142,11 @@ desired.row.003-005.property=EC2.SecurityGroupIngress.CidrIpv6
 desired.row.003-005.value=`2001:db8::/64`
 desired.row.003-005.comment=通信を許可するIPv6アドレス範囲
 desired.resource.004.resourceType=EC2.SecurityGroupIngress
-desired.resource.004.anchor=security-group-ingressthree
-desired.resource.004.logicalId=IngressThree
+desired.resource.004.logicalId=EC2_SecurityGroupIngress_003
 desired.resource.004.parentProperty=EC2.SecurityGroupIngress.GroupId
-desired.resource.004.parentReference=[GroupOne](#security-group-groupone)
+desired.resource.004.parentReference=resource://dev/123456789012/security-group/EC2_SecurityGroup_001
 desired.row.004-001.property=EC2.SecurityGroupIngress.Id
-desired.row.004-001.value=[IngressThree](#security-group-ingressthree)
+desired.row.004-001.value=resource://dev/123456789012/security-group/EC2_SecurityGroupIngress_003
 desired.row.004-001.comment=一意に識別するID
 observed.row.004-001.property=EC2.SecurityGroupIngress.Id
 observed.row.004-001.value=`PENDING_DEPLOY`
@@ -170,12 +167,11 @@ desired.row.004-006.property=EC2.SecurityGroupIngress.Description
 desired.row.004-006.value=`Prefix Listからの通信`
 desired.row.004-006.comment=用途の説明
 desired.resource.005.resourceType=EC2.SecurityGroupEgress
-desired.resource.005.anchor=security-group-egressone
-desired.resource.005.logicalId=EgressOne
+desired.resource.005.logicalId=EC2_SecurityGroupEgress_001
 desired.resource.005.parentProperty=EC2.SecurityGroupEgress.GroupId
-desired.resource.005.parentReference=[GroupOne](#security-group-groupone)
+desired.resource.005.parentReference=resource://dev/123456789012/security-group/EC2_SecurityGroup_001
 desired.row.005-001.property=EC2.SecurityGroupEgress.Id
-desired.row.005-001.value=[EgressOne](#security-group-egressone)
+desired.row.005-001.value=resource://dev/123456789012/security-group/EC2_SecurityGroupEgress_001
 desired.row.005-001.comment=一意に識別するID
 observed.row.005-001.property=EC2.SecurityGroupEgress.Id
 observed.row.005-001.value=`PENDING_DEPLOY`
@@ -184,7 +180,7 @@ desired.row.005-002.property=EC2.SecurityGroupEgress.IpProtocol
 desired.row.005-002.value=`-1`
 desired.row.005-002.comment=通信を許可するIP protocol
 desired.row.005-003.property=EC2.SecurityGroupEgress.DestinationSecurityGroupId
-desired.row.005-003.value=[GroupOne](#security-group-groupone)
+desired.row.005-003.value=resource://dev/123456789012/security-group/EC2_SecurityGroup_001
 desired.row.005-003.comment=通信先として許可するSecurity GroupのID
 observed.row.005-003.property=EC2.SecurityGroupEgress.DestinationSecurityGroupId
 observed.row.005-003.value=sg-00000001
@@ -193,10 +189,9 @@ desired.row.005-004.property=EC2.SecurityGroupEgress.Description
 desired.row.005-004.value=`Security Group内の通信`
 desired.row.005-004.comment=用途の説明
 desired.resource.006.resourceType=EC2.SecurityGroup
-desired.resource.006.anchor=security-group-grouptwo
-desired.resource.006.logicalId=GroupTwo
+desired.resource.006.logicalId=EC2_SecurityGroup_002
 desired.row.006-001.property=EC2.SecurityGroup.Id
-desired.row.006-001.value=[GroupTwo](#security-group-grouptwo)
+desired.row.006-001.value=resource://dev/123456789012/security-group/EC2_SecurityGroup_002
 desired.row.006-001.comment=一意に識別するID
 observed.row.006-001.property=EC2.SecurityGroup.Id
 observed.row.006-001.value=`PENDING_DEPLOY`
@@ -205,7 +200,7 @@ desired.row.006-002.property=EC2.SecurityGroup.GroupDescription
 desired.row.006-002.value=`No selected rules`
 desired.row.006-002.comment=用途の説明
 desired.row.006-003.property=EC2.SecurityGroup.VpcId
-desired.row.006-003.value=[vpc-app-dev](vpc.md#vpc-vpc-app-dev)
+desired.row.006-003.value=resource://dev/123456789012/vpc/EC2_VPC_001
 desired.row.006-003.comment=所属するVPCのID
 observed.row.006-003.property=EC2.SecurityGroup.VpcId
 observed.row.006-003.value=vpc-00000001
@@ -242,30 +237,30 @@ desired.row.006-007.comment=付与するタグの値
         assert "desired.row.001-002.property=EC2.SecurityGroup.GroupDescription\n" in generated
         assert "desired.row.001-002.value=`Application access`\n" in generated
         assert "desired.row.001-004.property=EC2.SecurityGroup.VpcId\n" in generated
-        assert "desired.row.001-004.value=[vpc-app-dev](vpc.md#vpc-vpc-app-dev)\n" in generated
+        assert "desired.row.001-004.value=resource://dev/123456789012/vpc/EC2_VPC_001\n" in generated
         assert "observed.row.001-004.value=vpc-00000001\n" in generated
         assert generated.count(".property=EC2.SecurityGroup.GroupDescription\n") == 2
         assert 'desired.row.006-004.value="Project"\n' in generated
         assert 'desired.row.006-007.value="dev"\n' in generated
         assert "desired.resource.002.resourceType=EC2.SecurityGroupIngress" in generated
-        assert "desired.resource.002.logicalId=IngressOne" in generated
+        assert "desired.resource.002.logicalId=EC2_SecurityGroupIngress_001" in generated
         assert "desired.resource.002.parentProperty=EC2.SecurityGroupIngress.GroupId" in generated
-        assert "desired.resource.002.parentReference=[GroupOne](#security-group-groupone)" in generated
+        assert "desired.resource.002.parentReference=resource://dev/123456789012/security-group/EC2_SecurityGroup_001" in generated
         assert "desired.resource.005.parentProperty=EC2.SecurityGroupEgress.GroupId" in generated
-        assert "desired.resource.006.logicalId=GroupTwo" in generated
-        assert "desired.row.002-001.value=[IngressOne](#security-group-ingressone)" in generated
+        assert "desired.resource.006.logicalId=EC2_SecurityGroup_002" in generated
+        assert "desired.row.002-001.value=resource://dev/123456789012/security-group/EC2_SecurityGroupIngress_001" in generated
         assert "observed.row.002-001.value=`sgr-00000001`" in generated
-        assert "desired.row.002-005.value=[GroupTwo](#security-group-grouptwo)" in generated
+        assert "desired.row.002-005.value=resource://dev/123456789012/security-group/EC2_SecurityGroup_002" in generated
         assert "observed.row.002-005.value=PENDING_DEPLOY" in generated
         assert "SecurityGroupRuleId" not in generated and "<!--" not in generated
         assert "desired.note." not in generated and "=—" not in generated
-        assert model_projection.linked_resource(path, "[sgr-00000001](#security-group-ingressone)") == ("EC2.SecurityGroupIngress", "IngressOne")
+        assert model_projection.linked_resource(path, "[sgr-00000001](#resource-EC2_SecurityGroupIngress_001)") == ("EC2.SecurityGroupIngress", "EC2_SecurityGroupIngress_001")
         assert VALIDATOR.rendered_policy_design(path) == DESIGN
 
         normalized, children = expanded_design(DESIGN.splitlines())
         assert len(children) == 4
-        assert children["security-group-ingressthree"]["logicalId"] == "IngressThree"
-        assert [row[2] for row in children["security-group-ingresstwo"]["rows"]] == ["`PENDING_DEPLOY`", "`icmpv6`", "`128`", "`0`", "`2001:db8::/64`"]
+        assert children["resource-EC2_SecurityGroupIngress_003"]["logicalId"] == "EC2_SecurityGroupIngress_003"
+        assert [row[2] for row in children["resource-EC2_SecurityGroupIngress_002"]["rows"]] == ["`PENDING_DEPLOY`", "`icmpv6`", "`128`", "`0`", "`2001:db8::/64`"]
         inline = [line.split(" | ")[1:3] for line in normalized if ".SecurityGroupEgress[]." in line]
         assert inline == [
             ["EC2.SecurityGroup.SecurityGroupEgress[].IpProtocol", "`-1`"],
@@ -284,11 +279,11 @@ desired.row.006-007.comment=付与するタグの値
         assert "EC2.SecurityGroup.Tags[]" not in "\n".join(security_group_table_lines(no_tags.splitlines()))
         inline_peer = DESIGN.replace(
             "| Inbound | `icmp` | `Type=8, Code=0` | `10.0.0.0/24` | — | — | — | — |",
-            "| Inbound <!-- security-group-id: [PENDING_DEPLOY](#security-group-grouptwo) --> | `tcp` | `443` | — | — | — | — | — |",
+            "| Inbound <!-- security-group-id: [PENDING_DEPLOY](#resource-EC2_SecurityGroup_002) --> | `tcp` | `443` | — | — | — | — | — |",
         )
         assert not errors(inline_peer), errors(inline_peer)
         assert any(
-            "EC2.SecurityGroup.SecurityGroupIngress[].SourceSecurityGroupId | [PENDING_DEPLOY](#security-group-grouptwo)" in line
+            "EC2.SecurityGroup.SecurityGroupIngress[].SourceSecurityGroupId | [PENDING_DEPLOY](#resource-EC2_SecurityGroup_002)" in line
             for line in security_group_table_lines(inline_peer.splitlines())
         )
         # No rule tables must still retain both SGs and the ruleless tags.
@@ -301,20 +296,20 @@ desired.row.006-007.comment=付与するタグの値
             normalized = "\n".join(lines)
             assert path.read_bytes() == source
             assert normalized.count('### EC2.SecurityGroup:') == 2
-            assert '<a id="security-group-grouptwo"></a>' in normalized
+            assert '<a id="resource-EC2_SecurityGroup_002"></a>' in normalized
             assert not children
             assert '### EC2.SecurityGroupIngress:' not in normalized
             assert '### EC2.SecurityGroupEgress:' not in normalized
             assert ('EC2.SecurityGroup.Tags[].Key' in normalized) == (tag_line in text)
         # Moving a standalone row changes its owner, not its logical or current ID.
-        rule = next(line for line in DESIGN.splitlines() if 'id="security-group-egressone"' in line)
+        rule = next(line for line in DESIGN.splitlines() if 'id="resource-EC2_SecurityGroupEgress_001"' in line)
         moved = DESIGN.replace(rule + "\n", "").rstrip()
         columns = "\n".join(next(line for line in DESIGN.splitlines() if line.startswith(prefix)) for prefix in ("| Direction |", "| --- | --- | --- | --- | --- | --- | --- | --- |"))
         moved += "\n\n" + columns + "\n" + rule + "\n"
         assert not errors(moved), errors(moved)
         _, moved_children = expanded_design(moved.splitlines())
-        assert moved_children["security-group-egressone"]["parentLogicalId"] == "GroupTwo"
-        assert moved_children["security-group-egressone"]["logicalId"] == "EgressOne"
+        assert moved_children["resource-EC2_SecurityGroupEgress_001"]["parentLogicalId"] == "GroupTwo"
+        assert moved_children["resource-EC2_SecurityGroupEgress_001"]["logicalId"] == "EC2_SecurityGroupEgress_001"
 
         assert "| FromPort |" not in DESIGN and "| ToPort |" not in DESIGN
         assert ".property=Port\n" not in generated
@@ -354,15 +349,15 @@ desired.row.006-007.comment=付与するタグの値
             (DESIGN.replace("`Type=128, Code=0`", "`Type=256, Code=0`", 1), "outside the protocol range"),
             (DESIGN.replace("`Type=128, Code=0`", "`Type=-1, Code=0`", 1), "invalid Port range"),
             (DESIGN.replace("<!-- rule-id: `sgr-00000001` -->", "", 1), "requires complete anchor/logical-id/rule-id markers"),
-            (DESIGN.replace("<!-- security-group-id: [PENDING_DEPLOY](#security-group-grouptwo) -->", "<!-- security-group-id: -->", 1), "invalid Security Group reference metadata"),
-            (DESIGN.replace("<!-- security-group-id: [PENDING_DEPLOY](#security-group-grouptwo) -->", "<!-- security-group-id: — -->", 1), "invalid Security Group reference metadata"),
+            (DESIGN.replace("<!-- security-group-id: [PENDING_DEPLOY](#resource-EC2_SecurityGroup_002) -->", "<!-- security-group-id: -->", 1), "invalid Security Group reference metadata"),
+            (DESIGN.replace("<!-- security-group-id: [PENDING_DEPLOY](#resource-EC2_SecurityGroup_002) -->", "<!-- security-group-id: — -->", 1), "invalid Security Group reference metadata"),
             (DESIGN.replace("| Inbound <", "| inbound <", 1), "requires complete anchor/logical-id/rule-id markers"),
             (DESIGN.replace("rule-id: `sgr-00000001`", "rule-id: `—`", 1), "requires an Id"),
             (DESIGN.replace(" | `tcp` |", " | <!-- rule-id: `sgr-00000001` --> `tcp` |", 1), "identity must be in Direction"),
-            (DESIGN.replace('<!-- logical-id: IngressOne -->', ''), "requires complete anchor/logical-id/rule-id markers"),
-            (DESIGN.replace('id="security-group-ingressone"', 'id="security-group-wrong"'), "logical ID/anchor"),
-            (DESIGN.replace('<!-- logical-id: IngressTwo -->', '<!-- logical-id: IngressOne -->'), "duplicate grouped logical ID"),
-            (DESIGN.replace('id="security-group-ingresstwo"', 'id="security-group-ingressone"'), "duplicate resource anchor"),
+            (DESIGN.replace('<!-- logical-id: EC2_SecurityGroupIngress_001 -->', ''), "requires complete anchor/logical-id/rule-id markers"),
+            (DESIGN.replace('id="resource-EC2_SecurityGroupIngress_001"', 'id="security-group-wrong"'), "logical ID/anchor"),
+            (DESIGN.replace('<!-- logical-id: EC2_SecurityGroupIngress_002 -->', '<!-- logical-id: EC2_SecurityGroupIngress_001 -->'), "duplicate grouped logical ID"),
+            (DESIGN.replace('id="resource-EC2_SecurityGroupIngress_002"', 'id="resource-EC2_SecurityGroupIngress_001"'), "duplicate resource anchor"),
             (DESIGN.replace('rule-id: `PENDING_DEPLOY` -->', 'rule-id: `sgr-00000001` -->', 1), "duplicate grouped identity value"),
             (DESIGN.replace('| Inbound |', '| inbound |', 1), "Direction must be Inbound or Outbound"),
             (DESIGN.replace('| Inbound <', '| Outbound <', 1), "do not match Direction"),
@@ -372,14 +367,14 @@ desired.row.006-007.comment=付与するタグの値
             (DESIGN.replace('| `Application access` |', '| — |', 1), "requires Id, GroupDescription and VpcId detail values"),
             (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '[vpc-wrong](vpc.md#vpc-vpc-app-dev)', 1), "identifier reference does not match"),
             (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '`vpc-00000001`', 1), "VpcId must link to its VPC"),
-            (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '[sg-00000001](#security-group-groupone)', 1), "VpcId must link to a VPC in the same target"),
-            (DESIGN.replace('[GroupOne](#security-group-groupone)', '[GroupOne](#security-group-grouptwo)', 1), "overview link must match"),
-            (DESIGN.replace('[GroupTwo](#security-group-grouptwo)', '[GroupOne](#security-group-grouptwo)', 1), "unique logical ID link"),
+            (DESIGN.replace('[vpc-00000001](vpc.md#vpc-vpc-app-dev)', '[sg-00000001](#resource-EC2_SecurityGroup_001)', 1), "VpcId must link to a VPC in the same target"),
+            (DESIGN.replace('[GroupOne](#resource-EC2_SecurityGroup_001)', '[GroupOne](#resource-EC2_SecurityGroup_002)', 1), "overview link must match"),
+            (DESIGN.replace('[GroupTwo](#resource-EC2_SecurityGroup_002)', '[GroupOne](#resource-EC2_SecurityGroup_002)', 1), "unique logical ID link"),
             (DESIGN.replace('"Value":"app"', '"Wrong":"app"', 1), "Tags must be a JSON array"),
             (DESIGN.replace(' | `443` |', ' | `invalid` |', 1), "invalid Port"),
             (DESIGN.replace(' | `tcp` |', ' | — |', 1), "requires IpProtocol"),
             (DESIGN.replace(' | `tcp` | `443` | — | — | — | `123456789012` |', ' | `tcp` | `443` | `10.0.0.0/24` | — | — | `123456789012` |', 1), "exactly one address"),
-            (DESIGN.replace('[PENDING_DEPLOY](#security-group-grouptwo)', '[sg-wrong](#security-group-grouptwo)', 1), "identifier reference does not match"),
+            (DESIGN.replace('[PENDING_DEPLOY](#resource-EC2_SecurityGroup_002)', '[sg-wrong](#resource-EC2_SecurityGroup_002)', 1), "identifier reference does not match"),
             (DESIGN.replace('### EC2.SecurityGroup: GroupOne', '### EC2.Instance: GroupOne'), "rule table must belong to EC2.SecurityGroup"),
             (DESIGN + '\n<a id="security-group-oldrule"></a>\n### EC2.SecurityGroupIngress: OldRule\n', "must use a horizontal Direction"),
         ]

@@ -37,8 +37,8 @@ def check_snapshot(sync):
         values = {'desired.service.s3.serviceId': 's3',
                   'desired.service.s3.ownedCatalogResourceTypes': 'S3.Bucket',
                   'desired.resource.001.resourceType': 'S3.Bucket',
-                  'desired.resource.001.anchor': 's3-app-data',
-                  'desired.resource.001.logicalId': 'app-data',
+                  'desired.service.identity.lastAllocated': '{"S3.Bucket":1}',
+                  'desired.resource.001.logicalId': 'S3_Bucket_001',
                   'desired.note.001.text': '<!-- [hidden](hidden.md#hidden) -->'}
         rows = [('S3.Bucket.BucketName', '`app-data`', 'bucketの名前'),
                 ('S3.Bucket.Region', '`us-east-1`', 'bucketを配置するregion')]
@@ -57,7 +57,7 @@ def check_snapshot(sync):
                        'display.resource.001.comment': 'アプリケーションのデータを保管するbucket'})
         values["desired.resource.001.resourceMode"] = "IMPORT"
         rendered = model_design.markdown_for(source, values, repository)
-        assert hashlib.sha256(rendered.encode()).hexdigest() == "f68a22524d5bbad245d31afe6f8c263035d80a223480574d9187a6db75f23bdd"
+        assert hashlib.sha256(rendered.encode()).hexdigest() == "fccdd47fd7d3f08ab9ef18e58b6c075985ccb42f3adad200fe7fb184a7ba22f3"
         # Alias links also retain an explicit consumer observation, without inventing Alias identifiers.
         observed = "1234abcd-12ab-34cd-56ef-1234567890ab"
         alias_source = dict(values)
@@ -80,8 +80,8 @@ def check_snapshot(sync):
             assert plan.failures == ['generated Markdown is stale or missing: s3.md']
         from design_layout import resource_modes
         for mode in ('CREATE', 'IMPORT'):
-            source.write_text(f'<!-- resource-mode: s3-app-data {mode} -->\n' + text, encoding='utf-8')
-            assert resource_modes(source.read_text().splitlines(), values | {'desired.resource.001.resourceMode': mode})['s3-app-data'] == mode
+            source.write_text(f'<!-- resource-mode: resource-S3_Bucket_001 {mode} -->\n' + text, encoding='utf-8')
+            assert resource_modes(source.read_text().splitlines(), values | {'desired.resource.001.resourceMode': mode})['resource-S3_Bucket_001'] == mode
 
 
 
@@ -130,7 +130,8 @@ def check_links(module):
         from validation import design_links
         observed = "1234abcd-12ab-34cd-56ef-1234567890ab"
         model = {"desired.resource.001.resourceType": "S3.Bucket",
-                 "desired.resource.001.anchor": "s3-app-data",
+                 "desired.resource.001.logicalId": "S3_Bucket_001",
+                 "desired.service.identity.lastAllocated": '{"S3.Bucket":1}',
                  "desired.row.001-001.property": "S3.Bucket.SourceKeyId",
                  "desired.row.001-001.value": "[alias/two](kms.md#kms-aliastwo)",
                  "observed.row.001-001.value": observed}

@@ -29,7 +29,7 @@ def foreign_observation(snapshot, row):
     own_scope = '/'.join((snapshot.scope.environment, snapshot.scope.target, snapshot.scope.service))
     uses = [use for use in usages(snapshot, _coalesce=False) if use.consumer_key == key]
     if not uses or any(use.producer_kind != 'resource' or use.producer_scope == own_scope and
-                       (use.producer_id == resource_id or use.anchor == resource.get('anchor')) for use in uses):
+                       use.producer_id == resource_id for use in uses):
         return False
     from model.projection import catalog_outputs
     from utils.aws_schemas import schemas_for

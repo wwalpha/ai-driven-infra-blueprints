@@ -124,7 +124,7 @@ model/environment/target/service.properties and all its parts. The repository is
 Retain canonical reference and placementName fields; never serialize runtime values.
 Accumulate all selected Resources before the one service save. No per-Resource source save.
 
-add uses new fixed Resource/Row IDs, unique anchor and IMPORT mode. refresh retains the
+add uses new fixed Resource/Row IDs, shared typed logicalId/counters and IMPORT mode. refresh retains the
 same physical identity. bind requires an existing IMPORT Resource with unknown previous
 physical identity, a valid acquired identity and no other owner. replace requires a known,
 different prior physical identity on the explicitly selected existing IMPORT Resource.
@@ -132,7 +132,7 @@ Bind/replace selection records include before.identity and the digest of the com
 model.operations.operation_values(before.authoritative, fixed_id). Never substitute the
 runtime projection for that baseline. CREATE and duplicate physical identity are protected.
 
-Preserve existing IDs, type/mode, anchor, cfn identity, parent relationships, placement,
+Preserve existing entry IDs/logicalIds, type/mode, cfn identity, parent relationships, placement,
 Row ownership/Property and unacquired settings. Only captured values/observations may
 change; keep native JSON types and array order. Add captured Rows where necessary without
 reassigning old IDs. Nonselected Resources and service metadata remain unchanged.

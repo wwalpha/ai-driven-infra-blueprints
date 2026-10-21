@@ -52,7 +52,7 @@ def main():
             {"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
         ]}) + "\n")
         path = root / "docs/designs/dev/123456789012/secretsmanager.md"
-        path.parent.mkdir(parents=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
         for count in (1, 2):
             values = fixture(count)
             output = HELPERS.roundtrip(path, values, root)
@@ -62,7 +62,7 @@ def main():
             assert "### SecretsManager.RotationSchedule" not in output
             assert "app-dev-secret-1_rotate：属性の設定値" in output
             sync_views.validate_views(root, root, [path], {path: values})
-            assert model_projection.linked_resource(path, "[PENDING_DEPLOY](#secretsmanager-app-dev-secret-1_rotate)") == (ROTATION, "Secret1Rotation")
+            assert model_projection.linked_resource(path, "[PENDING_DEPLOY](#resource-SecretsManager_RotationSchedule_001)") == (ROTATION, "SecretsManager_RotationSchedule_001")
 
         comments = dict(values)
         comments["desired.row.002-001.comment"] = "属性：設定値"
@@ -90,44 +90,44 @@ def main():
         for field in ("parentReference", "parentProperty"):
             bad = dict(values)
             del bad[f"desired.resource.002.{field}"]
-            rejects(lambda: markdown_for(path, bad, root), "Secret1Rotation", field, ROTATION + ".SecretId")
-        for reference in ("[Missing](#missing)", "[Secret1](elsewhere.md#secretsmanager-app-dev-secret-1)",
-                          "[WrongLogicalId](#secretsmanager-app-dev-secret-1)",
-                          "[Secret1Rotation](#secretsmanager-app-dev-secret-1_rotate)"):
+            rejects(lambda: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_001", field, ROTATION + ".SecretId")
+        for reference in ("[Missing](#missing)", "[Secret1](elsewhere.md#resource-SecretsManager_Secret_001)",
+                          "[WrongLogicalId](#resource-SecretsManager_Secret_001)",
+                          "[SecretsManager_RotationSchedule_001](#resource-SecretsManager_RotationSchedule_001)"):
             bad = {**values, "desired.resource.002.parentReference": reference}
-            rejects(lambda: markdown_for(path, bad, root), "Secret1Rotation", "parentReference", ROTATION + ".SecretId")
+            rejects(lambda: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_001", "parentReference", ROTATION + ".SecretId")
         for key, value in (("desired.resource.002.parentProperty", ROTATION + ".Id"),
-                           ("desired.row.002-003.value", "[Secret2](#secretsmanager-app-dev-secret-2)"),
-                           ("desired.row.002-003.value", "[Wrong](#secretsmanager-app-dev-secret-1)")):
+                           ("desired.row.002-003.value", "resource://dev/123456789012/secretsmanager/SecretsManager_Secret_002"),
+                           ("desired.row.002-003.value", "[Wrong](#resource-SecretsManager_Secret_001)")):
             bad = {**values, key: value}
             rejects(lambda: markdown_for(path, bad, root), "invalid grouped parentProperty" if key.endswith("parentProperty") else "grouped formal row does not match parentReference")
         for row in ("002-003",):
             bad = {key: value for key, value in values.items() if not key.startswith((f"desired.row.{row}.", f"observed.row.{row}."))}
-            rejects(lambda: markdown_for(path, bad, root), "Secret1Rotation", ".SecretId")
+            rejects(lambda: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_001", ".SecretId")
         bad = dict(values)
         for key, value in list(values.items()):
             if key.startswith("desired.row.002-003."):
                 bad[key.replace("002-003", "002-004")] = value
-        rejects(lambda: markdown_for(path, bad, root), "Secret1Rotation", "exactly one formal row")
+        rejects(lambda: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_001", "exactly one formal row")
         bad = {**values, "desired.resource.004.parentReference": values["desired.resource.002.parentReference"],
                "desired.row.004-003.value": values["desired.row.002-003.value"]}
-        rejects(lambda: markdown_for(path, bad, root), "Secret2Rotation", "too many grouped children", "Secret1")
+        rejects(lambda: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_002", "too many grouped children", "Secret1")
 
         # Parsing must reject edits independently of model generation.
         invalid_views = [
-            (output.replace("[app-dev-secret-1](#secretsmanager-app-dev-secret-1)", "[app-dev-secret-2](#secretsmanager-app-dev-secret-2)"), "must reference enclosing"),
-            (output.replace("[app-dev-secret-1](#secretsmanager-app-dev-secret-1)", "[app-dev-secret-1](other.md#secretsmanager-app-dev-secret-1)"), "must reference enclosing"),
+            (output.replace("[app-dev-secret-1](#resource-SecretsManager_Secret_001)", "[app-dev-secret-2](#resource-SecretsManager_Secret_002)"), "must reference enclosing"),
+            (output.replace("[app-dev-secret-1](#resource-SecretsManager_Secret_001)", "[app-dev-secret-1](other.md#resource-SecretsManager_Secret_001)"), "must reference enclosing"),
             ("\n".join(line for line in output.splitlines() if ROTATION + ".SecretId" not in line), "required property missing"),
-            (output.replace("<!-- logical-id: Secret1Rotation -->", ""), "require anchor and logical ID"),
+            (output.replace("<!-- logical-id: SecretsManager_RotationSchedule_001 -->", ""), "require anchor and logical ID"),
             (output.replace("app-dev-secret-1_rotate：", ""), "confirmed display name required"),
             (output.replace("SecretsManager.Secret:", "S3.Bucket:"), "wrong parent"),
-            (output.replace("<!-- logical-id: Secret2Rotation -->", "<!-- logical-id: Secret1Rotation -->"), "duplicate grouped logical ID"),
+            (output.replace("<!-- logical-id: SecretsManager_RotationSchedule_002 -->", "<!-- logical-id: SecretsManager_RotationSchedule_001 -->"), "duplicate grouped logical ID"),
         ]
         for invalid, message in invalid_views:
             rejects(lambda: expanded_design(invalid.splitlines()), message)
         lines = output.splitlines()
         child_rows = [line for line in lines if ROTATION + "." in line][:3]
-        second_child = [line.replace("secret-1_rotate", "secret-3_rotate").replace("Secret1Rotation", "Secret3Rotation") for line in child_rows]
+        second_child = [line.replace("secret-1_rotate", "secret-3_rotate").replace("SecretsManager_RotationSchedule_001", "SecretsManager_RotationSchedule_003") for line in child_rows]
         insertion = lines.index(child_rows[-1]) + 1
         rejects(lambda: expanded_design(lines[:insertion] + second_child + lines[insertion:]), "too many grouped children")
         for kind, identity in ((SECRET, "001"), (ROTATION, "002")):
@@ -138,18 +138,18 @@ def main():
             assert '| Id |' not in rendered
             assert legacy[f'desired.row.{identity}-099.value'] == '`PENDING_DEPLOY`'
         path.write_text(output)
-        mismatch = {**values, "desired.resource.002.parentReference": "[Secret2](#secretsmanager-app-dev-secret-2)"}
+        mismatch = {**values, "desired.resource.002.parentReference": "resource://dev/123456789012/secretsmanager/SecretsManager_Secret_002"}
         rejects(lambda: markdown_for(path, mismatch, root), "grouped formal row does not match parentReference")
 
         # Real sync: simultaneous KMS and Secrets Manager updates and rollback.
         models = root / "model/dev/123456789012"
-        models.mkdir(parents=True)
+        models.mkdir(parents=True, exist_ok=True)
         key = HELPERS.model("kms", "KMS.Key", "app-dev-key", [
-            ("KeyId", "[Key](#kms-app-dev-key)", "鍵のID")], "Key", "app-dev-key")
+            ("KeyId", "resource://dev/123456789012/kms/KMS_Key_001", "鍵のID")], "Key", "app-dev-key")
         key.update({"observed.row.001-001.property": "KMS.Key.KeyId",
                     "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": "鍵のID"})
         for identity in ("001", "003"):
-            for namespace, value in (("desired", "[Key](kms.md#kms-app-dev-key)"), ("observed", "PENDING_DEPLOY")):
+            for namespace, value in (("desired", "resource://dev/123456789012/kms/KMS_Key_001"), ("observed", "PENDING_DEPLOY")):
                 values.update({f"{namespace}.row.{identity}-002.property": SECRET + ".KmsKeyId",
                                f"{namespace}.row.{identity}-002.value": value,
                                f"{namespace}.row.{identity}-002.comment": "暗号化する鍵"})
@@ -173,13 +173,13 @@ def main():
         key = {name: value.replace("kms-app-dev-key", "kms-app-dev-renamed") for name, value in key.items()}
         key["display.resource.001.label"] = "app-dev-renamed"
         save()
-        rejects(lambda: SYNC.sync(root, True, "dev", "123456789012"), "Secret1Rotation", "parentReference")
+        rejects(lambda: SYNC.sync(root, True, "dev", "123456789012"), "SecretsManager_RotationSchedule_001", "parentReference")
         assert path.read_bytes() == saved[path]
         assert (path.parent / "kms.md").read_bytes() != saved[path.parent / "kms.md"]
         assert "kms-app-dev-renamed" in (path.parent / "kms.md").read_text()
         assert properties(read_model(models / 'secretsmanager.properties')) == properties(HELPERS.text(values))
         # Repair only the source in a later task against the already saved KMS view.
-        values["desired.resource.002.parentReference"] = "[Secret1](#secretsmanager-app-dev-secret-1)"
+        values["desired.resource.002.parentReference"] = "[Secret1](#resource-SecretsManager_Secret_001)"
         values = {name: value.replace("kms-app-dev-key", "kms-app-dev-renamed") for name, value in values.items()}
         save()
         SYNC.sync(root, True, "dev", "123456789012", services=["secretsmanager"])

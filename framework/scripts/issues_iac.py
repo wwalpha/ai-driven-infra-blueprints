@@ -61,6 +61,7 @@ REF_ATTRIBUTES = {
 
 
 from model.core import ReferenceResolutionError
+from model.identity import URI
 
 class Comparison:
     def __init__(self, root, environment, directory, services, *, catalog=None):
@@ -223,17 +224,16 @@ class Comparison:
                            'conditions': conditions, 'inputs': list(inputs.values())})
 
     def reference(self, service, value, expected_attribute=None):
-        link = LINK.fullmatch(value)
-        if not link:
-            raise Blocked('not a logical model reference')
-        refservice = Path(link.group(2)).stem if link.group(2) else service
-        if link.group(2) not in {'', refservice + '.md'}:
-            raise Blocked('reference must stay in the same target')
+        from model.identity import parse_reference, Resolver
+        environment, directory, refservice, logical = parse_reference(value)
+        if (environment, directory) != (self.environment, self.directory):
+            Resolver(self.root).resolve(value)
+            raise Blocked('cross-target IaC reference requires a proven handoff')
         self.model(refservice)
         candidates = [(identity, resource) for identity, resource in self.resources[refservice].items()
-                      if resource.get('anchor') == link.group(3)]
+                      if resource['logicalId'] == logical]
         if len(candidates) != 1:
-            raise Blocked(f'reference mapping matches={len(candidates)}: {refservice}#{link.group(3)}')
+            raise Blocked(f'reference mapping matches={len(candidates)}: {value}')
         identity, resource = candidates[0]
         attributes = {row['property'].removeprefix(resource['resourceType'] + '.')
                       for _, row in self.rows[refservice][identity]
@@ -739,7 +739,7 @@ class Comparison:
         raw = row.get('document', row['value'])
         if 'document' in row:
             value = strict_json(raw)
-        elif LINK.fullmatch(raw):
+        elif URI.fullmatch(raw):
             prop = re.sub(r'\[\d+\]', '[]', row['property'].removeprefix(kind + '.'))
             # A schema-typed ARN property selects the referenced Arn, never a current ARN.
             attribute = 'Arn' if row['property'] == 'CodeBuild.Project.ServiceRole' else None
@@ -758,18 +758,26 @@ class Comparison:
                 value = strict_json(value)
         policy = row['property'].rsplit('.', 1)[-1] in {'PolicyDocument', 'AssumeRolePolicyDocument', 'KeyPolicy', 'Policy'}
         def references(item, field='', operands=False, path='', context=context):
-            if isinstance(item, str) and LINK.fullmatch(item):
+            if isinstance(item, str) and URI.fullmatch(item):
                 attribute = 'Arn' if policy and field in {'Resource', 'NotResource', 'AWS'} else None
                 return self.desired_reference(service, item, kind, path, attribute, context)
             if isinstance(item, list):
                 return [references(child, field, operands, path + '[]', context) for child in item]
             if isinstance(item, dict):
+                if '$resource' in item and not (self.local_comparison and kind == 'CodeBuild.Project'
+                        and path == 'Environment.EnvironmentVariables[].Value'):
+                    if (set(item) - {'$resource', '$attribute'} or not isinstance(item['$resource'], str)
+                            or not URI.fullmatch(item['$resource'])
+                            or ('$attribute' in item and (not isinstance(item['$attribute'], str) or not item['$attribute']))):
+                        raise Blocked('invalid structured Model resource reference')
+                    attribute = item.get('$attribute', 'Arn' if policy and field in {'Resource', 'NotResource', 'AWS'} else None)
+                    return self.desired_reference(service, item['$resource'], kind, path, attribute, context)
                 if self.local_comparison:
                     if (kind == 'CodeBuild.Project' and path == 'Environment.EnvironmentVariables[].Value'
                             and {'$resource', '$attribute'} & item.keys()):
                         if (set(item) != {'$resource', '$attribute'} or not context or context.get('Type') != 'PLAINTEXT'
                                 or not all(isinstance(part, str) and part for part in item.values())
-                                or not LINK.fullmatch(item['$resource'])):
+                                or not URI.fullmatch(item['$resource'])):
                             raise Blocked('Model environment reference requires PLAINTEXT, an explicit resource link and attribute')
                         symbol = self.desired_reference(service, item['$resource'], kind, path, item['$attribute'], context)
                         target_service, identity = symbol['$resource']
@@ -885,8 +893,7 @@ class Comparison:
                 self.record('uncompared', service, '*', '*', 'Terraform: no existing local resource correspondence/evaluator; no init/plan/provider calls')
             return self.results
         stacks = dict((unit['name'], unit) for _, unit in self.templates())
-        legacy_searches = {}
-        # Load/evaluate only stacks assigned to selected resources (legacy candidates need all declared stacks).
+        # Load/evaluate only stacks explicitly assigned to selected resources.
         for service in self.services:
             for identity, resource in self.resources[service].items():
                 mode = resource_mode(resource)
@@ -925,41 +932,7 @@ class Comparison:
                         if len(direct.get((name, logical), [])) != 1:
                             raise Blocked(f'duplicate resource correspondence: {name}/{logical}')
                     else:
-                        cached = legacy_searches.get(cfn_type)
-                        if cached is None or cached[0] is not self._index:
-                            matches, unresolved, causes = {}, [], []
-                            for name, unit in stacks.items():
-                                try:
-                                    template, (document, parameters, pseudo) = self.stack(unit)
-                                except Blocked as error:
-                                    unresolved.append(f'{name}: {error}')
-                                    causes.append(getattr(error, 'iac_cause', None))
-                                    continue
-                                direct, legacy = self.index()
-                                explicit = any(n == name for n, _ in direct)
-                                for logical, definition in document.get('Resources', {}).items():
-                                    if definition.get('Type') != cfn_type:
-                                        continue
-                                    try:
-                                        entry = mapped_resource(direct, legacy, name, logical, cfn_type, explicit)
-                                    except ValueError as error:
-                                        unresolved.append(f'{name}/{logical}: {error}')
-                                        causes.append(None)
-                                        continue
-                                    matches.setdefault((entry[0].stem, entry[1]), []).append(
-                                        (name, template, document, parameters, pseudo, logical, definition))
-                            cached = self._index, matches, unresolved, causes
-                            legacy_searches[cfn_type] = cached
-                        _, matches, unresolved, causes = cached
-                        candidates = matches.get((service, identity), [])
-                        if unresolved:
-                            blocked = Blocked('incomplete legacy candidate search; ' + '; '.join(unresolved))
-                            if all(causes) and len({(cause['kind'], cause['path']) for cause in causes}) == 1:
-                                blocked.iac_cause = dict(causes[0], relationship='legacy-search-incomplete')
-                            raise blocked
-                        if len(candidates) != 1:
-                            raise Blocked(f'legacy correspondence matches={len(candidates)}; explicit cfn-logicalId required')
-                        name, template, document, parameters, pseudo, logical, definition = candidates[0]
+                        raise Blocked('explicit cfn-logicalId is required; Model logicalId cannot establish CFn correspondence')
                     if document.get('Transform'):
                         raise Blocked('Transform requires external evaluation')
                     if definition is None:

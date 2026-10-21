@@ -21,9 +21,10 @@ def logs_fixture(root):
               'desired.service.cloudwatch-logs.ownedCatalogResourceTypes': 'Logs.LogGroup',
               'display.service.title': '# 合成 Log Group 詳細設計',
               'desired.resource.001.resourceType': 'Logs.LogGroup',
-              'desired.resource.001.logicalId': 'fixed-logs', 'desired.resource.001.anchor': 'logs-fixed',
+              'desired.resource.001.logicalId': 'Logs_LogGroup_001',
+              'desired.service.identity.lastAllocated': '{"Logs.LogGroup":1}',
               'desired.resource.001.resourceMode': 'IMPORT', 'display.resource.001.comment': '合成 Log Group'}
-    for index, (prop, value) in enumerate([('LogGroupName', '[fixture](#logs-fixed)'),
+    for index, (prop, value) in enumerate([('LogGroupName', 'resource://qa-synthetic/team-a/cloudwatch-logs/Logs_LogGroup_001'),
             ('RetentionInDays', '`30`'), ('DeletionProtectionEnabled', '`false`'), ('LogGroupClass', '`STANDARD`')], 1):
         values.update({f'desired.row.001-{index:03d}.property': 'Logs.LogGroup.' + prop,
                        f'desired.row.001-{index:03d}.value': value, f'desired.row.001-{index:03d}.comment': '合成値'})
@@ -84,11 +85,11 @@ def format_fixture(root, *, target='one', environment='qa-custom', service='netw
     scope = Scope(root, environment + '-single' if target == '222222222222' else environment, target, service)
     values = {
         'desired.resource.007.resourceType': 'EC2.VPC',
-        'desired.resource.007.logicalId': 'original',
-        'desired.resource.007.anchor': 'network',
+        'desired.resource.007.logicalId': 'EC2_VPC_001',
+        'desired.service.identity.lastAllocated': '{"EC2.VPC":1}',
         'desired.resource.007.resourceMode': 'IMPORT',
         'desired.row.007-001.property': 'EC2.VPC.VpcId',
-        'desired.row.007-001.value': '[Network](#network)',
+        'desired.row.007-001.value': f'resource://{scope.environment}/{target}/{service}/EC2_VPC_001',
         'desired.row.007-001.comment': '合成 ID',
         'observed.row.007-001.value': '',
         'desired.row.007-002.property': 'EC2.VPC.CidrBlock',
@@ -149,17 +150,17 @@ def role_operation_fixture(root):
         'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}), encoding='utf-8')
     scope = Scope(root, 'qa-synthetic', 'team-a', 'iam')
     values = {'desired.service.iam.serviceId': 'iam', 'desired.service.iam.ownedCatalogResourceTypes': 'IAM.Role',
-              'display.service.title': '# 合成 IAM Role'}
+              'display.service.title': '# 合成 IAM Role', 'desired.service.identity.lastAllocated': '{"IAM.Role":9}'}
     for rid, name in [('007', 'source'), ('008', 'destination'), ('009', 'unrelated')]:
         values.update({f'desired.resource.{rid}.resourceType': 'IAM.Role', f'desired.resource.{rid}.resourceMode': 'IMPORT',
-            f'desired.resource.{rid}.logicalId': 'fixed-' + name, f'desired.resource.{rid}.anchor': name,
+            f'desired.resource.{rid}.logicalId': 'IAM_Role_' + rid,
             f'display.resource.{rid}.comment': name,
-            f'desired.row.{rid}-001.property': 'IAM.Role.RoleName', f'desired.row.{rid}-001.value': f'[{name}](#{name})',
+            f'desired.row.{rid}-001.property': 'IAM.Role.RoleName', f'desired.row.{rid}-001.value': f'resource://qa-synthetic/team-a/iam/IAM_Role_{rid}',
             f'desired.row.{rid}-001.comment': name + ' identity', f'observed.row.{rid}-001.value': '`role-' + name + '`',
             f'desired.row.{rid}-002.property': 'IAM.Role.AssumeRolePolicyDocument',
             f'desired.row.{rid}-002.value': f'[Policy](iam/{name}.json)', f'desired.row.{rid}-002.comment': name + ' policy',
             f'desired.row.{rid}-002.document': json.dumps({'Version': '2012-10-17', 'Statement': [
-                {'Effect': 'Allow', 'Action': 'sts:AssumeRole', 'Principal': {'AWS': f'[{name}](#{name})'},
+                {'Effect': 'Allow', 'Action': 'sts:AssumeRole', 'Principal': {'AWS': f'resource://qa-synthetic/team-a/iam/IAM_Role_{rid}'},
                  'Condition': {'Bool': {'aws:SecureTransport': True}}, 'fixture-order': [1, '1', False]}]})})
     scope.path.parent.mkdir(parents=True)
     scope.path.write_text(serialize(values), encoding='utf-8')
@@ -173,21 +174,21 @@ def retarget_fixture(root):
         {'environment': 'qa-synthetic', 'alias': alias, 'awsAccountId': '123456789012',
          'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'} for alias in ('team-a', 'team-b')]}), encoding='utf-8')
     producer = Scope(root, 'qa-synthetic', 'team-a', 'network')
-    values = {}
+    values = {'desired.service.identity.lastAllocated': '{"EC2.VPC":8}'}
     for rid, name in [('007', 'source'), ('008', 'destination')]:
         values.update({f'desired.resource.{rid}.resourceType': 'EC2.VPC', f'desired.resource.{rid}.resourceMode': 'IMPORT',
-            f'desired.resource.{rid}.anchor': name, f'desired.resource.{rid}.logicalId': rid,
-            f'desired.row.{rid}-001.property': 'EC2.VPC.VpcId', f'desired.row.{rid}-001.value': f'[{rid}](#{name})',
+            f'desired.resource.{rid}.logicalId': 'EC2_VPC_' + rid,
+            f'desired.row.{rid}-001.property': 'EC2.VPC.VpcId', f'desired.row.{rid}-001.value': f'resource://qa-synthetic/team-a/network/EC2_VPC_{rid}',
             f'desired.row.{rid}-001.comment': '合成 ID', f'observed.row.{rid}-001.value': 'vpc-' + name})
     producer.path.parent.mkdir(parents=True)
     producer.path.write_text(serialize(values), encoding='utf-8')
     consumer = Scope(root, producer.environment, producer.target, 'security-group')
     values = {'desired.resource.001.resourceType': 'EC2.SecurityGroup', 'desired.resource.001.resourceMode': 'CREATE',
-        'desired.resource.001.logicalId': 'fixed-consumer', 'desired.resource.001.anchor': 'consumer',
+        'desired.resource.001.logicalId': 'EC2_SecurityGroup_001', 'desired.service.identity.lastAllocated': '{"EC2.SecurityGroup":1}',
         'desired.row.001-001.property': 'EC2.SecurityGroup.VpcId',
         'desired.row.001-001.value': 'qa-synthetic:123456789012:vpc-source', 'desired.row.001-001.comment': '合成参照'}
     resource = {'consumerKey': 'desired.row.001-001.value', 'text': 'vpc-source', 'occurrence': '1',
-        'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/network', 'producerId': '007',
+        'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/network', 'producerLogicalId': 'EC2_VPC_007',
         'resourceType': 'EC2.VPC', 'format': 'identifier', 'property': 'EC2.VPC.VpcId', 'labelPolicy': 'none'}
     context = {'consumerKey': 'desired.row.001-001.value', 'text': '123456789012', 'occurrence': '1',
         'producerKind': 'context', 'producerScope': 'qa-synthetic/team-a', 'format': 'literal',
@@ -225,10 +226,10 @@ def import_publication_case(monkeypatch, failure):
             from model.format import serialize
             incoming_source = model.with_name('codebuild.properties')
             fields = {'desired.resource.002.resourceType': 'CodeBuild.Project', 'desired.resource.002.resourceMode': 'IMPORT',
-                'desired.resource.002.anchor': 'consumer', 'desired.row.002-001.property': 'CodeBuild.Project.LogsConfig.CloudWatchLogs.GroupName',
+                'desired.resource.002.logicalId': 'CodeBuild_Project_002', 'desired.service.identity.lastAllocated': '{"CodeBuild.Project":2}', 'desired.row.002-001.property': 'CodeBuild.Project.LogsConfig.CloudWatchLogs.GroupName',
                 'desired.row.002-001.value': 'fixture-001', 'desired.row.002-001.comment': '合成 incoming 参照'}
             for key, value in {'consumerKey': 'desired.row.002-001.value', 'text': 'fixture-001', 'occurrence': '1',
-                    'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/cloudwatch-logs', 'producerId': '001',
+                    'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/cloudwatch-logs', 'producerLogicalId': 'Logs_LogGroup_001',
                     'resourceType': 'Logs.LogGroup', 'format': 'identifier', 'property': 'Logs.LogGroup.LogGroupName', 'labelPolicy': 'none'}.items():
                 fields['desired.reference.fixed-use.' + key] = value
             incoming_source.write_text(serialize(fields), encoding='utf-8')
@@ -298,7 +299,7 @@ def import_publication_case(monkeypatch, failure):
         elif failure == 'candidate-reference':
             extra = {**parse(candidate.read_text()).values}
             for field, value in {'consumerKey': 'desired.row.001-001.value', 'text': '[fixture](#logs-fixed)', 'occurrence': '1',
-                    'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/cloudwatch-logs', 'producerId': '001',
+                    'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/cloudwatch-logs', 'producerLogicalId': 'Logs_LogGroup_001',
                     'resourceType': 'Logs.LogGroup', 'format': 'link', 'labelPolicy': 'fixed'}.items():
                 extra['desired.reference.unreviewed.' + field] = value
             from model.format import serialize

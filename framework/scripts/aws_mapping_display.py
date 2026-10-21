@@ -175,7 +175,7 @@ def validate_mappings(source, root=ROOT):
 
 
 @input_scope
-def validation_rows(rows, source, kind, logical_id, root=ROOT):
+def validation_rows(rows, source, kind, logical_id, root=ROOT, *, scope=None):
     """Reinsert only hidden source rows for existing semantic validators."""
     if not source:
         return rows
@@ -193,7 +193,7 @@ def validation_rows(rows, source, kind, logical_id, root=ROOT):
         return rows
     identity, resource = targets[0]
     targets += [(rid, child) for rid, child in resources.items()
-                if child.get('parentReference') == f'[{logical_id}](#{resource["anchor"]})']
+                if scope is not None and child.get('parentReference') == 'resource://' + '/'.join((*scope, resource['logicalId']))]
     ordered = [row for rid, child in targets
                for row in catalog_display_rows(resource_rows(source, rid, child['resourceType'], root), child['resourceType'], root)]
     positions = defaultdict(deque)
@@ -218,7 +218,7 @@ def validation_lines(lines, source, root=ROOT):
     if _validation_projection(source, root) == source:
         return lines
     from design_layout import ANCHOR, RESOURCE, HEADER, ALIGNMENT
-    resources = {resource['anchor']: resource for _, resource in entries(source, 'desired.resource.')}
+    resources = {'resource-' + resource['logicalId']: resource for _, resource in entries(source, 'desired.resource.')}
     result = []
     resource = None
     anchor = ''

@@ -67,16 +67,16 @@ def main():
         # A case-different key is retained as an ordinary tag, without synthesizing Name.
         tagged = model("EC2.VPCEndpoint", "LEGACY_NAME_01", "IMPORT", "取得済みresource")
         tagged["desired.row.001-003.value"] = "name"
-        tagged["desired.resource.001.anchor"] = "ec2-resource"
-        tagged["desired.row.001-001.value"] = "[InternalId](#ec2-resource)"
+        tagged["desired.row.001-001.value"] = "resource://dev/123456789012/ec2/EC2_VPCEndpoint_001"
         assert not (error := check(tagged)), error
         assert "| Tags[1].Key | name |" in path.read_text(encoding="utf-8")
 
         # A mixed service must not exempt its CREATE neighbour.
         mixed = model(name="LEGACY_NAME_01", mode="IMPORT")
         neighbour = model(name="INVALID_CREATE_NAME", mode="CREATE")
-        mixed.update({key.replace(".001", ".002", 1): value.replace("InternalId", "OtherId")
+        mixed.update({key.replace(".001", ".002", 1): value.replace("EC2_VPC_001", "EC2_VPC_002").replace("fixture-InternalId", "fixture-OtherId")
                       for key, value in neighbour.items() if ".001" in key})
+        mixed["desired.service.identity.lastAllocated"] = json.dumps({"EC2.VPC": 2})
         assert "lower-kebab-case" in check(mixed)
         # Provider constraints, catalog selection and row structure still fail for IMPORT.
         bad = {**imported, "desired.row.001-004.property": "EC2.VPC.EnableDnsSupport",
@@ -107,7 +107,7 @@ def main():
                 raise AssertionError("invalid resourceMode metadata accepted")
         # Legacy comments cannot override the authoritative mode during verification.
         stale = original + marker.replace("IMPORT", "CREATE") + "\n"
-        assert resource_modes(stale.splitlines(), imported)["ec2-private_subnet_01"] == "IMPORT"
+        assert resource_modes(stale.splitlines(), imported)["resource-EC2_VPC_001"] == "IMPORT"
         path.write_text(stale, encoding="utf-8")
         sync_views.validate_views(root, root, [path], {path: imported})
         try:
@@ -131,21 +131,21 @@ def main():
             "display.service.title": "# KMS 詳細設計",
             "display.resource.001.comment": "データを暗号化する鍵",
             "desired.resource.001.resourceType": "KMS.Key",
-            "desired.resource.001.logicalId": "Key",
-            "desired.resource.001.anchor": "kms-legacy_key",
+            "desired.resource.001.logicalId": "KMS_Key_001",
+            "desired.resource.001.cfn-logicalId": "fixture-Key",
+            "desired.service.identity.lastAllocated": json.dumps({"KMS.Key": 1, "KMS.Alias": 1}),
             "desired.resource.001.resourceMode": "CREATE",
             "desired.row.001-001.property": "KMS.Key.KeyId",
-            "desired.row.001-001.value": "[Key](#kms-legacy_key)",
+            "desired.row.001-001.value": "resource://dev/123456789012/kms/KMS_Key_001",
             "desired.row.001-001.comment": "一意に識別するID",
             "observed.row.001-001.property": "KMS.Key.KeyId",
             "observed.row.001-001.value": "PENDING_DEPLOY",
             "observed.row.001-001.comment": "一意に識別するID",
             "desired.resource.002.resourceType": "KMS.Alias",
-            "desired.resource.002.logicalId": "Alias",
-            "desired.resource.002.anchor": "kms-alias-legacy_key",
+            "desired.resource.002.logicalId": "KMS_Alias_001",
             "desired.resource.002.resourceMode": "IMPORT",
             "desired.resource.002.parentProperty": "KMS.Alias.TargetKeyId",
-            "desired.resource.002.parentReference": "[Key](#kms-legacy_key)",
+            "desired.resource.002.parentReference": "resource://dev/123456789012/kms/KMS_Key_001",
             "desired.row.002-001.property": "KMS.Alias.AliasName",
             "desired.row.002-001.value": "alias/LEGACY_KEY",
             "desired.row.002-001.comment": "鍵を識別するalias",

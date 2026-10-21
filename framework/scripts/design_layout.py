@@ -204,7 +204,7 @@ def resource_modes(lines: list[str], values: dict[str, str] | None = None) -> di
     """Use model modes for validation; read legacy comments only without a model."""
     if values is not None:
         from model.core import entries
-        return {resource["anchor"]: resource_mode(resource)
+        return {"resource-" + resource["logicalId"]: resource_mode(resource)
                 for _, resource in entries(values, "desired.resource.") if "resourceMode" in resource}
     modes = {}
     anchors = set(ANCHOR.findall("\n".join(lines)))
@@ -329,6 +329,10 @@ def stack_design(path: Path) -> list[dict[str, str]]:
 def stack_delivery(path: Path) -> dict[str, str]:
     """Read hidden template settings and artifact tables, including old stack views."""
     from model.core import ARTIFACT_FIELDS
+    values = design_model_values(path, path.parents[4]) if len(path.parents) >= 5 and path.parents[2].name == 'designs' else None
+    if values is not None:
+        return {key: value for key, value in values.items()
+                if key.startswith('desired.artifact.') or key in {'desired.deployment.templateBucket', 'desired.deployment.templateKeyPrefix'}}
     lines = [line for line in input_text(path, encoding="utf-8").splitlines() if line]
     result = {}
     for line in lines:
@@ -382,8 +386,7 @@ def resource_identity_metadata(lines, *, values=None):
     """Use authoritative Model identities for validation; Markdown cannot supply CFn placement."""
     if values is not None:
         from model.core import entries
-        return ({resource["anchor"]: identity for identity, resource in entries(values, "desired.resource.")
-                 if f"desired.resource.{identity}.logicalId" not in values}, {})
+        return ({}, {})
     anchors = set(ANCHOR.findall("\n".join(lines)))
     result = {"resource-entry": {}, "cfn-logical-id": {}}
     for line in lines:

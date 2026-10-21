@@ -332,3 +332,16 @@ new authority strictly. Preserve project/IaC/issues bytes and file sets. Existin
 remain unresolved; limited equivalence does not assert design/IaC validity. The same
 latest-base candidate/HEAD/Task must pass before integration. Baseline changes, extra
 paths or semantic loss stop. No force/skip or failed-validation exception bypasses this proof.
+
+## Explicit Resource identity rewrite
+
+Only `- Model identity rewrite: ` followed by the exact code value `logical-id-v1` in
+Task contract enables the narrow one-time preservation guard. Require Task type migration,
+AWS API execution forbidden, deploy/apply forbidden and exact nonempty service Validation scope.
+Do not combine it with another Model operation/refactor/migration or Workflow declaration.
+Allow only declared Model sources, generated docs/designs and the Task file. Follow the exact
+contract and shared publication API in [Resource logical identity](../docs/model-identity.md).
+The baseline reader is historical-only. Pair by scope plus fixed Resource entry, preserve
+configuration/observations/parts and prove every changed reference target. Unknown incoming
+consumers, retargeting or unproven CFn mappings fail. This declaration uses the existing
+final Model candidate guard; it is not a force or failed-validation integration path.

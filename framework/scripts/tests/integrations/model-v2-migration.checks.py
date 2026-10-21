@@ -16,6 +16,8 @@ from model.migration.export import export_legacy
 from model.migration.convert import convert_export
 from model.migration.compare import compare_export
 from model.sources import Scope, load_model
+from model.identity_rewrite import baseline_snapshot
+from model.migration.convert import legacy_declarations
 
 FRAMEWORK = Path(__file__).resolve().parents[4]
 BASELINE = 'd0c5824fed507db234a7532a309b3c8c3482fb60'
@@ -29,9 +31,11 @@ def properties_fixture(root):
          'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}), encoding='utf-8')
     scope.path.parent.mkdir(parents=True)
     scope.path.write_text(serialize({'desired.resource.007.resourceType': 'EC2.VPC',
-        'desired.resource.007.logicalId': 'original', 'desired.resource.007.anchor': 'network',
+        'desired.resource.007.logicalId': 'EC2_VPC_001',
+        'desired.resource.007.cfn-logicalId': 'OriginalVpc',
+        'desired.service.identity.lastAllocated': '{"EC2.VPC":1}',
         'desired.resource.007.resourceMode': 'IMPORT', 'desired.row.007-001.property': 'EC2.VPC.VpcId',
-        'desired.row.007-001.value': '[Network](#network)', 'desired.row.007-001.comment': '合成 ID',
+        'desired.row.007-001.value': 'resource://qa-synthetic/team-a/network/EC2_VPC_001', 'desired.row.007-001.comment': '合成 ID',
         'observed.row.007-001.value': 'vpc-original'}), encoding='utf-8')
     return scope
 
@@ -196,8 +200,8 @@ def check_deploy_digest_covers_all_nonobserved_authority(tmp_path, monkeypatch, 
     if field == 'placement':
         path, changes = stacks, {'desired.stack.009.placementName': 'ChangedPlacement'}
     elif field == 'reference':
-        spec = {'consumerKey': 'desired.row.007-001.value', 'text': '[Network](#network)', 'occurrence': '1',
-                'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/network', 'producerId': '007',
+        spec = {'consumerKey': 'desired.row.007-001.value', 'text': 'resource://qa-synthetic/team-a/network/EC2_VPC_001', 'occurrence': '1',
+                'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/network', 'producerLogicalId': 'EC2_VPC_001',
                 'resourceType': 'EC2.VPC', 'format': 'link', 'labelPolicy': 'fixed'}
         changes = {f'desired.reference.stable.{key}': value for key, value in spec.items()}
     path.write_text(patch(parse(path.read_text(encoding='utf-8')), changes), encoding='utf-8')
@@ -241,10 +245,10 @@ def check_deploy_preparation_separates_producer_reads_from_writes(tmp_path, monk
     scope, stacks = deploy_properties_fixture(tmp_path)
     producer = scope.path.with_name('security.properties')
     producer.write_text(serialize({'desired.resource.009.resourceType': 'EC2.VPC',
-        'desired.resource.009.anchor': 'security', 'desired.resource.009.resourceMode': 'IMPORT'}), encoding='utf-8')
+        'desired.resource.009.logicalId': 'EC2_VPC_001', 'desired.service.identity.lastAllocated': '{"EC2.VPC":1}', 'desired.resource.009.resourceMode': 'IMPORT'}), encoding='utf-8')
     scope.path.write_text(patch(parse(scope.path.read_text(encoding='utf-8')), {
         'desired.row.007-002.property': 'EC2.VPC.Name',
-        'desired.row.007-002.value': '[Producer](security.md#security)',
+        'desired.row.007-002.value': 'resource://qa-synthetic/team-a/security/EC2_VPC_001',
         'desired.row.007-002.comment': '合成参照'}), encoding='utf-8')
     text, sources, _, _ = candidate(tmp_path, 'tasks/deploy.md', scope.environment, scope.target,
         {'awsAccountId': '123456789012', 'alias': scope.target}, ['CurrentName'], ['network', 'cloudformation-stacks'])
@@ -310,7 +314,7 @@ def check_properties_model_operation_preservation(tmp_path, monkeypatch, change)
     candidate = {key: value for key, value in values.items() if owner(key, values) != ('resource', '007')}
     if change != 'delete':
         candidate['observed.row.008-001.value'] = values['observed.row.007-001.value']
-        candidate['desired.row.008-002.document'] = values['desired.row.007-002.document'].replace('[source](#source)', '[destination](#destination)')
+        candidate['desired.row.008-002.document'] = values['desired.row.007-002.document'].replace('resource://qa-synthetic/team-a/iam/IAM_Role_007', 'resource://qa-synthetic/team-a/iam/IAM_Role_008')
     if change == 'identity':
         candidate['desired.resource.008.logicalId'] = 'changed'
     elif change == 'observation':
@@ -341,7 +345,7 @@ def check_properties_retarget_keeps_other_fragments_and_reference_ids(tmp_path, 
     scope, values = retarget_fixture(before)
     shutil.copytree(before, after)
     values['desired.row.001-001.value'] = 'qa-synthetic:123456789012:vpc-destination'
-    values['desired.reference.resource-use.producerId'] = '008'
+    values['desired.reference.resource-use.producerLogicalId'] = 'EC2_VPC_008'
     values['desired.reference.resource-use.text'] = 'vpc-destination'
     if change == 'prefix':
         values['desired.row.001-001.value'] = 'changed-prefix:123456789012:vpc-destination'
@@ -461,7 +465,7 @@ def check_export_convert_and_strict_compare(old_checkout, tmp_path):
     candidate = convert_export(exported, tmp_path / 'candidate')
     result = compare_export(exported, candidate)
     assert result == {'status': 'equivalent', 'modelFormat': 2, 'models': 1, 'designValidation': 'not-run'}
-    model = load_model(Scope(candidate, 'qa-synthetic', 'team-a', 'network'))
+    model = baseline_snapshot(Scope(candidate, 'qa-synthetic', 'team-a', 'network'))
     assert model.authoritative['observed.row.007-001.value'] == ''
     assert model.authoritative['desired.row.007-002.value'] == 'synthetic-qa-synthetic'
     assert not any(key.startswith('desired.reference.') for key in model.authoritative)
@@ -545,9 +549,9 @@ desired.row.tags.comment=参照付きJSON
         'observed.row.007-001.value': '`vpc-physical`'}}), encoding='utf-8')
     exported = export_legacy(old_checkout, old_python(), root, BASELINE, tmp_path / 'export.json')
     candidate = convert_export(exported, tmp_path / 'candidate')
-    model = load_model(Scope(candidate, 'qa-synthetic', 'team-a', 'network'))
+    model = baseline_snapshot(Scope(candidate, 'qa-synthetic', 'team-a', 'network'))
     from model.references import declarations, usages
-    specs = list(declarations(model.authoritative).values())
+    specs = list(legacy_declarations(model.authoritative).values())
     assert {'literal', 'name', 'identifier', 'link'} <= {spec['format'] for spec in specs}
     contexts = [spec for spec in specs if spec['producerKind'] == 'context']
     assert len(contexts) == 1 and contexts[0]['contextProperty'] == 'executionAccountId'
@@ -559,7 +563,7 @@ desired.row.tags.comment=参照付きJSON
     assert all(spec['property'] == 'EC2.VPC.Name' for spec in names)
     identifiers = [spec for spec in specs if spec['format'] == 'identifier']
     assert len(identifiers) == 1 and identifiers[0]['text'] == 'vpc-physical'
-    assert sum(usage.consumer_key == 'desired.row.008-002.value' for usage in usages(model)) == 1
+    assert sum(spec['consumerKey'] == 'desired.row.008-002.value' for spec in specs) == 1
     assert compare_export(exported, candidate)['status'] == 'equivalent'
 
 
@@ -614,9 +618,9 @@ def check_export_real_stack_links_root_names_and_retained_display(old_checkout, 
     exported = export_legacy(old_checkout, old_python(), root, BASELINE, tmp_path / 'export.json')
     candidate = convert_export(exported, tmp_path / 'candidate')
     assert compare_export(exported, candidate)['models'] == 5
-    model = load_model(Scope(candidate, 'qa-synthetic', 'team-a', 'network'))
+    model = baseline_snapshot(Scope(candidate, 'qa-synthetic', 'team-a', 'network'))
     from model.references import declarations
-    specs = list(declarations(model.authoritative).values())
+    specs = list(legacy_declarations(model.authoritative).values())
     assert [spec['property'] for spec in specs if spec['format'] == 'name'] == ['CodeBuild.Project.Name']
     keys = [spec for spec in specs if spec.get('resourceType') == 'KMS.Key']
     assert {spec['labelPolicy'] for spec in keys} == {'resource-id'}
@@ -632,9 +636,9 @@ def check_export_real_stack_links_root_names_and_retained_display(old_checkout, 
         str(old_checkout / 'framework/scripts'), str(root / 'model/qa-synthetic/team-a/network.properties')], text=True).strip()
     assert actual == 'fixture-project [001](kms.md#fixed) [001](kms.md#fixed)'
     assert model.authoritative['desired.note.001.text'] == actual
-    stack = load_model(Scope(candidate, 'qa-synthetic', 'team-a', 'cloudformation-stacks'))
+    stack = baseline_snapshot(Scope(candidate, 'qa-synthetic', 'team-a', 'cloudformation-stacks'))
     assert stack.authoritative['desired.stack.009.placementName'] == 'FixedPlacement'
-    bucket_refs = list(declarations(stack.authoritative).values())
+    bucket_refs = list(legacy_declarations(stack.authoritative).values())
     assert {spec['consumerKey'] for spec in bucket_refs} == {'desired.deployment.templateBucket', 'desired.artifact.001.bucket'}
     assert {path.relative_to(root): path.read_bytes() for path in root.rglob('*') if path.is_file()} == before
 
@@ -725,7 +729,7 @@ display.stack.009.comment=合成配置
         'instances': {'stacks': {'definition': 'Stacks', 'resources': {}, 'rows': {}, 'parameters': {}}}}), encoding='utf-8')
     exported = export_legacy(old_checkout, old_python(), root, BASELINE, tmp_path / 'export.json')
     candidate = convert_export(exported, tmp_path / 'candidate')
-    model = load_model(Scope(candidate, 'qa-synthetic', 'team-a', 'cloudformation-stacks'))
+    model = baseline_snapshot(Scope(candidate, 'qa-synthetic', 'team-a', 'cloudformation-stacks'))
     assert model.authoritative['desired.stack.009.name'] == 'RenamedStack'
     assert model.authoritative['desired.stack.009.placementName'] == 'OriginalPlacement'
     assert 'desired.stack.009.placementName' not in model.values
@@ -790,7 +794,7 @@ def check_managed_observation_preserves_exact_authority(monkeypatch, change):
                     proposed.update({'desired.reference.r01.' + field: value for field, value in {
                         'consumerKey': 'desired.row.007-002.value', 'text': 'synthetic', 'occurrence': '1',
                         'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/network', 'format': 'name',
-                        'producerId': '007', 'resourceType': 'EC2.VPC', 'property': 'EC2.VPC.Name', 'labelPolicy': 'none'}.items()})
+                        'producerLogicalId': 'EC2_VPC_001', 'resourceType': 'EC2.VPC', 'property': 'EC2.VPC.Name', 'labelPolicy': 'none'}.items()})
                 else:
                     proposed['observed.row.007-002.value'] = 'unselected row'
                 with pytest.raises(ValueError, match='non-observed|outside the authorized selection'):
@@ -962,7 +966,7 @@ def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, c
         if change in {'create', 'import-config'}:
             fields = {'desired.row.007-001.value': '[another](other.md#other)'}
         elif change == 'fixed-id':
-            fields = {'desired.resource.007.anchor': 'changed-fixed-anchor'}
+            fields = {'desired.resource.007.logicalId': 'EC2_VPC_002', 'desired.service.identity.lastAllocated': '{"EC2.VPC":2}'}
         if change == 'missing-task':
             (target / name).unlink()
             with pytest.raises(ValueError, match='selected task contract missing'):

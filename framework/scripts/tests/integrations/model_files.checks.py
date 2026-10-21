@@ -22,6 +22,7 @@ def check_resource_reading(root):
         "desired.service.kms.serviceId": "kms",
         "desired.service.kms.ownedCatalogResourceTypes": "KMS.Key,KMS.Alias",
         "display.service.title": "# KMS 詳細設計",
+        "desired.service.identity.lastAllocated": '{"KMS.Key":60,"KMS.Alias":3}',
         "desired.note.001.text": "共通注記はresource番号と同じでもservice全体に適用する",
     }
     for number in range(1, 61):
@@ -29,8 +30,7 @@ def check_resource_reading(root):
         kind = "KMS.Alias" if number in (2, 3) else "KMS.Key"
         values.update({
             f"desired.resource.{identity}.resourceType": kind,
-            f"desired.resource.{identity}.logicalId": f"Resource{number}",
-            f"desired.resource.{identity}.anchor": f"kms-resource-{identity}",
+            f"desired.resource.{identity}.logicalId": kind.replace(".", "_") + "_" + identity,
             f"desired.resource.{identity}.resourceMode": "CREATE",
             f"display.resource.{identity}.comment": f"用途{number}",
             f"desired.row.{identity}-001.property": f"{kind}.Description",
@@ -38,13 +38,13 @@ def check_resource_reading(root):
             f"desired.row.{identity}-001.comment": f"説明{number}",
         })
         if number in (2, 3):
-            values[f"desired.resource.{identity}.parentReference"] = "[Resource1](#kms-resource-001)"
+            values[f"desired.resource.{identity}.parentReference"] = "resource://dev/123456789012/kms/KMS_Key_001"
             values[f"desired.resource.{identity}.parentProperty"] = "KMS.Alias.TargetKeyId"
         if number == 1:
             values.update({
                 "desired.row.001-002.property": "KMS.Key.KeyId",
                 "desired.row.001-002.comment": "識別子",
-                "desired.row.001-002.value": "[Resource1](#kms-resource-001)",
+                "desired.row.001-002.value": "resource://dev/123456789012/kms/KMS_Key_001",
                 "observed.row.001-002.property": "KMS.Key.KeyId",
                 "observed.row.001-002.value": "12345678-current-key-id",
                 "desired.row.001-003.property": "KMS.Key.KeyPolicy",
@@ -87,7 +87,7 @@ def check_resource_reading(root):
         loaded = load_model(source)
         snapshot = {path: path.read_bytes() for path in loaded.files}
         assert len(loaded.parts) == 1 if limit == 600 else len(loaded.parts) > 1
-        for command, selector in (('find', 'Resource60'), ('find', '見つからない'),
+        for command, selector in (('find', 'KMS_Key_060'), ('find', '見つからない'),
                                    ('resource', '001'), ('trace', 'desired.row.001-001.value'),
                                    ('trace', 'observed.row.001-002.value'),
                                    ('trace', 'observed.row.001-002.property')):
@@ -104,7 +104,7 @@ def check_resource_reading(root):
             else:
                 selected = model_files.read_resource(source, selector) if command == 'resource' else model_files.find_model(source, selector)
                 assert answer == {key: [str(origin[0]), *origin[1:]] for key, origin in selected.items()}
-        for selector in ("001", "Resource1", "kms-resource-001", "Resource2", "003"):
+        for selector in ("001", "KMS_Key_001", "KMS_Alias_002", "003"):
             result = cli('resource', selector)
             assert result.returncode == 0, result.stderr
             extracted = json.loads(result.stdout)
@@ -116,16 +116,16 @@ def check_resource_reading(root):
                 assert file.read_text(encoding='utf-8').splitlines()[number - 1] == key + '=' + value
             assert 'desired.resource.004.' not in result.stdout
             assert 'config.md#config-recorder' in result.stdout
-        result = cli('resource', 'Resource60')
+        result = cli('resource', 'KMS_Key_060')
         assert result.returncode == 0 and json.loads(result.stdout)['desired.row.060-001.value'][2] == '設定60=値'
         assert 'desired.resource.006.' not in result.stdout and 'desired.resource.001.' not in result.stdout
-        for selector in ('', 'Resource', '999', 'Resource61'):
+        for selector in ('', 'Resource', 'kms-resource-001', '999', 'KMS_Key_061'):
             result = cli('resource', selector)
             assert result.returncode == 1 and not result.stdout
         assert cli('resource', '001', '--split').returncode == 2
         assert all(path.read_bytes() == raw for path, raw in snapshot.items())
 
-    for command, selector in (('find', 'Resource1'), ('resource', '001'), ('trace', 'desired.row.001-001.value')):
+    for command, selector in (('find', 'KMS_Key_001'), ('resource', '001'), ('trace', 'desired.row.001-001.value')):
         for invalid_path in (root / 'invalid.properties', source.with_name('missing.properties')):
             result, count = invoke(invalid_path, command, selector)
             assert result[0] == 1 and not result[1] and json.loads(result[2])['status'] == 'failed'
@@ -156,7 +156,7 @@ def check_resource_reading(root):
             (tasks / f'{name}.md').write_text(
                 f'## Task contract\n- Task type: `governance`\n- Task status: `running`\n'
                 f'## Modified files\n- `tasks/{name}.md`\n## Allowed paths\n- `tasks/{name}.md`\n', encoding='utf-8')
-        for command, selector in (('find', 'Resource1'), ('resource', '001'), ('trace', 'desired.row.001-001.value')):
+        for command, selector in (('find', 'KMS_Key_001'), ('resource', '001'), ('trace', 'desired.row.001-001.value')):
             with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': ''}):
                 result, count = invoke(source, command, selector)
                 assert result[0] == 1 and not result[1] and 'multiple running tasks' in result[2] and count == 0
@@ -170,12 +170,12 @@ def check_resource_reading(root):
 
     text = serialize(authority)
     for invalid in (
-        text.replace('desired.resource.002.logicalId=Resource2', 'desired.resource.002.logicalId=Resource1'),
-        text.replace('[Resource1](#kms-resource-001)', '[Missing](#missing)'),
-        text.replace('[Resource1](#kms-resource-001)', '[Other](other.md#kms-resource-001)'),
+        text.replace('desired.resource.002.logicalId=KMS_Alias_002', 'desired.resource.002.logicalId=KMS_Key_001'),
+        text.replace('resource://dev/123456789012/kms/KMS_Key_001', 'resource://dev/123456789012/kms/KMS_Key_999'),
+        text.replace('resource://dev/123456789012/kms/KMS_Key_001', 'resource://dev/123456789012/other/KMS_Key_001'),
     ):
         try:
-            resource_keys(invalid, 'Resource1')
+            resource_keys(invalid, 'KMS_Key_001')
         except ValueError:
             pass
         else:
@@ -184,8 +184,8 @@ def check_resource_reading(root):
     producer = source.with_name('iam.properties')
     write_model(producer, {
         'desired.resource.001.resourceType': 'IAM.Role',
-        'desired.resource.001.anchor': 'role',
-        'desired.resource.001.logicalId': 'Role',
+        'desired.service.identity.lastAllocated': '{"IAM.Role":1}',
+        'desired.resource.001.logicalId': 'IAM_Role_001',
         'desired.resource.001.resourceMode': 'CREATE',
         'desired.row.001-001.property': 'IAM.Role.RoleName',
         'desired.row.001-001.value': '`shared-role`',
@@ -196,7 +196,7 @@ def check_resource_reading(root):
         with patch.object(sources, '_read_model', wraps=sources._read_model) as body:
             original = load_model(source)
             for _ in range(3):
-                model_files.find_model(source, 'Resource1')
+                model_files.find_model(source, 'KMS_Key_001')
                 model_files.read_resource(source, '001')
                 model_files.trace_model(source, 'desired.row.001-001.value')
                 assert load_model(source) is original
@@ -255,7 +255,7 @@ def check_resource_reading(root):
     assert memo_table() is None
     with patch.object(sources, '_read_model', side_effect=RuntimeError('injected')):
         try:
-            invoke(source, 'find', 'Resource1')
+            invoke(source, 'find', 'KMS_Key_001')
         except RuntimeError as error:
             assert str(error) == 'injected'
         else:

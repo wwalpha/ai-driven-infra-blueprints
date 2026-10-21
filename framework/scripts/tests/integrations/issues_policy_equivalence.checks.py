@@ -36,7 +36,8 @@ def main_checks():
         values = {'desired.service.iam.serviceId': 'iam',
                   'desired.resource.001.resourceType': 'IAM.Role',
                   'desired.resource.001.cfn-logicalId': consumer + '-Role',
-                  'desired.resource.001.anchor': 'role',
+                  'desired.resource.001.logicalId': 'IAM_Role_001',
+                  'desired.service.identity.lastAllocated': '{"IAM.Role":1}',
                   'desired.row.001-001.property': 'IAM.Role.Policies[].PolicyName',
                   'desired.row.001-001.value': '`ReadResults`',
                   'desired.row.001-002.property': 'IAM.Role.Policies[].PolicyDocument',
@@ -149,9 +150,12 @@ def main_checks():
             assert record(changed)[1]['category'] == 'uncompared'
             s3 = root / 'model/dev/123456789012/s3.properties'
             original_model = fixtures.read_model(s3)
-            fixtures.write(s3, original_model + 'desired.resource.003.resourceType=S3.Bucket\n'
-                           'desired.resource.003.anchor=duplicate\n'
-                           'desired.resource.003.cfn-logicalId=' + producer + '-Bucket\n')
+            duplicate = fixtures.properties(original_model)
+            duplicate.update({'desired.resource.003.resourceType': 'S3.Bucket',
+                              'desired.resource.003.logicalId': 'S3_Bucket_003',
+                              'desired.service.identity.lastAllocated': '{"S3.Bucket":3}',
+                              'desired.resource.003.cfn-logicalId': producer + '-Bucket'})
+            fixtures.write_model(s3, duplicate)
             assert record(original)[1]['category'] == 'uncompared'
             fixtures.write(s3, original_model)
             comparison, result = record(original)

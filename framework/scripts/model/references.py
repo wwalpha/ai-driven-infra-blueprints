@@ -5,11 +5,11 @@ import re
 from model.core import entries, literal
 from model.format import owner, json_field
 from utils.json_format import strict_json
-from model.sources import Scope, load_model, _source_snapshot, list_models, target_for, FileReads
+from model.sources import Scope, load_model, _source_snapshot, list_models, target_for, FileReads, _invocation_reads
 
 LINKS = re.compile(r'\[([^\]]+)\]\(([^)]*?)#([^)]+)\)')
 FIELDS = {'consumerKey', 'pointer', 'text', 'occurrence', 'producerKind', 'producerScope',
-          'producerId', 'resourceType', 'format', 'property', 'labelPolicy', 'contextProperty'}
+          'producerId', 'producerLogicalId', 'resourceType', 'format', 'property', 'labelPolicy', 'contextProperty'}
 BASE = {'consumerKey', 'text', 'occurrence', 'producerKind', 'producerScope', 'format', 'labelPolicy'}
 
 
@@ -81,8 +81,8 @@ def declarations(values):
         kind, mode = spec['producerKind'], spec['format']
         required, forbidden = set(), set()
         if kind == 'resource':
-            required = {'producerId', 'resourceType'}
-            forbidden = {'contextProperty'}
+            required = {'producerLogicalId', 'resourceType'}
+            forbidden = {'contextProperty', 'producerId'}
             if mode not in {'link', 'name', 'identifier'} or len(scope.parts) != 3:
                 raise ValueError('invalid resource reference format/scope: ' + identity)
             if mode == 'link':
@@ -91,12 +91,12 @@ def declarations(values):
                 required.add('property')
         elif kind == 'stack':
             required = {'producerId', 'property'}
-            forbidden = {'resourceType', 'contextProperty'}
+            forbidden = {'resourceType', 'contextProperty', 'producerLogicalId'}
             if mode != 'name' or spec.get('property') != 'name' or len(scope.parts) != 3:
                 raise ValueError('invalid stack reference: ' + identity)
         elif kind == 'context':
             required = {'contextProperty'}
-            forbidden = {'producerId', 'resourceType', 'property'}
+            forbidden = {'producerId', 'producerLogicalId', 'resourceType', 'property'}
             if mode != 'literal' or len(scope.parts) != 2 or spec.get('contextProperty') != 'executionAccountId':
                 raise ValueError('invalid context reference (contextProperty must be executionAccountId): ' + identity)
         else:
@@ -127,7 +127,7 @@ class Usage:
     producer_kind: str
     producer_id: str | None
     metadata_id: str | None = None
-    anchor: str | None = None
+    logical_id: str | None = None
 
 
 def _producer(snapshot, address, reads, cache):
@@ -160,55 +160,57 @@ def _link_scope(snapshot, filename):
 
 
 def usages(snapshot, read_context=None, *, _cache=None, _producer_scope=None, _coalesce=True):
-    """Keep conflicting declarations and links; identical locations/meaning coalesce."""
-    values = snapshot.authoritative
-    result = []
-    reads = read_context or FileReads()
+    """Extract explicit URI and declared literal dependencies, never Markdown anchors."""
+    from model.identity import URI, resource_index, reference_tokens, parse_reference
+    values, result = snapshot.authoritative, []
+    reads = read_context or _invocation_reads(snapshot.scope.root)
     cache = {snapshot.scope.path: snapshot} if _cache is None else _cache
-    declared_specs = declarations(values)
-    for identity, spec in declared_specs.items():
-        if _producer_scope is not None and spec['producerScope'] != _producer_scope:
+    indexes = {}
+
+    def fixed(scope, logical):
+        if scope in indexes:
+            match = indexes[scope].get(logical)
+            return match[0] if match else None
+        producer = _producer(snapshot, scope, reads, cache)
+        if producer is None:
+            return None
+        if scope not in indexes:
+            indexes[scope] = resource_index(producer.authoritative)
+        match = indexes[scope].get(logical)
+        return match[0] if match else None
+
+    specs = declarations(values)
+    for identity, spec in specs.items():
+        scope = spec['producerScope']
+        if _producer_scope is not None and scope != _producer_scope:
             continue
         value, structured = _json(spec['consumerKey'], values[spec['consumerKey']])
         leaf = pointer_leaf(value, spec['pointer']) if structured else value
         offset = occurrence_positions(leaf, spec['text'])[int(spec['occurrence']) - 1]
+        producer_id = fixed(scope, spec['producerLogicalId']) if spec['producerKind'] == 'resource' else spec.get('producerId')
         result.append(Usage(spec['consumerKey'], spec.get('pointer'), offset, offset + len(spec['text']),
-                            spec['text'], spec['producerScope'], spec['producerKind'], spec.get('producerId'), identity))
-    declared_by_position = {}
-    if _coalesce:
-        for usage in result:
-            position = (usage.consumer_key, usage.pointer, usage.start, usage.end)
-            declared_by_position.setdefault((position, usage.producer_scope), []).append(usage)
+                            spec['text'], scope, spec['producerKind'], producer_id, identity, spec.get('producerLogicalId')))
+    positions = {(u.consumer_key, u.pointer, u.start, u.end, u.producer_scope, u.producer_id, u.logical_id)
+                 for u in result if u.producer_kind == 'resource' and
+                 specs[u.metadata_id]['format'] == 'link'}
     for key, raw in values.items():
-        if key.startswith(('observed.', 'desired.reference.')):
+        if not (key.startswith('desired.row.') and key.endswith(('.value', '.document')) or
+                key.startswith('desired.resource.') and key.endswith('.parentReference') or
+                key == 'desired.deployment.templateBucket' or
+                key.startswith('desired.artifact.') and key.endswith('.bucket') or
+                key.startswith('desired.note.') and key.endswith('.text')):
             continue
         value, structured = _json(key, raw)
         for pointer, leaf in string_leaves(value):
-            for link in LINKS.finditer(leaf):
-                filename = link[2].removeprefix('./')
-                if re.match(r'[A-Za-z][A-Za-z0-9+.-]*:', filename):
+            for match in reference_tokens(leaf):
+                environment, target, service, logical = parse_reference(match[0])
+                scope = '/'.join((environment, target, service))
+                if _producer_scope is not None and scope != _producer_scope:
                     continue
-                producer_scope = _link_scope(snapshot, filename)
-                if _producer_scope is not None and producer_scope != _producer_scope:
-                    continue
-                position = (key, pointer if structured else None, link.start(), link.end())
-                duplicate = False
-                for usage in declared_by_position.get((position, producer_scope), ()):
-                    if ((usage.consumer_key, usage.pointer, usage.start, usage.end) != position
-                            or not usage.metadata_id or usage.producer_scope != producer_scope
-                            or usage.producer_kind != 'resource'):
-                        continue
-                    spec = declared_specs[usage.metadata_id]
-                    if spec['format'] != 'link':
-                        continue
-                    producer = _producer(snapshot, producer_scope, reads, cache)
-                    matches = [] if producer is None else [identity for identity, resource in
-                        entries(producer.authoritative, 'desired.resource.') if resource.get('anchor') == link[3]]
-                    if matches == [usage.producer_id]:
-                        duplicate = True
-                        break
-                if not duplicate:
-                    result.append(Usage(*position, link[0], producer_scope, 'resource', None, anchor=link[3]))
+                rid = fixed(scope, logical)
+                position = key, pointer if structured else None, match.start(), match.end(), scope, rid
+                if not _coalesce or (*position, logical) not in positions:
+                    result.append(Usage(*position[:4], match[0], scope, 'resource', rid, logical_id=logical))
     return tuple(result)
 
 
@@ -255,8 +257,7 @@ def diagnose(snapshot, read_context=None, *, _producer_scope=None):
                 warn('Stack name differs from saved text')
             continue
         resources = producer_entries(producer, 'desired.resource.')
-        matches = ([usage.producer_id] if usage.producer_id in resources else []) if usage.metadata_id else [
-            identity for identity, resource in resources.items() if resource.get('anchor') == usage.anchor]
+        matches = [usage.producer_id] if usage.producer_id in resources else []
         if len(matches) != 1:
             warn('producer Resource is absent or ambiguous')
             continue
@@ -287,25 +288,9 @@ def diagnose(snapshot, read_context=None, *, _producer_scope=None):
             elif literal(usage.text) != literal(expected):
                 warn('producer name/identifier differs from saved text')
         elif spec:
-            link = LINKS.fullmatch(usage.text)
-            linked_scope = (_link_scope(snapshot, link[2]) if link and not re.match(r'[A-Za-z][A-Za-z0-9+.-]*:', link[2]) else None)
-            if link is None or link[3] != resource.get('anchor') or linked_scope != usage.producer_scope:
-                warn('declared producer differs from the saved link; both meanings are retained')
-                continue
-            if spec['labelPolicy'] == 'resource-id' and link[1] != identity:
-                warn('resource-id label differs')
-            elif spec['labelPolicy'] == 'display-name':
-                from model.render import display_name
-                from model.projection import resource_display_rows
-                display_rows = resource_display_rows(values, identity, resource, producer.scope.root)
-                try:
-                    # This pure function raises only name/display semantic failures.
-                    expected, _ = display_name(values, identity, resource, display_rows, producer.scope.root)
-                except ValueError as error:
-                    warn('producer display name unavailable: ' + str(error))
-                else:
-                    if expected is None or link[1] != expected:
-                        warn('display-name label differs')
+            from model.identity import address
+            if usage.text != address(producer.scope, resource['logicalId']):
+                warn('declared producer differs from the saved URI; both meanings are retained')
     for path, producer in cache.items():
         if producer is None:
             dependencies[path] = None
@@ -318,9 +303,8 @@ def incoming(snapshot, producer_id, read_context=None, *, warnings=None):
     """Read-only discovery has no dependency on a mutation/CREATE save guard."""
     result = []
     address = '/'.join((snapshot.scope.environment, snapshot.scope.target, snapshot.scope.service))
-    anchor = snapshot.authoritative.get(f'desired.resource.{producer_id}.anchor')
     from model.importing.scope import read_consumers
-    reads = read_context or FileReads()
+    reads = read_context or _invocation_reads(snapshot.scope.root)
     scopes = list_models(snapshot.scope.root, reads)
     with read_consumers({(scope.environment, scope.target, scope.service) for scope in scopes}):
         for scope in scopes:
@@ -330,8 +314,7 @@ def incoming(snapshot, producer_id, read_context=None, *, warnings=None):
                 warnings.extend({'scope': '/'.join((scope.environment, scope.target, scope.service)), **warning}
                                 for warning in relevant_warnings)
             for usage in usages(consumer, reads, _producer_scope=address):
-                if usage.producer_scope == address and (usage.producer_id == producer_id or
-                                                        anchor is not None and usage.anchor == anchor):
+                if usage.producer_scope == address and (usage.producer_id == producer_id or usage.logical_id == producer_id):
                     result.append((scope, usage))
     return tuple(result)
 
@@ -361,24 +344,18 @@ def symbolic(snapshot, read_context=None):
     values = snapshot.authoritative
     specs = declarations(values)
     grouped = {}
-    reads = read_context or FileReads()
+    reads = read_context or _invocation_reads(snapshot.scope.root)
     cache = {snapshot.scope.path: snapshot}
     for usage in usages(snapshot, reads, _cache=cache):
         spec = specs.get(usage.metadata_id, {})
         producer_id = usage.producer_id
-        if producer_id is None and usage.producer_kind == 'resource':
-            producer = _producer(snapshot, usage.producer_scope, reads, cache)
-            matches = [] if producer is None else [identity for identity, resource in entries(producer.authoritative, 'desired.resource.')
-                                                   if resource.get('anchor') == usage.anchor]
-            if len(matches) == 1:
-                producer_id = matches[0]
         address = usage.producer_scope
         if usage.producer_kind != 'context':
             address = None if producer_id is None else '/'.join((address, *(['stack'] if usage.producer_kind == 'stack' else []), producer_id))
         link = LINKS.fullmatch(usage.text)
         record = Reference(address, usage.producer_kind, spec.get('resourceType'), spec.get('format', 'link'),
             spec.get('property'), link[1] if link else None, spec.get('labelPolicy'),
-            spec.get('contextProperty') if usage.producer_kind == 'context' else usage.anchor if producer_id is None else None)
+            spec.get('contextProperty') if usage.producer_kind == 'context' else usage.logical_id if producer_id is None else None)
         grouped.setdefault((usage.consumer_key, usage.pointer), []).append((usage.start, usage.end, record))
 
     def leaf(key, pointer, value):

@@ -78,7 +78,7 @@ shared capability-based save API. Do not persist empty initial authority first.
 
 ## Observations and fixed identities
 
-Resource/Row/Stack IDs, logicalId, anchor, resourceMode, cfn-logicalId and parent relationships
+Resource/Row/Stack IDs, logicalId, resourceMode, cfn-logicalId and parent relationships
 are fixed. Stack name is mutable; placementName is fixed. Do not conflate them.
 observed.value absence, empty string and PENDING_DEPLOY are distinct. Derive observed
 Property/comment from desired and artifactSha256 from document at read time; never save them.
@@ -96,9 +96,9 @@ The LLM matches acquired records and asks the Human for necessary selections. Py
 acquires/normalizes and verifies acquired values, correspondence, full Review, candidate,
 scope and snapshot; it does not choose an overwrite target or orchestrate services.
 
-add allocates new fixed Resource/Row IDs and unique anchors in IMPORT mode. refresh keeps
+add allocates new fixed Resource/Row IDs and shared typed logicalIds/counters in IMPORT mode. refresh keeps
 the same physical identity. bind/replace require the explicit existing IMPORT target and
-validated before physical ID. Preserve type/mode/anchor/placement, existing Row ownership
+validated before physical ID. Preserve type/mode/logicalId/placement, existing Row ownership
 and metadata, native JSON types and array order, unacquired Properties and nonselected
 Resources. No implicit deletion or CREATE conversion.
 
@@ -157,3 +157,5 @@ old baseline in the isolated fixed old runtime, then strictly compare all new au
 Preserve project, IaC and issues bytes/file sets. Existing issues remain unresolved;
 format equivalence does not assert whole-design/IaC validation success. No normal-reader
 fallback, dependency-detach disguise, force or skip is permitted.
+
+Resource allocation and URI semantics follow [Resource logical identity](../docs/model-identity.md). The common allocate/preserve_allocation functions own counters for CREATE and IMPORT. Publish counters and additions atomically. Authoritative Resource anchors and read-time ID fallbacks are forbidden.

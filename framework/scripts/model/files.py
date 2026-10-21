@@ -47,28 +47,28 @@ def model_file_contents(path, text, *, validate=True):
     return split(path, values)
 
 
-def resource_keys(text: str, selector: str) -> set[str]:
+def resource_keys(text: str, selector: str, *, scope=None) -> set[str]:
     """Select one resource's display group and service-wide context without rewriting values."""
     from model.core import LINK, entries, properties
     values = properties(text)
     resources = dict(entries(values, "desired.resource."))
     matches = [identity for identity, resource in resources.items()
-               if selector and selector in (identity, resource.get("logicalId"), resource.get("cfn-logicalId"), resource.get("anchor"))]
+               if selector and selector in (identity, resource.get("logicalId"))]
     if len(matches) != 1:
-        raise ValueError(f"resource selector must match exactly one number, cfn-logicalId, legacy logical ID or anchor: {selector!r} ({len(matches)} matches)")
-    anchors: dict[str, list[str]] = {}
-    for identity, resource in resources.items():
-        if anchor := resource.get("anchor"):
-            anchors.setdefault(anchor, []).append(identity)
+        raise ValueError(f"resource selector must match exactly one fixed entry number or logicalId: {selector!r} ({len(matches)} matches)")
+    from model.identity import parse_reference, resource_index
+    logicals = resource_index(values)
     neighbors = {identity: set() for identity in resources}
     for identity, resource in resources.items():
-        if "parentReference" not in resource:
+        if 'parentReference' not in resource:
             continue
-        link = LINK.fullmatch(resource["parentReference"])
-        parents = anchors.get(link.group(3), []) if link and not link.group(2) else []
-        if len(parents) != 1:
-            raise ValueError(f"invalid or ambiguous grouped parent: desired.resource.{identity}.parentReference")
-        parent = parents[0]
+        environment, target, service, logical = parse_reference(resource['parentReference'])
+        if scope is None or (environment, target, service) != (scope.environment, scope.target, scope.service):
+            raise ValueError('grouped parent requires the same explicit service scope')
+        match = logicals.get(logical)
+        if match is None:
+            raise ValueError('grouped parent is absent: ' + identity)
+        parent = match[0]
         neighbors[identity].add(parent)
         neighbors[parent].add(identity)
     selected = set()
@@ -91,7 +91,7 @@ def resource_keys(text: str, selector: str) -> set[str]:
 def read_resource(model_path: Path, selector: str) -> dict[str, tuple[Path, int, str]]:
     """Return selected group keys with source locations/values; expansion errors propagate."""
     loaded = load_model(model_path.absolute())
-    keys = resource_keys(loaded.text, selector)
+    keys = resource_keys(loaded.text, selector, scope=loaded.scope)
     from model.format import owner
     selected = {owner(key, loaded.authoritative) for key in keys if key in loaded.authoritative}
     return {key: (*loaded.locations[key], value) for key, value in loaded.authoritative.items()

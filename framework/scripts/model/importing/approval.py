@@ -1,6 +1,7 @@
 """Import Review integrity; the LLM owns explicit Human consent in conversation."""
 from datetime import datetime, timedelta, timezone
-from model.core import LINK, entries
+from model.core import entries
+from model.identity import URI
 from model.core import resource_row_index
 from model.sources import runtime_values
 from model.references import declarations
@@ -117,8 +118,12 @@ def build_review(acquisition, selection, before, proposed, risks, property_schem
     proposed_references = prior_references if proposed_references is None else proposed_references
     proposed = validate_reference_proposal(proposed_references, proposed)
     prior = before.authoritative
+    from model.identity import COUNTERS, preserve_allocation
+    preserve_allocation(prior, proposed)
     for key in prior.keys() | proposed.keys():
         if prior.get(key) == proposed.get(key) and (key in prior) == (key in proposed):
+            continue
+        if key == COUNTERS:
             continue
         owners = {owner(key, values) for values in (prior, proposed) if key in values}
         if not prior and key.startswith(('desired.service.', 'display.service.')):
@@ -126,7 +131,10 @@ def build_review(acquisition, selection, before, proposed, risks, property_schem
         if any(kind != 'resource' or identity not in selected for kind, identity in owners):
             raise ValueError('IMPORT Review changes an unselected Resource or service field: ' + key)
     from types import SimpleNamespace
-    after = SimpleNamespace(authoritative=proposed, values=runtime_values(proposed))
+    from model.sources import Scope
+    from pathlib import Path
+    after = SimpleNamespace(authoritative=proposed, values=runtime_values(proposed),
+                            scope=Scope(Path(acquisition['root']), *acquisition['scope']))
     verify_values(before, after, selected, property_schema, warnings=warnings)
     pending = pending_items(selection, selected, after.values, property_schema)
     old_resources = dict(entries(before.values, 'desired.resource.'))
@@ -155,7 +163,7 @@ def build_review(acquisition, selection, before, proposed, risks, property_schem
             if row['property'] != prop:
                 continue
             raw = row.get('document', row['value'])
-            value = raw if LINK.fullmatch(raw) else typed_row(row, raw, property_schema(prop))
+            value = raw if URI.fullmatch(raw) else typed_row(row, raw, property_schema(prop))
             current = values.get('observed.row.' + row_id + '.value')
             result.append({'row': row_id, 'desired': value,
                            'nativeType': {str: 'string', bool: 'boolean', int: 'integer', float: 'number',

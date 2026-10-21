@@ -241,7 +241,8 @@ def check_one_way_model_contract():
     arn = 'arn:aws:iam::123456789012:role/service-role/path/ConfigRecorderRole'
     values = {
         'desired.resource.001.resourceType': 'Config.ConfigurationRecorder',
-        'desired.resource.001.anchor': 'config-configuration-recorder-default',
+        'desired.resource.001.logicalId': 'Config_ConfigurationRecorder_001',
+        'desired.service.identity.lastAllocated': '{"Config.ConfigurationRecorder":1}',
         'desired.resource.001.resourceMode': 'IMPORT',
         'desired.row.001-001.property': prop,
         'desired.row.001-001.value': '`' + arn + '`',

@@ -84,8 +84,9 @@ def model(service, kind, name, rows, logical_id=None, label=None):
         f"desired.service.{service}.ownedCatalogResourceTypes": kind,
         "display.service.title": f"# {service} 詳細設計",
         "desired.resource.001.resourceType": kind,
-        "desired.resource.001.logicalId": logical_id or name,
-        "desired.resource.001.anchor": anchor,
+        "desired.resource.001.logicalId": kind.replace(".", "_") + "_001",
+        "desired.service.identity.lastAllocated": json.dumps({kind: 1}),
+        "desired.resource.001.cfn-logicalId": "fixture-" + (logical_id or "Resource"),
         "display.resource.001.comment": "対象環境のデータ処理を提供するresource",
     }
     if label:
@@ -108,7 +109,16 @@ def text(values):
 
 def roundtrip(path, values, root):
     path.parent.mkdir(parents=True, exist_ok=True)
-    expected = markdown_for(path, values, root)
+    project_root = path.parents[4]
+    project = project_root / "project.json"
+    if not project.exists():
+        target = {"environment": path.parents[1].name, "awsAccountId": "123456789012",
+                  "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
+        if path.parent.name != target["awsAccountId"]:
+            target["alias"] = path.parent.name
+        project.write_text(json.dumps({"targets": [target]}))
+    write_model(project_root / "model" / path.relative_to(project_root / "docs/designs").with_suffix(".properties"), values)
+    expected = markdown_for(path, values, project_root, definitions_root=root)
     path.write_text(expected, encoding="utf-8")
     from types import SimpleNamespace
     plan = SimpleNamespace(root=path.parent, read_inputs={}, expected_outputs={path: {path: expected}}, failures=[], saved={})

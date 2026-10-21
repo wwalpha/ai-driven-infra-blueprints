@@ -41,6 +41,8 @@ def dependencies(root, target, selected):
     from iac_values import cfn_resource_identity
     from model.sources import FileReads
     reads = FileReads()
+    from model.identity import Resolver
+    identity_resolver = Resolver(root, reads)
     cache, included, pending = {}, {}, [(selected, None)]
 
     def model_identity(path):
@@ -87,14 +89,11 @@ def dependencies(root, target, selected):
             values = [value for key, value in data.values.items() if
                       key.startswith('desired.row.' + number + '-') or key == 'desired.resource.' + number + '.parentReference']
             for value in values:
-                for filename, anchor in re.findall(r'\[[^\]]+\]\(([^)#]*?)#([^)]+)\)', value):
-                    from model.references import _link_scope
-                    producer = root / 'model' / (_link_scope(data, filename) + '.properties')
-                    source = read(producer)
-                    if source is None:
-                        continue
-                    matches = {rid for rid, item in entries(source.values, 'desired.resource.') if item.get('anchor') == anchor}
-                    pending.append((producer, matches))
+                from model.identity import reference_tokens
+                resolver = identity_resolver
+                for uri in reference_tokens(value):
+                    source, rid, _ = resolver.resolve(uri[0])
+                    pending.append((source.scope.path, {rid}))
                 try:
                     names = logical_names(json.loads(value.strip('`')))
                 except (ValueError, TypeError):
@@ -103,7 +102,7 @@ def dependencies(root, target, selected):
                     for producer in model_paths(root, data.scope.environment, data.scope.target):
                         matches = set()
                         for rid, item in entries(read(producer).values, 'desired.resource.'):
-                            identity = cfn_resource_identity(item['cfn-logicalId']) if 'cfn-logicalId' in item else (None, item.get('logicalId'))
+                            identity = cfn_resource_identity(item['cfn-logicalId']) if 'cfn-logicalId' in item else (None, None)
                             if identity[0] == stack and identity[1] in names:
                                 matches.add(rid)
                         if matches:
@@ -181,6 +180,9 @@ def generate(root, environment, selector, service):
               'ROOT = Path("/model-test-snapshot")\n'
               'LINK = re.compile(r"^\\[([^\\]]+)\\]\\(([^)]*?)#([^)]+)\\)$")\n'
               'def memo_table(): return None\n')
+    from model.identity import URI
+    engine += 'URI = re.compile(' + repr(URI.pattern) + ')\n'
+    engine += definitions(scripts / 'model/identity.py', ['parse_reference'])
     engine += definitions(scripts / 'model/references.py', ['link_scope'])
     engine += definitions(scripts / 'utils/lazy_definitions.py', ['load_once'])
     engine += definitions(scripts / 'utils/json_format.py', ['unique_object', 'invalid_constant', 'policy_json'])

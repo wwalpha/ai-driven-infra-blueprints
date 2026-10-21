@@ -9,6 +9,7 @@ if not __debug__:
 from support.it_case_receipt import it_case
 
 from support.issues_scan_fixtures import *
+from model.identity import allocate
 
 @it_case
 def naming_target_scope_cases():
@@ -31,9 +32,8 @@ def naming_target_scope_cases():
         }
         for service, (kind, rows) in specifications.items():
             values = {f'desired.service.{service}.serviceId': service,
-                      f'desired.resource.001.resourceType': kind,
-                      f'desired.resource.001.logicalId': 'Resource',
-                      f'desired.resource.001.anchor': service + '-resource'}
+                f'desired.resource.001.resourceType': kind}
+            values.update(allocate(values, ['001']))
             for number, (prop, value) in enumerate(rows, 1):
                 key = f'{number:03d}'
                 values.update({f'desired.row.001-{key}.property': kind + '.' + prop,
@@ -271,29 +271,34 @@ def resource_cases(root):
     assert any(item['category'] == 'uncompared' and 'duplicate' in item['reason'] for item in records)
     values['desired.resource.002.cfn-logicalId'] = 'cfn-stack-app-dev-data2-Bucket'
     # Symbolic reference to a not-deployed resource; Ref/GetAtt use identity/attribute.
-    values.update({'desired.resource.004.resourceType': 'S3.Bucket', 'desired.resource.004.logicalId': 'ExtraBucket',
-                   'desired.resource.004.cfn-logicalId': 'cfn-stack-app-dev-data1-ExtraBucket', 'desired.resource.004.anchor': 's3-extra',
-                   'desired.row.004-001.property': 'S3.Bucket.BucketName', 'desired.row.004-001.value': '`bucket-extra`', 'desired.row.004-001.comment': '設定',
-                   'desired.row.004-002.property': 'S3.Bucket.BucketName', 'desired.row.004-002.value': '[PENDING_DEPLOY](#s3-bucket-app-dev-data1)', 'desired.row.004-002.comment': '参照'})
+    values.update({'desired.resource.004.resourceType': 'S3.Bucket',
+        'desired.resource.004.cfn-logicalId': 'cfn-stack-app-dev-data1-ExtraBucket',
+        'desired.row.004-001.property': 'S3.Bucket.BucketName',
+        'desired.row.004-001.value': '`bucket-extra`',
+        'desired.row.004-001.comment': '設定',
+        'desired.row.004-002.property': 'S3.Bucket.BucketName',
+        'desired.row.004-002.value': 'resource://dev/123456789012/s3/S3_Bucket_001',
+        'desired.row.004-002.comment': '参照'})
+    values.update(allocate(values, ['004']))
     publish(values)
     comparison = Comparison(root, 'dev', '123456789012', ['s3'])
     _, stacks = __import__('model.core', fromlist=['stack_model']).stack_model(comparison.model('cloudformation-stacks').values)
     comparison.stack(stacks[0][1])
-    assert comparison.reference('s3', '[PENDING_DEPLOY](#s3-bucket-app-dev-data1)') == comparison.evaluate(stacks[0][1]['name'], {'Ref': 'Bucket'})
-    assert comparison.reference('s3', '[PENDING_DEPLOY](#s3-bucket-app-dev-data1)', 'Arn') == comparison.evaluate(stacks[0][1]['name'], {'Fn::GetAtt': ['Bucket', 'Arn']})
+    assert comparison.reference('s3', 'resource://dev/123456789012/s3/S3_Bucket_001') == comparison.evaluate(stacks[0][1]['name'], {'Ref': 'Bucket'})
+    assert comparison.reference('s3', 'resource://dev/123456789012/s3/S3_Bucket_001', 'Arn') == comparison.evaluate(stacks[0][1]['name'], {'Fn::GetAtt': ['Bucket', 'Arn']})
     assert comparison.evaluate(stacks[0][1]['name'], {'Fn::Select': ['1', {'Fn::Split': [',', 'a,b']}]}) == 'b'
     values['desired.resource.001.resourceMode'] = 'IMPORT'
     publish(values)
     comparison = Comparison(root, 'dev', '123456789012', ['s3'])
-    expect_error(lambda: comparison.reference('s3', '[PENDING_DEPLOY](#s3-bucket-app-dev-data1)'), 'IMPORT reference is PENDING_DEPLOY')
+    expect_error(lambda: comparison.reference('s3', 'resource://dev/123456789012/s3/S3_Bucket_001'), 'IMPORT reference is PENDING_DEPLOY')
     rid = next(rid for rid, row in comparison.rows['s3']['001'] if row['property'] == 'S3.Bucket.BucketName')
     key = f'observed.row.{rid}.value'
     comparison.models['s3'] = comparison.models['s3']._replace(values=dict(comparison.models['s3'].values))
     original = comparison.models['s3'].values.get(key)
     comparison.models['s3'].values[key] = '`PENDING_DEPLOY`'
-    expect_error(lambda: comparison.reference('s3', '[PENDING_DEPLOY](#s3-bucket-app-dev-data1)'), 'IMPORT reference is PENDING_DEPLOY')
+    expect_error(lambda: comparison.reference('s3', 'resource://dev/123456789012/s3/S3_Bucket_001'), 'IMPORT reference is PENDING_DEPLOY')
     comparison.models['s3'].values[key] = '`observed-bucket`'
-    expect_error(lambda: comparison.reference('s3', '[PENDING_DEPLOY](#s3-bucket-app-dev-data1)'), 'IMPORT reference requires approved handoff')
+    expect_error(lambda: comparison.reference('s3', 'resource://dev/123456789012/s3/S3_Bucket_001'), 'IMPORT reference requires approved handoff')
     if original is None:
         comparison.models['s3'].values.pop(key)
     else:
@@ -350,14 +355,21 @@ def extended_cases(root, template):
     save_files(originals)
     mutate_template(root, template)
     # Independent grouped child uses its own mode and formal implicit parentReference.
-    kms = {'desired.service.kms.serviceId': 'kms', 'desired.service.kms.ownedCatalogResourceTypes': 'KMS.Key,KMS.Alias',
-           'desired.resource.001.resourceType': 'KMS.Key', 'desired.resource.001.logicalId': 'Key',
-           'desired.resource.001.cfn-logicalId': 'cfn-stack-app-dev-data1-Key', 'desired.resource.001.anchor': 'kms-key',
-           'desired.row.001-001.property': 'KMS.Key.Description', 'desired.row.001-001.value': '`fixture-key`', 'desired.row.001-001.comment': '鍵説明',
-           'desired.resource.002.resourceType': 'KMS.Alias', 'desired.resource.002.logicalId': 'Alias', 'desired.resource.002.anchor': 'kms-alias',
-           'desired.resource.002.parentReference': '[PENDING_DEPLOY](#kms-key)', 'desired.resource.002.parentProperty': 'KMS.Alias.TargetKeyId',
-           'desired.resource.002.resourceMode': 'IMPORT',
-           'desired.row.002-001.property': 'KMS.Alias.AliasName', 'desired.row.002-001.value': '`alias/HumanActual`', 'desired.row.002-001.comment': 'human例外: IMPORTのactual名称'}
+    kms = {'desired.service.kms.serviceId': 'kms',
+        'desired.service.kms.ownedCatalogResourceTypes': 'KMS.Key,KMS.Alias',
+        'desired.resource.001.resourceType': 'KMS.Key',
+        'desired.resource.001.cfn-logicalId': 'cfn-stack-app-dev-data1-Key',
+        'desired.row.001-001.property': 'KMS.Key.Description',
+        'desired.row.001-001.value': '`fixture-key`',
+        'desired.row.001-001.comment': '鍵説明',
+        'desired.resource.002.resourceType': 'KMS.Alias',
+        'desired.resource.002.parentReference': 'resource://dev/123456789012/kms/KMS_Key_001',
+        'desired.resource.002.parentProperty': 'KMS.Alias.TargetKeyId',
+        'desired.resource.002.resourceMode': 'IMPORT',
+        'desired.row.002-001.property': 'KMS.Alias.AliasName',
+        'desired.row.002-001.value': '`alias/HumanActual`',
+        'desired.row.002-001.comment': 'human例外: IMPORTのactual名称'}
+    kms.update(allocate(kms, ['001', '002']))
     kmspath = root / 'model/dev/123456789012/kms.properties'
     def publish_kms():
         write(kmspath, '\n'.join(f'{key}={value}' for key, value in kms.items()) + '\n')
@@ -381,25 +393,31 @@ def extended_cases(root, template):
     mutate_template(root, template)
     # A singleton model reference to a schema array remains an array, never a scalar.
     modelpath = root / 'model/dev/123456789012/codebuild.properties'
-    rows = {'desired.service.codebuild.serviceId': 'codebuild', 'desired.resource.001.resourceType': 'CodeBuild.Project',
-            'desired.resource.001.anchor': 'codebuild-one', 'desired.resource.001.logicalId': 'Project',
-            'desired.row.001-001.property': 'CodeBuild.Project.VpcConfig.Subnets', 'desired.row.001-001.value': '[PENDING_DEPLOY](vpc.md#vpc-subnet)', 'desired.row.001-001.comment': '参照'}
+    rows = {'desired.service.codebuild.serviceId': 'codebuild',
+        'desired.resource.001.resourceType': 'CodeBuild.Project',
+        'desired.row.001-001.property': 'CodeBuild.Project.VpcConfig.Subnets',
+        'desired.row.001-001.value': 'resource://dev/123456789012/vpc/EC2_Subnet_001',
+        'desired.row.001-001.comment': '参照'}
+    rows.update(allocate(rows, ['001']))
     refpath = root / 'model/dev/123456789012/vpc.properties'
-    write(refpath, 'desired.service.vpc.serviceId=vpc\ndesired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=Subnet\ndesired.resource.001.anchor=vpc-subnet\n')
+    write(refpath, 'desired.service.vpc.serviceId=vpc\ndesired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_001\ndesired.service.identity.lastAllocated={"EC2.Subnet":1}\n')
     write(modelpath, '\n'.join(f'{key}={value}' for key, value in rows.items()) + '\n')
     comparison = Comparison(root, 'dev', '123456789012', ['codebuild'])
     value = comparison.desired_value('codebuild', comparison.rows['codebuild']['001'][0][1], 'CodeBuild.Project')
     assert isinstance(value, list) and len(value) == 1 and value[0]['$attribute'] == 'SubnetId'
     remove_model(modelpath); remove_model(refpath)
     # Pattern disagreement, unknown components, required missing Name are separate review material.
-    vpc = {'desired.service.vpc.serviceId': 'vpc', 'desired.service.vpc.ownedCatalogResourceTypes': 'EC2.VPC',
-           'desired.resource.001.resourceType': 'EC2.VPC', 'desired.resource.001.anchor': 'vpc-one',
-           'desired.resource.001.logicalId': 'One', 'desired.resource.001.resourceMode': 'CREATE',
-           'desired.resource.002.resourceType': 'EC2.VPC', 'desired.resource.002.anchor': 'vpc-two',
-           'desired.resource.002.logicalId': 'Two', 'desired.resource.002.resourceMode': 'IMPORT',
-           'desired.resource.003.resourceType': 'EC2.VPC', 'desired.resource.003.anchor': 'vpc-three',
-           'desired.resource.003.logicalId': 'Three', 'desired.row.003-001.property': 'EC2.VPC.Name',
-           'desired.row.003-001.value': '`bad_pattern_value`', 'desired.row.003-001.comment': 'component根拠未確認'}
+    vpc = {'desired.service.vpc.serviceId': 'vpc',
+        'desired.service.vpc.ownedCatalogResourceTypes': 'EC2.VPC',
+        'desired.resource.001.resourceType': 'EC2.VPC',
+        'desired.resource.001.resourceMode': 'CREATE',
+        'desired.resource.002.resourceType': 'EC2.VPC',
+        'desired.resource.002.resourceMode': 'IMPORT',
+        'desired.resource.003.resourceType': 'EC2.VPC',
+        'desired.row.003-001.property': 'EC2.VPC.Name',
+        'desired.row.003-001.value': '`bad_pattern_value`',
+        'desired.row.003-001.comment': 'component根拠未確認'}
+    vpc.update(allocate(vpc, ['001', '002', '003']))
     path = root / 'model/dev/123456789012/vpc.properties'
     write(path, '\n'.join(f'{key}={value}' for key, value in vpc.items()) + '\n')
     comparison = Comparison(root, 'dev', '123456789012', ['vpc'])
@@ -459,12 +477,18 @@ def comparison_repair_cases():
         root = Path(directory) / 'project'
         _, template = fixture(root, services=['cloudwatch-logs'])
         name = 'cfn-stack-app-dev-data1'
-        role = {'desired.service.iam.serviceId': 'iam', 'desired.resource.001.resourceType': 'IAM.Role',
-                'desired.resource.001.cfn-logicalId': name + '-Role', 'desired.resource.001.anchor': 'iam-role',
-                'desired.row.001-001.property': 'IAM.Role.RoleName', 'desired.row.001-001.value': '`BuildRole`'}
-        project = {'desired.service.codebuild.serviceId': 'codebuild', 'desired.resource.001.resourceType': 'CodeBuild.Project',
-                   'desired.resource.001.cfn-logicalId': name + '-Build', 'desired.resource.001.anchor': 'codebuild-fixture', 'desired.row.001-001.property': 'CodeBuild.Project.ServiceRole',
-                   'desired.row.001-001.value': '[PENDING_DEPLOY](iam.md#iam-role)'}
+        role = {'desired.service.iam.serviceId': 'iam',
+            'desired.resource.001.resourceType': 'IAM.Role',
+            'desired.resource.001.cfn-logicalId': name + '-Role',
+            'desired.row.001-001.property': 'IAM.Role.RoleName',
+            'desired.row.001-001.value': '`BuildRole`'}
+        role.update(allocate(role, ['001']))
+        project = {'desired.service.codebuild.serviceId': 'codebuild',
+            'desired.resource.001.resourceType': 'CodeBuild.Project',
+            'desired.resource.001.cfn-logicalId': name + '-Build',
+            'desired.row.001-001.property': 'CodeBuild.Project.ServiceRole',
+            'desired.row.001-001.value': 'resource://dev/123456789012/iam/IAM_Role_001'}
+        project.update(allocate(project, ['001']))
         for service, model in [('iam', role), ('codebuild', project)]:
             write(root / f'model/dev/123456789012/{service}.properties', '\n'.join(f'{key}={value}' for key, value in model.items()) + '\n')
         template['Resources']['Role'] = {'Type': 'AWS::IAM::Role', 'Properties': {'RoleName': 'BuildRole'}}
@@ -475,7 +499,7 @@ def comparison_repair_cases():
             comparison, records = compare(root, ['codebuild'])
             assert len(records) == 1 and records[0]['category'] == 'matched', records
             # Other role properties still use the default RoleName attribute.
-            assert comparison.desired_value('codebuild', {'property': 'IAM.ManagedPolicy.Roles', 'value': '[role](iam.md#iam-role)'}, 'IAM.ManagedPolicy')[0]['$attribute'] == 'RoleName'
+            assert comparison.desired_value('codebuild', {'property': 'IAM.ManagedPolicy.Roles', 'value': 'resource://dev/123456789012/iam/IAM_Role_001'}, 'IAM.ManagedPolicy')[0]['$attribute'] == 'RoleName'
             for field, expected in [('text', 'resolved'), ('number', '7')]:
                 assert comparison.evaluate(name, {'Fn::Sub': ['${X}-${AWS::Region}-${!literal}',
                        {'X': {'Fn::FindInMap': ['Table', 'one', field]}}]}) == expected + '-ap-northeast-1-${literal}'
@@ -533,10 +557,10 @@ def comparison_repair_cases():
             assert len(records) == 1 and records[0]['category'] == 'error' and reason in records[0]['reason'], records
         write(parameter, original_parameters)
 
-        # A unique usable legacy candidate cannot establish uniqueness with unread/malformed/ambiguous inputs.
+        # Missing explicit CFn identity never falls back to Model logicalId or candidate templates.
         modelpath = root / 'model/dev/123456789012/cloudwatch-logs.properties'
         modeltext = read_model(modelpath)
-        write(modelpath, modeltext.replace('desired.resource.001.cfn-logicalId=' + name + '-Log\n', '').replace('logicalId=Log1', 'logicalId=Log'))
+        write(modelpath, modeltext.replace('desired.resource.001.cfn-logicalId=' + name + '-Log\n', ''))
         stackpath = root / 'model/dev/123456789012/cloudformation-stacks.properties'
         stacktext = read_model(stackpath)
         write(stackpath, stacktext + 'desired.stack.002.name=second-stack\ndesired.stack.002.template=second.yaml\ndesired.stack.002.parameters=second.json\ndesired.stack.002.deployOrder=2\ndisplay.stack.002.comment=候補\n')
@@ -548,17 +572,14 @@ def comparison_repair_cases():
             if available == 'both':
                 write(second_parameter, '[]\n')
             candidate, records = compare(root, ['cloudwatch-logs'])
-            if available == 'both':
-                assert all(item['category'] == 'matched' for item in records), records
-            else:
-                assert len(records) == 1 and records[0]['category'] == 'uncompared' and 'input missing' in records[0]['reason'], records
-                assert candidate.metrics['template_decodes'] == 1
+            assert len(records) == 1 and records[0]['category'] == 'uncompared' and 'explicit cfn-logicalId is required' in records[0]['reason'], records
+            assert candidate.metrics['template_decodes'] == 0
         write(second_template, 'Resources: {Unknown: {Type: "AWS::Logs::LogGroup"}}\n')
         _, records = compare(root, ['cloudwatch-logs'])
-        assert len(records) == 1 and records[0]['category'] == 'uncompared' and 'incomplete legacy' in records[0]['reason'], records
+        assert len(records) == 1 and records[0]['category'] == 'uncompared' and 'explicit cfn-logicalId is required' in records[0]['reason'], records
         write(second_template, 'Resources: [\n')
         _, records = compare(root, ['cloudwatch-logs'])
-        assert len(records) == 1 and records[0]['category'] == 'error', records
+        assert len(records) == 1 and records[0]['category'] == 'uncompared' and 'explicit cfn-logicalId is required' in records[0]['reason'], records
         # Explicit IDs do not read unrelated candidate stacks; missing explicit CREATE still differs.
         write(modelpath, modeltext)
         _, records = compare(root, ['cloudwatch-logs'])
@@ -631,7 +652,8 @@ def local_reference_cases():
             # Duplicate correspondence blocks even an otherwise evaluable export.
             model = root / 'model/dev/123456789012/s3.properties'
             original = read_model(model)
-            write(model, original + 'desired.resource.003.resourceType=S3.Bucket\ndesired.resource.003.anchor=s3-duplicate\ndesired.resource.003.cfn-logicalId=' + producer + '-Bucket\n')
+            write_model(model, allocate({**properties(original), 'desired.resource.003.resourceType': 'S3.Bucket',
+                                         'desired.resource.003.cfn-logicalId': producer + '-Bucket'}, ['003']))
             expect_error(lambda: candidate().evaluate(consumer, imported), 'correspondence')
             write(model, original)
             comparison = candidate()
@@ -725,15 +747,18 @@ def symbolic_string_cases(_network):
         template['Resources']['Policy'] = {'Type': 'AWS::IAM::ManagedPolicy', 'Properties': {'PolicyDocument': policy}}
         mutate_template(root, template)
         def publish(desired):
-            model = {'desired.service.iam.serviceId': 'iam', 'desired.resource.001.resourceType': 'IAM.ManagedPolicy',
-                     'desired.resource.001.cfn-logicalId': name + '-Policy', 'desired.resource.001.anchor': 'iam-policy-fixture',
-                     'desired.row.001-001.property': 'IAM.ManagedPolicy.PolicyDocument',
-                     'desired.row.001-001.value': 'policy.json', 'desired.row.001-001.document': json.dumps(desired)}
+            model = {'desired.service.iam.serviceId': 'iam',
+                'desired.resource.001.resourceType': 'IAM.ManagedPolicy',
+                'desired.resource.001.cfn-logicalId': name + '-Policy',
+                'desired.row.001-001.property': 'IAM.ManagedPolicy.PolicyDocument',
+                'desired.row.001-001.value': 'policy.json',
+                'desired.row.001-001.document': json.dumps(desired)}
+            model.update(allocate(model, ['001']))
             write(root / 'model/dev/123456789012/iam.properties', '\n'.join(f'{key}={value}' for key, value in model.items()) + '\n')
             _, records = compare(root, ['iam'])
             assert len(records) == 1, records
             return records[0]['category']
-        link = '[PENDING_DEPLOY](cloudwatch-logs.md#cloudwatch-logs-cwlogs-app-dev-data1)'
+        link = 'resource://dev/123456789012/cloudwatch-logs/Logs_LogGroup_001'
         model_join = {'Fn::Join': ['', [{'Fn::Select': [0, {'Fn::Split': [':*', link]}]}, ':log-stream:account_*']]}
         def desired_policy(expression):
             return dict(policy, Statement=[dict(policy['Statement'][0], Resource=expression)])
@@ -768,12 +793,12 @@ def reference_property_contract_cases():
         for service, identity, kind, logical in specs:
             model = models.setdefault(service, {f'desired.service.{service}.serviceId': service})
             model.update({f'desired.resource.{identity}.resourceType': kind,
-                          f'desired.resource.{identity}.cfn-logicalId': stack + '-' + logical,
-                          f'desired.resource.{identity}.anchor': logical.lower()})
+                f'desired.resource.{identity}.cfn-logicalId': stack + '-' + logical})
+            model.update(allocate(model, [identity]))
             template['Resources'][logical] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': {}}
-        function = '[PENDING_DEPLOY](lambda.md#function)'
-        repository = '[PENDING_DEPLOY](codecommit.md#repository)'
-        connection = '[PENDING_DEPLOY](#vpcconnection)'
+        function = 'resource://dev/123456789012/lambda/Lambda_Function_001'
+        repository = 'resource://dev/123456789012/codecommit/CodeCommit_Repository_001'
+        connection = 'resource://dev/123456789012/quicksight/QuickSight_VPCConnection_001'
         event = [{'DataResources': [{'Type': 'AWS::Lambda::Function', 'Values': [function]}]}]
         action = dict(Category='Source', Owner='AWS', Provider='CodeCommit', Version='1')
         stages = [{'Name': 'Source', 'Actions': [{'Name': 'Source', 'ActionTypeId': action,
@@ -864,15 +889,17 @@ def reference_diagnostic_cases():
         kms = {'desired.service.kms.serviceId': 'kms'}
         for identity, logical, kind in [('001', 'Key', 'KMS.Key'), ('002', 'Alias', 'KMS.Alias')]:
             kms.update({f'desired.resource.{identity}.resourceType': kind,
-                        f'desired.resource.{identity}.cfn-logicalId': stack + '-' + logical,
-                        f'desired.resource.{identity}.anchor': logical.lower()})
+                f'desired.resource.{identity}.cfn-logicalId': stack + '-' + logical})
+            kms.update(allocate(kms, [identity]))
             template['Resources'][logical] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': {}}
         template['Resources']['Alias']['Properties'] = {'AliasName': 'alias/fixture', 'TargetKeyId': {'Ref': 'Key'}}
         write(root / 'model/dev/123456789012/kms.properties', '\n'.join(f'{k}={v}' for k, v in kms.items()) + '\n')
-        model = {'desired.service.athena.serviceId': 'athena', 'desired.resource.001.resourceType': 'Athena.WorkGroup',
-                 'desired.resource.001.anchor': 'workgroup',
-                 'desired.resource.001.cfn-logicalId': stack + '-WorkGroup', 'desired.row.001-001.property': prop,
-                 'desired.row.001-001.value': '[alias](kms.md#alias)'}
+        model = {'desired.service.athena.serviceId': 'athena',
+            'desired.resource.001.resourceType': 'Athena.WorkGroup',
+            'desired.resource.001.cfn-logicalId': stack + '-WorkGroup',
+            'desired.row.001-001.property': prop,
+            'desired.row.001-001.value': 'resource://dev/123456789012/kms/KMS_Alias_001'}
+        model.update(allocate(model, ['001']))
         template['Resources']['WorkGroup'] = {'Type': 'AWS::Athena::WorkGroup', 'Properties': {
             'WorkGroupConfiguration': {'ResultConfiguration': {'EncryptionConfiguration': {'KmsKey': {'Ref': 'Alias'}}}}}}
         modelpath = root / 'model/dev/123456789012/athena.properties'
@@ -890,7 +917,7 @@ def reference_diagnostic_cases():
             encryption['KmsKey'] = 'alias/other'
             publish()
             assert next(item for item in compare(root, ['athena'])[1] if item['property'] == 'Athena.WorkGroup.WorkGroupConfiguration')['category'] == 'difference'
-            model['desired.row.001-001.value'] = '[key](kms.md#key)'
+            model['desired.row.001-001.value'] = 'resource://dev/123456789012/kms/KMS_Key_001'
             encryption['KmsKey'] = {'Ref': 'Key'}
             publish()
             comparison, records = compare(root, ['athena'])
@@ -916,9 +943,9 @@ def reference_diagnostic_cases():
             assert all('KeyId' in group['cause'] and 'KmsKey' in group['cause'] for group in stats['groups'])
             assert 'outside allowed forms' in iac_report('dev', 'cde', ['athena'], single)
             model.update({'desired.row.001-003.property': 'Athena.WorkGroup.WorkGroupConfiguration.ExecutionRole',
-                          'desired.row.001-003.value': '[missing](kms.md#missing)',
+                          'desired.row.001-003.value': 'resource://dev/123456789012/kms/KMS_Key_999',
                           'desired.row.001-004.property': 'Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.ExpectedBucketOwner',
-                          'desired.row.001-004.value': '[missing](kms.md#missing)'})
+                          'desired.row.001-004.value': 'resource://dev/123456789012/kms/KMS_Key_999'})
             publish()
             multiple = compare(root, ['athena'])[1]
             parent = next(item for item in multiple if item['property'] == 'Athena.WorkGroup.WorkGroupConfiguration')
@@ -931,7 +958,7 @@ def reference_diagnostic_cases():
             assert stats['groups'][0]['target'] is None
             assert '省略保留原因:' not in iac_report('dev', 'cde', ['athena'], [parent])
             # Real child failures are redacted before being copied into the parent.
-            model['desired.row.001-003.value'] = '[confidential](kms.md#confidential)'
+            model['desired.row.001-003.value'] = 'resource://dev/123456789012/kms/KMS_Key_998'
             publish()
             original_compare_rows = Comparison.compare_rows
             def sensitive_compare_rows(instance, *args, **kwargs):
@@ -968,7 +995,7 @@ def reference_diagnostic_cases():
                 assert secret not in rendered
                 example = iac_summary([masked], 'dev', 'cde', ['athena'])['groups'][0]['examples'][0]
                 assert len(example['reference_diagnostics']) == 3 and example['omitted_reference_fields'] == 0
-            model['desired.row.001-001.value'] = '[key](kms.md#key)'
+            model['desired.row.001-001.value'] = 'resource://dev/123456789012/kms/KMS_Key_001'
             for value in [{'Ref': 'Key'}, {'Fn::GetAtt': ['Key', 'Arn']}]:
                 template['Resources']['WorkGroup']['Properties']['WorkGroupConfiguration']['ResultConfiguration']['EncryptionConfiguration']['KmsKey'] = value
                 publish()
@@ -996,14 +1023,14 @@ def reference_identity_report_cases():
         kms = {'desired.service.kms.serviceId': 'kms'}
         for identity, logical, kind in [('001', 'Key', 'KMS.Key'), ('002', 'OtherKey', 'KMS.Key'), ('003', 'Alias', 'KMS.Alias')]:
             kms.update({f'desired.resource.{identity}.resourceType': kind,
-                        f'desired.resource.{identity}.cfn-logicalId': producer + '-' + logical,
-                        f'desired.resource.{identity}.anchor': logical.lower()})
+                f'desired.resource.{identity}.cfn-logicalId': producer + '-' + logical})
+            kms.update(allocate(kms, [identity]))
             template['Resources'][logical] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': {}}
         template['Resources']['Alias']['Properties'] = {'AliasName': 'alias/fixture', 'TargetKeyId': {'Ref': 'Key'}}
         write(root / 'model/dev/123456789012/kms.properties', '\n'.join(f'{k}={v}' for k, v in kms.items()) + '\n')
         logmodel = root / 'model/dev/123456789012/cloudwatch-logs.properties'
         original = read_model(logmodel)
-        link = '[key](kms.md#key)'
+        link = 'resource://dev/123456789012/kms/KMS_Key_001'
         write(logmodel, original + 'desired.row.001-010.property=Logs.LogGroup.KmsKeyId\ndesired.row.001-010.value=' + link + '\n')
         template['Outputs'] = {'KeyArn': {'Value': {'Fn::GetAtt': ['Key', 'Arn']}, 'Export': {'Name': {'Fn::Sub': '${Name}-KeyArn'}}}}
         template['Outputs']['OtherKeyArn'] = {'Value': {'Fn::GetAtt': ['OtherKey', 'Arn']}, 'Export': {'Name': {'Fn::Sub': '${Name}-OtherKeyArn'}}}
@@ -1025,7 +1052,7 @@ def reference_identity_report_cases():
             assert comparison.reference_same(keyid, arn, 'Logs.LogGroup', 'KmsKeyId') is False
             assert comparison.reference_same(keyid, arn, 'SQS.Queue', 'KmsMasterKeyId') is None
             assert same(keyid, dict(keyid)) is False  # JSON-shaped values cannot forge evidence.
-            alias = comparison.reference('cloudwatch-logs', '[alias](kms.md#alias)')
+            alias = comparison.reference('cloudwatch-logs', 'resource://dev/123456789012/kms/KMS_Alias_001')
             assert comparison.reference_same(alias, arn, 'S3.Bucket', 'BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID') is False
             template['Resources']['Log']['Properties']['KmsKeyId'] = {'Fn::ImportValue': 'app-dev-data2-OtherKeyArn'}
             mutate_template(root, template)
@@ -1052,8 +1079,10 @@ def reference_identity_report_cases():
             # An unrelated missing DataZone template never discards a healthy export.
             stacks = root / 'model/dev/123456789012/cloudformation-stacks.properties'
             write(stacks, read_model(stacks) + 'desired.stack.003.name=datazone-stack\ndesired.stack.003.template=datazone.yaml\ndesired.stack.003.parameters=datazone.json\ndesired.stack.003.deployOrder=1\n')
-            datazone = {'desired.service.datazone.serviceId': 'datazone', 'desired.resource.001.resourceType': 'DataZone.Domain',
-                        'desired.resource.001.cfn-logicalId': 'datazone-stack-Domain', 'desired.resource.001.anchor': 'datazone-domain-fixture'}
+            datazone = {'desired.service.datazone.serviceId': 'datazone',
+                'desired.resource.001.resourceType': 'DataZone.Domain',
+                'desired.resource.001.cfn-logicalId': 'datazone-stack-Domain'}
+            datazone.update(allocate(datazone, ['001']))
             write(root / 'model/dev/123456789012/datazone.properties', '\n'.join(f'{k}={v}' for k, v in datazone.items()) + '\n')
             template['Resources']['Log']['Properties']['KmsKeyId'] = {'Fn::ImportValue': 'app-dev-data2-KeyArn'}
             mutate_template(root, template)
@@ -1133,11 +1162,11 @@ def action_report_cases():
         from cloudformation_inputs import Blocked
         legacy_comparison = Comparison(fixture_root, 'dev', '123456789012', ['s3'])
         legacy_comparison.resources['s3']['001'].pop('cfn-logicalId')
-        # One known missing candidate input proves a comparison cascade.
+        # Missing CFn identity has no inferred template cause.
         legacy_results = legacy_comparison.run()
         legacy_record = next(item for item in legacy_results if item['resource'] == '001')
-        assert legacy_record['cause']['relationship'] == 'legacy-search-incomplete'
-        assert legacy_record['cause']['path'] == missing_record['cause']['path']
+        assert 'explicit cfn-logicalId is required' in legacy_record['reason']
+        assert not legacy_record.get('cause')
         # A second unknown failure (or a different missing path) prevents a single-cause claim.
         for second_error in (Blocked('unknown failure'), Blocked('another input missing')):
             if str(second_error).startswith('another'):
@@ -1325,13 +1354,13 @@ def check_cloudtrail_membership(scan_project):
     root, _, template = scan_project
     stack = 'cfn-stack-app-dev-data1'
     kind = 'CloudTrail.Trail'
-    function = '[function](lambda.md#function)'
-    other = '[other](lambda.md#other)'
+    function = 'resource://dev/123456789012/lambda/Lambda_Function_001'
+    other = 'resource://dev/123456789012/lambda/Lambda_Function_002'
     lambda_model = {'desired.service.lambda.serviceId': 'lambda'}
     for identity, logical in [('001', 'Function'), ('002', 'Other')]:
         lambda_model.update({f'desired.resource.{identity}.resourceType': 'Lambda.Function',
-                             f'desired.resource.{identity}.cfn-logicalId': stack + '-' + logical,
-                             f'desired.resource.{identity}.anchor': logical.lower()})
+            f'desired.resource.{identity}.cfn-logicalId': stack + '-' + logical})
+        lambda_model.update(allocate(lambda_model, [identity]))
         template['Resources'][logical] = {'Type': 'AWS::Lambda::Function', 'Properties': {}}
     write_model(root / 'model/dev/123456789012/lambda.properties', lambda_model)
     fields = [
@@ -1351,9 +1380,9 @@ def check_cloudtrail_membership(scan_project):
         ('EventSelectors[].DataResources[].Values', function),
     ]
     model = {'desired.service.cloudtrail.serviceId': 'cloudtrail',
-             'desired.resource.001.resourceType': kind,
-             'desired.resource.001.cfn-logicalId': stack + '-Trail',
-             'desired.resource.001.anchor': 'trail'}
+        'desired.resource.001.resourceType': kind,
+        'desired.resource.001.cfn-logicalId': stack + '-Trail'}
+    model.update(allocate(model, ['001']))
     for number, (prop, value) in enumerate(fields, 1):
         model.update({f'desired.row.001-{number:03d}.property': kind + '.' + prop,
                       f'desired.row.001-{number:03d}.value': value, f'desired.row.001-{number:03d}.comment': '合成設定'})
@@ -1605,12 +1634,12 @@ def glue_secret_reference_cases(_network):
         root = Path(directory) / 'project'
         _, template = fixture(root, services=['s3'])
         stack = 'cfn-stack-app-dev-data1'
-        link = '[PENDING_DEPLOY](#glue-one)'
-        secret = '[PENDING_DEPLOY](secrets-manager.md#secret-one)'
+        link = 'resource://dev/123456789012/glue/Glue_Connection_001'
+        secret = 'resource://dev/123456789012/secrets-manager/SecretsManager_Secret_001'
         specifications = {
             'glue': [
                 ('Connection1', 'Glue.Connection', 'glue-one', [
-                    ('Name', '[PENDING_DEPLOY](#glue-one)'),
+                    ('Name', 'resource://dev/123456789012/glue/Glue_Connection_001'),
                     ('CatalogId', '`123456789012`'), ('ConnectionInput.Name', '`connection`'),
                     ('ConnectionInput.AuthenticationConfiguration.SecretArn', secret)]),
                 ('Connection2', 'Glue.Connection', 'glue-two', [('ConnectionInput.Name', '`connection`')]),
@@ -1629,9 +1658,8 @@ def glue_secret_reference_cases(_network):
             for number, (logical, kind, anchor, rows) in enumerate(resources, 1):
                 identity = f'{number:03d}'
                 values.update({f'desired.resource.{identity}.resourceType': kind,
-                               f'desired.resource.{identity}.logicalId': logical,
-                               f'desired.resource.{identity}.anchor': anchor,
-                               f'desired.resource.{identity}.cfn-logicalId': stack + '-' + logical})
+                    f'desired.resource.{identity}.cfn-logicalId': stack + '-' + logical})
+                values.update(allocate(values, [identity]))
                 for index, (prop, value) in enumerate(rows, 1):
                     prefix = f'desired.row.{identity}-{index:03d}'
                     values.update({prefix + '.property': kind + '.' + prop,
@@ -1699,14 +1727,14 @@ def check_arn_array_reference_forms():
                                         ('002', 'IAM.ManagedPolicy', 'Policy'),
                                         ('003', 'IAM.ManagedPolicy', 'OtherPolicy')]:
             values.update({f'desired.resource.{identity}.resourceType': kind,
-                           f'desired.resource.{identity}.cfn-logicalId': stack + '-' + logical,
-                           f'desired.resource.{identity}.anchor': logical.lower()})
+                f'desired.resource.{identity}.cfn-logicalId': stack + '-' + logical})
+            values.update(allocate(values, [identity]))
             template['Resources'][logical] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': {}}
         # Equal display names do not establish resource identity.
         for logical in ('Policy', 'OtherPolicy'):
             template['Resources'][logical]['Properties']['ManagedPolicyName'] = 'same-name'
         prop = 'IAM.Role.ManagedPolicyArns'
-        link = '[same-name](#policy)'
+        link = 'resource://dev/123456789012/iam/IAM_ManagedPolicy_001'
         values['desired.row.001-001.property'] = prop
         values['desired.row.001-001.value'] = '`' + json.dumps([link]) + '`'
 
@@ -1746,7 +1774,7 @@ def check_arn_array_reference_forms():
             assert comparison.reference_forms('IAM.User', 'Groups[]') is None
             expect_error(lambda: comparison.desired_reference('iam', link, 'IAM.User', 'Groups[]'),
                          'reference property contract unproven')
-            for unresolved, reason in (('[same-name](#missing-policy)', 'reference mapping matches=0'),
+            for unresolved, reason in (('resource://dev/123456789012/iam/IAM_ManagedPolicy_999', 'reference mapping matches=0'),
                                        ('`PENDING_DEPLOY`', 'desired value is unresolved')):
                 row = {'property': prop, 'value': unresolved}
                 expect_error(lambda: comparison.desired_value('iam', row, 'IAM.Role'), reason)
@@ -1761,8 +1789,8 @@ def check_eventbridge_reference_literals():
         functions = {'desired.service.lambda.serviceId': 'lambda'}
         for identity, logical in [('001', 'Function'), ('002', 'OtherFunction')]:
             functions.update({f'desired.resource.{identity}.resourceType': 'Lambda.Function',
-                              f'desired.resource.{identity}.anchor': logical.lower(),
-                              f'desired.resource.{identity}.cfn-logicalId': stack + '-' + logical})
+                f'desired.resource.{identity}.cfn-logicalId': stack + '-' + logical})
+            functions.update(allocate(functions, [identity]))
             template['Resources'][logical] = {'Type': 'AWS::Lambda::Function', 'Properties': {
                 'FunctionName': {'Fn::If': ['Active', {'Fn::Sub': 'function-${Name}'}, 'inactive']}}}
         write(root / 'model/dev/123456789012/lambda.properties', '\n'.join(f'{k}={v}' for k, v in functions.items()) + '\n')
@@ -1774,7 +1802,7 @@ def check_eventbridge_reference_literals():
         assert same(name, bucket, reference=callback, path='EventPattern.detail.requestParameters.bucketName[]')
         assert same(bucket, name, reference=callback)
         assert same('wrong', bucket, reference=callback) is False
-        function = comparison.reference('lambda', '[function](#function)', 'Arn')
+        function = comparison.reference('lambda', 'resource://dev/123456789012/lambda/Lambda_Function_001', 'Arn')
         arn = comparison.reference_literal(function)
         assert arn == 'arn:aws:lambda:ap-northeast-1:123456789012:function:function-' + comparison.stack_inputs[stack][1]['Name']
         assert same(function, arn, reference=callback)
@@ -1782,7 +1810,7 @@ def check_eventbridge_reference_literals():
                       arn.replace('123456789012', '999999999999'), arn + ':1', arn + ':alias',
                       arn.replace(':function:', ':layer:'), arn + '-other']:
             assert same(function, wrong, reference=callback) is False
-        other = comparison.reference('lambda', '[other](#otherfunction)', 'Arn')
+        other = comparison.reference('lambda', 'resource://dev/123456789012/lambda/Lambda_Function_002', 'Arn')
         assert same(function, other, reference=callback) is False
         function_name = ResourceReference(dict(function, **{'$attribute': 'FunctionName'}))
         assert same(function, function_name, reference=callback) is False
@@ -1821,11 +1849,11 @@ def check_glue_connection_names(_network):
                                         ('002', 'OtherConnection', 'Glue.Connection'), ('003', 'Job', 'Glue.Job'),
                                         ('004', 'Project', 'CodeBuild.Project')]:
             values.update({f'desired.resource.{identity}.resourceType': kind,
-                           f'desired.resource.{identity}.anchor': logical.lower(),
-                           f'desired.resource.{identity}.cfn-logicalId': stack + '-' + logical})
+                f'desired.resource.{identity}.cfn-logicalId': stack + '-' + logical})
+            values.update(allocate(values, [identity]))
             template['Resources'][logical] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': {}}
         values.update({'desired.row.003-001.property': 'Glue.Job.Connections',
-                       'desired.row.003-001.value': '`{"Connections":["[PENDING_DEPLOY](#connection)"]}`'})
+                       'desired.row.003-001.value': '`{"Connections":resource://dev/123456789012/glue/Glue_Connection_001"]}`'})
         write(root / 'model/dev/123456789012/glue.properties', '\n'.join(f'{k}={v}' for k, v in values.items()) + '\n')
         template['Resources']['Job']['Properties'] = {'Connections': {'Connections': ['app-dev-data1']}}
         template['Resources']['Project']['Properties'] = {'Name': {'Fn::Sub': 'project-${Name}'}}
@@ -1899,17 +1927,17 @@ def check_added_reference_properties(_network):
             for suffix in ('', 'Other'):
                 identity = logical + suffix
                 model.update({f'desired.resource.{identity}.resourceType': kind,
-                              f'desired.resource.{identity}.anchor': identity.lower(),
-                              f'desired.resource.{identity}.cfn-logicalId': stack + '-' + identity})
+                    f'desired.resource.{identity}.cfn-logicalId': stack + '-' + identity})
+                model.update(allocate(model, [identity]))
                 template['Resources'][identity] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': {}}
-            links[logical] = f'[PENDING_DEPLOY]({service}.md#{logical.lower()})'
+            links[logical] = f'resource://dev/123456789012/{service}/' + model[f'desired.resource.{logical}.logicalId']
             symbols[logical] = ResourceReference({'$resource': [service, logical], '$attribute': attr})
         for service, model in models.items():
             write(root / f'model/dev/123456789012/{service}.properties', '\n'.join(f'{k}={v}' for k, v in model.items()) + '\n')
         template['Resources']['Group']['Properties']['VpcId'] = {'Ref': 'Vpc'}
         mutate_template(root, template)
         comparison, _ = compare(root, list(models) + ['s3'])
-        links['Bucket'] = '[PENDING_DEPLOY](s3.md#s3-bucket-app-dev-data1)'
+        links['Bucket'] = 'resource://dev/123456789012/s3/S3_Bucket_001'
         symbols['Bucket'] = comparison.evaluate(stack, {'Ref': 'Bucket'})
         cases = {
             'Bucket': ['CloudTrail.Trail.S3BucketName', 'CodePipeline.Pipeline.ArtifactStore.Location', 'Lambda.Function.Code.S3Bucket'],
@@ -1996,12 +2024,13 @@ def check_added_reference_properties(_network):
         write(root / 'model/dev/123456789012/quicksight.properties', '\n'.join([
             'desired.service.quicksight.serviceId=quicksight',
             'desired.resource.001.resourceType=QuickSight.Group',
-            'desired.resource.001.anchor=group',
+            'desired.resource.001.logicalId=QuickSight_Group_001',
+            'desired.service.identity.lastAllocated={"QuickSight.Group":1}',
             'desired.row.001-001.property=QuickSight.Group.Arn',
-            'desired.row.001-001.value=[PENDING_DEPLOY](#group)',
+            'desired.row.001-001.value=resource://dev/123456789012/quicksight/QuickSight_Group_001',
         ]) + '\n')
         with pytest.raises(Blocked, match='reference attribute not confirmed: Arn'):
-            comparison.desired_reference('s3', '[PENDING_DEPLOY](quicksight.md#group)',
+            comparison.desired_reference('s3', 'resource://dev/123456789012/quicksight/QuickSight_Group_001',
                                          'QuickSight.DataSource', 'Permissions[].Principal')
         with pytest.raises(Blocked, match='reference target must be'):
             comparison.desired_reference('s3', links['Role'], 'QuickSight.DataSource', 'Permissions[].Principal')
@@ -2029,10 +2058,10 @@ def check_aws_standard_comparison(_network):
         root = Path(directory)
         _, template = fixture(root, services=['s3'])
         stack = 'cfn-stack-app-dev-data1'
-        role = '[role](iam.md#role)'
-        policy = '[policy](iam.md#policy)'
-        secret = '[secret](secrets-manager.md#secret)'
-        bucket = '[bucket](s3.md#s3-bucket-app-dev-data1)'
+        role = 'resource://dev/123456789012/iam/IAM_Role_001'
+        policy = 'resource://dev/123456789012/iam/IAM_ManagedPolicy_001'
+        secret = 'resource://dev/123456789012/secrets-manager/SecretsManager_Secret_001'
+        bucket = 'resource://dev/123456789012/s3/S3_Bucket_001'
         specs = {
             'iam': [('Role', 'IAM.Role', 'role', [('RoleName', '`role`'), ('ManagedPolicyArns', policy)]),
                     ('Policy', 'IAM.ManagedPolicy', 'policy', [('Roles', role)])],
@@ -2049,8 +2078,8 @@ def check_aws_standard_comparison(_network):
             values = {f'desired.service.{service}.serviceId': service}
             for logical, kind, anchor, rows in resources:
                 values.update({f'desired.resource.{logical}.resourceType': kind,
-                               f'desired.resource.{logical}.anchor': anchor,
-                               f'desired.resource.{logical}.cfn-logicalId': stack + '-' + logical})
+                    f'desired.resource.{logical}.cfn-logicalId': stack + '-' + logical})
+                values.update(allocate(values, [logical]))
                 for index, (prop, value) in enumerate(rows, 1):
                     prefix = f'desired.row.{logical}-{index:03d}'
                     values.update({prefix + '.property': kind + '.' + prop, prefix + '.value': value})

@@ -2,6 +2,7 @@
 import json
 from model.core import LINK, entries, literal, resource_row_index
 from model.format import owner
+from model.identity import URI, address
 from utils.json_format import strict_json as json_read
 
 def typed_equal(left, right):
@@ -39,7 +40,7 @@ def property_values(values, rid, prop, schema, *, observed=False, rows=None):
             continue
         if observed:
             row = {key: value for key, value in row.items() if key != 'document'}
-        elif LINK.fullmatch(raw) or (
+        elif URI.fullmatch(raw) or (
                 has_reference(row.get('document', raw)) and 'observed.row.' + row_id + '.value' in values):
             raw = values.get('observed.row.' + row_id + '.value')
             if raw is None:
@@ -54,17 +55,18 @@ def property_values(values, rid, prop, schema, *, observed=False, rows=None):
 
 
 def has_reference(raw):
-    """Only Markdown resource links, including structured leaves, consume observations."""
+    """Only internal Resource URIs, including structured leaves, consume observations."""
+    from model.identity import URI
     if not isinstance(raw, str):
         return False
-    if LINK.fullmatch(raw):
+    if URI.fullmatch(raw):
         return True
     try:
         value = json_read(literal(raw))
     except ValueError:
         return False
     def linked(value):
-        return (bool(LINK.fullmatch(value)) if isinstance(value, str) else
+        return (bool(URI.fullmatch(value)) if isinstance(value, str) else
                 any(linked(item) for item in value.values()) if isinstance(value, dict) else
                 any(linked(item) for item in value) if isinstance(value, list) else False)
     return linked(value)
@@ -112,10 +114,10 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
             if prop not in identity_properties.get(resource['resourceType'], set()):
                 continue
             for raw in (row['value'], old.get('observed.row.' + row_id + '.value')):
-                if raw is None or LINK.fullmatch(raw):
+                if raw is None or URI.fullmatch(raw):
                     continue
                 value = typed_row(row, raw, property_schema(prop))
-                if isinstance(value, str) and value.strip() and value not in {'PENDING_DEPLOY', 'UNSET'} and not LINK.fullmatch(value):
+                if isinstance(value, str) and value.strip() and value not in {'PENDING_DEPLOY', 'UNSET'} and not URI.fullmatch(value):
                     known = True
                     owners.setdefault((resource['resourceType'], value), set()).add(rid)
         if not known:
@@ -157,7 +159,7 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
                 raise ValueError('IMPORT acquired primary identity is unknown')
         if (not isinstance(record['identity'], str) or not record['identity'].strip()
                 or record['identity'] in {'PENDING_DEPLOY', 'UNSET'}
-                or LINK.fullmatch(record['identity'])):
+                or URI.fullmatch(record['identity'])):
             raise ValueError('IMPORT acquired physical identity is invalid')
         identity_key, collisions = correspondences[record['record']]
         if action == 'bind':
@@ -235,16 +237,18 @@ def pending_items(selection, selected, values, property_schema):
 
 def reference_value_equal(left, right):
     """Only reference expression spans may differ; structure and other literals stay exact."""
+    if isinstance(left, dict) and '$resource' in left and not set(left) - {'$resource', '$attribute'}:
+        return reference_value_equal(left['$resource'], right)
     if isinstance(left, dict) and isinstance(right, dict):
         return left.keys() == right.keys() and all(reference_value_equal(v, right[k]) for k, v in left.items())
     if isinstance(left, list) and isinstance(right, list):
         return len(left) == len(right) and all(reference_value_equal(a, b) for a, b in zip(left, right))
     if isinstance(left, str) and isinstance(right, str):
         import re
-        pattern = r'\[[^\]]+\]\([^)]*#[^)]+\)'
+        from model.identity import reference_tokens
         def matches(expression, value):
             pieces, start = [], 0
-            for match in re.finditer(pattern, expression):
+            for match in reference_tokens(expression):
                 pieces.extend((re.escape(expression[start:match.start()]), '.*?'))
                 start = match.end()
             if not pieces:
@@ -261,6 +265,8 @@ def verify_values(before, after, selected, property_schema, references=None, *, 
     from model.core import validate_authority
     old, new = before.authoritative, after.authoritative
     validate_authority(new)
+    from model.identity import preserve_allocation, COUNTERS
+    preserve_allocation(old, new)
     old_resources, new_resources = dict(entries(old, 'desired.resource.')), dict(entries(new, 'desired.resource.'))
     old_rows, new_rows = dict(entries(old, 'desired.row.')), dict(entries(new, 'desired.row.'))
     updated = {rid for rid, record in selected.items() if record.get('_action') in {'refresh', 'replace', 'bind'}}
@@ -283,6 +289,8 @@ def verify_values(before, after, selected, property_schema, references=None, *, 
     for key in old.keys() | new.keys():
         if old.get(key) == new.get(key) and (key in old) == (key in new):
             continue
+        if key == COUNTERS:
+            continue  # The shared allocation guard above proved this exact addition.
         owners = {owner(key, values) for values in (old, new) if key in values}
         if any(kind != 'resource' or rid not in selected for kind, rid in owners):
             # Initial service metadata is allowed only in the first explicit service candidate.
@@ -348,8 +356,8 @@ def verify_values(before, after, selected, property_schema, references=None, *, 
                 raise ValueError('IMPORT candidate must retain its acquired physical identity')
             if warnings is not None:
                 for _, row in new_index[rid]:
-                    link = LINK.fullmatch(row['value'])
-                    if row['property'] == prop and link and (link[2] or link[3] != new_resources[rid].get('anchor')):
-                        warnings.append({'code': 'reference.import_identity', 'message': 'identity link does not refer to its own anchor',
+                    link = URI.fullmatch(row['value'])
+                    if row['property'] == prop and link and link[0] != address(after.scope, new_resources[rid]['logicalId']):
+                        warnings.append({'code': 'reference.import_identity', 'message': 'identity URI does not refer to its own Resource',
                                          'resource': rid, 'property': prop, 'reference': row['value']})
     return changes

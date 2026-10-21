@@ -72,7 +72,7 @@ def check_parts_and_large_resource():
         for index in range(3, 220):
             values.update({f'desired.row.007-{index:03d}.{field}': value for field, value in (
                 ('property', 'EC2.VPC.Name'), ('value', 'example'), ('comment', '合成行'))})
-        values.update({'desired.resource.008.resourceType': 'EC2.VPC', 'desired.resource.008.anchor': 'second'})
+        values.update({'desired.resource.008.resourceType': 'EC2.VPC', 'desired.resource.008.logicalId': 'EC2_VPC_002', 'desired.service.identity.lastAllocated': '{"EC2.VPC":2}'})
         output = split(scope.path, values)
         assert output[scope.path].splitlines()[1] == INDEX
         assert len(next(text for path, text in output.items() if path != scope.path).splitlines()) > 600
@@ -106,11 +106,11 @@ def check_unsafe_parts(failure):
             part.symlink_to(scope.root / 'project.json')
         else:
             extra = part.with_name('part-003.properties')
-            extra.write_text(serialize({'desired.resource.007.anchor': 'split'}), encoding='utf-8')
+            extra.write_text(serialize({'desired.resource.007.logicalId': 'EC2_VPC_001'}), encoding='utf-8')
             if failure != 'unlisted':
                 index += '# part: network/part-003.properties\n'
             if failure == 'split':
-                del values['desired.resource.007.anchor']
+                del values['desired.resource.007.logicalId']
                 part.write_text(serialize(values), encoding='utf-8')
         scope.path.write_text(index, encoding='utf-8')
         with pytest.raises(ValueError):
@@ -123,7 +123,7 @@ def check_reference_schema_and_pointer():
         key = 'desired.row.007-002.value'
         values[key] = '`{"value":"vpc-one"}`'
         spec = {'consumerKey': key, 'pointer': '/value', 'text': 'vpc-one', 'occurrence': '1',
-                'producerKind': 'resource', 'producerScope': 'qa-custom/one/network', 'producerId': '007',
+                'producerKind': 'resource', 'producerScope': 'qa-custom/one/network', 'producerLogicalId': 'EC2_VPC_001',
                 'resourceType': 'EC2.VPC', 'format': 'identifier', 'property': 'EC2.VPC.VpcId', 'labelPolicy': 'none'}
         values.update({f'desired.reference.stable.{field}': value for field, value in spec.items()})
         scope.path.write_text(serialize(values), encoding='utf-8')
@@ -153,10 +153,10 @@ def check_cli_subprocess_and_canonical_imports():
                                 capture_output=True, text=True, env=environment, cwd=directory)
         assert result.returncode == 0, result.stderr
         assert json.loads(result.stdout)['authoritative'] == values
-        result = subprocess.run([sys.executable, '-I', '-B', str(cli), 'trace', str(scope.path), 'desired.resource.007.anchor'],
+        result = subprocess.run([sys.executable, '-I', '-B', str(cli), 'trace', str(scope.path), 'desired.resource.007.logicalId'],
                                 capture_output=True, text=True, env=environment, cwd=directory)
         assert result.returncode == 0, result.stderr
-        assert json.loads(result.stdout)['value'] == 'network'
+        assert json.loads(result.stdout)['value'] == 'EC2_VPC_001'
         from model import load_model as public_load
         from model.sources import load_model as source_load
         assert public_load is source_load
@@ -260,14 +260,14 @@ def check_declared_and_direct_links_coalesce_or_retain_conflicts():
         scope, values = fixture(Path(directory))
         key = 'desired.row.007-001.value'
         spec = {'consumerKey': key, 'text': values[key], 'occurrence': '1',
-                'producerKind': 'resource', 'producerScope': 'qa-custom/one/network', 'producerId': '007',
+                'producerKind': 'resource', 'producerScope': 'qa-custom/one/network', 'producerLogicalId': 'EC2_VPC_001',
                 'resourceType': 'EC2.VPC', 'format': 'link', 'labelPolicy': 'fixed'}
         values.update({f'desired.reference.stable.{field}': value for field, value in spec.items()})
         scope.path.write_text(serialize(values), encoding='utf-8')
         model = load_model(scope)
         assert len([usage for usage in usages(model) if usage.consumer_key == key]) == 1
-        values.update({'desired.resource.008.resourceType': 'EC2.VPC', 'desired.resource.008.anchor': 'other',
-                       'desired.reference.stable.producerId': '008'})
+        values.update({'desired.resource.008.resourceType': 'EC2.VPC', 'desired.resource.008.logicalId': 'EC2_VPC_002', 'desired.service.identity.lastAllocated': '{"EC2.VPC":2}',
+                       'desired.reference.stable.producerLogicalId': 'EC2_VPC_002'})
         scope.path.write_text(serialize(values), encoding='utf-8')
         original = scope.path.read_bytes()
         model = load_model(scope)
@@ -275,13 +275,12 @@ def check_declared_and_direct_links_coalesce_or_retain_conflicts():
         assert any('both meanings' in warning['message'] for warning in model.warnings)
         assert len(incoming(model, '007')) == len(incoming(model, '008')) == 1
         assert scope.path.read_bytes() == original
-        values['desired.reference.stable.producerId'] = '007'
-        values['desired.resource.008.anchor'] = values['desired.resource.007.anchor']
+        values['desired.reference.stable.producerLogicalId'] = 'EC2_VPC_001'
+        values['desired.resource.008.logicalId'] = values['desired.resource.007.logicalId']
         scope.path.write_text(serialize(values), encoding='utf-8')
-        ambiguous = load_model(scope)
-        assert len([usage for usage in usages(ambiguous) if usage.consumer_key == key]) == 2
-        assert any('ambiguous' in warning['message'] for warning in ambiguous.warnings)
-        assert ambiguous.authoritative[key] == values[key]
+        with pytest.raises(ValueError, match='duplicate logicalId'):
+            load_model(scope)
+        assert parse(scope.path.read_text()).values[key] == values[key]
 
 
 def check_reference_occurrence_identifies_overlapping_text():
@@ -291,7 +290,7 @@ def check_reference_occurrence_identifies_overlapping_text():
         key = 'desired.row.007-002.value'
         values[key] = 'aaa'
         spec = {'consumerKey': key, 'text': 'aa', 'occurrence': '2',
-                'producerKind': 'resource', 'producerScope': 'qa-custom/one/network', 'producerId': '007',
+                'producerKind': 'resource', 'producerScope': 'qa-custom/one/network', 'producerLogicalId': 'EC2_VPC_001',
                 'resourceType': 'EC2.VPC', 'format': 'name', 'property': 'EC2.VPC.Name', 'labelPolicy': 'none'}
         values.update({f'desired.reference.stable.{field}': value for field, value in spec.items()})
         scope.path.write_text(serialize(values), encoding='utf-8')
@@ -325,7 +324,10 @@ def check_properties_import_review_operations(action):
         if action == 'add':
             after.update({key.replace('.007.', '.008.').replace('.007-', '.008-'): value.replace('#network', '#added')
                           for key, value in values.items()})
-            after['desired.resource.008.anchor'] = 'added'
+            from model.identity import allocate
+            del after['desired.resource.008.logicalId']
+            after = allocate(after, ['008'])
+            after['desired.row.008-001.value'] = 'resource://qa-custom/one/network/EC2_VPC_002'
         after[f'observed.row.{rid}-001.value'] = acquisition['records'][0]['identity']
         review = build_review(acquisition, selection, before, after, {'record-one': []}, lambda prop: {'type': 'string'})
         assert review['version'] == 4 and len(review['dispositions']) == 1
@@ -341,20 +343,20 @@ def check_properties_reference_review_after_map_and_ownership(change):
     from model.importing.approval import build_review, reference_provenance, verify_review
     with tempfile.TemporaryDirectory() as directory:
         scope, values = fixture(Path(directory))
-        values.update({'desired.resource.008.resourceType': 'EC2.VPC', 'desired.resource.008.anchor': 'second',
+        values.update({'desired.resource.008.resourceType': 'EC2.VPC', 'desired.resource.008.logicalId': 'EC2_VPC_002', 'desired.service.identity.lastAllocated': '{"EC2.VPC":2}',
             'desired.resource.008.resourceMode': 'IMPORT', 'desired.row.008-001.property': 'EC2.VPC.VpcId',
-            'desired.row.008-001.value': '[Second](#second)', 'desired.row.008-001.comment': '合成',
+            'desired.row.008-001.value': 'resource://qa-custom/one/network/EC2_VPC_002', 'desired.row.008-001.comment': '合成',
             'observed.row.008-001.value': 'vpc-second', 'observed.row.007-001.value': 'vpc-original'})
-        spec = {'consumerKey': 'desired.row.007-001.value', 'text': '[Network](#network)', 'occurrence': '1',
-                'producerKind': 'resource', 'producerScope': 'qa-custom/one/network', 'producerId': '007',
+        spec = {'consumerKey': 'desired.row.007-001.value', 'text': 'resource://qa-custom/one/network/EC2_VPC_001', 'occurrence': '1',
+                'producerKind': 'resource', 'producerScope': 'qa-custom/one/network', 'producerLogicalId': 'EC2_VPC_001',
                 'resourceType': 'EC2.VPC', 'format': 'link', 'labelPolicy': 'fixed'}
         values.update({f'desired.reference.stable.{field}': value for field, value in spec.items()})
         scope.path.write_text(serialize(values), encoding='utf-8')
         before = load_model(scope)
         acquisition, selection = acquisition_fixture(before)
         proposed = {} if change.startswith('delete') else {'stable': {**spec,
-            **({'consumerKey': 'desired.row.008-001.value', 'text': '[Second](#second)'} if change == 'move-unselected'
-               else {'producerId': '008', 'labelPolicy': 'display-name'})}}
+            **({'consumerKey': 'desired.row.008-001.value', 'text': 'resource://qa-custom/one/network/EC2_VPC_002'} if change == 'move-unselected'
+               else {'producerLogicalId': 'EC2_VPC_002', 'labelPolicy': 'display-name'})}}
         if change == 'delete-unselected':
             acquisition['records'][0]['identity'] = 'vpc-second'
             acquisition['records'][0]['properties']['EC2.VPC.VpcId']['value'] = 'vpc-second'
@@ -440,12 +442,12 @@ def check_incoming_missing_producer_does_not_match_unrelated_metadata(tmp_path):
     for identity, producer, text in (('stable-one', '007', 'original'), ('stable-two', '009', 'missing')):
         for field, value in {'consumerKey': key, 'text': text, 'occurrence': '1',
                 'producerKind': 'resource', 'producerScope': '/'.join((scope.environment, scope.target, scope.service)),
-                'producerId': producer, 'resourceType': 'EC2.VPC', 'format': 'name',
+                'producerLogicalId': 'EC2_VPC_' + ('001' if producer == '007' else producer), 'resourceType': 'EC2.VPC', 'format': 'name',
                 'property': 'EC2.VPC.Name', 'labelPolicy': 'none'}.items():
             values['desired.reference.' + identity + '.' + field] = value
     scope.path.write_text(serialize(values), encoding='utf-8')
-    uses = incoming(load_model(scope), '009')
-    assert len(uses) == 1 and uses[0][1].producer_id == '009'
+    uses = incoming(load_model(scope), 'EC2_VPC_009')
+    assert len(uses) == 1 and uses[0][1].logical_id == 'EC2_VPC_009'
     assert uses[0][1].text == 'missing'
 
 

@@ -20,7 +20,7 @@ def main():
         (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [
             {"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n", encoding="utf-8")
         path = root / "docs/designs/dev/123456789012/lambda.md"
-        path.parent.mkdir(parents=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
         (path.parent / "iam.md").write_text('# IAM\n\n- Design service ID: `iam`\n- Owned catalog resource types: `IAM.Role`\n\n<a id="iam-app-dev-worker-role"></a>\n### IAM.Role: app-dev-worker-role\n\n| No. | Property | Value | Source / Comment |\n| ---: | --- | --- | --- |\n| 1 | RoleName | `app-dev-worker-role` | ロールの名前 |\n', encoding="utf-8")
         for parents, children, deployed in ((1, 0, False), (1, 1, False), (2, 2, False), (2, 2, True)):
             values = fixture(parents, children, deployed)
@@ -36,7 +36,7 @@ def main():
             assert "Permission.Principal" in visible or children == 0
             assert output.count("| No. | Property | Value | Source / Comment |") == parents
             if children:
-                assert model_projection.linked_resource(path, "[permission-1-1](#lambda-app-dev-invoke-1-1)") == (PERMISSION, "Invoke1_1")
+                assert model_projection.linked_resource(path, "[permission-1-1](#resource-Lambda_Permission_001)") == (PERMISSION, "Lambda_Permission_001")
 
         values = fixture(1, 2)
         output = HELPERS.roundtrip(path, values, root)
@@ -57,15 +57,15 @@ def main():
             (output.replace("<!-- lambda-permission: [", "<!-- lambda-permission: broken[", 1), "invalid Lambda Permission metadata"),
             (output.replace("Permission.Action", "Lambda.Permission.Action", 1), "Permission.*"),
             (output.replace("<!-- lambda-permission:", "<!-- invalid-permission:", 1), "complete identity"),
-            (output.replace("<!-- logical-id: Invoke1_1 -->", "", 1), "complete identity"),
-            (output.replace("<!-- logical-id: Invoke1_2 -->", "<!-- logical-id: Invoke1_1 -->", 1), "duplicate grouped"),
+            (output.replace("<!-- logical-id: Lambda_Permission_001 -->", "", 1), "complete identity"),
+            (output.replace("<!-- logical-id: Lambda_Permission_002 -->", "<!-- logical-id: Lambda_Permission_001 -->", 1), "duplicate grouped"),
             (output.replace("Permission.Principal", "Permission.Action", 1), "duplicate Lambda Permission"),
-            (output.replace("[Worker1]\\u0028#lambda-app-dev-worker-1\\u0029", "[Wrong]\\u0028#lambda-wrong\\u0029", 1), "must reference enclosing"),
+            (output.replace("[app-dev-worker-1]\\u0028#resource-Lambda_Function_001\\u0029", "[Wrong]\\u0028#lambda-wrong\\u0029", 1), "must reference enclosing"),
             (output.replace('"Lambda.Permission.Id"', '"Wrong.Id"', 1), "invalid Lambda Permission metadata"),
         ):
             rejects(lambda: expanded_design(text.splitlines()), message)
         source = root / "model/dev/123456789012/lambda.properties"
-        source.parent.mkdir(parents=True)
+        source.parent.mkdir(parents=True, exist_ok=True)
         write_model(source, HELPERS.text(values))
         SYNC.sync(root, True, "dev", "123456789012", services=["lambda"])
         SYNC.sync(root, False, "dev", "123456789012", services=["lambda"])

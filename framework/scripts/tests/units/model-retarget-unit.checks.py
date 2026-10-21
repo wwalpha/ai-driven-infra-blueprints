@@ -45,7 +45,7 @@ def fixture(tmp_path, document=False):
     shutil.copytree(before, after)
     file = after / 'model/stg/cde/service-b.properties'
     values = dict(load_model(file).authoritative)
-    values['desired.reference.origin.producerId'] = '003'
+    values['desired.reference.origin.producerLogicalId'] = 'ServiceA_Resource_003'
     write_model(file, values)
     return before, after, {file.relative_to(after).as_posix()}
 
@@ -87,7 +87,7 @@ def check_rejects_unsafe_candidates(tmp_path, failure):
     elif failure == 'missing':
         refs[0]['destination'] = 'stg/cde/service-a/099'
     elif failure == 'no-change':
-        values['desired.reference.origin.producerId'] = '001'
+        values['desired.reference.origin.producerLogicalId'] = 'ServiceA_Resource_001'
     elif failure == 'unused':
         refs.append({**REF, 'property': 'ServiceB.Resource.Absent'})
     elif failure == 'literal':
@@ -119,7 +119,7 @@ def check_rejects_unsafe_candidates(tmp_path, failure):
         elif failure == 'delete':
             other = {key: value for key, value in other.items() if owner(key, other) != ('resource', '001')}
         elif failure == 'other-env':
-            other['desired.reference.origin.producerId'] = '003'
+            other['desired.reference.origin.producerLogicalId'] = 'ServiceA_Resource_003'
         write_model(target, other)
     write_model(file, values)
     sources |= {p.relative_to(after).as_posix() for p in after.rglob('*') if p.is_file() and
@@ -158,22 +158,23 @@ def check_route_table_pair_example(tmp_path):
     for rid in ('009', '010', '022', '023'):
         values.update({f'desired.resource.{rid}.resourceType': 'EC2.RouteTable',
                        f'desired.resource.{rid}.resourceMode': 'IMPORT',
-                       f'desired.resource.{rid}.anchor': 'table-' + rid,
+                       f'desired.resource.{rid}.logicalId': 'EC2_RouteTable_' + rid,
+                       'desired.service.identity.lastAllocated': '{"EC2.RouteTable":23}',
                        f'desired.row.{rid}-001.property': 'EC2.RouteTable.RouteTableId',
-                       f'desired.row.{rid}-001.value': f'[{rid}](#table-{rid})',
+                       f'desired.row.{rid}-001.value': f'resource://stg/cde/vpc/EC2_RouteTable_{rid}',
                        f'desired.row.{rid}-001.comment': '合成fixture',
                        f'observed.row.{rid}-001.value': '`rtb-' + rid + '`'})
     write_model(before / 'model/stg/cde/vpc.properties', values)
     endpoint = {'desired.resource.001.resourceType': 'EC2.VPCEndpoint',
-                'desired.resource.001.resourceMode': 'IMPORT', 'desired.resource.001.anchor': 'endpoint'}
+                'desired.resource.001.resourceMode': 'IMPORT', 'desired.resource.001.logicalId': 'EC2_VPCEndpoint_001', 'desired.service.identity.lastAllocated': '{"EC2.VPCEndpoint":1}'}
     for index, rid in enumerate(('009', '010'), 1):
         endpoint.update({f'desired.row.001-{index:03d}.property': f'EC2.VPCEndpoint.RouteTableIds[{index}]',
-                         f'desired.row.001-{index:03d}.value': f'[{rid}](vpc.md#table-{rid})',
+                         f'desired.row.001-{index:03d}.value': f'resource://stg/cde/vpc/EC2_RouteTable_{rid}',
                          f'desired.row.001-{index:03d}.comment': '合成fixture'})
     write_model(before / 'model/stg/cde/vpc-endpoint.properties', endpoint)
     shutil.copytree(before, after)
     template = after / 'model/stg/cde/vpc-endpoint.properties'
-    template.write_text(template.read_text().replace('[009](vpc.md#table-009)', '[022](vpc.md#table-022)').replace('[010](vpc.md#table-010)', '[023](vpc.md#table-023)'))
+    template.write_text(template.read_text().replace('resource://stg/cde/vpc/EC2_RouteTable_009', 'resource://stg/cde/vpc/EC2_RouteTable_022').replace('resource://stg/cde/vpc/EC2_RouteTable_010', 'resource://stg/cde/vpc/EC2_RouteTable_023'))
     sources = {template.relative_to(after).as_posix()}
     refs = [{'consumer': 'stg/cde/vpc-endpoint/001', 'field': 'value',
              'property': f'EC2.VPCEndpoint.RouteTableIds[{index}]',
@@ -303,6 +304,8 @@ def check_additional_boundaries(tmp_path, failure):
             values = dict(load_model(file).authoritative)
             if failure == 'wrong-type':
                 values['desired.resource.003.resourceType'] = 'Other.Resource'
+                values['desired.resource.003.logicalId'] = 'Other_Resource_001'
+                values['desired.service.identity.lastAllocated'] = '{"ServiceA.Resource":3,"Other.Resource":1}'
             elif failure == 'create-producer':
                 values['desired.resource.001.resourceMode'] = 'CREATE'
                 values['desired.resource.003.resourceMode'] = 'CREATE'

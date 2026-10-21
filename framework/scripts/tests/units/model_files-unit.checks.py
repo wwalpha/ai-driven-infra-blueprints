@@ -10,9 +10,13 @@ from support.model_files_fixtures import *
 
 def check_cfn_selector():
     from model.files import resource_keys
-    text = "desired.resource.007.resourceType=EC2.VPC\ndesired.resource.007.anchor=ec2-network\ndesired.resource.007.cfn-logicalId=cfn-stack-app-dev-network-Vpc\n"
-    expected = resource_keys(text, "007")
-    assert expected == resource_keys(text, "ec2-network") == resource_keys(text, "cfn-stack-app-dev-network-Vpc")
+    import pytest
+    text = 'desired.resource.007.resourceType=EC2.VPC\ndesired.resource.007.logicalId=EC2_VPC_001\ndesired.service.identity.lastAllocated={"EC2.VPC":1}\ndesired.resource.007.cfn-logicalId=cfn-stack-app-dev-network-Vpc\n'
+    assert resource_keys(text, '007') == resource_keys(text, 'EC2_VPC_001')
+    for selector in ('ec2-network', 'cfn-stack-app-dev-network-Vpc'):
+        with pytest.raises(ValueError):
+            resource_keys(text, selector)
+
 
 
 if __name__ == '__main__':

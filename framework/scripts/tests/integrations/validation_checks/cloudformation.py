@@ -103,7 +103,7 @@ def check_stack_mapping_targets():
         path = target / "cloudformation-stacks.md"
         write(path, markdown_for(path, values, root))
         model = model_dir / "ec2.properties"
-        write(model, "desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.anchor=ec2-fixture-vpc\ndesired.resource.001.cfn-logicalId=cfn-stack-app-dev-ism-DepartmentVpc\n")
+        write(model, "desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.logicalId=EC2_VPC_001\ndesired.service.identity.lastAllocated={\"EC2.VPC\":1}\ndesired.resource.001.cfn-logicalId=cfn-stack-app-dev-ism-DepartmentVpc\n")
         def errors():
             validator = MODULE.Validator(root)
             validator.accounts[("dev", "123456789012")] = {"account": "123456789012", "region": "ap-northeast-1", "alias": "", "engine": "cloudformation"}
@@ -121,7 +121,7 @@ def check_stack_mapping_targets():
         write(path, '<a id="iam-confirmed-role"></a>\n')
         model = root / "model/dev/123456789012/iam.properties"
         model.parent.mkdir(parents=True)
-        write(model, 'desired.resource.007.resourceType=IAM.Role\ndesired.resource.007.anchor=iam-confirmed-role\n')
+        write(model, 'desired.resource.007.resourceType=IAM.Role\ndesired.resource.007.logicalId=IAM_Role_001\ndesired.service.identity.lastAllocated={"IAM.Role":1}\n')
         validator = MODULE.Validator(root)
         validator.check_markdown_iam_policy_artifacts(path, "007", [["1", "AssumeRolePolicyDocument", "[Trust](iam/confirmed-role-trust-policy.json)", "信頼ポリシー"]])
         assert not validator.errors, validator.errors

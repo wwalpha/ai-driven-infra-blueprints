@@ -44,6 +44,10 @@ def validate_runtime_keys(values):
     authority = {}
     for key, value in values.items():
         match = re.fullmatch(r'(?:observed\.row\.([A-Za-z0-9_-]+)\.(property|comment)|desired\.row\.([A-Za-z0-9_-]+)\.artifactSha256)', key)
+        if re.fullmatch(r'desired\.resource\.[A-Za-z0-9_-]+\.anchor', key):
+            if value != 'resource-' + values.get(key.removesuffix('anchor') + 'logicalId', ''):
+                raise ValueError('invalid derived Resource anchor: ' + key)
+            continue
         (derived if match else authority)[key] = value
     validate_model_keys(authority)
     for key, value in derived.items():
@@ -73,8 +77,6 @@ def entries(values: dict[str, str], prefix: str) -> list[tuple[str, dict[str, st
             groups.setdefault(identity, {})[field] = value
     if prefix == "desired.resource.":
         for identity, fields in groups.items():
-            # Legacy identity remains readable; new models use their entry number internally.
-            fields.setdefault("logicalId", identity)
             if 'deploymentEncryption' in fields and (fields.get('resourceType') != 'S3.Bucket' or fields['deploymentEncryption'] != 'default'):
                 raise ValueError('deploymentEncryption is only default on an S3.Bucket')
             if "cfn-logicalId" in fields:
@@ -90,8 +92,8 @@ def entries(values: dict[str, str], prefix: str) -> list[tuple[str, dict[str, st
 def validate_model_keys(values: dict[str, str]) -> None:
     """Expanded Model fields; visibility never determines whether a field is legal."""
     fields = {
-        ('desired', 'service'): {'serviceId', 'ownedCatalogResourceTypes'},
-        ('desired', 'resource'): {'resourceType', 'logicalId', 'anchor', 'resourceMode',
+        ('desired', 'service'): {'serviceId', 'ownedCatalogResourceTypes', 'lastAllocated'},
+        ('desired', 'resource'): {'resourceType', 'logicalId', 'resourceMode',
                                 'cfn-logicalId', 'parentProperty', 'parentReference', 'deploymentEncryption'},
         ('desired', 'row'): {'property', 'value', 'comment', 'document'},
         ('observed', 'row'): {'value'},
@@ -99,7 +101,7 @@ def validate_model_keys(values: dict[str, str]) -> None:
         ('display', 'resource'): {'comment', 'label'},
         ('desired', 'stack'): {'name', 'template', 'parameters', 'deployOrder', 'placementName'},
         ('display', 'stack'): {'comment'},
-        ('desired', 'reference'): {'consumerKey', 'pointer', 'text', 'occurrence', 'producerKind', 'producerScope', 'producerId', 'resourceType', 'format', 'property', 'labelPolicy', 'contextProperty'},
+        ('desired', 'reference'): {'consumerKey', 'pointer', 'text', 'occurrence', 'producerKind', 'producerScope', 'producerId', 'producerLogicalId', 'resourceType', 'format', 'property', 'labelPolicy', 'contextProperty'},
         ('desired', 'artifact'): set(ARTIFACT_FIELDS),
     }
     singles = {'display.service.title', 'desired.deployment.maxConcurrentStacks',
@@ -189,9 +191,10 @@ def deployment_settings(values: dict[str, str]) -> tuple[dict[str, str], list[tu
 
 
 def validate_bucket_reference(value: str) -> None:
-    link = LINK.fullmatch(value)
-    if not link or link.group(2) != "s3.md" or not re.fullmatch(r"[a-z0-9_.-]+", link.group(3)):
-        raise ValueError("deployment bucket must reference s3.md in the same target")
+    from model.identity import parse_reference
+    _, _, service, logical = parse_reference(value)
+    if service != 's3' or not logical.startswith('S3_Bucket_'):
+        raise ValueError('deployment bucket must reference an S3.Bucket URI')
 
 
 def validate_key_prefix(value: str) -> None:
@@ -223,11 +226,11 @@ def validate_authority(values):
     validate_model_keys(values)
     for identity, resource in entries(values, 'desired.resource.'):
         if not re.fullmatch(r'[A-Za-z0-9_]+\.[A-Za-z0-9_]+', resource.get('resourceType', '')):
-            raise ValueError('Resource requires resourceType and anchor: ' + identity)
-        if not re.fullmatch(r'[A-Za-z0-9_.-]+', resource.get('anchor', '')):
-            raise ValueError('invalid Resource anchor: ' + identity)
+            raise ValueError('Resource requires a valid resourceType: ' + identity)
         if resource.get('resourceMode', 'CREATE') not in {'CREATE', 'IMPORT'}:
             raise ValueError('resourceMode must be CREATE or IMPORT: ' + identity)
+    from model.identity import resource_index
+    resource_index(values)
     for identity, row in entries(values, 'desired.row.'):
         if not {'property', 'value', 'comment'} <= row.keys():
             raise ValueError('Row requires property, value and comment: ' + identity)

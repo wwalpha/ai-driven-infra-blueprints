@@ -64,19 +64,20 @@ def check_secret_rotation_display(tmp_path, catalog) -> None:
 
     assert not errors(text), errors(text)
     model = """# Synthetic authoritative Model fixture.
+desired.service.identity.lastAllocated={"SecretsManager.Secret":2,"SecretsManager.RotationSchedule":1}
 desired.service.secretsmanager.serviceId=secretsmanager
 desired.service.secretsmanager.ownedCatalogResourceTypes=SecretsManager.Secret,SecretsManager.RotationSchedule
 desired.resource.001.resourceType=SecretsManager.Secret
-desired.resource.001.anchor=secretsmanager-app-dev-key
-desired.resource.001.logicalId=AppKey
+desired.resource.001.logicalId=SecretsManager_Secret_001
+desired.resource.001.cfn-logicalId=fixture-AppKey
 desired.row.001-001.property=SecretsManager.Secret.Name
 desired.row.001-001.value=`app-dev-key`
 desired.row.001-001.comment=secretの名前
 desired.resource.002.resourceType=SecretsManager.RotationSchedule
-desired.resource.002.anchor=secretsmanager-app-dev-key_rotate
-desired.resource.002.logicalId=AppKeyRotation
+desired.resource.002.logicalId=SecretsManager_RotationSchedule_001
+desired.resource.002.cfn-logicalId=fixture-AppKeyRotation
 desired.resource.002.parentProperty=SecretsManager.RotationSchedule.SecretId
-desired.resource.002.parentReference=[AppKey](#secretsmanager-app-dev-key)
+desired.resource.002.parentReference=resource://dev/123456789012/secretsmanager/SecretsManager_Secret_001
 desired.row.002-001.property=SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate
 desired.row.002-001.value=`false`
 desired.row.002-001.comment=更新直後のrotation実行設定
@@ -84,11 +85,11 @@ desired.row.002-002.property=SecretsManager.RotationSchedule.RotationRules.Autom
 desired.row.002-002.value=`30`
 desired.row.002-002.comment=rotationの間隔日数
 desired.row.002-003.property=SecretsManager.RotationSchedule.SecretId
-desired.row.002-003.value=[AppKey](#secretsmanager-app-dev-key)
+desired.row.002-003.value=resource://dev/123456789012/secretsmanager/SecretsManager_Secret_001
 desired.row.002-003.comment=対象secretのID
 desired.resource.003.resourceType=SecretsManager.Secret
-desired.resource.003.anchor=secretsmanager-app-dev-token
-desired.resource.003.logicalId=AppToken
+desired.resource.003.logicalId=SecretsManager_Secret_002
+desired.resource.003.cfn-logicalId=fixture-AppToken
 desired.row.003-001.property=SecretsManager.Secret.Name
 desired.row.003-001.value=`app-dev-token`
 desired.row.003-001.comment=secretの名前
@@ -96,7 +97,7 @@ desired.row.003-001.comment=secretの名前
     assert "desired.resource.004" not in model
     assert "desired.row.002-001.property=SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate" in model
     assert "desired.row.002-002.value=`30`" in model
-    assert "desired.row.002-003.value=[AppKey](#secretsmanager-app-dev-key)" in model
+    assert "desired.row.002-003.value=resource://dev/123456789012/secretsmanager/SecretsManager_Secret_001" in model
     assert "observed.row.002-003" not in model
     values = model_core.properties(model)
     values.update({'display.service.title': '# Secrets Manager 詳細設計',
@@ -692,10 +693,11 @@ def check_config_firehose_references(tmp_path, catalog) -> None:
 desired.service.config.serviceId=config
 desired.service.config.ownedCatalogResourceTypes=Config.ConfigurationRecorder
 desired.resource.001.resourceType=Config.ConfigurationRecorder
-desired.resource.001.anchor=config-configuration-recorder-recorder
-desired.resource.001.logicalId=ConfigRecorder
+desired.resource.001.logicalId=Config_ConfigurationRecorder_001
+desired.resource.001.cfn-logicalId=ConfigRecorder
+desired.service.identity.lastAllocated={"Config.ConfigurationRecorder":1}
 desired.row.001-001.property=Config.ConfigurationRecorder.Id
-desired.row.001-001.value=[ConfigRecorder](#config-configuration-recorder-recorder)
+desired.row.001-001.value=resource://dev/123456789012/config/Config_ConfigurationRecorder_001
 desired.row.001-001.comment=設定する属性
 observed.row.001-001.property=Config.ConfigurationRecorder.Id
 observed.row.001-001.value=`PENDING_DEPLOY`

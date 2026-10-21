@@ -22,6 +22,7 @@ def selection(tmp_path, monkeypatch):
                        f'display.resource.{number}.comment': '合成'})
     values.update({'desired.reference.ref.consumerKey': 'desired.row.001-001.value',
                    'desired.reference.ref.producerId': '003'})
+    monkeypatch.setattr('model.references.diagnose', lambda *a, **k: ((), {}))
     monkeypatch.setattr('model.core.validate_authority', lambda v: None)
     monkeypatch.setattr('model.sources.runtime_values', dict)
     monkeypatch.setattr('model.core.validate_runtime_keys', lambda v: None)
@@ -69,7 +70,7 @@ def check_selection_order_findings_and_fresh_calls(selection):
     assert values == before
     assert findings.errors == ['mapping failure', 'provider schema violation: Logs.LogGroup.RetentionInDays: literal failure'] * 2
     ids = [r.check_id for r in findings.results.values()]
-    assert ids == ['model.structure'] + [check for n in numbers for check in (
+    assert ids == ['model.structure', 'model.references'] + [check for n in numbers for check in (
         'model.required.' + n, 'model.mapping.' + n, 'model.naming.' + n, 'model.literal.' + n + '-001')
     ] + ['model.observed'] + ['model.identity.' + n for n in numbers] + ['model.presentation']
     assert [r.status for r in findings.results.values() if r.check_id.startswith('model.required.')] == ['NOT_RUN'] * 2

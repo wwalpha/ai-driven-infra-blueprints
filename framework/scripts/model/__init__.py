@@ -20,3 +20,9 @@ def publish_edit(plan, context):
 def render_model(snapshot, context):
     from model.render import render_model as render
     return render(snapshot, context)
+
+
+def publish_edits(plans, context):
+    """Publish prepared services as one guarded transaction."""
+    from model.operations import _publish_plans
+    return _publish_plans(tuple(plans), context)

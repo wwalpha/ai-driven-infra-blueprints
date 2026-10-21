@@ -85,14 +85,15 @@ def check_kms_alias(root):
     fixture(root)
     producer = root / 'model/preview/team/kms.properties'
     values = service_values('kms', ['KMS.Key', 'KMS.Alias'])
-    values.update(resource_values('011', 'KMS.Key', 'kms-material-key', 'CREATE', [('KeyId', '[011](#kms-material-key)')]))
+    values.update(resource_values('011', 'KMS.Key', 'kms-material-key', 'CREATE', [('KeyId', 'resource://preview/team/kms/KMS_Key_011')]))
     values.update(resource_values('012', 'KMS.Alias', 'kms-alias-app-preview-material-one', 'CREATE', [
-        ('AliasName', '`alias/app-preview-material-one`'), ('TargetKeyId', '[011](#kms-material-key)')]))
+        ('AliasName', '`alias/app-preview-material-one`'), ('TargetKeyId', 'resource://preview/team/kms/KMS_Key_011')]))
     values['desired.resource.012.parentProperty'] = 'KMS.Alias.TargetKeyId'
-    values['desired.resource.012.parentReference'] = '[011](#kms-material-key)'
+    values['desired.resource.012.parentReference'] = 'resource://preview/team/kms/KMS_Key_011'
+    values['desired.service.identity.lastAllocated'] = json.dumps({'KMS.Key': 11, 'KMS.Alias': 12})
     write_model(producer, values)
     path = producer.with_name('codecommit.properties')
-    link = '[alias/app-preview-material-one](kms.md#kms-alias-app-preview-material-one)'
+    link = 'resource://preview/team/kms/KMS_Alias_012'
     consumer = service_values('codecommit', ['CodeCommit.Repository'])
     consumer.update(resource_values('021', 'CodeCommit.Repository', 'codecommit-repository', 'CREATE', [
         ('KmsKeyId', link), ('RepositoryDescription', 'alias/app-preview-material-one')]))
@@ -105,7 +106,7 @@ def check_kms_alias(root):
     assert not before.warnings and producer in before.dependencies
     assert before.authoritative['desired.row.021-001.value'] == link
     # A Key's grouped display must never satisfy a raw Key Property reference using its child's name.
-    invalid = {**consumer, 'desired.reference.raw-name.producerId': '011', 'desired.reference.raw-name.resourceType': 'KMS.Key',
+    invalid = {**consumer, 'desired.reference.raw-name.producerLogicalId': 'KMS_Key_011', 'desired.reference.raw-name.resourceType': 'KMS.Key',
                'desired.reference.raw-name.property': 'KMS.Key.KeyId'}
     assert load_model(path, CandidateReads(FileReads(), {path: serialize(invalid)})).warnings
     saved, digest = path.read_bytes(), design_source_digest(path)
@@ -142,14 +143,14 @@ def check_external_instances(root):
         snapshot = load_model(path)
         assert not snapshot.warnings and producer in snapshot.dependencies
         assert len(incoming(load_model(producer), rid)) == 2
-        assert snapshot.authoritative['desired.reference.name.producerId'] == rid
+        assert snapshot.authoritative['desired.reference.name.producerLogicalId'] == 'SecretsManager_Secret_' + rid
         consumers[env] = (path, snapshot, producer)
     path, before, producer = consumers['dev']
     changed = producer.read_text().replace('secret-dev', 'secret-dev-updated')
     after = load_model(path, CandidateReads(FileReads(), {producer: changed}))
     assert after.authoritative == before.authoritative and after.warnings
     assert load_model(consumers['stg'][0]).authoritative == consumers['stg'][1].authoritative
-    for field, raw in [('producerId', '999'), ('resourceType', 'Glue.SecurityConfiguration')]:
+    for field, raw in [('producerLogicalId', 'SecretsManager_Secret_999'), ('resourceType', 'Glue.SecurityConfiguration')]:
         candidate = {**before.authoritative, 'desired.reference.name.' + field: raw}
         model = load_model(path, CandidateReads(FileReads(), {path: serialize(candidate)}))
         assert model.warnings and model.authoritative['desired.row.001-001.value'] == '`secret-dev`'

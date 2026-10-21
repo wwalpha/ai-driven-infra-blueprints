@@ -4,8 +4,9 @@ import json
 from pathlib import Path
 from model.format import json_field
 from utils.json_format import strict_json
-from model.sources import Scope, load_model, list_models, FileReads
+from model.sources import Scope, list_models, FileReads
 from model.migration.convert import checked_export
+from model.identity_rewrite import baseline_snapshot
 
 
 def semantic(values):
@@ -36,7 +37,7 @@ def compare_export(value, candidate_root):
     if expected.keys() != discovered:
         raise ValueError('migration Model scope set differs: missing=' + str(expected.keys() - discovered) + '; extra=' + str(discovered - expected.keys()))
     for identity, model in expected.items():
-        snapshot = load_model(Scope(root, *identity), reads)
+        snapshot = baseline_snapshot(Scope(root, *identity), reads)
         if semantic(snapshot.authoritative) != semantic(model['authoritative']):
             keys = snapshot.authoritative.keys() ^ model['authoritative'].keys()
             changed = [key for key in snapshot.authoritative.keys() & model['authoritative'].keys()

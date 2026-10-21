@@ -59,9 +59,10 @@ def fixture(root, environments=('dev','prod'), *, definitions_root=None):
 
 def role_model(env,count):
     result={'desired.service.iam.serviceId':'iam','desired.service.iam.ownedCatalogResourceTypes':'IAM.Role','display.service.title':'# IAM 詳細設計'}
+    result['desired.service.identity.lastAllocated'] = json_text({'IAM.Role': count})
     for number in range(count):
         identity=f'{11+number*7:03d}';name=f'app-{env}-role-{number+1}'
-        result.update({f'desired.resource.{identity}.resourceType':'IAM.Role',f'desired.resource.{identity}.anchor':'iam-'+name,
+        result.update({f'desired.resource.{identity}.resourceType':'IAM.Role',f'desired.resource.{identity}.logicalId':f'IAM_Role_{number + 1:03d}',
                        f'desired.resource.{identity}.resourceMode':'IMPORT',f'display.resource.{identity}.comment':'共通の処理権限',
                        f'desired.row.{identity}-004.property':'IAM.Role.RoleName',f'desired.row.{identity}-004.value':'`'+name+'`',
                        f'desired.row.{identity}-004.comment':'ロール名',f'desired.row.{identity}-008.property':'IAM.Role.AssumeRolePolicyDocument',
@@ -73,10 +74,11 @@ def role_model(env,count):
 def config_model():
     return {'desired.service.config.serviceId':'config','desired.service.config.ownedCatalogResourceTypes':'Config.ConfigurationRecorder',
             'display.service.title':'# AWS Config 詳細設計','desired.resource.007.resourceType':'Config.ConfigurationRecorder',
-            'desired.resource.007.anchor':'config-configuration-recorder-default','desired.resource.007.resourceMode':'IMPORT','display.resource.007.comment':'構成情報を記録',
+            'desired.resource.007.logicalId':'Config_ConfigurationRecorder_001',
+            'desired.service.identity.lastAllocated':'{"Config.ConfigurationRecorder":1}','desired.resource.007.resourceMode':'IMPORT','display.resource.007.comment':'構成情報を記録',
             'desired.row.007-001.property':'Config.ConfigurationRecorder.Name','desired.row.007-001.value':'`default`','desired.row.007-001.comment':'記録名',
             'desired.row.007-005.property':'Config.ConfigurationRecorder.RoleARN','desired.row.007-005.value':'`AWSServiceRoleForConfig`','desired.row.007-005.comment':'記録する権限',
-            'desired.row.007-009.property':'Config.ConfigurationRecorder.Id','desired.row.007-009.value':'[007](#config-configuration-recorder-default)','desired.row.007-009.comment':'記録ID',
+            'desired.row.007-009.property':'Config.ConfigurationRecorder.Id','desired.row.007-009.value':'resource://dev/team/config/Config_ConfigurationRecorder_001','desired.row.007-009.comment':'記録ID',
             'observed.row.007-009.value':'`default`'}
 
 def write_fixture(root, env, service, values):

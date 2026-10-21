@@ -2,6 +2,7 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
+from model.identity import allocate
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 from support.validator import diagnostics
 
@@ -97,9 +98,10 @@ def check_stage_definition_sources(generated_policy, tmp_path):
         write_model(producer, {
             'desired.service.kms.serviceId': 'kms',
             'desired.resource.001.resourceType': 'KMS.Key',
-            'desired.resource.001.anchor': 'kms-key',
+            'desired.resource.001.logicalId': 'KMS_Key_001',
+            'desired.service.identity.lastAllocated': '{"KMS.Key":1}',
             'desired.row.001-001.property': 'KMS.Key.KeyId',
-            'desired.row.001-001.value': '[key](#kms-key)',
+            'desired.row.001-001.value': f'resource://{environment}/123456789012/kms/KMS_Key_001',
             'desired.row.001-001.comment': '合成識別子',
             'observed.row.001-001.value': '`source-key`',
         })
@@ -111,7 +113,7 @@ def check_stage_definition_sources(generated_policy, tmp_path):
         write_model(consumer, candidate)
         fields = {'consumerKey': 'desired.row.001-002.document', 'pointer': '/Statement/0/Condition/StringEquals/kms:KeyId',
                   'text': 'source-key', 'occurrence': '1', 'producerKind': 'resource',
-                  'producerScope': environment + '/123456789012/kms', 'producerId': '001',
+                  'producerScope': environment + '/123456789012/kms', 'producerLogicalId': 'KMS_Key_001',
                   'resourceType': 'KMS.Key', 'format': 'identifier', 'property': 'KMS.Key.KeyId', 'labelPolicy': 'none'}
         candidate.update({'desired.reference.key-id.' + key: value for key, value in fields.items()})
         write_model(consumer, candidate)
@@ -610,12 +612,9 @@ def check_required_preflight(framework_root) -> None:
         "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
     model = root / "model/dev/123456789012/quicksight.properties"
     model.parent.mkdir(parents=True)
-    values = {
-        "desired.service.quicksight.serviceId": "quicksight",
+    values = {"desired.service.quicksight.serviceId": "quicksight",
         "desired.service.quicksight.ownedCatalogResourceTypes": "QuickSight.DataSource",
         "desired.resource.001.resourceType": "QuickSight.DataSource",
-        "desired.resource.001.logicalId": "AthenaSource",
-        "desired.resource.001.anchor": "quicksight-qs-app-dev-athena",
         "display.service.title": "# QuickSight 詳細設計",
         "display.resource.001.comment": "分析用データソース",
         "desired.row.001-001.property": "QuickSight.DataSource.Name",
@@ -624,8 +623,8 @@ def check_required_preflight(framework_root) -> None:
         "desired.row.001-002.property": "QuickSight.DataSource.Credentials.KeyPairCredentials",
         "desired.row.001-002.value": "[設定](quicksight/credentials.json)",
         "desired.row.001-002.document": '{"KeyPairUsername":"test","PrivateKey":"test"}',
-        "desired.row.001-002.comment": "接続の認証設定",
-    }
+        "desired.row.001-002.comment": "接続の認証設定"}
+    values.update(allocate(values, ['001']))
     source = "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
     write_model(model, source)
     source = read_model(model)
@@ -694,15 +693,12 @@ def check_required_property_parents(tmp_path) -> None:
         "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
     model = root / "model/dev/123456789012/glue.properties"
     model.parent.mkdir(parents=True)
-    values = {
-        "desired.service.glue.serviceId": "glue",
+    values = {"desired.service.glue.serviceId": "glue",
         "desired.service.glue.ownedCatalogResourceTypes": "Glue.Connection",
         "desired.resource.001.resourceType": "Glue.Connection",
-        "desired.resource.001.logicalId": "Connection",
-        "desired.resource.001.anchor": "glue-sample",
         "display.service.title": "# AWS Glue 詳細設計",
-        "display.resource.001.comment": "データ取得に使用する接続",
-    }
+        "display.resource.001.comment": "データ取得に使用する接続"}
+    values.update(allocate(values, ['001']))
     for number, (field, value) in enumerate((
         ("ConnectionInput.Name", "`sample`"),
         ("Name", "[Connection](#glue-sample)"),
@@ -1383,15 +1379,14 @@ def check_multiple_targets_barrier(generated_policy, failure):
     (root/'project.json').write_text(json.dumps(project)+'\n')
     log_model = root/'model/stg/123456789012/logs.properties'
     log_values = {'desired.service.logs.serviceId': 'logs',
-                  'desired.service.logs.ownedCatalogResourceTypes': 'Logs.LogGroup',
-                  'display.service.title': '# Logs 詳細設計',
-                  'desired.resource.001.resourceType': 'Logs.LogGroup',
-                  'desired.resource.001.logicalId': 'ApplicationLog',
-                  'desired.resource.001.anchor': 'logs-cwlogs-app-stg',
-                  'display.resource.001.comment': 'アプリケーションの実行ログ',
-                  'desired.row.001-001.property': 'Logs.LogGroup.LogGroupName',
-                  'desired.row.001-001.value': '`cwlogs-app-stg`',
-                  'desired.row.001-001.comment': 'ログを識別する名前'}
+        'desired.service.logs.ownedCatalogResourceTypes': 'Logs.LogGroup',
+        'display.service.title': '# Logs 詳細設計',
+        'desired.resource.001.resourceType': 'Logs.LogGroup',
+        'display.resource.001.comment': 'アプリケーションの実行ログ',
+        'desired.row.001-001.property': 'Logs.LogGroup.LogGroupName',
+        'desired.row.001-001.value': '`cwlogs-app-stg`',
+        'desired.row.001-001.comment': 'ログを識別する名前'}
+    log_values.update(allocate(log_values, ['001']))
     if failure == 'candidate':
         del log_values['desired.row.001-001.value']
     write_model(log_model, log_values)

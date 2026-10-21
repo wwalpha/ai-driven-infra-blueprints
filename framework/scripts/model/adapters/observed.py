@@ -7,7 +7,9 @@ import re
 from design_catalog import DesignSchemaCatalog
 from iac_values import cfn_resource_identity
 from model.projection import catalog_outputs
-from model.core import properties, entries, stack_model, LINK
+from model.core import properties, entries, stack_model
+from model.identity import URI, address
+from model.sources import scope_for
 from cloudformation_inputs import Blocked, condition_active, output_value, load_template_inputs, load_target
 from model.sources import design_source_digest
 from model.sources import model_paths, model_exists, input_snapshot
@@ -53,10 +55,6 @@ def resource_index(loaded, catalog):
             entry = (path, identity, resource, cfn_type)
             if "cfn-logicalId" in resource:
                 direct.setdefault(cfn_resource_identity(resource["cfn-logicalId"]), []).append(entry)
-            elif cfn_type and resource.get("resourceMode", "CREATE") == "CREATE" and f"desired.resource.{identity}.logicalId" in values:
-                # Read-only transition support for pre-existing models, never for new identities.
-                for logical in {resource["logicalId"], cfn_identity(resource["logicalId"])}:
-                    legacy.setdefault((cfn_type, logical), []).append(entry)
     return direct, legacy
 
 
@@ -103,13 +101,8 @@ def identifier_source(catalog, resource, outputs, logical, prop, values):
 
 def mapped_resource(direct, legacy, name, logical, cfn_type, explicit):
     candidates = direct.get((name, logical), [])
-    if candidates or explicit:
-        if len(candidates) != 1:
-            raise ValueError(f"cfn-logicalId matches={len(candidates)}; legacy fallback forbidden")
-    else:
-        candidates = legacy.get((cfn_type, logical), [])
-        if len(candidates) != 1:
-            raise ValueError(f"model resource matches={len(candidates)}; cfn-logicalId required")
+    if len(candidates) != 1:
+        raise ValueError(f"cfn-logicalId matches={len(candidates)}; explicit mapping required")
     entry = candidates[0]
     if entry[2].get("resourceMode", "CREATE") != "CREATE":
         raise ValueError("cfn-logicalId requires CREATE")
@@ -226,11 +219,11 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
                         raise ValueError(f"integrated child settings missing from parent model: {kind}")
                 for prop in outputs:
                     selected = [(rid, row) for rid, row in rows if row["property"] == prop]
-                    link = LINK.fullmatch(selected[0][1]["value"]) if len(selected) == 1 else None
+                    link = URI.fullmatch(selected[0][1]["value"]) if len(selected) == 1 else None
                     if not link:
                         errors.setdefault(name, []).append(f"{name}/{logical}: identifier row missing/ambiguous: {prop}")
-                    elif link.group(2) not in {"", path.stem + ".md"} or link.group(3) != resource["anchor"]:
-                        errors.setdefault(name, []).append(f"{name}/{logical}: identifier must reference its own resource anchor: {prop}")
+                    elif link[0] != address(scope_for(path), resource["logicalId"]):
+                        errors.setdefault(name, []).append(f"{name}/{logical}: identifier must reference its own Resource URI: {prop}")
                     primary, keys = identifier_source(catalog, resource, outputs, logical, prop, output_values)
                     if not deleting and not primary and not keys:
                         errors.setdefault(name, []).append(f"{name}/{logical}: required GetAtt Output missing: {prop}")
@@ -289,7 +282,7 @@ def sync_successful(backend, units, states):
                     if row["property"] in selected_outputs:
                         changes.setdefault(path, {})[f"observed.row.{rid}.value"] = "`PENDING_DEPLOY`"
                         design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
-                        identifiers[design.resolve(), resource["anchor"]] = "PENDING_DEPLOY"
+                        identifiers[address(scope_for(path), resource["logicalId"])] = "PENDING_DEPLOY"
                 continue
             definition = document["Resources"][logical]
             actual = by_logical.get(logical)
@@ -313,14 +306,13 @@ def sync_successful(backend, units, states):
                 value = values[0] if values else physical
                 if not isinstance(value, str) or not value or re.search(r"\barn:aws[a-z-]*:", value, re.I) or any(c in value for c in "\r\n`"):
                     ambiguous(f"{name}/{logical}: non-ARN identifier unavailable: {prop}")
-                link = LINK.fullmatch(row["value"])
+                link = URI.fullmatch(row["value"])
                 design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
-                target = (design.parent / link.group(2)).resolve() if link.group(2) else design.resolve()
-                if target != design.resolve() or link.group(3) != resource["anchor"]:
-                    ambiguous(f"{name}/{logical}: identifier must reference its own resource anchor")
-                anchor_key = (design.resolve(), resource["anchor"])
+                if not link or link[0] != address(scope_for(path), resource["logicalId"]):
+                    ambiguous(f"{name}/{logical}: identifier must reference its own Resource URI")
+                anchor_key = address(scope_for(path), resource["logicalId"])
                 if anchor_key in identifiers and identifiers[anchor_key] != value:
-                    ambiguous(f"{name}/{logical}: multiple identifiers for one anchor")
+                    ambiguous(f"{name}/{logical}: multiple identifiers for one Resource")
                 identifiers[anchor_key] = value
                 changes.setdefault(path, {})[f"observed.row.{rid}.value"] = f"`{value}`"
     propagate_references(root, loaded, changes, identifiers)
@@ -348,24 +340,22 @@ def propagate_references(root, loaded, changes, identifiers, by_identifier=None)
         linked = False
         values = properties(read_model(path))
         for key, value in values.items():
-            link = LINK.fullmatch(value) if key.startswith("desired.row.") and key.endswith(".value") else None
+            link = URI.fullmatch(value) if key.startswith("desired.row.") and key.endswith(".value") else None
             if link:
-                target = (design.parent / link.group(2)).resolve() if link.group(2) else design.resolve()
-                linked |= (target, link.group(3)) in identifiers
+                linked |= link[0] in identifiers
         if linked:
             loaded[path] = properties(read_model(path))
     # Include every incoming reference, including out-of-scope ones; reject before any write.
     for path, values in loaded.items():
         design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
         for rid, row in entries(values, "desired.row."):
-            link = LINK.fullmatch(row["value"])
+            link = URI.fullmatch(row["value"])
             if not link or row["property"] == CODEBUILD_FORMAL_VARIABLE + "Value":
                 continue
-            target = (design.parent / link.group(2)).resolve() if link.group(2) else design.resolve()
-            if (target, link.group(3)) in identifiers:
-                changes.setdefault(path, {}).setdefault(f"observed.row.{rid}.value", identifiers[target, link.group(3)])
+            if link[0] in identifiers:
+                changes.setdefault(path, {}).setdefault(f"observed.row.{rid}.value", identifiers[link[0]])
                 if by_identifier is not None:
-                    by_identifier.setdefault((target, link.group(3)), {}).setdefault(path, {})[f"observed.row.{rid}.value"] = identifiers[target, link.group(3)]
+                    by_identifier.setdefault(link[0], {}).setdefault(path, {})[f"observed.row.{rid}.value"] = identifiers[link[0]]
 
 
 def observed_destinations(root, environment, directory, loaded, changes, check_scope=True):
@@ -387,7 +377,7 @@ def observed_destinations(root, environment, directory, loaded, changes, check_s
         design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
         views.add(design)
         for _, row in entries(loaded[path], "desired.row."):
-            if match := model_projection.JSON_LINK.fullmatch(row["value"]):
+            if match := model_projection.JSON_URI.fullmatch(row["value"]):
                 views.add((design.parent / match.group(1)).resolve())
     if not check_scope:
         return destinations, views, sync
@@ -456,16 +446,16 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
                 if len(selected) != 1:
                     ambiguous(f"{name}/{logical}: identifier row missing/ambiguous: {prop}")
                 rid, row = selected[0]
-                link = LINK.fullmatch(row["value"])
-                if not link or link.group(2) not in {"", path.stem + ".md"} or link.group(3) != resource["anchor"]:
-                    ambiguous(f"{name}/{logical}: identifier must reference its own resource anchor")
+                link = URI.fullmatch(row["value"])
+                if not link or link[0] != address(scope_for(path), resource["logicalId"]):
+                    ambiguous(f"{name}/{logical}: identifier must reference its own Resource URI")
                 changes_by_stack[name].setdefault(path, {})[f"observed.row.{rid}.value"] = "`PENDING_DEPLOY`"
-                anchors[name][design.resolve(), resource["anchor"]] = "PENDING_DEPLOY"
+                anchors[name][address(scope_for(path), resource["logicalId"])] = "PENDING_DEPLOY"
     result, paths, services, inputs = {}, set(), set(), {}
     all_anchors = {}
     for name in stack_names:
         if all_anchors.keys() & anchors[name].keys():
-            ambiguous("identifier anchor owned by multiple stacks")
+            ambiguous("identifier Resource owned by multiple stacks")
         all_anchors.update(anchors[name])
     references = {}
     propagate_references(root, loaded, {}, all_anchors, references)

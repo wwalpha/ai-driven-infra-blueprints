@@ -46,113 +46,45 @@ def legacy_comparison(root, count=3, services=1, stacks=2):
   return comparison
 
 
-class LegacySearchTests(unittest.TestCase):
-  def test_order_failures_and_explicit_priority(self):
-    for case in ('normal', 'ambiguous', 'missing', 'broken', 'duplicate', 'explicit', 'mixed-errors'):
-      with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
-        comparison = legacy_comparison(Path(directory))
-        template = comparison.root / 'infra/cloudformation/templates/1.json'
-        if case == 'ambiguous':
-          document = json.loads(template.read_text(encoding='utf-8'))
-          document['Resources']['Log0'] = {'Type': 'AWS::Logs::LogGroup', 'Properties': {'RetentionInDays': 7}}
-          template.write_text(json.dumps(document), encoding='utf-8')
-        elif case == 'missing':
-          template.unlink()
-        elif case == 'broken':
-          template.write_text('{broken', encoding='utf-8')
-        elif case in ('duplicate', 'explicit', 'mixed-errors'):
-          values = comparison.models['service-0'].values
-          values['desired.resource.0001.logicalId'] = 'Log0'
-          comparison.resources['service-0']['0001']['logicalId'] = 'Log0'
-          if case == 'explicit':
-            values['desired.resource.0000.cfn-logicalId'] = 'stack0-Log0'
-            comparison.resources['service-0']['0000']['cfn-logicalId'] = 'stack0-Log0'
-          if case == 'mixed-errors':
-            template.unlink()
-        reads = []
-        original = comparison.stack_input
-        def stack_input(unit):
-          reads.append(unit['name'])
-          return original(unit)
-        comparison.stack_input = stack_input
-        results = comparison.run()
-        self.assertEqual([item['resource'] for item in results], ['0000', '0001', '0002'])
-        self.assertEqual(list(dict.fromkeys(reads)), ['stack0', 'stack1'])
-        self.assertEqual(len(comparison.inputs), 6)
-        self.assertEqual(set(comparison.read_hashes), comparison.inputs - {comparison.root / 'project.json'})
-        if case == 'normal':
-          self.assertEqual([item['category'] for item in results], ['matched'] * 3)
-          self.assertEqual(reads, ['stack0', 'stack1'])
-        elif case == 'explicit':
-          self.assertEqual(results[0]['category'], 'matched')
-          self.assertIn('legacy fallback forbidden', results[1]['reason'])
-        elif case == 'ambiguous':
-          self.assertIn('legacy correspondence matches=2', results[0]['reason'])
-          self.assertEqual(results[1]['category'], 'matched')
-        elif case in ('missing', 'mixed-errors'):
-          self.assertTrue(all(item['category'] == 'uncompared' for item in results))
-          if case == 'missing':
-            self.assertTrue(all(item['cause']['relationship'] == 'legacy-search-incomplete' for item in results))
-          else:
-            self.assertTrue(all('cause' not in item for item in results))
-            self.assertLess(results[0]['reason'].index('stack0/Log0'), results[0]['reason'].index('stack1:'))
-        elif case == 'broken':
-          self.assertTrue(all(item['category'] == 'error' and 'invalid template' in item['reason'] for item in results))
-        else:
-          self.assertTrue(all('model resource matches=2' in item['reason'] for item in results))
-
-  def test_index_invalidation_and_run_isolation(self):
+class ExplicitIdentityTests(unittest.TestCase):
+  def test_missing_mapping_never_searches_legacy_ids(self):
     with tempfile.TemporaryDirectory() as directory:
       comparison = legacy_comparison(Path(directory))
-      compare_rows = comparison.compare_rows
-      def change_index(*args):
-        compare_rows(*args)
-        if args[1] == '0000':
-          values = comparison.models['service-0'].values
-          values['desired.resource.0001.logicalId'] = 'Changed'
-          comparison._index = None
-      comparison.compare_rows = change_index
-      results = comparison.run()
-      self.assertEqual(results[0]['category'], 'matched')
-      self.assertIn('model resource matches=0', results[1]['reason'])
-      self.assertIn('model resource matches=0', results[2]['reason'])
-      comparison.models['service-0'].values['desired.resource.0001.logicalId'] = 'Log1'
-      comparison._index = None
-      comparison.compare_rows = compare_rows
-      comparison.results = []
+      with patch.object(comparison, 'stack_input', side_effect=AssertionError('implicit CFn search')):
+        results = comparison.run()
+      self.assertEqual([item['category'] for item in results], ['uncompared'] * 3)
+      self.assertTrue(all('explicit cfn-logicalId is required' in item['reason'] for item in results))
+
+  def test_explicit_mapping_and_run_isolation(self):
+    with tempfile.TemporaryDirectory() as directory:
+      comparison = legacy_comparison(Path(directory))
+      for number in range(3):
+        key = f'{number:04d}'
+        mapping = f'stack{number % 2}-Log{number}'
+        comparison.resources['service-0'][key]['cfn-logicalId'] = mapping
+        comparison.models['service-0'].values[f'desired.resource.{key}.cfn-logicalId'] = mapping
       self.assertEqual([item['category'] for item in comparison.run()], ['matched'] * 3)
-      # Mutate the existing document and retain the Model index across runs.
       del comparison.stack_inputs['stack1'][0]['Resources']['Log1']
       comparison.results = []
-      self.assertIn('legacy correspondence matches=0', comparison.run()[1]['reason'])
+      self.assertEqual(comparison.run()[1]['reason'], 'resource missing')
+      # Changing a Model logicalId never changes the explicit CFn correspondence.
+      comparison.resources['service-0']['0000']['logicalId'] = 'Logs_LogGroup_999'
+      comparison.results = []
+      self.assertEqual(comparison.run()[0]['category'], 'matched')
 
-  def test_types_are_separate_and_model_load_invalidates(self):
+  def test_duplicate_direct_ownership_and_type_mismatch(self):
     with tempfile.TemporaryDirectory() as directory:
       comparison = legacy_comparison(Path(directory))
+      for key in ('0000', '0001'):
+        comparison.resources['service-0'][key]['cfn-logicalId'] = 'stack0-Log0'
+        comparison.models['service-0'].values[f'desired.resource.{key}.cfn-logicalId'] = 'stack0-Log0'
+      self.assertTrue(all('duplicate resource correspondence' in item['reason'] for item in comparison.run()[:2]))
+      comparison.resources['service-0']['0001']['cfn-logicalId'] = 'stack1-Log1'
+      comparison.models['service-0'].values['desired.resource.0001.cfn-logicalId'] = 'stack1-Log1'
       comparison.resources['service-0']['0001']['resourceType'] = 'SQS.Queue'
-      comparison.models['service-0'].values['desired.resource.0001.resourceType'] = 'SQS.Queue'
-      path = comparison.root / 'infra/cloudformation/templates/1.json'
-      path.write_text(json.dumps({'Resources': {'Log1': {'Type': 'AWS::SQS::Queue',
-          'Properties': {'VisibilityTimeout': 30}}}}), encoding='utf-8')
-      comparison.rows['service-0']['0001'] = [('0001-001', {
-          'property': 'SQS.Queue.VisibilityTimeout', 'value': '`30`'})]
-      original = comparison.compare_rows
-      def load_duplicate(*args):
-        original(*args)
-        if args[1] == '0000':
-          source = comparison.root / 'model/fixture/team/extra.properties'
-          raw = b'synthetic extra model'
-          source.write_bytes(raw)
-          loaded = SimpleNamespace(values={'desired.service.extra.serviceId': 'extra',
-              'desired.resource.001.resourceType': 'Logs.LogGroup',
-              'desired.resource.001.logicalId': 'Log2'}, dependencies={source: raw}, locations={})
-          with patch('issues_iac.load_model', return_value=loaded):
-            comparison.model('extra')
-      comparison.compare_rows = load_duplicate
-      results = comparison.run()
-      self.assertEqual(results[0]['category'], 'matched')
-      self.assertEqual(results[1]['category'], 'matched')
-      self.assertIn('model resource matches=2', results[2]['reason'])
+      comparison._index = None
+      comparison.results = []
+      self.assertIn('formal resource type mismatch', comparison.run()[1]['reason'])
 
 
 class ImportValueResolutionTests(unittest.TestCase):
@@ -173,9 +105,9 @@ class ImportValueResolutionTests(unittest.TestCase):
       for service, identity, kind, logical in [
           ('kms', '001', 'KMS.Key', 'Key'), ('kms', '002', 'KMS.Alias', 'Alias'),
           ('kms', '003', 'KMS.Key', 'OtherKey'), ('s3', '001', 'S3.Bucket', 'Bucket')]:
-        resource = {'resourceType': kind, 'anchor': logical.lower(), 'cfn-logicalId': 'producer-' + logical}
+        resource = {'resourceType': kind, 'logicalId': kind.replace('.', '_') + '_' + identity, 'cfn-logicalId': 'producer-' + logical}
         if kind == 'KMS.Alias':
-          resource['parentReference'] = '[Key](#key)'
+          resource['parentReference'] = 'resource://fixture/team/kms/KMS_Key_001'
         comparison.resources[service][identity] = resource
         comparison.rows[service][identity] = []
         definitions[logical] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': {}}
@@ -196,7 +128,8 @@ class ImportValueResolutionTests(unittest.TestCase):
       comparison.export_failures = []
       prop = 'Environment.EnvironmentVariables[].Value'
       def desired(logical, attribute=None, name='VALUE'):
-        link = f'[{logical}]({"s3" if logical == "Bucket" else "kms"}.md#{logical.lower()})'
+        ids = {'Key': 'KMS_Key_001', 'Alias': 'KMS_Alias_002', 'OtherKey': 'KMS_Key_003', 'Bucket': 'S3_Bucket_001', 'Missing': 'KMS_Key_999'}
+        link = f'resource://fixture/team/{"s3" if logical == "Bucket" else "kms"}/{ids[logical]}'
         value = {'$resource': link, '$attribute': attribute} if attribute else link
         return comparison.desired_value('codebuild', {
             'property': 'CodeBuild.Project.Environment.EnvironmentVariables', 'value': '',
@@ -205,6 +138,14 @@ class ImportValueResolutionTests(unittest.TestCase):
         return comparison.reference_same(left, right, 'CodeBuild.Project', prop)
       with patch('issues_iac.catalog_outputs', return_value=set()):
         key, alias = desired('Key', 'Arn'), desired('Alias', 'AliasArn')
+        for selector in [{'$resource': 'resource://fixture/team/kms/KMS_Key_001'},
+                         {'$resource': 'resource://fixture/team/kms/KMS_Key_001', '$attribute': 'Arn'}]:
+          policy = {'property': 'IAM.ManagedPolicy.PolicyDocument', 'value': '',
+                    'document': json.dumps({'Statement': [{'Resource': selector}]})}
+          self.assertEqual(comparison.desired_value('iam', policy, 'IAM.ManagedPolicy')['Statement'][0]['Resource'], key)
+        policy['document'] = json.dumps({'Statement': [{'Resource': {**selector, 'extra': 1}}]})
+        with self.assertRaises(issues_iac.Blocked):
+          comparison.desired_value('iam', policy, 'IAM.ManagedPolicy')
         for model, actual, exported in [
             (key, {'Fn::GetAtt': ['Key', 'Arn']}, 'key-export'), (alias, alias_value, 'alias-export')]:
           self.assertTrue(equal(model, comparison.evaluate('producer', actual)))
@@ -227,12 +168,12 @@ class ImportValueResolutionTests(unittest.TestCase):
         unknown = issues_iac.Expression('Sub', ['${Unknown}', {}])
         self.assertIsNone(equal(unknown, unknown))
         row = {'property': 'CodeBuild.Project.' + prop, 'value': '`' + json.dumps({
-            '$resource': '[Key](kms.md#key)', '$attribute': 'Arn'}) + '`'}
+            '$resource': 'resource://fixture/team/kms/KMS_Key_001', '$attribute': 'Arn'}) + '`'}
         self.assertEqual(comparison.desired_value('codebuild', row, 'CodeBuild.Project', context={'Type': 'PLAINTEXT'}), key)
-        for selector in [{'$resource': '[Key](kms.md#key)'},
+        for selector in [{'$resource': 'resource://fixture/team/kms/KMS_Key_001'},
                          {'$resource': 'key-export', '$attribute': 'Arn'},
-                         {'$resource': '[Key](kms.md#key)', '$attribute': 'Arn', 'extra': 'x'},
-                         {'$resource': '[Key](kms.md#key)', '$attribute': 3}]:
+                         {'$resource': 'resource://fixture/team/kms/KMS_Key_001', '$attribute': 'Arn', 'extra': 'x'},
+                         {'$resource': 'resource://fixture/team/kms/KMS_Key_001', '$attribute': 3}]:
           row['value'] = '`' + json.dumps(selector) + '`'
           with self.subTest(selector=selector), self.assertRaises(issues_iac.Blocked):
             comparison.desired_value('codebuild', row, 'CodeBuild.Project', context={'Type': 'PLAINTEXT'})

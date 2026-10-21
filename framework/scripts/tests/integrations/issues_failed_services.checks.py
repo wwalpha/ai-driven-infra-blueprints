@@ -32,8 +32,9 @@ def main_checks():
         def resource(service, logical, kind, props, rows=()):
             values = models.setdefault(service, {f'desired.service.{service}.serviceId': service})
             values.update({f'desired.resource.{logical}.resourceType': kind,
-                           f'desired.resource.{logical}.anchor': logical.lower(),
                            f'desired.resource.{logical}.cfn-logicalId': stack + '-' + logical})
+            from model.identity import allocate
+            values.update(allocate(values, [logical]))
             for index, (prop, value) in enumerate(rows, 1):
                 values[f'desired.row.{logical}-{index:03d}.property'] = kind + '.' + prop
                 values[f'desired.row.{logical}-{index:03d}.value'] = value
@@ -46,18 +47,18 @@ def main_checks():
         key_id = '12345678-1234-1234-1234-123456789012'
         key_arn = 'arn:aws:kms:ap-northeast-1:123456789012:key/' + key_id
         resource('cloudwatch-logs', 'Log', 'Logs.LogGroup', {'LogGroupName': '/fixture/log', 'KmsKeyId': alias_arn},
-                 [('KmsKeyId', '[alias](kms.md#alias)')])
+                 [('KmsKeyId', 'resource://dev/123456789012/kms/KMS_Alias_001')])
         resource('codebuild', 'Build', 'CodeBuild.Project', {'Name': 'fixture-build'})
         resource('eventbridge', 'Rule', 'Events.Rule', {'Name': 'fixture-rule'})
         resource('athena', 'Workgroup', 'Athena.WorkGroup', {'WorkGroupConfiguration': {'ResultConfiguration': {
             'EncryptionConfiguration': {'KmsKey': key_arn}}}},
                  [('WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey', '`' + key_arn + '`')])
         resource('codepipeline', 'Pipeline', 'CodePipeline.Pipeline', {'ArtifactStore': {'EncryptionKey': {'Id': alias_arn}}},
-                 [('ArtifactStore.EncryptionKey.Id', '[alias](kms.md#alias)')])
+                 [('ArtifactStore.EncryptionKey.Id', 'resource://dev/123456789012/kms/KMS_Alias_001')])
         resource('glue', 'Security', 'Glue.SecurityConfiguration', {'EncryptionConfiguration': {
             'S3Encryptions': [{'KmsKeyArn': alias_arn}], 'CloudWatchEncryption': {'KmsKeyArn': alias_arn}}},
-                 [('EncryptionConfiguration.S3Encryptions[].KmsKeyArn', '[alias](kms.md#alias)'),
-                  ('EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn', '[alias](kms.md#alias)')])
+                 [('EncryptionConfiguration.S3Encryptions[].KmsKeyArn', 'resource://dev/123456789012/kms/KMS_Alias_001'),
+                  ('EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn', 'resource://dev/123456789012/kms/KMS_Alias_001')])
         # Keep the queue from the shared fixture and give the policy an explicit mapping.
         models['sqs'] = fixture.properties(fixture.read_model(root / 'model/dev/123456789012/sqs.properties'))
         policy = {'Statement': [{'Effect': 'Allow', 'Action': 'sqs:SendMessage',
@@ -97,9 +98,9 @@ def main_checks():
                     assert record['reference_diagnostics'][0]['reason'], record
                 return current, record
 
-            current, _ = athena('[key](kms.md#key)', {'Fn::GetAtt': ['Key', 'Arn']}, 'matched')
-            assert current.desired_reference('athena', '[key](kms.md#key)', 'Athena.WorkGroup', path)['$attribute'] == 'Arn'
-            athena('[key](kms.md#key)', {'Fn::GetAtt': ['OtherKey', 'Arn']}, 'difference')
+            current, _ = athena('resource://dev/123456789012/kms/KMS_Key_001', {'Fn::GetAtt': ['Key', 'Arn']}, 'matched')
+            assert current.desired_reference('athena', 'resource://dev/123456789012/kms/KMS_Key_001', 'Athena.WorkGroup', path)['$attribute'] == 'Arn'
+            athena('resource://dev/123456789012/kms/KMS_Key_001', {'Fn::GetAtt': ['OtherKey', 'Arn']}, 'difference')
             athena('`' + key_arn + '`', key_arn, 'matched')
             athena('`' + key_arn + '`', key_arn[:-1] + '3', 'difference')
             for invalid in (key_id, 'alias/fixture', alias_arn):
@@ -109,10 +110,10 @@ def main_checks():
                     assert diagnostic['allowed_forms'] == ['KeyArn'] and diagnostic['reason'], diagnostic
                     assert diagnostic['format']['model'] == ('allowed' if model == key_arn else 'outside allowed forms')
                     assert diagnostic['format']['iac'] == ('allowed' if iac == key_arn else 'outside allowed forms')
-            athena('[alias](kms.md#alias)', {'Fn::GetAtt': ['Key', 'Arn']}, 'difference')
-            athena('[key](kms.md#key)', key_arn, 'uncompared')
+            athena('resource://dev/123456789012/kms/KMS_Alias_001', {'Fn::GetAtt': ['Key', 'Arn']}, 'difference')
+            athena('resource://dev/123456789012/kms/KMS_Key_001', key_arn, 'uncompared')
             athena('`' + key_arn + '`', '{{resolve:secretsmanager:key}}', 'uncompared')
-            athena('[key](kms.md#key)', {'Fn::GetAtt': ['Key', 'Arn']}, 'matched')
+            athena('resource://dev/123456789012/kms/KMS_Key_001', {'Fn::GetAtt': ['Key', 'Arn']}, 'matched')
             stackpath = root / 'model/dev/123456789012/cloudformation-stacks.properties'
             original_stacks = fixture.read_model(stackpath)
             fixture.write(stackpath, original_stacks + 'desired.stack.002.name=key-stack\ndesired.stack.002.template=keys.yaml\ndesired.stack.002.parameters=keys.json\ndesired.stack.002.deployOrder=1\n')
@@ -124,19 +125,19 @@ def main_checks():
             for name in ('Key', 'OtherKey'):
                 models['kms']['desired.resource.' + name + '.cfn-logicalId'] = 'key-stack-' + name
                 del template['Resources'][name]
-            athena('[key](kms.md#key)', {'Fn::ImportValue': 'KeyArn'}, 'matched')
-            athena('[key](kms.md#key)', {'Fn::ImportValue': 'OtherKeyArn'}, 'difference')
-            athena('[key](kms.md#key)', {'Fn::ImportValue': 'MissingArn'}, 'uncompared')
+            athena('resource://dev/123456789012/kms/KMS_Key_001', {'Fn::ImportValue': 'KeyArn'}, 'matched')
+            athena('resource://dev/123456789012/kms/KMS_Key_001', {'Fn::ImportValue': 'OtherKeyArn'}, 'difference')
+            athena('resource://dev/123456789012/kms/KMS_Key_001', {'Fn::ImportValue': 'MissingArn'}, 'uncompared')
             # Restore the single-stack inputs for the existing other-service cases.
             fixture.write(stackpath, original_stacks)
             for name in ('Key', 'OtherKey'):
                 models['kms']['desired.resource.' + name + '.cfn-logicalId'] = stack + '-' + name
                 template['Resources'][name] = {'Type': 'AWS::KMS::Key', 'Properties': {}}
-            athena('[key](kms.md#key)', {'Fn::GetAtt': ['Key', 'Arn']}, 'matched')
+            athena('resource://dev/123456789012/kms/KMS_Key_001', {'Fn::GetAtt': ['Key', 'Arn']}, 'matched')
             comparison, _ = fixture.compare(root, list(models))
             key = comparison.evaluate(stack, {'Ref': 'Key'})
             arn = comparison.evaluate(stack, {'Fn::GetAtt': ['Key', 'Arn']})
-            alias = comparison.reference('kms', '[alias](#alias)')
+            alias = comparison.reference('kms', 'resource://dev/123456789012/kms/KMS_Alias_001')
             for prop, allowed in KMS_COMPARISON_FORMS.items():
                 kind, path = '.'.join(prop.split('.')[:2]), '.'.join(prop.split('.')[2:])
                 callback = lambda a, b, p: comparison.reference_same(a, b, kind, p)
@@ -149,7 +150,7 @@ def main_checks():
                 assert same(key_arn, alias_arn, reference=callback, path=path) is False
                 assert same(alias_arn, key_arn, reference=callback, path=path) is False
                 if allowed <= {'KeyArn', 'AliasArn'}:
-                    symbolic = comparison.desired_reference('kms', '[alias](#alias)', kind, path)
+                    symbolic = comparison.desired_reference('kms', 'resource://dev/123456789012/kms/KMS_Alias_001', kind, path)
                     assert symbolic['$attribute'] == 'AliasArn'
                     assert same(symbolic, arn, reference=callback, path=path) is False
                     assert same(arn, symbolic, reference=callback, path=path) is False
@@ -158,7 +159,7 @@ def main_checks():
                     assert same(symbolic, alias_arn.replace('123456789012', '999999999999'), reference=callback, path=path) is False
                     assert same(symbolic, alias_arn.replace('ap-northeast-1', 'us-east-1'), reference=callback, path=path) is False
                     assert same(symbolic, alias, reference=callback, path=path) is False
-                    other = comparison.desired_reference('kms', '[other](#otheralias)', kind, path)
+                    other = comparison.desired_reference('kms', 'resource://dev/123456789012/kms/KMS_Alias_002', kind, path)
                     assert same(symbolic, other, reference=callback, path=path) is False
                 else:
                     assert same(arn, key_arn, reference=callback, path=path) is None

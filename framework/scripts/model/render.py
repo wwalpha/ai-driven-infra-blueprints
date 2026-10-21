@@ -42,13 +42,16 @@ from model.validation import naming_errors, validate_required_properties, valida
 def stack_markdown(path, values, root, *, definitions_root=None):
     limit, stacks = stack_model(values)
     settings, artifacts = deployment_settings(values)
+    from model.projection import reference_display
+    displayed = reference_display(values, path, root, definitions_root=definitions_root)
+    display_artifacts = dict(entries(displayed, 'desired.artifact.'))
     delivery = []
     if artifacts:
         delivery = ["", "## S3配置", "", "### 配置ファイル", "",
             "| No. | StackName | Resource | Property | Source | Bucket | KeyPrefix |",
             "| ---: | --- | --- | --- | --- | --- | --- |"]
-        delivery += ["| " + " | ".join([str(number)] + [artifact[field] for field in ARTIFACT_FIELDS]) + " |"
-                     for number, (_, artifact) in enumerate(artifacts, 1)]
+        delivery += ["| " + " | ".join([str(number)] + [display_artifacts[identity][field] for field in ARTIFACT_FIELDS]) + " |"
+                     for number, (identity, artifact) in enumerate(artifacts, 1)]
     if settings:
         deployment_bucket(settings["templateBucket"], path, root)
     for _, artifact in artifacts:
@@ -93,6 +96,7 @@ def resource_details(values, root, service, owned, resources, bound_anchors, *, 
     details = []
     for identity, resource in resources:
         def inspect():
+            nonlocal resource
             kind = resource["resourceType"]
             mode = resource_mode(resource)
             if kind not in owned:
@@ -102,12 +106,12 @@ def resource_details(values, root, service, owned, resources, bound_anchors, *, 
                 raise ValueError(f"resource type display requires a single nameless independent resource: {kind}")
             if not name or name in {"UNSET", "PENDING_DEPLOY"}:
                 raise ValueError(f"confirmed resource display label is missing: {kind}: {identity}")
-            anchor = resource["anchor"]
-            derived = resource_anchor(service, name, kind)
-            expected = bound_anchors.get((kind, resource["logicalId"]), derived)
-            if anchor != expected or anchor in by_anchor or derived in names:
-                raise ReferenceResolutionError(f"resource anchor must be unique and match its name: {kind}: {anchor}",
-                                               resource=identity, key=f"desired.resource.{identity}.anchor", reference=anchor)
+            from model.identity import display_anchor
+            anchor = display_anchor(resource['logicalId'])
+            resource = {**resource, 'anchor': anchor}
+            derived = anchor
+            if anchor in by_anchor:
+                raise ValueError('duplicate Resource display anchor: ' + anchor)
             errors = naming_errors(root, kind, rows, mode)
             if errors:
                 raise ValueError("; ".join(errors))
@@ -137,7 +141,7 @@ def grouped_resources(values, details, by_anchor):
         parent = by_anchor.get(link.group(3)) if link and not link.group(2) else None
         if resource['parentProperty'] != kind + '.' + rule['parentProperty']:
             raise ValueError('invalid grouped parentProperty: ' + identity)
-        if not parent or parent[1]['resourceType'] != rule['parent'] or link.group(1) != parent[1]['logicalId']:
+        if not parent or parent[1]['resourceType'] != rule['parent']:
             raise ReferenceResolutionError(f"{kind}: {resource['logicalId']}: invalid grouped parent: parentReference / parentProperty ({kind}.{rule['parentProperty']})")
         if kind in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:
             parent_rows = [row for row_id, row in entries(values, "desired.row.")
@@ -216,6 +220,8 @@ def render_validated_model(path: Path, values: dict[str, str], root: Path, *, de
     """Internal renderer after mapping/required-property preflight, before artifacts."""
     if path.stem == "cloudformation-stacks":
         return stack_markdown(path, values, root, definitions_root=definitions_root)
+    from model.projection import reference_display
+    values = reference_display(values, path, root, definitions_root=definitions_root)
     service = path.stem
     if values.get(f"desired.service.{service}.serviceId") != service:
         raise ValueError(f"service ID must equal file stem: {path.name}")
@@ -231,6 +237,8 @@ def render_validated_model(path: Path, values: dict[str, str], root: Path, *, de
 @input_scope
 def generate_markdown(path: Path, values: dict[str, str], root: Path) -> str:
     """Render the selected service without deciding whether its design is correct."""
+    from model.projection import reference_display
+    values = reference_display(values, path, path.parents[4], definitions_root=root)
     service = path.stem
     owned = values.get(f"desired.service.{service}.ownedCatalogResourceTypes", "").split(",")
     details = []
@@ -318,6 +326,8 @@ from model.projection import JSON_LINK
 def generate_files(path, values, root):
     """Generate one service in memory, without validation or dependency publication."""
     from model.sources import safe
+    from model.identity import Resolver
+    resolver = Resolver(root)
     artifacts = {}
     for identity, row in entries(values, 'desired.row.'):
         if 'document' not in row:
@@ -330,7 +340,8 @@ def generate_files(path, values, root):
         safe(root, artifact)
         if artifact.parent != path.with_suffix('').resolve():
             raise ValueError('JSON artifact must belong to owning service')
-        document = policy_json(row['document'])
+        from model.projection import execution_document
+        document = execution_document(policy_json(row['document']), root, property_name=row['property'], resolver=resolver)
         content = json.dumps(document, ensure_ascii=False, indent=2) + '\n'
         if artifact in artifacts and artifacts[artifact] != content:
             raise ValueError('conflicting authoritative JSON documents')

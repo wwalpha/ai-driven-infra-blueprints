@@ -45,6 +45,7 @@ def check_environment_literals_and_account_context(tmp_path):
     moved = tmp_path / 'model/preview/one/network.properties'
     moved.parent.mkdir(parents=True)
     literal_values = validate_reference_proposal({}, values)
+    literal_values['desired.row.007-001.value'] = 'resource://preview/one/network/EC2_VPC_001'
     moved.write_text(serialize(literal_values), encoding='utf-8')
     current = load_model(moved)
     assert current.scope.environment == 'preview' and not current.warnings

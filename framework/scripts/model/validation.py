@@ -14,6 +14,7 @@ from model.projection import bound_resource_anchors, deployment_bucket, catalog_
 from model.display import display_rows, catalog_display_rows, row_table, sg_tables
 from aws_mapping_display import selected_rows
 from validation_cache import input_is_file
+from model.identity import URI
 from model.core import properties, entries, stack_model, deployment_settings, LINK, ARTIFACT_FIELDS
 
 from design_layout import (
@@ -162,7 +163,7 @@ def validate_required_properties(values: dict[str, str], root: Path, *, warnings
             if owner not in {kind, *GROUPED_RESOURCE_TYPES.get(kind, set())}:
                 raise ValueError(f"property does not belong to resource: {identity}: {prop}")
             if prop in RESOURCE_REFERENCE_PROPERTIES and not (
-                LINK.fullmatch(value) or is_service_role_reference(prop, value) or
+                (LINK.fullmatch(value) or URI.fullmatch(value)) or is_service_role_reference(prop, value) or
                 resource_mode(resource) == 'IMPORT' and (prop != 'Config.ConfigurationRecorder.RoleARN' or is_import_pending_reference(prop, value)) or
                 is_import_role_arn(prop, value, resource_mode(resource))
             ):
@@ -243,7 +244,7 @@ def validate_resource_identities(path, values, root, resources, *, definitions_r
     identity_catalog = DesignSchemaCatalog(definitions_root or root)
     for identity, resource in resources:
         if "cfn-logicalId" not in resource:
-            if target.get("iacEngine") == "cloudformation" and resource_mode(resource) == "CREATE" and f"desired.resource.{identity}.logicalId" not in values:
+            if target.get("iacEngine") == "cloudformation" and resource_mode(resource) == "CREATE":
                 try:
                     cfn_type = identity_catalog.cloudformation_type(resource["resourceType"])
                 except ValueError:
@@ -300,6 +301,15 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
         findings.evaluate('model.stacks', None, lambda: validate_required_properties(values, definitions))
         return findings
     resources = entries(values, 'desired.resource.')
+    def references():
+        from types import SimpleNamespace
+        from model.sources import scope_for
+        from model.references import diagnose
+        model_path = (root / 'model' / view.relative_to(root / 'docs/designs')).with_suffix('.properties')
+        candidate = SimpleNamespace(scope=scope_for(model_path), authoritative=values, dependencies={})
+        warnings, _ = diagnose(candidate)
+        findings.warnings.extend(warnings)
+    findings.evaluate('model.references', None, references)
     try:
         catalog = DesignSchemaCatalog(definitions) if resources else None
     except (OSError, ValueError) as error:
@@ -327,7 +337,7 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
                 prop, value = row['property'], row.get('document', literal(row['value']))
                 if 'document' not in row and is_import_expression(prop, row['value'], view):
                     return
-                if 'document' not in row and LINK.fullmatch(row['value']):
+                if 'document' not in row and URI.fullmatch(row['value']):
                     return
                 kind = '.'.join(prop.split('.')[:2])
                 from validation.design import DESIGN_ONLY_PROPERTIES

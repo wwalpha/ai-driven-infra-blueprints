@@ -36,12 +36,13 @@ DESIGN = """# Security Group 詳細設計
 
 | No. | ResourceName | Comment |
 | ---: | --- | --- |
-| 1 | [GroupOne](#security-group-groupone) | アプリケーションの通信を制御するSG |
-| 2 | [GroupTwo](#security-group-grouptwo) | アプリケーションの通信を制御するSG |
+| 1 | [GroupOne](#resource-EC2_SecurityGroup_001) | アプリケーションの通信を制御するSG |
+| 2 | [GroupTwo](#resource-EC2_SecurityGroup_002) | アプリケーションの通信を制御するSG |
 
 ## リソース詳細
 
-<a id="security-group-groupone"></a>
+<!-- resource-logical-id: EC2_SecurityGroup_001 -->
+<a id="resource-EC2_SecurityGroup_001"></a>
 
 ### EC2.SecurityGroup: GroupOne
 
@@ -54,15 +55,16 @@ DESIGN = """# Security Group 詳細設計
 
 | Direction | IpProtocol | Port | CidrIp | CidrIpv6 | SourcePrefixListId | SourceSecurityGroupOwnerId | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Inbound <a id="security-group-ingressone"></a><!-- logical-id: IngressOne --><!-- rule-id: `sgr-00000001` --> <!-- security-group-id: [PENDING_DEPLOY](#security-group-grouptwo) --> | `tcp` | `443` | — | — | — | `123456789012` | `Application access` |
-| Inbound <a id="security-group-ingresstwo"></a><!-- logical-id: IngressTwo --><!-- rule-id: `PENDING_DEPLOY` --> | `icmpv6` | `Type=128, Code=0` | — | `2001:db8::/64` | — | — | — |
-| Inbound <a id="security-group-ingressthree"></a><!-- logical-id: IngressThree --><!-- rule-id: `PENDING_DEPLOY` --> | `udp` | `1000-2000` | — | — | `pl-00000001` | — | `Prefix Listからの通信` |
+| Inbound <a id="resource-EC2_SecurityGroupIngress_001"></a><!-- logical-id: EC2_SecurityGroupIngress_001 --><!-- rule-id: `sgr-00000001` --> <!-- security-group-id: [PENDING_DEPLOY](#resource-EC2_SecurityGroup_002) --> | `tcp` | `443` | — | — | — | `123456789012` | `Application access` |
+| Inbound <a id="resource-EC2_SecurityGroupIngress_002"></a><!-- logical-id: EC2_SecurityGroupIngress_002 --><!-- rule-id: `PENDING_DEPLOY` --> | `icmpv6` | `Type=128, Code=0` | — | `2001:db8::/64` | — | — | — |
+| Inbound <a id="resource-EC2_SecurityGroupIngress_003"></a><!-- logical-id: EC2_SecurityGroupIngress_003 --><!-- rule-id: `PENDING_DEPLOY` --> | `udp` | `1000-2000` | — | — | `pl-00000001` | — | `Prefix Listからの通信` |
 | Inbound | `icmp` | `Type=8, Code=0` | `10.0.0.0/24` | — | — | — | — |
-| Outbound <a id="security-group-egressone"></a><!-- logical-id: EgressOne --><!-- rule-id: `PENDING_DEPLOY` --> <!-- security-group-id: [sg-00000001](#security-group-groupone) --> | `-1` | — | — | — | — | — | `Security Group内の通信` |
+| Outbound <a id="resource-EC2_SecurityGroupEgress_001"></a><!-- logical-id: EC2_SecurityGroupEgress_001 --><!-- rule-id: `PENDING_DEPLOY` --> <!-- security-group-id: [sg-00000001](#resource-EC2_SecurityGroup_001) --> | `-1` | — | — | — | — | — | `Security Group内の通信` |
 | Outbound | `-1` | — | `0.0.0.0/0` | — | — | — | `IPv4 outbound` |
 | Outbound | `-1` | — | `10.1.0.0/16` | — | — | — | — |
 
-<a id="security-group-grouptwo"></a>
+<!-- resource-logical-id: EC2_SecurityGroup_002 -->
+<a id="resource-EC2_SecurityGroup_002"></a>
 
 ### EC2.SecurityGroup: GroupTwo
 

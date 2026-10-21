@@ -11,6 +11,7 @@ if not __debug__:
 from support.it_case_receipt import it_case
 
 import tempfile
+import json
 from unittest.mock import patch
 
 from iac_values import same
@@ -34,7 +35,8 @@ def main_checks():
             for number, stack in enumerate((consumer, producer), 1):
                 identity = f'{number:03d}'
                 model.update({f'desired.resource.{identity}.resourceType': kind,
-                              f'desired.resource.{identity}.anchor': logical.lower() + identity,
+                              f'desired.resource.{identity}.logicalId': kind.replace('.', '_') + '_' + identity,
+                              'desired.service.identity.lastAllocated': json.dumps({kind: number}),
                               f'desired.resource.{identity}.cfn-logicalId': stack + '-' + logical})
             fixtures.write(root / f'model/dev/123456789012/{service}.properties',
                            '\n'.join(f'{key}={value}' for key, value in model.items()) + '\n')
@@ -53,17 +55,17 @@ def main_checks():
                                           'Ref return attribute is unproven')
                     fixtures.expect_error(lambda: comparison.evaluate(consumer, imported),
                                           'Ref return attribute is unproven')
-                    fixtures.expect_error(lambda: comparison.reference(service, '[Name](#unknown001)'),
+                    fixtures.expect_error(lambda: comparison.reference(service, 'resource://dev/123456789012/quicksight/QuickSight_VPCConnection_001'),
                                           'reference attribute is unproven')
                     continue
                 expected = {'$resource': [service, '001'], '$attribute': attribute}
                 direct = comparison.evaluate(consumer, {'Ref': logical})
                 assert direct == expected, direct
-                desired = comparison.reference(service, '[misleading-label](#' + logical.lower() + '001)')
+                desired = comparison.reference(service, f'resource://dev/123456789012/{service}/' + kind.replace('.', '_') + '_001')
                 assert same(desired, direct)
                 exported = comparison.evaluate(consumer, imported)
                 assert exported == {'$resource': [service, '002'], '$attribute': attribute}, exported
-                other = comparison.reference(service, '[same-name](#' + logical.lower() + '002)')
+                other = comparison.reference(service, f'resource://dev/123456789012/{service}/' + kind.replace('.', '_') + '_002')
                 assert same(other, exported)
                 assert not same(desired, exported)
                 assert comparison.reference_same(desired, exported, 'Glue.Job', 'SecurityConfiguration') is False

@@ -50,7 +50,7 @@ def check_implementation_preflight_prompt() -> None:
         "Do not read generated `docs/designs/<environment>/<target-directory>/*.md` bodies (including `cloudformation-stacks.md`) at Implement start, IaC generation, or reference resolution", "Retain Markdown/JSON generation/saving and local loop consistency validation as before",
         "treat them as scope selectors", "Without reading bodies", "path/file stem", "If corresponding models cannot be uniquely identified, stop without guessing",
         "python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service>.properties <resource-selector>",
-        "resource number", "Selectors require exact matches for resource number (such as `001`), cfn-logicalId, legacy logical ID, or anchor", "single files and split entry indexes", "parents, children, and siblings in the same group required by existing specifications, and service metadata/notes",
+        "resource number", "Selectors require exact matches for resource number (fixed entry, such as `001`) or immutable typed logicalId", "single files and split entry indexes", "parents, children, and siblings in the same group required by existing specifications, and service metadata/notes",
         "Service-wide scope may use entire service properties", "対象accountの承認済み設計すべて", "Reading all target Markdown as fallback is prohibited",
         "desired values, resources, references, stack assignments, or human decisions", "stop because a design task is required",
     ):
@@ -62,8 +62,8 @@ def check_implementation_preflight_prompt() -> None:
                      "desired.deployment.maxConcurrentStacks", "effective MaxConcurrentStacks remains 1 under the existing contract", "do not read it as Implement input"):
         assert required in units, required
     implementation = text.split("## Implement and validate\n", 1)[1].split("\n## ", 1)[0]
-    for required in ("Use only authoritative model properties", "`desired.row.*`", "`.document`", "desired.resource.*.anchor", "desired.resource.*.logicalId",
-                     "producer model properties", "parentReference", "do not read generated Markdown bodies", "Do not hardcode link display text `PENDING_DEPLOY` or physical IDs into IaC"):
+    for required in ("Use only authoritative model properties", "`desired.row.*`", "`.document`", "resource://environment/target-directory/service/logicalId", "common parser/resolver",
+                     "referenced Model groups", "parentReference", "Do not resolve through names, anchors, cfn-logicalId or generated Markdown", "never emit a raw Resource URI, PENDING_DEPLOY or an inferred physical value to IaC"):
         assert required in implementation, required
     finish = text.split("## Verify and finish\n", 1)[1]
     for required in ("blueprint-loop.py --mode task", "read-only `sync-model.py`", "mismatches are FAIL", "check_design_tables",
@@ -87,7 +87,7 @@ def check_update_flow_prompt() -> None:
 
         reading = sections["Read before changing files"]
         for token in ("authoritative model properties", "desired.row.*.document", "Do not read generated Markdown bodies or generated JSON artifacts as input",
-                      "model/cli.py resource", "parentReference", "path/file stem", "required parts"):
+                      "model/cli.py resource", "parentReference", "full scoped Resource URIs", "required parts"):
             assert token in reading, token
         instructions = [line for line in reading.splitlines() if re.match(r"\d+\. ", line)]
         assert instructions and not any(re.search(

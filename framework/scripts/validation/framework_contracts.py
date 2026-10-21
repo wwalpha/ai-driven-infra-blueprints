@@ -195,7 +195,7 @@ def check_framework_design_handoff(findings, root):
         "aws cloudcontrol get-resource": "service design prompt lacks generic existing-resource read",
         "Fall back to target-service-specific read-only APIs only when Cloud Control API does not support List/Read": "service design prompt lacks service API fallback",
         "stop until humans select, even for a single candidate": "service design prompt may auto-select an existing resource",
-        "ask one logical ID per response": "service design prompt may invent a logical ID for an existing resource",
+        "Allocate new selected Resources through the shared allocator; preserve existing logicalIds": "service design prompt lacks fixed Resource identity allocation",
         "For CREATE only, directly apply differences to model properties": "service design prompt lacks CREATE-only existing-value synchronization",
         "[/import](../../../.agents/skills/import/SKILL.md)": "service design prompt lacks IMPORT delegation",
         "The retrieval/copy steps below apply\nto CREATE only": "service design prompt lacks IMPORT delegation boundary",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from model.identity import allocate
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 
 from support.model_sources import snapshot_model
@@ -274,11 +275,11 @@ def fixture(root, names, models=False):
         for number, name in enumerate(names, 1):
             identity = f"{number:03d}"
             values.update({f"desired.resource.{identity}.resourceType": "EC2.VPC",
-                           f"desired.resource.{identity}.cfn-logicalId": name + "-Vpc",
-                           f"desired.resource.{identity}.anchor": "ec2-vpc-test-dev-" + name.lower(),
-                           f"display.resource.{identity}.comment": "ネットワークを構成するresource"})
+                f"desired.resource.{identity}.cfn-logicalId": name + "-Vpc",
+                f"display.resource.{identity}.comment": "ネットワークを構成するresource"})
+            values.update(allocate(values, [identity]))
             rows = [("Name", f"`vpc-test-dev-{name.lower()}`"),
-                    ("VpcId", f"[{identity}](#ec2-vpc-test-dev-{name.lower()})"),
+                    ("VpcId", f"resource://dev/123456789012/ec2/EC2_VPC_{identity}"),
                     ("CidrBlock", f"`10.{number}.0.0/16`")]
             for index, (prop, value) in enumerate(rows, 1):
                 prefix = f"desired.row.{identity}-{index:03d}"
@@ -287,12 +288,13 @@ def fixture(root, names, models=False):
                 values[f"observed.row.{identity}-002.{field}"] = values[f"desired.row.{identity}-002.{field}"]
             values[f"observed.row.{identity}-002.value"] = f"`vpc-old-{name}`"
         # An IMPORT consumer reference participates without stack-owned destruction.
-        values.update({"desired.resource.099.resourceType": "EC2.Subnet", "desired.resource.099.resourceMode": "IMPORT",
-                       "desired.resource.099.anchor": "ec2-sbnt-test-dev-private-app-a-01",
-                       "display.resource.099.comment": "接続先subnet"})
+        values.update({"desired.resource.099.resourceType": "EC2.Subnet",
+            "desired.resource.099.resourceMode": "IMPORT",
+            "display.resource.099.comment": "接続先subnet"})
+        values.update(allocate(values, ['099']))
         for index, (prop, value) in enumerate([
-            ("Name", "`sbnt-test-dev-private-app-a-01`"), ("VpcId", "[001](#ec2-vpc-test-dev-a)"),
-            ("SubnetId", "[099](#ec2-sbnt-test-dev-private-app-a-01)"), ("CidrBlock", "`10.1.1.0/24`")], 1):
+            ("Name", "`sbnt-test-dev-private-app-a-01`"), ("VpcId", "resource://dev/123456789012/ec2/EC2_VPC_001"),
+            ("SubnetId", "resource://dev/123456789012/ec2/EC2_Subnet_001"), ("CidrBlock", "`10.1.1.0/24`")], 1):
             prefix = f"desired.row.099-{index:03d}"
             values.update({prefix + ".property": "EC2.Subnet." + prop, prefix + ".value": value, prefix + ".comment": "設定値"})
         values["observed.row.099-002.value"] = "`vpc-old-A`"
@@ -450,13 +452,15 @@ def check_observed(managed_destroy_root):
             if key.startswith(("desired.resource.003.", "display.resource.003.", "desired.row.003-", "observed.row.003-")):
                 values[key.replace(".003", ".004", 1)] = value.replace("test-dev-c", "test-dev-unimplemented").replace("vpc-old-C", "PENDING_DEPLOY").replace("[003]", "[SnowCatConn]")
         del values["desired.resource.004.cfn-logicalId"]
-        values["desired.resource.004.logicalId"] = "SnowCatConn"
+        values["desired.resource.004.logicalId"] = "EC2_VPC_004"
+        values["desired.service.identity.lastAllocated"] = '{"EC2.VPC":4,"EC2.Subnet":1}'
+        values["desired.row.004-002.value"] = "resource://dev/123456789012/ec2/EC2_VPC_004"
         write_model(source, "\n".join(key + "=" + value for key, value in values.items()) + "\n")
-        design.write_text(markdown_for(design, values, root))
+        rejects(lambda: markdown_for(design, values, root), "cfn-logicalId")
         before = properties(read_model(source))
         plan = M.local_plan(root, "dev", "123456789012", ["A", "B", "C"])
         assert plan["observed"]["unmappedResources"] == [{
-            "model": source.relative_to(root).as_posix(), "resource": "004", "logicalId": "SnowCatConn",
+            "model": source.relative_to(root).as_posix(), "resource": "004", "logicalId": "EC2_VPC_004",
             "reason": "no cfn-logicalId; no observed identifier"}]
         assert all(owner["resource"] != "004" for owners in plan["observed"]["owners"].values() for owner in owners)
         assert all(not key.startswith("observed.row.004-")
@@ -504,7 +508,7 @@ def check_observed(managed_destroy_root):
         project["targets"].append({"environment": "prod", **TARGET, "awsAccountId": "999999999999"})
         (root / "project.json").write_text(json.dumps(project) + "\n")
         outside = root / "model/prod/999999999999/ec2.properties"; outside.parent.mkdir(parents=True)
-        write_model(outside, "desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.anchor=ec2-outside-subnet\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=[vpc](../../dev/123456789012/ec2.md#ec2-vpc-test-dev-a)\ndesired.row.001-001.comment=参照\n")
+        write_model(outside, "desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_001\ndesired.service.identity.lastAllocated={\"EC2.Subnet\":1}\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=resource://dev/123456789012/ec2/EC2_VPC_001\ndesired.row.001-001.comment=参照\n")
         rejects(lambda: M.local_plan(root, "dev", "123456789012", ["A"]), "task scope violation")
         from model.sources import model_parts
         for file in model_parts(outside):

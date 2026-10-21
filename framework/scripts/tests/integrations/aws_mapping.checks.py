@@ -48,11 +48,12 @@ def check_config():
         bucket_value = '`fixture-bucket`'
         values = {'desired.service.config.serviceId': 'config',
                   'desired.service.config.ownedCatalogResourceTypes': RECORDER + ',' + CHANNEL,
-                  'display.service.title': '# Config 詳細設計'}
+                  'display.service.title': '# Config 詳細設計',
+                  'desired.service.identity.lastAllocated': json.dumps({RECORDER: 1, CHANNEL: 1})}
         for number, kind, payload in [('001', RECORDER, recorder), ('002', CHANNEL, channel)]:
             anchor = 'config-fixture-' + number
             values.update({f'desired.resource.{number}.{key}': value for key, value in {
-                'resourceType': kind, 'resourceMode': 'IMPORT', 'logicalId': 'Fixture' + number, 'anchor': anchor}.items()})
+                'resourceType': kind, 'resourceMode': 'IMPORT', 'logicalId': kind.replace('.', '_') + '_001'}.items()})
             for index, (prop, (path, norm, default)) in enumerate(BASELINE[kind].items(), 1):
                 value = m.select(payload, path)
                 value = default if value == m.MISSING else value
@@ -62,7 +63,7 @@ def check_config():
                 elif prop == 'S3BucketName':
                     raw = bucket_value
                 elif prop == 'Id':
-                    raw = f'[Fixture{number}](#{anchor})'
+                    raw = 'resource://dev/fixture/config/' + kind.replace('.', '_') + '_001'
                     values[f'observed.row.{number}-{index:03}.value'] = payload['name']
                 values.update({f'desired.row.{number}-{index:03}.{key}': val for key, val in {
                     'property': kind + '.' + prop, 'value': raw, 'comment': 'fixture'}.items()})

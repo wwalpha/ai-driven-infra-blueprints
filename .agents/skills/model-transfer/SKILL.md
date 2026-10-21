@@ -25,7 +25,7 @@ chooses edits; Python verifies preservation and never infers an edit plan.
 Accept only an exact subset of the parent's import-merge pairs. Read source and
 destination together. Transfer source settings, complete formal Property/array shape,
 structural JSON and observations. Preserve destination fixed Resource IDs,
-anchor, mode/type, logicalId/cfn-logicalId and placementName. Match rows
+mode/type, logicalId/cfn-logicalId and placementName. Match rows
 by formal Property, array order and ownership, never equal numeric Row IDs; retain
 matching destination Row IDs and allocate unused fixed IDs for new rows.
 

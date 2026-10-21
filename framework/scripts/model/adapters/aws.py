@@ -28,7 +28,7 @@ from utils.lazy_definitions import load_once
 from comparison_rows import MISSING, Unresolved, put_row, select
 from design_catalog import DesignSchemaCatalog, selected_properties
 from model.projection import catalog_outputs
-from model.references import link_scope
+from model.identity import URI, parse_reference, resource_index
 from model.core import LINK, entries, properties
 from model.sources import model_paths
 from model.files import load_model, read_model
@@ -416,7 +416,7 @@ class Resource:
             return None
         rid, row = rows[0]
         raw = self.model.values.get("observed.row." + rid + ".value")
-        if raw is None and not LINK.fullmatch(row["value"]):
+        if raw is None and not URI.fullmatch(row["value"]):
             raw = row["value"]
         if raw is None:
             return None
@@ -442,20 +442,17 @@ class Resource:
         return self.reference(reference)
 
     def reference(self, value):
-        link = LINK.fullmatch(value)
-        if not link:
-            raise Unresolved("invalid model reference")
-        address = link_scope(self.model.path.parent.parent.name, self.model.path.parent.name,
-                             self.model.service, link.group(2))
-        path = self.ctx.root / 'model' / (address + '.properties')
+        environment, target, service, logical = parse_reference(value)
+        path = self.ctx.root / 'model' / environment / target / (service + '.properties')
         try:
             model = self.ctx.model(path)
         except FileNotFoundError as error:
-            raise Unresolved('producer Model is absent: ' + address) from error
-        matches = [r for r in model.resources if r.spec.get("anchor") == link.group(3)]
-        if len(matches) != 1:
-            raise Unresolved("model reference is missing or ambiguous")
-        return matches[0]
+            raise Unresolved('producer Model is absent') from error
+        if not hasattr(model, '_logical_resources'):
+            model._logical_resources = {r.spec['logicalId']: r for r in model.resources}
+        if logical not in model._logical_resources:
+            raise Unresolved('Resource logicalId is absent')
+        return model._logical_resources[logical]
 
     def identity(self, mode="id"):
         self.ctx.require_resource_scope(self)
@@ -504,7 +501,7 @@ class Resource:
             schema, schema_type = {}, "string"
         if "document" in row:
             value = policy_json(raw)
-        elif LINK.fullmatch(raw):
+        elif URI.fullmatch(raw):
             target = self.reference(raw)
             mode = "arn" if norm in {"arn", "policy", "iam_role", "log_group_arn"} else "name" if norm in {"name", "string"} else "id"
             value = target.identity(mode)
@@ -533,13 +530,25 @@ class Resource:
         return value
 
     def resolve_json(self, value, norm="typed"):
-        if isinstance(value, str) and LINK.fullmatch(value):
+        if isinstance(value, str) and URI.fullmatch(value):
             target = self.reference(value)
             return target.identity("arn" if norm in {"arn", "policy", "iam_role", "log_group_arn"} else "name" if norm in {"name", "string"} else "id")
         if isinstance(value, list):
             return [self.resolve_json(item, norm) for item in value]
         if not isinstance(value, dict):
             return value
+        if "$resource" in value:
+            if set(value) - {"$resource", "$attribute"}:
+                raise Unresolved("invalid structured Resource reference")
+            target = self.reference(value["$resource"])
+            attribute = value.get("$attribute", "id")
+            if attribute.lower() in {"id", "name", "arn"}:
+                return target.identity(attribute.lower())
+            target.ctx.require_resource_scope(target)
+            rows = target.rows_for(target.kind + "." + attribute)
+            if len(rows) != 1 or URI.fullmatch(rows[0][1].get("value", "")):
+                raise Unresolved("structured reference has no confirmed attribute: " + attribute)
+            return target.value(target.kind + "." + attribute)
         if value == {"Ref": "AWS::AccountId"}:
             return self.ctx.call("sts", "get_caller_identity")["Account"]
         if value == {"Ref": "AWS::Region"}:
@@ -555,7 +564,7 @@ class Resource:
                     if "cfn-logicalId" in resource.spec:
                         matched = stack is not None and cfn_resource_identity(resource.spec["cfn-logicalId"]) == (stack, logical)
                     else:
-                        matched = stack is None and resource.spec.get("logicalId") == logical
+                        matched = False
                     if matched:
                         matches.append(resource)
             if len(matches) != 1:

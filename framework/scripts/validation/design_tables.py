@@ -243,7 +243,7 @@ def check_design_tables(
             children = {}
         for child in children.values():
             resource_type = child["resourceType"]
-            child["rows"] = validation_rows(child["rows"], values, resource_type, child["logicalId"], definitions_root)
+            child["rows"] = validation_rows(child["rows"], values, resource_type, child["logicalId"], definitions_root, scope=(*path.parent.parts[-2:], path.stem))
             if schema_catalog is not None:
                 present = {
                     resource_property_path(resource_type, prop)
@@ -315,7 +315,7 @@ def check_design_tables(
             semantic = shown
             if all(len(row) == 4 for row in shown):
                 try:
-                    semantic = validation_rows(shown, values, current_resource_type, identities.get((current_resource_type, current_logical_id), current_logical_id), definitions_root)
+                    semantic = validation_rows(shown, values, current_resource_type, identities.get((current_resource_type, current_logical_id), current_logical_id), definitions_root, scope=(*path.parent.parts[-2:], path.stem))
                 except ReferenceResolutionError as error:
                     findings.warn(error)
                 except ValueError as error:

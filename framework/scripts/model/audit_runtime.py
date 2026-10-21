@@ -133,7 +133,7 @@ def audit(snapshot, profile=None, cli_runner=None):
         model = ctx.model(m.ROOT / 'model' / target['environment'] / target['directory'] / (snapshot['service'] + '.properties'))
         for resource in model.resources:
             for prop in dict.fromkeys(row['property'] for _, row in resource.rows):
-                records.append({'resource': resource.spec.get('logicalId', resource.number), 'propertiesKey': prop,
+                records.append({'resource': resource.spec['logicalId'], 'propertiesKey': prop,
                                 'status': 'acquisition_failed', 'reason': reason, 'designValue':
                                 [row.get('document', row['value']) for _, row in resource.rows if row['property'] == prop],
                                 'awsValue': None, 'apis': ctx.trace})
@@ -145,7 +145,7 @@ def audit(snapshot, profile=None, cli_runner=None):
         except Exception as error:
             # Never turn a new upstream dependency or malformed response into a silent skip.
             for prop in dict.fromkeys(row['property'] for _, row in resource.rows):
-                records.append({'resource': resource.spec.get('logicalId', resource.number), 'propertiesKey': prop,
+                records.append({'resource': resource.spec['logicalId'], 'propertiesKey': prop,
                                 'status': 'design_unresolved', 'reason': 'comparison failed: ' + type(error).__name__,
                                 'designValue': [row.get('document', row['value']) for _, row in resource.rows if row['property'] == prop],
                                 'awsValue': None, 'apis': ctx.trace})

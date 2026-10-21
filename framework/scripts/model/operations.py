@@ -8,6 +8,7 @@ from model.format import owner
 from model.sources import (ModelSnapshot, SourceWriteContext, load_model, model_parts,
                            publication_lock, _publish_transaction, safe)
 from model.core import entries, LINK
+from model.identity import address as resource_uri, URI
 from model.references import declarations, pointer_leaf, usages, _json
 
 
@@ -81,6 +82,8 @@ class ConfigurationIndex:
 def preserve_fixed_fields(before, after, operation):
     from model.core import entries
     old, new = before.authoritative, after.authoritative
+    from model.identity import preserve_allocation
+    preserve_allocation(old, new)
     previous_refs, current_refs = declarations(old), declarations(new)
     removed_refs = previous_refs.keys() - current_refs.keys()
     added_refs = current_refs.keys() - previous_refs.keys()
@@ -239,7 +242,12 @@ def prepare_edit(snapshot, candidate, policy):
         before = policy.snapshot.read(path)
         if before != (None if text is None else text.encode('utf-8')):
             output[path] = text
-    after = load_model(snapshot.scope, CandidateReads(policy.snapshot, output))
+    reads = CandidateReads(policy.snapshot, output)
+    if policy.operation.action == 'identity-rewrite':
+        from model.sources import _source_snapshot
+        after = _source_snapshot(snapshot.scope, reads)
+    else:
+        after = load_model(snapshot.scope, reads)
     if policy.operation.action == 'observed':
         from model.observed import verify_observed_outputs
         verify_observed_outputs({path: text.encode('utf-8') for path, text in snapshot.files.items()}, output)
@@ -248,7 +256,8 @@ def prepare_edit(snapshot, candidate, policy):
                         (key in snapshot.authoritative) != (key in after.authoritative)}
         if any((entry, key) not in policy.operation.keys for key in changed_keys):
             raise ValueError('observed candidate changed a Row outside the authorized selection')
-    preserve_fixed_fields(snapshot, after, policy.operation)
+    if policy.operation.action != 'identity-rewrite':
+        preserve_fixed_fields(snapshot, after, policy.operation)
     preserve_layout(snapshot, after)
     policy._require_current(output)
     return EditPlan._prepared(snapshot, after, MappingProxyType(output), policy)
@@ -292,7 +301,7 @@ def _publish_plans(plans, context):
                 _context(plan.before, context)
             context.snapshot.verify()
             context._require_current(changes)
-            if context.operation.action in {'import-retarget', 'edit'}:
+            if context.operation.action in {'import-retarget', 'edit', 'identity-rewrite'}:
                 from import_guard import require_import_changes
                 from task_contract import selected_task
                 from validation_cache import recording_inputs
@@ -330,24 +339,12 @@ _SELF = object()
 _REFERENCE = object()
 
 
-def _self_value(value, anchor):
+def _self_value(value, reference):
     if isinstance(value, dict):
-        return {key: _self_value(child, anchor) for key, child in value.items()}
+        return {key: _self_value(child, reference) for key, child in value.items()}
     if isinstance(value, list):
-        return [_self_value(child, anchor) for child in value]
-    link = LINK.fullmatch(value) if isinstance(value, str) else None
-    return _SELF if link and not link[2] and link[3] == anchor else value
-
-
-def merged_row(values, number, rid, row):
-    """Typed source payload with a non-forgeable sentinel for a full self link."""
-    payload = {field: _self_value(_field_value('desired.row.' + rid + '.' + field, value),
-                               values[f'desired.resource.{number}.anchor'])
-               for field, value in row.items() if field != 'comment' and not (field == 'value' and 'document' in row)}
-    observed = f'observed.row.{rid}.value'
-    if observed in values:
-        payload['observed'] = values[observed]
-    return payload
+        return [_self_value(child, reference) for child in value]
+    return _SELF if isinstance(value, str) and value == reference else value
 
 
 def _pointer_parent(value, pointer):
@@ -476,9 +473,9 @@ def _check_reference_metadata(before, after, editable, moved_keys, removed, warn
         previous_owner = owner(key, before.authoritative)
         current_owner = owner(mapped['consumerKey'], after.authoritative)
         self_reference = (spec['producerKind'] == 'resource' and spec['producerScope'] == scope
-                          and spec['producerId'] == previous_owner[1])
+                          and spec['producerLogicalId'] == before.authoritative.get(f'desired.resource.{previous_owner[1]}.logicalId'))
         if self_reference:
-            mapped['producerId'] = current_owner[1]
+            mapped['producerLogicalId'] = after.authoritative[f'desired.resource.{current_owner[1]}.logicalId']
         expected.setdefault(mapped['consumerKey'], []).append((identity, mapped, self_reference))
     for key in replaced:
         candidates = [(identity, spec) for identity, spec in new.items() if spec['consumerKey'] == key]
@@ -488,7 +485,7 @@ def _check_reference_metadata(before, after, editable, moved_keys, removed, warn
                 position = (key, spec.get('pointer'))
                 ignored = {'text'} if self_reference else set()
                 if identity in editable_ids.get(before.scope.path, set()):
-                    ignored |= {'producerScope', 'producerId', 'text'}
+                    ignored |= {'producerScope', 'producerId', 'producerLogicalId', 'text'}
                 elif identity in text_ids.get(before.scope.path, set()):
                     ignored.add('text')
                 if {k: v for k, v in spec.items() if k not in ignored} == {k: v for k, v in actual.items() if k not in ignored}:
@@ -529,10 +526,10 @@ def _check_reference_metadata(before, after, editable, moved_keys, removed, warn
                    (current or previous).get('pointer') for other, spec in old.items() if other != identity):
                 raise ValueError('retarget cannot renumber fixed reference IDs: ' + identity)
         if previous is not None and current is not None and any(previous.get(field) != current.get(field)
-                for field in previous.keys() | current.keys() if field not in {'producerId', 'producerScope', 'text'}):
+                for field in previous.keys() | current.keys() if field not in {'producerId', 'producerLogicalId', 'producerScope', 'text'}):
             raise ValueError('retarget cannot change reference format, Property, label policy or occurrence: ' + identity)
         if previous is not None and current is not None and any(previous.get(field) != current.get(field)
-                for field in ('producerId', 'producerScope')) and identity not in editable_ids.get(before.scope.path, set()):
+                for field in ('producerId', 'producerLogicalId', 'producerScope')) and identity not in editable_ids.get(before.scope.path, set()):
             raise ValueError('retarget changed another reference producer in the same string leaf: ' + identity)
         if previous is not None and current is not None and previous.get('text') != current.get('text') and identity not in text_ids.get(before.scope.path, set()):
             raise ValueError('retarget changed another reference occurrence in the same string leaf: ' + identity)
@@ -619,15 +616,9 @@ def verify_model_operation(before, after, operation, sources):
         model = caches[path]
         for usage in records:
             producer = usage.producer_id
-            if producer is None and usage.producer_kind == 'resource':
-                source = caches.get(model.scope.root / 'model' / (usage.producer_scope + '.properties'))
-                matches = [] if source is None else [rid for rid, spec in entries(source.authoritative, 'desired.resource.')
-                                                     if spec.get('anchor') == usage.anchor]
-                if len(matches) == 1:
-                    producer = matches[0]
-            address = usage.producer_scope + ('/stack/' if usage.producer_kind == 'stack' else '/') + (producer or '#' + (usage.anchor or '?'))
-            addresses.setdefault((path, usage.consumer_key, usage.pointer), set()).add(address)
-            resolved[path, usage] = address
+            producer_address = usage.producer_scope + ('/stack/' if usage.producer_kind == 'stack' else '/') + (producer or '#' + (usage.logical_id or '?'))
+            addresses.setdefault((path, usage.consumer_key, usage.pointer), set()).add(producer_address)
+            resolved[path, usage] = producer_address
     usage_records['addresses'] = addresses
     usage_records['resolved'] = resolved
     usage_records['editable_ids'] = {}
@@ -698,7 +689,7 @@ def verify_model_operation(before, after, operation, sources):
                     used_references.update(refs)
                     editable.update((new_key, ref.pointer) for ref in refs)
                     _compare_field(source_model, old_key, new, new_key, refs, warnings, usage_records,
-                        self_anchors=(source_resource['anchor'], new_resources[rid]['anchor']) if pair else None)
+                        self_anchors=(resource_uri(source_model.scope, source_resource['logicalId']), resource_uri(new.scope, new_resources[rid]['logicalId'])) if pair else None)
                 old_observed, new_observed = f'observed.row.{previous_id}.value', f'observed.row.{row_id}.value'
                 if (old_observed in source_values) != (new_observed in actual_values) or source_values.get(old_observed) != actual_values.get(new_observed):
                     raise ValueError('Model source observation was not fully retained/transferred: ' + prop)
@@ -725,8 +716,6 @@ def verify_model_operation(before, after, operation, sources):
 
 def resource_configuration(values, number, path=None, expansion=None, *, index=None):
     """Compare configuration/native values and fixed reference meaning, excluding display labels."""
-    from model.references import LINKS
-    service = path.stem if path is not None else None
     def native(value):
         if isinstance(value, dict):
             return {'object': {key: native(child) for key, child in value.items()}}
@@ -734,15 +723,7 @@ def resource_configuration(values, number, path=None, expansion=None, *, index=N
             return {'array': [native(child) for child in value]}
         if not isinstance(value, str):
             return {type(value).__name__: value}
-        pieces, cursor = [], 0
-        for link in LINKS.finditer(value):
-            filename = link[2].removeprefix('./')
-            if filename and re.fullmatch(r'[A-Za-z0-9_-]+\.md', filename) is None:
-                continue
-            pieces.extend((value[cursor:link.start()], {'link': [filename.removesuffix('.md') or service, link[3]]}))
-            cursor = link.end()
-        pieces.append(value[cursor:])
-        return {'string': pieces}
+        return {'string': value}
     index = index if index is not None else ConfigurationIndex(values)
     resource = {key: native(value) for key, value in index.resources.get(number, {}).items()}
     rows = []
@@ -783,7 +764,7 @@ def _verify_detaches(old_models, new_models, declarations_):
         producer = old_models.get(producer_scope)
         if producer is None or f'desired.resource.{producer_id}.resourceType' not in producer.authoritative:
             raise ValueError('dependency detach names an absent fixed producer')
-        producer_anchor = producer.authoritative[f'desired.resource.{producer_id}.anchor']
+        producer_logical = producer.authoritative[f'desired.resource.{producer_id}.logicalId']
         key = declaration.key
         if owner(key, old.authoritative) != ('resource', rid) or not key.startswith('desired.row.') or not key.endswith(('.value', '.document')):
             raise ValueError('dependency detach requires its exact consumer value/document')
@@ -791,13 +772,13 @@ def _verify_detaches(old_models, new_models, declarations_):
             raise ValueError('dependency detach changed a saved native value')
         matches = {identity for identity, spec in declarations(old.authoritative).items()
                    if spec['consumerKey'] == key and spec['producerKind'] == 'resource' and
-                   spec['producerScope'] + '/' + spec['producerId'] == declaration.producer and
+                   spec['producerScope'] == '/'.join(producer_scope) and spec['producerLogicalId'] == producer_logical and
                    (declaration.pointer is None or spec.get('pointer') == declaration.pointer)}
         current = declarations(new.authoritative)
         if not matches or matches & current.keys():
             raise ValueError('declared dependency metadata is absent before or retained after detach')
         if any(usage.producer_scope == '/'.join(producer_scope) and
-               (usage.producer_id == producer_id or usage.producer_id is None and usage.anchor == producer_anchor) and
+               usage.producer_id == producer_id and
                usage.consumer_key == key and (declaration.pointer is None or usage.pointer == declaration.pointer)
                for usage in usages(new)):
             raise ValueError('declared dependency still has a direct or declared usage after detach')

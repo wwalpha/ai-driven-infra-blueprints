@@ -16,7 +16,7 @@ with tempfile.TemporaryDirectory() as directory:
     setup(root, ['s3'], ['S3.Bucket'], ('preview', 'release', 'prod'))
     path = root / 'model/preview/team/example.properties'
     values = {'desired.service.example.serviceId': 'example', 'desired.resource.017.resourceType': 'S3.Bucket',
-              'desired.resource.017.anchor': 's3-fixed', 'desired.resource.017.cfn-logicalId': 'fixed-stack-FixedBucket',
+              'desired.resource.017.logicalId': 'S3_Bucket_001', 'desired.service.identity.lastAllocated': '{"S3.Bucket":1}', 'desired.resource.017.cfn-logicalId': 'fixed-stack-FixedBucket',
               'desired.row.017-023.property': 'S3.Bucket.BucketName', 'desired.row.017-023.value': '`fixed-name`',
               'desired.row.017-023.comment': '合成設定'}
     assert model_paths(root) == []

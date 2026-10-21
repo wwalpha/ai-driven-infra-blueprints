@@ -21,15 +21,16 @@ def check_single_target_cache(root):
     for service, (kind, prop, name) in services.items():
         values = {f"desired.service.{service}.serviceId": service,
                   f"desired.service.{service}.ownedCatalogResourceTypes": kind,
-                  "desired.resource.001.resourceType": kind, "desired.resource.001.logicalId": "FixtureResource",
-                  "desired.resource.001.anchor": resource_anchor(service, name, kind),
+                  "desired.resource.001.resourceType": kind, "desired.resource.001.logicalId": kind.replace(".", "_") + "_001",
+                  "desired.service.identity.lastAllocated": json.dumps({kind: 1}),
+                  "desired.resource.001.cfn-logicalId": "fixture-FixtureResource",
                   "desired.row.001-001.property": f"{kind}.{prop}", "desired.row.001-001.value": f"`{name}`",
                   "desired.row.001-001.comment": "検証用の名前", "display.service.title": "# 詳細設計",
                   "display.resource.001.comment": "サービス単位の検証対象"}
         for number, output in enumerate(sorted(model_projection.identifier_outputs(root).get(kind, set())), 2):
             row = f"row.001-{number:03d}"
             values.update({f"desired.{row}.property": output,
-                           f"desired.{row}.value": f"[FixtureResource](#{values['desired.resource.001.anchor']})",
+                           f"desired.{row}.value": f"resource://dev/cde/{service}/{values['desired.resource.001.logicalId']}",
                            f"desired.{row}.comment": "生成される識別子",
                            f"observed.{row}.property": output, f"observed.{row}.value": "PENDING_DEPLOY",
                            f"observed.{row}.comment": "生成される識別子"})
@@ -199,18 +200,19 @@ def main():
 invalid unrelated table alignment
 ''')
                 write_model(models / 'vpc.properties', {
-                    'desired.resource.001.resourceType': 'EC2.Subnet', 'desired.resource.001.anchor': anchor,
+                    'desired.resource.001.resourceType': 'EC2.Subnet', 'desired.resource.001.logicalId': 'EC2_Subnet_001', 'desired.service.identity.lastAllocated': '{"EC2.Subnet":1}',
                     'desired.row.001-001.property': 'EC2.Subnet.Name',
                     'desired.row.001-001.value': '`subnet-app-' + env + '-' + target + '`',
                     'desired.row.001-001.comment': '参照先のみを読む合成値'})
                 name = f"{env}-app-{target}-01"
                 values = {"desired.service.ec2.serviceId": "ec2", "desired.service.ec2.ownedCatalogResourceTypes": "EC2.Instance",
-                          "desired.resource.001.resourceType": "EC2.Instance", "desired.resource.001.logicalId": "AppInstance",
-                          "desired.resource.001.anchor": f"ec2-{name}", "display.service.title": "# EC2 詳細設計",
+                          "desired.resource.001.resourceType": "EC2.Instance", "desired.resource.001.logicalId": "EC2_Instance_001",
+                          "desired.resource.001.cfn-logicalId": "AppInstance",
+                          "desired.service.identity.lastAllocated": '{"EC2.Instance":1}', "display.service.title": "# EC2 詳細設計",
                           "display.resource.001.comment": "アプリケーションの仮想マシン"}
                 for index, (prop, value) in enumerate((
-                    ("InstanceId", f"[AppInstance](#ec2-{name})"), ("ImageId", "`ami-0123456789abcdef0`"),
-                    ("InstanceType", "`t3.micro`"), ("SubnetId", f"[subnet-app-{env}-{target}](vpc.md#{anchor})"),
+                    ("InstanceId", f"resource://{env}/{target}/ec2/EC2_Instance_001"), ("ImageId", "`ami-0123456789abcdef0`"),
+                    ("InstanceType", "`t3.micro`"), ("SubnetId", f"resource://{env}/{target}/vpc/EC2_Subnet_001"),
                     ("Tags[].Key", "`Name`"), ("Tags[].Value", f"`{name}`")), 1):
                     key = f"row.001-{index:03d}"
                     values[f"desired.{key}.property"] = f"EC2.Instance.{prop}"

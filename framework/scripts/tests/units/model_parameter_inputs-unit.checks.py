@@ -10,6 +10,7 @@ import json
 from yaml_values import yaml_read
 from model.format import parse, FORMAT
 from model.sources import load_model
+from model.core import entries
 from model.references import usages
 from support.model_sources import write_model
 from support.import_model_fixtures import service_values, resource_values, reference_fields
@@ -43,9 +44,13 @@ def check_reference_target_candidates(tmp_path, external, types, expected):
     if external:
         write_model(producer, values)
         values = service_values('consumer', ['Example.Resource'])
-    values.update(resource_values('009', 'Example.Resource', 'consumer', 'CREATE', [('Target', '[001](' + ('producer.md' if external else '') + '#anchor-001)')]))
+    values.update(resource_values('009', 'Example.Resource', 'consumer', 'CREATE', [('Target', 'resource://preview/team/' + ('producer' if external else 'consumer') + '/EC2_VPC_001')]))
     values.update(reference_fields('fixed', 'desired.row.009-001.value', values['desired.row.009-001.value'],
         'preview/team/' + ('producer' if external else 'consumer') + '/001', kind='EC2.VPC', mode='link'))
+    state = {}
+    for _, resource in entries(values, 'desired.resource.'):
+        state[resource['resourceType']] = max(state.get(resource['resourceType'], 0), int(resource['logicalId'].rsplit('_', 1)[1]))
+    values['desired.service.identity.lastAllocated'] = json.dumps(state)
     write_model(path, values)
     snapshot = load_model(path)
     if expected in {'001', 'multiple matching'}:
@@ -56,8 +61,8 @@ def check_reference_target_candidates(tmp_path, external, types, expected):
         if external:
             assert producer in snapshot.dependencies
     else:
-        assert snapshot.warnings and snapshot.authoritative['desired.reference.fixed.producerId'] == '001'
-        assert any('Type differs' in warning['message'] if types else 'absent' in warning['message'] for warning in snapshot.warnings)
+        assert snapshot.warnings and snapshot.authoritative['desired.reference.fixed.producerLogicalId'] == 'EC2_VPC_001'
+        assert any('absent' in warning['message'] if types else 'absent' in warning['message'] for warning in snapshot.warnings)
 
 
 @pytest.mark.parametrize('failure', [None, 'collision', 'format'])

@@ -73,9 +73,9 @@ def fixture(root):
     view.write_text(markdown_for(view, values, root), encoding="utf-8")
     # Exercise the existing split reader and output paths for observed-driven part growth.
     text = "\n".join(f"desired.row.001-{i:03d}.{field}={value}" for i in range(1, 205)
-                     for field, value in (("property", "EC2.VPC.VpcId"), ("value", "[vpc](#ec2-vpc)"), ("comment", "識別子"))) + "\n"
+                     for field, value in (("property", "EC2.VPC.VpcId"), ("value", "resource://dev/123456789012/ec2/EC2_VPC_001"), ("comment", "識別子"))) + "\n"
     source = model / "ec2.properties"
-    text += "desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.anchor=ec2-vpc\n"
+    text += "desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.logicalId=EC2_VPC_001\ndesired.service.identity.lastAllocated={\"EC2.VPC\":1}\n"
     write_model(source, text)
     (design / "ec2.md").write_text("# EC2\n" + "読み取り対象\n" * 1500, encoding="utf-8")
     # A real JSON-owning model; the synthetic EC2 view above only measures I/O.

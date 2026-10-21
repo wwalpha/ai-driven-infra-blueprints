@@ -1,5 +1,7 @@
 """One acquisition inventory per verified Context; static definitions remain shared."""
 from utils.json_format import policy_json
+from model.identity import address
+from model.sources import scope_for
 from copy import deepcopy
 import json
 from threading import RLock
@@ -61,7 +63,7 @@ def cloudcontrol_value(ctx, resource, getter):
         current = resource.current(prop)
         if current is None:
             rows = resource.rows_for(prop)
-            if any((link := comparator().LINK.fullmatch(row['value'])) and not link[2] and link[3] == resource.spec.get('anchor') for _, row in rows):
+            if any(row['value'] == address(scope_for(resource.model.path), resource.spec['logicalId']) for _, row in rows):
                 raise comparator().Unresolved('provider self identity has no confirmed observation')
             current = resource.value(prop)
         components.append(current)

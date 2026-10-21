@@ -182,8 +182,8 @@ def check_task_service_validation(tmp_path):
     original = """desired.service.logs.serviceId=logs
 desired.service.logs.ownedCatalogResourceTypes=Logs.LogGroup
 desired.resource.001.resourceType=Logs.LogGroup
-desired.resource.001.logicalId=FlowLogs
-desired.resource.001.anchor=logs-cwlogs-app-dev-flow
+desired.resource.001.logicalId=Logs_LogGroup_001
+desired.service.identity.lastAllocated={"Logs.LogGroup":1}
 desired.row.001-001.property=Logs.LogGroup.LogGroupName
 desired.row.001-001.value=cwlogs-app-dev-flow
 desired.row.001-001.comment=ログを保存する名前
@@ -269,7 +269,8 @@ display.resource.001.comment=通信ログを保存するLog Group
     write_model(model.parent / 'ec2.properties', {
         'desired.service.ec2.serviceId': 'ec2', 'desired.service.ec2.ownedCatalogResourceTypes': 'EC2.VPC',
         'display.service.title': '# Invalid unrelated EC2 design',
-        'desired.resource.001.resourceType': 'EC2.VPC', 'desired.resource.001.anchor': 'ec2-unrelated',
+        'desired.resource.001.resourceType': 'EC2.VPC', 'desired.resource.001.logicalId': 'EC2_VPC_001',
+        'desired.service.identity.lastAllocated': '{"EC2.VPC":1}',
         'display.resource.001.comment': 'Unrelated invalid CIDR',
         'desired.row.001-001.property': 'EC2.VPC.CidrBlock',
         'desired.row.001-001.value': '`invalid-cidr`', 'desired.row.001-001.comment': 'Invalid native value'})

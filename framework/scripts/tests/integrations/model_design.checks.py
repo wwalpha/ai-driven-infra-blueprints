@@ -13,7 +13,7 @@ from support.model_design_fixtures import *
 def check_route53_endpoint_dns_roundtrip(root, project):
     directory = root / "docs/designs/dev/123456789012"
     endpoint = model("vpc-endpoint", "EC2.VPCEndpoint", "vpce-app-dev-snowflake", [
-        ("Id", "[Endpoint](#vpc-endpoint-vpce-app-dev-snowflake)", "一意に識別するID"),
+        ("Id", "resource://dev/123456789012/vpc-endpoint/EC2_VPCEndpoint_001", "一意に識別するID"),
         ("ServiceName", "`com.amazonaws.vpce.ap-northeast-1.vpce-svc-04feb508c997b211e`", "接続先service"),
         ("Tags[].Key", "`Name`", "タグのキー"),
         ("Tags[].Value", "`vpce-app-dev-snowflake`", "エンドポイント名"),
@@ -26,7 +26,7 @@ def check_route53_endpoint_dns_roundtrip(root, project):
     dns = "vpce-014d2843ef114f19d-m2klm0hu.vpce-svc-04feb508c997b211e.ap-northeast-1.vpce.amazonaws.com"
     route = model("route53", "Route53.RecordSet", "snow.example.com", [
         ("Name", "`snow.example.com`", "レコード名"),
-        ("ResourceRecords", "[Endpoint](vpc-endpoint.md#vpc-endpoint-vpce-app-dev-snowflake)", "CNAMEの接続先DNS"),
+        ("ResourceRecords", "resource://dev/123456789012/vpc-endpoint/EC2_VPCEndpoint_001", "CNAMEの接続先DNS"),
         ("TTL", "`300`", "キャッシュ時間"), ("Type", "`CNAME`", "レコード種別"),
     ])
     for field, value in [("property", "Route53.RecordSet.ResourceRecords"), ("value", dns), ("comment", "CNAMEの接続先DNS")]:
@@ -44,7 +44,7 @@ def check_route53_endpoint_dns_roundtrip(root, project):
     for bad in (valid.replace(dns, dns.replace("014d2843ef114f19d", "014d2843ef114f190")),
                 valid.replace("vpce-svc-04feb508c997b211e", "vpce-svc-04feb508c997b2110"),
                 valid.replace("ap-northeast-1.vpce.amazonaws.com", "us-east-1.vpce.amazonaws.com"),
-                valid.replace("vpc-endpoint.md#vpc-endpoint-vpce-app-dev-snowflake", "route53.md#route53-snow.example.com")):
+                valid.replace("vpc-endpoint.md#resource-EC2_VPCEndpoint_001", "route53.md#route53-snow.example.com")):
         assert errors(bad)
     assert errors(valid.replace("`CNAME`", "`A`"))
     # Endpoint configuration never becomes an observed identifier.
@@ -69,7 +69,7 @@ def check_firehose_import_pending_roundtrip(root, project):
     path = root / "docs/designs/dev/123456789012/data-firehose.md"
     valid = roundtrip(path, values, root)
     model_path = root / "model/dev/123456789012/data-firehose.properties"
-    model_path.parent.mkdir(parents=True)
+    model_path.parent.mkdir(parents=True, exist_ok=True)
     write_model(model_path, text(values))
     validator_module = load("validate-blueprint")
     catalog = validator_module.Validator(ROOT).catalog_design_properties()
@@ -93,7 +93,7 @@ def check_firehose_import_pending_roundtrip(root, project):
 
 def check_config_import_pending_roundtrip(root, project):
     values = model("config", "Config.ConfigurationRecorder", "default", [
-        ("Id", "[default](#config-configuration-recorder-default)", "一意に識別するID"),
+        ("Id", "resource://dev/123456789012/config/Config_ConfigurationRecorder_001", "一意に識別するID"),
         ("Name", "`default`", "記録設定名"),
         ("RoleARN", "Pending", "記録用IAM Role"),
     ])
@@ -103,7 +103,7 @@ def check_config_import_pending_roundtrip(root, project):
     path = root / "docs/designs/dev/123456789012/config.md"
     valid = roundtrip(path, values, root)
     model_path = root / "model/dev/123456789012/config.properties"
-    model_path.parent.mkdir(parents=True)
+    model_path.parent.mkdir(parents=True, exist_ok=True)
     write_model(model_path, text(values))
     validator_module = load("validate-blueprint")
     catalog = validator_module.Validator(ROOT).catalog_design_properties()
@@ -131,7 +131,7 @@ def check_desired_only_identifier_reference(root, project):
         ('GroupName','`gr-dev-finance`','分析グループ名'),
         ('AwsAccountId','`123456789012`','所有するアカウント'),
         ('Namespace','`default`','名前空間'),
-        ('PrincipalId','[Finance](#quicksight-gr-dev-finance)','グループの識別子')], 'Finance')
+        ('PrincipalId','resource://dev/123456789012/quicksight/QuickSight_Group_001','グループの識別子')], 'Finance')
     group.update({'observed.row.001-004.property':'QuickSight.Group.PrincipalId',
                   'observed.row.001-004.value':'PENDING_DEPLOY',
                   'observed.row.001-004.comment':'グループの識別子'})
@@ -144,12 +144,13 @@ def check_desired_only_identifier_reference(root, project):
 ### QuickSight.DataSource: source
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | QuickSight.DataSource.Permissions[].Principal | [gr-dev-finance](quicksight.md#quicksight-gr-dev-finance) | 分析グループへの権限 |
+| 1 | QuickSight.DataSource.Permissions[].Principal | [gr-dev-finance](quicksight.md#resource-QuickSight_Group_001) | 分析グループへの権限 |
 """,encoding='utf-8')
     source={'desired.resource.007.resourceType':'QuickSight.DataSource',
-            'desired.resource.007.logicalId':'Source','desired.resource.007.anchor':'references-source',
+            'desired.resource.007.logicalId':'QuickSight_DataSource_001',
+            'desired.service.identity.lastAllocated':'{"QuickSight.DataSource":1}',
             'desired.row.007-009.property':'QuickSight.DataSource.Permissions[].Principal',
-            'desired.row.007-009.value':'[gr-dev-finance](quicksight.md#quicksight-gr-dev-finance)',
+            'desired.row.007-009.value':'resource://dev/123456789012/quicksight/QuickSight_Group_001',
             'desired.row.007-009.comment':'分析グループへの権限'}
     from model.projection import resource_rows
     rows = resource_rows(source, '007', 'QuickSight.DataSource', ROOT)
@@ -157,7 +158,7 @@ def check_desired_only_identifier_reference(root, project):
     assert not any(k.startswith('observed.') for k in source)
     source.update({'observed.row.007-009.property':source['desired.row.007-009.property'],
                    'observed.row.007-009.value':'gr-dev-finance','observed.row.007-009.comment':source['desired.row.007-009.comment']})
-    assert resource_rows(source, '007', 'QuickSight.DataSource', ROOT)[0][2] == '[gr-dev-finance](quicksight.md#quicksight-gr-dev-finance)'
+    assert resource_rows(source, '007', 'QuickSight.DataSource', ROOT)[0][2] == 'resource://dev/123456789012/quicksight/QuickSight_Group_001'
     before = dict(source)
     path.write_text(path.read_text().replace('[gr-dev-finance]','[wrong-group]'))
     validator = load('validate-blueprint').Validator(root)
@@ -178,7 +179,7 @@ def check_catalog_display_order(tmp_path):
         ("Tags[].Key", '"owner"', "タグ名"),
         ("Tags[].Value", '"second"', "次の用途"),
         ("CidrBlock", "`10.0.0.0/16`", "アドレス範囲"),
-        ("VpcId", "[Vpc](#vpc-vpc-app-dev)", "ネットワークID"),
+        ("VpcId", "resource://dev/123456789012/vpc/EC2_VPC_001", "ネットワークID"),
         ("EnableDnsHostnames", "`true`", "DNS名"),
     ], logical_id="Vpc")
     values.update({"observed.row.001-008.property": "EC2.VPC.VpcId",
@@ -241,7 +242,7 @@ def check_kms_policy_execution_account(root):
         {"Sid": "AllowMacieToDecryptObjects", "Effect": "Allow", "Principal": {"AWS": macie_arn}, "Action": "kms:Decrypt", "Resource": "*"},
     ]}
     values = model("kms", "KMS.Key", "test-key", [
-        ("KeyId", "[Key](#kms-test-key)", "キーを識別するID"),
+        ("KeyId", f"resource://dev/{identity}/kms/KMS_Key_001", "キーを識別するID"),
         ("KeyPolicy", "[Policy](kms/test-key-policy.json)", "キーの利用権限"),
     ], "Key", "test-key")
     values.update({"observed.row.001-001.property": "KMS.Key.KeyId", "observed.row.001-001.value": "`PENDING_DEPLOY`",
@@ -277,7 +278,7 @@ def check_kms_policy_execution_account(root):
 
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [target]}) + "\n", encoding="utf-8")
     source = root / f"model/dev/{identity}/kms.properties"
-    source.parent.mkdir(parents=True)
+    source.parent.mkdir(parents=True, exist_ok=True)
     write_model(source, text(values))
     path = root / f"docs/designs/dev/{identity}/kms.md"
     assert SYNC.sync(root, True, "dev", identity, services=["kms"]) == 0
@@ -302,7 +303,7 @@ def check_glue_argument_display(tmp_path):
         ("DefaultArguments", f"`{arguments}`", "ジョブの既定引数"),
         ("NonOverridableArguments", '`{"--LOCKED":"false","--empty":"","--特殊\\u007c<key>`":"line\\n\\u007c<>&`"}`', "上書きできない引数"),
         ("Tags", "`{}`", "ジョブのタグ"),
-        ("Role", "[app-dev-glue](iam.md#iam-app-dev-glue)", "処理ジョブの実行ロール"),
+        ("Role", "resource://dev/123456789012/iam/IAM_Role_001", "処理ジョブの実行ロール"),
         ("Command.Name", "`glueetl`", "処理ジョブの種類"),
     ])
     output = roundtrip(path, values, ROOT)
@@ -401,7 +402,7 @@ def check_vpc_endpoint_name_display(tmp_path):
         ("Tags[].Value", f"`{name}`", "エンドポイント名"),
         ("Tags[].Key", "`owner`", "所有者タグのキー"),
         ("Tags[].Value", "`team`", "所有者タグの値"),
-        ("VpcId", "[vpc-app-dev](#vpc-vpc-app-dev)", "所属するVPC"),
+        ("VpcId", "resource://dev/123456789012/vpc/EC2_VPC_001", "所属するVPC"),
     ], "Endpoint")
     for mode in ("CREATE", "IMPORT"):
         values["desired.resource.001.resourceMode"] = mode
@@ -421,7 +422,7 @@ def check_vpc_endpoint_name_display(tmp_path):
                 expanded_display_rows(bad.splitlines())
     values = model("vpc", kind, kind, [
         ("ServiceName", "`com.amazonaws.ap-northeast-1.s3`", "接続先サービス"),
-        ("VpcId", "[vpc-app-dev](#vpc-vpc-app-dev)", "所属するVPC"),
+        ("VpcId", "resource://dev/123456789012/vpc/EC2_VPC_001", "所属するVPC"),
     ])
     values["desired.resource.001.resourceMode"] = "IMPORT"
     output = roundtrip(path, values, ROOT)
@@ -434,7 +435,7 @@ def check_subnet_lambda_roundtrip(root):
     values = model("lambda", "Lambda.Function", "lambda-app-dev", [
         ("FunctionName", "`lambda-app-dev`", "関数の名称"),
         ("Code.S3Bucket", "`lambda-code`", "コードの保管先"),
-        ("Role", "[lambda-role](iam.md#lambda-role)", "実行権限"),
+        ("Role", "resource://dev/123456789012/iam/IAM_Role_001", "実行権限"),
         ("VpcConfig.SubnetIds", '`["subnet-a", "subnet-b"]`', "配置先Subnet"),
     ])
     output = roundtrip(root / "docs/designs/dev/123456789012/lambda.md", values, root)
@@ -455,7 +456,7 @@ def check_subnet_model_validation(root, project):
         ("FunctionName", "`lambda-app-dev`", "関数の名称"),
         ("Code.S3Bucket", "`lambda-code`", "コードの保管先"),
         ("Handler", "`index.handler`", "実行する入口"),
-        ("Role", "[net-dev-flow-role](iam.md#iam-net-dev-flow-role)", "実行権限"),
+        ("Role", "resource://dev/123456789012/iam/IAM_Role_001", "実行権限"),
         ("Runtime", "`nodejs22.x`", "コードの実行環境"),
         ("VpcConfig.SubnetIds", '`[ "subnet-00000000000000001", "subnet-00000000000000002" ]`', "配置先Subnet"),
     ])
@@ -515,11 +516,11 @@ def check_athena_configuration_display(root):
 
 def check_config_typed_anchors(root):
     recorder, channel = "Config.ConfigurationRecorder", "Config.DeliveryChannel"
-    recorder_anchor = "config-configuration-recorder-default"
-    channel_anchor = "config-delivery-channel-default"
-    assert resource_anchor("config", "default", recorder) == recorder_anchor
-    assert resource_anchor("config", "default", channel) == channel_anchor
-    assert resource_anchor("config", "DEFAULT", recorder) == recorder_anchor
+    recorder_anchor = "resource-Config_ConfigurationRecorder_001"
+    channel_anchor = "resource-Config_DeliveryChannel_001"
+    assert resource_anchor("config", "default", recorder) == "config-configuration-recorder-default"
+    assert resource_anchor("config", "default", channel) == "config-delivery-channel-default"
+    assert resource_anchor("config", "DEFAULT", recorder) == "config-configuration-recorder-default"
     assert resource_anchor("s3", "app/data", "S3.Bucket") == "s3-app-data"
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [
         {"environment": "dev", "alias": alias, "awsAccountId": "123456789012",
@@ -529,18 +530,18 @@ def check_config_typed_anchors(root):
     path = root / "docs/designs/dev/cde/config.md"
     values = model("config", recorder, "default", [
         ("Name", "`default`", "構成情報を記録するrecorderの名前"),
-        ("Id", f"[Recorder](#{recorder_anchor})", "recorderを識別するID"),
+        ("Id", "resource://dev/cde/config/Config_ConfigurationRecorder_001", "recorderを識別するID"),
         ("RoleARN", "`AWSServiceRoleForConfig`", "記録に使用するservice linked role"),
     ], "Recorder")
     values.update({
         "desired.service.config.ownedCatalogResourceTypes": recorder + "," + channel,
-        "desired.resource.001.anchor": recorder_anchor,
+        "desired.service.identity.lastAllocated": json.dumps({recorder: 1, channel: 1}),
         "observed.row.001-002.property": recorder + ".Id",
         "observed.row.001-002.value": "`default`",
         "observed.row.001-002.comment": values["desired.row.001-002.comment"],
         "desired.resource.002.resourceType": channel,
-        "desired.resource.002.logicalId": "Channel",
-        "desired.resource.002.anchor": channel_anchor,
+        "desired.resource.002.logicalId": "Config_DeliveryChannel_001",
+        "desired.resource.002.cfn-logicalId": "fixture-Channel",
         "display.resource.002.comment": "構成情報をS3へ配信するchannel",
         "desired.row.002-001.property": channel + ".Name",
         "desired.row.002-001.value": "`default`",
@@ -551,7 +552,7 @@ def check_config_typed_anchors(root):
     })
     output = roundtrip(path, values, root)
     sync_views.validate_views(root, root, [path], {path: values})
-    for kind, anchor, logical_id in ((recorder, recorder_anchor, "Recorder"), (channel, channel_anchor, "Channel")):
+    for kind, anchor, logical_id in ((recorder, recorder_anchor, "Config_ConfigurationRecorder_001"), (channel, channel_anchor, "Config_DeliveryChannel_001")):
         assert f"### {kind}: default" in output
         assert f"| 1 | [default](#{anchor}) |" in output
         assert model_projection.linked_resource(path, f"[default](#{anchor})") == (kind, logical_id)
@@ -573,33 +574,33 @@ def check_config_typed_anchors(root):
         invalid = {**values, f"desired.resource.{key}.anchor": wrong}
         with pytest.raises(ValueError) as error:
             markdown_for(path, invalid, root)
-        assert "anchor must be unique and match its name" in str(error.value)
-        correct = values[f"desired.resource.{key}.anchor"]
-        assert any("anchor must use display name" in error for error in failures(output.replace(correct, wrong)))
+        assert "anchor" in str(error.value)
+        correct = "resource-" + values[f"desired.resource.{key}.logicalId"]
+        assert any("anchor" in error for error in failures(output.replace(correct, wrong)))
 
-    # Case normalization still rejects collisions within the same type.
+    # Duplicate identity still fails even when the display names differ only in case.
     collision = {key: value for key, value in values.items() if not key.startswith(("desired.resource.002.", "desired.row.002-"))}
     collision["desired.service.config.ownedCatalogResourceTypes"] = recorder
     for key, value in list(values.items()):
         if key.startswith(("desired.resource.001.", "desired.row.001-", "observed.row.001-")):
-            collision[key.replace("001", "002", 1)] = value.replace("Recorder", "SecondRecorder") if key.endswith(("logicalId", "value")) else value
+            collision[key.replace("001", "002", 1)] = value
     collision["desired.row.002-001.value"] = "`DEFAULT`"
     with pytest.raises(ValueError) as error:
         markdown_for(path, collision, root)
-    assert "anchor must be unique and match its name" in str(error.value)
+    assert "logicalId" in str(error.value)
 
     assert not failures(output), failures(output)
     hub = model("securityhub", "SecurityHub.Hub", "securityhub.hub", [
         ("EnableDefaultStandards", "`true`", "標準を有効にする設定"),
     ], "Hub")
-    hub["desired.note.001.text"] = f"記録先: [default](config.md#{recorder_anchor})"
-    hub["desired.note.002.text"] = f"配信先: [default](config.md#{channel_anchor})"
+    hub["desired.note.001.text"] = "記録先: resource://dev/cde/config/Config_ConfigurationRecorder_001"
+    hub["desired.note.002.text"] = "配信先: resource://dev/cde/config/Config_DeliveryChannel_001"
     roundtrip(path.with_name("securityhub.md"), hub, root)
     validator = sync_views.view_validator(root, root)
     validator.check_design_links(catalog[2])
     assert not validator.errors, validator.errors
     source = root / "model/dev/cde/config.properties"
-    source.parent.mkdir(parents=True)
+    source.parent.mkdir(parents=True, exist_ok=True)
     write_model(source, text(values))
     assert SYNC.sync(root, True, "dev", "cde", services=["config"]) == 0
     assert SYNC.sync(root, False, "dev", "cde", services=["config"]) == 0
@@ -610,9 +611,9 @@ def check_config_typed_anchors(root):
 
 def check_kms_alias_display(root):
     path = root / "docs/designs/dev/123456789012/kms.md"
-    name, logical_id = "venus-dev-log-cde", "CdeLogKey"
-    anchor = resource_anchor("kms", name)
-    values = model("kms", "KMS.Key", name, [("KeyId", f"[{logical_id}](#{anchor})", "一意に識別するID")], logical_id)
+    name, logical_id = "venus-dev-log-cde", "KMS_Key_001"
+    anchor = "resource-" + logical_id
+    values = model("kms", "KMS.Key", name, [("KeyId", f"resource://dev/123456789012/kms/{logical_id}", "一意に識別するID")], logical_id)
     values.update({"desired.service.kms.ownedCatalogResourceTypes": "KMS.Key,KMS.Alias",
                    "observed.row.001-001.property": "KMS.Key.KeyId",
                    "observed.row.001-001.value": "`PENDING_DEPLOY`",
@@ -620,10 +621,11 @@ def check_kms_alias_display(root):
 
     def add_alias(identity, alias):
         values.update({f"desired.resource.{identity}.resourceType": "KMS.Alias",
-                       f"desired.resource.{identity}.logicalId": "Alias" + identity,
-                       f"desired.resource.{identity}.anchor": resource_anchor("kms", alias),
+                       f"desired.resource.{identity}.logicalId": "KMS_Alias_" + identity,
+                       "desired.service.identity.lastAllocated": json.dumps({"KMS.Key": 1, "KMS.Alias": int(identity)}),
+                       f"desired.resource.{identity}.cfn-logicalId": "fixture-Alias" + identity,
                        f"desired.resource.{identity}.parentProperty": "KMS.Alias.TargetKeyId",
-                       f"desired.resource.{identity}.parentReference": f"[{logical_id}](#{anchor})",
+                       f"desired.resource.{identity}.parentReference": f"resource://dev/123456789012/kms/{logical_id}",
                        f"desired.row.{identity}-001.property": "KMS.Alias.AliasName",
                        f"desired.row.{identity}-001.value": f"`{alias}`",
                        f"desired.row.{identity}-001.comment": "keyを識別するalias"})
@@ -633,7 +635,7 @@ def check_kms_alias_display(root):
     assert f"| 1 | [{name}](#{anchor}) |" in output
     assert f"### KMS.Key: {name}" in output
     assert "`alias/venus-dev-log-cde`" in output
-    assert "<!-- resource-logical-id: CdeLogKey -->" in output
+    assert "<!-- resource-logical-id: KMS_Key_001 -->" in output
     roundtrip(path, values, root)
     metadata = {path: ("kms", ("KMS.Key", "KMS.Alias"))}
     validator = sync_views.view_validator(root, root)
@@ -666,12 +668,12 @@ def check_kms_alias_display(root):
 def check_nameless_type_display(root, project):
     validator_module = load('validate-blueprint')
     docs = root / "docs/designs/dev/123456789012"
-    kind, logical_id = "GuardDuty.Detector", "SecurityDetector"
-    anchor = resource_anchor("guardduty", kind)
-    rows = [("Id", f"[{logical_id}](#{anchor})", "検出器を識別するID"), ("Enable", "`true`", "脅威検出を有効にする設定")]
+    kind, logical_id = "GuardDuty.Detector", "GuardDuty_Detector_001"
+    anchor = "resource-" + logical_id
+    rows = [("Id", f"resource://dev/123456789012/guardduty/{logical_id}", "検出器を識別するID"), ("Enable", "`true`", "脅威検出を有効にする設定")]
     values = model("guardduty", kind, kind.lower(), rows, logical_id)
     values.update({"observed.row.001-001.property": kind + ".Id", "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": rows[0][2],
-                   "desired.note.001.text": f"参照: [{kind}](#{anchor})"})
+                   "desired.note.001.text": f"参照: resource://dev/123456789012/guardduty/{logical_id}"})
     path = docs / "guardduty.md"
     output = roundtrip(path, values, root)
     assert output.count(f"### {kind}\n") == 2  # Overview and detail.
@@ -695,7 +697,7 @@ def check_nameless_type_display(root, project):
     assert not failures(output), failures(output)
     for invalid, message in (
         (output.replace(f"<!-- resource-logical-id: {logical_id} -->", ""), "hidden logical ID"),
-        (output.replace(anchor, "guardduty-wrong"), "anchor must use display name"),
+        (output.replace(anchor, "guardduty-wrong"), "anchor"),
         (output.replace(f"参照: [{kind}]", "参照: [wrong]"), "nameless resource link"),
         (output.replace(f"参照: [{kind}]", f"参照: [{logical_id}]"), "must not display internal logical ID"),
     ):
@@ -703,14 +705,14 @@ def check_nameless_type_display(root, project):
         assert any(message in error for error in errors), (message, errors)
     assert not failures(output), failures(output)
     source = root / "model/dev/123456789012/guardduty.properties"
-    source.parent.mkdir(parents=True)
+    source.parent.mkdir(parents=True, exist_ok=True)
     write_model(source, text(values))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     assert SYNC.sync(root, False, "dev", "123456789012") == 0
     assert properties(read_model(source)) == properties(text(values))
     assert path.read_text(encoding="utf-8") == output
     hub = model("securityhub", "SecurityHub.Hub", "securityhub.hub", [("EnableDefaultStandards", "`true`", "標準を有効にする設定")], "Hub")
-    hub["desired.note.001.text"] = f"参照: [{kind}](guardduty.md#{anchor})"
+    hub["desired.note.001.text"] = f"参照: resource://dev/123456789012/guardduty/{logical_id}"
     hub_path = docs / "securityhub.md"
     roundtrip(hub_path, hub, root)
     validator = validator_module.Validator(root)
@@ -727,8 +729,10 @@ def check_nameless_type_display(root, project):
     assert f"### {kind}: primary-detector" in roundtrip(path, labeled, root)
     sync_views.validate_views(root, root, [path], {path: labeled})
     assert "### GuardDuty.Detector: primary-detector" in path.read_text()
-    second = model("guardduty", kind, "secondary-detector", [("Id", "[SecondDetector](#guardduty-secondary-detector)", rows[0][2]), rows[1]], "SecondDetector", "secondary-detector")
+    second = model("guardduty", kind, "secondary-detector", [("Id", "resource://dev/123456789012/guardduty/GuardDuty_Detector_002", rows[0][2]), rows[1]], "SecondDetector", "secondary-detector")
     second.update({"observed.row.001-001.property": kind + ".Id", "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": rows[0][2]})
+    second["desired.resource.001.logicalId"] = "GuardDuty_Detector_002"
+    values["desired.service.identity.lastAllocated"] = labeled["desired.service.identity.lastAllocated"] = '{"GuardDuty.Detector":2}'
     additional = {key.replace(".001", ".002", 1): value for key, value in second.items()
                   if key.startswith(("desired.resource.", "desired.row.", "observed.row.", "display.resource."))}
     with pytest.raises(ValueError) as error:
@@ -758,16 +762,19 @@ def check_nameless_logical_id_label(root, project):
     validator_module = load('validate-blueprint')
     path = root / "docs/designs/dev/123456789012/guardduty.md"
     source = root / "model/dev/123456789012/guardduty.properties"
-    source.parent.mkdir(parents=True)
+    source.parent.mkdir(parents=True, exist_ok=True)
     kind = "GuardDuty.MalwareProtectionPlan"
     assert not resource_has_name_property(root, kind)
     values = {}
     for number, label in enumerate(("BuildProtectionPlan", "QuarantineProtectionPlan"), 1):
-        anchor = resource_anchor("guardduty", label)
-        rows = [("MalwareProtectionPlanId", f"[{label}](#{anchor})", "検査planを識別するID"),
+        logical = f"GuardDuty_MalwareProtectionPlan_{number:03d}"
+        anchor = "resource-" + logical
+        rows = [("MalwareProtectionPlanId", f"resource://dev/123456789012/guardduty/{logical}", "検査planを識別するID"),
                 ("ProtectedResource.S3Bucket.BucketName", "`app-dev-data`", "検査対象のbucket"),
                 ("Role", "`scan-role`", "検査に使用するrole")]
         item = model("guardduty", kind, label.lower(), rows, label, label)
+        item["desired.resource.001.logicalId"] = logical
+        item["desired.service.identity.lastAllocated"] = json.dumps({kind: number})
         item.update({"observed.row.001-001.property": kind + ".MalwareProtectionPlanId",
                      "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": rows[0][2],
                      "display.resource.001.comment": f"{label}の対象bucketを検査するplan"})
@@ -786,20 +793,21 @@ def check_nameless_logical_id_label(root, project):
     assert not failures(values), failures(values)
     sync_views.validate_views(root, root, [path], {path: values})
     for identity, label in (("001", "BuildProtectionPlan"), ("002", "QuarantineProtectionPlan")):
-        assert f"<!-- resource-logical-id: {label} -->" in output
-        assert f"[{label}](#guardduty-{label.lower()})" in output
-        assert values[f"desired.row.{identity}-001.value"] == f"[{label}](#guardduty-{label.lower()})"
+        assert f"<!-- resource-logical-id: GuardDuty_MalwareProtectionPlan_{identity} -->" in output
+        assert f"[{label}](#resource-GuardDuty_MalwareProtectionPlan_{identity})" in output
+        assert values[f"desired.row.{identity}-001.value"] == f"resource://dev/123456789012/guardduty/GuardDuty_MalwareProtectionPlan_{identity}"
         assert values[f"observed.row.{identity}-001.value"] == "`PENDING_DEPLOY`"
         key = f"display.resource.{identity}.label"
         invalid = [{name: value for name, value in values.items() if name != key}]
         invalid += [{**values, key: value} for value in ("", "UNSET", "PENDING_DEPLOY", "wrong-label")]
-        invalid += [{**values, f"desired.resource.{identity}.{field}": value}
-                    for field, value in (("resourceType", "GuardDuty.Detector"), ("logicalId", "OtherPlan"))]
         for bad in invalid:
             errors = failures(bad)
             assert any("resource without a name requires a display label" in error for error in errors), errors
-        assert any("hidden logical ID" in error for error in failures(values, output.replace(f"<!-- resource-logical-id: {label} -->", "")))
-    assert any("anchor must use display name" in error for error in failures(values, output.replace("guardduty-buildprotectionplan", "guardduty-wrong")))
+        for field, value in (("resourceType", "GuardDuty.Detector"), ("logicalId", "OtherPlan")):
+            with pytest.raises(ValueError, match="logicalId"):
+                failures({**values, f"desired.resource.{identity}.{field}": value})
+        assert any("hidden logical ID" in error for error in failures(values, output.replace(f"<!-- resource-logical-id: GuardDuty_MalwareProtectionPlan_{identity} -->", "")))
+    assert any("anchor" in error for error in failures(values, output.replace("resource-GuardDuty_MalwareProtectionPlan_001", "guardduty-wrong")))
     # Resource entry numbers belong to the model, not the Markdown order.
     renumbered = {key.replace(".001", ".007", 1): value for key, value in values.items()}
     assert not failures(renumbered), failures(renumbered)
@@ -864,7 +872,7 @@ def check_stack_policy(root, project):
                        f"desired.stack.{key}.deployOrder": order,
                        f"display.stack.{key}.comment": name + "を配置するstack"})
     source = root / "model/dev/123456789012/cloudformation-stacks.properties"
-    source.parent.mkdir(parents=True)
+    source.parent.mkdir(parents=True, exist_ok=True)
     write_model(source, text(values))
     before = snapshot_model(source)
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
@@ -935,7 +943,7 @@ def check_stack_mapping_roundtrip(root):
     assert "forbidden for Terraform" in str(error.value)
     project.write_text(project.read_text().replace('"terraform"', '"cloudformation"'))
     stack_source = root / "model/dev/123456789012/cloudformation-stacks.properties"
-    stack_source.parent.mkdir(parents=True)
+    stack_source.parent.mkdir(parents=True, exist_ok=True)
     write_model(stack_source, "\n".join(f"desired.stack.{index:03d}.{field}={value}" for index, purpose in enumerate(("ism", "key"), 1)
                                       for field, value in {"name": "cfn-stack-app-dev-" + purpose, "template": "shared.yaml", "parameters": purpose + ".json", "deployOrder": "10"}.items()) + "\n")
     without_id = {key: value for key, value in values.items() if not key.endswith(".cfn-logicalId")}
@@ -984,14 +992,15 @@ def check_stack_mapping_roundtrip(root):
     # Independent numbering survives grouped display order; Key and Alias each have a CFn ID.
     kms_path = path.with_name("kms.md")
     anchor = "kms-app-dev-data"
-    kms = model("kms", "KMS.Key", "app-dev-data", [("KeyId", f"[007](#{anchor})", "一意に識別するID")], label="app-dev-data")
-    kms = {key.replace(".001", ".007"): value for key, value in kms.items() if not key.endswith(".logicalId")}
+    kms = model("kms", "KMS.Key", "app-dev-data", [("KeyId", "resource://dev/123456789012/kms/KMS_Key_001", "一意に識別するID")], label="app-dev-data")
+    kms = {key.replace(".001", ".007"): value for key, value in kms.items()}
     kms.update({"desired.service.kms.ownedCatalogResourceTypes": "KMS.Key,KMS.Alias",
                 "desired.resource.007.cfn-logicalId": "cfn-stack-app-dev-key-Key",
                 "observed.row.007-001.property": "KMS.Key.KeyId", "observed.row.007-001.value": "`PENDING_DEPLOY`", "observed.row.007-001.comment": "一意に識別するID",
-                "desired.resource.021.resourceType": "KMS.Alias", "desired.resource.021.anchor": "kms-alias-app-dev-data",
+                "desired.resource.021.resourceType": "KMS.Alias", "desired.resource.021.logicalId": "KMS_Alias_001",
+                "desired.service.identity.lastAllocated": '{"KMS.Key":1,"KMS.Alias":1}',
                 "desired.resource.021.cfn-logicalId": "cfn-stack-app-dev-key-Alias",
-                "desired.resource.021.parentProperty": "KMS.Alias.TargetKeyId", "desired.resource.021.parentReference": f"[007](#{anchor})",
+                "desired.resource.021.parentProperty": "KMS.Alias.TargetKeyId", "desired.resource.021.parentReference": "resource://dev/123456789012/kms/KMS_Key_001",
                 "desired.row.021-001.property": "KMS.Alias.AliasName", "desired.row.021-001.value": "`alias/app-dev-data`", "desired.row.021-001.comment": "keyを識別するalias"})
     grouped = roundtrip(kms_path, kms, root)
     assert "resource-entry:" not in grouped and "resource-mode:" not in grouped
@@ -1170,7 +1179,7 @@ def check_codebuild_required_name(root, project):
     values.update({"observed.row.001-002.property": kind + ".Id", "observed.row.001-002.value": "`PENDING_DEPLOY`", "observed.row.001-002.comment": rows[0][2]})
     output = roundtrip(path, values, root)
     source = root / "model/dev/123456789012/codebuild.properties"
-    source.parent.mkdir(parents=True)
+    source.parent.mkdir(parents=True, exist_ok=True)
     write_model(source, text(values))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     saved = path.read_bytes()
@@ -1211,7 +1220,7 @@ def check_iam_role_name(root, project):
     invalid += [[("RoleName", value, "未確定の名前")] for value in
                 ("", "``", "`   `", "`UNSET`", "` UNSET `", "`PENDING_DEPLOY`", "`Pending`", "`TBD`", "`none`", "`未確定`", "`{{application}}`", f"[{name}](#iam-{name})")]
     source = root / "model/dev/123456789012/iam.properties"
-    source.parent.mkdir(parents=True)
+    source.parent.mkdir(parents=True, exist_ok=True)
     values = model("iam", kind, name, [name_row, trust_row], logical_id, "fallback-label")
     values["desired.row.001-002.document"] = document
     write_model(source, text(values))
@@ -1283,7 +1292,7 @@ def check_required_name_tag(kind, root, project):
     invalid_tags += [[tags[0], ("Tags[].Value", value, "未確定の名前")]
                      for value in ("", "``", "`   `", "`UNSET`", "` UNSET `", "`PENDING_DEPLOY`", "`Pending`", "`TBD`", "`none`", "`not-used`", "`{{application}}`", f"[{name}](#{service}-{name})")]
     path = root / f"docs/designs/dev/123456789012/{service}.md"
-    path.parent.mkdir(parents=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     rows = [(identifier, f"[{logical_id}](#{service}-{name})", "resourceを識別するID"), *before, *tags, *after]
     values = model(service, kind, name, rows, logical_id, "fallback-label")
     values.update({"observed.row.001-001.property": kind + "." + identifier, "observed.row.001-001.value": f"`{current_id}`", "observed.row.001-001.comment": rows[0][2],
@@ -1460,7 +1469,7 @@ def check_service_failure_protection(root, project):
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
 
     # A failed target preserves its View; independently valid consumers publish with warnings.
-    renamed_logs = {**logs, "desired.resource.001.anchor": "logs-cwlogs-new-dev-flow",
+    renamed_logs = {**logs,
                     "desired.row.001-001.value": "`cwlogs-new-dev-flow`",
                     "desired.row.001-002.value": "`not-a-number`"}
     write_model(base / "logs.properties", text(renamed_logs))
@@ -1716,17 +1725,17 @@ def check_service_displays(tmp_path):
     assert "BucketEncryption[].SSEAlgorithm" in output
     kms = model("kms", "KMS.Key", "app-dev-data", [("KeyId", "[Key](#kms-app-dev-data)", "一意に識別するID")], "Key")
     kms["desired.service.kms.ownedCatalogResourceTypes"] = "KMS.Key,KMS.Alias"
-    kms.update({"observed.row.001-001.property": "KMS.Key.KeyId", "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": "一意に識別するID", "desired.resource.002.resourceType": "KMS.Alias", "desired.resource.002.logicalId": "Alias", "desired.resource.002.anchor": "kms-alias-app-dev-data", "desired.resource.002.parentProperty": "KMS.Alias.TargetKeyId", "desired.resource.002.parentReference": "[Key](#kms-app-dev-data)", "desired.row.002-001.property": "KMS.Alias.AliasName", "desired.row.002-001.value": "`alias/app-dev-data`", "desired.row.002-001.comment": "keyを識別するalias"})
+    kms.update({"observed.row.001-001.property": "KMS.Key.KeyId", "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": "一意に識別するID", "desired.resource.002.resourceType": "KMS.Alias", "desired.resource.002.logicalId": "KMS_Alias_001", "desired.resource.002.cfn-logicalId": "fixture-Alias", "desired.service.identity.lastAllocated": '{"KMS.Key":1,"KMS.Alias":1}', "desired.resource.002.parentProperty": "KMS.Alias.TargetKeyId", "desired.resource.002.parentReference": "resource://dev/123456789012/kms/KMS_Key_001", "desired.row.002-001.property": "KMS.Alias.AliasName", "desired.row.002-001.value": "`alias/app-dev-data`", "desired.row.002-001.comment": "keyを識別するalias"})
     output = roundtrip(base / "kms.md", kms, ROOT)
-    assert "### KMS.Alias" not in output and "<!-- logical-id: Alias -->" in output
-    sg = model("security-group", "EC2.SecurityGroup", "dev-app-data-01-sg", [("Id", "[Group](#security-group-dev-app-data-01-sg)", GROUP_COMMENTS["Id"]), ("GroupDescription", "`Data access`", GROUP_COMMENTS["GroupDescription"]), ("GroupName", "`dev-app-data-01-sg`", GROUP_COMMENTS["GroupName"]), ("VpcId", "[vpc-app-dev](vpc.md#vpc-vpc-app-dev)", GROUP_COMMENTS["VpcId"]), ("Tags[].Key", '"purpose"', GROUP_COMMENTS["Tags[].Key"]), ("Tags[].Value", '"data"', GROUP_COMMENTS["Tags[].Value"]), ("SecurityGroupIngress[].IpProtocol", "`tcp`", COMMENTS["IpProtocol"]), ("SecurityGroupIngress[].FromPort", "`443`", COMMENTS["FromPort"]), ("SecurityGroupIngress[].ToPort", "`443`", COMMENTS["ToPort"]), ("SecurityGroupIngress[].CidrIp", "`10.1.0.0/16`", COMMENTS["CidrIp"]), ("SecurityGroupEgress[].IpProtocol", "`-1`", COMMENTS["IpProtocol"]), ("SecurityGroupEgress[].CidrIp", "`0.0.0.0/0`", COMMENTS["CidrIp"])], "Group")
-    sg.update({"observed.row.001-001.property": "EC2.SecurityGroup.Id", "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": GROUP_COMMENTS["Id"], "desired.service.security-group.ownedCatalogResourceTypes": "EC2.SecurityGroup,EC2.SecurityGroupIngress", "desired.resource.002.resourceType": "EC2.SecurityGroupIngress", "desired.resource.002.logicalId": "Rule", "desired.resource.002.anchor": "security-group-rule", "desired.resource.002.parentProperty": "EC2.SecurityGroupIngress.GroupId", "desired.resource.002.parentReference": "[Group](#security-group-dev-app-data-01-sg)"})
-    for number, (field, value) in enumerate((("Id", "[Rule](#security-group-rule)"), ("IpProtocol", "`tcp`"), ("FromPort", "`22`"), ("ToPort", "`22`"), ("SourceSecurityGroupId", "[PENDING_DEPLOY](#security-group-dev-app-data-01-sg)")), 1):
+    assert "### KMS.Alias" not in output and "<!-- logical-id: KMS_Alias_001 -->" in output
+    sg = model("security-group", "EC2.SecurityGroup", "dev-app-data-01-sg", [("Id", "resource://dev/123456789012/security-group/EC2_SecurityGroup_001", GROUP_COMMENTS["Id"]), ("GroupDescription", "`Data access`", GROUP_COMMENTS["GroupDescription"]), ("GroupName", "`dev-app-data-01-sg`", GROUP_COMMENTS["GroupName"]), ("VpcId", "[vpc-app-dev](vpc.md#vpc-vpc-app-dev)", GROUP_COMMENTS["VpcId"]), ("Tags[].Key", '"purpose"', GROUP_COMMENTS["Tags[].Key"]), ("Tags[].Value", '"data"', GROUP_COMMENTS["Tags[].Value"]), ("SecurityGroupIngress[].IpProtocol", "`tcp`", COMMENTS["IpProtocol"]), ("SecurityGroupIngress[].FromPort", "`443`", COMMENTS["FromPort"]), ("SecurityGroupIngress[].ToPort", "`443`", COMMENTS["ToPort"]), ("SecurityGroupIngress[].CidrIp", "`10.1.0.0/16`", COMMENTS["CidrIp"]), ("SecurityGroupEgress[].IpProtocol", "`-1`", COMMENTS["IpProtocol"]), ("SecurityGroupEgress[].CidrIp", "`0.0.0.0/0`", COMMENTS["CidrIp"])], "Group")
+    sg.update({"observed.row.001-001.property": "EC2.SecurityGroup.Id", "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": GROUP_COMMENTS["Id"], "desired.service.security-group.ownedCatalogResourceTypes": "EC2.SecurityGroup,EC2.SecurityGroupIngress", "desired.resource.002.resourceType": "EC2.SecurityGroupIngress", "desired.resource.002.logicalId": "EC2_SecurityGroupIngress_001", "desired.resource.002.cfn-logicalId": "fixture-Rule", "desired.service.identity.lastAllocated": '{"EC2.SecurityGroup":1,"EC2.SecurityGroupIngress":1}', "desired.resource.002.parentProperty": "EC2.SecurityGroupIngress.GroupId", "desired.resource.002.parentReference": "resource://dev/123456789012/security-group/EC2_SecurityGroup_001"})
+    for number, (field, value) in enumerate((("Id", "resource://dev/123456789012/security-group/EC2_SecurityGroupIngress_001"), ("IpProtocol", "`tcp`"), ("FromPort", "`22`"), ("ToPort", "`22`"), ("SourceSecurityGroupId", "[PENDING_DEPLOY](#security-group-dev-app-data-01-sg)")), 1):
         key = f"002-{number:03d}"
         sg.update({f"desired.row.{key}.property": "EC2.SecurityGroupIngress." + field, f"desired.row.{key}.value": value, f"desired.row.{key}.comment": COMMENTS[field]})
     sg.update({"observed.row.002-001.property": "EC2.SecurityGroupIngress.Id", "observed.row.002-001.value": "PENDING_DEPLOY", "observed.row.002-001.comment": COMMENTS["Id"]})
     # Self references use the parent's canonical logical identity and observed ID.
-    sg["desired.row.002-005.value"] = "[Group](#security-group-dev-app-data-01-sg)"
+    sg["desired.row.002-005.value"] = "resource://dev/123456789012/security-group/EC2_SecurityGroup_001"
     sg.update({"observed.row.002-005.property": "EC2.SecurityGroupIngress.SourceSecurityGroupId", "observed.row.002-005.value": "PENDING_DEPLOY", "observed.row.002-005.comment": COMMENTS["SourceSecurityGroupId"]})
     output = roundtrip(base / "security-group.md", sg, ROOT)
     assert "| Direction | IpProtocol | Port |" in output
@@ -1735,7 +1744,7 @@ def check_service_displays(tmp_path):
     for direction in ("Ingress", "Egress"):
         variant = sg.copy()
         if direction == "Egress":
-            variant = {key: value.replace("EC2.SecurityGroupIngress", "EC2.SecurityGroupEgress").replace("SourceSecurityGroupId", "DestinationSecurityGroupId") for key, value in variant.items()}
+            variant = {key: value.replace("EC2.SecurityGroupIngress", "EC2.SecurityGroupEgress").replace("EC2_SecurityGroupIngress", "EC2_SecurityGroupEgress").replace("SourceSecurityGroupId", "DestinationSecurityGroupId") for key, value in variant.items()}
             variant["desired.row.002-005.comment"] = COMMENTS["DestinationSecurityGroupId"]
             variant["observed.row.002-005.comment"] = COMMENTS["DestinationSecurityGroupId"]
         for identifier in ("PENDING_DEPLOY", "`PENDING_DEPLOY`", "sgr-00000001", "`sgr-00000001`"):
@@ -1753,7 +1762,6 @@ def check_observed_arn_authority(tmp_path):
     document = tmp_path / 'docs/designs/dev/123456789012/secrets-manager.md'
     arn = 'arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:actual-id'
     values = model('secrets-manager', 'SecretsManager.Secret', 'secret', [('Id', '[secret](#secret)', 'actual ID')])
-    values['desired.resource.001.anchor'] = 'secret'
     values['observed.row.001-001.value'] = '`' + arn + '`'
     for mode in ('IMPORT', 'CREATE'):
         values['desired.resource.001.resourceMode'] = mode
@@ -1762,7 +1770,7 @@ def check_observed_arn_authority(tmp_path):
         check_observed_values([path], findings=findings, root=tmp_path, scope=None)
         assert any('generated ARN persisted' in error for error in findings.errors) == (mode == 'CREATE'), findings.errors
         with patch('validation.design_tables.catalog_order_errors', return_value=[]):
-            check_generated_identifier(document, 'SecretsManager.Secret', 'secret', [['1', 'SecretsManager.Secret.Id', '`' + arn + '`', 'actual']],
+            check_generated_identifier(document, 'SecretsManager.Secret', 'resource-SecretsManager_Secret_001', [['1', 'SecretsManager.Secret.Id', '`' + arn + '`', 'actual']],
                 {'SecretsManager.Secret': {'SecretsManager.Secret.Id'}}, findings=findings)
         assert any('generated ARN is forbidden' in error for error in findings.errors) == (mode == 'CREATE'), findings.errors
 

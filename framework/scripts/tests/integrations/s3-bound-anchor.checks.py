@@ -28,27 +28,28 @@ def check(root):
     task.write_text('## Task contract\n- Task type: `migration`\n## Validation scope\n- `preview/team/s3`\n'
                     '## Allowed paths\n- `model/**`\n- `docs/designs/**`\n')
     values = resource('003', 'S3.Bucket', 's3-archive-original', [('BucketName', '`archive-original`'), ('Region', '`ap-northeast-1`')])
-    values.update({'desired.resource.003.logicalId': 'stable-archive', 'desired.service.s3.serviceId': 's3',
+    values.update({'desired.service.s3.serviceId': 's3',
         'desired.service.s3.ownedCatalogResourceTypes': 'S3.Bucket', 'display.service.title': '# Amazon S3 詳細設計'})
     path = root / 'model/preview/team/s3.properties'
     write_model(path, values)
     view = root / 'docs/designs/preview/team/s3.md'
     assert sync_runtime.sync(root, True, 'preview', 'team', services=['s3']) == 0
-    assert bound_resource_anchors(path) == {('S3.Bucket', 'stable-archive'): 's3-archive-original'}
+    assert bound_resource_anchors(path) == {('S3.Bucket', 'S3_Bucket_003'): 'resource-S3_Bucket_003'}
     consumer = path.with_name('cloudtrail.properties')
-    linked = '[archive-original](s3.md#s3-archive-original)'
+    linked = 'resource://preview/team/s3/S3_Bucket_003'
     candidate = resource('087', 'CloudTrail.Trail', 'cloudtrail-job', [('S3BucketName', linked)])
     candidate.update(reference('bucket', 'desired.row.087-001.value', linked, 's3', '003', 'S3.Bucket', mode='link', label='display-name'))
     write_model(consumer, candidate)
     before = consumer.read_bytes()
     updated = {**values, 'desired.row.003-001.value': '`archive-renamed`'}
     write_model(path, updated)
-    assert load_model(path).authoritative['desired.resource.003.anchor'] == values['desired.resource.003.anchor']
-    assert load_model(path).authoritative['desired.resource.003.logicalId'] == 'stable-archive'
+    assert 'desired.resource.003.anchor' not in load_model(path).authoritative
+    assert load_model(path).authoritative['desired.resource.003.logicalId'] == 'S3_Bucket_003'
     assert {key for key in updated if key.startswith('desired.row.')} == {key for key in values if key.startswith('desired.row.')}
-    assert warning(consumer, 'display-name label differs').authoritative == candidate
+    assert not load_model(consumer).warnings
+    assert load_model(consumer).authoritative == candidate
     assert consumer.read_bytes() == before
-    new_link = '[archive-renamed](s3.md#s3-archive-original)'
+    new_link = linked
     explicit = {**candidate, 'desired.row.087-001.value': new_link, 'desired.reference.bucket.text': new_link}
     write_model(consumer, explicit)
     current = load_model(consumer)
@@ -56,9 +57,9 @@ def check(root):
     assert sync_runtime.sync(root, True, 'preview', 'team', services=['s3']) == 0
     assert sync_runtime.sync(root, False, 'preview', 'team', services=['s3']) == 0
     assert '### S3.Bucket: archive-renamed' in view.read_text()
-    assert '<a id="s3-archive-original"></a>' in view.read_text()
+    assert '<a id="resource-S3_Bucket_003"></a>' in view.read_text()
     wrong = {**updated, 'desired.resource.003.anchor': 's3-other'}
-    rejected(lambda: markdown_for(view, wrong, root), 'anchor must be unique')
+    rejected(lambda: markdown_for(view, wrong, root), 'anchor')
     original = path.read_bytes()
     path.write_bytes(original + b'desired.row.003-001.value=duplicate\n')
     rejected(lambda: load_model(path), 'duplicate')

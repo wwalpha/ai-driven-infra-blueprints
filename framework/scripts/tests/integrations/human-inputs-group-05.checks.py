@@ -70,7 +70,7 @@ def check_declared_inputs(service='cloudtrail'):
             assert publish_edit(prepare_edit(load_model(path, context.snapshot), {path: serialize(changed)}, context), context) == ()
         assert path.read_bytes() == raw
         for update, phrase in [
-            ({'desired.resource.017.anchor': 'new'}, 'fixed identity'),
+            ({'desired.resource.017.anchor': 'new'}, 'unknown Model field'),
             ({'desired.row.017-002.property': kind + '.Unknown'}, 'fixed Property'),
             ({prefix + 'artifactSha256': 'stale'}, 'unknown Model field'),
             ({prefix + 'document': '{"x":1,"x":2}'}, 'duplicate JSON'),

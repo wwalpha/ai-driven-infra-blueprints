@@ -172,7 +172,8 @@ def fixture(root):
                        f'desired.stack.{number}.deployOrder': str(number)})
     write_model(root/'model/dev/123456789012/cloudformation-stacks.properties',stacks)
     write_model(root/'model/dev/123456789012/iam.properties',{
-        'desired.resource.001.resourceType':'IAM.Role','desired.resource.001.anchor':'role',
+        'desired.resource.001.resourceType':'IAM.Role','desired.resource.001.logicalId':'IAM_Role_001',
+        'desired.service.identity.lastAllocated':'{"IAM.Role":1}',
         'desired.row.001-001.property':'IAM.Role.RoleName','desired.row.001-001.value':'`venusinf-dev-VulnerabilityScan02Role-fixture`',
         'desired.row.001-001.comment':'合成の名前'})
 

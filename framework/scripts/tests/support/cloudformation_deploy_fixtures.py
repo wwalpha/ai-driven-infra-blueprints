@@ -176,8 +176,8 @@ class DeliveryAws(StubAws):
                         f'{len(identities) + 1:03d}')
         values = {k: v for k, v in existing.items() if not k.startswith((f'desired.resource.{identity}.', f'desired.row.{identity}-'))}
         values.update({f'desired.resource.{identity}.resourceType': 'S3.Bucket',
-                       f'desired.resource.{identity}.logicalId': bucket,
-                       f'desired.resource.{identity}.anchor': 's3-' + bucket})
+                       f'desired.resource.{identity}.logicalId': 'S3_Bucket_' + identity,
+                       'desired.service.identity.lastAllocated': json.dumps({'S3.Bucket': max(int(identity), len(identities))})})
         if delegation:
             values[f'desired.resource.{identity}.deploymentEncryption'] = 'default'
         from s3_delivery import ALGORITHM, KEY

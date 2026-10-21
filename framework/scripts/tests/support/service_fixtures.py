@@ -18,9 +18,11 @@ def authored_service(root, environment, service, resources, *, extra=None):
     values = service_values(service, list(dict.fromkeys(kind for _, kind, _, _ in resources)))
     for rid, kind, anchor, rows in resources:
         values.update(resource_values(rid, kind, anchor, 'CREATE', [(prop, raw) for prop, raw, *document in rows]))
+        values[f'desired.resource.{rid}.cfn-logicalId'] = 'fixture-Resource' + rid
         for index, (_, _, *document) in enumerate(rows, 1):
             if document:
                 values[f'desired.row.{rid}-{index:03d}.document'] = json_text(document[0])
+    values['desired.service.identity.lastAllocated'] = json.dumps({kind: max(int(rid) for rid, candidate, _, _ in resources if candidate == kind) for _, kind, _, _ in resources})
     values.update(extra or {})
     path = root / 'model' / environment / 'team' / (service + '.properties')
     write_model(path, values)
@@ -42,7 +44,7 @@ def build_typed_services(root):
             's3': [('001', 'S3.Bucket', 's3-bucket', [('BucketName', '`fixture`'), ('LifecycleConfiguration.Rules[].ExpirationInDays', '`30`')])],
             'cloudtrail': [('001', 'CloudTrail.Trail', 'cloudtrail-trail', [('TrailName', '`fixture`')])],
             'glue': [('001', 'Glue.Job', 'glue-job', [('Name', '`fixture-job`'), ('Timeout', '`30`'),
-                     ('SecurityConfiguration', '[glsc-one](#glue-glsc-one)'), ('DefaultArguments', '`{"--job-language":"python"}`')]),
+                     ('SecurityConfiguration', f'resource://{env}/team/glue/Glue_SecurityConfiguration_002'), ('DefaultArguments', '`{"--job-language":"python"}`')]),
                      ('002', 'Glue.SecurityConfiguration', 'glue-glsc-one', [('Name', '`glsc-one`')])],
             'cloudwatch-logs': [('001', 'Logs.LogGroup', 'cloudwatch-logs-logs', [('LogGroupName', '`/aws/vpc/flow-logs`'),
                                 ('RetentionInDays', '`30`'), ('DeletionProtectionEnabled', '`false`')])],
@@ -103,7 +105,7 @@ def build_input_templates(root):
                    'labelPolicy': 'none', 'contextProperty': 'executionAccountId'}
         authored_service(root, env, 'sqs', [
             ('017', 'SQS.Queue', 'fixture-sqs-017', [('QueueName', '`fixture-one`')]),
-            ('034', 'SQS.QueuePolicy', 'fixture-sqs-034', [('Queues', '[017](#fixture-sqs-017)'),
+            ('034', 'SQS.QueuePolicy', 'fixture-sqs-034', [('Queues', f'resource://{env}/team/sqs/SQS_Queue_017'),
                 ('PolicyDocument', '[policy](sqs/policy.json)', {'Statement': [{'Effect': 'Allow', 'Action': 'sqs:SendMessage',
                     'Resource': {'Fn::GetAtt': ['HulftRetrievalDetectDlq', 'Arn']},
                     'Condition': {'StringEquals': {'aws:SourceAccount': account}}}]})])],

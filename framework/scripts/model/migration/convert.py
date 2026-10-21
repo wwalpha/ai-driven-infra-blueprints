@@ -18,13 +18,25 @@ def checked_export(value):
     if not isinstance(project, str) or hashlib.sha256(project.encode('utf-8')).hexdigest() != value['inputs'].get('project.json'):
         raise ValueError('legacy export project hash differs')
     strict_json(project)
-    from model.references import declarations
     for model in value['models']:
         try:
-            declarations(model['authoritative'])
+            legacy_declarations(model['authoritative'])
         except ValueError as error:
             raise ValueError('invalid legacy export references; regenerate export and evidence: ' + str(error)) from error
     return value
+
+
+def legacy_declarations(values):
+    """Validate historical export metadata without enabling ordinary legacy resolution."""
+    from model.core import entries
+    from model.references import declarations
+    candidate = dict(values)
+    for identity, spec in entries(values, 'desired.reference.'):
+        if spec.get('producerKind') == 'resource' and 'producerId' in spec:
+            prefix = f'desired.reference.{identity}.'
+            candidate[prefix + 'producerLogicalId'] = candidate.pop(prefix + 'producerId')
+    declarations(candidate)
+    return dict(entries(values, 'desired.reference.'))
 
 
 def block_order(values, resource_order, row_order):
@@ -85,7 +97,7 @@ def convert_export(value, destination):
             for output, text in split(path, block_order(model['authoritative'], model['resourceOrder'], model['rowOrder'])).items():
                 output.parent.mkdir(parents=True, exist_ok=True)
                 output.write_text(text, encoding='utf-8', newline='')
-        # The new reader is the verifier; no legacy module is loaded in this process.
+        # Compare the historical format exactly; identity rewriting is a separate guarded Task.
         from model.migration.compare import compare_export
         compare_export(value, stage)
         os.replace(stage, destination)

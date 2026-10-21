@@ -85,12 +85,13 @@ def check_import_observation_foreign_reference_and_identity_spoof(tmp_path):
     for name in ('materials', 'mappings', 'rules'):
         shutil.copytree(FRAMEWORK / 'framework' / name, tmp_path / 'framework' / name)
     values.update({'desired.resource.008.resourceType': 'EC2.Subnet',
-                   'desired.resource.008.resourceMode': 'IMPORT', 'desired.resource.008.anchor': 'imported-subnet',
+                   'desired.resource.008.resourceMode': 'IMPORT', 'desired.resource.008.logicalId': 'EC2_Subnet_001',
+                   'desired.service.identity.lastAllocated': '{"EC2.VPC":1,"EC2.Subnet":1}',
                    'desired.row.008-001.property': 'EC2.Subnet.VpcId',
-                   'desired.row.008-001.value': '[Network](#network)', 'desired.row.008-001.comment': 'foreign VPC',
+                   'desired.row.008-001.value': 'resource://qa-custom/one/network/EC2_VPC_001', 'desired.row.008-001.comment': 'foreign VPC',
                    'observed.row.008-001.value': 'vpc-before',
                    'desired.row.008-002.property': 'EC2.Subnet.SubnetId',
-                   'desired.row.008-002.value': '[Subnet](#imported-subnet)', 'desired.row.008-002.comment': 'own ID',
+                   'desired.row.008-002.value': 'resource://qa-custom/one/network/EC2_Subnet_001', 'desired.row.008-002.comment': 'own ID',
                    'observed.row.008-002.value': 'subnet-before'})
     scope.path.write_text(serialize(values))
     snapshot = load_model(scope)
@@ -100,7 +101,7 @@ def check_import_observation_foreign_reference_and_identity_spoof(tmp_path):
     with pytest.raises(ValueError, match='IMPORT physical identity'):
         observed_outputs(scope.path, {**snapshot.values, 'observed.row.008-002.value': 'subnet-other'})
     # A forged foreign link cannot make a native primary identifier writable.
-    values['desired.row.008-002.value'] = '[Network](#network)'
+    values['desired.row.008-002.value'] = 'resource://qa-custom/one/network/EC2_VPC_001'
     scope.path.write_text(serialize(values))
     snapshot = load_model(scope)
     with pytest.raises(ValueError, match='IMPORT physical identity'):
@@ -120,7 +121,8 @@ def check_macie_renders_current_document_without_artifact_reads(tmp_path, existi
     values = {'desired.service.macie.serviceId': 'macie',
         'desired.service.macie.ownedCatalogResourceTypes': 'Macie.ClassificationJob',
         'display.service.title': '# Fixture', 'desired.resource.007.resourceType': 'Macie.ClassificationJob',
-        'desired.resource.007.logicalId': 'fixed', 'desired.resource.007.anchor': 'fixed',
+        'desired.resource.007.logicalId': 'Macie_ClassificationJob_001',
+        'desired.service.identity.lastAllocated': '{"Macie.ClassificationJob":1}',
         'desired.resource.007.resourceMode': 'IMPORT', 'display.resource.007.comment': 'fixture'}
     for index, (prop, value) in enumerate([('name', '`fixture-job`'), ('s3JobDefinition', '[definition](macie/definition.json)')], 1):
         values.update({f'desired.row.007-{index:03d}.property': 'Macie.ClassificationJob.' + prop,
@@ -154,14 +156,14 @@ def check_macie_renders_current_document_without_artifact_reads(tmp_path, existi
     ('EC2.VPC', None, [], 'EC2.VPC'),
     ('CodeBuild.Project', 'fallback', [('CodeBuild.Project.Name', '`raw-name`')], 'raw-name'),
     ('KMS.Key', 'fallback', [], 'fallback'),
-    ('EC2.SecurityGroupIngress', None, [], 'fixed'),
+    ('EC2.SecurityGroupIngress', None, [], 'EC2_SecurityGroupIngress_001'),
     ('KMS.Key', None, [('KMS.Alias.AliasName', '`alias/grouped`')], 'grouped')])
 def check_shared_display_selection_and_diagnostics(tmp_path, kind, label, rows, expected):
     from model.render import display_name
     from support.model_v2_fixtures import format_fixture
     scope, _ = format_fixture(tmp_path)
-    values = {'desired.resource.007.resourceType': kind, 'desired.resource.007.logicalId': 'fixed',
-        'desired.resource.007.anchor': 'producer', 'desired.resource.007.resourceMode': 'IMPORT'}
+    values = {'desired.resource.007.resourceType': kind, 'desired.resource.007.logicalId': kind.replace('.', '_') + '_001',
+        'desired.service.identity.lastAllocated': json.dumps({kind: 1}), 'desired.resource.007.resourceMode': 'IMPORT'}
     if label:
         values['display.resource.007.label'] = label
     for index, (prop, value) in enumerate(rows, 1):
@@ -169,21 +171,20 @@ def check_shared_display_selection_and_diagnostics(tmp_path, kind, label, rows, 
         values.update({f'desired.row.{rid}-{index:03d}.property': prop,
             f'desired.row.{rid}-{index:03d}.value': value, f'desired.row.{rid}-{index:03d}.comment': 'fixture'})
         if rid == '008':
-            values.update({'desired.resource.008.resourceType': 'KMS.Alias', 'desired.resource.008.logicalId': 'alias',
-                'desired.resource.008.anchor': 'alias', 'desired.resource.008.resourceMode': 'IMPORT',
-                'desired.resource.008.parentReference': '[key](#producer)'})
+            values.update({'desired.resource.008.resourceType': 'KMS.Alias', 'desired.resource.008.logicalId': 'KMS_Alias_001',
+                'desired.service.identity.lastAllocated': json.dumps({kind: 1, 'KMS.Alias': 1}), 'desired.resource.008.resourceMode': 'IMPORT',
+                'desired.resource.008.parentReference': 'resource://qa-custom/one/network/KMS_Key_001'})
     from model.core import entries
     resource = dict(entries(values, 'desired.resource.'))['007']
     assert display_name(values, '007', resource, [[str(i), prop, value, 'fixture'] for i, (prop, value) in enumerate(rows)], tmp_path)[0] == expected
     if kind == 'EC2.VPC':
         from model.render import resource_details
-        values['desired.resource.007.anchor'] = resource['anchor'] = 'network-ec2.vpc'
         details, _ = resource_details(values, tmp_path, 'network', {kind}, [(identity, item) for identity, item in entries(values, 'desired.resource.')], {})
         assert details[0][2] == expected
-    text = f'[{expected}](#{resource["anchor"]})'
+    text = 'resource://qa-custom/one/network/' + resource['logicalId']
     values['desired.note.001.text'] = text
     spec = {'consumerKey': 'desired.note.001.text', 'text': text, 'occurrence': '1', 'producerKind': 'resource',
-        'producerScope': '/'.join((scope.environment, scope.target, scope.service)), 'producerId': '007',
+        'producerScope': '/'.join((scope.environment, scope.target, scope.service)), 'producerLogicalId': resource['logicalId'],
         'resourceType': kind, 'format': 'link', 'labelPolicy': 'display-name'}
     values.update({'desired.reference.name.' + key: value for key, value in spec.items()})
     scope.path.write_text(serialize(values), encoding='utf-8')

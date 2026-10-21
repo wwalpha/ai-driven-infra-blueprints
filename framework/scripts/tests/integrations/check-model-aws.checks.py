@@ -424,9 +424,9 @@ def common_checks(root):
     # Reference resolution reads the authoritative model and obtains ARN from SDK.
     role = directory / 'iam.properties'
     write_model(role, model_text('IAM.Role', [('IAM.Role.RoleName', '`fixture`')], anchor='iam-fixture'))
-    check(resource.resolve_json('[fixture](iam.md#iam-fixture)', 'arn').startswith('arn:' ) is False, 'SDK synthetic ARN used, not constructed')
-    expect(ValueError, lambda: resource.reference('[x](../../../iam.md#iam-fixture)'))
-    expect(m.Unresolved, lambda: resource.reference('[x](iam.md#missing)'))
+    check(resource.resolve_json(f'resource://dev/{ACCOUNT}/iam/IAM_Role_001', 'arn').startswith('arn:' ) is False, 'SDK synthetic ARN used, not constructed')
+    expect(ValueError, lambda: resource.reference('resource://dev/../iam/IAM_Role_001'))
+    expect(m.Unresolved, lambda: resource.reference(f'resource://dev/{ACCOUNT}/iam/IAM_Role_999'))
     # Ordered arrays remain ordered; tags keep Key/Value pairs together.
     check(m.normalize(ctx, 'false', 'boolean') is False and m.normalize(ctx, '60', 'number') == 60, 'typed SDK string values')
     expect(m.Unresolved, lambda: m.normalize(ctx, 'FALSE', 'boolean'))
@@ -459,7 +459,7 @@ def association_checks(root):
     # SDK responses and desired rows are authored separately. Moving a tag value
     # onto a different key must fail even when the multisets of values are equal.
     path = directory / 'ec2.properties'
-    text = model_text('EC2.Instance', [('EC2.Instance.InstanceId', '[fixture](#fixture)'),
+    text = model_text('EC2.Instance', [('EC2.Instance.InstanceId', f'resource://dev/{ACCOUNT}/ec2/EC2_Instance_001'),
                       ('EC2.Instance.Tags[].Key', '`b`'), ('EC2.Instance.Tags[].Value', '`2`'),
                       ('EC2.Instance.Tags[].Key', '`a`'), ('EC2.Instance.Tags[].Value', '`1`')])
     text += 'observed.row.001-001.value=fixture\n'
@@ -523,10 +523,10 @@ def association_checks(root):
     ctx.finish()
     # Wrong key membership is a difference despite matching AliasName.
     alias = directory / 'kms.properties'
-    write_model(alias, model_text('KMS.Key', [('KMS.Key.KeyId', '[key](#key)')], number='001', anchor='key') +
+    write_model(alias, model_text('KMS.Key', [('KMS.Key.KeyId', f'resource://dev/{ACCOUNT}/kms/KMS_Key_001')], number='001', anchor='key', allocation=False) +
                      model_text('KMS.Alias', [('KMS.Alias.AliasName', '`fixture`')], number='002', anchor='alias',
-                                metadata='desired.resource.002.parentReference=[key](#key)\n') +
-                     'observed.row.001-001.value=fixture\n')
+                                allocation=False, metadata=f'desired.resource.002.parentReference=resource://dev/{ACCOUNT}/kms/KMS_Key_001\n') +
+                     'observed.row.001-001.value=fixture\ndesired.service.identity.lastAllocated={"KMS.Key":1,"KMS.Alias":2}\n')
     patches = copy.deepcopy(PATCHES)
     patches[('kms', 'list_aliases')]['Aliases.TargetKeyId'] = 'different-key'
     with patch.dict(PATCHES, patches, clear=True):
@@ -586,9 +586,10 @@ def cfn_identity_checks(root):
     content = ''
     for index, department in enumerate(('ism', 'ced', 'sd'), 1):
         number = f'{index:03d}'
-        content += model_text('EC2.VPC', [('EC2.VPC.VpcId', f'[{number}](#vpc-{department})')], number=number, anchor='vpc-' + department,
-                              metadata=f'desired.resource.{number}.cfn-logicalId=cfn-stack-app-dev-{department}-DepartmentVpc\n').replace(f'desired.resource.{number}.logicalId=fixture\n', '')
+        content += model_text('EC2.VPC', [('EC2.VPC.VpcId', f'resource://dev/{ACCOUNT}/vpc/EC2_VPC_{number}')], number=number, anchor='vpc-' + department, allocation=False,
+                              metadata=f'desired.resource.{number}.cfn-logicalId=cfn-stack-app-dev-{department}-DepartmentVpc\n')
         content += f'observed.row.{number}-001.value=vpc-{department}\n'
+    content += 'desired.service.identity.lastAllocated={"EC2.VPC":3}\n'
     write_model(path, content)
     ctx = Offline(root)
     resources = ctx.model(path).resources
@@ -644,13 +645,16 @@ def fixture_coverage(root):
             from aws_mapping_compare import comparison
             mapping, definitions = comparison(m.ROOT, service)
             text = ''
+            allocation = {}
             for index, kind in enumerate(sorted(mapping.adapter_resource_types), 1):
                 number = f'{index:03d}'
-                text += model_text(kind, [(prop, '`fixture`') for prop, item in sorted(definitions.items()) if prop.startswith(kind + '.') and item.include], number=number, anchor='fixture-'+number).replace(f'desired.resource.{number}.logicalId=fixture\n', '')
+                text += model_text(kind, [(prop, '`fixture`') for prop, item in sorted(definitions.items()) if prop.startswith(kind + '.') and item.include], number=number, anchor='fixture-'+number, allocation=False)
+                allocation[kind] = index
+            text += 'desired.service.identity.lastAllocated=' + json.dumps(allocation) + '\n'
         write_model(directory / (service + '.properties'), text)
     report = m.coverage(root, m.inventory(root, m.targets(root, all_targets=True)))
     check(not report['problems'], 'fixture coverage: ' + repr(report['problems']))
-    check(set(report['services']) == set(m.SERVICES), 'all current services mechanically enumerated without logicalId')
+    check(set(report['services']) == set(m.SERVICES), 'all current services mechanically enumerated with fixed logicalIds')
     check(sum(map(len, report['adapterResourceTypes'].values())) == 52, '52 actual adapter types')
     check(sum(len(types) for service, types in report['comparisonResourceTypes'].items()
               if service != 'cloudformation-stacks') == 78, '78 mapped comparison types, independent of include')

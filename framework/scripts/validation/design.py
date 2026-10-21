@@ -272,7 +272,7 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
             mode = modes.get(anchor, "CREATE")
             try:
                 from aws_mapping_display import validation_rows
-                semantic = validation_rows(rows, values, resource_type, identities.get(current, current[1]), definitions_root)
+                semantic = validation_rows(rows, values, resource_type, identities.get(current, current[1]), definitions_root, scope=(*path.parent.parts[-2:], path.stem))
                 name = resource_display_name(resource_type, semantic, display, mode)
             except ReferenceResolutionError as error:
                 findings.warn(error)

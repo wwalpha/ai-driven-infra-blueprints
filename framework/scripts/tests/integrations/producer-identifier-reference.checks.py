@@ -67,7 +67,7 @@ def check(root):
         else:
             rejected(lambda: serialize({**original, 'observed.row.001-002.value': raw}), 'str')
     write_model(producer, original)
-    for change, phrase in [({'producerId': '002'}, 'absent or ambiguous'),
+    for change, phrase in [({'producerLogicalId': 'EC2_VPC_002'}, 'absent or ambiguous'),
         ({'resourceType': 'EC2.Subnet', 'property': 'EC2.Subnet.SubnetId'}, 'Type differs'),
         ({'property': 'EC2.VPC.Name'}, 'unobserved')]:
         bad = {**values, **{'desired.reference.vpc-id.' + field: value for field, value in change.items()}}

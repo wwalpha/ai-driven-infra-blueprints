@@ -170,6 +170,7 @@ def validate_contract(root, name, text, legacy=False, *, check_paths=True):
     model_operation(text)
     model_refactor(text)
     model_migration(text)
+    model_identity_rewrite(text)
     files = paths_in(text, "## Modified files")
     allowed = paths_in(text, "## Allowed paths")
     if name not in files:
@@ -417,9 +418,34 @@ def model_refactor(text: str, *, operation=None) -> tuple[DependencyDetach, ...]
     return tuple(result)
 
 
+def model_identity_rewrite(text):
+    """Explicit, narrow opt-in; ordinary refactors never authorize ID changes."""
+    lines = section(text, '## Task contract')
+    reserved = [line for line in lines if re.match(r'-\s*Model identity rewrite\b', line)]
+    if not reserved:
+        return False
+    if reserved != ['- Model identity rewrite: `logical-id-v1`']:
+        raise ValueError('invalid Model identity rewrite declaration')
+    for name, expected in [('Task type', 'migration'), ('AWS API execution', 'forbidden'), ('deploy/apply', 'forbidden')]:
+        found = [line for line in lines if re.match(r'-\s*' + re.escape(name) + r'\b', line)]
+        if found != ['- ' + name + ': `' + expected + '`']:
+            raise ValueError('Model identity rewrite requires ' + name + ': ' + expected)
+    if model_operation(text) is not None or model_refactor(text) is not None or model_migration(text) is not None:
+        raise ValueError('identity rewrite cannot be combined with another Model operation')
+    if any(line.startswith('- Workflow:') for line in lines):
+        raise ValueError('identity rewrite uses the existing migration Task without another workflow')
+    scopes = paths_in(text, '## Validation scope')
+    if not scopes or any(re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', scope) is None for scope in scopes):
+        raise ValueError('identity rewrite requires exact service Validation scope')
+    for path in paths_in(text, '## Modified files'):
+        if not path.startswith(('tasks/', 'model/', 'docs/designs/')):
+            raise ValueError('identity rewrite permits only Model sources and generated views: ' + path)
+    return True
+
+
 def final_model_task(text):
     """Only explicit Model operations/refactors share the final candidate composition."""
-    return model_operation(text) is not None or model_refactor(text) is not None or model_migration(text) is not None
+    return model_operation(text) is not None or model_refactor(text) is not None or model_migration(text) is not None or model_identity_rewrite(text)
 
 
 _selected_tasks = ContextVar('selected_tasks', default={})

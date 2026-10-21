@@ -115,7 +115,7 @@ def archive_sources(root, base, paths, destination):
 
 
 @contextmanager
-def snapshots(root, base, output, definitions_root=None, *, detached=False):
+def snapshots(root, base, output, definitions_root=None, *, detached=False, identity_inputs=False):
     definitions_root = definitions_root or definition_root(root)
     for path in output:
         if not path.resolve().is_relative_to(root) or '..' in path.relative_to(root).parts:
@@ -123,7 +123,7 @@ def snapshots(root, base, output, definitions_root=None, *, detached=False):
     with ExitStack() as lifetime:
         directory = lifetime.enter_context(tempfile.TemporaryDirectory(prefix='blueprint-import-guard-'))
         before = Path(directory).resolve() / 'before'
-        paths = ['model', 'project.json']
+        paths = ['model', 'project.json', *(['infra/cloudformation'] if identity_inputs else [])]
         cache = _baselines.get()
         key = (root, base, tuple(paths), definitions_root.resolve())
         if cache is not None:
@@ -142,7 +142,8 @@ def snapshots(root, base, output, definitions_root=None, *, detached=False):
             after = Path(directory).resolve() / 'after'
             after.mkdir()
             lifetime.enter_context(mapping_alias(definitions_root, after))
-            for path in (*input_select(root / 'model', '*', recursive=True, kinds=('file',)), root / 'project.json'):
+            for path in (*input_select(root / 'model', '*', recursive=True, kinds=('file',)), root / 'project.json',
+                         *(input_select(root / 'infra/cloudformation', '*', recursive=True, kinds=('file',)) if identity_inputs else ())):
                 if input_is_file(path):
                     safe(root, path)
                     destination = after / path.relative_to(root)
@@ -213,6 +214,27 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
     text = contracts(root).get(selected, '')
     from task_contract import model_operation, model_refactor
     from model.migration.contract import migration_contract, verify_migration
+    from task_contract import model_identity_rewrite
+    if model_identity_rewrite(text):
+        from model.identity_rewrite import verify
+        from task_contract import paths_in, safe_path, matches
+        scopes = paths_in(text, '## Validation scope')
+        declared, allowed = paths_in(text, '## Modified files'), paths_in(text, '## Allowed paths')
+        for relative in sources:
+            safe_path(root, relative)
+            if relative not in declared or not any(matches(relative, item) for item in allowed):
+                raise ValueError('identity rewrite source is undeclared: ' + relative)
+            if relative == 'project.json':
+                raise ValueError('identity rewrite cannot change project.json')
+            from model.sources import source_scope
+            scope = source_scope(root, root / relative)
+            if '/'.join((scope.environment, scope.target, scope.service)) not in scopes:
+                raise ValueError('identity rewrite source is outside scope: ' + relative)
+        base = final_candidate.base_commit if final_candidate is not None else base_revision(root, contract_file=contract_file)
+        if base is None:
+            raise ValueError('identity rewrite requires a versioned baseline')
+        with snapshots(root, base, output or {}, detached=contract_file is not None, identity_inputs=True) as (before, after):
+            return verify(before, after, scopes)
     migration = migration_contract(text)
     if migration is not None:
         base = final_candidate.base_commit if final_candidate is not None else base_revision(root, contract_file=contract_file)

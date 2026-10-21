@@ -15,7 +15,7 @@ with tempfile.TemporaryDirectory() as directory:
     root = Path(directory).resolve()
     setup(root, ['s3'], ['S3.Bucket'])
     path = root / 'model/preview/team/example.properties'
-    desired = {'desired.resource.017.resourceType': 'S3.Bucket', 'desired.resource.017.anchor': 's3-fixed',
+    desired = {'desired.resource.017.resourceType': 'S3.Bucket', 'desired.resource.017.logicalId': 'S3_Bucket_001', 'desired.service.identity.lastAllocated': '{"S3.Bucket":1}',
                'desired.row.017-023.property': 'S3.Bucket.BucketName', 'desired.row.017-023.value': '`desired-name`',
                'desired.row.017-023.comment': '観測値の説明'}
     write_model(path, desired)
@@ -75,7 +75,7 @@ with tempfile.TemporaryDirectory() as directory:
     path.write_bytes(external)
     rejected(reads.verify, 'input changed')
     assert path.read_bytes() == external
-    for key in ('desired.resource.017.resourceType', 'desired.resource.017.anchor', 'desired.row.017-023.property'):
+    for key in ('desired.resource.017.resourceType', 'desired.resource.017.logicalId', 'desired.row.017-023.property'):
         path.write_text(serialize({name: value for name, value in desired.items() if name != key}))
         try:
             load_model(path)
@@ -90,7 +90,7 @@ print('Compact sources: PASS (false/zero/empty/null/missing observed; derived me
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory).resolve()
     setup(root, ['s3'], ['S3.Bucket'], ('preview', 'release', 'independent'))
-    values = {'desired.resource.017.resourceType': 'S3.Bucket', 'desired.resource.017.anchor': 's3-fixed',
+    values = {'desired.resource.017.resourceType': 'S3.Bucket', 'desired.resource.017.logicalId': 'S3_Bucket_001', 'desired.service.identity.lastAllocated': '{"S3.Bucket":1}',
               'desired.row.017-023.property': 'S3.Bucket.BucketName', 'desired.row.017-023.value': '`fixed-name`',
               'desired.row.017-023.comment': '環境に明示した説明'}
     paths = [root / 'model' / env / 'team/shared.properties' for env in ('preview', 'release', 'independent')]
@@ -101,7 +101,7 @@ with tempfile.TemporaryDirectory() as directory:
     explicit.write_text(patch_properties(parse(explicit.read_text()), {'desired.row.017-023.comment': 'この環境だけ変更'}))
     for path in paths:
         after = load_model(path).authoritative
-        assert after['desired.resource.017.anchor'] == values['desired.resource.017.anchor'] and set(after) == set(values)
+        assert after['desired.resource.017.logicalId'] == values['desired.resource.017.logicalId'] and set(after) == set(values)
         assert (path.read_bytes() != before[path]) == (path == explicit)
     assert affected(root, [explicit.relative_to(root)]) == {('preview', 'team', 'shared')}
 print('Explicit environment sources: PASS (no shared expansion; fixed identity/keys retained; only explicitly edited environment changes)')

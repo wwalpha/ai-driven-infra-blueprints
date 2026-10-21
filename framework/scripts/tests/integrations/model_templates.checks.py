@@ -389,21 +389,27 @@ def check_sync(root):
 def check_common_shape(root):
     fixture(root, ('dev',))
     path = root / 'model/dev/team/shared.properties'
-    minimal = {'desired.resource.017.resourceType': 'S3.Bucket', 'desired.resource.017.anchor': 's3-fixed',
+    minimal = {'desired.resource.017.resourceType': 'S3.Bucket', 'desired.resource.017.logicalId': 'S3_Bucket_001',
+        'desired.service.identity.lastAllocated': '{"S3.Bucket":1}',
         'desired.row.017-023.property': 'S3.Bucket.BucketName', 'desired.row.017-023.value': '`fixed-name`', 'desired.row.017-023.comment': '名前',
         'desired.row.017-025.property': 'S3.Bucket.Tags', 'desired.row.017-025.value': '`{"Items":[1,3],"Value":"","Keep":null}`',
-        'desired.row.017-025.comment': '明示した配列と型', 'desired.note.bucket.text': '[017](#s3-fixed)'}
+        'desired.row.017-025.comment': '明示した配列と型', 'desired.note.bucket.text': 'resource://dev/team/shared/S3_Bucket_001'}
     write_model(path, minimal)
-    assert load_model(path).authoritative == minimal and 'desired.resource.017.logicalId' not in minimal
+    assert load_model(path).authoritative == minimal
+    from model.sources import FileReads
+    from model.operations import CandidateReads
+    missing = {key: value for key, value in minimal.items() if key != 'desired.resource.017.logicalId'}
+    with pytest.raises(ValueError):
+        load_model(path, CandidateReads(FileReads(), {path: serialize(missing)}))
     assert not any(key.startswith('desired.row.017-024.') for key in minimal)
-    full = {**minimal, 'desired.resource.017.logicalId': 'FixedBucket',
+    full = {**minimal, 'desired.resource.017.logicalId': 'S3_Bucket_001',
         'desired.row.017-024.property': 'S3.BucketPolicy.PolicyDocument', 'desired.row.017-024.value': '[policy.json](shared/policy.json)',
         'desired.row.017-024.comment': '明示した権限', 'desired.row.017-024.document': '{"Statement":[{"Resource":"*"}]}' }
     write_model(path, full)
     assert json.loads(load_model(path).authoritative['desired.row.017-024.document']) == {'Statement': [{'Resource': '*'}]}
-    assert load_model(path).authoritative['desired.resource.017.logicalId'] == 'FixedBucket'
-    full.update({'desired.resource.017.anchor': 's3-alternate', 'desired.row.017-023.value': '[017](#s3-alternate)',
-        'desired.note.bucket.text': '[017](#s3-alternate)', 'desired.row.017-025.value': '`{"Drop":null,"Items":[0,1,2,3],"Value":false,"Keep":null}`',
+    assert load_model(path).authoritative['desired.resource.017.logicalId'] == 'S3_Bucket_001'
+    full.update({'desired.row.017-023.value': 'resource://dev/team/shared/S3_Bucket_001',
+        'desired.note.bucket.text': 'resource://dev/team/shared/S3_Bucket_001', 'desired.row.017-025.value': '`{"Drop":null,"Items":[0,1,2,3],"Value":false,"Keep":null}`',
         'desired.row.017-024.document': '{"Statement":[{"Resource":"*"},{"Resource":"explicit-target"}]}'})
     write_model(path, full)
     model = load_model(path)

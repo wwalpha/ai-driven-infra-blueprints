@@ -72,7 +72,7 @@ def check(root, alias, service):
         producer = path.with_name('s3.properties')
         assert producer in before.dependencies
         spec, = declarations(before.authoritative).values()
-        assert spec['producerId'] == '001' and spec['format'] == 'name' and spec['property'] == 'S3.Bucket.BucketName'
+        assert spec['producerLogicalId'] == 'S3_Bucket_001' and spec['format'] == 'name' and spec['property'] == 'S3.Bucket.BucketName'
         changed_producer = producer.read_text().replace('fixture-bucket-001-one', 'fixture-bucket-001-two')
         stale = proposed({}, {producer: changed_producer})
         assert stale.authoritative == before.authoritative and stale.warnings

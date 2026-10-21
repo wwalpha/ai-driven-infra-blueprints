@@ -134,6 +134,8 @@ def generate_views(stage, root, destinations, failures, definitions_root=None, *
     definitions_root = definitions_root or definition_root(root)
     total(len(destinations))
     generated = {}
+    from model.identity import Resolver
+    resolver = Resolver(root)
     # Render all valid base views before resolving cross-service links.
     for path, values in destinations.items():
         staged = stage / path.relative_to(root)
@@ -157,7 +159,8 @@ def generate_views(stage, root, destinations, failures, definitions_root=None, *
                     continue
                 if "document" not in row:
                     raise ValueError(f"authoritative JSON document missing: {path.name}: {identity}")
-                document = policy_json(row["document"])
+                from model.projection import execution_document
+                document = execution_document(policy_json(row["document"]), root, property_name=row["property"], resolver=resolver)
                 if not isinstance(document, dict):
                     raise ValueError(f"JSON document must be an object: {identity}")
                 artifact = (staged.parent / match.group(1)).resolve()

@@ -244,7 +244,7 @@ def check_related_retarget(tmp_path):
     shutil.copytree(before, after)
     file = after / 'model/stg/cde/service-b.properties'
     values = dict(load_model(file).authoritative)
-    values['desired.reference.origin.producerId'] = '003'
+    values['desired.reference.origin.producerLogicalId'] = 'ServiceA_Resource_003'
     write_model(file, values)
     save(deletion(after, 'stg/cde/service-a/001'))
     references = [{'consumer': 'stg/cde/service-b/002', 'field': 'value', 'property': 'ServiceB.Resource.Name',
