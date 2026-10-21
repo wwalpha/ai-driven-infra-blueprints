@@ -214,6 +214,59 @@ def check_inventory_parser(tmp_path):
     assert not issue_errors(root, {("dev", "cde", "s3")})
 
 
+
+
+@pytest.mark.parametrize('mode', ['valid', 'subset', 'suspended', 'ordinary', 'scope', 'empty',
+    'target', 'aws', 'deploy', 'type', 'declaration', 'ownership'])
+def check_identity_rewrite_issue_exception(deletion_gate, mode):
+    import worktree_task
+    from issue_gate import task_issue_errors
+    path, text, issues, scope = deletion_gate
+    root, name = path.parent.parent, path.relative_to(path.parent.parent).as_posix()
+    text = text.replace('- Task type: `design`', '- Task type: `migration`').replace(
+        '- Workflow: `update`\n', '').replace(
+        '- Model operation: `import-delete`\n- Source resource: `stg/cde/vpc/009`',
+        '- Model identity rewrite: `logical-id-v1`')
+    original = issues.read_bytes()
+    target = None
+    kwargs = {'task_file': name}
+    if mode == 'subset':
+        text = text.replace('## Validation scope\n', '## Validation scope\n- `dev/cde/vpc`\n')
+    elif mode == 'suspended':
+        text = tasks.set_status(text, 'suspend') + '\n## Suspension reason\nexplicit test stop\n'
+        kwargs = {'contract_file': name}
+    elif mode == 'ordinary':
+        text = text.replace('- Model identity rewrite: `logical-id-v1`\n', '')
+    elif mode == 'scope':
+        scope = scope | {('stg', 'cde', 'ec2')}
+    elif mode == 'empty':
+        scope = set()
+    elif mode == 'target':
+        target = ('dev', 'cde')
+    elif mode in {'aws', 'deploy', 'type', 'declaration'}:
+        old, new = {'aws': ('AWS API execution: `forbidden`', 'AWS API execution: `allowed`'),
+            'deploy': ('deploy/apply: `forbidden`', 'deploy/apply: `allowed`'),
+            'type': ('Task type: `migration`', 'Task type: `design`'),
+            'declaration': ('`logical-id-v1`', '`unknown`')}[mode]
+        text = text.replace(old, new)
+    path.write_text(text)
+    if mode == 'ownership':
+        (root / '.git').mkdir()
+        with mock.patch.object(worktree_task, 'task_start_commit', side_effect=ValueError('managed ownership')):
+            with pytest.raises(ValueError, match='managed ownership'):
+                task_issue_errors(root, scope, **kwargs)
+    elif mode in {'valid', 'subset', 'suspended'}:
+        assert issue_errors(root, scope)
+        assert task_issue_errors(root, scope, target=target, **kwargs) == []
+        assert path.read_text() == text
+    elif mode == 'ordinary':
+        assert task_issue_errors(root, scope, **kwargs)
+    else:
+        with pytest.raises(ValueError):
+            task_issue_errors(root, scope, target=target, **kwargs)
+    assert issues.read_bytes() == original
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

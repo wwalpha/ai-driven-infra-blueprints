@@ -8,7 +8,7 @@ import sys
 
 from validation_scope import active_scope
 from model.files import service_model_path
-from task_contract import task_path, contract_path, model_operation, validate_contract, status
+from task_contract import task_path, contract_path, model_operation, validate_contract, status, model_identity_rewrite
 
 
 SERVICE = r"[a-z0-9]+(?:[-_][a-z0-9]+)*"
@@ -178,7 +178,7 @@ def issue_errors(root: Path, scope, *, remediation=(), target=None, warnings=Non
 
 
 def task_issue_errors(root: Path, scope, *, target=None, task_file=None, contract_file=None, warnings=None) -> list[str]:
-    """Waive only existing issues for a valid, explicitly scoped deletion contract.
+    """Waive existing issues only for explicit scoped deletion/identity rewrite contracts.
 
     contract_file permits the read-only issue check before a suspended task resumes.
     Model/reference validation and write authorization remain at their own boundaries.
@@ -196,6 +196,17 @@ def task_issue_errors(root: Path, scope, *, target=None, task_file=None, contrac
                 raise ValueError('format migration issue preservation requires its exact service scope')
             require_preserved_inputs(root, migration)
             return []  # Existing issues remain unchanged; this proves only a format transition.
+        if model_identity_rewrite(text):
+            name = path.relative_to(root).as_posix()
+            validate_contract(root, name, text)
+            declared = active_scope(root, task_file=task_file, contract_file=contract_file)
+            if (not scope or declared is None or not scope <= declared or
+                    target is not None and any(entry[:2] != target for entry in scope)):
+                raise ValueError('identity rewrite issue exception requires explicit matching service Validation scope')
+            if (root / '.git').exists():
+                from worktree_task import task_start_commit
+                task_start_commit(root, name)
+            return []  # Only the existing inventory gate; source/final preservation guards still run.
         operation = model_operation(text)
         if operation is not None and operation.action == 'import-delete':
             name = path.relative_to(root).as_posix()

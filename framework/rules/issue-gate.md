@@ -80,3 +80,14 @@ with the isolated fixed old reader and new reader, and preserve project/IaC/issu
 and file sets. Existing issues remain unresolved. This does not authorize ordinary Model
 updates, AWS execution or ignoring design validation failures. See
 [format migration](../docs/model-migration.md).
+
+## Explicit Resource identity rewrite exception
+
+The exact `Model identity rewrite: logical-id-v1` declaration, validated as a migration
+Task with forbidden AWS/deploy and explicit service scope, waives only the existing-issue
+stop decision through the task-aware gate. Requested scope must be nonempty and within
+that contract; managed Git worktrees retain Task ownership checks. Ordinary task and
+non-task issue checks remain unchanged. Keep every issue unresolved and its inventory
+unchanged. Source publication, target equivalence, settings/observations/CFn/parts
+preservation, generation and final-candidate validation still apply. This exception does
+not permit repairing unrelated issues or accepting any failed validation.

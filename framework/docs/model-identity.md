@@ -85,6 +85,10 @@ API, deploy/apply, environment mapping, or permanent migration command is needed
 - `docs/designs/qa/team/consumer-service.md`
 ```
 
+The task-aware issue gate permits only this validated identity rewrite despite existing
+issues. Preserve those inventories and all other guards; the exception is not issue
+remediation or validation-failure approval. Ordinary task issue gates remain unchanged.
+
 2. Extract a bounded inventory with a temporary script using
    `model.identity_rewrite.baseline_snapshot(Scope(root, environment, target, service), reads)`.
    This historical reader is only for rewrite comparison; do not send every Model file to an

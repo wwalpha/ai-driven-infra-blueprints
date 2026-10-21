@@ -33,7 +33,8 @@ def mapping_inputs(tmp_path, monkeypatch):
 
 def resource(values, identity, logical):
     values.update({f'desired.resource.{identity}.resourceType': 'EC2.VPC',
-                   f'desired.resource.{identity}.logicalId': logical})
+                   f'desired.resource.{identity}.logicalId': logical,
+                   f'desired.resource.{identity}.cfn-logicalId': 'Stack-' + logical})
 
 
 def definition():
@@ -83,7 +84,7 @@ def check_lazy_whole_model_parse_and_error_order(mapping_inputs):
     with pytest.raises(observed.MappingError) as caught:
         invoke({'Unknown': definition(), 'First': definition(), 'Second': definition()})
     assert caught.value.errors == {'Stack': [
-        'Stack/Unknown: model resource matches=0; cfn-logicalId required',
+        'Stack/Unknown: cfn-logicalId matches=0; explicit mapping required',
         'Stack/First: invalid model entry: desired.row.orphan',
         'Stack/Second: invalid model entry: desired.row.orphan']}
     # A malformed unused model must remain unparsed.
@@ -95,13 +96,12 @@ def check_lazy_whole_model_parse_and_error_order(mapping_inputs):
 def check_owner_collision_precedes_row_parse(mapping_inputs):
     root, loaded, invoke = mapping_inputs
     values = loaded[root / 'model/dev/test/vpc.properties'] = {'desired.row.orphan': 'malformed'}
-    resource(values, 'a', 'first-name')
+    resource(values, 'a', 'FirstName')
+    resource(values, 'b', 'FirstName')
     with pytest.raises(observed.MappingError) as caught:
-        invoke({'first-name': definition(), 'FirstName': definition()})
+        invoke({'FirstName': definition()})
     assert caught.value.errors == {'Stack': [
-        'Stack/first-name: invalid model entry: desired.row.orphan',
-        'Stack/first-name: model resource also owned by Stack/FirstName',
-        'Stack/FirstName: model resource also owned by Stack/first-name']}
+        'Stack/FirstName: cfn-logicalId matches=2; explicit mapping required']}
 
 
 if __name__ == '__main__':

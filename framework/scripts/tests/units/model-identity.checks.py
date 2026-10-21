@@ -122,6 +122,10 @@ def check_guarded_batch():
             project = {'targets': [{'environment': 'qa', 'alias': 'team', 'awsAccountId': '123456789012',
                         'awsRegion': 'ap-northeast-1', 'iacEngine': 'terraform'}]}
             (root / 'project.json').write_text(json.dumps(project))
+            issues = root / 'issues/qa/team/issues.md'
+            issues.parent.mkdir(parents=True)
+            issues.write_text('### first\n1. Existing issue retained\n', encoding='utf-8')
+            issue_bytes = issues.read_bytes()
             old, candidates = {}, {}
             for service in ('first', 'second'):
                 values = {'desired.service.' + service + '.serviceId': service,
@@ -167,6 +171,7 @@ def check_guarded_batch():
                  patch.object(worktree_task, 'task_start_commit', return_value=base), \
                  mapping_alias(framework, root), selected_task(root, name):
                 with edit_write_context(root, scopes, name) as context:
+                    assert issues.read_bytes() == issue_bytes
                     plans = [prepare_edit(baseline_snapshot(Scope(root, *scope), context.snapshot),
                              {Scope(root, *scope).path: candidates[Scope(root, *scope).path]}, context) for scope in sorted(scopes)]
                     if mode == 'conflict':
