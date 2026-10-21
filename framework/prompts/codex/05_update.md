@@ -1,5 +1,5 @@
 # Manual Design Update and Deployment Prompt
-IMPORT acquisition and user-selected add/refresh/replace are exclusive to `/import`; explicit Model-only merge/delete or standalone reference retarget uses `/update` under the narrow operation guard. Follow [IMPORT configuration authority](../../rules/model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Other substantive IMPORT updates remain forbidden; read/compare and value-preserving refactors never bypass the mechanical guards.
+Model correction does not require the old Model to be valid or unchanged. IMPORT Resources may be acquired repeatedly and updated or corrected. Safety is determined by Task change authority, necessary Human consent and the final Model integrity. AWS acquisition remains exclusive to `/import`; ordinary `/update` may correct only the Resources and fields explicitly requested by the Human, without AWS acquisition authority. Dedicated merge/delete/retarget and value-preserving operations retain their own raw-value preservation checks.
 
 
 [Service Model sources](../../rules/model-templates.md) define environment-specific
@@ -16,6 +16,23 @@ or AWS permission.
 Follow [task-contract](../../rules/task-contract.md) for contract registration, stopping/resuming.
 
 Use this prompt to receive diffs manually edited by the human in existing authoritative service Model inputs and not yet committed as confirmed design, then perform Markdown generation, reflection into selected IaC, deploy/apply, and completion confirmation in one `infrastructure` task. Do not use it to create new detailed designs.
+
+## Ordinary Model correction
+
+For an explicit Human request to correct Model settings only, use a design/update Task
+with forbidden AWS API execution and deploy/apply. IMPORT and CREATE Resources are both
+eligible, including settings previously approved or imported in another Task. Enumerate
+exact Modified files, Allowed paths, service Validation scope and affected consumers.
+Do not acquire AWS values in this branch. Keep the infrastructure branch separate.
+
+For complete external candidates use `model.sources.edit_base(path, context.snapshot)`
+and `candidate_sources`, then the existing `edit_write_context`, `prepare_edit(path,
+candidate, context)` and `publish_edit`. The old baseline records bytes and file sets,
+without `load_model` or fixed-field/layout validation. The candidate must pass structure,
+ID and reference checks. Never manually persist generated views; generate and validate
+through the existing APIs. Complete and integrate only the verified final candidate.
+Dedicated merge/delete/retarget operations below retain their limited declarations and
+raw-value preservation checks; none requires the whole old Model to pass `load_model`.
 
 ## Dependency analysis and value-preserving refactoring
 
@@ -34,7 +51,8 @@ Retain a before snapshot for removed resources and their anchors. Semantic warni
 never become an empty successful dependency result; structural/I/O/scope errors stop.
 
 Follow [Reference diagnostics](../../rules/model-information.md#reference-diagnostics).
-Normal incoming links, cycles and surviving links do not block the authorized deletion.
+Incoming analysis and intermediate deletion leaves retain warnings. The parent final candidate
+must resolve surviving Resource references and pass its scoped candidate guard before integration.
 Do not impose deletion ordering, a separate detach Task or reference repair as a prerequisite.
 Do not delete another resource or change surviving resources without authority.
 

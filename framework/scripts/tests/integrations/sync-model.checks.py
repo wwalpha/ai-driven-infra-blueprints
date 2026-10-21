@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-from model.identity import allocate
+from support.model_sources import allocate_fixture as allocate
 from support.validator import diagnostics
 
 if not __debug__:
@@ -1035,6 +1035,7 @@ def check_two_consumer_cli(generated_policy):
     name = environment[tasks.SELECTOR]
     (root / name).write_text((root / name).read_text().replace(
         '- `dev/123456789012/iam`', '- `dev/123456789012/iam`\n- `stg/123456789012/iam`'))
+    (root / name).write_text((root / name).read_text().replace('## Modified files\n', '## Modified files\n- `model/stg/123456789012/iam.properties`\n').replace('## Allowed paths\n', '## Allowed paths\n- `model/stg/123456789012/iam.properties`\n'))
     tasks.refresh(root, name)
     for selected_env in ('dev', 'stg'):
         source = root / 'model' / selected_env / '123456789012/iam.properties'
@@ -1108,6 +1109,9 @@ def internal_sync_project(tmp_path):
     fixture(tmp_path, ('dev', 'stg'), definitions_root=definitions)
     for env in ('dev', 'stg'):
         write_fixture(tmp_path, env, 'config', config_model())
+    active = tmp_path / 'tasks/example.md'
+    active.write_text(active.read_text().replace('## Allowed paths\n', '## Allowed paths\n- `project.json`\n').replace('## Modified files\n', '## Modified files\n- `project.json`\n' +
+        ''.join('- `' + path.relative_to(tmp_path).as_posix() + '`\n' for path in (tmp_path/'model').rglob('*.properties'))))
     subprocess.run(['git', 'init', '-q'], cwd=tmp_path, check=True)
     try:
         yield tmp_path
@@ -1264,7 +1268,7 @@ def check_integrated_validator(generated_policy, initial):
     contexts = [(call.args[0], id(call.args[1])) for call in expand.call_args_list]
     assert contexts and len(contexts) == len(set(contexts)), expand.call_args_list
     print('integrated write counts: Model once per input/permission context; generation=1, candidate validation=1, guard=1, post-save readback=0')
-    assert import_check.call_count == 1 and impact.call_count == 2, (impact.call_count, import_check.call_count)
+    assert import_check.call_count == 1 and impact.call_count == 3, (impact.call_count, import_check.call_count)
     assert values['desired.note.001.text'] in design.read_text()
     if not initial:
         from tempfile import TemporaryDirectory

@@ -365,7 +365,9 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
     owned = values.get(f'desired.service.{service}.ownedCatalogResourceTypes', '').split(',')
     def presentation():
         view = (root / 'docs/designs' / path.relative_to(root / 'model')).with_suffix('.md') if path.is_relative_to(root / 'model') else path
-        resource_details(values, definitions, service, owned, resources, bound_resource_anchors(view), findings=findings)
+        from model.sources import scope_for
+        scope = scope_for((root / "model" / view.relative_to(root / "docs/designs")).with_suffix(".properties"))
+        resource_details(values, definitions, service, owned, resources, bound_resource_anchors(view), findings=findings, scope=scope)
     kms_policy_check = _kms_policy_account_check()
     for identity, resource in resources:
         findings.evaluate('model.identity.' + identity, None, lambda: validate_resource_identities(

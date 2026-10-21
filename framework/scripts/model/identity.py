@@ -137,6 +137,8 @@ def display_anchor(resource):
     anchor = resource.get('anchor')
     if not anchor:
         raise ReferenceResolutionError('Resource has no saved anchor')
+    if not isinstance(anchor, str) or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:-]*', anchor) is None:
+        raise ValueError('invalid Resource anchor: ' + str(anchor))
     return anchor
 
 

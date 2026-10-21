@@ -1858,21 +1858,13 @@ def check_refactor_json_value_structure(tmp_path, field, document, allowed):
 @pytest.mark.parametrize('outer', [False, True])
 @pytest.mark.parametrize('change', ['comment', 'value', 'reference', 'mode', 'warning', 'invalid'])
 def check_guard_cache_equivalence(tmp_path, outer, change):
-    import io, re, subprocess
-    from utils.aws_mappings import mapping_alias
-    from contextlib import nullcontext, redirect_stdout, redirect_stderr
+    from contextlib import nullcontext
     from support.import_model_fixtures import dependency_fixture
-    from support.worktree_task_fixtures import contract
-    from validation_cache import input_context, memo_table
-    from model.sources import load_model, publication_lock, _publish_transaction
+    from validation_cache import input_context
+    from model.operations import validate_candidates
+    from model.sources import load_model
     from model.format import serialize
-    import task_contract as tasks
     dependency_fixture(tmp_path)
-    def git(*args):
-        subprocess.run(['git', *args], cwd=tmp_path, check=True, capture_output=True)
-    git('init', '-q'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.invalid')
-    (tmp_path / '.gitignore').write_text('tasks/\n')
-    git('add', '.'); git('commit', '-qm', 'baseline')
     path = tmp_path / ('model/stg/cde/service-a.properties' if change in ('comment', 'value', 'invalid') else 'model/stg/cde/service-b.properties')
     original = path.read_text()
     values = dict(load_model(path).authoritative)
@@ -1884,46 +1876,109 @@ def check_guard_cache_equivalence(tmp_path, outer, change):
         values['desired.resource.002.resourceMode'] = 'CREATE'
     elif change == 'warning':
         values['desired.reference.origin.producerLogicalId'] = 'ServiceA_Resource_999'
-    candidate = original + '# retained comment\n' if change == 'comment' else 'invalid\n' if change == 'invalid' else serialize(values)
+    candidate = serialize(values)
+    if change == 'comment':
+        candidate = original + '# retained comment\n'
+    elif change == 'invalid':
+        candidate = 'invalid\n'
     relative = path.relative_to(tmp_path).as_posix()
-    (tmp_path / 'tasks').mkdir()
-    (tmp_path / 'tasks/cache.md').write_text(contract('cache', [relative]))
     results = []
-    for cached in (False, True):
-        stdout, stderr = io.StringIO(), io.StringIO()
-        with tasks.selected_task(tmp_path, 'tasks/cache.md'), mapping_alias(m.ROOT, tmp_path), (input_context() if outer else nullcontext()), redirect_stdout(stdout), redirect_stderr(stderr):
-            memo = memo_table()
-            if memo is not None:
-                memo['sentinel'] = True
+    for _ in range(2):
+        with (input_context() if outer else nullcontext()):
             try:
-                compared = (import_guard.changes if cached else import_guard.changes.__wrapped__)(tmp_path, {relative}, {path: candidate})
-                result = ('ok', compared[1])
+                warnings = validate_candidates(tmp_path, {relative}, {path: candidate},
+                    {('stg', 'cde', 'service-a'), ('stg', 'cde', 'service-b')})
+                result = ('ok', warnings)
             except ValueError as error:
                 result = ('error', str(error))
-            if memo is not None:
-                assert memo_table() is memo and memo['sentinel']
-        assert memo_table() is None
-        def normalize(text):
-            text = re.sub(r'/[^\s:]*blueprint-import-baselines-[^/]+/[^/]+', '<snapshot>/before', text)
-            return re.sub(r'/[^\s:]*blueprint-import-guard-[^/]+/(before|after)', r'<snapshot>/\1', text)
-        results.append((result[0], normalize(str(result[1])), normalize(stdout.getvalue()), normalize(stderr.getvalue())))
+            results.append(result)
     assert results[0] == results[1]
-    if change in ('value', 'reference', 'warning'):
-        assert result[0] == 'ok' and result[1]
-        assert {key.split('/')[0] for key in result[1]} == {'stg'}
-    with tasks.selected_task(tmp_path, 'tasks/cache.md'), mapping_alias(m.ROOT, tmp_path), (input_context() if outer else nullcontext()):
-        if change == 'comment':
-            import_guard.require_import_changes(tmp_path, {relative}, {path: candidate})
-            with publication_lock(tmp_path) as journal:
-                _publish_transaction(tmp_path, {path: candidate}, (), journal)
-            assert path.read_text() == candidate
-            with pytest.raises(ValueError, match='IMPORT configuration changes'):
-                import_guard.require_import_changes(tmp_path, {relative}, {path: candidate.replace('same-name-stg', 'changed')})
-            assert path.read_text() == candidate
-        elif change in ('value', 'mode', 'reference', 'warning'):
-            with pytest.raises(ValueError):
-                import_guard.require_import_changes(tmp_path, {relative}, {path: candidate})
-            assert path.read_text() == original
+    if change in ('warning', 'invalid'):
+        assert result[0] == 'error'
+    else:
+        assert result[0] == 'ok'
+    assert path.read_text() == original
+
+
+@pytest.mark.parametrize('old_error', ['reference', 'syntax', 'identity', 'duplicate', 'encoding'])
+@pytest.mark.parametrize('failure', ['none', 'reference', 'duplicate', 'allowed', 'scope', 'race', 'rollback', 'anchor'])
+def check_repair_invalid_model(tmp_path, old_error, failure):
+    from support.import_model_fixtures import dependency_fixture
+    from support.worktree_task_fixtures import fixture, git, start
+    from model.sources import load_model
+    from model.adapters.task import edit_write_context
+    from model.operations import prepare_edit, publish_edit
+    from model.format import serialize
+    from task_contract import selected_task, complete
+    with fixture() as root:
+        dependency_fixture(root)
+        relative = 'model/stg/cde/service-b.properties'
+        path = root / relative
+        valid = path.read_text()
+        broken = valid
+        if old_error == 'syntax':
+            broken = 'broken properties\n'
+        elif old_error == 'reference':
+            broken = valid.replace('desired.row.002-001.value', 'desired.row.999-001.value')
+        elif old_error == 'identity':
+            broken = valid.replace('ServiceB_Resource_002', 'invalid')
+        elif old_error == 'duplicate':
+            broken += 'desired.resource.002.logicalId=duplicate\n'
+        if old_error == 'encoding':
+            broken = '\udcff invalid old UTF-8\n'
+        path.write_bytes(broken.encode('utf-8', errors='surrogateescape'))
+        git(root, 'add', 'model', 'project.json'); git(root, 'commit', '-qm', 'broken baseline')
+        target, state = start(root, files=(relative,))
+        path = target / relative
+        name = state['task_file']
+        task = (target / name).read_text().replace('`governance`', '`design`').replace(
+            '- `framework`', '- `stg/cde/service-a`\n- `stg/cde/service-b`')
+        task = task.replace('## Task contract\n', '## Task contract\n- Workflow: `update`\n')
+        if failure == 'allowed':
+            task = task.replace('## Allowed paths\n- `' + name + '`\n- `' + relative + '`',
+                                '## Allowed paths\n- `' + name + '`')
+        elif failure == 'scope':
+            task = task.replace('- `stg/cde/service-a`\n', '')
+        (target / name).write_text(task)
+        # Correct both the broken baseline and a formerly fixed IMPORT logicalId.
+        candidate = valid.replace('ServiceB_Resource_002', 'ServiceB_Resource_007').replace(
+            '"ServiceB.Resource":2', '"ServiceB.Resource":7').replace('"ServiceB.Resource": 2', '"ServiceB.Resource": 7')
+        if failure == 'reference':
+            candidate = candidate.replace('ServiceA_Resource_001', 'ServiceA_Resource_999')
+        elif failure == 'duplicate':
+            candidate += 'desired.resource.002.logicalId=duplicate\n'
+        elif failure == 'anchor':
+            candidate = candidate.replace('anchor=consumer', 'anchor=unsafe"anchor')
+        saved_load = load_model
+        calls = []
+        def final_only(scope, reads=None):
+            calls.append(scope)
+            assert reads is not None, 'candidate must use its overlay, never old source bytes'
+            return saved_load(scope, reads)
+        with selected_task(target, name), patch('import_guard.archive_sources', side_effect=AssertionError('no Git old Model')), \
+                patch('model.operations.load_model', side_effect=final_only):
+            def save():
+                with edit_write_context(target, {('stg', 'cde', 'service-b')}, name) as context:
+                    plan = prepare_edit(path, {path: candidate}, context)
+                    if failure == 'race':
+                        path.write_bytes((broken + '# external edit\n').encode('utf-8', errors='surrogateescape'))
+                    if failure == 'rollback':
+                        with patch('sync_files.save_files', side_effect=OSError('injected save failure')):
+                            return publish_edit(plan, context)
+                    return publish_edit(plan, context)
+            if failure == 'none':
+                assert save() == (path,)
+                assert path.read_text() == candidate and calls
+                import_guard.require_import_changes(target)
+                complete(target, name)
+            else:
+                with pytest.raises((ValueError, OSError)):
+                    save()
+                expected = broken
+                if failure == 'race':
+                    expected += '# external edit\n'
+                assert path.read_bytes().decode('utf-8', errors='surrogateescape') == expected
+        assert (root / relative).read_bytes().decode('utf-8', errors='surrogateescape') == broken
 
 
 if __name__ == '__main__':

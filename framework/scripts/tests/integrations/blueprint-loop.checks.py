@@ -183,6 +183,7 @@ def check_task_service_validation(tmp_path):
 desired.service.logs.ownedCatalogResourceTypes=Logs.LogGroup
 desired.resource.001.resourceType=Logs.LogGroup
 desired.resource.001.logicalId=Logs_LogGroup_001
+desired.resource.001.anchor=resource-Logs_LogGroup_001
 desired.resource.001.cfn-logicalId=fixture-LogGroup
 desired.service.identity.lastAllocated={"Logs.LogGroup":1}
 desired.row.001-001.property=Logs.LogGroup.LogGroupName

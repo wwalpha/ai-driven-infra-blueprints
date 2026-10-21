@@ -82,15 +82,15 @@ def display_name(values, identity, resource, rows, root):
     return name, configured
 
 
-def resource_presentation(values, identity, resource, root):
+def resource_presentation(values, identity, resource, root, *, scope=None):
     kind = resource['resourceType']
     rows = catalog_display_rows(resource_rows(values, identity, kind, root), kind, root)
     name, configured = display_name(values, identity, resource,
-                                    resource_display_rows(values, identity, resource, root), root)
+                                    resource_display_rows(values, identity, resource, root, scope=scope), root)
     return name, configured, rows
 
 
-def resource_details(values, root, service, owned, resources, bound_anchors, *, findings=None):
+def resource_details(values, root, service, owned, resources, bound_anchors, *, findings=None, scope=None):
     by_anchor = {}
     names = set()
     details = []
@@ -101,7 +101,7 @@ def resource_details(values, root, service, owned, resources, bound_anchors, *, 
             mode = resource_mode(resource)
             if kind not in owned:
                 raise ValueError(f"resource is outside service ownership: {kind}")
-            name, configured_name, rows = resource_presentation(values, identity, resource, root)
+            name, configured_name, rows = resource_presentation(values, identity, resource, root, scope=scope)
             if configured_name is None and name is None:
                 raise ValueError(f"resource type display requires a single nameless independent resource: {kind}")
             if not name or name in {"UNSET", "PENDING_DEPLOY"}:
@@ -235,9 +235,9 @@ def render_validated_model(path: Path, values: dict[str, str], root: Path, *, de
     if not resources:
         raise ValueError(f"service model has no resources: {path.name}")
     validate_resource_identities(path, values, root, resources, definitions_root=definitions_root)
-    details, by_anchor = resource_details(values, definitions_root or root, service, owned, resources, bound_resource_anchors(path))
     from model.sources import scope_for
     scope = scope_for((root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties'))
+    details, by_anchor = resource_details(values, definitions_root or root, service, owned, resources, bound_resource_anchors(path), scope=scope)
     return render_markdown(path, values, definitions_root or root, owned, details, grouped_resources(values, details, by_anchor, scope=scope))
 
 
@@ -251,7 +251,9 @@ def generate_markdown(path: Path, values: dict[str, str], root: Path) -> str:
     details = []
     for identity, resource in entries(values, "desired.resource."):
         kind = resource["resourceType"]
-        name, _, rows = resource_presentation(values, identity, resource, root)
+        from model.sources import Scope
+        scope = Scope(path.parents[4], path.parent.parent.name, path.parent.name, path.stem)
+        name, _, rows = resource_presentation(values, identity, resource, root, scope=scope)
         name = name or kind
         from model.identity import display_anchor
         resource = {**resource, 'anchor': display_anchor(resource)}

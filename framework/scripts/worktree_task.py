@@ -310,18 +310,24 @@ def cleanup(where, task_id):
         return cleanup_state(root, path, state)
 
 
-def _run_model_guard(target, task_file, approved=False):
+def _run_model_guard(target, task_file, approved=False, *, sources=None):
     runtime = python_env.runtime(target)
     if runtime is None:
         raise Blocked('registered Python runtime is missing; rerun worktree setup')
     interpreter, environment = runtime
+    serialized_sources = json.dumps(None)
+    if sources is not None:
+        serialized_sources = json.dumps(sorted(sources))
     command = [str(interpreter), '-B', '-c',
-               'import sys; from pathlib import Path; sys.path.insert(0, "framework/scripts"); '
+               'import sys, json; from pathlib import Path; sys.path.insert(0, "framework/scripts"); '
                'import task_contract as tasks; from import_guard import require_import_changes; '
                'root = Path.cwd()\n'
+               'options = {}\n'
+               'if sys.argv[2] == "approved": options["contract_file"] = sys.argv[1]\n'
+               'if sys.argv[3] != "null": options["supplied"] = set(json.loads(sys.argv[3]))\n'
                'with tasks.selected_task(root, sys.argv[1]):\n'
-               '    require_import_changes(root, **({"contract_file": sys.argv[1]} if sys.argv[2] == "approved" else {}))',
-               task_file, 'approved' if approved else 'normal']
+               '    require_import_changes(root, **options)',
+               task_file, 'approved' if approved else 'normal', serialized_sources]
     result = subprocess.run(command, cwd=target, env=environment, capture_output=True, text=True, encoding='utf-8')
     if result.returncode:
         error = Blocked(f'Model guard failed (exit {result.returncode}); worktree retained\n'
@@ -526,6 +532,14 @@ def finalize(where, task_id, human_approved_validation_failure=None):
         latest = _prepare_commit(root, path, state, target, approval)
         base = base_worktree(root, state)
         expected = output(target, "rev-parse", "HEAD")
+        model_paths = paths(target, 'diff', '--name-only', '--no-renames', '-z', latest, expected)
+        contract = (target / state['task_file']).read_bytes()
+        if any(p.startswith('model/') or p == 'project.json' for p in model_paths) or b'- Workflow: `import`' in contract:
+            _run_model_guard(target, state['task_file'], bool(approval), sources=model_paths)
+            if (output(target, 'rev-parse', 'HEAD') != expected or changed_paths(target)
+                    or (target / state['task_file']).read_bytes() != contract
+                    or output(base, 'rev-parse', 'HEAD') != latest):
+                raise Blocked('validated candidate, Task or base changed before merge; retain worktree')
         git(base, "merge", "--ff-only", "--no-autostash", state["branch"])
         if output(base, "rev-parse", "HEAD") != expected or not ancestor(root, expected, state["base"]):
             raise Blocked("merge result differs from expected task commit; retain worktrees for review")

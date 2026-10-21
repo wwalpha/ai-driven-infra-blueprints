@@ -431,6 +431,21 @@ def check_repeat_without_reformat(tmp_path):
         m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli)
     assert not cli.calls and source_files(root) == before
     import_guard.require_import_changes(root)
+    from task_contract import start, selected_task
+    old_name, new_name = 'tasks/import-fixture.md', 'tasks/reimport.md'
+    for args in [('add', 'model'), ('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'first Import')]:
+        subprocess.run(['git', *args], cwd=root, check=True, capture_output=True)
+    text = (root / old_name).read_text().replace(old_name, new_name)
+    start(root, new_name, text)
+    with selected_task(root, new_name):
+        again = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=aws(changed=True))
+        path = input_file(root)
+        selected = [correspondence(again, 'managed-new', '003', action='refresh')]
+        stage(root, again, {path.relative_to(root).as_posix(): path.read_text()}, selected, exclusions(again, selected))
+        assert publish_fixture(root, again)['status'] == 'complete'
+        import_guard.require_import_changes(root)
+    with selected_task(root, old_name):
+        assert import_guard.read_sealed(root, import_guard.proof_path(root))['complete']
 
 
 
@@ -497,7 +512,7 @@ def check_consumer_set_race(tmp_path):
     new_consumer = root / 'model/dev/cde/new-consumer.properties'
     new_consumer.write_text(serialize({}), encoding='utf-8')
     before = snapshot(root)
-    with pytest.raises(ValueError, match='changed|no acquired change plan'):
+    with pytest.raises(ValueError, match='changed|no acquired change plan|outside Modified files/Allowed paths'):
         publish_fixture(root, acquired)
     assert snapshot(root) == before
     import_guard.discard_acquisition(root, acquired['evidence'])
@@ -542,7 +557,7 @@ def check_yaml_candidate_edit(tmp_path):
 def check_reflection_validation_boundary(tmp_path):
     root, acquired, _ = prepare(tmp_path)
     logs_edit(root, acquired)
-    with patch('import_guard.changes', side_effect=AssertionError('no whole Git Model comparison')), \
+    with patch('import_guard.snapshots', side_effect=AssertionError('no whole Git Model comparison')), \
          patch('model.validation.validate_required_properties', side_effect=AssertionError('no whole design validation')), \
          patch.object(m.comparator(), 'compare_resource', side_effect=AssertionError('no AWS comparison phase')):
         result = publish_fixture(root, acquired)
@@ -666,7 +681,7 @@ def check_model_only_publication(tmp_path, monkeypatch, failure):
                 if failure == 'race':
                     path.write_bytes(path.read_bytes() + b'# concurrent human input\n')
                 return publish_edit(plan, context)
-            if failure != 'none':
+            if failure not in {'none', 'ordinary', 'ordinary-delete'}:
                 with pytest.raises((ValueError, OSError)):
                     save()
                 if failure == 'race':
@@ -675,8 +690,12 @@ def check_model_only_publication(tmp_path, monkeypatch, failure):
                     assert source_files(target) == before
             else:
                 assert set(save()) == set(output)
-                assert load_model(path).authoritative['observed.row.001-001.value'] == 'vpc-source'
-                verify_model_operation(root, target, model_operation(contract), sources)
+                expected_id = 'vpc-source'
+                if action == 'import-delete':
+                    expected_id = 'vpc-stg'
+                assert load_model(path).authoritative['observed.row.001-001.value'] == expected_id
+                if failure == 'none':
+                    verify_model_operation(root, target, model_operation(contract), sources)
                 assert status((target / name).read_text()) == 'running'
         assert source_files(root) == before
 
@@ -939,7 +958,7 @@ def check_reference_publication(tmp_path, present, race, diagnostic):
     assert len(cli.calls) == calls
     document = root / 'docs/designs/dev/cde/cloudtrail.md'
     markdown = document.read_text()
-    assert ('](s3.md#resource-S3_Bucket_001)' if present or diagnostic else '`audit-bucket`') in markdown
+    assert ('](s3.md#s3-audit-bucket)' if present or diagnostic else '`audit-bucket`') in markdown
     assert all(p.read_bytes() == raw for p, raw in foreign.items())
     assert not (root / 'docs/designs/dev/cde/s3.md').exists()
     before_recovery = source_files(root)

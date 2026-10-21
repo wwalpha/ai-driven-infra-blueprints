@@ -120,7 +120,11 @@ def _write_context(root, task_file, *, requested=None):
                     targets = {identity[:2] for identity in required}
                     for selected in list_models(root, snapshot):
                         if (selected.environment, selected.target) in targets:
-                            load_model(selected, snapshot)
+                            if operation.action == 'observed':
+                                load_model(selected, snapshot)
+                            else:
+                                from model.sources import edit_base
+                                edit_base(selected.path, snapshot)
                     for identity in operation.scopes:
                         file = root / 'model' / identity[0] / identity[1] / (identity[2] + '.properties')
                         snapshot.read(file)

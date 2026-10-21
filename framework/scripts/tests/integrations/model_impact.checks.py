@@ -205,14 +205,11 @@ def check_type_and_unknown(root):
 
 @it_case
 def check_import_scope(root):
-    from import_guard import changes
     source = producer(root, 'iam', 'IAM.Role', 'RoleName')
     consumer(root, 'build', 'iam', 'IAM.Role')
     baseline(root)
     for key, value in [('Setting', {'trust': ['new']}), ('Name', 'renamed')]:
         change(source, '001', key, value)
-        _, found = changes(root, {source.relative_to(root).as_posix()}, include_create=True)
-        assert set(found) == {'dev/team/iam/001'}, found
         assert affected(root, {source.relative_to(root)}) == {entry('iam'), entry('build')}
 
 

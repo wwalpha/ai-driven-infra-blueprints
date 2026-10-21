@@ -514,7 +514,7 @@ def check_observed(managed_destroy_root):
         project["targets"].append({"environment": "prod", **TARGET, "awsAccountId": "999999999999"})
         (root / "project.json").write_text(json.dumps(project) + "\n")
         outside = root / "model/prod/999999999999/ec2.properties"; outside.parent.mkdir(parents=True)
-        write_model(outside, 'desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_001\ndesired.resource.001.anchor=resource-EC2_Subnet_001\ndesired.service.identity.lastAllocated={"EC2.Subnet":1}\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=[EC2_VPC_001](ec2.md#resource-EC2_VPC_001)\ndesired.row.001-001.comment=参照\n')
+        write_model(outside, 'desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_001\ndesired.resource.001.anchor=resource-EC2_Subnet_001\ndesired.service.identity.lastAllocated={"EC2.Subnet":1}\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=[EC2_VPC_001](../../dev/123456789012/ec2.md#resource-EC2_VPC_001)\ndesired.row.001-001.comment=参照\n')
         rejects(lambda: M.local_plan(root, "dev", "123456789012", ["A"]), "task scope violation")
         from model.sources import model_parts
         for file in model_parts(outside):

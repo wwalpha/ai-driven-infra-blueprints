@@ -67,7 +67,7 @@ def main(argv=None):
                       'authoritative': dict(snapshot.authoritative), 'files': [str(path) for path in snapshot.files],
                       'warnings': list(snapshot.warnings)}
         elif args.command == 'edit':
-            from model.sources import scope_for, candidate_sources, candidate_base
+            from model.sources import scope_for, candidate_sources, edit_base, raw_model
             from model.adapters.task import source_write_context, edit_write_context
             from model.operations import prepare_edit, publish_edit
             from task_contract import selected_task, task_revision, model_operation
@@ -78,7 +78,10 @@ def main(argv=None):
                 authority = source_write_context(scope.root, args.task_file) if operation is not None else edit_write_context(
                     scope.root, {(scope.environment, scope.target, scope.service)}, args.task_file)
                 with authority as context:
-                    snapshot = candidate_base(scope.path, context.snapshot)
+                    reader = edit_base
+                    if operation is not None:
+                        reader = raw_model
+                    snapshot = reader(scope.path, context.snapshot)
                     candidate, _ = candidate_sources(scope.root, args.candidate, snapshot)
                     paths = publish_edit(prepare_edit(snapshot, candidate, context), context)
             result = {'status': 'saved', 'paths': [str(path) for path in paths]}

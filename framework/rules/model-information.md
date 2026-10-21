@@ -26,7 +26,7 @@ If updating the model fails, do not update Markdown/JSON. The model is authorita
 - Catalog properties are authoritative for selectable items; model properties are authoritative for desired and observed values. Markdown and JSON artifacts are generated outputs for display and use.
 - Codex saves confirmed designs in environment-specific properties first through the shared Task-authorized Model APIs. Human properties edits are design inputs. the integrated `blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` generates and validates Markdown/JSON artifacts without overwriting the model; `sync-model.py --write` remains the generation-only compatibility entrypoint.
 - Fail the local loop for Markdown/Model mismatches when reference-complete generation is available. A View retained because of a reference problem is NOT_RUN, not an equality failure. Do not silently adopt either one.
-- Save a successfully validated ordinary service update even if existing Resource references remain unresolved. Warn about new breaks with the referencing source and link; the source's authoritative repair and regeneration may be performed in a separate task. Do not automatically add related services to generation scope or manually edit saved displays of failed services. Report link problems as warnings, with reference-dependent checks marked NOT_RUN and existing Views retained. Continue independent schema, structure, value and required-property validation. The LLM or Human may repair references, but repair is not a prerequisite for the original Model operation or completion.
+- Ordinary saves validate the corrected Model and affected consumers through the common candidate guard. Do not require the old Model to load or preserve its fields. Missing/ambiguous final reference targets and invalid reference types/Properties block final save/completion/integration; pending observations and saved-text differences remain diagnostics. Dedicated operation leaves may save intermediate sources, but their parent must pass final candidate validation.
 - After saving authoritative Model inputs, design tasks generate Markdown and JSON artifacts in the same coherent logical change. When selected existing resources were retrieved read-only, also generate required non-ARN current identifiers in `observed.*`.
 - Follow [observed-values](observed-values.md) for current identifier update conditions and propagation.
 - The infrastructure `update` phase treats human-changed authoritative service Model inputs as immutable inputs and generates Markdown before deployment. Update observed identifiers and regenerate Markdown only after successful AWS mutations.
@@ -64,14 +64,17 @@ saved desired values stay unchanged.
 ## Reference diagnostics
 
 Reference existence, changed targets, unresolved/cyclic/ambiguous references, type or
-label mismatches and surviving links are WARNING diagnostics. They do not block Model
-change/delete/replace, source save, final validation, completion or local integration.
+label mismatches and surviving links are WARNING diagnostics in read-only analysis.
+Final candidates must resolve Resource/Stack/Model targets and match producer types and
+Properties. Missing/ambiguous targets, including surviving links to deleted Resources,
+fail ordinary saves, Task completion and integration. Saved name/identifier text differences
+and pending observations remain warnings. The old Model is never subject to this final gate.
 The LLM uses warning locations and authoritative sources to repair what it can determine
 within the authorized scope; ask the Human about undetermined repairs. Repair, warning
-acknowledgement, Issue migration and another Task are never prerequisites for the original
-operation. Do not infer targets or values, add a force/allow-warning flag, or expand authority.
+acknowledgement and Issue migration do not gate read-only analysis or intermediate leaves.
+The final candidate guard still rejects invalid reference targets/types before completion. Do not infer targets or values, add a force/allow-warning flag, or expand authority.
 
-Keep syntax, fixed Resource/Row/Instance IDs, operation targets, non-reference literals,
+Validate final syntax and Resource/Row/Instance IDs; retain operation targets and non-reference literals in dedicated operations,
 observed/acquired values, JSON structure/types, I/O, Task scope, input snapshots and
 publication locks mandatory. Compare every JSON leaf and literal prefix/suffix even when
 another reference is unresolved. Use typed ReferenceResolutionError at semantic resolution
@@ -87,10 +90,12 @@ before/after snapshots to diagnose removed IDs and anchors.
 Generate and save views that can be produced. For reference-only inability, retain the
 existing Markdown/JSON (or report not-generated), keep saved Model sources, and record the
 unexecuted checks as NOT_RUN with reason reference and the affected scope/retained views.
-Only that identified condition is nonblocking for Model completion; arbitrary NOT_RUN and
+Only that identified condition is nonblocking for read-only analysis or intermediate source saving; final completion still requires valid candidate references. Arbitrary NOT_RUN and
 real errors remain blocking. Do not put warning/incomplete results in the PASS cache.
 
 ## IMPORT configuration authority
+
+Model correction does not require the old Model to be valid or unchanged. IMPORT Resources may be acquired repeatedly and updated or corrected. Safety is determined by Task change authority, necessary Human consent and the final Model integrity. AWS acquisition remains exclusive to `/import`; ordinary `/update` may correct only the Resources and fields explicitly requested by the Human, without AWS acquisition authority. Dedicated merge/delete/retarget and value-preserving operations retain their own raw-value preservation checks.
 
 Explicit standalone reference retarget is a separate narrow `/update` exception under
 [Standalone Model reference retarget](task-contract.md#standalone-model-reference-retarget).
@@ -101,7 +106,7 @@ the before/candidate comparison as well as final verification after rebase; ordi
 save routes cannot bypass ownership, one-use context, snapshot or publication checks.
 The following transfer/removal requirements apply to merge/delete only.
 
-AWS actual configuration is authoritative for IMPORT. The dedicated [import
+Captured AWS facts are authoritative for the acquired fields of an `/import` transaction; explicit ordinary corrections are authorized by the Human design Task. The dedicated [import
 workflow](../prompts/codex/08_import.md) permits user-selected add/refresh/replace/bind from
 captured AWS facts. Present the complete normalized Review with concrete IDs, typed
 Before/After, references and risks before Human approval of any addition or overwrite.
@@ -120,9 +125,7 @@ cannot be silently excluded or partially published.
 Explicit final consent must cover the complete current Review before publication;
 corrections require a rebuilt full Review and renewed consent; cancellation performs no source save.
 Follow existing Worktree validation/merge and Human review of the merged Model.
-Apart from the standalone exception above, IMPORT configuration changes remain forbidden
-except explicit Model-only merge/delete
-through [update](../prompts/codex/05_update.md#model-only-import-merge-or-deletion).
+Explicit Model-only merge/delete uses [update](../prompts/codex/05_update.md#model-only-import-merge-or-deletion).
 That design branch requires exact source/destination IDs and verifies the actual diff:
 complete source transfer/removal, stable destination identities, unchanged CREATE and
 other non-reference consumer values; remaining source references produce warnings. It uses existing source
@@ -141,7 +144,7 @@ For a registered import-delete request, related detach/reference repairs instead
 its parent Task, Worktree and final validation/merge. Resource leaves save raw sources
 sequentially; only the parent finalizes after all deletions. Unrelated properties,
 non-target consumers/environments, fixed identities and observations stay protected.
-This grants no additional Model operation or general IMPORT configuration permission.
+These dedicated-operation constraints do not restrict the separately authorized ordinary correction branch.
 
 Import verifies target/profile/account/Region, acquisition success and scope, resource
 identity, secrets, source ownership, concurrent edits and atomic publication. It does
@@ -270,7 +273,7 @@ desired.service.identity.lastAllocated={"S3.Bucket":1}
 
 The stack listing is generated from the same-target `cloudformation-stacks.properties`, retaining each fixed Stack ID and placementName. Resource mappings `desired.mapping.*` and generated `## Resource対応` tables are discontinued and rejected when used. When migrating existing models, set StackName and template IDs to human-confirmed values; do not infer them from names.
 
-Resource identity uses immutable typed logicalId; saved Resource references use original Markdown links and independent saved anchors. See [Resource logical identity](../docs/model-identity.md) for allocation, references and anchor preservation. Keep fixed entry/Row/Stack IDs and part placement. Resource anchors are independent saved authority and are used by the common resolver to select producer Resources. Resource declarations select producerLogicalId; Stack/context selectors are unchanged.
+Resource identity uses immutable typed logicalId; saved Resource references use original Markdown links and independent saved anchors. See [Resource logical identity](../docs/model-identity.md) for allocation, references and anchor preservation. Ordinary corrections validate the final entry/Row/Stack IDs and layout; dedicated operations preserve fields outside their explicit authority. Resource anchors are independent saved authority and are used by the common resolver to select producer Resources. Resource declarations select producerLogicalId; Stack/context selectors are unchanged.
 
 CloudFormation CREATE resources with formal CFn types require explicit cfn-logicalId even when logicalId is present. Do not extend that requirement to IMPORT, Terraform or design-only types. Ordinary resolution has no old-ID/PascalCase fallback. Ambiguity is not permission to infer a mapping.
 

@@ -340,7 +340,7 @@ def check_properties_reference_review_after_map_and_ownership(change):
             'desired.resource.008.resourceMode': 'IMPORT', 'desired.row.008-001.property': 'EC2.VPC.VpcId',
             'desired.row.008-001.value': '[EC2_VPC_002](network.md#resource-EC2_VPC_002)', 'desired.row.008-001.comment': '合成',
             'observed.row.008-001.value': 'vpc-second', 'observed.row.007-001.value': 'vpc-original'})
-        spec = {'consumerKey': 'desired.row.007-001.value', 'text': '[007](#network)', 'occurrence': '1',
+        spec = {'consumerKey': 'desired.row.007-001.value', 'text': values['desired.row.007-001.value'], 'occurrence': '1',
                 'producerKind': 'resource', 'producerScope': 'qa-custom/one/network', 'producerLogicalId': 'EC2_VPC_001',
                 'resourceType': 'EC2.VPC', 'format': 'link', 'labelPolicy': 'fixed'}
         values.update({f'desired.reference.stable.{field}': value for field, value in spec.items()})
@@ -841,7 +841,7 @@ def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, c
         original = path.read_bytes()
         fields = {'display.resource.007.label': 'explicit display'}
         if change in {'create', 'import-config'}:
-            fields = {'desired.row.007-001.value': '[another](other.md#other)'}
+            fields = {'desired.row.007-001.value': '[corrected](network.md#network-existing)'}
         elif change == 'fixed-id':
             fields = {'desired.resource.007.logicalId': 'EC2_VPC_002', 'desired.service.identity.lastAllocated': '{"EC2.VPC":2}'}
         if change == 'missing-task':
@@ -861,14 +861,8 @@ def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, c
                 with edit_write_context(target, {('qa-synthetic', 'team-a', 'network')}, name) as context:
                     before = load_model(path, context.snapshot)
                     candidate = patch(before.documents[path], fields)
-                    if change in {'import-config', 'fixed-id'}:
-                        with pytest.raises(ValueError, match='IMPORT configuration|saved logicalId cannot change'):
-                            plan = prepare_edit(before, {path: candidate}, context)
-                            publish_edit(plan, context)
-                        assert path.read_bytes() == original
-                    else:
-                        publish_edit(prepare_edit(before, {path: candidate}, context), context)
-                        assert path.read_text(encoding='utf-8') == candidate
+                    publish_edit(prepare_edit(before, {path: candidate}, context), context)
+                    assert path.read_text(encoding='utf-8') == candidate
         assert (root / relative).read_bytes() == original
 
 

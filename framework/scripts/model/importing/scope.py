@@ -26,18 +26,18 @@ def reference_reader(path):
 def selected(root, *, contract_file=None):
     if _scope.get() is not None:
         return _scope.get()
-    from task_contract import contracts, task_path, contract_path
-    records = contracts(root)
-    if not records:
+    from task_contract import contracts, _selected_contract
+    if not contracts(root):
         return None
-    path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, required=False)
+    # Reading scope grants no execution/write rights; those boundaries check paths/status.
+    path, text = _selected_contract(root, selected=contract_file)
     if path is None:
         return None
     name = path.relative_to(root).as_posix()
     # Select the current task and its IMPORT scope.
     if contract_file is None:
-        return _selection(root, name, records.get(name, ''))
-    return _selection(root, name, records.get(name, ''), contract_file)
+        return _selection(root, name, text)
+    return _selection(root, name, text, contract_file)
 
 
 @memoized

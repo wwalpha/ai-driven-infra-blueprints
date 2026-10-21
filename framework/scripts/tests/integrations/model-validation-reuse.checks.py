@@ -96,6 +96,9 @@ def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
     root, model, values, design, artifact, register = generated_policy
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', register([])['BLUEPRINT_TASK_FILE'])
     subprocess.run(['git', 'init', '-q', str(root)], check=True)
+    subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                    'commit', '-qm', 'synthetic validation baseline'], cwd=root, check=True)
     text = design.read_text(encoding='utf-8')
     if fault == 'names':
         text = text.replace('id="resource-IAM_Role_001"', 'id="wrong-anchor"')

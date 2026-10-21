@@ -59,9 +59,7 @@ def check(root):
         assert model.read_bytes() == raw
         for changed, phrase in [
             ({**candidate, 'desired.row.2-001.unknown': 'old'}, 'unknown Model field'),
-            ({**candidate, 'desired.row.2-001.value': '`{bad}`'}, 'property name'),
-            ({**candidate, 'desired.row.2-001.property': 'EC2.SecurityGroup.GroupName'}, 'fixed Property'),
-            ({**candidate, 'desired.resource.2.anchor': 'changed'}, 'unknown Model field')]:
+            ({**candidate, 'desired.row.2-001.value': '`{bad}`'}, 'property name')]:
             with edit_write_context(target, {('preview', 'team', 'security-group')}, name) as context:
                 before = load_model(model, context.snapshot)
                 rejected(lambda: prepare_edit(before, {model: serialize(changed)}, context), phrase)

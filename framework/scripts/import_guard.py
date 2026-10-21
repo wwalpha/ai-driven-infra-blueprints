@@ -1,4 +1,4 @@
-"""Enforce IMPORT configuration authority at existing save, validation and Git boundaries."""
+"""Shared candidate authority checks and dedicated Import/operation evidence boundaries."""
 from contextlib import contextmanager, ExitStack
 from collections.abc import Iterator
 from model.sources import SourceWriteContext, safe
@@ -10,21 +10,17 @@ import hmac
 import os
 import secrets
 import stat
-from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
-import shutil
 import subprocess
 import tarfile
 import tempfile
 
-from model.core import entries, resource_row_index
-from policy_tables import literal
 from utils.file_operations import atomic_files
 from sync_files import save_files
 from task_contract import contracts, section, task_path, contract_path
 from validation_cache import input_bytes, input_text, input_is_file, input_select, input_scope
-from utils.aws_mappings import definition_root, mappings_for, mapping_alias
+from utils.aws_mappings import definition_root, mapping_alias
 
 
 _baselines = ContextVar('import_baselines', default=None)
@@ -159,49 +155,6 @@ def snapshots(root, base, output, definitions_root=None, *, detached=False, iden
 
 
 @input_scope
-def changes(root, sources, output=None, include_create=False, *, contract_file=None, final_candidate=None):
-    from model.sources import model_paths, load_model, source_scope
-    from model.operations import preserve_fixed_fields, ConfigurationIndex
-    from types import SimpleNamespace
-    root = root.resolve()
-    base = final_candidate.base_commit if final_candidate is not None else base_revision(root, contract_file=contract_file)
-    if not sources or base is None:
-        return base, {}
-    with snapshots(root, base, output or {}, detached=contract_file is not None) as (before, after):
-        # Saved consumer values never expand from a producer edit; compare only changed authorities.
-        scope = set()
-        for relative in sources:
-            if relative.startswith('model/'):
-                selected = source_scope(after, after / relative)
-                scope.add((selected.environment, selected.target, selected.service))
-        found = {}
-        old_models = {path.relative_to(before): path for path in model_paths(before)}
-        new_models = {path.relative_to(after): path for path in model_paths(after)}
-        if 'project.json' in sources:
-            scope.update((path.parts[1], path.parts[2], path.stem) for path in old_models.keys() | new_models.keys())
-        for env, target, service in sorted(scope):
-            relative = Path('model') / env / target / (service + '.properties')
-            old = load_model(old_models[relative]) if relative in old_models else None
-            new = load_model(new_models[relative]) if relative in new_models else None
-            if old is not None and new is not None:
-                preserve_fixed_fields(old, new, SimpleNamespace(action='design'))
-            left, right = dict(old.authoritative) if old else {}, dict(new.authoritative) if new else {}
-            old_resources, new_resources = dict(entries(left, 'desired.resource.')), dict(entries(right, 'desired.resource.'))
-            left_index, right_index = ConfigurationIndex(left), ConfigurationIndex(right)
-            for number in old_resources.keys() | new_resources.keys():
-                previous, current = old_resources.get(number, {}), new_resources.get(number, {})
-                imported = previous.get('resourceMode') == 'IMPORT' or current.get('resourceMode') == 'IMPORT'
-                if not imported and not include_create:
-                    continue
-                a = resource_config(left, number, before / relative, index=left_index) if previous else None
-                b = resource_config(right, number, after / relative, index=right_index) if current else None
-                if a != b:
-                    found['/'.join((env, target, service, number))] = {'before': digest(a), 'after': digest(b),
-                        'mode': 'IMPORT' if imported else 'CREATE',
-                        'action': 'add' if a is None else 'delete' if b is None else 'update'}
-        return base, found
-
-
 def require_import_changes(root, supplied=None, output=None, generation=False, *, final_candidate=None, contract_file=None):
     if contract_file is not None and (output is not None or generation or final_candidate is not None):
         raise ValueError('contract reference is limited to read-only integration checks')
@@ -216,6 +169,14 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
     if path is None and sources:
         raise ValueError('selected task contract required for Model changes')
     text = '' if path is None else contracts(root)[path.relative_to(root).as_posix()]
+    if sources:
+        from task_contract import validate_contract, paths_in, matches, safe_path
+        validate_contract(root, path.relative_to(root).as_posix(), text)
+        declared, allowed = paths_in(text, '## Modified files'), paths_in(text, '## Allowed paths')
+        for relative in sources:
+            safe_path(root, relative)
+            if relative not in declared or not any(matches(relative, pattern) for pattern in allowed):
+                raise ValueError('Model source outside Modified files/Allowed paths: ' + relative)
     from task_contract import model_operation, model_refactor
     operation = model_operation(text)
     refactor = model_refactor(text)
@@ -233,33 +194,20 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
                 scope = set(final_candidate.scope) if final_candidate is not None else active_scope(root, contract_file=contract_file)
                 required = {tuple(address.split('/')[:3]) for ref in operation.references
                             for address in (ref.consumer, ref.source, ref.destination)}
-                required |= operation.scopes | affected(after, sources, before=before)
+                required |= operation.scopes | affected(after, sources)
                 if scope is None or not required <= scope:
                     raise ValueError('Model operation requires all producers/consumers in Validation scope')
             warnings = verify_model_operation(before, after, operation, sources)
-        from model.core import report_reference_warnings
-        report_reference_warnings(warnings)
-        return warnings
-    if refactor is not None:
+    elif refactor is not None:
         from model.operations import verify_model_refactor
         from validation_scope import active_scope
-        from task_contract import paths_in, matches, safe_path
-        declared, allowed = paths_in(text, '## Modified files'), paths_in(text, '## Allowed paths')
-        for relative in sources:
-            safe_path(root, relative)
-            if relative not in declared or not any(matches(relative, pattern) for pattern in allowed):
-                raise ValueError('Model refactor source outside Modified files/Allowed paths: ' + relative)
         base = final_candidate.base_commit if final_candidate is not None else base_revision(root, contract_file=contract_file)
         if base is None:
             raise ValueError('Model refactor requires a versioned baseline')
         scope = set(final_candidate.scope) if final_candidate is not None else active_scope(root, contract_file=contract_file)
         with snapshots(root, base, output or {}, detached=contract_file is not None) as (before, after):
             warnings = verify_model_refactor(before, after, refactor, sources, scope)
-        from model.core import report_reference_warnings
-        report_reference_warnings(warnings)
-        return warnings
-    import_task = '- Workflow: `import`' in section(text, '## Task contract')
-    if import_task:
+    elif '- Workflow: `import`' in section(text, '## Task contract'):
         if not sources and generation:
             return
         proof = read_proof(root, contract_file=contract_file) if contract_file is not None else read_proof(root)
@@ -275,18 +223,18 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
         if output is None and not generation and (proof['model'] not in {'reflected', 'unchanged'} or not proof['complete']):
             raise ValueError('IMPORT retrieval/reflection is incomplete; task remains unfinished')
         return
-    base, differences = changes(root, sources, output, contract_file=contract_file, final_candidate=final_candidate)
-    if differences:
-        raise ValueError('IMPORT configuration changes require the registered design /import workflow')
-
-
-
-
-
-
-
-
-
+    else:
+        warnings = []
+    if sources:
+        from model.operations import validate_candidates
+        from validation_scope import active_scope
+        scope = active_scope(root, contract_file=contract_file)
+        if final_candidate is not None:
+            scope = set(final_candidate.scope)
+        warnings.extend(validate_candidates(root, sources, output or {}, scope))
+    from model.core import report_reference_warnings
+    report_reference_warnings(warnings)
+    return warnings
 
 
 

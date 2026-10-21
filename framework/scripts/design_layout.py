@@ -803,7 +803,7 @@ def expanded_design(lines: list[str], *, normalized: bool = False,
                             if not label or label.group(1).strip() in {"", "UNSET", "PENDING_DEPLOY"}:
                                 raise ValueError(f"{resource_type}: {logical_id}: confirmed display name required on {prop}")
                             name = label.group(1)
-                        if anchor in children or anchor in anchors:
+                        if anchor in children:
                             raise ReferenceResolutionError('duplicate resource anchor')
                         expected = (bound_anchors or {}).get((resource_type, logical_id))
                         if (expected is not None and anchor != expected) or logical_id in logical_ids:

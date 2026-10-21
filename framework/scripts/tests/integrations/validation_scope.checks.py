@@ -39,6 +39,9 @@ def check_single_target_cache(root):
     active = root / "tasks/example.md"
     saved_contract = active.read_text(encoding="utf-8")
     active.write_text(saved_contract.split("## Modified files")[0] + "## Validation scope\n" + "".join(f"- `{'/'.join(entry)}`\n" for entry in sorted(scope)) + "## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n", encoding="utf-8")
+    planned = [*models.glob('*.properties'), *(docs / (service + '.md') for service in ['ec2', *services])]
+    active.write_text(active.read_text().replace('## Modified files\n', '## Modified files\n' +
+        ''.join('- `' + file.relative_to(root).as_posix() + '`\n' for file in planned)))
     with redirect_stdout(io.StringIO()):
         SYNC.sync(root, True, "dev", "cde", services=[entry[2] for entry in sorted(scope)])
 
@@ -95,6 +98,9 @@ def check_single_target_cache(root):
             invalid = validate(cache=cache)
         assert any("inputs changed" in error for error in invalid.errors), invalid.errors
         write_model(model, saved)
+    for service in services:
+        (models / (service + ".properties")).unlink()
+        (docs / (service + ".md")).unlink()
     active.write_text(saved_contract, encoding="utf-8")
 
 
@@ -110,6 +116,10 @@ def check_template_consumers(root):
     contract.write_text('## Task contract\n- Task type: `migration`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Validation scope\n' +
                         ''.join(f'- `{"/".join(entry)}`\n' for entry in sorted(scope)) +
                         '## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n')
+    planned = ['project.json', 'model/dev/team/config.properties', 'model/stg/team/config.properties',
+               'docs/designs/dev/team/config.md', 'docs/designs/stg/team/config.md']
+    contract.write_text(contract.read_text().replace('## Modified files\n', '## Modified files\n' +
+        ''.join('- `' + path + '`\n' for path in planned)).replace('## Allowed paths\n', '## Allowed paths\n- `project.json`\n'))
     subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
     command = [sys.executable, str(ROOT/'framework/scripts/sync-model.py'), '--repository-root', str(root)]
     for selection, expected in ((['--scope', 'dev/team/config', '--scope', 'stg/team/config'], 0),
@@ -210,8 +220,8 @@ invalid unrelated table alignment
                           "desired.service.identity.lastAllocated": '{"EC2.Instance":1}', "display.service.title": "# EC2 詳細設計",
                           "display.resource.001.comment": "アプリケーションの仮想マシン"}
                 for index, (prop, value) in enumerate((
-                    ("InstanceId", '[Instance](#ec2-instance)'), ("ImageId", "`ami-0123456789abcdef0`"),
-                    ("InstanceType", "`t3.micro`"), ("SubnetId", '[Subnet](vpc.md#vpc-subnet)'),
+                    ("InstanceId", '[Instance](#resource-EC2_Instance_001)'), ("ImageId", "`ami-0123456789abcdef0`"),
+                    ("InstanceType", "`t3.micro`"), ("SubnetId", '[Subnet](vpc.md#resource-EC2_Subnet_001)'),
                     ("Tags[].Key", "`Name`"), ("Tags[].Value", f"`{name}`")), 1):
                     key = f"row.001-{index:03d}"
                     values[f"desired.{key}.property"] = f"EC2.Instance.{prop}"
@@ -280,7 +290,9 @@ invalid unrelated table alignment
         # Selected schema, naming, JSON, and generation errors remain failures.
         model = root / "model/dev/cde/ec2.properties"
         source = read_model(model)
-        for bad, token in ((source.replace('EC2.Instance.InstanceType', 'EC2.Instance.EbsOptimized'), 'fixed Property'),
+        active = root / "tasks/example.md"
+        active.write_text(active.read_text().replace("## Modified files\n", "## Modified files\n- `model/dev/cde/ec2.properties`\n").replace("## Allowed paths\n", "## Allowed paths\n- `model/dev/cde/ec2.properties`\n"))
+        for bad, token in ((source.replace('EC2.Instance.InstanceType', 'EC2.Instance.EbsOptimized'), 'provider schema'),
                            (source.replace('`dev-app-cde-01`', '`UNSET`'), 'Name')):
             write_model(model, bad)
             try:

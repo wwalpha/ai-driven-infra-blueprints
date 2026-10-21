@@ -56,8 +56,14 @@ def check_snapshot(sync):
         values.update({'display.service.title': '# S3 詳細設計',
                        'display.resource.001.comment': 'アプリケーションのデータを保管するbucket'})
         values["desired.resource.001.resourceMode"] = "IMPORT"
-        rendered = model_design.markdown_for(source, values, repository)
-        assert hashlib.sha256(rendered.encode()).hexdigest() == "f35dc5f74aa31ec8c4fffdafc880611a2efebef14570c67494b4a49527cea357", hashlib.sha256(rendered.encode()).hexdigest()
+        import json
+        from support.model_sources import write_model
+        project_root = source.parents[4]
+        (project_root / "project.json").write_text(json.dumps({"targets": [{"environment": "dev", "alias": "account", "awsAccountId": "123456789012", "awsRegion": "us-east-1", "iacEngine": "cloudformation"}]}))
+        values["desired.resource.001.anchor"] = "s3-app-data"
+        write_model(project_root / "model/dev/account/s3.properties", values)
+        rendered = model_design.markdown_for(source, values, project_root, definitions_root=repository)
+        assert hashlib.sha256(rendered.encode()).hexdigest() == "28a9c8d82fc0b72d82245953c5ccc5d13303d707f7907c6128769844c629a1ea", hashlib.sha256(rendered.encode()).hexdigest()
         # Alias links also retain an explicit consumer observation, without inventing Alias identifiers.
         observed = "1234abcd-12ab-34cd-56ef-1234567890ab"
         alias_source = dict(values)
@@ -80,8 +86,8 @@ def check_snapshot(sync):
             assert plan.failures == ['generated Markdown is stale or missing: s3.md']
         from design_layout import resource_modes
         for mode in ('CREATE', 'IMPORT'):
-            source.write_text(f'<!-- resource-mode: resource-S3_Bucket_001 {mode} -->\n' + text, encoding='utf-8')
-            assert resource_modes(source.read_text().splitlines(), values | {'desired.resource.001.resourceMode': mode})['resource-S3_Bucket_001'] == mode
+            source.write_text(f'<!-- resource-mode: s3-app-data {mode} -->\n' + text, encoding='utf-8')
+            assert resource_modes(source.read_text().splitlines(), values | {'desired.resource.001.resourceMode': mode})['s3-app-data'] == mode
 
 
 

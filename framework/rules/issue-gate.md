@@ -47,7 +47,8 @@ Only the existing-issue stop decision for registered deletion source services is
 Other declared services retain their ordinary gate; do not expand the exception to
 consumer-only repairs, unrelated services or other operation types. Do not require Issue remediation, delete issues.md or mark existing issues fixed.
 Keep incoming-reference diagnostics and final verify_model_operation checks. Reference
-ambiguity/type mismatch/surviving links are warnings. Retain parse/Model/Bindings errors,
+analysis reports ambiguity/type mismatch/surviving links as warnings. The final candidate
+guard rejects invalid surviving Resource references; intermediate leaves remain separate. Retain parse/Model/Bindings errors,
 operation source existence/fixed identity, path/scope/worktree guards, AWS/deploy
 prohibitions and non-reference generation/validation errors. `import-merge`, ordinary
 updates, IaC/deploy and later ordinary Tasks retain the issue gate; completed deletion

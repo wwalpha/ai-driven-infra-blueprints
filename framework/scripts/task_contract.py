@@ -505,17 +505,16 @@ def complete(root, name):
     text = selected_text(root, records, name)
     if status(text) != "running":
         raise ValueError("only a running task can complete")
-    if "- Workflow: `import`" in section(text, "## Task contract") or final_model_task(text):
-        from import_guard import require_import_changes
-        previous = os.environ.get(SELECTOR)
-        try:
-            os.environ[SELECTOR] = name
-            require_import_changes(root)
-        finally:
-            if previous is None:
-                os.environ.pop(SELECTOR, None)
-            else:
-                os.environ[SELECTOR] = previous
+    from import_guard import require_import_changes
+    previous = os.environ.get(SELECTOR)
+    try:
+        os.environ[SELECTOR] = name
+        require_import_changes(root)
+    finally:
+        if previous is None:
+            os.environ.pop(SELECTOR, None)
+        else:
+            os.environ[SELECTOR] = previous
     atomic_files({safe_path(root, name): set_status(text, "completed")}, staging_directory=root)
 
 

@@ -520,6 +520,43 @@ def candidate_sources(root, directory, before):
 
 
 
+def edit_base(path, reads):
+    """Record repair inputs as bytes; their old syntax and meaning grant no authority."""
+    scope = scope_for(path)
+    from model.importing.scope import require_readable
+    require_readable(scope.root, scope.path)
+    _, project = target_for(scope, reads)
+    files = {}
+    for file in (path, *reads.select(path.with_suffix(''), '*', recursive=True, kinds=('file',))):
+        _safe(scope.root, file, reads)
+        if source_scope(scope.root, file) != scope:
+            raise ValueError('invalid Model repair input: ' + str(file))
+        raw = reads.read(file)
+        if raw is not None:
+            files[file] = raw.decode('utf-8', errors='surrogateescape')
+    return ModelSnapshot(scope, MappingProxyType({}), MappingProxyType({}), MappingProxyType({}),
+        MappingProxyType({}), MappingProxyType(files), MappingProxyType({scope.root / 'project.json': project,
+            path: reads.read(path), **{file: text.encode('utf-8', errors='surrogateescape') for file, text in files.items()}}), ())
+
+
+def raw_model(scope, read_context=None):
+    """Read preservation/dependency fields without imposing full Model validity."""
+    scope = scope if isinstance(scope, Scope) else scope_for(scope)
+    reads = read_context or FileReads()
+    base = edit_base(scope.path, reads)
+    parts = tuple(model_parts(scope.path, read_context=reads))
+    documents = {part: parse(base.files[part]) for part in parts}
+    values, locations = {}, {}
+    for path, document in documents.items():
+        for record in document.records:
+            if record.key in values:
+                raise ValueError('ambiguous raw Model key: ' + record.key)
+            values[record.key] = record.value
+            locations[record.key] = (path, record.line)
+    return base._replace(authoritative=MappingProxyType(values), values=MappingProxyType(values),
+                         documents=MappingProxyType(documents), locations=MappingProxyType(locations), parts=parts)
+
+
 def candidate_base(path, reads):
     if reads.kind(path) != 'missing':
         return load_model(path, reads)

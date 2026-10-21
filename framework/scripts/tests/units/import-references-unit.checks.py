@@ -412,10 +412,8 @@ def check_import_reference_observation_sync_remains_guarded(tmp_path):
           '## Validation scope\n- `framework`\n## Required changes\n- [R1] Synthetic sync guard\n'
           '## Acceptance checks\n- [R1] `exists:tasks/sync.md`\n## Modified files\n- `tasks/sync.md`\n'
           '## Allowed paths\n- `tasks/sync.md`\n')
-    with patch('import_guard.changes', return_value=('synthetic-base', {'dev/cde/transit-gateway/001':
-              {'before': digest(old), 'after': digest(new), 'mode': 'IMPORT', 'action': 'update'}})):
-        with pytest.raises(ValueError, match='require the registered design /import workflow'):
-            require_import_changes(tmp_path, supplied={'model/dev/cde/transit-gateway.properties'})
+    with pytest.raises(ValueError, match='outside Modified files/Allowed paths'):
+        require_import_changes(tmp_path, supplied={'model/dev/cde/transit-gateway.properties'})
 
 
 

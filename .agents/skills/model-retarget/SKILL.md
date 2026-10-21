@@ -14,9 +14,10 @@ forbidden AWS/deploy, and the exact requested subset of its normalized operation
 A missing parent or a record differing from the parent returns input failure; do not
 create a child contract or infer authority, IDs, properties or reference locations.
 
-Load the canonical snapshot with `model.sources.load_model`; inspect authoritative
-keys, source locations and raw file bytes. Use `model.files.read_resource`,
-`trace_model` and `find_model` for focused reads. Prepare ordinary format-2 properties
+Read the old authority with `model.sources.raw_model`; inspect raw fields, source
+locations and bytes without requiring old semantic validity. Required operation fields
+must remain parseable and unambiguous. Use focused Model helpers only when their inputs
+can be loaded; they are not a whole-old-Model validity gate. Prepare ordinary format-2 properties
 candidates with `model.format.patch`, retaining parts and unrelated bytes. The agent
 chooses edits; Python verifies preservation and never infers an edit plan.
 
@@ -56,9 +57,10 @@ Do not transfer settings, delete source or edit undeclared references.
 ## Save and return
 
 Obtain a fresh `model.adapters.task.source_write_context(root, task_file)` for this save.
-Load the selected snapshot with that context's recorded inputs, prepare the ordinary
-properties candidate using `model.operations.prepare_edit(snapshot, changes, context)`,
-and call `model.operations.publish_edit(plan, context)`. Changes map absolute source
+Pass the selected entrance Path to `model.operations.prepare_edit(path, changes, context)`;
+it reads the dedicated operation's raw baseline through the context's recorded inputs and
+validates the corrected properties candidate. Publish the prepared plan with
+`model.operations.publish_edit(plan, context)`. Changes map absolute source
 paths to UTF-8 text (None means delete). A context is consumed by success, no-op or failure.
 Save only this operation's changed raw sources; unchanged bytes are no-op. Keep
 previous successful leaf saves on failure. Existing journal rollback applies only

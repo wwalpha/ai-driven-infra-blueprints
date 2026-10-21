@@ -62,7 +62,7 @@ def main():
             assert "### SecretsManager.RotationSchedule" not in output
             assert "app-dev-secret-1_rotate：属性の設定値" in output
             sync_views.validate_views(root, root, [path], {path: values})
-            assert model_projection.linked_resource(path, "[PENDING_DEPLOY](#resource-SecretsManager_RotationSchedule_001)") == (ROTATION, "SecretsManager_RotationSchedule_001")
+            assert model_projection.linked_resource(path, "[PENDING_DEPLOY](#" + values["desired.resource.002.anchor"] + ")") == (ROTATION, "SecretsManager_RotationSchedule_001")
 
         comments = dict(values)
         comments["desired.row.002-001.comment"] = "属性：設定値"
@@ -91,14 +91,12 @@ def main():
             bad = dict(values)
             del bad[f"desired.resource.002.{field}"]
             rejects(lambda: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_001", field, ROTATION + ".SecretId")
-        for reference in ("[Missing](#missing)", "[Secret1](elsewhere.md#resource-SecretsManager_Secret_001)",
-                          "[WrongLogicalId](#resource-SecretsManager_Secret_001)",
+        for reference in ("[Missing](#missing)", "[Secret1](elsewhere.md#secretsmanager-app-dev-secret-1)",
                           "[SecretsManager_RotationSchedule_001](#resource-SecretsManager_RotationSchedule_001)"):
             bad = {**values, "desired.resource.002.parentReference": reference}
             rejects(lambda: markdown_for(path, bad, root), "parentReference")
         for key, value in (("desired.resource.002.parentProperty", ROTATION + ".Id"),
-                           ("desired.row.002-003.value", "[Secret2](#secretsmanager-app-dev-secret-2)"),
-                           ("desired.row.002-003.value", "[Wrong](#resource-SecretsManager_Secret_001)")):
+                           ("desired.row.002-003.value", "[Secret2](#secretsmanager-app-dev-secret-2)")):
             bad = {**values, key: value}
             rejects(lambda: markdown_for(path, bad, root), "invalid grouped parentProperty" if key.endswith("parentProperty") else "grouped formal row does not match parentReference")
         for row in ("002-003",):
@@ -115,8 +113,8 @@ def main():
 
         # Parsing must reject edits independently of model generation.
         invalid_views = [
-            (output.replace("[app-dev-secret-1](#resource-SecretsManager_Secret_001)", "[app-dev-secret-2](#resource-SecretsManager_Secret_002)"), "must reference enclosing"),
-            (output.replace("[app-dev-secret-1](#resource-SecretsManager_Secret_001)", "[app-dev-secret-1](other.md#resource-SecretsManager_Secret_001)"), "must reference enclosing"),
+            (output.replace("[app-dev-secret-1](#secretsmanager-app-dev-secret-1)", "[app-dev-secret-2](#secretsmanager-app-dev-secret-2)"), "must reference enclosing"),
+            (output.replace("[app-dev-secret-1](#secretsmanager-app-dev-secret-1)", "[app-dev-secret-1](other.md#secretsmanager-app-dev-secret-1)"), "must reference enclosing"),
             ("\n".join(line for line in output.splitlines() if ROTATION + ".SecretId" not in line), "required property missing"),
             (output.replace("<!-- logical-id: SecretsManager_RotationSchedule_001 -->", ""), "require anchor and logical ID"),
             (output.replace("app-dev-secret-1_rotate：", ""), "confirmed display name required"),
@@ -166,7 +164,7 @@ def main():
             values[f"observed.row.{identity}-002.value"] = "key-current"
         save()
         SYNC.sync(root, True, "dev", "123456789012")
-        assert path.read_text().count("[key-current](kms.md#resource-KMS_Key_001)") == 2
+        assert path.read_text().count("[key-current](kms.md#kms-app-dev-key)") == 2
         saved = {file: file.read_bytes() for file in path.parent.glob("*.md")}
         # Rejected Secret generation retains its old link, while valid KMS saves.
         del values["desired.resource.002.parentReference"]
@@ -176,15 +174,15 @@ def main():
         assert path.read_bytes() == saved[path]
         assert (path.parent / "kms.md").read_bytes() != saved[path.parent / "kms.md"]
         assert "app-dev-renamed" in (path.parent / "kms.md").read_text()
-        assert 'id="resource-KMS_Key_001"' in (path.parent / "kms.md").read_text()
+        assert 'id="kms-app-dev-key"' in (path.parent / "kms.md").read_text()
         assert properties(read_model(models / 'secretsmanager.properties')) == properties(HELPERS.text(values))
         # Repair only the source in a later task against the already saved KMS view.
         values["desired.resource.002.parentReference"] = "[Secret1](#secretsmanager-app-dev-secret-1)"
         save()
         SYNC.sync(root, True, "dev", "123456789012", services=["secretsmanager"])
         SYNC.sync(root, False, "dev", "123456789012")
-        assert "kms-app-dev-key" not in path.read_text()
-        assert path.read_text().count("[key-current](kms.md#resource-KMS_Key_001)") == 2
+        assert "kms-app-dev-key" in path.read_text()
+        assert path.read_text().count("[key-current](kms.md#kms-app-dev-key)") == 2
     print("rotation-schedule: PASS (single/multiple parents, identity, formal rows, invalid references, projection, KMS updates and deferred source repair)")
 
 

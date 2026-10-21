@@ -1894,7 +1894,7 @@ standalone-retarget compatibility coverage. No IT execution engine is added.
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
-| `guard-cache/equivalence` | `check_guard_cache_equivalence` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 12 | キャッシュ有無・上位context有無、固定入力の差分/診断一致、実解析回数、通常保存拒否・書込み後無効化 | Added |
+| `guard-cache/equivalence` | `check_guard_cache_equivalence` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 12 | 最終候補のキャッシュcontext有無による結果一致、旧Model不変性を要求しない検証 | Added |
 | `guard-runtime/process` | `check_registered_guard_process` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 8 | 明示Task・通常/承認contract_file、warning・非ゼロstdout/stderr、起動/runtime失敗 | Added |
 | `guard-runtime/preconditions` | `check_prepare_rejects_before_git_write` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 11 | 安価な前提違反、ガード拒否、ガード中のTask/HEAD/変更をGit書込み前に拒否 | Added |
 | `guard-runtime/json` | `check_cli_failure_diagnostics` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 1 | CLI JSONと子診断の分離 | Added |
@@ -2101,3 +2101,5 @@ Model v2 移行完了に伴い、固定旧 Framework の export/convert/compare 
 | ケース | 層 | ファイル | 実行 | 検証目的 |
 | --- | --- | --- | --- | --- |
 | `check_pending_reference_is_required_input` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py) | pytest / 1 | 保存済みResource URIは観測値が未配備でも必須入力として保持し、空値・未確定literalは拒否、入力不変 |
+
+| `candidate-model/repair` | `check_repair_invalid_model` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 40 | 不正な旧参照・形式・identity・重複の修正保存、IMPORT固定値変更、候補検証・権限・scope・競合・rollback、旧Model Git展開なし | Added |

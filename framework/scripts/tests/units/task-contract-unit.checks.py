@@ -61,6 +61,9 @@ def check_live_selection(tmp_path):
             assert import_scope.selected(tmp_path) is None  # cached negative parsing result
             from validation_cache import memo_table
             assert (import_scope._selection.__wrapped__, (tmp_path, one, original)) in memo_table()
+            empty = tmp_path / 'stage-without-contracts'
+            empty.mkdir()
+            assert import_scope.selected(empty) is None
             assert import_scope.selected(other) == ('dev', 'team', 'iam')
             stat = (tmp_path / one).stat()
             (tmp_path / one).write_text(selection_contract(one, workflow='- Workflow: `import`\n'))
@@ -74,6 +77,9 @@ def check_live_selection(tmp_path):
             assert import_scope.selected(tmp_path) is None
             with import_scope.restrict(('dev', 'team', 'vpc')):
                 assert import_scope.selected(tmp_path) == ('dev', 'team', 'vpc')
+                from model.sources import edit_base, FileReads
+                with pytest.raises(ValueError, match='outside selected'):
+                    edit_base(tmp_path / 'model/dev/team/config.properties', FileReads())
             assert import_scope.selected(tmp_path) is None
             (tmp_path / two).unlink()
             (tmp_path / one).write_text(selection_contract(one, 'denied'))
@@ -87,8 +93,9 @@ def check_live_selection(tmp_path):
                 tasks.safe_path(tmp_path, 'output.txt')
             (tmp_path / 'output.txt').unlink()
             (tmp_path / one).write_text(original.replace('`running`', '`suspend`')+'## Suspension reason\nExplicit test stop\n')
+            assert import_scope.selected(tmp_path) is None  # Scope reads do not resume execution.
             with pytest.raises(ValueError, match='suspend task'):
-                import_scope.selected(tmp_path)
+                tasks.task_path(tmp_path)
     exercise()
 
 

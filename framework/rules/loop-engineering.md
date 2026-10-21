@@ -153,7 +153,7 @@ When running a local loop, retain the following checks in its applicable scope. 
 - CREATE `EC2.VPCEndpoint` / `EC2.Instance` have case-sensitive `Tags[].Key=Name` followed immediately by the corresponding confirmed non-empty `Tags[].Value`, matching overview/heading/ordinary reference link display names. Design validation/generation use the common helper to determine requirements and reject display label substitution
 - Single standalone resources of a type without a name property generate type-only detail headings and saved anchors when no selected Name tag or existing label exists. Distinguish overview headings from detail headings; retain hidden logical IDs and desired/observed separation. Do not save derived type names in labels; reject type-name display for multiple resources of the same type, omitted name properties, or missing mandatory CREATE Name tags
 - resourceMode is only CREATE/IMPORT; validate unspecified mode as CREATE. Exempt only IMPORT from framework naming coverage, lower-kebab, and mandatory Name policy; do not fill missing Name tags. Obtain classification and resource numbers from Model logicalId indexes, without duplicate Markdown comments; retain schema, catalog, reference, row structure, and generated display equality validation
-- Report unresolved cross-service links and anchors as reference warnings; retain unavailable Views and mark only reference-dependent checks NOT_RUN. Continue independent Model validation. Reference repair by the LLM or Human is not a prerequisite for the original Model operation or completion. Compare generated references with authoritative Models where generation is available.
+- Read-only reference analysis and intermediate leaves report warnings and retain unavailable Views with reference-dependent checks NOT_RUN. The common final candidate guard rejects missing/ambiguous Resource targets and invalid types/Properties; pending observations and saved-text differences remain warnings. Validate corrected authorities and affected consumers without loading old Git Models in ordinary saves, Task checks/completion or worktree guards. Framework-only changes perform no Model load.
 - Each resource has exactly 1 `CodeBuild.Project.Name` row with a confirmed non-empty literal. Common name validation for design validation/model generation rejects missing, empty, unconfirmed, and duplicate values; Name tags/display labels are not substitutes
 - If CloudFormation stack detailed designs exist, validate stack names, template filenames, and parameter filenames, and confirm equality with generated stack models
 - No generated ARNs exist in `model/`
@@ -362,8 +362,8 @@ When a local loop is required, its PASS displays executed Requirement IDs, Accep
 Follow [Reference diagnostics](model-information.md#reference-diagnostics). Preserve
 warnings through child validators, generation/comparison and final candidate aggregation.
 Executed checks with no errors are PASS; individual reference-unavailable checks are
-NOT_RUN with reason/scope/retained-view metadata. Model completion accepts only this
-identified reference condition, never arbitrary NOT_RUN. Keep source save success
+NOT_RUN with reason/scope/retained-view metadata. Final completion still requires valid candidate reference targets/types and never accepts
+arbitrary NOT_RUN. Keep source save success
 separate from view completeness; do not restore old-view equality failures afterward.
 
 The running /update Model-only parent prepares source and generated views, then finalize

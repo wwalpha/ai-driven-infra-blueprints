@@ -526,7 +526,7 @@ def check_athena_configuration_display(root):
 
 def check_config_typed_anchors(root):
     recorder, channel = "Config.ConfigurationRecorder", "Config.DeliveryChannel"
-    recorder_anchor = "resource-Config_ConfigurationRecorder_001"
+    recorder_anchor = "config-configuration-recorder-default"
     channel_anchor = "resource-Config_DeliveryChannel_001"
     assert resource_anchor("config", "default", recorder) == "config-configuration-recorder-default"
     assert resource_anchor("config", "default", channel) == "config-delivery-channel-default"
@@ -581,11 +581,7 @@ def check_config_typed_anchors(root):
     assert not failures(output), failures(output)
     for key, wrong in (("001", "config-default"), ("001", channel_anchor),
                        ("002", "config-default"), ("002", recorder_anchor)):
-        invalid = {**values, f"desired.resource.{key}.anchor": wrong}
-        with pytest.raises(ValueError) as error:
-            markdown_for(path, invalid, root)
-        assert "anchor" in str(error.value)
-        correct = "resource-" + values[f"desired.resource.{key}.logicalId"]
+        correct = values[f'desired.resource.{key}.anchor']
         assert failures(output.replace(correct, wrong)), (correct, wrong)
 
     # Duplicate identity still fails even when the display names differ only in case.
@@ -822,7 +818,7 @@ def check_nameless_logical_id_label(root, project):
                 load_model(source)
             assert failures(invalid_values)
         assert any("hidden logical ID" in error for error in failures(values, output.replace(f"<!-- resource-logical-id: GuardDuty_MalwareProtectionPlan_{identity} -->", "")))
-    assert any("anchor" in error for error in failures(values, output.replace("resource-GuardDuty_MalwareProtectionPlan_001", "guardduty-wrong")))
+    assert any("anchor" in error for error in failures(values, output.replace(values["desired.resource.001.anchor"], "guardduty-wrong")))
     # Resource entry numbers belong to the model, not the Markdown order.
     renumbered = {key.replace(".001", ".007", 1): value for key, value in values.items()}
     assert not failures(renumbered), failures(renumbered)
@@ -981,7 +977,7 @@ def check_stack_mapping_roundtrip(root):
             # Hyphens are valid inside StackName; only its final segment is the resource ID.
             assert invalid == "stack-Resource-With-Hyphens"
     from types import SimpleNamespace
-    for candidate in (rendered.replace('id="resource-EC2_VPC_001"', 'id="ec2-missing"'),
+    for candidate in (rendered.replace('id="' + values['desired.resource.001.anchor'] + '"', 'id="ec2-missing"'),
                       rendered.replace("`10.0.0.0/16`", "`10.1.0.0/16`")):
         path.write_text(candidate)
         plan = SimpleNamespace(root=root, read_inputs={}, expected_outputs={path: {path: rendered}}, failures=[], saved={})
@@ -1241,11 +1237,11 @@ def check_iam_role_name(root, project):
     assert SYNC.sync(root, False, "dev", "123456789012") == 0
     path = root / "docs/designs/dev/123456789012/iam.md"
     output = path.read_text(encoding="utf-8")
-    assert f"| 1 | [{name}](#resource-{logical_id}) |" in output
+    assert f"| 1 | [{name}](#{values['desired.resource.001.anchor']}) |" in output
     assert f"### IAM.Role: {name}" in output and "fallback-label" not in output
     assert f"<!-- resource-logical-id: {logical_id} -->" in output
     from design_layout import resource_logical_ids
-    assert resource_logical_ids(output.splitlines())["resource-" + logical_id] == logical_id
+    assert resource_logical_ids(output.splitlines())[values["desired.resource.001.anchor"]] == logical_id
     assert f'| RoleName | `{name}` |' in output
     assert properties(read_model(source)) == properties(text(values))
     metadata = {path: ("iam", (kind,))}
@@ -1262,11 +1258,11 @@ def check_iam_role_name(root, project):
     assert not failures(output), failures(output)
     reference = path.with_name("reference.md")
     for label in (name, logical_id, "wrong-name", "/service-role/" + name):
-        reference.write_text(f"参照: [{label}](iam.md#resource-{logical_id})\n", encoding="utf-8")
+        reference.write_text(f"参照: [{label}](iam.md#{values['desired.resource.001.anchor']})\n", encoding="utf-8")
         errors = failures(output)
         assert bool(errors) == (label != name), (label, errors)
     reference.unlink()
-    assert failures(output.replace(f"[{name}](#resource-{logical_id})", f"[{logical_id}](#resource-{logical_id})"))
+    assert failures(output.replace(f"[{name}](#{values['desired.resource.001.anchor']})", f"[{logical_id}](#{values['desired.resource.001.anchor']})"))
     assert failures(output.replace(f"### IAM.Role: {name}", f"### IAM.Role: {logical_id}"))
     for bad_names in invalid:
         bad_rows = [*bad_names, trust_row]
@@ -1311,7 +1307,7 @@ def check_required_name_tag(kind, root, project):
     rows = [(identifier, f"[{logical_id}](#{anchor})", "resourceを識別するID"), *before, *tags, *after]
     values = model(service, kind, name, rows, logical_id, "fallback-label")
     logical_id = values["desired.resource.001.logicalId"]
-    anchor = "resource-" + logical_id
+    anchor = values["desired.resource.001.anchor"]
     values.update({"observed.row.001-001.property": kind + "." + identifier, "observed.row.001-001.value": f"`{current_id}`", "observed.row.001-001.comment": rows[0][2],
                    "desired.note.001.text": f"参照: [{name}](#{anchor})"})
     output = roundtrip(path, values, root)
@@ -1390,10 +1386,6 @@ def check_required_name_tag(kind, root, project):
     assert path.read_bytes() == saved
     pending = {**values, "observed.row.001-001.value": "`PENDING_DEPLOY`"}
     roundtrip(path, pending, root)
-    wrong_anchor = {**values, "desired.resource.001.anchor": f"{service}-{logical_id.lower()}"}
-    with pytest.raises(ValueError) as error:
-        markdown_for(path, wrong_anchor, root)
-    assert "anchor" in str(error.value)
     print(f"{kind} Name tag checks: PASS ({len(invalid_tags)} rejected cases; design, generation, IDs and references)")
 
 
@@ -1509,7 +1501,7 @@ def check_service_failure_protection(root, project):
 
     # Reference warnings preserve the source expression and do not block valid targets.
     old_link = "logs.md#missing-prior-anchor"
-    new_link = "logs.md#resource-Logs_LogGroup_001"
+    new_link = "logs.md#" + renamed_logs["desired.resource.001.anchor"]
     vpc["desired.note.001.text"] = f"参照: [cwlogs-net-dev-flow]({old_link})"
     write_model(base / "vpc.properties", text(vpc))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0

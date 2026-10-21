@@ -119,3 +119,14 @@ Import CLI の終了値は成功 0、検査・保存拒否 1、取得／表示�
 read の JSON は warnings に参照診断を含みます。incoming は references と warnings、
 status（complete／incomplete）を返します。WARNING は保存値を修正しません。
 構文不正、I/O、scope 違反は失敗として返り、WARNING に読み替えません。
+
+## Invalid baseline correction
+
+Ordinary corrections use `edit_base(path, context.snapshot)` to inventory old bytes and
+parts without validating their meaning. `prepare_edit(path, candidate, context)` accepts
+the entrance Path directly; the edit context validates the corrected candidate and its
+affected consumers. IMPORT Resources have the same ordinary correction path as CREATE.
+`raw_model` is reserved for dedicated operation comparisons; it parses the fields needed
+for preservation without old runtime/reference diagnosis. Neither path grants save rights:
+SourceWriteContext, exact Task paths, one-use input snapshots, locks and rollback remain
+mandatory. `/import` retains its existing Review/consent/evidence acquisition transaction.

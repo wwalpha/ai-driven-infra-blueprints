@@ -17,16 +17,18 @@ Use `model.identity.allocate(candidate_values, selected_new_entry_numbers)` once
 Human-selected Resource correspondence is known. The selected order is explicit; do not derive
 it from AWS enumeration, names or physical identifiers. This returns the candidate fields,
 including IDs and counters, without writing. Publish both through the existing source API
-or IMPORT Review/publication. IMPORT refresh/replace/bind keep the existing ID. The shared
-`preserve_allocation` guard rejects renumbering, reuse and inconsistent counters. Concurrent
+or IMPORT Review/publication. IMPORT refresh/replace/bind keep the existing ID. The dedicated IMPORT/operation
+`preserve_allocation` guard rejects renumbering, reuse and inconsistent counters. Ordinary
+Human-authorized corrections validate the final IDs and counters without requiring the old
+allocation to be valid or unchanged. Concurrent
 source changes fail the existing snapshot comparison; never resolve them by automatically
 renumbering a saved Resource.
 
 ## Saved references and anchors
 
 The internal fixed identity is typed logicalId. The independent saved
-`desired.resource.<number>.anchor` is the design link destination. Preserve it when
-names, physical values or logicalId allocation change. New anchors use the existing
+`desired.resource.<number>.anchor` is the design link destination. Preserve it for name-only changes and dedicated operations; ordinary explicitly authorized
+corrections may repair it along with every affected saved reference. New anchors use the existing
 `design_layout.resource_anchor()` and confirmed naming rules, without speculative suffixes.
 
 Save the original Markdown Resource reference, for example

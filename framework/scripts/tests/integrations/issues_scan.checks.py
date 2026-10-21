@@ -1970,10 +1970,13 @@ def check_added_reference_properties(_network):
                 with pytest.raises(Blocked, match='Resource anchor is absent or ambiguous'):
                     comparison.desired_reference('s3', links[logical].partition('#')[0] + '#missing)', kind, path)
                 service, identity = symbol['$resource']
-                comparison.resources[service][identity]['resourceMode'] = 'IMPORT'
+                indexed = comparison.reference_anchor_indexes[service]
+                previous_index = indexed
+                comparison.reference_anchor_indexes[service] = {anchor: [(rid, {**resource, 'resourceMode': 'IMPORT'})
+                    if rid == identity else (rid, resource) for rid, resource in records] for anchor, records in indexed.items()}
                 with pytest.raises(Blocked, match='IMPORT'):
                     comparison.desired_reference('s3', links[logical], kind, path)
-                comparison.resources[service][identity].pop('resourceMode')
+                comparison.reference_anchor_indexes[service] = previous_index
         # Multiple accepted forms prove equivalence only for the same logical resource.
         for logical, kind, path in [('Role', 'Glue.Job', 'Role'), ('Function', 'Lambda.Permission', 'FunctionName')]:
             arn = comparison.evaluate(stack, {'Fn::GetAtt': [logical, 'Arn']})
@@ -2015,6 +2018,7 @@ def check_added_reference_properties(_network):
             'desired.service.quicksight.serviceId=quicksight',
             'desired.resource.001.resourceType=QuickSight.Group',
             'desired.resource.001.logicalId=QuickSight_Group_001',
+            'desired.resource.001.anchor=resource-QuickSight_Group_001',
             'desired.service.identity.lastAllocated={"QuickSight.Group":1}',
             'desired.row.001-001.property=QuickSight.Group.Arn',
             'desired.row.001-001.value=[QuickSight_Group_001](quicksight.md#resource-QuickSight_Group_001)',

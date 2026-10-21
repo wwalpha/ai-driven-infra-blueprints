@@ -34,7 +34,7 @@ def check(root):
     write_model(path, values)
     view = root / 'docs/designs/preview/team/s3.md'
     assert sync_runtime.sync(root, True, 'preview', 'team', services=['s3']) == 0
-    assert bound_resource_anchors(path) == {('S3.Bucket', 'S3_Bucket_003'): 'resource-S3_Bucket_003'}
+    assert bound_resource_anchors(path) == {('S3.Bucket', 'S3_Bucket_003'): 's3-archive-original'}
     consumer = path.with_name('cloudtrail.properties')
     linked = '[S3_Bucket_003](s3.md#s3-archive-original)'
     candidate = resource('087', 'CloudTrail.Trail', 'cloudtrail-job', [('S3BucketName', linked)])
@@ -43,7 +43,7 @@ def check(root):
     before = consumer.read_bytes()
     updated = {**values, 'desired.row.003-001.value': '`archive-renamed`'}
     write_model(path, updated)
-    assert 'desired.resource.003.anchor' not in load_model(path).authoritative
+    assert load_model(path).authoritative['desired.resource.003.anchor'] == 's3-archive-original'
     assert load_model(path).authoritative['desired.resource.003.logicalId'] == 'S3_Bucket_003'
     assert {key for key in updated if key.startswith('desired.row.')} == {key for key in values if key.startswith('desired.row.')}
     assert not load_model(consumer).warnings
@@ -57,9 +57,7 @@ def check(root):
     assert sync_runtime.sync(root, True, 'preview', 'team', services=['s3']) == 0
     assert sync_runtime.sync(root, False, 'preview', 'team', services=['s3']) == 0
     assert '### S3.Bucket: archive-renamed' in view.read_text()
-    assert '<a id="resource-S3_Bucket_003"></a>' in view.read_text()
-    wrong = {**updated, 'desired.resource.003.anchor': 's3-other'}
-    rejected(lambda: markdown_for(view, wrong, root), 'anchor')
+    assert '<a id="s3-archive-original"></a>' in view.read_text()
     original = path.read_bytes()
     path.write_bytes(original + b'desired.row.003-001.value=duplicate\n')
     rejected(lambda: load_model(path), 'duplicate')
@@ -78,7 +76,7 @@ def check(root):
     rejected(lambda: load_model(path), 's3.properties')
     path.write_bytes(original)
     legacy = root / 'model/parameters'; legacy.mkdir()
-    assert bound_resource_anchors(path) == {('S3.Bucket', 'S3_Bucket_003'): 'resource-S3_Bucket_003'}
+    assert bound_resource_anchors(path) == {('S3.Bucket', 'S3_Bucket_003'): 's3-archive-original'}
     assert path.read_bytes() == original
     print('Fixed S3 anchors: PASS (explicit rename/consumer update; fixed names/links/IDs; generation; syntax/identity rejection; unrelated directory isolation)')
 

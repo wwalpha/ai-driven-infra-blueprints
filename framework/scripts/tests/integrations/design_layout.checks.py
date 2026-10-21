@@ -24,13 +24,13 @@ def check_secret_rotation_display(tmp_path, catalog) -> None:
 
 | No. | ResourceName | Comment |
 | ---: | --- | --- |
-| 1 | [app-dev-key](#resource-SecretsManager_Secret_001) | 定期更新する連携用key |
-| 2 | [app-dev-token](#resource-SecretsManager_Secret_002) | 連携用token |
+| 1 | [app-dev-key](#secretsmanager-app-dev-key) | 定期更新する連携用key |
+| 2 | [app-dev-token](#secretsmanager-app-dev-token) | 連携用token |
 
 ## リソース詳細
 
 <!-- resource-logical-id: SecretsManager_Secret_001 -->
-<a id="resource-SecretsManager_Secret_001"></a>
+<a id="secretsmanager-app-dev-key"></a>
 
 ### SecretsManager.Secret: app-dev-key
 
@@ -39,10 +39,10 @@ def check_secret_rotation_display(tmp_path, catalog) -> None:
 | 1 | Name | `app-dev-key` | secretの名前 |
 | 2 | SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate | `false` | <a id="resource-SecretsManager_RotationSchedule_001"></a><!-- logical-id: SecretsManager_RotationSchedule_001 --> app-dev-key_rotate：更新直後のrotation実行設定 |
 | 3 | SecretsManager.RotationSchedule.RotationRules.AutomaticallyAfterDays | `30` | rotationの間隔日数 |
-| 4 | SecretsManager.RotationSchedule.SecretId | [app-dev-key](#resource-SecretsManager_Secret_001) | 対象secretのID |
+| 4 | SecretsManager.RotationSchedule.SecretId | [app-dev-key](#secretsmanager-app-dev-key) | 対象secretのID |
 
 <!-- resource-logical-id: SecretsManager_Secret_002 -->
-<a id="resource-SecretsManager_Secret_002"></a>
+<a id="secretsmanager-app-dev-token"></a>
 
 ### SecretsManager.Secret: app-dev-token
 
@@ -69,7 +69,7 @@ desired.service.secretsmanager.serviceId=secretsmanager
 desired.service.secretsmanager.ownedCatalogResourceTypes=SecretsManager.Secret,SecretsManager.RotationSchedule
 desired.resource.001.resourceType=SecretsManager.Secret
 desired.resource.001.logicalId=SecretsManager_Secret_001
-desired.resource.001.anchor=resource-SecretsManager_Secret_001
+desired.resource.001.anchor=secretsmanager-app-dev-key
 desired.resource.001.cfn-logicalId=fixture-AppKey
 desired.row.001-001.property=SecretsManager.Secret.Name
 desired.row.001-001.value=`app-dev-key`
@@ -79,7 +79,7 @@ desired.resource.002.logicalId=SecretsManager_RotationSchedule_001
 desired.resource.002.anchor=resource-SecretsManager_RotationSchedule_001
 desired.resource.002.cfn-logicalId=fixture-AppKeyRotation
 desired.resource.002.parentProperty=SecretsManager.RotationSchedule.SecretId
-desired.resource.002.parentReference=[SecretsManager_Secret_001](secretsmanager.md#resource-SecretsManager_Secret_001)
+desired.resource.002.parentReference=[SecretsManager_Secret_001](secretsmanager.md#secretsmanager-app-dev-key)
 desired.row.002-001.property=SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate
 desired.row.002-001.value=`false`
 desired.row.002-001.comment=更新直後のrotation実行設定
@@ -87,11 +87,11 @@ desired.row.002-002.property=SecretsManager.RotationSchedule.RotationRules.Autom
 desired.row.002-002.value=`30`
 desired.row.002-002.comment=rotationの間隔日数
 desired.row.002-003.property=SecretsManager.RotationSchedule.SecretId
-desired.row.002-003.value=[SecretsManager_Secret_001](secretsmanager.md#resource-SecretsManager_Secret_001)
+desired.row.002-003.value=[SecretsManager_Secret_001](secretsmanager.md#secretsmanager-app-dev-key)
 desired.row.002-003.comment=対象secretのID
 desired.resource.003.resourceType=SecretsManager.Secret
 desired.resource.003.logicalId=SecretsManager_Secret_002
-desired.resource.003.anchor=resource-SecretsManager_Secret_002
+desired.resource.003.anchor=secretsmanager-app-dev-token
 desired.resource.003.cfn-logicalId=fixture-AppToken
 desired.row.003-001.property=SecretsManager.Secret.Name
 desired.row.003-001.value=`app-dev-token`
@@ -100,7 +100,7 @@ desired.row.003-001.comment=secretの名前
     assert "desired.resource.004" not in model
     assert "desired.row.002-001.property=SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate" in model
     assert "desired.row.002-002.value=`30`" in model
-    assert "desired.row.002-003.value=[SecretsManager_Secret_001](secretsmanager.md#resource-SecretsManager_Secret_001)" in model
+    assert "desired.row.002-003.value=[SecretsManager_Secret_001](secretsmanager.md#secretsmanager-app-dev-key)" in model
     assert "observed.row.002-003" not in model
     values = model_core.properties(model)
     values.update({'display.service.title': '# Secrets Manager 詳細設計',
@@ -132,7 +132,7 @@ desired.row.003-001.comment=secretの名前
     for invalid, message in (
         (text.replace("### SecretsManager.Secret: app-dev-key", "### SecretsManager.RotationSchedule: app-dev-key"), "independent heading"),
         (text.replace("### SecretsManager.Secret: app-dev-key", "### S3.Bucket: app-dev-key"), "wrong parent"),
-        (text.replace("[app-dev-key](#resource-SecretsManager_Secret_001)", "[app-dev-token](#resource-SecretsManager_Secret_002)"), "must reference enclosing"),
+        (text.replace("[app-dev-key](#secretsmanager-app-dev-key)", "[app-dev-token](#secretsmanager-app-dev-token)"), "must reference enclosing"),
         (text.replace("RotationRules.AutomaticallyAfterDays", "RotateImmediatelyOnUpdate"), "duplicate property"),
         (text.replace("`30`", "`invalid`"), "provider schema violation"),
         (text.replace("### SecretsManager.Secret\n", "### SecretsManager.RotationSchedule\n"), "resource overview types"),
@@ -730,7 +730,7 @@ desired.row.001-003.comment=記録するrecorderの名前
 def check_resource_name_headings(tmp_path) -> None:
     name = "ebs-venus-dev-core-nightly-completed-detect-every-5m-0200-0455"
     logical_id = "CoreSystemNightlyProcessingCompletedDetect0200To0455Schedule"
-    anchor = "resource-" + logical_id
+    anchor = resource_anchor("scheduler", name, "Scheduler.Schedule")
     marker = f"<!-- resource-logical-id: {logical_id} -->"
     text = f"""# Scheduler 詳細設計
 
@@ -782,7 +782,7 @@ def check_resource_name_headings(tmp_path) -> None:
         (text.replace(f"### Scheduler.Schedule: {name}", f"### Scheduler.Schedule: {logical_id}"), "heading must display resource name"),
         (text.replace(f"[{name}]", f"[{logical_id}]"), "must not display internal logical ID"),
         (text.replace(f"| `{name}` |", "| `PENDING_DEPLOY` |"), "display name must be confirmed"),
-        (text.replace(anchor, "scheduler-internal-id"), "anchor must use display name"),
+        (text.replace(anchor, "scheduler-internal-id"), "anchor must match saved Model anchor"),
         (text.replace(marker, "<!-- resource-logical-id: -->"), "invalid resource identity"),
         (text + "\n" + marker, "invalid resource identity"),
     ):
@@ -805,8 +805,7 @@ def check_resource_name_headings(tmp_path) -> None:
 
     group_name = "transfer service access"
     sg_anchor = resource_anchor("security-group", group_name)
-    sg_text = text.replace("scheduler", "security-group").replace("Scheduler.Schedule", "EC2.SecurityGroup").replace(logical_id, "TransferSecurityGroup").replace(name, group_name)
-    sg_text = sg_text.replace("resource-TransferSecurityGroup", "resource-TransferSecurityGroup")
+    sg_text = text.replace(anchor, "resource-TransferSecurityGroup").replace("scheduler", "security-group").replace("Scheduler.Schedule", "EC2.SecurityGroup").replace(logical_id, "TransferSecurityGroup").replace(name, group_name)
     sg_text = sg_text.replace(f"| 1 | Name | `{group_name}` | scheduleの名前 |", "| 1 | Id | `PENDING_DEPLOY` | SGのID |\n| 2 | GroupDescription | `transfer service access` | 通信の用途 |\n| 3 | VpcId | `vpc-123` | 所属VPCのID |")
     sg = path.with_name("security-group.md")
     sg.write_text(sg_text, encoding="utf-8")
@@ -943,7 +942,7 @@ def check_workflow(tmp_path, catalog) -> None:
         (KMS.replace('KMS.Alias.AliasName', 'AliasName').replace(marker, ""), "full catalog name"),
         (KMS.replace('<!-- logical-id: AliasTwo -->', '<!-- logical-id: AliasOne -->'), "duplicate grouped logical ID"),
         (KMS.replace('id="resource-AliasTwo"', 'id="resource-AliasOne"'), "duplicate resource anchor"),
-        (KMS.replace('id="resource-AliasTwo"', 'id="kms-wrong"'), "logical ID/anchor"),
+        (KMS.replace('id="resource-AliasTwo"', 'id="kms-wrong"'), "missing design anchor"),
         (KMS.replace('`alias/three`', '`alias/two`'), "duplicate grouped identity value"),
         (KMS.replace('`alias/three`', '`bad-alias`'), "provider schema violation"),
         (KMS.replace('### KMS.Key: KeyOne', '### S3.Bucket: KeyOne'), "wrong parent"),

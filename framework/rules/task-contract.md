@@ -1,5 +1,5 @@
 # Task Contract Rules
-IMPORT acquisition and user-selected add/refresh/replace are exclusive to `/import`; explicit Model-only merge/delete or standalone reference retarget uses `/update` under the narrow operation guard. Follow [IMPORT configuration authority](model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Other substantive IMPORT updates remain forbidden; read/compare and value-preserving refactors never bypass the mechanical guards.
+Model correction does not require the old Model to be valid or unchanged. IMPORT Resources may be acquired repeatedly and updated or corrected. Safety is determined by Task change authority, necessary Human consent and the final Model integrity. AWS acquisition remains exclusive to `/import`; ordinary `/update` may correct only the Resources and fields explicitly requested by the Human, without AWS acquisition authority. Dedicated merge/delete/retarget and value-preserving operations retain their own raw-value preservation checks.
 
 
 ## Dedicated import boundary
@@ -65,7 +65,7 @@ IMPORT and other authority writers retain their dedicated publication checks and
   exact properties entrance/parts and generated Markdown/JSON paths before writing.
   Include changed environment/target/services and affected reference consumers in
   Validation scope. Read-only producer discovery never expands Allowed paths, Deployment
-  scope or AWS permission. Preserve fixed identities, references and Stack placementName.
+  scope or AWS permission. Validate final identities and references; only dedicated operations require preservation outside their declarations.
   Infrastructure observation writers patch only permitted observed.value in the same
   properties. Destroy cannot change desired/display/reference design. Infrastructure
   update keeps Human intended-design inputs immutable; retain generated-view equality
@@ -73,7 +73,7 @@ IMPORT and other authority writers retain their dedicated publication checks and
 
 - `design`: Edit explicit environment/service properties candidates and generate
   docs/designs through the shared guarded APIs, then finish after classified validation.
-  Existing-resource acquisition/add/refresh/bind/replace remains exclusive to /import.
+  AWS acquisition and acquired add/refresh/bind/replace remain exclusive to /import; explicit ordinary IMPORT corrections use the guarded Model edit API.
   Do not proceed to IaC, AWS mutation or scenarios.
 - `infrastructure`: Read the approved design, perform only explicitly authorized IaC,
   checks and deploy/apply, then synchronize permitted observations/generated views after

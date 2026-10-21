@@ -88,7 +88,7 @@ def preserve_fixed_fields(before, after, operation):
     removed_refs = previous_refs.keys() - current_refs.keys()
     added_refs = current_refs.keys() - previous_refs.keys()
     if any(previous_refs[old_id] == current_refs[new_id] for old_id in removed_refs for new_id in added_refs):
-        raise ValueError('ordinary edits cannot renumber fixed reference IDs')
+        raise ValueError('dedicated operations cannot renumber fixed reference IDs')
     previous, current = dict(entries(old, 'desired.resource.')), dict(entries(new, 'desired.resource.'))
     moved = {pair.destination.rsplit('/', 1)[1] for pair in getattr(operation, 'pairs', ())
              if tuple(pair.destination.split('/')[:3]) == (before.scope.environment, before.scope.target, before.scope.service)}
@@ -198,7 +198,7 @@ def preserve_layout(before, after):
     new_parts = [relative(after, path) for path in after.parts]
     retained = set(old_parts) & set(new_parts)
     if [path for path in old_parts if path in retained] != [path for path in new_parts if path in retained]:
-        raise ValueError('ordinary edits must preserve retained part order')
+        raise ValueError('dedicated operations must preserve retained part order')
     promotion = old_parts == [relative(before, before.scope.path)] and after.scope.path not in after.parts
     for key in before.authoritative.keys() & after.authoritative.keys():
         if owner(key, before.authoritative) != owner(key, after.authoritative):
@@ -206,7 +206,7 @@ def preserve_layout(before, after):
         previous = relative(before, before.locations[key][0])
         expected = new_parts[0] if promotion else previous
         if relative(after, after.locations[key][0]) != expected:
-            raise ValueError('ordinary edits must preserve existing block placement: ' + key)
+            raise ValueError('dedicated operations must preserve existing block placement: ' + key)
     def order(values, prefix=None):
         return list(dict.fromkeys(owner(key, values) if prefix is None else key[len(prefix):].partition('.')[0]
                                   for key in values if prefix is None or key.startswith(prefix)))
@@ -214,7 +214,7 @@ def preserve_layout(before, after):
         old, new = order(before.authoritative, prefix), order(after.authoritative, prefix)
         common = set(old) & set(new)
         if [block for block in old if block in common] != [block for block in new if block in common]:
-            raise ValueError('ordinary edits must preserve retained block/Row order')
+            raise ValueError('dedicated operations must preserve retained block/Row order')
 
 
 def _context(snapshot, policy):
@@ -228,6 +228,12 @@ def _context(snapshot, policy):
 
 
 def prepare_edit(snapshot, candidate, policy):
+    if isinstance(snapshot, Path):
+        from model.sources import edit_base, raw_model
+        reader = raw_model
+        if policy.operation.action == 'edit':
+            reader = edit_base
+        snapshot = reader(snapshot, policy.snapshot)
     _context(snapshot, policy)
     output = {}
     entry = snapshot.scope.path
@@ -252,8 +258,9 @@ def prepare_edit(snapshot, candidate, policy):
                         (key in snapshot.authoritative) != (key in after.authoritative)}
         if any((entry, key) not in policy.operation.keys for key in changed_keys):
             raise ValueError('observed candidate changed a Row outside the authorized selection')
-    preserve_fixed_fields(snapshot, after, policy.operation)
-    preserve_layout(snapshot, after)
+    if policy.operation.action != 'edit':
+        preserve_fixed_fields(snapshot, after, policy.operation)
+        preserve_layout(snapshot, after)
     policy._require_current(output)
     return EditPlan._prepared(snapshot, after, MappingProxyType(output), policy)
 
@@ -294,7 +301,6 @@ def _publish_plans(plans, context):
         with publication_lock(context.root) as journal:
             for plan in plans:
                 _context(plan.before, context)
-            context.snapshot.verify()
             context._require_current(changes)
             if context.operation.action in {'import-retarget', 'edit'}:
                 from import_guard import require_import_changes
@@ -302,6 +308,7 @@ def _publish_plans(plans, context):
                 from validation_cache import recording_inputs
                 with selected_task(context.root, context.snapshot.expected_task[0]), recording_inputs(context.snapshot):
                     require_import_changes(context.root, output=changes)
+            context.snapshot.verify()
             def finish():
                 if context._finish is not None:
                     context._finish()
@@ -460,10 +467,13 @@ def _resource_references(operation, scope, rid, field, prop=None):
     return [ref for ref in operation.references if ref.consumer == address and ref.field == field and ref.property_name == prop]
 
 
-def _models(root, targets):
-    from model.sources import list_models, FileReads
+def _models(root, targets, *, raw=False):
+    from model.sources import list_models, FileReads, raw_model
     reads = FileReads()
-    return {(scope.environment, scope.target, scope.service): load_model(scope, reads)
+    reader = load_model
+    if raw:
+        reader = raw_model
+    return {(scope.environment, scope.target, scope.service): reader(scope, reads)
             for scope in list_models(root, reads) if (scope.environment, scope.target) in targets}
 
 
@@ -571,7 +581,7 @@ def verify_model_operation(before, after, operation, sources):
         raise ValueError('Model-only operation cannot change project configuration')
     selected = set(operation.scopes)
     targets = {scope[:2] for scope in selected}
-    old_models, new_models = _models(before, targets), _models(after, targets)
+    old_models, new_models = _models(before, targets, raw=True), _models(after, targets)
     if old_models.keys() != new_models.keys():
         raise ValueError('Model-only operation cannot add/remove service Models')
     def raw_files(models, root):
@@ -805,7 +815,7 @@ def verify_model_refactor(before, after, detaches, sources, validation_scope):
     if (before / 'project.json').read_bytes() != (after / 'project.json').read_bytes():
         raise ValueError('Model refactor cannot change project configuration')
     targets = {scope[:2] for scope in direct}
-    old_models, new_models = _models(before, targets), _models(after, targets)
+    old_models, new_models = _models(before, targets, raw=True), _models(after, targets)
     if old_models.keys() != new_models.keys():
         raise ValueError('Model refactor cannot add/remove service Models')
     removed = _verify_detaches(old_models, new_models, detaches)
@@ -823,4 +833,32 @@ def verify_model_refactor(before, after, detaches, sources, validation_scope):
         if changed - set(sources):
             raise ValueError('Model refactor has undeclared source changes')
         warnings.extend((*old.warnings, *new.warnings))
+    return warnings
+
+
+def validate_candidates(root, sources, output, scope):
+    """Common ordinary-save/Task/integration check: validate only the final authority."""
+    from model.sources import FileReads, source_scope
+    from model.impact import affected
+    reads = CandidateReads(FileReads(), output)
+    required = affected(root, sources, read_context=reads, raw=True)
+    if scope is not None and not required <= scope:
+        raise ValueError('Model changes require all affected services in Validation scope')
+    warnings = []
+    for identity in sorted(required):
+        path = root / 'model' / identity[0] / identity[1] / (identity[2] + '.properties')
+        if reads.kind(path) == 'missing':
+            continue  # Incoming consumers are still checked, including deleted producers.
+        model = load_model(source_scope(root, path), reads)
+        from model.identity import display_anchor
+        anchors = [display_anchor(resource) for _, resource in entries(model.authoritative, 'desired.resource.')]
+        if len(anchors) != len(set(anchors)):
+            raise ValueError('duplicate Resource anchor: ' + str(path))
+        for warning in model.warnings:
+            if warning['message'] in {'producer Model is absent', 'producer Stack is absent',
+                    'producer Resource is absent or ambiguous', 'producer Resource Type differs',
+                    'producer Property is absent or ambiguous',
+                    'producer Property does not belong to the expected Resource Type'}:
+                raise ValueError('invalid candidate reference: ' + str(path) + ': ' + warning['message'])
+            warnings.append(warning)
     return warnings

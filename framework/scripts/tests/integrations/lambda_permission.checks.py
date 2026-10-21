@@ -36,7 +36,7 @@ def main():
             assert "Permission.Principal" in visible or children == 0
             assert output.count("| No. | Property | Value | Source / Comment |") == parents
             if children:
-                assert model_projection.linked_resource(path, "[permission-1-1](#resource-Lambda_Permission_001)") == (PERMISSION, "Lambda_Permission_001")
+                assert model_projection.linked_resource(path, "[permission-1-1](#" + values["desired.resource.002.anchor"] + ")") == (PERMISSION, "Lambda_Permission_001")
 
         values = fixture(1, 2)
         output = HELPERS.roundtrip(path, values, root)
@@ -60,7 +60,7 @@ def main():
             (output.replace("<!-- logical-id: Lambda_Permission_001 -->", "", 1), "complete identity"),
             (output.replace("<!-- logical-id: Lambda_Permission_002 -->", "<!-- logical-id: Lambda_Permission_001 -->", 1), "duplicate grouped"),
             (output.replace("Permission.Principal", "Permission.Action", 1), "duplicate Lambda Permission"),
-            (output.replace("[app-dev-worker-1]\\u0028#resource-Lambda_Function_001\\u0029", "[Wrong]\\u0028#lambda-wrong\\u0029", 1), "must reference enclosing"),
+            (output.replace("[app-dev-worker-1]\\u0028#lambda-app-dev-worker-1\\u0029", "[Wrong]\\u0028#lambda-wrong\\u0029", 1), "must reference enclosing"),
             (output.replace('"Lambda.Permission.Id"', '"Wrong.Id"', 1), "invalid Lambda Permission metadata"),
         ):
             rejects(lambda: expanded_design(text.splitlines()), message)

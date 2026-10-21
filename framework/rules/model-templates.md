@@ -1,9 +1,6 @@
 # Service Model sources
 
-IMPORT acquisition and user-selected add/refresh/bind/replace are exclusive to `/import`.
-Explicit Model-only merge/delete or standalone reference retarget uses `/update` under
-its limited operation guard. Read/compare and value-preserving dependency detach remain
-allowed without bypassing the mechanical guards. CREATE workflow remains unchanged.
+Model correction does not require the old Model to be valid or unchanged. IMPORT Resources may be acquired repeatedly and updated or corrected. Safety is determined by Task change authority, necessary Human consent and the final Model integrity. AWS acquisition remains exclusive to `/import`; ordinary `/update` may correct only the Resources and fields explicitly requested by the Human, without AWS acquisition authority. Dedicated merge/delete/retarget and value-preserving operations retain their own raw-value preservation checks.
 
 ## Dedicated import boundary
 
@@ -38,9 +35,8 @@ Keep each owning Resource/Row/document/reference/observed block together; keep S
 blocks whole. Initial conversion targets about600 lines. A giant Resource owns a whole
 part and may exceed600 lines.
 
-Ordinary editing preserves existing part names, order, retained block placement and Row
-order. Append new Resources at the end; add a part only when necessary. Delete empty
-parts without renumbering others. Observation saves never reflow/repartition the Model.
+Ordinary corrections may repair part names/order, block placement and Row order. Validate
+the complete final file set. Dedicated operations preserve layout outside their declarations. Observation saves never reflow/repartition the Model.
 Reject unsafe/symlink/missing/duplicate/unregistered parts, split blocks and unknown versions.
 
 Only document and backtick JSON object/array values allow explicit trailing-backslash
@@ -78,8 +74,9 @@ shared capability-based save API. Do not persist empty initial authority first.
 
 ## Observations and fixed identities
 
-Resource/Row/Stack IDs, logicalId, resourceMode, cfn-logicalId and parent relationships
-are fixed. Stack name is mutable; placementName is fixed. Do not conflate them.
+Final Resource/Row/Stack IDs, logicalId, resourceMode, cfn-logicalId, parent relationships
+and placementName must be valid. Ordinary authorized corrections may change them. Dedicated
+operations and observation writers retain their narrower preservation rules.
 observed.value absence, empty string and PENDING_DEPLOY are distinct. Derive observed
 Property/comment from desired and artifactSha256 from document at read time; never save them.
 
@@ -118,8 +115,9 @@ acquisition, new Import or renewed consent for unchanged approved content.
 ## Model-only intermediate sources
 
 Use the running parent's managed worktree and its exact Task/scope/path authority.
-The Task adapter issues a one-use SourceWriteContext. prepare_edit checks syntax, full
-canonical structure, fixed identity and layout, and publish_edit compares fresh inputs,
+The Task adapter issues a one-use SourceWriteContext. prepare_edit validates the final
+canonical structure. Dedicated operations check raw-field preservation and layout; ordinary
+edits do not require the old Model to load. publish_edit compares fresh inputs,
 Task/HEAD/worktree ownership, locks and journals the exact candidate. Neither policy
 names nor approved flags confer authority. All commands use this shared save boundary.
 
@@ -149,4 +147,4 @@ only the declared dependency metadata. Direct links still represent dependencies
 removing metadata does not detach them. Use the named retarget/delete operation for
 other explicit reference changes. Preserve retained refids; never renumber them on reorder.
 
-Resource allocation and Markdown reference semantics follow [Resource logical identity](../docs/model-identity.md). The common allocate/preserve_allocation functions own counters for CREATE and IMPORT. Publish counters and additions atomically. Preserve independent saved Resource anchors and original Markdown links. Read-time logicalId fallbacks remain forbidden.
+Resource allocation and Markdown reference semantics follow [Resource logical identity](../docs/model-identity.md). The common allocate function owns new CREATE/IMPORT counters; dedicated acquired/operation preservation uses preserve_allocation. Ordinary explicit repairs validate final IDs/counters without old allocation invariance. Publish counters and additions atomically. Preserve independent saved Resource anchors and original Markdown links. Read-time logicalId fallbacks remain forbidden.

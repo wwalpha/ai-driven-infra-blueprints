@@ -202,7 +202,10 @@ def check_local_claim_cannot_replace_review_binding(tmp_path, claim):
 def check_alternate_source_guard_rejects_legacy_receipt(tmp_path):
     (tmp_path / '.git').mkdir()
     task = tmp_path / 'tasks/import.md'
-    text = '## Task contract\n- Workflow: `import`\n'
+    text = ('## Task contract\n- Task type: `design`\n- Task status: `running`\n- Workflow: `import`\n'
+            '## Modified files\n- `tasks/import.md`\n- `model/dev/cde/vpc.properties`\n'
+            '## Allowed paths\n- `tasks/import.md`\n- `model/dev/cde/vpc.properties`\n'
+            '## Validation scope\n- `dev/cde/vpc`\n')
     with patch.object(import_guard, 'changed_sources', return_value={'model/dev/cde/vpc.properties'}), \
             patch.object(import_guard, 'task_path', return_value=task), \
             patch.object(import_guard, 'contracts', return_value={'tasks/import.md': text}), \

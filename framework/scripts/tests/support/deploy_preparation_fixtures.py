@@ -84,12 +84,13 @@ def fixture(root):
         ("RoleName", "`app-dev-worker-role`", "ロール名"),
         ("AssumeRolePolicyDocument", "[Trust](iam/worker-role-trust-policy.json)", "信頼ポリシー"),
     ], "WorkerRole")
+    values["desired.resource.001.cfn-logicalId"] = STACKS[0] + "-WorkerRole"
     document = {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"}]}
     values["desired.row.001-002.document"] = json.dumps(document, separators=(",", ":"))
     write_model(model / "iam.properties", examples.text(values))
     (design / "iam").mkdir()
     (design / "iam/worker-role-trust-policy.json").write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
-    (design / "iam.md").write_text(markdown_for(design / "iam.md", values, ROOT), encoding="utf-8")
+    (design / "iam.md").write_text(markdown_for(design / "iam.md", values, root, definitions_root=ROOT), encoding="utf-8")
     template = root / "infra/cloudformation/templates/shared.yaml"
     template.parent.mkdir(parents=True)
     template.write_text("Resources: {}\n", encoding="utf-8")

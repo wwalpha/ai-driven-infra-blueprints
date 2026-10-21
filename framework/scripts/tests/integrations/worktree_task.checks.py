@@ -551,10 +551,12 @@ def check_approved_model_reads():
             if mode == 'changed-import':
                 source.write_text(source.read_text().replace('10.9.0.0/16', '10.8.0.0/16'))
             importing = mode not in ('preserved', 'changed-import')
+            contract = target / state['task_file']
+            contract.write_text(contract.read_text().replace('`governance`', '`design`').replace('- `framework`', '- `stg/cde/vpc`'))
             if importing:
                 contract = target / state['task_file']
-                text = contract.read_text().replace('- Task type: `governance`', '- Task type: `design`\n- Workflow: `import`')
-                contract.write_text(text.replace('- `framework`', '- `stg/cde/vpc`'))
+                text = contract.read_text().replace('- Task type: `design`', '- Task type: `design`\n- Workflow: `import`')
+                contract.write_text(text.replace('- `framework`', '- `stg/cde/vpc`\n- `dev/cde/vpc`'))
                 with tasks.selected_task(target, state['task_file']):
                     proof = dict(version=3, task=state['task_file'], base=state['start'],
                                  scope=['stg', 'cde', 'vpc'], acquisition='fixture-receipt',
@@ -582,7 +584,7 @@ def check_approved_model_reads():
                         call()
             cli(root, 'finalize', success=False)
             with mapping_alias(SCRIPT.parents[2], target), patch.object(wt.python_env, 'runtime', return_value=(Path(sys.executable), wt.python_env.environment(Path(sys.prefix)))):
-                if mode == 'preserved':
+                if mode in {'preserved', 'changed-import'}:
                     # Keep the checkout for byte-for-byte status inspection, then exercise cleanup retry.
                     (target / 'secret.bin').write_text('preserve')
                     with pytest.raises(wt.Blocked, match='ignored files'):
@@ -616,6 +618,9 @@ def check_registered_normal_model_guard():
         (root / '.gitignore').write_text((root / '.gitignore').read_text() + '.venv/\n')
         git(root, 'add', '.'); git(root, 'commit', '-qm', 'synthetic runtime fixture')
         target, state = start(root, files=(relative,))
+        contract_path = target / state['task_file']
+        text = contract_path.read_text().replace('`governance`', '`design`').replace('- `framework`', '- `stg/cde/service-a`\n- `stg/cde/service-b`')
+        contract_path.write_text(text)
         directory = wt.python_env.shared_directory(root)
         directory.mkdir()
         (directory / '.blueprint-owner').write_text(str(directory))
@@ -773,7 +778,7 @@ def check_model_refactor_integration():
             text = dependency_contract()
             for heading in ('Modified files', 'Allowed paths'):
                 text += '\n## ' + heading + '\n' + ''.join('- `' + name + '`\n' for name in sorted(sources | {state['task_file']}))
-            text += '\n## Validation scope\n- `dev/cde/service-b`\n- `stg/cde/service-b`\n'
+            text += '\n## Validation scope\n- `dev/cde/service-a`\n- `dev/cde/service-b`\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n'
             (target / state['task_file']).write_text(text)
             tasks.refresh(target, state['task_file'])
             with mapping_alias(SCRIPT.parents[2], target), tasks.selected_task(target, state['task_file']):
@@ -822,7 +827,7 @@ def check_model_refactor_integration():
                 with patch.object(loop, 'run_loop', side_effect=validate):
                     with redirect_stderr(io.StringIO()) as warnings:
                         result = wt.validate_final_candidate(final)
-                    assert ('producer name/identifier differs from saved text' in warnings.getvalue()) == advance
+                    assert 'producer name/identifier differs from saved text' not in warnings.getvalue()
                     assert wt.merge_validated_candidate(result)['merged'] == final.candidate_head
                     assert wt.cleanup(root, 'example')['cleaned']
                 assert calls == [final.candidate_head]

@@ -35,7 +35,7 @@ def main():
             validator.check_policy_tables()
             return diagnostics(validator)
 
-        assert not errors(DESIGN), errors(DESIGN)
+        assert not errors(DESIGN.replace("resource-EC2_SecurityGroup_001", "security-group-groupone").replace("resource-EC2_SecurityGroup_002", "security-group-grouptwo")), errors(path.read_text())
         original = path.read_bytes()
         generated = """# Synthetic authoritative Model fixture.
 desired.service.identity.lastAllocated={"EC2.SecurityGroup":2,"EC2.SecurityGroupIngress":3,"EC2.SecurityGroupEgress":1}

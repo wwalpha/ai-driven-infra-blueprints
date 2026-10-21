@@ -177,6 +177,7 @@ class DeliveryAws(StubAws):
         values = {k: v for k, v in existing.items() if not k.startswith((f'desired.resource.{identity}.', f'desired.row.{identity}-'))}
         values.update({f'desired.resource.{identity}.resourceType': 'S3.Bucket',
                        f'desired.resource.{identity}.logicalId': 'S3_Bucket_' + identity,
+                       f'desired.resource.{identity}.anchor': 'resource-S3_Bucket_' + identity,
                        'desired.service.identity.lastAllocated': json.dumps({'S3.Bucket': max(int(identity), len(identities))})})
         if delegation:
             values[f'desired.resource.{identity}.deploymentEncryption'] = 'default'
@@ -249,7 +250,7 @@ __all__.append('remove_model')
 
 
 def observation_contract(root, services):
-    files = {'tasks/observation-fixture.md'}
+    files = {'tasks/observation-fixture.md', 'project.json'}
     from model.sources import model_parts
     from model.core import entries
     from model.projection import JSON_LINK

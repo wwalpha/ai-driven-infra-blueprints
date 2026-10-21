@@ -1,10 +1,10 @@
 ---
 name: update
-description: Use for explicit Model-only IMPORT merge/delete or standalone reference retarget, value-preserving dependency refactors or reflecting Human design changes into IaC and AWS, following the separate branches of 05_update.
+description: Use for explicitly authorized CREATE/IMPORT Model corrections, Model-only merge/delete or reference retarget, value-preserving refactors, or reflecting approved design into IaC and AWS through the separate 05_update branches.
 ---
 
 [Service Model source authority](../../../framework/rules/model-templates.md) applies.
-Read the environment-specific properties through `model.sources.load_model` and
+Inspect environment-specific properties; use `model.sources.edit_base` for an invalid repair baseline and validate the corrected candidate through `model.sources.load_model`. Use
 `model/cli.py trace <service.properties> <key>`. Edit desired/display/reference keys
 only within the selected Task; authorized observations change only the selected
 `observed.row.<id>.value`. Record the entry and actual parts, required incoming
@@ -16,7 +16,7 @@ Read `framework/prompts/codex/05_update.md` at the repository root in full and e
 
 The corresponding prompt's Read section is authoritative for reading scope, conditional rules, and validation scope.
 
-IMPORT acquisition and user-selected add/refresh/replace are exclusive to `/import`; explicit Model-only merge/delete or standalone reference retarget uses `/update` under the narrow operation guard. Follow [IMPORT configuration authority](../../../framework/rules/model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Other substantive IMPORT updates remain forbidden; read/compare and value-preserving refactors never bypass the mechanical guards.
+Model correction does not require the old Model to be valid or unchanged. IMPORT Resources may be acquired repeatedly and updated or corrected. Safety is determined by Task change authority, necessary Human consent and the final Model integrity. AWS acquisition remains exclusive to `/import`; ordinary `/update` may correct only the Resources and fields explicitly requested by the Human, without AWS acquisition authority. Dedicated merge/delete/retarget and value-preserving operations retain their own raw-value preservation checks.
 
 The Model-only branch composes model-transfer, model-retarget and model-delete under
 one parent Task; each leaf's own skill is its procedure authority. Worktree finalization
@@ -27,8 +27,7 @@ exception: register and validate the `import-delete` parent before the task-awar
 Gate. Waive existing-issue stops only for its registered deletion source services; retain non-reference
 Model safety checks, forbidden AWS/deploy and unchanged issue inventories. Apply
 [Reference diagnostics](../../../framework/rules/model-information.md#reference-diagnostics)
-to every Model operation: links, unresolved references and remaining usages are warnings;
-repair/Issue migration is never a prerequisite for update/delete/save/finalization. Merge,
+to read-only analysis. Final ordinary candidates must resolve their references; an invalid old Model is never a repair/save/finalization blocker. Merge,
 ordinary updates and later Tasks retain the ordinary pre-task gate.
 
 The separate value-preserving branch uses the shared read-only reference API only for

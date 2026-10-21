@@ -109,9 +109,12 @@ Use this option only after actual human approval of this task's failures; a gene
 
 `finalize` reads the existing completed status (or the explicitly approved suspended status), rejects unresolved Git operations and unexpected branch commits, and stages only exact non-ignored task paths (including newly added files). It never force-adds `tasks/**`. Normal commit messages use `task(<task-id>): completed task`; approved failures use `task(<task-id>): human-approved validation failure`; zero changes create no empty commit.
 
-Ordinary integration runs only the Model guard in the target worktree’s registered Python,
+Ordinary integration runs the shared candidate Model guard before commit and after rebase
+in the target worktree’s registered Python,
 with its Task explicitly selected. The launcher retains Git, lifecycle lock and cleanup ownership.
-Cheap contract, HEAD, commit and base checks precede analysis and required checks remain after
+Framework-only changes do not load Models. Ordinary changes never expand or load old Git
+Models; dedicated operations retain raw-field comparisons only. Cheap contract, HEAD, commit
+and base checks precede analysis and required checks remain after
 the guard; changed Task, files or index stop before staging. No runtime fallback or automatic
 setup/retry occurs. Successful guard diagnostics use stderr so stdout remains CLI JSON; failures
 retain the child return code, stdout and stderr separately in `diagnostics`.
