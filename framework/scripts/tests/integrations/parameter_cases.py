@@ -94,7 +94,7 @@ def check(root, alias, service):
         statement = document['Statement'][0]
         assert isinstance(document['Statement'], list) and statement['Action'] == 'sqs:SendMessage'
         assert statement['Resource']['Fn::GetAtt'] == ['HulftRetrievalDetectDlq', 'Arn']
-        assert any(raw == 'resource://preview/' + alias + '/sqs/SQS_Queue_017' for raw in before.authoritative.values())
+        assert any(raw == '[fixture-one](#fixture-sqs-017)' for raw in before.authoritative.values())
         assert statement['Condition']['StringEquals']['aws:SourceAccount'] == '123456789012'
         checksum = key.removesuffix('.document') + '.artifactSha256'
         assert before.values[checksum] == document_sha256(document) and checksum not in before.authoritative

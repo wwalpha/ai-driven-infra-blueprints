@@ -41,6 +41,7 @@ def fixture(service, kind, name, rows):
               f'desired.service.{service}.ownedCatalogResourceTypes': kind,
               'display.service.title': '# 独立した表示fixture',
               'desired.resource.007.resourceType': kind,
+              'desired.resource.007.anchor': resource_anchor(service, name, kind),
               'desired.resource.007.logicalId': kind.replace('.', '_') + '_001',
               'desired.service.identity.lastAllocated': json.dumps({kind: 1}),
               'desired.resource.007.resourceMode': 'IMPORT',

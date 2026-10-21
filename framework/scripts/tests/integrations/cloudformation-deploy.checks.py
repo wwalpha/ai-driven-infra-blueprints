@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-from model.identity import allocate
+from support.model_sources import allocate_fixture as allocate
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
@@ -485,7 +485,7 @@ def check_delivery(tmp_path):
     # Model -> generated view -> projection retains settings and explicit file bindings.
     values = {f"desired.stack.001.{field}": value for field, value in unit.items()}
     values["display.stack.001.comment"] = "アプリケーションを配置するstack"
-    reference = "resource://dev/123456789012/s3/S3_Bucket_001"
+    reference = "[S3_Bucket_001](s3.md#resource-S3_Bucket_001)"
     values.update({"desired.deployment.templateBucket": reference, "desired.deployment.templateKeyPrefix": "templates/"})
     values.update({"desired.artifact.007." + field: value for field, value in artifact("First").items()})
     values["desired.artifact.007.bucket"] = reference
@@ -495,9 +495,7 @@ def check_delivery(tmp_path):
     design.parent.mkdir(parents=True)
     model = root / "model/dev/123456789012/s3.properties"
     model.parent.mkdir(parents=True, exist_ok=True)
-    write_model(model, "desired.resource.001.resourceType=S3.Bucket\ndesired.resource.001.logicalId=S3_Bucket_001\n"
-                     "desired.service.identity.lastAllocated={\"S3.Bucket\":1}\ndesired.row.001-001.property=S3.Bucket.BucketName\n"
-                     "desired.row.001-001.value=`app-dev-assets`\ndesired.row.001-001.comment=配置先bucket\n")
+    write_model(model, 'desired.resource.001.resourceType=S3.Bucket\ndesired.resource.001.logicalId=S3_Bucket_001\ndesired.resource.001.anchor=resource-S3_Bucket_001\ndesired.service.identity.lastAllocated={"S3.Bucket":1}\ndesired.row.001-001.property=S3.Bucket.BucketName\ndesired.row.001-001.value=`app-dev-assets`\ndesired.row.001-001.comment=配置先bucket\n')
     design.write_text(markdown_for(design, values, root))
     view = design.read_text()
     assert "| Property | Value |" not in view and "| TemplateBucket |" not in view and "| TemplateKeyPrefix |" not in view
@@ -516,8 +514,8 @@ def check_delivery(tmp_path):
     write_model(source_model, "\n".join(f"{key}={value}" for key, value in values.items()))
     _, loaded = M.load_units(root, "dev", "123456789012", ["A"])
     assert loaded[0]["templateBucket"] == "app-dev-assets" and loaded[0]["artifacts"][0]["bucket"] == "app-dev-assets"
-    rejects(lambda: deployment_bucket("resource://dev/123456789012/s3/S3_Bucket_999", design, root), "logicalId is absent")
-    rejects(lambda: deployment_settings(values | {"desired.deployment.templateBucket": "guessed-bucket"}), "Resource URI")
+    rejects(lambda: deployment_bucket("[S3_Bucket_999](s3.md#resource-S3_Bucket_999)", design, root), "Resource anchor is absent or ambiguous")
+    rejects(lambda: deployment_settings(values | {"desired.deployment.templateBucket": "guessed-bucket"}), "Markdown Resource reference")
     missing = dict(values)
     del missing["desired.deployment.templateKeyPrefix"]
     rejects(lambda: deployment_settings(missing), "specified together")
@@ -665,12 +663,12 @@ def check_delivery_encryption(tmp_path):
     # Existing logical KMS Key/Alias and parent mapping; no generated ARN in model.
     path = backend.root / 'model/dev/123456789012/kms.properties'
     write_model(path, '\n'.join([
-        'desired.resource.001.resourceType=KMS.Key', 'desired.resource.001.logicalId=KMS_Key_001', 'desired.service.identity.lastAllocated={"KMS.Key":1,"KMS.Alias":1}',
-        'desired.row.001-001.property=KMS.Key.KeyId', 'desired.row.001-001.value=resource://dev/123456789012/kms/KMS_Key_001', 'desired.row.001-001.comment=固定Key ID',
+        'desired.resource.001.resourceType=KMS.Key', 'desired.resource.001.logicalId=KMS_Key_001', 'desired.resource.001.anchor=kms-app-dev-key', 'desired.service.identity.lastAllocated={"KMS.Key":1,"KMS.Alias":1}',
+        'desired.row.001-001.property=KMS.Key.KeyId', 'desired.row.001-001.value=[KMS_Key_001](kms.md#kms-app-dev-key)', 'desired.row.001-001.comment=固定Key ID',
         'observed.row.001-001.value=test-key', 'desired.resource.002.resourceType=KMS.Alias',
-        'desired.resource.002.logicalId=KMS_Alias_001', 'desired.resource.002.parentReference=resource://dev/123456789012/kms/KMS_Key_001',
+        'desired.resource.002.logicalId=KMS_Alias_001', 'desired.resource.002.anchor=resource-KMS_Alias_001', 'desired.resource.002.parentReference=[KMS_Key_001](kms.md#kms-app-dev-key)',
         'desired.row.002-001.property=KMS.Alias.AliasName', 'desired.row.002-001.value=alias/test', 'desired.row.002-001.comment=固定Alias']))
-    for reference in ('resource://dev/123456789012/kms/KMS_Key_001', 'resource://dev/123456789012/kms/KMS_Alias_001'):
+    for reference in ('[KMS_Key_001](kms.md#kms-app-dev-key)', '[KMS_Alias_001](kms.md#resource-KMS_Alias_001)'):
         backend.add_bucket(bucket, 'aws:kms', reference)
         before = snapshot_model(path)
         assert model_conditions(backend, bucket)['requestKey'] == backend.key_arn
@@ -685,7 +683,7 @@ def check_delivery_encryption(tmp_path):
     topology = json.loads(project.read_text())
     topology['targets'].append({'environment': 'dev', 'alias': 'other', **TARGET})
     project.write_text(json.dumps(topology), encoding='utf-8')
-    backend.add_bucket(bucket, 'aws:kms', 'resource://dev/other/kms/KMS_Key_001')
+    backend.add_bucket(bucket, 'aws:kms', '[KMS_Key_001](../other/kms.md#kms-app-dev-key)')
     calls = len(backend.calls)
     rejects(lambda: model_conditions(backend, bucket), 'outside authorized S3 placement retrieval scope')
     assert len(backend.calls) == calls
@@ -879,10 +877,8 @@ def check_session_cli(tmp_path):
     consumer = source.with_name("consumer.properties")
     reference = root / "model/stg/123456789012/reference.properties"
     reference.parent.mkdir(parents=True)
-    write_model(reference, "desired.resource.001.resourceType=Logs.LogGroup\ndesired.resource.001.logicalId=Logs_LogGroup_001\ndesired.service.identity.lastAllocated={\"Logs.LogGroup\":1}\ndesired.row.001-001.property=Logs.LogGroup.LogGroupName\ndesired.row.001-001.value=approved\ndesired.row.001-001.comment=参照先\n")
-    write_model(consumer, "desired.resource.001.resourceType=Logs.LogGroup\ndesired.resource.001.logicalId=Logs_LogGroup_001\ndesired.service.identity.lastAllocated={\"Logs.LogGroup\":1}\ndesired.row.001-001.property=Logs.LogGroup.LogGroupName\n"
-                        "desired.row.001-001.value=resource://stg/123456789012/reference/Logs_LogGroup_001\n"
-                        "desired.row.001-001.comment=参照する名前\n")
+    write_model(reference, 'desired.resource.001.resourceType=Logs.LogGroup\ndesired.resource.001.logicalId=Logs_LogGroup_001\ndesired.resource.001.anchor=resource-Logs_LogGroup_001\ndesired.service.identity.lastAllocated={"Logs.LogGroup":1}\ndesired.row.001-001.property=Logs.LogGroup.LogGroupName\ndesired.row.001-001.value=approved\ndesired.row.001-001.comment=参照先\n')
+    write_model(consumer, 'desired.resource.001.resourceType=Logs.LogGroup\ndesired.resource.001.logicalId=Logs_LogGroup_001\ndesired.resource.001.anchor=resource-Logs_LogGroup_001\ndesired.service.identity.lastAllocated={"Logs.LogGroup":1}\ndesired.row.001-001.property=Logs.LogGroup.LogGroupName\ndesired.row.001-001.value=[Logs_LogGroup_001](reference.md#resource-Logs_LogGroup_001)\ndesired.row.001-001.comment=参照する名前\n')
     stg_source = root / "model/stg/123456789012/cloudformation-stacks.properties"
     stg_source.parent.mkdir(parents=True, exist_ok=True)
     write_model(stg_source, read_model(source))
@@ -1028,10 +1024,9 @@ def check_session_cli(tmp_path):
     artifact_source.parent.mkdir(parents=True)
     artifact_source.write_text("print('approved')\n")
     bucket_model = source.with_name("s3.properties")
-    write_model(bucket_model, "desired.resource.001.resourceType=S3.Bucket\ndesired.resource.001.logicalId=S3_Bucket_001\ndesired.service.identity.lastAllocated={\"S3.Bucket\":1}\n"
-                            "desired.row.001-001.property=S3.Bucket.BucketName\ndesired.row.001-001.value=`assets`\ndesired.row.001-001.comment=配布先bucket\n")
+    write_model(bucket_model, 'desired.resource.001.resourceType=S3.Bucket\ndesired.resource.001.logicalId=S3_Bucket_001\ndesired.resource.001.anchor=resource-S3_Bucket_001\ndesired.service.identity.lastAllocated={"S3.Bucket":1}\ndesired.row.001-001.property=S3.Bucket.BucketName\ndesired.row.001-001.value=`assets`\ndesired.row.001-001.comment=配布先bucket\n')
     artifact = {"stack": "A", "resource": "Job", "property": "Command.ScriptLocation",
-                "source": artifact_source.relative_to(root).as_posix(), "bucket": "resource://dev/123456789012/s3/S3_Bucket_001", "keyPrefix": "jobs/"}
+                "source": artifact_source.relative_to(root).as_posix(), "bucket": "[S3_Bucket_001](s3.md#resource-S3_Bucket_001)", "keyPrefix": "jobs/"}
     with_artifact = values | {"desired.artifact.001." + key: value for key, value in artifact.items()}
     write_model(source, "\n".join(f"{key}={value}" for key, value in with_artifact.items()))
     design.write_text(markdown_for(design, with_artifact, root))
@@ -1230,16 +1225,17 @@ def observed_collector_seed(root):
               "display.service.title": "# EC2 詳細設計"}
     def resource(identity, kind, logical, anchor, rows):
         values.update({f"desired.resource.{identity}.resourceType": kind,
+            f"desired.resource.{identity}.anchor": anchor,
             f"display.resource.{identity}.comment": "業務用ネットワークを構成するresource"})
         values.update(allocate(values, [identity]))
         for index, (prop, value) in enumerate(rows, 1):
             key = f"desired.row.{identity}-{index:03d}"
             values.update({key + ".property": kind + "." + prop, key + ".value": value, key + ".comment": "設定値を指定する属性"})
     resource("001", "EC2.VPC", "vpc-test-dev", "ec2-vpc-test-dev", [
-        ("Name", "`vpc-test-dev`"), ("VpcId", "resource://dev/123456789012/ec2/EC2_VPC_001"), ("CidrBlock", "`10.1.0.0/16`")])
+        ("Name", "`vpc-test-dev`"), ("VpcId", "[EC2_VPC_001](ec2.md#ec2-vpc-test-dev)"), ("CidrBlock", "`10.1.0.0/16`")])
     resource("002", "EC2.Subnet", "sbnt-test-dev-private-app-a-01", "ec2-sbnt-test-dev-private-app-a-01", [
-        ("Name", "`sbnt-test-dev-private-app-a-01`"), ("VpcId", "resource://dev/123456789012/ec2/EC2_VPC_001"),
-        ("SubnetId", "resource://dev/123456789012/ec2/EC2_Subnet_001"), ("CidrBlock", "`10.1.1.0/24`")])
+        ("Name", "`sbnt-test-dev-private-app-a-01`"), ("VpcId", "[EC2_VPC_001](ec2.md#ec2-vpc-test-dev)"),
+        ("SubnetId", "[EC2_Subnet_001](ec2.md#ec2-app-dev-subnet)"), ("CidrBlock", "`10.1.1.0/24`")])
     values["desired.resource.001.cfn-logicalId"] = "A-VpcTestDev"
     values["desired.resource.002.resourceMode"] = "IMPORT"
     # Initialize the existing standard observed row format, including comments.
@@ -1328,7 +1324,7 @@ def check_observed_collector(observed_collector_root):
     assert snapshot_model(source) == before
     # Out-of-scope incoming references block before writes, even with broad Allowed paths.
     consumer = source.with_name("consumer.properties")
-    write_model(consumer, "desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_001\ndesired.service.identity.lastAllocated={\"EC2.Subnet\":1}\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=resource://dev/123456789012/ec2/EC2_VPC_001\ndesired.row.001-001.comment=接続先\n")
+    write_model(consumer, 'desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_001\ndesired.resource.001.anchor=resource-EC2_Subnet_001\ndesired.service.identity.lastAllocated={"EC2.Subnet":1}\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=[EC2_VPC_001](ec2.md#ec2-vpc-test-dev)\ndesired.row.001-001.comment=接続先\n')
     rejects(lambda: sync_successful(backend, [unit], states([unit])), "task scope violation")
     assert snapshot_model(source) == before
     import shutil
@@ -1428,7 +1424,7 @@ def check_shared_stack_mapping(managed_framework_root):
             f"desired.resource.{identity}.cfn-logicalId": unit["name"] + "-DepartmentVpc",
             f"display.resource.{identity}.comment": department + "部署のネットワーク"})
         values.update(allocate(values, [identity]))
-        for number, (prop, value) in enumerate((("Name", "`" + name + "`"), ("VpcId", f"resource://dev/123456789012/ec2/{values[f'desired.resource.{identity}.logicalId']}"),
+        for number, (prop, value) in enumerate((("Name", "`" + name + "`"), ("VpcId", f"[{identity}](#{values[f'desired.resource.{identity}.anchor']})"),
                                                 ("CidrBlock", f"`10.{index}.0.0/16`")), 1):
             key = f"desired.row.{identity}-{number:03d}"
             values.update({key + ".property": "EC2.VPC." + prop, key + ".value": value, key + ".comment": "ネットワークの設定値"})
@@ -1603,7 +1599,7 @@ def check_shared_stack_mapping(managed_framework_root):
     eip.update(allocate(eip, ['004']))
     for number, prop in enumerate(("AllocationId", "PublicIp"), 1):
         eip.update({f"desired.row.004-{number:03d}.property": "EC2.EIP." + prop,
-                    f"desired.row.004-{number:03d}.value": "resource://dev/123456789012/ec2/EC2_EIP_001",
+                    f"desired.row.004-{number:03d}.value": "[EC2_EIP_001](ec2.md#resource-EC2_EIP_001)",
                     f"desired.row.004-{number:03d}.comment": "固定アドレスの識別子"})
     eip["desired.service.identity.lastAllocated"] = json.dumps(json.loads(values["desired.service.identity.lastAllocated"]) | json.loads(eip["desired.service.identity.lastAllocated"]))
     save(source, values | eip)
@@ -1671,7 +1667,7 @@ def check_import_implementation_mapping(framework_root):
     repository.update(allocate(repository, ['001']))
     write_model(model / "codecommit.properties", repository)
     write_model(model / "quicksight.properties", {
-        "desired.resource.001.resourceType": "QuickSight.Group", "desired.resource.001.logicalId": "QuickSight_Group_001", "desired.service.identity.lastAllocated": '{"QuickSight.Group":1}'})
+        "desired.resource.001.resourceType": "QuickSight.Group", "desired.resource.001.logicalId": "QuickSight_Group_001", 'desired.resource.001.anchor': 'resource-QuickSight_Group_001', "desired.service.identity.lastAllocated": '{"QuickSight.Group":1}'})
     task = root / "tasks/example.md"
     task.parent.mkdir()
     task.write_text("## Task contract\n- Task type: `design`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n## Validation scope\n- `dev/123456789012/ec2`\n- `dev/123456789012/codecommit`\n")
@@ -1736,7 +1732,7 @@ def check_integrated_child_mapping(framework_root):
             values.update({f"desired.resource.{identity}.resourceType": parent_kind,
                 f"desired.resource.{identity}.cfn-logicalId": unit["name"] + "-" + logical,
                 f"desired.row.{identity}-001.property": parent_kind + (".BucketName" if parent_kind == "S3.Bucket" else ".SubnetId"),
-                f"desired.row.{identity}-001.value": f"resource://dev/123456789012/{'s3' if parent_kind == 'S3.Bucket' else 'ec2'}/{parent_kind.replace('.', '_')}_{number:03d}",
+                f"desired.row.{identity}-001.value": f"[{identity}](#resource-{parent_kind.replace('.', '_')}_{number:03d})",
                 f"desired.row.{identity}-001.comment": "親識別子",
                 f"desired.row.{identity}-002.property": kind + "." + setting,
                 f"desired.row.{identity}-002.value": "`設定値`",
@@ -1824,10 +1820,10 @@ def check_secretsmanager_arn_identifiers(managed_framework_root):
     secrets = rotation.fixture()
     for identity, logical in (("001", "Secret1"), ("002", "Secret1Rotation")):
         secrets[f"desired.resource.{identity}.cfn-logicalId"] = "A-" + logical
-    for field, value in {"property": "SecretsManager.Secret.KmsKeyId", "value": "resource://dev/123456789012/kms/KMS_Key_001", "comment": "secretの暗号化鍵"}.items():
+    for field, value in {"property": "SecretsManager.Secret.KmsKeyId", "value": "[KMS_Key_001](kms.md#kms-app-dev-key)", "comment": "secretの暗号化鍵"}.items():
         secrets[f"desired.row.001-002.{field}"] = value
     key = rotation.HELPERS.model("kms", "KMS.Key", "app-dev-key", [
-        ("KeyId", "resource://dev/123456789012/kms/KMS_Key_001", "暗号化鍵のID"),
+        ("KeyId", "[KMS_Key_001](kms.md#kms-app-dev-key)", "暗号化鍵のID"),
         ("KeyPolicy", "[KeyPolicy](kms/key-policy.json)", "鍵の権限")], "Key", "app-dev-key")
     key["desired.resource.001.cfn-logicalId"] = "A-Key"
     key["desired.row.001-002.document"] = json.dumps({"Version": "2012-10-17", "Statement": [{
@@ -2092,8 +2088,8 @@ def check_controlled_repair(tmp_path):
         SecurityGroupIds: [sg-12345678]
 '''
     backend, session, calls, executed, validated, run = configure('lambda', 'Lambda.Function',
-        [('VpcConfig.SubnetIds', 'resource://dev/123456789012/ec2/EC2_Subnet_001', 'subnet')], lambda_text, 'SubnetNotFound subnet-0521f67350b825ab6', create=True)
-    subnet = helpers.model('ec2', 'EC2.Subnet', 'app-dev-subnet', [('SubnetId', 'resource://dev/123456789012/ec2/EC2_Subnet_001', 'ID')], 'Subnet')
+        [('VpcConfig.SubnetIds', '[EC2_Subnet_001](ec2.md#ec2-app-dev-subnet)', 'subnet')], lambda_text, 'SubnetNotFound subnet-0521f67350b825ab6', create=True)
+    subnet = helpers.model('ec2', 'EC2.Subnet', 'app-dev-subnet', [('SubnetId', '[EC2_Subnet_001](ec2.md#ec2-app-dev-subnet)', 'ID')], 'Subnet')
     subnet['desired.resource.001.cfn-logicalId'] = 'A-Subnet'
     write_model(source_path, helpers.text(subnet))
     task.write_text(task.read_text().replace('## Modified files', '- `dev/123456789012/ec2`\n## Modified files'))
@@ -2105,8 +2101,8 @@ def check_controlled_repair(tmp_path):
     # A nonfailing external Role expression does not force consultation for a known Subnet repair.
     lambda_with_import = lambda_text.replace('Role: arn:aws:iam::123456789012:role/app-dev-role', 'Role: !ImportValue RoleArn')
     backend, session, calls, executed, validated, run = configure('lambda', 'Lambda.Function',
-        [('VpcConfig.SubnetIds', 'resource://dev/123456789012/ec2/EC2_Subnet_001', 'subnet'),
-         ('Role', 'resource://dev/123456789012/iam/IAM_Role_001', 'role')], lambda_with_import, 'SubnetNotFound old subnet')
+        [('VpcConfig.SubnetIds', '[EC2_Subnet_001](ec2.md#ec2-app-dev-subnet)', 'subnet'),
+         ('Role', '[IAM_Role_001](iam.md#iam-app-dev-role)', 'role')], lambda_with_import, 'SubnetNotFound old subnet')
     write_model(source_path, helpers.text(subnet))
     role = helpers.model('iam', 'IAM.Role', 'app-dev-role', [('RoleName', '`app-dev-role`', '名前')], 'Role')
     role['desired.resource.001.cfn-logicalId'] = 'B-Role'
@@ -2121,7 +2117,7 @@ def check_controlled_repair(tmp_path):
     # Cross-stack Subnet correction confirms the existing actual Export expression and owner.
     external_lambda = 'Resources:\n  Item:' + lambda_text.split('\n  Item:', 1)[1]
     backend, session, calls, executed, validated, run = configure('lambda', 'Lambda.Function',
-        [('VpcConfig.SubnetIds', 'resource://dev/123456789012/ec2/EC2_Subnet_001', 'subnet')], external_lambda, 'SubnetNotFound old subnet')
+        [('VpcConfig.SubnetIds', '[EC2_Subnet_001](ec2.md#ec2-app-dev-subnet)', 'subnet')], external_lambda, 'SubnetNotFound old subnet')
     subnet['desired.resource.001.cfn-logicalId'] = 'B-Subnet'
     write_model(source_path, helpers.text(subnet))
     producer = {'Resources': {'Subnet': {'Type': 'AWS::EC2::Subnet', 'Properties': {'VpcId': 'vpc-12345678', 'CidrBlock': '10.0.0.0/24'}}},
@@ -2163,8 +2159,8 @@ def check_controlled_repair(tmp_path):
     assert not validated and not any(op == 'delete-stack' for op, _ in calls)
     # An IMPORT Key reference without an approved handoff is also never guessed.
     backend, session, calls, executed, validated, run = configure('lambda', 'Lambda.Function',
-        [('KmsKeyArn', 'resource://dev/123456789012/kms/KMS_Key_001', 'external key')], lambda_text, 'KMS key does not exist')
-    imported = helpers.model('kms', 'KMS.Key', 'app-dev-key', [('KeyId', 'resource://dev/123456789012/kms/KMS_Key_001', '外部鍵')], 'Key')
+        [('KmsKeyArn', '[KMS_Key_001](kms.md#kms-app-dev-key)', 'external key')], lambda_text, 'KMS key does not exist')
+    imported = helpers.model('kms', 'KMS.Key', 'app-dev-key', [('KeyId', '[KMS_Key_001](kms.md#kms-app-dev-key)', '外部鍵')], 'Key')
     imported['desired.resource.001.resourceMode'] = 'IMPORT'
     write_model(modeldir / 'kms.properties', helpers.text(imported))
     task.write_text(task.read_text().replace('## Modified files', '- `dev/123456789012/kms`\n## Modified files'))
@@ -2702,7 +2698,7 @@ def check_deploy_digest_covers_all_nonobserved_authority(tmp_path, monkeypatch, 
     if field == 'placement':
         path, changes = stacks, {'desired.stack.009.placementName': 'ChangedPlacement'}
     elif field == 'reference':
-        spec = {'consumerKey': 'desired.row.007-001.value', 'text': 'resource://qa-synthetic/team-a/network/EC2_VPC_001', 'occurrence': '1',
+        spec = {'consumerKey': 'desired.row.007-001.value', 'text': parse(original).values['desired.row.007-001.value'], 'occurrence': '1',
                 'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/network', 'producerLogicalId': 'EC2_VPC_001',
                 'resourceType': 'EC2.VPC', 'format': 'link', 'labelPolicy': 'fixed'}
         changes = {f'desired.reference.stable.{key}': value for key, value in spec.items()}
@@ -2749,10 +2745,10 @@ def check_deploy_preparation_separates_producer_reads_from_writes(tmp_path, monk
     scope, stacks = deploy_properties_fixture(tmp_path)
     producer = scope.path.with_name('security.properties')
     producer.write_text(serialize({'desired.resource.009.resourceType': 'EC2.VPC',
-        'desired.resource.009.logicalId': 'EC2_VPC_001', 'desired.service.identity.lastAllocated': '{"EC2.VPC":1}', 'desired.resource.009.resourceMode': 'IMPORT'}), encoding='utf-8')
+        'desired.resource.009.logicalId': 'EC2_VPC_001', 'desired.resource.009.anchor': 'resource-EC2_VPC_001', 'desired.service.identity.lastAllocated': '{"EC2.VPC":1}', 'desired.resource.009.resourceMode': 'IMPORT'}), encoding='utf-8')
     scope.path.write_text(patch(parse(scope.path.read_text(encoding='utf-8')), {
         'desired.row.007-002.property': 'EC2.VPC.Name',
-        'desired.row.007-002.value': 'resource://qa-synthetic/team-a/security/EC2_VPC_001',
+        'desired.row.007-002.value': '[EC2_VPC_001](security.md#vpc-test-dev)',
         'desired.row.007-002.comment': '合成参照'}), encoding='utf-8')
     text, sources, _, _ = candidate(tmp_path, 'tasks/deploy.md', scope.environment, scope.target,
         {'awsAccountId': '123456789012', 'alias': scope.target}, ['CurrentName'], ['network', 'cloudformation-stacks'])

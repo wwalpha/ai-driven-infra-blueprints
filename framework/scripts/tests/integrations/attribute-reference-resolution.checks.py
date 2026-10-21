@@ -25,7 +25,7 @@ def fixture(root, service, other=None, *, derived=False):
     values['desired.note.input.text'] = '`' + service + '-original`'
     if other:
         producer_kind, producer_property = KINDS[other]
-        link = f'resource://preview/team/{other}/' + producer_kind.replace('.', '_') + '_001'
+        link = f'[{other}-original]({other}.md#{other}-original)'
         values['desired.note.link.text'] = link
         values['desired.row.001-002.property'] = kind + '.Tags'
         values['desired.row.001-002.value'] = '[config](' + service + '/config.json)'
@@ -55,7 +55,7 @@ def check_pair(root, first, second):
     producer, original = fixture(root, second, first)
     loaded = load_model(consumer)
     assert not loaded.warnings, loaded.warnings
-    assert loaded.authoritative['desired.note.link.text'] == f'resource://preview/team/{second}/' + KINDS[second][0].replace('.', '_') + '_001'
+    assert loaded.authoritative['desired.note.link.text'] == f'[{second}-original]({second}.md#{second}-original)'
     key = 'desired.row.001-002.document'
     config = json.loads(loaded.authoritative[key])
     assert config == {'name': second + '-original', 'count': 2, 'enabled': False, 'items': ['a', 'b']}
@@ -106,15 +106,15 @@ def check_fixed_label(root):
     consumer, values = fixture(root, 's3', 'cloudtrail')
     producer, original = fixture(root, 'cloudtrail', 's3')
     values = {key: value for key, value in values.items() if not key.startswith('desired.reference.OtherName.')}
-    values['desired.note.link.text'] = 'resource://preview/team/cloudtrail/CloudTrail_Trail_001'
+    values['desired.note.link.text'] = '[cloudtrail-original](cloudtrail.md#cloudtrail-original)'
     values['desired.reference.Other.text'] = values['desired.note.link.text']
     values['desired.reference.Other.labelPolicy'] = 'fixed'
     write_model(consumer, values)
-    write_model(producer, {**original, 'desired.row.001-001.property': 'CloudTrail.Trail.Tags[].Value', 'desired.row.001-001.value': 'resource://preview/team/s3/S3_Bucket_001'})
+    write_model(producer, {**original, 'desired.row.001-001.property': 'CloudTrail.Trail.Tags[].Value', 'desired.row.001-001.value': '[s3-original](s3.md#s3-original)'})
     before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
     loaded = load_model(consumer)
     assert not loaded.warnings, loaded.warnings
-    assert loaded.authoritative['desired.note.link.text'] == 'resource://preview/team/cloudtrail/CloudTrail_Trail_001'
+    assert loaded.authoritative['desired.note.link.text'] == '[cloudtrail-original](cloudtrail.md#cloudtrail-original)'
     assert before == {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
     dependencies = dependency_hashes(consumer)
     producer.write_bytes(producer.read_bytes() + b'# annotation\n')

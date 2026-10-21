@@ -139,12 +139,13 @@ def fixture(root, stacks=1, services=('s3', 'cloudwatch-logs', 'sqs'), parts=Fal
             name = f'{prefix}-app-dev-data{number}'
             values[service].update({f'desired.resource.{identity}.resourceType': kind,
                                    f'desired.resource.{identity}.logicalId': kind.replace('.', '_') + '_' + identity,
+                                   f'desired.resource.{identity}.anchor': service + '-' + name,
                                    'desired.service.identity.lastAllocated': json.dumps({kind: number}),
                                    f'desired.resource.{identity}.cfn-logicalId': stackname + '-' + logical,
                                    f'display.resource.{identity}.comment': 'fixture用の設定'})
             rows = [(field, '`' + name + '`'), *([('Region', '`ap-northeast-1`')] if service == 's3' else []), *extra, ('Tags[].Key', '`owner`'), ('Tags[].Value', '`fixture`')]
             if service == 'sqs':
-                rows.append(('QueueUrl', f'resource://dev/123456789012/sqs/SQS_Queue_{number:03d}'))
+                rows.append(('QueueUrl', f'[{name}](#{service}-{name})'))
             for rownumber, (prop, value) in enumerate(rows, 1):
                 rid = f'{identity}-{rownumber:03d}'
                 values[service].update({f'desired.row.{rid}.property': kind + '.' + prop,

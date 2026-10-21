@@ -10,7 +10,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 
-from sync_files import atomic_files
+from utils.file_operations import atomic_files
 from validation_cache import memoized, input_is_dir, input_is_file, input_is_symlink, input_select, input_text, recording_inputs, input_bytes, digest_files
 
 

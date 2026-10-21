@@ -25,7 +25,7 @@ def check(root):
         document = {'bucketDefinitions': [{'accountId': '111111111111', 'buckets': ['app-preview-RAW-one', 'fixed-second']}],
                     'scoping': {'includes': {'and': [{'simpleScopeTerm': {'comparator': 'EQ', 'key': 'OBJECT_EXTENSION', 'values': ['csv']}}]}}}
         values.update(resource(rid, 'Macie.ClassificationJob', 'macie-' + rid, [
-            ('S3JobDefinition', f'[json](macie/job-{rid}.json)'), ('Name', 'resource://preview/team/s3/S3_Bucket_017')]))
+            ('S3JobDefinition', f'[json](macie/job-{rid}.json)'), ('Name', '[S3_Bucket_017](s3.md#s3-raw-name)')]))
         values[key] = json.dumps(document)
         values.update(reference('bucket-' + rid, key, 'app-preview-RAW-one', 's3', '017', 'S3.Bucket', prop='S3.Bucket.BucketName', pointer='/bucketDefinitions/0/buckets/0'))
         values.update(reference('link-' + rid, linkkey, values[linkkey], 's3', '017', 'S3.Bucket', mode='link', label='fixed'))
@@ -36,7 +36,7 @@ def check(root):
     doc = json.loads(snapshot.authoritative[key])
     assert doc['bucketDefinitions'][0]['buckets'] == ['app-preview-RAW-one', 'fixed-second']
     assert doc['bucketDefinitions'][0]['accountId'] == '111111111111'
-    assert snapshot.authoritative['desired.row.003-002.value'] == 'resource://preview/team/s3/S3_Bucket_017'
+    assert snapshot.authoritative['desired.row.003-002.value'] == '[S3_Bucket_017](s3.md#s3-raw-name)'
     assert producer in source_inputs(path)
     assert affected(root, [producer.relative_to(root)]) == {('preview', 'team', 's3'), ('preview', 'team', 'macie')}
     digest, dependencies = design_source_digest(path), dependency_hashes(path)

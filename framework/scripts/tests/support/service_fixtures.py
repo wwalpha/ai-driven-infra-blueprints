@@ -44,7 +44,7 @@ def build_typed_services(root):
             's3': [('001', 'S3.Bucket', 's3-bucket', [('BucketName', '`fixture`'), ('LifecycleConfiguration.Rules[].ExpirationInDays', '`30`')])],
             'cloudtrail': [('001', 'CloudTrail.Trail', 'cloudtrail-trail', [('TrailName', '`fixture`')])],
             'glue': [('001', 'Glue.Job', 'glue-job', [('Name', '`fixture-job`'), ('Timeout', '`30`'),
-                     ('SecurityConfiguration', f'resource://{env}/team/glue/Glue_SecurityConfiguration_002'), ('DefaultArguments', '`{"--job-language":"python"}`')]),
+                     ('SecurityConfiguration', '[glsc-one](#glue-glsc-one)'), ('DefaultArguments', '`{"--job-language":"python"}`')]),
                      ('002', 'Glue.SecurityConfiguration', 'glue-glsc-one', [('Name', '`glsc-one`')])],
             'cloudwatch-logs': [('001', 'Logs.LogGroup', 'cloudwatch-logs-logs', [('LogGroupName', '`/aws/vpc/flow-logs`'),
                                 ('RetentionInDays', '`30`'), ('DeletionProtectionEnabled', '`false`')])],
@@ -105,7 +105,7 @@ def build_input_templates(root):
                    'labelPolicy': 'none', 'contextProperty': 'executionAccountId'}
         authored_service(root, env, 'sqs', [
             ('017', 'SQS.Queue', 'fixture-sqs-017', [('QueueName', '`fixture-one`')]),
-            ('034', 'SQS.QueuePolicy', 'fixture-sqs-034', [('Queues', f'resource://{env}/team/sqs/SQS_Queue_017'),
+            ('034', 'SQS.QueuePolicy', 'fixture-sqs-034', [('Queues', '[fixture-one](#fixture-sqs-017)'),
                 ('PolicyDocument', '[policy](sqs/policy.json)', {'Statement': [{'Effect': 'Allow', 'Action': 'sqs:SendMessage',
                     'Resource': {'Fn::GetAtt': ['HulftRetrievalDetectDlq', 'Arn']},
                     'Condition': {'StringEquals': {'aws:SourceAccount': account}}}]})])],

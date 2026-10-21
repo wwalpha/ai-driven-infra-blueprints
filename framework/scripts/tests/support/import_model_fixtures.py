@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 from model.sources import json_text, load_model
-from yaml_values import yaml_read
+from utils.yaml_format import yaml_read
 from support.model_sources import write_model
 
 from model.importing import cli as m
@@ -176,7 +176,7 @@ def build_seed(root):
                   'desired.service.' + service + '.ownedCatalogResourceTypes': kind,
                   'display.service.title': '# ' + service + ' 詳細設計',
                   'desired.resource.001.resourceType': kind, 'desired.resource.001.resourceMode': 'IMPORT',
-                  'desired.resource.001.logicalId': kind.replace('.', '_') + '_001',
+                  'desired.resource.001.logicalId': kind.replace('.', '_') + '_001', 'desired.resource.001.anchor': 'resource-' + (kind.replace('.', '_') + '_001'),
                   'desired.service.identity.lastAllocated': json.dumps({kind: 1}), 'display.resource.001.comment': '合成fixture'}
         for i, (prop, value) in enumerate(fields.items(), 1):
             key = 'desired.row.001-' + str(i).zfill(3) + '.'

@@ -63,7 +63,7 @@ def check_config():
                 elif prop == 'S3BucketName':
                     raw = bucket_value
                 elif prop == 'Id':
-                    raw = 'resource://dev/fixture/config/' + kind.replace('.', '_') + '_001'
+                    raw = f'[resource](#resource-{kind.replace(".", "_")}_001)'
                     values[f'observed.row.{number}-{index:03}.value'] = payload['name']
                 values.update({f'desired.row.{number}-{index:03}.{key}': val for key, val in {
                     'property': kind + '.' + prop, 'value': raw, 'comment': 'fixture'}.items()})

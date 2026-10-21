@@ -12,7 +12,7 @@ from validation_scope import active_scope
 from validation_cache import input_scope, memoized, input_context, recording_inputs
 from generation_inputs import GenerationInputs
 from script_loader import module as load_script
-from sync_files import atomic_files
+from utils.file_operations import atomic_files
 from model.core import ReferenceResolutionError, entries, resource_row_index
 from model.sources import Scope, ModelSnapshot, FileReads, SourceWriteContext, load_model, runtime_values, candidate_sources, safe, publication_lock, _publish_transaction, json_read
 from utils.json_format import json_text

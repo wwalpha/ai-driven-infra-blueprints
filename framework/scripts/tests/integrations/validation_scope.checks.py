@@ -21,7 +21,7 @@ def check_single_target_cache(root):
     for service, (kind, prop, name) in services.items():
         values = {f"desired.service.{service}.serviceId": service,
                   f"desired.service.{service}.ownedCatalogResourceTypes": kind,
-                  "desired.resource.001.resourceType": kind, "desired.resource.001.logicalId": kind.replace(".", "_") + "_001",
+                  "desired.resource.001.resourceType": kind, "desired.resource.001.logicalId": kind.replace(".", "_") + "_001", 'desired.resource.001.anchor': 'resource-' + (kind.replace('.', '_') + '_001'),
                   "desired.service.identity.lastAllocated": json.dumps({kind: 1}),
                   "desired.resource.001.cfn-logicalId": "fixture-FixtureResource",
                   "desired.row.001-001.property": f"{kind}.{prop}", "desired.row.001-001.value": f"`{name}`",
@@ -30,7 +30,7 @@ def check_single_target_cache(root):
         for number, output in enumerate(sorted(model_projection.identifier_outputs(root).get(kind, set())), 2):
             row = f"row.001-{number:03d}"
             values.update({f"desired.{row}.property": output,
-                           f"desired.{row}.value": f"resource://dev/cde/{service}/{values['desired.resource.001.logicalId']}",
+                           f"desired.{row}.value": f"[resource](#{values['desired.resource.001.anchor']})",
                            f"desired.{row}.comment": "生成される識別子",
                            f"observed.{row}.property": output, f"observed.{row}.value": "PENDING_DEPLOY",
                            f"observed.{row}.comment": "生成される識別子"})
@@ -104,7 +104,7 @@ def check_template_consumers(root):
     source_checks.fixture(root, ('dev', 'stg'))
     values = source_checks.config_model()
     for env in ('dev', 'stg'):
-        source_checks.write_fixture(root, env, 'config', {key: value.replace('resource://dev/', f'resource://{env}/') for key, value in values.items()})
+        source_checks.write_fixture(root, env, 'config', values)
     scope = {(env, 'team', 'config') for env in ('dev', 'stg')}
     contract = root/'tasks/example.md'
     contract.write_text('## Task contract\n- Task type: `migration`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Validation scope\n' +
@@ -199,19 +199,19 @@ def main():
 invalid unrelated table alignment
 ''')
                 write_model(models / 'vpc.properties', {
-                    'desired.resource.001.resourceType': 'EC2.Subnet', 'desired.resource.001.logicalId': 'EC2_Subnet_001', 'desired.service.identity.lastAllocated': '{"EC2.Subnet":1}',
+                    'desired.resource.001.resourceType': 'EC2.Subnet', 'desired.resource.001.logicalId': 'EC2_Subnet_001', 'desired.resource.001.anchor': 'resource-EC2_Subnet_001', 'desired.service.identity.lastAllocated': '{"EC2.Subnet":1}',
                     'desired.row.001-001.property': 'EC2.Subnet.Name',
                     'desired.row.001-001.value': '`subnet-app-' + env + '-' + target + '`',
                     'desired.row.001-001.comment': '参照先のみを読む合成値'})
                 name = f"{env}-app-{target}-01"
                 values = {"desired.service.ec2.serviceId": "ec2", "desired.service.ec2.ownedCatalogResourceTypes": "EC2.Instance",
-                          "desired.resource.001.resourceType": "EC2.Instance", "desired.resource.001.logicalId": "EC2_Instance_001",
+                          "desired.resource.001.resourceType": "EC2.Instance", "desired.resource.001.logicalId": "EC2_Instance_001", 'desired.resource.001.anchor': 'resource-EC2_Instance_001',
                           "desired.resource.001.cfn-logicalId": "fixture-AppInstance",
                           "desired.service.identity.lastAllocated": '{"EC2.Instance":1}', "display.service.title": "# EC2 詳細設計",
                           "display.resource.001.comment": "アプリケーションの仮想マシン"}
                 for index, (prop, value) in enumerate((
-                    ("InstanceId", f"resource://{env}/{target}/ec2/EC2_Instance_001"), ("ImageId", "`ami-0123456789abcdef0`"),
-                    ("InstanceType", "`t3.micro`"), ("SubnetId", f"resource://{env}/{target}/vpc/EC2_Subnet_001"),
+                    ("InstanceId", '[Instance](#ec2-instance)'), ("ImageId", "`ami-0123456789abcdef0`"),
+                    ("InstanceType", "`t3.micro`"), ("SubnetId", '[Subnet](vpc.md#vpc-subnet)'),
                     ("Tags[].Key", "`Name`"), ("Tags[].Value", f"`{name}`")), 1):
                     key = f"row.001-{index:03d}"
                     values[f"desired.{key}.property"] = f"EC2.Instance.{prop}"

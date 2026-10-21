@@ -93,3 +93,13 @@ def catalog_display():
          patch.object(array_display, 'display_catalog', lambda root: catalog(
              root if (root / 'framework/rules/resource-layout.json').is_file() else aws_mapping_display.ROOT)):
         yield
+
+
+def allocate_fixture(values, resource_ids):
+    """Author fixed anchors when explicitly allocating synthetic test resources."""
+    from model.identity import allocate
+    result = allocate(values, resource_ids)
+    for number in resource_ids:
+        key = f'desired.resource.{number}.'
+        result.setdefault(key + 'anchor', 'resource-' + result[key + 'logicalId'])
+    return result

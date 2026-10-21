@@ -46,7 +46,7 @@ def model(kind="EC2.VPC", name="vpc-app-dev", mode="CREATE", label=None):
     if name and kind == "EC2.VPC":
         rows.append(("Name", name))
     logical = kind.replace(".", "_") + "_001"
-    rows.append((identifier, f"resource://dev/123456789012/ec2/{logical}"))
+    rows.append((identifier, f"[{logical}](#{anchor})"))
     if kind == "EC2.VPC":
         rows.append(("CidrBlock", "10.1.0.0/16"))
     elif kind == "EC2.VPCEndpoint":
@@ -62,7 +62,7 @@ def model(kind="EC2.VPC", name="vpc-app-dev", mode="CREATE", label=None):
         "desired.service.ec2.ownedCatalogResourceTypes": kind,
         "display.service.title": "# EC2 詳細設計",
         "desired.resource.001.resourceType": kind,
-        "desired.resource.001.logicalId": logical,
+        "desired.resource.001.logicalId": logical, 'desired.resource.001.anchor': anchor,
         "desired.service.identity.lastAllocated": json.dumps({kind: 1}),
         "desired.resource.001.cfn-logicalId": "fixture-InternalId",
         "display.resource.001.comment": "業務用ネットワークを構成するresource",

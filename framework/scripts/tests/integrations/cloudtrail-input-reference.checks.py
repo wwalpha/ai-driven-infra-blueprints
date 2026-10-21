@@ -20,7 +20,7 @@ def check(root):
     key = 'desired.row.003-002.document'
     values = resource('003', 'S3.Bucket', 's3-003', [('BucketName', '`audit-preview-archive`'),
         ('PolicyDocument', '[policy](s3/policy.json)')])
-    link = 'resource://preview/team/cloudtrail/CloudTrail_Trail_017'
+    link = '[audit-preview](cloudtrail.md#cloudtrail-audit)'
     values[key] = json.dumps({'Statement': [
         {'Condition': {'StringEquals': {'aws:SourceArn': link}}},
         {'Condition': {'NumericLessThan': {'s3:TlsVersion': 1.2}}}]})
@@ -56,7 +56,7 @@ def check(root):
     write_model(producer, original)
     explicit = dict(values)
     explicit[key] = values[key].replace('[audit-preview]', '[existing-label]')
-    explicit['desired.reference.trail.text'] = 'resource://preview/team/cloudtrail/CloudTrail_Trail_017'
+    explicit['desired.reference.trail.text'] = '[existing-label](cloudtrail.md#cloudtrail-audit)'
     explicit['desired.reference.trail.labelPolicy'] = 'fixed'
     write_model(path, explicit)
     assert not load_model(path).warnings

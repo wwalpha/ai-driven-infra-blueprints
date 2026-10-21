@@ -9,7 +9,7 @@ if not __debug__:
 from support.it_case_receipt import it_case
 
 from support.issues_scan_fixtures import *
-from model.identity import allocate
+from support.model_sources import allocate_fixture as allocate
 from support.fixture_cases import load_case, materialize_files
 
 @it_case
@@ -267,28 +267,28 @@ def resource_cases(root):
         'desired.row.004-001.value': '`bucket-extra`',
         'desired.row.004-001.comment': '設定',
         'desired.row.004-002.property': 'S3.Bucket.BucketName',
-        'desired.row.004-002.value': 'resource://dev/123456789012/s3/S3_Bucket_001',
+        'desired.row.004-002.value': '[S3_Bucket_001](s3.md#s3-bucket-app-dev-data1)',
         'desired.row.004-002.comment': '参照'})
     values.update(allocate(values, ['004']))
     publish(values)
     comparison = Comparison(root, 'dev', '123456789012', ['s3'])
     _, stacks = __import__('model.core', fromlist=['stack_model']).stack_model(comparison.model('cloudformation-stacks').values)
     comparison.stack(stacks[0][1])
-    assert comparison.reference('s3', 'resource://dev/123456789012/s3/S3_Bucket_001') == comparison.evaluate(stacks[0][1]['name'], {'Ref': 'Bucket'})
-    assert comparison.reference('s3', 'resource://dev/123456789012/s3/S3_Bucket_001', 'Arn') == comparison.evaluate(stacks[0][1]['name'], {'Fn::GetAtt': ['Bucket', 'Arn']})
+    assert comparison.reference('s3', '[S3_Bucket_001](s3.md#s3-bucket-app-dev-data1)') == comparison.evaluate(stacks[0][1]['name'], {'Ref': 'Bucket'})
+    assert comparison.reference('s3', '[S3_Bucket_001](s3.md#s3-bucket-app-dev-data1)', 'Arn') == comparison.evaluate(stacks[0][1]['name'], {'Fn::GetAtt': ['Bucket', 'Arn']})
     assert comparison.evaluate(stacks[0][1]['name'], {'Fn::Select': ['1', {'Fn::Split': [',', 'a,b']}]}) == 'b'
     values['desired.resource.001.resourceMode'] = 'IMPORT'
     publish(values)
     comparison = Comparison(root, 'dev', '123456789012', ['s3'])
-    expect_error(lambda: comparison.reference('s3', 'resource://dev/123456789012/s3/S3_Bucket_001'), 'IMPORT reference is PENDING_DEPLOY')
+    expect_error(lambda: comparison.reference('s3', '[S3_Bucket_001](s3.md#s3-bucket-app-dev-data1)'), 'IMPORT reference is PENDING_DEPLOY')
     rid = next(rid for rid, row in comparison.rows['s3']['001'] if row['property'] == 'S3.Bucket.BucketName')
     key = f'observed.row.{rid}.value'
     comparison.models['s3'] = comparison.models['s3']._replace(values=dict(comparison.models['s3'].values))
     original = comparison.models['s3'].values.get(key)
     comparison.models['s3'].values[key] = '`PENDING_DEPLOY`'
-    expect_error(lambda: comparison.reference('s3', 'resource://dev/123456789012/s3/S3_Bucket_001'), 'IMPORT reference is PENDING_DEPLOY')
+    expect_error(lambda: comparison.reference('s3', '[S3_Bucket_001](s3.md#s3-bucket-app-dev-data1)'), 'IMPORT reference is PENDING_DEPLOY')
     comparison.models['s3'].values[key] = '`observed-bucket`'
-    expect_error(lambda: comparison.reference('s3', 'resource://dev/123456789012/s3/S3_Bucket_001'), 'IMPORT reference requires approved handoff')
+    expect_error(lambda: comparison.reference('s3', '[S3_Bucket_001](s3.md#s3-bucket-app-dev-data1)'), 'IMPORT reference requires approved handoff')
     if original is None:
         comparison.models['s3'].values.pop(key)
     else:
@@ -353,7 +353,7 @@ def extended_cases(root, template):
         'desired.row.001-001.value': '`fixture-key`',
         'desired.row.001-001.comment': '鍵説明',
         'desired.resource.002.resourceType': 'KMS.Alias',
-        'desired.resource.002.parentReference': 'resource://dev/123456789012/kms/KMS_Key_001',
+        'desired.resource.002.parentReference': '[Key](kms.md#resource-KMS_Key_001)',
         'desired.resource.002.parentProperty': 'KMS.Alias.TargetKeyId',
         'desired.resource.002.resourceMode': 'IMPORT',
         'desired.row.002-001.property': 'KMS.Alias.AliasName',
@@ -386,11 +386,11 @@ def extended_cases(root, template):
     rows = {'desired.service.codebuild.serviceId': 'codebuild',
         'desired.resource.001.resourceType': 'CodeBuild.Project',
         'desired.row.001-001.property': 'CodeBuild.Project.VpcConfig.Subnets',
-        'desired.row.001-001.value': 'resource://dev/123456789012/vpc/EC2_Subnet_001',
+        'desired.row.001-001.value': '[EC2_Subnet_001](vpc.md#resource-EC2_Subnet_001)',
         'desired.row.001-001.comment': '参照'}
     rows.update(allocate(rows, ['001']))
     refpath = root / 'model/dev/123456789012/vpc.properties'
-    write(refpath, 'desired.service.vpc.serviceId=vpc\ndesired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_001\ndesired.service.identity.lastAllocated={"EC2.Subnet":1}\n')
+    write(refpath, 'desired.service.vpc.serviceId=vpc\ndesired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_001\ndesired.resource.001.anchor=resource-EC2_Subnet_001\ndesired.service.identity.lastAllocated={"EC2.Subnet":1}\n')
     write(modelpath, '\n'.join(f'{key}={value}' for key, value in rows.items()) + '\n')
     comparison = Comparison(root, 'dev', '123456789012', ['codebuild'])
     value = comparison.desired_value('codebuild', comparison.rows['codebuild']['001'][0][1], 'CodeBuild.Project')
@@ -477,7 +477,7 @@ def comparison_repair_cases():
             'desired.resource.001.resourceType': 'CodeBuild.Project',
             'desired.resource.001.cfn-logicalId': name + '-Build',
             'desired.row.001-001.property': 'CodeBuild.Project.ServiceRole',
-            'desired.row.001-001.value': 'resource://dev/123456789012/iam/IAM_Role_001'}
+            'desired.row.001-001.value': '[IAM_Role_001](iam.md#resource-IAM_Role_001)'}
         project.update(allocate(project, ['001']))
         for service, model in [('iam', role), ('codebuild', project)]:
             write(root / f'model/dev/123456789012/{service}.properties', '\n'.join(f'{key}={value}' for key, value in model.items()) + '\n')
@@ -489,7 +489,7 @@ def comparison_repair_cases():
             comparison, records = compare(root, ['codebuild'])
             assert len(records) == 1 and records[0]['category'] == 'matched', records
             # Other role properties still use the default RoleName attribute.
-            assert comparison.desired_value('codebuild', {'property': 'IAM.ManagedPolicy.Roles', 'value': 'resource://dev/123456789012/iam/IAM_Role_001'}, 'IAM.ManagedPolicy')[0]['$attribute'] == 'RoleName'
+            assert comparison.desired_value('codebuild', {'property': 'IAM.ManagedPolicy.Roles', 'value': '[IAM_Role_001](iam.md#resource-IAM_Role_001)'}, 'IAM.ManagedPolicy')[0]['$attribute'] == 'RoleName'
             for field, expected in [('text', 'resolved'), ('number', '7')]:
                 assert comparison.evaluate(name, {'Fn::Sub': ['${X}-${AWS::Region}-${!literal}',
                        {'X': {'Fn::FindInMap': ['Table', 'one', field]}}]}) == expected + '-ap-northeast-1-${literal}'
@@ -748,7 +748,7 @@ def symbolic_string_cases(_network):
             _, records = compare(root, ['iam'])
             assert len(records) == 1, records
             return records[0]['category']
-        link = 'resource://dev/123456789012/cloudwatch-logs/Logs_LogGroup_001'
+        link = '[Log](cloudwatch-logs.md#cloudwatch-logs-cwlogs-app-dev-data1)'
         model_join = {'Fn::Join': ['', [{'Fn::Select': [0, {'Fn::Split': [':*', link]}]}, ':log-stream:account_*']]}
         def desired_policy(expression):
             return dict(policy, Statement=[dict(policy['Statement'][0], Resource=expression)])
@@ -762,7 +762,7 @@ def symbolic_string_cases(_network):
         assert publish(desired_policy(model_sub)) == 'matched'
         assert publish(desired_policy({'Fn::Sub': '${Log.Arn}'})) == 'uncompared'
         assert publish(desired_policy(joined)) == 'uncompared'
-        different_link = link.replace('Logs_LogGroup_001', 'Logs_LogGroup_999')
+        different_link = link.replace('#cloudwatch-logs-cwlogs-app-dev-data1', '#missing')
         assert publish(desired_policy({'Fn::Sub': ['${Arn}:log-stream:account_*',
             {'Arn': {'Fn::Select': [0, {'Fn::Split': [':*', different_link]}]}}]})) == 'uncompared'
     print('Symbolic string evaluation: PASS (GetAtt/Split/Select/Join/Sub, typed equality and classifications)')
@@ -786,9 +786,9 @@ def reference_property_contract_cases():
                 f'desired.resource.{identity}.cfn-logicalId': stack + '-' + logical})
             model.update(allocate(model, [identity]))
             template['Resources'][logical] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': {}}
-        function = 'resource://dev/123456789012/lambda/Lambda_Function_001'
-        repository = 'resource://dev/123456789012/codecommit/CodeCommit_Repository_001'
-        connection = 'resource://dev/123456789012/quicksight/QuickSight_VPCConnection_001'
+        function = '[Lambda_Function_001](lambda.md#resource-Lambda_Function_001)'
+        repository = '[CodeCommit_Repository_001](codecommit.md#resource-CodeCommit_Repository_001)'
+        connection = '[QuickSight_VPCConnection_001](quicksight.md#resource-QuickSight_VPCConnection_001)'
         event = [{'DataResources': [{'Type': 'AWS::Lambda::Function', 'Values': [function]}]}]
         action = dict(Category='Source', Owner='AWS', Provider='CodeCommit', Version='1')
         stages = [{'Name': 'Source', 'Actions': [{'Name': 'Source', 'ActionTypeId': action,
@@ -888,7 +888,7 @@ def reference_diagnostic_cases():
             'desired.resource.001.resourceType': 'Athena.WorkGroup',
             'desired.resource.001.cfn-logicalId': stack + '-WorkGroup',
             'desired.row.001-001.property': prop,
-            'desired.row.001-001.value': 'resource://dev/123456789012/kms/KMS_Alias_001'}
+            'desired.row.001-001.value': '[KMS_Alias_001](kms.md#resource-KMS_Alias_001)'}
         model.update(allocate(model, ['001']))
         template['Resources']['WorkGroup'] = {'Type': 'AWS::Athena::WorkGroup', 'Properties': {
             'WorkGroupConfiguration': {'ResultConfiguration': {'EncryptionConfiguration': {'KmsKey': {'Ref': 'Alias'}}}}}}
@@ -907,7 +907,7 @@ def reference_diagnostic_cases():
             encryption['KmsKey'] = 'alias/other'
             publish()
             assert next(item for item in compare(root, ['athena'])[1] if item['property'] == 'Athena.WorkGroup.WorkGroupConfiguration')['category'] == 'difference'
-            model['desired.row.001-001.value'] = 'resource://dev/123456789012/kms/KMS_Key_001'
+            model['desired.row.001-001.value'] = '[Key](kms.md#resource-KMS_Key_001)'
             encryption['KmsKey'] = {'Ref': 'Key'}
             publish()
             comparison, records = compare(root, ['athena'])
@@ -933,9 +933,9 @@ def reference_diagnostic_cases():
             assert all('KeyId' in group['cause'] and 'KmsKey' in group['cause'] for group in stats['groups'])
             assert 'outside allowed forms' in iac_report('dev', 'cde', ['athena'], single)
             model.update({'desired.row.001-003.property': 'Athena.WorkGroup.WorkGroupConfiguration.ExecutionRole',
-                          'desired.row.001-003.value': 'resource://dev/123456789012/kms/KMS_Key_999',
+                          'desired.row.001-003.value': '[KMS_Key_999](kms.md#resource-KMS_Key_999)',
                           'desired.row.001-004.property': 'Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.ExpectedBucketOwner',
-                          'desired.row.001-004.value': 'resource://dev/123456789012/kms/KMS_Key_999'})
+                          'desired.row.001-004.value': '[KMS_Key_999](kms.md#resource-KMS_Key_999)'})
             publish()
             multiple = compare(root, ['athena'])[1]
             parent = next(item for item in multiple if item['property'] == 'Athena.WorkGroup.WorkGroupConfiguration')
@@ -948,7 +948,7 @@ def reference_diagnostic_cases():
             assert stats['groups'][0]['target'] is None
             assert '省略保留原因:' not in iac_report('dev', 'cde', ['athena'], [parent])
             # Real child failures are redacted before being copied into the parent.
-            model['desired.row.001-003.value'] = 'resource://dev/123456789012/kms/KMS_Key_998'
+            model['desired.row.001-003.value'] = '[KMS_Key_998](kms.md#resource-KMS_Key_998)'
             publish()
             original_compare_rows = Comparison.compare_rows
             def sensitive_compare_rows(instance, *args, **kwargs):
@@ -985,7 +985,7 @@ def reference_diagnostic_cases():
                 assert secret not in rendered
                 example = iac_summary([masked], 'dev', 'cde', ['athena'])['groups'][0]['examples'][0]
                 assert len(example['reference_diagnostics']) == 3 and example['omitted_reference_fields'] == 0
-            model['desired.row.001-001.value'] = 'resource://dev/123456789012/kms/KMS_Key_001'
+            model['desired.row.001-001.value'] = '[Key](kms.md#resource-KMS_Key_001)'
             for value in [{'Ref': 'Key'}, {'Fn::GetAtt': ['Key', 'Arn']}]:
                 template['Resources']['WorkGroup']['Properties']['WorkGroupConfiguration']['ResultConfiguration']['EncryptionConfiguration']['KmsKey'] = value
                 publish()
@@ -1020,7 +1020,7 @@ def reference_identity_report_cases():
         write(root / 'model/dev/123456789012/kms.properties', '\n'.join(f'{k}={v}' for k, v in kms.items()) + '\n')
         logmodel = root / 'model/dev/123456789012/cloudwatch-logs.properties'
         original = read_model(logmodel)
-        link = 'resource://dev/123456789012/kms/KMS_Key_001'
+        link = '[Key](kms.md#resource-KMS_Key_001)'
         write(logmodel, original + 'desired.row.001-010.property=Logs.LogGroup.KmsKeyId\ndesired.row.001-010.value=' + link + '\n')
         template['Outputs'] = {'KeyArn': {'Value': {'Fn::GetAtt': ['Key', 'Arn']}, 'Export': {'Name': {'Fn::Sub': '${Name}-KeyArn'}}}}
         template['Outputs']['OtherKeyArn'] = {'Value': {'Fn::GetAtt': ['OtherKey', 'Arn']}, 'Export': {'Name': {'Fn::Sub': '${Name}-OtherKeyArn'}}}
@@ -1042,7 +1042,7 @@ def reference_identity_report_cases():
             assert comparison.reference_same(keyid, arn, 'Logs.LogGroup', 'KmsKeyId') is False
             assert comparison.reference_same(keyid, arn, 'SQS.Queue', 'KmsMasterKeyId') is None
             assert same(keyid, dict(keyid)) is False  # JSON-shaped values cannot forge evidence.
-            alias = comparison.reference('cloudwatch-logs', 'resource://dev/123456789012/kms/KMS_Alias_001')
+            alias = comparison.reference('cloudwatch-logs', '[KMS_Alias_001](kms.md#resource-KMS_Alias_001)')
             assert comparison.reference_same(alias, arn, 'S3.Bucket', 'BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID') is False
             template['Resources']['Log']['Properties']['KmsKeyId'] = {'Fn::ImportValue': 'app-dev-data2-OtherKeyArn'}
             mutate_template(root, template)
@@ -1344,8 +1344,8 @@ def check_cloudtrail_membership(scan_project):
     root, _, template = scan_project
     stack = 'cfn-stack-app-dev-data1'
     kind = 'CloudTrail.Trail'
-    function = 'resource://dev/123456789012/lambda/Lambda_Function_001'
-    other = 'resource://dev/123456789012/lambda/Lambda_Function_002'
+    function = '[Lambda_Function_001](lambda.md#resource-Lambda_Function_001)'
+    other = '[Lambda_Function_002](lambda.md#resource-Lambda_Function_002)'
     lambda_model = {'desired.service.lambda.serviceId': 'lambda'}
     for identity, logical in [('001', 'Function'), ('002', 'Other')]:
         lambda_model.update({f'desired.resource.{identity}.resourceType': 'Lambda.Function',
@@ -1624,12 +1624,12 @@ def glue_secret_reference_cases(_network):
         root = Path(directory) / 'project'
         _, template = fixture(root, services=['s3'])
         stack = 'cfn-stack-app-dev-data1'
-        link = 'resource://dev/123456789012/glue/Glue_Connection_001'
-        secret = 'resource://dev/123456789012/secrets-manager/SecretsManager_Secret_001'
+        link = '[Glue_Connection_001](glue.md#resource-Glue_Connection_001)'
+        secret = '[SecretsManager_Secret_001](secrets-manager.md#resource-SecretsManager_Secret_001)'
         specifications = {
             'glue': [
                 ('Connection1', 'Glue.Connection', 'glue-one', [
-                    ('Name', 'resource://dev/123456789012/glue/Glue_Connection_001'),
+                    ('Name', '[Glue_Connection_001](glue.md#resource-Glue_Connection_001)'),
                     ('CatalogId', '`123456789012`'), ('ConnectionInput.Name', '`connection`'),
                     ('ConnectionInput.AuthenticationConfiguration.SecretArn', secret)]),
                 ('Connection2', 'Glue.Connection', 'glue-two', [('ConnectionInput.Name', '`connection`')]),
@@ -1724,7 +1724,7 @@ def check_arn_array_reference_forms():
         for logical in ('Policy', 'OtherPolicy'):
             template['Resources'][logical]['Properties']['ManagedPolicyName'] = 'same-name'
         prop = 'IAM.Role.ManagedPolicyArns'
-        link = 'resource://dev/123456789012/iam/IAM_ManagedPolicy_001'
+        link = '[IAM_ManagedPolicy_001](iam.md#resource-IAM_ManagedPolicy_001)'
         values['desired.row.001-001.property'] = prop
         values['desired.row.001-001.value'] = '`' + json.dumps([link]) + '`'
 
@@ -1764,7 +1764,7 @@ def check_arn_array_reference_forms():
             assert comparison.reference_forms('IAM.User', 'Groups[]') is None
             expect_error(lambda: comparison.desired_reference('iam', link, 'IAM.User', 'Groups[]'),
                          'reference property contract unproven')
-            for unresolved, reason in (('resource://dev/123456789012/iam/IAM_ManagedPolicy_999', 'reference mapping matches=0'),
+            for unresolved, reason in (('[IAM_ManagedPolicy_999](iam.md#resource-IAM_ManagedPolicy_999)', 'Resource anchor is absent or ambiguous'),
                                        ('`PENDING_DEPLOY`', 'desired value is unresolved')):
                 row = {'property': prop, 'value': unresolved}
                 expect_error(lambda: comparison.desired_value('iam', row, 'IAM.Role'), reason)
@@ -1792,7 +1792,7 @@ def check_eventbridge_reference_literals():
         assert same(name, bucket, reference=callback, path='EventPattern.detail.requestParameters.bucketName[]')
         assert same(bucket, name, reference=callback)
         assert same('wrong', bucket, reference=callback) is False
-        function = comparison.reference('lambda', 'resource://dev/123456789012/lambda/Lambda_Function_001', 'Arn')
+        function = comparison.reference('lambda', '[Lambda_Function_001](lambda.md#resource-Lambda_Function_001)', 'Arn')
         arn = comparison.reference_literal(function)
         assert arn == 'arn:aws:lambda:ap-northeast-1:123456789012:function:function-' + comparison.stack_inputs[stack][1]['Name']
         assert same(function, arn, reference=callback)
@@ -1800,7 +1800,7 @@ def check_eventbridge_reference_literals():
                       arn.replace('123456789012', '999999999999'), arn + ':1', arn + ':alias',
                       arn.replace(':function:', ':layer:'), arn + '-other']:
             assert same(function, wrong, reference=callback) is False
-        other = comparison.reference('lambda', 'resource://dev/123456789012/lambda/Lambda_Function_002', 'Arn')
+        other = comparison.reference('lambda', '[Lambda_Function_002](lambda.md#resource-Lambda_Function_002)', 'Arn')
         assert same(function, other, reference=callback) is False
         function_name = ResourceReference(dict(function, **{'$attribute': 'FunctionName'}))
         assert same(function, function_name, reference=callback) is False
@@ -1843,7 +1843,7 @@ def check_glue_connection_names(_network):
             values.update(allocate(values, [identity]))
             template['Resources'][logical] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': {}}
         values.update({'desired.row.003-001.property': 'Glue.Job.Connections',
-                       'desired.row.003-001.value': '`{"Connections":["resource://dev/123456789012/glue/Glue_Connection_001"]}`'})
+                       'desired.row.003-001.value': '`{"Connections":["[Glue_Connection_001](glue.md#resource-Glue_Connection_001)"]}`'})
         write(root / 'model/dev/123456789012/glue.properties', '\n'.join(f'{k}={v}' for k, v in values.items()) + '\n')
         template['Resources']['Job']['Properties'] = {'Connections': {'Connections': ['app-dev-data1']}}
         template['Resources']['Project']['Properties'] = {'Name': {'Fn::Sub': 'project-${Name}'}}
@@ -1920,14 +1920,14 @@ def check_added_reference_properties(_network):
                     f'desired.resource.{identity}.cfn-logicalId': stack + '-' + identity})
                 model.update(allocate(model, [identity]))
                 template['Resources'][identity] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': {}}
-            links[logical] = f'resource://dev/123456789012/{service}/' + model[f'desired.resource.{logical}.logicalId']
+            links[logical] = f'[{logical}]({service}.md#{model[f"desired.resource.{logical}.anchor"]})'
             symbols[logical] = ResourceReference({'$resource': [service, logical], '$attribute': attr})
         for service, model in models.items():
             write(root / f'model/dev/123456789012/{service}.properties', '\n'.join(f'{k}={v}' for k, v in model.items()) + '\n')
         template['Resources']['Group']['Properties']['VpcId'] = {'Ref': 'Vpc'}
         mutate_template(root, template)
         comparison, _ = compare(root, list(models) + ['s3'])
-        links['Bucket'] = 'resource://dev/123456789012/s3/S3_Bucket_001'
+        links['Bucket'] = '[S3_Bucket_001](s3.md#s3-bucket-app-dev-data1)'
         symbols['Bucket'] = comparison.evaluate(stack, {'Ref': 'Bucket'})
         cases = {
             'Bucket': ['CloudTrail.Trail.S3BucketName', 'CodePipeline.Pipeline.ArtifactStore.Location', 'Lambda.Function.Code.S3Bucket'],
@@ -1967,8 +1967,8 @@ def check_added_reference_properties(_network):
                     comparison.desired_reference('s3', links[wrong], kind, path)
                 with pytest.raises(Blocked):
                     comparison.desired_reference('s3', links[logical], kind, path, 'Unknown')
-                with pytest.raises(Blocked, match='reference mapping matches=0'):
-                    comparison.desired_reference('s3', links[logical].rsplit('_', 1)[0] + '_999', kind, path)
+                with pytest.raises(Blocked, match='Resource anchor is absent or ambiguous'):
+                    comparison.desired_reference('s3', links[logical].partition('#')[0] + '#missing)', kind, path)
                 service, identity = symbol['$resource']
                 comparison.resources[service][identity]['resourceMode'] = 'IMPORT'
                 with pytest.raises(Blocked, match='IMPORT'):
@@ -2017,10 +2017,10 @@ def check_added_reference_properties(_network):
             'desired.resource.001.logicalId=QuickSight_Group_001',
             'desired.service.identity.lastAllocated={"QuickSight.Group":1}',
             'desired.row.001-001.property=QuickSight.Group.Arn',
-            'desired.row.001-001.value=resource://dev/123456789012/quicksight/QuickSight_Group_001',
+            'desired.row.001-001.value=[QuickSight_Group_001](quicksight.md#resource-QuickSight_Group_001)',
         ]) + '\n')
         with pytest.raises(Blocked, match='reference attribute not confirmed: Arn'):
-            comparison.desired_reference('s3', 'resource://dev/123456789012/quicksight/QuickSight_Group_001',
+            comparison.desired_reference('s3', '[QuickSight_Group_001](quicksight.md#resource-QuickSight_Group_001)',
                                          'QuickSight.DataSource', 'Permissions[].Principal')
         with pytest.raises(Blocked, match='reference target must be'):
             comparison.desired_reference('s3', links['Role'], 'QuickSight.DataSource', 'Permissions[].Principal')
@@ -2048,10 +2048,10 @@ def check_aws_standard_comparison(_network):
         root = Path(directory)
         _, template = fixture(root, services=['s3'])
         stack = 'cfn-stack-app-dev-data1'
-        role = 'resource://dev/123456789012/iam/IAM_Role_001'
-        policy = 'resource://dev/123456789012/iam/IAM_ManagedPolicy_001'
-        secret = 'resource://dev/123456789012/secrets-manager/SecretsManager_Secret_001'
-        bucket = 'resource://dev/123456789012/s3/S3_Bucket_001'
+        role = '[IAM_Role_001](iam.md#resource-IAM_Role_001)'
+        policy = '[IAM_ManagedPolicy_001](iam.md#resource-IAM_ManagedPolicy_001)'
+        secret = '[SecretsManager_Secret_001](secrets-manager.md#resource-SecretsManager_Secret_001)'
+        bucket = '[S3_Bucket_001](s3.md#s3-bucket-app-dev-data1)'
         specs = {
             'iam': [('Role', 'IAM.Role', 'role', [('RoleName', '`role`'), ('ManagedPolicyArns', policy)]),
                     ('Policy', 'IAM.ManagedPolicy', 'policy', [('Roles', role)])],

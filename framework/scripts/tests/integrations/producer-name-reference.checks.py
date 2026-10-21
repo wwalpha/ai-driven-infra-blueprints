@@ -39,7 +39,7 @@ def check(root):
                 values.update({'desired.row.008-002.property': 'CodeBuild.Project.Environment.EnvironmentVariables[].Name',
                                'desired.row.008-002.value': '`AWS_REGION`', 'desired.row.008-002.comment': '入れ子Nameは名前参照に使わない',
                                'desired.row.008-003.property': 'CodeBuild.Project.LogsConfig.CloudWatchLogs.GroupName',
-                               'desired.row.008-003.value': 'resource://' + env + '/team/cloudwatch-logs/Logs_LogGroup_002', 'desired.row.008-003.comment': '循環する保存リンク'})
+                               'desired.row.008-003.value': '[logs](cloudwatch-logs.md#cloudwatch-logs-original)', 'desired.row.008-003.comment': '循環する保存リンク'})
             write_model(producer, values)
             producers[producer] = values
         path = root / 'model' / env / 'team/cloudwatch-logs.properties'
@@ -65,7 +65,7 @@ def check(root):
         for name in ('Project', 'Repository', 'ExecutionRole'):
             service, rid, kind, _ = specs[name]
             label = 'existing-role-label' if name == 'ExecutionRole' else names[name]
-            link = 'resource://' + env + '/team/' + service + '/' + kind.replace('.', '_') + '_' + rid
+            link = f'[{names[name]}]({service}.md#{service}-original)'
             consumer = 'desired.note.' + name + 'Link.text'
             values[consumer] = link
             values.update(reference(name + 'Link', consumer, link, service, rid, kind, mode='link',

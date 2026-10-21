@@ -227,7 +227,7 @@ def main(argv=None):
     from generation_inputs import GenerationInputs
     from validation_cache import recording_inputs
     from task_contract import selected_task, validate_contract, paths_in, matches
-    from sync_files import atomic_files
+    from utils.file_operations import atomic_files
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repository-root', type=Path, default=Path.cwd())
     parser.add_argument('--environment', required=True)

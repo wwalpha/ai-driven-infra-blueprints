@@ -154,6 +154,8 @@ def check_venv_fallback():
         scripts = root / "framework/scripts"
         for name in ("run-python.py", "worktree_python.py", "worktree_task.py", "task_contract.py", "sync_files.py", "validation_cache.py"):
             shutil.copyfile(Path(py.__file__).with_name(name), scripts / name)
+        (scripts / "utils").mkdir(exist_ok=True)
+        shutil.copyfile(Path(py.__file__).parent / "utils/file_operations.py", scripts / "utils/file_operations.py")
         checks.git(root, "add", ".")
         checks.git(root, "commit", "-qm", "wrapper")
         with patch.object(py, "IMPORTS", []), patch.dict(py.os.environ, {"PIP_NO_INDEX": "1"}), \

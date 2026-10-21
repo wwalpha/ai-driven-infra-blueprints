@@ -74,7 +74,7 @@ def check_parts_and_large_resource():
         for index in range(3, 220):
             values.update({f'desired.row.007-{index:03d}.{field}': value for field, value in (
                 ('property', 'EC2.VPC.Name'), ('value', 'example'), ('comment', '合成行'))})
-        values.update({'desired.resource.008.resourceType': 'EC2.VPC', 'desired.resource.008.logicalId': 'EC2_VPC_002', 'desired.service.identity.lastAllocated': '{"EC2.VPC":2}'})
+        values.update({'desired.resource.008.resourceType': 'EC2.VPC', 'desired.resource.008.logicalId': 'EC2_VPC_002', 'desired.resource.008.anchor': 'resource-EC2_VPC_002', 'desired.service.identity.lastAllocated': '{"EC2.VPC":2}'})
         output = split(scope.path, values)
         assert output[scope.path].splitlines()[1] == INDEX
         assert len(next(text for path, text in output.items() if path != scope.path).splitlines()) > 600
@@ -268,7 +268,7 @@ def check_declared_and_direct_links_coalesce_or_retain_conflicts():
         scope.path.write_text(serialize(values), encoding='utf-8')
         model = load_model(scope)
         assert len([usage for usage in usages(model) if usage.consumer_key == key]) == 1
-        values.update({'desired.resource.008.resourceType': 'EC2.VPC', 'desired.resource.008.logicalId': 'EC2_VPC_002', 'desired.service.identity.lastAllocated': '{"EC2.VPC":2}',
+        values.update({'desired.resource.008.resourceType': 'EC2.VPC', 'desired.resource.008.logicalId': 'EC2_VPC_002', 'desired.resource.008.anchor': 'resource-EC2_VPC_002', 'desired.service.identity.lastAllocated': '{"EC2.VPC":2}',
                        'desired.reference.stable.producerLogicalId': 'EC2_VPC_002'})
         scope.path.write_text(serialize(values), encoding='utf-8')
         original = scope.path.read_bytes()
@@ -320,7 +320,7 @@ def check_properties_import_review_operations(action):
             from model.identity import allocate
             del after['desired.resource.008.logicalId']
             after = allocate(after, ['008'])
-            after['desired.row.008-001.value'] = 'resource://qa-custom/one/network/EC2_VPC_002'
+            after['desired.row.008-001.value'] = '[EC2_VPC_002](network.md#resource-EC2_VPC_002)'
         after[f'observed.row.{rid}-001.value'] = acquisition['records'][0]['identity']
         review = build_review(acquisition, selection, before, after, {'record-one': []}, lambda prop: {'type': 'string'})
         assert review['version'] == 4 and len(review['dispositions']) == 1
@@ -336,11 +336,11 @@ def check_properties_reference_review_after_map_and_ownership(change):
     from model.importing.approval import build_review, reference_provenance, verify_review
     with tempfile.TemporaryDirectory() as directory:
         scope, values = fixture(Path(directory))
-        values.update({'desired.resource.008.resourceType': 'EC2.VPC', 'desired.resource.008.logicalId': 'EC2_VPC_002', 'desired.service.identity.lastAllocated': '{"EC2.VPC":2}',
+        values.update({'desired.resource.008.resourceType': 'EC2.VPC', 'desired.resource.008.logicalId': 'EC2_VPC_002', 'desired.resource.008.anchor': 'resource-EC2_VPC_002', 'desired.service.identity.lastAllocated': '{"EC2.VPC":2}',
             'desired.resource.008.resourceMode': 'IMPORT', 'desired.row.008-001.property': 'EC2.VPC.VpcId',
-            'desired.row.008-001.value': 'resource://qa-custom/one/network/EC2_VPC_002', 'desired.row.008-001.comment': '合成',
+            'desired.row.008-001.value': '[EC2_VPC_002](network.md#resource-EC2_VPC_002)', 'desired.row.008-001.comment': '合成',
             'observed.row.008-001.value': 'vpc-second', 'observed.row.007-001.value': 'vpc-original'})
-        spec = {'consumerKey': 'desired.row.007-001.value', 'text': 'resource://qa-custom/one/network/EC2_VPC_001', 'occurrence': '1',
+        spec = {'consumerKey': 'desired.row.007-001.value', 'text': '[007](#network)', 'occurrence': '1',
                 'producerKind': 'resource', 'producerScope': 'qa-custom/one/network', 'producerLogicalId': 'EC2_VPC_001',
                 'resourceType': 'EC2.VPC', 'format': 'link', 'labelPolicy': 'fixed'}
         values.update({f'desired.reference.stable.{field}': value for field, value in spec.items()})
@@ -348,7 +348,7 @@ def check_properties_reference_review_after_map_and_ownership(change):
         before = load_model(scope)
         acquisition, selection = acquisition_fixture(before)
         proposed = {} if change.startswith('delete') else {'stable': {**spec,
-            **({'consumerKey': 'desired.row.008-001.value', 'text': 'resource://qa-custom/one/network/EC2_VPC_002'} if change == 'move-unselected'
+            **({'consumerKey': 'desired.row.008-001.value', 'text': '[EC2_VPC_002](network.md#resource-EC2_VPC_002)'} if change == 'move-unselected'
                else {'producerLogicalId': 'EC2_VPC_002', 'labelPolicy': 'display-name'})}}
         if change == 'delete-unselected':
             acquisition['records'][0]['identity'] = 'vpc-second'
@@ -661,7 +661,7 @@ def check_properties_model_operation_preservation(tmp_path, monkeypatch, change)
     candidate = {key: value for key, value in values.items() if owner(key, values) != ('resource', '007')}
     if change != 'delete':
         candidate['observed.row.008-001.value'] = values['observed.row.007-001.value']
-        candidate['desired.row.008-002.document'] = values['desired.row.007-002.document'].replace('resource://qa-synthetic/team-a/iam/IAM_Role_007', 'resource://qa-synthetic/team-a/iam/IAM_Role_008')
+        candidate['desired.row.008-002.document'] = values['desired.row.007-002.document'].replace('[role](#role-source)', '[role](#role-destination)')
     if change == 'identity':
         candidate['desired.resource.008.logicalId'] = 'changed'
     elif change == 'observation':

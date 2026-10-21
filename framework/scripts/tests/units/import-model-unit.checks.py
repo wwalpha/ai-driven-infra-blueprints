@@ -16,7 +16,7 @@ import import_guard
 from model.sources import candidate_sources
 from model.importing.sources import property_values, selection_records, verify_values, typed_equal
 from support.model_v2_fixtures import value_snapshot as Expansion
-from yaml_values import yaml_read
+from utils.yaml_format import yaml_read
 from script_loader import module
 
 from model.importing import cli as m

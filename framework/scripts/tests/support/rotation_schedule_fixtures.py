@@ -18,16 +18,17 @@ def fixture(count=1):
         for identity, kind, identifier in ((parent, SECRET, logical), (child, ROTATION, child_id)):
             values.update({f"desired.resource.{identity}.resourceType": kind,
                            f"desired.resource.{identity}.logicalId": identifier,
+                           f"desired.resource.{identity}.anchor": HELPERS.resource_anchor('secretsmanager', name if kind == SECRET else child_name, kind),
                            f"desired.resource.{identity}.cfn-logicalId": "fixture-" + (f"Secret{number + 1}" if kind == SECRET else f"Secret{number + 1}Rotation")})
         values.update({f"display.resource.{parent}.comment": "アプリケーション用secret",
                        f"display.resource.{child}.label": child_name,
                        f"desired.resource.{child}.parentProperty": ROTATION + ".SecretId",
-                       f"desired.resource.{child}.parentReference": f"resource://dev/123456789012/secretsmanager/{logical}"})
+                       f"desired.resource.{child}.parentReference": f"[{name}](#{HELPERS.resource_anchor('secretsmanager', name, SECRET)})"})
         for identity, kind, rows in (
             (parent, SECRET, [("Name", f"`{name}`", None)]),
             (child, ROTATION, [("RotateImmediatelyOnUpdate", "`false`", None),
                                ("RotationRules.AutomaticallyAfterDays", "`30`", None),
-                               ("SecretId", f"resource://dev/123456789012/secretsmanager/{logical}", None)]),
+                               ("SecretId", f"[{name}](#{HELPERS.resource_anchor('secretsmanager', name, SECRET)})", None)]),
         ):
             for index, (field, value, observed) in enumerate(rows, 1):
                 key = f"{identity}-{index:03d}"

@@ -15,17 +15,17 @@ def check(root, service, kind, property_name):
     original = resource('052', kind, service + '-original', [(property_name, '`Original-Case_01`'), ('Nested.Name', '`unrelated-nested-name`')])
     if service == 'lambda':
         original.update(resource('053', 'Lambda.Permission', 'lambda-invoke-permission', [
-            ('FunctionName', 'resource://preview/team/lambda/Lambda_Function_052'), ('Principal', '`events.amazonaws.com`'),
-            ('SourceArn', 'resource://preview/team/eventbridge/Events_Rule_021')]))
+            ('FunctionName', '[Original-Case_01](lambda.md#lambda-original)'), ('Principal', '`events.amazonaws.com`'),
+            ('SourceArn', '[Events_Rule_021](eventbridge.md#eventbridge-rule)')]))
         original.update({'desired.resource.053.parentProperty': 'Lambda.Permission.FunctionName',
-                         'desired.resource.053.parentReference': 'resource://preview/team/lambda/Lambda_Function_052'})
+                         'desired.resource.053.parentReference': '[Original-Case_01](lambda.md#lambda-original)'})
     original['desired.service.identity.lastAllocated'] = json.dumps({kind: 52, **({'Lambda.Permission': 53} if service == 'lambda' else {})})
     write_model(producer, original)
     path = producer.with_name('eventbridge.properties')
     values = resource('021', 'Events.Rule', 'eventbridge-rule', [('Name', '`rule`'), ('EventPattern', '[config](eventbridge/raw.json)')])
     key = 'desired.row.021-002.document'
     values[key] = json.dumps({'name': 'Original-Case_01', 'count': 2, 'enabled': True})
-    link = 'resource://preview/team/' + service + '/' + kind.replace('.', '_') + '_052'
+    link = f'[Original-Case_01]({service}.md#{service}-original)'
     values['desired.note.link.text'] = link
     values.update(reference('link', 'desired.note.link.text', link, service, '052', kind, mode='link', label='fixed'))
     values.update(reference('raw', key, 'Original-Case_01', service, '052', kind, prop=kind + '.' + property_name, pointer='/name'))

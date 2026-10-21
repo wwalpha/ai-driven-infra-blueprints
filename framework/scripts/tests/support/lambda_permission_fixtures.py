@@ -54,12 +54,13 @@ def fixture(parents=1, children=1, deployed=False):
         anchor = resource_anchor("lambda", name)
         values.update({f"desired.resource.{identity}.resourceType": FUNCTION,
                        f"desired.resource.{identity}.logicalId": logical,
+                       f"desired.resource.{identity}.anchor": anchor,
                        f"desired.resource.{identity}.cfn-logicalId": f"fixture-Worker{parent + 1}",
                        f"display.resource.{identity}.comment": "業務データを処理する関数"})
         rows = [("FunctionName", f"`{name}`"),
                 ("Code.ImageUri", "`123456789012.dkr.ecr.ap-northeast-1.amazonaws.com/worker:latest`"),
                 ("PackageType", "`Image`"),
-                ("Role", "resource://dev/123456789012/iam/IAM_Role_001")]
+                ("Role", "[Role](iam.md#iam-app-dev-worker-role)")]
         for index, (field, value) in enumerate(rows, 1):
             key = f"desired.row.{identity}-{index:03d}"
             values.update({key + ".property": FUNCTION + "." + field,
@@ -69,14 +70,15 @@ def fixture(parents=1, children=1, deployed=False):
             child_id = f"{number:03d}"
             child_name, child_logical = f"app-dev-invoke-{parent + 1}-{child + 1}", f"Lambda_Permission_{parent * children + child + 1:03d}"
             child_anchor = resource_anchor("lambda", child_name)
-            reference = f"resource://dev/123456789012/lambda/{logical}"
+            reference = f"[{name}](#{anchor})"
             values.update({f"desired.resource.{child_id}.resourceType": PERMISSION,
                            f"desired.resource.{child_id}.logicalId": child_logical,
+                           f"desired.resource.{child_id}.anchor": child_anchor,
                            f"desired.resource.{child_id}.cfn-logicalId": f"fixture-Invoke{parent + 1}Child{child + 1}",
                            f"desired.resource.{child_id}.parentProperty": PERMISSION + ".FunctionName",
                            f"desired.resource.{child_id}.parentReference": reference,
                            f"display.resource.{child_id}.label": child_name})
-            rows = [("Id", f"resource://dev/123456789012/lambda/{child_logical}"),
+            rows = [("Id", f"[{child_logical}](#{child_anchor})"),
                     ("Action", "`lambda:InvokeFunction`"),
                     ("EventSourceToken", "`source-token`"),
                     ("FunctionName", reference),

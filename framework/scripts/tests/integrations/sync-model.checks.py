@@ -98,10 +98,10 @@ def check_stage_definition_sources(generated_policy, tmp_path):
         write_model(producer, {
             'desired.service.kms.serviceId': 'kms',
             'desired.resource.001.resourceType': 'KMS.Key',
-            'desired.resource.001.logicalId': 'KMS_Key_001',
+            'desired.resource.001.logicalId': 'KMS_Key_001', 'desired.resource.001.anchor': 'resource-KMS_Key_001',
             'desired.service.identity.lastAllocated': '{"KMS.Key":1}',
             'desired.row.001-001.property': 'KMS.Key.KeyId',
-            'desired.row.001-001.value': f'resource://{environment}/123456789012/kms/KMS_Key_001',
+            'desired.row.001-001.value': '[Key](#resource-KMS_Key_001)',
             'desired.row.001-001.comment': '合成識別子',
             'observed.row.001-001.value': '`source-key`',
         })

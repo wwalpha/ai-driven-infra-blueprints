@@ -97,7 +97,7 @@ def main():
             bad = {**values, "desired.resource.002.parentReference": reference}
             rejects(lambda: markdown_for(path, bad, root), "parentReference")
         for key, value in (("desired.resource.002.parentProperty", ROTATION + ".Id"),
-                           ("desired.row.002-003.value", "resource://dev/123456789012/secretsmanager/SecretsManager_Secret_002"),
+                           ("desired.row.002-003.value", "[Secret2](#secretsmanager-app-dev-secret-2)"),
                            ("desired.row.002-003.value", "[Wrong](#resource-SecretsManager_Secret_001)")):
             bad = {**values, key: value}
             rejects(lambda: markdown_for(path, bad, root), "invalid grouped parentProperty" if key.endswith("parentProperty") else "grouped formal row does not match parentReference")
@@ -138,18 +138,18 @@ def main():
             assert '| Id |' not in rendered
             assert legacy[f'desired.row.{identity}-099.value'] == '`PENDING_DEPLOY`'
         path.write_text(output)
-        mismatch = {**values, "desired.resource.002.parentReference": "resource://dev/123456789012/secretsmanager/SecretsManager_Secret_002"}
+        mismatch = {**values, "desired.resource.002.parentReference": "[Secret2](#secretsmanager-app-dev-secret-2)"}
         rejects(lambda: markdown_for(path, mismatch, root), "grouped formal row does not match parentReference")
 
         # Real sync: simultaneous KMS and Secrets Manager updates and rollback.
         models = root / "model/dev/123456789012"
         models.mkdir(parents=True, exist_ok=True)
         key = HELPERS.model("kms", "KMS.Key", "app-dev-key", [
-            ("KeyId", "resource://dev/123456789012/kms/KMS_Key_001", "鍵のID")], "Key", "app-dev-key")
+            ("KeyId", "[KMS_Key_001](kms.md#kms-app-dev-key)", "鍵のID")], "Key", "app-dev-key")
         key.update({"observed.row.001-001.property": "KMS.Key.KeyId",
                     "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": "鍵のID"})
         for identity in ("001", "003"):
-            for namespace, value in (("desired", "resource://dev/123456789012/kms/KMS_Key_001"), ("observed", "PENDING_DEPLOY")):
+            for namespace, value in (("desired", "[KMS_Key_001](kms.md#kms-app-dev-key)"), ("observed", "PENDING_DEPLOY")):
                 values.update({f"{namespace}.row.{identity}-002.property": SECRET + ".KmsKeyId",
                                f"{namespace}.row.{identity}-002.value": value,
                                f"{namespace}.row.{identity}-002.comment": "暗号化する鍵"})
@@ -179,7 +179,7 @@ def main():
         assert 'id="resource-KMS_Key_001"' in (path.parent / "kms.md").read_text()
         assert properties(read_model(models / 'secretsmanager.properties')) == properties(HELPERS.text(values))
         # Repair only the source in a later task against the already saved KMS view.
-        values["desired.resource.002.parentReference"] = "resource://dev/123456789012/secretsmanager/SecretsManager_Secret_001"
+        values["desired.resource.002.parentReference"] = "[Secret1](#secretsmanager-app-dev-secret-1)"
         save()
         SYNC.sync(root, True, "dev", "123456789012", services=["secretsmanager"])
         SYNC.sync(root, False, "dev", "123456789012")

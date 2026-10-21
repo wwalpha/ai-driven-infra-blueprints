@@ -20,7 +20,8 @@ import tempfile
 
 from model.core import entries, resource_row_index
 from policy_tables import literal
-from sync_files import atomic_files, save_files
+from utils.file_operations import atomic_files
+from sync_files import save_files
 from task_contract import contracts, section, task_path, contract_path
 from validation_cache import input_bytes, input_text, input_is_file, input_select, input_scope
 from utils.aws_mappings import definition_root, mappings_for, mapping_alias

@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-from model.identity import allocate
+from support.model_sources import allocate_fixture as allocate
 
 from support.model_sources import snapshot_model
 from model.files import read_model
@@ -279,7 +279,7 @@ def fixture(root, names, models=False):
                 f"display.resource.{identity}.comment": "ネットワークを構成するresource"})
             values.update(allocate(values, [identity]))
             rows = [("Name", f"`vpc-test-dev-{name.lower()}`"),
-                    ("VpcId", f"resource://dev/123456789012/ec2/EC2_VPC_{identity}"),
+                    ("VpcId", f"[{identity}](#resource-EC2_VPC_{identity})"),
                     ("CidrBlock", f"`10.{number}.0.0/16`")]
             for index, (prop, value) in enumerate(rows, 1):
                 prefix = f"desired.row.{identity}-{index:03d}"
@@ -293,8 +293,8 @@ def fixture(root, names, models=False):
             "display.resource.099.comment": "接続先subnet"})
         values.update(allocate(values, ['099']))
         for index, (prop, value) in enumerate([
-            ("Name", "`sbnt-test-dev-private-app-a-01`"), ("VpcId", "resource://dev/123456789012/ec2/EC2_VPC_001"),
-            ("SubnetId", "resource://dev/123456789012/ec2/EC2_Subnet_001"), ("CidrBlock", "`10.1.1.0/24`")], 1):
+            ("Name", "`sbnt-test-dev-private-app-a-01`"), ("VpcId", "[EC2_VPC_001](ec2.md#resource-EC2_VPC_001)"),
+            ("SubnetId", "[EC2_Subnet_001](ec2.md#resource-EC2_Subnet_001)"), ("CidrBlock", "`10.1.1.0/24`")], 1):
             prefix = f"desired.row.099-{index:03d}"
             values.update({prefix + ".property": "EC2.Subnet." + prop, prefix + ".value": value, prefix + ".comment": "設定値"})
         values["observed.row.099-002.value"] = "`vpc-old-A`"
@@ -454,8 +454,9 @@ def check_observed(managed_destroy_root):
                 values[key.replace(".003", ".004", 1)] = value.replace("test-dev-c", "test-dev-unimplemented").replace("vpc-old-C", "PENDING_DEPLOY").replace("[003]", "[SnowCatConn]")
         del values["desired.resource.004.cfn-logicalId"]
         values["desired.resource.004.logicalId"] = "EC2_VPC_004"
+        values["desired.resource.004.anchor"] = "resource-EC2_VPC_004"
         values["desired.service.identity.lastAllocated"] = '{"EC2.VPC":4,"EC2.Subnet":1}'
-        values["desired.row.004-002.value"] = "resource://dev/123456789012/ec2/EC2_VPC_004"
+        values["desired.row.004-002.value"] = "[EC2_VPC_004](ec2.md#resource-EC2_VPC_004)"
         write_model(source, "\n".join(key + "=" + value for key, value in values.items()) + "\n")
         rejects(lambda: markdown_for(design, values, root), "cfn-logicalId")
         before = properties(read_model(source))
@@ -513,7 +514,7 @@ def check_observed(managed_destroy_root):
         project["targets"].append({"environment": "prod", **TARGET, "awsAccountId": "999999999999"})
         (root / "project.json").write_text(json.dumps(project) + "\n")
         outside = root / "model/prod/999999999999/ec2.properties"; outside.parent.mkdir(parents=True)
-        write_model(outside, "desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_001\ndesired.service.identity.lastAllocated={\"EC2.Subnet\":1}\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=resource://dev/123456789012/ec2/EC2_VPC_001\ndesired.row.001-001.comment=参照\n")
+        write_model(outside, 'desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_001\ndesired.resource.001.anchor=resource-EC2_Subnet_001\ndesired.service.identity.lastAllocated={"EC2.Subnet":1}\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=[EC2_VPC_001](ec2.md#resource-EC2_VPC_001)\ndesired.row.001-001.comment=参照\n')
         rejects(lambda: M.local_plan(root, "dev", "123456789012", ["A"]), "task scope violation")
         from model.sources import model_parts
         for file in model_parts(outside):

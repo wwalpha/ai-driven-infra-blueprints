@@ -30,7 +30,7 @@ def check_resource_reading(root):
         kind = "KMS.Alias" if number in (2, 3) else "KMS.Key"
         values.update({
             f"desired.resource.{identity}.resourceType": kind,
-            f"desired.resource.{identity}.logicalId": kind.replace(".", "_") + "_" + identity,
+            f"desired.resource.{identity}.logicalId": kind.replace(".", "_") + "_" + identity, f'desired.resource.{identity}.anchor': 'resource-' + (kind.replace('.', '_') + '_' + identity),
             f"desired.resource.{identity}.resourceMode": "CREATE",
             f"display.resource.{identity}.comment": f"用途{number}",
             f"desired.row.{identity}-001.property": f"{kind}.Description",
@@ -38,13 +38,13 @@ def check_resource_reading(root):
             f"desired.row.{identity}-001.comment": f"説明{number}",
         })
         if number in (2, 3):
-            values[f"desired.resource.{identity}.parentReference"] = "resource://dev/123456789012/kms/KMS_Key_001"
+            values[f"desired.resource.{identity}.parentReference"] = "[KMS_Key_001](kms.md#resource-KMS_Key_001)"
             values[f"desired.resource.{identity}.parentProperty"] = "KMS.Alias.TargetKeyId"
         if number == 1:
             values.update({
                 "desired.row.001-002.property": "KMS.Key.KeyId",
                 "desired.row.001-002.comment": "識別子",
-                "desired.row.001-002.value": "resource://dev/123456789012/kms/KMS_Key_001",
+                "desired.row.001-002.value": "[KMS_Key_001](kms.md#resource-KMS_Key_001)",
                 "observed.row.001-002.property": "KMS.Key.KeyId",
                 "observed.row.001-002.value": "12345678-current-key-id",
                 "desired.row.001-003.property": "KMS.Key.KeyPolicy",
@@ -171,11 +171,11 @@ def check_resource_reading(root):
     text = serialize(authority)
     for invalid in (
         text.replace('desired.resource.002.logicalId=KMS_Alias_002', 'desired.resource.002.logicalId=KMS_Key_001'),
-        text.replace('resource://dev/123456789012/kms/KMS_Key_001', 'resource://dev/123456789012/kms/KMS_Key_999'),
-        text.replace('resource://dev/123456789012/kms/KMS_Key_001', 'resource://dev/123456789012/other/KMS_Key_001'),
+        text.replace('[KMS_Key_001](kms.md#resource-KMS_Key_001)', '[KMS_Key_999](kms.md#resource-KMS_Key_999)'),
+        text.replace('[KMS_Key_001](kms.md#resource-KMS_Key_001)', '[KMS_Key_001](other.md#resource-KMS_Key_001)'),
     ):
         try:
-            resource_keys(invalid, 'KMS_Key_001')
+            resource_keys(invalid, 'KMS_Key_001', scope=load_model(source).scope)
         except ValueError:
             pass
         else:
@@ -185,7 +185,7 @@ def check_resource_reading(root):
     write_model(producer, {
         'desired.resource.001.resourceType': 'IAM.Role',
         'desired.service.identity.lastAllocated': '{"IAM.Role":1}',
-        'desired.resource.001.logicalId': 'IAM_Role_001',
+        'desired.resource.001.logicalId': 'IAM_Role_001', 'desired.resource.001.anchor': 'resource-IAM_Role_001',
         'desired.resource.001.resourceMode': 'CREATE',
         'desired.row.001-001.property': 'IAM.Role.RoleName',
         'desired.row.001-001.value': '`shared-role`',

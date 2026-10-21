@@ -21,7 +21,7 @@ def check(root):
     values = {}
     for rid, label, policy in [('021', 'app-preview-one', 'display-name'), ('083', 'PENDING_DEPLOY', 'fixed')]:
         key = f'desired.row.{rid}-001.value'
-        link = 'resource://preview/team/security-group/EC2_SecurityGroup_052'
+        link = f'[{label}](security-group.md#security-group-app-preview-one)'
         values.update(resource(rid, 'QuickSight.VPCConnection', 'quicksight-' + rid, [('SecurityGroupIds', link)]))
         values.update(reference('security-group-' + rid, key, link, 'security-group', '052', 'EC2.SecurityGroup', mode='link', label=policy))
     values['desired.note.producerName.text'] = 'app-preview-one'
@@ -29,8 +29,8 @@ def check(root):
     write_model(path, values)
     snapshot = load_model(path)
     assert not snapshot.warnings, snapshot.warnings
-    assert snapshot.authoritative['desired.row.021-001.value'] == 'resource://preview/team/security-group/EC2_SecurityGroup_052'
-    assert snapshot.authoritative['desired.row.083-001.value'] == 'resource://preview/team/security-group/EC2_SecurityGroup_052'
+    assert snapshot.authoritative['desired.row.021-001.value'] == '[app-preview-one](security-group.md#security-group-app-preview-one)'
+    assert snapshot.authoritative['desired.row.083-001.value'] == '[PENDING_DEPLOY](security-group.md#security-group-app-preview-one)'
     assert producer in source_inputs(path)
     assert affected(root, [producer.relative_to(root)]) == {('preview', 'team', 'security-group'), ('preview', 'team', 'quicksight')}
     digest, dependencies = design_source_digest(path), dependency_hashes(path)

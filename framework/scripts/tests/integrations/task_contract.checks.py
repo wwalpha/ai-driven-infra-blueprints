@@ -208,7 +208,7 @@ def check_shared_issue_files(tmp_path, monkeypatch):
 
 
 def check_atomic_output_rollback(tmp_path):
-    from sync_files import atomic_files
+    from utils.file_operations import atomic_files
     files = {tmp_path / 'one.txt': 'first', tmp_path / 'two.txt': 'second'}
     for path, value in files.items():
         path.write_text(value)

@@ -42,15 +42,15 @@ def check(root):
         ('Name', '`cbld-app-preview-build`', '名前'), ('Artifacts.Type', '`NO_ARTIFACTS`', '成果物'),
         ('Environment.ComputeType', '`BUILD_GENERAL1_SMALL`', '容量'), ('Environment.Image', '`aws/codebuild/standard:7.0`', 'イメージ'),
         ('Environment.Type', '`LINUX_CONTAINER`', '方式'), ('ServiceRole', '`build-role`', '実行role'), ('Source.Type', '`NO_SOURCE`', '入力'),
-        ('Id', 'resource://preview/team/codebuild/CodeBuild_Project_001', '識別子')], 'BuildProject')
+        ('Id', '[CodeBuild_Project_001](codebuild.md#codebuild-cbld-app-preview-build)', '識別子')], 'BuildProject')
     build['observed.row.001-008.value'] = '`PENDING_DEPLOY`'
     anchor = 'kms-app-preview-data'
-    kms = MODELS.model('kms', 'KMS.Key', 'app-preview-data', [('KeyId', 'resource://preview/team/kms/KMS_Key_001', '識別子')], 'Key')
+    kms = MODELS.model('kms', 'KMS.Key', 'app-preview-data', [('KeyId', '[KMS_Key_001](kms.md#kms-app-preview-data)', '識別子')], 'Key')
     kms.update({'desired.service.kms.ownedCatalogResourceTypes': 'KMS.Key,KMS.Alias',
-        'desired.resource.002.resourceType': 'KMS.Alias', 'desired.resource.002.logicalId': 'KMS_Alias_001',
+        'desired.resource.002.resourceType': 'KMS.Alias', 'desired.resource.002.logicalId': 'KMS_Alias_001', 'desired.resource.002.anchor': 'resource-KMS_Alias_001',
         'desired.service.identity.lastAllocated': '{"KMS.Key":1,"KMS.Alias":1}',
         'desired.resource.002.cfn-logicalId': 'fixture-Alias', 'desired.resource.002.parentProperty': 'KMS.Alias.TargetKeyId',
-        'desired.resource.002.parentReference': 'resource://preview/team/kms/KMS_Key_001', 'desired.row.002-001.property': 'KMS.Alias.AliasName',
+        'desired.resource.002.parentReference': '[KMS_Key_001](kms.md#kms-app-preview-data)', 'desired.row.002-001.property': 'KMS.Alias.AliasName',
         'desired.row.002-001.value': '`alias/app-preview-data`', 'desired.row.002-001.comment': 'キーの別名',
         'observed.row.001-001.value': '`PENDING_DEPLOY`'})
     build_path = root / 'model/preview/team/codebuild.properties'
@@ -62,7 +62,7 @@ def check(root):
     assert sync_runtime.sync(root, True, 'preview', 'team', services=['codebuild']) == 0
     vpc_path = build_path.with_name('vpc.properties')
     vpc = dict(load_model(vpc_path).authoritative)
-    vpc['desired.note.001.text'] = '参照: resource://preview/team/codebuild/CodeBuild_Project_001'
+    vpc['desired.note.001.text'] = '参照: [CodeBuild_Project_001](codebuild.md#codebuild-cbld-app-preview-build)'
     write_model(vpc_path, vpc)
     for path, key in [(vpc_path, 'desired.row.017-001.value'), (build_path, 'desired.row.001-001.value'), (kms_path, 'desired.row.002-001.value')]:
         assert sync_runtime.sync(root, True, 'preview', 'team', services=[path.stem]) == 0
@@ -73,7 +73,7 @@ def check(root):
         assert sync_runtime.sync(root, True, 'preview', 'team', services=[path.stem]) == 0
         after = load_model(path)
         assert {key for key in before.authoritative if before.authoritative[key] != after.authoritative[key]} == {key}
-        assert bound_resource_anchors(path) == {(resource['resourceType'], resource['logicalId']): 'resource-' + resource['logicalId'] for _, resource in entries(before.authoritative, 'desired.resource.')}
+        assert bound_resource_anchors(path) == {(resource['resourceType'], resource['logicalId']): resource['anchor'] for _, resource in entries(before.authoritative, 'desired.resource.')}
         doc = validated(root, path)
         saved = {p: p.read_bytes() for base in ('model', 'docs/designs') for p in (root / base).rglob('*') if p.is_file()}
         write_model(path, values)

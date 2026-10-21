@@ -81,15 +81,15 @@ def check_kms_alias(root):
     fixture(root)
     producer = root / 'model/preview/team/kms.properties'
     values = service_values('kms', ['KMS.Key', 'KMS.Alias'])
-    values.update(resource_values('011', 'KMS.Key', 'kms-material-key', 'CREATE', [('KeyId', 'resource://preview/team/kms/KMS_Key_011')]))
+    values.update(resource_values('011', 'KMS.Key', 'kms-material-key', 'CREATE', [('KeyId', '[KMS_Key_011](kms.md#kms-material-key)')]))
     values.update(resource_values('012', 'KMS.Alias', 'kms-alias-app-preview-material-one', 'CREATE', [
-        ('AliasName', '`alias/app-preview-material-one`'), ('TargetKeyId', 'resource://preview/team/kms/KMS_Key_011')]))
+        ('AliasName', '`alias/app-preview-material-one`'), ('TargetKeyId', '[KMS_Key_011](kms.md#kms-material-key)')]))
     values['desired.resource.012.parentProperty'] = 'KMS.Alias.TargetKeyId'
-    values['desired.resource.012.parentReference'] = 'resource://preview/team/kms/KMS_Key_011'
+    values['desired.resource.012.parentReference'] = '[KMS_Key_011](kms.md#kms-material-key)'
     values['desired.service.identity.lastAllocated'] = json.dumps({'KMS.Key': 11, 'KMS.Alias': 12})
     write_model(producer, values)
     path = producer.with_name('codecommit.properties')
-    link = 'resource://preview/team/kms/KMS_Alias_012'
+    link = '[KMS_Alias_012](kms.md#kms-alias-app-preview-material-one)'
     consumer = service_values('codecommit', ['CodeCommit.Repository'])
     consumer.update(resource_values('021', 'CodeCommit.Repository', 'codecommit-repository', 'CREATE', [
         ('KmsKeyId', link), ('RepositoryDescription', 'alias/app-preview-material-one')]))

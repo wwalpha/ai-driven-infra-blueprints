@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 from datetime import datetime, timezone, timedelta
 
-from sync_files import atomic_files
+from utils.file_operations import atomic_files
 from issue_gate import unresolved_services
 from task_contract import task_path, paths_in, safe_path, section, status
 from validation_scope import active_scope

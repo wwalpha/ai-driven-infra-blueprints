@@ -31,7 +31,7 @@ def build_generated_policy(root, definitions_root=None):
         'desired.service.iam.ownedCatalogResourceTypes': 'IAM.Role',
         'display.service.title': '# IAM 詳細設計',
         'desired.resource.001.resourceType': 'IAM.Role',
-        'desired.resource.001.logicalId': 'IAM_Role_001',
+        'desired.resource.001.logicalId': 'IAM_Role_001', 'desired.resource.001.anchor': 'resource-IAM_Role_001',
         'desired.service.identity.lastAllocated': '{"IAM.Role":1}',
         'desired.resource.001.cfn-logicalId': 'cfn-stack-app-dev-iam-AppRole',
         'display.resource.001.comment': 'アプリケーションの実行権限',

@@ -36,7 +36,7 @@ def check(root):
     assert sync_runtime.sync(root, True, 'preview', 'team', services=['s3']) == 0
     assert bound_resource_anchors(path) == {('S3.Bucket', 'S3_Bucket_003'): 'resource-S3_Bucket_003'}
     consumer = path.with_name('cloudtrail.properties')
-    linked = 'resource://preview/team/s3/S3_Bucket_003'
+    linked = '[S3_Bucket_003](s3.md#s3-archive-original)'
     candidate = resource('087', 'CloudTrail.Trail', 'cloudtrail-job', [('S3BucketName', linked)])
     candidate.update(reference('bucket', 'desired.row.087-001.value', linked, 's3', '003', 'S3.Bucket', mode='link', label='display-name'))
     write_model(consumer, candidate)

@@ -43,7 +43,7 @@ def fixture(base, service, resources):
                       'awsExecutionAccountId': '123456789012', 'awsRegion': 'ap-northeast-1'}
     values = {}
     for number, kind, anchor, rows in resources:
-        for key, value in {'resourceType': kind, 'cfn-logicalId': 'fixture-' + anchor.replace('-', '').title(), 'logicalId': kind.replace('.', '_') + '_' + str(number).zfill(3)}.items():
+        for key, value in {'resourceType': kind, 'anchor': anchor, 'cfn-logicalId': 'fixture-' + anchor.replace('-', '').title(), 'logicalId': kind.replace('.', '_') + '_' + str(number).zfill(3)}.items():
             values[f'desired.resource.{number}.{key}'] = value
         for index, (prop, value, document) in enumerate(rows, 1):
             prefix = f'desired.row.{number}-{index:03d}.'
@@ -111,8 +111,8 @@ def check():
             ('002','IAM.ManagedPolicy','managed',[('ManagedPolicyName','`managed`',None),('PolicyDocument','[managed](iam/managed.json)',POLICY)])])
         vpc = fixture({}, 'vpc', [
             ('001','EC2.VPC','main-vpc',[('Name','`fixture-vpc`',None),('CidrBlock','`10.10.0.0/23`',None),('EnableDnsSupport','`true`',None),('VpcId','`vpc-fixture`',None)]),
-            ('002','EC2.Subnet','subnet',[('Name','`fixture-subnet`',None),('VpcId','resource://dev/cde/vpc/EC2_VPC_001',None)]),
-            ('003','EC2.FlowLog','flowlog',[('DeliverLogsPermissionArn','resource://dev/cde/iam/IAM_Role_001',None)])])
+            ('002','EC2.Subnet','subnet',[('Name','`fixture-subnet`',None),('VpcId','[VPC](#main-vpc)',None)]),
+            ('003','EC2.FlowLog','flowlog',[('DeliverLogsPermissionArn','[Role](iam.md#role)',None)])])
         for service, data in [('vpc',vpc),('iam',iam)]:
             write_model(root/'model/dev/cde'/(service+'.properties'),data['models']['dev/cde/' + service])
         sources = {service: generator.generate(root, 'dev', 'cde', service)[0] for service in ('vpc', 'iam')}
@@ -132,12 +132,12 @@ def check():
             gateway = fixture({}, 'ec2', [('001', 'EC2.TransitGateway', 'gateway', [('TransitGatewayId', '`tgw-fixture`', None)])])
             write_model(crossroot / 'model' / env / alias / 'ec2.properties', gateway['models']['dev/cde/ec2'])
         cross_values = dict(vpc['models']['dev/cde/vpc'])
-        cross_values['desired.row.002-002.value'] = 'resource://dev/other/vpc/EC2_VPC_001'
+        cross_values['desired.row.002-002.value'] = '[VPC](../other/vpc.md#main-vpc)'
         cross_values.update({'desired.row.002-003.property': 'EC2.Subnet.Tags',
-            'desired.row.002-003.value': '`["resource://prod/cde/vpc/EC2_VPC_001"]`',
+            'desired.row.002-003.value': '`["[VPC](../../prod/cde/vpc.md#main-vpc)"]`',
             'desired.row.002-003.comment': 'cross environment',
             'desired.row.002-005.property': 'EC2.Subnet.Tags',
-            'desired.row.002-005.value': '`["resource://dev/other/ec2/EC2_TransitGateway_001","resource://prod/cde/ec2/EC2_TransitGateway_001"]`',
+            'desired.row.002-005.value': '`["[Gateway](../other/ec2.md#gateway)","[Gateway](../../prod/cde/ec2.md#gateway)"]`',
             'desired.row.002-005.comment': 'Cloud Control references'})
         write_model(crossroot / 'model/dev/cde/vpc.properties', cross_values)
         from validation_cache import input_context
@@ -148,11 +148,11 @@ def check():
             m = runtime(cross)['engine'](cross)
             ctx = m.Context(m.ROOT, cross['target'], cli_runner=lambda *a, **k: (_ for _ in ()).throw(AssertionError('AWS forbidden')))
             consumer = ctx.model(m.ROOT / 'model/dev/cde/vpc.properties').resources[1]
-            for link, address in [('resource://dev/other/vpc/EC2_VPC_001', 'dev/other/vpc'),
-                                  ('resource://prod/cde/vpc/EC2_VPC_001', 'prod/cde/vpc')]:
+            for link, address in [('[VPC](../other/vpc.md#main-vpc)', 'dev/other/vpc'),
+                                  ('[VPC](../../prod/cde/vpc.md#main-vpc)', 'prod/cde/vpc')]:
                 producer = consumer.reference(link)
                 assert producer.model.path == m.ROOT / 'model' / (address + '.properties')
-                gateway_link = link.replace('/vpc/EC2_VPC_001', '/ec2/EC2_TransitGateway_001')
+                gateway_link = link.replace('vpc.md#main-vpc', 'ec2.md#gateway')
                 gateway = consumer.reference(gateway_link)
                 assert gateway.kind == 'EC2.TransitGateway'
                 for selected in (producer, gateway):
@@ -167,7 +167,7 @@ def check():
                         else:
                             raise AssertionError('cross-scope reference expanded AWS authorization')
             try:
-                consumer.reference('resource://dev/other/missing/EC2_VPC_001')
+                consumer.reference('[Missing](../other/missing.md#missing)')
             except m.Unresolved as error:
                 assert 'producer Model is absent' in str(error)
             else:
@@ -175,7 +175,7 @@ def check():
             try:
                 consumer.reference('resource://dev/../vpc/EC2_VPC_001')
             except ValueError as error:
-                assert 'invalid Resource URI scope' in str(error)
+                assert 'invalid Markdown Resource reference' in str(error)
             else:
                 raise AssertionError('Model tree escape accepted')
         from task_contract import SELECTOR, task_revision
@@ -256,13 +256,13 @@ def check():
     assert all(api == ('sts', 'get-caller-identity') for api, _, _ in cli.calls)
     # Unresolved references remain visible, independent of the other attributes.
     unresolved = copy.deepcopy(vpc)
-    unresolved['models']['dev/cde/vpc']['desired.row.001-002.value'] = 'resource://dev/cde/vpc/EC2_VPC_999'
+    unresolved['models']['dev/cde/vpc']['desired.row.001-002.value'] = '[Missing](#missing)'
     result = rt['audit'](unresolved, None, CLI(responses))[2]
     assert any(r['propertiesKey'] == 'EC2.VPC.CidrBlock' and r['status'] == 'design_unresolved' for r in result)
     # A valid parent reference uses the fetched identity, then checks membership.
     referenced = fixture(snapshots['vpc'], 'vpc', [
         ('001', 'EC2.VPC', 'main-vpc', [('Name', '`test-vpc`', None), ('CidrBlock', '`10.10.0.0/23`', None)]),
-        ('002', 'EC2.Subnet', 'subnet', [('Name', '`test-subnet`', None), ('VpcId', 'resource://dev/cde/vpc/EC2_VPC_001', None)])])
+        ('002', 'EC2.Subnet', 'subnet', [('Name', '`test-subnet`', None), ('VpcId', '[VPC](#main-vpc)', None)])])
     membership = {**responses, ('ec2', 'describe-subnets'): {'Subnets': [
         {'SubnetId': 'subnet-01', 'VpcId': 'vpc-wrong-parent', 'Tags': [{'Key': 'Name', 'Value': 'test-subnet'}]}]}}
     resolved = rt['audit'](referenced, None, CLI(membership))[2]

@@ -71,7 +71,7 @@ def main():
         # A case-different key is retained as an ordinary tag, without synthesizing Name.
         tagged = model("EC2.VPCEndpoint", "LEGACY_NAME_01", "IMPORT", "取得済みresource")
         tagged["desired.row.001-003.value"] = "name"
-        tagged["desired.row.001-001.value"] = "resource://dev/123456789012/ec2/EC2_VPCEndpoint_001"
+        tagged["desired.row.001-001.value"] = "[Endpoint](#ec2-service-endpoint)"
         assert not (error := check(tagged)), error
         assert "| Tags[1].Key | name |" in path.read_text(encoding="utf-8")
 
@@ -124,21 +124,21 @@ def main():
             "display.service.title": "# KMS 詳細設計",
             "display.resource.001.comment": "データを暗号化する鍵",
             "desired.resource.001.resourceType": "KMS.Key",
-            "desired.resource.001.logicalId": "KMS_Key_001",
+            "desired.resource.001.logicalId": "KMS_Key_001", 'desired.resource.001.anchor': 'resource-KMS_Key_001',
             "desired.resource.001.cfn-logicalId": "fixture-Key",
             "desired.service.identity.lastAllocated": json.dumps({"KMS.Key": 1, "KMS.Alias": 1}),
             "desired.resource.001.resourceMode": "CREATE",
             "desired.row.001-001.property": "KMS.Key.KeyId",
-            "desired.row.001-001.value": "resource://dev/123456789012/kms/KMS_Key_001",
+            "desired.row.001-001.value": "[KMS_Key_001](kms.md#resource-KMS_Key_001)",
             "desired.row.001-001.comment": "一意に識別するID",
             "observed.row.001-001.property": "KMS.Key.KeyId",
             "observed.row.001-001.value": "PENDING_DEPLOY",
             "observed.row.001-001.comment": "一意に識別するID",
             "desired.resource.002.resourceType": "KMS.Alias",
-            "desired.resource.002.logicalId": "KMS_Alias_001",
+            "desired.resource.002.logicalId": "KMS_Alias_001", 'desired.resource.002.anchor': 'resource-KMS_Alias_001',
             "desired.resource.002.resourceMode": "IMPORT",
             "desired.resource.002.parentProperty": "KMS.Alias.TargetKeyId",
-            "desired.resource.002.parentReference": "resource://dev/123456789012/kms/KMS_Key_001",
+            "desired.resource.002.parentReference": "[KMS_Key_001](kms.md#resource-KMS_Key_001)",
             "desired.row.002-001.property": "KMS.Alias.AliasName",
             "desired.row.002-001.value": "alias/LEGACY_KEY",
             "desired.row.002-001.comment": "鍵を識別するalias",

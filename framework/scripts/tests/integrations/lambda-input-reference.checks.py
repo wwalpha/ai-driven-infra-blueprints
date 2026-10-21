@@ -20,7 +20,7 @@ def check(root):
     values = {}
     for rid, label, policy in [('021', 'app-preview-one', 'display-name'), ('083', 'PENDING_DEPLOY', 'fixed')]:
         key = f'desired.row.{rid}-001.value'
-        link = 'resource://preview/team/lambda/Lambda_Function_052'
+        link = f'[{label}](lambda.md#lambda-app-preview-one)'
         values.update(resource(rid, 'CloudTrail.Trail', 'cloudtrail-' + rid, [('EventSelectors[].DataResources[].Values', link)]))
         values.update(reference('function-' + rid, key, link, 'lambda', '052', 'Lambda.Function', mode='link', label=policy))
     values['desired.note.producerName.text'] = 'app-preview-one'
@@ -28,8 +28,8 @@ def check(root):
     write_model(path, values)
     snapshot = load_model(path)
     assert not snapshot.warnings, snapshot.warnings
-    assert snapshot.authoritative['desired.row.021-001.value'] == 'resource://preview/team/lambda/Lambda_Function_052'
-    assert snapshot.authoritative['desired.row.083-001.value'] == 'resource://preview/team/lambda/Lambda_Function_052'
+    assert snapshot.authoritative['desired.row.021-001.value'] == '[app-preview-one](lambda.md#lambda-app-preview-one)'
+    assert snapshot.authoritative['desired.row.083-001.value'] == '[PENDING_DEPLOY](lambda.md#lambda-app-preview-one)'
     assert producer in source_inputs(path)
     assert affected(root, [producer.relative_to(root)]) == {('preview', 'team', 'lambda'), ('preview', 'team', 'cloudtrail')}
     digest, dependencies = design_source_digest(path), dependency_hashes(path)

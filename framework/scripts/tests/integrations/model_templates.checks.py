@@ -385,11 +385,11 @@ def check_sync(root):
 def check_common_shape(root):
     fixture(root, ('dev',))
     path = root / 'model/dev/team/shared.properties'
-    minimal = {'desired.resource.017.resourceType': 'S3.Bucket', 'desired.resource.017.logicalId': 'S3_Bucket_001',
+    minimal = {'desired.resource.017.resourceType': 'S3.Bucket', 'desired.resource.017.logicalId': 'S3_Bucket_001', 'desired.resource.017.anchor': 'resource-S3_Bucket_001',
         'desired.service.identity.lastAllocated': '{"S3.Bucket":1}',
         'desired.row.017-023.property': 'S3.Bucket.BucketName', 'desired.row.017-023.value': '`fixed-name`', 'desired.row.017-023.comment': '名前',
         'desired.row.017-025.property': 'S3.Bucket.Tags', 'desired.row.017-025.value': '`{"Items":[1,3],"Value":"","Keep":null}`',
-        'desired.row.017-025.comment': '明示した配列と型', 'desired.note.bucket.text': 'resource://dev/team/shared/S3_Bucket_001'}
+        'desired.row.017-025.comment': '明示した配列と型', 'desired.note.bucket.text': '[S3_Bucket_001](shared.md#resource-S3_Bucket_001)'}
     write_model(path, minimal)
     assert load_model(path).authoritative == minimal
     from model.sources import FileReads
@@ -404,8 +404,8 @@ def check_common_shape(root):
     write_model(path, full)
     assert json.loads(load_model(path).authoritative['desired.row.017-024.document']) == {'Statement': [{'Resource': '*'}]}
     assert load_model(path).authoritative['desired.resource.017.logicalId'] == 'S3_Bucket_001'
-    full.update({'desired.row.017-023.value': 'resource://dev/team/shared/S3_Bucket_001',
-        'desired.note.bucket.text': 'resource://dev/team/shared/S3_Bucket_001', 'desired.row.017-025.value': '`{"Drop":null,"Items":[0,1,2,3],"Value":false,"Keep":null}`',
+    full.update({'desired.row.017-023.value': '[S3_Bucket_001](shared.md#resource-S3_Bucket_001)',
+        'desired.note.bucket.text': '[S3_Bucket_001](shared.md#resource-S3_Bucket_001)', 'desired.row.017-025.value': '`{"Drop":null,"Items":[0,1,2,3],"Value":false,"Keep":null}`',
         'desired.row.017-024.document': '{"Statement":[{"Resource":"*"},{"Resource":"explicit-target"}]}'})
     write_model(path, full)
     model = load_model(path)

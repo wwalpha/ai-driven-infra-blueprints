@@ -172,7 +172,8 @@ def check_managed_resource_addition(tmp_path, kind, unknown):
     from model.identity import allocate
     del values['desired.resource.009.logicalId']
     values = allocate(values, ['009'])
-    values['desired.row.009-001.value'] = 'resource://dev/' + TARGET + '/vpc/' + values['desired.resource.009.logicalId']
+    values['desired.resource.009.anchor'] = 'vpc-managed-009'
+    values['desired.row.009-001.value'] = '[009](#vpc-managed-009)'
     values['observed.row.009-001.value'] = identity
     values['desired.row.009-' + ('003' if kind == 'subnet' else '002') + '.value'] = m.model_literal('10.11.0.0/26' if kind == 'subnet' else '10.11.0.0/23')
     if kind == 'subnet':
@@ -186,9 +187,9 @@ def check_managed_resource_addition(tmp_path, kind, unknown):
     assert len(entries(current.authoritative, 'desired.resource.')) == 9
     assert all(current.authoritative[k] == v for k, v in original.authoritative.items() if k != 'desired.service.identity.lastAllocated')
     assert current.authoritative['observed.row.009-001.value'] == identity
-    assert current.authoritative['desired.row.009-001.value'] == 'resource://dev/' + TARGET + '/vpc/' + current.authoritative['desired.resource.009.logicalId']
+    assert current.authoritative['desired.row.009-001.value'] == '[009](#vpc-managed-009)'
     if kind == 'subnet':
-        assert current.authoritative['desired.row.009-002.value'] == 'resource://dev/' + TARGET + '/vpc/EC2_VPC_001'
+        assert current.authoritative['desired.row.009-002.value'] == '[001](#vpc-main)'
     assert all(p.read_bytes() == data for p, data in foreign.items())
 
 
@@ -379,11 +380,12 @@ def check_add_identity_boundary(tmp_path, service, scenario):
     from model.identity import allocate
     del values['desired.resource.009.logicalId']
     values = allocate(values, ['009'])
+    values['desired.resource.009.anchor'] = 'vpc-managed-009'
     if service == 'cloudwatch-logs':
         values['desired.row.009-001.value'] = '`managed-new`' if scenario == 'new' else '`fixture-001`'
         values['desired.row.009-002.value'] = '`90`'
     else:
-        values['desired.row.009-001.value'] = 'resource://dev/' + TARGET + '/vpc/' + values['desired.resource.009.logicalId']
+        values['desired.row.009-001.value'] = '[009](#vpc-managed-009)'
         values['desired.row.009-002.value'] = '`10.11.0.0/23`'
         values['observed.row.009-001.value'] = VPC_ID
         if scenario == 'hide-observed':
@@ -869,7 +871,8 @@ def check_reference_publication(tmp_path, present, race, diagnostic):
     values[COUNTERS] = load_model(path).authoritative.get(COUNTERS, '{}')
     del values['desired.resource.009.logicalId']
     values = allocate(values, ['009'])
-    link = 'resource://dev/cde/s3/S3_Bucket_001'
+    values['desired.resource.009.anchor'] = 'vpc-managed-009'
+    link = '[S3_Bucket_001](s3.md#s3-audit-bucket)'
     if present or diagnostic:
         for index, (prop, actual) in enumerate(captured.items(), 1):
             key = f'desired.row.009-{index:03d}.value'

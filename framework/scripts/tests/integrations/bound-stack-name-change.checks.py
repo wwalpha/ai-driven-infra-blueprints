@@ -46,7 +46,7 @@ def check(root):
     write_model(path, values)
     fixed = values['desired.stack.017.placementName']
     vpc = model('vpc', 'EC2.VPC', 'vpc-app-preview-main', [('Name', '`vpc-app-preview-main`', '名前'),
-        ('VpcId', 'resource://preview/team/vpc/EC2_VPC_001', '識別子'), ('CidrBlock', '`10.10.0.0/24`', 'アドレス範囲')], 'PrimaryVpc')
+        ('VpcId', '[EC2_VPC_001](vpc.md#vpc-vpc-app-preview-main)', '識別子'), ('CidrBlock', '`10.10.0.0/24`', 'アドレス範囲')], 'PrimaryVpc')
     vpc = {key.replace('resource.001.', 'resource.027.').replace('row.001-', 'row.027-'): value for key, value in vpc.items()}
     vpc.update({'desired.resource.027.cfn-logicalId': fixed + '-PrimaryVpc', 'desired.resource.027.resourceMode': 'CREATE',
                 'observed.row.027-002.value': '`vpc-' + '1' * 17 + '`'})

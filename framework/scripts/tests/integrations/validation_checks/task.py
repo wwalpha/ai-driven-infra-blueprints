@@ -120,13 +120,13 @@ def check_destroy_phase() -> None:
         write(root / "project.json", __import__("json").dumps({"targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
         model = root / "model/dev/123456789012/ec2.properties"
         model.parent.mkdir(parents=True)
-        write(model, "desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.logicalId=EC2_VPC_001\ndesired.service.identity.lastAllocated={\"EC2.VPC\":1}\ndesired.row.001-001.property=EC2.VPC.VpcId\ndesired.row.001-001.comment=Physical ID\ndesired.row.001-001.value=resource://dev/123456789012/ec2/EC2_VPC_001\nobserved.row.001-001.value=`vpc-old`\n")
+        write(model, 'desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.logicalId=EC2_VPC_001\ndesired.resource.001.anchor=resource-EC2_VPC_001\ndesired.service.identity.lastAllocated={"EC2.VPC":1}\ndesired.row.001-001.property=EC2.VPC.VpcId\ndesired.row.001-001.comment=Physical ID\ndesired.row.001-001.value=[EC2_VPC_001](ec2.md#resource-EC2_VPC_001)\nobserved.row.001-001.value=`vpc-old`\n')
         commit(root, ["."], "baseline")
         validator = MODULE.Validator(root)
         validator.task_type = "infrastructure"
         validator.infrastructure_phase = "destroy"
         validator.changed_paths = {"model/dev/123456789012/ec2.properties", "tasks/destroy.md"}
-        write(model, "desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.logicalId=EC2_VPC_001\ndesired.service.identity.lastAllocated={\"EC2.VPC\":1}\ndesired.row.001-001.property=EC2.VPC.VpcId\ndesired.row.001-001.comment=Physical ID\ndesired.row.001-001.value=resource://dev/123456789012/ec2/EC2_VPC_001\nobserved.row.001-001.value=`PENDING_DEPLOY`\n")
+        write(model, 'desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.logicalId=EC2_VPC_001\ndesired.resource.001.anchor=resource-EC2_VPC_001\ndesired.service.identity.lastAllocated={"EC2.VPC":1}\ndesired.row.001-001.property=EC2.VPC.VpcId\ndesired.row.001-001.comment=Physical ID\ndesired.row.001-001.value=[EC2_VPC_001](ec2.md#resource-EC2_VPC_001)\nobserved.row.001-001.value=`PENDING_DEPLOY`\n')
         validator.check_task_type_requirements()
         assert any("versioned Model baseline" in error for error in validator.errors)
         validator.errors.clear()
@@ -134,7 +134,7 @@ def check_destroy_phase() -> None:
         validator.check_task_type_requirements()
         validator.check_task_boundary(root / "tasks/destroy.md")
         assert not validator.errors, validator.errors
-        write(model, "desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.logicalId=EC2_VPC_001\ndesired.service.identity.lastAllocated={\"EC2.VPC\":1}\ndesired.row.001-001.property=EC2.VPC.VpcId\ndesired.row.001-001.comment=Physical ID\ndesired.row.001-001.value=resource://dev/123456789012/ec2/EC2_VPC_002\nobserved.row.001-001.value=`PENDING_DEPLOY`\n")
+        write(model, 'desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.logicalId=EC2_VPC_001\ndesired.resource.001.anchor=resource-EC2_VPC_001\ndesired.service.identity.lastAllocated={"EC2.VPC":1}\ndesired.row.001-001.property=EC2.VPC.VpcId\ndesired.row.001-001.comment=Physical ID\ndesired.row.001-001.value=[EC2_VPC_002](ec2.md#resource-EC2_VPC_002)\nobserved.row.001-001.value=`PENDING_DEPLOY`\n')
         validator.changed_paths = {"model/dev/123456789012/ec2.properties"}
         validator.check_task_type_requirements()
         validator.check_task_boundary(root / "tasks/destroy.md")
@@ -175,7 +175,7 @@ def check_task_type_dispatch() -> None:
         for service, kind, prop in (('vpc', 'EC2.VPC', 'Name'), ('cloudwatch-logs', 'Logs.LogGroup', 'LogGroupName')):
             write_model(root/'model/dev/cde'/(service+'.properties'), {
                 'desired.resource.001.resourceType': kind,
-                'desired.resource.001.logicalId': kind.replace('.', '_') + '_001',
+                'desired.resource.001.logicalId': kind.replace('.', '_') + '_001', 'desired.resource.001.anchor': 'resource-' + (kind.replace('.', '_') + '_001'),
                 'desired.service.identity.lastAllocated': __import__('json').dumps({kind: 1}),
                 'desired.row.001-001.property': kind+'.'+prop,
                 'desired.row.001-001.value': '`fixture`', 'desired.row.001-001.comment': 'Synthetic setting',

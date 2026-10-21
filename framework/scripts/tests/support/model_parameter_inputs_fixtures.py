@@ -8,7 +8,7 @@ import json
 import tempfile
 import pytest
 from unittest.mock import patch
-from yaml_values import yaml_read
+from utils.yaml_format import yaml_read
 from model.sources import load_model
 from model.format import parse, serialize
 from support.model_sources import write_model

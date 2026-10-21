@@ -7,7 +7,7 @@ if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 import pytest
 import json
-from yaml_values import yaml_read
+from utils.yaml_format import yaml_read
 from model.format import parse, FORMAT
 from model.sources import load_model
 from model.core import entries
