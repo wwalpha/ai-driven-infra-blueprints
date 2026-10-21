@@ -1,5 +1,13 @@
 # UT / IT 全ケース台帳
 
+## Generation-local resource row reuse
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `resource-row-reuse::edits` | `check_resource_row_reuse_and_edits` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 1 | 遅延解析、mapping分離、変更・追加・削除・順序、空入力、返却list保護、次回scope | sync |
+| `resource-row-reuse::legacy` | `check_resource_row_legacy_and_invalid_entries` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 1 | legacy prefix重複、不正rowの例外と評価タイミング | sync |
+| `resource-row-reuse::lifetime` | `check_resource_row_scope_restoration` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 1 | 入れ子scopeと実generate_viewsの正常・例外終了時復元 | sync |
+
 ## Limited Route53 ImportValue expressions
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |

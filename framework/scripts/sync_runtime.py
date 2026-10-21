@@ -15,7 +15,7 @@ from model.core import entries, ReferenceResolutionError
 from model.render import render_validated_model as markdown_for
 from model.validation import validate_required_properties, validate_kms_policy_accounts
 from aws_mapping_display import validate_mappings
-from model.projection import design_target
+from model.projection import design_target, resource_row_scope
 from model.projection import JSON_LINK
 from model.sources import load_model
 from model.sources import _publish_transaction, publication_lock, safe, model_exists, model_paths as registered_models
@@ -127,6 +127,7 @@ def stage_inputs(stage, root, destinations, model_paths, markdown_paths, service
 
 
 @progress_stage("candidate-generation")
+@resource_row_scope()
 def generate_views(stage, root, destinations, failures, definitions_root=None, *, warnings=None, unavailable=None):
     warnings = warnings if warnings is not None else []
     unavailable = unavailable if unavailable is not None else {}

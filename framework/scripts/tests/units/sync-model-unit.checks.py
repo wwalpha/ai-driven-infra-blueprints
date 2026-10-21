@@ -413,6 +413,99 @@ def check_result_reuse_is_scoped(tmp_path):
     assert stale.status == 'NOT_RUN' and stale.metadata == {}
 
 
+def check_resource_row_reuse_and_edits():
+    from model import projection
+    from validation_cache import input_context
+    values = {f'desired.row.role-001.{key}': value for key, value in
+              dict(property='IAM.Role.Description', value='first', comment='fixture').items()}
+    def rows(mapping=values, identity='role'):
+        return projection.resource_rows(mapping, identity, 'IAM.Role', Path('/synthetic'))
+    with input_context(), patch.object(projection, 'catalog_outputs', return_value=set()), \
+            patch.object(projection, 'entries', wraps=projection.entries) as parse:
+        with projection.resource_row_scope():
+            assert parse.call_count == 0  # Lazy, even for an empty generation.
+            first = rows()
+            first[0][2] = 'caller edit'
+            first.clear()
+            assert rows()[0][2] == 'first' and parse.call_count == 1
+            other = dict(values)
+            assert rows(other) == rows() and parse.call_count == 2
+            values['desired.row.role-001.value'] = 'edited'
+            assert rows()[0][2] == 'edited' and parse.call_count == 3
+            for key, value in dict(property='IAM.Role.Path', value='/fixture/', comment='added').items():
+                values[f'desired.row.role-002.{key}'] = value
+            assert len(rows()) == 2 and parse.call_count == 4
+            del values['desired.row.role-002.comment']
+            with pytest.raises(ValueError, match='invalid resource row: role-002'):
+                rows()
+            for key in list(values):
+                if key.startswith('desired.row.role-002.'):
+                    del values[key]
+            assert len(rows()) == 1 and parse.call_count == 6
+            values['observed.row.role-001.value'] = 'invalid observation'
+            with pytest.raises(ValueError, match='observed value requires'):
+                rows()
+            del values['observed.row.role-001.value']
+            assert rows()[0][2] == 'edited'
+            # Reordering an otherwise identical mapping must also invalidate it.
+            key = next(iter(values))
+            values[key] = values.pop(key)
+            before = parse.call_count
+            rows()
+            assert parse.call_count == before + 1
+            values.clear()
+            assert rows() == []
+            before = parse.call_count
+            assert rows() == [] and parse.call_count == before
+        assert projection._resource_row_cache.get() is None
+        with projection.resource_row_scope():
+            rows()
+            assert parse.call_count == before + 1
+
+
+def check_resource_row_legacy_and_invalid_entries():
+    from model import projection
+    values = {}
+    for identity in ('legacy-001', 'legacy-child-001', 'legacyish-001'):
+        values.update({f'desired.row.{identity}.{key}': value for key, value in
+                       dict(property='IAM.Role.Description', value=identity, comment='fixture').items()})
+    with patch.object(projection, 'catalog_outputs', return_value=set()), projection.resource_row_scope():
+        rows = projection.resource_rows(values, 'legacy', 'IAM.Role', Path('/synthetic'))
+        assert [row[0] for row in rows] == ['legacy-001', 'legacy-child-001']
+        # An unrelated malformed row is validated only when its resource is requested.
+        values['desired.row.unrelated-001.extra'] = 'invalid'
+        assert projection.resource_rows(values, 'legacy', 'IAM.Role', Path('/synthetic')) == rows
+        with pytest.raises(ValueError, match='invalid resource row: unrelated-001'):
+            projection.resource_rows(values, 'unrelated', 'IAM.Role', Path('/synthetic'))
+        values['desired.row.missing-field'] = 'invalid entry'
+        with pytest.raises(ValueError, match='invalid model entry: desired.row.missing-field'):
+            projection.resource_rows(values, 'legacy', 'IAM.Role', Path('/synthetic'))
+        del values['desired.row.missing-field']
+        assert projection.resource_rows(values, 'legacy', 'IAM.Role', Path('/synthetic')) == rows
+
+
+def check_resource_row_scope_restoration():
+    from model import projection
+    assert projection._resource_row_cache.get() is None
+    with projection.resource_row_scope():
+        outer = projection._resource_row_cache.get()
+        with pytest.raises(RuntimeError, match='generation failed'):
+            with projection.resource_row_scope():
+                assert projection._resource_row_cache.get() is not outer
+                raise RuntimeError('generation failed')
+        assert projection._resource_row_cache.get() is outer
+        def fail(_):
+            assert projection._resource_row_cache.get() is not outer
+            raise RuntimeError('generation failed')
+        with patch.object(sync_runtime, 'total', side_effect=fail), pytest.raises(RuntimeError):
+            sync_runtime.generate_views(Path('/stage'), Path('/root'), {}, [], definitions_root=Path('/definitions'))
+        assert projection._resource_row_cache.get() is outer
+        with patch.object(sync_runtime, 'total'):
+            assert sync_runtime.generate_views(Path('/stage'), Path('/root'), {}, [], definitions_root=Path('/definitions')) == {}
+        assert projection._resource_row_cache.get() is outer
+    assert projection._resource_row_cache.get() is None
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

@@ -1,5 +1,7 @@
 """Derived execution/display fields; never serialize these into Model authority."""
 from utils.json_format import document_sha256
+from contextlib import contextmanager
+from contextvars import ContextVar
 import json
 import re
 from pathlib import Path
@@ -145,10 +147,37 @@ def observed_value(row_id, row, observed, outputs):
     return value
 
 
+_resource_row_cache = ContextVar("resource_row_cache", default=None)
+
+
+@contextmanager
+def resource_row_scope():
+    """Reuse parsed rows only within one generation, including nested invocations."""
+    token = _resource_row_cache.set({})
+    try:
+        yield
+    finally:
+        _resource_row_cache.reset(token)
+
+
+def _resource_row_entries(values):
+    cache = _resource_row_cache.get()
+    if cache is None:
+        return entries(values, "desired.row.")
+    key = id(values)
+    signature = tuple(values.items())
+    previous = cache.get(key)
+    if previous is None or previous[1] != signature:
+        # Parse a fresh snapshot so the shared immutable-input memo cannot hide edits.
+        parsed = entries(dict(signature), "desired.row.")
+        cache[key] = (values, signature, parsed)
+    return cache[key][2]
+
+
 def resource_rows(values: dict[str, str], identity: str, kind: str, root: Path) -> list[list[str]]:
     outputs = catalog_outputs(root, kind)
     rows = []
-    for row_id, row in entries(values, "desired.row."):
+    for row_id, row in _resource_row_entries(values):
         if not row_id.startswith(identity + "-"):
             continue
         if set(row) - {"property", "value", "comment", "artifactSha256", "document"} or not {"property", "value", "comment"} <= row.keys():
