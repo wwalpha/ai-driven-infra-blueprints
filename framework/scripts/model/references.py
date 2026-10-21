@@ -174,6 +174,11 @@ def usages(snapshot, read_context=None, *, _cache=None, _producer_scope=None, _c
         offset = occurrence_positions(leaf, spec['text'])[int(spec['occurrence']) - 1]
         result.append(Usage(spec['consumerKey'], spec.get('pointer'), offset, offset + len(spec['text']),
                             spec['text'], spec['producerScope'], spec['producerKind'], spec.get('producerId'), identity))
+    declared_by_position = {}
+    if _coalesce:
+        for usage in result:
+            position = (usage.consumer_key, usage.pointer, usage.start, usage.end)
+            declared_by_position.setdefault((position, usage.producer_scope), []).append(usage)
     for key, raw in values.items():
         if key.startswith(('observed.', 'desired.reference.')):
             continue
@@ -188,7 +193,7 @@ def usages(snapshot, read_context=None, *, _cache=None, _producer_scope=None, _c
                     continue
                 position = (key, pointer if structured else None, link.start(), link.end())
                 duplicate = False
-                for usage in result if _coalesce else ():
+                for usage in declared_by_position.get((position, producer_scope), ()):
                     if ((usage.consumer_key, usage.pointer, usage.start, usage.end) != position
                             or not usage.metadata_id or usage.producer_scope != producer_scope
                             or usage.producer_kind != 'resource'):

@@ -489,3 +489,171 @@ def check_cross_environment_direct_link_preserves_scope_and_dependency(tmp_path)
         consumer.write_text('# model-format: 2\ndesired.note.001.text=[bad](' + filename + '#fixed)\n')
         with pytest.raises(ValueError, match='outside the Model tree'):
             load_model(consumer, FileReads())
+
+
+def _usage_spec(values, identity, key, text, *, pointer=None, occurrence='1', **overrides):
+    spec = dict(consumerKey=key, text=text, occurrence=occurrence, producerKind='resource',
+                producerScope='dev/target/service', producerId='001', resourceType='EC2.VPC',
+                format='link', labelPolicy='fixed')
+    if pointer is not None:
+        spec['pointer'] = pointer
+    spec.update(overrides)
+    values.update({f'desired.reference.{identity}.{field}': value for field, value in spec.items()})
+
+
+def check_usage_index_preserves_order_and_all_candidates(tmp_path, monkeypatch):
+    from model.references import usages, diagnose
+    import model.references as references
+    file = tmp_path / 'model/dev/target/service.properties'
+    link, missing = '[ok](#fixed)', '[gone](#missing)'
+    key = 'desired.note.001.text'
+    nested = 'desired.row.001-001.document'
+    values = {'desired.resource.001.resourceType': 'EC2.VPC', 'desired.resource.001.anchor': 'fixed',
+              key: link + ' ' + link + ' ' + missing + ' [web](https://example.invalid/#fixed)',
+              nested: json.dumps({'a/b': [{'~key': link}]}),
+              'desired.row.001-001.property': 'EC2.VPC.Tags',
+              'desired.row.001-001.value': '`[]`', 'desired.row.001-001.comment': '合成値'}
+    _usage_spec(values, 'a-wrong', key, link, producerId='999')
+    _usage_spec(values, 'b-right', key, link)
+    _usage_spec(values, 'c-second', key, link, occurrence='2')
+    _usage_spec(values, 'd-nested', nested, link, pointer='/a~1b/0/~0key')
+    snapshot = load_model(write_model(file, values))
+    expected = (
+        Usage(key, None, 0, len(link), link, 'dev/target/service', 'resource', '999', 'a-wrong'),
+        Usage(key, None, 0, len(link), link, 'dev/target/service', 'resource', '001', 'b-right'),
+        Usage(key, None, len(link) + 1, 2 * len(link) + 1, link, 'dev/target/service', 'resource', '001', 'c-second'),
+        Usage(nested, '/a~1b/0/~0key', 0, len(link), link, 'dev/target/service', 'resource', '001', 'd-nested'),
+        Usage(key, None, 2 * len(link) + 2, 2 * len(link) + 2 + len(missing), missing,
+              'dev/target/service', 'resource', None, anchor='missing'))
+    calls = []
+    producer = references._producer
+    def counted(snapshot, address, reads, cache):
+        calls.append(address)
+        return producer(snapshot, address, reads, cache)
+    monkeypatch.setattr(references, '_producer', counted)
+    assert usages(snapshot) == expected
+    assert calls == ['dev/target/service'] * 4
+    assert usages(snapshot, _producer_scope='other/target/service') == ()
+    calls.clear()
+    uncoalesced = usages(snapshot, _coalesce=False)
+    assert calls == []
+    assert uncoalesced[:4] == expected[:4]
+    assert [usage.anchor for usage in uncoalesced[4:]] == ['fixed', 'fixed', 'missing', 'fixed']
+    warnings, dependencies = diagnose(snapshot)
+    assert warnings == snapshot.warnings and dependencies == dict(snapshot.dependencies)
+    assert len(warnings) == 2
+
+
+def check_usage_index_skips_accumulated_direct_links(tmp_path):
+    import inspect
+    from model.references import usages
+    file = tmp_path / 'model/dev/target/service.properties'
+    values = {f'desired.note.{index:03d}.text': '[ok](#fixed)' for index in range(1, 101)}
+    snapshot = load_model(write_model(file, values))
+    lines, start = inspect.getsourcelines(usages)
+    comparison = start + next(index for index, line in enumerate(lines) if 'if ((usage.consumer_key' in line)
+    comparisons = []
+    def trace(frame, event, arg):
+        if frame.f_code is usages.__code__ and event == 'line' and frame.f_lineno == comparison:
+            comparisons.append(frame.f_locals['usage'])
+        return trace
+    previous = sys.gettrace()
+    try:
+        sys.settrace(trace)
+        records = usages(snapshot)
+    finally:
+        sys.settrace(previous)
+    assert len(records) == 100 and comparisons == []
+
+
+@pytest.mark.parametrize('case', ['wrong-id', 'missing-producer', 'missing-anchor', 'ambiguous', 'name', 'context'])
+def check_usage_index_retains_conflicting_direct_links(tmp_path, case):
+    from model.references import usages
+    file = tmp_path / 'model/dev/target/service.properties'
+    key, link = 'desired.note.001.text', '[ok](#fixed)'
+    values = {'desired.resource.001.resourceType': 'EC2.VPC', 'desired.resource.001.anchor': 'fixed', key: link}
+    overrides = {}
+    if case == 'wrong-id':
+        overrides['producerId'] = '999'
+    elif case == 'missing-producer':
+        overrides['producerScope'] = 'dev/target/absent'
+        values[key] = link = '[ok](absent.md#fixed)'
+    elif case == 'missing-anchor':
+        values['desired.resource.001.anchor'] = 'other'
+    elif case == 'ambiguous':
+        values.update({'desired.resource.002.resourceType': 'EC2.VPC', 'desired.resource.002.anchor': 'fixed'})
+    elif case == 'name':
+        overrides.update(format='name', property='EC2.VPC.Name', labelPolicy='none')
+    _usage_spec(values, 'declared', key, link, **overrides)
+    if case == 'context':
+        prefix = 'desired.reference.declared.'
+        for field in ('producerId', 'resourceType'):
+            del values[prefix + field]
+        values.update({prefix + 'producerKind': 'context', prefix + 'producerScope': 'dev/target',
+                       prefix + 'format': 'literal', prefix + 'contextProperty': 'environment', prefix + 'labelPolicy': 'none'})
+    records = usages(load_model(write_model(file, values)))
+    assert len(records) == 2 and records[0].metadata_id == 'declared'
+    assert records[1] == Usage(key, None, 0, len(link), link,
+                              overrides.get('producerScope', 'dev/target/service'), 'resource', None, anchor='fixed')
+
+
+def check_usage_index_keeps_producer_order_and_io_errors(tmp_path, monkeypatch):
+    import model.references as references
+    file = tmp_path / 'model/dev/target/service.properties'
+    values = {}
+    for index, service in enumerate(('second', 'first'), 1):
+        key, link = f'desired.note.{index:03d}.text', f'[ok]({service}.md#fixed)'
+        values[key] = link
+        _usage_spec(values, service, key, link, producerScope='dev/target/' + service)
+        write_model(file.with_name(service + '.properties'), {
+            'desired.resource.001.resourceType': 'EC2.VPC', 'desired.resource.001.anchor': 'fixed'})
+    snapshot = load_model(write_model(file, values))
+    calls = []
+    producer = references._producer
+    def counted(snapshot, address, reads, cache):
+        calls.append(address)
+        return producer(snapshot, address, reads, cache)
+    monkeypatch.setattr(references, '_producer', counted)
+    assert len(references.usages(snapshot)) == 2
+    assert calls == ['dev/target/second', 'dev/target/first']
+    calls.clear()
+    def denied(snapshot, address, reads, cache):
+        calls.append(address)
+        raise OSError('producer read denied')
+    monkeypatch.setattr(references, '_producer', denied)
+    with pytest.raises(OSError, match='producer read denied'):
+        references.usages(snapshot)
+    assert calls == ['dev/target/second']
+    calls.clear()
+    assert len(references.usages(snapshot, _coalesce=False)) == 4 and calls == []
+
+
+def check_usage_index_is_invocation_local(tmp_path):
+    from types import SimpleNamespace
+    from model.references import usages
+    from model.sources import Scope
+    from validation_cache import input_context
+    key, link = 'desired.note.001.text', '[ok](#fixed)'
+    values = {key: link, 'desired.resource.001.resourceType': 'EC2.VPC', 'desired.resource.001.anchor': 'fixed'}
+    snapshot = SimpleNamespace(authoritative=dict(values), scope=Scope(tmp_path, 'dev', 'target', 'service'))
+    with input_context():
+        assert usages(snapshot)[0].metadata_id is None
+        _usage_spec(values, 'new', key, link)
+        snapshot.authoritative = dict(values)
+        assert len(usages(snapshot)) == 1 and usages(snapshot)[0].metadata_id == 'new'
+        values['desired.reference.new.producerId'] = '999'
+        snapshot.authoritative = dict(values)
+        assert len(usages(snapshot)) == 2
+        for field in list(values):
+            if field.startswith('desired.reference.'):
+                del values[field]
+        snapshot.authoritative = dict(values)
+        assert len(usages(snapshot)) == 1 and usages(snapshot)[0].metadata_id is None
+        values.clear()
+        snapshot.authoritative = dict(values)
+        assert usages(snapshot) == ()
+        values[key] = link
+        _usage_spec(values, 'invalid', key, link, occurrence='2')
+        snapshot.authoritative = dict(values)
+        with pytest.raises(ValueError, match='occurrence'):
+            usages(snapshot)
