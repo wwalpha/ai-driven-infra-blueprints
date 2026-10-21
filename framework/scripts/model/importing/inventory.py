@@ -44,6 +44,7 @@ def pointer_value(properties, pointer):
 
 def cloudcontrol_value(ctx, resource, getter):
     """Read a Mapping provider getter only with a complete, verified selector."""
+    ctx.require_resource_scope(resource)
     if not ctx.import_mode and resource.kind not in getattr(resource.module, 'CLOUDCONTROL_RESOURCE_TYPES', ()):
         raise ValueError('Cloud Control resource is outside the read-only allowlist')
     if getter.get('service') != 'cloudcontrol' or getter.get('operation') != 'get_resource' or getter.get('resourceType') != resource.kind:

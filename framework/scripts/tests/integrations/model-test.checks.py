@@ -128,6 +128,8 @@ def check():
         write_model(crossroot / 'model/dev/cde/iam.properties', iam['models']['dev/cde/iam'])
         for env, alias in [('dev', 'other'), ('prod', 'cde')]:
             write_model(crossroot / 'model' / env / alias / 'vpc.properties', vpc['models']['dev/cde/vpc'])
+            gateway = fixture({}, 'ec2', [('001', 'EC2.TransitGateway', 'gateway', [('TransitGatewayId', '`tgw-fixture`', None)])])
+            write_model(crossroot / 'model' / env / alias / 'ec2.properties', gateway['models']['dev/cde/ec2'])
         cross_values = dict(vpc['models']['dev/cde/vpc'])
         cross_values['desired.row.002-002.value'] = '[other](../other/vpc.md#main-vpc)'
         cross_values.update({'desired.row.002-003.property': 'EC2.Subnet.Tags',
@@ -135,7 +137,10 @@ def check():
             'desired.row.002-003.comment': 'cross environment',
             'desired.row.002-004.property': 'EC2.Subnet.Tags',
             'desired.row.002-004.value': '`["[missing](../other/missing.md#missing)"]`',
-            'desired.row.002-004.comment': 'missing producer'})
+            'desired.row.002-004.comment': 'missing producer',
+            'desired.row.002-005.property': 'EC2.Subnet.Tags',
+            'desired.row.002-005.value': '`["[gateway](../other/ec2.md#gateway)","[gateway](../../prod/cde/ec2.md#gateway)"]`',
+            'desired.row.002-005.comment': 'Cloud Control references'})
         write_model(crossroot / 'model/dev/cde/vpc.properties', cross_values)
         from validation_cache import input_context
         with input_context():
@@ -149,12 +154,20 @@ def check():
                                   ('[prod](../../prod/cde/vpc.md#main-vpc)', 'prod/cde/vpc')]:
                 producer = consumer.reference(link)
                 assert producer.model.path == m.ROOT / 'model' / (address + '.properties')
-                try:
-                    producer.identity()
-                except m.Unresolved as error:
-                    assert 'outside authorized AWS retrieval scope' in str(error)
-                else:
-                    raise AssertionError('cross-scope reference expanded AWS authorization')
+                gateway_link = link.replace('vpc.md#main-vpc', 'ec2.md#gateway')
+                gateway = consumer.reference(gateway_link)
+                assert gateway.kind == 'EC2.TransitGateway'
+                for selected in (producer, gateway):
+                    key = (selected.model.path, selected.number, 'base')
+                    ctx.fetch_cache[key], ctx.fetch_trace[key] = {'id': 'cached'}, []
+                    for acquire in (lambda: selected.identity(), lambda: ctx.fetch(selected, 'base'),
+                                    lambda: ctx._fetch(selected, 'base')):
+                        try:
+                            acquire()
+                        except m.Unresolved as error:
+                            assert 'outside authorized AWS retrieval scope' in str(error)
+                        else:
+                            raise AssertionError('cross-scope reference expanded AWS authorization')
             try:
                 consumer.reference('[missing](../other/missing.md#missing)')
             except m.Unresolved as error:

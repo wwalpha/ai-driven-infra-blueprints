@@ -989,7 +989,7 @@ def check_tgw_compare_provider_evaluation():
     payload = {'TransitGatewayRouteTableId': 'table-one', 'TransitGatewayAttachmentId': 'attachment-one'}
     ctx, cli = generic_context('ec2', {kind: [{'identifier': identifier, 'properties': payload}]})
     ctx.import_mode = False  # Exercise the unchanged Compare service gate plus the explicit TGW capability.
-    model = SimpleNamespace(ctx=ctx, path=Path('/synthetic/ec2'), service='ec2', values={})
+    model = SimpleNamespace(ctx=ctx, path=ctx.root / 'model/dev/synthetic/ec2.properties', service='ec2', values={})
     rows = [(str(i), {'property': kind + '.' + prop, 'value': '`' + actual + '`'}) for i, (prop, actual) in enumerate(payload.items())]
     resource = m.comparator().Resource(model, '001', {'resourceType': kind}, rows)
     mapping, mapped = comparison(m.ROOT, 'ec2')
@@ -1000,7 +1000,7 @@ def check_tgw_compare_provider_evaluation():
     assert len(cli.calls) == 2 and cli.calls[-1][2]['Identifier'] == identifier
     gateway, gateway_cli = generic_context('ec2', {'EC2.TransitGateway': [{'identifier': 'tgw-one', 'properties': {'Id': 'tgw-one'}}]})
     gateway.import_mode = False
-    model = SimpleNamespace(ctx=gateway, path=Path('/synthetic/ec2'), service='ec2', values={'observed.row.001-001.value': '`tgw-one`'})
+    model = SimpleNamespace(ctx=gateway, path=gateway.root / 'model/dev/synthetic/ec2.properties', service='ec2', values={'observed.row.001-001.value': '`tgw-one`'})
     resource = m.comparator().Resource(model, '001', {'resourceType': 'EC2.TransitGateway', 'anchor': 'gateway'}, [('001-001', {'property': 'EC2.TransitGateway.Id', 'value': '[Gateway](#gateway)'})])
     assert resource.identity() == 'tgw-one' and len(gateway_cli.calls) == 2
     model.values.clear()

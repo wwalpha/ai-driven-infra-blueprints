@@ -107,8 +107,9 @@ def check_import_observation_foreign_reference_and_identity_spoof(tmp_path):
         observed_outputs(scope.path, {**snapshot.values, 'observed.row.008-002.value': 'subnet-other'})
 
 
+@pytest.mark.parametrize('inline', [False, True])
 @pytest.mark.parametrize('existing', [None, '{"bucketDefinitions":[{"accountId":"123456789012","buckets":["stale"]}]}', 'broken JSON'])
-def check_macie_renders_current_document_without_artifact_reads(tmp_path, existing):
+def check_macie_renders_current_document_without_artifact_reads(tmp_path, existing, inline):
     import shutil
     from model.render import render_model
     from support.model_v2_fixtures import format_fixture, FRAMEWORK
@@ -124,7 +125,11 @@ def check_macie_renders_current_document_without_artifact_reads(tmp_path, existi
     for index, (prop, value) in enumerate([('name', '`fixture-job`'), ('s3JobDefinition', '[definition](macie/definition.json)')], 1):
         values.update({f'desired.row.007-{index:03d}.property': 'Macie.ClassificationJob.' + prop,
             f'desired.row.007-{index:03d}.value': value, f'desired.row.007-{index:03d}.comment': 'fixture'})
-    values['desired.row.007-002.document'] = json.dumps(document)
+    if inline:
+        document = {'bucketCriteria': {}}
+        values['desired.row.007-002.value'] = '`' + json.dumps(document) + '`'
+    else:
+        values['desired.row.007-002.document'] = json.dumps(document)
     scope.path.write_text(serialize(values), encoding='utf-8')
     artifact = tmp_path / 'docs/designs' / scope.environment / scope.target / 'macie/definition.json'
     if existing is not None:
@@ -132,9 +137,13 @@ def check_macie_renders_current_document_without_artifact_reads(tmp_path, existi
         artifact.write_text(existing, encoding='utf-8')
     original = scope.path.read_bytes()
     files = render_model(load_model(scope), None)
-    assert json.loads(files[artifact]) == document
+    if inline:
+        assert artifact not in files
+    else:
+        assert json.loads(files[artifact]) == document
     markdown = files[artifact.parent.with_suffix('.md')]
-    for bucket in document['bucketDefinitions'][0]['buckets']:
+    assert ('#### 対象S3 bucket' in markdown) == (not inline)
+    for bucket in document.get('bucketDefinitions', [{'buckets': []}])[0]['buckets']:
         assert f'`{bucket}`' in markdown
     assert '`stale`' not in markdown
     assert scope.path.read_bytes() == original
@@ -142,6 +151,7 @@ def check_macie_renders_current_document_without_artifact_reads(tmp_path, existi
 
 
 @pytest.mark.parametrize('kind,label,rows,expected', [
+    ('EC2.VPC', None, [], 'EC2.VPC'),
     ('CodeBuild.Project', 'fallback', [('CodeBuild.Project.Name', '`raw-name`')], 'raw-name'),
     ('KMS.Key', 'fallback', [], 'fallback'),
     ('EC2.SecurityGroupIngress', None, [], 'fixed'),
@@ -164,8 +174,13 @@ def check_shared_display_selection_and_diagnostics(tmp_path, kind, label, rows, 
                 'desired.resource.008.parentReference': '[key](#producer)'})
     from model.core import entries
     resource = dict(entries(values, 'desired.resource.'))['007']
-    assert display_name(values, '007', resource, [[str(i), prop, value, 'fixture'] for i, (prop, value) in enumerate(rows)])[0] == expected
-    text = f'[{expected}](#producer)'
+    assert display_name(values, '007', resource, [[str(i), prop, value, 'fixture'] for i, (prop, value) in enumerate(rows)], tmp_path)[0] == expected
+    if kind == 'EC2.VPC':
+        from model.render import resource_details
+        values['desired.resource.007.anchor'] = resource['anchor'] = 'network-ec2.vpc'
+        details, _ = resource_details(values, tmp_path, 'network', {kind}, [(identity, item) for identity, item in entries(values, 'desired.resource.')], {})
+        assert details[0][2] == expected
+    text = f'[{expected}](#{resource["anchor"]})'
     values['desired.note.001.text'] = text
     spec = {'consumerKey': 'desired.note.001.text', 'text': text, 'occurrence': '1', 'producerKind': 'resource',
         'producerScope': '/'.join((scope.environment, scope.target, scope.service)), 'producerId': '007',
@@ -173,6 +188,85 @@ def check_shared_display_selection_and_diagnostics(tmp_path, kind, label, rows, 
     values.update({'desired.reference.name.' + key: value for key, value in spec.items()})
     scope.path.write_text(serialize(values), encoding='utf-8')
     assert load_model(scope).warnings == ()
+
+
+
+@pytest.mark.parametrize('kind,mode,multiple', [
+    ('EC2.VPC', 'IMPORT', True), ('EC2.VPC', 'CREATE', False),
+    ('KMS.Alias', 'IMPORT', False), ('CodeBuild.Project', 'IMPORT', False)])
+def check_type_display_constraints(tmp_path, kind, mode, multiple):
+    from model.render import display_name, resource_details
+    from support.model_v2_fixtures import FRAMEWORK
+    from model.core import entries
+    values = {'desired.resource.007.resourceType': kind, 'desired.resource.007.resourceMode': mode,
+        'desired.resource.007.logicalId': 'fixed', 'desired.resource.007.anchor': 'network'}
+    if multiple:
+        values.update({'desired.resource.008.resourceType': kind, 'desired.resource.008.logicalId': 'second'})
+    resource = dict(entries(values, 'desired.resource.'))['007']
+    assert display_name(values, '007', resource, [], FRAMEWORK)[0] is None
+    with pytest.raises(ValueError):
+        resource_details(values, FRAMEWORK, 'network', {kind}, list(entries(values, 'desired.resource.')), {})
+
+
+@pytest.mark.parametrize('scope', ['dev/one', 'dev/two', 'prod/one', 'prod/two'])
+@pytest.mark.parametrize('provider', ['adapter', 'sdk', 'cloudcontrol'])
+def check_resource_acquisition_scope(tmp_path, monkeypatch, scope, provider):
+    from types import SimpleNamespace
+    from script_loader import module
+    from model.importing import inventory
+    from aws_mapping_compare import value as mapped_value
+    from concurrent.futures import Future
+    m = module('model/adapters/aws.py', 'model.adapters.aws')
+    target = {'environment': 'dev', 'directory': 'one', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1'}
+    calls = []
+    from support.model_v2_fixtures import FRAMEWORK
+    from design_catalog import DesignSchemaCatalog
+    monkeypatch.setattr(m, 'DesignSchemaCatalog', lambda root: DesignSchemaCatalog(FRAMEWORK))
+    ctx = m.Context(tmp_path, target)
+    ctx.verified = True
+    getter = {'kind': 'cloudcontrol', 'service': 'cloudcontrol', 'operation': 'get_resource',
+        'resourceType': 'EC2.TransitGateway', 'identifier': ['/properties/TransitGatewayId']}
+    mapping = SimpleNamespace(identities={}, getters={'provider': getter})
+    monkeypatch.setattr(ctx, 'comparison', lambda service: (mapping, {}))
+    monkeypatch.setattr(inventory, 'inventory_for', lambda ctx: SimpleNamespace(schema=lambda kind: {
+        'primaryIdentifier': getter['identifier'], 'handlers': {'read': {}}}))
+    def call(*args, **kwargs):
+        calls.append(args)
+        return {'ResourceDescription': {'Properties': '{"TransitGatewayId":"tgw-fixture"}'}}
+    monkeypatch.setattr(ctx, 'call', call)
+    def fetch(*args):
+        calls.append(provider)
+        return {'id': 'tgw-fixture'}
+    model = SimpleNamespace(path=tmp_path / 'model' / (scope + '/ec2.properties'), ctx=ctx, service='ec2',
+        values={'desired.row.007-001.property': 'EC2.TransitGateway.TransitGatewayId',
+                'desired.row.007-001.value': '`tgw-fixture`'})
+    resource = m.Resource(model, '007', {'resourceType': 'EC2.TransitGateway', 'anchor': 'gateway'},
+        [('007-001', {'property': 'EC2.TransitGateway.TransitGatewayId', 'value': '`tgw-fixture`'})])
+    resource.module = SimpleNamespace(CLOUDCONTROL_RESOURCE_TYPES={'EC2.TransitGateway'}, fetch=fetch, fetch_sdk=fetch)
+    definition = {'operation': 'get_resource'} if provider == 'sdk' else None
+    if provider == 'cloudcontrol':
+        entries = [lambda: resource.identity(), lambda: inventory.cloudcontrol_value(ctx, resource, getter)]
+    else:
+        entries = [lambda: ctx.fetch(resource, 'provider', definition), lambda: ctx._fetch(resource, 'provider', definition)]
+    if scope == 'dev/one':
+        for acquire in entries:
+            assert acquire()
+        assert calls
+    else:
+        # Populate both caches to prove that authorization precedes every cache hit.
+        cache_key = (model.path, '007', 'provider')
+        ctx.fetch_cache[cache_key] = {'id': 'cached'}
+        ctx.fetch_trace[cache_key] = []
+        future = Future()
+        future.set_result({'id': 'cached'})
+        ctx._flights[('fetch', *cache_key)] = future
+        prop = SimpleNamespace(field=SimpleNamespace(getter='provider'))
+        if provider == 'cloudcontrol':
+            entries.append(lambda: mapped_value(ctx, resource, mapping, prop, 'EC2.TransitGateway.TransitGatewayId'))
+        for acquire in entries:
+            with pytest.raises(m.Unresolved, match='outside authorized AWS retrieval scope'):
+                acquire()
+        assert calls == []
 
 
 if __name__ == '__main__':

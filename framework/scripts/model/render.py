@@ -63,27 +63,31 @@ def stack_markdown(path, values, root, *, definitions_root=None):
             for number, (identity, stack) in enumerate(stacks, 1)], *delivery]) + "\n"
 
 
-def display_name(values, identity, resource, rows):
+def display_name(values, identity, resource, rows, root):
     """Pure final display selection, shared by rendering and reference diagnostics."""
     kind = resource['resourceType']
     label = values.get(f'display.resource.{identity}.label')
     if GROUPED.get(kind, {}).get('display') == 'rule-table':
         return label or resource['logicalId'], None
     configured = resource_display_name(kind, rows, label, resource_mode(resource))
-    return configured or label, configured
+    name = configured or label
+    if configured is None and (name is None or name == kind):
+        count = sum(item['resourceType'] == kind for _, item in entries(values, 'desired.resource.'))
+        if kind in GROUPED or count != 1 or resource_has_name_property(root, kind, resource_mode(resource)):
+            return None, configured
+        name = kind
+    return name, configured
 
 
 def resource_presentation(values, identity, resource, root):
     kind = resource['resourceType']
     rows = catalog_display_rows(resource_rows(values, identity, kind, root), kind, root)
-    rule_table = GROUPED.get(kind, {}).get('display') == 'rule-table'
     name, configured = display_name(values, identity, resource,
-                                    resource_display_rows(values, identity, resource, root))
+                                    resource_display_rows(values, identity, resource, root), root)
     return name, configured, rows
 
 
 def resource_details(values, root, service, owned, resources, bound_anchors, *, findings=None):
-    counts = Counter(resource["resourceType"] for _, resource in resources)
     by_anchor = {}
     names = set()
     details = []
@@ -94,12 +98,8 @@ def resource_details(values, root, service, owned, resources, bound_anchors, *, 
             if kind not in owned:
                 raise ValueError(f"resource is outside service ownership: {kind}")
             name, configured_name, rows = resource_presentation(values, identity, resource, root)
-            rule_table = GROUPED.get(kind, {}).get('display') == 'rule-table'
-            type_display = not rule_table and configured_name is None and (name is None or name == kind)
-            if type_display:
-                if kind in GROUPED or counts[kind] != 1 or resource_has_name_property(root, kind, mode):
-                    raise ValueError(f"resource type display requires a single nameless independent resource: {kind}")
-                name = kind
+            if configured_name is None and name is None:
+                raise ValueError(f"resource type display requires a single nameless independent resource: {kind}")
             if not name or name in {"UNSET", "PENDING_DEPLOY"}:
                 raise ValueError(f"confirmed resource display label is missing: {kind}: {identity}")
             anchor = resource["anchor"]
@@ -273,7 +273,8 @@ def render_markdown(path, values, root, owned, details, grouped, policy_views=No
             definitions = [row for row in rows if row[1] == kind + ".s3JobDefinition"]
             if definitions:
                 row_id = definitions[0][0]
-                raw = values[f"desired.row.{row_id}.document"]
+                raw = (values[f"desired.row.{row_id}.document"] if JSON_LINK.fullmatch(definitions[0][2])
+                       else literal(values[f"desired.row.{row_id}.value"]))
                 document = policy_json(raw)
                 if "bucketDefinitions" in document:
                     mappings = [[f'[{name}](#{resource["anchor"]})', f'`{group["accountId"]}`', f"`{bucket}`"] for group in document["bucketDefinitions"] for bucket in group["buckets"]]

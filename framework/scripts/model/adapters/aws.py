@@ -350,10 +350,13 @@ class Context:
             self.comparisons[service] = comparison(ROOT, service)
         return self.comparisons[service]
 
-    def fetch(self, resource, getter, definition=None):
+    def require_resource_scope(self, resource):
         if resource.model.path.parent != self.root / 'model' / self.target['environment'] / self.target['directory']:
             raise Unresolved('producer target context is outside authorized AWS retrieval scope: ' +
                              str(resource.model.path))
+
+    def fetch(self, resource, getter, definition=None):
+        self.require_resource_scope(resource)
         key = ('fetch', resource.model.path, resource.number, getter)
         with self._cache_lock:
             hit = key in self._flights
@@ -364,6 +367,7 @@ class Context:
                 self.trace.extend(self.fetch_trace.get((resource.model.path, resource.number, getter), []))
 
     def _fetch(self, resource, getter, definition=None):
+        self.require_resource_scope(resource)
         key = (resource.model.path, resource.number, getter)
         if key not in self.fetch_cache:
             start = len(self.trace)
@@ -454,6 +458,7 @@ class Resource:
         return matches[0]
 
     def identity(self, mode="id"):
+        self.ctx.require_resource_scope(self)
         if self.model.service == "cloudformation-stacks":
             raise Unresolved("resource has no SDK identity mapping")
         mapping, _ = self.ctx.comparison(self.model.service)

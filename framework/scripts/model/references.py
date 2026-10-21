@@ -285,7 +285,7 @@ def diagnose(snapshot, read_context=None, *, _producer_scope=None):
                 display_rows = resource_display_rows(values, identity, resource, producer.scope.root)
                 try:
                     # This pure function raises only name/display semantic failures.
-                    expected, _ = display_name(values, identity, resource, display_rows)
+                    expected, _ = display_name(values, identity, resource, display_rows, producer.scope.root)
                 except ValueError as error:
                     warn('producer display name unavailable: ' + str(error))
                 else:
