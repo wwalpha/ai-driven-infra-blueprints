@@ -219,10 +219,25 @@ def validate_kms_policy_accounts(values: dict[str, str], target: dict) -> None:
                                      f"cross-account:{arn} in the policy row comment")
 
 
-def validate_resource_identities(path, values, root, resources, *, definitions_root=None):
+def _kms_policy_account_check():
+    """Reuse only the last successful ordered inputs within one service check."""
+    successful = None
+
+    def check(values, target):
+        nonlocal successful
+        inputs = (tuple(values.items()), tuple(target.items()))
+        if inputs != successful:
+            validate_kms_policy_accounts(values, target)
+            successful = inputs
+
+    return check
+
+
+def validate_resource_identities(path, values, root, resources, *, definitions_root=None,
+                                 _kms_policy_check=None):
     relative = path.parent.relative_to(root / "docs/designs") if path.is_relative_to(root / "docs/designs") else None
     target = design_target(path, root)
-    validate_kms_policy_accounts(values, target)
+    (_kms_policy_check or validate_kms_policy_accounts)(values, target)
     stack_source = root / "model" / relative / "cloudformation-stacks.properties" if relative is not None else None
     stack_names = None
     identity_catalog = DesignSchemaCatalog(definitions_root or root)
@@ -332,9 +347,11 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
     def presentation():
         view = (root / 'docs/designs' / path.relative_to(root / 'model')).with_suffix('.md') if path.is_relative_to(root / 'model') else path
         resource_details(values, definitions, service, owned, resources, bound_resource_anchors(view), findings=findings)
+    kms_policy_check = _kms_policy_account_check()
     for identity, resource in resources:
         findings.evaluate('model.identity.' + identity, None, lambda: validate_resource_identities(
-            view, values, root, [(identity, resource)], definitions_root=definitions))
+            view, values, root, [(identity, resource)], definitions_root=definitions,
+            _kms_policy_check=kms_policy_check))
     findings.evaluate('model.presentation', None, presentation)
     for warning in findings.warnings:
         warning.setdefault('scope', '/'.join((*model.relative_to(root / 'model').parts[:2], service)))
