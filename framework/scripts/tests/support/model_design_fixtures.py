@@ -84,6 +84,7 @@ def model(service, kind, name, rows, logical_id=None, label=None):
         f"desired.service.{service}.ownedCatalogResourceTypes": kind,
         "display.service.title": f"# {service} 詳細設計",
         "desired.resource.001.resourceType": kind,
+        "desired.resource.001.anchor": anchor,
         "desired.resource.001.logicalId": kind.replace(".", "_") + "_001",
         "desired.service.identity.lastAllocated": json.dumps({kind: 1}),
         "desired.resource.001.cfn-logicalId": "fixture-" + (logical_id or "Resource").replace("_", ""),

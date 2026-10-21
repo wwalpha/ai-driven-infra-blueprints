@@ -7,7 +7,7 @@ from cloudformation_inputs import Blocked
 from script_loader import module
 from utils.json_format import policy_json as strict_json, fingerprint
 from model.core import LINK
-from model.identity import URI
+from model.identity import resource_link
 from policy_tables import literal
 
 ALGORITHM = 'BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm'
@@ -116,7 +116,7 @@ def model_conditions(backend, bucket):
             fail('INDETERMINATE', 'SSE-S3 design also specifies a KMS key')
         if algorithm == 'aws:kms':
             raw = selected(resource, KEY)
-            if URI.fullmatch(raw) or LINK.fullmatch(raw):
+            if resource_link(raw) or LINK.fullmatch(raw):
                 referenced = resource.reference(raw)
                 if referenced.kind == 'KMS.Alias':
                     parent = referenced.parent()

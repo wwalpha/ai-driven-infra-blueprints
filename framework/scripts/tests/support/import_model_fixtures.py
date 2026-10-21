@@ -105,6 +105,7 @@ def service_values(service, kinds):
 
 def resource_values(rid, kind, anchor, mode, rows):
     values = {f'desired.resource.{rid}.resourceType': kind, f'desired.resource.{rid}.resourceMode': mode,
+              f'desired.resource.{rid}.anchor': anchor,
               f'desired.resource.{rid}.logicalId': kind.replace('.', '_') + f'_{int(rid):03d}',
               'desired.service.identity.lastAllocated': json.dumps({kind: int(rid)}),
               f'display.resource.{rid}.comment': '合成テスト用のリソース'}
@@ -137,14 +138,14 @@ def build_seed(root):
         mode = 'IMPORT' if env == 'dev' else 'CREATE'
         values = service_values('vpc', ['EC2.VPC', 'EC2.Subnet'])
         values.update(resource_values('001', 'EC2.VPC', 'vpc-main', mode, [
-            ('VpcId', f'resource://{env}/{TARGET}/vpc/EC2_VPC_001'), ('CidrBlock', '`10.10.0.0/23`'), ('Name', '`main-vpc`'),
+            ('VpcId', '[001](#vpc-main)'), ('CidrBlock', '`10.10.0.0/23`'), ('Name', '`main-vpc`'),
             ('EnableDnsHostnames', '`true`'), ('EnableDnsSupport', '`true`')]))
         if env == 'dev':
             values['observed.row.001-001.value'] = VPC_ID
         for n, (name, cidr, zone) in enumerate(SUBNETS, 2):
             rid = f'{n:03d}'
             values.update(resource_values(rid, 'EC2.Subnet', 'vpc-' + name, mode, [
-                ('SubnetId', f'resource://{env}/{TARGET}/vpc/EC2_Subnet_{rid}'), ('VpcId', f'resource://{env}/{TARGET}/vpc/EC2_VPC_001'),
+                ('SubnetId', f'[{rid}](#vpc-{name})'), ('VpcId', '[001](#vpc-main)'),
                 ('CidrBlock', m.model_literal(cidr)), ('Name', m.model_literal(name)),
                 ('AvailabilityZone', m.model_literal(zone)), ('MapPublicIpOnLaunch', '`false`')]))
             if env == 'dev':
@@ -318,11 +319,11 @@ def operation_fixture(root):
     for env in ('dev', 'stg'):
         values = service_values('vpc', ['EC2.VPC'])
         values.update(resource_values('001', 'EC2.VPC', 'vpc-main', 'CREATE' if env == 'dev' else 'IMPORT', [
-            ('VpcId', f'resource://{env}/{TARGET}/vpc/EC2_VPC_001'), ('CidrBlock', '`10.1.0.0/16`'), ('EnableDnsSupport', '`false`')]))
+            ('VpcId', '[001](#vpc-main)'), ('CidrBlock', '`10.1.0.0/16`'), ('EnableDnsSupport', '`false`')]))
         values['observed.row.001-001.value'] = 'vpc-' + env
         if env == 'stg':
             values.update(resource_values('009', 'EC2.VPC', 'vpc-imported', 'IMPORT', [
-                ('EnableDnsSupport', '`true`'), ('CidrBlock', '`10.9.0.0/16`'), ('VpcId', f'resource://{env}/{TARGET}/vpc/EC2_VPC_009')]))
+                ('EnableDnsSupport', '`true`'), ('CidrBlock', '`10.9.0.0/16`'), ('VpcId', '[009](#vpc-imported)')]))
             values['observed.row.009-003.value'] = 'vpc-source'
         values['desired.service.identity.lastAllocated'] = json.dumps({kind: max(int(resource['logicalId'].rsplit('_', 1)[1]) for _, resource in entries(values, 'desired.resource.') if resource['resourceType'] == kind) for kind in {resource['resourceType'] for _, resource in entries(values, 'desired.resource.')}})
         write_model(root / 'model' / env / TARGET / 'vpc.properties', values)
@@ -340,7 +341,7 @@ def operation_candidate(before, after, action='import-merge'):
             target_row = destination[prop][0] if prop in destination else '001-' + rid.split('-', 1)[1]
             for field, raw in row.items():
                 if field != 'comment' or prop not in destination:
-                    values[f'desired.row.{target_row}.{field}'] = raw.replace('resource://stg/cde/vpc/EC2_VPC_009', 'resource://stg/cde/vpc/EC2_VPC_001')
+                    values[f'desired.row.{target_row}.{field}'] = raw.replace('[009](#vpc-imported)', '[001](#vpc-main)')
             old_observed, new_observed = f'observed.row.{rid}.value', f'observed.row.{target_row}.value'
             if old_observed in values:
                 values[new_observed] = values[old_observed]
@@ -427,7 +428,9 @@ def batch_operation_fixture(before, after):
                 new_key = key.replace('.' + old_id + '.', '.' + new_id + '.').replace('.' + old_id + '-', '.' + new_id + '-')
                 raw = value.replace('[' + old_id + ']', '[' + new_id + ']')
                 raw = raw.replace('#vpc-main)', '#vpc-main-' + destination + ')').replace('#vpc-imported)', '#vpc-imported-' + source + ')')
-                raw = raw.replace('resource://stg/cde/vpc/EC2_VPC_' + old_id, 'resource://stg/cde/vpc/EC2_VPC_' + new_id)
+                raw = raw.replace('[' + old_id + ']', '[' + new_id + ']')
+                if key.endswith('.anchor'):
+                    raw += '-' + (destination if old_id == '001' else source)
                 if key.endswith('.logicalId'):
                     raw = 'EC2_VPC_' + new_id
                 expanded[new_key] = raw
@@ -442,7 +445,7 @@ def batch_operation_fixture(before, after):
             target_id = target_rows[prop][0]
             for field, raw in row.items():
                 if field != 'comment':
-                    changed[f'desired.row.{target_id}.{field}'] = raw.replace('resource://stg/cde/vpc/EC2_VPC_' + source, 'resource://stg/cde/vpc/EC2_VPC_' + destination)
+                    changed[f'desired.row.{target_id}.{field}'] = raw.replace('[' + source + '](#vpc-imported-' + source + ')', '[' + destination + '](#vpc-main-' + destination + ')')
             observed = f'observed.row.{row_id}.value'
             if observed in expanded:
                 changed[f'observed.row.{target_id}.value'] = expanded[observed]
@@ -476,7 +479,7 @@ def dependency_fixture(root):
         name = 'same-name-' + env
         a = service_values('service-a', ['ServiceA.Resource'])
         a.update(resource_values('001', 'ServiceA.Resource', 'producer', 'IMPORT', [
-            ('Name', name), ('Peer', f'resource://{env}/{TARGET}/service-b/ServiceB_Resource_002')]))
+            ('Name', name), ('Peer', '[002](service-b.md#consumer)')]))
         a.update(resource_values('003', 'ServiceA.Resource', 'other-producer', 'IMPORT', [('Name', name)]))
         b = service_values('service-b', ['ServiceB.Resource'])
         b.update(resource_values('002', 'ServiceB.Resource', 'consumer', 'IMPORT', [('Name', name)]))

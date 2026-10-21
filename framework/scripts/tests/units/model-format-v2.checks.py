@@ -84,14 +84,14 @@ def check_import_observation_foreign_reference_and_identity_spoof(tmp_path):
     scope, values = format_fixture(tmp_path)
     for name in ('materials', 'mappings', 'rules'):
         shutil.copytree(FRAMEWORK / 'framework' / name, tmp_path / 'framework' / name)
-    values.update({'desired.resource.008.resourceType': 'EC2.Subnet',
+    values.update({'desired.resource.008.resourceType': 'EC2.Subnet', 'desired.resource.008.anchor': 'subnet-existing',
                    'desired.resource.008.resourceMode': 'IMPORT', 'desired.resource.008.logicalId': 'EC2_Subnet_001',
                    'desired.service.identity.lastAllocated': '{"EC2.VPC":1,"EC2.Subnet":1}',
                    'desired.row.008-001.property': 'EC2.Subnet.VpcId',
-                   'desired.row.008-001.value': 'resource://qa-custom/one/network/EC2_VPC_001', 'desired.row.008-001.comment': 'foreign VPC',
+                   'desired.row.008-001.value': '[vpc](#network-existing)', 'desired.row.008-001.comment': 'foreign VPC',
                    'observed.row.008-001.value': 'vpc-before',
                    'desired.row.008-002.property': 'EC2.Subnet.SubnetId',
-                   'desired.row.008-002.value': 'resource://qa-custom/one/network/EC2_Subnet_001', 'desired.row.008-002.comment': 'own ID',
+                   'desired.row.008-002.value': '[subnet](#subnet-existing)', 'desired.row.008-002.comment': 'own ID',
                    'observed.row.008-002.value': 'subnet-before'})
     scope.path.write_text(serialize(values))
     snapshot = load_model(scope)
@@ -101,7 +101,7 @@ def check_import_observation_foreign_reference_and_identity_spoof(tmp_path):
     with pytest.raises(ValueError, match='IMPORT physical identity'):
         observed_outputs(scope.path, {**snapshot.values, 'observed.row.008-002.value': 'subnet-other'})
     # A forged foreign link cannot make a native primary identifier writable.
-    values['desired.row.008-002.value'] = 'resource://qa-custom/one/network/EC2_VPC_001'
+    values['desired.row.008-002.value'] = '[vpc](#network-existing)'
     scope.path.write_text(serialize(values))
     snapshot = load_model(scope)
     with pytest.raises(ValueError, match='IMPORT physical identity'):
@@ -122,6 +122,7 @@ def check_macie_renders_current_document_without_artifact_reads(tmp_path, existi
         'desired.service.macie.ownedCatalogResourceTypes': 'Macie.ClassificationJob',
         'display.service.title': '# Fixture', 'desired.resource.007.resourceType': 'Macie.ClassificationJob',
         'desired.resource.007.logicalId': 'Macie_ClassificationJob_001',
+        'desired.resource.007.anchor': 'macie-fixture-job',
         'desired.service.identity.lastAllocated': '{"Macie.ClassificationJob":1}',
         'desired.resource.007.resourceMode': 'IMPORT', 'display.resource.007.comment': 'fixture'}
     for index, (prop, value) in enumerate([('name', '`fixture-job`'), ('s3JobDefinition', '[definition](macie/definition.json)')], 1):
@@ -162,7 +163,7 @@ def check_shared_display_selection_and_diagnostics(tmp_path, kind, label, rows, 
     from model.render import display_name
     from support.model_v2_fixtures import format_fixture
     scope, _ = format_fixture(tmp_path)
-    values = {'desired.resource.007.resourceType': kind, 'desired.resource.007.logicalId': kind.replace('.', '_') + '_001',
+    values = {'desired.resource.007.anchor': 'resource-existing', 'desired.resource.007.resourceType': kind, 'desired.resource.007.logicalId': kind.replace('.', '_') + '_001',
         'desired.service.identity.lastAllocated': json.dumps({kind: 1}), 'desired.resource.007.resourceMode': 'IMPORT'}
     if label:
         values['display.resource.007.label'] = label
@@ -173,7 +174,7 @@ def check_shared_display_selection_and_diagnostics(tmp_path, kind, label, rows, 
         if rid == '008':
             values.update({'desired.resource.008.resourceType': 'KMS.Alias', 'desired.resource.008.logicalId': 'KMS_Alias_001',
                 'desired.service.identity.lastAllocated': json.dumps({kind: 1, 'KMS.Alias': 1}), 'desired.resource.008.resourceMode': 'IMPORT',
-                'desired.resource.008.parentReference': 'resource://qa-custom/one/network/KMS_Key_001'})
+                'desired.resource.008.parentReference': '[key](#resource-existing)'})
     from model.core import entries
     resource = dict(entries(values, 'desired.resource.'))['007']
     assert display_name(values, '007', resource, [[str(i), prop, value, 'fixture'] for i, (prop, value) in enumerate(rows)], tmp_path)[0] == expected
@@ -181,7 +182,7 @@ def check_shared_display_selection_and_diagnostics(tmp_path, kind, label, rows, 
         from model.render import resource_details
         details, _ = resource_details(values, tmp_path, 'network', {kind}, [(identity, item) for identity, item in entries(values, 'desired.resource.')], {})
         assert details[0][2] == expected
-    text = 'resource://qa-custom/one/network/' + resource['logicalId']
+    text = '[resource](#resource-existing)'
     values['desired.note.001.text'] = text
     spec = {'consumerKey': 'desired.note.001.text', 'text': text, 'occurrence': '1', 'producerKind': 'resource',
         'producerScope': '/'.join((scope.environment, scope.target, scope.service)), 'producerLogicalId': resource['logicalId'],
@@ -199,7 +200,7 @@ def check_type_display_constraints(tmp_path, kind, mode, multiple):
     from model.render import display_name, resource_details
     from support.model_v2_fixtures import FRAMEWORK
     from model.core import entries
-    values = {'desired.resource.007.resourceType': kind, 'desired.resource.007.resourceMode': mode,
+    values = {'desired.resource.007.anchor': 'resource-existing', 'desired.resource.007.resourceType': kind, 'desired.resource.007.resourceMode': mode,
         'desired.resource.007.logicalId': 'fixed', 'desired.resource.007.anchor': 'network'}
     if multiple:
         values.update({'desired.resource.008.resourceType': kind, 'desired.resource.008.logicalId': 'second'})

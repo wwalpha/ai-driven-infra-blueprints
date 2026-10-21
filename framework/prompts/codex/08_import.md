@@ -271,3 +271,5 @@ Recovery verifies the receipt's Task and every journal output against the select
 and registered paths. It contacts no AWS API and grants no new edit rights. After source
 rollback the unchanged acquisition/Review can be retried; after display rollback keep
 the saved Model and use recover-display. A different Task, HEAD or acquisition stops.
+
+Resource references retain their original Markdown label, relative path and fragment. Resolve with consumer scope through the common Model saved-anchor resolver; use fixed Resource numbers and typed logicalIds internally. Preserve independent saved anchors and desired links during IMPORT/observed updates. New anchors reuse `design_layout.resource_anchor()` and confirmed naming rules. No URI conversion or inferred consumer restoration.

@@ -25,3 +25,5 @@ services use separate single-service Tasks/acquisitions/publications in the LLM-
 order; do not introduce a Python batch controller. See 08_import for all decisions.
 
 Run in the worktree selected by the Human, following the Prompt's contract and evidence procedure.
+
+Resource references retain their original Markdown label, relative path and fragment. Resolve with consumer scope through the common Model saved-anchor resolver; use fixed Resource numbers and typed logicalIds internally. Preserve independent saved anchors and desired links during IMPORT/observed updates. New anchors reuse `design_layout.resource_anchor()` and confirmed naming rules. No URI conversion or inferred consumer restoration.

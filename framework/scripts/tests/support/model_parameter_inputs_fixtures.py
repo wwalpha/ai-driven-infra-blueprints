@@ -41,8 +41,8 @@ def fixture(root):
             name = ('vpc' if kind == 'EC2.VPC' else 'sbnt') + '-app-' + env + suffix + ('' if kind == 'EC2.VPC' else '-' + identity[-1])
             anchor = 'vpc-' + name
             fields = [('Name', '`' + name + '`'), ('CidrBlock', '`10.10.0.0/23`' if kind == 'EC2.VPC' else '`10.10.0.0/25`'),
-                      ('VpcId' if kind == 'EC2.VPC' else 'SubnetId', f"resource://{env}/team/vpc/{kind.replace('.', '_')}_{rid}"),
-                      ('EnableDnsSupport', '`true`') if kind == 'EC2.VPC' else ('VpcId', f'resource://{env}/team/vpc/EC2_VPC_017')]
+                      ('VpcId' if kind == 'EC2.VPC' else 'SubnetId', f'[resource](#{anchor})'),
+                      ('EnableDnsSupport', '`true`') if kind == 'EC2.VPC' else ('VpcId', f'[vpc](#vpc-vpc-app-{env}{suffix})')]
             values.update(resource_values(rid, kind, anchor, 'IMPORT', fields))
             values[f'desired.row.{rid}-002.comment'] = '環境注記 ' + env
             values[f'observed.row.{rid}-003.value'] = '`' + ('vpc-' if kind == 'EC2.VPC' else 'subnet-') + rid + '0' * 14 + '`'

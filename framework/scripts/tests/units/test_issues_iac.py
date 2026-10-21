@@ -105,9 +105,9 @@ class ImportValueResolutionTests(unittest.TestCase):
       for service, identity, kind, logical in [
           ('kms', '001', 'KMS.Key', 'Key'), ('kms', '002', 'KMS.Alias', 'Alias'),
           ('kms', '003', 'KMS.Key', 'OtherKey'), ('s3', '001', 'S3.Bucket', 'Bucket')]:
-        resource = {'resourceType': kind, 'logicalId': kind.replace('.', '_') + '_' + identity, 'cfn-logicalId': 'producer-' + logical}
+        resource = {'resourceType': kind, 'logicalId': kind.replace('.', '_') + '_' + identity, 'anchor': 'existing-' + logical, 'cfn-logicalId': 'producer-' + logical}
         if kind == 'KMS.Alias':
-          resource['parentReference'] = 'resource://fixture/team/kms/KMS_Key_001'
+          resource['parentReference'] = '[key](kms.md#existing-Key)'
         comparison.resources[service][identity] = resource
         comparison.rows[service][identity] = []
         definitions[logical] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': {}}
@@ -129,7 +129,7 @@ class ImportValueResolutionTests(unittest.TestCase):
       prop = 'Environment.EnvironmentVariables[].Value'
       def desired(logical, attribute=None, name='VALUE'):
         ids = {'Key': 'KMS_Key_001', 'Alias': 'KMS_Alias_002', 'OtherKey': 'KMS_Key_003', 'Bucket': 'S3_Bucket_001', 'Missing': 'KMS_Key_999'}
-        link = f'resource://fixture/team/{"s3" if logical == "Bucket" else "kms"}/{ids[logical]}'
+        link = f'[resource]({"s3" if logical == "Bucket" else "kms"}.md#existing-{logical})'
         value = {'$resource': link, '$attribute': attribute} if attribute else link
         return comparison.desired_value('codebuild', {
             'property': 'CodeBuild.Project.Environment.EnvironmentVariables', 'value': '',
@@ -138,8 +138,8 @@ class ImportValueResolutionTests(unittest.TestCase):
         return comparison.reference_same(left, right, 'CodeBuild.Project', prop)
       with patch('issues_iac.catalog_outputs', return_value=set()):
         key, alias = desired('Key', 'Arn'), desired('Alias', 'AliasArn')
-        for selector in [{'$resource': 'resource://fixture/team/kms/KMS_Key_001'},
-                         {'$resource': 'resource://fixture/team/kms/KMS_Key_001', '$attribute': 'Arn'}]:
+        for selector in [{'$resource': '[key](kms.md#existing-Key)'},
+                         {'$resource': '[key](kms.md#existing-Key)', '$attribute': 'Arn'}]:
           policy = {'property': 'IAM.ManagedPolicy.PolicyDocument', 'value': '',
                     'document': json.dumps({'Statement': [{'Resource': selector}]})}
           self.assertEqual(comparison.desired_value('iam', policy, 'IAM.ManagedPolicy')['Statement'][0]['Resource'], key)
@@ -168,12 +168,12 @@ class ImportValueResolutionTests(unittest.TestCase):
         unknown = issues_iac.Expression('Sub', ['${Unknown}', {}])
         self.assertIsNone(equal(unknown, unknown))
         row = {'property': 'CodeBuild.Project.' + prop, 'value': '`' + json.dumps({
-            '$resource': 'resource://fixture/team/kms/KMS_Key_001', '$attribute': 'Arn'}) + '`'}
+            '$resource': '[key](kms.md#existing-Key)', '$attribute': 'Arn'}) + '`'}
         self.assertEqual(comparison.desired_value('codebuild', row, 'CodeBuild.Project', context={'Type': 'PLAINTEXT'}), key)
-        for selector in [{'$resource': 'resource://fixture/team/kms/KMS_Key_001'},
+        for selector in [{'$resource': '[key](kms.md#existing-Key)'},
                          {'$resource': 'key-export', '$attribute': 'Arn'},
-                         {'$resource': 'resource://fixture/team/kms/KMS_Key_001', '$attribute': 'Arn', 'extra': 'x'},
-                         {'$resource': 'resource://fixture/team/kms/KMS_Key_001', '$attribute': 3}]:
+                         {'$resource': '[key](kms.md#existing-Key)', '$attribute': 'Arn', 'extra': 'x'},
+                         {'$resource': '[key](kms.md#existing-Key)', '$attribute': 3}]:
           row['value'] = '`' + json.dumps(selector) + '`'
           with self.subTest(selector=selector), self.assertRaises(issues_iac.Blocked):
             comparison.desired_value('codebuild', row, 'CodeBuild.Project', context={'Type': 'PLAINTEXT'})

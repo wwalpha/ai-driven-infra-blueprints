@@ -49,7 +49,8 @@ def bound_resource_anchors(path):
         path = path.parents[4] / 'model' / path.parents[1].name / path.parent.name / (path.stem + '.properties')
     if path.suffix != '.properties' or not input_is_file(path):
         return {}
-    return {(resource['resourceType'], resource['logicalId']): 'resource-' + resource['logicalId']
+    from model.identity import display_anchor
+    return {(resource['resourceType'], resource['logicalId']): display_anchor(resource)
             for _, resource in entries(load_model(path).authoritative, 'desired.resource.')}
 
 
@@ -109,7 +110,8 @@ def deployment_bucket(reference: str, path: Path, root: Path) -> str:
     """Resolve the confirmed name from the referenced authoritative S3 model."""
     from model.identity import Resolver, parse_reference
     validate_bucket_reference(reference)
-    snapshot, identity, resource = Resolver(root).resolve(reference)
+    from model.sources import scope_for
+    snapshot, identity, resource = Resolver(root).resolve(reference, scope_for((root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties') if path.is_relative_to(root / 'docs/designs') else path))
     if resource['resourceType'] != 'S3.Bucket':
         raise ReferenceResolutionError('deployment bucket must identify one S3.Bucket')
     rows = entries(snapshot.authoritative, 'desired.row.')
@@ -131,9 +133,6 @@ def observed_value(row_id, row, observed, outputs):
     from model.references import LINKS
     value = row['value']
     if observed is not None:
-        from model.identity import URI
-        if URI.fullmatch(value):
-            return observed
         if link := LINK.fullmatch(value):
             value = observed if row['property'] in outputs else f"[{literal(observed)}]({link.group(2)}#{link.group(3)})"
         elif has_reference(value) or LINKS.search(value):
@@ -200,11 +199,12 @@ def resource_display_rows(values: dict[str, str], identity: str, resource: dict[
     rows = resource_rows(values, identity, resource["resourceType"], root)
     if resource["resourceType"] == "KMS.Key":
         for child_id, child in entries(values, "desired.resource."):
-            from model.identity import address, display_anchor
+            from model.identity import parse_reference
             parent = child.get('parentReference', '')
             link = LINK.fullmatch(parent)
-            same = (scope is not None and parent == address(scope, resource['logicalId']) or
-                    link is not None and not link[2] and link[3] == display_anchor(resource['logicalId']))
+            same = (link is not None and link[3] == resource['anchor'] and
+                    (not link[2] or scope is not None and parse_reference(parent, scope)[:3] ==
+                     (scope.environment, scope.target, scope.service)))
             if child['resourceType'] == 'KMS.Alias' and same:
                 rows += resource_rows(values, child_id, child["resourceType"], root)
     return rows
@@ -212,76 +212,29 @@ def resource_display_rows(values: dict[str, str], identity: str, resource: dict[
 
 
 def reference_display(values, path, root, *, definitions_root=None):
-    """Project internal addresses to Markdown; this map must never be saved as authority."""
-    import posixpath
-    from model.identity import Resolver, URI, display_anchor, reference_tokens
+    """Preserve saved links/anchors and project only execution documents for display."""
+    from model.identity import Resolver
+    from model.sources import scope_for
+    model_path = (root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties') if path.is_relative_to(root / 'docs/designs') else path
+    scope = scope_for(model_path)
     resolver = Resolver(root)
     result = dict(values)
-    local_resources = {resource['logicalId']: (number, resource)
-                       for number, resource in entries(values, 'desired.resource.')}
-    for number, resource in entries(values, 'desired.resource.'):
-        result[f'desired.resource.{number}.anchor'] = display_anchor(resource['logicalId'])
-
-    def replace(match):
-        from model.identity import parse_reference
-        environment, target, service, logical = parse_reference(match[0])
-        label = logical
-        try:
-            snapshot, number, resource = resolver.resolve(match[0])
-            from model.render import display_name
-            rows = resource_display_rows(snapshot.values, number, resource, definitions_root or root, scope=snapshot.scope)
-            label, _ = display_name(snapshot.values, number, resource, rows, definitions_root or root)
-        except ReferenceResolutionError:
-            pass  # Missing producers remain diagnostics; their deterministic display link is still useful.
-        destination = root / 'docs/designs' / environment / target / (service + '.md')
-        if destination == path and logical in local_resources:
-            from model.sources import Scope
-            from model.render import display_name
-            number, resource = local_resources[logical]
-            rows = resource_display_rows(values, number, resource, definitions_root or root,
-                                         scope=Scope(root, environment, target, service))
-            label, _ = display_name(values, number, resource, rows, definitions_root or root)
-        relative = '' if destination == path else posixpath.relpath(destination.as_posix(), path.parent.as_posix())
-        return f'[{label or logical}]({relative}#{display_anchor(logical)})'
-
-    from model.references import _json
-    def project(value):
-        if isinstance(value, str):
-            pieces, cursor = [], 0
-            for match in reference_tokens(value):
-                pieces.extend((value[cursor:match.start()], replace(match)))
-                cursor = match.end()
-            return ''.join((*pieces, value[cursor:]))
-        if isinstance(value, list):
-            return [project(child) for child in value]
-        if isinstance(value, dict):
-            return {key: project(child) for key, child in value.items()}
-        return value
-
     for key, value in values.items():
-        if (key.startswith('desired.row.') and key.endswith(('.value', '.document')) or
-                key.endswith('.parentReference') or key == 'desired.deployment.templateBucket' or
-                key.startswith('desired.artifact.') and key.endswith('.bucket') or
-                key.startswith('desired.note.') and key.endswith('.text')):
-            parsed, structured = _json(key, value)
-            projected = (execution_document(parsed, root, property_name=values[key.removesuffix('document') + 'property'], resolver=resolver)
-                         if key.endswith('.document') else project(parsed))
-            if structured:
-                result[key] = ('`' if value.startswith('`') else '') + json.dumps(projected, ensure_ascii=False) + ('`' if value.startswith('`') else '')
-            else:
-                result[key] = projected
-            if key.endswith('.document'):
-                result[key.removesuffix('document') + 'artifactSha256'] = document_sha256(projected)
+        if key.startswith('desired.row.') and key.endswith('.document'):
+            projected = execution_document(json.loads(value), root,
+                property_name=values[key.removesuffix('document') + 'property'], resolver=resolver, scope=scope)
+            result[key] = json.dumps(projected, ensure_ascii=False)
+            result[key.removesuffix('document') + 'artifactSha256'] = document_sha256(projected)
     return result
 
 
-def execution_document(document, root, *, property_name=None, resolver=None):
+def execution_document(document, root, *, property_name=None, resolver=None, scope=None):
     """Resolve confirmed JSON operands; unresolved values cannot become AWS artifacts."""
-    from model.identity import Resolver, URI
+    from model.identity import Resolver, resource_link, reference_tokens
     resolver = resolver or Resolver(root)
 
     def reference(uri, attribute=None, field=None):
-        snapshot, number, resource = resolver.resolve(uri)
+        snapshot, number, resource = resolver.resolve(uri, scope)
         if attribute is None:
             from reference_contracts import contract
             forms = contract(field).get(resource['resourceType'], ()) if field else ()
@@ -295,7 +248,7 @@ def execution_document(document, root, *, property_name=None, resolver=None):
             if row['property'] != resource['resourceType'] + '.' + attribute:
                 continue
             value = snapshot.authoritative.get(f'observed.row.{rid}.value', row.get('value'))
-            if value is not None and 'resource://' not in value and literal(value) not in {'', 'UNSET', 'PENDING_DEPLOY'}:
+            if value is not None and not resource_link(value) and literal(value) not in {'', 'UNSET', 'PENDING_DEPLOY'}:
                 matches.append(literal(value))
         if len(matches) != 1:
             raise ReferenceResolutionError('JSON Resource reference requires one confirmed output', reference=uri)
@@ -303,10 +256,14 @@ def execution_document(document, root, *, property_name=None, resolver=None):
 
     def visit(value, field):
         if isinstance(value, str):
-            if URI.fullmatch(value):
+            if field and field.rsplit('.', 1)[-1] in {'Description', 'description'}:
+                return value
+            if value.startswith('resource://'):
+                raise ReferenceResolutionError('unsupported saved Resource reference syntax')
+            if resource_link(value):
                 return reference(value, field=field)
-            if 'resource://' in value:
-                raise ReferenceResolutionError('embedded Resource URI requires an explicit JSON operand')
+            if any(reference_tokens(value)):
+                raise ReferenceResolutionError('embedded Resource reference requires an explicit JSON operand')
             return value
         if isinstance(value, list):
             return [visit(item, field + '[]' if field else None) for item in value]
@@ -315,6 +272,6 @@ def execution_document(document, root, *, property_name=None, resolver=None):
                 if set(value) - {'$resource', '$attribute'}:
                     raise ValueError('invalid structured Resource reference')
                 return reference(value['$resource'], value.get('$attribute'))
-            return {key: visit(child, field + '.' + key if field else None) for key, child in value.items()}
+            return {key: visit(child, field + '.' + key if field else key) for key, child in value.items()}
         return value
     return visit(document, property_name)

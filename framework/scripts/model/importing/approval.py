@@ -1,7 +1,7 @@
 """Import Review integrity; the LLM owns explicit Human consent in conversation."""
 from datetime import datetime, timedelta, timezone
 from model.core import entries
-from model.identity import URI
+from model.identity import resource_link
 from model.core import resource_row_index
 from model.sources import runtime_values
 from model.references import declarations
@@ -163,7 +163,7 @@ def build_review(acquisition, selection, before, proposed, risks, property_schem
             if row['property'] != prop:
                 continue
             raw = row.get('document', row['value'])
-            value = raw if URI.fullmatch(raw) else typed_row(row, raw, property_schema(prop))
+            value = raw if resource_link(raw) else typed_row(row, raw, property_schema(prop))
             current = values.get('observed.row.' + row_id + '.value')
             result.append({'row': row_id, 'desired': value,
                            'nativeType': {str: 'string', bool: 'boolean', int: 'integer', float: 'number',

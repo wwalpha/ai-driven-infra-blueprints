@@ -28,10 +28,11 @@ def schema_for(prop):
 
 def resource(number='001', kind='EC2.VPC', identity='vpc-confirmed', cidr='10.10.0.0/23', mode='IMPORT'):
     values = {f'desired.resource.{number}.resourceType': kind,
+              f'desired.resource.{number}.anchor': 'vpc-' + number,
               f'desired.resource.{number}.resourceMode': mode,
               f'desired.resource.{number}.logicalId': kind.replace('.', '_') + ('_001' if number == '001' else '_002'),
               'desired.service.identity.lastAllocated': json.dumps({kind: 1 if number == '001' else 2})}
-    for n, (prop, value) in enumerate([('VpcId', 'resource://dev/cde/vpc/' + values[f'desired.resource.{number}.logicalId']), ('CidrBlock', '`' + cidr + '`'), ('Name', '`main-vpc`')], 1):
+    for n, (prop, value) in enumerate([('VpcId', f'[vpc](vpc.md#vpc-{number})'), ('CidrBlock', '`' + cidr + '`'), ('Name', '`main-vpc`')], 1):
         key = f'desired.row.{number}-{n:03d}.'
         values.update({key + 'property': kind + '.' + prop, key + 'value': value, key + 'comment': '合成入力'})
     if identity:
@@ -198,7 +199,7 @@ def check_new_resource_and_explicit_dispositions():
     chosen = selection_records(picked, [acquired], old, new, schema_for)
     assert chosen.keys() == {'009'}
     assert len(verify_values(expansion(old), expansion(new), chosen, schema_for)) == 3
-    invalid = {**new, 'desired.row.009-001.value': 'resource://dev/cde/vpc/EC2_VPC_001'}
+    invalid = {**new, 'desired.row.009-001.value': '[vpc](vpc.md#vpc-001)'}
     warnings = []
     verify_values(expansion(old), expansion(invalid), chosen, schema_for, warnings=warnings)
     assert any('own Resource' in w['message'] for w in warnings)
@@ -434,7 +435,7 @@ def check_authored_vpc_append_candidate(tmp_path, unknown):
     state = json.loads(before.authoritative[COUNTERS])
     state['EC2.VPC'] += 1
     addition[COUNTERS] = json.dumps(state)
-    addition['desired.row.009-001.value'] = 'resource://dev/cde/vpc/EC2_VPC_002'
+    addition['desired.row.009-001.value'] = '[vpc](vpc.md#vpc-009)'
     for index, prop in enumerate(('EnableDnsHostnames', 'EnableDnsSupport'), 4):
         addition.update({f'desired.row.009-{index:03d}.property': 'EC2.VPC.' + prop,
                          f'desired.row.009-{index:03d}.value': '`true`',
@@ -450,7 +451,7 @@ def check_authored_vpc_append_candidate(tmp_path, unknown):
     assert bool(warnings) == unknown
     assert all(after.authoritative[key] == value for key, value in before.authoritative.items() if key != COUNTERS)
     assert after.authoritative['observed.row.009-001.value'] == '`vpc-new`'
-    assert after.authoritative['desired.row.009-001.value'] == 'resource://dev/cde/vpc/EC2_VPC_002'
+    assert after.authoritative['desired.row.009-001.value'] == '[vpc](vpc.md#vpc-009)'
     assert after.authoritative['desired.resource.009.resourceMode'] == 'IMPORT'
     assert all(p.read_bytes() == raw for p, raw in original_bytes.items())
 
@@ -535,7 +536,7 @@ def check_model_operation_rejects_unproved_changes(tmp_path, change):
     elif change == 'missing-row':
         values['desired.row.001-002.property'] = 'EC2.VPC.Other'
     else:
-        values['desired.note.001.text'] = 'resource://stg/cde/vpc/EC2_VPC_009'
+        values['desired.note.001.text'] = '[009](#vpc-imported)'
     write_model(file, values)
     with pytest.raises(ValueError):
         verify_model_operation(before, after, model_operation(operation_contract()), sources)
@@ -981,7 +982,7 @@ def check_tgw_compare_provider_evaluation():
     gateway, gateway_cli = generic_context('ec2', {'EC2.TransitGateway': [{'identifier': 'tgw-one', 'properties': {'Id': 'tgw-one'}}]})
     gateway.import_mode = False
     model = SimpleNamespace(ctx=gateway, path=gateway.root / 'model/dev/synthetic/ec2.properties', service='ec2', values={'observed.row.001-001.value': '`tgw-one`'})
-    resource = m.comparator().Resource(model, '001', {'resourceType': 'EC2.TransitGateway', 'logicalId': 'EC2_TransitGateway_001'}, [('001-001', {'property': 'EC2.TransitGateway.Id', 'value': 'resource://dev/synthetic/ec2/EC2_TransitGateway_001'})])
+    resource = m.comparator().Resource(model, '001', {'resourceType': 'EC2.TransitGateway', 'logicalId': 'EC2_TransitGateway_001', 'anchor': 'gateway'}, [('001-001', {'property': 'EC2.TransitGateway.Id', 'value': '[gateway](ec2.md#gateway)'})])
     assert resource.identity() == 'tgw-one' and len(gateway_cli.calls) == 2
     model.values.clear()
     with pytest.raises(m.comparator().Unresolved, match='observation'):
@@ -1132,7 +1133,7 @@ def check_explicit_reference_operation(tmp_path, field):
                            f'desired.row.{rid}-004.value': name, f'desired.row.{rid}-004.comment': '名前'})
     source = '001' if field == 'reevaluation' else '009'
     raw = ('vpc-source' if field == 'identifier' else 'destination-name' if field == 'reevaluation'
-           else 'source-name' if external else 'resource://stg/cde/vpc/EC2_VPC_009')
+           else 'source-name' if external else '[009](#vpc-imported)')
     allocation_state = json.loads(values['desired.service.identity.lastAllocated'])
     values.update(resource_values('020', 'EC2.Subnet', 'subnet-keep', 'CREATE', [
         ('Policy' if field == 'document' else 'VpcId', '[JSON](vpc/policy.json)' if field == 'document' else raw),
@@ -1156,7 +1157,7 @@ def check_explicit_reference_operation(tmp_path, field):
     sources = operation_candidate(before, after)
     file = after / file.relative_to(before)
     values = dict(load_model(file).authoritative)
-    updated = 'vpc-source' if field == 'identifier' else 'source-name' if external else 'resource://stg/cde/vpc/EC2_VPC_001'
+    updated = 'vpc-source' if field == 'identifier' else 'source-name' if external else '[001](#vpc-main)'
     values[key] = json.dumps({'Vpc': updated, 'Sibling': True}) if field == 'document' else updated
     values['desired.reference.vpc.producerLogicalId'] = 'EC2_VPC_001'
     values['desired.reference.vpc.text'] = updated
@@ -1225,12 +1226,12 @@ def check_local_reference_effective_identity(tmp_path):
     dependency_fixture(tmp_path)
     file = tmp_path / 'model/stg/cde/service-a.properties'
     values = dict(load_model(file).authoritative)
-    values['desired.row.001-002.value'] = 'resource://stg/cde/service-a/ServiceA_Resource_003'
+    values['desired.row.001-002.value'] = '[other](service-a.md#other-producer)'
     write_model(file, values)
     model = load_model(file)
     record, = usages(model)
     assert record.producer_scope == 'stg/cde/service-a' and record.logical_id == 'ServiceA_Resource_003'
-    assert model.values['desired.row.001-002.value'] == 'resource://stg/cde/service-a/ServiceA_Resource_003'
+    assert model.values['desired.row.001-002.value'] == '[other](service-a.md#other-producer)'
 
 
 def check_stack_reference_usage_identity(tmp_path):
@@ -1584,7 +1585,7 @@ def check_reference_structural_and_remaining_delete(tmp_path):
     dependency_fixture(before)
     file = before / 'model/stg/cde/service-a.properties'
     values = dict(load_model(file).authoritative)
-    values['desired.resource.001.parentReference'] = 'resource://stg/cde/service-a/ServiceA_Resource_003'
+    values['desired.resource.001.parentReference'] = '[other](service-a.md#other-producer)'
     values['desired.resource.001.parentProperty'] = 'ServiceA.Resource.Peer'
     write_model(file, values)
     record, = [record for record in usages(load_model(file)) if record.consumer_key.endswith('.parentReference')]

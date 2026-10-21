@@ -151,7 +151,7 @@ def check_glue():
         name = property_key(before, 'Glue.SecurityConfiguration.Name')
         logical = before.authoritative['desired.resource.002.logicalId']
         from model.identity import address
-        after = candidate(before, {key: address(before.scope, logical), name: '`glsc-a1b2c3`'})
+        after = candidate(before, {key: address(before.scope, dict(entries(before.authoritative, 'desired.resource.'))['002'], consumer_scope=before.scope), name: '`glsc-a1b2c3`'})
         assert after.authoritative['desired.resource.002.logicalId'] == logical
         raw = after.authoritative[property_key(before, 'Glue.Job.DefaultArguments')]
         arguments = json.loads(literal(raw))

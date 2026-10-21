@@ -56,16 +56,16 @@ def resource_keys(text: str, selector: str, *, scope=None) -> set[str]:
                if selector and selector in (identity, resource.get("logicalId"))]
     if len(matches) != 1:
         raise ValueError(f"resource selector must match exactly one fixed entry number or logicalId: {selector!r} ({len(matches)} matches)")
-    from model.identity import parse_reference, resource_index
-    logicals = resource_index(values)
+    from model.identity import parse_reference, anchor_index, select_anchor
+    anchors = anchor_index(values)
     neighbors = {identity: set() for identity in resources}
     for identity, resource in resources.items():
         if 'parentReference' not in resource:
             continue
-        environment, target, service, logical = parse_reference(resource['parentReference'])
+        environment, target, service, logical = parse_reference(resource['parentReference'], scope)
         if scope is None or (environment, target, service) != (scope.environment, scope.target, scope.service):
             raise ValueError('grouped parent requires the same explicit service scope')
-        match = logicals.get(logical)
+        match = select_anchor(anchors, logical, resource['parentReference'])
         if match is None:
             raise ValueError('grouped parent is absent: ' + identity)
         parent = match[0]

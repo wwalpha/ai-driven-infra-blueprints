@@ -280,7 +280,7 @@ def check_pending_reference_is_required_input():
         'desired.resource.001.resourceMode': 'IMPORT',
         'desired.service.identity.lastAllocated': '{"EC2.Subnet":1}',
         'desired.row.001-001.property': 'EC2.Subnet.VpcId',
-        'desired.row.001-001.value': 'resource://preview/team/vpc/EC2_VPC_001',
+        'desired.row.001-001.value': '[vpc](vpc.md#network)',
         'desired.row.001-001.comment': '所属するVPC',
         'desired.row.001-002.property': 'EC2.Subnet.CidrBlock',
         'desired.row.001-002.value': '`10.0.0.0/24`',

@@ -199,7 +199,7 @@ For limited resources, use existing partial reading for both single files and sp
 python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service-id>.properties <resource-selector>
 ```
 
-Load only target resources, parents/children/siblings in the same group, and service metadata/notes into context. Service-wide changes may read entire target service properties, without unconditional expansion to all services/models. Resolve full scoped Resource URIs and parentReference with the common resolver; retrieve only selected groups. No generated Markdown fallback. Unknown targets remain reference warnings for ordinary Model saves; missing configuration or deployment decisions still stop dependent infrastructure actions.
+Load only target resources, parents/children/siblings in the same group, and service metadata/notes into context. Service-wide changes may read entire target service properties, without unconditional expansion to all services/models. Resolve saved Markdown Resource links and parentReference with the common resolver; retrieve only selected groups. No generated Markdown fallback. Unknown targets remain reference warnings for ordinary Model saves; missing configuration or deployment decisions still stop dependent infrastructure actions.
 
 Limit reads to Design scope resources/properties and portions needed for reference resolution. For split models, read only required parts from entry indexes. Do not reread material already confirmed in the same task unless content changes, validation fails, or unresolved dependencies exist.
 

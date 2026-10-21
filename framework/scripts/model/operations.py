@@ -8,7 +8,7 @@ from model.format import owner
 from model.sources import (ModelSnapshot, SourceWriteContext, load_model, model_parts,
                            publication_lock, _publish_transaction, safe)
 from model.core import entries, LINK
-from model.identity import address as resource_uri, URI
+from model.identity import resource_link
 from model.references import declarations, pointer_leaf, usages, _json
 
 
@@ -339,7 +339,19 @@ def _self_value(value, reference):
         return {key: _self_value(child, reference) for key, child in value.items()}
     if isinstance(value, list):
         return [_self_value(child, reference) for child in value]
-    return _SELF if isinstance(value, str) and value == reference else value
+    if isinstance(value, str) and resource_link(value):
+        from model.identity import parse_reference, anchor_index, select_anchor
+        snapshot, resource = reference
+        environment, target, service, anchor = parse_reference(value, snapshot.scope)
+        scope = snapshot.scope
+        if (environment, target, service) == (scope.environment, scope.target, scope.service):
+            try:
+                _, producer = select_anchor(anchor_index(snapshot.authoritative), anchor, value)
+            except ReferenceResolutionError:
+                return value
+            if producer['logicalId'] == resource['logicalId']:
+                return _SELF
+    return value
 
 
 def _pointer_parent(value, pointer):
@@ -684,7 +696,7 @@ def verify_model_operation(before, after, operation, sources):
                     used_references.update(refs)
                     editable.update((new_key, ref.pointer) for ref in refs)
                     _compare_field(source_model, old_key, new, new_key, refs, warnings, usage_records,
-                        self_anchors=(resource_uri(source_model.scope, source_resource['logicalId']), resource_uri(new.scope, new_resources[rid]['logicalId'])) if pair else None)
+                        self_anchors=((source_model, source_resource), (new, new_resources[rid])) if pair else None)
                 old_observed, new_observed = f'observed.row.{previous_id}.value', f'observed.row.{row_id}.value'
                 if (old_observed in source_values) != (new_observed in actual_values) or source_values.get(old_observed) != actual_values.get(new_observed):
                     raise ValueError('Model source observation was not fully retained/transferred: ' + prop)

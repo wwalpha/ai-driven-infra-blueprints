@@ -192,8 +192,12 @@ def validation_rows(rows, source, kind, logical_id, root=ROOT, *, scope=None):
     if not targets:
         return rows
     identity, resource = targets[0]
+    from model.identity import parse_reference, resource_link
+    from types import SimpleNamespace
+    consumer = SimpleNamespace(environment=scope[0], target=scope[1], service=scope[2]) if scope else None
     targets += [(rid, child) for rid, child in resources.items()
-                if scope is not None and child.get('parentReference') == 'resource://' + '/'.join((*scope, resource['logicalId']))]
+                if consumer is not None and resource_link(child.get('parentReference', '')) and
+                parse_reference(child['parentReference'], consumer) == (*scope, resource['anchor'])]
     ordered = [row for rid, child in targets
                for row in catalog_display_rows(resource_rows(source, rid, child['resourceType'], root), child['resourceType'], root)]
     positions = defaultdict(deque)
@@ -218,7 +222,7 @@ def validation_lines(lines, source, root=ROOT):
     if _validation_projection(source, root) == source:
         return lines
     from design_layout import ANCHOR, RESOURCE, HEADER, ALIGNMENT
-    resources = {'resource-' + resource['logicalId']: resource for _, resource in entries(source, 'desired.resource.')}
+    resources = {resource['anchor']: resource for _, resource in entries(source, 'desired.resource.')}
     result = []
     resource = None
     anchor = ''

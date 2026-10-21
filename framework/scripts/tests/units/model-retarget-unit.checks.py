@@ -156,11 +156,12 @@ def check_route_table_pair_example(tmp_path):
     values = {}
     for rid in ('009', '010', '022', '023'):
         values.update({f'desired.resource.{rid}.resourceType': 'EC2.RouteTable',
+                       f'desired.resource.{rid}.anchor': 'route-' + rid,
                        f'desired.resource.{rid}.resourceMode': 'IMPORT',
                        f'desired.resource.{rid}.logicalId': 'EC2_RouteTable_' + rid,
                        'desired.service.identity.lastAllocated': '{"EC2.RouteTable":23}',
                        f'desired.row.{rid}-001.property': 'EC2.RouteTable.RouteTableId',
-                       f'desired.row.{rid}-001.value': f'resource://stg/cde/vpc/EC2_RouteTable_{rid}',
+                       f'desired.row.{rid}-001.value': f'[route](vpc.md#route-{rid})',
                        f'desired.row.{rid}-001.comment': '合成fixture',
                        f'observed.row.{rid}-001.value': '`rtb-' + rid + '`'})
     write_model(before / 'model/stg/cde/vpc.properties', values)
@@ -168,12 +169,12 @@ def check_route_table_pair_example(tmp_path):
                 'desired.resource.001.resourceMode': 'IMPORT', 'desired.resource.001.logicalId': 'EC2_VPCEndpoint_001', 'desired.service.identity.lastAllocated': '{"EC2.VPCEndpoint":1}'}
     for index, rid in enumerate(('009', '010'), 1):
         endpoint.update({f'desired.row.001-{index:03d}.property': f'EC2.VPCEndpoint.RouteTableIds[{index}]',
-                         f'desired.row.001-{index:03d}.value': f'resource://stg/cde/vpc/EC2_RouteTable_{rid}',
+                         f'desired.row.001-{index:03d}.value': f'[route](vpc.md#route-{rid})',
                          f'desired.row.001-{index:03d}.comment': '合成fixture'})
     write_model(before / 'model/stg/cde/vpc-endpoint.properties', endpoint)
     shutil.copytree(before, after)
     template = after / 'model/stg/cde/vpc-endpoint.properties'
-    template.write_text(template.read_text().replace('resource://stg/cde/vpc/EC2_RouteTable_009', 'resource://stg/cde/vpc/EC2_RouteTable_022').replace('resource://stg/cde/vpc/EC2_RouteTable_010', 'resource://stg/cde/vpc/EC2_RouteTable_023'))
+    template.write_text(template.read_text().replace('[route](vpc.md#route-009)', '[route](vpc.md#route-022)').replace('[route](vpc.md#route-010)', '[route](vpc.md#route-023)'))
     sources = {template.relative_to(after).as_posix()}
     refs = [{'consumer': 'stg/cde/vpc-endpoint/001', 'field': 'value',
              'property': f'EC2.VPCEndpoint.RouteTableIds[{index}]',

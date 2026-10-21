@@ -62,8 +62,8 @@ def check_implementation_preflight_prompt() -> None:
                      "desired.deployment.maxConcurrentStacks", "effective MaxConcurrentStacks remains 1 under the existing contract", "do not read it as Implement input"):
         assert required in units, required
     implementation = text.split("## Implement and validate\n", 1)[1].split("\n## ", 1)[0]
-    for required in ("Use only authoritative model properties", "`desired.row.*`", "`.document`", "resource://environment/target-directory/service/logicalId", "common parser/resolver",
-                     "referenced Model groups", "parentReference", "Do not resolve through names, anchors, cfn-logicalId or generated Markdown", "never emit a raw Resource URI, PENDING_DEPLOY or an inferred physical value to IaC"):
+    for required in ("Use only authoritative model properties", "`desired.row.*`", "`.document`", "saved Markdown Resource links", "common parser/resolver",
+                     "referenced Model groups", "parentReference", "Resolve through producer Model saved anchors, never names, cfn-logicalId or generated Markdown", "never emit an unresolved Resource link, PENDING_DEPLOY or an inferred physical value to IaC"):
         assert required in implementation, required
     finish = text.split("## Verify and finish\n", 1)[1]
     for required in ("blueprint-loop.py --mode task", "read-only `sync-model.py`", "mismatches are FAIL", "check_design_tables",
@@ -87,7 +87,7 @@ def check_update_flow_prompt() -> None:
 
         reading = sections["Read before changing files"]
         for token in ("authoritative model properties", "desired.row.*.document", "Do not read generated Markdown bodies or generated JSON artifacts as input",
-                      "model/cli.py resource", "parentReference", "full scoped Resource URIs", "required parts"):
+                      "model/cli.py resource", "parentReference", "saved Markdown Resource links", "required parts"):
             assert token in reading, token
         instructions = [line for line in reading.splitlines() if re.match(r"\d+\. ", line)]
         assert instructions and not any(re.search(

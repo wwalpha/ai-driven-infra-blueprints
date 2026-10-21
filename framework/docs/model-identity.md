@@ -22,27 +22,40 @@ or IMPORT Review/publication. IMPORT refresh/replace/bind keep the existing ID. 
 source changes fail the existing snapshot comparison; never resolve them by automatically
 renumbering a saved Resource.
 
-Canonical references always include their full scope:
+## Saved references and anchors
 
-```text
-resource://<environment>/<target-directory>/<service>/<logicalId>
-```
+The internal fixed identity is typed logicalId. The independent saved
+`desired.resource.<number>.anchor` is the design link destination. Preserve it when
+names, physical values or logicalId allocation change. New anchors use the existing
+`design_layout.resource_anchor()` and confirmed naming rules, without speculative suffixes.
 
-Use this for self references, parentReference, row values/documents, structured `$resource`
-operands, templateBucket and artifact bucket references. `model.identity.parse_reference`
-parses internal addresses; `Resolver(root, reads).resolve(uri)` validates project topology
-and reuses a service snapshot/index. These addresses are never network URLs.
-Resource `desired.reference.*` declarations retain their IDs, producerScope, consumerKey,
-pointer and position, but select `producerLogicalId`. Stack declarations still use producerId;
-context declarations retain their own contract. Name/physical-ID literals remain unchanged.
-Ordinary URLs, JSON artifact links and descriptive strings are not Resource selectors.
+Save the original Markdown Resource reference, for example
+`[lmda-venusinf-dev-inbound-detect](lambda.md#lambda-lmda-venusinf-dev-inbound-detect)`.
+Keep its label, relative path and fragment unless that occurrence is explicitly retargeted.
+Self links, parentReference, JSON string leaves and `$resource` operands, templateBucket
+and artifact buckets follow the same rule. Do not convert them to Resource URIs.
 
-Resource anchors are absent from authority. Markdown projects `resource-<logicalId>` anchors
-and ordinary display names. JSON artifacts resolve explicit operands to confirmed attributes;
-a bare URI requires an unambiguous receiving-property contract. For policy Resource operands,
-select an explicit attribute such as `{"$resource":"resource://qa/team/s3/S3_Bucket_001","$attribute":"Arn"}`.
-An unavailable/ambiguous value is unresolved, never a raw URI in an AWS-facing artifact.
-Do not save generated ARNs back to authority.
+`model.identity.parse_reference(value, consumer_scope)` uses the existing safe
+`model.references.link_scope()` to locate the producer scope. `Resolver(root, reads).resolve(
+value, consumer_scope)` validates project topology and finds the Resource by its saved
+anchor, sharing a snapshot and anchor index. Processing then uses its fixed entry number
+and typed logicalId; never infer a Resource from labels, names, or generated Markdown.
+Missing or duplicate anchors are semantic reference warnings. Syntax, scope and I/O errors
+keep their existing classification; no additional save gate is introduced.
+
+Resource declarations retain producerLogicalId, fixed refids, scope and occurrence.
+Stack/context selectors are unchanged; no per-link migration declarations are needed.
+Ordinary web URLs, JSON artifact links and descriptive note links are not Resource selectors.
+Generate design `<a id>` and Resource links from the saved anchors, independently of
+logicalId comments. Preserve observed display and value-resolution responsibilities.
+
+AWS JSON resolves explicit operands to confirmed attributes. A bare Resource link needs
+an unambiguous receiving-property contract; a policy operand may use
+`{"$resource":"[bucket](s3.md#s3-existing-bucket)","$attribute":"Arn"}`.
+Unavailable or ambiguous values remain unresolved; never emit a Markdown reference as an
+AWS value or save generated ARNs into authority. Actual `s3://bucket/key` destinations
+are unchanged. Already converted consumer data requires a separate restoration task
+using pre-conversion properties or confirmed version-controlled originals.
 
 `cfn-logicalId` independently retains `<existing StackName>-<existing Resources key>`.
 CloudFormation CREATE with a formal CFn type requires it even when logicalId exists.

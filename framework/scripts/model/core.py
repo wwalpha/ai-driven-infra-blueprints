@@ -44,10 +44,6 @@ def validate_runtime_keys(values):
     authority = {}
     for key, value in values.items():
         match = re.fullmatch(r'(?:observed\.row\.([A-Za-z0-9_-]+)\.(property|comment)|desired\.row\.([A-Za-z0-9_-]+)\.artifactSha256)', key)
-        if re.fullmatch(r'desired\.resource\.[A-Za-z0-9_-]+\.anchor', key):
-            if value != 'resource-' + values.get(key.removesuffix('anchor') + 'logicalId', ''):
-                raise ValueError('invalid derived Resource anchor: ' + key)
-            continue
         (derived if match else authority)[key] = value
     validate_model_keys(authority)
     for key, value in derived.items():
@@ -93,7 +89,7 @@ def validate_model_keys(values: dict[str, str]) -> None:
     """Expanded Model fields; visibility never determines whether a field is legal."""
     fields = {
         ('desired', 'service'): {'serviceId', 'ownedCatalogResourceTypes', 'lastAllocated'},
-        ('desired', 'resource'): {'resourceType', 'logicalId', 'resourceMode',
+        ('desired', 'resource'): {'resourceType', 'logicalId', 'anchor', 'resourceMode',
                                 'cfn-logicalId', 'parentProperty', 'parentReference', 'deploymentEncryption'},
         ('desired', 'row'): {'property', 'value', 'comment', 'document'},
         ('observed', 'row'): {'value'},
@@ -191,10 +187,9 @@ def deployment_settings(values: dict[str, str]) -> tuple[dict[str, str], list[tu
 
 
 def validate_bucket_reference(value: str) -> None:
-    from model.identity import parse_reference
-    _, _, service, logical = parse_reference(value)
-    if service != 's3' or not logical.startswith('S3_Bucket_'):
-        raise ValueError('deployment bucket must reference an S3.Bucket URI')
+    from model.identity import resource_link
+    if not resource_link(value):
+        raise ValueError('deployment bucket requires a Markdown Resource reference')
 
 
 def validate_key_prefix(value: str) -> None:

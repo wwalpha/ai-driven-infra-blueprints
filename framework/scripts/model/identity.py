@@ -1,9 +1,9 @@
 """Fixed service-local Resource identities and internal, scope-checked addresses."""
 import re
-from model.core import entries, ReferenceResolutionError
+from model.core import LINK, entries, ReferenceResolutionError
 
 COUNTERS = 'desired.service.identity.lastAllocated'
-URI = re.compile(r'resource://([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/([A-Za-z0-9_]+)')
+
 
 
 def prefix(kind):
@@ -99,56 +99,83 @@ def preserve_allocation(before, after):
             raise ValueError('allocation state does not match Resource additions: ' + kind)
 
 
-def address(scope, logical):
-    value = f'resource://{scope.environment}/{scope.target}/{scope.service}/{logical}'
-    parse_reference(value)
-    return value
+def address(scope, resource, *, consumer_scope=None, label=None):
+    """Build only explicitly requested new links, using the saved Resource anchor."""
+    import posixpath
+    destination = '/'.join((scope.environment, scope.target, scope.service + '.md'))
+    filename = scope.service + '.md'
+    if consumer_scope is not None:
+        filename = ('' if scope == consumer_scope else posixpath.relpath(
+            destination, '/'.join((consumer_scope.environment, consumer_scope.target))))
+    return f"[{label or resource['logicalId']}]({filename}#{resource['anchor']})"
 
 
-def parse_reference(value):
-    match = URI.fullmatch(value) if isinstance(value, str) else None
+def resource_link(value):
+    match = LINK.fullmatch(value) if isinstance(value, str) else None
+    if match and ':' not in match[2] and (not match[2] or match[2].endswith('.md')):
+        return match
+    return None
+
+
+def parse_reference(value, scope):
+    from model.references import link_scope
+    match = resource_link(value)
     if not match:
-        raise ValueError('invalid internal Resource URI: ' + str(value))
-    environment, target, service, logical = match.groups()
-    if any(part in {'.', '..'} for part in (environment, target, service)):
-        raise ValueError('invalid Resource URI scope')
-    if not re.fullmatch(r'[A-Za-z0-9_]+_[A-Za-z0-9_]+_[0-9]{3,}', logical) or int(logical.rsplit('_', 1)[1]) < 1 or logical.rsplit('_', 1)[1] != f"{int(logical.rsplit('_', 1)[1]):03d}":
-        raise ValueError('invalid Resource logicalId in URI: ' + logical)
-    return environment, target, service, logical
+        raise ValueError('invalid Markdown Resource reference: ' + str(value))
+    producer = link_scope(scope.environment, scope.target, scope.service, match[2])
+    return (*producer.split('/'), match[3])
 
 
 def reference_tokens(text):
-    """Reject malformed internal addresses instead of accepting a valid-looking prefix."""
-    for token in re.finditer(r"resource://[^\s`\"'<>\[\](){} ,]+", text):
-        parse_reference(token[0])
-        yield token
+    from model.references import LINKS
+    for match in LINKS.finditer(text):
+        if resource_link(match[0]):
+            yield match
 
 
-def display_anchor(logical):
-    return 'resource-' + logical
+def display_anchor(resource):
+    anchor = resource.get('anchor')
+    if not anchor:
+        raise ReferenceResolutionError('Resource has no saved anchor')
+    return anchor
+
+
+def anchor_index(values):
+    """Retain ambiguous anchors for semantic diagnostics, without guessing identities."""
+    result = {}
+    for number, resource in entries(values, 'desired.resource.'):
+        anchor = resource.get('anchor')
+        if anchor:
+            result.setdefault(anchor, []).append((number, resource))
+    return result
+
+
+def select_anchor(index, anchor, reference):
+    matches = index.get(anchor, ())
+    if len(matches) != 1:
+        raise ReferenceResolutionError('Resource anchor is absent or ambiguous', reference=reference)
+    return matches[0]
 
 
 class Resolver:
-    """One index per immutable service snapshot, shared by all references in a run."""
+    """One anchor index per immutable service snapshot, shared across references."""
     def __init__(self, root, reads=None):
         from model.sources import FileReads
         self.root, self.reads, self.models, self.indexes = root, reads or FileReads(), {}, {}
 
-    def resolve(self, value):
+    def resolve(self, value, scope):
         from model.sources import Scope, _source_snapshot, target_for
-        environment, target, service, logical = parse_reference(value)
-        scope = Scope(self.root, environment, target, service)
-        if scope.path not in self.models:
-            target_for(scope, self.reads)
+        environment, target, service, anchor = parse_reference(value, scope)
+        producer = Scope(self.root, environment, target, service)
+        if producer.path not in self.models:
+            target_for(producer, self.reads)
             from model.importing.scope import reference_reader
-            if self.reads.kind(scope.path) == 'missing':
-                self.reads.read(scope.path)
+            if self.reads.kind(producer.path) == 'missing':
+                self.reads.read(producer.path)
                 raise ReferenceResolutionError('producer Model is absent', reference=value)
-            with reference_reader(scope.path):
-                snapshot = _source_snapshot(scope, self.reads)
-            self.models[scope.path] = snapshot
-            self.indexes[scope.path] = resource_index(snapshot.authoritative)
-        match = self.indexes[scope.path].get(logical)
-        if match is None:
-            raise ReferenceResolutionError('Resource logicalId is absent', reference=value)
-        return self.models[scope.path], *match
+            with reference_reader(producer.path):
+                snapshot = _source_snapshot(producer, self.reads)
+            resource_index(snapshot.authoritative)
+            self.models[producer.path] = snapshot
+            self.indexes[producer.path] = anchor_index(snapshot.authoritative)
+        return self.models[producer.path], *select_anchor(self.indexes[producer.path], anchor, value)

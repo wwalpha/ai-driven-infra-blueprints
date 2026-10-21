@@ -8,7 +8,19 @@ from design_catalog import DesignSchemaCatalog
 from iac_values import cfn_resource_identity
 from model.projection import catalog_outputs
 from model.core import properties, entries, stack_model
-from model.identity import URI, address
+from model.identity import resource_link, Resolver
+
+
+def reference_key(value, path, resolver=None):
+    scope = scope_for(path)
+    producer, number, resource = (resolver or Resolver(scope.root)).resolve(value, scope)
+    return (producer.scope.environment, producer.scope.target, producer.scope.service, resource['logicalId'])
+
+
+def own_key(path, resource):
+    scope = scope_for(path)
+    return (scope.environment, scope.target, scope.service, resource['logicalId'])
+
 from model.sources import scope_for
 from cloudformation_inputs import Blocked, condition_active, output_value, load_template_inputs, load_target
 from model.sources import design_source_digest
@@ -206,11 +218,11 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
                         raise ValueError(f"integrated child settings missing from parent model: {kind}")
                 for prop in outputs:
                     selected = [(rid, row) for rid, row in rows if row["property"] == prop]
-                    link = URI.fullmatch(selected[0][1]["value"]) if len(selected) == 1 else None
+                    link = resource_link(selected[0][1]["value"]) if len(selected) == 1 else None
                     if not link:
                         errors.setdefault(name, []).append(f"{name}/{logical}: identifier row missing/ambiguous: {prop}")
-                    elif link[0] != address(scope_for(path), resource["logicalId"]):
-                        errors.setdefault(name, []).append(f"{name}/{logical}: identifier must reference its own Resource URI: {prop}")
+                    elif reference_key(link[0], path) != own_key(path, resource):
+                        errors.setdefault(name, []).append(f"{name}/{logical}: identifier must reference its own Resource reference: {prop}")
                     primary, keys = identifier_source(catalog, resource, outputs, logical, prop, output_values)
                     if not deleting and not primary and not keys:
                         errors.setdefault(name, []).append(f"{name}/{logical}: required GetAtt Output missing: {prop}")
@@ -269,7 +281,7 @@ def sync_successful(backend, units, states):
                     if row["property"] in selected_outputs:
                         changes.setdefault(path, {})[f"observed.row.{rid}.value"] = "`PENDING_DEPLOY`"
                         design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
-                        identifiers[address(scope_for(path), resource["logicalId"])] = "PENDING_DEPLOY"
+                        identifiers[own_key(path, resource)] = "PENDING_DEPLOY"
                 continue
             definition = document["Resources"][logical]
             actual = by_logical.get(logical)
@@ -293,11 +305,11 @@ def sync_successful(backend, units, states):
                 value = values[0] if values else physical
                 if not isinstance(value, str) or not value or re.search(r"\barn:aws[a-z-]*:", value, re.I) or any(c in value for c in "\r\n`"):
                     ambiguous(f"{name}/{logical}: non-ARN identifier unavailable: {prop}")
-                link = URI.fullmatch(row["value"])
+                link = resource_link(row["value"])
                 design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
-                if not link or link[0] != address(scope_for(path), resource["logicalId"]):
-                    ambiguous(f"{name}/{logical}: identifier must reference its own Resource URI")
-                anchor_key = address(scope_for(path), resource["logicalId"])
+                if not link or reference_key(link[0], path) != own_key(path, resource):
+                    ambiguous(f"{name}/{logical}: identifier must reference its own Resource reference")
+                anchor_key = own_key(path, resource)
                 if anchor_key in identifiers and identifiers[anchor_key] != value:
                     ambiguous(f"{name}/{logical}: multiple identifiers for one Resource")
                 identifiers[anchor_key] = value
@@ -320,6 +332,7 @@ def propagate_references(root, loaded, changes, identifiers, by_identifier=None)
     """Discover incoming links mechanically; both deploy and destroy use this scanner."""
     # Read out-of-target models only if a raw incoming link reaches an updated identifier.
     # This is link discovery, not validation of unrelated prod/service designs.
+    resolver = Resolver(root)
     for path in model_paths(root) if identifiers else []:
         if path in loaded or path.stem == "cloudformation-stacks":
             continue
@@ -327,22 +340,23 @@ def propagate_references(root, loaded, changes, identifiers, by_identifier=None)
         linked = False
         values = properties(read_model(path))
         for key, value in values.items():
-            link = URI.fullmatch(value) if key.startswith("desired.row.") and key.endswith(".value") else None
+            link = resource_link(value) if key.startswith("desired.row.") and key.endswith(".value") else None
             if link:
-                linked |= link[0] in identifiers
+                linked |= reference_key(link[0], path, resolver) in identifiers
         if linked:
             loaded[path] = properties(read_model(path))
     # Include every incoming reference, including out-of-scope ones; reject before any write.
     for path, values in loaded.items():
         design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
         for rid, row in entries(values, "desired.row."):
-            link = URI.fullmatch(row["value"])
+            link = resource_link(row["value"])
             if not link or row["property"] == CODEBUILD_FORMAL_VARIABLE + "Value":
                 continue
-            if link[0] in identifiers:
-                changes.setdefault(path, {}).setdefault(f"observed.row.{rid}.value", identifiers[link[0]])
+            target = reference_key(link[0], path, resolver)
+            if target in identifiers:
+                changes.setdefault(path, {}).setdefault(f"observed.row.{rid}.value", identifiers[target])
                 if by_identifier is not None:
-                    by_identifier.setdefault(link[0], {}).setdefault(path, {})[f"observed.row.{rid}.value"] = identifiers[link[0]]
+                    by_identifier.setdefault(target, {}).setdefault(path, {})[f"observed.row.{rid}.value"] = identifiers[target]
 
 
 def observed_destinations(root, environment, directory, loaded, changes, check_scope=True):
@@ -433,11 +447,11 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
                 if len(selected) != 1:
                     ambiguous(f"{name}/{logical}: identifier row missing/ambiguous: {prop}")
                 rid, row = selected[0]
-                link = URI.fullmatch(row["value"])
-                if not link or link[0] != address(scope_for(path), resource["logicalId"]):
-                    ambiguous(f"{name}/{logical}: identifier must reference its own Resource URI")
+                link = resource_link(row["value"])
+                if not link or reference_key(link[0], path) != own_key(path, resource):
+                    ambiguous(f"{name}/{logical}: identifier must reference its own Resource reference")
                 changes_by_stack[name].setdefault(path, {})[f"observed.row.{rid}.value"] = "`PENDING_DEPLOY`"
-                anchors[name][address(scope_for(path), resource["logicalId"])] = "PENDING_DEPLOY"
+                anchors[name][own_key(path, resource)] = "PENDING_DEPLOY"
     result, paths, services, inputs = {}, set(), set(), {}
     all_anchors = {}
     for name in stack_names:

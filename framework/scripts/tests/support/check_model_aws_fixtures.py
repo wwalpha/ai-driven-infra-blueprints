@@ -273,7 +273,7 @@ def acquired(value):
     return any(acquired(item) for item in value) if isinstance(value, list) else value != m.MISSING
 
 def model_text(kind, rows, number='001', logical='fixture', anchor='fixture', metadata='', allocation=True):
-    text = f"desired.resource.{number}.resourceType={kind}\ndesired.resource.{number}.logicalId={kind.replace('.', '_')}_{int(number):03d}\n" + metadata
+    text = f"desired.resource.{number}.resourceType={kind}\ndesired.resource.{number}.anchor={anchor}\ndesired.resource.{number}.logicalId={kind.replace('.', '_')}_{int(number):03d}\n" + metadata
     if allocation:
         text += 'desired.service.identity.lastAllocated=' + json.dumps({kind: int(number)}) + '\n'
     for index, (prop, value) in enumerate(rows, 1):

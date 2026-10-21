@@ -213,11 +213,11 @@ def check_cidr_pending_deploy() -> None:
 
 | No. | ResourceName | Comment |
 | ---: | --- | --- |
-| 1 | [vpc-app-stg](#resource-EC2_VPC_001) | アプリケーションのネットワーク |
+| 1 | [vpc-app-stg](#vpc-saved-original) | アプリケーションのネットワーク |
 
 ## リソース詳細
 
-<a id="resource-EC2_VPC_001"></a>
+<a id="vpc-saved-original"></a>
 
 ### EC2.VPC: vpc-app-stg
 
@@ -251,17 +251,18 @@ def check_cidr_pending_deploy() -> None:
                 with patch.object(design_tables, 'design_model_values', return_value={
                         'desired.resource.001.resourceType': 'EC2.VPC',
                         'desired.resource.001.logicalId': 'EC2_VPC_001',
+                        'desired.resource.001.anchor': 'vpc-saved-original',
                         'desired.resource.001.resourceMode': mode}):
                     diagnostics = errors(text)
                 if expected is None:
                     assert not diagnostics, (mode, diagnostics)
                 else:
                     assert any(expected in error for error in diagnostics), diagnostics
-                assert expand.call_args.kwargs["modes"] == {"resource-EC2_VPC_001": mode}
-                assert display.call_args.kwargs["modes"] == {"resource-EC2_VPC_001": mode}
+                assert expand.call_args.kwargs["modes"] == {"vpc-saved-original": mode}
+                assert display.call_args.kwargs["modes"] == {"vpc-saved-original": mode}
 
         failed = path.with_name("network.md")
-        write(failed, valid.replace("resource-EC2_VPC_001", "network-vpc-app-stg"))
+        write(failed, valid.replace("vpc-saved-original", "network-vpc-app-stg"))
         write(path, valid)
         for source, failure in (
             ("resource_logical_ids", ValueError("識別情報が曖昧")),
@@ -284,7 +285,7 @@ def check_cidr_pending_deploy() -> None:
                 assert [call.args[0] for call in names.call_args_list] == paths[1:]
         failed.unlink()
 
-        for pending in ("PENDING_DEPLOY", "`PENDING_DEPLOY`", "[PENDING_DEPLOY](#resource-EC2_VPC_001)"):
+        for pending in ("PENDING_DEPLOY", "`PENDING_DEPLOY`", "[PENDING_DEPLOY](#vpc-saved-original)"):
             # Reject either table independently, not merely when both agree.
             assert any("CIDR must not use" in error for error in errors(valid.replace("`10.0.0.0/16`", pending, 1)))
             assert any("CIDR must not use" in error for error in errors(valid.replace("CidrBlock | `10.0.0.0/16`", "CidrBlock | " + pending)))

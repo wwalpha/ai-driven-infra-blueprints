@@ -92,7 +92,7 @@ def dependencies(root, target, selected):
                 from model.identity import reference_tokens
                 resolver = identity_resolver
                 for uri in reference_tokens(value):
-                    source, rid, _ = resolver.resolve(uri[0])
+                    source, rid, _ = resolver.resolve(uri[0], data.scope)
                     pending.append((source.scope.path, {rid}))
                 try:
                     names = logical_names(json.loads(value.strip('`')))
@@ -176,18 +176,16 @@ def generate(root, environment, selector, service):
               'import argparse, hashlib, json, os, re, subprocess, sys\n'
               'from collections import Counter, defaultdict\n'
               'from copy import deepcopy\nfrom threading import RLock\nfrom concurrent.futures import Future\n'
-              'from dataclasses import dataclass\nfrom pathlib import Path, PurePosixPath\nfrom urllib.parse import unquote\n'
+              'from dataclasses import dataclass\nfrom pathlib import Path, PurePosixPath\nfrom types import SimpleNamespace\nfrom urllib.parse import unquote\n'
               'ROOT = Path("/model-test-snapshot")\n'
               'LINK = re.compile(r"^\\[([^\\]]+)\\]\\(([^)]*?)#([^)]+)\\)$")\n'
               'def memo_table(): return None\n')
-    from model.identity import URI
-    engine += 'URI = re.compile(' + repr(URI.pattern) + ')\n'
-    engine += definitions(scripts / 'model/identity.py', ['parse_reference'])
+    engine += definitions(scripts / 'model/identity.py', ['resource_link', 'parse_reference', 'anchor_index', 'select_anchor']).replace('    from model.references import link_scope\n', '')
     engine += definitions(scripts / 'model/references.py', ['link_scope'])
     engine += definitions(scripts / 'utils/lazy_definitions.py', ['load_once'])
     engine += definitions(scripts / 'utils/json_format.py', ['unique_object', 'invalid_constant', 'policy_json'])
     engine += definitions(scripts / 'iac_values.py', ['cfn_resource_identity'])
-    engine += definitions(scripts / 'model/core.py', ['entries', 'literal'])
+    engine += definitions(scripts / 'model/core.py', ['ReferenceResolutionError', 'entries', 'literal'])
     engine += definitions(scripts / 'comparison_rows.py', ['Unresolved', 'select', 'put_row'])
     engine += 'MISSING = {"absent": True}\n'
     # Preserve the exact collection semantics maintained by the existing comparator.

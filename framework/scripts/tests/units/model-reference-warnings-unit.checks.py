@@ -164,12 +164,12 @@ def check_legacy_issues_keep_number_and_mixed_error(tmp_path):
 
 def check_json_leaf_warning_keeps_sibling_error(tmp_path):
     from model.importing.references import Resolver
-    resolver = Resolver(tmp_path, 'dev', 'target')
+    resolver = Resolver(tmp_path, 'dev', 'target', definitions_root=Path(__file__).resolve().parents[4])
     with pytest.raises(ValueError, match='literal differs'):
-        resolver.verify_tree('Example.Config', {'target': 'resource://dev/target/iam/IAM_Role_999', 'timeout': 30},
-                             {'target': 'resource', 'timeout': 31}, {},
+        resolver.verify_tree('CodeBuild.Project.VpcConfig', {'VpcId': '[vpc](vpc.md#missing)', 'timeout': 30},
+                             {'VpcId': 'resource', 'timeout': 31}, {},
                              location={'key': 'desired.row.001-001.document'})
-    assert resolver.warnings[0]['pointer'] == '/target'
+    assert resolver.warnings[0]['pointer'] == '/VpcId'
     assert resolver.warnings[0]['key'] == 'desired.row.001-001.document'
 
 
@@ -238,21 +238,21 @@ def check_bucket_missing_source_and_real_errors(tmp_path, monkeypatch):
     import model.sources as sources
     view = tmp_path / 'docs/designs/dev/target/cloudformation-stacks.md'
     with pytest.raises(ReferenceResolutionError) as caught:
-        deployment_bucket('resource://dev/target/s3/S3_Bucket_001', view, tmp_path)
-    assert caught.value.diagnostic['reference'] == 'resource://dev/target/s3/S3_Bucket_001'
+        deployment_bucket('[bucket](s3.md#s3-bucket)', view, tmp_path)
+    assert caught.value.diagnostic['reference'] == '[bucket](s3.md#s3-bucket)'
     source = tmp_path / 'model/dev/target/s3.properties'
     write_model(source, {'desired.service.s3.serviceId': 's3', 'desired.service.s3.ownedCatalogResourceTypes': 'S3.Bucket'})
     saved = source.read_bytes()
     source.write_text('# model-format: 2\ninvalid\n')
     with pytest.raises(ValueError) as caught:
-        deployment_bucket('resource://dev/target/s3/S3_Bucket_001', view, tmp_path)
+        deployment_bucket('[bucket](s3.md#s3-bucket)', view, tmp_path)
     assert not isinstance(caught.value, ReferenceResolutionError)
     source.write_bytes(saved)
     def denied(*args, **kwargs):
         raise PermissionError('read denied')
     monkeypatch.setattr(sources, '_source_snapshot', denied)
     with pytest.raises(PermissionError, match='read denied'):
-        deployment_bucket('resource://dev/target/s3/S3_Bucket_001', view, tmp_path)
+        deployment_bucket('[bucket](s3.md#s3-bucket)', view, tmp_path)
 
 
 def check_link_display_and_readback_classification(tmp_path):
@@ -285,11 +285,12 @@ def codebuild_values(anchor='project', missing_name=False, second=False):
                        f'desired.resource.{rid}.resourceMode': 'CREATE',
                        'desired.service.identity.lastAllocated': '{"CodeBuild.Project":2}' if second else '{"CodeBuild.Project":1}',
                        f'desired.resource.{rid}.logicalId': 'CodeBuild_Project_' + rid,
+                       f'desired.resource.{rid}.anchor': anchor if rid == '001' else 'other',
                        f'display.resource.{rid}.comment': '合成 Project',
                        f'display.resource.{rid}.label': 'project' if rid == '001' else 'other'})
         rows = [('Artifacts.Type', '`NO_ARTIFACTS`'), ('Environment.Type', '`LINUX_CONTAINER`'),
                 ('Environment.ComputeType', '`BUILD_GENERAL1_SMALL`'), ('Environment.Image', '`image`'),
-                ('ServiceRole', 'resource://dev/target/iam/IAM_Role_001'), ('Source.Type', '`NO_SOURCE`')]
+                ('ServiceRole', '[role](iam.md#iam-role)'), ('Source.Type', '`NO_SOURCE`')]
         if not missing_name or second and rid == '001':
             rows.append(('Name', '`project`' if rid == '001' else '`other`'))
         for n, (prop, value) in enumerate(rows, 1):
@@ -388,6 +389,7 @@ def check_model_document_uses_authoritative_json(tmp_path):
               'desired.resource.001.resourceType': 'IAM.Role',
               'desired.resource.001.resourceMode': 'IMPORT',
               'desired.resource.001.logicalId': 'IAM_Role_001',
+                  'desired.resource.001.anchor': 'iam-role',
               'desired.service.identity.lastAllocated': '{"IAM.Role":1}',
               'desired.row.001-001.property': 'IAM.Role.RoleName',
               'desired.row.001-001.value': '`role`',
@@ -411,7 +413,7 @@ def check_analysis_generation_keeps_independent_checks(tmp_path, monkeypatch, mi
     write_model(model, codebuild_values('broken', missing_name=missing_name))
     # Actual saved references warn without abandoning independent source validation.
     snapshot = load_model(model)
-    assert snapshot.warnings and snapshot.authoritative['desired.row.001-005.value'] == 'resource://dev/target/iam/IAM_Role_001'
+    assert snapshot.warnings and snapshot.authoritative['desired.row.001-005.value'] == '[role](iam.md#iam-role)'
     plan = runtime.prepare_generation(tmp_path, {('dev', 'target', 'codebuild')}, write=False,
                                       definitions_root=Path(__file__).resolve().parents[4])
     try:
@@ -471,11 +473,12 @@ def check_cross_environment_direct_link_preserves_scope_and_dependency(tmp_path)
     producer = tmp_path / 'model/release/other/network.v1.properties'
     write_model(producer, {'desired.resource.007.resourceType': 'EC2.VPC',
                           'desired.resource.007.logicalId': 'EC2_VPC_001',
+                          'desired.resource.007.anchor': 'saved-producer',
                           'desired.service.identity.lastAllocated': '{"EC2.VPC":1}'})
     consumer = tmp_path / 'model/dev/target/service.properties'
-    values = {'desired.note.001.text': 'resource://release/other/network.v1/EC2_VPC_001',
+    values = {'desired.row.001-101.value': '[producer](../../release/other/network.v1.md#saved-producer)',
               'desired.note.002.text': '[ordinary](https://example.invalid/#fixed) old-id'}
-    write_model(consumer, values)
+    write_model(consumer, reference_rows(values))
     snapshot = load_model(consumer, FileReads())
     records = usages(snapshot)
     assert len(records) == 1 and records[0].producer_scope == 'release/other/network.v1'
@@ -487,15 +490,31 @@ def check_cross_environment_direct_link_preserves_scope_and_dependency(tmp_path)
         with restrict(('release', 'other', 'network.v1')) if restricted else nullcontext():
             records = incoming(load_model(producer), '007')
             assert len(records) == 1 and records[0][0].path == consumer
-    for invalid in ('resource://dev/../service/EC2_VPC_001',
-                    'resource://dev/target/service/EC2_VPC_001#fragment',
-                    'resource://unknown/target/service/EC2_VPC_001'):
-        write_model(consumer, {'desired.note.001.text': invalid})
+    for invalid in ('[unsafe](../../../service.md#saved-producer)',
+                    '[unsafe](/service.md#saved-producer)',
+                    '[unsafe](../../unknown/target/service.md#saved-producer)'):
+        write_model(consumer, reference_rows({'desired.row.001-101.value': invalid}))
         with pytest.raises(ValueError):
             load_model(consumer, FileReads())
 
 
+def reference_rows(values):
+    """Author Resource-valued rows explicitly; free-text notes remain ordinary prose."""
+    for key in tuple(values):
+        if key.startswith('desired.row.') and key.endswith('.value'):
+            prefix = key.removesuffix('value')
+            values.setdefault(prefix + 'property', 'EC2.VPC.Peer')
+            values.setdefault(prefix + 'comment', '合成参照')
+    if any(key.startswith('desired.row.') for key in values) and 'desired.resource.001.resourceType' not in values:
+        values.update({'desired.resource.001.resourceType': 'Fixture.Consumer',
+                       'desired.resource.001.logicalId': 'Fixture_Consumer_001',
+                       'desired.resource.001.anchor': 'consumer',
+                       'desired.service.identity.lastAllocated': '{"Fixture.Consumer":1}'})
+    return values
+
+
 def _usage_spec(values, identity, key, text, *, pointer=None, occurrence='1', **overrides):
+    reference_rows(values)
     spec = dict(consumerKey=key, text=text, occurrence=occurrence, producerKind='resource',
                 producerScope='dev/target/service', producerLogicalId='EC2_VPC_001', resourceType='EC2.VPC',
                 format='link', labelPolicy='fixed')
@@ -509,9 +528,10 @@ def check_usage_index_preserves_order_and_all_candidates(tmp_path, monkeypatch):
     from model.references import usages, diagnose
     import model.references as references
     file = tmp_path / 'model/dev/target/service.properties'
-    link, missing = 'resource://dev/target/service/EC2_VPC_001', 'resource://dev/target/service/EC2_VPC_999'
-    key, nested = 'desired.note.001.text', 'desired.row.001-001.document'
+    link, missing = '[producer](service.md#saved-producer)', '[producer](service.md#missing)'
+    key, nested = 'desired.row.001-101.value', 'desired.row.001-001.document'
     values = {'desired.resource.001.resourceType': 'EC2.VPC', 'desired.resource.001.logicalId': 'EC2_VPC_001',
+              'desired.resource.001.anchor': 'saved-producer',
               'desired.service.identity.lastAllocated': '{"EC2.VPC":1}',
               key: link + ' ' + link + ' ' + missing + ' [web](https://example.invalid/#fixed)',
               nested: json.dumps({'a/b': [{'~key': link}]}),
@@ -521,7 +541,7 @@ def check_usage_index_preserves_order_and_all_candidates(tmp_path, monkeypatch):
     _usage_spec(values, 'b-right', key, link)
     _usage_spec(values, 'c-second', key, link, occurrence='2')
     _usage_spec(values, 'd-nested', nested, link, pointer='/a~1b/0/~0key')
-    snapshot = load_model(write_model(file, values))
+    snapshot = load_model(write_model(file, reference_rows(values)))
     calls = []
     producer = references._producer
     def counted(snapshot, address, reads, cache):
@@ -531,7 +551,7 @@ def check_usage_index_preserves_order_and_all_candidates(tmp_path, monkeypatch):
     records = usages(snapshot)
     assert [record.metadata_id for record in records] == ['a-wrong', 'b-right', 'c-second', 'd-nested', None]
     assert [record.producer_id for record in records] == [None, '001', '001', '001', None]
-    assert records[-1].logical_id == 'EC2_VPC_999' and records[3].pointer == '/a~1b/0/~0key'
+    assert records[-1].logical_id is None and records[3].pointer == '/a~1b/0/~0key'
     assert calls == ['dev/target/service']
     assert usages(snapshot, _producer_scope='other/target/service') == ()
     uncoalesced = usages(snapshot, _coalesce=False)
@@ -544,8 +564,8 @@ def check_usage_index_preserves_order_and_all_candidates(tmp_path, monkeypatch):
 def check_usage_index_skips_accumulated_direct_links(tmp_path, monkeypatch):
     import model.references as references
     file = tmp_path / 'model/dev/target/service.properties'
-    values = {f'desired.note.{index:03d}.text': 'resource://dev/target/service/EC2_VPC_001' for index in range(1, 101)}
-    snapshot = load_model(write_model(file, values))
+    values = {f'desired.row.001-{index + 100:03d}.value': '[producer](service.md#saved-producer)' for index in range(1, 101)}
+    snapshot = load_model(write_model(file, reference_rows(values)))
     calls = []
     original = references._producer
     def counted(*args):
@@ -560,8 +580,9 @@ def check_usage_index_skips_accumulated_direct_links(tmp_path, monkeypatch):
 def check_usage_index_retains_conflicting_direct_links(tmp_path, case):
     from model.references import usages
     file = tmp_path / 'model/dev/target/service.properties'
-    key, link = 'desired.note.001.text', 'resource://dev/target/service/EC2_VPC_001'
+    key, link = 'desired.row.001-101.value', '[producer](service.md#saved-producer)'
     values = {'desired.resource.001.resourceType': 'EC2.VPC', 'desired.resource.001.logicalId': 'EC2_VPC_001',
+              'desired.resource.001.anchor': 'saved-producer',
               'desired.service.identity.lastAllocated': '{"EC2.VPC":1}', key: link}
     overrides = {}
     if case == 'wrong-id':
@@ -569,11 +590,11 @@ def check_usage_index_retains_conflicting_direct_links(tmp_path, case):
     elif case == 'missing-producer':
         overrides['producerScope'] = 'dev/target/absent'
     elif case == 'missing-anchor':
-        values[key] = link = 'resource://dev/target/service/EC2_VPC_999'
+        values[key] = link = '[producer](service.md#missing)'
     elif case == 'ambiguous':
         values.update({'desired.resource.002.resourceType': 'EC2.VPC', 'desired.resource.002.logicalId': 'EC2_VPC_001'})
         with pytest.raises(ValueError, match='duplicate logicalId'):
-            load_model(write_model(file, values))
+            load_model(write_model(file, reference_rows(values)))
         return
     elif case == 'name':
         overrides.update(format='name', property='EC2.VPC.Name', labelPolicy='none')
@@ -584,7 +605,7 @@ def check_usage_index_retains_conflicting_direct_links(tmp_path, case):
             del values[prefix + field]
         values.update({prefix + 'producerKind': 'context', prefix + 'producerScope': 'dev/target',
                        prefix + 'format': 'literal', prefix + 'contextProperty': 'executionAccountId', prefix + 'labelPolicy': 'none'})
-    records = usages(load_model(write_model(file, values)))
+    records = usages(load_model(write_model(file, reference_rows(values))))
     assert len(records) == 2 and records[0].metadata_id == 'declared'
     assert records[1].metadata_id is None and records[1].text == link
 
@@ -594,13 +615,14 @@ def check_usage_index_keeps_producer_order_and_io_errors(tmp_path, monkeypatch):
     file = tmp_path / 'model/dev/target/service.properties'
     values = {}
     for index, service in enumerate(('second', 'first'), 1):
-        key, link = f'desired.note.{index:03d}.text', f'resource://dev/target/{service}/EC2_VPC_001'
+        key, link = f'desired.row.001-{index + 100:03d}.value', f'[producer]({service}.md#saved-producer)'
         values[key] = link
         _usage_spec(values, service, key, link, producerScope='dev/target/' + service)
         write_model(file.with_name(service + '.properties'), {
             'desired.resource.001.resourceType': 'EC2.VPC', 'desired.resource.001.logicalId': 'EC2_VPC_001',
+              'desired.resource.001.anchor': 'saved-producer',
             'desired.service.identity.lastAllocated': '{"EC2.VPC":1}'})
-    snapshot = load_model(write_model(file, values))
+    snapshot = load_model(write_model(file, reference_rows(values)))
     calls = []
     producer = references._producer
     def counted(snapshot, address, reads, cache):
@@ -624,20 +646,21 @@ def check_usage_index_is_invocation_local(tmp_path):
     from model.references import usages
     from model.sources import Scope
     from validation_cache import input_context
-    key, link = 'desired.note.001.text', 'resource://dev/target/service/EC2_VPC_001'
+    key, link = 'desired.row.001-101.value', '[producer](service.md#saved-producer)'
     values = {key: link, 'desired.resource.001.resourceType': 'EC2.VPC',
-              'desired.resource.001.logicalId': 'EC2_VPC_001', 'desired.service.identity.lastAllocated': '{"EC2.VPC":1}'}
-    snapshot = SimpleNamespace(authoritative=dict(values), scope=Scope(tmp_path, 'dev', 'target', 'service'))
+              'desired.resource.001.logicalId': 'EC2_VPC_001',
+              'desired.resource.001.anchor': 'saved-producer', 'desired.service.identity.lastAllocated': '{"EC2.VPC":1}'}
+    snapshot = SimpleNamespace(authoritative=dict(reference_rows(values)), scope=Scope(tmp_path, 'dev', 'target', 'service'))
     with input_context():
         assert usages(snapshot)[0].metadata_id is None
         _usage_spec(values, 'new', key, link)
-        snapshot.authoritative = dict(values)
+        snapshot.authoritative = dict(reference_rows(values))
         assert len(usages(snapshot)) == 1 and usages(snapshot)[0].metadata_id == 'new'
         values['desired.reference.new.producerLogicalId'] = 'EC2_VPC_999'
-        snapshot.authoritative = dict(values)
+        snapshot.authoritative = dict(reference_rows(values))
         assert len(usages(snapshot)) == 2
         values = {k: v for k, v in values.items() if not k.startswith('desired.reference.')}
-        snapshot.authoritative = dict(values)
+        snapshot.authoritative = dict(reference_rows(values))
         assert len(usages(snapshot)) == 1 and usages(snapshot)[0].metadata_id is None
         snapshot.authoritative = {}
         assert usages(snapshot) == ()
@@ -823,11 +846,11 @@ def check_diagnose_display_name_uses_real_projection(tmp_path):
     from model.projection import reference_display
     file = logs_fixture(tmp_path)
     values = dict(load_model(file).authoritative)
-    values['desired.note.001.text'] = 'resource://qa-synthetic/team-a/cloudwatch-logs/Logs_LogGroup_001'
+    values['desired.note.001.text'] = '[fixture-001](#logs-existing)'
     write_model(file, values)
     snapshot = load_model(file, FileReads())
     view = tmp_path / 'docs/designs/qa-synthetic/team-a/cloudwatch-logs.md'
     projected = reference_display(snapshot.values, view, tmp_path)
     assert not snapshot.warnings
-    assert projected['desired.note.001.text'] == '[fixture-001](#resource-Logs_LogGroup_001)'
+    assert projected['desired.note.001.text'] == '[fixture-001](#logs-existing)'
     assert snapshot.authoritative == values

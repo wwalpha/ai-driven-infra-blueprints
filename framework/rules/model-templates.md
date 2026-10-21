@@ -149,4 +149,4 @@ only the declared dependency metadata. Direct links still represent dependencies
 removing metadata does not detach them. Use the named retarget/delete operation for
 other explicit reference changes. Preserve retained refids; never renumber them on reorder.
 
-Resource allocation and URI semantics follow [Resource logical identity](../docs/model-identity.md). The common allocate/preserve_allocation functions own counters for CREATE and IMPORT. Publish counters and additions atomically. Authoritative Resource anchors and read-time ID fallbacks are forbidden.
+Resource allocation and Markdown reference semantics follow [Resource logical identity](../docs/model-identity.md). The common allocate/preserve_allocation functions own counters for CREATE and IMPORT. Publish counters and additions atomically. Preserve independent saved Resource anchors and original Markdown links. Read-time logicalId fallbacks remain forbidden.

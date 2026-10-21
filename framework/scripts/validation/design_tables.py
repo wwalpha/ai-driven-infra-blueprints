@@ -196,6 +196,8 @@ def check_design_tables(
             identities = resource_logical_ids(lines)
             bound_anchors = bound_resource_anchors(path)
             values = design_model_values(path, design_sources=design_sources, root=root)
+            bound_anchors.update({(resource['resourceType'], resource['logicalId']): resource['anchor']
+                                  for _, resource in entries(values or {}, 'desired.resource.') if resource.get('anchor')})
             modes = resource_modes(lines, values)
             heading_modes = {}
             anchor = ""
@@ -513,8 +515,8 @@ def check_design_tables(
                     logical_id = heading_match.group(2)
                     if anchor_match is not None:
                         expected = bound_anchors.get((heading_match.group(1), identities.get(anchor_match.group(1))),
-                                                     'resource-' + identities[anchor_match.group(1)] if anchor_match.group(1) in identities else resource_anchor(service_metadata[path][0], logical_id, heading_match.group(1)))
-                        findings.warn(anchor_match.group(1) == expected, f"resource anchor does not match service ID/logical ID: {findings.relative(path)}: expected {expected}")
+                                                     resource_anchor(service_metadata[path][0], logical_id, heading_match.group(1)))
+                        findings.warn(anchor_match.group(1) == expected, f"resource anchor does not match saved Model anchor: {findings.relative(path)}: expected {expected}")
             if line.strip():
                 previous = line.strip()
 

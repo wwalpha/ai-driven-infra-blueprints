@@ -198,7 +198,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
     imported = {}
     for source in sources:
         values = source_values[source] or {}
-        imported[source] = {'resource-' + resource['logicalId']: rid for rid, resource in entries(values, 'desired.resource.')
+        imported[source] = {resource['anchor']: rid for rid, resource in entries(values, 'desired.resource.')
                             if resource.get('resourceMode') == 'IMPORT'}
         if not imported[source]:
             continue
@@ -222,15 +222,15 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 rows = queues[imported[source][anchor], prop]
                 if rows:
                     row_key = 'desired.row.' + rows.popleft() + '.value'
-                    from model.identity import URI
-                    if not URI.fullmatch(values[row_key]):
+                    from model.identity import resource_link
+                    if not resource_link(values[row_key]):
                         candidate[row_key] = cells[2]
             relative = source.relative_to(root / 'docs/designs')
             from model.sources import load_model
             resolver = Resolver(root, relative.parts[0], relative.parts[1], definitions_root=definitions_root,
                                 local={source.stem: load_model((root / 'model' / relative).with_suffix('.properties'))})
             for rid in imported[source].values():
-                resolver.verify_resource(candidate, rid, require_links=False, observed_only=True)
+                resolver.verify_resource(candidate, rid, scope=resolver.local[source.stem].scope, require_links=False, observed_only=True)
             for warning in resolver.warnings:
                 findings.warn(warning, source=str(source))
         except ReferenceResolutionError as error:

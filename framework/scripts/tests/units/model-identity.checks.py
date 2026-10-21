@@ -4,6 +4,7 @@ from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2])]
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
+from model.sources import Scope
 from model.identity import COUNTERS, allocate, resource_index, preserve_allocation, parse_reference
 
 
@@ -35,8 +36,8 @@ def main():
     rejects(lambda: resource_index({**assigned, COUNTERS: '{}'}))
     rejects(lambda: preserve_allocation(assigned, {**assigned, 'desired.resource.000.logicalId': 'EC2_VPC_2000'}))
     for invalid in ['resource://dev/../vpc/EC2_VPC_001', 'resource://dev/cde/vpc/EC2_VPC_001#x', 'https://dev/cde/vpc/EC2_VPC_001']:
-        rejects(lambda: parse_reference(invalid))
-    assert parse_reference('resource://test/team/vpc/EC2_VPC_001') == ('test', 'team', 'vpc', 'EC2_VPC_001')
+        rejects(lambda: parse_reference(invalid, Scope(Path('/synthetic'), 'test', 'team', 'vpc')))
+    assert parse_reference('[vpc](#anchor)', Scope(Path('/synthetic'), 'test', 'team', 'vpc')) == ('test', 'team', 'vpc', 'anchor')
     print('fixed identity allocation: PASS')
 
 
@@ -69,9 +70,9 @@ def check_snapshots():
                            'desired.row.000-001.value': '[existing](#anchor-0)',
                            'desired.row.000-001.comment': 'unchanged',
                            'observed.row.000-001.value': '`vpc-fixed`'})
-            after = {key: value for key, value in values.items() if not key.endswith(('.logicalId', '.anchor'))}
+            after = {key: value for key, value in values.items() if not key.endswith('.logicalId')}
             after = allocate(after, [f'{i:03d}' for i in range(500)])
-            after['desired.row.000-001.value'] = 'resource://' + scope + '/EC2_VPC_001'
+            after['desired.row.000-001.value'] = '[existing](#anchor-0)'
             for root, data in [(old, after), (new, after)]:
                 path = root / 'model' / (scope + '.properties')
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -79,12 +80,12 @@ def check_snapshots():
         resolver = Resolver(new)
         with patch.object(sources, '_read_model', wraps=sources._read_model) as read:
             for i in range(500):
-                snapshot, number, resource = resolver.resolve('resource://qa/one/vpc/EC2_VPC_' + f'{i + 1:03d}')
+                snapshot, number, resource = resolver.resolve('[existing](#anchor-' + str(i) + ')', Scope(new, 'qa', 'one', 'vpc'))
                 assert number == f'{i:03d}'
             assert read.call_count == 1, read.call_count
-        assert resolver.resolve('resource://qa/two/vpc/EC2_VPC_001')[0].scope.target == 'two'
-        assert resolver.resolve('resource://live/one/vpc/EC2_VPC_001')[0].scope.environment == 'live'
-        rejects(lambda: resolver.resolve('resource://unknown/one/vpc/EC2_VPC_001'))
+        assert resolver.resolve('[existing](../two/vpc.md#anchor-0)', Scope(new, 'qa', 'one', 'vpc'))[0].scope.target == 'two'
+        assert resolver.resolve('[existing](../../live/one/vpc.md#anchor-0)', Scope(new, 'qa', 'one', 'vpc'))[0].scope.environment == 'live'
+        rejects(lambda: resolver.resolve('[existing](../../unknown/one/vpc.md#anchor-0)', Scope(new, 'qa', 'one', 'vpc')))
         print('baseline preservation and 500 indexed resolutions: PASS')
 
 
@@ -107,7 +108,7 @@ def check_cfn_and_outputs():
         before, after = Path(directory).resolve() / 'before', Path(directory).resolve() / 'after'
         old = {'desired.resource.007.resourceType': 'EC2.VPC', 'desired.resource.007.logicalId': 'ExistingVpc',
                'desired.resource.007.anchor': 'network', 'desired.resource.007.resourceMode': 'CREATE'}
-        new = allocate({key: value for key, value in old.items() if not key.endswith(('.logicalId', '.anchor'))}, ['007'])
+        new = allocate({key: value for key, value in old.items() if not key.endswith('.logicalId')}, ['007'])
         new['desired.resource.007.cfn-logicalId'] = 'existing-stack-ExistingVpc'
         stacks = {'desired.stack.004.name': 'existing-stack', 'desired.stack.004.template': 'network.yaml',
                   'desired.stack.004.parameters': 'network.json', 'desired.stack.004.deployOrder': '1',
@@ -133,28 +134,29 @@ def check_cfn_and_outputs():
                       'desired.row.007-001.property': 'S3.Bucket.BucketName', 'desired.row.007-001.value': '`physical-bucket`',
                       'desired.row.007-001.comment': 'literal stays literal',
                       'desired.row.007-002.property': 'S3.Bucket.Arn',
-                      'desired.row.007-002.value': 'resource://qa/team/s3/S3_Bucket_001',
+                      'desired.row.007-002.value': '[bucket](s3.md#saved-bucket)',
                       'desired.row.007-002.comment': 'confirmed output',
                       'observed.row.007-002.value': '`arn:aws:s3:::physical-bucket`'}
+            bucket['desired.resource.007.anchor'] = 'saved-bucket'
             bucket = allocate(bucket, ['007'])
             path = after / 'model/qa/team/s3.properties'
             path.write_text(serialize(bucket))
-            uri = 'resource://qa/team/s3/S3_Bucket_001'
+            uri = '[bucket](s3.md#saved-bucket)'
             document = {'Statement': [{'Resource': {'$resource': uri, '$attribute': 'Arn'}, 'Effect': 'Allow'}]}
-            result = execution_document(document, after)
+            result = execution_document(document, after, scope=Scope(after, 'qa', 'team', 'iam'))
             assert result['Statement'][0]['Resource'] == 'arn:aws:s3:::physical-bucket'
             assert 'resource://' not in json.dumps(result)
             assert document['Statement'][0]['Resource']['$resource'] == uri
-            assert execution_document(uri, after, property_name='CloudTrail.Trail.S3BucketName') == 'physical-bucket'
-            rejects(lambda: execution_document({'Statement': [{'Resource': uri}]}, after))
+            assert execution_document(uri, after, scope=Scope(after, 'qa', 'team', 'iam'), property_name='CloudTrail.Trail.S3BucketName') == 'physical-bucket'
+            rejects(lambda: execution_document({'Statement': [{'Resource': uri}]}, after, scope=Scope(after, 'qa', 'team', 'iam')))
             displayed = reference_display(bucket, after / 'docs/designs/qa/team/s3.md', after, definitions_root=framework)
-            assert displayed['desired.resource.007.anchor'] == 'resource-S3_Bucket_001'
-            assert '#resource-S3_Bucket_001)' in displayed['desired.row.007-002.value']
+            assert displayed['desired.resource.007.anchor'] == 'saved-bucket'
+            assert '#saved-bucket)' in displayed['desired.row.007-002.value']
             assert bucket['desired.row.007-001.value'] == '`physical-bucket`'
-            assert 'desired.resource.007.anchor' not in bucket
+            assert bucket['desired.resource.007.anchor'] == 'saved-bucket'
             renamed = {**bucket, 'desired.row.007-001.value': '`renamed-bucket`'}
             renamed_display = reference_display(renamed, after / 'docs/designs/qa/team/s3.md', after, definitions_root=framework)
-            assert '[renamed-bucket](#resource-S3_Bucket_001)' in renamed_display['desired.row.007-002.value']
+            assert renamed_display['desired.row.007-002.value'] == bucket['desired.row.007-002.value']
             from model.render import generate_files
             from model.sources import runtime_values
             policy = allocate({
@@ -163,6 +165,7 @@ def check_cfn_and_outputs():
                 'display.service.title': '# Policies',
                 'desired.resource.009.resourceType': 'IAM.ManagedPolicy',
                 'desired.resource.009.resourceMode': 'IMPORT',
+                'desired.resource.009.anchor': 'saved-policy',
                 'display.resource.009.comment': 'policy fixture',
                 'desired.row.009-001.property': 'IAM.ManagedPolicy.ManagedPolicyName',
                 'desired.row.009-001.value': '`policy-fixture`',
@@ -182,7 +185,7 @@ def check_cfn_and_outputs():
                 files = generate_files(design, runtime_values(policy), after)
             assert json.loads(files[design.with_suffix('') / 'policy.json']) == result
             assert 'resource://' not in files[design]
-            assert '<a id="resource-IAM_ManagedPolicy_001"></a>' in files[design]
+            assert '<a id="saved-policy"></a>' in files[design]
             assert json.loads(policy['desired.row.009-002.document']) == document
     from model.adapters.aws import Resource
     from types import SimpleNamespace

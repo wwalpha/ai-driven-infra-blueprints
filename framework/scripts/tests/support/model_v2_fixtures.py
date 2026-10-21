@@ -22,9 +22,10 @@ def logs_fixture(root):
               'display.service.title': '# 合成 Log Group 詳細設計',
               'desired.resource.001.resourceType': 'Logs.LogGroup',
               'desired.resource.001.logicalId': 'Logs_LogGroup_001',
+              'desired.resource.001.anchor': 'logs-existing',
               'desired.service.identity.lastAllocated': '{"Logs.LogGroup":1}',
               'desired.resource.001.resourceMode': 'IMPORT', 'display.resource.001.comment': '合成 Log Group'}
-    for index, (prop, value) in enumerate([('LogGroupName', 'resource://qa-synthetic/team-a/cloudwatch-logs/Logs_LogGroup_001'),
+    for index, (prop, value) in enumerate([('LogGroupName', '[logs](#logs-existing)'),
             ('RetentionInDays', '`30`'), ('DeletionProtectionEnabled', '`false`'), ('LogGroupClass', '`STANDARD`')], 1):
         values.update({f'desired.row.001-{index:03d}.property': 'Logs.LogGroup.' + prop,
                        f'desired.row.001-{index:03d}.value': value, f'desired.row.001-{index:03d}.comment': '合成値'})
@@ -86,10 +87,11 @@ def format_fixture(root, *, target='one', environment='qa-custom', service='netw
     values = {
         'desired.resource.007.resourceType': 'EC2.VPC',
         'desired.resource.007.logicalId': 'EC2_VPC_001',
+        'desired.resource.007.anchor': 'network-existing',
         'desired.service.identity.lastAllocated': '{"EC2.VPC":1}',
         'desired.resource.007.resourceMode': 'IMPORT',
         'desired.row.007-001.property': 'EC2.VPC.VpcId',
-        'desired.row.007-001.value': f'resource://{scope.environment}/{target}/{service}/EC2_VPC_001',
+        'desired.row.007-001.value': '[vpc](#network-existing)',
         'desired.row.007-001.comment': '合成 ID',
         'observed.row.007-001.value': '',
         'desired.row.007-002.property': 'EC2.VPC.CidrBlock',
@@ -154,13 +156,14 @@ def role_operation_fixture(root):
     for rid, name in [('007', 'source'), ('008', 'destination'), ('009', 'unrelated')]:
         values.update({f'desired.resource.{rid}.resourceType': 'IAM.Role', f'desired.resource.{rid}.resourceMode': 'IMPORT',
             f'desired.resource.{rid}.logicalId': 'IAM_Role_' + rid,
+            f'desired.resource.{rid}.anchor': 'role-' + name,
             f'display.resource.{rid}.comment': name,
-            f'desired.row.{rid}-001.property': 'IAM.Role.RoleName', f'desired.row.{rid}-001.value': f'resource://qa-synthetic/team-a/iam/IAM_Role_{rid}',
+            f'desired.row.{rid}-001.property': 'IAM.Role.RoleName', f'desired.row.{rid}-001.value': f'[role](#role-{name})',
             f'desired.row.{rid}-001.comment': name + ' identity', f'observed.row.{rid}-001.value': '`role-' + name + '`',
             f'desired.row.{rid}-002.property': 'IAM.Role.AssumeRolePolicyDocument',
             f'desired.row.{rid}-002.value': f'[Policy](iam/{name}.json)', f'desired.row.{rid}-002.comment': name + ' policy',
             f'desired.row.{rid}-002.document': json.dumps({'Version': '2012-10-17', 'Statement': [
-                {'Effect': 'Allow', 'Action': 'sts:AssumeRole', 'Principal': {'AWS': f'resource://qa-synthetic/team-a/iam/IAM_Role_{rid}'},
+                {'Effect': 'Allow', 'Action': 'sts:AssumeRole', 'Principal': {'AWS': f'[role](#role-{name})'},
                  'Condition': {'Bool': {'aws:SecureTransport': True}}, 'fixture-order': [1, '1', False]}]})})
     scope.path.parent.mkdir(parents=True)
     scope.path.write_text(serialize(values), encoding='utf-8')
@@ -178,7 +181,8 @@ def retarget_fixture(root):
     for rid, name in [('007', 'source'), ('008', 'destination')]:
         values.update({f'desired.resource.{rid}.resourceType': 'EC2.VPC', f'desired.resource.{rid}.resourceMode': 'IMPORT',
             f'desired.resource.{rid}.logicalId': 'EC2_VPC_' + rid,
-            f'desired.row.{rid}-001.property': 'EC2.VPC.VpcId', f'desired.row.{rid}-001.value': f'resource://qa-synthetic/team-a/network/EC2_VPC_{rid}',
+            f'desired.resource.{rid}.anchor': 'vpc-' + name,
+            f'desired.row.{rid}-001.property': 'EC2.VPC.VpcId', f'desired.row.{rid}-001.value': f'[vpc](#vpc-{name})',
             f'desired.row.{rid}-001.comment': '合成 ID', f'observed.row.{rid}-001.value': 'vpc-' + name})
     producer.path.parent.mkdir(parents=True)
     producer.path.write_text(serialize(values), encoding='utf-8')
@@ -432,10 +436,11 @@ def properties_fixture(root):
     scope.path.parent.mkdir(parents=True)
     scope.path.write_text(serialize({'desired.resource.007.resourceType': 'EC2.VPC',
         'desired.resource.007.logicalId': 'EC2_VPC_001',
+        'desired.resource.007.anchor': 'network-existing',
         'desired.resource.007.cfn-logicalId': 'fixture-OriginalVpc',
         'desired.service.identity.lastAllocated': '{"EC2.VPC":1}',
         'desired.resource.007.resourceMode': 'IMPORT', 'desired.row.007-001.property': 'EC2.VPC.VpcId',
-        'desired.row.007-001.value': 'resource://qa-synthetic/team-a/network/EC2_VPC_001', 'desired.row.007-001.comment': '合成 ID',
+        'desired.row.007-001.value': '[vpc](#network-existing)', 'desired.row.007-001.comment': '合成 ID',
         'observed.row.007-001.value': 'vpc-original'}), encoding='utf-8')
     return scope
 

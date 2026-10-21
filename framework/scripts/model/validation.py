@@ -14,7 +14,7 @@ from model.projection import bound_resource_anchors, deployment_bucket, catalog_
 from model.display import display_rows, catalog_display_rows, row_table, sg_tables
 from aws_mapping_display import selected_rows
 from validation_cache import input_is_file
-from model.identity import URI
+from model.identity import resource_link
 from model.core import properties, entries, stack_model, deployment_settings, LINK, ARTIFACT_FIELDS
 
 from design_layout import (
@@ -158,14 +158,14 @@ def validate_required_properties(values: dict[str, str], root: Path, *, warnings
         from aws_mapping_display import rule
         from design_layout import RESOURCE_REFERENCE_PROPERTIES, is_service_role_reference, is_import_role_arn
         references = {rid for rid, _, _, _ in rows
-                      if URI.fullmatch(values[f'desired.row.{rid}.value'])}
+                      if resource_link(values[f'desired.row.{rid}.value'])}
         for rid, prop, value, _ in rows:
             rule(prop, root)
             owner = '.'.join(prop.split('.')[:2])
             if owner not in {kind, *GROUPED_RESOURCE_TYPES.get(kind, set())}:
                 raise ValueError(f"property does not belong to resource: {identity}: {prop}")
             if prop in RESOURCE_REFERENCE_PROPERTIES and not (
-                rid in references or (LINK.fullmatch(value) or URI.fullmatch(value)) or is_service_role_reference(prop, value) or
+                rid in references or (LINK.fullmatch(value) or resource_link(value)) or is_service_role_reference(prop, value) or
                 resource_mode(resource) == 'IMPORT' and (prop != 'Config.ConfigurationRecorder.RoleARN' or is_import_pending_reference(prop, value)) or
                 is_import_role_arn(prop, value, resource_mode(resource))
             ):
@@ -339,7 +339,7 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
                 prop, value = row['property'], row.get('document', literal(row['value']))
                 if 'document' not in row and is_import_expression(prop, row['value'], view):
                     return
-                if 'document' not in row and URI.fullmatch(row['value']):
+                if 'document' not in row and resource_link(row['value']):
                     return
                 kind = '.'.join(prop.split('.')[:2])
                 from validation.design import DESIGN_ONLY_PROPERTIES

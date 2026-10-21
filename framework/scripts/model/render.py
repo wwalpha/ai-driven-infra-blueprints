@@ -107,11 +107,11 @@ def resource_details(values, root, service, owned, resources, bound_anchors, *, 
             if not name or name in {"UNSET", "PENDING_DEPLOY"}:
                 raise ValueError(f"confirmed resource display label is missing: {kind}: {identity}")
             from model.identity import display_anchor
-            anchor = display_anchor(resource['logicalId'])
+            anchor = display_anchor(resource)
             resource = {**resource, 'anchor': anchor}
             derived = anchor
             if anchor in by_anchor:
-                raise ValueError('duplicate Resource display anchor: ' + anchor)
+                raise ReferenceResolutionError('duplicate Resource display anchor: ' + anchor)
             errors = naming_errors(root, kind, rows, mode)
             if errors:
                 raise ValueError("; ".join(errors))
@@ -126,7 +126,7 @@ def resource_details(values, root, service, owned, resources, bound_anchors, *, 
     return details, by_anchor
 
 
-def grouped_resources(values, details, by_anchor):
+def grouped_resources(values, details, by_anchor, *, scope=None):
     grouped: dict[str, list] = {}
     for item in details:
         identity, resource, name, rows = item
@@ -138,7 +138,9 @@ def grouped_resources(values, details, by_anchor):
             if not resource.get(field):
                 raise ValueError(f"{kind}: {resource['logicalId']}: required metadata missing: desired.resource.{identity}.{field} ({kind}.{rule['parentProperty']})")
         link = LINK.fullmatch(resource["parentReference"])
-        parent = by_anchor.get(link.group(3)) if link and not link.group(2) else None
+        from model.identity import parse_reference
+        local = link and (not link[2] or scope is not None and parse_reference(link[0], scope)[:3] == (scope.environment, scope.target, scope.service))
+        parent = by_anchor.get(link[3]) if local else None
         if resource['parentProperty'] != kind + '.' + rule['parentProperty']:
             raise ValueError('invalid grouped parentProperty: ' + identity)
         if not parent or parent[1]['resourceType'] != rule['parent']:
@@ -148,7 +150,10 @@ def grouped_resources(values, details, by_anchor):
                            if row_id.startswith(identity + "-") and row.get("property") == resource["parentProperty"]]
             if len(parent_rows) != 1:
                 raise ValueError(f"{kind}: {resource['logicalId']}: {resource['parentProperty']} requires exactly one formal row matching parentReference")
-            if parent_rows[0].get('value') != resource['parentReference']:
+            row_link = LINK.fullmatch(parent_rows[0].get('value', ''))
+            same = (parse_reference(row_link[0], scope) == parse_reference(link[0], scope) if scope is not None and row_link else
+                    bool(row_link and row_link[3] == link[3] and not row_link[2] and not link[2]))
+            if not same:
                 raise ReferenceResolutionError('grouped formal row does not match parentReference', resource=identity, property=resource['parentProperty'])
             if kind + ".Id" not in HIDDEN_PROPERTIES and (not rows or rows[0][1] != kind + ".Id"):
                 raise ValueError(f"{kind}: {resource['logicalId']}: required first property: {kind}.Id")
@@ -231,7 +236,9 @@ def render_validated_model(path: Path, values: dict[str, str], root: Path, *, de
         raise ValueError(f"service model has no resources: {path.name}")
     validate_resource_identities(path, values, root, resources, definitions_root=definitions_root)
     details, by_anchor = resource_details(values, definitions_root or root, service, owned, resources, bound_resource_anchors(path))
-    return render_markdown(path, values, definitions_root or root, owned, details, grouped_resources(values, details, by_anchor))
+    from model.sources import scope_for
+    scope = scope_for((root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties'))
+    return render_markdown(path, values, definitions_root or root, owned, details, grouped_resources(values, details, by_anchor, scope=scope))
 
 
 @input_scope
@@ -246,14 +253,13 @@ def generate_markdown(path: Path, values: dict[str, str], root: Path) -> str:
         kind = resource["resourceType"]
         name, _, rows = resource_presentation(values, identity, resource, root)
         name = name or kind
+        from model.identity import display_anchor
+        resource = {**resource, 'anchor': display_anchor(resource)}
         details.append((identity, resource, name, rows))
     by_anchor = {item[1]["anchor"]: item for item in details}
-    grouped = {}
-    for item in details:
-        link = LINK.fullmatch(item[1].get('parentReference', ''))
-        parent = by_anchor.get(link[3]) if link and not link[2] else None
-        if item[1]['resourceType'] in GROUPED and parent:
-            grouped.setdefault(parent[0], []).append(item)
+    from model.sources import scope_for
+    scope = scope_for((path.parents[4] / 'model' / path.relative_to(path.parents[4] / 'docs/designs')).with_suffix('.properties'))
+    grouped = grouped_resources(values, details, by_anchor, scope=scope)
     return render_markdown(path, values, root, owned, details, grouped, model_policy_views(values))
 
 
@@ -325,7 +331,7 @@ from model.projection import JSON_LINK
 
 def generate_files(path, values, root):
     """Generate one service in memory, without validation or dependency publication."""
-    from model.sources import safe
+    from model.sources import safe, scope_for
     from model.identity import Resolver
     resolver = Resolver(root)
     artifacts = {}
@@ -341,7 +347,7 @@ def generate_files(path, values, root):
         if artifact.parent != path.with_suffix('').resolve():
             raise ValueError('JSON artifact must belong to owning service')
         from model.projection import execution_document
-        document = execution_document(policy_json(row['document']), root, property_name=row['property'], resolver=resolver)
+        document = execution_document(policy_json(row['document']), root, property_name=row['property'], resolver=resolver, scope=scope_for((root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties')))
         content = json.dumps(document, ensure_ascii=False, indent=2) + '\n'
         if artifact in artifacts and artifacts[artifact] != content:
             raise ValueError('conflicting authoritative JSON documents')

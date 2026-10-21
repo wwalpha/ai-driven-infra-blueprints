@@ -61,7 +61,7 @@ REF_ATTRIBUTES = {
 
 
 from model.core import ReferenceResolutionError
-from model.identity import URI
+from model.identity import resource_link
 
 class Comparison:
     def __init__(self, root, environment, directory, services, *, catalog=None):
@@ -224,17 +224,23 @@ class Comparison:
                            'conditions': conditions, 'inputs': list(inputs.values())})
 
     def reference(self, service, value, expected_attribute=None):
-        from model.identity import parse_reference, Resolver
-        environment, directory, refservice, logical = parse_reference(value)
+        from model.identity import parse_reference, anchor_index, select_anchor
+        from model.sources import Scope
+        consumer = Scope(self.root, self.environment, self.directory, service)
+        environment, directory, refservice, anchor = parse_reference(value, consumer)
         if (environment, directory) != (self.environment, self.directory):
-            Resolver(self.root).resolve(value)
+            from model.identity import Resolver
+            Resolver(self.root).resolve(value, consumer)
             raise Blocked('cross-target IaC reference requires a proven handoff')
-        self.model(refservice)
-        candidates = [(identity, resource) for identity, resource in self.resources[refservice].items()
-                      if resource['logicalId'] == logical]
-        if len(candidates) != 1:
-            raise Blocked(f'reference mapping matches={len(candidates)}: {value}')
-        identity, resource = candidates[0]
+        model = self.model(refservice)
+        if not hasattr(self, 'reference_anchor_indexes'):
+            self.reference_anchor_indexes = {}
+        if refservice not in self.reference_anchor_indexes:
+            self.reference_anchor_indexes[refservice] = anchor_index(model.values)
+        try:
+            identity, resource = select_anchor(self.reference_anchor_indexes[refservice], anchor, value)
+        except ReferenceResolutionError as error:
+            raise Blocked(str(error)) from error
         attributes = {row['property'].removeprefix(resource['resourceType'] + '.')
                       for _, row in self.rows[refservice][identity]
                       if row['property'] in catalog_outputs(self.root, resource['resourceType'])}
@@ -739,7 +745,7 @@ class Comparison:
         raw = row.get('document', row['value'])
         if 'document' in row:
             value = strict_json(raw)
-        elif URI.fullmatch(raw):
+        elif resource_link(raw):
             prop = re.sub(r'\[\d+\]', '[]', row['property'].removeprefix(kind + '.'))
             # A schema-typed ARN property selects the referenced Arn, never a current ARN.
             attribute = 'Arn' if row['property'] == 'CodeBuild.Project.ServiceRole' else None
@@ -758,7 +764,7 @@ class Comparison:
                 value = strict_json(value)
         policy = row['property'].rsplit('.', 1)[-1] in {'PolicyDocument', 'AssumeRolePolicyDocument', 'KeyPolicy', 'Policy'}
         def references(item, field='', operands=False, path='', context=context):
-            if isinstance(item, str) and URI.fullmatch(item):
+            if isinstance(item, str) and resource_link(item):
                 attribute = 'Arn' if policy and field in {'Resource', 'NotResource', 'AWS'} else None
                 return self.desired_reference(service, item, kind, path, attribute, context)
             if isinstance(item, list):
@@ -767,7 +773,7 @@ class Comparison:
                 if '$resource' in item and not (self.local_comparison and kind == 'CodeBuild.Project'
                         and path == 'Environment.EnvironmentVariables[].Value'):
                     if (set(item) - {'$resource', '$attribute'} or not isinstance(item['$resource'], str)
-                            or not URI.fullmatch(item['$resource'])
+                            or not resource_link(item['$resource'])
                             or ('$attribute' in item and (not isinstance(item['$attribute'], str) or not item['$attribute']))):
                         raise Blocked('invalid structured Model resource reference')
                     attribute = item.get('$attribute', 'Arn' if policy and field in {'Resource', 'NotResource', 'AWS'} else None)
@@ -777,7 +783,7 @@ class Comparison:
                             and {'$resource', '$attribute'} & item.keys()):
                         if (set(item) != {'$resource', '$attribute'} or not context or context.get('Type') != 'PLAINTEXT'
                                 or not all(isinstance(part, str) and part for part in item.values())
-                                or not URI.fullmatch(item['$resource'])):
+                                or not resource_link(item['$resource'])):
                             raise Blocked('Model environment reference requires PLAINTEXT, an explicit resource link and attribute')
                         symbol = self.desired_reference(service, item['$resource'], kind, path, item['$attribute'], context)
                         target_service, identity = symbol['$resource']

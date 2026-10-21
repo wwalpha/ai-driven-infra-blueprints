@@ -26,11 +26,11 @@ def schema(prop):
 
 
 def proposal():
-    old = {'desired.resource.001.resourceType': 'EC2.VPC',
+    old = {'desired.resource.001.resourceType': 'EC2.VPC', 'desired.resource.001.anchor': 'vpc-one',
            'desired.resource.001.resourceMode': 'IMPORT', 'desired.resource.001.logicalId': 'EC2_VPC_001',
            'desired.service.identity.lastAllocated': '{"EC2.VPC":1}',
            'desired.row.001-001.property': 'EC2.VPC.VpcId',
-           'desired.row.001-001.value': 'resource://dev/cde/vpc/EC2_VPC_001', 'desired.row.001-001.comment': '合成ID',
+           'desired.row.001-001.value': '[vpc](vpc.md#vpc-one)', 'desired.row.001-001.comment': '合成ID',
            'observed.row.001-001.value': '`vpc-one`',
            'desired.row.001-002.property': 'EC2.VPC.CidrBlock',
            'desired.row.001-002.value': '`10.0.0.0/16`', 'desired.row.001-002.comment': '合成CIDR'}
@@ -60,7 +60,7 @@ def check_complete_typed_before_after_and_digest():
     cidr, identifier = entry['properties']
     assert cidr['before'][0]['desired'] == '10.0.0.0/16' and cidr['after'][0]['desired'] == '10.1.0.0/16'
     assert cidr['after'][0]['nativeType'] == 'string'
-    assert identifier['after'][0]['reference'] == 'resource://dev/cde/vpc/EC2_VPC_001' and identifier['after'][0]['observed'] == 'vpc-one'
+    assert identifier['after'][0]['reference'] == '[vpc](vpc.md#vpc-one)' and identifier['after'][0]['observed'] == 'vpc-one'
     assert entry['name'] == {'status': 'not-acquired'}
     approval.verify_review(result, review(data))
     assert result['approvalBoundary'] == 'llm-explicit-consent'
@@ -89,7 +89,7 @@ def check_changed_review_needs_new_review(change):
     elif change == 'operation':
         entry['operation'] = 'replace'
     elif change in {'property', 'reference', 'type'}:
-        entry['properties'][0]['after'][0]['desired'] = {'property': '10.2.0.0/16', 'reference': 'resource://dev/cde/vpc/EC2_VPC_002', 'type': False}[change]
+        entry['properties'][0]['after'][0]['desired'] = {'property': '10.2.0.0/16', 'reference': '[vpc](vpc.md#vpc-two)', 'type': False}[change]
     elif change == 'risk':
         entry['risks'] = ['possible duplicate']
     else:
@@ -106,7 +106,7 @@ def check_unknown_identity_risk_is_bound():
     new = {**data[2].authoritative, **{k.replace('.001', '.009', 1): v.replace('#main', '#extra') if k.endswith('.value') else
            'extra' if k.endswith('.anchor') else v for k, v in data[3].items()}}
     new['desired.resource.009.logicalId'] = 'EC2_VPC_002'
-    new['desired.row.009-001.value'] = 'resource://dev/cde/vpc/EC2_VPC_002'
+    new['desired.row.009-001.value'] = '[vpc](vpc.md#vpc-two)'
     new['desired.service.identity.lastAllocated'] = '{"EC2.VPC":2}'
     data[1]['resources'][0].update(resource='009', action='add')
     result = review((*data[:3], new, data[4]))
@@ -176,7 +176,7 @@ def check_configuration_is_not_observed(observed):
 
 def check_valid_observation_and_nonblocking_reference_warning():
     data = proposal()
-    data[3]['desired.row.001-001.value'] = 'resource://dev/cde/vpc/EC2_VPC_002'
+    data[3]['desired.row.001-001.value'] = '[vpc](vpc.md#vpc-two)'
     result = review(data)
     assert result['warnings'] and result['dispositions'][0]['properties'][1]['after'][0]['observed'] == 'vpc-one'
     # An unrelated old literal observation is not a new gate on the selected change.
@@ -228,7 +228,7 @@ def check_unselected_reference_changes_are_not_reviewed_as_selected():
     data[2].authoritative.update({'desired.resource.002.resourceType': 'EC2.VPC',
                           'desired.resource.002.resourceMode': 'IMPORT', 'desired.resource.002.logicalId': 'EC2_VPC_002', 'desired.service.identity.lastAllocated': '{"EC2.VPC":2}',
                           'desired.row.002-001.property': 'EC2.VPC.VpcId',
-                          'desired.row.002-001.value': 'resource://dev/cde/vpc/EC2_VPC_002',
+                          'desired.row.002-001.value': '[vpc](vpc.md#vpc-two)',
                           'desired.row.002-001.comment': '未選択'})
     data[3].update(data[2].authoritative)
     data[3]['desired.row.002-001.value'] = '[Changed](#changed)'
@@ -338,7 +338,7 @@ def check_missing_review_rejected_before_candidate_load(tmp_path):
 
 
 def reference_trace(target='001'):
-    return {'consumerKey': 'desired.row.001-001.value', 'text': 'resource://dev/cde/vpc/EC2_VPC_001', 'occurrence': '1',
+    return {'consumerKey': 'desired.row.001-001.value', 'text': '[vpc](vpc.md#vpc-one)', 'occurrence': '1',
         'producerKind': 'resource', 'producerScope': 'dev/cde/vpc', 'producerLogicalId': 'EC2_VPC_' + target,
         'resourceType': 'EC2.VPC', 'format': 'link', 'labelPolicy': 'fixed'}
 
@@ -403,8 +403,8 @@ def check_unselected_reference_selector_is_rejected():
     acquisition, selection, before, proposed, risks = proposal()
     values = {'desired.resource.002.resourceType': 'EC2.VPC', 'desired.resource.002.resourceMode': 'IMPORT',
               'desired.resource.002.logicalId': 'EC2_VPC_002', 'desired.service.identity.lastAllocated': '{"EC2.VPC":2}', 'desired.row.002-001.property': 'EC2.VPC.VpcId',
-              'desired.row.002-001.value': 'resource://dev/cde/vpc/EC2_VPC_002', 'desired.row.002-001.comment': 'unselected'}
-    original = {'fixed': {**reference_trace('002'), 'consumerKey': 'desired.row.002-001.value', 'text': 'resource://dev/cde/vpc/EC2_VPC_002'}}
+              'desired.row.002-001.value': '[vpc](vpc.md#vpc-two)', 'desired.row.002-001.comment': 'unselected'}
+    original = {'fixed': {**reference_trace('002'), 'consumerKey': 'desired.row.002-001.value', 'text': '[vpc](vpc.md#vpc-two)'}}
     before = Expansion(approval.validate_reference_proposal(original, {**before.authoritative, **values}))
     proposed = approval.validate_reference_proposal(original, {**proposed, **values})
     changed = {'fixed': {**original['fixed'], 'producerLogicalId': 'EC2_VPC_001'}}

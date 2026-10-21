@@ -202,7 +202,8 @@ def design_model_values(path: Path, root: Path) -> dict[str, str] | None:
 def resource_modes(lines: list[str], values: dict[str, str] | None = None) -> dict[str, str]:
     """Read modes only from current authoritative Model values."""
     from model.core import entries
-    return {"resource-" + resource["logicalId"]: resource_mode(resource)
+    from model.identity import display_anchor
+    return {display_anchor(resource): resource_mode(resource)
             for _, resource in entries(values or {}, "desired.resource.") if "resourceMode" in resource}
 
 
@@ -802,9 +803,10 @@ def expanded_design(lines: list[str], *, normalized: bool = False,
                             if not label or label.group(1).strip() in {"", "UNSET", "PENDING_DEPLOY"}:
                                 raise ValueError(f"{resource_type}: {logical_id}: confirmed display name required on {prop}")
                             name = label.group(1)
-                        from model.identity import display_anchor
-                        valid_anchors = {display_anchor(logical_id)}
-                        if anchor not in valid_anchors or logical_id in logical_ids:
+                        if anchor in children or anchor in anchors:
+                            raise ReferenceResolutionError('duplicate resource anchor')
+                        expected = (bound_anchors or {}).get((resource_type, logical_id))
+                        if (expected is not None and anchor != expected) or logical_id in logical_ids:
                             raise ValueError(f"invalid or duplicate grouped logical ID/anchor: {logical_id}")
                         logical_ids.add(logical_id)
                         pending_rule = rule.get("display") == "rule-table" and name == "PENDING_DEPLOY"

@@ -160,18 +160,23 @@ def _link_scope(snapshot, filename):
 
 
 def usages(snapshot, read_context=None, *, _cache=None, _producer_scope=None, _coalesce=True):
-    """Extract explicit URI and declared literal dependencies, never Markdown anchors."""
-    from model.identity import URI, resource_index, reference_tokens, parse_reference
+    """Extract saved Resource links and declared literal dependencies."""
+    from model.identity import resource_link, resource_index, anchor_index, reference_tokens, parse_reference
     values, result = snapshot.authoritative, []
     reads = read_context or _invocation_reads(snapshot.scope.root)
     cache = {snapshot.scope.path: snapshot} if _cache is None else _cache
-    indexes = {}
+    indexes, anchors, producers = {}, {}, {}
+
+    def producer_for(scope):
+        if scope not in producers:
+            producers[scope] = _producer(snapshot, scope, reads, cache)
+        return producers[scope]
 
     def fixed(scope, logical):
         if scope in indexes:
             match = indexes[scope].get(logical)
             return match[0] if match else None
-        producer = _producer(snapshot, scope, reads, cache)
+        producer = producer_for(scope)
         if producer is None:
             return None
         if scope not in indexes:
@@ -197,17 +202,24 @@ def usages(snapshot, read_context=None, *, _cache=None, _producer_scope=None, _c
         if not (key.startswith('desired.row.') and key.endswith(('.value', '.document')) or
                 key.startswith('desired.resource.') and key.endswith('.parentReference') or
                 key == 'desired.deployment.templateBucket' or
-                key.startswith('desired.artifact.') and key.endswith('.bucket') or
-                key.startswith('desired.note.') and key.endswith('.text')):
+                key.startswith('desired.artifact.') and key.endswith('.bucket')):
+            continue
+        if key.startswith('desired.row.') and values.get(key.rsplit('.', 1)[0] + '.property', '').endswith('.Description'):
             continue
         value, structured = _json(key, raw)
         for pointer, leaf in string_leaves(value):
             for match in reference_tokens(leaf):
-                environment, target, service, logical = parse_reference(match[0])
+                environment, target, service, anchor = parse_reference(match[0], snapshot.scope)
                 scope = '/'.join((environment, target, service))
                 if _producer_scope is not None and scope != _producer_scope:
                     continue
-                rid = fixed(scope, logical)
+                producer = producer_for(scope)
+                if producer is not None and scope not in anchors:
+                    resource_index(producer.authoritative)
+                    anchors[scope] = anchor_index(producer.authoritative)
+                matches = anchors.get(scope, {}).get(anchor, ())
+                rid, resource = matches[0] if len(matches) == 1 else (None, {})
+                logical = resource.get('logicalId')
                 position = key, pointer if structured else None, match.start(), match.end(), scope, rid
                 if not _coalesce or (*position, logical) not in positions:
                     result.append(Usage(*position[:4], match[0], scope, 'resource', rid, logical_id=logical))
@@ -288,9 +300,22 @@ def diagnose(snapshot, read_context=None, *, _producer_scope=None):
             elif literal(usage.text) != literal(expected):
                 warn('producer name/identifier differs from saved text')
         elif spec:
-            from model.identity import address
-            if usage.text != address(producer.scope, resource['logicalId']):
-                warn('declared producer differs from the saved URI; both meanings are retained')
+            from model.identity import parse_reference, anchor_index, select_anchor
+            from model.core import ReferenceResolutionError
+            address = parse_reference(usage.text, snapshot.scope)
+            expected = (producer.scope.environment, producer.scope.target, producer.scope.service)
+            if address[:3] != expected:
+                warn('declared producer differs from the saved link; both meanings are retained')
+            else:
+                key = (id(producer), 'anchors')
+                if key not in parsed:
+                    parsed[key] = anchor_index(values)
+                try:
+                    number, _ = select_anchor(parsed[key], address[3], usage.text)
+                    if number != identity:
+                        warn('declared producer differs from the saved link; both meanings are retained')
+                except ReferenceResolutionError as error:
+                    warn(str(error))
     for path, producer in cache.items():
         if producer is None:
             dependencies[path] = None

@@ -44,7 +44,7 @@ def check_reference_target_candidates(tmp_path, external, types, expected):
     if external:
         write_model(producer, values)
         values = service_values('consumer', ['Example.Resource'])
-    values.update(resource_values('009', 'Example.Resource', 'consumer', 'CREATE', [('Target', 'resource://preview/team/' + ('producer' if external else 'consumer') + '/EC2_VPC_001')]))
+    values.update(resource_values('009', 'Example.Resource', 'consumer', 'CREATE', [('Target', '[resource](' + ('producer' if external else 'consumer') + '.md#anchor-001)')]))
     values.update(reference_fields('fixed', 'desired.row.009-001.value', values['desired.row.009-001.value'],
         'preview/team/' + ('producer' if external else 'consumer') + '/001', kind='EC2.VPC', mode='link'))
     state = {}

@@ -244,6 +244,8 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
             identities = resource_logical_ids(lines)
             bound_anchors = bound_resource_anchors(path)
             values = design_model_values(path, design_sources=design_sources, root=root)
+            bound_anchors.update({(resource['resourceType'], resource['logicalId']): resource['anchor']
+                                  for _, resource in entries(values or {}, 'desired.resource.') if resource.get('anchor')})
             modes = resource_modes(lines, values)
             lines = security_group_table_lines(lines, definitions_root)
             lines = expanded_display_rows(lines, definitions_root, modes=modes)
@@ -291,8 +293,8 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
                 findings.check(anchor in identities and (display == resource_type or confirmed_label or not values and display != identities[anchor]), f"resource without a name requires a display label or resource type and hidden logical ID: {findings.relative(path)}: {display}")
             if path in service_metadata:
                 expected = bound_anchors.get((resource_type, identities.get(anchor)),
-                                             'resource-' + identities[anchor] if anchor in identities else resource_anchor(service_metadata[path][0], display, resource_type))
-                findings.warn(anchor == expected, f"resource anchor must use display name: {findings.relative(path)}: expected {expected}")
+                                             resource_anchor(service_metadata[path][0], display, resource_type))
+                findings.warn(anchor == expected, f"resource anchor must match saved Model anchor: {findings.relative(path)}: expected {expected}")
 
         for line in [*lines, "### end"]:
             if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
@@ -311,8 +313,8 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
                     if cells[1] == "KMS.Alias.AliasName" and path in service_metadata:
                         marker = CHILD.match(cells[3])
                         expected = bound_anchors.get(("KMS.Alias", marker.group(2) if marker else None),
-                                                     "resource-" + marker.group(2) if marker else None)
-                        findings.check(bool(marker and marker.group(1) == expected), f"KMS Alias anchor must use AliasName: {findings.relative(path)}: expected {expected}")
+                                                     marker.group(1) if marker else None)
+                        findings.check(bool(marker and marker.group(1) == expected), f"KMS Alias anchor must match saved Model anchor: {findings.relative(path)}: expected {expected}")
 
 
 def check_policy_tables(paths, findings, *, definitions_root=None) -> None:
