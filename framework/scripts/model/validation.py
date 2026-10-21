@@ -286,7 +286,7 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
     values = runtime_values(values)
     from model.core import validate_runtime_keys as validate_model_keys
     from model.files import resource_row_index
-    from model.operations import operation_values
+    from model.format import owner
     from aws_mapping_display import validate_mappings
     findings = Findings(root)
     definitions = definitions_root or root
@@ -305,8 +305,15 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
     except (OSError, ValueError) as error:
         findings.check(False, str(error))
         return findings
+    resource_values = None
     for identity, resource in resources:
-        selected = operation_values(values, identity)
+        if resource_values is None:
+            resource_values = {}
+            for key, value in values.items():
+                kind, number = owner(key, values)
+                if kind == 'resource':
+                    resource_values.setdefault(number, {})[key] = value
+        selected = dict(resource_values.get(identity, {}))
         findings.evaluate('model.required.' + identity, None,
                           lambda: validate_required_properties(selected, definitions, warnings=findings.warnings))
         findings.evaluate('model.mapping.' + identity, None, lambda: validate_mappings(selected, definitions))
