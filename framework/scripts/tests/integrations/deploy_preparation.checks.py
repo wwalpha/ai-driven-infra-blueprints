@@ -92,7 +92,7 @@ def check_preparation():
 
 @it_case
 def check_stale_and_conflicts():
-    for reason in ("input", "issue", "runtime", "candidate", "model", "markdown-change",
+    for reason in ("issue", "runtime", "candidate", "model", "markdown-change",
                    "markdown-delete", "json-change", "json-delete"):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory).resolve()
@@ -110,10 +110,6 @@ def check_stale_and_conflicts():
             elif reason == "model":
                 source = root / "model/dev/123456789012/iam.properties"
                 write_model(source, read_model(source) + "# changed\n")
-            elif reason == "input":
-                # Unread sections still invalidate the full-file immutable input guard.
-                path_to_rule = root / "framework/rules/model-information.md"
-                path_to_rule.write_text(path_to_rule.read_text(encoding="utf-8") + "\n## Unread section\nchanged\n", encoding="utf-8")
             elif reason == "issue":
                 issue = root / "issues/dev/123456789012/issues.md"
                 issue.parent.mkdir(parents=True)

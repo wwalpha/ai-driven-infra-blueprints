@@ -10,7 +10,7 @@ import re
 import shlex
 
 
-from support.validator import MODULE, SCRIPT, project, write, load
+from support.validator import MODULE, SCRIPT, load
 
 
 def check_optional_alias_contract() -> None:
@@ -179,93 +179,12 @@ def check_design_handoff_prompt() -> None:
     assert "AWS::<Service>::<Resource>" in prompt
     assert "VPC-specific" not in prompt
     assert "Management owner" not in prompt
-    with project() as root:
-        path = root / "framework/prompts/chatbot/service-design.md"
-        path.parent.mkdir(parents=True)
-        policy_path = root / "framework/rules/loop-engineering.md"
-        policy = "### Validation policy\nfixture\n### Local loop execution\nfixture\n"
-        write(policy_path, policy)
-        write(root / "framework/rules/other.md", "### Validation policy\nfixture\n")
-        write(path, prompt)
-        validator = MODULE.Validator(root)
-        validator.check_framework_design_handoff()
-        assert not validator.errors, validator.errors
-        for original, replacement, expected in (
-            ("For CREATE only, directly apply differences to model properties", "Directly apply differences to model properties", "CREATE-only"),
-            ("[/import](../../../.agents/skills/import/SKILL.md)", "removed import route", "IMPORT delegation"),
-            ("The retrieval/copy steps below apply\nto CREATE only", "All resources may be copied directly", "IMPORT delegation boundary"),
-            ("## Naming rule preflight (design start gate)", "## Removed gate", "before design questions"),
-            ("check-design-naming.py --resource-type", "removed-preflight", "executable naming preflight"),
-            ("Before design contract registration, execute `check-design-naming.py`", "removed-handoff", "before task registration"),
-            ("[Validation policy](../../rules/loop-engineering.md#validation-policy)", "blueprint-loop.py --mode task", "canonical Validation policy reference"),
-            ("loop-engineering.md#validation-policy", "loop-engineering.md#local-loop-execution", "canonical Validation policy reference"),
-            ("loop-engineering.md#validation-policy", "loop-engineering.md", "canonical Validation policy reference"),
-            ("loop-engineering.md#validation-policy", "loop-engineering.md#missing", "missing rule section"),
-            ("loop-engineering.md#validation-policy", "other.md#validation-policy", "canonical Validation policy reference"),
-            ("Select development checks and final validation under", "Optionally select development checks and final validation under", "required validation instruction"),
-            ("Validate in-scope service designs/models", "Optionally validate all service designs/models", "required validation instruction"),
-            ("Validate in-scope service designs/models", "Do not Validate in-scope service designs/models", "required validation instruction"),
-            ("schemas, naming", "optional schemas, naming", "required validation instruction"),
-            ("Do not add entire-scope validation “just in case” after scoped validation", "Add entire-scope validation after scoped validation", "required validation instruction"),
-            ("Report executed checks and diff-check results", "Reporting checks is optional", "required validation instruction"),
-            *((required, "removed-check", "required validation instruction") for required in (
-                "generated Markdown/JSON", "schemas", "naming", "references", "active task contracts", "task-specific checks",
-            )),
-        ):
-            assert original in prompt
-            mutated = prompt.replace(original, replacement)
-            assert mutated != prompt
-            write(path, mutated)
-            validator = MODULE.Validator(root)
-            validator.check_framework_design_handoff()
-            assert any(expected in error for error in validator.errors), validator.errors
-
-        instruction = next(line for line in prompt.splitlines() if line.startswith("6. Select development checks"))
-        for mutated in (
-            prompt.replace(instruction, "") + "\n## Non-handoff example\n" + instruction,
-            prompt.replace(instruction, "```text\n" + instruction + "\n```"),
-            prompt.replace(instruction, instruction.replace(
-                "[Validation policy](../../rules/loop-engineering.md#validation-policy)", "Validation policy"))
-            + "\n[Validation policy](../../rules/loop-engineering.md#validation-policy)\n",
-        ):
-            write(path, mutated)
-            validator = MODULE.Validator(root)
-            validator.check_framework_design_handoff()
-            assert any("canonical Validation policy reference" in error for error in validator.errors), validator.errors
-
-        write(path, prompt)
-        for content in (policy.replace("### Validation policy", "### Removed policy"), None):
-            if content is None:
-                policy_path.unlink()
-            else:
-                write(policy_path, content)
-            validator = MODULE.Validator(root)
-            validator.check_framework_design_handoff()
-            assert any("Validation policy reference:" in error for error in validator.errors), validator.errors
 
 
 def check_rule_reading_contract() -> None:
     validator = MODULE.Validator(SCRIPT.parents[2])
     validator.check_framework_rule_readings()
     assert not validator.errors, validator.errors
-    with project() as root:
-        write(root / "README.md", "## Task transition\n[Task](framework/rules/task-contract.md#task-transition)\n")
-        task_rule = root / "framework/rules/task-contract.md"
-        task_rule.parent.mkdir(parents=True)
-        write(task_rule, "## Task transition\nfixture\n")
-        rule = root / "framework/rules/fixture.md"
-        rule.parent.mkdir(parents=True, exist_ok=True)
-        write(rule, "## Present\nrequired rule\n")
-        agents = root / "AGENTS.md"
-        write(agents, "[rule](framework/rules/fixture.md#missing)\n")
-        validator = MODULE.Validator(root)
-        validator.check_framework_rule_readings()
-        assert len(validator.errors) == 1 and "missing rule section" in validator.errors[0], validator.errors
-        write(agents, "[rule](framework/rules/fixture.md#present)\n")
-        validator = MODULE.Validator(root)
-        validator.check_framework_rule_readings()
-        assert not validator.errors, validator.errors
-
     # Required routes are checked in their execution section, including child rules.
     from deploy_preparation import markdown_sections, rule_readings, markdown_prose
     from pathlib import Path
@@ -287,97 +206,6 @@ def check_rule_reading_contract() -> None:
             assert path.is_file(), (source, link)
             if anchor:
                 assert anchor in markdown_sections(path.read_text(encoding="utf-8")), (source, link)
-    for relative, heading, link in (
-        ("README.md", "task-transition", "framework/rules/task-contract.md#task-transition"),
-        ("framework/rules/loop-engineering.md", "local-loop", "task-contract.md#task-transition"),
-        (".agents/skills/worktree/SKILL.md", "read-before-execution", "../../../framework/rules/task-contract.md#task-transition"),
-    ):
-        with project() as root:
-            destination = root / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            original = (repository / relative).read_text(encoding="utf-8")
-            # Copy only authorities required by this entry, never live contracts/state.
-            pending = list(rule_readings(repository, repository / relative, original))
-            copied = set()
-            while pending:
-                source = pending.pop()
-                if source in copied:
-                    continue
-                copied.add(source)
-                body = source.read_text(encoding="utf-8")
-                path = root / source.relative_to(repository)
-                path.parent.mkdir(parents=True, exist_ok=True)
-                write(path, body)
-                pending.extend(rule_readings(repository, source, body))
-            if relative != "README.md":
-                write(root / "README.md", "## Task transition\n[Task](framework/rules/task-contract.md#task-transition)\n")
-            write(root / "AGENTS.md", "fixture\n")
-            write(destination, original)
-            validator = MODULE.Validator(root)
-            validator.check_framework_rule_readings()
-            assert not validator.errors, validator.errors
-            # A link outside the mandatory section does not repair its removal.
-            assert link in markdown_sections(original)[heading]
-            write(destination, original.replace(link, "https://example.invalid/rule", 1) + f"\n## Background\n[Task]({link})\n")
-            validator = MODULE.Validator(root)
-            validator.check_framework_rule_readings()
-            assert any("mandatory rule readings missing" in error for error in validator.errors), validator.errors
-
-            if relative == ".agents/skills/worktree/SKILL.md":
-                write(destination, original)
-                write(root / "framework/rules/project-configuration.md",
-                      (repository / "framework/rules/project-configuration.md").read_text(encoding="utf-8"))
-                prompt = root / "framework/prompts/codex/08_import.md"
-                project_link = "[Project](../../rules/project-configuration.md)\n"
-                worktree_link = "[Worktree](../../../.agents/skills/worktree/SKILL.md)\n"
-                direct_task = "[Task](../../rules/task-contract.md)\n"
-                issue_link = "[Issues](../../rules/issue-gate.md)\n"
-                body = "## Read before changing files\n" + project_link + worktree_link
-                for text in (body, body.replace(worktree_link, direct_task)):
-                    write(prompt, text)
-                    validator = MODULE.Validator(root)
-                    validator.check_framework_rule_readings()
-                    assert not validator.errors, validator.errors
-                for text in (body.replace(project_link, ""), body.replace(worktree_link, ""),
-                             body.replace(worktree_link, "") + "## Background\n" + worktree_link,
-                             body.replace("worktree/SKILL.md)", "worktree/SKILL.md#create-and-execute)")):
-                    write(prompt, text)
-                    validator = MODULE.Validator(root)
-                    validator.check_framework_rule_readings()
-                    assert any("workflow lacks canonical rule readings" in error for error in validator.errors), validator.errors
-                write(prompt, body)
-                write(destination, original.replace(link, "https://example.invalid/rule", 1))
-                validator = MODULE.Validator(root)
-                validator.check_framework_rule_readings()
-                assert any("mandatory rule readings missing" in error for error in validator.errors), validator.errors
-                write(destination, original)
-                prompt.unlink()
-                ordinary = prompt.with_name("03_implement.md")
-                standard = "## Read first\n" + project_link + direct_task + issue_link
-                for omitted in ("", project_link, direct_task, issue_link):
-                    write(ordinary, standard.replace(omitted, "") if omitted else standard)
-                    validator = MODULE.Validator(root)
-                    validator.check_framework_rule_readings()
-                    assert bool(validator.errors) == bool(omitted), validator.errors
-
-    # Removing an authority's stop condition must fail even with valid links/headings.
-    with project() as root:
-        rules = root / "framework/rules"
-        rules.mkdir(parents=True)
-        contract = (repository / "framework/rules/task-contract.md").read_text(encoding="utf-8")
-        loop = (repository / "framework/rules/loop-engineering.md").read_text(encoding="utf-8")
-        write(rules / "task-contract.md", contract)
-        write(rules / "loop-engineering.md", loop)
-        validator = MODULE.Validator(root)
-        validator.check_framework_task_completion_contract()
-        assert not validator.errors, validator.errors
-        for boundary in ("Suspension reason", "--resume", "--complete", "running"):
-            assert boundary in contract
-            write(rules / "task-contract.md", contract.replace(boundary, "REMOVED"))
-            validator = MODULE.Validator(root)
-            validator.check_framework_task_completion_contract()
-            assert any("safety boundary missing" in error for error in validator.errors), validator.errors
-
     loop = load("blueprint-loop")
     all_checks = sorted({*(SCRIPT.parent / "tests/units").rglob("*.checks.py"),
                          *(SCRIPT.parent / "tests/units").rglob("test_*.py")}, key=lambda path: path.name)

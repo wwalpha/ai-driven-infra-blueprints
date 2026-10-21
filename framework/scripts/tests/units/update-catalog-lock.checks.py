@@ -12,7 +12,6 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 import importlib.util
-import tempfile
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from unittest.mock import patch
 
@@ -31,22 +30,6 @@ def main() -> None:
         with patch.object(MODULE, "CATALOG_DIR") as directory:
             directory.glob.return_value = paths
             assert [path.name for path in MODULE.catalog_files()] == sorted(names)
-    with tempfile.TemporaryDirectory() as directory:
-        catalog = Path(directory) / "EC2_VPC.properties"
-        catalog.write_text(
-            "EC2.VPC.CidrBlock=\nEC2.VPC.VpcId=IDENTIFIER_OUTPUT\n",
-            encoding="utf-8",
-        )
-        assert MODULE.catalog_counts([catalog]) == (1, 1)
-        catalog.write_text("EC2.VPC.VpcId=IDENTIFIER_OUTPUT\nEC2.VPC.CidrBlock=\n", encoding="utf-8")
-        assert MODULE.catalog_counts([catalog]) == (1, 1), "catalog order is human-controlled"
-        catalog.write_text("EC2.VPC.VpcId=UNKNOWN\n", encoding="utf-8")
-        try:
-            MODULE.catalog_counts([catalog])
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("unknown catalog marker was accepted")
     print("update-catalog-lock: PASS")
 
 

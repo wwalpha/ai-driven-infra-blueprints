@@ -34,7 +34,7 @@ def prepare(tmp_path, service='cloudwatch-logs', changed=True, dry_run=False):
     root = tmp_path / 'case'
     fixture(root, service, register=not dry_run)
     cli = aws(service, changed=changed)
-    acquisition = m.acquire(root, 'dev', service, TARGET, dry_run, cli)
+    acquisition = m.acquire(root, 'dev', service, TARGET, dry_run, cli, resource_types=['Logs.LogGroup'] if service == 'cloudwatch-logs' else None)
     return root, acquisition, cli
 
 
@@ -135,7 +135,7 @@ def check_registry_services(tmp_path):
     fixture(root, register=False)
     for service in SERVICES:
         cli = aws(service)
-        acquired = m.acquire(root, 'dev', service, TARGET, True, cli)
+        acquired = m.acquire(root, 'dev', service, TARGET, True, cli, resource_types=['Logs.LogGroup'] if service == 'cloudwatch-logs' else None)
         assert acquired['records'] and acquired['sts'] == {'account': ACCOUNT, 'verified': True}
         assert cli.calls[0] == ('sts', 'get-caller-identity', {})
         assert all('properties' in record and 'getters' not in record for record in acquired['records'])
@@ -212,7 +212,7 @@ def check_optional_profile(tmp_path):
     target = json.loads((root / 'project.json').read_text(encoding='utf-8'))
     target['targets'][0].pop('awsProfile')
     (root / 'project.json').write_text(json_text(target), encoding='utf-8')
-    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, True, aws(profile=None))
+    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, True, aws(profile=None), resource_types=['Logs.LogGroup'])
     assert acquired['connection']['awsProfile'] is None
     import_guard.discard_acquisition(root, acquired['evidence'])
 
@@ -221,7 +221,7 @@ def check_explicit_no_profile(tmp_path):
     root = tmp_path / 'case'
     fixture(root)
     cli = aws(profile=None)
-    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli, no_profile=True)
+    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli, no_profile=True, resource_types=['Logs.LogGroup'])
     assert acquired['connection']['awsProfile'] is None
     assert cli.calls[0][0] == 'sts'
     logs_edit(root, acquired)
@@ -268,12 +268,12 @@ def check_cli_faults(tmp_path):
                       (AwsCli(fail='An error occurred (AccessDenied) when calling STS: PRIVATE-CREDENTIAL'), 'AccessDenied')]:
         before = snapshot(root)
         with pytest.raises(m.comparator().AcquisitionError, match=code):
-            m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, True, cli)
+            m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, True, cli, resource_types=['Logs.LogGroup'])
         assert snapshot(root) == before and len(cli.calls) == 1
     for payload in ({}, {'logGroups': None}, {'logGroups': 'invalid'}):
         cli = aws()
         cli.responses['logs', 'describe-log-groups'] = payload
-        acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, True, cli)
+        acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, True, cli, resource_types=['Logs.LogGroup'])
         assert acquired['status'] == 'incomplete'
         assert acquired['inventory']['Logs.LogGroup'] == {'status': 'failed', 'reason': 'InvalidInventoryResponse'}
         assert acquired['records'] == []
@@ -337,7 +337,7 @@ def check_shared_property_and_bindings(tmp_path):
     fixture(root)
     cli = aws(changed=True)
     cli.logs[-1]['logGroupClass'] = 'INFREQUENT_ACCESS'
-    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli)
+    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli, resource_types=['Logs.LogGroup'])
     stg_path = input_file(root, env='stg')
     before = stg_path.read_bytes()
     promote_logs(root, acquired)
@@ -372,7 +372,7 @@ def check_foreign_source_writes_rejected(tmp_path, relative):
 def check_add_identity_boundary(tmp_path, service, scenario):
     root = tmp_path / 'case'
     path = fixture(root, service)
-    acquired = m.acquire(root, 'dev', service, TARGET, cli_runner=aws(service, changed=True))
+    acquired = m.acquire(root, 'dev', service, TARGET, cli_runner=aws(service, changed=True), resource_types=['Logs.LogGroup'] if service == 'cloudwatch-logs' else None)
     values = dict(load_model(path).authoritative)
     original = dict(values)
     for key, value in operation_values(original, '001').items():
@@ -428,7 +428,7 @@ def check_repeat_without_reformat(tmp_path):
     before = source_files(root)
     cli = aws(changed=True)
     with pytest.raises(ValueError, match='Task already published'):
-        m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli)
+        m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli, resource_types=['Logs.LogGroup'])
     assert not cli.calls and source_files(root) == before
     import_guard.require_import_changes(root)
     from task_contract import start, selected_task
@@ -438,7 +438,7 @@ def check_repeat_without_reformat(tmp_path):
     text = (root / old_name).read_text().replace(old_name, new_name)
     start(root, new_name, text)
     with selected_task(root, new_name):
-        again = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=aws(changed=True))
+        again = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=aws(changed=True), resource_types=['Logs.LogGroup'])
         path = input_file(root)
         selected = [correspondence(again, 'managed-new', '003', action='refresh')]
         stage(root, again, {path.relative_to(root).as_posix(): path.read_text()}, selected, exclusions(again, selected))
@@ -470,7 +470,7 @@ def check_empty_inventory_preserves_sources(tmp_path):
     cli = aws()
     cli.logs = []
     before = source_files(root)
-    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli)
+    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli, resource_types=['Logs.LogGroup'])
     assert acquired['records'] == []
     stage(root, acquired, {})
     result = publish_fixture(root, acquired)
@@ -507,7 +507,7 @@ def check_native_types_preserved(tmp_path):
 def check_consumer_set_race(tmp_path):
     root = tmp_path / 'case'
     fixture(root)
-    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=aws(changed=True))
+    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=aws(changed=True), resource_types=['Logs.LogGroup'])
     logs_edit(root, acquired)
     new_consumer = root / 'model/dev/cde/new-consumer.properties'
     new_consumer.write_text(serialize({}), encoding='utf-8')
@@ -524,7 +524,7 @@ def check_source_transaction_rollback(tmp_path):
     fixture(root)
     cli = aws(changed=True)
     cli.logs[-1]['logGroupClass'] = 'INFREQUENT_ACCESS'
-    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli)
+    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli, resource_types=['Logs.LogGroup'])
     promote_logs(root, acquired)
     original = source_files(root)
     real_save = sync_files.save_files
@@ -570,7 +570,7 @@ def check_cross_process_evidence(tmp_path):
     fixture(root)
     scripts = m.ROOT / 'framework/scripts'
     setup = f"import sys; sys.path[:0] = [{str(scripts)!r}, {str(scripts / 'tests')!r}]; from pathlib import Path; from support.import_model_fixtures import m, aws; "
-    acquire_code = setup + f"import json; print(json.dumps(m.acquire(Path({str(root)!r}), 'dev', 'cloudwatch-logs', 'cde', cli_runner=aws(changed=True))))"
+    acquire_code = setup + f"import json; print(json.dumps(m.acquire(Path({str(root)!r}), 'dev', 'cloudwatch-logs', 'cde', cli_runner=aws(changed=True), resource_types=['Logs.LogGroup'])))"
     completed = subprocess.run([sys.executable, '-B', '-c', acquire_code], capture_output=True, text=True, encoding='utf-8', check=True)
     acquired = json.loads(completed.stdout)
     logs_edit(root, acquired)
@@ -599,7 +599,7 @@ def check_dry_run_cleanup(tmp_path):
     assert any(item['key'] == 'desired.row.003-002.value' for disposition in result['review']['dispositions'] for item in disposition['changes'])
     assert snapshot(root) == before and Path(acquired['evidence']).is_file()
     assert not (root / 'tasks').exists() and not (root / '.blueprint/import').exists()
-    second = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, True, aws(changed=True))
+    second = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, True, aws(changed=True), resource_types=['Logs.LogGroup'])
     logs_edit(root, second, 91)
     with pytest.raises(ValueError):
         publish_fixture(root, second, dry_run=True)
@@ -980,7 +980,7 @@ def check_user_selected_overwrite_publication(tmp_path, action, dry_run):
         subprocess.run(['git', 'add', 'model'], cwd=root, check=True)
         subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'unknown existing IMPORT identity'], cwd=root, check=True)
     cli = aws(changed=True)
-    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, dry_run, cli)
+    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, dry_run, cli, resource_types=['Logs.LogGroup'])
     before = load_model(path)
     original = snapshot(root)
     values = dict(before.authoritative)
@@ -1088,7 +1088,7 @@ def check_first_resource_uses_existing_source_format(tmp_path, missing, shared_t
     subprocess.run(['git', 'add', '-A'], cwd=root, check=True)
     subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'synthetic absent or empty service'], cwd=root, check=True)
     cli = aws(changed=True)
-    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli)
+    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli, resource_types=['Logs.LogGroup'])
     service.update(operation_values(seed, '001'))
     from model.identity import allocate
     del service['desired.resource.001.logicalId']
@@ -1116,7 +1116,7 @@ def check_refresh_switches_definition_without_foreign_changes(tmp_path):
     values.update({'desired.row.001-002.value': '`90`', 'desired.row.001-004.value': '`INFREQUENT_ACCESS`'})
     cli = aws(changed=True)
     cli.logs[0]['logGroupClass'] = 'INFREQUENT_ACCESS'
-    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli)
+    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli, resource_types=['Logs.LogGroup'])
     selected = [correspondence(acquired, 'fixture-001', '001', 'refresh')]
     stage(root, acquired, {file.relative_to(root).as_posix(): serialize(values)}, selected, exclusions(acquired, selected))
     result = publish_fixture(root, acquired)

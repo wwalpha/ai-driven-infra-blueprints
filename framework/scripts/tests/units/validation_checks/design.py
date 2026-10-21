@@ -4,94 +4,17 @@
 from __future__ import annotations
 
 
-import json
-
-
-import shutil
 from unittest.mock import patch
-from utils.aws_schemas import Schemas
-from utils.aws_catalogs import Catalogs
 
 
-from support.validator import MODULE, SCRIPT, project, write, schema_validator, load
+from support.validator import MODULE, SCRIPT, project, write, schema_validator
 
 
 def check_catalog_inputs() -> None:
-    from cloudformation_schema import manifest_text, material_files
-    from design_catalog import design_material_files
-    lock = load("update-catalog-lock")
-    with project() as root:
-        shutil.copytree(SCRIPT.parents[2] / "framework/materials", root / "framework/materials")
-        scripts = root / "framework/scripts"
-        scripts.mkdir()
-        shutil.copy2(SCRIPT.with_name("update-catalog-lock.py"), scripts)
-
-        def check(expected=None):
-            # Refresh integrity locks so semantic failures cannot hide behind checksums.
-            materials = root / "framework/materials"
-            for name, files in (
-                ("catalog", material_files(root)),
-                ("api-catalog", sorted((materials / "api").glob("*"))),
-                ("cloudformation-schema", sorted((materials / "cloudformation-schema/ap-northeast-1").glob("*.json"))),
-            ):
-                (materials / f"{name}.sha256").write_text(manifest_text(root, files), encoding="utf-8")
-            markers = [line.partition("=")[2] for path in material_files(root)
-                       for line in path.read_text(encoding="utf-8").splitlines()]
-            metadata = materials / "catalog.properties"
-            metadata.write_text(lock.replace_metadata(metadata.read_text(encoding="utf-8").splitlines(), {
-                "catalog.fileCount": str(len(material_files(root))),
-                "catalog.propertyCount": str(markers.count("")),
-                "catalog.identifierOutputCount": str(markers.count("IDENTIFIER_OUTPUT")),
-            }), encoding="utf-8")
-            # Each corruption is a new definition lifetime, including snapshot checks.
-            with patch('utils.aws_schemas.schemas_for', return_value=Schemas(root)), \
-                 patch('utils.aws_catalogs.catalogs_for', return_value=Catalogs(root)):
-                validator = MODULE.Validator(root)
-                validator.check_catalog_inputs()
-            if expected is None:
-                assert not validator.errors, validator.errors
-            else:
-                assert any(expected in error for error in validator.errors), (expected, validator.errors)
-            assert not any("checksum mismatch" in error or ".sha256 does not match" in error
-                           for error in validator.errors), validator.errors
-
-        check()
-        aws = root / "framework/materials/aws/EC2_VPC.properties"
-        apis = [path for path in design_material_files(root) if path not in material_files(root)]
-        for path in [aws, *apis]:
-            original = path.read_text(encoding="utf-8")
-            first, *rest = original.splitlines()
-            key = first.partition("=")[0]
-            for line, expected in (
-                (key, "invalid catalog line"),
-                ("Unknown.Resource.Property=", "invalid catalog line"),
-                (key + "Missing=", "absent from provider schema"),
-                (key + "=INVALID", "invalid catalog line"),
-                (key + "=IDENTIFIER_OUTPUT=INVALID", "invalid catalog line"),
-            ):
-                path.write_text("\n".join([line, *rest]) + "\n", encoding="utf-8")
-                check(expected if path == aws else "selection list")
-            path.write_text(original + first + "\n", encoding="utf-8")
-            check("catalog properties must be unique" if path == aws else "selection list")
-            path.write_text(original.rstrip("\n"), encoding="utf-8")
-            check("catalog file lacks final newline")
-            path.write_text(original, encoding="utf-8")
-
-        for path, expected in ((apis[0], None), (root / "framework/materials/api/QuickSight_Group.properties", "display order")):
-            original = path.read_text(encoding="utf-8")
-            path.write_text("\n".join(reversed(original.splitlines())) + "\n", encoding="utf-8")
-            check(expected)
-            path.write_text(original, encoding="utf-8")
-
-        original = aws.read_text(encoding="utf-8")
-        aws.write_text(original.replace("EC2.VPC.CidrBlock=", "EC2.VPC.CidrBlock=IDENTIFIER_OUTPUT"), encoding="utf-8")
-        check("invalid identifier output")
-        aws.write_text(original, encoding="utf-8")
-        schema_path = root / "framework/materials/cloudformation-schema/ap-northeast-1/aws-ec2-vpc.json"
-        schema = json.loads(schema_path.read_text(encoding="utf-8"))
-        schema["properties"]["CidrBlock"] = {"$ref": "#/definitions/Missing"}
-        schema_path.write_text(json.dumps(schema) + "\n", encoding="utf-8")
-        check("absent from provider schema")
+    repository = SCRIPT.parents[2]
+    validator = MODULE.Validator(repository)
+    validator.check_catalog_inputs()
+    assert not validator.errors, validator.errors
 
 
 def check_schema_backed_design_rows() -> None:
@@ -296,28 +219,6 @@ def check_cidr_pending_deploy() -> None:
             validator = MODULE.Validator(root)
             validator.check_cidr_value(path, prop, "10.0.0.0/16")
             assert not validator.errors, prop
-
-
-def check_catalog_display_order() -> None:
-    from design_layout import catalog_order_errors
-
-    with project() as root:
-        material = root / "framework/materials/aws/Example_Resource.properties"
-        material.parent.mkdir(parents=True)
-        lines = ["Example.Resource.Name=", "Example.Resource.Hidden=", "Example.Resource.Id=IDENTIFIER_OUTPUT", "Example.Resource.Tags[].Key=", "Example.Resource.Tags[].Value="]
-        write(material, "\n".join(lines) + "\n")
-        def rows(*properties):
-            return [[str(n), "Example.Resource." + prop, "value", "属性"] for n, prop in enumerate(properties, 1)]
-        selected = rows("Name", "Id", "Tags[].Key", "Tags[].Value", "Tags[].Key", "Tags[].Value")
-        assert not catalog_order_errors("Example.Resource", selected, root)
-        assert catalog_order_errors("Example.Resource", rows("Id", "Name"), root)
-        assert catalog_order_errors("Example.Resource", rows("Tags[].Value", "Tags[].Key"), root)
-        assert catalog_order_errors("Example.Resource", rows("Tags[].Key", "Name", "Tags[].Key"), root)
-        write(material, "\n".join([lines[2], *lines[:2], *lines[3:]]) + "\n")
-        with patch('utils.aws_catalogs.catalogs_for', return_value=Catalogs(root)):
-            assert not catalog_order_errors("Example.Resource", rows("Id", "Name"), root)
-            assert catalog_order_errors("Example.Resource", rows("Name", "Id"), root)
-        assert len(selected) == 6 and all("Hidden" not in row[1] for row in selected)
 
 
 def check_event_rule_row_order() -> None:

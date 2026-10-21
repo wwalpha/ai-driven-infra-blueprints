@@ -354,7 +354,8 @@ def check_it_fixture_isolation(tmp_path):
         (root / name / 'value.txt').write_text(name)
         if name == 'framework':
             (root / name / 'framework/rules').mkdir(parents=True)
-            (root / name / 'framework/rules/example.md').write_text('shared rule')
+            shutil.copyfile(Path(__file__).resolve().parents[4] / 'framework/rules/task-contract.md',
+                            root / name / 'framework/rules/task-contract.md')
     with patch.object(fixtures, 'build', side_effect=build):
         with fixtures.bundle() as root, patch.dict(os.environ, {fixtures.ENV: str(root)}):
             before = fixtures.fingerprint(root)
@@ -383,9 +384,9 @@ def check_it_fixture_isolation(tmp_path):
                         assert case == directory.resolve()
                         assert (case / 'framework').is_symlink()
                         assert (case / 'framework').resolve() == shared.resolve()
-                        assert not (case / 'framework/rules/example.md').stat().st_mode & 0o222
+                        assert not (case / 'framework/rules/task-contract.md').stat().st_mode & 0o222
                         assert [p.relative_to(case).as_posix() for p in
-                                (case / 'framework').rglob('*.md')] == ['framework/rules/example.md']
+                                (case / 'framework').rglob('*.md')] == ['framework/rules/task-contract.md']
                         assert not (case / 'model').exists()
                         (case / 'model').mkdir()
                         (case / 'model/value.txt').write_text(name)
@@ -399,7 +400,7 @@ def check_it_fixture_isolation(tmp_path):
                                              check=True, capture_output=True, text=True).stdout
                     assert any(line.startswith('120000 ') and line.endswith('\tframework')
                                for line in tracked.splitlines())
-                    assert 'framework/rules/example.md' not in tracked
+                    assert 'framework/rules/task-contract.md' not in tracked
                     assert '\tmodel/value.txt' in tracked
             assert fixtures.fingerprint(root) == before
         assert generations == list(fixtures.NAMES)

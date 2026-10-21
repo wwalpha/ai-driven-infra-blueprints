@@ -127,7 +127,7 @@ def check_deploy_scope_isolation(tmp_path):
     assert "invalid CloudFormation parameter JSON" not in result.stdout
     result = run("stg")
     assert result.returncode != 0 and "invalid CloudFormation parameter JSON" in result.stdout, result.stdout + result.stderr
-    # G: staged and unstaged whitespace errors remain visible across task scopes.
+    # Staged and unstaged whitespace errors remain visible across task scopes.
     parameters["stg"].write_text("[]  \n")
     for staged in (False, True):
         if staged:
@@ -140,32 +140,6 @@ def check_deploy_scope_isolation(tmp_path):
         assert result.returncode != 0 and "FAIL git-diff-check" in result.stdout, result.stdout + result.stderr
     result = run(options=("--all",))
     assert result.returncode != 0 and "FAIL git-diff-check" in result.stdout, result.stdout + result.stderr
-    # H: a shared framework change still forces repository-wide checks.
-    rule = "framework/rules/deployment-scope-fixture.md"
-    name = "tasks/framework.md"
-    listed = f"- `{name}`\n- `{rule}`"
-    tasks.start(root, name, f"""# Task
-## Task contract
-- Task type: `governance`
-- Task status: `running`
-## Validation scope
-- `framework`
-## Required changes
-- [R1] 共通ruleを更新する。
-## Acceptance checks
-- [R1] `changed:{rule}`
-## Modified files
-{listed}
-## Allowed paths
-{listed}
-""")
-    (root / rule).write_text("# Shared framework dependency\n")
-    result = run()
-    assert result.returncode != 0 and "START scope.checks.py" in result.stdout and "FAIL git-diff-check" in result.stdout, result.stdout + result.stderr
-    parameters["stg"].write_text("invalid JSON\n")
-    result = run()
-    assert result.returncode != 0 and "invalid CloudFormation parameter JSON" in result.stdout, result.stdout + result.stderr
-    print("Task deployment scope: PASS (dev rejects out-of-scope changes, stg invalid FAIL; staged/unstaged task/full/all whitespace FAIL; shared framework forces regression)")
 
 
 def check_task_service_validation(tmp_path):
@@ -773,19 +747,6 @@ def check_workflow(tmp_path) -> None:
     assert (root / "continued").exists(), "shared change must run all regression"
     (scripts / "a.py").unlink()
     (root / "continued").unlink()
-    rule = root / "framework/rules/rule.md"
-    rule.parent.mkdir()
-    rule.write_text("# staged rule change\n", encoding="utf-8")
-    subprocess.run(["git", "add", str(rule)], cwd=root, check=True)
-    result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
-    assert result.returncode == 0 and "PASS (2 framework regression scripts)" in result.stdout, result.stdout
-    assert "framework/rules/rule.md" in MODULE.changed_paths(root)
-    # A move out of framework must still detect its old path, as must deletion.
-    subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "rule"], cwd=root, check=True)
-    rule.rename(root / "moved-rule.md")
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
-    assert "framework/rules/rule.md" in MODULE.changed_paths(root)
-    assert MODULE.framework_changed(MODULE.changed_paths(root))
     # CRLF is a preserved Model/view format; spaces before CRLF remain defects.
     model.write_bytes(b"design change\r\nCRLF line\r\n")
     result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")

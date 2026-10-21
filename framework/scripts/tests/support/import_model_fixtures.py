@@ -79,19 +79,16 @@ def small_framework(root, services, kinds):
     kinds = set(kinds) | {kind for service in services for kind in yaml_read((m.ROOT / 'framework/mappings/aws' / (service + '.yaml')).read_text(encoding='utf-8'))['resourceTypes']}
     schema = Path('framework/materials/cloudformation-schema') / REGION
     index = json.loads((m.ROOT / schema / 'index.json').read_text(encoding='utf-8'))['resourceTypes']
-    paths = {schema / 'index.json', Path('framework/rules/aws-resource-naming.md')}
+    paths = {schema / 'index.json', Path('framework/rules/aws-resource-naming.md'), Path('framework/mappings/aws/owners.json')}
     for kind in kinds:
         paths |= {Path('framework/materials/aws' if (m.ROOT / 'framework/materials/aws' / (kind.replace('.', '_', 1) + '.properties')).is_file() else 'framework/materials/api') / (kind.replace('.', '_', 1) + '.properties'),
                   Path('framework/materials/api') / (kind.replace('.', '_', 1) + '.json') if 'AWS::' + kind.replace('.', '::', 1) not in index else schema / index['AWS::' + kind.replace('.', '::', 1)],
                   Path('framework/rules/aws-resource-naming') / (kind.split('.')[0] + '.md')}
-    paths |= {Path('framework/mappings/aws') / (service + '.yaml') for service in services}
+    paths |= {path.relative_to(m.ROOT) for path in (m.ROOT / 'framework/mappings/aws').glob('*.yaml')}
     paths = {p for p in paths if p.parent != Path("framework/rules/aws-resource-naming") or (m.ROOT / p).is_file()}
     for relative in paths:
         destination = root / relative; destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(m.ROOT / relative, destination)
-    owners = json.loads((m.ROOT / 'framework/mappings/aws/owners.json').read_text(encoding='utf-8'))
-    (root / 'framework/mappings/aws/owners.json').write_text(json.dumps({kind: service for kind, service in owners.items()
-        if service in services}), encoding='utf-8')
     (root / 'project.json').write_text(json_text({'projectName': 'fixture', 'targets': [{'environment': 'dev',
         'awsAccountId': ACCOUNT, 'awsProfile': 'confirmed', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n', encoding='utf-8')
 
@@ -121,16 +118,6 @@ def build_seed(root):
     kinds = ['EC2.VPC', 'EC2.Subnet', 'Config.ConfigurationRecorder', 'Logs.LogGroup',
              'KinesisFirehose.DeliveryStream', 'QuickSight.DataSource', 'SecurityHub.Hub', 'EC2.TransitGatewayVpcAttachment']
     small_framework(root, SERVICES, kinds)
-    # Install the selected catalog before any reader can cache it.
-    import yaml
-    mapping_path = root / 'framework/mappings/aws/cloudwatch-logs.yaml'
-    mapping = yaml_read(mapping_path.read_text(encoding='utf-8'))
-    mapping['resourceTypes'] = {'Logs.LogGroup': mapping['resourceTypes']['Logs.LogGroup']}
-    mapping_path.write_text(yaml.safe_dump(mapping, sort_keys=False), encoding='utf-8')
-    owners_path = root / 'framework/mappings/aws/owners.json'
-    owners = json.loads(owners_path.read_text(encoding='utf-8'))
-    owners_path.write_text(json_text({kind: owner for kind, owner in owners.items()
-        if owner != 'cloudwatch-logs' or kind == 'Logs.LogGroup'}), encoding='utf-8')
     (root / 'project.json').write_text(json_text({'projectName': 'synthetic-import-fixture', 'targets': [
         {'environment': env, 'alias': TARGET, 'awsAccountId': ACCOUNT, 'awsRegion': 'ap-northeast-1',
          'awsProfile': 'confirmed', 'iacEngine': 'cloudformation'} for env in ('dev', 'stg')]}), encoding='utf-8')

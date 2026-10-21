@@ -273,10 +273,7 @@ def check_inputs(tmp_path):
     (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', **TARGET}]}))
     path = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
     path.parent.mkdir(parents=True)
-    # Naming rules need only the established file; no alternative schema.
-    (root / "framework/rules").mkdir(parents=True)
-    (root / "framework/rules/aws-resource-naming.md").write_text(
-        "| CloudFormation | Stack | `CloudFormation.Stack` | StackName | `.*` |\n")
+    copy_framework(root / "framework/rules", relative="rules")
     path.write_text(markdown_for(path, values, root))
     source = root / "model/dev/123456789012/cloudformation-stacks.properties"
     source.parent.mkdir(parents=True)
@@ -489,8 +486,7 @@ def check_delivery(tmp_path):
     values.update({"desired.deployment.templateBucket": reference, "desired.deployment.templateKeyPrefix": "templates/"})
     values.update({"desired.artifact.007." + field: value for field, value in artifact("First").items()})
     values["desired.artifact.007.bucket"] = reference
-    (root / "framework/rules").mkdir(parents=True)
-    (root / "framework/rules/aws-resource-naming.md").write_text("| CloudFormation | Stack | `CloudFormation.Stack` | StackName | `.*` |\n")
+    copy_framework(root / "framework/rules", relative="rules")
     design = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
     design.parent.mkdir(parents=True)
     model = root / "model/dev/123456789012/s3.properties"
@@ -848,9 +844,7 @@ def check_session_cli(tmp_path):
     (root / "framework/scripts").mkdir(parents=True)
     shutil.copy(ROOT / "framework/scripts/check-deploy-context.py", root / "framework/scripts/check-deploy-context.py")
     copy_framework(root / 'framework/materials/cloudformation-schema', relative='materials/cloudformation-schema')
-    (root / "framework/rules").mkdir()
-    (root / "framework/rules/aws-resource-naming.md").write_text(
-        "| CloudFormation | Stack | `CloudFormation.Stack` | StackName | `.*` |\n")
+    copy_framework(root / "framework/rules", relative="rules")
     (root / "project.json").write_text(json.dumps({"targets": [{"environment": "dev", **TARGET, "awsProfile": "dev-profile"}, {"environment": "stg", **TARGET}]}))
     (root / "tasks").mkdir()
     contract = root / "tasks/example.md"
@@ -998,8 +992,7 @@ def check_session_cli(tmp_path):
                        (consumer, read_model(consumer) + "desired.row.002.value=changed\n"),
                        (reference, "desired.row.001.value=changed\n"),
                        (contract, contract.read_text() + "\n# contract changed\n"),
-                       (root / "framework/scripts/check-deploy-context.py", "# controller dependency changed\n"),
-                       (root / "framework/rules/aws-resource-naming.md", "# rule dependency changed\n")):
+                       (root / "framework/scripts/check-deploy-context.py", "# controller dependency changed\n")):
         canonical = path.suffix == '.properties' and path.is_relative_to(root / 'model')
         before = path.read_bytes()
         if canonical:

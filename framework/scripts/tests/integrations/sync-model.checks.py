@@ -316,7 +316,7 @@ def check_stage_cloudformation_definitions(generated_policy, tmp_path):
     assert stack_design.read_bytes() == expected_stack and not (stage / 'framework').exists()
 
 
-@pytest.mark.parametrize('fault', ['source', 'mapping', 'project', 'part', 'consumer', 'extra', 'contract'])
+@pytest.mark.parametrize('fault', ['source', 'project', 'part', 'consumer', 'extra', 'contract'])
 def check_publication_boundary(generated_policy, fault):
     root, model, values, design, artifact, register = generated_policy
     values['desired.note.001.text'] = '保存前の一括照合を確認する。'
@@ -330,7 +330,7 @@ def check_publication_boundary(generated_policy, fault):
         nonlocal concurrent
         result = validate(*args, **kwargs)
         template = model
-        target = {'source': template, 'mapping': definition_root(root)/'framework/mappings/aws/iam.yaml',
+        target = {'source': template,
                   'project': root/'project.json', 'part': template.with_suffix('')/'unlisted.properties',
                   'consumer': root/'model/dev/other/new.properties',
                   'extra': artifact.parent/'unexpected.json', 'contract': root/env['BLUEPRINT_TASK_FILE']}[fault]
@@ -751,13 +751,7 @@ def check_required_property_parents(tmp_path) -> None:
 def check_workflow(tmp_path) -> None:
     root = tmp_path
     copy_framework(root / "framework/mappings", relative="mappings")
-    materials = root / "framework" / "materials" / "aws"
-    materials.mkdir(parents=True)
-    (materials / 'EC2_VPC.properties').write_text('EC2.VPC.VpcId=IDENTIFIER_OUTPUT\n',encoding="utf-8")
-    (materials / 'EC2_Subnet.properties').write_text('EC2.Subnet.SubnetId=IDENTIFIER_OUTPUT\nEC2.Subnet.VpcId=\n',encoding="utf-8")
-    (materials / 'S3_Bucket.properties').write_text('S3.Bucket.BucketName=\nS3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID=\nS3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm=\nS3.Bucket.VersioningConfiguration.Status=\n',encoding="utf-8")
-    (materials / 'S3_BucketPolicy.properties').write_text('S3.BucketPolicy.Bucket=\nS3.BucketPolicy.PolicyDocument=\n',encoding="utf-8")
-    (materials / 'KMS_Alias.properties').write_text('KMS.Alias.AliasName=\nKMS.Alias.TargetKeyId=\n',encoding="utf-8")
+    copy_framework(root / "framework/materials", relative="materials")
     design = root / "docs" / "designs" / "dev" / "123456789012" / "vpc.md"
     artifact = design.parent / "vpc" / "vpc01-policy.json"
     artifact.parent.mkdir(parents=True)

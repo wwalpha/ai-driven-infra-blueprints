@@ -79,6 +79,7 @@ def mapping_fixture(root, *services):
     schemas = json.loads((ROOT / schema / 'index.json').read_text(encoding='utf-8'))['resourceTypes']
     paths = {Path('framework/mappings/aws') / (service + '.yaml') for service in services}
     paths.add(schema / 'index.json')
+    paths.add(Path('framework/mappings/aws/owners.json'))
     for kind in owners:
         name = kind.replace('.', '_', 1)
         paths.add(Path('framework/materials/aws') / (name + '.properties'))
@@ -87,7 +88,6 @@ def mapping_fixture(root, *services):
         target = root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         copyfile(ROOT / relative, target)
-    (root / 'framework/mappings/aws/owners.json').write_text(json.dumps(owners), encoding='utf-8')
     return root
 
 

@@ -11,7 +11,6 @@ if not __debug__:
 
 from tempfile import TemporaryDirectory
 
-import copy
 
 import json
 
@@ -21,13 +20,10 @@ import socket
 
 from unittest.mock import patch
 
-import yaml
 
-from aws_mapping_display import projection, ROOT, selected_rows
 
 from design_layout import resource_anchor
 
-from model.core import properties, entries
 
 from model.render import markdown_for
 
@@ -51,11 +47,5 @@ def fixture(service, kind, name, rows):
         values.update({key + '.property': kind + '.' + prop, key + '.value': value, key + '.comment': '独立fixtureの設定値'})
     return values
 
-def change(root, service, kind, prop, **display):
-    path = root / 'framework/mappings/aws' / (service + '.yaml')
-    document = yaml.safe_load(path.read_text(encoding='utf-8'))
-    document['resourceTypes'][kind]['properties'][prop]['display'].update(display)
-    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding='utf-8')
 
-
-__all__ = ['Path', 'ROOT', 'TemporaryDirectory', 'change', 'copy', 'entries', 'fixture', 'json', 'markdown_for', 'patch', 'projection', 'properties', 'resource_anchor', 'selected_rows', 'shutil', 'snapshot_model', 'socket', 'sys', 'validate_views', 'write_model', 'yaml']
+__all__ = ['Path', 'TemporaryDirectory', 'fixture', 'json', 'markdown_for', 'patch', 'resource_anchor', 'shutil', 'snapshot_model', 'socket', 'sys', 'validate_views', 'write_model']

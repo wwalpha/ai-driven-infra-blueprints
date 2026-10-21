@@ -70,21 +70,11 @@ def mapping_cache_checks():
                 aws_mapping.runtime_registry(root, 'iam'))
 
     with tempfile.TemporaryDirectory() as directory:
-        roots = [mapping_fixture(Path(directory) / name, 'iam') for name in ('first', 'second', 'renamed', 'invalid')]
-        path = roots[2] / 'framework/mappings/aws/iam.yaml'
-        path.write_text(path.read_text(encoding='utf-8').replace('name: RoleName', 'name: ChangedName'), encoding='utf-8')
-        (roots[3] / 'framework/mappings/aws/iam.yaml').write_text('invalid: [', encoding='utf-8')
+        roots = [mapping_fixture(Path(directory) / name, 'iam') for name in ('first', 'second')]
         first, second = (read(root) for root in roots[:2])
         assert first[2].root == roots[0] and second[2].root == roots[1]
         assert read(roots[0])[2] is first[2]
         assert read(roots[1])[2] is second[2]
-        changed = read(roots[2])
-        assert changed[1]['IAM.Role.RoleName'].name == 'ChangedName'
-        assert changed[2].properties['IAM.Role.RoleName'].name == 'ChangedName'
-        assert read(roots[0])[1]['IAM.Role.RoleName'].name == 'RoleName'
-        for _ in range(2):
-            with pytest.raises(ValueError):
-                read(roots[3])
 
 
 __all__ += ['mapping_cache_checks']

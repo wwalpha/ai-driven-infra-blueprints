@@ -1,4 +1,4 @@
-"""Exercise Macie API designs through the existing Markdown/model validator."""
+"""Current API schema inputs and Macie/QuickSight Markdown fixtures."""
 
 import sys
 
@@ -6,42 +6,19 @@ from pathlib import Path
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 
-from model.files import read_model
-
 if not __debug__:
-    raise SystemExit("Focused checks require assertions; run without -O")
-
-from support.model_sources import write_model
-
-import sync_runtime
-
-import model.projection as model_projection
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 import json
-
 import os
-
-import shutil
-
-import subprocess
-
 import tempfile
 
-from support.validator import load
-
 from array_display import indexed_rows
-
 from model.display import row_table
-
-from cloudformation_schema import CloudFormationSchemaCatalog, manifest_text
-
+from cloudformation_schema import CloudFormationSchemaCatalog
 from design_catalog import MACIE_JOB, QUICKSIGHT_GROUP, DesignSchemaCatalog, api_snapshot_errors
 
-from macie_bucket_tables import job_bucket_tables, write_job_bucket_definitions
-
 ROOT = Path(__file__).resolve().parents[4]
-
-VALIDATOR = load("validate-blueprint")
 
 VALUES = {
     "name": "daily-data-scan",
@@ -53,6 +30,7 @@ VALUES = {
     "samplingPercentage": 100,
     "managedDataIdentifierSelector": "RECOMMENDED",
 }
+
 
 def markdown(values):
     text = """# Macie 詳細設計
@@ -113,6 +91,7 @@ def markdown(values):
                     text += f"| [daily-data-scan](#macie-daily-data-scan) | `{definition['accountId']}` | `{bucket}` |\n"
     return text.replace("| [daily-data-scan](#macie-daily-data-scan) | SCHEDULED |", f"| [daily-data-scan](#macie-daily-data-scan) | {values.get('jobType', '')} |")
 
+
 def quicksight_group_markdown():
     return """# QuickSight 詳細設計
 
@@ -143,4 +122,4 @@ def quicksight_group_markdown():
 """
 
 
-__all__ = ['CloudFormationSchemaCatalog', 'DesignSchemaCatalog', 'MACIE_JOB', 'Path', 'QUICKSIGHT_GROUP', 'ROOT', 'VALIDATOR', 'VALUES', 'api_snapshot_errors', 'indexed_rows', 'job_bucket_tables', 'json', 'load', 'manifest_text', 'markdown', 'model_projection', 'os', 'quicksight_group_markdown', 'read_model', 'row_table', 'shutil', 'subprocess', 'sync_runtime', 'sys', 'tempfile', 'write_job_bucket_definitions', 'write_model']
+__all__ = ['CloudFormationSchemaCatalog', 'DesignSchemaCatalog', 'MACIE_JOB', 'Path', 'QUICKSIGHT_GROUP', 'ROOT', 'VALUES', 'api_snapshot_errors', 'json', 'markdown', 'os', 'quicksight_group_markdown', 'sys', 'tempfile']

@@ -35,13 +35,12 @@ def check_config():
         root = Path(directory)
         schema = 'framework/materials/cloudformation-schema/ap-northeast-1/'
         index = json.loads((ROOT / schema / 'index.json').read_text(encoding='utf-8'))['resourceTypes']
-        for relative in ['framework/mappings/aws/config.yaml', schema + 'index.json',
+        for relative in ['framework/mappings/aws/config.yaml', 'framework/mappings/aws/owners.json', schema + 'index.json',
                 *[schema + index['AWS::' + kind.replace('.', '::')] for kind in (RECORDER, CHANNEL)], *[
                 'framework/materials/aws/' + kind.replace('.', '_') + '.properties' for kind in (RECORDER, CHANNEL)]]:
             destination = root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes((ROOT / relative).read_bytes())
-        (root / 'framework/mappings/aws/owners.json').write_text(json.dumps({kind: 'config' for kind in (RECORDER, CHANNEL)}), encoding='utf-8')
         (root / 'project.json').write_text(json.dumps({'targets': [{
             'environment': 'dev', 'alias': 'fixture', 'awsAccountId': '123456789012',
             'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n', encoding='utf-8')

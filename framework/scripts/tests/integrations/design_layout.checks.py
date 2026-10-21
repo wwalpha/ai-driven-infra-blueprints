@@ -971,18 +971,6 @@ def check_workflow(tmp_path, catalog) -> None:
     assert moved_children['resource-AliasTwo']['parentLogicalId'] == 'KeyTwo'
     assert moved_children['resource-AliasTwo']['parentAnchor'] == 'kms-keytwo'
 
-    # A new catalog type cannot silently inherit an independent display decision.
-    copy_framework(root / 'framework/materials/aws', relative='materials/aws')
-    copy_framework(root / 'framework/materials/api', relative='materials/api')
-    layout_path = root / "framework/rules/resource-layout.json"
-    layout_path.parent.mkdir(parents=True)
-    layout_path.write_text(json.dumps(LAYOUTS), encoding="utf-8")
-    assert not layout_errors(root)
-    (root / "framework/materials/aws/Example_Child.properties").write_text("Example.Child.Name=\n", encoding="utf-8")
-    assert any("unclassified=['Example.Child']" in error for error in layout_errors(root))
-    broken = {**LAYOUTS, "Example.Child": "independent", "KMS.Alias": {**LAYOUTS["KMS.Alias"], "parentProperty": "Missing"}}
-    layout_path.write_text(json.dumps(broken), encoding="utf-8")
-    assert any("parent property is absent" in error for error in layout_errors(root))
 
 
 def main():

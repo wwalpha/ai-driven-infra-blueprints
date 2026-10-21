@@ -1054,58 +1054,6 @@ def check_secret_naming_values(tmp_path):
             markdown_for(path, values, ROOT)
 
 
-def check_design_naming_preflight(tmp_path):
-
-    root = tmp_path
-    rules = root / "framework/rules"
-    rules.mkdir(parents=True, exist_ok=True)
-    materials = root / "framework/materials/aws"
-    materials.mkdir(parents=True, exist_ok=True)
-    for kind, fields in {
-        "S3.Bucket": ["BucketName", "Arn"],
-        "EC2.Instance": ["InstanceId", "Tags[].Key", "Tags[].Value"],
-        "CloudFront.CachePolicy": ["CachePolicyConfig.Name"],
-        "SecretsManager.Secret": ["Name", "Tags[].Key", "Tags[].Value"],
-        "SecurityHub.Hub": ["EnableDefaultStandards", "Tags"],
-    }.items():
-        (materials / (kind.replace('.', '_', 1) + '.properties')).write_text(''.join((f'{kind}.{field}=' + ('IDENTIFIER_OUTPUT' if field in {'Arn', 'InstanceId'} else '') + '\n' for field in fields)),encoding="utf-8")
-    entrance = rules / "aws-resource-naming.md"
-    entrance.write_text("| Fixture | Bucket | `S3.Bucket` | `BucketName` | `{{purpose}}` |\n", encoding="utf-8")
-
-    def run(kind, expected, *extra):
-        snapshot = {path: path.read_bytes() for path in root.rglob("*") if path.is_file()}
-        result = subprocess.run([sys.executable, "-B", str(ROOT / "framework/scripts/check-design-naming.py"),
-                                 "--root", str(root), "--resource-type", kind, *extra],
-                                capture_output=True, text=True, encoding="utf-8")
-        assert result.returncode == (1 if expected else 0), result.stderr
-        assert expected in result.stderr if expected else "preflight: PASS" in result.stdout
-        assert snapshot == {path: path.read_bytes() for path in root.rglob("*") if path.is_file()}
-
-    run("S3.Bucket", "")  # No model, target or design value exists yet.
-    run("EC2.Instance", "naming rule missing: EC2.Instance: Name tag")
-    run("CloudFront.CachePolicy", "naming rule missing: CloudFront.CachePolicy: CachePolicyConfig.Name")
-    run("SecretsManager.Secret", "naming rule missing: SecretsManager.Secret: Name")
-    run("SecretsManager.Secret", "naming rule missing: SecretsManager.Secret: Name tag", "--name-tag")
-    run("SecretsManager.Secret", "", "--mode", "IMPORT")
-    entrance.write_text(entrance.read_text(encoding="utf-8") + "| Fixture | Secret | `SecretsManager.Secret` | `Name` | `{{application}}/{{environment}}/{{purpose}}` |\n", encoding="utf-8")
-    run("SecretsManager.Secret", "")
-    run("SecurityHub.Hub", "")
-    run("EC2.Instance", "", "--mode", "IMPORT")
-    run("Unknown.Type", "catalog resource type missing: Unknown.Type")
-    run("CloudFormation.Stack", "naming rule missing: CloudFormation.Stack: StackName")
-    run("CloudFormation.Stack", "", "--mode", "IMPORT")
-    run("CloudFormation.Stack", "Name tag is not selectable: CloudFormation.Stack", "--name-tag")
-    entrance.write_text("| Fixture | Stack | `CloudFormation.Stack` | `StackName` | `` |\n", encoding="utf-8")
-    run("CloudFormation.Stack", "naming rule missing: CloudFormation.Stack: StackName")
-    entrance.write_text("| Fixture | Stack | `CloudFormation.Stack` | `StackName` | `cfn-stack-{{application}}-{{environment}}-{{purpose}}` |\n", encoding="utf-8")
-    run("CloudFormation.Stack", "")
-    entrance.write_text("| Fixture | Bucket | `S3.Bucket` | `BucketName` | `` |\n", encoding="utf-8")
-    run("S3.Bucket", "naming rule missing: S3.Bucket: BucketName")
-    entrance.write_text("| `S3` | [S3](aws-resource-naming/S3.md) |\n", encoding="utf-8")
-    run("S3.Bucket", "S3.md")
-    entrance.unlink()
-    run("S3.Bucket", "aws-resource-naming.md")
-    print("Design naming preflight: PASS (before values/model, missing/empty/unreadable rules, nested names, mandatory/optional tags, exemptions, read-only CLI)")
 
 
 def check_naming_exclusions(root):

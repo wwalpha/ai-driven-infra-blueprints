@@ -27,7 +27,7 @@ IT全68スイートは [Framework IT](../../../.github/workflows/framework-it.ym
 
 runnerは共通fixture bundleを1回初期化し、`framework`・`input_templates`・`typed_services`・`generated_policy`・`import_sources` の5 seedを各1回生成する。共有seedは読み取り専用で、変更領域は各ケースに独立したコピーを渡し、実行後に内容と権限の整合性を確認する。実プロジェクトのModelやAWS認証情報は使用しない。
 
-`CASES.md` のIT登録は371実行入口・590条件（pytest 235関数、direct 117関数、direct_group 13入口、module 6末尾）。UT登録は250実行入口・532条件。対象2 ITスイートの実collectionはsync-model 68条件、model_templates 9条件。pytestは既存 `PytestReceipt` で収集・PASS・パラメータ数を照合する。直接実行117関数と13のmain入口は最外側の `@it_case` が正常return後だけaudit完了イベントを発行し、module型は末尾の `module_complete(__file__)` で完了を通知する。同一ケースの複数回呼出しは独立ケース数に加算しない。未登録スイート、記録対象でない入口、未完了ケース、欠落・不正receipt、非0終了コードは失敗とする。
+`CASES.md` のIT登録は370実行入口・588条件（pytest 234関数、direct 117関数、direct_group 13入口、module 6末尾）。UT登録は397実行入口・959条件。削除分は260登録・590条件から255登録・585条件への減少で、既存の未登録142件とparameter件数1件の訂正を別途反映した。sync-modelのpublication boundaryはmappingを除いた6条件。model_templatesは9条件。pytestは既存 `PytestReceipt` で収集・PASS・パラメータ数を照合する。直接実行117関数と13のmain入口は最外側の `@it_case` が正常return後だけaudit完了イベントを発行し、module型は末尾の `module_complete(__file__)` で完了を通知する。同一ケースの複数回呼出しは独立ケース数に加算しない。未登録スイート、記録対象でない入口、未完了ケース、欠落・不正receipt、非0終了コードは失敗とする。
 
 Model v2 移行専用の10関数・23条件と固定旧Framework checkout・専用Python環境は撤去済み。現行機能の15関数・82条件は既存3 ITへ統合し、ケースID・assertion・parameter matrix・pytest receiptを保持する。
 
@@ -40,6 +40,8 @@ Model v2 移行専用の10関数・23条件と固定旧Framework checkout・専�
 契約の選択・通常の状態遷移・公開時の変更検出を既存UTで確認する。実Git、Atomic rollback、finalize/cleanupの安全停止は既存ITで検証する。予約と独自worktree identityだけを検証するケースは廃止した。
 
 生成・保存の回数、実stage/IMPORT一時領域、Git正味差分、rollback/recoveryは既存ITで検査する。sync-model UTは22条件、model_templates UTは1条件で、対象UTから実生成・Git初期化・publication/recoveryとFramework全体コピーを除去した。共有generated_policy seedは外部definitions_rootを使い、通常ケースはFrameworkを配置しない。ケースの分類と統合先はCASES.mdを参照。
+
+Framework定義（Mapping/Schema/Rules/Catalog/Materials等）はテスト中に変更・追加・削除せず、コピーも同じ内容を維持する。定義変更に依存する条件を削除し、現行定義の読取・メモリ上の入力検証・独立した読取例外、Model/Task/生成物の変更と保存保護は維持する。削除・部分削除・Fixture整理と台帳件数の差分は [CASES.md](CASES.md#framework定義不変による削除) を参照。
 
 ## 静的Fixture
 

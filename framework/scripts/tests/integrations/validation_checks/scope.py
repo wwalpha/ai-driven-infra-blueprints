@@ -7,6 +7,7 @@ from support.it_case_receipt import it_case
 
 
 import json
+import shutil
 
 
 import io
@@ -24,7 +25,7 @@ from contextlib import ExitStack, redirect_stdout
 from unittest.mock import patch
 
 
-from support.validator import MODULE, project, git_project, commit, write
+from support.validator import MODULE, SCRIPT, project, git_project, commit, write
 
 
 @it_case
@@ -34,9 +35,7 @@ def check_deployment_iac_scope():
     import task_contract as tasks
     import os
     with git_project() as root, patch.dict(os.environ, {}, clear=True):
-        (root / "framework/rules").mkdir(parents=True)
-        write(root / "framework/rules/aws-resource-naming.md",
-            "| CloudFormation | Stack | `CloudFormation.Stack` | StackName | `.*` |\n")
+        shutil.copytree(SCRIPT.parents[2] / "framework/rules", root / "framework/rules")
         target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "alias": "shared", "iacEngine": "cloudformation"}
         write(root / "project.json", json.dumps({"projectName": "app", "targets": [
             {"environment": env, **target} for env in ("dev", "stg")]}) + "\n")

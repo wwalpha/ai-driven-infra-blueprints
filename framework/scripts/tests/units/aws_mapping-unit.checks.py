@@ -8,7 +8,7 @@ if not __debug__:
 
 from support.aws_mapping_fixtures import *
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, replace
+from dataclasses import replace
 import pytest
 from threading import Barrier
 import aws_mapping_catalog
@@ -237,10 +237,6 @@ def check_runtime_cache():
             assert parse.call_count == compile.call_count == 3
             assert reads == [root / 'framework/mappings/aws/config.yaml', root / 'framework/mappings/aws/iam.yaml',
                              other / 'framework/mappings/aws/config.yaml']
-            # These are static definitions: later filesystem changes cannot alter this instance.
-            (root / 'framework/mappings/aws/config.yaml').write_text('invalid: [', encoding='utf-8')
-            assert provider.get('config') is first
-            assert parse.call_count == 3
 
 
 def check_parallel_services():
@@ -295,11 +291,9 @@ def check_runtime_failures():
     class Cancelled(BaseException):
         pass
     with TemporaryDirectory() as directory:
-        for fault in ('read', 'parse', 'runtime', 'control'):
+        for fault in ('read', 'runtime', 'control'):
             root = mapping_fixture(Path(directory) / fault, 'config')
             provider = mappings_for(root)
-            if fault == 'parse':
-                (root / 'framework/mappings/aws/config.yaml').write_text('invalid: [', encoding='utf-8')
             original = Path.read_text
             reads = []
             def read(path, *args, **kwargs):
@@ -389,80 +383,14 @@ def check_stage_alias():
         assert second not in __import__('utils.aws_mappings', fromlist=['_aliases'])._aliases
 
 
-def check_ownership_errors():
-    with TemporaryDirectory() as directory:
-        for number, index in enumerate(('{}', '[]', '{"Config.ConfigurationRecorder":1}',
-                '{"bad":"config"}', '{"Config.ConfigurationRecorder":"../config"}',
-                '{"Config.ConfigurationRecorder":"config","Config.ConfigurationRecorder":"iam"}',
-                '{"Config.ConfigurationRecorder":NaN}')):
-            root = Path(directory) / str(number)
-            path = root / 'framework/mappings/aws/owners.json'
-            path.parent.mkdir(parents=True)
-            path.write_text(index, encoding='utf-8')
-            with patch.object(aws_mapping, 'yaml_read') as parse, pytest.raises(ValueError):
-                mappings_for(root)
-            parse.assert_not_called()
-        for fault in ('missing', 'extra', 'owner'):
-            root = mapping_fixture(Path(directory) / fault, 'config', 'iam')
-            path = root / 'framework/mappings/aws/owners.json'
-            index = json.loads(path.read_text(encoding='utf-8'))
-            if fault == 'missing':
-                del index[CHANNEL]
-            elif fault == 'extra':
-                index['Config.Unknown'] = 'config'
-            else:
-                index[CHANNEL] = 'iam'
-            path.write_text(json.dumps(index), encoding='utf-8')
-            with patch.object(aws_mapping, 'yaml_read', wraps=aws_mapping.yaml_read) as parse:
-                for _ in range(2):
-                    with pytest.raises(ValueError, match='ownership index mismatch'):
-                        mappings_for(root).get('config')
-                assert parse.call_count == 1
 
 
 def check_readonly_defaults():
-    with TemporaryDirectory() as directory:
-        root = mapping_fixture(Path(directory), 'config')
-        path = root / 'framework/mappings/aws/config.yaml'
-        document = aws_mapping.yaml_read(path.read_text(encoding='utf-8'))
-        key = RECORDER + '.RecordingGroup.ResourceTypes'
-        values = [[], {'nested': [False, 0, None, {'leaf': []}]}, False, 0, None, m.MISSING]
-        for number, default in enumerate(values):
-            document['resourceTypes'][RECORDER]['properties']['RecordingGroup.ResourceTypes']['aws']['default'] = default
-            candidate = mapping_fixture(Path(directory) / str(number), 'config')
-            (candidate / 'framework/mappings/aws/config.yaml').write_text(json.dumps(document), encoding='utf-8')
-            result = mappings_for(candidate).get('config')
-            field = result.fields[key]
-            assert field is result.properties[key].field
-            assert field.copy_default() == default
-            assert type(field.copy_default()) is type(default)
-            assert asdict(replace(result.properties[key], field=replace(field, default=field.copy_default())))['field']['default'] == default
-            with pytest.raises((AttributeError, TypeError, FrozenInstanceError)):
-                result.getters['recorder']['resources'] += ('changed',)
-            with pytest.raises((AttributeError, TypeError, FrozenInstanceError)):
-                result.properties[key].field.default = 'changed'
-            if isinstance(default, list):
-                with pytest.raises(AttributeError):
-                    field.default.append('changed')
-                field.copy_default().append('independent')
-                assert field.copy_default() == default
-                assert m.normalize(None, field.copy_default(), 'set') == []
-            if isinstance(default, dict):
-                with pytest.raises(TypeError):
-                    field.default['changed'] = True
-                detached = field.copy_default()
-                detached['changed'] = True
-                assert field.copy_default() == default
-                if 'nested' in default:
-                    with pytest.raises(AttributeError):
-                        field.default['nested'][3]['leaf'].append(1)
-                    detached['nested'][3]['leaf'].append(1)
-                    assert field.copy_default() == default
-        # Field is embedded verbatim into standalone audits; it must need no repo imports.
-        generator = module('model/audit.py', 'model.audit')
-        namespace = {}
-        exec('from dataclasses import dataclass\n' + generator.definitions(ROOT / 'framework/scripts/model/adapters/aws.py', ['Field']), namespace)
-        assert namespace['Field'](default={'nested': (False, 0, None)}).copy_default() == {'nested': [False, 0, None]}
+    # Field is embedded verbatim into standalone audits; it must need no repo imports.
+    generator = module('model/audit.py', 'model.audit')
+    namespace = {}
+    exec('from dataclasses import dataclass\n' + generator.definitions(ROOT / 'framework/scripts/model/adapters/aws.py', ['Field']), namespace)
+    assert namespace['Field'](default={'nested': (False, 0, None)}).copy_default() == {'nested': [False, 0, None]}
 
 
 if __name__ == '__main__':

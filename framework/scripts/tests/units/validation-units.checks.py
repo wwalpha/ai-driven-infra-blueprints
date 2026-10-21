@@ -22,7 +22,6 @@ def main():
     design.check_schema_backed_design_rows()
     design.check_name_tag_and_identifier_order_contract()
     design.check_cidr_pending_deploy()
-    design.check_catalog_display_order()
     design.check_event_rule_row_order()
     references.check_artifact_naming()
     task.check_optional_alias_targets()

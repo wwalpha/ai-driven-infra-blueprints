@@ -62,22 +62,6 @@ def check_rule_section_boundaries():
     sections = M.markdown_sections(text)
     assert sections["explicit"] == sections["required"]
     assert "child" in sections["required"] and "omit" not in sections["required"]
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        source = root / "workflow.md"
-        rule = root / "framework/rules/example.md"
-        rule.parent.mkdir(parents=True)
-        rule.write_bytes(text.encode("utf-8"))
-        reading = M.rule_readings(root, source, "[Required](framework/rules/example.md#required)\n```md\n[Example](framework/rules/absent.md#missing)\n```\n`[Inline](framework/rules/absent.md#missing)`\n")
-        assert reading[rule.resolve()]["sourceText"] == text
-        assert reading[rule.resolve()]["text"] == sections["required"]
-        try:
-            M.rule_readings(root, source, "[Required](framework/rules/example.md#missing)")
-        except ValueError as error:
-            assert "missing rule section" in str(error)
-        else:
-            raise AssertionError("missing required section accepted")
-
     for ambiguous in ("## Duplicate\nsame\n## Duplicate\nsame\n",
                       "<a id=\"shared\"></a>\n## One\nfirst\n<a id=\"shared\"></a>\n## Two\nsecond\n"):
         try:

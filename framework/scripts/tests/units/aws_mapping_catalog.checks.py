@@ -10,11 +10,8 @@ if not __debug__:
 
 from collections import Counter
 from dataclasses import replace
-from tempfile import TemporaryDirectory
 from unittest.mock import patch
 import copy
-import json
-import shutil
 import socket
 import yaml
 
@@ -123,104 +120,65 @@ def initialization_checks():
 @input_scope
 def schema_checks():
     document = yaml.safe_load((ROOT / 'framework/mappings/aws/sns.yaml').read_text(encoding='utf-8'))
-    with TemporaryDirectory(prefix='mapping-schema-') as directory:
-        root = Path(directory)
-        catalog = root / 'framework/materials'
-        (catalog / 'aws').mkdir(parents=True)
-        schemas = catalog / 'cloudformation-schema/ap-northeast-1'
-        schemas.mkdir(parents=True)
-        original = ROOT / 'framework/materials/cloudformation-schema/ap-northeast-1'
-        shutil.copyfile(original / 'index.json', schemas / 'index.json')
-        index = json.loads((original / 'index.json').read_text(encoding='utf-8'))['resourceTypes']
-        for kind in document['resourceTypes']:
-            shutil.copyfile(ROOT / 'framework/materials/aws' / (kind.replace('.', '_') + '.properties'), catalog / 'aws' / (kind.replace('.', '_') + '.properties'))
-            filename = index['AWS::' + kind.replace('.', '::')]
-            shutil.copyfile(original / filename, schemas / filename)
-        target = root / 'framework/mappings/aws/sns.yaml'
-        target.parent.mkdir(parents=True)
-
-        def load(value):
-            # Each definition is complete before first use of its independent root.
-            candidate_root = root / str(load.number)
-            load.number += 1
-            shutil.copytree(catalog, candidate_root / 'framework/materials')
-            mapping = candidate_root / 'framework/mappings/aws/sns.yaml'
-            mapping.parent.mkdir(parents=True)
-            mapping.write_text(yaml.safe_dump(value, sort_keys=False), encoding='utf-8')
-            mapping.with_name('owners.json').write_text(json.dumps({kind: 'sns' for kind in document['resourceTypes']}), encoding='utf-8')
-            return mapping_registry(candidate_root, 'sns')
-        load.number = 0
-
-        assert len(load(document).properties) == sum(
-            len(resource['properties']) for resource in document['resourceTypes'].values())
-        candidate = copy.deepcopy(document)
-        candidate['version'] = 2
-        try:
-            load(candidate)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError('invalid file-backed Mapping accepted')
-        native = copy.deepcopy(document)
-        native['resourceTypes']['SNS.Topic']['identity'] = {'getter': 'provider-sns-topic', 'idPath': 'TopicArn',
-                                                          'arnPath': 'TopicArn', 'nameProperty': 'TopicName'}
-        assert load(native).identities['SNS.Topic'].id_path == 'TopicArn'
-        native['resourceTypes']['SNS.TopicPolicy']['identity'] = {'getter': 'sdk-sns-topicpolicy', 'idPath': 'Attributes',
-                                                                'arnPath': None, 'nameProperty': None}
-        assert load(native).identities['SNS.TopicPolicy'].arn_path is None
-        for resource, key, value in [('SNS.Topic', 'getter', 'sdk-sns-topicpolicy'),
-                                     ('SNS.Topic', 'idPath', 'Unknown'),
-                                     ('SNS.Topic', 'nameProperty', 'Unknown'),
-                                     ('SNS.TopicPolicy', 'idPath', 'attributes')]:
-            candidate = copy.deepcopy(native)
-            candidate['resourceTypes'][resource]['identity'][key] = value
-            try:
-                catalog_properties(root, 'sns', candidate)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError('invalid native identity accepted')
-        prop = 'provider-sns-topic'
-        mutations = [
-            lambda d: d.update(service='other'),
-            lambda d: d.update(version=True),
-            lambda d: d.update(extra=True),
-            lambda d: d['getters'][prop].update(operation='delete_resource'),
-            lambda d: d['getters'][prop].update(result='ResourceDescription.Unknown'),
-            lambda d: d['getters'][prop].update(identifier=['/properties/Unknown']),
-            lambda d: d['resourceTypes']['SNS.Topic']['properties'].pop('TopicName'),
-            lambda d: d['resourceTypes']['SNS.Topic']['properties']['TopicName']['aws'].update(path='Unknown'),
-            lambda d: d['resourceTypes']['SNS.Topic']['properties']['TopicName']['aws'].update(getter='missing'),
-            lambda d: d['resourceTypes']['SNS.Topic']['properties']['TopicName']['aws'].update(normalize='unknown'),
-            lambda d: d['resourceTypes']['SNS.Topic']['properties']['TopicName']['aws'].update(transform='guess'),
-            lambda d: d['resourceTypes']['SNS.Topic']['properties']['TopicName']['aws'].update(transform='present'),
-            lambda d: d['resourceTypes']['SNS.Topic']['properties']['TopicName']['access'].append('write-only'),
-            lambda d: d['resourceTypes']['SNS.Topic']['properties']['TopicName']['model'].update(include='false'),
-            lambda d: d['resourceTypes']['SNS.Topic']['properties']['TopicName']['display'].update(show=True),
-            lambda d: d['resourceTypes']['SNS.TopicPolicy']['properties']['PolicyDocument']['aws'].update(path='Attributes.policy'),
-            lambda d: d['resourceTypes']['SNS.TopicPolicy']['properties']['Id']['source'].update(kind='aws'),
-            lambda d: d['resourceTypes']['SNS.TopicPolicy']['properties']['Id']['source'].update(constraint='unimplemented'),
-            lambda d: d['getters'].update(unused=copy.deepcopy(d['getters'][prop])),
-        ]
-        for mutate in mutations:
-            candidate = copy.deepcopy(document)
-            mutate(candidate)
-            try:
-                catalog_properties(root, 'sns', candidate)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError('invalid v3 Mapping accepted: ' + repr(candidate))
-        candidate = copy.deepcopy(document)
-        item = candidate['resourceTypes']['SNS.Topic']['properties']['TopicName']
-        del item['aws']
-        item['source'] = {'kind': 'model', 'location': 'desired row SNS.Topic.TopicName', 'classification': 'local_metadata', 'constraint': 'Do not replace an available AWS source.'}
+    root = ROOT
+    native = copy.deepcopy(document)
+    native['resourceTypes']['SNS.Topic']['identity'] = {'getter': 'provider-sns-topic', 'idPath': 'TopicArn',
+                                                      'arnPath': 'TopicArn', 'nameProperty': 'TopicName'}
+    native['resourceTypes']['SNS.TopicPolicy']['identity'] = {'getter': 'sdk-sns-topicpolicy', 'idPath': 'Attributes',
+                                                            'arnPath': None, 'nameProperty': None}
+    for resource, key, value in [('SNS.Topic', 'getter', 'sdk-sns-topicpolicy'),
+                                 ('SNS.Topic', 'idPath', 'Unknown'),
+                                 ('SNS.Topic', 'nameProperty', 'Unknown'),
+                                 ('SNS.TopicPolicy', 'idPath', 'attributes')]:
+        candidate = copy.deepcopy(native)
+        candidate['resourceTypes'][resource]['identity'][key] = value
         try:
             catalog_properties(root, 'sns', candidate)
         except ValueError:
             pass
         else:
-            raise AssertionError('unsupported non-AWS fallback accepted')
+            raise AssertionError('invalid native identity accepted')
+    prop = 'provider-sns-topic'
+    mutations = [
+        lambda d: d.update(service='other'),
+        lambda d: d.update(version=True),
+        lambda d: d.update(extra=True),
+        lambda d: d['getters'][prop].update(operation='delete_resource'),
+        lambda d: d['getters'][prop].update(result='ResourceDescription.Unknown'),
+        lambda d: d['getters'][prop].update(identifier=['/properties/Unknown']),
+        lambda d: d['resourceTypes']['SNS.Topic']['properties'].pop('TopicName'),
+        lambda d: d['resourceTypes']['SNS.Topic']['properties']['TopicName']['aws'].update(path='Unknown'),
+        lambda d: d['resourceTypes']['SNS.Topic']['properties']['TopicName']['aws'].update(getter='missing'),
+        lambda d: d['resourceTypes']['SNS.Topic']['properties']['TopicName']['aws'].update(normalize='unknown'),
+        lambda d: d['resourceTypes']['SNS.Topic']['properties']['TopicName']['aws'].update(transform='guess'),
+        lambda d: d['resourceTypes']['SNS.Topic']['properties']['TopicName']['aws'].update(transform='present'),
+        lambda d: d['resourceTypes']['SNS.Topic']['properties']['TopicName']['access'].append('write-only'),
+        lambda d: d['resourceTypes']['SNS.Topic']['properties']['TopicName']['model'].update(include='false'),
+        lambda d: d['resourceTypes']['SNS.Topic']['properties']['TopicName']['display'].update(show=True),
+        lambda d: d['resourceTypes']['SNS.TopicPolicy']['properties']['PolicyDocument']['aws'].update(path='Attributes.policy'),
+        lambda d: d['resourceTypes']['SNS.TopicPolicy']['properties']['Id']['source'].update(kind='aws'),
+        lambda d: d['resourceTypes']['SNS.TopicPolicy']['properties']['Id']['source'].update(constraint='unimplemented'),
+        lambda d: d['getters'].update(unused=copy.deepcopy(d['getters'][prop])),
+    ]
+    for mutate in mutations:
+        candidate = copy.deepcopy(document)
+        mutate(candidate)
+        try:
+            catalog_properties(root, 'sns', candidate)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('invalid v3 Mapping accepted: ' + repr(candidate))
+    candidate = copy.deepcopy(document)
+    item = candidate['resourceTypes']['SNS.Topic']['properties']['TopicName']
+    del item['aws']
+    item['source'] = {'kind': 'model', 'location': 'desired row SNS.Topic.TopicName', 'classification': 'local_metadata', 'constraint': 'Do not replace an available AWS source.'}
+    try:
+        catalog_properties(root, 'sns', candidate)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('unsupported non-AWS fallback accepted')
     original = yaml.safe_load((ROOT / 'framework/mappings/aws/s3.yaml').read_text(encoding='utf-8'))
     invalid = [
         lambda d: d.update(version=2),

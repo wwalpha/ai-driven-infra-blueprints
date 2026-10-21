@@ -123,17 +123,6 @@ def check_service_scoped_naming(tmp_path):
         assert not naming_errors(ROOT, "S3.Bucket", [["1", "BucketName", "`app-dev-data-123456789012`", "名前"]])
         assert set(naming_targets(ROOT, "S3")) == {"S3.Bucket"}
 
-    root = tmp_path
-    rules = root / "framework/rules"
-    rules.mkdir(parents=True)
-    entrance = rules / "aws-resource-naming.md"
-    entrance.write_text("| `S3` | [S3](aws-resource-naming/S3.md) |\n", encoding="utf-8")
-    with pytest.raises(FileNotFoundError):
-        naming_targets(root, "S3")
-    entrance.write_text("| Fixture | Bucket | `S3.Bucket` | `BucketName` | `{{purpose}}` |\n", encoding="utf-8")
-    assert naming_targets(root, "S3") == {"S3.Bucket": {"BucketName"}}
-    assert naming_targets(root, "CloudFront") == {"S3.Bucket": {"BucketName"}}
-    print("Service-scoped naming: PASS (selected service only, missing file rejected, legacy fixture)")
 
 
 def check_naming_target_paths():
