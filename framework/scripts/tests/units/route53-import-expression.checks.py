@@ -7,7 +7,7 @@ if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
 import pytest
-from model_references import is_import_expression
+from model.projection import is_import_expression
 from cloudformation_schema import CloudFormationSchemaCatalog
 
 

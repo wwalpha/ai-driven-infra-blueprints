@@ -9,7 +9,8 @@ if not __debug__:
 import pytest
 from support.model_design_fixtures import model, ROOT
 from support.validator import schema_validator
-from model_design import check_model_inputs as _check_model_inputs, markdown_for
+from model.validation import check_model_inputs as _check_model_inputs
+from model.render import markdown_for
 
 
 @pytest.mark.usefixtures('catalog_display_fixture')

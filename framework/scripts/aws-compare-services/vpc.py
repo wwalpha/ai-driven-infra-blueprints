@@ -1,6 +1,6 @@
 """vpc: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import Field, one, MISSING, Unresolved
+from model.adapters.aws import Field, one, MISSING, Unresolved
 
 APIS = {('ec2', 'describe_vpc_attribute'), ('ec2', 'describe_subnets'), ('ec2', 'describe_flow_logs'), ('ec2', 'describe_route_tables'), ('ec2', 'describe_vpcs')}
 

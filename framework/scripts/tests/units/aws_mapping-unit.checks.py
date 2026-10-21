@@ -459,9 +459,9 @@ def check_readonly_defaults():
                     detached['nested'][3]['leaf'].append(1)
                     assert field.copy_default() == default
         # Field is embedded verbatim into standalone audits; it must need no repo imports.
-        generator = module('model-test.py', 'model_test_generator')
+        generator = module('model/audit.py', 'model.audit')
         namespace = {}
-        exec('from dataclasses import dataclass\n' + generator.definitions(ROOT / 'framework/scripts/check-model-aws.py', ['Field']), namespace)
+        exec('from dataclasses import dataclass\n' + generator.definitions(ROOT / 'framework/scripts/model/adapters/aws.py', ['Field']), namespace)
         assert namespace['Field'](default={'nested': (False, 0, None)}).copy_default() == {'nested': [False, 0, None]}
 
 

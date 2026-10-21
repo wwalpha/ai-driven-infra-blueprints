@@ -157,11 +157,19 @@ def status(text, legacy=False):
     return entries[0].split("`")[1]
 
 
+def model_migration(text):
+    if not re.search(r'^(?:-\s*|##\s+)Model format migration\b', text, re.M):
+        return None
+    from model.migration.contract import migration_contract
+    return migration_contract(text)
+
+
 def validate_contract(root, name, text, legacy=False, *, check_paths=True):
     """Validate the selected contract declaration."""
     status(text, legacy)
     model_operation(text)
     model_refactor(text)
+    model_migration(text)
     files = paths_in(text, "## Modified files")
     allowed = paths_in(text, "## Allowed paths")
     if name not in files:
@@ -365,7 +373,7 @@ def model_refactor(text: str, *, operation=None) -> tuple[DependencyDetach, ...]
     headings = [line for line in text.splitlines() if re.match(r'##\s+Model dependency detach\b', line)]
     if not reserved and not headings:
         return None
-    from model_reference_usage import resource_address
+    from model.references import resource_address
     if reserved != ['- Model refactor: `value-preserving`'] or headings != [heading]:
         raise ValueError('invalid Model refactor declaration/section')
     for name, expected in [('Task type', 'design'), ('Workflow', 'update'),
@@ -411,7 +419,7 @@ def model_refactor(text: str, *, operation=None) -> tuple[DependencyDetach, ...]
 
 def final_model_task(text):
     """Only explicit Model operations/refactors share the final candidate composition."""
-    return model_operation(text) is not None or model_refactor(text) is not None
+    return model_operation(text) is not None or model_refactor(text) is not None or model_migration(text) is not None
 
 
 _selected_tasks = ContextVar('selected_tasks', default={})

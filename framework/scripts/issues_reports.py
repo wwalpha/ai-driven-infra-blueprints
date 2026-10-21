@@ -576,7 +576,7 @@ def save_authority(root, environment, directory, services, filenames):
     if (status(text, prompt == root / 'tasks/active.md') != 'running' or not scope
             or not selected <= scope or '- Task type: `migration`' not in section(text, '## Task contract')):
         raise ValueError('report save requires a running report-only migration with explicit service scope')
-    reports = {f'issues/{env}/{target}/{name}' for env, target, _ in scope for name in ('issues.md', 'iac-issues.md', 'diff.md')}
+    reports = {f'issues/{env}/{target}/{name}' for env, target, _ in scope for name in ('issues.md', 'iac-issues.md')}
     allowed = paths_in(text, '## Allowed paths')
     permitted = reports | {prompt.relative_to(root).as_posix()}
     if not allowed & reports or not allowed <= permitted or not paths_in(text, '## Modified files') <= permitted:

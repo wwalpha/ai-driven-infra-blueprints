@@ -1,6 +1,6 @@
 """codepipeline: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import MISSING
+from model.adapters.aws import MISSING
 
 APIS = {('codepipeline', 'get_pipeline')}
 

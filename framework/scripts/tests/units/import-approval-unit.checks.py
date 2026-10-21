@@ -13,12 +13,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-import import_approval as approval
+from model.importing import approval
 import import_guard
-from model_templates import Expansion
+from support.model_v2_fixtures import value_snapshot as Expansion
 from script_loader import module
 
-m = module('import-model.py', 'import_approval_cli')
+from model.importing import cli as m
 
 
 def schema(prop):
@@ -37,7 +37,7 @@ def proposal():
     record = {'record': 'r1', 'kind': 'EC2.VPC', 'identity': 'vpc-one', 'identityProperty': 'EC2.VPC.VpcId',
               'properties': {'EC2.VPC.VpcId': {'status': 'captured', 'value': 'vpc-one'},
                              'EC2.VPC.CidrBlock': {'status': 'captured', 'value': '10.1.0.0/16'}}}
-    acquisition = {'version': 2, 'task': 'tasks/import-fixture.md', 'root': '/synthetic/worktree',
+    acquisition = {'version': 3, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1, 'sourceSets': [], 'task': 'tasks/import-fixture.md', 'root': '/synthetic/worktree',
                    'scope': ['dev', 'cde', 'vpc'], 'connection': {'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1'},
                    'acquiredAt': datetime.now(timezone.utc).isoformat(), 'sources': {'synthetic': 'baseline'},
                    'records': [record], 'inventory': {'EC2.VPC': {'status': 'complete'}}}
@@ -47,7 +47,8 @@ def proposal():
 
 
 def review(data):
-    return approval.build_review(*data, schema)
+    acquisition, selected, before, proposed, risks = data
+    return approval.build_review(acquisition, selected, Expansion(before.authoritative), proposed, risks, schema)
 
 
 def check_complete_typed_before_after_and_digest():
@@ -100,8 +101,8 @@ def check_changed_review_needs_new_review(change):
 
 def check_unknown_identity_risk_is_bound():
     data = proposal()
-    data[2].values.pop('observed.row.001-001.value')
-    new = {**data[2].values, **{k.replace('001', '009'): v.replace('#main', '#extra') if k.endswith('.value') else
+    data[2].authoritative.pop('observed.row.001-001.value')
+    new = {**data[2].authoritative, **{k.replace('001', '009'): v.replace('#main', '#extra') if k.endswith('.value') else
            'extra' if k.endswith('.anchor') else v for k, v in data[3].items()}}
     data[1]['resources'][0].update(resource='009', action='add')
     result = review((*data[:3], new, data[4]))
@@ -117,7 +118,7 @@ def check_inventory_status_and_exclusions_remain_visible(state):
     data[0]['inventory']['EC2.Subnet'] = {'status': state}
     data[1]['resources'].clear()
     data[1]['excluded'].append({'record': 'r1', 'reason': 'Keep existing resource'})
-    result = review((*data[:3], data[2].values, data[4]))
+    result = review((*data[:3], data[2].authoritative, data[4]))
     assert result['inventory']['EC2.Subnet']['status'] == state
     assert result['dispositions'][0]['operation'] == 'excluded'
     assert result['dispositions'][0]['matching']['existingResources'] == ['001']
@@ -151,9 +152,10 @@ def check_composite_identity_and_secret_omission():
     record['properties']['EC2.VPC.CidrBlock']['value'] = '10.0.0.0/16'
     data[3]['desired.row.001-002.value'] = '`10.0.0.0/16`'
     # Existing secret content is never copied into the proposal or the Review.
-    data[2].values.update({'desired.row.001-003.property': 'EC2.VPC.Password',
+    data[2].authoritative.update({'desired.row.001-003.property': 'EC2.VPC.Password',
                           'desired.row.001-003.value': '`synthetic-secret-value`',
                           'desired.row.001-003.comment': 'secret'})
+    data[3].update({key: value for key, value in data[2].authoritative.items() if key.startswith('desired.row.001-003.')})
     record['properties']['EC2.VPC.Password'] = {'status': 'unavailable', 'reason': 'sensitive Property'}
     result = review(data)
     assert result['dispositions'][0]['physicalId'] == record['identityComponents']
@@ -174,8 +176,8 @@ def check_valid_observation_and_nonblocking_reference_warning():
     result = review(data)
     assert result['warnings'] and result['dispositions'][0]['properties'][1]['after'][0]['observed'] == 'vpc-one'
     # An unrelated old literal observation is not a new gate on the selected change.
-    data[2].values['observed.row.001-002.value'] = '`10.0.0.0/16`'
-    data[3].update(data[2].values)
+    data[2].authoritative['observed.row.001-002.value'] = '`10.0.0.0/16`'
+    data[3].update(data[2].authoritative)
     data[1]['resources'].clear()
     data[1]['excluded'] = [{'record': 'r1', 'reason': 'unchanged legacy data'}]
     review(data)
@@ -188,7 +190,7 @@ def check_local_claim_cannot_replace_review_binding(tmp_path, claim):
     evidence.write_text('{}')
     (tmp_path / 'approval.json').write_text(json.dumps(claim))
     before = {p: p.read_bytes() for p in tmp_path.iterdir()}
-    with pytest.raises(ValueError, match='invalid Review binding'):
+    with pytest.raises(ValueError, match='Review binding'):
         import_guard.record_import(tmp_path, {}, evidence, {}, review_binding=claim)
     assert {p: p.read_bytes() for p in tmp_path.iterdir()} == before
 
@@ -197,12 +199,12 @@ def check_alternate_source_guard_rejects_legacy_receipt(tmp_path):
     (tmp_path / '.git').mkdir()
     task = tmp_path / 'tasks/import.md'
     text = '## Task contract\n- Workflow: `import`\n'
-    with patch.object(import_guard, 'changed_sources', return_value={'model/templates/cde/vpc.properties.tpl'}), \
+    with patch.object(import_guard, 'changed_sources', return_value={'model/dev/cde/vpc.properties'}), \
             patch.object(import_guard, 'task_path', return_value=task), \
             patch.object(import_guard, 'contracts', return_value={'tasks/import.md': text}), \
             patch.object(import_guard, 'read_proof', side_effect=ValueError('IMPORT change has no verified /import evidence')) as receipt:
         with pytest.raises(ValueError, match='no verified /import evidence'):
-            import_guard.require_import_changes(tmp_path, output={tmp_path / 'model/templates/cde/vpc.properties.tpl': 'forged'})
+            import_guard.require_import_changes(tmp_path, output={tmp_path / 'model/dev/cde/vpc.properties': 'forged'})
         receipt.assert_called_once()
 
 
@@ -219,166 +221,149 @@ def check_expiry_and_digest_tampering():
 
 def check_unselected_reference_changes_are_not_reviewed_as_selected():
     data = proposal()
-    data[2].values.update({'desired.resource.002.resourceType': 'EC2.VPC',
-                          'desired.resource.002.resourceMode': 'IMPORT',
+    data[2].authoritative.update({'desired.resource.002.resourceType': 'EC2.VPC',
+                          'desired.resource.002.resourceMode': 'IMPORT', 'desired.resource.002.anchor': 'other',
                           'desired.row.002-001.property': 'EC2.VPC.VpcId',
                           'desired.row.002-001.value': '[Other](#other)',
                           'desired.row.002-001.comment': '未選択'})
+    data[3].update(data[2].authoritative)
     data[3]['desired.row.002-001.value'] = '[Changed](#changed)'
     with pytest.raises(ValueError, match='unselected Resource'):
         review(data)
 
 
-@pytest.mark.parametrize('failure', [None, 'source', 'input', 'secret'])
-def check_review_command_is_read_only(tmp_path, failure):
+def source_review_case(tmp_path):
+    from model.format import serialize
     acquisition, selection, before, proposed, risks = proposal()
     root = tmp_path / 'repo'
-    root.mkdir()
-    source = root / 'baseline'
-    source.write_text('unchanged source')
+    source = root / 'model/dev/cde/vpc.properties'
+    source.parent.mkdir(parents=True)
+    source.write_text(serialize(before.authoritative), encoding='utf-8')
+    (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', 'alias': 'cde',
+        'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}), encoding='utf-8')
     directory = tmp_path / 'evidence'
     directory.mkdir()
     evidence = directory / 'acquisition.json'
-    evidence.write_text('retained acquisition')
-    acquisition.update(root=str(root), sources={'baseline': import_guard.file_hash(source)})
-    # Only changed fields are authored; unchanged values are read from the baseline in memory.
-    draft = {'proposedValues': {k: v for k, v in proposed.items() if before.values.get(k) != v}, 'risks': risks}
+    evidence.write_text('retained acquisition', encoding='utf-8')
+    candidate = directory / 'candidates' / source.relative_to(root)
+    candidate.parent.mkdir(parents=True)
+    candidate.write_text(serialize(proposed), encoding='utf-8')
+    acquisition.update(root=str(root), sources={source.relative_to(root).as_posix(): import_guard.file_hash(source)})
+    (directory / 'selection.json').write_text(json.dumps(selection), encoding='utf-8')
+    (directory / 'review-input.json').write_text(json.dumps({'risks': risks}), encoding='utf-8')
+    return SimpleNamespace(root=root, source=source, candidate=candidate, evidence=evidence,
+        acquisition=acquisition, before=before, proposed=proposed, original=source.read_bytes())
+
+
+@pytest.mark.parametrize('failure', [None, 'source', 'input', 'secret'])
+def check_review_command_is_read_only(tmp_path, failure):
+    case = source_review_case(tmp_path)
     if failure == 'source':
-        source.write_text('concurrent change')
-    if failure == 'input':
-        draft['approved'] = True
-    if failure == 'secret':
-        acquisition['records'][0]['properties']['EC2.VPC.CidrBlock']['value'] = {'password': 'never-output'}
-        draft['proposedValues']['desired.row.001-002.value'] = '`{"password":"never-output"}`'
-    (directory / 'review-input.json').write_text(json.dumps(draft))
-    (directory / 'selection.json').write_text(json.dumps(selection))
-    original = source.read_bytes()
+        case.source.write_bytes(case.source.read_bytes() + b'# concurrent change\n')
+    elif failure == 'input':
+        file = case.evidence.parent / 'review-input.json'
+        file.write_text(json.dumps({'risks': {'r1': []}, 'approved': True}), encoding='utf-8')
+    elif failure == 'secret':
+        case.acquisition['records'][0]['properties']['EC2.VPC.CidrBlock']['value'] = {'password': 'never-output'}
+        candidate = dict(case.proposed)
+        candidate['desired.row.001-002.value'] = '`{"password":"never-output"}`'
+        from model.format import serialize
+        case.candidate.write_text(serialize(candidate), encoding='utf-8')
+    original = case.source.read_bytes()
     with patch.object(m, 'target_for', return_value={'directory': 'cde'}), \
-            patch.object(m, 'read_acquisition', return_value=acquisition), \
-            patch.object(m, 'load_for_edit', return_value=before), \
-            patch.object(m, 'property_schema', side_effect=schema), patch.object(m, 'publish') as save:
+         patch.object(m, 'read_acquisition', return_value=case.acquisition), \
+         patch.object(m, 'property_schema', side_effect=schema), patch.object(m, 'publish_edit') as save:
         if failure:
             with pytest.raises(ValueError):
-                m.review_acquisition(root, 'dev', 'vpc', evidence, 'cde')
-            assert not (directory / 'review.json').exists()
+                m.review_acquisition(case.root, 'dev', 'vpc', case.evidence, 'cde')
+            assert not (case.evidence.parent / 'review.json').exists()
         else:
-            result = m.review_acquisition(root, 'dev', 'vpc', evidence, 'cde')
+            result = m.review_acquisition(case.root, 'dev', 'vpc', case.evidence, 'cde')
             assert result['status'] == 'reviewed' and result['model'] == 'unchanged'
-            assert json.loads((directory / 'review.json').read_text()) == result['review']
+            assert json.loads((case.evidence.parent / 'review.json').read_text()) == result['review']
             assert result['review']['dispositions'][0]['properties'][0]['after'][0]['desired'] == '10.1.0.0/16'
         save.assert_not_called()
-    assert source.read_bytes() == original and evidence.read_text() == 'retained acquisition'
+    assert case.source.read_bytes() == original and case.evidence.read_text() == 'retained acquisition'
 
 
 @pytest.mark.parametrize('failure', [None, 'load', 'render', 'review', 'property', 'selection', 'baseline', 'provenance'])
 def check_preflight_before_any_save(tmp_path, failure):
-    import import_references
-    import sync_runtime
-    acquisition, selection, before, proposed, _ = proposal()
-    source = tmp_path / 'model/templates/cde/vpc.properties.tpl'
-    source.parent.mkdir(parents=True)
-    source.write_text('original')
-    evidence = tmp_path / 'evidence/acquisition.json'
-    evidence.parent.mkdir()
-    evidence.write_text('retained evidence')
-    (evidence.parent / 'selection.json').write_text(json.dumps(selection))
-    acquisition.update(sources={source.relative_to(tmp_path).as_posix(): import_guard.file_hash(source)},
-                       consumers=[['dev', 'cde', 'vpc']])
-    after = Expansion(values=proposed, provenance={}, files={source: 'candidate'})
-    rejected_review = failure in {'property', 'selection', 'baseline', 'provenance'}
-    if failure == 'review' or rejected_review:
-        if failure == 'provenance':
-            before = before._replace(provenance={'desired.row.001-001.value': reference_trace()})
-            after = after._replace(provenance={'desired.row.001-001.value': reference_trace('002')})
-        draft = {'proposedValues': proposed, 'risks': {'r1': []}}
-        reviewed = approval.build_review(acquisition, selection, before, proposed, draft['risks'], schema)
-        if failure == 'property':
-            reviewed['dispositions'][0]['properties'][0]['after'][0]['desired'] = '10.2.0.0/16'
-        elif failure == 'selection':
-            reviewed['selection']['resources'][0]['resource'] = '009'
-        elif failure == 'baseline':
-            reviewed['sourceBaselineDigest'] = 'forged'
-        reviewed['reviewDigest'] = import_guard.digest({k: v for k, v in reviewed.items() if k != 'reviewDigest'})
-        (evidence.parent / 'review-input.json').write_text(json.dumps(draft))
-        (evidence.parent / 'review.json').write_text(json.dumps(reviewed))
-    calls = []
-
-    def load(path, output=None, *, display=False):
-        if display:
-            calls.append('display')
-            if failure == 'load':
-                raise ValueError('synthetic display structure error')
-        return after if output else before
-
-    def plan(*args):
-        calls.append('render')
-        if failure == 'render':
-            raise ValueError('synthetic JSON structure error')
-        return {}, {}
-
-    resolver = SimpleNamespace(warnings=[], files={}, metrics={}, verify_resource=lambda *a, **k: None)
-    with patch.object(m, 'load_for_edit', side_effect=load), \
-            patch.object(m, 'candidate_sources', return_value={source: 'candidate'}), \
-            patch.object(m, 'preserve_consumers', return_value=({}, set(), False)), \
-            patch.object(m, 'replacement_inputs', return_value=({}, ())), \
-            patch.object(m, 'property_schema', side_effect=schema), \
-            patch.object(import_references, 'Resolver', return_value=resolver), \
-            patch.object(sync_runtime, 'owned_artifacts', return_value=set()), \
-            patch.object(sync_runtime, 'view_plan', side_effect=plan), patch.object(m, 'publish') as save:
-        if failure in {'load', 'render'} or rejected_review:
-            with pytest.raises(ValueError, match='structure error|Review changed'):
-                m.publish_selected(tmp_path, ('dev', 'cde', 'vpc'), evidence, acquisition, True)
-        else:
-            result = m.publish_selected(tmp_path, ('dev', 'cde', 'vpc'), evidence, acquisition, True)
-            assert result['model'] == 'unchanged' and result['status'] == 'dry-run'
+    from model.format import serialize
+    case = source_review_case(tmp_path)
+    with patch.object(m, 'target_for', return_value={'directory': 'cde'}), \
+         patch.object(m, 'read_acquisition', return_value=case.acquisition), \
+         patch.object(m, 'property_schema', side_effect=schema), patch.object(m, 'publish_edit') as save:
+        m.review_acquisition(case.root, 'dev', 'vpc', case.evidence, 'cde')
+        file = case.evidence.parent / 'review.json'
+        if failure in {'property', 'selection', 'baseline', 'provenance'}:
+            reviewed = json.loads(file.read_text())
+            if failure == 'property':
+                reviewed['dispositions'][0]['properties'][0]['after'][0]['desired'] = '10.2.0.0/16'
+            elif failure == 'selection':
+                reviewed['selection']['resources'][0]['resource'] = '009'
+            elif failure == 'baseline':
+                reviewed['sourceBaselineDigest'] = 'forged'
+            else:
+                reviewed['referenceProvenance']['after'] = {'fixed': reference_trace('002')}
+            reviewed['reviewDigest'] = import_guard.digest({key: value for key, value in reviewed.items() if key != 'reviewDigest'})
+            file.write_text(json.dumps(reviewed), encoding='utf-8')
+        elif failure == 'load':
+            case.candidate.write_text('invalid properties', encoding='utf-8')
+        with patch.object(m, 'view_plan', side_effect=ValueError('synthetic JSON structure error') if failure == 'render' else None,
+                          return_value=({}, {})):
+            if failure in {'load', 'render', 'property', 'selection', 'baseline', 'provenance'}:
+                with pytest.raises(ValueError):
+                    m.publish_acquisition(case.root, 'dev', 'vpc', case.evidence, 'cde', dry_run=True)
+            else:
+                result = m.publish_acquisition(case.root, 'dev', 'vpc', case.evidence, 'cde', dry_run=True)
+                assert result['model'] == 'unchanged' and result['status'] == 'dry-run'
         save.assert_not_called()
-    assert calls == ([] if rejected_review else ['display'] if failure == 'load' else ['display', 'render'])
-    assert source.read_text() == 'original' and evidence.read_text() == 'retained evidence'
-
+    assert case.source.read_bytes() == case.original and case.evidence.read_text() == 'retained acquisition'
 
 
 def check_missing_review_rejected_before_candidate_load(tmp_path):
-    evidence = tmp_path / 'acquisition.json'
-    evidence.write_text('retained')
-    with patch.object(m, 'candidate_sources') as candidates, patch.object(m, 'publish') as save:
+    case = source_review_case(tmp_path)
+    with patch.object(m, 'target_for', return_value={'directory': 'cde'}), \
+         patch.object(m, 'read_acquisition', return_value=case.acquisition), \
+         patch.object(m, 'candidate_sources') as candidates, patch.object(m, 'publish_edit') as save:
         with pytest.raises(ValueError, match='requires review.json'):
-            m.publish_selected(tmp_path, ('dev', 'cde', 'vpc'), evidence, {}, False)
+            m.publish_acquisition(case.root, 'dev', 'vpc', case.evidence, 'cde')
         candidates.assert_not_called()
         save.assert_not_called()
-    assert evidence.read_text() == 'retained'
+    assert case.evidence.read_text() == 'retained acquisition'
 
 
-def reference_trace(target='001', *, template=False):
-    spec = {'type': 'reference', 'service': 'vpc', 'resourceType': 'EC2.VPC',
-            'format': 'identifier', 'property': 'EC2.VPC.VpcId'}
-    return {'template': '/synthetic/file', 'line': 10, 'definition': 'Main', 'instance': 'main',
-            'key': 'desired.row.Vpc-Id.value',
-            'references': {'Vpc': {**spec, 'source': 'template', 'target': target}} if template else {},
-            'inputs': {} if template else {'Vpc': {**spec, 'source': 'instance', 'value': target}}}
+def reference_trace(target='001'):
+    return {'consumerKey': 'desired.row.001-001.value', 'text': '[Main](#main)', 'occurrence': '1',
+        'producerKind': 'resource', 'producerScope': 'dev/cde/vpc', 'producerId': target,
+        'resourceType': 'EC2.VPC', 'format': 'link', 'labelPolicy': 'fixed'}
 
 
-@pytest.mark.parametrize('change', ['selector', 'declaration', 'service', 'property', 'definition', 'input-name'])
+@pytest.mark.parametrize('change', ['selector', 'declaration', 'service', 'property', 'resource-type', 'label-policy'])
 def check_same_value_reference_meaning_is_bound(change):
     acquisition, selection, before, proposed, risks = proposal()
-    key = 'desired.row.001-001.value'
-    trace = reference_trace(template=change == 'declaration')
-    before = before._replace(provenance={key: trace})
+    original_state = {'fixed': reference_trace()}
+    fields = approval.validate_reference_proposal(original_state, before.authoritative)
+    before = Expansion(fields)
+    proposed = approval.validate_reference_proposal(original_state, proposed)
     original = approval.build_review(acquisition, selection, before, proposed, risks, schema)
-    changed = copy.deepcopy(trace)
+    changed = copy.deepcopy(original_state)
     if change == 'selector':
-        changed['inputs']['Vpc']['value'] = '002'
+        changed['fixed']['producerId'] = '002'
     elif change == 'declaration':
-        changed['references']['Vpc']['target'] = '002'
-    elif change in {'service', 'property'}:
-        changed['inputs']['Vpc'][change] = 'other' if change == 'service' else 'EC2.VPC.OtherId'
-    elif change == 'definition':
-        changed['definition'] = 'Other'
+        changed['fixed'].update(format='identifier', property='EC2.VPC.VpcId', labelPolicy='none')
+    elif change == 'service':
+        changed['fixed']['producerScope'] = 'dev/cde/other'
+    elif change == 'property':
+        changed['fixed'].update(format='name', property='EC2.VPC.Name', labelPolicy='none')
+    elif change == 'resource-type':
+        changed['fixed']['resourceType'] = 'EC2.Subnet'
     else:
-        changed['inputs']['Other'] = changed['inputs'].pop('Vpc')
-    after = Expansion(proposed, {key: changed}, {})
-    expected = approval.build_review(acquisition, selection, before, proposed, risks, schema,
-                                     proposed_references=approval.reference_provenance(after))
-    assert original['proposedValuesDigest'] == expected['proposedValuesDigest']
+        changed['fixed']['labelPolicy'] = 'resource-id'
+    expected = approval.build_review(acquisition, selection, before, proposed, risks, schema, proposed_references=changed)
+    assert original['dispositions'][0]['properties'] == expected['dispositions'][0]['properties']
+    assert original['dispositions'][0]['changes'] != expected['dispositions'][0]['changes']
+    assert original['proposedValuesDigest'] != expected['proposedValuesDigest']
     assert original['reviewDigest'] != expected['reviewDigest']
     with pytest.raises(ValueError, match='Review changed'):
         approval.verify_review(original, expected)
@@ -386,254 +371,88 @@ def check_same_value_reference_meaning_is_bound(change):
 
 
 def check_reference_location_and_description_are_not_meaning():
-    key = 'desired.row.001-001.value'
-    trace = reference_trace()
-    expansion = Expansion({}, {key: trace, 'observed.row.001-001.value': trace}, {})
-    original = approval.reference_provenance(expansion)
-    trace.update(template='/other/file', line=30, sourceFile='/other/input')
-    trace['inputs']['Vpc']['description'] = 'different wording'
-    assert approval.reference_provenance(expansion) == original
-    assert set(original) == {key}
+    fields = approval.validate_reference_proposal({'fixed': reference_trace()}, proposal()[2].authoritative)
+    first = Expansion(fields, files={Path('/synthetic/first.properties'): '# original source comment'})
+    changed = Expansion(fields, files={Path('/synthetic/other.properties'): '# different source description and position'})
+    assert approval.reference_provenance(first) == approval.reference_provenance(changed) == {'fixed': reference_trace()}
 
 
 @pytest.mark.parametrize('invalid', ['unknown-key', 'invalid-type', 'invalid-selector', 'invalid-fixed-target', 'unknown-field'])
 def check_reference_proposal_uses_existing_contract(invalid):
     acquisition, selection, before, proposed, risks = proposal()
-    key = 'desired.row.001-001.value'
-    state = approval.reference_provenance(Expansion(proposed, {key: reference_trace()}, {}))
+    state = {'fixed': reference_trace()}
     if invalid == 'unknown-key':
-        state['desired.row.999-001.value'] = state.pop(key)
+        state['fixed']['consumerKey'] = 'desired.row.999-001.value'
     elif invalid == 'invalid-type':
-        state[key]['inputs']['Vpc']['type'] = 'string'
+        state['fixed']['producerKind'] = 'string'
     elif invalid == 'invalid-selector':
-        state[key]['inputs']['Vpc']['value'] = True
+        state['fixed']['producerId'] = True
     elif invalid == 'invalid-fixed-target':
-        state[key] = approval.reference_provenance(Expansion(proposed, {key: reference_trace(template=True)}, {}))[key]
-        state[key]['references']['Vpc']['target'] = '../invalid'
+        state['fixed']['producerScope'] = '../invalid'
     else:
-        state[key]['inputs']['Vpc']['unknown'] = True
+        state['fixed']['unknown'] = 'unsupported'
     with pytest.raises(ValueError):
         approval.build_review(acquisition, selection, before, proposed, risks, schema, proposed_references=state)
 
 
 def check_unselected_reference_selector_is_rejected():
     acquisition, selection, before, proposed, risks = proposal()
-    key = 'desired.row.002-001.value'
-    values = {'desired.resource.002.resourceType': 'EC2.VPC',
-              'desired.resource.002.resourceMode': 'IMPORT', 'desired.resource.002.anchor': 'other',
-              'desired.row.002-001.property': 'EC2.VPC.VpcId', key: '[Other](#other)',
-              'desired.row.002-001.comment': 'unselected'}
-    before.values.update(values)
-    proposed.update(values)
-    before = before._replace(provenance={key: reference_trace()})
-    after = Expansion(proposed, {key: reference_trace('002')}, {})
-    with pytest.raises(ValueError, match='unselected Resource reference'):
-        approval.build_review(acquisition, selection, before, proposed, risks, schema,
-                              proposed_references=approval.reference_provenance(after))
-
+    values = {'desired.resource.002.resourceType': 'EC2.VPC', 'desired.resource.002.resourceMode': 'IMPORT',
+              'desired.resource.002.anchor': 'other', 'desired.row.002-001.property': 'EC2.VPC.VpcId',
+              'desired.row.002-001.value': '[Other](#other)', 'desired.row.002-001.comment': 'unselected'}
+    original = {'fixed': {**reference_trace('002'), 'consumerKey': 'desired.row.002-001.value', 'text': '[Other](#other)'}}
+    before = Expansion(approval.validate_reference_proposal(original, {**before.authoritative, **values}))
+    proposed = approval.validate_reference_proposal(original, {**proposed, **values})
+    changed = {'fixed': {**original['fixed'], 'producerId': '001'}}
+    with pytest.raises(ValueError, match='unselected Resource'):
+        approval.build_review(acquisition, selection, before, proposed, risks, schema, proposed_references=changed)
 
 
 def check_real_loader_retains_unresolved_reference_declaration(tmp_path):
-    from model_templates import load_for_edit
-    from support.model_sources import write_fixture_files
-    declaration = {'type': 'reference', 'description': 'Vpc selector', 'required': True,
-                   'service': 'vpc', 'resourceType': 'EC2.VPC', 'format': 'identifier', 'property': 'EC2.VPC.VpcId'}
-    template = '\n'.join(['# model-template: 1', '# definition: Main',
-        '# parameter: Vpc ' + json.dumps(declaration), '# resource: R', '# row: Ref R',
-        'desired.resource.R.resourceType=EC2.Subnet', 'desired.resource.R.resourceMode=IMPORT',
-        'desired.resource.R.anchor=subnet', 'desired.row.Ref.property=EC2.Subnet.VpcId',
-        'desired.row.Ref.value=<<Vpc>>', 'desired.row.Ref.comment=Reference', '# end-definition']) + '\n'
-    directory = tmp_path / 'model/parameters/dev/cde/subnet'
-    write_fixture_files({tmp_path / 'model/templates/cde/subnet.properties.tpl': template,
-        directory / 'parameters.yaml': "instances:\n  main:\n    parameters:\n      Vpc: '002'\n",
-        directory / 'bindings.json': json.dumps({'instances': {'main': {'definition': 'Main',
-            'resources': {'R': '001'}, 'rows': {'Ref': '001-001'}, 'parameters': {}, 'labels': {}}}})})
-    expanded = load_for_edit(tmp_path / 'model/dev/cde/subnet.properties')
-    assert expanded.values["desired.row.001-001.value"] == "<<Vpc>>"
-    state = approval.reference_provenance(expanded)
-    actual = state['desired.row.001-001.value']['inputs']['Vpc']
-    assert actual == {k: v for k, v in {**declaration, 'source': 'instance', 'value': '002'}.items()
-                      if k not in {'description', 'required'}}
-    approval.validate_reference_proposal(state, expanded.values)
-
-
-
-@pytest.fixture
-def publication_case(tmp_path, monkeypatch):
-    """Isolate parser/authority adapters; exercise the real file transaction in a temp root."""
-    import import_references
-    import model_templates
-    import sync_runtime
-    from unittest.mock import Mock
-    acquisition, selection, before, proposed, risks = proposal()
-    root = tmp_path / 'repo'
-    source = root / 'model/templates/cde/vpc.properties.tpl'
-    source.parent.mkdir(parents=True)
-    source.write_text('original', encoding='utf-8')
-    task = root / acquisition['task']
-    task.parent.mkdir()
-    task.write_text('## Task contract\n- Task type: `design`\n- Task status: `running`\n'
-                    '- Workflow: `import`\n- IMPORT target: `dev/cde/vpc`\n'
-                    '## Modified files\n- `tasks/import-fixture.md`\n'
-                    '## Allowed paths\n- `tasks/import-fixture.md`\n', encoding='utf-8')
-    evidence = tmp_path / 'evidence/acquisition.json'
-    evidence.parent.mkdir()
-    evidence.write_text('retained acquisition', encoding='utf-8')
-    acquisition.update(root=str(root), sources={source.relative_to(root).as_posix(): import_guard.file_hash(source),
-                       task.relative_to(root).as_posix(): import_guard.file_hash(task)}, consumers=[['dev', 'cde', 'vpc']])
-    for name, value in [('selection.json', selection), ('review-input.json', {'proposedValues': proposed, 'risks': risks}),
-                        ('review.json', approval.build_review(acquisition, selection, before, proposed, risks, schema))]:
-        (evidence.parent / name).write_text(json.dumps(value), encoding='utf-8')
-    after = Expansion(proposed, {}, {source: 'candidate'})
-    document = root / 'docs/designs/dev/cde/vpc.md'
-    proof = evidence.parent / 'proof.json'
-    proof.write_text('previous proof', encoding='utf-8')
-    finish = Mock()
-    record = Mock(side_effect=lambda *a, **k: proof.write_text('candidate proof', encoding='utf-8'))
-    resolver = SimpleNamespace(warnings=[], files={}, metrics={}, verify_resource=lambda *a, **k: None)
-    monkeypatch.setattr(m, 'load_for_edit', lambda path, output=None, **kwargs: after if output else before)
-    monkeypatch.setattr(m, 'candidate_sources', Mock(return_value={source: 'candidate'}))
-    monkeypatch.setattr(m, 'preserve_consumers', lambda *a: ({}, set(), False))
-    monkeypatch.setattr(m, 'replacement_inputs', lambda *a: ({}, ()))
-    monkeypatch.setattr(m, 'property_schema', schema)
-    monkeypatch.setattr(m, 'contract_scope', Mock())
-    monkeypatch.setattr(m, 'record_outputs', Mock())
-    monkeypatch.setattr(m, 'read_acquisition', lambda *a: copy.deepcopy(acquisition))
-    monkeypatch.setattr(m, 'record_import', record)
-    monkeypatch.setattr(m, 'finish_import', finish)
-    monkeypatch.setattr(import_guard, 'proof_path', lambda *a, **k: proof)
-    monkeypatch.setattr(import_references, 'Resolver', lambda *a, **k: resolver)
-    monkeypatch.setattr(sync_runtime, 'owned_artifacts', lambda *a: set())
-    monkeypatch.setattr(sync_runtime, 'view_plan', lambda *a: ({document: 'generated view'}, {document: None}))
-    return SimpleNamespace(root=root, source=source, task=task, evidence=evidence, acquisition=acquisition,
-                           after=after, document=document, proof=proof, finish=finish, record=record)
-
-
-@pytest.mark.parametrize('failure', [None, 'review', 'draft', 'candidate', 'acquisition', 'baseline',
-                                    'approval-expired', 'source-save', 'display-save', 'task-baseline'])
-def check_publication_transaction_without_host(publication_case, monkeypatch, failure):
-    case = publication_case
-    def change_inputs(*args):
-        if failure in {'review', 'draft'}:
-            name = 'review.json' if failure == 'review' else 'review-input.json'
-            with (case.evidence.parent / name).open('a', encoding='utf-8') as stream:
-                stream.write(' ')
-        elif failure == 'candidate':
-            m.candidate_sources.return_value = {case.source: 'changed candidate'}
-        elif failure == 'acquisition':
-            monkeypatch.setattr(m, 'read_acquisition', lambda *a: {**case.acquisition, 'status': 'changed'})
-        elif failure == 'approval-expired':
-            class ExpiredClock(datetime):
-                @classmethod
-                def now(cls, tz=None):
-                    return datetime.now(tz) + timedelta(days=8)
-            monkeypatch.setattr(approval, 'datetime', ExpiredClock)
-        elif failure == 'baseline':
-            case.source.write_text('external edit', encoding='utf-8')
-        elif failure == 'task-baseline':
-            case.task.write_text(case.task.read_text() + '\n# external Task change', encoding='utf-8')
-    m.record_outputs.side_effect = change_inputs
-    if failure == 'source-save':
-        case.finish.side_effect = ValueError('source completion failure')
-    if failure == 'display-save':
-        real_publish = m.publish
-        def save(root, output, **kwargs):
-            if case.document in output:
-                raise OSError('display save failure')
-            return real_publish(root, output, **kwargs)
-        monkeypatch.setattr(m, 'publish', save)
-    if failure not in {None, 'display-save'}:
-        with pytest.raises((ValueError, OSError)):
-            m.publish_selected(case.root, ('dev', 'cde', 'vpc'), case.evidence, case.acquisition, False)
-        assert case.source.read_text(encoding='utf-8') == ('external edit' if failure == 'baseline' else 'original')
-        assert not case.document.exists()
-        assert case.proof.read_text(encoding='utf-8') == 'previous proof'
-        assert case.record.call_count == (1 if failure == 'source-save' else 0)
-    else:
-        result = m.publish_selected(case.root, ('dev', 'cde', 'vpc'), case.evidence, case.acquisition, False)
-        assert case.source.read_text(encoding='utf-8') == 'candidate'
-        assert result['model'] == 'reflected'
-        assert result['status'] == ('display-failed' if failure else 'complete')
-        assert result['markdown'] == ('failed' if failure else 'generated')
-        assert case.record.call_count == 1
-        plan = case.record.call_args.args[3]
-        assert plan['sources'] == {'model/templates/cde/vpc.properties.tpl': 'candidate'}
-        assert plan['selection']['resources'][0]['record'] == 'r1'
-        assert case.proof.read_text(encoding='utf-8') == 'candidate proof'
-        assert case.document.exists() is (failure is None)
-    assert case.evidence.read_text(encoding='utf-8') == 'retained acquisition'
-    assert (case.evidence.parent / 'review.json').exists()
-
-
-def check_saved_display_recovery_needs_no_new_approval(publication_case, monkeypatch):
-    import model_templates
-    import sync_runtime
-    case = publication_case
-    case.source.write_text('candidate', encoding='utf-8')
-    saved = case.after._replace(files={case.source: 'candidate'})
-    monkeypatch.setattr(model_templates, 'load_for_edit', lambda *a, **k: saved)
-    monkeypatch.setattr(import_guard, 'read_proof', lambda *a: {'model': 'reflected', 'ownedArtifacts': []})
-    monkeypatch.setattr(import_guard, 'finish_import', case.finish)
-    monkeypatch.setattr(sync_runtime, 'definition_root', lambda *a: m.ROOT)
-    monkeypatch.setattr(m, 'read_acquisition', lambda *a: (_ for _ in ()).throw(AssertionError('no acquisition')))
-    assert sync_runtime._sync(case.root, True, 'dev', 'cde', ['vpc']) == 0
-    assert case.source.read_text(encoding='utf-8') == 'candidate'
-    assert case.document.read_text(encoding='utf-8') == 'generated view'
-    assert case.evidence.read_text(encoding='utf-8') == 'retained acquisition'
-    case.finish.assert_called_once_with(case.root, markdown='generated')
-
-
-
-@pytest.mark.parametrize('change', ['property', 'destination', 'resource', 'selector'])
-def check_candidate_review_mismatch_rejected_without_host(publication_case, change):
-    case = publication_case
-    if change == 'property':
-        case.after.values['desired.row.001-002.value'] = '`10.2.0.0/16`'
-    elif change == 'destination':
-        selection_file = case.evidence.parent / 'selection.json'
-        selection = json.loads(selection_file.read_text(encoding='utf-8'))
-        selection['resources'][0]['resource'] = '009'
-        selection_file.write_text(json.dumps(selection), encoding='utf-8')
-    elif change == 'resource':
-        case.after.values.update({'desired.resource.002.resourceType': 'EC2.VPC',
-                                  'desired.resource.002.resourceMode': 'IMPORT', 'desired.resource.002.anchor': 'extra'})
-    else:
-        case.after.provenance['desired.row.001-001.value'] = reference_trace('002')
-    with pytest.raises(ValueError):
-        m.publish_selected(case.root, ('dev', 'cde', 'vpc'), case.evidence, case.acquisition, False)
-    assert case.source.read_text(encoding='utf-8') == 'original'
-    assert not case.document.exists()
-    assert case.evidence.read_text(encoding='utf-8') == 'retained acquisition'
-    assert case.proof.read_text(encoding='utf-8') == 'previous proof'
-    case.record.assert_not_called()
-
+    from model.sources import load_model
+    from model.format import serialize
+    (tmp_path / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', 'alias': 'cde',
+        'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}), encoding='utf-8')
+    fields = {'desired.resource.001.resourceType': 'EC2.Subnet', 'desired.resource.001.resourceMode': 'IMPORT',
+        'desired.resource.001.anchor': 'subnet', 'desired.row.001-001.property': 'EC2.Subnet.VpcId',
+        'desired.row.001-001.value': 'vpc-unobserved', 'desired.row.001-001.comment': 'Reference'}
+    state = {'fixed': {**reference_trace('002'), 'text': 'vpc-unobserved', 'format': 'identifier',
+        'property': 'EC2.VPC.VpcId', 'labelPolicy': 'none'}}
+    fields = approval.validate_reference_proposal(state, fields)
+    path = tmp_path / 'model/dev/cde/subnet.properties'
+    path.parent.mkdir(parents=True)
+    path.write_text(serialize(fields), encoding='utf-8')
+    loaded = load_model(path)
+    assert loaded.authoritative['desired.row.001-001.value'] == 'vpc-unobserved'
+    assert loaded.warnings and approval.reference_provenance(loaded) == state
+    assert approval.validate_reference_proposal(state, loaded.authoritative) == dict(loaded.authoritative)
 
 
 @pytest.mark.parametrize('failure', [None, 'known', 'stale', 'create', 'type', 'collision', 'duplicate-target',
                                      'duplicate-physical', 'invalid-id', 'anchor', 'row', 'uncaptured'])
 def check_explicit_bind_preserves_identity(failure):
-    from model_operation_checks import operation_values
+    from model.operations import operation_values
     acquisition, selection, before, proposed, risks = proposal()
-    before.values.pop('observed.row.001-001.value')
+    before.authoritative.pop('observed.row.001-001.value')
     decision = selection['resources'][0]
-    decision.update(action='bind', before={'identity': None, 'model': import_guard.digest(operation_values(before.values, '001'))})
+    decision.update(action='bind', before={'identity': None, 'model': import_guard.digest(operation_values(before.authoritative, '001'))})
     if failure == 'known':
-        before.values['observed.row.001-001.value'] = '`vpc-old`'
+        before.authoritative['observed.row.001-001.value'] = '`vpc-old`'
     elif failure == 'stale':
         decision['before']['model'] = 'changed'
     elif failure == 'create':
-        before.values['desired.resource.001.resourceMode'] = 'CREATE'
+        before.authoritative['desired.resource.001.resourceMode'] = 'CREATE'
     elif failure == 'type':
-        before.values['desired.resource.001.resourceType'] = 'EC2.Subnet'
+        before.authoritative['desired.resource.001.resourceType'] = 'EC2.Subnet'
     elif failure == 'invalid-id':
         acquisition['records'][0]['identity'] = 'PENDING_DEPLOY'
     elif failure in {'collision', 'duplicate-target', 'duplicate-physical'}:
         extra = {k.replace('.001', '.002'): 'other' if k.endswith('.anchor') else v.replace('#main', '#other')
-                 for k, v in before.values.items()}
-        before.values.update(extra)
+                 for k, v in before.authoritative.items()}
+        before.authoritative.update(extra)
         proposed.update(extra)
         if failure == 'collision':
-            before.values['observed.row.002-001.value'] = '`vpc-one`'
+            before.authoritative['observed.row.002-001.value'] = '`vpc-one`'
             proposed['observed.row.002-001.value'] = '`vpc-one`'
         else:
             record = copy.deepcopy(acquisition['records'][0])
@@ -642,7 +461,7 @@ def check_explicit_bind_preserves_identity(failure):
             risks['r2'] = []
             selection['resources'].append({**decision, 'record': 'r2',
                 'resource': '001' if failure == 'duplicate-target' else '002',
-                'before': {'identity': None, 'model': import_guard.digest(operation_values(before.values, '002'))}})
+                'before': {'identity': None, 'model': import_guard.digest(operation_values(before.authoritative, '002'))}})
     elif failure == 'anchor':
         proposed['desired.resource.001.anchor'] = 'changed'
     elif failure == 'row':
@@ -744,10 +563,9 @@ def check_unanswered_review_cannot_be_approved():
     data = proposal()
     data[1]['resources'].clear()
     data[1]['unreflected'] = [{'record': 'r1', 'reason': 'waiting for Human'}]
-    result = review((*data[:3], data[2].values, data[4]))
+    result = review((*data[:3], data[2].authoritative, data[4]))
     with pytest.raises(ValueError, match='all Resource selections'):
         approval.review_binding(result, data[0])
-
 
 
 def check_conversational_consent_contract():
@@ -757,13 +575,28 @@ def check_conversational_consent_contract():
     rule = (root / 'framework/rules/model-information.md').read_text(encoding='utf-8')
     assert 'explicit Human final consent in chat' in skill
     for required in ('全件承認して反映', '一部修正', 'キャンセル', '「確認しました」「了解」',
-                     'Proceed to candidate editing and Publish only after explicit consent',
+                     'Proceed to Publish only after explicit consent',
                      'rebuild and present', 'renewed explicit final consent',
-                     'Direct CLI execution can bypass', 'after merge the Human also'):
+                     'Direct CLI execution can bypass', 'After merge the Human also'):
         assert required in prompt
     assert 'Python verifies change integrity, not the identity or existence' in rule
     assert 'Host approval, issuers, Human authentication tokens/signatures' in rule
     assert 'verify_host_approval' not in prompt + rule
+
+
+def check_review_reports_every_canonical_change():
+    acquisition, selection, _, proposed, risks = proposal()
+    selection['resources'][0]['action'] = 'add'
+    proposed.update({'display.resource.001.comment': '全件提示に含める説明',
+        'display.service.title': '# 合成サービス', 'desired.service.vpc.serviceId': 'vpc',
+        'desired.row.001-002.comment': ''})
+    review = approval.build_review(acquisition, selection, Expansion({}), proposed, risks, schema)
+    changes = [change for item in review['dispositions'] for change in item['changes']] + review['serviceChanges']
+    assert {change['key'] for change in changes} == set(proposed)
+    assert all(change['before'] == {'present': False, 'value': None} for change in changes)
+    assert {change['key']: change['after'] for change in changes} == {
+        key: {'present': True, 'value': value} for key, value in proposed.items()}
+    assert any(change['key'] == 'display.resource.001.comment' for change in review['dispositions'][0]['changes'])
 
 
 if __name__ == '__main__':

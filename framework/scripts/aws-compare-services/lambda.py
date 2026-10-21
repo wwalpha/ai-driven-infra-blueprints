@@ -1,6 +1,6 @@
 """lambda: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import one, MISSING, Unresolved
+from model.adapters.aws import one, MISSING, Unresolved
 
 APIS = {('lambda', 'get_function_recursion_config'), ('lambda', 'get_policy'), ('lambda', 'get_function')}
 

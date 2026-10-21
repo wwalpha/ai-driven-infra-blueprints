@@ -8,7 +8,7 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 
 from support.model_sources import snapshot_model
 
-from model_files import read_model, load_model
+from model.files import read_model, load_model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -21,9 +21,9 @@ import sync_runtime
 
 import sync_files
 
-import model_design
+import model.render as model_design
 
-import model_projection
+import model.projection as model_projection
 
 from contextlib import redirect_stderr
 
@@ -49,25 +49,23 @@ from unittest.mock import patch
 
 from types import SimpleNamespace
 
-from model_design import (
-    naming_rule_files, naming_targets, naming_target_matches, markdown_for, naming_errors,
-    validate_kms_policy_accounts,
-)
+from model.validation import naming_rule_files, naming_targets, naming_target_matches, naming_errors, validate_kms_policy_accounts
+from model.render import markdown_for
 
-from model_display import display_rows
+from model.display import display_rows
 
-from model_core import properties, stack_model
+from model.core import properties, stack_model
 
 from design_layout import (
     stack_design, stack_deployment_policy, SUBNET_LIST_PROPERTIES, CODEBUILD_VPC_PROPERTIES, HEADER,
     ALIGNMENT, expanded_display_rows,
 )
 
-from model_design import design_naming_errors
+from model.validation import design_naming_errors
 
-from model_references import resource_rows
+from model.projection import resource_rows
 
-from model_display import row_table, catalog_display_rows
+from model.display import row_table, catalog_display_rows
 
 from design_layout import catalog_order_errors
 
@@ -106,7 +104,7 @@ def text(values):
             document = json.loads(value)
             values[key] = json.dumps(document, ensure_ascii=False, separators=(',', ':'))
             values[key.removesuffix('.document')+'.artifactSha256'] = model_projection.document_sha256(document)
-    return "# Generated Model; edit registered template/parameters/observed, not this file.\n" + "".join(f"{key}={value}\n" for key, value in sorted(values.items()))
+    return "# model-format: 2\n# Runtime projection for fixture comparison; write_model strips derived fields.\n" + "".join(f"{key}={value}\n" for key, value in sorted(values.items()))
 
 def roundtrip(path, values, root):
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,6 +1,6 @@
 """codebuild: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import one
+from model.adapters.aws import one
 
 APIS = {('codebuild', 'batch_get_projects')}
 

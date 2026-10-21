@@ -7,7 +7,7 @@ import re
 import sys
 
 from validation_scope import active_scope
-from model_files import service_model_path
+from model.files import service_model_path
 from task_contract import task_path, contract_path, model_operation, validate_contract, status
 
 
@@ -188,6 +188,14 @@ def task_issue_errors(root: Path, scope, *, target=None, task_file=None, contrac
     path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, selected=task_file)
     if input_is_file(path):
         text = input_text(path, encoding='utf-8')
+        from model.migration.contract import migration_contract, require_preserved_inputs
+        migration = migration_contract(text)
+        if migration is not None:
+            declared = {tuple(service.split('/')) for service in migration.services}
+            if scope != declared or target is not None:
+                raise ValueError('format migration issue preservation requires its exact service scope')
+            require_preserved_inputs(root, migration)
+            return []  # Existing issues remain unchanged; this proves only a format transition.
         operation = model_operation(text)
         if operation is not None and operation.action == 'import-delete':
             name = path.relative_to(root).as_posix()
@@ -211,7 +219,7 @@ def require_no_issues(root: Path, scope, *, target=None, task_file=None, contrac
     diagnostics = [] if warnings is None else warnings
     errors = task_issue_errors(root, scope, target=target, task_file=task_file, contract_file=contract_file, warnings=diagnostics)
     if warnings is None:
-        from model_core import report_reference_warnings
+        from model.core import report_reference_warnings
         report_reference_warnings(diagnostics)
     if errors:
         raise ValueError("\n- ".join(errors))
@@ -245,7 +253,7 @@ def main() -> int:
                 raise ValueError("requested services are outside active task validation scope")
         warnings = []
         errors = task_issue_errors(root, scope, warnings=warnings) if args.task else issue_errors(root, scope, warnings=warnings)
-        from model_core import report_reference_warnings
+        from model.core import report_reference_warnings
         report_reference_warnings(warnings)
     except (OSError, ValueError) as error:
         errors = [str(error)]

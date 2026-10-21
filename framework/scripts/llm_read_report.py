@@ -41,6 +41,7 @@ def report(events):
 def self_test():
     # ponytail: capture depends on agent records; runtime tool hooks if available later.
     import io
+    import json
     import subprocess
     import tempfile
     from contextlib import redirect_stdout
@@ -60,8 +61,11 @@ def self_test():
     # Case 5: the real extractor parses five 600-line parts; only part-003 is returned.
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        model = root / "kms.properties"
-        parts = root / "kms"
+        model = root / "model/dev/team/kms.properties"
+        model.parent.mkdir(parents=True)
+        (root / "project.json").write_text(json.dumps({"targets": [{"environment": "dev", "alias": "team",
+            "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}), encoding="utf-8")
+        parts = model.with_suffix("")
         parts.mkdir()
         selected = ["desired.resource.003.resourceType=KMS.Key",
                     "desired.resource.003.logicalId=Selected",
@@ -72,22 +76,21 @@ def self_test():
             selected += [f"{prefix}.property=KMS.Key.Description",
                          f"{prefix}.value=test", f"{prefix}.comment=test"]
         for number in range(1, 6):
-            lines = ["# padding"] * 600
+            lines = ["# model-format: 2", *(["# padding"] * 599)]
             if number == 3:
                 lines[119:159] = selected
             (parts / f"part-{number:03d}.properties").write_text("\n".join(lines) + "\n", encoding="utf-8")
-        model.write_text("# model-index: 1\n" + "".join(
+        model.write_text("# model-format: 2\n# model-index: 2\n" + "".join(
             f"# part: kms/part-{n:03d}.properties\n" for n in range(1, 6)), encoding="utf-8")
-        script = Path(__file__).with_name("model_files.py")
+        script = Path(__file__).with_name("model") / "cli.py"
         events = []
-        for flag, selector in (("--find", "Selected"), ("--resource", "003")):
-            result = subprocess.run([sys.executable, "-B", str(script), str(model), flag, selector],
+        for command, selector in (("find", "Selected"), ("resource", "003")):
+            result = subprocess.run([sys.executable, "-B", str(script), command, str(model), selector],
                                     capture_output=True, text=True, encoding="utf-8", check=True)
             grouped = {}
-            for line in result.stdout.splitlines():
-                location, _ = line.split(": ", 1)
-                filename, number = location.rsplit(":", 1)
-                grouped.setdefault(Path(filename).relative_to(root).as_posix(), []).append(int(number))
+            for key, location in json.loads(result.stdout).items():
+                filename, number = location[:2]
+                grouped.setdefault(Path(filename).relative_to(model.parent).as_posix(), []).append(number)
             events.extend(event(name, lines) for name, lines in grouped.items())
         result = report(events)
         assert "| kms/part-003.properties | 2 | 40 | 41 |" in result

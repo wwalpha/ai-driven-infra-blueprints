@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from utils.aws_mappings import owners
-from model_core import entries
+from model.core import entries
 from validation_cache import input_scope, memoized
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -156,8 +156,8 @@ def validation_rows(rows, source, kind, logical_id, root=ROOT):
     if projected == source:
         return rows
     from collections import defaultdict, deque
-    from model_references import resource_rows
-    from model_display import catalog_display_rows
+    from model.projection import resource_rows
+    from model.display import catalog_display_rows
     resources = dict(entries(source, 'desired.resource.'))
     targets = [(identity, resource) for identity, resource in resources.items()
                if resource['resourceType'] == kind and resource['logicalId'] == logical_id]

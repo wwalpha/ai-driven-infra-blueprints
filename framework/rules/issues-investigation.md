@@ -20,7 +20,7 @@ Apply AGENTS.md section-reading rules. Apply common rules, target namespace rule
 
 `scan` stdout contains execution/Scope, per-category counts, bounded cause/action summaries and representatives, artifact path and detail/review instructions. Never expand all uncompared/errors/names/judgments in initial output. Retrieve all naming/judgment pages through `detail`; the complete-review requirement and exit/save decisions remain unchanged. Diagnostics, full records, rules and masked field differences stay in the same run's external artifact.
 
-Review every `naming.names[].id`, distinguishing missing/unknown components, pattern mismatches, and explicit exceptions. Service-common `desired.note.*`, row comments, existing human confirmations, and design prose not mechanized remain decision material. For insufficient information, additionally retrieve only the corresponding model's `model_files.py --resource` or relevant rule/section. Do not classify as conforming/problem-free or resolve existing issues with insufficient material.
+Review every `naming.names[].id`, distinguishing missing/unknown components, pattern mismatches, and explicit exceptions. Service-common `desired.note.*`, row comments, existing human confirmations, and design prose not mechanized remain decision material. For insufficient information, additionally retrieve only the corresponding model's `model/cli.py resource` or relevant rule/section. Do not classify as conforming/problem-free or resolve existing issues with insufficient material.
 
 ## Commands
 

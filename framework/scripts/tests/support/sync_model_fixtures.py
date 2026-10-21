@@ -13,7 +13,7 @@ if not __debug__:
 
 import json
 import pytest
-from model_files import load_model
+from model.files import load_model
 from support.model_sources import write_model
 from support.validator import load
 

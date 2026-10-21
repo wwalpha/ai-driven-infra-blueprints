@@ -1,459 +1,156 @@
-# Service Model templates
-IMPORT acquisition and user-selected add/refresh/replace are exclusive to `/import`; explicit Model-only merge/delete uses `/update` under the narrow operation guard. Follow [IMPORT configuration authority](model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Other substantive IMPORT updates remain forbidden; read/compare and value-preserving refactors never bypass the mechanical guards.
+# Service Model sources
 
+IMPORT acquisition and user-selected add/refresh/bind/replace are exclusive to `/import`.
+Explicit Model-only merge/delete or standalone reference retarget uses `/update` under
+its limited operation guard. Read/compare and value-preserving dependency detach remain
+allowed without bypassing the mechanical guards. CREATE workflow remains unchanged.
 
 ## Dedicated import boundary
 
 For `/import`, [IMPORT configuration authority](model-information.md#import-configuration-authority)
-replaces the design validation/completion rules below: source and display transactions
-are separate, and issues runs only when explicitly requested. Other workflows retain these rules.
-
+and [08_import](../prompts/codex/08_import.md) own acquisition, full Review, explicit
+conversational save consent and separate Model/display transactions. Ordinary Import
+never adds issue/naming/global-design/generated-equality/local-loop/UT/IT gates.
+Framework development checks are separate.
 
 ## Authority and layout
 
-Every service uses YAML-only authoritative inputs. The common service template is
-`model/templates/<target-directory>/<service>.properties.tpl`; each created environment
-service directory `model/parameters/<environment>/<target-directory>/<service>/` contains
-`parameters.yaml` and fixed `bindings.json`. Optional `observed.json` holds actual observed values. Service directory identities,
-including bindings-only instances, define discovery. Missing or broken inputs fail;
-uncreated project environments may have no service directory.
+The stored entrance is `model/<environment>/<target-directory>/<service>.properties`.
+Alias takes precedence over awsAccountId for the directory. awsExecutionAccountId is
+execution context only. Resolve environments, aliases and services from project.json
+and existing Model entrances. Never merge aliases sharing an account or create Models
+merely because a target is registered.
 
-`model/<environment>/<target-directory>/<service>.properties` is a logical API selector,
-not a stored file. Models expand directly from authoritative inputs at runtime.
-Markdown and external JSON remain generated outputs. One service template aggregates
-its resources across CFn stacks. This contract applies to this repository only.
+Each environment explicitly stores all its service values. There are no templates,
+parameter YAML, bindings, observation sidecars, inheritance, overlays or expressions.
+project.json retains topology/account/Region/profile authority. Markdown/JSON are generated.
+The full [v2 format](../docs/model-format-2.md) is the storage/schema authority.
 
-## Fixed version 1 syntax
+## Properties and parts
 
-```properties
-# model-template: 1
-# definition: role
-# parameter: Name string
-# parameter: Anchor string
-# parameter: Placement string
-# resource: role
-# row: name role
-desired.resource.role.resourceType=IAM.Role
-desired.resource.role.anchor=<<Anchor>>
-desired.resource.role.cfn-logicalId=<<Placement>>
-desired.row.name.property=IAM.Role.RoleName
-desired.row.name.value=<<Name>>
-desired.row.name.comment=ロール名
-# end-definition
-```
+Data files begin with `# model-format: 2`. A large service entrance additionally has
+`# model-index: 2` followed by ordered `# part: <service>/part-NNN.properties` lines.
+Each part has its own format header. Assemble all parts before duplicate-key checks.
+Keep each owning Resource/Row/document/reference/observed block together; keep Stack
+blocks whole. Initial conversion targets about600 lines. A giant Resource owns a whole
+part and may exceed600 lines.
 
-```yaml
-instances:
-  lambda:
-    parameters:
-      Name: app-dev-role
-```
+Ordinary editing preserves existing part names, order, retained block placement and Row
+order. Append new Resources at the end; add a part only when necessary. Delete empty
+parts without renumbering others. Observation saves never reflow/repartition the Model.
+Reject unsafe/symlink/missing/duplicate/unregistered parts, split blocks and unknown versions.
 
-The matching bindings.json declares lambda's definition and the existing fixed resource
-and row maps; Anchor and Placement are internal parameters, not public YAML inputs.
-Use described # parameter declarations for public inputs and # internal for fixed maps.
-
-
-Use separate definitions for service metadata and named resource groups. Keys remain
-existing Model keys, with declared local resource/row IDs replaced by explicit fixed
-maps. Each row declares its local owner. `<<Id_role>>` and `<<Anchor_role>>` resolve
-local identity/anchor after remapping. Existing cross-service logical links remain
-explicit strings. No ID comes from list order/count. Definitions may contain parent
-and child resources; parentReference uses the same existing link contract. Notes,
-display fields, resourceMode and engine identity fields are ordinary preserved keys.
-A service metadata definition may explicitly declare `# retained-display: 037` to
-preserve fixed `display.resource.037.comment` or `.label` with no corresponding
-resource. The ID is a fixed numeric metadata identity, never a resource mapping.
-Undeclared fixed display keys, other fields, duplicate declarations/identities and
-collisions with active resource IDs are rejected. Retained display declarations use only existing
-orphan display IDs; they preserve values without inventing resource definitions.
-
-Undeclared local IDs, duplicate output keys/fixed identities, unknown input keys/Definitions/parameters
-and missing used parameters are errors. Anchor collisions and broken references are warnings
-under [Reference diagnostics](model-information.md#reference-diagnostics).
-Unused definitions require no environment values. Parameter types are `string`,
-`integer`, `number`, `boolean`, `object`, `array`, `null` (booleans are not integers).
-
-Variable expressions use only `<<Name>>` substitution, using Pystache 0.6.8 with strict
-missing tags and identity escaping. Mustache sections, partials, lambdas, unescaped
-forms, delimiter changes and executable code are unavailable. `${...}` and
-`{{resolve:...}}` remain AWS strings. Parameter strings are never reparsed as templates.
-JSON `.document` is parsed first; exact placeholder nodes preserve JSON types, embedded
-placeholders accept strings only; keys cannot be templated. JSON is emitted by the
-JSON serializer. Properties scalar values must remain one line (CR/LF and other
-Unicode line separators are rejected); multiline JSON strings are escaped safely.
-There is no overlay or whole-definition override.
-
-Use one definition for the same resource role across environments within an alias.
-For IMPORT, reuse requires an unchanged existing Definition and unchanged existing
-consumers; otherwise a reusable new Definition with the necessary inputs/composition
-may coexist for the same role. Only explicitly selected refresh/replace Instances may switch Definition; do not migrate
-nonselected instances or supplement other environments' inputs/bindings as an import prerequisite. See
-[IMPORT Property source edits](#import-property-source-edits).
-Values and selectable relationships belong in declared inputs; an environment name
-does not select a definition or execute template code. Different aliases may retain
-different definitions. When a common resource shape has explicitly designed optional
-fields, declare their presence with a boolean input:
-
-```properties
-# optional: desired.resource.role.logicalId HasLogicalId
-# optional-json: desired.row.policy.document /Statement/1 HasExtraStatement
-# choice: desired.row.name.value {"parameter":"UsesReference","value":"<<SelectedRole>>"}
-```
-
-Each directive names an existing property and a declared boolean parameter. `optional`
-omits the property when false; `optional-json` omits the existing JSON pointer target.
-`choice` uses its declared alternate expression when true, otherwise the property's
-ordinary expression. A choice may also declare `pointer` to replace a JSON node with
-the declared alternate JSON value. Selectors require explicit booleans, including when
-the containing property is omitted. Missing or unknown inputs, invalid pointers,
-overlapping removals and multiple selected alternatives for one node are errors.
-These directives do not compare dev/stg names or interpret parameter strings.
-JSON pointers apply to `.document` and backtick-wrapped JSON objects/arrays in `.value`;
-annotated JSON values use the same typed substitution and serialization contract.
-Only parameters used by the selected shape are accepted. Resource/row maps must match
-that shape exactly and preserve explicit IDs; omission never allocates new identities.
-
-Templates may use the existing `# model-index: 1` / `# part:` rules, with the same
-600-line bound and sequential part names under `<service>.properties/`. The template
-parser validates each definition before using the existing splitter.
-Templates retain the bounded entry/part convention; logical Model selectors retain service identities.
+Only document and backtick JSON object/array values allow explicit trailing-backslash
+continuation outside JSON strings. No trailing spaces, string newlines, implicit
+continuation, intermediate comments, EOF or cross-part continuation. Insert JSON
+whitespace between fragments and perform strict duplicate-key/nonfinite-constant checks.
+Other scalar bytes, quoting, spaces, backslashes and numeric-looking strings are retained.
 
 ## Generation, tracing and scope
 
-All shared Model readers expand authoritative YAML sources and merge observed values.
-After ordinary Model editing, run:
+Use the single `framework/scripts/model/cli.py` through run-python.py for read, resource,
+find, trace, render, incoming, Import, observations, AWS comparison, audit and migration.
+Imports use model.*; do not dynamically load the same file under another module name.
+The public API and helper contracts are [documented here](../docs/model-helper-integration.md).
 
-```console
-python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md
-```
+The reader returns full authoritative fields separately from runtime projections.
+Serializer, save guards and migration comparison always include reference and placementName.
+Use shared input recording/cache within an invocation; retain fresh prepublication checks.
+Read dependencies never grant write permission. Record raw bytes, absence, file sets,
+project and actual producer dependencies. Scope and Allowed paths are checked independently.
 
-The validator owns common contract/Git/IMPORT/impact/issue/catalog checks. Generation
-prepares every selected environment/target/service in one stage, validates the final
-candidates with existing domain checks and retained expanded Models, compares all
-consumed inputs once, then publishes validated Markdown/JSON bytes. A rejected candidate
-retains its saved view; only changed reference states require dependent revalidation.
-Successful services retain independent rollback-protected transactions and a failed
-candidate with real errors still makes the command fail. Reference warnings are calculated
-on the final candidate stage and include ungenerated/retained views; reference-only
-inability is NOT_RUN and does not block Model completion.
-
-Only changed publication bytes enter the writer, preserving Markdown newline conventions.
-There is no normal post-save full readback, content revalidation, input rescan or
-verification regeneration. Follow [Selection and publication](task-contract.md#selection-and-publication).
-`sync-model.py --write` remains a generation-only compatibility entrypoint with its
-existing target/`--scope`/`--all` selectors and exit meanings. Read-only validation still
-rejects ordinary missing/stale Markdown/JSON and extra JSON. It reports reference changes
-and explicitly retained/unavailable views without converting them back into equality failures. IMPORT display
-recovery and observed writers retain their separate authority/publication workflows.
-`model_files.py <service.properties> --trace <exact-key>` reports definition/key and
-instance/parameter keys on demand; no permanent source map is saved.
-
-`model_templates.py --alias <alias> --service <service> --affected` lists registered
-consumers. A common template edit requires ALL its direct registered consumers in
-Validation scope; a parameter/binding/observed edit requires its environment/service.
-Downstream services enter scope only when an active resource reference changes its
-resolved value or selected identity/type. Compare selected definitions and optional/choice
-branches against the managed task's pinned start (HEAD for unmanaged tasks), including
-staged and unstaged inputs. Compare each downstream reference before propagating again;
-an unchanged exported reference stops the chain. Ignore unused definitions and unselected
-references. Missing baselines, claimed changes without a known diff, and missing,
-ambiguous or cyclic reference results cannot justify exclusion: retain conservative
-service dependency scope or include the unresolved consumer for validation.
-Uncreated services have no inputs; an existing incomplete source is an error.
-Scope precision does not weaken source-byte hashes, caches, immutable plans, publication
-snapshots or IMPORT authority. Input hashes include authoritative template entry/parts,
-YAML parameters, bindings, observed and producer dependencies; old validations/plans
-cannot survive source changes. Validation/ generation across environments never changes Deployment
-scope, account, AWS permissions, delete/replacement approval or existing IaC placement.
-
-## Human input format (YAML-only)
-
-The required filename is `parameters.yaml`. The YAML/bindings schemas validate input format and reject invalid/missing YAML, unknown fields and missing mandatory inputs.
-
-External parameters are independent values that vary by environment or instance.
-Common fixed settings belong directly in the template, without parameter declarations
-or defaults. Derived names belong in template expressions using existing `<<Name>>`
-substitution; parameter strings are never interpreted as expressions. Fixed resource
-relationships belong in template references; only selectable targets are public inputs.
-Do not infer fixed settings from accidental equality or hide settings in bindings.
-
-```yaml
-parameters:
-  AvailabilityZone1: ap-northeast-1a
-  AvailabilityZone2: ap-northeast-1c
-instances:
-  main-vpc:
-    parameters:
-      CidrBlock: 10.10.0.0/23
-```
-
-Shared declarations precede definitions and are defined once per service template.
-`# input` defaults to `source:service`, reading the top-level YAML parameters.
-`source:consumer.environment` reads the registered consumer directory's environment;
-there is no manual Environment input. `source:consumer.executionAccountId` reads the
-registered target through the existing local topology validator, selecting
-`awsExecutionAccountId` or `awsAccountId` when absent. It is a raw string, cannot be
-overridden in YAML/bindings, and project.json enters trace, source hashes and impact. Definition-local `# parameter` reads instance
-parameters. The sources are disjoint: a shared/context/reference name cannot be
-redeclared or overridden by an instance. Unused shared declarations are errors.
-
-```properties
-# input: Environment {"type":"string","description":"登録されたconsumerの環境名","required":true,"source":"consumer.environment"}
-# definition: MainVpc
-# parameter: CidrBlock {"type":"string","description":"VPCのIPv4ネットワーク範囲","required":true,"format":"literal","constraints":{"cidr":"ipv4"}}
-# internal: Anchor string
-# resource: vpc
-# row: name vpc
-# row: cidr vpc
-# row: dns vpc
-desired.resource.vpc.resourceType=EC2.VPC
-desired.resource.vpc.anchor=<<Anchor>>
-desired.row.name.property=EC2.VPC.Name
-desired.row.name.value=`vpc-venusinf-<<Environment>>`
-desired.row.cidr.property=EC2.VPC.CidrBlock
-desired.row.cidr.value=<<CidrBlock>>
-desired.row.dns.property=EC2.VPC.EnableDnsSupport
-desired.row.dns.value=`true`
-# end-definition
-```
-
-The fragment above illustrates substitutions; include existing required comments/metadata
-in actual Models. Declare each shared AZ once and use it only in its placement definitions.
-Shared fragments are raw strings. Put Model literal backticks around the completed value,
-e.g. `` `/aws/vpc/flow-logs<<FlowLogSuffix>>` ``. Do not format Environment/Suffix before
-concatenation. Empty, hyphen-prefixed and slash-prefixed suffixes are retained exactly;
-there is no separator normalization, recursive calculation or override hierarchy.
-`format:literal` remains available for an entire scalar instance input such as CIDR,
-never for a shared fragment. JSON document substitutions retain their original types.
-
-Structured declarations provide description, type, required, optional default and
-constraints (enum, full-match pattern, minimum/maximum, length, strict IPv4/IPv6 CIDR).
-Required inputs are not hidden by defaults. YAML uses a safe loader and rejects duplicate,
-non-string and merge keys. on/off/yes/no, dates and leading-zero integers remain strings.
-Unknown fields, missing values, constraint violations and types are rejected without coercion.
-
-Template references use existing Model links/anchor validation:
-
-```properties
-# reference: Vpc {"instance":"main-vpc","resourceType":"EC2.VPC"}
-# reference: LoggingRole {"service":"iam","resource":"075","resourceType":"IAM.Role"}
-```
-
-Fixed producer IDs are explicit logical Model identity, never a physical AWS ID or a
-completed name repeated in YAML. Resolve the producer's authoritative name/anchor;
-missing, ambiguous or type-mismatched targets fail. Producer source bytes enter hashes,
-immutable snapshots and consumer impact. Public `type:reference` parameters remain
-available for actual target selection; local instance names resolve only under this
-explicit type. External selectable references use declared service/type and a logical Model resource ID,
-requiring exactly one target. Completed producer names are never selector inputs. No AWS is used.
-
-For a JSON scalar that requires the producer's raw BucketName, use the same typed
-external S3 reference with `format:name`:
-
-```properties
-# reference: Bucket {"service":"s3","resource":"001","resourceType":"S3.Bucket","format":"name"}
-```
-
-This resolves the authoritative BucketName without a Model link or literal formatting;
-interpolate `<<Bucket>>` into the JSON string or format the completed Model value in
-the template. It uses the existing named external producer resolver and rejects
-unnamed producers and label overrides; local instance references remain links.
-Ordinary references retain their links and existing labels. The same
-producer type, uniqueness, dependency snapshots, hashes and impact checks apply.
-The same format applies to named producers such as `IAM.Role.RoleName`,
-`Glue.SecurityConfiguration.Name`, `Lambda.Function.FunctionName` and
-`CloudTrail.Trail.TrailName`. Names remain unformatted fragments: assemble paths
-such as `/aws-glue/jobs/<<Configuration>>-role/<<ExecutionRole>>/error` and apply
-Model literal formatting only to the completed value.
-
-For a raw producer identifier in a JSON scalar, declare its exact non-ARN catalog
-identifier-output property on an external typed reference:
-
-```properties
-# reference: VpcId {"service":"vpc","resource":"001","resourceType":"EC2.VPC","format":"identifier","property":"EC2.VPC.VpcId"}
-```
-
-This requires one desired identifier row and its matching authoritative observed row.
-It removes Model literal formatting and retains the string exactly, including
-`PENDING_DEPLOY`; it never falls back to a desired name/link or queries AWS. Missing,
-duplicate, mismatched, non-string and ARN identifiers and label overrides fail.
-Producer observed inputs retain the existing snapshot, hash and impact tracking.
-
-`parameters.yaml` lists only instances with public, instance-local inputs. Instances
-whose definition has no public inputs (including service metadata) are omitted entirely;
-do not write empty `parameters: {}` blocks for them. Their existence and definition
-are explicit in the existing `bindings.json` instance list. For example, the `flow-log`
-binding declares `definition: FlowLogStackPlacedFlowLog` alongside its unchanged internal
-maps and values. All instances, including `main-vpc`, declare their definition solely in
-bindings. YAML instance entries contain only `parameters`; a definition in YAML is an
-unknown field, never an override or fallback. Missing bindings/definitions, input-bearing
-instances without YAML inputs, unknown definitions and identity collisions are errors.
-Omitting a no-input instance from YAML never removes its resource. Saving inputs resolves
-parameter order from the binding's definition without writing it back into YAML.
-
-`bindings.json` holds the complete instance composition, fixed resource/row maps, anchors,
-IaC placement, original reference labels and differing annotations. It contains no desired
-setting overrides. Resource count/presence comes from explicit instance lists and
-declared boolean field presence, without environment-name branches or if/for generation.
-Observed stays exclusively in observed.json; artifact hashes
-for YAML consumers are derived from each expanded row document with the
-existing canonical JSON hash contract. Saved hashes are regenerated; they are not
-independent inputs or binding values. Input serialization and dependency digest
-contracts remain unchanged. Neither names, environment, suffix nor list
-order allocate IDs. Logical instance names and physical resource names are distinct.
-Rename a public input instance and its binding together; rename a binding-only instance
-in bindings. Update template/reference selectors explicitly and preserve maps. Adding or
-deleting a binding-only resource requires an explicit binding change and consistent
-references/observed; deleting YAML input alone cannot silently delete an input-bearing
-resource. Shared template relationships may refer to public or binding-only instances.
-
-Edit parameters.yaml for independent values; edit the shared template for fixed settings,
-derived expressions or logical relationships. Normally do not edit bindings.
-
-```console
-python3 framework/scripts/model_templates.py --alias cde --service vpc --environment dev --inputs
-python3 framework/scripts/model_files.py model/dev/cde/vpc.properties --trace desired.row.001-003.value
-python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md
-```
-
-Trace uses existing placeholders to show descriptions/current values/destinations,
-explicit input sources and fixed references; no duplicate hand-maintained mapping.
-`save_parameters(model_path, inputs)` validates and writes readable YAML under existing
-atomic publication guards. Saving follows the YAML input contract and declared parameter order. Common template changes require all registered
-consumers in Validation scope; local inputs/bindings require their own consumer.
+Generate ordinary design views through the existing classified validation pipeline.
+Model-only intermediate source publication and final validation are separate. A reference
+semantic WARNING does not excuse syntax, scope, native type, evidence, identity or I/O errors.
+Never reconstruct design authority from generated Markdown/JSON or projected values.
 
 ## New service creation
 
-Declare a service template, human `parameters.yaml`, explicit `bindings.json`, and
-optional `observed.json` only when values exist under the target source directory. Declare those inputs and the generated Markdown/JSON paths. `model_templates.py --create --environment <environment> --alias <target-directory> --service <service>`
-validates the YAML and fixed bindings. It rejects invalid/missing inputs.
-Run the integrated scoped `blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` before completion. This repository's input
-contract is YAML-only; no other repository is asserted to have adopted this contract.
+Explicitly prepare a complete properties candidate outside the repository, including
+service metadata, confirmed Resource/Row identities, desired values and existing observations.
+Use candidate_base only for explicitly requested candidate creation; normal load_model
+still fails for an absent service. Validate the target and record its entrance absence,
+parts discovery set and dependencies. Publish the complete service once through the
+shared capability-based save API. Do not persist empty initial authority first.
 
-## Compact observed and fixed bindings
+## Observations and fixed identities
 
-Persist only `observed.row.<fixed-row-id>.value` in `observed.json` version 1.
-Expand observed property/comment from the corresponding desired row; never derive an
-observed value from desired. Values keep the existing one-line string contract, so
-false, zero, an empty string, null text and an absent observation remain distinct.
-Native JSON booleans/numbers/null are invalid values, rather than missing observations.
-An absent observed file means unobserved; an invalid JSON document, permission failure,
-unknown state/key or orphan row is an error. Required observed identifiers still stop
-when unobserved/PENDING_DEPLOY. Writers verify metadata equality, omit it on disk, and
-remove empty observed files within the existing atomic, locked rollback transaction.
-Input guards include absent optional files and producer dependencies.
+Resource/Row/Stack IDs, logicalId, anchor, resourceMode, cfn-logicalId and parent relationships
+are fixed. Stack name is mutable; placementName is fixed. Do not conflate them.
+observed.value absence, empty string and PENDING_DEPLOY are distinct. Derive observed
+Property/comment from desired and artifactSha256 from document at read time; never save them.
 
-Only empty `labels` may be omitted from an instance binding; omitted labels mean an
-empty reference-label map. Nonempty labels and all required definition/resource/row/
-internal-parameter fields retain their strict validation. Writers/fixtures omit empty
-labels; neither omission nor shared definitions infer fixed IDs or instance presence.
-
-Share a definition within one alias/service for the same resource role, preserving
-parameter meanings, resource types and row owners. Environment-specific values,
-annotations, source forms and field presence use declared inputs and explicit shape
-directives; they do not require dev/stg-specific definitions.
-For CREATE design and ordinary value-preserving refactors, update explicit binding
-definition references without changing instances or fixed maps. IMPORT instead keeps
-existing Definitions and consumers unchanged: reuse as-is or add a reusable Definition
-with the necessary inputs/composition, even for the same role. New resources with the
-same composition and input meanings share one Definition and differ by instance inputs.
-Do not clone identical shapes solely for environment names, Resource IDs, physical IDs
-or acquisition count. This restriction does not forbid structurally necessary new
-Definitions. Only selected overwrite Instances may switch Definition; do not align other environments for reuse.
-Keep distinct definitions for different roles even if expanded values happen to match.
-Add only inputs needed to preserve real differences; do not split service sources by CFn stacks.
-
+General observed saves change only explicitly permitted Rows and preserve all other
+canonical fields and unrelated raw bytes. They do not bypass IMPORT physical-ID protection.
+Design digest excludes observed but includes display/reference/placementName. Complete
+snapshots additionally include observations, original bytes, file sets, project and actual
+read dependencies. After a Deploy observation save, advance only the permitted delta;
+do not absorb concurrent desired/display/reference changes into the session baseline.
 
 ## IMPORT Property source edits
 
-The LLM executing [08_import](../prompts/codex/08_import.md) chooses managed additions,
-confirms refresh/replace and the existing Resource ID with the Human, then edits ordinary
-candidate template/YAML/bindings/observed sources one resource at a time. Python
-acquires/normalizes, verifies declared correspondence/captured values and preserves
-consumers; it never selects an overwrite target or reconstructs Model composition.
+The LLM matches acquired records and asks the Human for necessary selections. Python
+acquires/normalizes and verifies acquired values, correspondence, full Review, candidate,
+scope and snapshot; it does not choose an overwrite target or orchestrate services.
 
-Reuse unchanged Definitions when selected-instance inputs express acquired values.
-Otherwise preserve the Definition and add a reusable one with necessary composition
-and inputs. Same-composition additions share one Definition; no cloning solely for
-physical IDs, environments or acquisition counts. A selected existing Instance may
-switch Definition while retaining Resource and existing Row maps. Add only captured
-rows owned by the selected Resource. Other Instances and common inputs remain intact.
+add allocates new fixed Resource/Row IDs and unique anchors in IMPORT mode. refresh keeps
+the same physical identity. bind/replace require the explicit existing IMPORT target and
+validated before physical ID. Preserve type/mode/anchor/placement, existing Row ownership
+and metadata, native JSON types and array order, unacquired Properties and nonselected
+Resources. No implicit deletion or CREATE conversion.
 
-Add allocates new fixed Resource/Row IDs, unique anchors and IMPORT mode. Refresh
-requires the same physical identity; replace requires a different identity and explicit
-existing IMPORT target with validated before identity/Model state. Preserve existing
-Resource type/mode/anchor/placement, row ownership and metadata. Update only captured
-Property values/observations; preserve native types/arrays and unacquired Properties.
-Nonselected Resources, inputs, bindings, references and observations remain unchanged.
-Keep unchanged YAML comments/order/spacing. No implicit deletion or CREATE conversion.
+Reference proposals are optional. An explicit map is the complete after map; an empty
+map proposes deletion. Do not merge the before map back into it. Determine owners from
+consumerKey; moves check both owners and deletions check the old owner. Protect every
+nonselected owner. Re-extract candidate metadata and compare it with the full Review,
+including reference-only semantic changes even when the saved value is unchanged.
 
-Only the selected service templates and selected Environment/Target/service inputs
-are writable. Shared-Definition consumers in other environments are read-only;
-reuse existing consumer-preservation checks and add a Definition rather than changing
-those consumers. For selected captured references, reuse the existing resolver and
-[Selected-resource references](../prompts/codex/08_import.md#selected-resource-references).
-Replace additionally reuses incoming-reference analysis over registered same-target
-services; non-self usages or unresolved analysis return warnings and preserve snapshots. No unrelated
-reference edits or automatic Model-only operations are authorized.
-
-An absent service is distinct from zero Resources. Reuse the New service creation
-format and `load_for_edit(path, source_files)` to check explicit candidate sources;
-normal Import publishes their creation atomically, without writing initial authority
-files first. Existing incomplete/malformed sources remain errors.
-
-Acquisition/publication scope remains one environment/target/service. The LLM sequences
-multiple services with separate Tasks and sessions, not a Python batch API. Publish
-one completed service candidate with existing type/syntax/evidence/hash/identity/scope
-checks, lock and journal/rollback. Then publish only its Markdown/JSON separately.
-Display failure retains saved Model. Explicit issues owns design constraint checks.
+Read-only incoming analysis for bind/replace never calls a CREATE mutation guard.
+Keep semantic warnings; propagate malformed metadata, I/O and scope violations.
+Accumulate the whole service candidate and all acquired-record Reviews before one save.
+Model and receipt rollback together. Save generated views afterward in a separate
+transaction. A display failure keeps the Model and permits recover-display without
+acquisition, new Import or renewed consent for unchanged approved content.
 
 ## Model-only intermediate sources
 
-The explicit /update parent may run model-transfer, model-retarget and model-delete
-independently in its managed worktree. Their skill bodies own the editing procedures.
-`model_sources.read_sources` reads raw registered template/parts, YAML inputs, bindings
-and optional observed without expansion; entering the publication lock may recover an
-existing interrupted journal. `source_write_context` pins the explicit parent and raw
-input set after recovery. `write_sources` saves only authorized supplied text/deletions,
-then consumes the context even on no-op/failure. It never completes/generates/merges.
-The existing I/O rollback covers one write, preserving prior successful leaf saves.
+Use the running parent's managed worktree and its exact Task/scope/path authority.
+The Task adapter issues a one-use SourceWriteContext. prepare_edit checks syntax, full
+canonical structure, fixed identity and layout, and publish_edit compares fresh inputs,
+Task/HEAD/worktree ownership, locks and journals the exact candidate. Neither policy
+names nor approved flags confer authority. All commands use this shared save boundary.
 
-Full expansion is optional editing assistance and can fail on intermediate sources.
-Generation prepares/views validates/publishes separately. The final difference checker
-proves all pairs/deletions and non-reference preservation at once, reporting reference differences as warnings.
-For import-delete, one parent owns all sources across its same-target services and all
-registered related reference repairs. Each leaf handles one Resource and returns before
-the next; generation/final validation/merge run only after all leaves finish. A repair may
-reuse an existing Definition or add one for registered retained consumers, preserving
-fixed Resource/Row maps and every non-target consumer. This narrow /update exception
-does not alter acquisition/refresh/replace restrictions or grant general IMPORT edits. Outside the
-managed running Model-only boundary, existing completed-candidate IMPORT guards remain.
-Acquisition/addition restrictions above are unchanged.
+Each successful leaf save survives a later failed leaf. Intermediate saves do not
+complete/generate/merge or add unconditional final design validation. retarget retains
+its required pre-save operation check. One import-delete parent owns its named sources
+and declared repairs; perform all leaves before one generation/final-integration phase.
+The final latest-base comparison proves every pair/deletion and retained configuration,
+observation, identity, composition and reference position across the full candidate.
+Integration consumes the same validated HEAD/base/Task; no force/skip alternative exists.
 
 ## Reference usage and dependency detach
 
-`model_reference_usage.incoming_references(root, resource_address)` and
-`outgoing_references(root, resource_address)` share the final operation checker's
-symbolic traversal and existing expansion/resolution. Addresses are exact
-`environment/target/service/fixed-Resource-ID`. Results carry producer/consumer, key,
-Property, JSON pointer, typed/link kind, format, role, effective value and source
-location/provenance. Selected choice origins follow the chosen expression, including
-JSON positions after optional removals. No expanded-value string matching identifies
-a dependency; equal names do not collapse fixed identities. Only active Instances and
-selected branches participate. Results are `{references, warnings, complete}`; unresolved
-references retain raw expressions, known identities and provenance. Optional `before`
-uses the existing prior snapshot for removed targets/values. The JSON CLI reports
-incomplete analysis with warnings and exit zero; malformed inputs and I/O remain errors.
-No model edits, Task writes or generated output.
-A pending publication-recovery journal stops this read-only API without recovering it.
+Metadata describes the actual saved consumer string occurrence; it never regenerates it.
+Trace direct links and declared resource/stack/context references, including JSON leaf
+pointers and incoming consumers. Raw name reads desired; identifier reads observed;
+KMS grouped display is used only by the existing display rule. Conflicting declared and
+direct-link producers remain separate meanings with a WARNING.
 
-Incoming discovery is restricted to the addressed environment/target; outgoing usage
-expands only its service and resolves needed producer attributes. Reuse an immutable
-input context for related calls. Refactor validation includes registered direct shared
-template consumers and their target references, preserving other environments without
-unconditional repository-wide expansion. It retains ordinary design publication and
-the existing IMPORT guard for independent refactors. Related deletion repairs instead
-use the same import-delete parent and its intermediate source writer. See
-[Value-preserving Model refactor](task-contract.md#value-preserving-model-refactor)
-for explicit declaration, comparison and final-candidate requirements.
+Incoming analysis is read-only and target-scoped. Keep fixed producer identity even when
+names match; use existing immutable read contexts. Invalid metadata ownership/position,
+syntax, I/O and scope remain errors. An unfinished journal stops read-only analysis.
+
+Value-preserving detach requires its exact existing Task declaration and surviving IMPORT
+consumer. Keep saved native values and every undeclared meaning unchanged, and remove
+only the declared dependency metadata. Direct links still represent dependencies; merely
+removing metadata does not detach them. Use the named retarget/delete operation for
+other explicit reference changes. Preserve retained refids; never renumber them on reorder.
+
+## One-time format migration
+
+Use the [limited format migration contract and recovery procedure](../docs/model-migration.md).
+Pin baseline, services, old/new formats, exact source paths and export hash. Export the
+old baseline in the isolated fixed old runtime, then strictly compare all new authority.
+Preserve project, IaC and issues bytes/file sets. Existing issues remain unresolved;
+format equivalence does not assert whole-design/IaC validation success. No normal-reader
+fallback, dependency-detach disguise, force or skip is permitted.

@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 
-from model_files import read_model
+from model.files import read_model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -15,7 +15,7 @@ from support.model_sources import write_model
 
 import sync_runtime
 
-import model_projection
+import model.projection as model_projection
 
 import json
 
@@ -31,7 +31,7 @@ from support.validator import load
 
 from array_display import indexed_rows
 
-from model_display import row_table
+from model.display import row_table
 
 from cloudformation_schema import CloudFormationSchemaCatalog, manifest_text
 

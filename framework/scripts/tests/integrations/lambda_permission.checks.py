@@ -49,6 +49,7 @@ def main():
         rejects(lambda: markdown_for(path, bad, root), "grouped formal row does not match parentReference")
         bad = dict(values)
         del bad["desired.row.002-001.property"]
+        del bad["observed.row.002-001.property"]
         rejects(lambda: markdown_for(path, bad, root), "invalid resource row")
         for text, message in (
             (output.replace("Permission.Action", "Permission.Id", 1), "must not be displayed"),

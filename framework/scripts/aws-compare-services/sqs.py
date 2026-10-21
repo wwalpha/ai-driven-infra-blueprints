@@ -1,6 +1,6 @@
 """sqs: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import MISSING, Unresolved
+from model.adapters.aws import MISSING, Unresolved
 
 APIS = {('sqs', 'get_queue_url'), ('sqs', 'get_queue_attributes')}
 
@@ -19,7 +19,7 @@ def fetch(ctx, r, getter):
     documents=[ctx.call('sqs','get_queue_attributes',QueueUrl=url,AttributeNames=['Policy']).get('Attributes',{}).get('Policy',MISSING) for url in urls]
     if not documents:
         raise Unresolved('queue policy has no queue relationship')
-    from model_aws_compare import policy, stable
+    from model.adapters.aws import policy, stable
     if len({stable(policy(v)) for v in documents if v!=MISSING})>1 or any(v==MISSING for v in documents):
         raise Unresolved('associated queues have missing or different policies')
     return {'Queues':urls,'Policy':documents[0]}

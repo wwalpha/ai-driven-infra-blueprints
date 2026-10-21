@@ -141,6 +141,7 @@ def check(root):
     repository_path.parent.mkdir(parents=True)
     repository_path.write_text(markdown_for(repository_path, repository, current), encoding='utf-8')
     assert 'kept-hidden-id' not in repository_path.read_text(encoding='utf-8')
+    write_model(current / 'model/dev/123456789012/codecommit.properties', repository)
     validate_views(current, current, [repository_path], {repository_path: repository})
     assert 'RepositoryId' not in repository_path.read_text()
     assert repository['desired.row.007-012.value'] == '`kept-hidden-id`'

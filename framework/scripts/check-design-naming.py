@@ -5,7 +5,7 @@ import argparse
 from pathlib import Path
 import sys
 
-from model_design import design_naming_errors
+from model.validation import design_naming_errors
 
 
 def main() -> int:

@@ -9,13 +9,10 @@ import tempfile
 import time
 from pathlib import Path
 
-from model_core import properties, LINK
-from model_files import read_model
-from model_templates import model_paths, service_source, source_inputs, authority_snapshot
-from validation_cache import digest_files
+from model.sources import model_paths, load_model, authority_snapshot, source_scope, FileReads
 from iac_values import fingerprint
 from cloudformation_inputs import Blocked
-from cloudformation_observed import MappingError, mappings, sync_successful, removed_resources
+from model.adapters.observed import MappingError, mappings, sync_successful, removed_resources
 from task_contract import task_path, status, paths_in
 from validation_scope import active_scope as validation_scope
 from deployment.scheduler import run_group
@@ -47,21 +44,43 @@ def design_digest(root, environment, directory):
                 if (env, target) == (environment, directory)] if scope is not None
                else model_paths(root, environment, directory))
     pending.append(root / "model" / environment / directory / "cloudformation-stacks.properties")
-    snapshot = {}
+    snapshot, reads = {}, FileReads()
     while pending:
         path = pending.pop().resolve()
         if path in snapshot:
             continue
-        values = {key: value for key, value in properties(read_model(path)).items() if not key.startswith("observed.")}
-        snapshot[path] = {"values": values, "sources": digest_files(root, source_inputs(path))} if service_source(path) else values
-        for value in values.values():
-            link = LINK.fullmatch(value)
-            if link and link.group(2):
-                reference = (path.parent / link.group(2)).with_suffix(".properties").resolve()
-                if not reference.is_relative_to(root / "model"):
-                    raise Blocked("model reference escapes immutable design scope")
-                pending.append(reference)
+        if reads.kind(path) == 'missing':
+            snapshot[path] = None
+            continue
+        model = load_model(path, reads)
+        snapshot[path] = {key: value for key, value in model.authoritative.items() if not key.startswith('observed.')}
+        for dependency in model.dependencies:
+            if dependency.is_relative_to(root / 'model'):
+                pending.append(source_scope(root, dependency).path)
     return fingerprint({str(path.relative_to(root)): values for path, values in snapshot.items()})
+
+
+def model_input_manifest(root, environment, directory):
+    import hashlib
+    return {path.relative_to(root).as_posix(): None if raw is None else hashlib.sha256(raw).hexdigest()
+            for path, raw in authority_snapshot(root, environment, directory).items()}
+
+
+def require_session_format(session):
+    expected = {'version': 3, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1}
+    if any(type(session.get(key)) is not int or session[key] != value for key, value in expected.items()):
+        raise Blocked('controller session format is incompatible with properties v2; start a new session')
+
+
+def verify_observed_transition(root, environment, directory, previous, outputs, intended_design):
+    from model.observed import verify_observed_outputs
+    verify_observed_outputs(previous, outputs)
+    expected = {**previous, **{path: text.encode('utf-8') for path, text in outputs.items()}}
+    if authority_snapshot(root, environment, directory) != expected:
+        raise Blocked('Model sources changed outside authorized observed publication')
+    if design_digest(root, environment, directory) != intended_design:
+        raise Blocked('observed publication changed intended Model design')
+    return model_input_manifest(root, environment, directory)
 
 
 def validation_digest(root, target, file_digest, unit_digests):
@@ -226,8 +245,9 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                     # Exact input digests/manifest below reject any other dirty bytes.
                     if not repaired:
                         raise Blocked('deploy revision dirty without repair evidence')
-            if session.get("version", 1) not in {1, 2}:
-                raise Blocked("unsupported controller session version")
+            require_session_format(session)
+            if session.get('modelInputManifest') != model_input_manifest(root, args.environment, directory):
+                raise Blocked('Model raw inputs or dependency file set changed; cannot resume this session')
             if session["inputDigest"] != digest:
                 raise Blocked("target, design or scope changed; cannot resume this session")
             for name, state in session["states"].items():
@@ -241,8 +261,9 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                 raise Blocked("new session requires unused state path and no approvals")
             session = {"inputDigest": digest, "unitDigests": unit_digests,
                        "states": {unit["name"]: {"status": "NOT_STARTED"} for unit in units}}
-        # v1 sessions resume conservatively: no cached validation or observed barrier is assumed.
-        session.update(version=2, designDigest=current_design, profile=backend.profile)
+        session.update(version=3, modelFormat=2, snapshotVersion=2, referenceMeaningVersion=1,
+                       designDigest=current_design, profile=backend.profile,
+                       modelInputManifest=model_input_manifest(root, args.environment, directory))
         session.setdefault('repository', str(root))
         session.setdefault('taskFile', task_path(root).relative_to(root).as_posix())
         from deploy_preparation import sha, task_digest
@@ -279,6 +300,8 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                 raise Blocked("project target changed before mutation")
             if design_digest(root, args.environment, directory) != current_design:
                 raise Blocked("intended model changed before mutation")
+            if model_input_manifest(root, args.environment, directory) != session['modelInputManifest']:
+                raise Blocked('Model raw inputs or dependency file set changed before mutation')
             if infra_manifest() != session['infraManifest']:
                 raise Blocked('unauthorized IaC change outside controlled repair')
             if task_digest(task_path(root).read_text(encoding='utf-8')) != session['taskDigest']:
@@ -290,13 +313,8 @@ def run(args, root, timing, script_directory, backend_type, load_units):
         backend.guard = guard
         backend.before_observed = lambda: authority_snapshot(root, args.environment, directory)
         def after_observed(previous, outputs):
-            nonlocal current_design
-            expected = {**previous, **{path: text.encode('utf-8') for path, text in outputs.items()}}
-            if authority_snapshot(root, args.environment, directory) != expected:
-                raise Blocked('Model sources changed outside authorized observed publication')
-            # Only proven observed writer outputs advance the immutable session baseline.
-            current_design = design_digest(root, args.environment, directory)
-            session['designDigest'] = current_design
+            session['modelInputManifest'] = verify_observed_transition(
+                root, args.environment, directory, previous, outputs, current_design)
         backend.after_observed = after_observed
         def refresh_validation(unit):
             # Reuse validator/cache, but schema/naming/policy/model checks concern only affected services.

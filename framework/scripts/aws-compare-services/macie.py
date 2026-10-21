@@ -1,6 +1,6 @@
 """macie: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import one
+from model.adapters.aws import one
 
 APIS = {('macie2', 'list_classification_jobs'), ('macie2', 'get_macie_session'), ('macie2', 'describe_classification_job')}
 

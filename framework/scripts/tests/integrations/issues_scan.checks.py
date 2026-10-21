@@ -105,11 +105,8 @@ def checks(root, values, template):
     loaded = load_model(root / 'model/dev/123456789012/s3.properties')
     assert any(path.name.startswith('part-') for path in loaded.files)
     for key, (path, line) in loaded.locations.items():
-        trace = __import__('model_templates').load_expansion(root/'model/dev/123456789012/s3.properties').provenance[key]
-        if 'template' in trace:
-            assert path.read_text(encoding='utf-8').splitlines()[line - 1].partition('=')[0] == trace['key']
-        else:
-            assert path.name == 'observed.json'
+        assert path in loaded.files
+        assert path.read_text(encoding='utf-8').splitlines()[line - 1].partition('=')[0] == key
     indexed = resource_row_index(loaded.values)
     oldrows = entries(loaded.values, 'desired.row.')
     for identity in indexed:
@@ -121,8 +118,8 @@ def checks(root, values, template):
     expect_error(lambda: resource_row_index(legacy), 'ambiguous')
     @input_scope
     def shared_parse():
-        import model_templates
-        with patch.object(model_templates, 'load_expansion', wraps=model_templates.load_expansion) as parse:
+        import model.sources as sources
+        with patch.object(sources, '_read_model', wraps=sources._read_model) as parse:
             path = root / 'model/dev/123456789012/s3.properties'
             one, two = load_model(path), load_model(path)
             assert one is two and read_model(path) == one.text
@@ -160,7 +157,7 @@ def checks(root, values, template):
     source = root / 'model/dev/123456789012/s3.properties'
     originals = load_model(source).files.copy()
     for path, text in originals.items():
-        if path.name != 'source.json' and path.is_relative_to(root/'model/parameters') or path.is_relative_to(root/'model/templates'):
+        if path in loaded.files:
             path.write_bytes(text.replace('\n', '\r\n').encode('utf-8'))
     crlf = load_model(source)
     assert crlf.values == loaded.values
@@ -223,7 +220,7 @@ def checks(root, values, template):
         save(root, 'dev', '123456789012', services, iac=[])
         assert 'invalid iac report' not in paths[1].read_text()
         paths[1].unlink()
-    with task(root, ['s3'], name='unreserved', allowed=['issues/dev/123456789012/diff.md']):
+    with task(root, ['s3'], name='unreserved', allowed=['issues/dev/123456789012/iac-issues.md']):
         expect_error(lambda: save(root, 'dev', '123456789012', ['s3']), 'Allowed paths')
     with task(root, ['s3'], name='mixed', allowed=['issues/dev/123456789012/issues.md', 'model/dev/123456789012/s3.properties']):
         expect_error(lambda: save(root, 'dev', '123456789012', ['s3']), 'save-only')
@@ -261,10 +258,8 @@ def resource_cases(root):
     source = root / 'model/dev/123456789012/s3.properties'
     original_files = {path: text for path, text in load_model(source).files.items()}
     def publish(model):
-        for part in source.with_suffix('').glob('*.properties'):
-            part.unlink()
-        for path, text in model_file_contents(source, '\n'.join(f'{key}={value}' for key, value in model.items()) + '\n').items():
-            write(path, text)
+        remove_model(source)
+        write_model(source, model)
     values['desired.resource.001.resourceMode'] = 'IMPORT'
     publish(values)
     comparator, records = compare(root, ['s3'])
@@ -282,7 +277,7 @@ def resource_cases(root):
                    'desired.row.004-002.property': 'S3.Bucket.BucketName', 'desired.row.004-002.value': '[PENDING_DEPLOY](#s3-bucket-app-dev-data1)', 'desired.row.004-002.comment': '参照'})
     publish(values)
     comparison = Comparison(root, 'dev', '123456789012', ['s3'])
-    _, stacks = __import__('model_core').stack_model(comparison.model('cloudformation-stacks').values)
+    _, stacks = __import__('model.core', fromlist=['stack_model']).stack_model(comparison.model('cloudformation-stacks').values)
     comparison.stack(stacks[0][1])
     assert comparison.reference('s3', '[PENDING_DEPLOY](#s3-bucket-app-dev-data1)') == comparison.evaluate(stacks[0][1]['name'], {'Ref': 'Bucket'})
     assert comparison.reference('s3', '[PENDING_DEPLOY](#s3-bucket-app-dev-data1)', 'Arn') == comparison.evaluate(stacks[0][1]['name'], {'Fn::GetAtt': ['Bucket', 'Arn']})
@@ -293,6 +288,7 @@ def resource_cases(root):
     expect_error(lambda: comparison.reference('s3', '[PENDING_DEPLOY](#s3-bucket-app-dev-data1)'), 'IMPORT reference is PENDING_DEPLOY')
     rid = next(rid for rid, row in comparison.rows['s3']['001'] if row['property'] == 'S3.Bucket.BucketName')
     key = f'observed.row.{rid}.value'
+    comparison.models['s3'] = comparison.models['s3']._replace(values=dict(comparison.models['s3'].values))
     original = comparison.models['s3'].values.get(key)
     comparison.models['s3'].values[key] = '`PENDING_DEPLOY`'
     expect_error(lambda: comparison.reference('s3', '[PENDING_DEPLOY](#s3-bucket-app-dev-data1)'), 'IMPORT reference is PENDING_DEPLOY')
@@ -305,8 +301,8 @@ def resource_cases(root):
     # Restore all real part files, then Terraform remains explicit partial without CFn IDs.
     for part in source.with_suffix('').glob('*.properties'):
         part.unlink()
-    for path, text in original_files.items():
-        write(path, text)
+    from sync_files import save_files
+    save_files(original_files)
     project = root / 'project.json'
     original = project.read_text()
     write(project, original.replace('cloudformation', 'terraform'))
@@ -321,10 +317,8 @@ def extended_cases(root, template):
     originals = load_model(source).files.copy()
     values = load_model(source).values.copy()
     def publish(values):
-        for part in source.with_suffix('').glob('*.properties'):
-            part.unlink()
-        for path, content in model_file_contents(source, '\n'.join(f'{key}={value}' for key, value in values.items()) + '\n').items():
-            write(path, content)
+        remove_model(source)
+        write_model(source, values)
     # Inline child stays with its owning parent, even in a mixed-service template.
     policy = {'Version': '2012-10-17', 'Statement': [{'Effect': 'Allow', 'Action': ['s3:GetObject'], 'Resource': ['first', 'second']}]}
     values.update({'desired.row.001-090.property': 'S3.BucketPolicy.PolicyDocument',
@@ -345,16 +339,15 @@ def extended_cases(root, template):
     _, records = compare(root, ['s3'])
     assert any('inline child correspondence matches=2' in item['reason'] for item in records)
     # Malformed authoritative policy input becomes a processing error, never a match.
-    values['desired.row.001-090.document'] = '{bad json'
-    publish(values)
+    source.write_text(re.sub(r'^desired\.row\.001-090\.document=.*$', 'desired.row.001-090.document={bad json', source.read_text(), flags=re.M))
     changed['Resources'].pop('SecondPolicy')
     mutate_template(root, changed)
     _, records = compare(root, ['s3'])
     assert any(item['category'] == 'error' for item in records)
     for part in source.with_suffix('').glob('*.properties'):
         part.unlink()
-    for path, content in originals.items():
-        write(path, content)
+    from sync_files import save_files
+    save_files(originals)
     mutate_template(root, template)
     # Independent grouped child uses its own mode and formal implicit parentReference.
     kms = {'desired.service.kms.serviceId': 'kms', 'desired.service.kms.ownedCatalogResourceTypes': 'KMS.Key,KMS.Alias',
@@ -384,7 +377,7 @@ def extended_cases(root, template):
     mutate_template(root, changed)
     _, records = compare(root, ['kms'])
     assert any(item['property'] == 'KMS.Alias.TargetKeyId' and item['category'] == 'matched' for item in records)
-    shutil.rmtree(__import__('model_templates').source_paths(kmspath)[2])
+    remove_model(kmspath)
     mutate_template(root, template)
     # A singleton model reference to a schema array remains an array, never a scalar.
     modelpath = root / 'model/dev/123456789012/codebuild.properties'
@@ -397,7 +390,7 @@ def extended_cases(root, template):
     comparison = Comparison(root, 'dev', '123456789012', ['codebuild'])
     value = comparison.desired_value('codebuild', comparison.rows['codebuild']['001'][0][1], 'CodeBuild.Project')
     assert isinstance(value, list) and len(value) == 1 and value[0]['$attribute'] == 'SubnetId'
-    shutil.rmtree(__import__('model_templates').source_paths(modelpath)[2]); shutil.rmtree(__import__('model_templates').source_paths(refpath)[2])
+    remove_model(modelpath); remove_model(refpath)
     # Pattern disagreement, unknown components, required missing Name are separate review material.
     vpc = {'desired.service.vpc.serviceId': 'vpc', 'desired.service.vpc.ownedCatalogResourceTypes': 'EC2.VPC',
            'desired.resource.001.resourceType': 'EC2.VPC', 'desired.resource.001.anchor': 'vpc-one',
@@ -415,7 +408,7 @@ def extended_cases(root, template):
     assert not next(item for item in material['names'] if item['resource'] == '002')['required_missing']
     item = next(item for item in material['names'] if item['resource'] == '003')
     assert item['value'] == '`bad_pattern_value`' and item['pattern_review'] == 'required' and '推測しない' in material['review_policy']
-    shutil.rmtree(__import__('model_templates').source_paths(path)[2])
+    remove_model(path)
     # Supported local expression/NoValue and NoEcho redaction.
     changed = strict_json(json.dumps(template))
     changed['Mappings'] = {'Table': {'one': {'value': 7}}}
@@ -1363,7 +1356,7 @@ def check_cloudtrail_membership(scan_project):
              'desired.resource.001.anchor': 'trail'}
     for number, (prop, value) in enumerate(fields, 1):
         model.update({f'desired.row.001-{number:03d}.property': kind + '.' + prop,
-                      f'desired.row.001-{number:03d}.value': value})
+                      f'desired.row.001-{number:03d}.value': value, f'desired.row.001-{number:03d}.comment': '合成設定'})
     write_model(root / 'model/dev/123456789012/cloudtrail.properties', model)
     selectors = [
         {'IncludeManagementEvents': True, 'ReadWriteType': 'All', 'DataResources': [
@@ -1538,7 +1531,7 @@ def check_scan_workflow(scan_project):
     extended_cases(root, template)
     sequential_reports(root)
     # Exercise the real scan boundary after five findings, without rerunning comparison.
-    from model_core import ReferenceResolutionError
+    from model.core import ReferenceResolutionError
     for exception in (ReferenceResolutionError, OSError, ValueError, KeyError, ImportError, TypeError):
         retained = []
         def interrupted(comparison):

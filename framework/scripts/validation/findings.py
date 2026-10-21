@@ -2,7 +2,7 @@
 
 
 from pathlib import Path
-from model_core import ReferenceResolutionError
+from model.core import ReferenceResolutionError
 from dataclasses import dataclass, field, replace
 
 

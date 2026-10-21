@@ -8,7 +8,7 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 
 from support.model_sources import snapshot_model
 
-from model_files import read_model
+from model.files import read_model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -25,7 +25,7 @@ from deployment import scheduler
 
 import sync_views
 
-import model_projection
+import model.projection as model_projection
 
 import importlib.util
 
@@ -53,11 +53,11 @@ from unittest.mock import patch
 
 from types import SimpleNamespace
 
-from model_design import markdown_for
+from model.render import markdown_for
 
-from model_references import deployment_bucket
+from model.projection import deployment_bucket
 
-from model_core import stack_model, deployment_settings, properties
+from model.core import stack_model, deployment_settings, properties
 
 from design_layout import stack_delivery
 
@@ -157,6 +157,10 @@ class DeliveryAws(StubAws):
         self.default_algorithm, self.default_key, self.policy = 'AES256', None, None
         self.key_arn = 'arn:aws:kms:ap-northeast-1:123456789012:key/test-key'
         self.key_state, self.key_enabled = 'Enabled', True
+        root.mkdir(parents=True, exist_ok=True)
+        project = root / 'project.json'
+        if not project.exists():
+            project.write_text(json.dumps({'targets': [{'environment': 'dev', **TARGET}]}) + '\n')
         # Fixture-owned authoritative models; no consumer files or live AWS.
         for bucket in ('app-dev-assets', 'app-dev-other'):
             self.add_bucket(bucket)
@@ -164,8 +168,8 @@ class DeliveryAws(StubAws):
     def add_bucket(self, bucket, algorithm='AES256', key=None, delegation=False):
         path = self.root / 'model/dev/123456789012/s3.properties'
         path.parent.mkdir(parents=True, exist_ok=True)
-        existing = properties(read_model(path)) if __import__("model_templates").service_source(path) is not None else {}
-        from model_core import entries
+        existing = properties(read_model(path)) if path.is_file() else {}
+        from model.core import entries
         identities = {r['logicalId']: i for i, r in entries(existing, 'desired.resource.')}
         identity = next((i.split('-')[0] for i, row in entries(existing, 'desired.row.')
                          if row.get('property') == 'S3.Bucket.BucketName' and row.get('value', '').strip('`') == bucket),
@@ -183,6 +187,7 @@ class DeliveryAws(StubAws):
         for number, (prop, value) in enumerate(rows, 1):
             values[f'desired.row.{identity}-{number:03d}.property'] = 'S3.Bucket.' + prop
             values[f'desired.row.{identity}-{number:03d}.value'] = value
+            values[f'desired.row.{identity}-{number:03d}.comment'] = '合成配置設定'
         write_model(path, '\n'.join(f'{k}={v}' for k, v in values.items()))
 
     def aws(self, operation, *arguments, service="cloudformation"):
@@ -232,3 +237,44 @@ class DeliveryAws(StubAws):
 
 
 __all__ = ['Barrier', 'DeliveryAws', 'Fake', 'M', 'Path', 'ROOT', 'SimpleNamespace', 'StubAws', 'TARGET', 'base64', 'copy', 'deployment_bucket', 'deployment_settings', 'finish', 'get_ident', 'hashlib', 'importlib', 'io', 'json', 'load', 'markdown_for', 'model_projection', 'patch', 'properties', 'pytest', 'read_model', 'redirect_stderr', 'redirect_stdout', 'rejects', 'run', 'scheduler', 'shutil', 'snapshot_model', 'stack_delivery', 'stack_model', 'starts', 'states', 'sync_views', 'sys', 'time', 'units', 'write_fixture_files', 'write_model', 'zipfile']
+
+
+def remove_model(path):
+    from model.sources import model_parts
+    for file in model_parts(path):
+        file.unlink()
+    path.unlink(missing_ok=True)
+
+__all__.append('remove_model')
+
+
+def observation_contract(root, services):
+    files = {'tasks/observation-fixture.md'}
+    from model.sources import model_parts
+    from model.core import entries
+    from model.projection import JSON_LINK
+    for service in services:
+        source = root / 'model/dev/123456789012' / (service + '.properties')
+        files.add(source.relative_to(root).as_posix())
+        files.update((source.with_suffix('') / ('part-' + str(number).zfill(3) + '.properties')).relative_to(root).as_posix()
+                     for number in (1, 2, 3))
+        view = root / 'docs/designs/dev/123456789012' / (service + '.md')
+        files.add(view.relative_to(root).as_posix())
+        if source.is_file():
+            files.update(file.relative_to(root).as_posix() for file in model_parts(source))
+            from model.format import parse
+            values = {key: value for part in model_parts(source) for key, value in parse(part.read_text()).values.items()}
+            for _, row in entries(values, 'desired.row.'):
+                if match := JSON_LINK.fullmatch(row['value']):
+                    files.add((view.parent / match[1]).relative_to(root).as_posix())
+    listed = ''.join('- `' + file + '`\n' for file in sorted(files))
+    text = ('## Task contract\n- Task type: `design`\n- Task status: `running`\n- Workflow: `update`\n'
+            '- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n'
+            '## Required changes\n- [R1] Synthetic selected observation\n'
+            '## Acceptance checks\n- [R1] `exists:project.json`\n## Validation scope\n')
+    text += ''.join('- `dev/123456789012/' + service + '`\n' for service in services)
+    for heading in ('Modified files', 'Allowed paths'):
+        text += '## ' + heading + '\n' + listed
+    return text
+
+__all__.append('observation_contract')

@@ -76,7 +76,7 @@ def check_optional_alias_targets() -> None:
         assert validator.accounts[("dev", "non-cde")]["account"] == "123456789012"
         assert validator.accounts[("sandbox", "210987654321")]["account"] == "210987654321"
 
-        from import_scope import restrict
+        from model.importing.scope import restrict
         cross_environment = [*topology["targets"],
                              *[{**target, "environment": "stg"} for target in topology["targets"][:2]]]
         write(root / "project.json", json.dumps({**topology, "targets": cross_environment}) + "\n")
@@ -188,11 +188,11 @@ def check_optional_alias_targets() -> None:
 def check_model_task_boundaries() -> None:
     prompt = SCRIPT.parents[2] / "tasks" / "active.md"
     for task_type, changed in {
-        "design": {"docs/designs/dev/cde/vpc.md", "model/parameters/dev/cde/vpc/parameters.yaml"},
+        "design": {"docs/designs/dev/cde/vpc.md", "model/dev/cde/vpc.properties"},
         "infrastructure": {
             "infra/cloudformation/templates/vpc.yaml",
             "docs/designs/dev/cde/vpc.md",
-            "model/parameters/dev/cde/vpc/parameters.yaml",
+            "model/dev/cde/vpc.properties",
         },
     }.items():
         validator = MODULE.Validator(SCRIPT.parents[2])

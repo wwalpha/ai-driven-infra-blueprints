@@ -12,12 +12,12 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 ## Identifier lifecycle
 
 [Service Model templates](model-templates.md) defines the authoritative inputs.
-Persist actual observations in the environment/service observed.json; runtime Models
+Persist actual observations in environment/service properties; runtime Models
 restore property/comment from desired metadata. Markdown and external JSON are generated outputs.
 
 - Observed values are the minimum necessary machine-readable values obtained from the current deployment, not scenario evidence.
-- Environment/service observed.json is the authority for observed values; generate detailed design catalog `IDENTIFIER_OUTPUT` rows and all references from it.
-- Update observed.json values first and regenerate Markdown with `framework/scripts/sync-model.py` only after AWS mutation in a successful `infrastructure` task or read-only retrieval of existing resources selected by the human in a `design` task.
+- Environment/service observed.row.*.value is the authority for observed values; generate detailed design catalog `IDENTIFIER_OUTPUT` rows and all references from it.
+- Patch permitted observed.row.*.value fields first and regenerate Markdown with `framework/scripts/sync-model.py` only after AWS mutation in a successful `infrastructure` task or read-only retrieval of existing resources selected by the human in a `design` task.
 - The explicit Model-only `/update` merge/delete branch may transfer already recorded observations or remove only the selected IMPORT observations, under its exact-diff guard; it performs no retrieval.
 - `scenario-test` tasks may read runtime Models and authoritative source inputs but must not change them.
 - Collect only values needed for follow-up configuration, links, connections, operations, and future task inputs.
@@ -52,7 +52,7 @@ Retrieve IMPORT settings and update their observed values only via the authorize
 - After updating observed rows corresponding to model identifier outputs, update observed values of all model rows referencing the same identifier to the same value. Generation updates Markdown link display text. Do not change reference source `Source / Comment`, link target paths, or anchors.
 - After updates, regenerate Markdown and use the validator to confirm equality of identifier outputs and all references. Do not save generated ARNs, secrets, or old physical IDs.
 
-The CloudFormation controller directly matches each model resource's `cfn-logicalId=<StackName>-<Resources key>` using common implement/deploy validation in `cloudformation_observed.py`. Do not use a separate mapping table. Models with legacy logicalId only retain existing unique matching by formal type and legacy ID. Exclude resources with direct IDs from name searches; do not fill invalid/missing IDs by fallback. Evaluate Conditions using stack-specific parameters/defaults and account/region/StackName; exclude false resources from matching, identifier validation, and ownership decisions. Stop for unresolved, cyclic, or non-boolean conditions. Stop with `AMBIGUOUS_OBSERVED_MAPPING` for mapped CREATE classification, formal type, uniqueness, or catalog row/Output/actual mismatches. Do not infer mappings from names, file order, or past physical IDs.
+The CloudFormation controller directly matches each model resource's `cfn-logicalId=<StackName>-<Resources key>` using common implement/deploy validation in `model/adapters/observed.py`. Do not use a separate mapping table. Models with legacy logicalId only retain existing unique matching by formal type and legacy ID. Exclude resources with direct IDs from name searches; do not fill invalid/missing IDs by fallback. Evaluate Conditions using stack-specific parameters/defaults and account/region/StackName; exclude false resources from matching, identifier validation, and ownership decisions. Stop for unresolved, cyclic, or non-boolean conditions. Stop with `AMBIGUOUS_OBSERVED_MAPPING` for mapped CREATE classification, formal type, uniqueness, or catalog row/Output/actual mismatches. Do not infer mappings from names, file order, or past physical IDs.
 
 Local implement preflight excludes formal resource types whose Model resources are all IMPORT without cfn-logicalId, including identity-free settings of an excluded parent. These resources require no creation mapping or identifier Outputs. Mixed CREATE/IMPORT types and unknown types retain strict mapping checks; explicit cfn-logicalId on IMPORT remains invalid. Conditions and integrated parent references are still checked. Deploy, deletion and observed synchronization retain full template ownership checks; local exclusion does not authorize creating or deleting IMPORT resources.
 
@@ -64,7 +64,7 @@ Observed synchronization uses the same mappings validated before deploy and reco
 
 Explicit Stack destroy retains the existing rule: after destroy, return identifier output rows and all references to `PENDING_DEPLOY` and regenerate Markdown. Retained/DELETE_SKIPPED resources are reported; this does not introduce different identifier semantics for Stack destroy. The Remove/update retention rules above remain unchanged.
 
-Before deletion, `cloudformation_observed.destroy_plan()` resolves explicit model-owned cfn-logicalId, catalog non-ARN identifier rows, incoming references and exact observed.json/generated Markdown/JSON paths using shared parsers/reference scanning. CREATE designs lacking cfn-logicalId may remain unimplemented: when their non-ARN observed output identifiers are absent or PENDING_DEPLOY, report them in unmappedResources and exclude them from ownership and synchronization. Legacy logicalId is not ownership evidence; do not infer a mapping or live absence. A resolved observed output identifier without cfn-logicalId remains a stop. Reject ambiguous ownership, out-of-target references, out-of-scope paths before mutation. No templates/parameters or deploy mapping path are used. Declare all possible paths first.
+Before deletion, `model.adapters.observed.destroy_plan()` resolves explicit model-owned cfn-logicalId, catalog non-ARN identifier rows, incoming references and exact observation-bearing properties/generated Markdown/JSON paths using shared parsers/reference scanning. CREATE designs lacking cfn-logicalId may remain unimplemented: when their non-ARN observed output identifiers are absent or PENDING_DEPLOY, report them in unmappedResources and exclude them from ownership and synchronization. Legacy logicalId is not ownership evidence; do not infer a mapping or live absence. A resolved observed output identifier without cfn-logicalId remains a stop. Reject ambiguous ownership, out-of-target references, out-of-scope paths before mutation. No templates/parameters or deploy mapping path are used. Declare all possible paths first.
 
 `sync_destroyed()` uses this saved plan and batches only stacks proven DELETE_COMPLETE by pinned session identity/deletion evidence. Fresh ALREADY_ABSENT, failed and unexecuted stacks never reset identifiers. Write observed only after success; preserve desired/display values, comments, links and anchors. Generate affected services once per batch. If generation fails, retain authoritative models and resume the same session; do not repeat completed deletion. Never persist generated ARNs or AWS execution state in models.
 
@@ -72,7 +72,13 @@ Before deletion, `cloudformation_observed.destroy_plan()` resolves explicit mode
 
 Store actual `observed.row.*.value` only. Runtime Models restore property/comment from
 desired metadata and preserve every observed value without desired-value substitution.
-Absent `observed.json` means unobserved, including new services; do not create empty files.
+An absent observed.row.<id>.value means unobserved. Distinguish empty string and PENDING_DEPLOY; do not create observation sidecars.
 JSON/read errors, orphan rows and unknown states remain errors. Required observation
 checks never treat unobserved as success. Keep the existing no-generated-ARN rule and
 atomic publication/rollback; do not regenerate metadata or empty files during sync.
+
+Observation publication uses the shared Model API with an explicit Row allowlist.
+Preserve non-observed fields, reference metadata, fixed placement and unrelated bytes.
+General synchronization cannot change IMPORT physical identity. Model/display saves are
+separate transactions. Deploy advances only permitted observations after checking the
+complete snapshot; it never rebaselines concurrent design changes.

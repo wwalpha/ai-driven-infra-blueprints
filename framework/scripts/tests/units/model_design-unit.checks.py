@@ -230,10 +230,9 @@ def check_cli_result(result, monkeypatch, capsys):
 
 
 def check_one_way_model_contract():
-    from model_core import validate_model_keys
-    from model_design import validate_required_properties
+    from model.core import validate_model_keys
+    from model.validation import validate_required_properties
     from design_layout import is_import_role_arn
-    from model_parameter_inputs import parameter_value
     from types import SimpleNamespace
     import sync_runtime
     import inspect
@@ -265,14 +264,14 @@ def check_one_way_model_contract():
                                 'display.resource.001.label': '表示名',
                                 'desired.resource.001.cfn-logicalId': 'stack-Recorder'})
     assert 'design.projection' not in inspect.getsource(sync_runtime.validate_generation)
-    for value in ('value', '`value`'):
-        item = {'id': 'fixture', 'definition': 'Fixture', 'parameters': {'Value': value}}
-        definitions = {'Fixture': SimpleNamespace(parameters={'Value': {'type': 'string', 'description': '設定値', 'required': True, 'format': 'literal'}})}
-        assert parameter_value(ROOT / 'fixture.tpl', item, 'Value', [item], {'instances': {'fixture': {}}}, definitions, 'dev', {}) == '`value`'
+    from model.format import parse, serialize
+    for value in ('value', '`value`', '010', '  quoted \"text\" '):
+        assert parse(serialize({'desired.row.001-001.value': value})).values['desired.row.001-001.value'] == value
+
 
 
 def check_selected_model_row_consumption(monkeypatch):
-    import model_design
+    import model.render as model_design
     resource = {'resourceType': 'Config.ConfigurationRecorder', 'resourceMode': 'IMPORT'}
     rows = [['001-001', 'Config.ConfigurationRecorder.RoleARN', '`AWSServiceRoleForConfig`', '記録用IAM Role']]
     output = model_design.resource_table_lines(resource, 'default', rows, [], ROOT)

@@ -11,7 +11,7 @@ if not __debug__:
 
 from support.model_sources import write_model
 
-import model_projection
+import model.projection as model_projection
 
 import tempfile
 

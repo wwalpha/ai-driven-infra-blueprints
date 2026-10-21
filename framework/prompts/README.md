@@ -27,7 +27,7 @@ Implementation scope: docs/designs/dev/cde/vpc.md
 | --- | --- |
 | Create new detailed designs through chatbot design | `chatbot/service-design.md` → Codex prompt output by chatbot → `03_implement.md` → `04_deploy.md` |
 | Reflect current values of existing AWS resources selected by the chatbot into detailed design | `chatbot/service-design.md` → read-only retrieval Codex prompt output by chatbot |
-| The human directly edits existing YAML Model inputs, then reflects them in IaC and deploys while uncommitted | `05_update.md` |
+| The human directly edits existing environment-specific properties Models, then reflects them in IaC and deploys while uncommitted | `05_update.md` |
 | Confirm application behavior after deploy | `06_scenario-test.md` only when needed in either workflow |
 
 For new designs, `service-design.md` outputs completed template/YAML sources and fixed bindings, destination Markdown/JSON, and a self-contained Codex prompt to create them in the repository. When using current values of existing AWS resources, it does not output completed Markdown; it outputs a read-only retrieval Codex prompt including target services, resource types, and properties. For IMPORT, hand off to `/import` / `codex/08_import.md`; direct current-value copying is prohibited. CREATE retrieval retains the existing procedure. Neither uses a fixed design-save-only prompt.
@@ -163,7 +163,7 @@ AWS profile:
 ### `codex/05_update.md`
 
 - Description: Receive uncommitted diffs created by the human in existing authoritative service Model inputs as confirmed design; perform Markdown generation, IaC reflection, and deploy/apply.
-- Timing: The human directly edits existing YAML Model inputs and reflects diffs into CloudFormation/Terraform and AWS resources before commit.
+- Timing: The human directly edits existing environment-specific properties Models and reflects diffs into CloudFormation/Terraform and AWS resources before commit.
 - How to use: Instruct only use of the prompt. Codex obtains environment, AWS account, and Design scope from changed model property paths and determines Deployment scope from corresponding existing IaC. Omitted delete/replacement authorization is `none`; omitted AWS profile uses target `awsProfile`, or default credential chain if unset. Reject explicit profiles differing from settings before execution. If design diffs mix multiple targets, stop without changes; ask only for missing deployment-unit items as needed.
 
 Usage example:
@@ -204,10 +204,10 @@ chatbot/service-design.md
   -> 06_scenario-test.md（behavior確認が必要な場合だけ）
 ```
 
-When the human directly edits existing YAML Model inputs:
+When the human directly edits existing environment-specific properties Models:
 
 ```text
-humanがparameters.yaml／templateの設計入力を修正（未commit）
+humanが環境別propertiesの設計入力を修正（未commit）
   -> 05_update.md
   -> 06_scenario-test.md（behavior確認が必要な場合だけ）
 ```
@@ -227,16 +227,17 @@ If design changes need new human decisions, confirm them in chat before reposito
 
 Independent infrastructure phase `destroy`, invoked by `/destroy <StackName> [<StackName> ...]`. Resolve one explicit target and local JSON ownership/output plan, register the contract, then run cloudformation-destroy.py with external resumable state. Destroy checks context/StackId/protection/nested/export-import dependencies, deletes reverse DeployOrder with bounded concurrency, and batches proven-success observed updates. No deploy preparation, IaC validation, change sets, force delete, retained-resource cleanup, or scenarios. Complete with one scoped task loop.
 
-Model source persistence uses optional `observed.json` with actual row values only;
-runtime property/comment come from desired metadata. File absence means unobserved,
-never observation success. Omit empty observed files and empty binding labels; preserve
-nonempty labels, fixed IDs, internal parameters, references and CFn placement.
+Persist observations only as `observed.row.<id>.value` beside the corresponding
+desired Row. Absent keys, empty strings and PENDING_DEPLOY remain distinct. Derive
+observed Property/comment and artifact hashes at read time. Preserve fixed IDs,
+reference meanings and Stack placementName; ordinary observation updates never
+rewrite desired/display/reference values or unrelated source bytes.
 
 ### `codex/08_import.md`
 
 The authoritative [/import](../../.agents/skills/import/SKILL.md) workflow. Use
 `/import --environment dev --service config --target cde`; add `--dry-run` for inventory/planning
-only. It reuses API/Property maps with AWS CLI inventory, Model expansion/impact,
+only. It reuses API/Property maps with AWS CLI inventory, Model snapshots/reference impact,
 source publication and sync-model. Model values/names do not filter acquisition.
 Only resource-level IMPORT is refreshed; CREATE remains unchanged. Substantive IMPORT
 changes through other workflows fail the common [authority guard](../rules/model-information.md#import-configuration-authority).

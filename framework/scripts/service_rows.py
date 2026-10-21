@@ -3,7 +3,7 @@
 import html
 import json
 import re
-from model_core import LINK, literal, ReferenceResolutionError
+from model.core import LINK, literal, ReferenceResolutionError
 from iac_values import unique_object, invalid_constant
 
 

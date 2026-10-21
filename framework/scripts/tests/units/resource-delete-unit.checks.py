@@ -15,10 +15,13 @@ import pytest
 import yaml
 import task_contract as tasks
 import worktree_task as wt
-from model_operation_checks import verify_model_operation
-from model_sources import read_sources, write_sources
-from import_guard import source_write_context
-from support.import_model_fixtures import (metadata, declaration, binding, save_service, spec,
+from model.operations import verify_model_operation, prepare_edit, publish_edit
+from model.sources import load_model, scope_for
+from model.core import entries
+from model.format import serialize, owner
+from support.model_sources import write_model
+from model.adapters.task import source_write_context
+from support.import_model_fixtures import (service_values, resource_values, reference_fields,
     operation_contract, dependency_fixture, dependency_refactor, dependency_contract)
 
 
@@ -34,50 +37,36 @@ def contract(sources, references=(), detaches=()):
 
 
 def fixture(root, multiple=False):
-    fields = {'name': ('Name', '<<Name>>')}
-    empty = {'definition': 'Metadata', 'resources': {}, 'rows': {}, 'parameters': {}}
-    services = ['service-a']
-    count = 10
-    if multiple:
-        services.append('service-b')
-        count = 5
+    root.mkdir(parents=True, exist_ok=True)
+    services = ['service-a', 'service-b'] if multiple else ['service-a']
+    count = 5 if multiple else 10
     sources = []
+    (root / 'project.json').write_text(json.dumps({'targets': [
+        {'environment': env, 'alias': 'cde', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1',
+         'iacEngine': 'cloudformation'} for env in ('dev', 'stg')]}))
     for service in services:
-        template = ['# model-template: 1'] + metadata(service, ['Example.Resource'])
-        template += declaration('Resource', 'Example.Resource', fields, {'Name': spec(), 'ResourceMode': spec()})
         for env in ('dev', 'stg'):
-            parameters, bindings, observed = {'instances': {}}, {'instances': {'service': empty}}, {}
+            values = service_values(service, ['Example.Resource'])
             for index in range(1, count + 2):
-                rid = str(index).zfill(3)
-                instance = 'resource-' + rid
-                parameters['instances'][instance] = {'parameters': {'Name': env + '-' + rid, 'ResourceMode': 'IMPORT'}}
-                bindings['instances'][instance] = binding('Resource', rid, fields, 'resource-' + rid)
-                observed['observed.row.' + rid + '-001.value'] = 'observed-' + rid
+                rid = f'{index:03d}'
+                values.update(resource_values(rid, 'Example.Resource', 'resource-' + rid, 'IMPORT', [('Name', env + '-' + rid)]))
+                values[f'observed.row.{rid}-001.value'] = 'observed-' + rid
                 if env == 'stg' and index <= count:
                     sources.append('stg/cde/' + service + '/' + rid)
-            save_service(root, service, template, parameters, bindings, observed, environment=env)
-    (root / 'project.json').write_text(json.dumps({'targets': [
-        {'environment': env, 'alias': 'cde', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}
-        for env in ('dev', 'stg')]}))
+            write_model(root / 'model' / env / 'cde' / (service + '.properties'), values)
     return sources
 
 
 def deletion(root, address):
     env, target, service, rid = address.split('/')
-    directory = root / 'model/parameters' / env / target / service
-    files = {name: directory / name for name in ('parameters.yaml', 'bindings.json', 'observed.json')}
-    bindings = json.loads(files['bindings.json'].read_text())
-    parameters = yaml.safe_load(files['parameters.yaml'].read_text())
-    names = [name for name, record in bindings['instances'].items() if rid in record['resources'].values()]
-    for name in names:
-        del bindings['instances'][name]
-        parameters['instances'].pop(name, None)
-    result = {files['bindings.json']: json.dumps(bindings), files['parameters.yaml']: yaml.safe_dump(parameters)}
-    if files['observed.json'].exists():
-        observed = json.loads(files['observed.json'].read_text())
-        observed['values'] = {key: value for key, value in observed['values'].items() if not key.startswith('observed.row.' + rid + '-')}
-        result[files['observed.json']] = json.dumps(observed)
-    return result
+    file = root / 'model' / env / target / (service + '.properties')
+    values = dict(load_model(file).authoritative)
+    return {file: serialize({key: value for key, value in values.items() if owner(key, values) != ('resource', rid)})}
+
+
+def write_candidate(context, changes):
+    scope = scope_for(next(iter(changes)))
+    return publish_edit(prepare_edit(load_model(scope, context.snapshot), changes, context), context)
 
 
 def save(changes):
@@ -100,10 +89,12 @@ def check_ten_deletions(tmp_path, multiple):
     for address in sources:
         save(deletion(after, address))
     verify_model_operation(before, after, operation, changed(before, after))
-    assert (before / 'model/parameters/dev').exists()
+    assert (before / 'model/dev').exists()
     for source_scope in operation.source_scopes:
-        current = json.loads((after / 'model/parameters' / '/'.join(source_scope) / 'bindings.json').read_text())
-        assert len(current['instances']) == 2  # Metadata plus the untouched survivor.
+        env, target, service = source_scope
+        current = load_model(after / 'model' / env / target / (service + '.properties'))
+        assert len(entries(current.authoritative, 'desired.resource.')) == 1
+        assert current.authoritative['desired.service.' + service + '.serviceId'] == service
 
 
 @pytest.mark.parametrize('bad', ['duplicate', 'empty', 'cross-target', 'legacy-mixed', 'merge', 'reference-unrelated', 'detach-unrelated'])
@@ -148,26 +139,14 @@ def check_final_rejects_unrequested_changes(tmp_path, mutation):
         if mutation == 'missing' and source == sources[-1]:
             continue
         save(deletion(after, source))
-    directory = after / 'model/parameters/stg/cde/service-a'
     if mutation == 'extra-delete':
         save(deletion(after, 'stg/cde/service-a/011'))
-    elif mutation in {'setting', 'shared-consumer'}:
-        if mutation == 'shared-consumer':
-            directory = after / 'model/parameters/dev/cde/service-a'
-        path = directory / 'parameters.yaml'
-        values = yaml.safe_load(path.read_text())
-        values['instances']['resource-011']['parameters']['Name'] = 'changed'
-        path.write_text(yaml.safe_dump(values))
-    elif mutation == 'identity':
-        path = directory / 'bindings.json'
-        values = json.loads(path.read_text())
-        values['instances']['resource-011']['parameters']['Anchor'] = 'changed'
-        path.write_text(json.dumps(values))
-    elif mutation == 'observation':
-        path = directory / 'observed.json'
-        values = json.loads(path.read_text())
-        values['values']['observed.row.011-001.value'] = 'changed'
-        path.write_text(json.dumps(values))
+    elif mutation != 'missing':
+        file = after / ('model/dev/cde/service-a.properties' if mutation == 'shared-consumer' else 'model/stg/cde/service-a.properties')
+        values = dict(load_model(file).authoritative)
+        field = 'desired.row.011-001.value' if mutation in {'setting', 'shared-consumer'} else 'desired.resource.011.anchor' if mutation == 'identity' else 'observed.row.011-001.value'
+        values[field] = 'changed'
+        write_model(file, values)
     with pytest.raises(ValueError):
         verify_model_operation(before, after, tasks.model_operation(contract(sources)), changed(before, after))
 
@@ -175,27 +154,23 @@ def check_final_rejects_unrequested_changes(tmp_path, mutation):
 def check_related_detach_and_two_consumers(tmp_path):
     before, after = tmp_path / 'before', tmp_path / 'after'
     dependency_fixture(before)
-    directory = before / 'model/parameters/stg/cde/service-b'
-    parameters = yaml.safe_load((directory / 'parameters.yaml').read_text())
-    bindings = json.loads((directory / 'bindings.json').read_text())
-    parameters['instances']['second'] = copy.deepcopy(parameters['instances']['consumer'])
-    bindings['instances']['second'] = binding('Consumer', '004', {'name': ('Name', '<<Origin>>')}, 'second')
-    save({directory / 'parameters.yaml': yaml.safe_dump(parameters), directory / 'bindings.json': json.dumps(bindings)})
-    after.mkdir()
+    file = before / 'model/stg/cde/service-b.properties'
+    values = dict(load_model(file).authoritative)
+    values.update(resource_values('004', 'ServiceB.Resource', 'second', 'IMPORT', [('Name', 'same-name-stg')]))
+    values.update(reference_fields('second', 'desired.row.004-001.value', 'same-name-stg', 'stg/cde/service-a/001'))
+    write_model(file, values)
     dependency_refactor(before, after)
-    directory = after / 'model/parameters/stg/cde/service-b'
-    parameters = yaml.safe_load((directory / 'parameters.yaml').read_text())
-    parameters['instances']['second'] = copy.deepcopy(parameters['instances']['consumer'])
-    bindings = json.loads((directory / 'bindings.json').read_text())
-    bindings['instances']['second']['definition'] = 'Detached'
-    save({directory / 'parameters.yaml': yaml.safe_dump(parameters), directory / 'bindings.json': json.dumps(bindings)})
+    file = after / file.relative_to(before)
+    values = {key: value for key, value in load_model(file).authoritative.items() if not key.startswith('desired.reference.second.')}
+    write_model(file, values)
     save(deletion(after, 'stg/cde/service-a/001'))
     detaches = [{'consumer': 'stg/cde/service-b/' + rid, 'producer': 'stg/cde/service-a/001', 'key': 'desired.row.' + rid + '-001.value'} for rid in ('002', '004')]
     operation = tasks.model_operation(contract(['stg/cde/service-a/001'], detaches=detaches))
     verify_model_operation(before, after, operation, changed(before, after))
-    # The shared Definition must leave the dev consumer's original reference intact.
-    path = after / 'model/templates/cde/service-b.properties.tpl'
-    path.write_text(path.read_text().replace('desired.row.name.value=<<Origin>>', 'desired.row.name.value=`unrelated`'))
+    file = after / 'model/dev/cde/service-b.properties'
+    values = dict(load_model(file).authoritative)
+    values['desired.row.002-001.value'] = 'unrelated'
+    write_model(file, values)
     with pytest.raises(ValueError):
         verify_model_operation(before, after, operation, changed(before, after))
 
@@ -206,7 +181,7 @@ def check_remaining_reference_is_warning(tmp_path):
     shutil.copytree(before, after)
     save(deletion(after, 'stg/cde/service-a/001'))
     warnings = verify_model_operation(before, after, tasks.model_operation(contract(['stg/cde/service-a/001'])), changed(before, after))
-    assert any(item['code'] == 'reference.target_removed' for item in warnings)
+    assert any(item['code'] == 'reference.mismatch' and 'absent' in item['message'] for item in warnings)
 
 
 @pytest.mark.parametrize('failure', ['syntax', 'io'])
@@ -220,18 +195,19 @@ def check_fifth_save_failure_retains_first_four(tmp_path, failure):
     state = {'task_file': name, 'worktree': str(tmp_path), 'merged': None}
     with patch.object(wt, 'load', return_value=(tmp_path, None, None, state)), patch.object(wt, 'task_worktree', return_value=tmp_path), \
          patch.object(wt, 'finalize', side_effect=AssertionError('leaf cannot finalize')), \
-         patch('model_templates.load_expansion', side_effect=AssertionError('raw leaf must not expand')):
+         patch('model.operations.verify_model_operation', side_effect=AssertionError('leaf must not run final validation')), \
+         patch.object(wt, 'output', return_value='synthetic-head'):
         for source in sources[:4]:
             with source_write_context(tmp_path, name) as context:
-                write_sources(context, deletion(tmp_path, source))
+                write_candidate(context, deletion(tmp_path, source))
         saved = {path: path.read_bytes() for path in tmp_path.rglob('*') if path.is_file()}
         with source_write_context(tmp_path, name) as context:
             edits = deletion(tmp_path, sources[4])
-            path = next(path for path in edits if path.name == 'parameters.yaml')
+            path = next(iter(edits))
             if failure == 'syntax':
-                edits[path] = 'instances: [\n'
+                edits[path] = '# model-format: 2\ninvalid\n'
                 with pytest.raises(ValueError):
-                    write_sources(context, edits)
+                    write_candidate(context, edits)
             else:
                 original_write = Path.write_text
                 def fail_partial_write(destination, content, *args, **kwargs):
@@ -239,20 +215,21 @@ def check_fifth_save_failure_retains_first_four(tmp_path, failure):
                         raise OSError('injected fifth leaf write failure')
                     return original_write(destination, content, *args, **kwargs)
                 with patch.object(Path, 'write_text', fail_partial_write), pytest.raises(OSError, match='fifth leaf'):
-                    write_sources(context, edits)
+                    write_candidate(context, edits)
         assert all(path.read_bytes() == content for path, content in saved.items())
         assert tasks.status((tmp_path / name).read_text()) == 'running'
         # Resume the same parent; each next save sees the preceding successful sources.
         for source in sources[4:]:
             with source_write_context(tmp_path, name) as context:
-                write_sources(context, deletion(tmp_path, source))
+                write_candidate(context, deletion(tmp_path, source))
 
 
 def check_finalize_rejects_incomplete_leaves(tmp_path):
     sources = fixture(tmp_path)
     name = 'tasks/parent.md'
     (tmp_path / 'tasks').mkdir()
-    (tmp_path / name).write_text(contract(sources))
+    (tmp_path / name).write_text(contract(sources) + '## Validation scope\n- `stg/cde/service-a`\n' +
+        f'## Modified files\n- `{name}`\n## Allowed paths\n- `{name}`\n')
     state = {'task_file': name, 'python_setup': {'status': 'ready'}, 'merged': None}
     with patch.object(wt, 'load', return_value=(tmp_path, None, tmp_path / 'state.json', state)), \
          patch.object(wt, 'lifecycle_lock', return_value=nullcontext()), patch.object(wt, 'task_worktree', return_value=tmp_path), \
@@ -265,10 +242,10 @@ def check_related_retarget(tmp_path):
     before, after = tmp_path / 'before', tmp_path / 'after'
     dependency_fixture(before)
     shutil.copytree(before, after)
-    path = after / 'model/parameters/stg/cde/service-b/parameters.yaml'
-    values = yaml.safe_load(path.read_text())
-    values['instances']['consumer']['parameters']['Origin'] = '003'
-    path.write_text(yaml.safe_dump(values))
+    file = after / 'model/stg/cde/service-b.properties'
+    values = dict(load_model(file).authoritative)
+    values['desired.reference.origin.producerId'] = '003'
+    write_model(file, values)
     save(deletion(after, 'stg/cde/service-a/001'))
     references = [{'consumer': 'stg/cde/service-b/002', 'field': 'value', 'property': 'ServiceB.Resource.Name',
                    'source': 'stg/cde/service-a/001', 'destination': 'stg/cde/service-a/003'}]
@@ -314,7 +291,7 @@ def check_one_parent_merge_and_failed_candidate_repair(repair):
         tasks.start(target, name, text)
         for source in sources:
             with source_write_context(target, name) as context:
-                write_sources(context, deletion(target, source))
+                write_candidate(context, deletion(target, source))
         def final_check(repository, options, *, final_candidate):
             try:
                 with tasks.selected_task(repository, name):
@@ -326,11 +303,11 @@ def check_one_parent_merge_and_failed_candidate_repair(repair):
         with mapping_alias(Path(__file__).resolve().parents[4], target), patch.object(wt, 'git', wraps=original_git) as calls, patch('validation.loop.run_loop', side_effect=final_check) as validation:
             first_head = None
             if repair:
-                path = target / 'model/parameters/stg/cde/service-a/observed.json'
+                path = target / 'model/stg/cde/service-a.properties'
                 original = path.read_text()
-                values = json.loads(original)
-                values['values']['observed.row.006-001.value'] = 'unauthorized'
-                path.write_text(json.dumps(values))
+                values = dict(load_model(path).authoritative)
+                values['observed.row.006-001.value'] = 'unauthorized'
+                write_model(path, values)
                 candidate = wt.prepare_integration(target, 'parent')
                 result = wt.validate_final_candidate(candidate)
                 assert result.returncode == 1

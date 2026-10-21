@@ -36,7 +36,7 @@ def check_implementation_preflight_prompt() -> None:
     assert text.index("## Read-only implementation preflight") < text.index("## Create active task contract") < text.index("## Implement and validate")
     for required in (
         "before active contract creation or IaC generation", "Do not execute AWS APIs, IaC generation, or deploy",
-        "model_design.validate_required_properties", "DesignSchemaCatalog.literal_errors",
+        "model.validation.validate_required_properties", "DesignSchemaCatalog.literal_errors",
         "necessary dependency properties", "authoritative stack registration", "template/parameter mappings", "dependency cycle",
         "対象file | resource（logical ID）/stack | property/parameter | 不足・違反理由",
         "together in one response", "do not end the report at the first deficiency", "If deficiencies exist, do not implement",
@@ -49,7 +49,7 @@ def check_implementation_preflight_prompt() -> None:
         "Implement design inputs are only authoritative model properties", "Do not require the Agent to compare properties and generated Markdown twice in advance",
         "Do not read generated `docs/designs/<environment>/<target-directory>/*.md` bodies (including `cloudformation-stacks.md`) at Implement start, IaC generation, or reference resolution", "Retain Markdown/JSON generation/saving and local loop consistency validation as before",
         "treat them as scope selectors", "Without reading bodies", "path/file stem", "If corresponding models cannot be uniquely identified, stop without guessing",
-        "python framework/scripts/model_files.py model/<environment>/<target-directory>/<service>.properties --resource <resource-selector>",
+        "python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service>.properties <resource-selector>",
         "resource number", "Selectors require exact matches for resource number (such as `001`), cfn-logicalId, legacy logical ID, or anchor", "single files and split entry indexes", "parents, children, and siblings in the same group required by existing specifications, and service metadata/notes",
         "Service-wide scope may use entire service properties", "対象accountの承認済み設計すべて", "Reading all target Markdown as fallback is prohibited",
         "desired values, resources, references, stack assignments, or human decisions", "stop because a design task is required",
@@ -87,7 +87,7 @@ def check_update_flow_prompt() -> None:
 
         reading = sections["Read before changing files"]
         for token in ("authoritative model properties", "desired.row.*.document", "Do not read generated Markdown bodies or generated JSON artifacts as input",
-                      "--resource <resource-selector>", "parentReference", "path/file stem", "required parts"):
+                      "model/cli.py resource", "parentReference", "path/file stem", "required parts"):
             assert token in reading, token
         instructions = [line for line in reading.splitlines() if re.match(r"\d+\. ", line)]
         assert instructions and not any(re.search(
@@ -129,7 +129,7 @@ def check_update_flow_prompt() -> None:
         post = sections["Post-deployment model sync"]
         cfn_post = engine(post, "CloudFormation")
         assert not commands(cfn_post), "Agent must not run a second CFn observed/sync process"
-        for token in ("owned by the controller", "cloudformation_observed.py", "IDENTIFIER_OUTPUT",
+        for token in ("owned by the controller", "model.adapters.observed", "IDENTIFIER_OUTPUT",
                       "PhysicalResourceId", "all references", "must not rerun", "AMBIGUOUS_OBSERVED_MAPPING"):
             assert token in cfn_post, token
         assert all("must not rerun" in line for line in cfn_post.splitlines() if "--write" in line)

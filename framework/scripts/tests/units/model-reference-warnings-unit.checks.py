@@ -7,20 +7,31 @@ if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
 import pytest
-from model_core import ReferenceResolutionError
-from model_operation_checks import reference_equal
-from model_reference_usage import _Reference, incoming_references
-from model_templates import load_for_analysis
+from model.core import ReferenceResolutionError
+from model.sources import load_model
+from model.references import incoming, Usage
+from model.operations import _mask_references, _same
+from support.model_sources import write_model
 from support.import_model_fixtures import dependency_fixture
 from validation.findings import Findings
 
 
+@pytest.fixture(autouse=True)
+def synthetic_project(tmp_path):
+    (tmp_path / 'project.json').write_text(json.dumps({'projectName': 'fixture', 'targets': [
+        {'environment': 'dev', 'alias': 'target', 'awsAccountId': '123456789012',
+         'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n')
+
+
 def check_reference_leaf_preservation():
-    reference = ('prefix-', _Reference('dev/target/service/001', 'typed'), '-suffix')
-    assert reference_equal({'target': reference, 'timeout': 30}, {'target': 'prefix-new-suffix', 'timeout': 30})
-    assert not reference_equal({'target': reference, 'timeout': 30}, {'target': 'prefix-new-suffix', 'timeout': 31})
-    assert not reference_equal(reference, 'changed-new-suffix')
-    assert not reference_equal({'target': reference}, {'target': 3})
+    def masked(text, start=7):
+        usage = Usage('desired.row.001-001.value', None, start, len(text) - 7, text[start:-7], 'dev/target/service', 'resource', '001')
+        return _mask_references(text, [usage])
+    reference = masked('prefix-old-suffix')
+    assert _same({'target': reference, 'timeout': 30}, {'target': masked('prefix-new-suffix'), 'timeout': 30})
+    assert not _same({'target': reference, 'timeout': 30}, {'target': masked('prefix-new-suffix'), 'timeout': 31})
+    assert not _same(reference, masked('changed-new-suffix', 8))
+    assert not _same({'target': reference}, {'target': 3})
 
 
 def check_typed_findings(tmp_path):
@@ -36,58 +47,56 @@ def check_typed_findings(tmp_path):
 
 def check_incomplete_references_keep_known_records(tmp_path):
     dependency_fixture(tmp_path)
-    parameters = tmp_path / 'model/parameters/stg/cde/service-b/parameters.yaml'
-    original = parameters.read_text(encoding='utf-8')
-    parameters.write_text(original.replace('001', '999'), encoding='utf-8')
-    result = incoming_references(tmp_path, 'stg/cde/service-a/999')
-    assert not result['complete'] and result['warnings']
-    assert result['references'][0]['producer'] == 'stg/cde/service-a/999'
-    assert result['references'][0]['consumer'] == 'stg/cde/service-b/002'
-    assert json.loads(json.dumps(result))['warnings']
-    assert incoming_references(tmp_path, 'stg/cde/service-a/999') == result
-    model = load_for_analysis(tmp_path / 'model/stg/cde/service-b.properties')
-    assert not model.complete and model.warnings
+    file = tmp_path / 'model/stg/cde/service-b.properties'
+    values = dict(load_model(file).authoritative)
+    values['desired.reference.origin.producerId'] = '999'
+    write_model(file, values)
+    producer = load_model(tmp_path / 'model/stg/cde/service-a.properties')
+    warnings = []
+    records = incoming(producer, '999', warnings=warnings)
+    assert records and warnings and records[0][1].producer_id == '999'
+    assert records[0][0].path == file and records[0][1].consumer_key == 'desired.row.002-001.value'
+    assert json.loads(json.dumps(warnings)) and incoming(producer, '999') == records
+    assert load_model(file).warnings and load_model(file).authoritative['desired.row.002-001.value'] == 'same-name-stg'
 
 
 def check_reference_analysis_keeps_invalid_source_error(tmp_path):
     dependency_fixture(tmp_path)
-    parameters = tmp_path / 'model/parameters/stg/cde/service-b/parameters.yaml'
-    parameters.write_text('instances: [', encoding='utf-8')
+    file = tmp_path / 'model/stg/cde/service-b.properties'
+    file.write_text('# model-format: 2\ninvalid\n')
     with pytest.raises(ValueError) as caught:
-        incoming_references(tmp_path, 'stg/cde/service-a/001')
+        incoming(load_model(tmp_path / 'model/stg/cde/service-a.properties'), '001')
     assert not isinstance(caught.value, ReferenceResolutionError)
-
 
 
 def check_deleted_target_retains_before_value(tmp_path):
     import shutil
-    import yaml
+    from model.format import owner
     before, after = tmp_path / 'before', tmp_path / 'after'
     dependency_fixture(before)
-    shutil.copytree(before / 'model', after / 'model')
-    shutil.copyfile(before / 'project.json', after / 'project.json')
-    directory = after / 'model/parameters/stg/cde/service-a'
-    for filename, loader, dumper in [('parameters.yaml', yaml.safe_load, yaml.safe_dump),
-                                      ('bindings.json', json.loads, json.dumps)]:
-        file = directory / filename
-        value = loader(file.read_text())
-        del value['instances']['producer']
-        file.write_text(dumper(value))
-    result = incoming_references(after, 'stg/cde/service-a/001', before=before)
-    assert result['references'] and not result['complete']
-    assert any(w.get('previous_value') == 'same-name-stg' for w in result['warnings'])
-    assert any(w.get('consumer') == 'stg/cde/service-b/002' and w.get('key') for w in result['warnings'])
+    shutil.copytree(before, after)
+    file = after / 'model/stg/cde/service-a.properties'
+    values = dict(load_model(file).authoritative)
+    write_model(file, {key: raw for key, raw in values.items() if owner(key, values) != ('resource', '001')})
+    warnings = []
+    result = incoming(load_model(file), '001', warnings=warnings)
+    assert result and warnings and result[0][1].text == 'same-name-stg'
+    assert any(warning['scope'] == 'stg/cde/service-b' and warning['consumerKey'] for warning in warnings)
+    assert load_model(after / 'model/stg/cde/service-b.properties').authoritative['desired.row.002-001.value'] == load_model(before / 'model/stg/cde/service-b.properties').authoritative['desired.row.002-001.value']
 
 
 def check_replace_keeps_snapshot_and_reports_impact(tmp_path):
-    from import_promotion import replacement_inputs
+    from model.importing.cli import replacement_inputs
+    from generation_inputs import GenerationInputs
+    from contextlib import closing
+    from import_guard import file_hash
     dependency_fixture(tmp_path)
-    warnings = []
-    inputs, services = replacement_inputs(tmp_path, ('stg', 'cde', 'service-a'),
-                                         {'001': {'_action': 'replace'}}, warnings)
-    assert inputs and services
-    assert all((path.read_text() if path.is_file() else None) == content for path, content in inputs.items())
-    assert any(w['code'] == 'reference.replace_impact' for w in warnings)
+    with closing(GenerationInputs(tmp_path)) as reads:
+        before = load_model(tmp_path / 'model/stg/cde/service-a.properties', reads)
+        impact = replacement_inputs(before, {'001': {'_action': 'replace'}}, reads)
+        assert impact['inputs'] and impact['fileSets']
+        assert all(file_hash(tmp_path / relative) == checksum for relative, checksum in impact['inputs'].items())
+        assert any(warning['code'] == 'reference.replace_impact' for warning in impact['warnings'])
 
 
 def check_reference_view_retained_but_io_still_fails(tmp_path, monkeypatch):
@@ -99,6 +108,8 @@ def check_reference_view_retained_but_io_still_fails(tmp_path, monkeypatch):
     artifact = path.with_suffix('') / 'policy.json'
     artifact.parent.mkdir()
     artifact.write_text('{"original":true}')
+    (root / 'project.json').write_bytes((tmp_path / 'project.json').read_bytes())
+    write_model(root / 'model/dev/target/service.properties', {})
     for name in ('validate_mappings', 'validate_required_properties', 'validate_kms_policy_accounts'):
         monkeypatch.setattr(runtime, name, lambda *a, **k: None)
     monkeypatch.setattr(runtime, 'design_target', lambda *a: {})
@@ -152,10 +163,10 @@ def check_legacy_issues_keep_number_and_mixed_error(tmp_path):
 
 
 def check_json_leaf_warning_keeps_sibling_error(tmp_path):
-    from import_references import Resolver
+    from model.importing.references import Resolver
     resolver = Resolver(tmp_path, 'dev', 'target')
     with pytest.raises(ValueError, match='literal differs'):
-        resolver.verify_tree('Example.Config', {'target': '<<Missing>>', 'timeout': 30},
+        resolver.verify_tree('Example.Config', {'target': '[Missing](iam.md#missing)', 'timeout': 30},
                              {'target': 'resource', 'timeout': 31}, {},
                              location={'key': 'desired.row.001-001.document'})
     assert resolver.warnings[0]['pointer'] == '/target'
@@ -163,14 +174,15 @@ def check_json_leaf_warning_keeps_sibling_error(tmp_path):
 
 
 def check_json_cli_warning_success(tmp_path, monkeypatch, capsys):
-    import model_reference_usage as usage
+    from model.cli import main
     dependency_fixture(tmp_path)
-    path = tmp_path / 'model/parameters/stg/cde/service-b/parameters.yaml'
-    path.write_text(path.read_text().replace('001', '999'))
-    monkeypatch.setattr(sys, 'argv', ['reference', 'stg/cde/service-a/999', '--repository-root', str(tmp_path)])
-    assert usage.main() == 0
+    file = tmp_path / 'model/stg/cde/service-b.properties'
+    values = dict(load_model(file).authoritative)
+    values['desired.reference.origin.producerId'] = '999'
+    write_model(file, values)
+    assert main(['incoming', str(file.with_name('service-a.properties')), '999']) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload['warnings'] and payload['complete'] is False
+    assert payload['warnings'] and payload['status'] == 'incomplete' and payload['references']
 
 
 def check_generation_metadata_reaches_findings(tmp_path, monkeypatch):
@@ -222,30 +234,29 @@ def check_legacy_diagnostic_forms(tmp_path, diagnostic, mixed):
 
 
 def check_bucket_missing_source_and_real_errors(tmp_path, monkeypatch):
-    from model_references import deployment_bucket
-    from support.model_sources import write_model
+    from model.projection import deployment_bucket
+    import model.sources as sources
     view = tmp_path / 'docs/designs/dev/target/cloudformation-stacks.md'
     with pytest.raises(ReferenceResolutionError) as caught:
         deployment_bucket('[bucket](s3.md#bucket)', view, tmp_path)
     assert caught.value.diagnostic['reference'] == '[bucket](s3.md#bucket)'
     source = tmp_path / 'model/dev/target/s3.properties'
     write_model(source, {'desired.service.s3.serviceId': 's3', 'desired.service.s3.ownedCatalogResourceTypes': 'S3.Bucket'})
-    parameters = tmp_path / 'model/parameters/dev/target/s3/parameters.yaml'
-    parameters.write_text('instances: [')
+    saved = source.read_bytes()
+    source.write_text('# model-format: 2\ninvalid\n')
     with pytest.raises(ValueError) as caught:
         deployment_bucket('[bucket](s3.md#bucket)', view, tmp_path)
     assert not isinstance(caught.value, ReferenceResolutionError)
-    parameters.write_text('instances: {}\n')
-    import model_files
-    def denied(*args):
+    source.write_bytes(saved)
+    def denied(*args, **kwargs):
         raise PermissionError('read denied')
-    monkeypatch.setattr(model_files, 'read_model', denied)
+    monkeypatch.setattr(sources, 'load_model', denied)
     with pytest.raises(PermissionError, match='read denied'):
         deployment_bucket('[bucket](s3.md#bucket)', view, tmp_path)
 
 
 def check_link_display_and_readback_classification(tmp_path):
-    from model_display import display_rows, row_table
+    from model.display import display_rows, row_table
     from design_layout import expanded_display_rows
     definitions = Path(__file__).resolve().parents[4]
     prop = 'CodeBuild.Project.VpcConfig.Subnets'
@@ -267,13 +278,14 @@ def check_link_display_and_readback_classification(tmp_path):
 
 
 def codebuild_values(anchor='project', missing_name=False, second=False):
-    values = {'desired.service.codebuild.serviceId': 'codebuild',
+    values = {'display.service.title': '# CodeBuild 詳細設計', 'desired.service.codebuild.serviceId': 'codebuild',
               'desired.service.codebuild.ownedCatalogResourceTypes': 'CodeBuild.Project'}
     for rid in (['001', '002'] if second else ['001']):
         values.update({f'desired.resource.{rid}.resourceType': 'CodeBuild.Project',
                        f'desired.resource.{rid}.resourceMode': 'CREATE',
                        f'desired.resource.{rid}.anchor': anchor if rid == '001' else 'other',
                        f'desired.resource.{rid}.logicalId': 'Project' + rid,
+                       f'display.resource.{rid}.comment': '合成 Project',
                        f'display.resource.{rid}.label': 'project' if rid == '001' else 'other'})
         rows = [('Artifacts.Type', '`NO_ARTIFACTS`'), ('Environment.Type', '`LINUX_CONTAINER`'),
                 ('Environment.ComputeType', '`BUILD_GENERAL1_SMALL`'), ('Environment.Image', '`image`'),
@@ -289,7 +301,7 @@ def codebuild_values(anchor='project', missing_name=False, second=False):
 @pytest.mark.parametrize('anchor', ['project', 'broken'])
 @pytest.mark.parametrize('second', [False, True])
 def check_independent_model_validation(tmp_path, anchor, second):
-    from model_design import check_model_inputs
+    from model.validation import check_model_inputs
     values = codebuild_values(anchor, missing_name=True, second=second)
     result = check_model_inputs(tmp_path / 'model/dev/target/codebuild.properties', values, tmp_path,
                                 definitions_root=Path(__file__).resolve().parents[4])
@@ -303,6 +315,9 @@ def check_generation_warning_keeps_independent_error(tmp_path, monkeypatch):
     root, stage = tmp_path / 'root', tmp_path / 'stage'
     path = root / 'docs/designs/dev/target/codebuild.md'
     values = codebuild_values('broken', missing_name=True)
+    root.mkdir()
+    (root / 'project.json').write_bytes((tmp_path / 'project.json').read_bytes())
+    write_model(root / 'model/dev/target/codebuild.properties', values)
     for name in ('validate_mappings', 'validate_required_properties', 'validate_kms_policy_accounts'):
         monkeypatch.setattr(runtime, name, lambda *a, **k: None)
     monkeypatch.setattr(runtime, 'design_target', lambda *a: {})
@@ -349,7 +364,7 @@ def check_unavailable_service_keeps_source_errors_and_no_cache(tmp_path, monkeyp
 
 @pytest.mark.parametrize('missing_name', [False, True])
 def check_model_warning_only_completion_and_literal_error(tmp_path, missing_name):
-    from model_design import check_model_inputs
+    from model.validation import check_model_inputs
     values = codebuild_values('broken', missing_name=missing_name)
     if missing_name:
         # A separate literal error must survive the unresolved anchor too.
@@ -368,7 +383,7 @@ def check_model_warning_only_completion_and_literal_error(tmp_path, missing_name
 
 
 def check_model_document_uses_authoritative_json(tmp_path):
-    from model_design import check_model_inputs
+    from model.validation import check_model_inputs
     values = {'desired.service.iam.serviceId': 'iam',
               'desired.service.iam.ownedCatalogResourceTypes': 'IAM.Role',
               'desired.resource.001.resourceType': 'IAM.Role',
@@ -395,18 +410,21 @@ def check_analysis_generation_keeps_independent_checks(tmp_path, monkeypatch, mi
     from support.model_sources import write_model
     model = tmp_path / 'model/dev/target/codebuild.properties'
     write_model(model, codebuild_values('broken', missing_name=missing_name))
-    def unresolved(*a, **k):
-        raise ReferenceResolutionError('typed producer unavailable')
-    monkeypatch.setattr(runtime, 'load_model', unresolved)
-    monkeypatch.setattr(runtime, 'stage_inputs', lambda *a, **k: (set(), {}))
+    # Actual saved references warn without abandoning independent source validation.
+    snapshot = load_model(model)
+    assert snapshot.warnings and snapshot.authoritative['desired.row.001-005.value'] == '[role](iam.md#role)'
     plan = runtime.prepare_generation(tmp_path, {('dev', 'target', 'codebuild')}, write=False,
                                       definitions_root=Path(__file__).resolve().parents[4])
     try:
         assert bool(plan.failures) is missing_name, plan.failures
         assert plan.reference_warnings
         view = tmp_path / 'docs/designs/dev/target/codebuild.md'
-        assert plan.unavailable[view]['reason'] == 'reference'
-        assert plan.unavailable[view]['retainedView'] is None
+        if missing_name:
+            assert plan.unavailable[view]['reason'] == 'reference'
+            assert plan.unavailable[view]['retainedView'] is None
+        else:
+            assert view in plan.generated and view not in plan.unavailable
+        assert load_model(model).authoritative == snapshot.authoritative
     finally:
         plan.close()
 
@@ -414,3 +432,60 @@ def check_analysis_generation_keeps_independent_checks(tmp_path, monkeypatch, mi
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))
+
+
+def check_shared_snapshot_parses_each_producer_once_and_rechecks_permission(tmp_path, monkeypatch):
+    import model.sources as sources
+    from model.importing.scope import restrict, read_consumers, read_context
+    from collections import Counter
+    dependency_fixture(tmp_path)
+    left = tmp_path / 'model/dev/cde/service-a.properties'
+    right = left.with_name('service-b.properties')
+    original = {file: file.read_bytes() for file in (left, right)}
+    parsed = Counter()
+    read = sources._read_model
+    def counted(scope, inputs):
+        parsed[scope.path, read_context(scope.root)] += 1
+        return read(scope, inputs)
+    monkeypatch.setattr(sources, '_read_model', counted)
+    inputs = sources.FileReads()
+    sources.load_model(left, inputs)
+    sources.load_model(right, inputs)
+    sources.load_model(left, inputs)
+    assert parsed == {(left, None): 1, (right, None): 1}, parsed
+    with restrict(('dev', 'cde', 'service-a')), read_consumers({('dev', 'cde', 'service-a'), ('dev', 'cde', 'service-b')}):
+        sources.load_model(left, inputs)
+        sources.load_model(right, inputs)
+    assert len(parsed) == 6 and all(count == 1 for count in parsed.values()), parsed
+    with restrict(('dev', 'cde', 'service-a')):
+        with pytest.raises(ValueError, match='outside selected'):
+            sources.load_model(right, inputs)
+    assert {file: file.read_bytes() for file in original} == original
+
+
+def check_cross_environment_direct_link_preserves_scope_and_dependency(tmp_path):
+    from model.references import usages
+    from model.sources import FileReads
+    data = json.loads((tmp_path / 'project.json').read_text())
+    data['targets'].append({**data['targets'][0], 'environment': 'release', 'alias': 'other'})
+    (tmp_path / 'project.json').write_text(json.dumps(data))
+    producer = tmp_path / 'model/release/other/network.v1.properties'
+    write_model(producer, {'desired.resource.007.resourceType': 'EC2.VPC', 'desired.resource.007.anchor': 'fixed'})
+    consumer = tmp_path / 'model/dev/target/service.properties'
+    values = {'desired.note.001.text': '[Network](../../release/other/network.v1.md#fixed)'}
+    write_model(consumer, values)
+    snapshot = load_model(consumer, FileReads())
+    records = usages(snapshot)
+    assert len(records) == 1 and records[0].producer_scope == 'release/other/network.v1'
+    assert producer in snapshot.dependencies and not snapshot.warnings
+    assert snapshot.authoritative == values
+    from model.importing.scope import restrict
+    for restricted in (False, True):
+        from contextlib import nullcontext
+        with restrict(('release', 'other', 'network.v1')) if restricted else nullcontext():
+            records = incoming(load_model(producer), '007')
+            assert len(records) == 1 and records[0][0].path == consumer
+    for filename in ('../../../../outside.md', '/outside.md', '..\\outside.md'):
+        consumer.write_text('# model-format: 2\ndesired.note.001.text=[bad](' + filename + '#fixed)\n')
+        with pytest.raises(ValueError, match='outside the Model tree'):
+            load_model(consumer, FileReads())

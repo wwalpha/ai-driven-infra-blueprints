@@ -32,9 +32,11 @@ def check_preparation():
         assert plan["scope"] == ["dev/123456789012/cloudformation-stacks", "dev/123456789012/ec2", "dev/123456789012/iam"]
         text = (run / "contract.md").read_text(encoding="utf-8")
         declared = paths_in(text, "## Modified files")
-        assert "model/parameters/dev/123456789012/ec2/observed.json" in declared
-        from model_templates import source_paths
-        assert not any(source_paths(root/p) is not None or p.endswith("source.json") for p in declared)
+        from model.sources import model_parts, source_inputs
+        outputs = {p.relative_to(root).as_posix() for p in model_parts(root / "model/dev/123456789012/ec2.properties")}
+        assert outputs <= declared
+        assert "model/dev/123456789012/iam.properties" in declared
+        assert not any(p.endswith(("observed.json", "source.json", ".tpl")) for p in declared)
         assert {p for p in declared if p.startswith("infra/")} == {
             "infra/cloudformation/templates/shared.yaml",
             "infra/cloudformation/parameters/dev/123456789012/1.json",
@@ -54,9 +56,9 @@ def check_preparation():
         assert {Path(c) for d in plan["documents"] for c in d["chunks"]} == {p.resolve() for p in (run / "documents").iterdir()}
         assert len(documents) == len(plan["documents"])
         entrance = root / "model/dev/123456789012/ec2.properties"
-        assert all(p.relative_to(root).as_posix() in documents for p in __import__("model_templates").source_inputs(entrance))
-        iam = documents["model/templates/123456789012/iam.properties.tpl"]
-        assert "desired.row.row_001-002.document=" in "".join(Path(c).read_text(encoding="utf-8") for c in iam["chunks"])
+        assert all(p.relative_to(root).as_posix() in documents for p in source_inputs(entrance))
+        iam = documents["model/dev/123456789012/iam.properties"]
+        assert "desired.row.001-002.document=" in "".join(Path(c).read_text(encoding="utf-8") for c in iam["chunks"])
         assert all("infra/cloudformation/parameters/dev/123456789012/" + str(i) + ".json" in documents for i in (1, 2))
         assert "AGENTS.md" in documents
         assert all(name in plan["controllerArgv"] for name in STACKS)
@@ -135,7 +137,9 @@ def check_generated_boundaries():
         root = base / "repo"
         fixture(root)
         source = root / "model/dev/123456789012/iam.properties"
-        original = read_model(source)
+        from model.sources import load_model
+        from model.format import serialize
+        original = serialize(load_model(source).authoritative)
         write_model(source, "\n".join(line for line in original.splitlines() if ".document=" not in line) + "\n")
         try:
             M.candidate(root, "tasks/deploy-offline.md", "dev", "123456789012", TARGET, STACKS, ["iam"])

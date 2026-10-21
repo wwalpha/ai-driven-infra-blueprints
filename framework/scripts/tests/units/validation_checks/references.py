@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 
-import model_projection
+import model.projection as model_projection
 
 
 from support.validator import MODULE, SCRIPT, project, write, schema_validator, load

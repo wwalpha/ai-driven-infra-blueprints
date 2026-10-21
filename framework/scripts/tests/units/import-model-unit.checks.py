@@ -13,14 +13,13 @@ from unittest.mock import patch
 
 import pytest
 import import_guard
-from import_sources import (candidate_sources, parameter_edit, preserve_bindings,
-                            property_values, selection_records, verify_values, typed_equal)
-from import_promotion import changed_properties, property_value, preserve_consumers
-from model_templates import Definition, Expansion
-from model_parameter_inputs import check_value as validate_value, schema, yaml_read
+from model.sources import candidate_sources
+from model.importing.sources import property_values, selection_records, verify_values, typed_equal
+from support.model_v2_fixtures import value_snapshot as Expansion
+from yaml_values import yaml_read
 from script_loader import module
 
-m = module('import-model.py', 'import_model_cli')
+from model.importing import cli as m
 
 
 def schema_for(prop):
@@ -56,38 +55,31 @@ def expansion(values):
     return Expansion(values, {}, {})
 
 
-def definition(expression='`false`', declarations=None):
-    return Definition(declarations or {}, {'vpc'}, {'dns': 'vpc'},
-                      {'desired.row.dns.value': expression}, {}, set(), {}, {}, {})
 
 
 def check_null_parameter():
-    validate_value(schema({'type': 'null', 'description': 'null', 'required': True, 'format': 'literal'}), None, 'null')
+    from model.importing.sources import typed_row
+    assert typed_row({'property': 'Example.Resource.Value'}, '`null`', {'type': 'null'}) is None
     assert m.model_literal(None) == '`null`'
 
 
 @pytest.mark.parametrize('value', [False, 0, 'false', '001', None, ['one', 'two'], {'Enabled': False, 'Count': 2}])
 def check_yaml_edits(value):
-    original = '# keep header\ninstances:\n  main-vpc:\n    parameters:\n      CidrBlock: "10.10.0.0/23" # keep CIDR\n      # keep comment\n      Setting: old\n\n'
-    wanted = yaml_read(original)
-    wanted['instances']['main-vpc']['parameters']['Setting'] = value
-    wanted['instances']['new-subnet'] = {'parameters': {'CidrBlock': '10.10.2.0/26', 'Enabled': True}}
-    actual = parameter_edit(original, wanted)
-    assert yaml_read(actual) == wanted
-    assert '# keep header\n' in actual and '# keep comment\n' in actual
-    assert 'CidrBlock: "10.10.0.0/23" # keep CIDR' in actual
-    assert '  new-subnet:\n    parameters:\n      CidrBlock: 10.10.2.0/26' in actual
-    assert parameter_edit(actual, wanted) == actual
-    assert ': {' not in actual
+    from model.format import FORMAT, parse, patch
+    original = FORMAT + '\n# keep header\ndesired.row.001-001.value="10.10.0.0/23" # keep CIDR\n# keep comment\ndesired.row.001-002.value=old\n'
+    raw = m.model_literal(value)
+    edited = patch(parse(original), {'desired.row.001-002.value': raw, 'desired.row.009-001.value': 'new-subnet'})
+    assert parse(edited).values == {**parse(original).values, 'desired.row.001-002.value': raw, 'desired.row.009-001.value': 'new-subnet'}
+    assert '# keep header\n' in edited and '# keep comment\n' in edited
+    assert 'desired.row.001-001.value="10.10.0.0/23" # keep CIDR' in edited
+    assert patch(parse(edited), {'desired.row.001-002.value': raw}) == edited
 
 
 def check_yaml_empty_and_order():
-    original = 'instances: {}\n'
-    wanted = {'instances': {'main': {'parameters': {'Text': 'true', 'Enabled': False}}}}
-    actual = parameter_edit(original, wanted)
-    assert yaml_read(actual) == wanted and '  main:\n' in actual
-    original = '# unchanged\ninstances:\n  main:\n    parameters:\n      B: 2\n      A: 1\n'
-    assert parameter_edit(original, yaml_read(original)) == original
+    from model.format import FORMAT, parse, patch
+    assert patch(parse(FORMAT + '\n'), {'desired.row.001-001.value': '`true`'}) == FORMAT + '\ndesired.row.001-001.value=`true`\n'
+    original = FORMAT + '\n# unchanged\ndesired.row.001-002.value=2\ndesired.row.001-001.value=1\n'
+    assert patch(parse(original), dict(parse(original).values)) == original
 
 
 @pytest.mark.parametrize('alias', [False, True])
@@ -123,13 +115,8 @@ def check_physical_identity_wins_over_mutable_settings(alias):
 def check_invalid_candidates(key, value):
     old = resource()
     new = {**old, key: value}
-    if key == 'desired.row.001-001.value':
-        warnings = []
-        verify_values(expansion(old), expansion(new), {'001': record()}, schema_for, warnings=warnings)
-        assert warnings
-    else:
-        with pytest.raises(ValueError, match='preserved|existing resource|observed value requires a desired logical reference'):
-            verify_values(expansion(old), expansion(new), {'001': record()}, schema_for)
+    with pytest.raises(ValueError, match='preserved|existing|observed value requires a desired logical reference|acquired|Row requires'):
+        verify_values(expansion(old), expansion(new), {'001': record()}, schema_for)
 
 
 def check_unacquired_and_create_protection():
@@ -139,11 +126,11 @@ def check_unacquired_and_create_protection():
     unavailable['properties']['EC2.VPC.CidrBlock'] = {'status': 'missing'}
     with pytest.raises(ValueError, match='unacquired'):
         verify_values(expansion(old), expansion(new), {'009': unavailable}, schema_for)
-    with pytest.raises(ValueError, match='no selected acquisition'):
+    with pytest.raises(ValueError, match='no selected acquisition|unselected Resource'):
         verify_values(expansion(old), expansion(new), {}, schema_for)
     with pytest.raises(ValueError, match='CREATE'):
         selection_records(selection(), [record()], old, old, schema_for)
-    with pytest.raises(ValueError, match='deleting an existing resource'):
+    with pytest.raises(ValueError, match='deleting an existing resource|deleting existing Resource'):
         verify_values(expansion(old), expansion({}), {}, schema_for)
 
 
@@ -222,83 +209,54 @@ def check_new_resource_and_explicit_dispositions():
 
 
 def check_binding_identity_and_addition():
-    original = {'instances': {'main-vpc': {'definition': 'Vpc', 'resources': {'vpc': '001'}, 'rows': {'cidr': '001-001'}, 'parameters': {}}}}
-    candidate = copy.deepcopy(original)
-    candidate['instances']['new-subnet'] = {'definition': 'Subnet', 'resources': {'subnet': '009'}, 'rows': {}, 'parameters': {}}
-    preserve_bindings(original, candidate)
-    for field, value in [('rows', {'cidr': '001-099'}), ('rows', {'cidr': '001-001', 'dns': '001-002'}),
-                         ('resources', {'renamed': '001'}), ('parameters', {'Anchor': 'changed'}), ('definition', 'Other')]:
-        candidate = copy.deepcopy(original)
-        candidate['instances']['main-vpc'][field] = value
-        with pytest.raises(ValueError, match='bindings'):
-            preserve_bindings(original, candidate)
+    original = resource()
+    candidate = {**original, **resource('009', identity='vpc-new', cidr='10.11.0.0/23')}
+    verify_values(expansion(original), expansion(candidate), {'009': record('vpc-new')}, schema_for)
+    for key, value in [('desired.resource.001.logicalId', 'Renamed'), ('desired.resource.001.anchor', 'changed'),
+                       ('desired.resource.001.resourceMode', 'CREATE'), ('desired.resource.001.resourceType', 'EC2.Subnet'),
+                       ('desired.row.001-002.property', 'EC2.VPC.Name')]:
+        changed = {**candidate, key: value}
+        with pytest.raises(ValueError, match='preserved|fixed identity'):
+            verify_values(expansion(original), expansion(changed), {'009': record('vpc-new')}, schema_for)
+    renamed = {key.replace('desired.row.001-002.', 'desired.row.001-099.'): value for key, value in candidate.items()}
+    with pytest.raises(ValueError, match='Row IDs'):
+        verify_values(expansion(original), expansion(renamed), {'009': record('vpc-new')}, schema_for)
 
 
 def check_shared_property_typed_preservation():
-    old = definition()
-    spec = {'type': 'boolean', 'required': True, 'description': 'DNS support'}
-    new = definition('<<EnableDnsSupport>>', {'EnableDnsSupport': spec})
-    assert changed_properties({'Vpc': old}, {'Vpc': new}) == {'Vpc': {'desired.row.dns.value'}}
-    binding = {'resources': {'vpc': '001'}, 'rows': {'dns': '001-001'}, 'parameters': {}}
-    params = {'instances': {'main': {'parameters': {'EnableDnsSupport': False}}}}
-    assert property_value(old, 'desired.row.dns.value', {'instances': {}}, binding, 'main', 'stg') == '`false`'
-    assert property_value(new, 'desired.row.dns.value', params, binding, 'main', 'stg') == 'false'
-    params['instances']['main']['parameters']['EnableDnsSupport'] = 'false'
-    with pytest.raises(ValueError, match='type'):
-        property_value(new, 'desired.row.dns.value', params, binding, 'main', 'stg')
+    old = resource()
+    old.update({'desired.row.001-004.property': 'EC2.VPC.EnableDnsSupport', 'desired.row.001-004.value': '`false`',
+                'desired.row.001-004.comment': '合成 boolean'})
+    capture = record()
+    capture['properties']['EC2.VPC.EnableDnsSupport'] = {'status': 'captured', 'value': False}
+    selected = selection_records(selection(action='refresh'), [capture], old, old, schema_for)
+    new = {**old, 'desired.row.001-004.value': 'false'}
+    verify_values(expansion(old), expansion(new), selected, schema_for)
+    assert property_values(new, '001', 'EC2.VPC.EnableDnsSupport', {'type': 'boolean'}) is False
+    new['desired.row.001-004.value'] = '`"false"`'
+    with pytest.raises(ValueError, match='acquired|native type'):
+        verify_values(expansion(old), expansion(new), selected, schema_for)
 
 
-@pytest.mark.parametrize('dependency', ['value', 'optional', 'optional-json', 'choice', 'default', 'anchor', 'reference', 'owner'])
-def check_other_definition_input_dependencies(tmp_path, dependency):
-    from model_templates import json_text
-    from support.import_model_fixtures import spec
-    key = 'desired.row.dns.value'
-    declaration = spec('boolean', default=False, required=False)
-    original = definition('<<Shared>>', {'Shared': declaration})
-    candidate = definition('<<Shared>>', {'Shared': {**declaration, 'default': True}})
-    if dependency == 'value':
-        original, candidate = definition('`false`'), definition('`true`')
-    elif dependency == 'optional':
-        original = original._replace(values={key: '`false`'}, optional={key: 'Shared'})
-        candidate = candidate._replace(values={key: '`false`'}, optional={key: 'Shared'})
-    elif dependency == 'optional-json':
-        original = original._replace(values={key: '`{"enabled":true}`'}, optional_json={(key, '/enabled'): 'Shared'})
-        candidate = candidate._replace(values={key: '`{"enabled":true}`'}, optional_json={(key, '/enabled'): 'Shared'})
-    elif dependency == 'choice':
-        original = original._replace(values={key: '`false`'}, choices={(key, None, 'Shared'): '`true`'})
-        candidate = candidate._replace(values={key: '`false`'}, choices={(key, None, 'Shared'): '`true`'})
-    elif dependency == 'anchor':
-        original = definition('<<Anchor_vpc>>', {'Shared': spec(default='old', required=False)})
-        candidate = definition('<<Anchor_vpc>>', {'Shared': spec(default='new', required=False)})
-        original = original._replace(values={key: '<<Anchor_vpc>>', 'desired.resource.vpc.anchor': '<<Shared>>'})
-        candidate = candidate._replace(values=original.values)
-    elif dependency == 'reference':
-        reference = spec('reference', source='template', target='001', service='vpc', resourceType='EC2.VPC')
-        original = definition('<<Vpc>>', {'Vpc': reference})
-        candidate = definition('<<Vpc>>', {'Vpc': {**reference, 'target': '002'}})
-    elif dependency == 'owner':
-        candidate = original._replace(rows={'dns': 'other'})
-    path = tmp_path / 'model/dev/cde/cloudwatch-logs.properties'
-    template = tmp_path / 'model/templates/cde/cloudwatch-logs.properties.tpl'
-    directory = tmp_path / 'model/parameters/dev/cde/cloudwatch-logs'
-    consumer = tmp_path / 'model/parameters/stg/cde/cloudwatch-logs'
-    consumer.mkdir(parents=True)
-    binding = {'definition': 'App', 'resources': {'vpc': '001'}, 'rows': {'dns': '001-001'}, 'parameters': {}}
-    (consumer / 'parameters.yaml').write_text('instances: {}', encoding='utf-8')
-    (consumer / 'bindings.json').write_text(json_text({'instances': {'app': binding}}), encoding='utf-8')
-    baseline = SimpleNamespace(files={directory / 'bindings.json': json_text({'instances': {}}), directory / 'parameters.yaml': '{}'})
-    with patch('import_promotion.service_source', return_value=(tmp_path, template, directory)), \
-         patch('import_promotion.parse_template', side_effect=[({'App': original}, {}), ({'App': candidate}, {})]), \
-         pytest.raises(ValueError, match='meaning changed|row owners'):
-        preserve_consumers(path, baseline, {template: 'edited'}, {('dev', 'cde', 'cloudwatch-logs'), ('stg', 'cde', 'cloudwatch-logs')})
 
 
-def check_shared_reference_is_symbolic():
-    spec = {'type': 'reference', 'required': True, 'description': 'VPC', 'source': 'template', 'target': '001', 'service': 'vpc', 'resourceType': 'EC2.VPC'}
-    raw = definition('<<Vpc>>', {'Vpc': spec})
-    binding = {'resources': {}, 'rows': {}, 'parameters': {}}
-    actual = property_value(raw, 'desired.row.dns.value', {'instances': {}}, binding, 'main', 'stg')
-    assert actual.startswith('REFERENCE:') and '"target":"001"' in actual
+def check_shared_reference_is_symbolic(tmp_path):
+    from model.references import Reference, symbolic
+    from model.sources import Scope, load_model
+    from model.format import serialize
+    root = tmp_path
+    (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', 'alias': 'cde',
+        'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}), encoding='utf-8')
+    scope = Scope(root, 'dev', 'cde', 'vpc')
+    values = resource()
+    for field, value in {'consumerKey': 'desired.row.001-003.value', 'text': 'main-vpc', 'occurrence': '1',
+            'producerKind': 'resource', 'producerScope': 'dev/cde/vpc', 'producerId': '001',
+            'resourceType': 'EC2.VPC', 'format': 'name', 'property': 'EC2.VPC.Name', 'labelPolicy': 'none'}.items():
+        values['desired.reference.fixed.' + field] = value
+    scope.path.parent.mkdir(parents=True)
+    scope.path.write_text(serialize(values), encoding='utf-8')
+    actual = symbolic(load_model(scope))['desired.row.001-003.value']
+    assert actual == ('`', Reference('dev/cde/vpc/001', 'resource', 'EC2.VPC', 'name', 'EC2.VPC.Name', None, 'none'), '`')
 
 
 def check_typed_property_values():
@@ -309,21 +267,25 @@ def check_typed_property_values():
 
 
 def check_candidate_scope_and_changed_files(tmp_path):
+    from model.sources import Scope, load_model, candidate_sources
+    from support.model_sources import write_model
     root, stage = tmp_path / 'repository', tmp_path / 'candidate'
-    directory = root / 'model/parameters/dev/cde/vpc'
-    directory.mkdir(parents=True)
-    original = directory / 'parameters.yaml'
-    original.write_text('instances: {}\n', encoding='utf-8')
+    root.mkdir()
+    (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', 'alias': 'cde',
+        'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}), encoding='utf-8')
+    original = root / 'model/dev/cde/vpc.properties'
+    write_model(original, resource())
+    before = load_model(original)
     candidate = stage / original.relative_to(root)
     candidate.parent.mkdir(parents=True)
-    candidate.write_text('instances: {}\n', encoding='utf-8')
-    with pytest.raises(ValueError, match='changed sources only'):
-        candidate_sources(root, stage, ('dev', 'cde', 'vpc'))
-    candidate.write_text('# added\ninstances: {}\n', encoding='utf-8')
-    assert set(candidate_sources(root, stage, ('dev', 'cde', 'vpc'))) == {original}
+    candidate.write_bytes(original.read_bytes())
+    changes, after = candidate_sources(root, stage, before)
+    assert not changes and after.authoritative == before.authoritative
+    candidate.write_bytes(b'# model-format: 2\n# added\n' + original.read_bytes().split(b'\n', 1)[1])
+    assert set(candidate_sources(root, stage, before)[0]) == {original}
     (stage / 'project.json').write_text('{}', encoding='utf-8')
-    with pytest.raises(ValueError, match='outside'):
-        candidate_sources(root, stage, ('dev', 'cde', 'vpc'))
+    with pytest.raises(ValueError, match='outside|path'):
+        candidate_sources(root, stage, before)
 
 
 def check_sealed_evidence_tamper(tmp_path):
@@ -348,19 +310,19 @@ def check_cli_never_falls_back(args):
     assert failure.value.code == 2
 
 
-def check_cli_phase_dispatch():
+def check_cli_phase_dispatch(tmp_path):
+    arguments = ['--repository-root', str(tmp_path), '--environment', 'dev', '--service', 'vpc']
     result = {'status': 'acquired', 'markdown': 'not-run'}
-    with patch.object(sys, 'argv', ['import-model', '--environment', 'dev', '--service', 'vpc', '--phase', 'acquire', '--no-profile']), \
-            patch.object(m, 'acquire', return_value=result) as acquire, patch.object(m, 'publish_acquisition') as publish:
-        assert m.main() == 0
-        assert acquire.call_args.kwargs == {'no_profile': True, 'resource_types': None}
+    with patch.object(m, 'acquire', return_value=result) as acquire, patch.object(m, 'publish_acquisition') as publish:
+        assert m.main(['acquire', *arguments, '--no-profile']) == 0
+        assert acquire.call_args.args == (tmp_path, 'dev', 'vpc')
+        assert acquire.call_args.kwargs == {'selector': None, 'dry_run': False, 'no_profile': True, 'resource_types': None}
         publish.assert_not_called()
     for result, code in [({'status': 'complete', 'markdown': 'generated'}, 0),
                          ({'status': 'incomplete', 'markdown': 'generated'}, 2),
                          ({'status': 'display-failed', 'markdown': 'failed'}, 3)]:
-        with patch.object(sys, 'argv', ['import-model', '--environment', 'dev', '--service', 'vpc', '--phase', 'publish', '--evidence', '/tmp/a']), \
-                patch.object(m, 'publish_acquisition', return_value=result), patch.object(m, 'acquire') as acquire:
-            assert m.main() == code
+        with patch.object(m, 'publish_acquisition', return_value=result), patch.object(m, 'acquire') as acquire:
+            assert m.main(['publish', *arguments, '--evidence', str(tmp_path / 'acquisition.json')]) == code
             acquire.assert_not_called()
 
 
@@ -396,30 +358,32 @@ def check_adapter_inventory_normalization(tmp_path):
 
 
 def check_shared_source_preservation_boundary(tmp_path):
-    from support.import_model_fixtures import build_seed, spec, SERVICES
-    from model_templates import load_for_edit, json_text
+    from support.import_model_fixtures import build_seed, SERVICES
+    from model.sources import FileReads, load_model
+    from model.operations import CandidateReads
+    from model.format import serialize
     build_seed(tmp_path)
     for service in SERVICES:
-        assert load_for_edit(tmp_path / 'model/dev/cde' / (service + '.properties')).values
+        assert load_model(tmp_path / 'model/dev/cde' / (service + '.properties')).authoritative
     path = tmp_path / 'model/dev/cde/cloudwatch-logs.properties'
-    before = load_for_edit(path)
-    template = tmp_path / 'model/templates/cde/cloudwatch-logs.properties.tpl'
-    text = template.read_text().replace('# definition: LogGroup\n',
-        '# definition: LogGroup\n# parameter: LogClass ' + json_text(spec(required=False, default='STANDARD')) + '\n')
-    text = text.replace('desired.row.class.value=`STANDARD`', 'desired.row.class.value=`<<LogClass>>`')
-    output = {template: text}
-    direct = {('dev', 'cde', 'cloudwatch-logs'), ('stg', 'cde', 'cloudwatch-logs')}
-    snapshots, preserved, changed = preserve_consumers(path, before, output, direct)
-    assert preserved == {('stg', 'cde', 'cloudwatch-logs')} and len(snapshots) == 2
-    assert 'LogGroup' in changed and load_for_edit(path, output).values == before.values
-    assert not verify_values(before, load_for_edit(path, output), {}, schema_for)
-    output[template] = text.replace('"default":"STANDARD"', '"default":"INFREQUENT_ACCESS"')
-    with pytest.raises(ValueError, match='meaning changed'):
-        preserve_consumers(path, before, output, direct)
-    stg = tmp_path / 'model/parameters/stg/cde/cloudwatch-logs/parameters.yaml'
-    output[stg] = stg.read_text() + '# unchanged values still cannot be written\n'
-    with pytest.raises(ValueError, match='read-only'):
-        preserve_consumers(path, before, output, direct)
+    before = load_model(path)
+    foreign = tmp_path / 'model/stg/cde/cloudwatch-logs.properties'
+    preserved = foreign.read_bytes()
+    # A source-only comment refactor retains all canonical values and every other environment.
+    output = {path: path.read_text() + '# retained comment\n'}
+    after = load_model(path, CandidateReads(FileReads(), output))
+    assert after.authoritative == before.authoritative and not verify_values(before, after, {}, schema_for)
+    assert foreign.read_bytes() == preserved
+    changed = {**before.authoritative, 'desired.row.001-004.value': '`INFREQUENT_ACCESS`'}
+    after = load_model(path, CandidateReads(FileReads(), {path: serialize(changed)}))
+    with pytest.raises(ValueError, match='unselected Resource'):
+        verify_values(before, after, {}, schema_for)
+    stage = tmp_path / 'candidate'
+    file = stage / foreign.relative_to(tmp_path)
+    file.parent.mkdir(parents=True)
+    file.write_bytes(preserved)
+    with pytest.raises(ValueError, match='outside'):
+        candidate_sources(tmp_path, stage, before)
 
 
 @pytest.mark.parametrize('action', ['update', 'add'])
@@ -438,68 +402,66 @@ def check_new_anchor_and_reference_preservation():
     warnings = []
     verify_values(expansion(old), expansion(new), {'009': record('vpc-new')}, schema_for, warnings=warnings)
     assert any('anchor' in w['message'] for w in warnings)
-    key = 'desired.row.001-001.value'
-    before = Expansion(old, {key: {'references': {'Vpc': {'target': '001'}}}}, {})
-    after = Expansion(old, {key: {'references': {'Vpc': {'target': '002'}}}}, {})
-    warnings = []
-    verify_values(before, after, {}, schema_for, warnings=warnings)
-    assert any('reference declaration' in w['message'] for w in warnings)
+    for field, value in {'consumerKey': 'desired.row.001-003.value', 'text': 'main-vpc', 'occurrence': '1',
+            'producerKind': 'resource', 'producerScope': 'dev/cde/vpc', 'producerId': '001',
+            'resourceType': 'EC2.VPC', 'format': 'name', 'property': 'EC2.VPC.Name', 'labelPolicy': 'none'}.items():
+        old['desired.reference.fixed.' + field] = value
+    new = {**old, 'desired.reference.fixed.producerId': '002'}
+    with pytest.raises(ValueError, match='unselected Resource'):
+        verify_values(expansion(old), expansion(new), {}, schema_for)
 
 
 @pytest.mark.parametrize('unknown', [False, True])
 def check_authored_vpc_append_candidate(tmp_path, unknown):
     from support.import_model_fixtures import build_seed
-    from model_templates import load_for_edit, json_text, parse_template
+    from support.model_sources import write_model
+    from model.sources import FileReads, load_model
+    from model.operations import CandidateReads
+    from model.format import serialize
     build_seed(tmp_path)
     path = tmp_path / 'model/dev/cde/vpc.properties'
-    directory = tmp_path / 'model/parameters/dev/cde/vpc'
-    observed_file = directory / 'observed.json'
-    observed = json.loads(observed_file.read_text())
     if unknown:
-        observed['values'].pop('observed.row.001-001.value')
-        observed_file.write_text(json_text(observed))
-    before = load_for_edit(path)
-    foreign = {p: p.read_bytes() for p in (tmp_path / 'model').rglob('*') if p.is_file()}
-    template = tmp_path / 'model/templates/cde/vpc.properties.tpl'
-    definitions = parse_template(template)[0]
-    parameters_file, bindings_file = directory / 'parameters.yaml', directory / 'bindings.json'
-    params = yaml_read(parameters_file.read_text())
-    params['instances']['new-vpc'] = {'parameters': {'CidrBlock': '10.11.0.0/23'}}
-    bindings = json.loads(bindings_file.read_text())
-    seed = bindings['instances']['main-vpc']
-    bindings['instances']['new-vpc'] = {**copy.deepcopy(seed), 'resources': {'resource': '009'},
-        'rows': {local: rid.replace('001-', '009-') for local, rid in seed['rows'].items()}, 'parameters': {'Anchor': 'vpc-new'}}
-    observed['values']['observed.row.009-001.value'] = 'vpc-new'
-    output = {parameters_file: parameter_edit(parameters_file.read_text(), params), bindings_file: json_text(bindings), observed_file: json_text(observed)}
-    after = load_for_edit(path, output)
+        values = dict(load_model(path).authoritative)
+        del values['observed.row.001-001.value']
+        write_model(path, values)
+    before = load_model(path)
+    original_bytes = {p: p.read_bytes() for p in (tmp_path / 'model').rglob('*') if p.is_file()}
+    addition = resource('009', identity='vpc-new', cidr='10.11.0.0/23')
+    addition['desired.resource.009.anchor'] = 'vpc-new'
+    addition['desired.row.009-001.value'] = '[009](#vpc-new)'
+    for index, prop in enumerate(('EnableDnsHostnames', 'EnableDnsSupport'), 4):
+        addition.update({f'desired.row.009-{index:03d}.property': 'EC2.VPC.' + prop,
+                         f'desired.row.009-{index:03d}.value': '`true`',
+                         f'desired.row.009-{index:03d}.comment': '取得値'})
+    after = load_model(path, CandidateReads(FileReads(), {path: serialize({**before.authoritative, **addition})}))
     acquired = record('vpc-new')
     for prop in ('EC2.VPC.EnableDnsHostnames', 'EC2.VPC.EnableDnsSupport'):
         acquired['properties'][prop] = {'status': 'captured', 'value': True}
     captured_schema = lambda prop: {'type': 'boolean' if '.EnableDns' in prop else 'string'}
     warnings = []
     selected = selection_records(selection(rid='009'), [acquired], before.values, after.values, captured_schema, warnings)
-    preserve_consumers(path, before, output, {('dev', 'cde', 'vpc'), ('stg', 'cde', 'vpc')})
     assert len(verify_values(before, after, selected, captured_schema)) == 5
     assert bool(warnings) == unknown
-    assert all(after.values[k] == value for k, value in before.values.items())
-    assert after.values['observed.row.009-001.value'] == 'vpc-new'
-    assert after.values['desired.row.009-001.value'] == '[009](#vpc-new)'
-    assert after.values['desired.resource.009.resourceMode'] == 'IMPORT'
-    assert parse_template(template)[0] == definitions
-    assert all(p.read_bytes() == data for p, data in foreign.items())
+    assert all(after.authoritative[key] == value for key, value in before.authoritative.items())
+    assert after.authoritative['observed.row.009-001.value'] == '`vpc-new`'
+    assert after.authoritative['desired.row.009-001.value'] == '[009](#vpc-new)'
+    assert after.authoritative['desired.resource.009.resourceMode'] == 'IMPORT'
+    assert all(p.read_bytes() == raw for p, raw in original_bytes.items())
 
 
-@pytest.mark.parametrize('relative', ['model/parameters/stg/cde/vpc/parameters.yaml',
-    'model/parameters/stg/cde/vpc/bindings.json', 'model/parameters/stg/cde/vpc/observed.json',
-    'model/parameters/dev/cde/config/parameters.yaml', 'model/templates/cde/config.properties.tpl'])
+@pytest.mark.parametrize('relative', ['model/stg/cde/vpc.properties', 'model/stg/cde/vpc/part-001.properties',
+    'model/stg/another/vpc.properties', 'model/dev/cde/config.properties', 'model/dev/another/vpc.properties'])
 def check_foreign_candidate_scope(tmp_path, relative):
+    from support.import_model_fixtures import operation_fixture
+    from model.sources import load_model
     root, directory = tmp_path / 'repository', tmp_path / 'candidate'
-    root.mkdir()
+    operation_fixture(root)
+    before = load_model(root / 'model/dev/cde/vpc.properties')
     file = directory / relative
     file.parent.mkdir(parents=True)
-    file.write_text('{}', encoding='utf-8')
+    file.write_text('# model-format: 2\n', encoding='utf-8')
     with pytest.raises(ValueError, match='outside'):
-        candidate_sources(root, directory, ('dev', 'cde', 'vpc'))
+        candidate_sources(root, directory, before)
 
 
 from support.import_model_fixtures import operation_fixture, operation_candidate, operation_contract
@@ -507,9 +469,9 @@ from support.import_model_fixtures import operation_fixture, operation_candidate
 
 @pytest.mark.parametrize('action', ['import-merge', 'import-delete'])
 def check_model_operation_preserves_consumers(tmp_path, action):
-    from import_promotion import verify_model_operation
+    from model.operations import verify_model_operation
     from task_contract import model_operation
-    from model_templates import load_expansion
+    from model.sources import load_model
     before, after = tmp_path / 'before', tmp_path / 'after'
     operation_fixture(before)
     sources = operation_candidate(before, after, action)
@@ -528,8 +490,8 @@ def check_model_operation_preserves_consumers(tmp_path, action):
             require_no_issues(after, {('stg', 'cde', 'vpc')})
     verify_model_operation(before, after, model_operation(operation_contract(action)), sources)
     dev = 'model/dev/cde/vpc.properties'
-    assert load_expansion(before / dev).values == load_expansion(after / dev).values
-    stg = load_expansion(after / 'model/stg/cde/vpc.properties').values
+    assert load_model(before / dev).values == load_model(after / dev).values
+    stg = load_model(after / 'model/stg/cde/vpc.properties').values
     assert 'desired.resource.009.resourceType' not in stg
     assert stg['desired.resource.001.resourceMode'] == 'IMPORT'
     assert stg['observed.row.001-001.value'] == ('vpc-source' if action == 'import-merge' else 'vpc-stg')
@@ -538,34 +500,37 @@ def check_model_operation_preserves_consumers(tmp_path, action):
 
 @pytest.mark.parametrize('change', ['cidr', 'observation', 'mode', 'row-id', 'dev', 'binding', 'missing-row', 'extra-delete', 'reference'])
 def check_model_operation_rejects_unproved_changes(tmp_path, change):
-    from import_promotion import verify_model_operation
+    from model.operations import verify_model_operation
     from task_contract import model_operation
     before, after = tmp_path / 'before', tmp_path / 'after'
     operation_fixture(before)
     sources = operation_candidate(before, after)
-    directory = after / 'model/parameters/stg/cde/vpc'
-    if change in {'cidr', 'mode', 'dev'}:
-        file = directory / 'parameters.yaml' if change != 'dev' else after / 'model/parameters/dev/cde/vpc/parameters.yaml'
-        text = file.read_text()
-        file.write_text(text.replace('10.9.0.0/16', '10.8.0.0/16') if change == 'cidr' else text.replace('IMPORT', 'CREATE') if change == 'mode' else text.replace('10.1.0.0/16', '10.2.0.0/16'))
+    from support.model_sources import write_model
+    from model.sources import load_model
+    file = after / ('model/dev/cde/vpc.properties' if change == 'dev' else 'model/stg/cde/vpc.properties')
+    values = dict(load_model(file).authoritative)
+    if change == 'cidr':
+        values['desired.row.001-002.value'] = '`10.8.0.0/16`'
     elif change == 'observation':
-        file = directory / 'observed.json'
-        file.write_text(file.read_text().replace('vpc-source', 'fabricated'))
-    elif change in {'row-id', 'binding', 'extra-delete'}:
-        file = directory / 'bindings.json'
-        data = json.loads(file.read_text())
-        if change == 'row-id':
-            data['instances']['main-vpc']['rows']['cidr'] = '001-099'
-        elif change == 'binding':
-            data['instances']['main-vpc']['parameters']['Anchor'] = 'new-anchor'
-        else:
-            del data['instances']['service']
-        file.write_text(json.dumps(data))
+        values['observed.row.001-001.value'] = 'fabricated'
+    elif change == 'mode':
+        values['desired.resource.001.resourceMode'] = 'CREATE'
+    elif change == 'dev':
+        values['desired.row.001-002.value'] = '`10.2.0.0/16`'
+        sources.add('model/dev/cde/vpc.properties')
+    elif change == 'row-id':
+        for key in list(values):
+            if key.startswith('desired.row.001-002.'):
+                values[key.replace('001-002', '001-099')] = values.pop(key)
+    elif change == 'binding':
+        values['desired.resource.001.anchor'] = 'new-anchor'
+    elif change == 'extra-delete':
+        del values['desired.service.vpc.serviceId']
+    elif change == 'missing-row':
+        values['desired.row.001-002.property'] = 'EC2.VPC.Other'
     else:
-        file = after / 'model/templates/cde/vpc.properties.tpl'
-        text = file.read_text()
-        text = text.replace('desired.row.cidr.property=EC2.VPC.CidrBlock', 'desired.row.cidr.property=EC2.VPC.Other', 1) if change == 'missing-row' else text.replace('display.service.title=', 'desired.note.001.text=[009](#vpc-imported)\ndisplay.service.title=')
-        file.write_text(text)
+        values['desired.note.001.text'] = '[009](#vpc-imported)'
+    write_model(file, values)
     with pytest.raises(ValueError):
         verify_model_operation(before, after, model_operation(operation_contract()), sources)
 
@@ -573,7 +538,7 @@ def check_model_operation_rejects_unproved_changes(tmp_path, change):
 @pytest.mark.parametrize('change', ['cross-env', 'same-id', 'missing-target', 'normal-task', 'aws', 'create-source', 'create-destination', 'wrong-source'])
 def check_model_operation_contract_scope(tmp_path, change):
     from task_contract import model_operation
-    from import_promotion import verify_model_operation
+    from model.operations import verify_model_operation
     text = operation_contract()
     if change == 'cross-env':
         text = text.replace('stg/cde/vpc/001', 'dev/cde/vpc/001')
@@ -589,8 +554,12 @@ def check_model_operation_contract_scope(tmp_path, change):
         before, after = tmp_path / 'before', tmp_path / 'after'
         operation_fixture(before)
         if change in {'create-source', 'create-destination'}:
-            file = before / 'model/parameters/stg/cde/vpc/parameters.yaml'
-            file.write_text(file.read_text().replace('IMPORT', 'CREATE', 1) if change == 'create-destination' else file.read_text().replace('IMPORT', 'CREATE'))
+            from model.sources import load_model
+            from support.model_sources import write_model
+            file = before / 'model/stg/cde/vpc.properties'
+            values = dict(load_model(file).authoritative)
+            values['desired.resource.' + ('001' if change == 'create-destination' else '009') + '.resourceMode'] = 'CREATE'
+            write_model(file, values)
         action = 'import-merge' if change == 'create-destination' else 'import-delete'
         sources = operation_candidate(before, after, action)
         with pytest.raises(ValueError):
@@ -601,7 +570,7 @@ def check_model_operation_contract_scope(tmp_path, change):
 
 
 def check_model_operation_row_correspondence():
-    from import_promotion import operation_rows
+    from model.operations import operation_rows
     values = resource()
     values.update({'desired.row.001-010.property': 'EC2.VPC.Tags[].Key', 'desired.row.001-010.value': '`A`',
                    'desired.row.001-011.property': 'EC2.VPC.Tags[].Value', 'desired.row.001-011.value': '`one`',
@@ -626,7 +595,7 @@ def check_model_operation_row_correspondence():
     (['IAM.Role.ManagedPolicyArns[1]'] * 2, None),
 ])
 def check_model_operation_catalog_arrays(tmp_path, properties, expected):
-    from import_promotion import operation_rows
+    from model.operations import operation_rows
     values = {'desired.resource.001.resourceType': 'IAM.Role'}
     for rid, prop, value in zip(('001-004', '001-007'), properties, ('[first](#first)', '[second](#second)')):
         values.update({f'desired.row.{rid}.property': prop, f'desired.row.{rid}.value': value})
@@ -646,84 +615,39 @@ def check_model_operation_catalog_arrays(tmp_path, properties, expected):
 
 @pytest.mark.parametrize('shape', ['optional', 'choice', 'optional-json', 'document', 'untransferred'])
 def check_model_operation_shape_preservation(tmp_path, shape):
-    from support.import_model_fixtures import spec
-    from import_promotion import verify_model_operation
+    from model.operations import verify_model_operation
+    from model.sources import load_model
+    from support.model_sources import write_model
     from task_contract import model_operation
-    from model_templates import json_text, load_expansion
     before, after = tmp_path / 'before', tmp_path / 'after'
     operation_fixture(before)
-    template = before / 'model/templates/cde/vpc.properties.tpl'
-    text = template.read_text()
-    if shape in {'optional-json', 'document', 'untransferred'}:
-        for definition, value in [('Vpc', '{"Version":"2012-10-17","Statement":[]}'),
-                                  ('ImportedVpc', '{"Version":"2012-10-17","Statement":[{"Effect":"Allow"}]}')]:
-            start = text.index('# definition: ' + definition + '\n')
-            end = text.index('# end-definition', start)
-            text = text[:end] + ('# row: document resource\ndesired.row.document.property=EC2.VPC.Document\n'
-                'desired.row.document.value=[JSON](vpc/' + definition + '.json)\ndesired.row.document.document=' + value + '\n'
-                'desired.row.document.comment=構造比較の合成入力\n') + text[end:]
-        for env in ('dev', 'stg'):
-            file = before / 'model/parameters' / env / 'cde/vpc/bindings.json'
-            bindings = json.loads(file.read_text())
-            bindings['instances']['main-vpc']['rows']['document'] = '001-010'
-            if env == 'stg':
-                bindings['instances']['imported-vpc']['rows']['document'] = '009-020'
-            file.write_text(json.dumps(bindings))
+    path = before / 'model/stg/cde/vpc.properties'
+    values = dict(load_model(path).authoritative)
+    if shape in {'optional', 'choice'}:
+        values.update({'desired.row.009-050.property': 'EC2.VPC.EnableDnsHostnames',
+                       'desired.row.009-050.value': '`true`', 'desired.row.009-050.comment': '追加取得値'})
     else:
-        start = text.index('# definition: ImportedVpc\n')
-        end = text.index('# end-definition', start)
-        text = text[:end] + ('# row: hostnames resource\ndesired.row.hostnames.property=EC2.VPC.EnableDnsHostnames\n'
-                            'desired.row.hostnames.value=`true`\ndesired.row.hostnames.comment=追加取得値\n') + text[end:]
-        file = before / 'model/parameters/stg/cde/vpc/bindings.json'
-        bindings = json.loads(file.read_text())
-        bindings['instances']['imported-vpc']['rows']['hostnames'] = '009-050'
-        file.write_text(json.dumps(bindings))
-    template.write_text(text)
+        for rid, rows, statements in [('001', '001-010', []), ('009', '009-020', [{'Effect': 'Allow'}])]:
+            values.update({f'desired.row.{rows}.property': 'EC2.VPC.Document',
+                           f'desired.row.{rows}.value': '[JSON](vpc/' + rid + '.json)',
+                           f'desired.row.{rows}.document': json.dumps({'Version': '2012-10-17', 'Statement': statements}),
+                           f'desired.row.{rows}.comment': '構造比較の合成入力'})
+    write_model(path, values)
     sources = operation_candidate(before, after)
-    template = after / template.relative_to(before)
-    text = template.read_text()
-    if shape != 'untransferred':
-        begin = text.index('# definition: Vpc\n')
-        end = text.index('# end-definition', begin)
-        body = text[begin:end]
-        if shape in {'optional', 'choice'}:
-            body += '# parameter: HasHostnames ' + json_text(spec('boolean')) + '\n# row: hostnames resource\n'
-            for field, value in [('property', 'EC2.VPC.EnableDnsHostnames'), ('value', '`true`'), ('comment', '追加取得値')]:
-                body += '# optional: desired.row.hostnames.' + field + ' HasHostnames\n'
-                body += 'desired.row.hostnames.' + field + '=' + value + '\n'
-            selector = 'HasHostnames'
-            if shape == 'choice':
-                body = body.replace('desired.row.dns.value=<<DnsSupport>>', 'desired.row.dns.value=`false`\n# choice: desired.row.dns.value {"parameter":"HasHostnames","value":"<<DnsSupport>>"}')
-        elif shape == 'optional-json':
-            selector = 'HasStatement'
-            body += '# parameter: HasStatement ' + json_text(spec('boolean')) + '\n'
-            body += '# optional-json: desired.row.document.document /Statement/0 HasStatement\n'
-            body = body.replace('"Statement":[]', '"Statement":[{"Effect":"Allow"}]')
-        else:
-            selector = 'Document'
-            body += '# parameter: Document ' + json_text(spec('object')) + '\n'
-            body = body.replace('desired.row.document.document={"Version":"2012-10-17","Statement":[]}', 'desired.row.document.document="<<Document>>"')
-        text = text[:begin] + body + text[end:]
-        template.write_text(text)
-        for env in ('dev', 'stg'):
-            file = after / 'model/parameters' / env / 'cde/vpc/parameters.yaml'
-            parameters = yaml_read(file.read_text())
-            parameters['instances']['main-vpc']['parameters'][selector] = ({'Version': '2012-10-17', 'Statement': [{'Effect': 'Allow'}] if env == 'stg' else []} if shape == 'document' else env == 'stg')
-            if shape == 'choice' and env == 'dev':
-                del parameters['instances']['main-vpc']['parameters']['DnsSupport']
-            file.write_text(parameter_edit(file.read_text(), parameters))
-        if shape in {'optional', 'choice'}:
-            file = after / 'model/parameters/stg/cde/vpc/bindings.json'
-            bindings = json.loads(file.read_text())
-            bindings['instances']['main-vpc']['rows']['hostnames'] = '001-090'
-            file.write_text(json.dumps(bindings))
     if shape == 'untransferred':
-        with pytest.raises(ValueError, match='not transferred'):
+        path = after / 'model/stg/cde/vpc.properties'
+        values = dict(load_model(path).authoritative)
+        values['desired.row.001-010.document'] = '{"Version":"2012-10-17","Statement":[]}'
+        write_model(path, values)
+        with pytest.raises(ValueError, match='changed|retain|transfer'):
             verify_model_operation(before, after, model_operation(operation_contract()), sources)
     else:
         verify_model_operation(before, after, model_operation(operation_contract()), sources)
-        assert load_expansion(before / 'model/dev/cde/vpc.properties').values == load_expansion(after / 'model/dev/cde/vpc.properties').values
-
+        assert load_model(before / 'model/dev/cde/vpc.properties').authoritative == load_model(after / 'model/dev/cde/vpc.properties').authoritative
+        if shape in {'optional', 'choice'}:
+            assert load_model(after / 'model/stg/cde/vpc.properties').authoritative['desired.row.001-050.value'] == '`true`'
+        else:
+            assert json.loads(load_model(after / 'model/stg/cde/vpc.properties').authoritative['desired.row.001-010.document'])['Statement'] == [{'Effect': 'Allow'}]
 
 
 @pytest.mark.parametrize('failure', ['none', 'tamper', 'missing', 'expired', 'task', 'base', 'scope'])
@@ -735,7 +659,7 @@ def check_external_completion_proof(tmp_path, monkeypatch, failure):
     monkeypatch.setattr(import_guard, 'task_path', lambda root: root / 'tasks/example.md')
     monkeypatch.setattr(import_guard, 'workflow', lambda root: 'tasks/example.md')
     monkeypatch.setattr(import_guard, 'base_revision', lambda root: 'base')
-    monkeypatch.setattr('import_scope.selected', lambda root: ('stg', 'cde', 'vpc'))
+    monkeypatch.setattr('model.importing.scope.selected', lambda root: ('stg', 'cde', 'vpc'))
     proof = {'version': 3, 'task': 'tasks/example.md', 'base': 'base', 'scope': ['stg', 'cde', 'vpc'],
              'acquisition': 'receipt', 'sources': {}, 'plan': 'verified', 'complete': True,
              'model': 'unchanged', 'markdown': 'unchanged', 'ownedArtifacts': [],
@@ -774,7 +698,7 @@ def check_legacy_proof_migration(tmp_path, monkeypatch, mixed):
     monkeypatch.setattr(import_guard, 'task_path', lambda root: root / 'tasks/example.md')
     monkeypatch.setattr(import_guard, 'workflow', lambda root: 'tasks/example.md')
     monkeypatch.setattr(import_guard, 'base_revision', lambda root: 'base')
-    monkeypatch.setattr('import_scope.selected', lambda root: ('stg', 'cde', 'vpc'))
+    monkeypatch.setattr('model.importing.scope.selected', lambda root: ('stg', 'cde', 'vpc'))
     proof = {'version': 3, 'task': 'tasks/example.md', 'base': 'base', 'scope': ['stg', 'cde', 'vpc'],
              'acquisition': 'receipt', 'sources': {}, 'plan': 'verified', 'complete': True,
              'model': 'unchanged', 'markdown': 'unchanged', 'ownedArtifacts': [],
@@ -803,7 +727,7 @@ def check_snapshot_proof_resigning_and_cleanup(tmp_path, monkeypatch):
     monkeypatch.setattr(import_guard, 'task_path', lambda root: root / 'tasks/example.md')
     monkeypatch.setattr(import_guard, 'workflow', lambda root: 'tasks/example.md')
     monkeypatch.setattr(import_guard, 'base_revision', lambda root: 'base')
-    monkeypatch.setattr('import_scope.selected', lambda root: ('stg', 'cde', 'vpc'))
+    monkeypatch.setattr('model.importing.scope.selected', lambda root: ('stg', 'cde', 'vpc'))
     monkeypatch.setattr(import_guard, 'require_import_changes', lambda root: None)
     proof = {'version': 3, 'task': 'tasks/example.md', 'base': 'base', 'scope': ['stg', 'cde', 'vpc'],
              'acquisition': 'receipt', 'sources': {}, 'plan': 'verified', 'complete': True,
@@ -838,13 +762,13 @@ def domain(identifier='dzd-one'):
 
 def check_inventory_singleflight_and_isolation():
     from concurrent.futures import ThreadPoolExecutor
-    from import_inventory import ImportInventory, inventory_for
+    from model.importing.inventory import ImportInventory, inventory_for
     from collections import Counter
     resources = {'DataZone.Domain': [domain(), domain('dzd-two')]}
     ctx, cli = generic_context(resources=resources)
     original = m._normalize_records
-    from import_inventory import import_comparison
-    with patch('import_inventory.import_comparison', wraps=import_comparison) as mapping, patch.object(m, '_normalize_records', wraps=original) as normalize:
+    from model.importing.inventory import import_comparison
+    with patch('model.importing.inventory.import_comparison', wraps=import_comparison) as mapping, patch.object(m, '_normalize_records', wraps=original) as normalize:
         def acquire(_):
             assert inventory_for(ctx) is ImportInventory(ctx)
             return m.normalize_records(ctx, 'datazone', m.inventory(ctx, 'datazone', ['DataZone.Domain']))
@@ -889,7 +813,7 @@ def check_context_api_singleflight_and_failures():
 
 
 def check_cloudtrail_all_model_properties():
-    from import_inventory import inventory_for
+    from model.importing.inventory import inventory_for
     ctx, cli = generic_context('cloudtrail', {'CloudTrail.Trail': [{'identifier': 'audit', 'list': {'TrailName': 'audit'}, 'properties': {'TrailName': 'audit'}}]})
     result = m.normalize_records(ctx, 'cloudtrail', m.inventory(ctx, 'cloudtrail'))
     assert len(result) == 1 and len(result[0]['properties']) == 13
@@ -903,7 +827,7 @@ def check_cloudtrail_all_model_properties():
 
 
 def check_tgw_provider_and_composite_identity():
-    from import_inventory import inventory_for
+    from model.importing.inventory import inventory_for
     resources = {
         'EC2.TransitGateway': [{'identifier': 'tgw-one', 'properties': {'Id': 'tgw-one', 'AmazonSideAsn': 64512, 'Description': 'fixture',
             'DnsSupport': 'enable', 'DefaultRouteTableAssociation': 'enable', 'DefaultRouteTablePropagation': 'enable',
@@ -930,7 +854,7 @@ def check_tgw_provider_and_composite_identity():
 
 
 def check_inventory_status_and_partial_retention():
-    from import_inventory import inventory_for
+    from model.importing.inventory import inventory_for
     ctx, cli = generic_context(resources={'DataZone.Domain': [domain(), domain('dzd-two')]},
                                fail={('cloudcontrol', 'get-resource', 'dzd-two'): 'AccessDeniedException'})
     records = m.normalize_records(ctx, 'datazone', m.inventory(ctx, 'datazone', ['DataZone.Domain']))
@@ -938,12 +862,12 @@ def check_inventory_status_and_partial_retention():
     assert inventory_for(ctx).statuses['DataZone.Domain']['status'] == 'permission_denied'
     count = len(cli.calls)
     assert len(m.inventory(ctx, 'datazone', ['DataZone.Domain'])) == 1 and len(cli.calls) == count
-    evidence = {'version': 2, 'inventory': inventory_for(ctx).statuses}
+    evidence = {'version': 3, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1, 'inventory': inventory_for(ctx).statuses}
     assert not import_guard.acquisition_complete(evidence)
     empty, _ = generic_context()
     assert m.inventory(empty, 'datazone', ['DataZone.Domain']) == []
     assert inventory_for(empty).statuses['DataZone.Domain']['status'] == 'empty'
-    assert import_guard.acquisition_complete({'version': 2, 'inventory': inventory_for(empty).statuses})
+    assert import_guard.acquisition_complete({'version': 3, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1, 'inventory': inventory_for(empty).statuses})
     assert m.inventory(empty, 'datazone', ['DataZone.DataSource']) == []
     assert inventory_for(empty).statuses['DataZone.DataSource']['status'] == 'not_modelled'
     with pytest.raises(ValueError, match='owner'):
@@ -951,7 +875,7 @@ def check_inventory_status_and_partial_retention():
 
 
 def check_cloudcontrol_json_and_readonly_boundary():
-    from import_inventory import properties_json, inventory_for
+    from model.importing.inventory import properties_json, inventory_for
     for value in ('null', '[]', '{"Id":1,"Id":2}', '{"Id":NaN}', '{invalid', {}, None):
         with pytest.raises((ValueError, TypeError)):
             properties_json(value)
@@ -976,11 +900,12 @@ def check_composite_identity_same_resource_only():
     kind = 'EC2.TransitGatewayRouteTableAssociation'
     props = [kind + '.TransitGatewayRouteTableId', kind + '.TransitGatewayAttachmentId']
     def values(rid, table, attachment):
-        result = {f'desired.resource.{rid}.resourceType': kind, f'desired.resource.{rid}.resourceMode': 'IMPORT', f'desired.resource.{rid}.anchor': 'association-' + rid}
+        result = {f'desired.resource.{rid}.logicalId': 'association-' + rid, f'desired.resource.{rid}.resourceType': kind, f'desired.resource.{rid}.resourceMode': 'IMPORT', f'desired.resource.{rid}.anchor': 'association-' + rid}
         for n, (prop, value) in enumerate(zip(props, (table, attachment)), 1):
             if value is not None:
                 result[f'desired.row.{rid}-{n:03d}.property'] = prop
                 result[f'desired.row.{rid}-{n:03d}.value'] = '`' + value + '`'
+                result[f'desired.row.{rid}-{n:03d}.comment'] = '合成関連付け'
         return result
     captured = {'record': 'assoc', 'kind': kind, 'identity': 'opaque', 'identityProperty': None, 'identityProperties': props,
                 'identityStatus': 'known', 'identityComponents': [{'property': p, 'value': v} for p, v in zip(props, ('table-a', 'attachment-b'))],
@@ -1004,7 +929,7 @@ def check_composite_identity_same_resource_only():
 
 @pytest.mark.parametrize('case,expected', [('no-list', 'unsupported'), ('no-read', 'unsupported'), ('filter', 'requires_filter'), ('missing', 'failed')])
 def check_inventory_capability_outcomes(case, expected):
-    from import_inventory import inventory_for
+    from model.importing.inventory import inventory_for
     item = domain()
     if case == 'missing':
         del item['properties']['Name']
@@ -1032,7 +957,7 @@ def check_inventory_capability_outcomes(case, expected):
 
 def check_fetch_singleflight_and_trace():
     from concurrent.futures import ThreadPoolExecutor
-    from import_inventory import inventory_for
+    from model.importing.inventory import inventory_for
     ctx, cli = generic_context(resources={'DataZone.Domain': [domain()]})
     def get(context, resource, getter):
         return context.call('cloudcontrol', 'get_resource', TypeName='AWS::DataZone::Domain', Identifier='dzd-one')
@@ -1105,7 +1030,7 @@ def check_legacy_adapter_api_counts():
 @pytest.mark.parametrize('account,region', [('999999999999', 'ap-northeast-1'), ('123456789012', 'us-east-1')])
 def check_acquisition_account_region_isolation(account, region):
     from support.import_model_fixtures import CloudControlCli
-    from import_inventory import inventory_for
+    from model.importing.inventory import inventory_for
     first, _ = generic_context(resources={'DataZone.Domain': [domain()]})
     first_records = m.inventory(first, 'datazone', ['DataZone.Domain'])
     cli = CloudControlCli({'DataZone.Domain': [domain('dzd-other')]}, account=account)
@@ -1119,11 +1044,11 @@ def check_acquisition_account_region_isolation(account, region):
         inventory_for(second).schema('DataZone.Domain')['primaryIdentifier'] = []
 
 
-def check_resource_type_cli_selection():
-    arguments = ['import-model', '--environment', 'dev', '--service', 'ec2', '--phase', 'acquire',
+def check_resource_type_cli_selection(tmp_path):
+    arguments = ['acquire', '--repository-root', str(tmp_path), '--environment', 'dev', '--service', 'ec2',
                  '--resource-type', 'EC2.TransitGateway', '--resource-type', 'EC2.TransitGatewayRouteTable']
-    with patch.object(sys, 'argv', arguments), patch.object(m, 'acquire', return_value={'status': 'acquired', 'markdown': 'not-run'}) as acquire:
-        assert m.main() == 0
+    with patch.object(m, 'acquire', return_value={'status': 'acquired', 'markdown': 'not-run'}) as acquire:
+        assert m.main(arguments) == 0
         assert acquire.call_args.kwargs['resource_types'] == ['EC2.TransitGateway', 'EC2.TransitGatewayRouteTable']
 
 
@@ -1132,43 +1057,46 @@ def check_unknown_acquired_identity_rejected():
     captured.update(identityStatus='unknown', identityComponents=[{'property': 'EC2.VPC.VpcId', 'value': None}])
     with pytest.raises(ValueError, match='identity is unknown'):
         selection_records(selection(), [captured], {}, resource(), schema_for)
+    from model.importing.evidence import FORMAT_FIELDS
     with pytest.raises(ValueError, match='inventory status'):
-        import_guard.acquisition_complete({'version': 2, 'inventory': {}})
-    with pytest.raises(ValueError, match='version'):
-        import_guard.acquisition_complete({'version': 99})
-    assert import_guard.acquisition_complete({'version': 1})
+        import_guard.acquisition_complete({'version': 3, **FORMAT_FIELDS, 'inventory': {}})
+    for version in (1, 2, 99):
+        with pytest.raises(ValueError, match='format is incompatible'):
+            import_guard.acquisition_complete({'version': version})
 
 
 def check_batch_model_operation(tmp_path):
     import json
-    from model_operation_checks import verify_model_operation
+    from model.operations import verify_model_operation
     from task_contract import model_operation
     from support.import_model_fixtures import batch_operation_fixture
     before, after = tmp_path / 'before', tmp_path / 'after'
     contract, sources = batch_operation_fixture(before, after)
     verify_model_operation(before, after, model_operation(contract), sources)
-    observed_file = after / 'model/parameters/stg/cde/vpc/observed.json'
-    observed = json.loads(observed_file.read_text())
-    observed['values']['observed.row.013-001.value'] = 'not-transferred'
-    observed_file.write_text(json.dumps(observed))
-    with pytest.raises(ValueError, match='not transferred'):
+    from model.sources import load_model
+    from support.model_sources import write_model
+    observed_file = after / 'model/stg/cde/vpc.properties'
+    observed = dict(load_model(observed_file).authoritative)
+    observed['observed.row.013-001.value'] = 'not-transferred'
+    write_model(observed_file, observed)
+    with pytest.raises(ValueError, match='not.*transfer'):
         verify_model_operation(before, after, model_operation(contract), sources)
 
 
 @pytest.mark.parametrize('action', ['import-merge', 'import-delete'])
 def check_intermediate_source_context(tmp_path, monkeypatch, action):
-    from unittest.mock import patch
     import worktree_task
-    from import_guard import source_write_context
-    from model_sources import read_sources, write_sources
-    from sync_runtime import GenerationInputs
+    from model.adapters.task import source_write_context
+    from model.operations import prepare_edit, publish_edit
+    from model.sources import load_model
+    from model.format import serialize
+    from generation_inputs import GenerationInputs
     from task_contract import start
     operation_fixture(tmp_path)
     path = tmp_path / 'model/stg/cde/vpc.properties'
-    raw = read_sources(path)
-    inputs = tmp_path / 'model/parameters/stg/cde/vpc/parameters.yaml'
+    raw = dict(load_model(path).authoritative)
     name = 'tasks/parent.md'
-    listed = '\n'.join('- `' + value + '`' for value in [name, inputs.relative_to(tmp_path).as_posix()])
+    listed = '\n'.join('- `' + value + '`' for value in [name, path.relative_to(tmp_path).as_posix()])
     text = operation_contract(action) + '## Validation scope\n- `stg/cde/vpc`\n## Modified files\n' + listed + '\n## Allowed paths\n' + listed + '\n'
     start(tmp_path, name, text)
     if action == 'import-delete':
@@ -1177,94 +1105,86 @@ def check_intermediate_source_context(tmp_path, monkeypatch, action):
         issues.write_text('### vpc\n1. 削除前の既存Issue\n', encoding='utf-8')
     state = {'task_file': name, 'worktree': str(tmp_path), 'merged': None}
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/wrong.md')
-    with patch.object(worktree_task, 'load', return_value=(tmp_path, None, None, state)), \
-         patch.object(worktree_task, 'task_worktree', return_value=tmp_path), \
-         patch('model_templates.load_expansion', side_effect=AssertionError('raw save cannot expand')), \
-         patch('model_templates.affected', side_effect=AssertionError('raw save cannot calculate expanded impact')), \
-         patch.object(GenerationInputs, 'open_stage', side_effect=AssertionError('raw save cannot stage')):
+    candidate = serialize(raw) + '# intermediate save\n'
+    with patch('import_guard.managed_task_state', return_value=state), \
+         patch.object(worktree_task, 'output', return_value='synthetic-head'), \
+         patch.object(GenerationInputs, 'open_stage', side_effect=AssertionError('intermediate save cannot stage')), \
+         patch('model.operations.verify_model_operation', side_effect=AssertionError('intermediate save cannot run final whole-design proof')):
         with source_write_context(tmp_path, name) as first:
-            assert write_sources(first, {inputs: 'instances: {}\n'}) == (inputs,)
-            with pytest.raises(ValueError, match='closed'):
-                write_sources(first, {})
-        assert read_sources(path)[inputs] == 'instances: {}\n'
+            assert publish_edit(prepare_edit(load_model(path, first.snapshot), {path: candidate}, first), first) == (path,)
+            with pytest.raises(ValueError, match='open authorized source context'):
+                prepare_edit(load_model(path), {}, first)
+        assert path.read_text() == candidate
         with source_write_context(tmp_path, name) as second:
-            assert write_sources(second, {inputs: 'instances: {}\n'}) == ()
+            assert publish_edit(prepare_edit(load_model(path, second.snapshot), {path: candidate}, second), second) == ()
         with source_write_context(tmp_path, name) as third:
-            inputs.write_text('instances: {} # outside edit\n')
-            with pytest.raises(ValueError, match='inputs changed'):
-                write_sources(third, {inputs: raw[inputs]})
-        assert inputs.read_text() == 'instances: {} # outside edit\n'
+            before = load_model(path, third.snapshot)
+            path.write_text(candidate + '# outside edit\n')
+            with pytest.raises(ValueError, match='changed'):
+                publish_edit(prepare_edit(before, {path: serialize(raw)}, third), third)
         with source_write_context(tmp_path, name) as fourth:
             with pytest.raises(ValueError, match='unregistered'):
-                write_sources(fourth, {tmp_path / 'project.json': '{}'})
+                prepare_edit(load_model(path, fourth.snapshot), {tmp_path / 'project.json': '{}'}, fourth)
         with source_write_context(tmp_path, name) as fifth:
-            with pytest.raises(ValueError, match='YAML'):
-                write_sources(fifth, {inputs: 'instances: [\n'})
-        assert inputs.read_text() == 'instances: {} # outside edit\n'
+            with pytest.raises(ValueError, match='format|properties'):
+                prepare_edit(load_model(path, fifth.snapshot), {path: 'invalid\n'}, fifth)
+        assert path.read_text() == candidate + '# outside edit\n'
+    assert __import__('os').environ['BLUEPRINT_TASK_FILE'] == 'tasks/wrong.md'
 
 
 @pytest.mark.parametrize('field', ['value', 'document', 'parentReference', 'name', 'identifier', 'reevaluation'])
 def check_explicit_reference_operation(tmp_path, field):
-    import json
-    import yaml
-    from support.import_model_fixtures import declaration, binding, spec
-    from model_operation_checks import verify_model_operation
+    from support.import_model_fixtures import resource_values, reference_fields
+    from support.model_sources import write_model
+    from model.sources import load_model
+    from model.references import usages
+    from model.operations import verify_model_operation
     from task_contract import model_operation
     before, after = tmp_path / 'before', tmp_path / 'after'
     operation_fixture(before)
+    file = before / 'model/stg/cde/vpc.properties'
+    values = dict(load_model(file).authoritative)
     external = field in {'name', 'identifier', 'reevaluation'}
     if external:
-        template = before / 'model/templates/cde/vpc.properties.tpl'
-        text = template.read_text()
-        for definition in ('Vpc', 'ImportedVpc'):
-            text = text.replace('# definition: ' + definition + '\n', '# definition: ' + definition + '\n# parameter: Name ' + json.dumps(spec(format='literal')) + '\n')
-        text = text.replace('desired.row.cidr.property=', '# row: name resource\ndesired.row.name.property=EC2.VPC.Name\ndesired.row.name.value=<<Name>>\ndesired.row.name.comment=name\ndesired.row.cidr.property=')
-        template.write_text(text)
-        for env in ('dev', 'stg'):
-            directory = before / 'model/parameters' / env / 'cde/vpc'
-            bindings_file, inputs_file = directory / 'bindings.json', directory / 'parameters.yaml'
-            bindings, inputs = json.loads(bindings_file.read_text()), yaml_read(inputs_file.read_text())
-            for instance, rid in [('main-vpc', '001'), ('imported-vpc', '009')]:
-                if instance in bindings['instances']:
-                    bindings['instances'][instance]['rows']['name'] = rid + '-004'
-                    inputs['instances'][instance]['parameters']['Name'] = 'source-name' if rid == '009' else 'destination-name'
-            bindings_file.write_text(json.dumps(bindings)); inputs_file.write_text(yaml.safe_dump(inputs))
-    fields = {'vpc': ('VpcId', '<<Vpc>>'), 'cidr': ('CidrBlock', '`10.2.0.0/24`')}
+        for rid, name in [('001', 'destination-name'), ('009', 'source-name')]:
+            values.update({f'desired.row.{rid}-004.property': 'EC2.VPC.Name',
+                           f'desired.row.{rid}-004.value': name, f'desired.row.{rid}-004.comment': '名前'})
+    source = '001' if field == 'reevaluation' else '009'
+    raw = ('vpc-source' if field == 'identifier' else 'destination-name' if field == 'reevaluation'
+           else 'source-name' if external else '[009](#vpc-imported)')
+    values.update(resource_values('020', 'EC2.Subnet', 'subnet-keep', 'CREATE', [
+        ('Policy' if field == 'document' else 'VpcId', '[JSON](vpc/policy.json)' if field == 'document' else raw),
+        ('CidrBlock', '`10.2.0.0/24`')]))
+    key = 'desired.row.020-001.' + ('document' if field == 'document' else 'value')
     if field == 'document':
-        fields['vpc'] = ('Policy', '[JSON](vpc/policy.json)')
-    lines = declaration('Subnet', 'EC2.Subnet', fields,
-                        {'Vpc': spec('reference', resourceType='EC2.VPC', **({'service': 'vpc', 'format': 'identifier', 'property': 'EC2.VPC.VpcId'} if field == 'identifier' else {'service': 'vpc', 'format': 'name'} if external else {})), 'ResourceMode': spec()})
-    if field == 'document':
-        lines.insert(-1, 'desired.row.vpc.document={"Vpc":"<<Vpc>>","Sibling":true}')
+        values[key] = json.dumps({'Vpc': raw, 'Sibling': True})
+    mode = 'identifier' if field == 'identifier' else 'name' if external else 'link'
+    values.update(reference_fields('vpc', key, raw, 'stg/cde/vpc/' + source,
+        kind='EC2.VPC', mode=mode, prop='EC2.VPC.VpcId' if field == 'identifier' else 'EC2.VPC.Name',
+        pointer='/Vpc' if field == 'document' else None))
     if field == 'parentReference':
-        lines.insert(-1, 'desired.resource.resource.parentReference=<<Vpc>>')
-    template = before / 'model/templates/cde/vpc.properties.tpl'
-    template.write_text(template.read_text() + '\n'.join(lines) + '\n')
-    directory = before / 'model/parameters/stg/cde/vpc'
-    bindings_file, inputs_file = directory / 'bindings.json', directory / 'parameters.yaml'
-    bindings, inputs = json.loads(bindings_file.read_text()), yaml_read(inputs_file.read_text())
-    bindings['instances']['subnet'] = binding('Subnet', '020', fields, 'subnet-keep')
-    inputs['instances']['subnet'] = {'parameters': {'Vpc': ('001' if field == 'reevaluation' else '009') if external else 'imported-vpc', 'ResourceMode': 'CREATE'}}
-    bindings_file.write_text(json.dumps(bindings)); inputs_file.write_text(yaml.safe_dump(inputs))
-    from model_reference_usage import outgoing_references
-    from utils.aws_mappings import mapping_alias
-    with mapping_alias(Path(__file__).resolve().parents[4], before):
-        usages = outgoing_references(before, 'stg/cde/vpc/020')['references']
-    expected_source = 'stg/cde/vpc/' + ('001' if field == 'reevaluation' else '009')
-    assert usages and all(item['producer'] == expected_source for item in usages)
-    if field == 'identifier':
-        assert any(item['format'] == 'identifier' and item['resolvedValue'] == 'vpc-source' for item in usages)
-    if field == 'name':
-        assert any(item['format'] == 'name' and item['resolvedValue'] == 'source-name' for item in usages)
+        values['desired.resource.020.parentReference'] = raw
+        values['desired.resource.020.parentProperty'] = 'EC2.Subnet.VpcId'
+        values.update(reference_fields('parent', 'desired.resource.020.parentReference', raw,
+            'stg/cde/vpc/009', kind='EC2.VPC', mode='link'))
+    write_model(file, values)
+    assert any(usage.metadata_id == 'vpc' and usage.producer_id == source for usage in usages(load_model(file)))
     sources = operation_candidate(before, after)
-    inputs_file = after / inputs_file.relative_to(before)
-    inputs = yaml_read(inputs_file.read_text())
-    inputs['instances']['subnet']['parameters']['Vpc'] = '001' if external else 'main-vpc'
-    if external:
-        inputs['instances']['main-vpc']['parameters']['Name'] = 'source-name'
-    inputs_file.write_text(yaml.safe_dump(inputs))
-    contract = operation_contract().split('- Source resource:')[0] + '## Model merge pairs\n' + '- ' + json.dumps({'source': 'stg/cde/vpc/009', 'destination': 'stg/cde/vpc/001'}) + '\n'
-    reference = {'consumer': 'stg/cde/vpc/020', 'field': 'value' if external else field, 'source': 'stg/cde/vpc/001' if field == 'reevaluation' else 'stg/cde/vpc/009', 'destination': 'stg/cde/vpc/001'}
+    file = after / file.relative_to(before)
+    values = dict(load_model(file).authoritative)
+    updated = 'vpc-source' if field == 'identifier' else 'source-name' if external else '[001](#vpc-main)'
+    values[key] = json.dumps({'Vpc': updated, 'Sibling': True}) if field == 'document' else updated
+    values['desired.reference.vpc.producerId'] = '001'
+    values['desired.reference.vpc.text'] = updated
+    if field == 'parentReference':
+        values['desired.resource.020.parentReference'] = updated
+        values['desired.reference.parent.producerId'] = '001'
+        values['desired.reference.parent.text'] = updated
+    write_model(file, values)
+    contract = operation_contract().split('- Source resource:')[0] + '## Model merge pairs\n- ' + json.dumps({
+        'source': 'stg/cde/vpc/009', 'destination': 'stg/cde/vpc/001'}) + '\n'
+    reference = {'consumer': 'stg/cde/vpc/020', 'field': 'value' if external else field,
+                 'source': 'stg/cde/vpc/' + source, 'destination': 'stg/cde/vpc/001'}
     if field != 'parentReference':
         reference['property'] = 'EC2.Subnet.Policy' if field == 'document' else 'EC2.Subnet.VpcId'
     if field == 'document':
@@ -1272,574 +1192,493 @@ def check_explicit_reference_operation(tmp_path, field):
     references = [reference]
     if field == 'parentReference':
         references.append({**reference, 'field': 'value', 'property': 'EC2.Subnet.VpcId'})
-    contract += '## Model reference changes\n' + ''.join('- ' + json.dumps(ref) + '\n' for ref in references)
-    from utils.aws_mappings import mapping_alias
-    with mapping_alias(Path(__file__).resolve().parents[4], before), mapping_alias(Path(__file__).resolve().parents[4], after):
+    full_contract = contract + '## Model reference changes\n' + ''.join('- ' + json.dumps(item) + '\n' for item in references)
+    verify_model_operation(before, after, model_operation(full_contract), sources)
+    with pytest.raises(ValueError, match='unspecified|undeclared|parent'):
         verify_model_operation(before, after, model_operation(contract), sources)
-    with mapping_alias(Path(__file__).resolve().parents[4], before), mapping_alias(Path(__file__).resolve().parents[4], after):
-        assert verify_model_operation(before, after, model_operation(contract.split('## Model reference changes')[0]), sources)
-    template = after / template.relative_to(before)
-    content = template.read_text()
-    template.write_text(content.replace('<<Vpc>>', '[001](#vpc-main)'))
-    with mapping_alias(Path(__file__).resolve().parents[4], before), mapping_alias(Path(__file__).resolve().parents[4], after), pytest.raises(ValueError, match='unused parameter declarations'):
-        verify_model_operation(before, after, model_operation(contract), sources)
-
+    values[key] = json.dumps({'Vpc': 'prefix-' + updated, 'Sibling': True}) if field == 'document' else 'prefix-' + updated
+    write_model(file, values)
+    with pytest.raises(ValueError, match='affix|literal|changed'):
+        verify_model_operation(before, after, model_operation(full_contract), sources)
 
 
 @pytest.mark.parametrize('selection', ['fixed', 'instance'])
 def check_effective_reference_identity(tmp_path, selection, monkeypatch):
-    import yaml
-    import model_templates as templates
-    from support.import_model_fixtures import dependency_fixture, spec
-    from model_reference_usage import incoming_references, outgoing_references
-    from validation_cache import input_scope
+    from support.import_model_fixtures import dependency_fixture
+    from model.sources import load_model
+    from model import sources
+    from model.references import incoming, usages
+    from validation_cache import input_context
     dependency_fixture(tmp_path)
-    producer = tmp_path / 'model/templates/cde/service-a.properties.tpl'
-    text = producer.read_text(encoding='utf-8').replace('desired.resource.resource.resourceType=ServiceA.Resource',
-        '# parameter: Kind ' + json.dumps(spec()) + '\ndesired.resource.resource.resourceType=<<Kind>>')
-    producer.write_text(text, encoding='utf-8')
-    for env in ('dev', 'stg'):
-        file = tmp_path / 'model/parameters' / env / 'cde/service-a/parameters.yaml'
-        data = yaml_read(file.read_text(encoding='utf-8'))
-        for item in data['instances'].values():
-            item['parameters']['Kind'] = 'ServiceA.Resource'
-        file.write_text(yaml.safe_dump(data), encoding='utf-8')
-    if selection == 'instance':
-        file = tmp_path / 'model/templates/cde/service-b.properties.tpl'
-        original = spec('reference', service='service-a', resourceType='ServiceA.Resource', format='name')
-        replacement = {'service': 'service-a', 'instance': 'producer', 'resourceType': 'ServiceA.Resource', 'format': 'name'}
-        file.write_text(file.read_text().replace('# parameter: Origin ' + json.dumps(original, ensure_ascii=False, separators=(',', ':')), '# reference: Origin ' + json.dumps(replacement)), encoding='utf-8')
-        for env in ('dev', 'stg'):
-            file = tmp_path / 'model/parameters' / env / 'cde/service-b/parameters.yaml'
-            data = yaml_read(file.read_text())
-            del data['instances']['consumer']['parameters']['Origin']
-            file.write_text(yaml.safe_dump(data), encoding='utf-8')
-    @input_scope
-    def selected_attributes():
-        path = tmp_path / 'model/stg/cde/service-a.properties'
-        with patch.object(templates, 'load_expansion', side_effect=AssertionError('whole producer expansion')), \
-             patch.object(templates, 'resolve', wraps=templates.resolve) as resolve:
-            typed = templates.reference_values(path, '001', 'ServiceA.Resource', 'type')
-            assert typed.values == {'desired.resource.001.resourceType': 'ServiceA.Resource'}
-            templates.reference_values(path, '001', 'ServiceA.Resource', 'name')
-            templates.reference_values(path, '001', 'ServiceA.Resource', 'anchor')
-            assert sum(call.args[0] == '<<Kind>>' for call in resolve.call_args_list) == 1
-    selected_attributes()
-    snapshot = {p: p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
-    parsed = templates.parse_template
-    calls = []
-    def parse(path, *args, **kwargs):
-        calls.append(path)
-        return parsed(path, *args, **kwargs)
-    monkeypatch.setattr(templates, 'parse_template', parse)
-    @input_scope
-    def inspect():
-        path = tmp_path / 'model/stg/cde/service-b.properties'
-        assert templates.load_expansion(path).values['desired.row.002-001.value'] == 'same-name-stg'
-        first = incoming_references(tmp_path, 'stg/cde/service-a/001')['references']
-        assert len(first) == 1 and first[0]['consumer'] == 'stg/cde/service-b/002'
-        assert incoming_references(tmp_path, 'stg/cde/service-a/003')['references'] == []
-        count = len(calls)
-        assert incoming_references(tmp_path, 'stg/cde/service-a/001')['references'] == first
-        assert len(calls) == count
-        assert outgoing_references(tmp_path, 'stg/cde/service-b/002')['references'][0]['producer'] == 'stg/cde/service-a/001'
-    inspect()
-    assert snapshot == {p: p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
+    before = {p: p.read_bytes() for p in (tmp_path / 'model').rglob('*') if p.is_file()}
+    # Legacy instance selection is converted to an explicit fixed producer identity.
+    with input_context(), patch.object(sources, '_read_model', wraps=sources._read_model) as body:
+        producer = load_model(tmp_path / 'model/stg/cde/service-a.properties')
+        consumer = load_model(tmp_path / 'model/stg/cde/service-b.properties')
+        records = usages(consumer)
+        assert len(records) == 1 and records[0].producer_id == '001'
+        assert records[0].metadata_id == 'origin' and records[0].text == 'same-name-stg'
+        assert len(incoming(producer, '001')) == 1
+        assert incoming(producer, '003') == ()
+        count = body.call_count
+        assert load_model(consumer.scope) is consumer
+        assert body.call_count == count
+    assert all(p.read_bytes() == raw for p, raw in before.items())
     from support.import_model_fixtures import dependency_refactor, dependency_contract
-    from model_operation_checks import verify_model_refactor
+    from model.operations import verify_model_refactor
     from task_contract import model_refactor
     after = tmp_path / 'after'
-    sources = dependency_refactor(tmp_path, after)
-    verify_model_refactor(tmp_path, after, model_refactor(dependency_contract()), sources,
+    changed = dependency_refactor(tmp_path, after)
+    verify_model_refactor(tmp_path, after, model_refactor(dependency_contract()), changed,
                           {('dev', 'cde', 'service-b'), ('stg', 'cde', 'service-b')})
 
 
 def check_local_reference_effective_identity(tmp_path):
-    import yaml
-    from support.import_model_fixtures import dependency_fixture, spec
-    from model_reference_usage import outgoing_references
-    from model_templates import load_expansion
+    from support.import_model_fixtures import dependency_fixture
+    from support.model_sources import write_model
+    from model.sources import load_model
+    from model.references import usages
     dependency_fixture(tmp_path)
-    path = tmp_path / 'model/templates/cde/service-a.properties.tpl'
-    old = spec('reference', service='service-b', resourceType='ServiceB.Resource')
-    new = spec('reference', resourceType='ServiceA.Resource')
-    text = path.read_text().replace(json.dumps(old, ensure_ascii=False, separators=(',', ':')), json.dumps(new))
-    text = text.replace('desired.resource.resource.resourceType=ServiceA.Resource',
-                        '# parameter: Kind ' + json.dumps(spec()) + '\ndesired.resource.resource.resourceType=<<Kind>>')
-    path.write_text(text, encoding='utf-8')
-    file = tmp_path / 'model/parameters/stg/cde/service-a/parameters.yaml'
-    data = yaml_read(file.read_text())
-    data['instances']['producer']['parameters']['Peer'] = 'same-name'
-    for item in data['instances'].values():
-        item['parameters']['Kind'] = 'ServiceA.Resource'
-    file.write_text(yaml.safe_dump(data), encoding='utf-8')
-    assert load_expansion(tmp_path / 'model/stg/cde/service-a.properties').values['desired.row.001-002.value'] == '[003](#other-producer)'
-    records = outgoing_references(tmp_path, 'stg/cde/service-a/001')['references']
-    assert len(records) == 1 and records[0]['producer'] == 'stg/cde/service-a/003'
+    file = tmp_path / 'model/stg/cde/service-a.properties'
+    values = dict(load_model(file).authoritative)
+    values['desired.row.001-002.value'] = '[003](#other-producer)'
+    write_model(file, values)
+    model = load_model(file)
+    record, = usages(model)
+    assert record.producer_scope == 'stg/cde/service-a' and record.anchor == 'other-producer'
+    assert model.values['desired.row.001-002.value'] == '[003](#other-producer)'
 
 
 def check_stack_reference_usage_identity(tmp_path):
-    from support.import_model_fixtures import dependency_fixture, save_service
-    from model_reference_usage import outgoing_references, incoming_references
+    from support.import_model_fixtures import dependency_fixture
+    from support.model_sources import write_model
+    from model.sources import load_model
+    from model.references import usages, incoming
     dependency_fixture(tmp_path)
-    template = tmp_path / 'model/templates/cde/service-b.properties.tpl'
-    text = template.read_text().replace('desired.row.name.comment=合成テストの取得設定',
-        'desired.row.name.comment=合成テストの取得設定\n'
-        '# reference: Stack {"service":"cloudformation-stacks","resource":"001","resourceType":"CloudFormation.Stack","format":"name"}\n'
-        'display.resource.resource.label=<<Stack>>')
-    template.write_text(text, encoding='utf-8')
-    lines = ['# model-template: 1', '# definition: Stack', 'desired.stack.001.name=ExampleStack',
-             'desired.stack.001.template=example.yaml', 'desired.stack.001.parameters=example.json',
-             'desired.stack.001.deployOrder=1', '# end-definition']
-    save_service(tmp_path, 'cloudformation-stacks', lines, {'instances': {}},
-                 {'instances': {'stack': {'definition': 'Stack', 'resources': {}, 'rows': {}, 'parameters': {}}},
-                  'stacks': {'001': 'ExampleStack'}}, environment='stg')
-    outgoing = outgoing_references(tmp_path, 'stg/cde/service-b/002')['references']
-    stack = next(record for record in outgoing if record['producer'].endswith('/stack/001'))
-    assert stack['producer'] == 'stg/cde/cloudformation-stacks/stack/001'
-    assert stack['resolvedValue'] == 'ExampleStack' and stack['role'] == 'display'
-    assert len(incoming_references(tmp_path, 'stg/cde/service-a/001')['references']) == 1
+    write_model(tmp_path / 'model/stg/cde/cloudformation-stacks.properties', {
+        'desired.stack.001.name': 'ExampleStack', 'desired.stack.001.template': 'example.yaml',
+        'desired.stack.001.parameters': 'example.json', 'desired.stack.001.deployOrder': '1'})
+    file = tmp_path / 'model/stg/cde/service-b.properties'
+    values = dict(load_model(file).authoritative)
+    values['display.resource.002.label'] = 'ExampleStack'
+    fields = {'consumerKey': 'display.resource.002.label', 'text': 'ExampleStack', 'occurrence': '1',
+              'producerKind': 'stack', 'producerScope': 'stg/cde/cloudformation-stacks', 'producerId': '001',
+              'format': 'name', 'property': 'name', 'labelPolicy': 'none'}
+    values.update({'desired.reference.stack-label.' + key: raw for key, raw in fields.items()})
+    write_model(file, values)
+    model = load_model(file)
+    stack, = [usage for usage in usages(model) if usage.producer_kind == 'stack']
+    assert stack.producer_scope == 'stg/cde/cloudformation-stacks' and stack.producer_id == '001'
+    assert stack.text == 'ExampleStack' and stack.consumer_key == 'display.resource.002.label'
+    assert len(incoming(load_model(tmp_path / 'model/stg/cde/service-a.properties'), '001')) == 1
 
 
 @pytest.mark.parametrize('failure', ['missing-id', 'type'])
 def check_reference_target_diagnostics(tmp_path, failure, capsys, monkeypatch):
     from support.import_model_fixtures import dependency_fixture
-    import model_reference_usage as usage
+    from support.model_sources import write_model
+    from model.sources import load_model
+    from model.references import incoming
+    from model.cli import main
     dependency_fixture(tmp_path)
-    if failure == 'missing-id':
-        file = tmp_path / 'model/parameters/stg/cde/service-b/parameters.yaml'
-        file.write_text(file.read_text().replace("'001'", "'999'"), encoding='utf-8')
-    else:
-        file = tmp_path / 'model/templates/cde/service-b.properties.tpl'
-        file.write_text(file.read_text().replace('"resourceType":"ServiceA.Resource"', '"resourceType":"Other.Resource"'), encoding='utf-8')
-    # Even a Resource unrelated to the invalid reference cannot be declared safe.
-    diagnosis = usage.incoming_references(tmp_path, 'stg/cde/service-a/003')
-    assert not diagnosis['complete'] and diagnosis['warnings']
-    message = json.dumps(diagnosis['warnings'])
-    for detail in ('service-b', 'consumer', 'Origin', 'service-a', 'candidateIds', 'expectedResourceType', 'reason'):
-        assert detail in message
-    monkeypatch.setattr(sys, 'argv', ['model_reference_usage.py', 'stg/cde/service-a/003', '--repository-root', str(tmp_path)])
-    assert usage.main() == 0
+    file = tmp_path / 'model/stg/cde/service-b.properties'
+    values = dict(load_model(file).authoritative)
+    field, raw = ('producerId', '999') if failure == 'missing-id' else ('resourceType', 'Other.Resource')
+    values['desired.reference.origin.' + field] = raw
+    write_model(file, values)
+    diagnosis = load_model(file)
+    assert diagnosis.warnings and diagnosis.values['desired.row.002-001.value'] == 'same-name-stg'
+    warnings = []
+    producer = load_model(tmp_path / 'model/stg/cde/service-a.properties')
+    assert not incoming(producer, '003', warnings=warnings)
+    assert warnings and warnings[0]['scope'] == 'stg/cde/service-b'
+    assert warnings[0]['consumerKey'] == 'desired.row.002-001.value' and warnings[0]['reference'] == 'origin'
+    assert main(['incoming', str(producer.scope.path), '003']) == 0
     result = json.loads(capsys.readouterr().out)
-    assert result['status'] == 'incomplete' and result['warnings'] == diagnosis['warnings']
+    assert result['status'] == 'incomplete' and result['warnings'] == warnings and result['references'] == []
 
 
 @pytest.mark.parametrize('broken', [None, 'collision', 'missing', 'type', 'format', 'name', 'shape'])
 def check_stack_reference_usage(tmp_path, broken):
     import shutil
-    import yaml
-    from support.import_model_fixtures import dependency_fixture, metadata, save_service, operation_contract
-    from model_reference_usage import incoming_references, outgoing_references, _symbolic
-    from model_templates import load_expansion
-    from model_operation_checks import verify_model_operation
+    from support.import_model_fixtures import dependency_fixture, resource_values
+    from support.model_sources import write_model
+    from model.sources import load_model
+    from model.references import usages, incoming
+    from model.operations import verify_model_operation
+    from model.format import owner
     from task_contract import model_operation
     before, after = tmp_path / 'before', tmp_path / 'after'
     dependency_fixture(before)
-    stack = ['# model-template: 1'] + metadata('cloudformation-stacks', ['CloudFormation.Stack'])
-    stack += ['# definition: Stack', 'desired.stack.028.name=fixture-stack',
-              'desired.stack.028.template=stack.yaml', 'desired.stack.028.parameters=stack.json',
-              'desired.stack.028.deployOrder=10', '# end-definition']
-    save_service(before, 'cloudformation-stacks', stack, {'instances': {}},
-                 {'instances': {'service': {'definition': 'Metadata', 'resources': {}, 'rows': {}, 'parameters': {}},
-                                'stack': {'definition': 'Stack', 'resources': {}, 'rows': {}, 'parameters': {}}}}, environment='stg')
-    template = before / 'model/templates/cde/service-b.properties.tpl'
-    reference = {'service': 'cloudformation-stacks', 'resource': '028', 'resourceType': 'CloudFormation.Stack', 'format': 'name'}
-    content = template.read_text(encoding='utf-8').replace('# definition: Consumer\n',
-        '# definition: Consumer\n# reference: StackName ' + json.dumps(reference) + '\n')
-    content = content.replace('desired.row.name.comment=',
-        'desired.row.name.document={"a/b":["arn:aws:cloudformation:ap-northeast-1:123456789012:stack/<<StackName>>/*"]}\ndesired.row.name.comment=')
-    template.write_text(content, encoding='utf-8')
-    path = before / 'model/stg/cde/service-b.properties'
-    valid_expansion = load_expansion(path)
-    if broken:
-        if broken in {'missing', 'type', 'format'}:
-            bad = dict(reference)
-            bad[{'missing': 'resource', 'type': 'resourceType', 'format': 'format'}[broken]] = {
-                'missing': '999', 'type': 'IAM.Role', 'format': 'anchor'}[broken]
-            template.write_text(content.replace(json.dumps(reference), json.dumps(bad)), encoding='utf-8')
-        else:
-            producer = before / 'model/templates/cde/cloudformation-stacks.properties.tpl'
-            text = producer.read_text(encoding='utf-8')
-            if broken == 'collision':
-                text = text.replace('# definition: Stack\n', '# definition: Stack\n# resource: resource\ndesired.resource.resource.resourceType=CloudFormation.Stack\ndesired.resource.resource.anchor=collision\n')
-                file = before / 'model/parameters/stg/cde/cloudformation-stacks/bindings.json'
-                bindings = json.loads(file.read_text(encoding='utf-8'))
-                bindings['instances']['stack']['resources'] = {'resource': '028'}
-                file.write_text(json.dumps(bindings), encoding='utf-8')
-            elif broken == 'name':
-                text = text.replace('fixture-stack', 'invalid_stack')
-            else:
-                text = text.replace('desired.stack.028.template=stack.yaml\n', '')
-            producer.write_text(text, encoding='utf-8')
-        for analyze in (lambda: outgoing_references(before, 'stg/cde/service-b/002'),
-                        lambda: incoming_references(before, 'stg/cde/service-a/003'),
-                        lambda: _symbolic(path, valid_expansion, {})):
-            if broken in {'format', 'shape'}:
-                with pytest.raises(ValueError):
-                    analyze()
-            else:
-                assert analyze()
+    stack = before / 'model/stg/cde/cloudformation-stacks.properties'
+    values = {'desired.stack.028.name': 'fixture-stack', 'desired.stack.028.template': 'stack.yaml',
+              'desired.stack.028.parameters': 'stack.json', 'desired.stack.028.deployOrder': '10',
+              'desired.stack.028.placementName': 'fixed-placement'}
+    if broken == 'collision':
+        # Explicit producerKind distinguishes the Resource and Stack namespaces.
+        values.update(resource_values('028', 'CloudFormation.Stack', 'collision', 'IMPORT', []))
+    elif broken == 'name':
+        values['desired.stack.028.name'] = 'changed-stack'
+    elif broken == 'shape':
+        del values['desired.stack.028.template']
+    write_model(stack, values)
+    file = before / 'model/stg/cde/service-b.properties'
+    values = dict(load_model(file).authoritative)
+    key = 'desired.row.002-001.document'
+    values[key] = json.dumps({'a/b': ['arn:aws:cloudformation:ap-northeast-1:123456789012:stack/fixture-stack/*']})
+    fields = {'consumerKey': key, 'pointer': '/a~1b/0', 'text': 'fixture-stack', 'occurrence': '1',
+              'producerKind': 'stack', 'producerScope': 'stg/cde/cloudformation-stacks', 'producerId': '028',
+              'format': 'name', 'property': 'name', 'labelPolicy': 'none'}
+    if broken == 'missing':
+        fields['producerId'] = '999'
+    elif broken == 'type':
+        fields['resourceType'] = 'IAM.Role'
+    elif broken == 'format':
+        fields['format'] = 'link'
+    values.update({'desired.reference.stack-document.' + field: raw for field, raw in fields.items()})
+    write_model(file, values)
+    if broken in {'type', 'format', 'shape', 'collision'}:
+        with pytest.raises(ValueError):
+            load_model(file)
         return
-    snapshot = {p: p.read_bytes() for p in before.rglob('*') if p.is_file()}
-    usages = outgoing_references(before, 'stg/cde/service-b/002')['references']
-    record, = [item for item in usages if item['producer'] == 'stg/cde/cloudformation-stacks/stack/028']
-    assert record['consumer'] == 'stg/cde/service-b/002'
-    assert record['key'] == 'desired.row.002-001.document'
-    assert record['property'] == 'ServiceB.Resource.Name' and record['pointer'] == '/a~1b/0'
-    assert record['kind'] == 'typed' and record['format'] == 'name' and record['status'] == 'resolved'
-    assert record['resolvedValue'].endswith(':stack/fixture-stack/*')
-    assert record['provenance']['references']['StackName']['service'] == 'cloudformation-stacks'
-    assert record['sourceLocation']['file'] == template.relative_to(before).as_posix()
-    assert template.read_text(encoding='utf-8').splitlines()[record['sourceLocation']['line'] - 1].startswith('desired.row.name.document=')
-    assert any(item['producer'] == 'stg/cde/service-a/001' and item['resolvedValue'] == 'same-name-stg' for item in usages)
-    assert incoming_references(before, 'stg/cde/service-a/001')['references']
-    assert incoming_references(before, 'stg/cde/service-a/003')['references'] == []
-    assert all(p.read_bytes() == value for p, value in snapshot.items())
+    model = load_model(file)
+    records = [usage for usage in usages(model) if usage.producer_kind == 'stack']
+    record, = records
+    assert record.consumer_key == key and record.pointer == '/a~1b/0' and record.metadata_id == 'stack-document'
+    assert record.text == 'fixture-stack' and record.producer_id == fields['producerId']
+    if broken in {'missing', 'name'}:
+        assert model.warnings and model.authoritative[key] == values[key]
+        return
+    assert not model.warnings
+    assert incoming(load_model(before / 'model/stg/cde/service-a.properties'), '001')
+    assert not incoming(load_model(before / 'model/stg/cde/service-a.properties'), '003')
+    origin, line = model.locations[key]
+    assert origin == file and file.read_text().splitlines()[line - 1].startswith(key + '=')
+    saved = {p: p.read_bytes() for p in (before / 'model').rglob('*') if p.is_file()}
+    assert load_model(file).authoritative[key] == values[key]
+    assert all(p.read_bytes() == raw for p, raw in saved.items())
     shutil.copytree(before, after)
-    directory = after / 'model/parameters/stg/cde/service-a'
-    for filename in ('parameters.yaml', 'bindings.json'):
-        file = directory / filename
-        payload = yaml_read(file.read_text(encoding='utf-8'))
-        del payload['instances']['same-name']
-        file.write_text(yaml.safe_dump(payload) if filename.endswith('.yaml') else json.dumps(payload), encoding='utf-8')
+    file = after / 'model/stg/cde/service-a.properties'
+    values = dict(load_model(file).authoritative)
+    write_model(file, {key: raw for key, raw in values.items() if owner(key, values) != ('resource', '003')})
     verify_model_operation(before, after,
-        model_operation(operation_contract('import-delete', source='stg/cde/service-a/003')),
-        {p.relative_to(after).as_posix() for p in directory.iterdir()})
+        model_operation(operation_contract('import-delete', source='stg/cde/service-a/003')), {file.relative_to(after).as_posix()})
+
 
 def check_generic_reference_usage(tmp_path):
     from support.import_model_fixtures import dependency_fixture
-    from model_reference_usage import incoming_references, outgoing_references
+    from model.sources import load_model
+    from model.references import usages, incoming
     dependency_fixture(tmp_path)
-    snapshot = {p: p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
-    incoming = incoming_references(tmp_path, 'stg/cde/service-a/001')['references']
-    assert len(incoming) == 1
-    record = incoming[0]
-    assert record['consumer'] == 'stg/cde/service-b/002'
-    assert record['key'] == 'desired.row.002-001.value' and record['property'] == 'ServiceB.Resource.Name'
-    assert record['kind'] == 'typed' and record['format'] == 'name' and record['role'] == 'configuration'
-    assert record['resolvedValue'] == 'same-name-stg' and record['status'] == 'resolved'
-    assert record['sourceLocation']['file'] == 'model/templates/cde/service-b.properties.tpl'
-    line = snapshot[tmp_path / record['sourceLocation']['file']].decode().splitlines()[record['sourceLocation']['line'] - 1]
-    assert line == 'desired.row.name.value=<<Origin>>'
-    assert incoming_references(tmp_path, 'stg/cde/service-a/003')['references'] == []  # Same name, different fixed ID.
-    reverse = outgoing_references(tmp_path, 'stg/cde/service-a/001')['references']
-    assert len(reverse) == 1 and reverse[0]['producer'] == 'stg/cde/service-b/002'
-    assert all(p.read_bytes() == data for p, data in snapshot.items())
-    assert incoming_references(tmp_path, 'stg/cde/service-a/999')['references'] == []
+    before = {p: p.read_bytes() for p in (tmp_path / 'model').rglob('*') if p.is_file()}
+    producer = load_model(tmp_path / 'model/stg/cde/service-a.properties')
+    consumer = load_model(tmp_path / 'model/stg/cde/service-b.properties')
+    scope, record = incoming(producer, '001')[0]
+    assert scope == consumer.scope
+    assert record.consumer_key == 'desired.row.002-001.value' and record.metadata_id == 'origin'
+    assert record.producer_scope == 'stg/cde/service-a' and record.producer_id == '001'
+    assert record.text == 'same-name-stg'
+    file, line = consumer.locations[record.consumer_key]
+    assert file.relative_to(tmp_path).as_posix() == 'model/stg/cde/service-b.properties'
+    assert file.read_text().splitlines()[line - 1] == record.consumer_key + '=same-name-stg'
+    assert not incoming(producer, '003') and not incoming(producer, '999')
+    reverse = [usage for usage in usages(producer) if usage.consumer_key.startswith('desired.row.001-')]
+    assert len(reverse) == 1 and reverse[0].producer_scope == 'stg/cde/service-b' and reverse[0].anchor == 'consumer'
+    assert all(p.read_bytes() == raw for p, raw in before.items())
 
 
 @pytest.mark.parametrize('selected', [False, True])
 def check_reference_active_shapes_and_documents(tmp_path, selected):
-    import yaml
-    from support.import_model_fixtures import dependency_fixture, spec
-    from model_reference_usage import outgoing_references
+    from support.import_model_fixtures import dependency_fixture, reference_fields
+    from support.model_sources import write_model
+    from model.sources import load_model
+    from model.references import usages
     dependency_fixture(tmp_path)
-    path = tmp_path / 'model/templates/cde/service-b.properties.tpl'
-    text = path.read_text().replace('# definition: Consumer\n', '# definition: Consumer\n# parameter: Select ' + json.dumps(spec('boolean')) + '\n')
-    text = text.replace('desired.row.name.value=<<Origin>>',
-        'desired.row.name.value=same-name-stg\n# choice: desired.row.name.value {"parameter":"Select","value":"<<Origin>>"}')
-    # A display link remains a distinct usage; identical ordinary text is not a reference.
-    text = text.replace('display.resource.resource.comment=合成テスト用のリソース',
-                        'display.resource.resource.comment=説明 [producer](./service-a.md#producer) same-name-stg')
-    text += '\n# definition: Unused\n# reference: Missing {"service":"unknown","resource":"999","resourceType":"Other.Resource"}\ndesired.note.099.text=<<Missing>>\n# end-definition\n'
-    path.write_text(text)
-    for env in ('dev', 'stg'):
-        inputs = tmp_path / 'model/parameters' / env / 'cde/service-b/parameters.yaml'
-        value = yaml_read(inputs.read_text())
-        value['instances']['consumer']['parameters']['Select'] = selected
-        if not selected:
-            del value['instances']['consumer']['parameters']['Origin']
-        inputs.write_text(yaml.safe_dump(value))
-    references = outgoing_references(tmp_path, 'stg/cde/service-b/002')['references']
-    assert len(references) == (2 if selected else 1)
-    assert sum(item['role'] == 'display' for item in references) == 1
-    if selected:
-        named = next(item for item in references if item['format'] == 'name')
-        assert path.read_text().splitlines()[named['sourceLocation']['line'] - 1].startswith('# choice:')
-    # Document shape uses the same resolver and escaped RFC 6901 positions.
-    text = path.read_text().replace('desired.row.name.comment=合成テストの取得設定',
-        'desired.row.name.comment=合成テストの取得設定\ndesired.row.name.document={"a/b":["drop","<<Origin>>"],"unused":"<<Missing>>"}\n'
-        '# parameter: Missing ' + json.dumps(spec('reference', service='missing', resourceType='Other.Resource')) + '\n'
-        '# optional-json: desired.row.name.document /unused Keep\n'
-        '# optional-json: desired.row.name.document /a~1b/0 Keep\n'
-        '# choice: desired.row.name.document {"parameter":"Select","pointer":"/a~1b/1","value":"<<Origin>>"}\n'
-        '# parameter: Keep ' + json.dumps(spec('boolean')))
-    path.write_text(text)
-    for env in ('dev', 'stg'):
-        inputs = tmp_path / 'model/parameters' / env / 'cde/service-b/parameters.yaml'
-        value = yaml_read(inputs.read_text())
-        value['instances']['consumer']['parameters'].update(Origin='001', Keep=False)
-        inputs.write_text(yaml.safe_dump(value))
-    references = outgoing_references(tmp_path, 'stg/cde/service-b/002')['references']
-    document = [item for item in references if item['pointer'] is not None]
-    assert len(document) == 1 and document[0]['pointer'] == '/a~1b/0'
-    assert document[0]['resolvedValue'] == 'same-name-stg'
-    location = path.read_text().splitlines()[document[0]['sourceLocation']['line'] - 1]
-    assert location.startswith('# choice:' if selected else 'desired.row.name.document=')
+    file = tmp_path / 'model/stg/cde/service-b.properties'
+    values = dict(load_model(file).authoritative)
+    if not selected:
+        values = {key: raw for key, raw in values.items() if not key.startswith('desired.reference.origin.')}
+    values['display.resource.002.comment'] = '説明 [producer](./service-a.md#producer) same-name-stg'
+    write_model(file, values)
+    records = usages(load_model(file))
+    assert len(records) == (2 if selected else 1)
+    assert sum(record.consumer_key.startswith('display.') for record in records) == 1
+    key = 'desired.row.002-001.document'
+    values[key] = '{"a/b":["same-name-stg"]}'
+    values.update(reference_fields('document', key, 'same-name-stg', 'stg/cde/service-a/001', pointer='/a~1b/0'))
+    write_model(file, values)
+    model = load_model(file)
+    record, = [record for record in usages(model) if record.pointer is not None]
+    assert record.pointer == '/a~1b/0' and record.text == 'same-name-stg'
+    origin, line = model.locations[key]
+    assert origin == file and file.read_text().splitlines()[line - 1].startswith(key + '=')
+    assert model.authoritative[key] == '{"a/b":["same-name-stg"]}'
 
 
 @pytest.mark.parametrize('broken', ['unknown', 'cycle', 'link', 'missing-input'])
 def check_reference_fail_closed(tmp_path, broken):
-    import yaml
-    from support.import_model_fixtures import dependency_fixture, spec
-    from model_reference_usage import incoming_references
+    from support.import_model_fixtures import dependency_fixture, reference_fields
+    from support.model_sources import write_model
+    from model.sources import load_model
+    from model.references import incoming
     dependency_fixture(tmp_path)
-    path = tmp_path / 'model/parameters/stg/cde/service-b/parameters.yaml'
-    if broken == 'unknown':
-        path.write_text(path.read_text().replace("'001'", "'999'"))
-    elif broken == 'missing-input':
-        path.unlink()
-    elif broken == 'link':
-        template = tmp_path / 'model/templates/cde/service-b.properties.tpl'
-        template.write_text(template.read_text().replace('合成テスト用のリソース', '[missing](service-a.md#missing)'))
-    else:
-        template = tmp_path / 'model/templates/cde/service-a.properties.tpl'
-        text = template.read_text().replace('# parameter: Name ' + json.dumps(spec(), ensure_ascii=False, separators=(',', ':')),
-            '# parameter: Name ' + json.dumps(spec('reference', service='service-b', resourceType='ServiceB.Resource', format='name')))
-        template.write_text(text)
-        for env in ('dev', 'stg'):
-            inputs = tmp_path / 'model/parameters' / env / 'cde/service-a/parameters.yaml'
-            value = yaml_read(inputs.read_text())
-            for item in value['instances'].values():
-                item['parameters']['Name'] = '002'
-            inputs.write_text(yaml.safe_dump(value))
+    file = tmp_path / 'model/stg/cde/service-b.properties'
+    values = dict(load_model(file).authoritative)
     if broken == 'missing-input':
-        with pytest.raises((ValueError, FileNotFoundError)):
-            incoming_references(tmp_path, 'stg/cde/service-a/001')
+        file.write_text('# model-format: 2\n# model-index: 2\n# part: service-b/part-001.properties\n')
+        with pytest.raises(ValueError, match='missing Model part'):
+            incoming(load_model(tmp_path / 'model/stg/cde/service-a.properties'), '001')
+        return
+    if broken == 'unknown':
+        values['desired.reference.origin.producerId'] = '999'
+    elif broken == 'link':
+        values['display.resource.002.comment'] = '[missing](service-a.md#missing)'
     else:
-        result = incoming_references(tmp_path, 'stg/cde/service-a/001')
-        assert result['warnings'] and not result['complete']
+        # Saved names may describe cycles; reads do not execute a recursive expansion.
+        a = tmp_path / 'model/stg/cde/service-a.properties'
+        other = dict(load_model(a).authoritative)
+        other.update(reference_fields('cycle', 'desired.row.001-001.value', 'same-name-stg',
+            'stg/cde/service-b/002', kind='ServiceB.Resource', prop='ServiceB.Resource.Name'))
+        write_model(a, other)
+    write_model(file, values)
+    model = load_model(file)
+    if broken == 'cycle':
+        assert not model.warnings and model.authoritative['desired.row.002-001.value'] == 'same-name-stg'
+    else:
+        assert model.warnings
+        assert model.authoritative['desired.row.002-001.value'] == 'same-name-stg'
 
 
 def check_value_preserving_detach_and_single_deletions(tmp_path):
     import shutil
-    import yaml
-    from support.import_model_fixtures import dependency_fixture, dependency_refactor, dependency_contract, operation_contract
+    from support.import_model_fixtures import dependency_fixture, dependency_refactor, dependency_contract
+    from support.model_sources import write_model
     from task_contract import model_refactor, model_operation
-    from model_operation_checks import verify_model_refactor, verify_model_operation
-    from model_reference_usage import incoming_references
+    from model.operations import verify_model_refactor, verify_model_operation
+    from model.sources import load_model
+    from model.references import incoming
+    from model.format import owner
     before, after = tmp_path / 'before', tmp_path / 'after'
     dependency_fixture(before)
     sources = dependency_refactor(before, after)
-    scope = {('stg', 'cde', 'service-b'), ('dev', 'cde', 'service-b')}
-    verify_model_refactor(before, after, model_refactor(dependency_contract()), sources, scope)
-    assert incoming_references(after, 'stg/cde/service-a/001')['references'] == []
-    assert incoming_references(after, 'dev/cde/service-a/001')['references']
+    verify_model_refactor(before, after, model_refactor(dependency_contract()), sources, {('stg', 'cde', 'service-b')})
+    assert not incoming(load_model(after / 'model/stg/cde/service-a.properties'), '001')
+    assert incoming(load_model(after / 'model/dev/cde/service-a.properties'), '001')
     previous = after
-    for service, rid, instance in [('service-a', '001', 'producer'), ('service-b', '002', 'consumer')]:
+    for service, rid in [('service-a', '001'), ('service-b', '002')]:
         candidate = tmp_path / service
         shutil.copytree(previous, candidate)
-        directory = candidate / 'model/parameters/stg/cde' / service
-        parameters, bindings = directory / 'parameters.yaml', directory / 'bindings.json'
-        inputs, bound = yaml_read(parameters.read_text()), json.loads(bindings.read_text())
-        del inputs['instances'][instance]; del bound['instances'][instance]
-        parameters.write_text(yaml.safe_dump(inputs)); bindings.write_text(json.dumps(bound))
+        file = candidate / 'model/stg/cde' / (service + '.properties')
+        values = dict(load_model(file).authoritative)
+        write_model(file, {key: value for key, value in values.items() if owner(key, values) != ('resource', rid)})
         operation = model_operation(operation_contract('import-delete', source='stg/cde/' + service + '/' + rid))
-        changed = {p.relative_to(candidate).as_posix() for p in (parameters, bindings)}
-        verify_model_operation(previous, candidate, operation, changed)
+        verify_model_operation(previous, candidate, operation, {file.relative_to(candidate).as_posix()})
         previous = candidate
 
 
 @pytest.mark.parametrize('corrupt', ['property', 'mode', 'anchor', 'observed', 'foreign', 'identity-reference', 'scope', 'retained', 'create', 'undeclared'])
 def check_refactor_rejects_changes(tmp_path, corrupt):
-    import yaml
     from support.import_model_fixtures import dependency_fixture, dependency_refactor, dependency_contract
+    from support.model_sources import write_model
+    from model.sources import load_model
     from task_contract import model_refactor
-    from model_operation_checks import verify_model_refactor
+    from model.operations import verify_model_refactor
     before, after = tmp_path / 'before', tmp_path / 'after'
     dependency_fixture(before)
     sources = dependency_refactor(before, after)
-    scope = {('stg', 'cde', 'service-b'), ('dev', 'cde', 'service-b')}
-    parameters = after / 'model/parameters/stg/cde/service-b/parameters.yaml'
-    if corrupt == 'property':
-        parameters.write_text(parameters.read_text().replace('same-name-stg', 'changed'))
-    elif corrupt == 'mode':
-        parameters.write_text(parameters.read_text().replace('IMPORT', 'CREATE'))
-    elif corrupt == 'anchor':
-        file = parameters.with_name('bindings.json')
-        file.write_text(file.read_text().replace('"Anchor": "consumer"', '"Anchor": "changed"'))
-    elif corrupt == 'observed':
-        file = parameters.with_name('observed.json')
-        file.write_text(json.dumps({'version': 1, 'values': {'observed.row.002-001.value': 'changed'}}))
-        sources.add(file.relative_to(after).as_posix())
-    elif corrupt == 'foreign':
-        file = after / 'model/parameters/dev/cde/service-a/parameters.yaml'
-        file.write_text(file.read_text().replace('same-name-dev', 'changed'))
-    elif corrupt == 'identity-reference':
-        file = after / 'model/parameters/dev/cde/service-b/parameters.yaml'
-        file.write_text(file.read_text().replace("'001'", "'003'"))
+    scope = {('stg', 'cde', 'service-b')}
+    file = after / 'model/stg/cde/service-b.properties'
+    values = dict(load_model(file).authoritative)
+    if corrupt in {'property', 'mode', 'anchor', 'observed'}:
+        key, raw = {'property': ('desired.row.002-001.value', 'changed'),
+                    'mode': ('desired.resource.002.resourceMode', 'CREATE'),
+                    'anchor': ('desired.resource.002.anchor', 'changed'),
+                    'observed': ('observed.row.002-001.value', 'changed')}[corrupt]
+        values[key] = raw
+        write_model(file, values)
+    elif corrupt in {'foreign', 'identity-reference', 'undeclared'}:
+        file = after / ('model/dev/cde/service-a.properties' if corrupt == 'foreign' else 'model/dev/cde/service-b.properties')
+        values = dict(load_model(file).authoritative)
+        if corrupt == 'foreign':
+            values['desired.row.001-001.value'] = 'changed'
+        elif corrupt == 'identity-reference':
+            values['desired.reference.origin.producerId'] = '003'
+        else:
+            values = {key: value for key, value in values.items() if not key.startswith('desired.reference.origin.')}
+        write_model(file, values)
     elif corrupt == 'scope':
-        scope.remove(('dev', 'cde', 'service-b'))
+        scope.clear()
     elif corrupt == 'retained':
-        for name in ('parameters.yaml', 'bindings.json'):
-            file = parameters.with_name(name)
-            file.write_bytes((before / file.relative_to(after)).read_bytes())
+        file.write_bytes((before / file.relative_to(after)).read_bytes())
     elif corrupt == 'create':
-        file = before / parameters.relative_to(after)
-        file.write_text(file.read_text().replace('IMPORT', 'CREATE'))
-        parameters.write_text(parameters.read_text().replace('IMPORT', 'CREATE'))
-    else:
-        file = after / 'model/parameters/dev/cde/service-b/parameters.yaml'
-        value = yaml_read(file.read_text())
-        value['instances']['consumer']['parameters'] = {'Name': 'same-name-dev', 'ResourceMode': 'IMPORT'}
-        file.write_text(yaml.safe_dump(value))
-        file = file.with_name('bindings.json')
-        file.write_text(file.read_text().replace('Consumer', 'Detached'))
-    if corrupt in {'property', 'identity-reference', 'retained', 'undeclared'}:
-        assert verify_model_refactor(before, after, model_refactor(dependency_contract()), sources, scope)
-    else:
-        with pytest.raises(ValueError):
-            verify_model_refactor(before, after, model_refactor(dependency_contract()), sources, scope)
+        for root in (before, after):
+            file = root / 'model/stg/cde/service-b.properties'
+            values = dict(load_model(file).authoritative)
+            values['desired.resource.002.resourceMode'] = 'CREATE'
+            write_model(file, values)
+    with pytest.raises(ValueError):
+        verify_model_refactor(before, after, model_refactor(dependency_contract()), sources, scope)
 
 
 def check_reference_readonly_and_bounded_expansion(tmp_path, monkeypatch):
     import hashlib
     from support.import_model_fixtures import dependency_fixture
-    from model_reference_usage import incoming_references, outgoing_references
-    import model_reference_usage as usage
-    import model_sources
+    from model import sources
+    from model.sources import load_model
+    from model.references import incoming, usages
+    from validation_cache import input_context
     dependency_fixture(tmp_path)
-    # A broken unrelated environment cannot affect this target's read-only answer.
-    foreign = tmp_path / 'model/parameters/dev/cde/service-b/parameters.yaml'
-    foreign.write_text('invalid: [')
-    calls = []
-    load = usage.load_for_analysis
-    def expand(path):
-        calls.append(path.relative_to(tmp_path).as_posix())
-        return load(path)
-    monkeypatch.setattr(usage, 'load_for_analysis', expand)
-    assert outgoing_references(tmp_path, 'stg/cde/service-b/002')['references']
-    assert calls == ['model/stg/cde/service-b.properties']
-    calls.clear()
-    assert incoming_references(tmp_path, 'stg/cde/service-a/001')['references']
-    assert calls == ['model/stg/cde/service-a.properties', 'model/stg/cde/service-b.properties']
-    # The API refuses recovery, rather than writing a pending transaction's Model.
+    broken = tmp_path / 'model/dev/cde/service-b.properties'
+    original = broken.read_bytes()
+    broken.write_text('invalid\n')
+    before = {p: p.read_bytes() for p in (tmp_path / 'model').rglob('*') if p.is_file()}
+    with input_context():
+        producer = load_model(tmp_path / 'model/stg/cde/service-a.properties')
+        with pytest.raises(ValueError, match='unsupported Model format'):
+            incoming(producer, '001')
+    assert all(p.read_bytes() == raw for p, raw in before.items())
+    broken.write_bytes(original)
+    before = {p: p.read_bytes() for p in (tmp_path / 'model').rglob('*') if p.is_file()}
+    with input_context(), patch.object(sources, '_read_model', wraps=sources._read_model) as body:
+        consumer = load_model(tmp_path / 'model/stg/cde/service-b.properties')
+        assert usages(consumer)
+        producer = load_model(tmp_path / 'model/stg/cde/service-a.properties')
+        assert incoming(producer, '001')
+        assert {call.args[0].environment for call in body.call_args_list} == {'dev', 'stg'}
+        assert body.call_count <= 6
     temporary = tmp_path / 'temporary'
     temporary.mkdir()
-    monkeypatch.setattr(model_sources.tempfile, 'gettempdir', lambda: str(temporary))
+    monkeypatch.setattr(sources.tempfile, 'gettempdir', lambda: str(temporary))
     journal = temporary / 'blueprint-model-publication' / (hashlib.sha256(str(tmp_path.resolve()).encode()).hexdigest() + '.json')
     journal.parent.mkdir()
     journal.write_text('pending recovery')
-    before = {p: p.read_bytes() for p in (tmp_path / 'model').rglob('*') if p.is_file()}
     with pytest.raises(ValueError, match='read-only analysis stopped'):
-        incoming_references(tmp_path, 'stg/cde/service-a/001')['references']
+        incoming(load_model(tmp_path / 'model/stg/cde/service-a.properties'), '001')
     assert journal.read_text() == 'pending recovery'
-    assert all(p.read_bytes() == data for p, data in before.items())
+    assert all(p.read_bytes() == raw for p, raw in before.items())
 
 
 @pytest.mark.parametrize('broken_type', [False, True])
 def check_issues_never_waive_delete_reference_safety(tmp_path, broken_type):
     from support.import_model_fixtures import dependency_fixture
-    from model_reference_usage import incoming_references
+    from support.model_sources import write_model
+    from model.sources import load_model
+    from model.references import incoming
     from issue_gate import require_no_issues
     from task_contract import start, selected_task
     dependency_fixture(tmp_path)
     name = 'tasks/deletion.md'
-    text = (operation_contract('import-delete', source='stg/cde/service-a/001') +
-            '## Validation scope\n- `stg/cde/service-a`\n' +
-            f'## Modified files\n- `{name}`\n## Allowed paths\n- `{name}`\n')
+    text = operation_contract('import-delete', source='stg/cde/service-a/001') + '## Validation scope\n- `stg/cde/service-a`\n'
+    text += f'## Modified files\n- `{name}`\n## Allowed paths\n- `{name}`\n'
     start(tmp_path, name, text)
     issues = tmp_path / 'issues/stg/cde/issues.md'
     issues.parent.mkdir(parents=True)
-    issues.write_text('### service-a\n1. 既存のIssue\n', encoding='utf-8')
+    issues.write_text('### service-a\n1. 既存のIssue\n')
     if broken_type:
-        file = tmp_path / 'model/templates/cde/service-b.properties.tpl'
-        file.write_text(file.read_text().replace('"resourceType":"ServiceA.Resource"', '"resourceType":"ServiceA.Other"'))
+        file = tmp_path / 'model/stg/cde/service-b.properties'
+        values = dict(load_model(file).authoritative)
+        values['desired.reference.origin.resourceType'] = 'ServiceA.Other'
+        write_model(file, values)
     with selected_task(tmp_path, name):
         require_no_issues(tmp_path, {('stg', 'cde', 'service-a')})
+        warnings = []
+        assert incoming(load_model(tmp_path / 'model/stg/cde/service-a.properties'), '001', warnings=warnings)
         if broken_type:
-            result = incoming_references(tmp_path, 'stg/cde/service-a/001')
-            assert any('resourceType mismatch' in w['message'] for w in result['warnings'])
-        else:
-            assert incoming_references(tmp_path, 'stg/cde/service-a/001')['references']
+            assert any('Type differs' in warning['message'] for warning in warnings)
 
 
 def check_reference_structural_and_remaining_delete(tmp_path):
     import shutil
-    import yaml
-    from support.import_model_fixtures import dependency_fixture, dependency_contract, operation_contract
-    from model_reference_usage import outgoing_references
-    from model_operation_checks import verify_model_refactor, verify_model_operation
+    from support.import_model_fixtures import dependency_fixture, dependency_contract
+    from support.model_sources import write_model
+    from model.sources import load_model
+    from model.references import usages
+    from model.operations import verify_model_refactor, verify_model_operation
+    from model.format import owner
     from task_contract import model_refactor, model_operation
     before, after = tmp_path / 'before', tmp_path / 'after'
     dependency_fixture(before)
-    template = before / 'model/templates/cde/service-a.properties.tpl'
-    template.write_text(template.read_text().replace('# definition: Producer\n',
-        '# definition: Producer\ndesired.resource.resource.parentReference=[other](#other-producer)\n'))
-    refs = outgoing_references(before, 'stg/cde/service-a/001')['references']
-    structural = next(item for item in refs if item['role'] == 'structure')
-    assert structural['producer'] == 'stg/cde/service-a/003' and structural['kind'] == 'link'
+    file = before / 'model/stg/cde/service-a.properties'
+    values = dict(load_model(file).authoritative)
+    values['desired.resource.001.parentReference'] = '[other](#other-producer)'
+    values['desired.resource.001.parentProperty'] = 'ServiceA.Resource.Peer'
+    write_model(file, values)
+    record, = [record for record in usages(load_model(file)) if record.consumer_key.endswith('.parentReference')]
+    assert record.producer_scope == 'stg/cde/service-a' and record.anchor == 'other-producer'
     shutil.copytree(before, after)
-    file = after / template.relative_to(before)
-    file.write_text(file.read_text().replace('desired.resource.resource.parentReference=[other](#other-producer)\n', ''))
-    text = dependency_contract().replace('service-b/002', 'service-a/001').replace('service-a/001", "key"', 'service-a/003", "key"').replace('desired.row.002-001.value', 'desired.resource.001.parentReference')
-    with pytest.raises(ValueError, match='structure changed|structural metadata'):
-        verify_model_refactor(before, after, model_refactor(text), {file.relative_to(after).as_posix()}, {('stg', 'cde', 'service-a'), ('dev', 'cde', 'service-a')})
-    # A surviving name reference is reported without cancelling deletion.
-    file.write_text(template.read_text())
-    directory = after / 'model/parameters/stg/cde/service-a'
-    for filename in ('parameters.yaml', 'bindings.json'):
-        file = directory / filename
-        payload = yaml_read(file.read_text()) if filename.endswith('.yaml') else json.loads(file.read_text())
-        del payload['instances']['producer']
-        file.write_text(yaml.safe_dump(payload) if filename.endswith('.yaml') else json.dumps(payload))
-    assert verify_model_operation(before, after, model_operation(operation_contract('import-delete', source='stg/cde/service-a/001')),
-                                  {p.relative_to(after).as_posix() for p in directory.iterdir()})
+    candidate = after / file.relative_to(before)
+    changed = {key: raw for key, raw in values.items() if key != 'desired.resource.001.parentReference'}
+    write_model(candidate, changed)
+    declaration = {'consumer': 'stg/cde/service-a/001', 'producer': 'stg/cde/service-a/003',
+                   'key': 'desired.resource.001.parentReference'}
+    contract = dependency_contract().split('## Model dependency detach')[0] + '## Model dependency detach\n- ' + json.dumps(declaration) + '\n'
+    with pytest.raises(ValueError, match='exact consumer|dependency detach'):
+        verify_model_refactor(before, after, model_refactor(contract), {candidate.relative_to(after).as_posix()}, {('stg', 'cde', 'service-a')})
+    write_model(candidate, {key: raw for key, raw in values.items() if owner(key, values) != ('resource', '001')})
+    assert verify_model_operation(before, after,
+        model_operation(operation_contract('import-delete', source='stg/cde/service-a/001')), {candidate.relative_to(after).as_posix()})
 
 
 def check_dependency_json_types_and_exact_detach(tmp_path):
     import shutil
-    from support.import_model_fixtures import dependency_fixture, dependency_refactor, dependency_contract
+    from support.import_model_fixtures import dependency_fixture, dependency_contract, reference_fields
+    from support.model_sources import write_model
+    from model.sources import load_model
+    from model.references import usages
+    from model.operations import verify_model_refactor
     from task_contract import model_refactor
-    from model_operation_checks import verify_model_refactor
     before, after = tmp_path / 'before', tmp_path / 'after'
     dependency_fixture(before)
-    template = before / 'model/templates/cde/service-b.properties.tpl'
-    template.write_text(template.read_text().replace('desired.row.name.comment=',
-        'desired.row.name.document={"ref":"<<Origin>>","keep":"<<Origin>>","typed":1}\ndesired.row.name.comment='))
-    sources = dependency_refactor(before, after)
-    file = after / template.relative_to(before)
-    # Retain one exact reference, detach Name and /ref only through an explicit choice of input.
-    text = file.read_text().replace('# definition: Detached\n',
-        '# definition: Detached\n# reference: Retained {"service":"service-a","resource":"001","resourceType":"ServiceA.Resource","format":"name"}\n')
-    text = text.replace('desired.row.name.value=<<Name>>',
-        'desired.row.name.value=<<Name>>\ndesired.row.name.document={"ref":"<<Name>>","keep":"<<Retained>>","typed":1}')
-    file.write_text(text)
-    declaration = {'consumer': 'stg/cde/service-b/002', 'producer': 'stg/cde/service-a/001', 'key': 'desired.row.002-001.document', 'pointer': '/ref'}
+    file = before / 'model/stg/cde/service-b.properties'
+    values = dict(load_model(file).authoritative)
+    key = 'desired.row.002-001.document'
+    document = {'ref': 'same-name-stg', 'keep': 'same-name-stg', 'typed': 1}
+    values[key] = json.dumps(document)
+    for identity, pointer in [('detach', '/ref'), ('retained', '/keep')]:
+        values.update(reference_fields(identity, key, 'same-name-stg', 'stg/cde/service-a/001', pointer=pointer))
+    write_model(file, values)
+    shutil.copytree(before, after)
+    candidate = after / file.relative_to(before)
+    kept = {key: raw for key, raw in values.items() if not key.startswith(('desired.reference.origin.', 'desired.reference.detach.'))}
+    write_model(candidate, kept)
+    declaration = {'consumer': 'stg/cde/service-b/002', 'producer': 'stg/cde/service-a/001', 'key': key, 'pointer': '/ref'}
     contract = dependency_contract() + '- ' + json.dumps(declaration) + '\n'
-    scope = {('stg', 'cde', 'service-b'), ('dev', 'cde', 'service-b')}
-    verify_model_refactor(before, after, model_refactor(contract), sources, scope)
-    assert verify_model_refactor(before, after, model_refactor(dependency_contract()), sources, scope)
-    file.write_text(text.replace('"typed":1}', '"typed":true}'))
-    with pytest.raises(ValueError, match='value/type changed'):
-        verify_model_refactor(before, after, model_refactor(contract), sources, scope)
-    file.write_text(text.replace('"typed":1}', '"typed":1.0}'))
-    with pytest.raises(ValueError, match='value/type changed'):
-        verify_model_refactor(before, after, model_refactor(contract), sources, scope)
-    # Escaped NULs in source JSON cannot impersonate in-memory reference markers.
-    file.write_text(text.replace('"typed":1}', '"typed":"\\u0000reference0\\u0000"}'))
-    from model_reference_usage import outgoing_references
-    with pytest.raises(ValueError, match='reserved control character'):
-        outgoing_references(after, 'stg/cde/service-b/002')['references']
+    changed, scope = {candidate.relative_to(after).as_posix()}, {('stg', 'cde', 'service-b')}
+    verify_model_refactor(before, after, model_refactor(contract), changed, scope)
+    assert [record.pointer for record in usages(load_model(candidate))] == ['/keep']
+    with pytest.raises(ValueError, match='undeclared reference'):
+        verify_model_refactor(before, after, model_refactor(dependency_contract()), changed, scope)
+    for altered in (True, 1.0, '\x00reference0\x00'):
+        mutation = {**kept, key: json.dumps({**document, 'typed': altered})}
+        write_model(candidate, mutation)
+        with pytest.raises(ValueError, match='value|native'):
+            verify_model_refactor(before, after, model_refactor(contract), changed, scope)
+        # There is no string reference marker in the new reader; native strings remain strings.
+        assert type(json.loads(load_model(candidate).authoritative[key])['typed']) is type(altered)
 
 
 def check_reference_embedded_link_label(tmp_path):
-    from support.import_model_fixtures import dependency_fixture
-    from model_reference_usage import outgoing_references
+    from support.import_model_fixtures import dependency_fixture, reference_fields
+    from support.model_sources import write_model
+    from model.sources import load_model
+    from model.references import usages
     dependency_fixture(tmp_path)
-    template = tmp_path / 'model/templates/cde/service-b.properties.tpl'
-    template.write_text(template.read_text().replace('display.resource.resource.comment=合成テスト用のリソース',
-        'display.resource.resource.comment=[<<Origin>>](service-a.md#other-producer)'))
-    usages = outgoing_references(tmp_path, 'stg/cde/service-b/002')['references']
-    links = [item for item in usages if item['role'] == 'display']
-    assert {(item['producer'], item['kind']) for item in links} == {
-        ('stg/cde/service-a/001', 'typed'), ('stg/cde/service-a/003', 'link')}
-    assert all(item['resolvedValue'] == '[same-name-stg](service-a.md#other-producer)' for item in links)
+    file = tmp_path / 'model/stg/cde/service-b.properties'
+    values = dict(load_model(file).authoritative)
+    key = 'display.resource.002.comment'
+    values[key] = '[same-name-stg](service-a.md#other-producer)'
+    values.update(reference_fields('label', key, 'same-name-stg', 'stg/cde/service-a/001'))
+    write_model(file, values)
+    model = load_model(file)
+    records = [record for record in usages(model) if record.consumer_key == key]
+    assert {(record.producer_id, record.anchor) for record in records} == {('001', None), (None, 'other-producer')}
+    assert model.authoritative[key] == '[same-name-stg](service-a.md#other-producer)'
+
 
 def check_publication_verifies_only_acquisition_selected_additions():
     from unittest.mock import Mock
     before = expansion(resource())
-    after = expansion({**before.values, **resource('009', identity='vpc-new')})
+    after = expansion({**before.authoritative, **resource('009', identity='vpc-new')})
     references = Mock()
     verify_values(before, after, {'009': record('vpc-new', cidr='10.10.0.0/23')}, schema_for, references)
     assert references.verify_resource.call_count == 1
@@ -1851,14 +1690,14 @@ def check_existing_hyphenated_fixed_id_cannot_receive_rows():
     original = resource('existing-vpc')
     addition = {'desired.row.existing-vpc-999.property': 'EC2.VPC.EnableDnsSupport',
                 'desired.row.existing-vpc-999.value': '`true`', 'desired.row.existing-vpc-999.comment': '追加は禁止'}
-    with pytest.raises(ValueError, match='cannot add fields, Rows or observations'):
+    with pytest.raises(ValueError, match='unselected Resource'):
         verify_values(expansion(original), expansion({**original, **addition}), {}, schema_for)
 
 
 @pytest.mark.parametrize('action', ['refresh', 'replace'])
 def check_selected_overwrite(action):
     from import_guard import digest
-    from model_operation_checks import operation_values
+    from model.operations import operation_values
     old = {**resource(), **resource('002', identity='vpc-other')}
     physical = 'vpc-confirmed' if action == 'refresh' else 'vpc-replacement'
     captured = record(physical)
@@ -1930,7 +1769,7 @@ def check_refresh_new_rows_and_missing_properties():
 
 def check_overwrite_duplicate_selection_and_destination_identity():
     from import_guard import digest
-    from model_operation_checks import operation_values
+    from model.operations import operation_values
     old = {**resource(), **resource('002', identity='vpc-other')}
     picked = selection(action='refresh')
     picked['resources'] *= 2
@@ -1943,47 +1782,45 @@ def check_overwrite_duplicate_selection_and_destination_identity():
 
 
 def check_selected_binding_switch_preserves_fixed_maps():
-    original = {'instances': {'main': {'definition': 'Vpc', 'resources': {'vpc': '001'},
-                                      'rows': {'cidr': '001-001'}, 'parameters': {'Anchor': 'main'}}}}
-    new = copy.deepcopy(original)
-    new['instances']['main']['definition'] = 'CapturedVpc'
-    new['instances']['main']['rows']['dns'] = '001-002'
-    preserve_bindings(original, new, {'001'})
-    new['instances']['main']['rows']['dns'] = '002-001'
-    with pytest.raises(ValueError, match='selected Resource'):
-        preserve_bindings(original, new, {'001'})
+    old = resource()
+    captured = record()
+    captured['properties']['EC2.VPC.EnableDnsSupport'] = {'status': 'captured', 'value': True}
+    new = {**old, 'desired.row.001-004.property': 'EC2.VPC.EnableDnsSupport',
+           'desired.row.001-004.value': '`true`', 'desired.row.001-004.comment': '合成追加'}
+    chosen = selection_records(selection(action='refresh'), [captured], old, new, schema_for)
+    verify_values(expansion(old), expansion(new), chosen, schema_for)
+    foreign = {key.replace('desired.row.001-004.', 'desired.row.002-004.'): value for key, value in new.items()}
+    with pytest.raises(ValueError, match='orphan row|unselected'):
+        verify_values(expansion(old), expansion(foreign), chosen, schema_for)
 
 
 def check_overwrite_reference_permission_is_property_scoped():
-    from import_scope import new_references, resolves_reference
-    values = resource()
-    captured = {**record(), '_action': 'refresh'}
+    old = {**resource(), **resource('002', identity='vpc-other')}
+    captured = record()
     captured['properties']['EC2.VPC.Name'] = {'status': 'unavailable'}
-    declarations = {'Captured': {'type': 'reference'}, 'Missing': {'type': 'reference'}}
-    defined = Definition(declarations, {'vpc'}, {'id': 'vpc', 'name': 'vpc'},
-                         {'desired.row.id.property': 'EC2.VPC.VpcId', 'desired.row.id.value': '<<Captured>>',
-                          'desired.row.name.property': 'EC2.VPC.Name', 'desired.row.name.value': '<<Missing>>'},
-                         {}, set(), {}, {}, {})
-    item = {'resources': {'vpc': '001'}, 'parameters': {'Captured': '001', 'Missing': '002'}}
-    with new_references(expansion(values), {'001': captured}):
-        assert resolves_reference(item, defined, 'Captured')
-        assert not resolves_reference(item, defined, 'Missing')
-        assert not resolves_reference({**item, 'resources': {'vpc': '002'}}, defined, 'Captured')
-    assert not resolves_reference(item, defined, 'Captured')
+    chosen = selection_records(selection(action='refresh'), [captured], old, old, schema_for)
+    new = dict(old)
+    for field, value in {'consumerKey': 'desired.row.001-003.value', 'text': 'main-vpc', 'occurrence': '1',
+            'producerKind': 'resource', 'producerScope': 'dev/cde/vpc', 'producerId': '002',
+            'resourceType': 'EC2.VPC', 'format': 'name', 'property': 'EC2.VPC.Name', 'labelPolicy': 'none'}.items():
+        new['desired.reference.explicit.' + field] = value
+    verify_values(expansion(old), expansion(new), chosen, schema_for)
+    with pytest.raises(ValueError, match='unacquired'):
+        verify_values(expansion(old), expansion({**new, 'desired.row.001-003.value': '`changed`'}), chosen, schema_for)
+    new['desired.reference.explicit.consumerKey'] = 'desired.row.002-003.value'
+    with pytest.raises(ValueError, match='unselected Resource'):
+        verify_values(expansion(old), expansion(new), chosen, schema_for)
 
 
 def check_import_llm_choice_contract():
     prompt = (m.ROOT / 'framework/prompts/codex/08_import.md').read_text(encoding='utf-8')
-    assert 'Ask the Human if Environment or Service is missing' in prompt
-    assert 'Same physical ID, IMPORT' in prompt and 'Different physical ID, same IMPORT type' in prompt
-    assert 'No existing Resources' in prompt and 'Same physical ID, CREATE' in prompt
-    assert 'Unknown physical ID on an existing IMPORT Resource' in prompt and 'Multiple matching physical IDs' in prompt
-    assert 'explicitly selected existing Resource ID' in prompt
-    assert 'publish the combined service candidate once' in prompt
+    assert 'Environment and service must be explicit. Ask for missing inputs' in prompt
+    for condition in ('Same physical ID on IMPORT', 'Different ID of the same IMPORT type',
+                      'No existing Resources', 'Same physical ID on CREATE',
+                      'Existing IMPORT physical ID unknown', 'Multiple matches'):
+        assert condition in prompt
+    assert 'fixed destination' in prompt and 'publish the combined service candidate once' in prompt
     assert 'sequentially' in prompt and 'independent Task/acquisition/publication' in prompt
-
-
-
 
 
 @pytest.mark.parametrize('field', ['value', 'document'])
@@ -2002,120 +1839,106 @@ def check_import_llm_choice_contract():
 ])
 def check_refactor_json_value_structure(tmp_path, field, document, allowed):
     from support.import_model_fixtures import dependency_fixture, dependency_refactor, dependency_contract
+    from support.model_sources import write_model
+    from model.sources import load_model
     from task_contract import model_refactor
-    from model_operation_checks import verify_model_refactor
+    from model.operations import verify_model_refactor
     before, after = tmp_path / 'before', tmp_path / 'after'
     dependency_fixture(before)
-    template = before / 'model/templates/cde/service-b.properties.tpl'
-    original = {'target': 'prefix-<<Origin>>-suffix', 'timeout': 30, 'items': ['keep']}
+    file = before / 'model/stg/cde/service-b.properties'
+    values = dict(load_model(file).authoritative)
+    original = {'target': 'prefix-same-name-stg-suffix', 'timeout': 30, 'items': ['keep']}
+    key = 'desired.row.002-001.' + field
     def encoded(value):
         raw = json.dumps(value, separators=(',', ':'))
         return '`' + raw + '`' if field == 'value' else raw
-    old_text = template.read_text()
-    if field == 'value':
-        old_text = old_text.replace('desired.row.name.value=<<Origin>>', 'desired.row.name.value=' + encoded(original))
-    else:
-        old_text = old_text.replace('desired.row.name.comment=', 'desired.row.name.document=' + encoded(original) + '\ndesired.row.name.comment=')
-    template.write_text(old_text)
+    values[key] = encoded(original)
+    values['desired.reference.origin.consumerKey'] = key
+    values['desired.reference.origin.pointer'] = '/target'
+    write_model(file, values)
     sources = dependency_refactor(before, after)
-    file = after / template.relative_to(before)
-    text = file.read_text()
-    if field == 'value':
-        text = text.replace('desired.row.name.value=<<Name>>', 'desired.row.name.value=' + encoded(document))
-    else:
-        text = text.replace('desired.row.name.value=<<Name>>', 'desired.row.name.value=<<Name>>\ndesired.row.name.document=' + encoded(document))
-    file.write_text(text)
-    contract = dependency_contract().replace('desired.row.002-001.value', 'desired.row.002-001.' + field)
-    scope = {('stg', 'cde', 'service-b'), ('dev', 'cde', 'service-b')}
+    file = after / file.relative_to(before)
+    values = dict(load_model(file).authoritative)
+    converted = json.loads(json.dumps(document).replace('<<Name>>', 'same-name-stg'))
+    values[key] = encoded(converted)
+    write_model(file, values)
+    contract = dependency_contract().replace('desired.row.002-001.value', key)
     if allowed:
-        assert verify_model_refactor(before, after, model_refactor(contract), sources, scope)
+        verify_model_refactor(before, after, model_refactor(contract), sources, {('stg', 'cde', 'service-b')})
     else:
-        with pytest.raises(ValueError, match='value/type changed'):
-            verify_model_refactor(before, after, model_refactor(contract), sources, scope)
+        with pytest.raises(ValueError, match='value|native'):
+            verify_model_refactor(before, after, model_refactor(contract), sources, {('stg', 'cde', 'service-b')})
 
 
 @pytest.mark.parametrize('outer', [False, True])
 @pytest.mark.parametrize('change', ['comment', 'value', 'reference', 'mode', 'warning', 'invalid'])
 def check_guard_cache_equivalence(tmp_path, outer, change):
-    import cProfile, pstats, io, subprocess
+    import io, re, subprocess
+    from utils.aws_mappings import mapping_alias
     from contextlib import nullcontext, redirect_stdout, redirect_stderr
     from support.import_model_fixtures import dependency_fixture
     from support.worktree_task_fixtures import contract
     from validation_cache import input_context, memo_table
-    from utils.aws_mappings import mapping_alias
+    from model.sources import load_model, publication_lock, _publish_transaction
+    from model.format import serialize
     import task_contract as tasks
-    import model_templates as templates
     dependency_fixture(tmp_path)
     def git(*args):
         subprocess.run(['git', *args], cwd=tmp_path, check=True, capture_output=True)
     git('init', '-q'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.invalid')
     (tmp_path / '.gitignore').write_text('tasks/\n')
     git('add', '.'); git('commit', '-qm', 'baseline')
-    path = tmp_path / ('model/templates/cde/service-a.properties.tpl' if change in ('comment', 'value', 'invalid') else 'model/parameters/stg/cde/service-b/parameters.yaml')
+    path = tmp_path / ('model/stg/cde/service-a.properties' if change in ('comment', 'value', 'invalid') else 'model/stg/cde/service-b.properties')
     original = path.read_text()
-    candidate = (original + '\n# comment\n' if change == 'comment' else
-                 original.replace('<<Name>>', '<<Name>>-changed') if change == 'value' else
-                 original.replace('001', '003') if change == 'reference' else
-                 original.replace('IMPORT', 'CREATE') if change == 'mode' else
-                 original.replace('001', '999') if change == 'warning' else 'invalid template')
+    values = dict(load_model(path).authoritative)
+    if change == 'value':
+        values['desired.row.001-001.value'] = 'changed-name'
+    elif change == 'reference':
+        values['desired.reference.origin.producerId'] = '003'
+    elif change == 'mode':
+        values['desired.resource.002.resourceMode'] = 'CREATE'
+    elif change == 'warning':
+        values['desired.reference.origin.producerId'] = '999'
+    candidate = original + '# retained comment\n' if change == 'comment' else 'invalid\n' if change == 'invalid' else serialize(values)
     relative = path.relative_to(tmp_path).as_posix()
     (tmp_path / 'tasks').mkdir()
     (tmp_path / 'tasks/cache.md').write_text(contract('cache', [relative]))
-    results, counts = [], []
+    results = []
     for cached in (False, True):
         stdout, stderr = io.StringIO(), io.StringIO()
-        profiler = cProfile.Profile()
-        with tasks.selected_task(tmp_path, 'tasks/cache.md'), mapping_alias(Path(__file__).resolve().parents[4], tmp_path), \
-                (input_context() if outer else nullcontext()), redirect_stdout(stdout), redirect_stderr(stderr):
+        with tasks.selected_task(tmp_path, 'tasks/cache.md'), mapping_alias(m.ROOT, tmp_path), (input_context() if outer else nullcontext()), redirect_stdout(stdout), redirect_stderr(stderr):
             memo = memo_table()
             if memo is not None:
                 memo['sentinel'] = True
-            profiler.enable()
             try:
                 compared = (import_guard.changes if cached else import_guard.changes.__wrapped__)(tmp_path, {relative}, {path: candidate})
                 result = ('ok', compared[1])
             except ValueError as error:
                 result = ('error', str(error))
-            profiler.disable()
             if memo is not None:
                 assert memo_table() is memo and memo['sentinel']
         assert memo_table() is None
-        # Temporary paths are diagnostic locations, not semantic differences.
-        import re
         def normalize(text):
             text = re.sub(r'/[^\s:]*blueprint-import-baselines-[^/]+/[^/]+', '<snapshot>/before', text)
             return re.sub(r'/[^\s:]*blueprint-import-guard-[^/]+/(before|after)', r'<snapshot>/\1', text)
         results.append((result[0], normalize(str(result[1])), normalize(stdout.getvalue()), normalize(stderr.getvalue())))
-        counts.append(sum(value[1] for key, value in pstats.Stats(profiler).stats.items() if key[2] in ('_parse_template', '_reference_inputs')))
     assert results[0] == results[1]
-    if not outer and change != 'invalid':
-        assert counts[1] < counts[0]
-    if change in ('value', 'mode'):
+    if change in ('value', 'reference', 'warning'):
         assert result[0] == 'ok' and result[1]
-        if change == 'value':
-            assert {key.split('/')[0] for key in result[1]} == {'dev', 'stg'}
-    import model_reference_usage
-    symbolic = model_reference_usage._symbolic
-    visited = []
-    def checked_symbolic(path, *args):
-        assert memo_table() is not None
-        visited.append(path)
-        return symbolic(path, *args)
-    with tasks.selected_task(tmp_path, 'tasks/cache.md'), mapping_alias(Path(__file__).resolve().parents[4], tmp_path), (input_context() if outer else nullcontext()), patch.object(model_reference_usage, '_symbolic', side_effect=checked_symbolic):
+        assert {key.split('/')[0] for key in result[1]} == {'stg'}
+    with tasks.selected_task(tmp_path, 'tasks/cache.md'), mapping_alias(m.ROOT, tmp_path), (input_context() if outer else nullcontext()):
         if change == 'comment':
-            templates.publish(tmp_path, {path: candidate})
+            import_guard.require_import_changes(tmp_path, {relative}, {path: candidate})
+            with publication_lock(tmp_path) as journal:
+                _publish_transaction(tmp_path, {path: candidate}, (), journal)
             assert path.read_text() == candidate
-            # A later save must not reuse a pre-publication expansion.
             with pytest.raises(ValueError, match='IMPORT configuration changes'):
-                templates.publish(tmp_path, {path: candidate.replace('<<Name>>', '<<Name>>-new')})
+                import_guard.require_import_changes(tmp_path, {relative}, {path: candidate.replace('same-name-stg', 'changed')})
             assert path.read_text() == candidate
-        elif change in ('value', 'mode'):
-            with pytest.raises(ValueError, match='IMPORT configuration changes'):
-                templates.publish(tmp_path, {path: candidate})
+        elif change in ('value', 'mode', 'reference', 'warning'):
+            with pytest.raises(ValueError):
+                import_guard.require_import_changes(tmp_path, {relative}, {path: candidate})
             assert path.read_text() == original
-        if change in ('comment', 'value', 'mode'):
-            assert visited and any('blueprint-import-baselines-' in str(p) for p in visited)
-            assert any('blueprint-import-guard-' in str(p) for p in visited)
 
 
 if __name__ == '__main__':

@@ -26,11 +26,11 @@ framework-only governance scope remains available under the existing rules.
 Run from repository root with the managed Python launcher:
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/model-test.py --environment dev --target cde --service vpc --task-file tasks/<task-name>.md
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py audit --environment dev --target cde --service vpc --task-file tasks/<task-name>.md
 ```
 
-The generator expands templates/parameters/bindings using `model_files` and
-`model_templates`, then embeds desired expectations, reference dependencies,
+The generator loads the canonical properties snapshot through `model.sources`,
+then embeds desired expectations, reference dependencies,
 validated AWS Mapping, existing comparison/normalization code and selected read-only
 adapters. `observed` only helps identify resources. It validates Python syntax before
 atomic publication. It never executes the generated file or contacts AWS. Never

@@ -9,11 +9,11 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-import model_design
+import model.render as model_design
 
-import model_core
+import model.core as model_core
 
-import model_projection
+import model.projection as model_projection
 
 import aws_mapping_display
 

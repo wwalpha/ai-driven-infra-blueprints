@@ -19,9 +19,9 @@ import time
 
 from design_layout import resource_mode, resource_name_fields, resource_has_name_property, REQUIRED_NAME_TAG_TYPES
 from design_catalog import selected_properties
-from model_design import naming_rule_files, naming_targets, naming_target_matches, NAMING_EXEMPT_PROPERTIES
-from model_references import catalog_outputs
-from model_core import entries, ReferenceResolutionError
+from model.validation import naming_rule_files, naming_targets, naming_target_matches, NAMING_EXEMPT_PROPERTIES
+from model.projection import catalog_outputs
+from model.core import entries, ReferenceResolutionError
 from policy_tables import literal
 from validation_cache import input_scope, digest_files, PassCache
 from task_contract import SELECTOR, contract_read_scope

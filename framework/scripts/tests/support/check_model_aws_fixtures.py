@@ -1,7 +1,6 @@
 """Offline AWS CLI and SDK/mapping regressions. All network access is forbidden.
 
-Consumer models are read only for inventory/coverage; synthetic SDK responses and
-test-created models are the only regression fixtures. Missing boto3 is a failure.
+Synthetic SDK responses and test-created Models are the only regression inputs. Missing boto3 is a failure.
 """
 
 import sys
@@ -10,7 +9,7 @@ from pathlib import Path
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 
-from model_files import read_model
+from model.files import read_model
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -45,15 +44,9 @@ import boto3
 
 from botocore.stub import Stubber
 
-from model_files import model_file_contents
+from model.files import model_file_contents
 
-spec = importlib.util.spec_from_file_location('model_aws_compare', (Path(__file__).resolve().parents[2] / 'check-model-aws.py'))
-
-m = importlib.util.module_from_spec(spec)
-
-sys.modules[spec.name] = m
-
-spec.loader.exec_module(m)
+from model.adapters import aws as m
 
 COUNT = 0
 
@@ -291,4 +284,4 @@ def offline_network():
         yield
 
 
-__all__ = ['ACCOUNT', 'COUNT', 'ExitStack', 'FakeResource', 'Offline', 'PATCHES', 'Path', 'REPRESENTATIVES', 'STACK_MODEL', 'SimpleNamespace', 'Stubber', 'TARGET', 'acquired', 'boto3', 'check', 'copy', 'expect', 'importlib', 'io', 'json', 'm', 'model_file_contents', 'model_text', 'offline_network', 'os', 'patch', 'pytest', 'read_model', 'redirect_stderr', 'redirect_stdout', 'remove_tokens', 'run', 'set_path', 'shape_value', 'socket', 'spec', 'sys', 'write_model']
+__all__ = ['ACCOUNT', 'COUNT', 'ExitStack', 'FakeResource', 'Offline', 'PATCHES', 'Path', 'REPRESENTATIVES', 'STACK_MODEL', 'SimpleNamespace', 'Stubber', 'TARGET', 'acquired', 'boto3', 'check', 'copy', 'expect', 'importlib', 'io', 'json', 'm', 'model_file_contents', 'model_text', 'offline_network', 'os', 'patch', 'pytest', 'read_model', 'redirect_stderr', 'redirect_stdout', 'remove_tokens', 'run', 'set_path', 'shape_value', 'socket', 'sys', 'write_model']

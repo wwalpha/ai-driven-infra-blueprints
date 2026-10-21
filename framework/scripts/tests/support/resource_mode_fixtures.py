@@ -11,13 +11,13 @@ from support.model_sources import snapshot_model
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-from model_files import read_model
+from model.files import read_model
 
 from support.model_sources import write_model
 
 import sync_views
 
-import model_projection
+import model.projection as model_projection
 
 import json
 
@@ -27,9 +27,10 @@ import tempfile
 
 from design_layout import resource_anchor, resource_mode, resource_modes
 
-from model_design import markdown_for, naming_errors
+from model.render import markdown_for
+from model.validation import naming_errors
 
-from model_core import properties
+from model.core import properties
 
 ROOT = Path(__file__).resolve().parents[4]
 

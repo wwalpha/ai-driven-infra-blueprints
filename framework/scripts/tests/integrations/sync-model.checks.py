@@ -19,9 +19,10 @@ import pytest
 import sync_progress as progress
 import sync_runtime
 import sync_views
-import model_design
-import model_projection
-from model_files import load_model, read_model
+import model.render as model_design
+import model.validation as model_validation
+import model.projection as model_projection
+from model.files import load_model, read_model
 from design_catalog import property_paths_with_parents
 from support.validator import load
 from support.pytest_cli import run
@@ -82,14 +83,16 @@ def check_stage_definition_sources(generated_policy, tmp_path):
     assert values['desired.note.001.text'] in design.read_text()
 
     # Four IAM candidates resolve KMS identifiers through real cold validation workers.
-    import model_parameter_inputs
-    from model_templates import json_text, source_paths
+    import model.sources as model_sources
+    from model.sources import json_text
+    from model.format import serialize
     from validation_cache import memo_table
     project = json.loads((root/'project.json').read_text(encoding='utf-8'))
     sources, models = {}, []
     for number in range(4):
         environment = 'ref' + str(number)
         project['targets'].append({**project['targets'][0], 'environment': environment})
+        (root/'project.json').write_text(json_text(project) + '\n', encoding='utf-8')
         producer = root/'model'/environment/'123456789012/kms.properties'
         write_model(producer, {
             'desired.service.kms.serviceId': 'kms',
@@ -97,21 +100,21 @@ def check_stage_definition_sources(generated_policy, tmp_path):
             'desired.resource.001.anchor': 'kms-key',
             'desired.row.001-001.property': 'KMS.Key.KeyId',
             'desired.row.001-001.value': '[key](#kms-key)',
+            'desired.row.001-001.comment': '合成識別子',
             'observed.row.001-001.value': '`source-key`',
         })
         consumer = producer.with_name('iam.properties')
         candidate = dict(values)
         document = json.loads(candidate['desired.row.001-002.document'])
-        document['Statement'][0]['Condition'] = {'StringEquals': {'kms:KeyId': '<<KeyId>>'}}
+        document['Statement'][0]['Condition'] = {'StringEquals': {'kms:KeyId': 'source-key'}}
         candidate['desired.row.001-002.document'] = json_text(document)
         write_model(consumer, candidate)
-        _, template, _ = source_paths(consumer)
-        text = template.read_text(encoding='utf-8')
-        declaration = '# reference: KeyId ' + json_text({
-            'service': 'kms', 'resource': '001', 'resourceType': 'KMS.Key',
-            'format': 'identifier', 'property': 'KMS.Key.KeyId'}) + '\n'
-        heading = '# definition: Fixture_' + environment + '\n'
-        template.write_text(text.replace(heading, heading + declaration), encoding='utf-8')
+        fields = {'consumerKey': 'desired.row.001-002.document', 'pointer': '/Statement/0/Condition/StringEquals/kms:KeyId',
+                  'text': 'source-key', 'occurrence': '1', 'producerKind': 'resource',
+                  'producerScope': environment + '/123456789012/kms', 'producerId': '001',
+                  'resourceType': 'KMS.Key', 'format': 'identifier', 'property': 'KMS.Key.KeyId', 'labelPolicy': 'none'}
+        candidate.update({'desired.reference.key-id.' + key: value for key, value in fields.items()})
+        write_model(consumer, candidate)
         destination = root/'docs/designs'/environment/'123456789012/iam.md'
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text('', encoding='utf-8')
@@ -120,16 +123,16 @@ def check_stage_definition_sources(generated_policy, tmp_path):
     (root/'project.json').write_text(json_text(project) + '\n', encoding='utf-8')
     results = []
     original_validate = sync_views.validate_views
-    original_parameter = model_parameter_inputs.parameter_value
+    original_reader = model_sources._read_model
     for jobs in (1, 4):
         stage = tmp_path/('identifier-stage-' + str(jobs))
         with mapping_alias(root, stage):
             sync_runtime.stage_inputs(stage, root, sources, models, list(sources), ['iam'], False)
             assert not (stage/'framework').exists()
             for consumer in models:
-                observed = stage/source_paths(consumer.with_name('kms.properties'))[2].relative_to(root)/'observed.json'
-                observed.write_text(json_text({'version': 1, 'values': {
-                    'observed.row.001-001.value': '`stage-key`'}}), encoding='utf-8')
+                producer = stage / consumer.with_name('kms.properties').relative_to(root)
+                snapshot = load_model(producer)
+                producer.write_text(serialize({**snapshot.authoritative, 'observed.row.001-001.value': '`stage-key`'}))
             candidates = {path: load_model(stage/model.relative_to(root)).values
                           for path, model in zip(sources, models)}
             failures = []
@@ -143,19 +146,26 @@ def check_stage_definition_sources(generated_policy, tmp_path):
                 workers.add(threading.get_ident())
                 if barrier is not None:
                     barrier.wait(timeout=30)
+                from validation_cache import input_scope
+                @input_scope
+                def verify_reference():
+                    model = stage / 'model' / args[2][0].relative_to(stage / 'docs/designs').with_suffix('.properties')
+                    snapshot = load_model(model)
+                    assert any('differs from saved text' in warning['message'] for warning in snapshot.warnings)
+                verify_reference()
                 return original_validate(*args, **kwargs)
-            def parameter(template, *args, **kwargs):
-                result = original_parameter(template, *args, **kwargs)
-                if args[1] == 'KeyId':
-                    assert template.is_relative_to(stage)
-                    assert result == 'stage-key'
-                    references.append(result)
+            def read(scope, reads):
+                result = original_reader(scope, reads)
+                if scope.service == 'kms':
+                    assert scope.path.is_relative_to(stage)
+                    assert result.authoritative['observed.row.001-001.value'] == '`stage-key`'
+                    references.append(scope.path)
                 return result
             with patch.object(sync_views, 'validate_views', side_effect=validate), \
-                 patch.object(model_parameter_inputs, 'parameter_value', side_effect=parameter):
+                 patch.object(model_sources, '_read_model', side_effect=read):
                 sync_runtime.validate_candidates(stage, root, generated, candidates, failures, jobs, False)
             assert not failures and len(generated) == 4, failures
-            assert len(workers) == jobs and len(references) >= 4
+            assert len(workers) == jobs and len(references) >= 4, (jobs, workers, references)
             assert before == {p.relative_to(stage): p.read_bytes() for files in generated.values() for p in files}
             results.append(before)
     assert results[0] == results[1]
@@ -315,10 +325,10 @@ def check_publication_boundary(generated_policy, fault):
     def mutate_before_save(*args, **kwargs):
         nonlocal concurrent
         result = validate(*args, **kwargs)
-        template = next(file for file in load_model(model).files if file.suffix == '.tpl')
+        template = model
         target = {'source': template, 'mapping': definition_root(root)/'framework/mappings/aws/iam.yaml',
                   'project': root/'project.json', 'part': template.with_suffix('')/'unlisted.properties',
-                  'consumer': root/'model/parameters/dev/other/new/parameters.yaml',
+                  'consumer': root/'model/dev/other/new.properties',
                   'extra': artifact.parent/'unexpected.json', 'contract': root/env['BLUEPRINT_TASK_FILE']}[fault]
         concurrent = target, (target.read_bytes() if target.exists() else b'') + b'\n'
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -339,9 +349,8 @@ def check_normal_writer_contents(generated_policy):
     document['Statement'][0]['Sid'] = 'WrittenOnce'
     values['desired.row.001-002.document'] = json.dumps(document)
     write_model(model, values)
-    from model_templates import load_sources
     from validation_cache import input_scope
-    import model_templates
+    import model.sources as model_sources
     from contextlib import ExitStack
     from validation import design as design_checks, design_tables, design_links, cloudformation
     materialize = sync_runtime.GenerationInputs.open_stage
@@ -364,11 +373,12 @@ def check_normal_writer_contents(generated_policy):
              patch.object(sync_runtime, 'generate_views', wraps=sync_runtime.generate_views) as generate, \
              patch.object(sync_views, 'validate_views', wraps=sync_views.validate_views) as validate, \
              patch.object(sync_runtime.GenerationInputs, 'verify', autospec=True, side_effect=sync_runtime.GenerationInputs.verify) as verify, \
-             patch.object(model_templates, 'load_sources', wraps=load_sources) as expand, \
+             patch.object(model_sources, '_read_model', wraps=model_sources._read_model) as expand, \
              patch.object(sync_runtime, 'verify_saved', side_effect=AssertionError('post-save readback')):
             assert sync_runtime.sync(root, True, 'dev', '123456789012', ['iam']) == 0
         assert len(set(stages)) == generate.call_count == validate.call_count == verify.call_count == 1
-        assert len([call for call in expand.call_args_list if call.args[0].stem == 'iam']) == 1
+        contexts = [(call.args[0], id(call.args[1])) for call in expand.call_args_list if call.args[0].service == 'iam']
+        assert contexts and len(contexts) == len(set(contexts)), expand.call_args_list
         assert [counter.call_count for counter in counters] == [1, 1, 2, 1, 0, 1, 1, 1, 1, 1], [counter.call_count for counter in counters]
     assert values['desired.note.001.text'] in design.read_text()
     assert json.loads(artifact.read_text()) == json.loads(values['desired.row.001-002.document'])
@@ -424,7 +434,7 @@ def check_publication_rechecks_excluded_outputs(generated_policy, note, drift):
     env = register([design] if note else [])
     original = design.read_bytes()
     changed = (artifact if drift == 'sidecar' else root / env['BLUEPRINT_TASK_FILE'] if drift == 'task'
-               else next(file for file in load_model(model).files if file.suffix == '.tpl'))
+               else model)
     content = ('{}\n' if drift == 'sidecar' else '# concurrent change\n' + changed.read_text(encoding='utf-8'))
     validate = sync_runtime.validate_candidates
     def mutate(*args, **kwargs):
@@ -493,7 +503,7 @@ def check_unchanged_sidecar_validation(generated_policy):
     before = {file: file.read_bytes() for file in (design, artifact)}
     with patch.dict(os.environ, env), \
          patch.object(sync_views, 'validate_views', side_effect=ValueError('injected candidate validation failure')), \
-         patch.object(sync_runtime, 'publish', side_effect=AssertionError('invalid candidate published')):
+         patch.object(sync_runtime, '_publish_transaction', side_effect=AssertionError('invalid candidate published')):
         with pytest.raises(ValueError, match='injected candidate validation failure'):
             MODULE.sync(root, True, 'dev', '123456789012', ['iam'])
     assert {file: file.read_bytes() for file in before} == before
@@ -503,6 +513,8 @@ def check_failure_counts(framework_root) -> None:
     from types import SimpleNamespace
     from validation.findings import Findings
     root = framework_root
+    (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', 'alias': 'non-cde',
+        'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}))
     models = root / "model/dev/non-cde"
     docs = root / "docs/designs/dev/non-cde"
     models.mkdir(parents=True)
@@ -555,7 +567,7 @@ def check_failure_counts(framework_root) -> None:
                     assert warnings.getvalue().count("saved reference needs repair") == (5 if write else 0)
                     if extra_inputs:
                         assert "invalid or duplicate model property" in str(error), error
-                        assert "YAML Model inputs missing" in str(error), error
+                        assert "properties Model inputs missing" in str(error), error
                 else:
                     raise AssertionError("partial generation failure accepted")
     print("Failure counts: PASS (17 models, 8 successes, 9 failed services, 9 diagnostics, invalid/missing models, read/write)")
@@ -564,6 +576,8 @@ def check_failure_counts(framework_root) -> None:
 @pytest.mark.parametrize("write", [False, True])
 def check_incoming_reference_models(framework_root, tmp_path, write) -> None:
     root = framework_root
+    (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', 'awsAccountId': '123456789012',
+        'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}))
     models = root / "model/dev/123456789012"
     docs = root / "docs/designs/dev/123456789012"
     docs.mkdir(parents=True)
@@ -642,10 +656,10 @@ def check_required_preflight(framework_root) -> None:
         "desired.row.001-003.value": "`ATHENA`",
         "desired.row.001-003.comment": "データソースの接続方式",
     }
-    model_design.validate_required_properties(complete, root)
+    model_validation.validate_required_properties(complete, root)
     for empty in ("", "``", '`""`', "`UNSET`"):
         with pytest.raises(ValueError) as error:
-            model_design.validate_required_properties(complete | {"desired.row.001-003.value": empty}, root)
+            model_validation.validate_required_properties(complete | {"desired.row.001-003.value": empty}, root)
         assert "QuickSight.DataSource.Type" in str(error.value)
     grouped = {key: value for key, value in complete.items() if not key.startswith('desired.row.001-003.')} | {
         "desired.resource.001.resourceType": "S3.Bucket",
@@ -654,7 +668,7 @@ def check_required_preflight(framework_root) -> None:
         "desired.row.001-002.value": "",
     }
     with pytest.raises(ValueError) as error:
-        model_design.validate_required_properties(grouped, root)
+        model_validation.validate_required_properties(grouped, root)
     assert "S3.BucketPolicy.PolicyDocument" in str(error.value)
     assert "S3.BucketPolicy.Bucket" not in str(error.value)
     # An unrelated valid service still saves while the incomplete one fails.
@@ -707,7 +721,7 @@ def check_required_property_parents(tmp_path) -> None:
     write_model(model, source)
     source = read_model(model)
     design = root / "docs/designs/dev/123456789012/glue.md"
-    model_design.validate_required_properties(values, root)
+    model_validation.validate_required_properties(values, root)
     assert MODULE.sync(root, True, "dev", "123456789012") == 0
     assert read_model(model) == source
     assert "| ConnectionInput |" not in design.read_text()  # Presence is inferred without inventing a row.
@@ -725,7 +739,7 @@ def check_required_property_parents(tmp_path) -> None:
                    if key.endswith(".property") and (value == f"Glue.Connection.{missing}" or value.startswith(f"Glue.Connection.{missing}."))}
         incomplete = {key: value for key, value in values.items() if key.rsplit(".", 1)[0] not in removed}
         with pytest.raises(ValueError) as error:
-            model_design.validate_required_properties(incomplete, root)
+            model_validation.validate_required_properties(incomplete, root)
         assert f"required provider schema property missing: Glue.Connection.{missing}" in str(error.value)
         content = "\n".join(line for line in original.splitlines()
                             if f" | {missing} |" not in line and f" | {missing}." not in line) + "\n"
@@ -895,7 +909,7 @@ def check_workflow(tmp_path) -> None:
     with redirect_stdout(io.StringIO()):
         with pytest.raises(ValueError) as error:
             MODULE.sync(root, True)
-        assert "YAML Model inputs missing" in str(error.value)
+        assert "properties Model inputs missing" in str(error.value)
 
     alias_design = root / "docs" / "designs" / "dev" / "cde" / "vpc.md"
     alias_design.parent.mkdir(parents=True)
@@ -914,7 +928,7 @@ def check_workflow(tmp_path) -> None:
     with redirect_stdout(io.StringIO()):
         with pytest.raises(ValueError) as error:
             MODULE.sync(root, True, "dev", "cde")
-        assert "YAML Model inputs missing" in str(error.value)
+        assert "properties Model inputs missing" in str(error.value)
     assert sync_runtime.selected(alias_design, root / "docs" / "designs", "dev", "cde")
     assert not sync_runtime.selected(alias_design, root / "docs" / "designs", "dev", "123456789012")
     stacks = design.with_name("cloudformation-stacks.md")
@@ -941,7 +955,7 @@ def check_workflow(tmp_path) -> None:
     with redirect_stdout(io.StringIO()):
         with pytest.raises(ValueError) as error:
             MODULE.sync(root, True, "dev", "123456789012")
-        assert "YAML Model inputs missing" in str(error.value)
+        assert "properties Model inputs missing" in str(error.value)
 
 
 
@@ -955,7 +969,7 @@ import sync_progress as progress
 
 
 def check_publication_lock_wait(tmp_path):
-    import model_templates
+    import model.sources as model_sources
     output = io.StringIO()
     waiting = threading.Event()
     reporter = progress.Progress()
@@ -968,13 +982,13 @@ def check_publication_lock_wait(tmp_path):
     reporter.emit = notify
     def worker():
         try:
-            with reporter.worker('dev/team/iam'), model_templates.publication_lock(tmp_path):
-                with model_templates.publication_lock(tmp_path):
+            with reporter.worker('dev/team/iam'), model_sources.publication_lock(tmp_path):
+                with model_sources.publication_lock(tmp_path):
                     pass
         except BaseException as error:
             errors.append(error)
     with redirect_stderr(output):
-        with model_templates.publication_lock(tmp_path):
+        with model_sources.publication_lock(tmp_path):
             thread = threading.Thread(target=worker)
             thread.start()
             observed = waiting.wait(5)
@@ -1007,7 +1021,7 @@ def check_two_consumer_cli(generated_policy):
     import subprocess
     from support.validator import load
     root, _, _, design, artifact, register = generated_policy
-    shutil.copytree(root / 'model/parameters/dev', root / 'model/parameters/stg')
+    shutil.copytree(root / 'model/dev', root / 'model/stg')
     shutil.copytree(root / 'docs/designs/dev', root / 'docs/designs/stg')
     project = json.loads((root / 'project.json').read_text())
     project['targets'].append({**project['targets'][0], 'environment': 'stg'})
@@ -1022,8 +1036,9 @@ def check_two_consumer_cli(generated_policy):
     (root / name).write_text((root / name).read_text().replace(
         '- `dev/123456789012/iam`', '- `dev/123456789012/iam`\n- `stg/123456789012/iam`'))
     tasks.refresh(root, name)
-    template = root / 'model/templates/123456789012/iam.properties.tpl'
-    template.write_text(template.read_text().replace('アプリケーションの実行権限', '更新後の処理権限'))
+    for selected_env in ('dev', 'stg'):
+        source = root / 'model' / selected_env / '123456789012/iam.properties'
+        source.write_text(source.read_text().replace('アプリケーションの実行権限', '更新後の処理権限'))
     cli = load('sync-model')
     arguments = ['sync-model.py', '--repository-root', str(root), '--scope', 'dev/123456789012/iam',
                  '--scope', 'stg/123456789012/iam', '--jobs', '2']
@@ -1045,16 +1060,26 @@ def check_two_consumer_cli(generated_policy):
         assert '更新後の処理権限' in document.read_text()
 
 
-@pytest.mark.parametrize('filename', ['parameters.yaml', 'bindings.json', 'observed.json', 'template'])
+@pytest.mark.parametrize('filename', ['entry', 'part', 'other-model', 'project'])
 @pytest.mark.parametrize('mutation', ['change', 'delete', 'add'])
 def check_input_mutation(generated_policy, filename, mutation):
     root, model, _, design, artifact, register = generated_policy
-    directory = root / 'model/parameters/dev/123456789012/iam'
-    source = root / 'model/templates/123456789012/iam.properties.tpl' if filename == 'template' else directory / filename
-    if mutation == 'add' and filename != 'observed.json':
-        source = (source.with_suffix('') / 'added.properties' if filename == 'template' else root / 'model/parameters/dev/new/iam' / filename)
-    if filename == 'observed.json' and mutation != 'add' and not source.exists():
-        source.write_text('{"version":1,"values":{}}\n')
+    from model.format import FORMAT, INDEX
+    if filename == 'part':
+        part = model.with_suffix('') / 'part-003.properties'
+        part.parent.mkdir()
+        part.write_bytes(model.read_bytes())
+        model.write_text(FORMAT + '\n' + INDEX + '\n# part: iam/part-003.properties\n')
+        source = part
+    elif filename == 'other-model':
+        source = model.with_suffix('') / 'part-003.properties'
+        source.parent.mkdir()
+        source.write_bytes(model.read_bytes())
+        model.write_text(FORMAT + '\n' + INDEX + '\n# part: iam/part-003.properties\n')
+    else:
+        source = model if filename == 'entry' else root / 'project.json'
+    if mutation == 'add':
+        source = model.with_suffix('') / 'added.properties' if filename == 'part' else root / 'model/dev/new/iam.properties'
     original = {p: p.read_bytes() for p in (design, artifact)}
     validate = sync_runtime.validate_candidates
     def mutate(*args, **kwargs):
@@ -1103,7 +1128,7 @@ def check_internal_sync_isolation(internal_sync_project, selection, jobs, capsys
     source = root/'model/dev/team/config.properties'
     design = root/'docs/designs/dev/team/config.md'
     saved = design.read_bytes()
-    inputs = root/'model/parameters/dev/team/config/parameters.yaml'
+    inputs = root/'model/dev/team/config.properties'
     original = inputs.read_bytes()
     memories = []
     sync = runner.sync
@@ -1208,7 +1233,9 @@ def check_integrated_validator(generated_policy, initial):
     values['desired.note.001.text'] = '統合した生成と検証を確認する。'
     write_model(model, values)
     validator_module = load('validate-blueprint')
-    import model_templates, import_guard
+    import model.sources as model_sources
+    import model.impact as model_impact
+    import import_guard
     published = False
     read_bytes, transaction = Path.read_bytes, sync_runtime._publish_transaction
     def read(path):
@@ -1221,11 +1248,11 @@ def check_integrated_validator(generated_policy, initial):
         published = True
         return result
     with patch.dict(os.environ, env), \
-         patch.object(model_templates, 'affected', wraps=model_templates.affected) as impact, \
+         patch.object(model_impact, 'affected', wraps=model_impact.affected) as impact, \
          patch.object(import_guard, 'require_import_changes', wraps=import_guard.require_import_changes) as import_check, \
          patch.object(sync_runtime, '_publish_transaction', side_effect=publish), \
          patch.object(Path, 'read_bytes', read), \
-         patch.object(model_templates, 'load_sources', wraps=model_templates.load_sources) as expand, \
+         patch.object(model_sources, '_read_model', wraps=model_sources._read_model) as expand, \
          patch.object(sync_runtime, 'generate_views', wraps=sync_runtime.generate_views) as generate, \
          patch.object(sync_views, 'validate_views', wraps=sync_views.validate_views) as validate, \
          patch.object(sync_runtime.GenerationInputs, 'verify', autospec=True, side_effect=sync_runtime.GenerationInputs.verify) as verify, \
@@ -1234,9 +1261,10 @@ def check_integrated_validator(generated_policy, initial):
         assert validator.run() == 0, validator.errors
         assert len(validator.acceptance_results) == 3
     assert generate.call_count == validate.call_count == verify.call_count == 1
-    assert sorted(call.args[1].__name__ for call in expand.call_args_list if call.args[0] == model) == ["expand", "expand_analysis"], [(str(call.args[0]), call.args[1].__name__) for call in expand.call_args_list]
-    print('integrated write counts: strict Model=1, reference analysis=1, generation=1, candidate validation=1, guard=1, post-save readback=0')
-    assert impact.call_count == import_check.call_count == 1
+    contexts = [(call.args[0], id(call.args[1])) for call in expand.call_args_list]
+    assert contexts and len(contexts) == len(set(contexts)), expand.call_args_list
+    print('integrated write counts: Model once per input/permission context; generation=1, candidate validation=1, guard=1, post-save readback=0')
+    assert import_check.call_count == 1 and impact.call_count == 2, (impact.call_count, import_check.call_count)
     assert values['desired.note.001.text'] in design.read_text()
     if not initial:
         from tempfile import TemporaryDirectory
@@ -1282,7 +1310,7 @@ def check_integrated_validator(generated_policy, initial):
 
         values.pop('desired.note.001.text')
         write_model(model, values)
-        template = root/'model/templates/123456789012/iam.properties.tpl'
+        template = model
         template.write_bytes(template.read_bytes()+b'# source-only comment\n')
         task.write_text(task.read_text()+'- [R1] `changed:docs/designs/dev/123456789012/iam.md`\n')
         with patch.dict(os.environ, env), patch('worktree_task.task_start_commit', return_value=baseline):
@@ -1383,7 +1411,7 @@ def check_multiple_targets_barrier(generated_policy, failure):
         validate(plan, **kwargs)
         events.append('validated')
         if failure == 'input':
-            source = root/'model/parameters/stg/123456789012/logs/parameters.yaml'
+            source = log_model
             source.write_bytes(source.read_bytes()+b'\n')
     published = False
     read_bytes = Path.read_bytes
@@ -1422,7 +1450,7 @@ def check_multiple_targets_barrier(generated_policy, failure):
             with pytest.raises(ValueError, match='rollback incomplete; recovery journal retained'):
                 sync_runtime.run_generation(root, scope)
             assert saved.call_count == 1 and not log_design.exists()
-            from model_templates import publication_lock
+            from model.sources import publication_lock
             with publication_lock(root) as journal:
                 assert not journal.exists() and design.read_bytes() == original
         elif failure in {'candidate', 'io'}:

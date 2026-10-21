@@ -6,14 +6,14 @@ from pathlib import Path
 import re
 
 from cloudformation_inputs import Blocked, condition_active, load_target, load_template_inputs, resolve_value, output_value
-from cloudformation_observed import resource_index, mapped_resource
+from model.adapters.observed import resource_index, mapped_resource
 from design_catalog import DesignSchemaCatalog
 from design_layout import GROUPED, HIDDEN_PROPERTIES, resource_mode
 from iac_values import cfn_resource_identity
-from model_references import catalog_outputs, reference_attribute
-from model_core import LINK, entries, stack_model
-from model_templates import model_paths, service_source
-from model_files import load_model, resource_row_index, MAX_LINES
+from model.projection import catalog_outputs, reference_attribute
+from model.core import LINK, entries, stack_model
+from model.sources import model_paths, model_exists
+from model.files import load_model, resource_row_index, MAX_LINES
 from policy_tables import literal, POLICY_FORMATS
 
 
@@ -59,7 +59,7 @@ REF_ATTRIBUTES = {
 }
 
 
-from model_core import ReferenceResolutionError
+from model.core import ReferenceResolutionError
 
 class Comparison:
     def __init__(self, root, environment, directory, services, *, catalog=None):
@@ -88,8 +88,8 @@ class Comparison:
             except ReferenceResolutionError as error:
                 self.warnings.append({**error.diagnostic, 'service': service})
                 self.reference_unavailable[service] = str(error)
-                from model_templates import load_for_analysis
-                analysis = load_for_analysis(root / 'model' / environment / directory / (service + '.properties'))
+                from model.sources import load_model
+                analysis = load_model(root / 'model' / environment / directory / (service + '.properties'))
                 self.inputs.update(analysis.files)
                 self.read_hashes.update({file: hashlib.sha256(text.encode('utf-8')).hexdigest() for file, text in analysis.files.items()})
                 self.warnings.extend(analysis.warnings)
@@ -110,8 +110,8 @@ class Comparison:
             self.models[service] = loaded
             self._index = None
             self.symbols.clear()
-            self.inputs.update(loaded.files)
-            self.read_hashes.update({file: hashlib.sha256(text.encode('utf-8')).hexdigest() for file, text in loaded.files.items()})
+            self.inputs.update(loaded.dependencies)
+            self.read_hashes.update({file: None if raw is None else hashlib.sha256(raw).hexdigest() for file, raw in loaded.dependencies.items()})
             self.metrics['model_loads'] += 1
             self.metrics['model_parses'] += 1
             self.resources[service] = dict(entries(loaded.values, 'desired.resource.'))
@@ -814,7 +814,7 @@ class Comparison:
         if self._templates is not None:
             return self._templates
         stackpath = self.root / 'model' / self.environment / self.directory / 'cloudformation-stacks.properties'
-        if service_source(stackpath) is None:
+        if not model_exists(stackpath):
             self._templates = []
             return self._templates
         _, stacks = stack_model(self.model('cloudformation-stacks').values)

@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 
-from model_files import read_model
+from model.files import read_model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -35,9 +35,9 @@ from unittest.mock import patch
 
 import deploy_preparation as M
 
-from model_design import markdown_for
+from model.render import markdown_for
 
-from model_files import model_file_contents, model_parts, read_model
+from model.files import model_file_contents, model_parts, read_model
 
 from task_contract import contracts, paths_in, start
 

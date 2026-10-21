@@ -11,10 +11,11 @@ from unittest.mock import patch
 import pytest
 import yaml
 from task_contract import model_operation
-from model_operation_checks import verify_model_operation
-from support.import_model_fixtures import dependency_fixture, declaration, spec, binding
-from model_templates import load_expansion
-from model_parameter_inputs import yaml_read
+from model.operations import verify_model_operation, prepare_edit, publish_edit
+from support.import_model_fixtures import dependency_fixture
+from model.sources import load_model
+from model.format import serialize, owner
+from support.model_sources import write_model
 
 REF = {'consumer': 'stg/cde/service-b/002', 'field': 'value', 'property': 'ServiceB.Resource.Name',
        'source': 'stg/cde/service-a/001', 'destination': 'stg/cde/service-a/003'}
@@ -29,24 +30,24 @@ def contract(refs=None):
 def fixture(tmp_path, document=False):
     before, after = tmp_path / 'before', tmp_path / 'after'
     dependency_fixture(before)
-    # This fixture tests retargets, so remove the seed's unrelated resource cycle.
-    template_a = before / 'model/templates/cde/service-a.properties.tpl'
-    template_a.write_text('\n'.join(line for line in template_a.read_text().splitlines()
-        if not line.startswith(('# parameter: Peer ', '# row: peer ', 'desired.row.peer.'))) + '\n')
     for env in ('dev', 'stg'):
-        directory = before / 'model/parameters' / env / 'cde/service-a'
-        p = directory / 'parameters.yaml'
-        d = yaml_read(p.read_text()); d['instances']['producer']['parameters'].pop('Peer'); p.write_text(yaml.safe_dump(d))
-        p = directory / 'bindings.json'
-        d = json.loads(p.read_text()); d['instances']['producer']['rows'].pop('peer'); p.write_text(json.dumps(d))
+        file = before / 'model' / env / 'cde/service-a.properties'
+        values = dict(load_model(file).authoritative)
+        write_model(file, {key: value for key, value in values.items() if not key.startswith('desired.row.001-002.')})
     if document:
-        template = before / 'model/templates/cde/service-b.properties.tpl'
-        template.write_text(template.read_text().replace('desired.row.name.value=<<Origin>>',
-            'desired.row.name.value=[JSON](service-b/policy.json)\ndesired.row.name.document={"Items":["<<Origin>>","keep"],"Enabled":true}'))
+        file = before / 'model/stg/cde/service-b.properties'
+        values = dict(load_model(file).authoritative)
+        values['desired.row.002-001.value'] = '[JSON](service-b/policy.json)'
+        values['desired.row.002-001.document'] = '{"Items":["same-name-stg","keep"],"Enabled":true}'
+        values['desired.reference.origin.consumerKey'] = 'desired.row.002-001.document'
+        values['desired.reference.origin.pointer'] = '/Items/0'
+        write_model(file, values)
     shutil.copytree(before, after)
-    inputs = after / 'model/parameters/stg/cde/service-b/parameters.yaml'
-    inputs.write_text(inputs.read_text().replace('001', '003'))
-    return before, after, {inputs.relative_to(after).as_posix()}
+    file = after / 'model/stg/cde/service-b.properties'
+    values = dict(load_model(file).authoritative)
+    values['desired.reference.origin.producerId'] = '003'
+    write_model(file, values)
+    return before, after, {file.relative_to(after).as_posix()}
 
 
 def check_standalone_contract():
@@ -68,8 +69,8 @@ def check_preserves_producers_and_equal_renderings(tmp_path, document):
     before, after, sources = fixture(tmp_path, document)
     refs = [{**REF, 'field': 'document', 'pointer': '/Items/0'}] if document else [REF]
     verify_model_operation(before, after, model_operation(contract(refs)), sources)
-    old = load_expansion(before / 'model/stg/cde/service-a.properties').values
-    new = load_expansion(after / 'model/stg/cde/service-a.properties').values
+    old = load_model(before / 'model/stg/cde/service-a.properties').values
+    new = load_model(after / 'model/stg/cde/service-a.properties').values
     assert old == new  # Both producers survive, despite equal name renderings.
 
 
@@ -79,31 +80,48 @@ def check_rejects_unsafe_candidates(tmp_path, failure):
     document = failure in {'order', 'sibling', 'type', 'overlap'}
     before, after, sources = fixture(tmp_path, document)
     refs = [{**REF, 'field': 'document', 'pointer': '/Items/0'}] if document else [dict(REF)]
-    template = after / 'model/templates/cde/service-b.properties.tpl'
-    inputs = after / 'model/parameters/stg/cde/service-b/parameters.yaml'
-    if failure == 'mismatch': refs[0]['source'] = REF['destination']
-    elif failure == 'missing': refs[0]['destination'] = 'stg/cde/service-a/099'
-    elif failure == 'no-change': inputs.write_bytes((before / inputs.relative_to(after)).read_bytes())
-    elif failure == 'unused': refs.append({**REF, 'property': 'ServiceB.Resource.Absent'})
-    elif failure == 'literal': template.write_text(template.read_text().replace('<<Origin>>', 'same-name-stg'))
-    elif failure == 'order': template.write_text(template.read_text().replace('["<<Origin>>","keep"]', '["keep","<<Origin>>"]'))
-    elif failure == 'sibling': template.write_text(template.read_text().replace('"keep"', '"changed"'))
-    elif failure == 'type': template.write_text(template.read_text().replace('true}', '1}'))
-    elif failure == 'overlap': refs.append({**refs[0], 'pointer': '/Items/00'})
-    elif failure == 'settings':
-        p = after / 'model/parameters/stg/cde/service-a/parameters.yaml'; p.write_text(p.read_text().replace('same-name-stg', 'changed'))
-    elif failure == 'observed':
-        p = after / 'model/parameters/stg/cde/service-a/observed.json'; p.write_text('{"version":1,"values":{}}')
-    elif failure == 'bindings':
-        p = after / 'model/parameters/stg/cde/service-a/bindings.json'; p.write_text(p.read_text().replace('003', '004'))
-    elif failure in {'delete', 'transfer'}:
-        p = after / 'model/parameters/stg/cde/service-a/parameters.yaml'
-        d = yaml_read(p.read_text()); d['instances'].pop('producer') if failure == 'delete' else d['instances']['producer']['parameters'].update(Name='transferred'); p.write_text(yaml.safe_dump(d))
-    elif failure == 'other-env':
-        p = after / 'model/parameters/dev/cde/service-b/parameters.yaml'; p.write_text(p.read_text().replace('001', '003'))
-    elif failure == 'unused-input': inputs.write_text(inputs.read_text() + 'parameters:\n  Unused: changed\n')
-    elif failure == 'format': template.write_text(template.read_text().replace('"format":"name"', '"format":"identifier"'))
-    elif failure == 'ambiguous': template.write_text(template.read_text().replace('desired.resource.resource.anchor=<<Anchor>>', 'desired.resource.resource.anchor=producer'))
+    file = after / 'model/stg/cde/service-b.properties'
+    values = dict(load_model(file).authoritative)
+    if failure == 'mismatch':
+        refs[0]['source'] = REF['destination']
+    elif failure == 'missing':
+        refs[0]['destination'] = 'stg/cde/service-a/099'
+    elif failure == 'no-change':
+        values['desired.reference.origin.producerId'] = '001'
+    elif failure == 'unused':
+        refs.append({**REF, 'property': 'ServiceB.Resource.Absent'})
+    elif failure == 'literal':
+        values = {key: value for key, value in values.items() if not key.startswith('desired.reference.origin.')}
+    elif failure in {'order', 'sibling', 'type'}:
+        values['desired.row.002-001.document'] = {
+            'order': '{"Items":["keep","same-name-stg"],"Enabled":true}',
+            'sibling': '{"Items":["same-name-stg","changed"],"Enabled":true}',
+            'type': '{"Items":["same-name-stg","keep"],"Enabled":1}'}[failure]
+        if failure == 'order':
+            values['desired.reference.origin.pointer'] = '/Items/1'
+    elif failure == 'overlap':
+        refs.append({**refs[0], 'pointer': '/Items/00'})
+    elif failure == 'unused-input':
+        values['desired.note.unrelated.text'] = 'changed'
+    elif failure == 'format':
+        values['desired.reference.origin.format'] = 'identifier'
+    elif failure == 'ambiguous':
+        values['desired.resource.002.anchor'] = 'changed-fixed-anchor'
+    else:
+        target = after / ('model/dev/cde/service-b.properties' if failure == 'other-env' else 'model/stg/cde/service-a.properties')
+        other = dict(load_model(target).authoritative)
+        if failure in {'settings', 'transfer'}:
+            other['desired.row.001-001.value'] = 'changed' if failure == 'settings' else 'transferred'
+        elif failure == 'observed':
+            other['observed.row.001-001.value'] = 'fabricated'
+        elif failure == 'bindings':
+            other['desired.resource.003.logicalId'] = 'changed-fixed'
+        elif failure == 'delete':
+            other = {key: value for key, value in other.items() if owner(key, other) != ('resource', '001')}
+        elif failure == 'other-env':
+            other['desired.reference.origin.producerId'] = '003'
+        write_model(target, other)
+    write_model(file, values)
     sources |= {p.relative_to(after).as_posix() for p in after.rglob('*') if p.is_file() and
                 (not (before / p.relative_to(after)).exists() or p.read_bytes() != (before / p.relative_to(after)).read_bytes())}
     if failure == 'no-change':
@@ -118,10 +136,11 @@ def check_json_positions(tmp_path, field):
     before, after, sources = fixture(tmp_path, True)
     if field == 'value':
         for root in (before, after):
-            template = root / 'model/templates/cde/service-b.properties.tpl'
-            text = template.read_text().replace('desired.row.name.value=[JSON](service-b/policy.json)\n', '')
-            text = text.replace('desired.row.name.document=', 'desired.row.name.value=`').replace('"Enabled":true}', '"Enabled":true}`')
-            template.write_text(text)
+            file = root / 'model/stg/cde/service-b.properties'
+            values = dict(load_model(file).authoritative)
+            values['desired.row.002-001.value'] = '`' + values.pop('desired.row.002-001.document') + '`'
+            values['desired.reference.origin.consumerKey'] = 'desired.row.002-001.value'
+            write_model(file, values)
     refs = [{**REF, 'field': field, 'pointer': '/Items/0'}]
     verify_model_operation(before, after, model_operation(contract(refs)), sources)
     refs[0]['pointer'] = '/Items'
@@ -153,7 +172,7 @@ def check_route_table_pair_example(tmp_path):
                          f'desired.row.001-{index:03d}.comment': '合成fixture'})
     write_model(before / 'model/stg/cde/vpc-endpoint.properties', endpoint)
     shutil.copytree(before, after)
-    template = after / 'model/templates/cde/vpc-endpoint.properties.tpl'
+    template = after / 'model/stg/cde/vpc-endpoint.properties'
     template.write_text(template.read_text().replace('[009](vpc.md#table-009)', '[022](vpc.md#table-022)').replace('[010](vpc.md#table-010)', '[023](vpc.md#table-023)'))
     sources = {template.relative_to(after).as_posix()}
     refs = [{'consumer': 'stg/cde/vpc-endpoint/001', 'field': 'value',
@@ -170,9 +189,7 @@ def check_guarded_save(tmp_path, monkeypatch, mode):
     import subprocess
     import worktree_task
     from utils.aws_mappings import mapping_alias
-    from import_guard import source_write_context
-    from model_sources import write_sources
-    from model_templates import publish
+    from model.adapters.task import source_write_context, edit_write_context
     from task_contract import start, selected_task
     before, after, sources = fixture(tmp_path)
     def git(*args):
@@ -183,50 +200,63 @@ def check_guarded_save(tmp_path, monkeypatch, mode):
     inputs = before / next(iter(sources))
     candidate = (after / next(iter(sources))).read_text()
     name = 'tasks/retarget.md'
-    paths = [name, *sorted(sources)]
-    listing = ''.join('- `' + p + '`\n' for p in paths)
+    listing = ''.join('- `' + p + '`\n' for p in [name, *sorted(sources)])
     scopes = ['stg/cde/service-b'] if mode == 'missing-scope' else ['stg/cde/service-a', 'stg/cde/service-b']
-    if mode == 'other-issue': scopes.append('dev/cde/service-b')
+    if mode == 'other-issue':
+        scopes.append('dev/cde/service-b')
     text = contract() + '## Validation scope\n' + ''.join('- `' + s + '`\n' for s in scopes) + '## Modified files\n' + listing + '## Allowed paths\n' + listing
     start(before, name, text)
     state = {'task_file': name, 'worktree': str(after if mode == 'wrong-owner' else before), 'merged': None}
     if mode in {'issue', 'other-issue'}:
-        p = before / ('issues/dev/cde/issues.md' if mode == 'other-issue' else 'issues/stg/cde/issues.md'); p.parent.mkdir(parents=True); p.write_text(('### service-b\n' if mode == 'other-issue' else '### service-a\n') + '1. existing issue\n')
+        p = before / ('issues/dev/cde/issues.md' if mode == 'other-issue' else 'issues/stg/cde/issues.md')
+        p.parent.mkdir(parents=True)
+        p.write_text(('### service-b\n' if mode == 'other-issue' else '### service-a\n') + '1. existing issue\n')
     with patch.object(worktree_task, 'load', return_value=(before, None, None, state)), \
          patch.object(worktree_task, 'task_worktree', return_value=before), \
          patch.object(worktree_task, 'task_start_commit', return_value=base), \
          mapping_alias(Path(__file__).resolve().parents[4], before), selected_task(before, name):
         if mode in {'wrong-owner', 'missing-scope', 'issue', 'other-issue'}:
             with pytest.raises(ValueError):
-                with source_write_context(before, name): pass
+                with source_write_context(before, name):
+                    pass
             return
         if mode == 'normal-save':
-            publish(before, {inputs: candidate})
+            with pytest.raises(ValueError, match='limited source write context'):
+                with edit_write_context(before, {('stg', 'cde', 'service-b')}, name):
+                    pass
+            with source_write_context(before, name) as context:
+                publish_edit(prepare_edit(load_model(inputs, context.snapshot), {inputs: candidate}, context), context)
             assert inputs.read_text() == candidate
             return
         if mode == 'mixed-save':
-            with pytest.raises(ValueError, match='separate owned'):
-                publish(before, {inputs: candidate, before / 'docs/designs/stg/cde/service-b.md': 'fake'})
+            with source_write_context(before, name) as context, pytest.raises(ValueError, match='unregistered'):
+                prepare_edit(load_model(inputs, context.snapshot), {inputs: candidate, before / 'docs/designs/stg/cde/service-b.md': 'fake'}, context)
             return
         original = inputs.read_text()
         with source_write_context(before, name) as context:
-            if mode == 'conflict': inputs.write_text(original + '# concurrent edit\n')
-            if mode == 'new-file': (before / 'model/parameters/stg/cde/service-b/extra.yaml').write_text('extra: true\n')
-            if mode == 'task-change': (before / name).write_text(text + '\n## Goal\nchanged\n')
+            snapshot = load_model(inputs, context.snapshot)
+            plan = prepare_edit(snapshot, {inputs: original if mode == 'invalid' else candidate}, context)
+            if mode == 'conflict':
+                inputs.write_text(original + '# concurrent edit\n')
+            if mode == 'new-file':
+                extra = before / 'model/stg/cde/service-b/part-001.properties'
+                extra.parent.mkdir()
+                extra.write_text('# model-format: 2\n')
+            if mode == 'task-change':
+                (before / name).write_text(text + '\n## Goal\nchanged\n')
             if mode in {'conflict', 'new-file', 'task-change'}:
-                with pytest.raises(ValueError): write_sources(context, {inputs: candidate if mode != 'invalid' else original})
+                with pytest.raises(ValueError):
+                    publish_edit(plan, context)
                 assert inputs.read_text() == (original + '# concurrent edit\n' if mode == 'conflict' else original)
             elif mode == 'invalid':
-                assert write_sources(context, {inputs: original}) == ()
-                assert inputs.read_text() == original
+                assert publish_edit(plan, context) == () and inputs.read_text() == original
             else:
-                assert write_sources(context, {inputs: candidate}) == (inputs,)
-                assert inputs.read_text() == candidate
-            with pytest.raises(ValueError, match='closed'):
-                write_sources(context, {})
+                assert publish_edit(plan, context) == (inputs,) and inputs.read_text() == candidate
+            with pytest.raises(ValueError, match='consumed'):
+                publish_edit(plan, context)
         if mode == 'reuse':
             with source_write_context(before, name) as context:
-                assert write_sources(context, {inputs: candidate}) == ()
+                assert publish_edit(prepare_edit(load_model(inputs, context.snapshot), {inputs: candidate}, context), context) == ()
 
 
 def check_final_candidate_uses_latest_base(tmp_path):
@@ -242,7 +272,7 @@ def check_final_candidate_uses_latest_base(tmp_path):
     (before / '.gitignore').write_text('tasks/\n')
     git('init'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.invalid')
     git('add', '.'); git('commit', '-m', 'creation baseline'); original_base = git('rev-parse', 'HEAD')
-    producer = before / 'model/parameters/stg/cde/service-a/parameters.yaml'
+    producer = before / 'model/stg/cde/service-a.properties'
     producer.write_text(producer.read_text().replace('same-name-stg', 'latest-name'))
     git('add', '.'); git('commit', '-m', 'latest base settings'); latest = git('rev-parse', 'HEAD')
     relative = next(iter(sources)); (before / relative).write_bytes((after / relative).read_bytes())
@@ -267,31 +297,34 @@ def check_final_candidate_uses_latest_base(tmp_path):
 def check_additional_boundaries(tmp_path, failure):
     before, after, sources = fixture(tmp_path)
     refs = [dict(REF)]
-    if failure == 'wrong-type':
+    if failure in {'wrong-type', 'create-producer', 'subnet'}:
         for root in (before, after):
-            p = root / 'model/templates/cde/service-a.properties.tpl'
-            # Change only the independent destination definition in both baselines.
-            text = p.read_text(); first, second = text.split('# definition: Independent')
-            p.write_text(first + '# definition: Independent' + second.replace('resourceType=ServiceA.Resource', 'resourceType=Other.Resource'))
-    elif failure == 'create-producer':
-        for root in (before, after):
-            p = root / 'model/parameters/stg/cde/service-a/parameters.yaml'
-            p.write_text(p.read_text().replace('IMPORT', 'CREATE'))
-    elif failure == 'subnet':
-        for root in (before, after):
-            p = root / 'model/templates/cde/service-b.properties.tpl'
-            p.write_text(p.read_text().replace('ServiceB.Resource.Name', 'ServiceB.Resource.SubnetId'))
-        refs[0]['property'] = 'ServiceB.Resource.SubnetId'
+            file = root / ('model/stg/cde/service-b.properties' if failure == 'subnet' else 'model/stg/cde/service-a.properties')
+            values = dict(load_model(file).authoritative)
+            if failure == 'wrong-type':
+                values['desired.resource.003.resourceType'] = 'Other.Resource'
+            elif failure == 'create-producer':
+                values['desired.resource.001.resourceMode'] = 'CREATE'
+                values['desired.resource.003.resourceMode'] = 'CREATE'
+            else:
+                values['desired.row.002-001.property'] = 'ServiceB.Resource.SubnetId'
+                refs[0]['property'] = 'ServiceB.Resource.SubnetId'
+            write_model(file, values)
     elif failure == 'template-comment':
-        p = after / 'model/templates/cde/service-a.properties.tpl'; p.write_text(p.read_text().replace('comment=', 'comment=changed '))
+        file = after / 'model/stg/cde/service-a.properties'
+        values = dict(load_model(file).authoritative)
+        values['desired.row.001-001.comment'] = 'changed'
+        write_model(file, values)
     else:
         for root in (before, after):
-            p = root / 'model/templates/cde/unused.properties.tpl'; p.write_text('# model-template: 1\n' + ('# changed\n' if root == after else '# unused\n'))
-    sources |= {p.relative_to(after).as_posix() for p in after.rglob('*') if p.is_file() and p.read_bytes() != (before / p.relative_to(after)).read_bytes()}
+            write_model(root / 'model/stg/cde/unused.properties', {'desired.note.unused.text': 'changed' if root == after else 'unused'})
+    sources |= {p.relative_to(after).as_posix() for p in after.rglob('*') if p.is_file() and
+                (not (before / p.relative_to(after)).exists() or p.read_bytes() != (before / p.relative_to(after)).read_bytes())}
     if failure == 'wrong-type':
         assert verify_model_operation(before, after, model_operation(contract(refs)), sources)
     else:
-        with pytest.raises(ValueError): verify_model_operation(before, after, model_operation(contract(refs)), sources)
+        with pytest.raises(ValueError):
+            verify_model_operation(before, after, model_operation(contract(refs)), sources)
 
 
 if __name__ == '__main__':

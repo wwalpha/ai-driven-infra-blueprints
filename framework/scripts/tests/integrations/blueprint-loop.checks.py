@@ -51,7 +51,7 @@ def check_running_and_interruption(tmp_path):
 
 def check_deploy_scope_isolation(tmp_path):
     """Exercise the real task loop and validation scopes with two environments."""
-    from model_design import markdown_for
+    from model.render import markdown_for
     root = tmp_path / "repository"
     make_framework_fixture(SCRIPT.parents[2], root)
     scripts = root / "framework/scripts"
@@ -80,14 +80,6 @@ def check_deploy_scope_isolation(tmp_path):
         write_model(models[env], values)
         designs[env].write_text(markdown_for(designs[env], values, root))
         parameters[env].write_text("[]\n")
-    source_dir = root / "model/parameters/stg/123456789012/cloudformation-stacks"
-    source_template = root / "model/templates/123456789012/cloudformation-stacks.properties.tpl"
-    content = source_template.read_text().replace("# definition: Fixture_stg\n", '# definition: Fixture_stg\n# parameter: Comment {"type":"string","description":"表示用途","required":true}\n')
-    # This fixture changes one environment input while retaining its common template.
-    start = content.index('# definition: Fixture_stg')
-    content = content[:start]+content[start:].replace('display.stack.001.comment=アプリケーションを配置するstack', 'display.stack.001.comment=<<Comment>>')
-    source_template.write_text(content)
-    (source_dir / "parameters.yaml").write_text('instances:\n  fixture:\n    parameters:\n      Comment: アプリケーションを配置するstack\n')
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     subprocess.run(["git", "add", "."], cwd=root, check=True)
     subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], cwd=root, check=True)
@@ -95,9 +87,7 @@ def check_deploy_scope_isolation(tmp_path):
         name = f"tasks/{env}.md"
         files = [name, parameters[env].relative_to(root).as_posix()]
         files += [template.relative_to(root).as_posix()] if env == "dev" else [
-            models[env].relative_to(root).as_posix(), designs[env].relative_to(root).as_posix(),
-
-            f"model/parameters/{env}/123456789012/cloudformation-stacks/parameters.yaml"]
+            models[env].relative_to(root).as_posix(), designs[env].relative_to(root).as_posix()]
         listed = "\n".join(f"- `{path}`" for path in files)
         tasks.start(root, name, f"""# Task
 ## Task contract
@@ -119,7 +109,7 @@ def check_deploy_scope_isolation(tmp_path):
 {listed}
 """)
     values = stack_values["stg"] | {"display.stack.001.comment": "更新対象のstack"}
-    (source_dir / "parameters.yaml").write_text("instances:\n  fixture:\n    parameters:\n      Comment: 更新対象のstack\n")
+    write_model(models["stg"], values)
     designs["stg"].write_text(markdown_for(designs["stg"], values, root))
     environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0"}
 
@@ -222,13 +212,11 @@ display.resource.001.comment=通信ログを保存するLog Group
 ## Required changes
 - [R1] ログの保持期間を変更する。
 ## Acceptance checks
-- [R1] `changed:model/templates/123456789012/logs.properties.tpl`
+- [R1] `changed:model/dev/123456789012/logs.properties`
 - [R1] `changed:docs/designs/dev/123456789012/logs.md`
 ## Allowed paths
 - `tasks/active.md`
 - `model/**`
-- `model/parameters/**`
-- `model/templates/**`
 - `docs/designs/**`
 """, encoding="utf-8")
     design = root / "docs/designs/dev/123456789012/logs.md"
@@ -278,8 +266,14 @@ display.resource.001.comment=通信ログを保存するLog Group
     assert result.returncode != 0 and "changed design path is outside validation scope" in result.stdout, result.stdout
     active.write_text(contract, encoding="utf-8")
     (design.parent / "ec2.md").write_text("invalid unrelated service\n", encoding="utf-8")
-    write_model(model.parent / 'ec2.properties', 'invalid=unrelated service\n')
-    subprocess.run(["git", "add", "docs/designs/dev/123456789012/ec2.md", "model/parameters/dev/123456789012/ec2", "model/templates/123456789012/ec2.properties.tpl"], cwd=root, check=True)
+    write_model(model.parent / 'ec2.properties', {
+        'desired.service.ec2.serviceId': 'ec2', 'desired.service.ec2.ownedCatalogResourceTypes': 'EC2.VPC',
+        'display.service.title': '# Invalid unrelated EC2 design',
+        'desired.resource.001.resourceType': 'EC2.VPC', 'desired.resource.001.anchor': 'ec2-unrelated',
+        'display.resource.001.comment': 'Unrelated invalid CIDR',
+        'desired.row.001-001.property': 'EC2.VPC.CidrBlock',
+        'desired.row.001-001.value': '`invalid-cidr`', 'desired.row.001-001.comment': 'Invalid native value'})
+    subprocess.run(["git", "add", "docs/designs/dev/123456789012/ec2.md", "model/dev/123456789012/ec2.properties"], cwd=root, check=True)
     subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "unrelated service"], cwd=root, check=True)
     result = run()
     assert result.returncode == 0, result.stdout + result.stderr
@@ -296,7 +290,7 @@ display.resource.001.comment=通信ログを保存するLog Group
     # Baseline view is already correct; repair only the authoritative model.
     active.write_text(contract.replace('- [R1] `changed:docs/designs/dev/123456789012/logs.md`\n', ''), encoding="utf-8")
     write_model(model, good_model.replace("value=14", "value=7"))
-    subprocess.run(["git", "add", *[str(path.relative_to(root)) for path in sorted(__import__("model_templates").source_inputs(model))], str(design.relative_to(root))], cwd=root, check=True)
+    subprocess.run(["git", "add", *[str(path.relative_to(root)) for path in sorted(__import__("model.sources", fromlist=["source_inputs"]).source_inputs(model))], str(design.relative_to(root))], cwd=root, check=True)
     subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
                     "commit", "-qm", "model/view mismatch baseline"], cwd=root, check=True)
     write_model(model, good_model)
@@ -829,13 +823,15 @@ def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', selected)
     monkeypatch.setattr(import_guard.tempfile, 'gettempdir', lambda: str(tmp_path))
     monkeypatch.setattr(import_guard, 'require_import_changes', lambda root: None)
-    monkeypatch.setattr(import_guard, 'read_proof', lambda root: import_guard.read_sealed(root, import_guard.proof_path(root)))
+    from model.importing import evidence
+    monkeypatch.setattr(evidence, 'read_proof', lambda root: import_guard.read_sealed(root, import_guard.proof_path(root)))
     # Authorization is covered by Import IT; this fixture runs the real staged copy/finally boundary.
     (scripts / 'blueprint-loop.py').write_text('raise SystemExit(' + str(result) + ')\n')
     MODULE.git(root, 'init', '-q')
     MODULE.git(root, 'add', '.')
     MODULE.git(root, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'base')
-    proof = {'task': selected, 'acquiredAt': datetime.now(timezone.utc).isoformat()}
+    from model.importing.evidence import FORMAT_FIELDS
+    proof = {'version': 6, **FORMAT_FIELDS, 'task': selected, 'acquiredAt': datetime.now(timezone.utc).isoformat()}
     import_guard.write_sealed(root, import_guard.proof_path(root), proof)
     saved = import_guard.proof_path(root).read_bytes()
     directory = tmp_path / 'logs'

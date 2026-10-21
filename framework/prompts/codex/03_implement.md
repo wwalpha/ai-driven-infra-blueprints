@@ -1,12 +1,12 @@
 # Infrastructure Implementation Prompt
 
-[Service Model sources](../../rules/model-templates.md) define the YAML-only input
-contract for this prompt. Read runtime Models through model_files and use
-`model_files.py <service.properties> --trace <key>` for the exact source. Design edits
-use the common template, parameters.yaml and fixed bindings.json; authorized observed
-updates use observed.json. Record template entry/parts, parameters.yaml, bindings.json,
-observed.json and generated Markdown/JSON paths in the task contract. Common template
-edits require all registered consumers in Validation scope. Read with the shared Model loader before
+[Service Model sources](../../rules/model-templates.md) define environment-specific
+properties as authority. Read with `model.sources.load_model`; use
+`model/cli.py trace <service.properties> <key>` to locate exact source bytes.
+Design edits change desired/display/reference keys; authorized observation saves
+change only selected `observed.row.<id>.value` keys in the same Model. Record the
+entry, actual parts, required incoming consumers and generated paths in the Task.
+Read dependencies grant no write paths. Read with the shared Model loader before
 matching IaC/issues/diff. Generation across environments grants no Deployment scope
 or AWS permission.
 
@@ -65,12 +65,12 @@ If Implementation scope specifies detailed design `.md` files, treat them as sco
 For resource-limited scope, partially read authority with the following existing command. Selectors require exact matches for resource number (such as `001`), cfn-logicalId, legacy logical ID, or anchor; stop on unmatched/ambiguous selections.
 
 ```console
-python framework/scripts/model_files.py model/<environment>/<target-directory>/<service>.properties --resource <resource-selector>
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service>.properties <resource-selector>
 ```
 
-Retrieve only target resources and parents, children, and siblings in the same group required by existing specifications, and service metadata/notes; do not add custom extraction. Use the same command for single files and split entry indexes; do not load unrelated resources or all parts into context. Service-wide scope may use entire service properties; “対象accountの承認済み設計すべて” may use target service model sets. Split models follow existing `model_files.py` entry indexes and part structure; read only required parts.
+Retrieve only target resources and parents, children, and siblings in the same group required by existing specifications, and service metadata/notes; do not add custom extraction. Use the same command for single files and split entry indexes; do not load unrelated resources or all parts into context. Service-wide scope may use entire service properties; “対象accountの承認済み設計すべて” may use target service model sets. Split models follow existing `model/cli.py` entry indexes and part structure; read only required parts.
 
-Limit reads to implementation scope resources/properties and producer properties needed for reference resolution. Use producer `model_files.py --resource` for additional retrieval too, without expanding change scope. Reading all target Markdown as fallback is prohibited. Do not reread material already confirmed in the same task unless content changes, validation fails, or unresolved dependencies exist.
+Limit reads to implementation scope resources/properties and producer properties needed for reference resolution. Use producer `model/cli.py resource` for additional retrieval too, without expanding change scope. Reading all target Markdown as fallback is prohibited. Do not reread material already confirmed in the same task unless content changes, validation fails, or unresolved dependencies exist.
 
 `<target-directory>` is the selected target's alias if present, otherwise AWS account ID.
 
@@ -84,13 +84,13 @@ Add [Framework regression](../../rules/loop-engineering.md#framework-regression)
 
 After User input and issue gate confirmation, before active contract creation or IaC generation, perform all Check implementation support, Resolve implementation units, and existing IaC matching below read-only. Do not execute AWS APIs, IaC generation, or deploy. Reuse existing schema validation and dependency checks; do not add new validation engines or approval steps.
 
-1. From target resource authoritative properties, confirm CREATE/IMPORT, formal CFn types, required properties, and unconfirmed values. Reuse schema validation applicable to properties such as existing `model_design.validate_required_properties` and `DesignSchemaCatalog.literal_errors` to check type, enum, pattern, length, range, and supplemented AWS character constraints. Do not reuse previous task Validation scope; validate explicit target services and necessary references. Distinguish Japanese display Comments from formal property values; do not automatically translate/replace invalid values.
+1. From target resource authoritative properties, confirm CREATE/IMPORT, formal CFn types, required properties, and unconfirmed values. Reuse schema validation applicable to properties such as existing `model.validation.validate_required_properties` and `DesignSchemaCatalog.literal_errors` to check type, enum, pattern, length, range, and supplemented AWS character constraints. Do not reuse previous task Validation scope; validate explicit target services and necessary references. Distinguish Japanese display Comments from formal property values; do not automatically translate/replace invalid values.
 2. Follow resource/property references in properties, confirm necessary dependency properties, anchors, logical/current identifiers, and handoff values; apply the same schema validation to used properties. Use properties-based reference resolution below and dependency checks in Resolve implementation units; read only necessary resources/properties at reference targets. Do not automatically expand change scope or all-service validation during dependency investigation.
 3. For CloudFormation, confirm target resource owning stacks, template/parameter mappings, DeployOrder, and each shared-template stack instance from authoritative stack registration properties. Check correspondence between existing template Resources/Parameters/Outputs/Export/ImportValue and properties desired rows, missing parameter values/defaults, unknown reference targets, and dependency cycles. Absence of not-yet-created new IaC files alone is not a deficiency; unconfirmed placement/input design is. For Terraform, check existing module/environment input/output mappings.
 For stacks with existing CloudFormation templates, run common local read-only validation before implementation. Directly match each resource's `desired.resource.*.cfn-logicalId=<StackName>-<Resources key>`. Do not use separate mapping tables or fill missing/invalid mappings with legacy matching when direct IDs exist in the same stack. Retain unique type + legacy logicalId matching only for old models without direct IDs. Evaluate Conditions with stack-specific parameters/defaults and collectively report active resource CREATE classification, formal type, mapping, duplicate ownership, identifier rows, and missing required Outputs. Do not process false resources; stop for unresolved Conditions. At this stage, absent new templates are not deficiencies; confirm model identifier rows and placement destinations.
 
 ```console
-python framework/scripts/cloudformation_observed.py --environment <environment> --target-directory <target-directory> --stack <StackName> --stack <another-StackName>
+python framework/scripts/model/cli.py observed --environment <environment> --target-directory <target-directory> --stack <StackName> --stack <another-StackName>
 ```
 
 4. Aggregate diagnostics for all verifiable targets/dependencies and present the deficiency list `対象file | resource（logical ID）/stack | property/parameter | 不足・違反理由` together in one response. State reasons for unreadable targets and continue other checks; do not end the report at the first deficiency. For 0 deficiencies, report that result and implementation target diffs, then proceed to contract creation/implementation without requiring additional approval. If deficiencies exist, do not implement; identify that a separate design task is required and unconfirmed matters, then stop. Do not repair designs/models/IaC here or automatically create/execute another task.
@@ -139,7 +139,7 @@ Resolve `[表示値](#anchor)` logical references saved in properties desired ro
 
 For CloudFormation:
 
-1. Use `infra/cloudformation/templates/<alias>/` for aliased targets, or common `infra/cloudformation/templates/` for targets without aliases. Place parameter filenames listed in stack properties in `infra/cloudformation/parameters/<environment>/<target-directory>/` and change only individual files. Match template `Resources` logical IDs to service properties resources from each resource's `cfn-logicalId=<StackName>-<Resources key>` across all stack instances. Terraform requires neither this field nor generic logicalId. After generation/changes as well, always run the above `cloudformation_observed.py` common validation also used for deploy. Do not automatically fill missing identifier rows; distinguish model deficiencies from missing IaC Outputs in reports.
+1. Use `infra/cloudformation/templates/<alias>/` for aliased targets, or common `infra/cloudformation/templates/` for targets without aliases. Place parameter filenames listed in stack properties in `infra/cloudformation/parameters/<environment>/<target-directory>/` and change only individual files. Match template `Resources` logical IDs to service properties resources from each resource's `cfn-logicalId=<StackName>-<Resources key>` across all stack instances. Terraform requires neither this field nor generic logicalId. After generation/changes as well, always run the above `model.adapters.observed` common validation also used for deploy. Do not automatically fill missing identifier rows; distinguish model deficiencies from missing IaC Outputs in reports.
 2. Use PascalCase from `framework/rules/cloudformation.md` for new `Resources` logical IDs and target-specific final `Outputs.*.Export.Name` values; confirm resource cfn-logicalId mappings, template references, export/import equality, and uniqueness. Insert at least 1 blank line between resources under `Resources`. For consumers with confirmed deployed producer exports, replace entire reference values and reference portions within strings with `!ImportValue`. Do not change existing IDs merely for naming format.
 3. Run `cfn-lint --regions <project.jsonのawsRegion> <template...>` for all target templates.
 4. Do not run `aws cloudformation validate-template`, change set creation, or AWS APIs.

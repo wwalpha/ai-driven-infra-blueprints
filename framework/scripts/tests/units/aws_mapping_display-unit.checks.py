@@ -11,7 +11,7 @@ from support.aws_mapping_display_fixtures import *
 def check_mapping_display_rows(tmp_path):
     root = tmp_path
     shutil.copytree(ROOT / 'framework', root / 'framework')
-    from model_display import display_rows
+    from model.display import display_rows
     from design_layout import formal_property
     nested = 'DataSourceParameters.SnowflakeParameters.Database'
     change(root, 'quicksight', 'QuickSight.DataSource', nested, name='WarehouseDatabase')

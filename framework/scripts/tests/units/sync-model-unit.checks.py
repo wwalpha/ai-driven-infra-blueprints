@@ -205,37 +205,38 @@ def check_stage_dependency_selection(tmp_path):
              'docs/designs/dev/team/other.md': '# unrelated\n',
              'docs/designs/dev/team/out.md': '# reference\n',
              'docs/designs/dev/team/in.md': '[incoming](iam.md#id)\n',
-             'model/templates/team/iam.properties.tpl': '# required\n',
-             'model/templates/team/unrelated.properties.tpl': '# unused\n',
-             'model/parameters/dev/team/iam/parameters.yaml': 'instances: {}\n',
+             'model/dev/team/iam.properties': '# model-format: 2\n# required\n',
+             'model/dev/team/unrelated.properties': '# model-format: 2\n# unused\n',
              'project.json': '{}\n', 'tests/results/unrelated.log': 'unrelated\n'}
     for relative, text in files.items():
         file = root/relative
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_text(text)
     model = root/'model/dev/team/iam.properties'
-    template, parameters = root/'model/templates/team/iam.properties.tpl', root/'model/parameters/dev/team/iam/parameters.yaml'
+    authority = root/'model/dev/team/iam.properties'
     inputs = sync_runtime.GenerationInputs(root)
     # Caller-owned snapshots are reused, including readers, without inner cleanup.
     values = {'link': '[out](out.md#id)'}
-    def loaded(path):
+    def loaded(path, read_context=None):
+        assert read_context is None or read_context is inputs
         from validation_cache import input_bytes
-        return SimpleNamespace(values=values, files={p: input_bytes(p).decode() for p in (template, parameters)})
+        return SimpleNamespace(values=values, files={authority: input_bytes(authority).decode()},
+                               dependencies={authority: input_bytes(authority)})
     inputs.stage = stage
     with patch.object(sync_runtime.GenerationInputs, '__init__', side_effect=AssertionError('duplicate recorder')), \
          patch.object(inputs, 'close', wraps=inputs.close) as close, \
          patch('validation_cache.PassCache.common_inputs', side_effect=AssertionError('duplicate common registration')), \
          patch.object(sync_runtime, 'registered_models', return_value=[model]), \
-         patch.object(sync_runtime, 'service_source', return_value=(root, template, parameters.parent)), \
+         patch.object(sync_runtime, 'model_exists', side_effect=lambda path, read_context: path == authority and read_context is inputs), \
          patch.object(sync_runtime, 'load_model', side_effect=loaded), \
          patch.object(sync_runtime, 'generate_views', return_value={}), \
          patch.object(sync_views, 'broken_design_links', return_value={}):
         plan = sync_runtime.prepare_generation(root, {('dev', 'team', 'iam')}, snapshot=inputs)
         plan.close()
         assert not close.called
-    assert inputs.contents[template] == b'# required\n'
+    assert inputs.contents[authority] == b'# model-format: 2\n# required\n'
     present = {p.relative_to(stage).as_posix() for p in stage.rglob('*') if p.is_file()}
-    assert present == {p for p in files if p not in {'docs/designs/dev/team/other.md', 'model/templates/team/unrelated.properties.tpl', 'tests/results/unrelated.log'}}
+    assert present == {p for p in files if p not in {'docs/designs/dev/team/other.md', 'model/dev/team/unrelated.properties', 'tests/results/unrelated.log'}}
     assert root/'tests/results/unrelated.log' not in inputs.contents
     inputs.close()
 

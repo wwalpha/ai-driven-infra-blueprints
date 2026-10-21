@@ -75,7 +75,7 @@ def require_import_changes(root, **kwargs):
 
 @pytest.mark.parametrize('violation', ['head', 'unverified', 'committed-dirty', 'scope', 'operation', 'guard', 'task-after', 'bytes-after', 'head-after', 'paths-after', 'index-after'])
 def check_prepare_rejects_before_git_write(tmp_path, violation):
-    relative = 'model/parameters/dev/cde/example/parameters.yaml'
+    relative = 'model/dev/cde/example.properties'
     source = tmp_path / relative
     source.parent.mkdir(parents=True)
     source.write_text('original')

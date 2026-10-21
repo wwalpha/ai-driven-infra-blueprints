@@ -1,37 +1,59 @@
-"""Offline raw typed identifiers: observed authority, rejection and dependency propagation."""
-
-import sys
-
+"""Explicit reference authorities and immutable definition inputs for offline tests."""
+import copy
+import hashlib
+import json
 from pathlib import Path
-
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-
+import shutil
+import tempfile
+from model.sources import load_model, source_inputs, design_source_digest, FileReads
+from model.references import declarations, usages
+from model.impact import affected
+from model.files import read_model, trace_model
+from model.format import serialize
 from support.model_sources import write_model
 
-from model_files import read_model
 
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+def setup(root, services, kinds, environments=('preview',)):
+    from support.import_model_fixtures import small_framework
+    root.mkdir(exist_ok=True)
+    small_framework(root, services, kinds)
+    (root / 'project.json').write_text(json.dumps({'targets': [
+        {'environment': env, 'alias': 'team', 'awsAccountId': '111111111111',
+         'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'} for env in environments]}) + '\n', encoding='utf-8')
 
-import copy
 
-import tempfile
+def reference(identity, key, text, service, rid, kind, *, mode='name', prop=None, pointer=None,
+              environment='preview', label='none'):
+    fields = {'consumerKey': key, 'text': text, 'occurrence': '1', 'producerKind': 'resource',
+              'producerScope': environment + '/team/' + service, 'producerId': rid,
+              'resourceType': kind, 'format': mode, 'labelPolicy': label}
+    if prop is not None:
+        fields['property'] = prop
+    if pointer is not None:
+        fields['pointer'] = pointer
+    return {'desired.reference.' + identity + '.' + name: value for name, value in fields.items()}
 
-import model_templates as t
 
-from model_files import load_model
+def resource(rid, kind, anchor, rows):
+    from support.import_model_fixtures import resource_values
+    return resource_values(rid, kind, anchor, 'IMPORT', rows)
 
-from model_parameter_inputs import reference_schema, schema
 
-from support.model_sources import write_fixture_files as save_files
+def dependency_hashes(path):
+    return {str(file): None if raw is None else hashlib.sha256(raw).hexdigest()
+            for file, raw in load_model(path, FileReads()).dependencies.items()}
+
+
+def warning(path, phrase):
+    snapshot = load_model(path, FileReads())
+    assert any(phrase in item['message'] for item in snapshot.warnings), snapshot.warnings
+    return snapshot
+
 
 def rejected(function, phrase):
     try:
         function()
-    except (ValueError, OSError) as error:
+    except (ValueError, OSError, TypeError) as error:
         assert phrase in str(error), str(error)
     else:
-        raise AssertionError('invalid identifier reference accepted: ' + phrase)
-
-
-__all__ = ['Path', 'copy', 'load_model', 'read_model', 'reference_schema', 'rejected', 'save_files', 'schema', 'sys', 't', 'tempfile', 'write_model']
+        raise AssertionError('invalid reference metadata accepted: ' + phrase)

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from urllib.parse import quote, urlencode
 
 from cloudformation_inputs import Blocked, resolve_value, condition_active
-from model_core import ARTIFACT_PROPERTIES
+from model.core import ARTIFACT_PROPERTIES
 from s3_delivery import preflight as placement_preflight, read as placement_read, upload_options, verify_encryption
 
 

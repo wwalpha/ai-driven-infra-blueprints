@@ -16,13 +16,12 @@ def check_framework_input_guards():
     with TemporaryDirectory() as directory:
         root = Path(directory)
         findings = Findings(root)
-        _check_validation_scope({}, {'model/templates/team/vpc.properties.tpl'}, None,
+        _check_validation_scope({}, {'model/qa/team/vpc.properties'}, None,
                                findings, root, set(), None)
         assert 'Model source changes require service Validation scope' in findings.errors
         findings = Findings(root)
         _check_structure(findings, root)
-        assert 'required directory missing: model/parameters' in findings.errors
-        assert 'required directory missing: model/templates' in findings.errors
+        assert 'required directory missing: model' in findings.errors
         cache = PassCache(root, include_project=False)
         before = cache.common_key()
         (root/'project.json').write_text('invalid project', encoding='utf-8')

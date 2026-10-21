@@ -209,7 +209,8 @@ def main():
         noncontiguous = text.replace("`app-data` |", "`app-data` |\n| [daily-data-scan](#macie-daily-data-scan) | `000000000000` | `other-bucket` |\n| [daily-data-scan](#macie-daily-data-scan) | `123456789012` | `third-bucket` |")
         assert any("account rows must be contiguous" in error for error in check(text=noncontiguous))
         assert not check()
-        authoritative = read_model(model)
+        from model.sources import load_model
+        authoritative = "".join(key + "=" + value + "\n" for key, value in load_model(model).authoritative.items())
         doc_key = next(line.split("=", 1)[0] for line in authoritative.splitlines() if line.startswith("desired.row.") and ".document=" in line)
         definition = {**VALUES["s3JobDefinition"], "bucketDefinitions": [{"accountId": "123456789012", "buckets": ["new-bucket"]}], "scoping": {}}
         lines = [doc_key + "=" + json.dumps(definition) if line.startswith(doc_key + "=") else line for line in authoritative.splitlines()]
@@ -229,11 +230,13 @@ def main():
         assert any("API schema violation" in error for error in check(text=text))
         artifact.unlink()
         assert not check()
-        write_model(model, read_model(model) + "desired.extra=stale\n")
+        from model.sources import model_parts
+        data_file = model_parts(model)[-1]
+        data_file.write_bytes(data_file.read_bytes() + b"desired.extra=stale\n")
         try:
             sync_runtime.sync(root, False, "dev", "123456789012")
         except ValueError as error:
-            assert "unknown Model field: desired.extra" in str(error), error
+            assert "invalid Model key: desired.extra" in str(error), error
         else:
             raise AssertionError("stale desired.extra accepted by real sync")
         group_snapshot = root / "framework/materials/api/QuickSight_Group.json"

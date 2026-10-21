@@ -1,103 +1,93 @@
 #!/usr/bin/env python3
-"""Separated checks; case provenance is recorded in ../CASES.md."""
+"""Native YAML remains generic; Model references use fixed saved identities."""
 import sys
 from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
+import pytest
+import json
+from yaml_values import yaml_read
+from model.format import parse, FORMAT
+from model.sources import load_model
+from model.references import usages
+from support.model_sources import write_model
+from support.import_model_fixtures import service_values, resource_values, reference_fields
 
-from support.model_parameter_inputs_fixtures import *
 
 def check_yaml_schema():
-    from model_parameter_inputs import values_for
-    rejected(lambda: values_for({}, {'AvailabilityZone2': 'b', 'AvailabilityZone1': 'a'}, 'service'), "unknown parameter: service: ['AvailabilityZone1', 'AvailabilityZone2']")
-    rejected(lambda: values_for({}, [], 'service'), 'expected an object')
-    assert yaml_read('value: on\ndate: 2026-10-11\nnumber: 001\nboolean: true\n')=={'value':'on','date':'2026-10-11','number':'001','boolean':True}
-    for text in ['a: 1\na: 2','a: {b: 1, b: 2}','a: !!python/object:bad {}','a: &x {b: 1}\nc: {<<: *x}']:rejected(lambda:yaml_read(text),'YAML')
-    rejected(lambda:schema({'type':'integer','description':'test','required':True,'constraints':{'minimum':'x'}}),'numeric constraint')
-
+    assert yaml_read('value: on\ndate: 2026-10-11\nnumber: 001\nboolean: true\n') == {'value': 'on', 'date': '2026-10-11', 'number': '001', 'boolean': True}
+    for text in ['a: 1\na: 2', 'a: {b: 1, b: 2}', 'a: !!python/object:bad {}', 'a: &x {b: 1}\nc: {<<: *x}']:
+        with pytest.raises(ValueError, match='YAML'):
+            yaml_read(text)
 
 
 def check_embedded_parameter_type():
-    rejected(lambda:t.resolve('x<<Flag>>',{'Flag':True}),'non-string parameter embedded')
-
-
+    # Ordinary scalars have no interpolation or type inference in properties v2.
+    raw = 'x<<Flag>> \\ " 001'
+    assert parse(FORMAT + '\ndesired.note.literal.text=' + raw + '\n').values['desired.note.literal.text'] == raw
 
 
 @pytest.mark.parametrize('external', [False, True])
 @pytest.mark.parametrize('types,expected', [(['EC2.VPC'], '001'), (['EC2.Subnet'], 'zero matching'),
                                          ([], 'zero candidates'), (['EC2.VPC', 'EC2.VPC'], 'multiple matching')])
 def check_reference_target_candidates(tmp_path, external, types, expected):
-    from model_parameter_inputs import select_reference_target, parameter_value
-    from types import SimpleNamespace
-    from model_files import LoadedModel
-    template = tmp_path / 'model/templates/team/consumer.properties.tpl'
-    spec = {'type': 'reference', 'description': 'target', 'required': True, 'resourceType': 'EC2.VPC'}
+    (tmp_path / 'project.json').write_text(json.dumps({'targets': [{'environment': 'preview', 'alias': 'team',
+        'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}))
+    path = tmp_path / 'model/preview/team/consumer.properties'
+    producer = path.with_name('producer.properties') if external else path
+    values = service_values('producer' if external else 'consumer', types or ['EC2.VPC'])
+    for index, kind in enumerate(types, 1):
+        rid = f'{index:03d}'
+        values.update(resource_values(rid, kind, 'anchor-' + rid, 'CREATE', []))
     if external:
-        spec.update(service='producer', source='template', target='producer', instance='producer')
-    consumer = {'id': 'consumer', 'definition': 'Consumer', 'parameters': {'Ref': 'producer'}}
-    resources = {f'r{i}': f'{i+1:03d}' for i in range(len(types))}
-    values = {f'desired.resource.{local}.resourceType': '<<Type>>' for local in resources}
-    values.update({f'desired.resource.{local}.anchor': 'anchor-' + rid for local, rid in resources.items()})
-    producer = {'id': 'producer', 'definition': 'Producer', 'resources': resources, 'parameters': {'Type': types[0] if types else 'EC2.VPC'}}
-    definitions = {'Consumer': SimpleNamespace(parameters={'Ref': spec}),
-                   'Producer': t.Definition({'Type': {'type': 'string', 'description': 'type', 'required': True}},
-                                           set(resources), {}, values, {}, set(), {}, {}, {})}
-    bindings = {'instances': {'consumer': {}, 'producer': {'resources': resources}}}
-    fields = {f'desired.resource.{rid}.resourceType': (producer, definitions['Producer'], '<<Type>>') for rid in resources.values()}
-    dependency = tmp_path / 'producer-input'
-    inputs = (None, ({}, {dependency: 'input'}, {}, {}, bindings, fields))
-    def attributes(path, rid, kind, mode):
-        return LoadedModel('', {f'desired.resource.{rid}.resourceType': types[int(rid)-1],
-                                f'desired.resource.{rid}.anchor': 'anchor-' + rid}, {}, {dependency: 'input'})
-    files = {}
-    with patch.object(t, 'service_source', return_value=(tmp_path, template, tmp_path)), patch.object(t, '_reference_inputs', return_value=inputs), patch.object(t, 'reference_values', side_effect=attributes), \
-         patch.object(t, 'load_expansion', side_effect=AssertionError('full expansion forbidden')):
-        call = lambda: select_reference_target(template, consumer, 'Ref', [consumer, producer], definitions, 'dev', files)
-        if expected == '001':
-            assert call() == ('001', 'resource')
-            if not external:
-                assert parameter_value(template, consumer, 'Ref', [consumer, producer], bindings, definitions, 'dev', {}) == '[001](#anchor-001)'
-            else:
-                assert files[dependency] == 'input'
-        else:
-            with pytest.raises(ValueError, match=expected) as error:
-                call()
-            for detail in ('consumerService', 'consumerInstance', 'parameter', 'producerService', 'target',
-                           'expectedResourceType', 'candidateIds', 'matchingIds', 'reason'):
-                assert detail in str(error.value)
-            assert '<<Type>>' not in str(error.value)
+        write_model(producer, values)
+        values = service_values('consumer', ['Example.Resource'])
+    values.update(resource_values('009', 'Example.Resource', 'consumer', 'CREATE', [('Target', '[001](' + ('producer.md' if external else '') + '#anchor-001)')]))
+    values.update(reference_fields('fixed', 'desired.row.009-001.value', values['desired.row.009-001.value'],
+        'preview/team/' + ('producer' if external else 'consumer') + '/001', kind='EC2.VPC', mode='link'))
+    write_model(path, values)
+    snapshot = load_model(path)
+    if expected in {'001', 'multiple matching'}:
+        # An explicit fixed ID does not become ambiguous when another Resource has the same Type.
+        assert not snapshot.warnings
+        record, = usages(snapshot)
+        assert record.producer_id == '001' and record.metadata_id == 'fixed'
+        if external:
+            assert producer in snapshot.dependencies
+    else:
+        assert snapshot.warnings and snapshot.authoritative['desired.reference.fixed.producerId'] == '001'
+        assert any('Type differs' in warning['message'] if types else 'absent' in warning['message'] for warning in snapshot.warnings)
 
 
 @pytest.mark.parametrize('failure', [None, 'collision', 'format'])
 def check_stack_target_identity(tmp_path, failure):
-    from model_parameter_inputs import select_reference_target, parameter_value
-    from types import SimpleNamespace
-    from model_files import LoadedModel
-    template = tmp_path / 'model/templates/team/consumer.properties.tpl'
-    spec = {'type': 'reference', 'description': 'stack', 'required': True, 'service': 'cloudformation-stacks',
-            'resourceType': 'CloudFormation.Stack', 'format': 'name'}
+    (tmp_path / 'project.json').write_text(json.dumps({'targets': [{'environment': 'preview', 'alias': 'team',
+        'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}))
+    path = tmp_path / 'model/preview/team/consumer.properties'
+    stack = path.with_name('cloudformation-stacks.properties')
+    values = {'desired.stack.001.name': 'StackName', 'desired.stack.001.template': 'stack.yaml',
+              'desired.stack.001.parameters': 'stack.json', 'desired.stack.001.deployOrder': '1'}
+    write_model(stack, values)
+    values = service_values('consumer', ['Example.Resource'])
+    values.update(resource_values('001', 'Example.Resource', 'consumer', 'CREATE', [('Target', 'StackName')]))
+    fields = {'consumerKey': 'desired.row.001-001.value', 'text': 'StackName', 'occurrence': '1', 'producerKind': 'stack',
+              'producerScope': 'preview/team/cloudformation-stacks', 'producerId': '001', 'format': 'name',
+              'property': 'name', 'labelPolicy': 'none'}
     if failure == 'format':
-        del spec['format']
-    item = {'id': 'consumer', 'definition': 'Consumer', 'parameters': {'Stack': '001'}}
-    definitions = {'Consumer': SimpleNamespace(parameters={'Stack': spec})}
-    fields = {'desired.stack.001.name': (None, None, 'StackName')}
+        fields['format'] = 'link'
     if failure == 'collision':
-        fields['desired.resource.001.resourceType'] = (None, None, 'CloudFormation.Stack')
-    inputs = (None, ({}, {}, {}, {}, {'instances': {}}, fields))
-    def attributes(path, rid, kind, mode):
-        if mode != 'name':
-            raise ValueError('stack reference requires format:name')
-        return LoadedModel('', {'desired.stack.001.name': 'StackName'}, {}, {})
-    from contextlib import nullcontext
-    with patch.object(t, 'service_source', return_value=(tmp_path, template, tmp_path)), patch.object(t, '_reference_inputs', return_value=inputs), patch.object(t, 'reference_values', side_effect=attributes), \
-         patch('import_scope.create_reference', return_value=nullcontext()):
-        call = lambda: select_reference_target(template, item, 'Stack', [item], definitions, 'dev', {})
-        if failure:
-            rejected(call, 'ambiguous resource/stack' if failure == 'collision' else 'format:name')
-        else:
-            assert call() == ('001', 'stack')
-            assert parameter_value(template, item, 'Stack', [item], {'instances': {'consumer': {}}}, definitions, 'dev', {}) == 'StackName'
+        fields['resourceType'] = 'CloudFormation.Stack'
+    values.update({'desired.reference.stack.' + field: raw for field, raw in fields.items()})
+    write_model(path, values)
+    if failure:
+        with pytest.raises(ValueError, match='stack reference|forbidden'):
+            load_model(path)
+    else:
+        snapshot = load_model(path)
+        record, = usages(snapshot)
+        assert record.producer_kind == 'stack' and record.producer_id == '001' and record.text == 'StackName'
+        assert not snapshot.warnings
 
 
 if __name__ == '__main__':

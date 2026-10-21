@@ -85,20 +85,20 @@ def main(argv=None, *, definitions_root=None) -> int:
                 if not scope:
                     raise ValueError("no service validation scope; specify environment/target/service")
             consumers(scope)
-            from model_templates import affected
+            from model.impact import affected
             import subprocess
             changed = set()
-            if (root / 'model/templates').is_dir() or (root / 'model/parameters').is_dir():
+            if (root / '.git').exists():
                 for arguments in (['diff', '--name-only', '--no-renames', '-z'],
                                   ['diff', '--cached', '--name-only', '--no-renames', '-z'],
                                   ['ls-files', '--others', '--exclude-standard', '-z']):
                     result = subprocess.run(['git', *arguments], cwd=root, capture_output=True, text=True)
                     if result.returncode:
-                        raise ValueError('cannot determine template impact for generation')
+                        raise ValueError('cannot determine Model impact for generation')
                     changed.update(filter(None, result.stdout.split('\0')))
             with phase("impact-scope"):
                 impact = affected(root, changed)
-            from import_scope import selected as import_selection
+            from model.importing.scope import selected as import_selection
             impact_scope = contract_scope if import_selection(root) is not None else scope
             if impact_scope is None or not impact <= impact_scope:
                 raise ValueError('include all affected Model services in generation/Validation scope: ' + ', '.join('/'.join(entry) for entry in sorted(impact - scope)))

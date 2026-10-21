@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 from types import MappingProxyType
 
-from model_parameter_inputs import yaml_read
+from yaml_values import yaml_read
 from validation_cache import memoized
 
 

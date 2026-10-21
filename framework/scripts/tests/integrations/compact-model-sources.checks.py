@@ -1,111 +1,109 @@
 #!/usr/bin/env python3
-"""Compact authorities preserve observed values, identities and publication safety."""
-
+"""Explicit properties authority, runtime derivation and raw input safety."""
 import sys
 from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-
-import copy
-import tempfile
-from unittest.mock import patch
-import model_templates as t
-from model_files import load_model
-from support.model_sources import write_model
-
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-
+from unittest.mock import patch
 from support.it_case_receipt import module_complete
-
-
-def rejected(call, message=None):
-    try:
-        call()
-    except (OSError, ValueError, TypeError) as error:
-        if message is not None:
-            assert message in str(error), error
-        return
-    raise AssertionError('invalid compact authority accepted')
-
+from support.producer_identifier_reference_fixtures import *
+from model.sources import model_paths, publication_lock, _publish_transaction
+from model.format import parse, patch as patch_properties
 
 with tempfile.TemporaryDirectory() as directory:
-    root=Path(directory).resolve();path=root/'model/preview/team/example.properties'
-    desired={'desired.resource.017.resourceType':'S3.Bucket', 'desired.resource.017.anchor':'s3-fixed',
-             'desired.row.017-023.property':'S3.Bucket.BucketName', 'desired.row.017-023.value':'`desired-name`',
-             'desired.row.017-023.comment':'観測値の説明'}
-    write_model(path,desired);_,template,source=t.source_paths(path);observed=source/'observed.json'
-    key='observed.row.017-023.value'
-    assert load_model(path).values==desired
-    t.create_service(path)
-    assert observed in t.input_snapshot(path)
-    # Required identifiers stay unobserved; desired is never substituted for observed.
-    assert not any(k.startswith('observed.') for k in t.reference_values(path,'017','S3.Bucket','identifier').values)
-    for value in ('false','0','','null','`PENDING_DEPLOY`'):
-        observed.write_text(t.json_text({'version':1,'values':{key:value}}))
-        values=load_model(path).values
-        assert values[key]==value and values[key.removesuffix('value')+'property']==desired['desired.row.017-023.property']
-        assert values[key.removesuffix('value')+'comment']==desired['desired.row.017-023.comment']
-        expansion=t.load_expansion(path)
-        for field in ('property','comment'):
-            metadata=key.removesuffix('value')+field
-            assert expansion.provenance[metadata]['derivedFrom']=='desired.'+metadata.removeprefix('observed.')
-            assert load_model(path).locations[metadata][0].is_relative_to(root/'model/templates')
-        assert load_model(path).locations[key][0]==observed
-        output=t.observed_outputs(path,values)
-        assert t.json_read(output[observed])=={'version':1,'values':{key:value}}
-        for _ in range(2):t.publish(root,output,inputs=t.input_snapshot(path))
-        assert t.json_read(observed.read_text())['values']=={key:value}
-    original=observed.read_bytes()
-    for invalid in (False,0,None):
-        observed.write_text(t.json_text({'version':1,'values':{key:invalid}}));rejected(lambda:load_model(path),'invalid observed')
-    for invalid in ({key:'x','observed.row.017-023.property':'wrong'}, {'observed.row.999-001.value':'x'}, {'observed.row.017-023.state':'unknown'}):
-        observed.write_text(t.json_text({'version':1,'values':invalid}));rejected(lambda:load_model(path))
-    observed.write_text('{');rejected(lambda:load_model(path));observed.write_bytes(original)
-    with patch.object(Path,'read_bytes',side_effect=PermissionError('denied')):rejected(lambda:load_model(path),'denied')
-    values=load_model(path).values
-    rejected(lambda:t.observed_outputs(path,{**values,'observed.row.017-023.comment':'different'}),'metadata differs')
-    marker=root/'marker';marker.write_text('before')
+    root = Path(directory).resolve()
+    setup(root, ['s3'], ['S3.Bucket'])
+    path = root / 'model/preview/team/example.properties'
+    desired = {'desired.resource.017.resourceType': 'S3.Bucket', 'desired.resource.017.anchor': 's3-fixed',
+               'desired.row.017-023.property': 'S3.Bucket.BucketName', 'desired.row.017-023.value': '`desired-name`',
+               'desired.row.017-023.comment': '観測値の説明'}
+    write_model(path, desired)
+    key = 'observed.row.017-023.value'
+    assert load_model(path).authoritative == desired
+    assert key not in load_model(path).values
+    for value in ('false', '0', '', 'null', '`PENDING_DEPLOY`'):
+        candidate = {**desired, key: value}
+        text = serialize(candidate)
+        reads = FileReads(); reads.read(path)
+        with publication_lock(root) as journal:
+            reads.verify()
+            _publish_transaction(root, {path: text}, (), journal)
+        model = load_model(path)
+        assert model.authoritative[key] == value and model.values[key] == value
+        for field in ('property', 'comment'):
+            metadata = key.removesuffix('value') + field
+            source = 'desired.' + metadata.removeprefix('observed.')
+            assert model.values[metadata] == desired[source] and metadata not in model.authoritative
+            assert trace_model(path, metadata)['derivedFrom'] == source
+        assert model.locations[key][0] == path
+        for _ in range(2):
+            before = path.read_bytes()
+            with publication_lock(root) as journal:
+                _publish_transaction(root, {path: text}, (), journal)
+            assert path.read_bytes() == before
+    original = path.read_bytes()
+    for invalid in (False, 0, None):
+        rejected(lambda: serialize({**desired, key: invalid}), 'strings')
+    for invalid in ({key: 'x', 'observed.row.017-023.property': 'wrong'}, {'observed.row.999-001.value': 'x'},
+                    {'observed.row.017-023.state': 'unknown'}):
+        path.write_text(serialize({**desired, **invalid}))
+        try:
+            load_model(path)
+        except (ValueError, OSError):
+            pass
+        else:
+            raise AssertionError('invalid observed metadata or owner accepted')
+    path.write_text('# model-format: 2\n{')
+    rejected(lambda: load_model(path), 'invalid')
+    path.write_bytes(original)
+    with patch.object(Path, 'read_bytes', side_effect=PermissionError('denied')):
+        rejected(lambda: load_model(path), 'denied')
+    marker = root / 'marker'; marker.write_text('before')
     def interrupted(output):
-        marker.write_text('partial');raise OSError('interrupted')
-    with patch('sync_files.save_files',side_effect=interrupted):
-        rejected(lambda:t.publish(root,{observed:None,marker:'after'}),'interrupted')
-    assert observed.read_bytes()==original and marker.read_text()=='before'
-    empty=t.observed_outputs(path,desired)
-    for _ in range(2):t.publish(root,empty,inputs=t.input_snapshot(path))
-    assert load_model(path).values==desired
-    snapshot=t.input_snapshot(path);observed.write_text(t.json_text({'version':1,'values':{}}))
-    rejected(lambda:t.publish(root,empty,inputs=snapshot),'sources changed');observed.unlink()
-    binding_file=source/'bindings.json';binding=t.json_read(binding_file.read_text());assert 'labels' not in binding['instances']['fixture']
-    explicit=copy.deepcopy(binding);explicit['instances']['fixture']['labels']={};binding_file.write_text(t.json_text(explicit))
-    assert load_model(path).values==desired
-    for field in ('definition','resources','rows','parameters'):
-        bad=copy.deepcopy(binding);del bad['instances']['fixture'][field];binding_file.write_text(t.json_text(bad));rejected(lambda:load_model(path))
-    for labels in (None,[],{'Unknown':'x'}):
-        bad=copy.deepcopy(binding);bad['instances']['fixture']['labels']=labels;binding_file.write_text(t.json_text(bad));rejected(lambda:load_model(path))
-    binding_file.write_text(t.json_text(binding))
-    assert load_model(path).values==desired
-print('Compact sources: PASS (optional observed; value/metadata separation; false/zero/empty/null/missing; malformed/orphan/unknown rejection; labels omission; required fields; atomic rollback; missing-input guards; idempotence)')
+        marker.write_text('partial')
+        raise OSError('interrupted')
+    with publication_lock(root) as journal, patch('sync_files.save_files', side_effect=interrupted):
+        rejected(lambda: _publish_transaction(root, {marker: 'after'}, {path}, journal), 'interrupted')
+    assert path.read_bytes() == original and marker.read_text() == 'before'
+    for _ in range(2):
+        with publication_lock(root) as journal:
+            _publish_transaction(root, {path: serialize(desired)}, (), journal)
+        assert load_model(path).authoritative == desired and key not in load_model(path).values
+    reads = FileReads(); reads.read(path)
+    external = path.read_bytes() + b'# concurrent observed edit\n'
+    path.write_bytes(external)
+    rejected(reads.verify, 'input changed')
+    assert path.read_bytes() == external
+    for key in ('desired.resource.017.resourceType', 'desired.resource.017.anchor', 'desired.row.017-023.property'):
+        path.write_text(serialize({name: value for name, value in desired.items() if name != key}))
+        try:
+            load_model(path)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('missing fixed owner/field accepted: ' + key)
+    path.write_text(serialize(desired))
+    assert load_model(path).authoritative == desired
+print('Compact sources: PASS (false/zero/empty/null/missing observed; derived metadata; fixed owner; malformed/I/O rejection; atomic rollback; raw snapshot; idempotence)')
 
 with tempfile.TemporaryDirectory() as directory:
-    root=Path(directory).resolve();template=root/'model/templates/team/shared.properties.tpl'
-    body=('# resource: bucket\n# row: name bucket\n'
-          'desired.resource.bucket.resourceType=S3.Bucket\ndesired.resource.bucket.anchor=s3-fixed\n'
-          'desired.row.name.property=S3.Bucket.BucketName\ndesired.row.name.value=`fixed-name`\n'
-          'desired.row.name.comment=共通定義の説明\n# end-definition\n')
-    template.parent.mkdir(parents=True);template.write_text('# model-template: 1\n# definition: Common\n'+body+'# definition: Independent\n'+body.replace('共通定義の説明','独立定義の説明'))
-    paths=[]
-    for environment,definition in (('preview','Common'),('release','Common'),('independent','Independent')):
-        path=root/'model'/environment/'team/shared.properties';source=t.source_paths(path)[2];source.mkdir(parents=True)
-        (source/'parameters.yaml').write_text('instances: {}\n')
-        (source/'bindings.json').write_text(t.json_text({'instances':{'fixed':{'definition':definition,'resources':{'bucket':'017'},'rows':{'name':'017-023'},'parameters':{}}}}))
-        t.create_service(path);paths.append(path)
-    before={path:load_model(path).values for path in paths}
-    template.write_text(template.read_text().replace('共通定義の説明','共通定義の変更',1))
+    root = Path(directory).resolve()
+    setup(root, ['s3'], ['S3.Bucket'], ('preview', 'release', 'independent'))
+    values = {'desired.resource.017.resourceType': 'S3.Bucket', 'desired.resource.017.anchor': 's3-fixed',
+              'desired.row.017-023.property': 'S3.Bucket.BucketName', 'desired.row.017-023.value': '`fixed-name`',
+              'desired.row.017-023.comment': '環境に明示した説明'}
+    paths = [root / 'model' / env / 'team/shared.properties' for env in ('preview', 'release', 'independent')]
     for path in paths:
-        after=load_model(path).values
-        assert after['desired.resource.017.anchor']==before[path]['desired.resource.017.anchor']
-        assert set(after)==set(before[path])
-        assert (after!=before[path])==(path.parent.parent.name!='independent')
-print('Shared definition consumers: PASS (shared declaration; only bound Model values change; independent definition and fixed IDs preserved)')
+        write_model(path, values)
+    before = {path: path.read_bytes() for path in paths}
+    explicit = paths[0]
+    explicit.write_text(patch_properties(parse(explicit.read_text()), {'desired.row.017-023.comment': 'この環境だけ変更'}))
+    for path in paths:
+        after = load_model(path).authoritative
+        assert after['desired.resource.017.anchor'] == values['desired.resource.017.anchor'] and set(after) == set(values)
+        assert (path.read_bytes() != before[path]) == (path == explicit)
+    assert affected(root, [explicit.relative_to(root)]) == {('preview', 'team', 'shared')}
+print('Explicit environment sources: PASS (no shared expansion; fixed identity/keys retained; only explicitly edited environment changes)')
 
 module_complete(__file__)

@@ -29,11 +29,12 @@ from support.validator import load
 
 from unittest.mock import patch
 
-from model_files import INDEX_HEADER, model_parts, model_file_contents, read_model, resource_keys, load_model
+from model.format import INDEX as INDEX_HEADER
+from model.files import model_parts, model_file_contents, read_model, resource_keys, load_model
 
-from model_design import markdown_for
+from model.render import markdown_for
 
-from model_core import properties
+from model.core import properties
 
 from validation_scope import scoped_files
 

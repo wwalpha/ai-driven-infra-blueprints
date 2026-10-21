@@ -101,7 +101,7 @@ As the first repository change, newly register `tasks/<task-name>.md` under the 
 - AWS mutation, AWS API, deploy, and apply are prohibited
 - In `Required changes`, separately state `project.json` creation, target path creation, and IaC engine selection with unique Requirement IDs
 - Map `Acceptance checks` to each Requirement ID using `changed:project.json`, `exists:` for paths to create, and `absent:` for unselected IaC roots
-- Limit allowed paths to `project.json`, target `docs/designs/**`, `model/parameters/**` and `model/templates/**` to create, selected IaC initialization paths, IaC engine roots unselected by all targets, and `tasks/<task-name>.md`
+- Limit allowed paths to `project.json`, target `docs/designs/**`, `model/<environment>/<target-directory>/**` to create, selected IaC initialization paths, IaC engine roots unselected by all targets, and `tasks/<task-name>.md`
 - Resource design, IaC implementation, and AWS connection checks are out of scope
 - Do not change `tests/scenarios/**` or `tests/results/**`
 
@@ -138,8 +138,7 @@ For each target, create only absent paths and place `.gitkeep` in empty director
 
 ```text
 docs/designs/<environment>/<target-directory>/.gitkeep
-model/parameters/.gitkeep
-model/templates/.gitkeep
+model/<environment>/<target-directory>/.gitkeep
 ```
 
 If IaC engine is `cloudformation`:
@@ -190,16 +189,14 @@ Record validation results, created topology, created paths, existing paths left 
 
 ## Model input format
 
-Create new service designs from `model/templates/<target-directory>/<service>.properties.tpl`,
-`model/parameters/<environment>/<target-directory>/<service>/parameters.yaml`, explicit
-`bindings.json` (including fixed IDs, rows, placement and references), and optional `observed.json` only for actual observed values.
-Human inputs use parameters.yaml; fixed identities and instance composition use bindings.json.
-Register a new service with
-`python framework/scripts/model_templates.py --alias <target-directory> --service <service> --environment <environment> --create`,
-then generate and validate with `blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md`. A new environment with no
-service sources may remain intentionally undesigned; do not create placeholder Models.
+Initialization only creates the selected target directory; it does not create Model
+placeholders. A subsequent authorized design Task prepares ordinary format-2
+properties under `model/<environment>/<alias-or-awsAccountId>/<service>.properties`,
+then publishes them with the shared edit API/CLI. Record complete explicit values,
+fixed Resource/Row/Stack IDs, placementName and reference records. No common Model
+template or environment inheritance is introduced. Generate Markdown/JSON from the
+saved Model under that design Task, without entering IaC or AWS execution.
 
-Model source persistence uses optional `observed.json` with actual row values only;
-runtime property/comment come from desired metadata. File absence means unobserved,
-never observation success. Omit empty observed files and empty binding labels; preserve
-nonempty labels, fixed IDs, internal parameters, references and CFn placement.
+Persist observations as `observed.row.<id>.value` in that same service Model.
+Distinguish absent keys, empty strings and PENDING_DEPLOY; derive Property/comment
+and artifact hashes rather than storing them as editable authority.

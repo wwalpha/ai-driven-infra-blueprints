@@ -11,7 +11,7 @@ class Unresolved(ValueError):
 def cloudtrail_rows(rows, root):
     """Project fixed Model row identities through the lossless indexed display."""
     from array_display import indexed_rows
-    from model_display import display_rows
+    from model.display import display_rows
 
     kind = 'CloudTrail.Trail'
     prefix = kind + '.EventSelectors[]'

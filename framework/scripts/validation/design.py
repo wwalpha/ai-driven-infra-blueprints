@@ -2,10 +2,10 @@
 
 
 from __future__ import annotations
-from model_core import ReferenceResolutionError
+from model.core import ReferenceResolutionError
 from validation_cache import input_text
 from validation_cache import input_scope
-from model_templates import service_source
+from model.sources import model_exists
 from collections import Counter
 import re
 from pathlib import Path
@@ -18,10 +18,10 @@ from design_layout import (
     resource_has_name_property, resource_logical_ids, resource_modes, STACK_DESIGN, layout_errors,
 )
 from security_group_tables import security_group_table_lines
-from model_references import bound_resource_anchors
-from model_core import entries, properties
-from model_design import naming_errors
-from model_files import MAX_LINES, read_model, model_parts
+from model.projection import bound_resource_anchors
+from model.core import entries, properties
+from model.validation import naming_errors
+from model.files import MAX_LINES, read_model, model_parts
 from validation_scope import scoped_files
 import subprocess
 import sys
@@ -72,8 +72,8 @@ S3_KMS_MASTER_KEY_ID = (
 def check_model_files(findings, root, scope) -> None:
     for path in scoped_files(root, "model", ".properties", scope):
         try:
-            from model_templates import load_for_analysis
-            analysis = load_for_analysis(path)
+            from model.sources import load_model
+            analysis = load_model(path)
             if analysis is None:
                 raise ValueError("missing service model")
             for warning in analysis.warnings:
@@ -188,7 +188,7 @@ def check_design_service_ownership(
         relative = markdown_path.relative_to(docs_base)
         model_path = (model_base / relative).with_suffix(".properties")
         markdown_metadata = markdown_service_metadata(markdown_path, catalog_types, findings=findings)
-        model_metadata = model_service_metadata(model_path, catalog_types, findings=findings, values=(design_sources or {}).get(markdown_path)) if service_source(model_path) is not None else None
+        model_metadata = model_service_metadata(model_path, catalog_types, findings=findings, values=(design_sources or {}).get(markdown_path)) if model_exists(model_path) else None
         if markdown_metadata is None or model_metadata is None:
             continue
         findings.check(markdown_metadata == model_metadata, f"Markdown/model service metadata mismatch: {findings.relative(markdown_path)}")
@@ -331,7 +331,7 @@ def check_policy_tables(paths, findings, *, definitions_root=None) -> None:
 def check_observed_values(paths: list[Path] | None = None, *, findings, root, scope, design_sources=None) -> None:
     for path in scoped_files(root, "model", ".properties", scope) if paths is None else paths:
         try:
-            if service_source(path) is None:
+            if not model_exists(path):
                 continue
             view = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
             values = (design_sources or {}).get(view)

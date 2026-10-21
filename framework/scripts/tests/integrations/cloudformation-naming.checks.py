@@ -11,9 +11,9 @@ from unittest.mock import patch
 from support.model_sources import write_model
 from cfnlint.decode import decode
 from cloudformation_inputs import checked_parameters, resolve_value, load_target
-from model_core import entries, literal
-from model_files import load_model
-from model_templates import model_paths
+from model.core import entries, literal
+from model.files import load_model
+from model.sources import model_paths
 from validation_cache import input_scope
 
 if not __debug__:
@@ -166,11 +166,15 @@ def fixture(root):
         source.parent.mkdir(parents=True,exist_ok=True);params.parent.mkdir(parents=True,exist_ok=True)
         source.write_text(json.dumps(document),encoding='utf-8')
         params.write_text(json.dumps([{'ParameterKey':'Suffix','ParameterValue':'-fixture'}, {'ParameterKey':'FlowLogSuffix','ParameterValue':''}]),encoding='utf-8')
-        stacks.update({f'desired.stack.{number}.template':name,f'desired.stack.{number}.parameters':params.name})
+        stacks.update({f'desired.stack.{number}.name': 'fixture-' + str(number),
+                       f'desired.stack.{number}.placementName': 'fixed-' + str(number),
+                       f'desired.stack.{number}.template':name, f'desired.stack.{number}.parameters':params.name,
+                       f'desired.stack.{number}.deployOrder': str(number)})
     write_model(root/'model/dev/123456789012/cloudformation-stacks.properties',stacks)
     write_model(root/'model/dev/123456789012/iam.properties',{
         'desired.resource.001.resourceType':'IAM.Role','desired.resource.001.anchor':'role',
-        'desired.row.001-001.property':'IAM.Role.RoleName','desired.row.001-001.value':'`venusinf-dev-VulnerabilityScan02Role-fixture`'})
+        'desired.row.001-001.property':'IAM.Role.RoleName','desired.row.001-001.value':'`venusinf-dev-VulnerabilityScan02Role-fixture`',
+        'desired.row.001-001.comment':'合成の名前'})
 
 
 @it_case

@@ -5,119 +5,84 @@ import sys
 from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 
-from support.model_sources import write_model
-from model_files import read_model
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-
 from support.it_case_receipt import it_case
-import copy
+from support.producer_identifier_reference_fixtures import *
+from support.it_workspace import copy_framework
+from model.render import markdown_for
+from model.projection import bound_resource_anchors
+from model.references import usages
 from contextlib import redirect_stdout
 import io
-import shutil
-import tempfile
-import model_templates as t
-from model_files import load_model
-from model_design import markdown_for
-from model_references import bound_resource_anchors
-from model_parameter_inputs import parameter_text
-from support.model_sources import write_fixture_files as save_files
 import sync_runtime
-
-ROOT = Path(__file__).resolve().parents[4]
-
-
-from support.it_workspace import copy_framework
-
-def rejected(call, phrase):
-    try:
-        call()
-    except (ValueError, OSError) as error:
-        assert phrase in str(error), str(error)
-    else:
-        raise AssertionError('invalid input accepted: ' + phrase)
 
 
 @it_case
 def check(root):
     copy_framework(root / 'framework')
-    save_files({root / 'project.json': t.json_text({'projectName': 'anchor-fixture', 'targets': [{
-        'environment': 'preview', 'alias': 'other', 'awsAccountId': '210987654321',
-        'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}, {
-        'environment': 'preview', 'alias': 'team', 'awsAccountId': '123456789012',
-        'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n',
-        root / 'tasks/active.md': '## Task contract\n- Task type: `migration`\n## Validation scope\n- `preview/team/s3`\n## Allowed paths\n- `model/**`\n- `model/parameters/**`\n- `model/templates/**`\n- `docs/designs/**`\n'})
-    template = root / 'model/templates/team/s3.properties.tpl'
-    text = '\n'.join(['# model-template: 1', '# definition: Bucket',
-        '# parameter: BucketName ' + t.json_text({'type': 'string', 'description': 'bucketの名前', 'required': True, 'format': 'literal'}),
-        '# internal: Anchor string', '# resource: bucket', '# row: name bucket', '# row: region bucket',
-        'desired.resource.bucket.resourceType=S3.Bucket', 'desired.resource.bucket.resourceMode=IMPORT',
-        'desired.resource.bucket.anchor=<<Anchor>>', 'desired.resource.bucket.logicalId=stable-archive',
-        'desired.row.name.property=S3.Bucket.BucketName', 'desired.row.name.value=<<BucketName>>', 'desired.row.name.comment=bucketの名前',
-        'desired.row.region.property=S3.Bucket.Region', 'desired.row.region.value=`ap-northeast-1`', 'desired.row.region.comment=配置region',
-        'display.resource.bucket.comment=既存bucket', '# end-definition',
-        '# definition: Service', 'desired.service.s3.serviceId=s3',
-        'desired.service.s3.ownedCatalogResourceTypes=S3.Bucket', 'display.service.title=# Amazon S3 詳細設計', '# end-definition', ''])
-    bindings = {'instances': {'archive': {'definition': 'Bucket', 'resources': {'bucket': '003'},
-        'rows': {'name': '003-001', 'region': '003-002'}, 'parameters': {'Anchor': 's3-archive-original'}, 'labels': {}},
-        'service': {'definition': 'Service', 'resources': {}, 'rows': {}, 'parameters': {}, 'labels': {}}}}
-    human = {'instances': {'archive': {'parameters': {'BucketName': 'archive-original'}}}}
-    observed = {'version': 1, 'values': {}}
-    save_files({template: text})
-    values = t.expand(template, human, observed, bindings, 'preview')[0]
+    (root / 'project.json').write_text(json.dumps({'projectName': 'anchor-fixture', 'targets': [{
+        'environment': 'preview', 'alias': alias, 'awsAccountId': account,
+        'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'} for alias, account in [('other', '210987654321'), ('team', '123456789012')]]}) + '\n')
+    task = root / 'tasks/active.md'; task.parent.mkdir()
+    task.write_text('## Task contract\n- Task type: `migration`\n## Validation scope\n- `preview/team/s3`\n'
+                    '## Allowed paths\n- `model/**`\n- `docs/designs/**`\n')
+    values = resource('003', 'S3.Bucket', 's3-archive-original', [('BucketName', '`archive-original`'), ('Region', '`ap-northeast-1`')])
+    values.update({'desired.resource.003.logicalId': 'stable-archive', 'desired.service.s3.serviceId': 's3',
+        'desired.service.s3.ownedCatalogResourceTypes': 'S3.Bucket', 'display.service.title': '# Amazon S3 詳細設計'})
     path = root / 'model/preview/team/s3.properties'
-    directory = root / 'model/parameters/preview/team/s3'
-    save_files({path: ''.join(k + '=' + v + '\n' for k, v in values.items()),
-
-        directory / 'parameters.yaml': parameter_text(human, t.parse_template(template)[0], bindings),
-        directory / 'bindings.json': t.json_text(bindings), directory / 'observed.json': t.json_text(observed)})
+    write_model(path, values)
     view = root / 'docs/designs/preview/team/s3.md'
-    with redirect_stdout(io.StringIO()):
-        sync_runtime.sync(root, True, 'preview', 'team', services=['s3'])
+    assert sync_runtime.sync(root, True, 'preview', 'team', services=['s3']) == 0
     assert bound_resource_anchors(path) == {('S3.Bucket', 'stable-archive'): 's3-archive-original'}
-    # A real external typed consumer resolves this unchanged anchor after the rename.
-    reference = root / 'model/templates/team/cloudtrail.properties.tpl'
-    save_files({reference: '# model-template: 1\n# definition: Link\n# reference: Bucket ' + t.json_text({
-        'service': 's3', 'resource': '003', 'resourceType': 'S3.Bucket'}) + '\n# resource: job\n# row: link job\n'
-        'desired.resource.job.resourceType=CloudTrail.Trail\ndesired.resource.job.anchor=cloudtrail-job\n'
-        'desired.row.link.property=CloudTrail.Trail.S3BucketName\ndesired.row.link.value=<<Bucket>>\n# end-definition\n'})
-    consumer = {'instances': {'job': {'definition': 'Link', 'resources': {'job': '087'},
-        'rows': {'link': '087-001'}, 'parameters': {}, 'labels': {}}}}
-    human['instances']['archive']['parameters']['BucketName'] = 'archive-renamed'
-    t.save_parameters(path, human)
-    updated = load_model(path).values
-    assert updated['desired.resource.003.anchor'] == values['desired.resource.003.anchor']
-    assert updated['desired.resource.003.logicalId'] == 'stable-archive'
-    assert {k for k in updated if k.startswith('desired.row.')} == {k for k in values if k.startswith('desired.row.')}
-    linked = t.expand(reference, {'instances': {}}, observed, consumer, 'preview')[0]['desired.row.087-001.value']
-    assert linked == '[archive-renamed](s3.md#s3-archive-original)'
-    with redirect_stdout(io.StringIO()):
-        sync_runtime.sync(root, True, 'preview', 'team', services=['s3'])
-        sync_runtime.sync(root, False, 'preview', 'team', services=['s3'])
-    assert '### S3.Bucket: archive-renamed' in view.read_text(encoding='utf-8')
-    assert '<a id="s3-archive-original"></a>' in view.read_text(encoding='utf-8')
-    wrong = dict(updated, **{'desired.resource.003.anchor': 's3-other'})
+    consumer = path.with_name('cloudtrail.properties')
+    linked = '[archive-original](s3.md#s3-archive-original)'
+    candidate = resource('087', 'CloudTrail.Trail', 'cloudtrail-job', [('S3BucketName', linked)])
+    candidate.update(reference('bucket', 'desired.row.087-001.value', linked, 's3', '003', 'S3.Bucket', mode='link', label='display-name'))
+    write_model(consumer, candidate)
+    before = consumer.read_bytes()
+    updated = {**values, 'desired.row.003-001.value': '`archive-renamed`'}
+    write_model(path, updated)
+    assert load_model(path).authoritative['desired.resource.003.anchor'] == values['desired.resource.003.anchor']
+    assert load_model(path).authoritative['desired.resource.003.logicalId'] == 'stable-archive'
+    assert {key for key in updated if key.startswith('desired.row.')} == {key for key in values if key.startswith('desired.row.')}
+    assert warning(consumer, 'display-name label differs').authoritative == candidate
+    assert consumer.read_bytes() == before
+    new_link = '[archive-renamed](s3.md#s3-archive-original)'
+    explicit = {**candidate, 'desired.row.087-001.value': new_link, 'desired.reference.bucket.text': new_link}
+    write_model(consumer, explicit)
+    current = load_model(consumer)
+    assert not current.warnings and len(usages(current)) == 1
+    assert sync_runtime.sync(root, True, 'preview', 'team', services=['s3']) == 0
+    assert sync_runtime.sync(root, False, 'preview', 'team', services=['s3']) == 0
+    assert '### S3.Bucket: archive-renamed' in view.read_text()
+    assert '<a id="s3-archive-original"></a>' in view.read_text()
+    wrong = {**updated, 'desired.resource.003.anchor': 's3-other'}
     rejected(lambda: markdown_for(view, wrong, root), 'anchor must be unique')
-    collision = copy.deepcopy(bindings)
-    collision['instances']['archive']['rows']['region'] = '003-001'
-    rejected(lambda: t.expand(template, human, observed, collision, 'preview'), 'duplicate')
-    yaml_path = directory/'parameters.yaml'; original_yaml = yaml_path.read_bytes()
-    yaml_path.write_text('instances: [')
+    original = path.read_bytes()
+    path.write_bytes(original + b'desired.row.003-001.value=duplicate\n')
+    rejected(lambda: load_model(path), 'duplicate')
+    path.write_bytes(original)
+    for anchor in ('s3-../unsafe', '', 's3-quote"anchor'):
+        path.write_text(serialize({**updated, 'desired.resource.003.anchor': anchor}))
+        rejected(lambda: bound_resource_anchors(path), 'anchor')
+    path.write_bytes(original)
+    path.write_text('# model-format: 2\ninvalid')
     rejected(lambda: bound_resource_anchors(path), 'invalid')
-    yaml_path.write_bytes(original_yaml)
-    invalid = copy.deepcopy(bindings)
-    invalid['instances']['archive']['parameters']['Anchor'] = 's3-../unsafe'
-    (directory / 'bindings.json').write_text(t.json_text(invalid), encoding='utf-8')
-    rejected(lambda: markdown_for(view, load_model(path).values, root), 'invalid bound resource anchor')
-    (directory / 'bindings.json').write_text(t.json_text(bindings), encoding='utf-8')
-    (directory / 'parameters.yaml').write_text('instances: {}\n', encoding='utf-8')
-    rejected(lambda: bound_resource_anchors(path), 'input-bearing instances require YAML')
-    (directory / 'parameters.yaml').write_text(parameter_text(human, t.parse_template(template)[0], bindings), encoding='utf-8')
-    (directory/'parameters.yaml').unlink()
-    rejected(lambda: markdown_for(view, updated, root), 'missing')
-    print('Fixed S3 bindings: PASS (rename/sync; names/links/IDs; strict authority; legacy anchors)')
+    path.write_bytes(original)
+    path.write_text(serialize({key: value for key, value in updated.items() if key != 'desired.row.003-001.value'}))
+    rejected(lambda: load_model(path), 'Row requires')
+    path.write_bytes(original)
+    path.unlink()
+    rejected(lambda: load_model(path), 's3.properties')
+    path.write_bytes(original)
+    legacy = root / 'model/parameters'; legacy.mkdir()
+    rejected(lambda: bound_resource_anchors(path), 'explicit migration')
+    print('Fixed S3 anchors: PASS (explicit rename/consumer update; fixed names/links/IDs; generation; syntax/identity/legacy rejection)')
 
 
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory() as directory:
-        check(Path(directory).resolve())
+        with redirect_stdout(io.StringIO()) as output:
+            check(Path(directory).resolve())
+        print(output.getvalue().strip().splitlines()[-1])

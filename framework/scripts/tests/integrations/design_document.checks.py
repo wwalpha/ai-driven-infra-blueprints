@@ -66,7 +66,7 @@ def check_snapshot(sync):
                              "observed.row.001-003.value": observed})
         alias_text = text.replace("[alias/two](kms.md#kms-aliastwo)", f"[{observed}](kms.md#kms-aliastwo)", 1)
         source.write_text(alias_text, encoding="utf-8")
-        from model_references import resource_rows
+        from model.projection import resource_rows
         shown = resource_rows(alias_source, '001', 'S3.Bucket', repository)
         assert shown[2][2] == f'[{observed}](kms.md#kms-aliastwo)'
         assert values['desired.row.001-003.value'] == '[alias/two](kms.md#kms-aliastwo)'

@@ -1,6 +1,6 @@
 """data-firehose: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import one, Unresolved
+from model.adapters.aws import one, Unresolved
 
 APIS = {('firehose', 'describe_delivery_stream')}
 

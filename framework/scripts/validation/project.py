@@ -28,7 +28,7 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
     scope = contract_scope if contract_scope is not None else scope
     if scope is None:
         if candidates:
-            from model_templates import affected
+            from model.impact import affected
             try:
                 return affected(root, changed_paths, before=before)
             except (OSError, ValueError) as error:
@@ -39,37 +39,47 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
                        'Model source changes require service Validation scope')
     for environment, target, service in sorted(scope):
         findings.check((environment, target) in accounts, f"validation target is not defined in project.json: {environment}/{target}")
-        from model_templates import service_source
+        from model.sources import model_exists
         try:
-            findings.check(service_source(root/"model"/environment/target/(service+".properties")) is not None, f"validation YAML input missing: {environment}/{target}/{service}")
+            findings.check(model_exists(root/"model"/environment/target/(service+".properties")), f"validation properties input missing: {environment}/{target}/{service}")
         except (OSError, ValueError) as error:
-            findings.check(False, f"invalid validation YAML input: {error}")
+            findings.check(False, f"invalid validation properties input: {error}")
         for base, suffix in (() if candidates else (("docs/designs", ".md"),)):
             relative = f"{base}/{environment}/{target}/{service}{suffix}"
             if not input_is_file(root / relative):
-                from model_templates import load_expansion
-                from model_core import ReferenceResolutionError
+                from model.sources import load_model
+                from model.core import ReferenceResolutionError
                 try:
-                    load_expansion(root / 'model' / environment / target / (service + '.properties'))
+                    load_model(root / 'model' / environment / target / (service + '.properties'))
                 except ReferenceResolutionError as error:
                     findings.warn(error, source=relative, retainedView=None)
                     continue
+                except (OSError, ValueError) as error:
+                    findings.check(False, f'invalid validation properties input: {relative}: {error}')
+                    continue
             findings.check(input_is_file(root / relative), f"validation input missing: {relative}")
-    from model_templates import affected
+    from model.impact import affected
     impact = set()
     try:
         impact = affected(root, changed_paths, before=before) if scope else set()
         for entry in impact:
-            findings.check(entry in scope, f"template source change requires affected validation scope: {'/'.join(entry)}")
+            findings.check(entry in scope, f"Model source change requires affected validation scope: {'/'.join(entry)}")
     except (OSError, ValueError) as error:
         findings.check(False, f'invalid Model source scope: {error}')
     for changed in sorted(changed_paths):
         for base in ("model/", "docs/designs/"):
             if changed.startswith(base):
                 parts = Path(changed.removeprefix(base)).parts
-                if base == 'model/' and parts[0] in {'parameters', 'templates'}:
-                    continue  # Physical inputs are checked through affected() above.
-                identity = (parts[0], parts[1], Path(parts[2]).stem) if len(parts) >= 3 else None
+                if base == 'model/':
+                    from model.sources import source_scope
+                    try:
+                        selected = source_scope(root, root / changed)
+                        identity = selected.environment, selected.target, selected.service
+                    except ValueError as error:
+                        findings.check(False, f'invalid Model source scope: {error}')
+                        continue
+                else:
+                    identity = (parts[0], parts[1], Path(parts[2]).stem if len(parts) == 3 else parts[2]) if len(parts) >= 3 else None
                 findings.check(identity in scope, f"changed design path is outside validation scope: {changed}")
 
     return impact
@@ -98,10 +108,10 @@ def check_project_topology(accounts, findings, root, template_mode, *, scope_imp
     findings.check(isinstance(targets, list) and bool(targets), "targets must be a non-empty array")
     if not isinstance(targets, list):
         return
-    from import_scope import selected
+    from model.importing.scope import selected
     identity = selected(root) if scope_import else None
     if identity is not None:
-        from import_scope import view_targets
+        from model.importing.scope import view_targets
         target_scope = {item[:2] for item in view_targets(root)}
         targets = [target for target in targets if isinstance(target, dict) and
                    (target.get('environment'), target.get('alias', target.get('awsAccountId'))) in target_scope]

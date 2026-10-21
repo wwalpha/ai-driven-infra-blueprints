@@ -11,7 +11,7 @@ if not __debug__:
 
 from design_layout import ALIGNMENT, HEADER, expanded_design
 
-from model_display import display_rows
+from model.display import display_rows
 
 ROOT = Path(__file__).resolve().parents[4]
 

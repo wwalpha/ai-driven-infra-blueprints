@@ -1,6 +1,6 @@
 """secrets-manager: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import Unresolved
+from model.adapters.aws import Unresolved
 
 APIS = {('secretsmanager', 'describe_secret')}
 

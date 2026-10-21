@@ -86,10 +86,11 @@ def check_cloudformation_stack_design() -> None:
 
 @it_case
 def check_stack_mapping_targets():
-    from model_design import markdown_for
+    from model.render import markdown_for
     import shutil
     with project() as root:
         copy_framework(root / 'framework')
+        write(root / 'project.json', __import__('json').dumps({'targets': [{'environment': 'dev', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n')
         model_dir = root / "model/dev/123456789012"
         model_dir.mkdir(parents=True)
         target = root / "docs/designs/dev/123456789012"
@@ -109,11 +110,12 @@ def check_stack_mapping_targets():
             validator.check_stack_designs()
             return validator.errors
         assert not errors(), errors()
-        write(model, __import__("model_files").read_model(model) + "desired.resource.001.resourceMode=IMPORT\n")
+        write(model, __import__("model.files", fromlist=["read_model"]).read_model(model) + "desired.resource.001.resourceMode=IMPORT\n")
         assert any("CREATE" in error for error in errors()), errors()
-        write(model, __import__("model_files").read_model(model).replace("cfn-stack-app-dev-ism-DepartmentVpc", "absent-DepartmentVpc").replace("desired.resource.001.resourceMode=IMPORT\n", ""))
+        write(model, __import__("model.files", fromlist=["read_model"]).read_model(model).replace("cfn-stack-app-dev-ism-DepartmentVpc", "absent-DepartmentVpc").replace("desired.resource.001.resourceMode=IMPORT\n", ""))
         assert any("undeclared stack" in error for error in errors()), errors()
     with project() as root:
+        write(root / "project.json", __import__("json").dumps({"targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
         path = root / "docs/designs/dev/123456789012/iam.md"
         path.parent.mkdir(parents=True)
         write(path, '<a id="iam-confirmed-role"></a>\n')
@@ -124,6 +126,6 @@ def check_stack_mapping_targets():
         validator.check_markdown_iam_policy_artifacts(path, "007", [["1", "AssumeRolePolicyDocument", "[Trust](iam/confirmed-role-trust-policy.json)", "信頼ポリシー"]])
         assert not validator.errors, validator.errors
     prompt = (SCRIPT.parents[2] / "framework/prompts/codex/03_implement.md").read_text(encoding="utf-8")
-    assert "python framework/scripts/cloudformation_observed.py --environment" in prompt
+    assert "framework/scripts/model/cli.py observed --environment" in prompt
     assert "After generation/changes as well" in prompt and "Do not automatically fill missing identifier rows" in prompt
 

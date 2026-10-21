@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 from botocore import xform_name
 from design_catalog import DesignSchemaCatalog
-from model_templates import exact
+from model.sources import exact
 from script_loader import module
 
 
@@ -26,7 +26,7 @@ INPUT_SOURCES = {
 
 def project(prop, payload):
     """Apply a validated YAML path and transform to an acquired response payload."""
-    comparator = module('check-model-aws.py', 'model_aws_compare')
+    comparator = module('model/adapters/aws.py', 'model.adapters.aws')
     value = payload if prop.field.path == '$' else comparator.select(payload, prop.field.path)
     if prop.transform == 'present':
         return value != comparator.MISSING and value is not None
@@ -68,7 +68,7 @@ def sdk_shape(sdk, definition):
 
 def catalog_properties(root: Path, service, document, *, sdk=None, schemas=None, catalogs=None):
     from aws_mapping import Property, NORMALIZATIONS, text, response_shape
-    comparator = module('check-model-aws.py', 'model_aws_compare')
+    comparator = module('model/adapters/aws.py', 'model.adapters.aws')
     exact(document, {'version', 'service', 'getters', 'resourceTypes'}, 'Mapping v3')
     if type(document['version']) is not int or document['version'] != 3:
         raise ValueError('Mapping version must be 3')
@@ -260,7 +260,7 @@ def catalog_properties(root: Path, service, document, *, sdk=None, schemas=None,
 def runtime_properties(root, service, document):
     """Parse executable mappings; catalog coverage and display quality stay in catalog_properties."""
     from aws_mapping import Property, NORMALIZATIONS
-    comparator = module('check-model-aws.py', 'model_aws_compare')
+    comparator = module('model/adapters/aws.py', 'model.adapters.aws')
     if document.get('version') != 3 or document.get('service') != service:
         raise ValueError('Mapping service/version mismatch')
     result = {}

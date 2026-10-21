@@ -26,15 +26,18 @@ def main():
         source.parent.mkdir(parents=True)
 
         def check(values):
+            values = {key: value for key, value in values.items() if not (key.startswith("observed.row.") and key.endswith((".property", ".comment")))}
             original = "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
             write_model(source, original)
-            original = read_model(source)
+            from model.sources import model_parts
+            original = {file: file.read_bytes() for file in (source, *model_parts(source))}
             try:
+                read_model(source)
                 path.write_text(markdown_for(path, values, root), encoding="utf-8")
                 sync_views.validate_views(root, root, [path], {path: values})
             except (ValueError, KeyError) as error:
                 return str(error)
-            assert read_model(source) == original
+            assert snapshot_model(source) == original
             assert path.read_text(encoding="utf-8") == markdown_for(path, values, root)
             assert "resource-mode:" not in path.read_text(encoding="utf-8")
             assert "resource-entry:" not in path.read_text(encoding="utf-8")
@@ -80,7 +83,7 @@ def main():
                "desired.row.001-004.value": "broken", "desired.row.001-004.comment": "DNS解決の有効化"}
         assert "provider schema violation" in check(bad)
         assert "display Mapping property missing: EC2.VPC.Unknown" in check({**bad, "desired.row.001-004.property": "EC2.VPC.Unknown"})
-        assert "invalid resource row" in check({key: value for key, value in imported.items() if key != "desired.row.001-001.comment"})
+        assert "Row requires property, value and comment" in check({key: value for key, value in imported.items() if key != "desired.row.001-001.comment"})
         # The EC2 tag schema specifies string only; use its actual boolean constraint above.
         assert "requires the corresponding Tags[].Value" in check({
             key: value for key, value in model("EC2.Instance", "LEGACY", "IMPORT").items()

@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""Active resource/attribute impact, baseline safety and transitive boundaries."""
-
+"""Saved reference graph, explicit environment isolation and resource change boundaries."""
 import sys
 from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-
 import json
+import shutil
 import subprocess
 import tempfile
-from unittest.mock import patch
-
-from model_templates import affected, design_source_digest, json_text
+from model.impact import affected, dependencies
+from model.sources import FileReads, load_model, design_source_digest
+from model.format import serialize
+from support.model_sources import write_model
+from support.producer_identifier_reference_fixtures import setup, resource, reference, dependency_hashes
+from support.it_case_receipt import it_case
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-
-from support.it_case_receipt import it_case
 
 
 def write(path, text):
@@ -29,270 +29,231 @@ def git(root, *arguments):
     return result.stdout.strip()
 
 
-def inputs(root, service, bindings, parameters, env='dev'):
-    directory = root/'model/parameters'/env/'team'/service
-    write(directory/'bindings.json', json_text({'instances': bindings}))
-    write(directory/'parameters.yaml', json_text({'instances': parameters}))
-    return directory/'parameters.yaml'
-
-
 def producer(root, service, kind, name_property, env='dev'):
-    template = root/'model/templates/team'/(service+'.properties.tpl')
-    write(template, f'''# model-template: 1
-# definition: Resource
-# parameter: Name {{"type":"string","description":"名前","required":true}}
-# parameter: Setting {{"type":"object","description":"設定","required":true}}
-# resource: resource
-# row: name resource
-# row: setting resource
-desired.resource.resource.resourceType={kind}
-desired.resource.resource.anchor={service}-<<Name>>
-desired.row.name.property={kind}.{name_property}
-desired.row.name.value=`<<Name>>`
-desired.row.setting.property={kind}.Setting
-desired.row.setting.document={{"setting":"<<Setting>>"}}
-# end-definition
-''')
-    return inputs(root, service, {f'item{i}': {'definition':'Resource','resources':{'resource':f'{i:03}'},
-                         'rows':{'name':f'{i:03}-001','setting':f'{i:03}-002'},'parameters':{}}
-                         for i in (1,2)},
-                  {f'item{i}': {'parameters':{'Name':f'{env}-name{i}','Setting':{'trust':['old']}}} for i in (1,2)}, env)
+    values = {}
+    for number in (1, 2):
+        rid = f'{number:03}'
+        values.update(resource(rid, kind, service + '-' + rid, [
+            (name_property, '`' + env + '-name' + str(number) + '`'),
+            ('Setting', '`{"trust":["old"]}`')]))
+        values[f'desired.resource.{rid}.resourceMode'] = 'CREATE'
+    return write_model(root / 'model' / env / 'team' / (service + '.properties'), values)
 
 
 def consumer(root, service, producer_service, kind, target='001', *, mode='name', fixed=False,
-             optional=False, instance=False, env='dev'):
-    ref = {'service':producer_service,'resourceType':kind}
-    if mode != 'anchor':
-        ref['format'] = mode
-    ref['instance' if instance else 'resource'] = target
-    template = root/'model/templates/team'/(service+'.properties.tpl')
-    write(template, f'''# model-template: 1
-# definition: Consumer
-# reference: Producer {json_text(ref)}
-''' + ('# parameter: Enabled {"type":"boolean","description":"参照使用","required":true}\n# optional: desired.row.source.value Enabled\n' if optional else '') + f'''# resource: resource
-# row: name resource
-# row: source resource
-desired.resource.resource.resourceType=CodeBuild.Project
-desired.resource.resource.anchor={service}-anchor
-desired.row.name.property=CodeBuild.Project.Name
-desired.row.name.value={'fixed-name' if fixed or optional else '<<Producer>>'}
-desired.row.source.property=CodeBuild.Project.Description
-desired.row.source.value=<<Producer>>
-# end-definition
-''')
-    # An unused definition must never create a dependency.
-    with template.open('a', encoding='utf-8') as stream:
-        stream.write('''# definition: Unused
-# reference: UnusedProducer {"service":"unused","resource":"001","resourceType":"IAM.Role","format":"name"}
-# resource: resource
-# row: name resource
-desired.resource.resource.resourceType=CodeBuild.Project
-desired.resource.resource.anchor=unused
-desired.row.name.property=CodeBuild.Project.Name
-desired.row.name.value=<<UnusedProducer>>
-# end-definition
-''')
-    return inputs(root, service, {'consumer':{'definition':'Consumer','resources':{'resource':'005'},
-                  'rows':{'name':'005-001','source':'005-002'},'parameters':{},
-                  **({'labels':{'Producer':'fixed-label'}} if mode == 'anchor' else {})}},
-                  {'consumer':{'parameters':{'Enabled':False}}} if optional else {}, env)
+             optional=False, env='dev'):
+    name_property = {'IAM.Role': 'RoleName', 'S3.Bucket': 'BucketName',
+                     'Lambda.Function': 'FunctionName', 'EC2.VPC': 'Name', 'CodeBuild.Project': 'Name'}[kind]
+    prop = 'VpcId' if mode == 'identifier' else name_property
+    value = ('[fixed-label](' + producer_service + '.md#' + producer_service + '-' + target + ')' if mode == 'link'
+             else '`vpc-first`' if mode == 'identifier' else '`' + env + '-name' + str(int(target)) + '`')
+    values = resource('005', 'CodeBuild.Project', service + '-005', [('Name', 'fixed-name')])
+    values['desired.resource.005.resourceMode'] = 'CREATE'
+    if not optional:
+        values.update({'desired.row.005-002.property': 'CodeBuild.Project.Description',
+                       'desired.row.005-002.comment': '保存済み参照', 'desired.row.005-002.value': value})
+        values.update(reference('producer', 'desired.row.005-002.value', value, producer_service, target,
+                                kind, mode=mode, prop=kind + '.' + prop if mode != 'link' else None,
+                                environment=env, label='fixed' if mode == 'link' else 'none'))
+        if not fixed:
+            values['desired.row.005-001.value'] = value
+            values.update(reference('name', 'desired.row.005-001.value', value, producer_service, target,
+                                    kind, mode=mode, prop=kind + '.' + prop if mode != 'link' else None,
+                                    environment=env, label='fixed' if mode == 'link' else 'none'))
+    return write_model(root / 'model' / env / 'team' / (service + '.properties'), values)
 
 
 def baseline(root):
-    from support.it_workspace import copy_framework
-    copy_framework(root/'framework/mappings', relative='mappings')
-    git(root,'init'); git(root,'config','user.name','Fixture'); git(root,'config','user.email','fixture@example.invalid')
-    git(root,'add','model'); git(root,'commit','-m','Baseline')
-    return git(root,'rev-parse','HEAD')
+    git(root, 'init'); git(root, 'config', 'user.name', 'Fixture')
+    git(root, 'config', 'user.email', 'fixture@example.invalid')
+    git(root, 'add', 'project.json', 'model'); git(root, 'commit', '-m', 'Baseline')
+    return git(root, 'rev-parse', 'HEAD')
 
 
-def change(path, instance, key, value):
-    value_set = json.loads(path.read_text(encoding='utf-8'))
-    value_set['instances'][instance]['parameters'][key] = value
-    path.write_text(json_text(value_set), encoding='utf-8')
+def change(path, rid, key, value):
+    values = dict(load_model(path, FileReads()).authoritative)
+    field = '001' if key == 'Name' else '002'
+    values[f'desired.row.{rid}-{field}.value'] = ('`' + json.dumps(value, separators=(',', ':')) + '`'
+                                               if not isinstance(value, str) else '`' + value + '`')
+    write_model(path, values)
 
 
 def entry(service, env='dev'):
-    return env,'team',service
+    return env, 'team', service
 
 
 @it_case
 def check_precision(root, service, kind, name_property):
     source = producer(root, service, kind, name_property)
-    template = root/'model/templates/team'/(service+'.properties.tpl')
-    consumer(root,'uses-first',service,kind)
-    consumer(root,'uses-second',service,kind,'002')
-    consumer(root,'fixed-export',service,kind,fixed=True)
-    consumer(root,'stops-here','fixed-export','CodeBuild.Project','005')
-    consumer(root,'continues','uses-first','CodeBuild.Project','005')
-    consumer(root,'disabled',service,kind,optional=True)
+    for name, target, fixed in [('uses-first', '001', False), ('uses-second', '002', False),
+                                 ('fixed-export', '001', True)]:
+        consumer(root, name, service, kind, target, fixed=fixed)
+    consumer(root, 'stops-here', 'fixed-export', 'CodeBuild.Project', '005')
+    consumer(root, 'continues', 'uses-first', 'CodeBuild.Project', '005')
+    consumer(root, 'disabled', service, kind, optional=True)
     baseline(root)
-    own = {entry(service)}
     relative = source.relative_to(root)
-    change(source,'item1','Setting',{'trust':['new']})
-    consumer_path = root/'model/dev/team/uses-first.properties'
-    digest = design_source_digest(consumer_path)
-    assert affected(root,{relative}) == own
-    git(root,'add',str(relative))
-    change(source,'item1','Setting',{'trust':['other']})
-    assert affected(root,{relative}) == own
-    assert design_source_digest(consumer_path) != digest  # Scope narrowing never weakens byte snapshots.
-    template.write_text('\n'.join(line for line in template.read_text().replace('{"setting":"<<Setting>>"}','{"fixed":true}').splitlines() if not line.startswith('# parameter: Setting')), encoding='utf-8')
-    # The removed parameter must be removed from inputs too.
-    data = json.loads(source.read_text())
-    for item in data['instances'].values():
-        del item['parameters']['Setting']
-    source.write_text(json_text(data))
-    assert affected(root,{relative,template.relative_to(root)}) == own
+    path = root / 'model/dev/team/uses-first.properties'
+    digest, hashes, saved = design_source_digest(path), dependency_hashes(path), path.read_bytes()
+    change(source, '001', 'Setting', {'trust': ['new']})
+    expected = {entry(s) for s in (service, 'uses-first', 'uses-second', 'fixed-export', 'stops-here', 'continues')}
+    assert affected(root, {relative}) == expected
+    assert design_source_digest(path) == digest and dependency_hashes(path) != hashes
+    assert path.read_bytes() == saved
+    git(root, 'add', str(relative))
+    change(source, '001', 'Setting', {'trust': ['other']})
+    assert affected(root, {relative}) == expected
     from support.validator import MODULE
-    write(root/f'docs/designs/dev/team/{service}.md','fixture')
-    validator=MODULE.Validator(root,own)
-    validator.accounts={('dev','team'):{}}
-    validator.changed_paths={relative.as_posix(),template.relative_to(root).as_posix()}
+    validator = MODULE.Validator(root, {entry(service)})
+    validator.accounts = {('dev', 'team'): {}}
+    validator.changed_paths = {relative.as_posix()}
     validator.check_validation_scope()
-    assert not validator.errors,validator.errors
-    change(source,'item1','Name','renamed')
-    expected = own | {entry(s) for s in ('uses-first','fixed-export','continues')}
-    assert affected(root,{relative,template.relative_to(root)}) == expected
-    validator=MODULE.Validator(root,own)
-    validator.accounts={('dev','team'):{}}
-    validator.changed_paths={relative.as_posix(),template.relative_to(root).as_posix()}
-    validator.check_validation_scope()
-    assert any('affected validation scope' in error for error in validator.errors),validator.errors
-    git(root,'add','model'); git(root,'commit','-m','Committed change')
-    assert affected(root,{relative}) == own | {entry(s) for s in ('uses-first','uses-second','fixed-export','continues','stops-here','disabled')}
+    assert any('affected validation scope' in error for error in validator.errors), validator.errors
+    change(source, '001', 'Name', 'renamed')
+    assert affected(root, {relative}) == expected
+    assert path.read_bytes() == saved and load_model(path).warnings
+    git(root, 'add', 'model'); git(root, 'commit', '-m', 'Committed change')
+    assert affected(root, {relative}) == expected
 
 
 @it_case
 def check_identity_and_deletion(root):
-    source = producer(root,'iam','IAM.Role','RoleName')
-    consumer(root,'uses-instance','iam','IAM.Role','item1',instance=True)
-    start = baseline(root)
-    binding = source.with_name('bindings.json')
-    data = json.loads(binding.read_text())
-    data['instances']['item1']['resources']['resource']='003'
-    data['instances']['item1']['rows']={'name':'003-001','setting':'003-002'}
-    binding.write_text(json_text(data))
-    assert affected(root,{binding.relative_to(root)}) == {entry('iam'),entry('uses-instance')}
-    git(root,'add','model'); git(root,'commit','-m','Remap')
-    with patch('import_guard.base_revision', return_value=start):
-        assert affected(root,{binding.relative_to(root)}) == {entry('iam'),entry('uses-instance')}
-    del data['instances']['item1']
-    binding.write_text(json_text(data))
-    human=json.loads(source.read_text()); del human['instances']['item1']; source.write_text(json_text(human))
-    assert affected(root,{binding.relative_to(root),source.relative_to(root)}) == {entry('iam'),entry('uses-instance')}
+    source = producer(root, 'iam', 'IAM.Role', 'RoleName')
+    target = consumer(root, 'uses-identity', 'iam', 'IAM.Role')
+    baseline(root)
+    with tempfile.TemporaryDirectory() as directory:
+        before = Path(directory)
+        shutil.copytree(root / 'model', before / 'model')
+        shutil.copyfile(root / 'project.json', before / 'project.json')
+        values = dict(load_model(source).authoritative)
+        values = {key.replace('.001.', '.003.').replace('.001-', '.003-'): value for key, value in values.items()}
+        write_model(source, values)
+        assert affected(root, {source.relative_to(root)}, before=before) == {entry('iam'), entry('uses-identity')}
+        assert any('absent' in warning['message'] for warning in load_model(target).warnings)
+        values = {key: value for key, value in values.items() if not key.startswith(('desired.resource.003.', 'desired.row.003-'))}
+        write_model(source, values)
+        assert affected(root, {source.relative_to(root)}, before=before) == {entry('iam'), entry('uses-identity')}
+        source.unlink()
+        assert affected(root, {source.relative_to(root)}, before=before) == {entry('iam'), entry('uses-identity')}
+        # Removing the last current usage still retains its old incoming scope for final validation.
+        values = dict(load_model(target).authoritative)
+        write_model(target, {key: value for key, value in values.items() if not key.startswith('desired.reference.')})
+        assert affected(root, {source.relative_to(root)}, before=before) == {entry('iam'), entry('uses-identity')}
 
 
 @it_case
 def check_shared_environments(root):
-    dev = producer(root,'iam','IAM.Role','RoleName')
-    stg = producer(root,'iam','IAM.Role','RoleName',env='stg')
-    for env in ('dev','stg'):
-        consumer(root,'build','iam','IAM.Role',env=env)
+    dev = producer(root, 'iam', 'IAM.Role', 'RoleName')
+    stg = producer(root, 'iam', 'IAM.Role', 'RoleName', env='stg')
+    for env in ('dev', 'stg'):
+        consumer(root, 'build', 'iam', 'IAM.Role', env=env)
     baseline(root)
-    change(stg,'item1','Setting',{'trust':['sso-a','sso-b']})
-    template = root/'model/templates/team/iam.properties.tpl'
-    template.write_text(template.read_text()+'# comment-only change\n')
-    assert affected(root,{stg.relative_to(root),template.relative_to(root)}) == {entry('iam','dev'),entry('iam','stg')}
-    change(stg,'item1','Name','stg-renamed')
-    assert affected(root,{stg.relative_to(root),template.relative_to(root)}) == {entry('iam','dev'),entry('iam','stg'),entry('build','stg')}
-    assert json.loads(dev.read_text())['instances']['item1']['parameters']['Name']=='dev-name1'
+    saved = dev.read_bytes()
+    change(stg, '001', 'Setting', {'trust': ['sso-a', 'sso-b']})
+    assert affected(root, {stg.relative_to(root)}) == {entry('iam', 'stg'), entry('build', 'stg')}
+    change(stg, '001', 'Name', 'stg-renamed')
+    assert affected(root, {stg.relative_to(root)}) == {entry('iam', 'stg'), entry('build', 'stg')}
+    assert dev.read_bytes() == saved
 
 
 @it_case
 def check_identifiers(root):
-    catalog=Path(__file__).resolve().parents[4]/'framework/materials/aws/EC2_VPC.properties'
-    write(root/'framework/materials/aws/EC2_VPC.properties',catalog.read_text(encoding='utf-8'))
-    source = producer(root,'vpc','EC2.VPC','Name')
-    template = root/'model/templates/team/vpc.properties.tpl'
-    text = template.read_text().replace('# row: setting resource', '# row: setting resource\n# row: identifier resource').replace('# end-definition', 'desired.row.identifier.property=EC2.VPC.VpcId\ndesired.row.identifier.value=unobserved\n# end-definition')
-    template.write_text(text)
-    binding = json.loads(source.with_name('bindings.json').read_text())
-    for index in (1,2):
-        binding['instances'][f'item{index}']['rows']['identifier']=f'{index:03}-003'
-    source.with_name('bindings.json').write_text(json_text(binding))
-    observed = source.with_name('observed.json')
-    write(observed,json_text({'version':1,'values':{'observed.row.001-003.value':'`vpc-first`','observed.row.002-003.value':'`vpc-second`'}}))
-    consumer(root,'by-id','vpc','EC2.VPC',mode='identifier')
-    ref_template = root/'model/templates/team/by-id.properties.tpl'
-    ref_template.write_text(ref_template.read_text().replace('"format":"identifier"', '"format":"identifier","property":"EC2.VPC.VpcId"'))
-    consumer(root,'by-name','vpc','EC2.VPC')
-    consumer(root,'by-anchor','vpc','EC2.VPC',mode='anchor')
+    source = producer(root, 'vpc', 'EC2.VPC', 'Name')
+    values = dict(load_model(source).authoritative)
+    for rid, identifier in [('001', 'first'), ('002', 'second')]:
+        values.update({f'desired.row.{rid}-003.property': 'EC2.VPC.VpcId',
+                       f'desired.row.{rid}-003.comment': '識別子', f'desired.row.{rid}-003.value': 'PENDING_DEPLOY',
+                       f'observed.row.{rid}-003.value': '`vpc-' + identifier + '`'})
+    write_model(source, values)
+    paths = [consumer(root, 'by-id', 'vpc', 'EC2.VPC', mode='identifier'),
+             consumer(root, 'by-name', 'vpc', 'EC2.VPC'), consumer(root, 'by-anchor', 'vpc', 'EC2.VPC', mode='link')]
     baseline(root)
-    own={entry('vpc')}
-    data=json.loads(observed.read_text()); data['values']['observed.row.002-003.value']='`vpc-second-new`'; observed.write_text(json_text(data))
-    assert affected(root,{observed.relative_to(root)}) == own, affected(root,{observed.relative_to(root)})
-    data['values']['observed.row.001-003.value']='`vpc-first-new`'; observed.write_text(json_text(data))
-    assert affected(root,{observed.relative_to(root)}) == own|{entry('by-id')}
-    del data['values']['observed.row.001-003.value']; observed.write_text(json_text(data))
-    assert affected(root,{observed.relative_to(root)}) == own|{entry('by-id')}
+    saved = [path.read_bytes() for path in paths]
+    digest, hashes = design_source_digest(source), dependency_hashes(paths[0])
+    values['observed.row.002-003.value'] = '`vpc-second-new`'
+    write_model(source, values)
+    expected = {entry(s) for s in ('vpc', 'by-id', 'by-name', 'by-anchor')}
+    assert affected(root, {source.relative_to(root)}) == expected
+    values['observed.row.001-003.value'] = '`vpc-first-new`'
+    write_model(source, values)
+    assert affected(root, {source.relative_to(root)}) == expected
+    assert design_source_digest(source) == digest and dependency_hashes(paths[0]) != hashes
+    del values['observed.row.001-003.value']; write_model(source, values)
+    assert any('unobserved' in warning['message'] for warning in load_model(paths[0]).warnings)
+    assert [path.read_bytes() for path in paths] == saved
 
 
 @it_case
 def check_type_and_unknown(root):
-    source=producer(root,'iam','IAM.Role','RoleName')
-    consumer(root,'build','iam','IAM.Role')
+    source = producer(root, 'iam', 'IAM.Role', 'RoleName')
+    target = consumer(root, 'build', 'iam', 'IAM.Role')
     baseline(root)
-    template=root/'model/templates/team/iam.properties.tpl'
-    template.write_text(template.read_text().replace('resourceType=IAM.Role','resourceType=IAM.User'))
-    assert affected(root,{template.relative_to(root)}) == {entry('iam'),entry('build')}
-    template.unlink()
+    text = source.read_text(); source.write_text(text.replace('resourceType=IAM.Role', 'resourceType=IAM.User'))
+    assert affected(root, {source.relative_to(root)}) == {entry('iam'), entry('build')}
+    assert any('Type' in warning['message'] for warning in load_model(target).warnings)
+    source.write_text(text + 'desired.resource.001.resourceType=IAM.Role\n')
     try:
-        affected(root,{template.relative_to(root)})
-    except (OSError,ValueError):
-        pass
+        affected(root, {source.relative_to(root)})
+    except ValueError as error:
+        assert 'duplicate' in str(error), str(error)
     else:
-        raise AssertionError('missing authoritative template must stop')
+        raise AssertionError('malformed authority must stop incoming analysis')
+    source.unlink()
+    assert affected(root, {source.relative_to(root)}) == {entry('iam'), entry('build')}
+    assert load_model(target).warnings
 
 
 @it_case
 def check_import_scope(root):
     from import_guard import changes
-    source=producer(root,'iam','IAM.Role','RoleName')
-    consumer(root,'build','iam','IAM.Role')
+    source = producer(root, 'iam', 'IAM.Role', 'RoleName')
+    consumer(root, 'build', 'iam', 'IAM.Role')
     baseline(root)
-    change(source,'item1','Setting',{'trust':['new']})
-    _, found=changes(root,{source.relative_to(root).as_posix()},include_create=True)
-    assert set(found)=={'dev/team/iam/001'}, found
-    change(source,'item1','Name','renamed')
-    _, found=changes(root,{source.relative_to(root).as_posix()},include_create=True)
-    assert set(found)=={'dev/team/iam/001'},found
-    assert affected(root,{source.relative_to(root)}) == {entry('iam'), entry('build')}
+    for key, value in [('Setting', {'trust': ['new']}), ('Name', 'renamed')]:
+        change(source, '001', key, value)
+        _, found = changes(root, {source.relative_to(root).as_posix()}, include_create=True)
+        assert set(found) == {'dev/team/iam/001'}, found
+        assert affected(root, {source.relative_to(root)}) == {entry('iam'), entry('build')}
 
 
 @it_case
 def check_selection(root):
-    source=producer(root,'iam','IAM.Role','RoleName')
-    unused=producer(root,'unused','IAM.Role','RoleName')
-    human=consumer(root,'build','iam','IAM.Role',fixed=True)
-    template=root/'model/templates/team/build.properties.tpl'
-    template.write_text(template.read_text().replace('# resource: resource', '# parameter: UseSecond {"type":"boolean","description":"参照選択","required":true}\n# reference: Second {"service":"iam","resource":"002","resourceType":"IAM.Role","format":"name"}\n# choice: desired.row.source.value {"parameter":"UseSecond","value":"<<Second>>"}\n# resource: resource',1))
-    human.write_text(json_text({'instances':{'consumer':{'parameters':{'UseSecond':True}}}}))
+    source = producer(root, 'iam', 'IAM.Role', 'RoleName')
+    unused = producer(root, 'unused', 'IAM.Role', 'RoleName')
+    target = consumer(root, 'build', 'iam', 'IAM.Role', '002', fixed=True)
     baseline(root)
-    change(source,'item1','Name','unselected-name')
-    assert affected(root,{source.relative_to(root)}) == {entry('iam')}
-    change(unused,'item1','Name','unused-name')
-    assert affected(root,{unused.relative_to(root)}) == {entry('unused')}
-    change(source,'item2','Name','selected-name')
-    assert affected(root,{source.relative_to(root)}) == {entry('iam'),entry('build')}
+    change(source, '001', 'Name', 'unselected-name')
+    assert affected(root, {source.relative_to(root)}) == {entry('iam'), entry('build')}
+    change(unused, '001', 'Name', 'unused-name')
+    assert affected(root, {unused.relative_to(root)}) == {entry('unused')}
+    change(source, '002', 'Name', 'selected-name')
+    assert affected(root, {source.relative_to(root)}) == {entry('iam'), entry('build')}
+    from model.importing.scope import restrict, read_consumers
+    with restrict(entry('iam')), read_consumers({entry('iam'), entry('build')}):
+        assert set(dependencies(root)) == {entry('iam'), entry('build')}
+    assert target.read_bytes() and len([key for key in load_model(target).authoritative if key.startswith('desired.resource.') and key.endswith('.resourceType')]) == 1
 
 
 @it_case
 def check_cycles(root):
-    consumer(root,'alpha','beta','CodeBuild.Project','005')
-    consumer(root,'beta','alpha','CodeBuild.Project','005')
+    left = consumer(root, 'alpha', 'beta', 'CodeBuild.Project', '005')
+    right = consumer(root, 'beta', 'alpha', 'CodeBuild.Project', '005')
     baseline(root)
-    template=root/'model/templates/team/alpha.properties.tpl'
-    template.write_text(template.read_text()+'# changed\n')
-    assert affected(root,{template.relative_to(root)}) == {entry('alpha'),entry('beta')}
+    saved = right.read_bytes()
+    left.write_text(left.read_text() + '# changed\n')
+    assert affected(root, {left.relative_to(root)}) == {entry('alpha'), entry('beta')}
+    assert right.read_bytes() == saved
 
 
 with tempfile.TemporaryDirectory() as directory:
-    root=Path(directory)
-    for service,kind,name_property in [('iam','IAM.Role','RoleName'),('s3','S3.Bucket','BucketName'),('lambda','Lambda.Function','FunctionName')]:
-        path=root/service;path.mkdir();check_precision(path,service,kind,name_property)
-    path=root/'identity';path.mkdir();check_identity_and_deletion(path)
-    path=root/'shared';path.mkdir();check_shared_environments(path)
-    for label,check in [('identifiers',check_identifiers),('type',check_type_and_unknown),('import',check_import_scope),('selection',check_selection),('cycles',check_cycles)]:
-        path=root/label;path.mkdir();check(path)
-print('PASS: precise Model reference impact across services, snapshots and environments')
+    root = Path(directory)
+    checks = [(service, check_precision, (service, kind, prop)) for service, kind, prop in [
+        ('iam', 'IAM.Role', 'RoleName'), ('s3', 'S3.Bucket', 'BucketName'), ('lambda', 'Lambda.Function', 'FunctionName')]]
+    checks += [(label, check, ()) for label, check in [('identity', check_identity_and_deletion),
+        ('shared', check_shared_environments), ('identifiers', check_identifiers), ('type', check_type_and_unknown),
+        ('import', check_import_scope), ('selection', check_selection), ('cycles', check_cycles)]]
+    for label, check, args in checks:
+        path = root / label
+        setup(path, ('iam', 's3', 'lambda', 'vpc', 'codebuild'), ('IAM.Role', 'S3.Bucket', 'Lambda.Function', 'EC2.VPC', 'CodeBuild.Project'), environments=('dev', 'stg'))
+        check(path, *args)
+print('PASS: saved Model reference impact, resource changes, snapshots and environments')

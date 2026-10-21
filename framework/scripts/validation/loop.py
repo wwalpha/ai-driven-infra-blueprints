@@ -272,17 +272,15 @@ def select_checks(root, paths, affected=False):
         *mapping["framework/scripts/tests/integrations/design_document.checks.py"], "design_layout.checks.py", "policy_tables.checks.py"}
     # EC2 restoration is consumed through shared layout, projection and dynamic fixtures.
     mapping["framework/scripts/ec2_display.py"] = {check.name for check in checks}
-    mapping["framework/scripts/model_core.py"] = {check.name for check in checks}
-    for name in ("service_rows", "model_display"):
-        mapping[f"framework/scripts/{name}.py"] = {check.name for check in checks}
-    for name in ("model_projection", "model_references"):
-        mapping[f"framework/scripts/{name}.py"] = {check.name for check in checks}
+    mapping["framework/scripts/service_rows.py"] = {check.name for check in checks}
+    for path in (root / "framework/scripts/model").rglob("*.py"):
+        mapping[path.relative_to(root).as_posix()] = {check.name for check in checks}
     for name in ("sync_runtime", "sync_views", "sync_files"):
         mapping[f"framework/scripts/{name}.py"] = {check.name for check in checks}
     comparison = {"comparison_core.checks.py", "issues_scan.checks.py", "check-model-aws.checks.py",
                   "cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
     mapping["framework/scripts/comparison_rows.py"] = comparison
-    mapping["framework/scripts/check-model-aws.py"] = comparison
+    mapping["framework/scripts/model/adapters/aws.py"] = comparison
     mapping["framework/scripts/issues_iac.py"] = comparison - {"check-model-aws.checks.py"}
     mapping["framework/scripts/cloudformation-deploy.py"] = {"cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
     for name in ("__init__", "scheduler", "aws_adapter", "delivery", "change_sets", "repair", "secret_bootstrap", "session"):

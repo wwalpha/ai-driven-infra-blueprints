@@ -16,10 +16,10 @@ from pathlib import Path
 from iac_values import fingerprint
 
 from cloudformation_inputs import Blocked
-from cloudformation_observed import destroy_plan, sync_destroyed
+from model.adapters.observed import destroy_plan, sync_destroyed
 from issue_gate import require_target_no_issues
-from model_core import stack_model
-from model_files import load_model
+from model.core import stack_model
+from model.files import load_model
 from task_contract import task_path, status, paths_in, matches
 from validation_scope import active_scope
 

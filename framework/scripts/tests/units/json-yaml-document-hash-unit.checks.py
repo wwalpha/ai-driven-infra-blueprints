@@ -10,9 +10,9 @@ from support.json_yaml_document_hash_fixtures import *
 
 def check_json_hash_types():
     sample={'x':'日本語','n':2,'b':False}
-    assert t.json_text(sample)=='{"x":"日本語","n":2,"b":false}'
-    assert t.digest(sample)==hashlib.sha256(t.json_text(sorted(sample.items())).encode('utf-8')).hexdigest()
-    assert t.digest({'n':'2'})!=t.digest({'n':2})
+    assert json_text(sample)=='{"x":"日本語","n":2,"b":false}'
+    assert document_sha256(sample)==hashlib.sha256(json.dumps(sample, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode('utf-8')).hexdigest()
+    assert document_sha256({'n':'2'})!=document_sha256({'n':2})
 
 
 

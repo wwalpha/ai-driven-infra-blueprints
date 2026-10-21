@@ -185,7 +185,7 @@ class PassCache:
                                          self.common, inputs]).encode("utf-8")).hexdigest()
 
     def service_key(self, entry):
-        from model_templates import source_inputs, service_source, source_paths
+        from model.sources import source_inputs, model_exists
         environment, target, service = entry
         docs = self.root / "docs/designs"
         models = self.root / "model"
@@ -199,7 +199,7 @@ class PassCache:
                 raise ValueError("unknown design dependency; require fresh validation")
             paths.add(path)
             model = (models / path.relative_to(docs)).with_suffix(".properties")
-            if service_source(model) is not None:
+            if model_exists(model):
                 paths.update(source_inputs(model))
             elif path == docs / environment / target / f"{service}.md":
                 raise ValueError("missing service model")
@@ -207,11 +207,11 @@ class PassCache:
             for entrance in (path,):
                 paths.update(file for file in entrance.with_suffix("").rglob("*")
                              if file.is_file() or file.is_symlink())
-            paths.update(file for file in source_paths(model)[2].rglob("*")
+            paths.update(file for file in model.with_suffix("").rglob("*")
                          if file.is_file() or file.is_symlink())
             texts = [path.read_text(encoding="utf-8")]
-            if service_source(model) is not None:
-                from model_files import read_model
+            if model_exists(model):
+                from model.files import read_model
                 texts.append(read_model(model))
             for text in texts:
                 for raw in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text):

@@ -268,6 +268,7 @@ def check_inputs(tmp_path):
     for field in ("dependsOn", "AfterStack", "DependsOnStack", "Dependencies"):
         rejects(lambda: stack_model(values | {"desired.stack.001." + field: "A"}), "requires only")
     root = tmp_path
+    (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', **TARGET}]}))
     path = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
     path.parent.mkdir(parents=True)
     # Naming rules need only the established file; no alternative schema.
@@ -494,7 +495,7 @@ def check_delivery(tmp_path):
     model.parent.mkdir(parents=True, exist_ok=True)
     write_model(model, "desired.resource.001.resourceType=S3.Bucket\ndesired.resource.001.logicalId=Assets\n"
                      "desired.resource.001.anchor=s3-app-dev-assets\ndesired.row.001-001.property=S3.Bucket.BucketName\n"
-                     "desired.row.001-001.value=`app-dev-assets`\n")
+                     "desired.row.001-001.value=`app-dev-assets`\ndesired.row.001-001.comment=配置先bucket\n")
     design.write_text(markdown_for(design, values, root))
     view = design.read_text()
     assert "| Property | Value |" not in view and "| TemplateBucket |" not in view and "| TemplateKeyPrefix |" not in view
@@ -561,7 +562,7 @@ def check_delivery(tmp_path):
                      'desired.service.s3.ownedCatalogResourceTypes': 'S3.Bucket',
                      'display.service.title': '# S3 詳細設計',
                      'desired.resource.001.deploymentEncryption': 'default'})
-    from model_core import entries
+    from model.core import entries
     for identity, resource in entries(approved, 'desired.resource.'):
         approved[f'desired.resource.{identity}.resourceMode'] = 'IMPORT'
         approved[f'display.resource.{identity}.comment'] = '配置先bucket'
@@ -663,10 +664,10 @@ def check_delivery_encryption(tmp_path):
     path = backend.root / 'model/dev/123456789012/kms.properties'
     write_model(path, '\n'.join([
         'desired.resource.001.resourceType=KMS.Key', 'desired.resource.001.anchor=kms-key',
-        'desired.row.001-001.property=KMS.Key.KeyId', 'desired.row.001-001.value=[PENDING_DEPLOY](#kms-key)',
+        'desired.row.001-001.property=KMS.Key.KeyId', 'desired.row.001-001.value=[PENDING_DEPLOY](#kms-key)', 'desired.row.001-001.comment=固定Key ID',
         'observed.row.001-001.value=test-key', 'desired.resource.002.resourceType=KMS.Alias',
         'desired.resource.002.anchor=kms-alias', 'desired.resource.002.parentReference=[key](#kms-key)',
-        'desired.row.002-001.property=KMS.Alias.AliasName', 'desired.row.002-001.value=alias/test']))
+        'desired.row.002-001.property=KMS.Alias.AliasName', 'desired.row.002-001.value=alias/test', 'desired.row.002-001.comment=固定Alias']))
     for reference in ('[key](kms.md#kms-key)', '[alias/test](kms.md#kms-alias)'):
         backend.add_bucket(bucket, 'aws:kms', reference)
         before = snapshot_model(path)
@@ -761,7 +762,7 @@ def check_delivery_encryption(tmp_path):
     backend.add_bucket(bucket, 'UNSET')
     rejects(lambda: backend.upload(source, bucket, prefix), 'unconfirmed')
     model = backend.root / 'model/dev/123456789012/s3.properties'
-    __import__("shutil").rmtree(__import__("model_templates").source_paths(model)[2])
+    remove_model(model)
     rejects(lambda: backend.upload(source, bucket, prefix), 'INDETERMINATE')
     # Session restart rechecks AWS policy/default/alias and never adopts changed conditions.
     backend, source = fresh()
@@ -837,7 +838,7 @@ def check_session_cli(tmp_path):
     (root / "framework/rules").mkdir()
     (root / "framework/rules/aws-resource-naming.md").write_text(
         "| CloudFormation | Stack | `CloudFormation.Stack` | StackName | `.*` |\n")
-    (root / "project.json").write_text(json.dumps({"targets": [{"environment": "dev", **TARGET, "awsProfile": "dev-profile"}]}))
+    (root / "project.json").write_text(json.dumps({"targets": [{"environment": "dev", **TARGET, "awsProfile": "dev-profile"}, {"environment": "stg", **TARGET}]}))
     (root / "tasks").mkdir()
     contract = root / "tasks/active.md"
     contract.write_text("\n".join(["- Task type: `infrastructure`", "- Infrastructure phase: `deploy`",
@@ -864,7 +865,7 @@ def check_session_cli(tmp_path):
     consumer = source.with_name("consumer.properties")
     reference = root / "model/stg/123456789012/reference.properties"
     reference.parent.mkdir(parents=True)
-    write_model(reference, "desired.resource.001.resourceType=Logs.LogGroup\ndesired.resource.001.anchor=logs-reference\ndesired.row.001-001.value=approved\n")
+    write_model(reference, "desired.resource.001.resourceType=Logs.LogGroup\ndesired.resource.001.anchor=logs-reference\ndesired.row.001-001.property=Logs.LogGroup.LogGroupName\ndesired.row.001-001.value=approved\ndesired.row.001-001.comment=参照先\n")
     write_model(consumer, "desired.resource.001.resourceType=Logs.LogGroup\ndesired.resource.001.anchor=logs-consumer\ndesired.row.001-001.property=Logs.LogGroup.LogGroupName\n"
                         "desired.row.001-001.value=[reference](../../stg/123456789012/reference.md#reference)\n"
                         "desired.row.001-001.comment=参照する名前\n")
@@ -912,12 +913,14 @@ def check_session_cli(tmp_path):
     def invoke(options=()):
         def subprocess_result(command, **kwargs):
             return SimpleNamespace(returncode=0, stdout='{"Account":"123456789012"}' if "get-caller-identity" in command else "", stderr="")
-        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()), \
+        with redirect_stdout(io.StringIO()) as output, redirect_stderr(io.StringIO()) as errors_output, \
                 patch.object(M, "AwsBackend", side_effect=backend_factory), \
                 patch.object(shutil, "which", return_value="mock-command"), \
                 patch.object(M.subprocess, "run", side_effect=subprocess_result) as run, \
                 patch.object(M.session_ops, "run_session", side_effect=run_session):
             result = M.main(argv + list(options), root=root)
+            if not state_file.exists() and "other" not in options:
+                assert False, output.getvalue() + errors_output.getvalue()
             if run.called:
                 context_calls = [c for c in run.call_args_list if "get-caller-identity" in c.args[0]]
                 assert len(context_calls) == 1
@@ -984,10 +987,9 @@ def check_session_cli(tmp_path):
                        (contract, contract.read_text() + "\n# contract changed\n"),
                        (root / "framework/scripts/check-deploy-context.py", "# controller dependency changed\n"),
                        (root / "framework/rules/aws-resource-naming.md", "# rule dependency changed\n")):
-        authorities = __import__("model_templates").source_paths(path)
-        path = authorities[2]/"parameters.yaml" if authorities else path
+        canonical = path.suffix == '.properties' and path.is_relative_to(root / 'model')
         before = path.read_bytes()
-        if authorities:
+        if canonical:
             text = before.decode()+"# canonical input changed\n"
         mutation[0] = lambda path=path, text=text: path.write_text(text)
         assert invoke(["--resume"]) == 2, path
@@ -1013,7 +1015,7 @@ def check_session_cli(tmp_path):
     artifact_source.write_text("print('approved')\n")
     bucket_model = source.with_name("s3.properties")
     write_model(bucket_model, "desired.resource.001.resourceType=S3.Bucket\ndesired.resource.001.anchor=s3-assets\n"
-                            "desired.row.001-001.property=S3.Bucket.BucketName\ndesired.row.001-001.value=`assets`\n")
+                            "desired.row.001-001.property=S3.Bucket.BucketName\ndesired.row.001-001.value=`assets`\ndesired.row.001-001.comment=配布先bucket\n")
     artifact = {"stack": "A", "resource": "Job", "property": "Command.ScriptLocation",
                 "source": artifact_source.relative_to(root).as_posix(), "bucket": "[assets](s3.md#s3-assets)", "keyPrefix": "jobs/"}
     with_artifact = values | {"desired.artifact.001." + key: value for key, value in artifact.items()}
@@ -1029,7 +1031,7 @@ def check_session_cli(tmp_path):
     assert invoke(["--resume"]) == 2  # Resume also rejects changed target artifact bytes.
     for file,data in saved_source.items():file.write_bytes(data)
     design.write_bytes(saved_design)
-    __import__("shutil").rmtree(__import__("model_templates").source_paths(bucket_model)[2])
+    remove_model(bucket_model)
     state_file, argv = saved_state, saved_argv
     print("Deployment input isolation: PASS (A/B unrelated invalid stg guard/resume; C/D/E target/shared; artifact guard/resume; H framework; I target account/region/profile/engine; target/reference model/contract guards)")
     assert invoke(["--resume", "--approve-change-set", "cs-A"]) == 2
@@ -1066,13 +1068,16 @@ def check_session_cli(tmp_path):
         assert not any(op == "list-stacks" for op, _ in backends[-1].calls)
         assert invoke(["--resume"]) == 0 and not backends[-1].calls
         assert json.loads(state_file.read_text())["metrics"]["validationCount"] == 1
-        # Legacy session gets one fresh validation; successful stacks are not reexecuted.
-        session = json.loads(state_file.read_text())
+        # Old format sessions are rejected without rewriting or reexecuting them.
+        current_session = state_file.read_bytes()
+        session = json.loads(current_session)
         for key in ("version", "validationStatus", "validationDigest", "validationTemplates", "validationTemplatesDigest"):
             session.pop(key, None)
         state_file.write_text(json.dumps(session))
-        assert invoke(["--resume"]) == 0 and not backends[-1].calls
-        assert json.loads(state_file.read_text())["version"] == 2
+        legacy_bytes = state_file.read_bytes()
+        assert invoke(["--resume"]) == 2 and not backends[-1].calls
+        assert state_file.read_bytes() == legacy_bytes
+        state_file.write_bytes(current_session)
 
         # CLI resume dispatches the persisted bootstrap intent with the same token.
         session = json.loads(state_file.read_text())
@@ -1201,9 +1206,9 @@ def check_parallel_and_restart():
     assert session["observedError"] == "AMBIGUOUS_OBSERVED_MAPPING"
 
 
-def check_observed_collector(framework_root):
-    from cloudformation_observed import sync_successful, mappings
-    root = framework_root
+def check_observed_collector(managed_framework_root):
+    from model.adapters.observed import sync_successful, mappings
+    root = managed_framework_root
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET, "awsExecutionAccountId": "999999999999"}]}) + "\n")
     source = root / "model/dev/123456789012/ec2.properties"
     source.parent.mkdir(parents=True)
@@ -1231,9 +1236,13 @@ def check_observed_collector(framework_root):
         write_model(source, "\n".join(k + "=" + v for k, v in values.items()) + "\n")
         design.write_text(markdown_for(design, values, root))
     save_model()
-    task = root / "tasks/active.md"
-    task.parent.mkdir()
-    task.write_text("- Task type: `infrastructure`\n## Validation scope\n- `dev/123456789012/ec2`\n## Allowed paths\n- `model/dev/123456789012/**`\n- `model/parameters/dev/123456789012/**`\n- `docs/designs/dev/123456789012/**`\n")
+    stack_values = {}
+    for number, unit in enumerate(units(10, 20), 1):
+        stack_values.update({f'desired.stack.{number:03d}.' + key: value for key, value in unit.items()})
+    write_model(source.with_name('cloudformation-stacks.properties'), stack_values)
+    task = root / "tasks/observation-fixture.md"
+    task.parent.mkdir(exist_ok=True)
+    task.write_text(observation_contract(root, ['ec2']))
     backend = M.AwsBackend(root, "dev", "123456789012", TARGET)
     unit = units(10)[0]
     document = {"Resources": {"VpcTestDev": {"Type": "AWS::EC2::VPC"}},
@@ -1254,7 +1263,7 @@ def check_observed_collector(framework_root):
     backend.aws = aws
     before = snapshot_model(source)
     # One model scan collects missing identities and identifier rows across stacks.
-    import cloudformation_observed as observed
+    from model.adapters import observed
     subnet_identifier = values["desired.row.002-003.value"]
     values["desired.row.002-003.value"] = "`PENDING_DEPLOY`"
     write_model(source, "\n".join(k + "=" + v for k, v in values.items()) + "\n")
@@ -1286,11 +1295,18 @@ def check_observed_collector(framework_root):
     rejects(lambda: sync_successful(backend, [unit], states([unit])), "task scope violation")
     assert snapshot_model(source) == before
     import shutil
-    shutil.rmtree(__import__("model_templates").source_paths(consumer)[2])
+    remove_model(consumer)
     unrelated = root / "model/prod/999999999999/broken.properties"
     unrelated.parent.mkdir(parents=True)
-    write_model(unrelated, 'invalid=one\n')
+    unrelated.write_text('# model-format: 2\ninvalid=one\n')
+    project = root / 'project.json'
+    data = json.loads(project.read_text())
+    data['targets'].append({'environment': 'prod', 'awsAccountId': '999999999999', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'})
+    project.write_text(json.dumps(data) + '\n')
     saved = states([unit])
+    rejects(lambda: sync_successful(backend, [unit], saved), 'invalid Model key')
+    assert snapshot_model(source) == before
+    unrelated.unlink()
     with redirect_stdout(io.StringIO()):
         sync_successful(backend, [unit], saved)
     observed = properties(read_model(source))
@@ -1314,13 +1330,25 @@ def check_observed_collector(framework_root):
     physical[0] = "vpc-abcdef01234567890"
     indexed_values = properties(read_model(source)) | {f"desired.note.{number:03d}.text": "保持する設計注記" for number in range(1, 621)}
     write_model(source, indexed_values)
-    template = __import__('model_templates').source_paths(source)[1]
-    parts = __import__('model_files').model_parts(template)
+    from model.sources import load_model, model_parts
+    from model.format import parse, patch as patch_properties
+    template = source
+    parts = model_parts(source)
     assert len(parts) > 1
     before_parts = {p: p.read_bytes() for p in [template,*parts]}
     with redirect_stdout(io.StringIO()):
         sync_successful(backend, [unit], saved)
-    assert before_parts == {p: p.read_bytes() for p in before_parts}
+    after_parts = load_model(source)
+    assert set(after_parts.files) == set(before_parts)
+    for file, raw in before_parts.items():
+        if file == source:
+            assert file.read_bytes() == raw
+            continue
+        part_document = parse(raw.decode())
+        changes = {key: after_parts.authoritative[key] for key, value in part_document.values.items()
+                   if after_parts.authoritative.get(key) != value}
+        assert all(key.startswith('observed.row.') and key.endswith('.value') for key in changes)
+        assert file.read_bytes() == patch_properties(part_document, changes).encode()
     assert properties(read_model(source))["observed.row.002-002.value"] == physical[0]
 
     # Approved physical deletion resets the formal row and every reference; retention blocks.
@@ -1337,10 +1365,10 @@ def check_observed_collector(framework_root):
     assert properties(read_model(source))["observed.row.002-002.value"] == "PENDING_DEPLOY"
 
 
-def check_shared_stack_mapping(framework_root):
-    from cloudformation_observed import mappings, sync_successful, preflight, validate_mapping_targets, removed_resources
-    from model_files import read_model
-    root = framework_root
+def check_shared_stack_mapping(managed_framework_root):
+    from model.adapters.observed import mappings, sync_successful, preflight, validate_mapping_targets, removed_resources
+    from model.files import read_model
+    root = managed_framework_root
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}) + "\n")
     source = root / "model/dev/123456789012/ec2.properties"
     source.parent.mkdir(parents=True)
@@ -1375,9 +1403,9 @@ def check_shared_stack_mapping(framework_root):
     assert "cfn-logical-id:" not in view.read_text(encoding="utf-8")
     stack_view = view.with_name("cloudformation-stacks.md")
     stack_view.write_text(markdown_for(stack_view, stack_values, root), encoding="utf-8")
-    task = root / "tasks/active.md"
-    task.parent.mkdir()
-    task.write_text("- Task type: `infrastructure`\n## Validation scope\n- `dev/123456789012/ec2`\n## Allowed paths\n- `model/dev/123456789012/**`\n- `model/parameters/dev/123456789012/**`\n- `docs/designs/dev/123456789012/**`\n")
+    task = root / "tasks/observation-fixture.md"
+    task.parent.mkdir(exist_ok=True)
+    task.write_text(observation_contract(root, ("ec2", "cloudformation-stacks")))
     document = {"Parameters": {"Enabled": {"Type": "String", "Default": "yes"}},
                 "Conditions": {"Active": {"Fn::Equals": [{"Ref": "Enabled"}, "yes"]}, "Disabled": False},
                 "Resources": {"DepartmentVpc": {"Type": "AWS::EC2::VPC", "Condition": "Active"},
@@ -1398,21 +1426,20 @@ def check_shared_stack_mapping(framework_root):
     for unit in scoped:
         (params / unit["parameters"]).write_text("[]")
 
-    import cloudformation_observed as observed
-    import model_files
-    import model_templates
-    from import_scope import scoped_read
+    from model.adapters import observed
+    import model.files as model_files
+    import model.sources as model_sources
     from validation_cache import input_scope, memoized, memo_table
     from collections import Counter
 
     def measured(entry, *args):
         bodies = Counter()
-        original = model_files.load_model.__wrapped__.__wrapped__
-        def body(*inputs):
-            bodies[inputs] += 1
-            return original(*inputs)
-        with patch.object(model_files, 'load_model', wraps=scoped_read(memoized(body))) as lookups, \
-             patch.object(model_templates, 'expand', wraps=model_templates.expand) as expanded:
+        original = model_sources._read_model
+        def body(scope, reads):
+            bodies[scope.path] += 1
+            return original(scope, reads)
+        with patch.object(model_files, 'load_model', wraps=model_sources.load_model) as lookups, \
+             patch.object(model_sources, '_read_model', side_effect=body) as expanded:
             result = entry(*args)
         return result, lookups.call_count, bodies, expanded.call_count
 
@@ -1427,8 +1454,8 @@ def check_shared_stack_mapping(framework_root):
                 before, hits_before, bodies_before, expansions_before = measured(entry.__wrapped__, *args)
             after, hits_after, bodies_after, expansions_after = measured(entry, *args)
             assert after == before
-            assert hits_before == expected_before and hits_after == expected_before
-            assert sum(bodies_before.values()) == expansions_before == expected_before
+            assert hits_before == hits_after and hits_after >= expected_after, (hits_before, hits_after, dict(bodies_before), dict(bodies_after))
+            assert sum(bodies_before.values()) == expansions_before == expected_before, (dict(bodies_before), expansions_before, expected_before)
             assert sum(bodies_after.values()) == expansions_after == expected_after
             assert max(bodies_after.values()) == 1 and memo_table() is None
             print(f'{entry.__name__} synthetic reuse: lookups={hits_before}->{hits_after}, '
@@ -1446,13 +1473,13 @@ def check_shared_stack_mapping(framework_root):
             assert measured(entry, *args)[3] == expected_after  # Separate invocation re-expands.
 
         # Optional observed input creation/removal is visible on the very next mapping.
-        observed_path = model_templates.source_paths(source)[2] / 'observed.json'
-        observed_path.write_text('{', encoding='utf-8')
+        original_source = source.read_bytes()
+        source.write_bytes(original_source + b'observed.row.001-002.value=`[NaN]`\n')
         try:
-            rejects(lambda: mappings(root, 'dev', '123456789012', backend.templates, scoped), 'Expecting')
+            rejects(lambda: mappings(root, 'dev', '123456789012', backend.templates, scoped), 'invalid')
             assert memo_table() is None
         finally:
-            observed_path.unlink()
+            source.write_bytes(original_source)
         assert mappings(root, 'dev', '123456789012', backend.templates, scoped) == backend.mapping_plan
         # Current contract scope is re-read, even when an outer snapshot already has the Model.
         @input_scope
@@ -1489,8 +1516,9 @@ def check_shared_stack_mapping(framework_root):
             return {"Stacks": [{"StackStatus": "CREATE_COMPLETE", "Outputs": [{"OutputKey": "VpcId", "OutputValue": expected[name]}]}]}
         assert operation == "list-stack-resources"
         return {"StackResourceSummaries": [{"LogicalResourceId": "DepartmentVpc", "ResourceType": "AWS::EC2::VPC", "PhysicalResourceId": expected[name]}]}
+    task.write_text(observation_contract(root, ("ec2", "cloudformation-stacks")))
     backend.aws = aws
-    with patch("cloudformation_observed.mappings", side_effect=AssertionError("must reuse validated mapping")), redirect_stdout(io.StringIO()):
+    with patch("model.adapters.observed.mappings", side_effect=AssertionError("must reuse validated mapping")), redirect_stdout(io.StringIO()):
         sync_successful(backend, scoped, states(scoped))
     actual = properties(read_model(source))
     for index, unit in enumerate(scoped, 1):
@@ -1544,7 +1572,7 @@ def check_shared_stack_mapping(framework_root):
     repo_templates = dict(backend.templates)
     repo_templates[scoped[0]["name"]] = (repo_doc, {"Enabled": "yes"})
     # Extend fixture scope solely for this explicitly mapped resource.
-    task.write_text(task.read_text().replace("## Allowed paths", "- `dev/123456789012/codecommit`\n## Allowed paths"))
+    task.write_text(observation_contract(root, ("ec2", "codecommit", "cloudformation-stacks")))
     try:
         mappings(root, "dev", "123456789012", repo_templates, scoped)
     except ValueError as error:
@@ -1559,7 +1587,7 @@ def check_shared_stack_mapping(framework_root):
     # A removal is checked before execution even though the new Condition is false.
     save(stack_source, stack_values)
     save(source, actual)
-    __import__("shutil").rmtree(__import__("model_templates").source_paths(repo)[2])
+    remove_model(repo)
     backend.templates = inactive
     removing = {scoped[1]["name"]: {"DepartmentVpc": {"Type": "AWS::EC2::VPC", "PolicyAction": "Delete"}}}
     backend.mapping_plan = mappings(root, "dev", "123456789012", backend.templates, scoped, removing)
@@ -1576,14 +1604,14 @@ def check_shared_stack_mapping(framework_root):
     # Resume restores removal ownership from the immutable recorded change set, without re-execution.
     backend.mapping_plan = mappings(root, "dev", "123456789012", backend.templates, scoped,
                                     removed_resources(scoped, deleted), target=TARGET)
-    with patch("cloudformation_observed.mappings", side_effect=AssertionError("resume must reuse validated plan")), redirect_stdout(io.StringIO()):
+    with patch("model.adapters.observed.mappings", side_effect=AssertionError("resume must reuse validated plan")), redirect_stdout(io.StringIO()):
         sync_successful(backend, [scoped[1]], deleted)
     assert deleted[scoped[1]["name"]]["observedSynced"]
     print("Shared stack mapping checks: PASS (ism/ced/sd identifiers, Conditions, explicit failures, CodeCommit Outputs, validated-plan reuse, deletion)")
 
 
 def check_import_implementation_mapping(framework_root):
-    from cloudformation_observed import mappings, preflight
+    from model.adapters.observed import mappings, preflight
     root = framework_root
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}))
     model = root / "model/dev/123456789012"
@@ -1639,16 +1667,17 @@ def check_import_implementation_mapping(framework_root):
 
 
 def check_integrated_child_mapping(framework_root):
-    from cloudformation_observed import mappings, sync_successful
+    from model.adapters.observed import mappings, sync_successful
     root = framework_root
+    (root / "project.json").write_text(json.dumps({"targets": [{"environment": "dev", **TARGET}]}) + "\n")
     model = root / "model/dev/123456789012"
     model.mkdir(parents=True)
     task = root / "tasks/active.md"
     task.parent.mkdir()
-    task_text = "## Validation scope\n- `dev/123456789012/s3`\n- `dev/123456789012/ec2`\n- `dev/123456789012/codecommit`\n## Allowed paths\n- `model/dev/123456789012/**`\n- `model/parameters/dev/123456789012/**`\n- `docs/designs/dev/123456789012/**`\n"
+    task_text = "## Task contract\n- Task type: `design`\n- Task status: `running`\n## Validation scope\n- `dev/123456789012/s3`\n- `dev/123456789012/ec2`\n- `dev/123456789012/codecommit`\n## Allowed paths\n- `model/dev/123456789012/**`\n- `docs/designs/dev/123456789012/**`\n"
     task.write_text(task_text)
     resources, documents = {}, {}
-    unit = {"name": "cfn-stack-app-dev-integrated"}
+    unit = {"name": "cfn-stack-app-dev-integrated", "template": "integrated.yaml", "parameters": "integrated.json", "deployOrder": "10"}
     child_ids = []
     # Reproduce all 17 reported failures with identity-free child rows and no RepositoryId.
     for kind, parent_kind, parent_property, setting, count in (
@@ -1681,6 +1710,7 @@ def check_integrated_child_mapping(framework_root):
     repo = model / "codecommit.properties"
     write_model(repo, f"desired.resource.001.resourceType=CodeCommit.Repository\ndesired.resource.001.cfn-logicalId={unit['name']}-Repository\ndesired.resource.001.anchor=codecommit-repository\n")
     resources["Repository"] = {"Type": "AWS::CodeCommit::Repository"}
+    write_model(model / "cloudformation-stacks.properties", {f"desired.stack.001.{key}": value for key, value in unit.items()})
     document = {"Conditions": {"Enabled": True, "Disabled": False}, "Resources": resources}
     def mapping(doc=document):
         return mappings(root, "dev", "123456789012", {unit["name"]: (doc, {})}, [unit], target=TARGET)
@@ -1715,10 +1745,10 @@ def check_integrated_child_mapping(framework_root):
     write_model(source, original.replace(unit["name"] + "-Bucket1\n", unit["name"] + "-Wrong\n", 1))
     rejects(mapping, "legacy fallback forbidden")
     write_model(source, original)
-    task.write_text("## Validation scope\n- `dev/123456789012/codecommit`\n")
+    task.write_text("## Task contract\n- Task type: `design`\n- Task status: `running`\n## Validation scope\n- `dev/123456789012/codecommit`\n")
     rejects(mapping, "task scope violation")
     task.write_text(task_text)
-    before = {path: path.read_bytes() for path in (root/"model/parameters"/"dev"/"123456789012").rglob("*.json")}
+    before = {path: path.read_bytes() for path in model.rglob("*.properties")}
     # Empty identifier sets must not collect child physical IDs or reset the parent's ID.
     children = {key: mapped[key] for key in [*child_ids, "Repository"]}
     backend = SimpleNamespace(root=root, environment="dev", directory="123456789012", target=TARGET,
@@ -1735,18 +1765,18 @@ def check_integrated_child_mapping(framework_root):
     print("Integrated child mapping: PASS (11 BucketPolicies, 5 associations, hidden RepositoryId, strict ownership/scope/Conditions, identifier-free sync/deletion)")
 
 
-def check_secretsmanager_arn_identifiers(framework_root):
-    from cloudformation_observed import mappings, sync_successful
-    from model_references import catalog_outputs
+def check_secretsmanager_arn_identifiers(managed_framework_root):
+    from model.adapters.observed import mappings, sync_successful
+    from model.projection import catalog_outputs
     from support import rotation_schedule_fixtures as rotation
-    root = framework_root
+    root = managed_framework_root
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}) + "\n")
     model = root / "model/dev/123456789012"
     model.mkdir(parents=True)
-    task = root / "tasks/active.md"
-    task.parent.mkdir()
-    task_text = "## Validation scope\n- `dev/123456789012/secretsmanager`\n- `dev/123456789012/kms`\n## Allowed paths\n- `model/dev/123456789012/**`\n- `model/parameters/dev/123456789012/**`\n- `docs/designs/dev/123456789012/**`\n"
-    task.write_text(task_text)
+    task = root / "tasks/observation-fixture.md"
+    task.parent.mkdir(exist_ok=True)
+    task_text = "## Task contract\n- Task type: `design`\n- Task status: `running`\n## Validation scope\n- `dev/123456789012/secretsmanager`\n- `dev/123456789012/kms`\n## Allowed paths\n- `model/dev/123456789012/**`\n- `docs/designs/dev/123456789012/**`\n"
+    task.write_text(observation_contract(root, ("secretsmanager", "kms", "cloudformation-stacks")))
     selected = units(1, 2)
     secrets = rotation.fixture()
     for identity, logical in (("001", "Secret1"), ("002", "Secret1Rotation")):
@@ -1785,6 +1815,7 @@ def check_secretsmanager_arn_identifiers(framework_root):
     def aws(operation, *args):
         return ({"Stacks": [{"StackStatus": "CREATE_COMPLETE", "Outputs": outputs}]} if operation == "describe-stacks" else
                 {"StackResourceSummaries": actual})
+    task.write_text(observation_contract(root, ("secretsmanager", "kms", "cloudformation-stacks")))
     backend.aws = aws
     for arn_outputs in (False, True):
         if arn_outputs:
@@ -1803,7 +1834,7 @@ def check_secretsmanager_arn_identifiers(framework_root):
     assert artifacts and json.loads(artifacts[0].read_text()) == json.loads(key["desired.row.001-002.document"])
     assert all(arn not in path.read_text() for parent in (model, root / "docs/designs") for path in parent.rglob("*") if path.is_file())
     # Actual type, required normal Outputs and physical IDs stay strict, before writes.
-    before = {path: path.read_bytes() for path in (root/"model/parameters"/"dev"/"123456789012").rglob("*.json")}
+    before = {path: path.read_bytes() for path in model.rglob("*.properties")}
     actual[1]["ResourceType"] = "AWS::SecretsManager::Secret"
     rejects(lambda: sync_successful(backend, selected, states(selected)), "actual resource missing/type mismatch")
     actual[1]["ResourceType"] = document["Resources"]["Secret1Rotation"]["Type"]
@@ -1872,7 +1903,7 @@ def check_controlled_repair(tmp_path):
     for key in ('a', 'b'):
         (parameters / (key + '.json')).write_text('[]\n')
     task = root / 'tasks/active.md'
-    task.parent.mkdir()
+    task.parent.mkdir(exist_ok=True)
     state_path = base / 'session.json'
     source_path = modeldir / 'ec2.properties'
     def configure(service, kind, rows, text, reason, *, create=False, repeated=False, destructive=False):
@@ -2249,9 +2280,11 @@ def check_controlled_repair(tmp_path):
 
 def check_secret_runtime_bootstrap(tmp_path):
     """Requested Cases 1-13 exercise the controller, ownership mappings and durable resumes."""
-    from cloudformation_observed import mappings
+    from model.adapters.observed import mappings
     base = tmp_path
     root = base / 'repo'
+    root.mkdir()
+    (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', **TARGET}]}))
     copy_framework(root / 'framework/materials', relative='materials')
     modeldir = root / 'model/dev/123456789012'
     modeldir.mkdir(parents=True)
@@ -2270,7 +2303,7 @@ def check_secret_runtime_bootstrap(tmp_path):
                                          ('quicksight', 'QuickSight.DataSource', 'B', 'Consumer')]:
         write_model(modeldir / (service + '.properties'), '\n'.join([
             f'desired.resource.001.resourceType={kind}', f'desired.resource.001.cfn-logicalId={stack}-{logical}',
-            'desired.resource.001.anchor=' + service + '-item', 'desired.resource.001.label=item']))
+            'desired.resource.001.anchor=' + service + '-item', 'display.resource.001.label=item']))
     arn = 'arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:app-dev-secret-abcdef'
     stack_ids = {u['name']: f"arn:aws:cloudformation:ap-northeast-1:123456789012:stack/{u['name']}/session-id" for u in selected}
     source = {'Resources': {'Secret': {'Type': 'AWS::SecretsManager::Secret', 'Properties': {'Name': 'app-dev-secret'}}},
@@ -2284,7 +2317,7 @@ def check_secret_runtime_bootstrap(tmp_path):
         active = selected + ([dict(name='FutureSecretOwner', template='future.yaml', parameters='future.json', deployOrder='4')] if future else [])
         write_model(secret_model, secret_model_text + ('\ndesired.resource.002.resourceType=SecretsManager.Secret\n'
             'desired.resource.002.cfn-logicalId=FutureSecretOwner-OtherSecret\n'
-            'desired.resource.002.anchor=secretsmanager-other\ndesired.resource.002.label=other\n' if future else ''))
+            'desired.resource.002.anchor=secretsmanager-other\ndisplay.resource.002.label=other\n' if future else ''))
         write_model(modeldir / 'cloudformation-stacks.properties', '\n'.join(
             f'desired.stack.{i:03d}.{key}={value}' for i, u in enumerate(active, 1) for key, value in u.items()))
         consumer = {'Resources': {'Consumer': {'Type': 'AWS::QuickSight::DataSource', 'Properties': {

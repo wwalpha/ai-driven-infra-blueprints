@@ -358,7 +358,11 @@ def _prepare_commit(root, path, state, target, approval):
     contract = (target / state['task_file']).read_text(encoding='utf-8')
     operation = tasks.final_model_task(contract)
     parsed_operation = tasks.model_operation(contract)
-    if approval and (tasks.model_refactor(contract) is not None or parsed_operation is not None and parsed_operation.action in {'import-retarget', 'import-delete'}):
+    from model.migration.contract import migration_contract
+    migration = migration_contract(contract)
+    if migration is not None and output(root, 'rev-parse', f"refs/heads/{state['base']}") != migration.baseline:
+        raise Blocked('format migration requires its fixed current local base; re-export before integration')
+    if approval and (migration is not None or tasks.model_refactor(contract) is not None or parsed_operation is not None and parsed_operation.action in {'import-retarget', 'import-delete'}):
         raise Blocked('Model refactor/retarget/delete integration requires successful final candidate validation')
     head = _commit_preconditions(target, state, changed, contract, parsed_operation)
     base_worktree(root, state)
@@ -565,15 +569,10 @@ def prepare_integration(where: Path, task_id: str) -> FinalCandidate:
             raise Blocked('running/completed task has an unexpected suspension reason')
         operation = tasks.model_operation(text)
         if operation is not None and operation.action == 'import-delete':
-            from model_sources import json_read, safe
+            from model.sources import Scope, load_model
+            from model.core import entries
             for scope in sorted(operation.source_scopes):
-                binding_path = target / 'model/parameters' / '/'.join(scope) / 'bindings.json'
-                safe(target, binding_path)
-                bindings = json_read(binding_path.read_text(encoding='utf-8'))
-                try:
-                    remaining = {rid for binding in bindings['instances'].values() for rid in binding['resources'].values()}
-                except (AttributeError, KeyError, TypeError) as error:
-                    raise Blocked('invalid deletion bindings: ' + str(binding_path)) from error
+                remaining = set(dict(entries(load_model(Scope(target, *scope)).authoritative, 'desired.resource.')))
                 requested = {source.rsplit('/', 1)[1] for source in operation.delete_sources
                              if tuple(source.split('/')[:3]) == scope}
                 if remaining & requested:

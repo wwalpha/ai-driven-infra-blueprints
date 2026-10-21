@@ -1,6 +1,6 @@
 """quicksight: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import Unresolved
+from model.adapters.aws import Unresolved
 
 APIS = {('quicksight', 'describe_vpc_connection'), ('quicksight', 'describe_data_source_permissions'), ('quicksight', 'describe_data_source')}
 

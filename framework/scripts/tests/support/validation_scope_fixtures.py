@@ -8,14 +8,14 @@ from pathlib import Path
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 
-from model_files import read_model
+from model.files import read_model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 from support.model_sources import write_model
 
-import model_projection
+import model.projection as model_projection
 
 from contextlib import redirect_stdout
 
@@ -41,7 +41,7 @@ from design_catalog import DesignSchemaCatalog
 
 from validation_cache import PassCache
 
-from model_design import resource_anchor
+from design_layout import resource_anchor
 
 ROOT = Path(__file__).resolve().parents[4]
 

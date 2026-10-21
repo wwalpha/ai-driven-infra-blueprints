@@ -25,7 +25,7 @@ def import_comparison(root, service):
 
 
 def compile_comparison(root, service, mapping, importing=False):
-    m = module('check-model-aws.py', 'model_aws_compare')
+    m = module('model/adapters/aws.py', 'model.adapters.aws')
     adapter = m.service_module(service) if not importing or service in m.SERVICES else None
     properties = dict(mapping.properties)
     for key, prop in properties.items():
@@ -58,7 +58,7 @@ def value(ctx, resource, mapping, prop, key):
     field = prop.field
     getter = mapping.getters.get(field.getter, {})
     if getter.get('kind') == 'cloudcontrol':
-        from import_inventory import cloudcontrol_value
+        from model.importing.inventory import cloudcontrol_value
         cache_key = (resource.model.path, resource.number, field.getter)
         response = (ctx.fetch(resource, field.getter) if cache_key in ctx.fetch_cache
                     else cloudcontrol_value(ctx, resource, getter))
@@ -74,7 +74,7 @@ def value(ctx, resource, mapping, prop, key):
         path = key.removeprefix(resource.kind + '.')
         extra = getter['result'].count('[]') + field.path.count('[]') - path.count('[]')
         if extra > 0 and isinstance(payload, list):
-            m = module('check-model-aws.py', 'model_aws_compare')
+            m = module('model/adapters/aws.py', 'model.adapters.aws')
             payload = m.one(payload, '.'.join(api))
         if isinstance(payload, list):
             return response, [project(prop, item) for item in payload]

@@ -15,8 +15,8 @@ from design_layout import (
 from service_rows import CODEBUILD_FORMAL_VARIABLE, CODEPIPELINE_STAGE
 from security_group_tables import security_group_table_lines
 from design_document import DesignIndex
-from model_files import resource_row_index
-from model_core import LINK, literal, entries, ReferenceResolutionError
+from model.files import resource_row_index
+from model.core import LINK, literal, entries, ReferenceResolutionError
 from validation_cache import input_scope
 from aws_mapping_display import validation_lines
 from .design import (
@@ -193,7 +193,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             except (OSError, ValueError, KeyError, TypeError) as error:
                 findings.check(False, f"invalid reference observations: {findings.relative(source)}: {error}")
                 source_values[source] = {}
-    from import_scope import outside_design
+    from model.importing.scope import outside_design
     sources = list(source_values)
     imported = {}
     for source in sources:
@@ -203,7 +203,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
         if not imported[source]:
             continue
         from collections import defaultdict, deque
-        from import_references import Resolver
+        from model.importing.references import Resolver
         queues = defaultdict(deque)
         for row_id, row in entries(values, 'desired.row.'):
             queues[row_id.rpartition('-')[0], row['property']].append(row_id)
@@ -223,9 +223,9 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 if rows:
                     candidate['desired.row.' + rows.popleft() + '.value'] = cells[2]
             relative = source.relative_to(root / 'docs/designs')
-            from model_templates import Expansion
+            from model.sources import load_model
             resolver = Resolver(root, relative.parts[0], relative.parts[1], definitions_root=definitions_root,
-                                local={source.stem: Expansion(values, {}, {})})
+                                local={source.stem: load_model((root / 'model' / relative).with_suffix('.properties'))})
             for rid in imported[source].values():
                 resolver.verify_resource(candidate, rid, require_links=False, observed_only=True)
             for warning in resolver.warnings:
@@ -367,19 +367,19 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
         observed_references = set()
         automatic_references = set()
         values = source_values[source] or {}
-        from import_scope import selected
+        from model.importing.scope import selected
         expansion = None
         if selected(root) is not None:
-            from model_templates import load_expansion
-            from import_preservation import automatic_reference
+            from model.sources import load_model
+            from model.references import declarations
             model_path = (root / 'model' / source.relative_to(root / 'docs/designs')).with_suffix('.properties')
-            expansion = load_expansion(model_path)
+            expansion = load_model(model_path)
         for identity, rows in resource_row_index(values).items():
             anchor = values.get(f"desired.resource.{identity}.anchor")
             for row_id, row in rows:
                 observed = values.get(f"observed.row.{row_id}.value")
                 reference = LINK.fullmatch(row.get("value", ""))
-                if reference and expansion is not None and expansion.values == values and automatic_reference(model_path, expansion, 'desired.row.' + row_id + '.value') is not None:
+                if reference and expansion is not None and expansion.values == values and any(spec['consumerKey'] == 'desired.row.' + row_id + '.value' and spec['format'] == 'link' for spec in declarations(expansion.authoritative).values()):
                     target = (source.parent / reference.group(2) if reference.group(2) else source).resolve()
                     automatic_references.add((anchor, row['property'], target, reference.group(3), reference.group(1)))
                 if observed is not None and reference:

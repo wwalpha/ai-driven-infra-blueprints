@@ -19,7 +19,7 @@ from validation_cache import PassCache, digest_files, input_scope
 
 from design_catalog import design_material_files
 
-from model_core import entries
+from model.core import entries
 
 
 __all__ = ['PassCache', 'Path', 'design_material_files', 'digest_files', 'entries', 'input_scope', 'os', 'sys', 'tempfile', 'write_model']

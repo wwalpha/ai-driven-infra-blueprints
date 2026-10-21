@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 
 from support.model_sources import snapshot_model
-from model_files import read_model
+from model.files import read_model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -28,9 +28,9 @@ from contextlib import redirect_stdout, redirect_stderr
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import cloudformation_observed as observed
-from model_design import markdown_for
-from model_core import properties
+from model.adapters import observed
+from model.render import markdown_for
+from model.core import properties
 
 ROOT = Path(__file__).resolve().parents[4]
 SPEC = importlib.util.spec_from_file_location("destroy", (Path(__file__).resolve().parents[2] / 'cloudformation-destroy.py'))
@@ -259,7 +259,7 @@ def check_absence():
 
 
 def fixture(root, names, models=False):
-    (root / "model/dev/123456789012").mkdir(parents=True)
+    (root / "model/dev/123456789012").mkdir(parents=True, exist_ok=True)
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}) + "\n")
     values = {"desired.deployment.maxConcurrentStacks": "2"}
     for number, (name, order) in enumerate(names.items(), 1):
@@ -267,7 +267,8 @@ def fixture(root, names, models=False):
                        {"name": name, "deployOrder": order, "template": name + ".yaml", "parameters": name + ".json"}.items()})
     write_model(root / "model/dev/123456789012/cloudformation-stacks.properties", "\n".join(key + "=" + value for key, value in values.items()) + "\n")
     if models:
-        copy_framework(root / 'framework')
+        if not (root / 'framework').exists():
+            copy_framework(root / 'framework')
         values = {"desired.service.ec2.serviceId": "ec2", "desired.service.ec2.ownedCatalogResourceTypes": "EC2.VPC,EC2.Subnet",
                   "display.service.title": "# EC2 詳細設計"}
         for number, name in enumerate(names, 1):
@@ -302,14 +303,14 @@ def fixture(root, names, models=False):
         source = root / "model/dev/123456789012/ec2.properties"
         write_model(source, "\n".join(key + "=" + value for key, value in values.items()) + "\n")
         design = root / "docs/designs/dev/123456789012/ec2.md"
-        design.parent.mkdir(parents=True)
+        design.parent.mkdir(parents=True, exist_ok=True)
         design.write_text(markdown_for(design, values, root))
     # Start with a broad same-target contract to derive exact output paths mechanically.
     contract = root / "tasks/destroy.md"
-    contract.parent.mkdir()
+    contract.parent.mkdir(exist_ok=True)
     paths = ["tasks/destroy.md"]
     paths += [path.relative_to(root).as_posix() for path in (root / "docs/designs").rglob("*.md")]
-    paths += [path.relative_to(root).as_posix() for path in (root / "model/parameters").rglob("*.json")]
+    paths += [path.relative_to(root).as_posix() for path in (root / "model").rglob("*.properties")]
     contract.write_text("# Destroy\n\n## Task contract\n\n- Task type: `infrastructure`\n- Task status: `running`\n"
                         "- Infrastructure phase: `destroy`\n- AWS API execution: `allowed`\n- Destroy: `allowed`\n"
                         "- Target environment: `dev`\n- Target AWS account: `123456789012`\n- Destroy scope: " + " ".join("`" + name + "`" for name in names) +
@@ -425,9 +426,22 @@ def check_controller(tmp_path):
             (root / "issues/dev/123456789012/issues.md").unlink(missing_ok=True)
 
 
-def check_observed(tmp_path):
+@pytest.fixture
+def managed_destroy_root():
+    from support.worktree_task_fixtures import fixture as repository, git, start
+    from task_contract import selected_task
+    with repository() as primary:
+        fixture(primary, {"A": 30, "B": 20, "C": 10}, models=True)
+        git(primary, 'add', 'framework', 'project.json', 'model', 'docs')
+        git(primary, 'commit', '-qm', 'synthetic IMPORT baseline')
+        root, state = start(primary, task_id='destroy', files=('file.txt',))
+        with selected_task(root, state['task_file']):
+            yield root
+
+
+def check_observed(managed_destroy_root):
     with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/destroy.md'}):
-        root = tmp_path; fixture(root, {"A": 30, "B": 20, "C": 10}, models=True)
+        root = managed_destroy_root; fixture(root, {"A": 30, "B": 20, "C": 10}, models=True)
         source = root / "model/dev/123456789012/ec2.properties"
         design = root / "docs/designs/dev/123456789012/ec2.md"
         # A planned resource's legacy ID is not a stack mapping (SnowCatConn case).
@@ -447,7 +461,7 @@ def check_observed(tmp_path):
         assert all(owner["resource"] != "004" for owners in plan["observed"]["owners"].values() for owner in owners)
         assert all(not key.startswith("observed.row.004-")
                    for changes in plan["observed"]["updates"].values() for updates in changes.values() for key in updates)
-        assert set(plan["observed"]["paths"]) == {design.relative_to(root).as_posix(), "model/parameters/dev/123456789012/ec2/observed.json"}
+        assert set(plan["observed"]["paths"]) == {design.relative_to(root).as_posix(), source.relative_to(root).as_posix()}
         backend = Fake(["A", "B", "C"])
         backend.root, backend.environment, backend.directory = root, "dev", "123456789012"
         states = session({"A": 30, "B": 20, "C": 10})["states"]
@@ -486,10 +500,16 @@ def check_observed(tmp_path):
         print("D12: PASS identifiers/incoming refs pending, desired unchanged, actual generation once")
         print("D13: PASS only proven A changed; failed B/unexecuted C unchanged")
         # Detect incoming links beyond target before mutation, not during successful-deletion sync.
+        project = json.loads((root / "project.json").read_text())
+        project["targets"].append({"environment": "prod", **TARGET, "awsAccountId": "999999999999"})
+        (root / "project.json").write_text(json.dumps(project) + "\n")
         outside = root / "model/prod/999999999999/ec2.properties"; outside.parent.mkdir(parents=True)
         write_model(outside, "desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.anchor=ec2-outside-subnet\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=[vpc](../../dev/123456789012/ec2.md#ec2-vpc-test-dev-a)\ndesired.row.001-001.comment=参照\n")
         rejects(lambda: M.local_plan(root, "dev", "123456789012", ["A"]), "task scope violation")
-        __import__("shutil").rmtree(__import__("model_templates").source_paths(outside)[2])
+        from model.sources import model_parts
+        for file in model_parts(outside):
+            file.unlink()
+        outside.unlink(missing_ok=True)
         original = read_model(source); write_model(source, original.replace("desired.resource.001.cfn-logicalId=A-Vpc\n", ""))
         # Pending/absent identifiers can stay unmapped, even with a legacy ID.
         pending = M.local_plan(root, "dev", "123456789012", ["A"])

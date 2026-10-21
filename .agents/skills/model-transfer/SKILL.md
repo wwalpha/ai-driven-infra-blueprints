@@ -14,31 +14,34 @@ forbidden AWS/deploy, and the exact requested subset of its normalized operation
 A missing parent or a record differing from the parent returns input failure; do not
 create a child contract or infer authority, IDs, properties or reference locations.
 
-Read raw source with `model_sources.read_sources`; expansion-based `read_resource`,
-`trace_model`, `find_model` and `load_for_edit` are optional editing aids and may fail
-for unfinished sources. Use existing YAML editing and resolver helpers. The agent
-chooses source edits; Python does not reconstruct or infer an edit plan.
+Load the canonical snapshot with `model.sources.load_model`; inspect authoritative
+keys, source locations and raw file bytes. Use `model.files.read_resource`,
+`trace_model` and `find_model` for focused reads. Prepare ordinary format-2 properties
+candidates with `model.format.patch`, retaining parts and unrelated bytes. The agent
+chooses edits; Python verifies preservation and never infers an edit plan.
 
 ## Operation
 
 Accept only an exact subset of the parent's import-merge pairs. Read source and
 destination together. Transfer source settings, complete formal Property/array shape,
-structural JSON and observations. Preserve destination fixed Resource/Instance IDs,
-anchor, mode/type, logicalId/cfn-logicalId and internal identity bindings. Match rows
+structural JSON and observations. Preserve destination fixed Resource IDs,
+anchor, mode/type, logicalId/cfn-logicalId and placementName. Match rows
 by formal Property, array order and ownership, never equal numeric Row IDs; retain
 matching destination Row IDs and allocate unused fixed IDs for new rows.
 
 Keep source resources. Correct source self references to destination self identity;
 leave references to other sources for model-retarget. Preserve shared consumers with
-only necessary value-preserving new inputs; preserve their existing inputs/bindings/
-observations. Use existing optional/choice/input forms. Ambiguous or unrepresentable
+only the registered value-preserving reference edits; preserve their settings,
+reference meanings and observations. Ambiguous or unrepresentable
 correspondence returns failure, without guessing. Do not retarget consumers or delete.
 
 ## Save and return
 
-Obtain a fresh `import_guard.source_write_context(root, task_file)` for this save and
-call `model_sources.write_sources(context, changes)` with absolute source paths and
-UTF-8 text (None means delete). A context is consumed by success, no-op or failure.
+Obtain a fresh `model.adapters.task.source_write_context(root, task_file)` for this save.
+Load the selected snapshot with that context's recorded inputs, prepare the ordinary
+properties candidate using `model.operations.prepare_edit(snapshot, changes, context)`,
+and call `model.operations.publish_edit(plan, context)`. Changes map absolute source
+paths to UTF-8 text (None means delete). A context is consumed by success, no-op or failure.
 Save only this operation's changed raw sources; unchanged bytes are no-op. Keep
 previous successful leaf saves on failure. Existing journal rollback applies only
 to this write. Never bypass managed-worktree, Task revision, input snapshot, exact

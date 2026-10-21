@@ -82,7 +82,7 @@ class DesignDocument:
         lines = tuple(lines)
         with self._lock:
             if lines not in self._parses:
-                from model_references import bound_resource_anchors
+                from model.projection import bound_resource_anchors
                 self._parses[lines] = DesignView(lines, self.root, bound_resource_anchors(self.path)
                                                if any(line.startswith('### ') for line in lines) else {}, self.modes)
             return self._parses[lines]
@@ -92,10 +92,10 @@ class DesignDocument:
         model_root = self.path.parents[4] if len(self.path.parents) >= 5 and self.path.parents[2].name == 'designs' and self.path.parents[3].name == 'docs' else None
         values = None
         if model_root is not None:
-            from model_templates import load_expansion, source_paths
+            from model.sources import load_model, model_exists
             model = (model_root / 'model' / self.path.relative_to(model_root / 'docs/designs')).with_suffix('.properties')
-            if source_paths(model)[2].is_dir():
-                values = load_expansion(model).values
+            if model_exists(model):
+                values = load_model(model).values
         return resource_modes(self.lines, values)
 
     @property

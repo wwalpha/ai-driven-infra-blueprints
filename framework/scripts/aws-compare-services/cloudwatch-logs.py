@@ -1,6 +1,6 @@
 """cloudwatch-logs: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import one
+from model.adapters.aws import one
 
 APIS = {('logs', 'describe_log_groups')}
 

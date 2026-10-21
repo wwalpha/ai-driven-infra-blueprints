@@ -3,12 +3,13 @@ name: aws-check
 description: Use when checking desired properties against current AWS values for the specified AWS Blueprint environment, target, and service with read-only AWS APIs and the existing comparison program using AWS CLI JSON retrieval, and investigating detected differences and unconfirmed items.
 ---
 
-[Service Model source authority](../../../framework/rules/model-templates.md) applies
-for runtime Models: read through model_files and trace expanded keys with `--trace`.
-Design edits use the common template, parameters.yaml and fixed bindings.json;
-authorized observed updates use observed.json. Include mechanically identified
-common-template consumers in generation/Validation scope. Retain this skill's
-single deployment target, issue gate and AWS permission boundary.
+[Service Model source authority](../../../framework/rules/model-templates.md) applies.
+Read the environment-specific properties through `model.sources.load_model` and
+`model/cli.py trace <service.properties> <key>`. Edit desired/display/reference keys
+only within the selected Task; authorized observations change only the selected
+`observed.row.<id>.value`. Record the entry and actual parts, required incoming
+consumers and generated paths in the Task. Read dependencies grant no write scope.
+Retain this skill's deployment target, issue gate and AWS permission boundary.
 
 
 # AWS API checks
@@ -24,12 +25,12 @@ The common authority is maintained in the `ai-driven-infra-blueprints` repositor
 
 ## Investigation starting from AWS CLI comparison
 
-- Use `framework/scripts/check-model-aws.py` for ordinary properties/current AWS value comparison. Retrieve current values through AWS CLI v2 and compare its JSON output deterministically in Python; do not use AI to reread every service each time. Do not invoke AI or issue saving from the program itself.
+- Use `framework/scripts/model/cli.py aws-compare` for ordinary properties/current AWS value comparison. Retrieve current values through AWS CLI v2 and compare its JSON output deterministically in Python; do not use AI to reread every service each time. Do not invoke AI or issue saving from the program itself.
 - `desired.*` is authoritative for expected values. Identify actual resources through AWS CLI retrieval and use `observed.*` only as references to confirmed identifiers. Do not substitute Markdown or CFn for expected setting values.
 - Execute operational AWS retrieval after confirming retrieval permission for the target environment/target/service/resource and necessary read-only APIs in this request. When saving is involved, also explicitly state this in the same investigation task's active contract. Use `--all` only when retrieval permission for all targets is explicit. Do not change configured profiles or fall back on authentication failure.
-- Single-target comparison example: `python3 framework/scripts/check-model-aws.py --environment dev --target cde --service s3`. For all targets, explicitly use `--all`; for coverage inspection without a connection, use `--all --coverage`.
+- Single-target comparison example: `python3 framework/scripts/model/cli.py aws-compare --environment dev --target cde --service s3`. For all targets, explicitly use `--all`; for coverage inspection without a connection, use `--all --coverage`.
 - AWS CLI v2 (`aws`) must be available on PATH; follow `framework/scripts/requirements.txt` for Python comparison dependencies. The comparator passes the configured region/profile, requests JSON without a pager or interactive prompt, and lets AWS CLI retrieve all collection pages. Missing CLI, authentication failures or invalid responses produce an incomplete result; do not fall back to SDK retrieval. In managed worktrees, use `python3 -B framework/scripts/run-python.py` to launch the comparison script.
-- When this request/active task investigation scope includes multiple services in the same environment/target, combine them into one execution by repeating `--service` whenever possible. Example: `python3 framework/scripts/check-model-aws.py --environment dev --target cde --service s3 --service iam --service kms`. Do not default to separate command execution per service.
+- When this request/active task investigation scope includes multiple services in the same environment/target, combine them into one execution by repeating `--service` whenever possible. Example: `python3 framework/scripts/model/cli.py aws-compare --environment dev --target cde --service s3 --service iam --service kms`. Do not default to separate command execution per service.
 - Do not expand investigation scope for batching. Do not add IAM/KMS to a request authorizing only S3; retain the existing AWS read-only API scope, Task Contract, and Validation Scope. Performance optimization must not expand task scope.
 - Starting only from resources/keys in JSON `difference`/`resource_missing`, AI investigates related authoritative properties, CFn, and actual AWS resources. Combine retrieval failures with a common cause into one unconfirmed item using `affectedKeys` and `scope`; do not duplicate them per property. Do not treat `design_unresolved`, `sdk_unavailable`, `unimplemented`, or `acquisition_failed` as matches. `sdk_unavailable` remains the compatibility status for settings unavailable from the read-only API, even with CLI retrieval.
 - Exit code 0 means all match, 1 means differences exist, and 2 means validation is incomplete. Code 2 may also include known differences. `identifier` is for resource identification; `local_metadata` is outside AWS setting comparison. Do not report an overall match when retrieval remains impossible.

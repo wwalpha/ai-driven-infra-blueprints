@@ -19,11 +19,11 @@ from support.pytest_cli import run
 
 import sync_runtime
 
-import model_design
+import model.render as model_design
 
-import model_core
+import model.core as model_core
 
-import model_projection
+import model.projection as model_projection
 
 import json
 
@@ -39,7 +39,7 @@ from policy_tables import resources_in
 
 from service_rows import pipeline_rows
 
-from model_display import display_rows, row_table
+from model.display import display_rows, row_table
 
 from design_layout import SUBNET_LIST_PROPERTIES
 

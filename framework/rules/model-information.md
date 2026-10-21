@@ -2,16 +2,17 @@
 
 ## Model authority
 
-[Service Model templates](model-templates.md) defines the YAML-only authority:
-service templates, environment parameters.yaml and fixed bindings.json. Optional
-observed.json stores actual values only; runtime property/comment derive from desired.
-Models expand at runtime. Model is the single source of truth. Markdown and JSON
+[Service Model sources](model-templates.md) and [properties v2](../docs/model-format-2.md)
+define the environment-specific properties authority. Each stored entrance and its parts
+contain desired, display, observations and explicit reference meaning. project.json retains
+topology/target/Region/profile authority. Runtime Property/comment and document hashes are
+derived and never editable source. Model is the single source of truth; Markdown and JSON
 are generated views. Validate Model inputs against the authoritative Model contract,
 Mapping, Catalog and Schema before rendering once. Validate generated views for
 structure, links, artifacts and consistency, then save or compare them with existing
 outputs using the existing generation comparison. Whole-model reverse projection
 from Markdown is not required and must not be used as a publication gate.
-The field/identity/display rules below apply to expanded Models and generated views.
+The field/identity/display rules below apply to canonical Models, runtime projections and generated views.
 
 
 
@@ -19,11 +20,11 @@ If updating the model fails, do not update Markdown/JSON. The model is authorita
 
 - Follow [Topology](project-configuration.md#topology) for target directories.
 - Place human-readable current designs in `docs/designs/<environment>/<target-directory>/`.
-- Place authoritative environment/service inputs in `model/parameters/<environment>/<target-directory>/<service-id>/` and common alias/service templates in `model/templates/<target-directory>/`. Logical model paths identify runtime values, not files.
+- Store authority in `model/<environment>/<target-directory>/<service-id>.properties` and its indexed parts. Alias takes precedence over awsAccountId; execution account is not a path identifier. Every environment has explicit values.
 - CloudFormation stack detailed designs retain each stack's name, template filename, parameter filename, and positive integer `deployOrder` in `desired.stack.*` of `cloudformation-stacks.properties`, and target policy in `desired.deployment.maxConcurrentStacks` (integer 1 or greater). Generate Markdown with the same stem. `DeployOrder` is a formal design value for each stack instance, not template identity or a dependency field. Do not add policy to `project.json`. Generate listing `No.` and retain `Comment` in `display.stack.*.comment`. Do not save stack execution state, StackId/ARN, or values temporarily retrieved from AWS in the model.
 - S3 placement may explicitly approve delegation to bucket default encryption using model-only `desired.resource.<id>.deploymentEncryption=default` on `S3.Bucket`. No other value/resource type is permitted. Omission means explicit encryption headers derived from the selected formal BucketEncryption rows; it never means approval to delegate. Retain confirmed default SSEAlgorithm and, for SSE-KMS, KMSMasterKeyID rows in either mode. Validate this approval directly in the authoritative Model, like model-only CFn identity; do not infer it from Markdown, policy, missing rows, or AWS settings.
 - Catalog properties are authoritative for selectable items; model properties are authoritative for desired and observed values. Markdown and JSON artifacts are generated outputs for display and use.
-- Codex saves confirmed designs in templates, parameters.yaml and fixed bindings first. Human parameter edits are design inputs. the integrated `blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` generates and validates Markdown/JSON artifacts without overwriting the model; `sync-model.py --write` remains the generation-only compatibility entrypoint.
+- Codex saves confirmed designs in environment-specific properties first through the shared Task-authorized Model APIs. Human properties edits are design inputs. the integrated `blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` generates and validates Markdown/JSON artifacts without overwriting the model; `sync-model.py --write` remains the generation-only compatibility entrypoint.
 - Fail the local loop for Markdown/Model mismatches when reference-complete generation is available. A View retained because of a reference problem is NOT_RUN, not an equality failure. Do not silently adopt either one.
 - Save a successfully validated service even if its anchor changes break saved old links in other services. Warn about new breaks with the referencing source and link; the source's authoritative repair and regeneration may be performed in a separate task. Do not automatically add related services to generation scope or manually edit saved displays of failed services. Report link problems as warnings, with reference-dependent checks marked NOT_RUN and existing Views retained. Continue independent schema, structure, value and required-property validation. The LLM or Human may repair references, but repair is not a prerequisite for the original Model operation or completion.
 - After saving authoritative Model inputs, design tasks generate Markdown and JSON artifacts in the same coherent logical change. When selected existing resources were retrieved read-only, also generate required non-ARN current identifiers in `observed.*`.
@@ -48,7 +49,7 @@ that value as `RoleARN`. IAM Role links and permitted `AWSService...` names reta
 direct ARN strings remain forbidden. Determine mode from the authoritative resource,
 never from the value's ARN shape. IMPORT literal parameter formatting affects only
 the generated display, with one pair of backticks; editing expansion and stored
-parameters.yaml values stay unchanged.
+saved desired values stay unchanged.
 
 ## Resource management mode
 
@@ -160,7 +161,7 @@ blocks reflection completion. Ordinary workflows retain their IMPORT protection.
 Acquisition evidence is a private sealed temporary session outside the repository,
 binding normalized non-secret records, STS/connection/time, Task/Worktree/scope,
 source hashes and the direct consumer set across acquire/publish processes. The agent
-records correspondence and review there; source candidates follow explicit final consent in chat.
+records correspondence and review there; source publication follows explicit final consent in chat.
 Only after complete source/display success or explicit Human termination, remove
 temporary acquisition/candidate contents; retain only a sealed task receipt at
 `evidence_store(execution_root)/<task-name>.json`, outside the repository. Dry-run
@@ -210,8 +211,8 @@ independent single-service Tasks/acquisitions/publications sequentially. Acquire
 and publish once per service; no per-resource retrieval/publication loop in Python.
 
 Distinguish an absent service from a zero-resource existing Model. Missing/broken
-inputs are errors; an absent service uses the existing explicit template/YAML/bindings
-format and candidate loader, then the same guarded source creation transaction.
+inputs are errors; an absent service uses an explicit complete properties candidate
+and the same guarded source creation transaction.
 Dry-run writes no authoritative Model, contract, display or completion receipt.
 Follow [IMPORT Property source edits](model-templates.md#import-property-source-edits)
 and [08_import](../prompts/codex/08_import.md#agent-selection-and-source-edits).
@@ -269,7 +270,7 @@ desired.resource.005.cfn-logicalId=cfn-stack-venusinf-dev-s3-cde-AuditLogBucket
 desired.resource.005.anchor=s3-venusinf-dev-audit-log-639200939566-cde
 ```
 
-The stack listing is expanded from the service template, YAML inputs and fixed bindings for `cloudformation-stacks`. Resource mappings `desired.mapping.*` and generated `## Resource対応` tables are discontinued and rejected when used. When migrating existing models, set StackName and template IDs to human-confirmed values; do not infer them from names.
+The stack listing is generated from the same-target `cloudformation-stacks.properties`, retaining each fixed Stack ID and placementName. Resource mappings `desired.mapping.*` and generated `## Resource対応` tables are discontinued and rejected when used. When migrating existing models, set StackName and template IDs to human-confirmed values; do not infer them from names.
 
 Handle new-format internal resource identity using service + 3-digit entry number and anchor; do not require engine-common `logicalId`. Do not save `cfn-logicalId` for Terraform. Limit CFn fields to CREATE and formal CFn types, referencing registered StackNames. New-format identifier self-references and same-service parent references use `[<entry番号>](#<anchor>)`. Identify referenced resources by anchor. Do not change display labels, formal names, or existing JSON artifact paths.
 
@@ -282,7 +283,7 @@ Retain old `desired.resource.*.logicalId` and hidden logical ID markers only for
 ## Properties-first updates and display generation
 
 1. Before saving, check whether naming rules exist for resources to create, catalog selections, types/constraints, and unconfirmed values.
-2. Update all confirmed service template/parameters.yaml/bindings.json first. Normally use `desired.service.*`, `desired.resource.*`, formal property `desired.row.*`, and required `observed.row.*`.
+2. Update all confirmed environment-specific service properties first. Normally use `desired.service.*`, `desired.resource.*`, formal property `desired.row.*`, and required `observed.row.*`.
 3. Directly validate schema/catalog mandatory root properties from authoritative properties per service. If any are missing, do not proceed even to temporary Markdown/JSON artifact generation; report resources/properties and retain properties and existing generated outputs. Continue processing other services. Temporarily generate Markdown and JSON artifacts only for services with all mandatory items, and check them with existing service display parsers, schema, and reference validation. Retain saved Markdown/JSON and edited models of failed services. If a referenced service failed, revert to saved displays and revalidate references. Do not restore models from Markdown.
 4. Before saving, compute reference warnings on the final candidate stage, including the selected service's own links and retained incoming links. Preserve generated views when possible. Reference-only generation inability retains saved views and reports the affected NOT_RUN scope; it neither cancels source saves nor requires a repair Task. Actual write failures retain service rollback/journal recovery and dependent revalidation; preserve unrelated successful saves and return nonzero for real failures.
 5. Run `python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` for ordinary Model edits. Common preconditions, all-target candidate generation/content validation, one all-target pre-save input comparison, publication, then output-dependent task/Acceptance checks execute in that validator process. No post-save regeneration, full readback/content validation or full input rescan is required. Independent read-only loops/validators retain saved-view equality checks. Do not overwrite properties.
@@ -298,7 +299,7 @@ During generation, arrange ordinary properties in catalog row order without chan
 
 Generate service-specific abbreviated properties, CodePipeline index/Configuration expansion, CodeBuild variables, GuardDuty Features, CloudTrail recording targets, Security Group horizontal rules, KMS Alias displays within parents, and policy tables from models according to existing display rules. Use local table normalization for existing structural, schema and link checks; never reconstruct a whole Model for equality.
 
-Create/update services through templates, parameters.yaml, bindings.json and observed.json. Do not infer IDs, labels, comments or placement from generated views.
+Create/update explicit properties candidates through the shared Model save API. Do not infer IDs, labels, comments or placement from generated views.
 
 ## Formal properties and display verification
 
@@ -318,22 +319,27 @@ The following local display normalizations support table, schema and link valida
 
 ### File size and service index
 
-- Each physical service template file has a maximum of 600 lines. At 600 lines or fewer, retain the existing single file; do not inflate it with blank lines. Split bodies exceeding 600 lines into approximately 550-line parts. The last part may have fewer than 500 lines.
-- The service entry remains `model/templates/<target-directory>/<service-id>.properties.tpl`; when split, make it an index containing only `# model-index: 1` and ordered entries starting with `# part: <service-id>/part-001.properties`. Place bodies under `<service-id>/` in the same target; both the index itself and each part must have 600 lines or fewer.
-- Parts are not new services. Generate the same existing service Markdown/JSON from one authoritative model concatenated in index order. Do not change service IDs, resource/row numbers, logical IDs, anchors, key/value content or order, or desired/observed separation. Index comments are storage-format metadata, not AWS properties.
-- Reject missing parts, duplicate/invalid order, references to other services, path traversal, symlinks, nested indexes, parts unregistered in the index, duplicate keys after concatenation, and more than 600 lines. Do not infer independent services from part filenames. `sync-model.py --write` preserves authoritative service inputs and publishes Markdown/JSON.
-- Edit the service template, parameters.yaml and fixed bindings, then publish external Markdown/JSON with `sync-model.py --write`. Validate new explicit YAML services through `model_templates.py --create`. Declare generated output paths; template parts retain their bounded format; publication preserves authoritative inputs atomically.
+Follow [properties v2](../docs/model-format-2.md) for headers, whole-block parts,
+strict JSON continuation and discovery. Initial conversion targets about600 lines;
+a giant Resource may exceed600 lines in its own part. Ordinary edits preserve part names,
+order, retained block placement and Row order. Append Resources without repartitioning.
+Observation updates patch only their values and preserve unrelated bytes.
+Use model/cli.py edit with an external complete properties candidate and explicit Task;
+generate Markdown/JSON separately through the existing validation pipeline.
 
 ```console
-python framework/scripts/model_files.py model/<environment>/<target-directory>/<service-id>.properties --find '<logical-id-or-property-key>'
-python framework/scripts/model_files.py model/<environment>/<target-directory>/<service-id>.properties --resource '<resource-number-or-logical-id-or-anchor>'
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py find model/<environment>/<target-directory>/<service-id>.properties '<logical-id-or-property-key>'
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service-id>.properties '<resource-number-or-logical-id-or-anchor>'
 ```
 
-- Use runtime reader locations and --trace to select actual template/input files and lines. `--find` outputs matching line locations containing keys or identifiers as `絶対file path:行番号:key`; it does not batch-output values such as long JSON. Edit authoritative inputs identified through `--trace` after reading expanded values, and validate equality of all parts and generated displays within the same service scope.
-- When updating existing resources, partially read authoritative inputs with `--resource` without loading full Markdown or all template parts into chat context. Select exactly one by exact match of number (such as `001`), logical ID, or anchor; unmatched or ambiguous selection fails. Support bounded single/part templates, displaying expanded values and their source locations as `絶対file path:行番号: key=value`. This is read-only; do not overwrite the entire model with its output.
-- Extraction includes target resource metadata, display settings, desired/observed rows, and selected JSON documents. Follow same-service parent/child relationships through `parentReference`, also including parents, children, and siblings in the same display group. Children without identity are retained as parent rows. Include all service metadata and common `desired.note.*` notes because resource membership cannot be inferred. Do not output unrelated resource details.
-- Retain ordinary reference links as extracted rows; do not automatically expand referenced services or other resource details. Additionally read references required for changes using their owning service's `--resource`; when changing names, anchors, or identifiers, check referencing sources with `--find` or searches outputting only locations. Changes to referencing sources retain active task scope.
-- Edit relevant sections of authoritative files shown in extraction, and generate Markdown/JSON per service. Read change diffs after generation. Retain one human-readable Markdown per service, and do not omit existing local validation of the entire target service. Do not treat extraction alone as completed schema, reference, or generation-equality validation.
+Use trace for source files/lines and derived origins. find returns matching locations;
+resource returns one exact number/logicalId/anchor's authoritative group and source
+locations, including parent/child/siblings, desired/display/observed/documents/references
+and service metadata/notes. Unknown/ambiguous selectors fail. Do not write an extracted
+subset or runtime projection back over the Model. Read required producers separately;
+do not use generated Markdown as a fallback or expand every service into chat context.
+Retain one generated Markdown per service and its full scoped validation. Read the final
+diff; extraction alone is not schema/reference/generated-equality validation.
 
 Restore `Config.ConfigurationRecorder.RoleName`, `EC2.RouteTableId`, `S3.Bucket.BucketEncryption.BucketKeyEnabled`, `S3.Bucket.BucketEncryption[].KMSMasterKeyID`, `S3.Bucket.BucketEncryption[].SSEAlgorithm`, and `S3.Bucket.LifecycleConfiguration.Rules[].NoncurrentVersionExpirationDays` used in Markdown configuration tables to formal properties through `framework/mappings/aws/<service>.yaml display.name` and save them in models. Do not save display names as model properties. Omit heading resource-type prefixes in Property columns.
 
@@ -499,6 +505,6 @@ literals and broken links retain normal validation. AWS_OWNED_CMK requires no Ke
 ## Compact source fields
 
 Observed property/comment are derived from desired metadata; only actual observed
-values persist. An absent observed file means unobserved. Bindings may omit only empty
-labels; all fixed IDs, composition, internal parameters, placement and references remain
-explicit. See [Model source contract](model-templates.md#compact-observed-and-fixed-bindings).
+values persist in the same properties. An absent observed.value key means unobserved;
+empty string and PENDING_DEPLOY remain distinct. Fixed IDs, composition, placementName
+and reference meaning stay explicit. Do not save derived metadata or runtime projections. See [Model source contract](model-templates.md#observations-and-fixed-identities).

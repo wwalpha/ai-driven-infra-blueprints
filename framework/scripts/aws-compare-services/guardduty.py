@@ -1,6 +1,6 @@
 """guardduty: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import one
+from model.adapters.aws import one
 
 APIS = {('guardduty', 'get_malware_protection_plan'), ('guardduty', 'get_detector'), ('guardduty', 'list_malware_protection_plans'), ('guardduty', 'list_detectors')}
 

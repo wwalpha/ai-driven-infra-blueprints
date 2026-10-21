@@ -1,6 +1,6 @@
 """iam: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import one
+from model.adapters.aws import one
 
 APIS = {('iam', 'list_attached_user_policies'), ('iam', 'list_role_policies'), ('iam', 'get_user_policy'), ('iam', 'list_attached_role_policies'), ('iam', 'get_policy_version'), ('iam', 'list_entities_for_policy'), ('iam', 'list_policies'), ('iam', 'get_instance_profile'), ('iam', 'get_role_policy'), ('iam', 'list_user_policies'), ('iam', 'get_user'), ('iam', 'get_role')}
 

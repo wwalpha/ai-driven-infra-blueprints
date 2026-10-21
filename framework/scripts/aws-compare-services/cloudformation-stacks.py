@@ -1,5 +1,5 @@
 """Only stack presence/state is remote; deployment files/policy are local metadata."""
-from model_aws_compare import entries, AcquisitionError
+from model.adapters.aws import entries, AcquisitionError
 
 STACK_TYPE = 'CloudFormation.Stack'
 APIS = {('cloudformation', 'describe_stacks')}

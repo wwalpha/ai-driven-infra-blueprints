@@ -14,10 +14,11 @@ forbidden AWS/deploy, and the exact requested subset of its normalized operation
 A missing parent or a record differing from the parent returns input failure; do not
 create a child contract or infer authority, IDs, properties or reference locations.
 
-Read raw source with `model_sources.read_sources`; expansion-based `read_resource`,
-`trace_model`, `find_model` and `load_for_edit` are optional editing aids and may fail
-for unfinished sources. Use existing YAML editing and resolver helpers. The agent
-chooses source edits; Python does not reconstruct or infer an edit plan.
+Load the canonical snapshot with `model.sources.load_model`; inspect authoritative
+keys, source locations and raw file bytes. Use `model.files.read_resource`,
+`trace_model` and `find_model` for focused reads. Prepare ordinary format-2 properties
+candidates with `model.format.patch`, retaining parts and unrelated bytes. The agent
+chooses edits; Python verifies preservation and never infers an edit plan.
 
 For an `import-retarget` parent also read
 [Standalone reference contract](../../../framework/rules/task-contract.md#standalone-model-reference-retarget).
@@ -25,7 +26,7 @@ Require its full record set in one source save; no merge pair or comparison-sour
 substitution is allowed. Both producers must remain untouched. This standalone branch
 permits value/document configuration references only, including explicit JSON scalar
 pointers and numbered array Properties. No Subnet associations, parentReference,
-D→D reevaluation, bindings/observed edits or new source structure. The ordinary Issue
+D→D reevaluation, observed edits or new source structure. The ordinary Issue
 Gate applies to every producer and consumer. The save guard resolves and proves the
 non-reference before/candidate preservation before publication. Semantic reference
 ambiguity, mismatch or incompleteness is warning-only, including at source save. It uses the same one-use context and final
@@ -40,23 +41,25 @@ repairs, and do not make repair a prerequisite. Keep all non-reference errors an
 
 Accept only an exact subset of the parent's reference changes. Change only the
 registered consumer's complete value, non-root scalar JSON pointer or (merge only) parentReference.
-Use bindings and the existing resolver to diagnose before source and after destination;
-local Instance names resolve to fixed Resources. For destination consumers derive the
+Use saved reference records and direct links to diagnose source and destination
+fixed Resource identities; never regenerate saved values from producer changes. For destination consumers derive the
 comparison source from the registered pair. Never choose a target from equal strings,
 physical IDs or caller-supplied alternative comparison consumers.
 
 Preserve CIDR/settings, JSON siblings/array order/scalar types, observations and fixed
 identities. Preserve reference type, format, output Property and label policy; never
 replace a reference by its rendered literal. D→D declares producer reevaluation only:
-keep the consumer expression/selectors/inputs unchanged and avoid an unnecessary write.
+keep the saved consumer value and reference metadata unchanged and avoid an unnecessary write.
 Reject overlapping, absent, wildcard, root, container or partial free-text positions.
 Do not transfer settings, delete source or edit undeclared references.
 
 ## Save and return
 
-Obtain a fresh `import_guard.source_write_context(root, task_file)` for this save and
-call `model_sources.write_sources(context, changes)` with absolute source paths and
-UTF-8 text (None means delete). A context is consumed by success, no-op or failure.
+Obtain a fresh `model.adapters.task.source_write_context(root, task_file)` for this save.
+Load the selected snapshot with that context's recorded inputs, prepare the ordinary
+properties candidate using `model.operations.prepare_edit(snapshot, changes, context)`,
+and call `model.operations.publish_edit(plan, context)`. Changes map absolute source
+paths to UTF-8 text (None means delete). A context is consumed by success, no-op or failure.
 Save only this operation's changed raw sources; unchanged bytes are no-op. Keep
 previous successful leaf saves on failure. Existing journal rollback applies only
 to this write. Never bypass managed-worktree, Task revision, input snapshot, exact

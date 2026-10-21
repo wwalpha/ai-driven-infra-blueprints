@@ -1,6 +1,6 @@
 """kms: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import one, Unresolved
+from model.adapters.aws import one, Unresolved
 
 APIS = {('kms', 'list_aliases'), ('kms', 'get_key_rotation_status'), ('kms', 'get_key_policy'), ('kms', 'describe_key')}
 

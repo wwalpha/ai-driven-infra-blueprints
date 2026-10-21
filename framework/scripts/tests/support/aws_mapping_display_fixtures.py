@@ -27,9 +27,9 @@ from aws_mapping_display import projection, ROOT, selected_rows
 
 from design_layout import resource_anchor
 
-from model_core import properties, entries
+from model.core import properties, entries
 
-from model_design import markdown_for
+from model.render import markdown_for
 
 
 from sync_views import validate_views

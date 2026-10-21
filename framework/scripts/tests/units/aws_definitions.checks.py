@@ -21,7 +21,7 @@ import aws_mapping
 import aws_mapping_catalog
 from design_catalog import DesignSchemaCatalog, selected_properties
 from design_layout import catalog_property_order
-from model_references import catalog_outputs
+from model.projection import catalog_outputs
 from utils.aws_catalogs import Catalogs, catalogs_for
 from utils.aws_mappings import Mappings, mapping_alias
 from utils.aws_schemas import Schemas, schemas_for

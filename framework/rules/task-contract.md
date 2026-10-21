@@ -61,20 +61,28 @@ IMPORT and other authority writers retain their dedicated publication checks and
 
 ## Task boundary
 
-- [Service source authority](model-templates.md) applies to every task type. Declare exact
-  template entry/parts, parameters.yaml, bindings.json, observed.json and generated
-  Markdown/JSON paths before writing. Common template changes require every registered
-  direct consumer in Validation scope; environment inputs require their environment/service.
-  Downstream scope follows changed active resource-reference results/identities under
-  Model templates; unproven or unresolved dependencies remain conservative. Source
-  impact never expands Deployment scope or AWS permission. Design may edit
-  template/parameters/fixed bindings; infrastructure observed writers may edit observed.json
-  and generated views. Destroy cannot edit templates/parameters/bindings. Infrastructure update treats
-  human service input diffs as immutable intended-design inputs; retain generated-view
-  equality checks and reject ambiguous/multiple deployment target handoffs.
+- [Service source authority](model-templates.md) applies to every Task type. Declare
+  exact properties entrance/parts and generated Markdown/JSON paths before writing.
+  Include changed environment/target/services and affected reference consumers in
+  Validation scope. Read-only producer discovery never expands Allowed paths, Deployment
+  scope or AWS permission. Preserve fixed identities, references and Stack placementName.
+  Infrastructure observation writers patch only permitted observed.value in the same
+  properties. Destroy cannot change desired/display/reference design. Infrastructure
+  update keeps Human intended-design inputs immutable; retain generated-view equality
+  and unambiguous deployment-target handoff checks.
 
-- `design`: Update authoritative `model/templates/**` / `model/parameters/**` inputs and generate `docs/designs/**`, then finish after local validation. Existing-resource retrieval may reflect only properties selected by the chatbot and necessary non-ARN current identifiers. Do not proceed to IaC, AWS mutation, or scenarios.
-- `infrastructure`: Read the approved design; perform only the IaC specified by the active prompt, safety checks, authorized deploy/apply, and, after success, updates to `observed.json` in `model/parameters/**` and Markdown generation, then finish. The `destroy` phase permits only explicit designed CloudFormation Stack deletion, necessary post-success `observed.*` changes and corresponding generated Markdown/JSON, and the active task contract. IaC, desired/display design, scenarios and results must not change. It is independent of deploy; explicit `/destroy <StackName>` scope is authorized without a second confirmation. The `update` phase permits the uncommitted intended design manually edited by the human in authoritative service Model inputs before task start as immutable input; Codex must not change intended design or scenarios.
+- `design`: Edit explicit environment/service properties candidates and generate
+  docs/designs through the shared guarded APIs, then finish after classified validation.
+  Existing-resource acquisition/add/refresh/bind/replace remains exclusive to /import.
+  Do not proceed to IaC, AWS mutation or scenarios.
+- `infrastructure`: Read the approved design, perform only explicitly authorized IaC,
+  checks and deploy/apply, then synchronize permitted observations/generated views after
+  success. Independent destroy changes only explicit designed Stacks, post-success
+  observations, corresponding generated Markdown/JSON and its Task. IaC, desired/display/
+  reference design, scenarios and results must not change. Explicit /destroy scope
+  authorizes that action without a second confirmation. Infrastructure update treats
+  Human intended design as immutable input.
+
 - `scenario-test`: Create/update only `tests/scenarios/**` and `tests/results/<scenario-id>/<environment>/<target-directory>/`. After test failure, do not proceed to design changes, IaC repair, redeploy, or remediation task creation/execution.
 - `initialization`, `governance`, `catalog-maintenance`, `migration`: Execute only the active prompt's Allowed paths and explicit scope; do not proceed to another task.
 - Do not automatically create or execute a scenario-test task even when infrastructure behavior changes.
@@ -193,20 +201,16 @@ are warnings. Declared operation producers must be distinct existing IMPORT Reso
 in the consumer's environment/target. Producers may
 not also be edited consumers. CREATE consumers retain ordinary design validation.
 
-Save all declared changes together through a fresh one-use
-`import_guard.source_write_context` and `model_sources.write_sources`. Ordinary
-`model_templates.publish`, `save_parameters` and `publish_edit` route managed source
-saves to that guard; non-managed or mixed source/view publication stops. Before any
-source publication, compare versioned authoritative before against the full candidate
-with the existing resolver and symbolic fixed producer identities. Equal names, physical
-IDs or renderings never establish identity. Compare every registered environment/service,
-retaining all undeclared values/types/structure, producer settings, names, fixed Resource/
-Row/Instance bindings, observations, array order and JSON siblings. Preserve reference
-kind/format/output Property/label policy. Bindings and observed bytes, authority file sets,
-project configuration, template schemas/structure/unused fields and unrelated/unused
-parameter values remain unchanged; only existing public reference selectors and declared
-raw reference expressions may change. Unsupported source layouts fail closed rather than
-introducing new inputs/Definitions or changing bindings for isolation.
+Save all declared changes through a fresh one-use
+`model.adapters.task.source_write_context` and model.prepare_edit/model.publish_edit.
+Source and view publication are separate. Before retarget publication compare the
+versioned full authority and candidate using fixed producers and saved occurrences.
+Equal names, physical IDs or renderings never establish identity. Preserve undeclared
+values/types/structure, fixed Resource/Row IDs, observations, JSON siblings/array order,
+reference kind/format/Property/label policy and literal string affixes. Preserve refids,
+part names/order/layout, file sets and project bytes. Only the declared occurrence may
+change; context and other producers in the same leaf remain unchanged. No new expression
+language, unbound selector or generic force/skip path is permitted.
 
 Retain Task revision/ownership, complete input snapshot and file sets, publication lock,
 final input comparison before save and per-write journal rollback. Any success/no-op/failure
@@ -252,18 +256,18 @@ Report missing-before, remaining-after and undeclared reference differences as w
 none makes the original Model operation incomplete. Non-reference changes remain prohibited.
 
 Keep ordinary Modified files, Allowed paths, service Validation scope, naming and
-issue gates. Include every direct registered consumer of a changed shared template.
+issue gates. Include directly changed consumers and their required reference impact scope.
 The guard compares all effective Resource/Property values and types, fixed Resource/Row
-and Instance composition, resourceMode/type, anchors/Logical IDs, structural metadata,
+composition, resourceMode/type, anchors/Logical IDs, structural metadata,
 observations and unchanged consumers across those targets/environments. CREATE
 reference changes and structural metadata detach are not authorized by value equality.
 Unresolved references report their cause as warnings. This declaration grants no AWS permission.
 
-Save complete edited candidates through ordinary design `model_templates.publish`
-(with its existing input snapshot/Task revision and rollback), or `save_parameters`
-for input-only changes. Do not use operation-only `source_write_context`/`write_sources`
-or bypass the IMPORT guard. The guard verifies the candidate before publication;
-failed comparisons never rewrite inputs automatically. Generate views with existing
+Save complete properties candidates through ordinary design
+model.adapters.task.edit_write_context and the public prepare_edit/publish_edit API.
+The shared IMPORT guard verifies before publication; failed comparisons never rewrite
+inputs automatically. Related deletion repairs use their limited source context.
+Generate views with existing
 generation APIs. Keep the Task running and call worktree finalize, which reuses the
 Model-only candidate composition: private commit, latest-base rebase, one read-only
 final loop on base→candidate, completion and ff-only merge of that exact HEAD, cleanup.
@@ -316,3 +320,15 @@ lifecycle start separately, excluding inherited base changes from this Task scop
 No hand-written lifecycle metadata is permitted. Recovery never merges or grants a
 validation PASS. Run the required IT and Full checks, complete the contract, and use
 normal finalize/cleanup. Model tasks and approved-validation-failure tasks are excluded.
+
+
+## Model format migration contract
+
+The one-time [properties v2 migration](../docs/model-migration.md) has its own exact
+contract, separate from dependency detach. Pin the consumer baseline, complete service
+set, old/new formats, enumerated Model paths, export hash and isolated fixed old
+Framework/runtime. Verify the old baseline with the migration adapter and compare all
+new authority strictly. Preserve project/IaC/issues bytes and file sets. Existing issues
+remain unresolved; limited equivalence does not assert design/IaC validity. The same
+latest-base candidate/HEAD/Task must pass before integration. Baseline changes, extra
+paths or semantic loss stop. No force/skip or failed-validation exception bypasses this proof.

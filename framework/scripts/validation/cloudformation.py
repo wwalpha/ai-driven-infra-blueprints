@@ -1,5 +1,5 @@
 from validation_cache import input_is_file, input_select, input_text
-from model_templates import service_source
+from model.sources import model_exists
 """CloudFormation syntax, Environment and stack design checks."""
 
 
@@ -7,8 +7,8 @@ import json
 import re
 from pathlib import Path
 from design_layout import stack_design, stack_deployment_policy
-from model_core import properties
-from model_files import read_model
+from model.core import properties
+from model.files import read_model
 from .design import JAPANESE_TEXT_PATTERN, stack_design_files
 from .project import check_target_file
 
@@ -343,18 +343,18 @@ def check_stack_designs(paths: list[Path] | None = None, *, accounts, findings, 
         )
         try:
             from design_layout import stack_delivery
-            from model_core import deployment_settings
-            from model_references import deployment_bucket
+            from model.core import deployment_settings
+            from model.projection import deployment_bucket
             stack_deployment_policy(path)
             stacks = stack_design(path)
             definitions[path] = stacks
-            from cloudformation_observed import validate_mapping_targets
+            from model.adapters.observed import validate_mapping_targets
             source = (root / "model" / path.relative_to(root / "docs" / "designs")).with_suffix(".properties")
-            if service_source(source) is not None:
+            if model_exists(source):
                 mapping_values = (design_sources or {}).get(path)
                 if mapping_values is None:
                     mapping_values = properties(read_model(source))
-                from model_core import stack_model
+                from model.core import stack_model
                 stack_model(mapping_values)
                 validate_mapping_targets(root, target[0], target[1], mapping_values, definitions_root=definitions_root)
             values = stack_delivery(path) | {f"desired.stack.{number:03d}.name": stack["name"]

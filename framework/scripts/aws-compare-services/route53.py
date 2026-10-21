@@ -1,6 +1,6 @@
 """route53: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import one
+from model.adapters.aws import one
 
 APIS = {('route53', 'list_resource_record_sets'), ('route53', 'list_hosted_zones'), ('route53', 'get_hosted_zone')}
 

@@ -27,17 +27,15 @@ import socket
 
 import aws_mapping
 
-from model_display import display_rows
+from model.display import display_rows
 
-from model_core import entries
+from model.core import entries
 
-from model_files import load_model
+from model.files import load_model
 
-from model_design import resource_table_lines
+from model.render import resource_table_lines
 
-from model_references import resource_rows
-
-from model_templates import expand
+from model.projection import resource_rows
 
 from script_loader import module
 
@@ -47,7 +45,7 @@ from validation_cache import input_scope
 
 ROOT = Path(__file__).resolve().parents[4]
 
-m = module('check-model-aws.py', 'model_aws_compare')
+m = module('model/adapters/aws.py', 'model.adapters.aws')
 
 RECORDER = 'Config.ConfigurationRecorder'
 
@@ -69,7 +67,7 @@ BASELINE = {
 }
 
 
-__all__ = ['BASELINE', 'CHANNEL', 'FrozenInstanceError', 'Path', 'RECORDER', 'ROOT', 'SimpleNamespace', 'TemporaryDirectory', 'astuple', 'aws_mapping', 'copy', 'display_rows', 'entries', 'expand', 'hashlib', 'input_scope', 'json', 'load_model', 'm', 'module', 'patch', 'resource_rows', 'resource_table_lines', 'socket', 'sys', 'write_model']
+__all__ = ['BASELINE', 'CHANNEL', 'FrozenInstanceError', 'Path', 'RECORDER', 'ROOT', 'SimpleNamespace', 'TemporaryDirectory', 'astuple', 'aws_mapping', 'copy', 'display_rows', 'entries', 'hashlib', 'input_scope', 'json', 'load_model', 'm', 'module', 'patch', 'resource_rows', 'resource_table_lines', 'socket', 'sys', 'write_model']
 
 
 def mapping_fixture(root, *services):

@@ -2,9 +2,9 @@
 
 
 from __future__ import annotations
-from model_core import ReferenceResolutionError
+from model.core import ReferenceResolutionError
 from validation_cache import input_is_file, input_text
-from model_references import bound_resource_anchors, is_import_expression
+from model.projection import bound_resource_anchors, is_import_expression
 import json
 import re
 from pathlib import Path
@@ -19,7 +19,7 @@ from design_layout import (
     resource_logical_ids, resource_modes, catalog_order_errors,
 )
 from security_group_tables import security_group_table_lines
-from model_core import properties, entries, literal
+from model.core import properties, entries, literal
 from aws_mapping_display import validation_rows
 from validation_cache import input_scope
 from .design import (
@@ -45,7 +45,7 @@ def check_generated_identifier(
     identifier_outputs: dict[str, set[str]],
  *, findings, values=None) -> None:
     acquired = set()
-    from model_files import load_model
+    from model.files import load_model
     model = findings.canonical_root / 'model' / path.resolve().relative_to(findings.canonical_root / 'docs/designs').with_suffix('.properties')
     try:
         if values is None:

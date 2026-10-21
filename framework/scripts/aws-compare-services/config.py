@@ -1,6 +1,6 @@
 """config: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import one
+from model.adapters.aws import one
 
 APIS = {('config', 'describe_configuration_recorders'), ('config', 'describe_delivery_channels'), ('iam', 'get_role')}
 

@@ -5,18 +5,18 @@ import sys
 from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 
-from model_files import read_model
+from model.files import read_model
 from support.model_sources import write_model
 import sync_views
-import model_projection
+import model.projection as model_projection
 import json
 import shutil
 import tempfile
 from support.validator import load
 
 from design_layout import expanded_design, resource_anchor
-from model_design import markdown_for
-from model_core import properties
+from model.render import markdown_for
+from model.core import properties
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

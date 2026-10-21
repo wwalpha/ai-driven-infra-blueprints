@@ -133,8 +133,8 @@ def repair_plan(root, environment, directory, target, mapping_plan, paths, aws, 
     if not failed:
         raise Blocked('no resource failure diagnostics tied to this execution')
     direct, legacy = comparison.index()
-    from cloudformation_observed import mapped_resource
-    from model_references import catalog_outputs
+    from model.adapters.observed import mapped_resource
+    from model.projection import catalog_outputs
     edits, classes, export_snapshot, producer_snapshots = [], [], {}, {}
     for event in failed:
         logical = event['LogicalResourceId']

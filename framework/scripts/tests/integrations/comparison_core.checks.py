@@ -48,14 +48,15 @@ assert alternate.ResourceReference is iac.ResourceReference is values.ResourceRe
 assert alternate.Blocked is iac.Blocked is evaluation.Blocked
 from script_loader import module
 import issues_scan as scan, s3_delivery as delivery
-aws = module('check-model-aws.py', 'model_aws_compare')
+aws = module('model/adapters/aws.py', 'model.adapters.aws')
 deploy = module('cloudformation-deploy.py', 'core_deploy')
 from deployment import repair
-assert delivery.module('check-model-aws.py', 'model_aws_compare') is aws
+assert delivery.module('model/adapters/aws.py', 'model.adapters.aws') is aws
 assert aws.Unresolved is rows.Unresolved and aws.put_row is repair.put_row is rows.put_row
 assert repair.same is values.same and scan.Comparison is iac.Comparison
 assert deploy.Blocked is iac.Blocked
-import model_design, model_core, cloudformation_observed as observed
+import model.render as model_design, model.core as model_core
+from model.adapters import observed
 assert not hasattr(model_design, 'cfn_resource_identity')
 assert iac.cfn_resource_identity is observed.cfn_resource_identity is repair.cfn_resource_identity is model_core.cfn_resource_identity is values.cfn_resource_identity
 assert values.cfn_resource_identity('cfn-stack-app-dev-ism-DepartmentVpc') == ('cfn-stack-app-dev-ism', 'DepartmentVpc')

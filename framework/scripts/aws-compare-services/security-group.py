@@ -1,6 +1,6 @@
 """security-group: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import one, select
+from model.adapters.aws import one, select
 
 APIS = {('ec2', 'describe_security_groups'), ('ec2', 'describe_security_group_rules')}
 

@@ -2,13 +2,13 @@
 IMPORT acquisition and user-selected add/refresh/replace are exclusive to `/import`; explicit Model-only merge/delete or standalone reference retarget uses `/update` under the narrow operation guard. Follow [IMPORT configuration authority](../../rules/model-information.md#import-configuration-authority). Read/compare remains allowed. Value-preserving source refactors are allowed; CREATE workflow is unchanged. Other substantive IMPORT updates remain forbidden; read/compare and value-preserving refactors never bypass the mechanical guards.
 
 
-[Service Model sources](../../rules/model-templates.md) define the YAML-only input
-contract for this prompt. Read runtime Models through model_files and use
-`model_files.py <service.properties> --trace <key>` for the exact source. Design edits
-use the common template, parameters.yaml and fixed bindings.json; authorized observed
-updates use observed.json. Record template entry/parts, parameters.yaml, bindings.json,
-observed.json and generated Markdown/JSON paths in the task contract. Common template
-edits require all registered consumers in Validation scope. Read with the shared Model loader before
+[Service Model sources](../../rules/model-templates.md) define environment-specific
+properties as authority. Read with `model.sources.load_model`; use
+`model/cli.py trace <service.properties> <key>` to locate exact source bytes.
+Design edits change desired/display/reference keys; authorized observation saves
+change only selected `observed.row.<id>.value` keys in the same Model. Record the
+entry, actual parts, required incoming consumers and generated paths in the Task.
+Read dependencies grant no write paths. Read with the shared Model loader before
 matching IaC/issues/diff. Generation across environments grants no Deployment scope
 or AWS permission.
 
@@ -19,17 +19,19 @@ Use this prompt to receive diffs manually edited by the human in existing author
 
 ## Dependency analysis and value-preserving refactoring
 
-Use `model_reference_usage.incoming_references(root, address)` and `outgoing_references`
-to inspect reference impact. The CLI uses the same read-only API:
+Load the producer snapshot through `model.sources.load_model`, then inspect
+`model.references.incoming(snapshot, fixed_id, read_context)` and
+`model.references.usages(consumer_snapshot, read_context)`. The CLI uses the same
+read-only reference analysis:
 
 ```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/model_reference_usage.py <environment/target/service/fixed-ID> --direction incoming
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py incoming model/<environment>/<target>/<service>.properties <fixed-ID>
 ```
 
-Read `references`, `warnings` and `complete`, raw sources, fixed producer/consumer IDs,
-key/Property/pointer, syntax/format/role and source provenance. Removed IDs remain queryable;
-pass the existing before snapshot when prior anchors/Instance identities or values are needed.
-Incomplete analysis is a warning, never an empty successful dependency result.
+Read usages, `model.references.diagnose` warnings, raw sources, fixed producer/consumer
+IDs, consumerKey/pointer/occurrence, format/property/label policy and source positions.
+Retain a before snapshot for removed resources and their anchors. Semantic warnings
+never become an empty successful dependency result; structural/I/O/scope errors stop.
 
 Follow [Reference diagnostics](../../rules/model-information.md#reference-diagnostics).
 Normal incoming links, cycles and surviving links do not block the authorized deletion.
@@ -38,8 +40,8 @@ Do not delete another resource or change surviving resources without authority.
 
 For an independently requested dependency refactor, reuse the existing
 [Value-preserving Model refactor](../../rules/task-contract.md#value-preserving-model-refactor)
-contract, input editing and guarded publication. Reuse existing parameters/Definitions;
-retain fixed maps and non-reference settings/types/JSON siblings/observations. Report
+contract, input editing and guarded publication. Preserve explicit environment-specific properties;
+retain fixed identities and non-reference settings/types/JSON siblings/observations. Report
 reference-derived differences as warnings. The LLM chooses repairs within scope or asks
 about undetermined changes; Python does not invent them. This branch grants no AWS/IaC
 permission and does not enter infrastructure execution below. For repairs associated
@@ -54,7 +56,7 @@ Read that section, Task transition/boundary/Acceptance, issue-gate, Model source
 IMPORT authority before execution. Check ordinary issues for every producer and consumer;
 register a running design/update `import-retarget` parent with forbidden AWS/deploy,
 exact reference records, source/view paths and service Validation scope. Inspect
-`model_reference_usage` and raw authoritative sources; never infer identities from names
+`model.references` and raw authoritative sources; never infer identities from names
 or physical/display equality. Call only [model-retarget](../../../.agents/skills/model-retarget/SKILL.md)
 with the exact records. Batch all declared source changes in one guarded save, then
 use existing generation APIs and worktree finalize on the running parent for latest-base
@@ -160,8 +162,8 @@ Normally neither input is required. Treat delete/replacement as preapproved only
 
 Before file changes, determine targets and scope in the following order.
 
-1. Check `git status --short` and `git diff --name-only HEAD -- model/templates/ model/parameters/`.
-2. Obtain environment and target directory from human-edited authoritative parameters.yaml and bindings.json, or the mechanically enumerated consumers of a common template. Resolve registered source impact with model_templates.py --alias <alias> --service <service> --affected. Enumerate service source directories through model_templates.model_paths; logical model/<environment>/<target-directory>/<service-id>.properties selectors do not require files.
+1. Check `git status --short` and `git diff --name-only HEAD -- model/`.
+2. Obtain environment, target and service from changed real format-2 entrances/parts, using `model.sources.source_scope` and common discovery. Use `model.impact.affected` to identify required incoming consumers. Alias wins over account ID; execution account IDs never identify paths. Do not create Models merely because targets are registered.
 3. Confirm exactly 1 environment/target directory combination matching a `project.json` target; obtain the alias if present and always the actual AWS account ID. Stop without file changes if no human-edited authoritative design inputs exist, the requested deployment target is ambiguous, or targets are unregistered. For common edits, generate/validate every consumer in a separate design task, then explicitly hand off exactly one deployment target; never infer permission for other consumers.
 4. Design scope is all existing model properties edited by the human in the same target. Use model row documents as input for policy/setting JSON bodies; do not adopt manual Markdown/JSON artifact diffs as design values.
 5. Match corresponding authoritative service properties against existing IaC/parameters; implement only differing properties. Resolve CloudFormation stack scope only from authoritative `cloudformation-stacks.properties` in the same target. Use `desired.stack.*.name`, `.template`, `.parameters`, `.deployOrder`, and `desired.deployment.maxConcurrentStacks`; effective MaxConcurrentStacks is 1 when omitted. Confirm resource ownership and each shared-template stack instance/parameter mapping from service properties and existing IaC; stop if ambiguous. If changed design references resources owned by other stacks in the same account/region, also consider those producer stacks for necessary Output/Export additions.
@@ -177,7 +179,7 @@ Do not automatically interpret existing StackName deletions/renames in stack des
 3. `tasks/<task-name>.md` if present. Otherwise treat as idle and create it first under Create active task contract.
 4. `project.json`
 5. `git status --short` and Design scope diffs identified from repository changes
-6. Authoritative Design scope templates and model/parameters/<environment>/<target-directory>/<service-id>/ inputs, read via the logical Model selector. For CloudFormation, same-target `cloudformation-stacks.properties` needed for stack scope resolution
+6. Authoritative Design scope properties entrances and actual registered parts, read through the shared snapshot. For CloudFormation, same-target `cloudformation-stacks.properties` needed for stack scope resolution
 7. [Policy account selection](../../rules/detailed-design.md#policy-account-selection). For CloudFormation, add [CloudFormation stack detailed design](../../rules/detailed-design.md#cloudformation-stack-detailed-design); add related display sections only when changing/investigating design display.
 8. [Model authority](../../rules/model-information.md#model-authority), [Resource management mode](../../rules/model-information.md#resource-management-mode), [Properties format](../../rules/model-information.md#properties-format). For generation, add [Properties-first updates and display generation](../../rules/model-information.md#properties-first-updates-and-display-generation); for CloudFormation, add [CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy).
 9. [cloudformation](../../rules/cloudformation.md) or [terraform](../../rules/terraform.md) for the selected engine
@@ -194,10 +196,10 @@ Update design inputs are only authoritative model properties. Do not read genera
 For limited resources, use existing partial reading for both single files and split entry indexes. Selectors require exact resource number, logical ID, or anchor matches; stop if unmatched/ambiguous.
 
 ```console
-python framework/scripts/model_files.py model/<environment>/<target-directory>/<service-id>.properties --resource <resource-selector>
+python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service-id>.properties <resource-selector>
 ```
 
-Load only target resources, parents/children/siblings in the same group, and service metadata/notes into context. Service-wide changes may read entire target service properties, without unconditional expansion to all services/models. Resolve properties logical references from `desired.resource.*.anchor` / `.logicalId` and `parentReference`. Map other services' `.md#anchor` links from path/file stem to producer properties; additionally retrieve only necessary resources with the same `model_files.py --resource`. Do not read generated Markdown bodies as fallback. Report unknown reference targets as warnings without guessing; they do not stop Model saving/completion. Missing non-reference required desired values, deployment stack assignments or human decisions still stop the dependent infrastructure action.
+Load only target resources, parents/children/siblings in the same group, and service metadata/notes into context. Service-wide changes may read entire target service properties, without unconditional expansion to all services/models. Resolve properties logical references from `desired.resource.*.anchor` / `.logicalId` and `parentReference`. Map other services' `.md#anchor` links from path/file stem to producer properties; additionally retrieve only necessary resources with the same `model/cli.py resource`. Do not read generated Markdown bodies as fallback. Report unknown reference targets as warnings without guessing; they do not stop Model saving/completion. Missing non-reference required desired values, deployment stack assignments or human decisions still stop the dependent infrastructure action.
 
 Limit reads to Design scope resources/properties and portions needed for reference resolution. For split models, read only required parts from entry indexes. Do not reread material already confirmed in the same task unless content changes, validation fails, or unresolved dependencies exist.
 
@@ -217,7 +219,7 @@ Add [Framework regression](../../rules/loop-engineering.md#framework-regression)
 - Stop if IaC or generated Markdown/JSON artifacts have uncommitted changes predating task start. Human diffs in authoritative model properties are permitted.
 - Do not repair, supplement, or roll back human-edited intended design in this task.
 - Stop for detailed design deficiencies, contradictions, placeholders, schema violations, or unconfirmed human decisions.
-- Apply schema validation such as existing `model_design.validate_required_properties` and `DesignSchemaCatalog.literal_errors` to target properties to confirm CREATE/IMPORT, formal types, required properties, types/constraints, and necessary dependencies. Do not automatically supplement scope or intended design.
+- Apply schema validation such as existing `model.validation.validate_required_properties` and `DesignSchemaCatalog.literal_errors` to target properties to confirm CREATE/IMPORT, formal types, required properties, types/constraints, and necessary dependencies. Do not automatically supplement scope or intended design.
 - For CloudFormation, resolve target types with `design_catalog.py --cloudformation-type <catalog-resource-type>`. Do not silently exclude CFn-unsupported types such as `Macie.ClassificationJob` and `QuickSight.Group` and call update complete; report unapplied items and stop. Do not incorrectly convert to CFn, run APIs, add Custom Resources, or mutate API-only resources. Retain engine rule resourceMode boundaries.
 
 Retain Design scope diffs at task start and confirm they remain identical through completion except for generated current value updates after deploy success.
@@ -296,7 +298,7 @@ After approval, record target resources, actions, and reasons in the same task's
 
 ### CloudFormation
 
-Observed collection, model updates, and generated artifact synchronization are owned by the controller. `cloudformation_observed.py` matches actual template LogicalIds, formal types, catalog IDENTIFIER_OUTPUT, and Outputs/PhysicalResourceId; updates necessary non-ARN identifiers and observed rows of all references, then runs service-scoped sync-model generation/validation. Confirm COMPLETE and synchronization results; the Agent must not rerun the same AWS value retrieval or `sync-model.py --write`. Stop for ambiguous mappings with AMBIGUOUS_OBSERVED_MAPPING; the LLM must not supplement them. Synchronization failure is not completion; retry in the same controller session after resolving blockers.
+Observed collection, model updates, and generated artifact synchronization are owned by the controller. `model.adapters.observed` matches actual template LogicalIds, formal types, catalog IDENTIFIER_OUTPUT, and Outputs/PhysicalResourceId; updates necessary non-ARN identifiers and observed rows of all references, then runs service-scoped sync-model generation/validation. Confirm COMPLETE and synchronization results; the Agent must not rerun the same AWS value retrieval or `sync-model.py --write`. Stop for ambiguous mappings with AMBIGUOUS_OBSERVED_MAPPING; the LLM must not supplement them. Synchronization failure is not completion; retry in the same controller session after resolving blockers.
 
 ### Terraform
 
@@ -320,7 +322,8 @@ State targets, Design scope, display generation, IaC changes, deployment units/d
 
 Do not change, create, or execute scenarios, scenario results, other targets, or next tasks. If application behavior validation is needed, the human uses `framework/prompts/codex/06_scenario-test.md` as a separate task.
 
-Model source persistence uses optional `observed.json` with actual row values only;
-runtime property/comment come from desired metadata. File absence means unobserved,
-never observation success. Omit empty observed files and empty binding labels; preserve
-nonempty labels, fixed IDs, internal parameters, references and CFn placement.
+Persist observations only as `observed.row.<id>.value` beside the corresponding
+desired Row. Absent keys, empty strings and PENDING_DEPLOY remain distinct. Derive
+observed Property/comment and artifact hashes at read time. Preserve fixed IDs,
+reference meanings and Stack placementName; ordinary observation updates never
+rewrite desired/display/reference values or unrelated source bytes.

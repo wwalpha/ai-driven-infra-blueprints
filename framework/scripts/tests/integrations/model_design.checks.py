@@ -151,7 +151,7 @@ def check_desired_only_identifier_reference(root, project):
             'desired.row.007-009.property':'QuickSight.DataSource.Permissions[].Principal',
             'desired.row.007-009.value':'[gr-dev-finance](quicksight.md#quicksight-gr-dev-finance)',
             'desired.row.007-009.comment':'分析グループへの権限'}
-    from model_references import resource_rows
+    from model.projection import resource_rows
     rows = resource_rows(source, '007', 'QuickSight.DataSource', ROOT)
     assert rows[0][2] == source['desired.row.007-009.value']
     assert not any(k.startswith('observed.') for k in source)
@@ -721,8 +721,9 @@ def check_nameless_type_display(root, project):
     current = {**values, "observed.row.001-001.value": "`0123456789abcdef0123456789abcdef`"}
     assert f"### {kind}:" not in roundtrip(path, current, root)
     # Confirmed labels are preserved, including for a single nameless resource.
-    labeled = {key: value.replace(anchor, "guardduty-primary-detector") for key, value in values.items()}
+    labeled = dict(values)
     labeled["display.resource.001.label"] = "primary-detector"
+    write_model(source, text(labeled))
     assert f"### {kind}: primary-detector" in roundtrip(path, labeled, root)
     sync_views.validate_views(root, root, [path], {path: labeled})
     assert "### GuardDuty.Detector: primary-detector" in path.read_text()
@@ -806,10 +807,11 @@ def check_nameless_logical_id_label(root, project):
     assert any("resource without a name requires a display label" in error or "display Mapping property missing" in error
                for error in failures(named, output.replace(kind, "SNS.Topic")))
     failures(values)
-    (root/'model/parameters/dev/123456789012/guardduty/bindings.json').unlink()
+    source.write_text('# model-format: 99\n')
     validator = validator_module.Validator(root)
     validator.check_resource_names(metadata, [path])
-    assert any("bindings.json" in error for error in diagnostics(validator))
+    assert any("unsupported Model format" in error for error in diagnostics(validator)), diagnostics(validator)
+    source.unlink()
     assert not failures(values), failures(values)
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     assert SYNC.sync(root, False, "dev", "123456789012") == 0
@@ -907,7 +909,7 @@ def check_stack_policy(root, project):
 
 
 def check_stack_mapping_roundtrip(root):
-    from model_core import entries
+    from model.core import entries
     from iac_values import cfn_resource_identity
     from design_layout import resource_identity_metadata
     path = root / "docs/designs/dev/123456789012/ec2.md"
@@ -996,12 +998,12 @@ def check_stack_mapping_roundtrip(root):
     assert "cfn-logical-id:" not in grouped
     sync_views.validate_views(root, root, [kms_path], {kms_path: kms})
     # The normal parser reads indexed models without renumbering grouped children.
-    from model_files import INDEX_HEADER, PART_PREFIX
+    from model.format import FORMAT, INDEX as INDEX_HEADER, PART as PART_PREFIX
     kms_source = stack_source.with_name("kms.properties")
     part = kms_source.with_suffix("") / "part-001.properties"
     part.parent.mkdir()
-    write_fixture_files({part: text(kms), kms_source: INDEX_HEADER + "\n" + PART_PREFIX + "kms/part-001.properties\n"})
-    authority = __import__('model_templates').source_inputs(kms_source) - {kms_source, part}
+    write_fixture_files({part: text(kms), kms_source: FORMAT + "\n" + INDEX_HEADER + "\n" + PART_PREFIX + "kms/part-001.properties\n"})
+    authority = __import__('model.sources', fromlist=['source_inputs']).source_inputs(kms_source) - {kms_source, part}
     before = {file: file.read_bytes() for file in authority}
     assert load_model(kms_source).values == properties(text(kms))
     assert kms_path.read_text() == markdown_for(kms_path, kms, root)
@@ -1392,14 +1394,15 @@ def check_service_failure_protection(root, project):
     logs["desired.row.001-002.value"] = "`14`"
     write_model(base / "logs.properties", text(logs))
     old_docs = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
-    part = __import__("model_templates").source_paths(base / "vpc.properties")[1]
-    part.write_text(part.read_text().replace("desired.row.row_001-003.value=", "desired.row.row_001-003.value=bad-duplicate\ndesired.row.row_001-003.value=",1))
+    part = (base / "vpc.properties")
+    part.write_text(part.read_text().replace("desired.row.001-003.value=", "desired.row.001-003.value=bad-duplicate\ndesired.row.001-003.value=",1))
     with pytest.raises(ValueError) as error:
         SYNC.sync(root, True, "dev", "123456789012")
     assert "invalid template directive" in str(error.value) or "duplicate" in str(error.value)
     assert "`14`" in (docs / "logs.md").read_text(encoding="utf-8")
     assert (docs / "vpc.md").read_bytes() == old_docs[docs / "vpc.md"]
     assert (docs / "iam.md").read_bytes() == old_docs[docs / "iam.md"]
+    part.unlink()
     write_model(base / "vpc.properties", text(vpc))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
     assert "`14`" in (docs / "logs.md").read_text(encoding="utf-8")
@@ -1542,7 +1545,7 @@ def check_service_failure_protection(root, project):
     write_model(base / "logs.properties", text(logs))
     del vpc["desired.note.001.text"]
     write_model(base / "vpc.properties", text(vpc))
-    error = fails_with("authoritative YAML Model inputs missing")
+    error = fails_with("authoritative properties Model inputs missing")
     assert "candidate breaks saved reference" not in error
     assert "`7`" in (docs / "logs.md").read_text(encoding="utf-8")
     # Retained sources without a model also warn without blocking a scoped write.
@@ -1607,14 +1610,12 @@ def check_service_failure_protection(root, project):
     subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], cwd=root, check=True)
     (root / "tasks").mkdir()
     (root / "tasks/active.md").write_text("## Validation scope\n- `dev/123456789012/iam`\n- `dev/123456789012/logs`\n- `dev/123456789012/vpc`\n", encoding="utf-8")
-    import model_templates
     json_path = docs / "iam/flow-role-trust-policy.json"
     before = json_path.read_bytes()
     source = base / "iam.properties"
     document["Statement"][0]["Sid"] = "InputDrift"
     iam["desired.row.001-002.document"] = json.dumps(document)
     write_model(source, text(iam))
-    source = model_templates.source_paths(source)[2] / "parameters.yaml"
     source_before = source.read_bytes()
     publish = sync_runtime.publish_generation
     def change_input(*args, **kwargs):
@@ -1747,6 +1748,7 @@ def check_observed_arn_authority(tmp_path):
     from validation.design import check_observed_values
     from validation.design_tables import check_generated_identifier
     from validation.findings import Findings
+    (tmp_path / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}))
     path = tmp_path / 'model/dev/123456789012/secrets-manager.properties'
     document = tmp_path / 'docs/designs/dev/123456789012/secrets-manager.md'
     arn = 'arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:actual-id'

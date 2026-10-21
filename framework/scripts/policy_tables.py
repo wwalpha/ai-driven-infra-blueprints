@@ -13,7 +13,7 @@ import re
 import sys
 
 from iac_values import unique_object, invalid_constant
-from model_core import literal
+from model.core import literal
 from array_display import restored_rows
 from design_layout import ANCHOR, HEADER, RESOURCE, formal_property, resource_heading_lines
 

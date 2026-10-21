@@ -10,7 +10,7 @@ from support.model_sources import snapshot_model
 
 from support.model_sources import write_model
 
-from model_files import read_model
+from model.files import read_model
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -59,13 +59,14 @@ from issues_scan import scan, mechanical, naming_materials, save_scan, summary, 
 
 from issues_reports import save, blocks, numbered, identifier, iac_report, iac_dataset, iac_summary, value_differences
 
-from model_design import markdown_for, naming_targets, naming_target_matches
+from model.render import markdown_for
+from model.validation import naming_targets, naming_target_matches
 
-from model_core import properties, entries
+from model.core import properties, entries
 
 from design_layout import resource_name_fields
 
-from model_files import load_model, read_model, model_file_contents, resource_row_index
+from model.files import load_model, read_model, model_file_contents, resource_row_index
 
 from validation_cache import input_scope
 
@@ -79,7 +80,14 @@ from support.it_workspace import copy_framework
 
 def write(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
-    write_fixture_files({path: text})
+    if path.suffix == '.properties' and len(path.parents) > 2 and path.parents[2].name == 'model':
+        values = properties(text)
+        for key in list(values):
+            if key.startswith('desired.row.') and key.endswith('.property'):
+                values.setdefault(key.removesuffix('property') + 'comment', '')
+        write_model(path, values)
+    else:
+        write_fixture_files({path: text})
 
 def write_report(path, markdown):
     write(path, markdown)
@@ -146,10 +154,12 @@ def fixture(root, stacks=1, services=('s3', 'cloudwatch-logs', 'sqs'), parts=Fal
     write(root / 'model/dev/123456789012/cloudformation-stacks.properties', '\n'.join(f'{key}={value}' for key, value in stackvalues.items()) + '\n')
     for service, modelvalues in values.items():
         text = '\n'.join(f'{key}={value}' for key, value in modelvalues.items()) + '\n'
-        if parts:
-            text = '# fixture padding to exercise real part locations\n' * 560 + text
         path = root / f'model/dev/123456789012/{service}.properties'
-        write_fixture_files(model_file_contents(path, text))
+        write_model(path, modelvalues)
+        if parts:
+            from model.format import split
+            from sync_files import save_files
+            save_files(split(path, load_model(path).authoritative, limit=25))
         write(root / f'docs/designs/dev/123456789012/{service}.md', markdown_for(root / f'docs/designs/dev/123456789012/{service}.md', modelvalues, root))
     write(root / 'docs/designs/dev/123456789012/cloudformation-stacks.md', markdown_for(root / 'docs/designs/dev/123456789012/cloudformation-stacks.md', stackvalues, root))
     return values, template
@@ -237,7 +247,7 @@ def legacy_mechanical(root, services):
     return validator.errors
 
 def required_context(root, services):
-    from model_design import naming_rule_files
+    from model.validation import naming_rule_files
     files = set()
     for service in services:
         kind = {'s3': 'S3', 'sqs': 'SQS', 'cloudwatch-logs': 'Logs'}[service]
@@ -255,8 +265,8 @@ def baseline_input(root, services):
     texts = [required_context(root, services)]
     for service in services:
         path = root / f'model/dev/123456789012/{service}.properties'
-        from model_files import model_parts
-        texts.extend(file.read_text() for file in __import__('model_templates').source_inputs(path))
+        from model.files import model_parts
+        texts.extend(file.read_text() for file in __import__('model.sources', fromlist=['source_inputs']).source_inputs(path))
         texts.append((root / f'docs/designs/dev/123456789012/{service}.md').read_text())
     report = root / 'issues/dev/123456789012/issues.md'
     if report.exists():
@@ -268,19 +278,9 @@ def worker(root, variant, services):
     timings = {}
     process_count = 1
     original_read, original_bytes = Path.read_text, Path.read_bytes
-    import importlib.util
-    original_properties, original_model_read = __import__('model_core').properties, __import__('model_files').read_model
-    if variant in 'AB':
-        modules = []
-        for name in ('model_core', 'model_files'):
-            spec = importlib.util.spec_from_file_location('baseline_' + name, root / 'framework/scripts' / (name + '.py'))
-            loaded = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(loaded)
-            modules.append(loaded)
-        original_parse = modules[0].properties
-        __import__('model_files').read_model = modules[1].read_model
-    else:
-        original_parse = __import__('model_core')._parse_properties
+    import model.format as model_format
+    import model.sources as model_sources
+    original_parse = model_format.parse
     original_run = subprocess.run
     def read(path, *args, **kwargs):
         if path.suffix == '.properties' and 'model' in path.parts:
@@ -292,9 +292,9 @@ def worker(root, variant, services):
             counts['model_reads'] += 1
             counts['model_byte_reads'] += 1
         return original_bytes(path)
-    def parse(text):
+    def parse(*args, **kwargs):
         counts['model_parses'] += 1
-        return original_parse(text)
+        return original_parse(*args, **kwargs)
     def run(*args, **kwargs):
         nonlocal process_count
         process_count += 1
@@ -307,8 +307,9 @@ from collections import Counter
 sys.dont_write_bytecode=True
 filename=sys.argv[1]; destination=Path(sys.argv[2]); sys.argv=[filename,*sys.argv[3:]]
 sys.path.insert(0,str(Path(filename).parent))
-import model_core
-counts=Counter(); old_read=Path.read_text; old_bytes=Path.read_bytes; parse_name='_parse_properties' if hasattr(model_core,'_parse_properties') else 'properties'; old_parse=getattr(model_core,parse_name)
+import model.format as model_format
+import model.sources as model_sources
+counts=Counter(); old_read=Path.read_text; old_bytes=Path.read_bytes; old_parse=model_format.parse
 base=Path(sys.argv[sys.argv.index('--repository-root')+1])/'model'
 def read(path,*args,**kwargs):
  if path.suffix=='.properties' and 'model' in path.parts: counts['model_reads']+=1; counts['model_text_reads']+=1
@@ -316,10 +317,10 @@ def read(path,*args,**kwargs):
 def read_bytes(path):
  if path.suffix=='.properties' and 'model' in path.parts: counts['model_reads']+=1; counts['model_byte_reads']+=1
  return old_bytes(path)
-def parse(text):
+def parse(*args,**kwargs):
  counts['model_parses']+=1
- return old_parse(text)
-Path.read_text=read; Path.read_bytes=read_bytes; setattr(model_core,parse_name,parse)
+ return old_parse(*args,**kwargs)
+Path.read_text=read; Path.read_bytes=read_bytes; model_format.parse=parse; model_sources.parse=parse
 spec=importlib.util.spec_from_file_location('bench_sync',filename); loaded=importlib.util.module_from_spec(spec); spec.loader.exec_module(loaded)
 try: status=loaded.main()
 finally: destination.write_text(json.dumps(dict(counts)))
@@ -333,7 +334,7 @@ raise SystemExit(status)
             return result
         return original_run(*args, **kwargs)
     started = time.perf_counter()
-    with patch.object(Path, 'read_text', read), patch.object(Path, 'read_bytes', read_bytes), patch('model_core.properties' if variant in 'AB' else 'model_core._parse_properties', parse), patch.object(subprocess, 'run', run):
+    with patch.object(Path, 'read_text', read), patch.object(Path, 'read_bytes', read_bytes), patch.object(model_format, 'parse', parse), patch.object(model_sources, 'parse', parse), patch.object(subprocess, 'run', run):
         if variant == 'C':
             artifact = scan(root, 'dev', '123456789012', services, fresh=True, jobs=1)
             llm = required_context(root, services) + json.dumps(review_payload(artifact, '/tmp/fixture-scan.json'), ensure_ascii=False)
@@ -369,7 +370,6 @@ raise SystemExit(status)
                 # Old skill's already-authored report write; LLM time is unmeasured.
                 write(root / 'issues/dev/123456789012/issues.md', llm_output)
             timings['save_seconds'] = time.perf_counter() - save_started
-    __import__('model_files').read_model = original_model_read
     return {'wall_seconds': time.perf_counter() - started, **timings, 'processes': process_count, 'counts_all_processes': dict(counts),
             'llm_input_bytes': len(llm.encode('utf-8')), 'llm_input_chars': len(llm), 'llm_output_bytes': len(llm_output.encode('utf-8')),
             'ordinary': sorted(errors), 'coverage': sorted((item['category'], item['service'], item['resource'], item['property'], item.get('stack')) for item in records),
@@ -379,13 +379,8 @@ def benchmark(logdir, repeats=5):
     logdir.mkdir(parents=True, exist_ok=True)
     if logdir.resolve().is_relative_to(ROOT):
         raise ValueError('benchmark logs must be outside repository')
-    baseline = logdir / 'baseline'
-    baseline.mkdir(exist_ok=True)
-    for filename in ('model_files.py', 'model_design.py', 'validate-blueprint.py'):
-        result = subprocess.run(['git', 'show', 'HEAD:framework/scripts/' + filename], cwd=ROOT, capture_output=True, text=True, check=True)
-        write(baseline / filename, result.stdout)
     revision = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
-    output = {'baseline_revision': revision, 'baseline_note': 'checkout HEAD source captured before these uncommitted modifications; 1005v1 is a ZIP identifier, not an assumed ref', 'method': 'separate fresh Python processes; existing success cache disabled via fresh; jobs=1; no profile; OS file cache not flushed; fixtures only',
+    output = {'baseline_revision': revision, 'baseline_note': 'A/B/C compare execution paths in the current canonical runtime; revision identifies Git context and may include dirty working files', 'method': 'separate fresh Python processes; existing success cache disabled via fresh; jobs=1; no profile; OS file cache not flushed; fixtures only',
               'llm_tokens': 'unmeasured', 'llm_wall_time': 'unmeasured', 'metrics_note': 'total Python scan/material/format/save wall includes process startup; LLM and unchanged post-save local loop are unmeasured; model_reads = read_text + read_bytes across input and staged model files; parser calls and actual decode attempts are counted across processes', 'fixtures': {}}
     for label, stack_count, parts in [('small', 1, False), ('multi', 12, True)]:
         with tempfile.TemporaryDirectory(prefix='issues-bench-', dir=logdir) as directory:
@@ -405,8 +400,6 @@ def benchmark(logdir, repeats=5):
                     report = root / 'issues/dev/123456789012/issues.md'
                     write(report, '# 問題一覧\n\nhuman確認: fixtureの承認済みcomponent。\n\n## dev／123456789012\n\n### s3\n\n1. fixtureの保持対象問題\n')
                     (report.parent / 'iac-issues.md').unlink(missing_ok=True)
-                    for filename in ('model_files.py', 'model_design.py', 'validate-blueprint.py'):
-                        shutil.copyfile((baseline if variant in 'AB' else ROOT / 'framework/scripts') / filename, root / 'framework/scripts' / filename)
                     launch_started = time.perf_counter()
                     completed = subprocess.run([sys.executable, '-B', str(Path(__file__).resolve()), '--worker', variant, '--fixture', str(root), '--services', ','.join(services)], capture_output=True, text=True)
                     assert completed.returncode == 0, completed.stderr + completed.stdout
@@ -450,7 +443,7 @@ def summary_fixture():
 @pytest.fixture(scope="module", autouse=True)
 def protected_sources():
     protected = [ROOT / 'framework/scripts' / name for name in
-                 ('issues_iac.py', 'issue_gate.py', 'comparison_rows.py', 'iac_values.py', 'iac_evaluation.py', 'script_loader.py', 'model_design.py', 'policy_tables.py')]
+                 ('issues_iac.py', 'issue_gate.py', 'comparison_rows.py', 'iac_values.py', 'iac_evaluation.py', 'script_loader.py', 'model/render.py', 'policy_tables.py')]
     before = {path: path.read_bytes() for path in protected if path.exists()}
     yield
     assert before == {path: path.read_bytes() if path.exists() else None for path in before}, 'checks changed protected source'
@@ -462,4 +455,11 @@ def scan_project(tmp_path):
     return root, values, template
 
 
-__all__ = ['Comparison', 'Counter', 'Path', 'ROOT', 'SELECTOR', 'argparse', 'baseline_input', 'benchmark', 'blocks', 'compare', 'sequential_reports', 'contextmanager', 'detail_payload', 'entries', 'expect_error', 'fixture', 'hashlib', 'iac_dataset', 'iac_report', 'iac_summary', 'identifier', 'input_scope', 'issue_errors', 'json', 'legacy_mechanical', 'load_model', 'markdown_for', 'mechanical', 'model_file_contents', 'module', 'mutate_template', 'naming_materials', 'naming_target_matches', 'naming_targets', 'numbered', 'os', 'patch', 'properties', 'protected_sources', 'pytest', 'pytestmark', 're', 'read_model', 'render_iac', 'required_context', 'resource_name_fields', 'resource_row_index', 'review_payload', 'run', 'same', 'save', 'save_scan', 'scan', 'scan_project', 'selected_same', 'shutil', 'snapshot_model', 'statistics', 'strict_json', 'subprocess', 'summary', 'summary_fixture', 'sys', 'task', 'tempfile', 'time', 'value_differences', 'verify_inputs', 'worker', 'write', 'write_fixture_files', 'write_model', 'write_report']
+__all__ = ['Comparison', 'Counter', 'Path', 'ROOT', 'SELECTOR', 'argparse', 'baseline_input', 'benchmark', 'blocks', 'compare', 'sequential_reports', 'contextmanager', 'detail_payload', 'entries', 'expect_error', 'fixture', 'hashlib', 'iac_dataset', 'iac_report', 'iac_summary', 'identifier', 'input_scope', 'issue_errors', 'json', 'legacy_mechanical', 'load_model', 'markdown_for', 'mechanical', 'model_file_contents', 'module', 'mutate_template', 'naming_materials', 'naming_target_matches', 'naming_targets', 'numbered', 'os', 'patch', 'properties', 'protected_sources', 'pytest', 'pytestmark', 're', 'read_model', 'render_iac', 'required_context', 'resource_name_fields', 'resource_row_index', 'remove_model', 'review_payload', 'run', 'same', 'save', 'save_scan', 'scan', 'scan_project', 'selected_same', 'shutil', 'snapshot_model', 'statistics', 'strict_json', 'subprocess', 'summary', 'summary_fixture', 'sys', 'task', 'tempfile', 'time', 'value_differences', 'verify_inputs', 'worker', 'write', 'write_fixture_files', 'write_model', 'write_report']
+
+
+def remove_model(path):
+    from model.sources import model_parts
+    for source in model_parts(path):
+        source.unlink()
+    path.unlink(missing_ok=True)

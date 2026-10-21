@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from cloudformation_inputs import Blocked
 from script_loader import module
 from iac_values import strict_json, fingerprint
-from model_core import LINK
+from model.core import LINK
 from policy_tables import literal
 
 ALGORITHM = 'BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm'
@@ -87,7 +87,7 @@ def model_conditions(backend, bucket):
     ctx = SimpleNamespace()
     def model(path):
         if path not in models:
-            models[path] = module('check-model-aws.py', 'model_aws_compare').Model(ctx, path)
+            models[path] = module('model/adapters/aws.py', 'model.adapters.aws').Model(ctx, path)
         return models[path]
     ctx.model = model
     path = backend.root / 'model' / backend.environment / backend.directory / 's3.properties'

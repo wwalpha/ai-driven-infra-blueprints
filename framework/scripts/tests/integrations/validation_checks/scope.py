@@ -30,7 +30,7 @@ from support.validator import MODULE, project, git_project, commit, write
 @it_case
 def check_deployment_iac_scope():
     from deploy_preparation import task_deployment_input_paths
-    from model_design import markdown_for
+    from model.render import markdown_for
     import task_contract as tasks
     import os
     with git_project() as root, patch.dict(os.environ, {}, clear=True):

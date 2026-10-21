@@ -20,29 +20,27 @@ require Issue remediation or change issues.md. An `import-merge` parent retains 
 ordinary gate for non-reference Issues. Reference-only Issues and diagnostics are warnings
 under [Reference diagnostics](../../../framework/rules/model-information.md#reference-diagnostics).
 
-Read raw source with `model_sources.read_sources`; expansion-based `read_resource`,
-`trace_model`, `find_model` and `load_for_edit` are optional editing aids and may fail
-for unfinished sources. Use existing YAML editing and resolver helpers. The agent
-chooses source edits; Python does not reconstruct or infer an edit plan.
+Load the canonical snapshot with `model.sources.load_model`; inspect authoritative
+keys, source locations and raw file bytes. Use `model.files.read_resource`,
+`trace_model` and `find_model` for focused reads. Prepare ordinary format-2 properties
+candidates with `model.format.patch`, retaining parts and unrelated bytes. The agent
+chooses edits; Python verifies preservation and never infers an edit plan.
 
 ## Operation
 
 Accept exactly one Resource from the normalized parent deletion source set (merge
 sources or import-delete delete_sources). The parent LLM invokes the next leaf only
-after inspecting this result; multiple resources share the same Task and Worktree. Inspect all effective Models in the same
-environment/target for remaining references, including active optional/choice branches,
-Property/JSON/parentReference and internal links in expanded free text. Use the
-before anchor index even when a source is absent; service.md and ./service.md resolve
-identically. Ignore unused Definitions/inactive branches and unrelated URLs/IDs.
+after inspecting this result; multiple resources share the same Task and Worktree.
+Inspect declared references, Property/JSON/parentReference and direct Markdown links
+in all real Models of the same environment/target. Keep a before snapshot so deleted
+producer anchors remain known; service.md and ./service.md resolve identically.
 
-Before editing, call `model_reference_usage.incoming_references(root, address)` for
-each normalized fixed source address; use outgoing_references to explain ordering.
-The thin read-only CLI is `framework/scripts/model_reference_usage.py <address>
---direction incoming`, run through the registered run-python.py wrapper. Match its
-producer/consumer IDs, key/Property/pointer, kind/format, resolvedValue and source
-location/provenance against raw sources. Do not infer them or treat unresolved errors
-as no dependencies. Read references/warnings/complete; retained Resource/service links
-are warnings and do not require repair before deletion.
+Before editing, call `model.references.incoming(snapshot, fixed_id, read_context)`.
+The read-only CLI is `model/cli.py incoming <service.properties> <fixed-ID>`, run
+through the registered run-python.py wrapper. Inspect each usage's fixed scope/ID,
+consumerKey/pointer/occurrence, format and source position alongside
+`model.references.diagnose`. I/O, syntax and scope errors remain errors; semantic
+reference warnings do not prove an empty dependency set and do not block deletion.
 
 If incoming usages survive deletion, report exact locations and known prior values.
 The parent LLM chooses ordering and registered related repairs using existing reference
@@ -51,15 +49,17 @@ do not create an independent repair Task/Worktree/Merge. Repair records must ide
 consumer fields/pointers and a deleted producer. Ask about undetermined repairs;
 reference warnings never gate the original deletion. Keep final verify_model_operation
 for all parent sources after the last leaf, not after each save. Remaining references do not fail the operation. Remove
-only its Instance, binding, unused inputs and observations. Retain shared Definitions,
-in-use inputs and sibling Resources. Reject a multi-resource source Instance that
-cannot be safely separated; do not add an automatic splitting operation.
+only its Resource block, owned Rows/documents/reference records and observations.
+Retain sibling Resources, fixed IDs, unrelated blocks and part names; removing an
+empty part never renumbers surviving parts.
 
 ## Save and return
 
-Obtain a fresh `import_guard.source_write_context(root, task_file)` for this save and
-call `model_sources.write_sources(context, changes)` with absolute source paths and
-UTF-8 text (None means delete). A context is consumed by success, no-op or failure.
+Obtain a fresh `model.adapters.task.source_write_context(root, task_file)` for this save.
+Load the selected snapshot with that context's recorded inputs, prepare the ordinary
+properties candidate using `model.operations.prepare_edit(snapshot, changes, context)`,
+and call `model.operations.publish_edit(plan, context)`. Changes map absolute source
+paths to UTF-8 text (None means delete). A context is consumed by success, no-op or failure.
 Save only this operation's changed raw sources; unchanged bytes are no-op. Keep
 previous successful leaf saves on failure. Existing journal rollback applies only
 to this write. Never bypass managed-worktree, Task revision, input snapshot, exact

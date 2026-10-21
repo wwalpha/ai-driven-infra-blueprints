@@ -73,7 +73,7 @@ The file grouping unit for service resource detailed designs is the AWS service 
 
 - Target directories use aliases if configured for targets in `project.json`, otherwise AWS account IDs.
 - Place files in `docs/designs/<environment>/<target-directory>/<service-id>.md`.
-- Use lower-kebab-case Service IDs matching file stems and corresponding logical `model/<environment>/<target-directory>/<service-id>.properties` selector. Service values expand from model/parameters and common templates; this path is not a stored file.
+- Use lower-kebab-case Service IDs matching file stems and corresponding authoritative `model/<environment>/<target-directory>/<service-id>.properties` entrance. Each environment explicitly stores all service values; indexed services retain their registered parts.
 - Multiple resource types and instances belonging to the same AWS service may share a file.
 - Do not include separate AWS services in the same file merely because they are operationally related. Do not determine grouping solely by CloudFormation resource namespaces.
 - Child components may share files with parents only when belonging to the same AWS service. Do not treat resources of other AWS services as child components.

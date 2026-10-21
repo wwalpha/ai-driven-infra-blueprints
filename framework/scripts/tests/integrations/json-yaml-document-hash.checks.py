@@ -12,59 +12,71 @@ from support.json_yaml_document_hash_fixtures import *
 
 @it_case
 def check(root):
-    template=root/'model/templates/team/vpc-endpoint.properties.tpl'
-    text='\n'.join(['# model-template: 1','# definition: Gateway',
-        '# parameter: Cidr '+t.json_text({'type':'string','description':'許可するCIDR','required':True,'constraints':{'cidr':'ipv4'}}),
-        '# resource: endpoint','# row: policy endpoint',
-        'desired.resource.endpoint.resourceType=EC2.VPCEndpoint',
-        'desired.resource.endpoint.anchor=gateway',
-        'desired.row.policy.property=EC2.VPCEndpoint.PolicyDocument',
-        'desired.row.policy.value=[policy](vpc-endpoint/policy.json)',
-        'desired.row.policy.artifactSha256=stale',
-        'desired.row.policy.document={"Statement":[{"Condition":{"IpAddress":{"aws:VpcSourceIp":"<<Cidr>>"}},"Action":["s3:GetObject","s3:ListBucket"],"Enabled":false,"Count":2,"Text":"日本語"}]}',
-        '# end-definition',''])
-    save_files({template:text})
-    base={'definition':'Gateway','resources':{'endpoint':'017'},'rows':{'policy':'017-004'},'parameters':{},'labels':{}}
-    binding={'instances':{'gateway':base}}
-    human={'instances':{'gateway':{'parameters':{'Cidr':'198.51.100.0/24'}}}}
-    empty={'version':1,'values':{}}
-    first=t.expand(template,human,empty,binding,'preview')[0]
-    second=t.expand(template,human,empty,binding,'preview')[0]
-    assert first==second
-    key='desired.row.017-004.';document=t.json_read(first[key+'document'])
-    assert document['Statement'][0]['Action']==['s3:GetObject','s3:ListBucket']
-    assert document['Statement'][0]['Enabled'] is False and type(document['Statement'][0]['Count']) is int
-    assert first[key+'artifactSha256']==document_sha256(document)
-    artifact=root/'policy.json';artifact.write_text(t.json_text(document)+'\n',encoding='utf-8')
-    assert json_sha256(artifact)==first[key+'artifactSha256']
-    paths={}
-    for environment,inputs in [('preview',human),('release',human)]:
-        path=root/'model'/environment/'team/vpc-endpoint.properties';directory=root/'model/parameters'/environment/'team/vpc-endpoint'
-        outputs={path:''.join(k+'='+v+'\n' for k,v in first.items()),directory/'observed.json':t.json_text(empty)}
-        outputs[directory/'parameters.yaml']=parameter_text(inputs,t.parse_template(template)[0],binding)
-        outputs[directory/'bindings.json']=t.json_text(binding)
-        save_files(outputs);paths[environment]=(path,directory,inputs)
-    (root/'tasks').mkdir();(root/'tasks/active.md').write_text('## Task contract\n- Task type: `migration`\n## Allowed paths\n'+''.join('- `'+(d/'parameters.yaml').relative_to(root).as_posix()+'`\n' for env,(_,d,_) in paths.items()))
-    updated=[]
-    for environment,(path,directory,inputs) in paths.items():
-        before=t.design_source_digest(path)
-        changed=copy.deepcopy(inputs)
-        item=changed['instances']['gateway']
-        item['parameters']['Cidr']='203.0.113.0/24'
-        t.save_parameters(path,changed)
-        values=load_model(path).values;updated.append(values)
-        assert values[key+'artifactSha256']!=first[key+'artifactSha256'] and t.design_source_digest(path)!=before
-        assert values[key+'artifactSha256']==document_sha256(t.json_read(values[key+'document']))
-        assert t.load_expansion(path).provenance[key+'artifactSha256']['derivedFrom']==key+'document'
-        t.save_parameters(path,changed);assert load_model(path).values==values
-        assert t.affected(root,[(directory/'parameters.yaml').relative_to(root)])=={(environment,'team','vpc-endpoint')}
-    assert updated[0]==updated[1]
-    # Object order affects projection bytes/digest as before; the document hash canonicalizes objects only.
-    reordered={'Statement':[copy.deepcopy(dict(reversed(list(document['Statement'][0].items()))))]}
-    assert document_sha256(reordered)==document_sha256(document)
-    reordered['Statement'][0]['Action'].reverse()
-    assert document_sha256(reordered)!=document_sha256(document)
-    print('JSON/YAML hashes: PASS (same canonical bytes; stale regeneration; types/order; trace; save/rerun; input/projection digest contracts)')
+    from support.worktree_task_fixtures import fixture, git, start
+    from model import prepare_edit, publish_edit
+    from model.adapters.task import edit_write_context
+    with fixture() as primary:
+        setup(primary, ['vpc-endpoint'], ['EC2.VPCEndpoint'], ('preview', 'release'))
+        key = 'desired.row.017-004.'
+        document = {'Statement': [{'Condition': {'IpAddress': {'aws:VpcSourceIp': '198.51.100.0/24'}},
+            'Action': ['s3:GetObject', 's3:ListBucket'], 'Enabled': False, 'Count': 2, 'Text': '日本語'}]}
+        values = {name.replace('.017-001.', '.017-004.'): value for name, value in resource(
+            '017', 'EC2.VPCEndpoint', 'gateway', [('PolicyDocument', '[policy](vpc-endpoint/policy.json)')]).items()}
+        values['desired.resource.017.resourceMode'] = 'CREATE'
+        values[key + 'document'] = json.dumps(document, ensure_ascii=False)
+        paths = {}
+        for environment in ('preview', 'release'):
+            path = primary / 'model' / environment / 'team/vpc-endpoint.properties'
+            write_model(path, values)
+            paths[environment] = path.relative_to(primary).as_posix()
+        git(primary, 'add', 'framework', 'model', 'project.json'); git(primary, 'commit', '-qm', 'explicit document sources')
+        target, state = start(primary, files=tuple(paths.values()))
+        name = state['task_file']
+        listed = ''.join('- `' + item + '`\n' for item in [name, *paths.values()])
+        contract = ('## Task contract\n- Task type: `design`\n- Task status: `running`\n'
+                    '## Required changes\n- [R1] Explicit native documents\n## Acceptance checks\n- [R1] `exists:project.json`\n'
+                    '## Validation scope\n- `preview/team/vpc-endpoint`\n- `release/team/vpc-endpoint`\n')
+        for heading in ('Modified files', 'Allowed paths'):
+            contract += '## ' + heading + '\n' + listed
+        (target / name).write_text(contract)
+        first = load_model(target / paths['preview'])
+        assert load_model(target / paths['preview']).authoritative == first.authoritative
+        actual = json.loads(first.authoritative[key + 'document'])
+        assert actual['Statement'][0]['Action'] == ['s3:GetObject', 's3:ListBucket']
+        assert actual['Statement'][0]['Enabled'] is False and type(actual['Statement'][0]['Count']) is int
+        assert first.values[key + 'artifactSha256'] == document_sha256(actual)
+        assert key + 'artifactSha256' not in first.authoritative
+        artifact = root / 'policy.json'; artifact.write_text(json_text(actual) + '\n', encoding='utf-8')
+        assert json_sha256(artifact) == first.values[key + 'artifactSha256']
+        updated = []
+        for environment, relative in paths.items():
+            path = target / relative
+            before = design_source_digest(path)
+            raw = path.read_bytes()
+            with edit_write_context(target, {(environment, 'team', 'vpc-endpoint')}, name) as context:
+                snapshot = load_model(path, context.snapshot)
+                bad = {**snapshot.authoritative, key + 'artifactSha256': 'stale'}
+                rejected(lambda: prepare_edit(snapshot, {path: serialize(bad)}, context), 'unknown Model field')
+            assert path.read_bytes() == raw
+            changed = {**values, key + 'document': values[key + 'document'].replace('198.51.100.0/24', '203.0.113.0/24')}
+            with edit_write_context(target, {(environment, 'team', 'vpc-endpoint')}, name) as context:
+                assert publish_edit(prepare_edit(load_model(path, context.snapshot), {path: serialize(changed)}, context), context) == (path,)
+            current = load_model(path); updated.append(current.values)
+            assert current.values[key + 'artifactSha256'] != first.values[key + 'artifactSha256']
+            assert design_source_digest(path) != before
+            assert current.values[key + 'artifactSha256'] == document_sha256(json.loads(current.authoritative[key + 'document']))
+            assert trace_model(path, key + 'artifactSha256')['derivedFrom'] == key + 'document'
+            raw = path.read_bytes()
+            with edit_write_context(target, {(environment, 'team', 'vpc-endpoint')}, name) as context:
+                assert publish_edit(prepare_edit(load_model(path, context.snapshot), {path: serialize(changed)}, context), context) == ()
+            assert path.read_bytes() == raw
+            assert affected(target, [relative]) == {(environment, 'team', 'vpc-endpoint')}
+        assert updated[0] == updated[1]
+        reordered = {'Statement': [copy.deepcopy(dict(reversed(list(document['Statement'][0].items()))))]}
+        assert document_sha256(reordered) == document_sha256(document)
+        reordered['Statement'][0]['Action'].reverse()
+        assert document_sha256(reordered) != document_sha256(document)
+    print('JSON document hashes: PASS (canonical types/order; derived-only hash; stale authority rejection; real managed edit/no-op; independent environments)')
 
 
 if __name__=='__main__':

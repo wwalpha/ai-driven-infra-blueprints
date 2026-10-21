@@ -3,12 +3,13 @@ name: issue-fix
 description: Use when locally investigating targets/services within one explicitly specified AWS Blueprint environment with the issues skill and repairing only display-related problems in its results. Environment specification is mandatory; execution across multiple environments is prohibited.
 ---
 
-[Service Model source authority](../../../framework/rules/model-templates.md) applies
-for runtime Models: read through model_files and trace expanded keys with `--trace`.
-Design edits use the common template, parameters.yaml and fixed bindings.json;
-authorized observed updates use observed.json. Include mechanically identified
-common-template consumers in generation/Validation scope. Retain this skill's
-single deployment target, issue gate and AWS permission boundary.
+[Service Model source authority](../../../framework/rules/model-templates.md) applies.
+Read the environment-specific properties through `model.sources.load_model` and
+`model/cli.py trace <service.properties> <key>`. Edit desired/display/reference keys
+only within the selected Task; authorized observations change only the selected
+`observed.row.<id>.value`. Record the entry and actual parts, required incoming
+consumers and generated paths in the Task. Read dependencies grant no write scope.
+Retain this skill's deployment target, issue gate and AWS permission boundary.
 
 
 # Display-related issue repair

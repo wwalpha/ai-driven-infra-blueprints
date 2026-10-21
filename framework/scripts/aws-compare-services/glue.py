@@ -1,6 +1,6 @@
 """glue: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import one
+from model.adapters.aws import one
 
 APIS = {('glue', 'get_security_configuration'), ('glue', 'get_catalog'), ('glue', 'get_table'), ('glue', 'get_catalogs'), ('glue', 'get_connection'), ('glue', 'get_database'), ('glue', 'get_job')}
 

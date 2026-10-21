@@ -39,7 +39,7 @@ def main():
         instance.check_issue_gate()
         assert not instance.errors
         active.write_text(contract)
-        for name in ("issues.md", "iac-issues.md", "diff.md"):
+        for name in ("issues.md", "iac-issues.md"):
             report = f"issues/dev/cde/{name}"
             investigation = contract.replace('Task type: `design`', 'Task type: `migration`') + (
                 f"\n## Allowed paths\n\n- `tasks/active.md`\n- `{report}`\n")

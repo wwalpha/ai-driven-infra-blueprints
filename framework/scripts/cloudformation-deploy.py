@@ -13,16 +13,16 @@ from pathlib import Path
 from deployment import aws_adapter, delivery, change_sets, repair as repair_ops, secret_bootstrap, session as session_ops
 from deployment.secret_bootstrap import BOOTSTRAP_STAGES
 from deployment.aws_adapter import secret_value_missing
-from model_design import markdown_for
-from model_references import deployment_bucket
-from model_core import properties, stack_model, deployment_settings, ARTIFACT_PROPERTIES
-from model_files import read_model
+from model.render import markdown_for
+from model.projection import deployment_bucket
+from model.core import properties, stack_model, deployment_settings, ARTIFACT_PROPERTIES
+from model.files import read_model
 from deploy_preparation import Timing
 from issue_gate import require_target_no_issues
 from iac_values import fingerprint
 from task_contract import task_path
 from cloudformation_inputs import Blocked, load_template_inputs
-from cloudformation_observed import mappings, removed_resources
+from model.adapters.observed import mappings, removed_resources
 
 
 def load_units(root, environment, directory, scope):

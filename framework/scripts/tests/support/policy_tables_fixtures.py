@@ -15,7 +15,7 @@ pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 from support.pytest_cli import run
 
-import model_projection
+import model.projection as model_projection
 
 import json
 

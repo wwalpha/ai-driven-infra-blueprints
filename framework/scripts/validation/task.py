@@ -6,9 +6,9 @@ from validation_cache import input_is_file, input_text
 import re
 import subprocess
 from pathlib import Path
-from model_core import properties
-from model_files import service_model_path
-from model_templates import affected, service_source
+from model.core import properties
+from model.files import service_model_path
+from model.impact import affected
 from validation_scope import active_scope
 from issue_gate import require_no_issues
 from task_contract import task_path, TASK_NAME, matches
@@ -229,7 +229,7 @@ class TaskValidation:
                 forbidden = self.under(changed, "tests")
                 self.check(not forbidden, f"infrastructure task boundary violation: {changed}")
                 if self.infrastructure_phase == "destroy":
-                    permitted = changed == prompt_path or changed.startswith("model/parameters/") and Path(changed).name in {"observed.json"} or changed.startswith("docs/designs/") and Path(changed).suffix in {".md", ".json"}
+                    permitted = changed == prompt_path or changed.startswith("model/") and changed.endswith(".properties") or changed.startswith("docs/designs/") and Path(changed).suffix in {".md", ".json"}
                     self.check(permitted, f"infrastructure destroy phase permits only observed models/generated views/active contract: {changed}")
             elif self.task_type == "scenario-test":
                 permitted = changed == prompt_path or self.under(changed, "tests/scenarios") or self.under(changed, "tests/results")
@@ -246,7 +246,7 @@ class TaskValidation:
             scope = active_scope(self.root) if scope is ... else scope
             if self.task_type == "migration" and scope:
                 reports = {f"issues/{env}/{target}/{name}" for env, target, _ in scope
-                           for name in ("issues.md", "iac-issues.md", "diff.md")}
+                           for name in ("issues.md", "iac-issues.md")}
                 prompt = task_path(self.root)
                 permitted = reports | {self.relative(prompt)}
                 lines = (self.contract_text or input_text(prompt, encoding="utf-8")).splitlines()
@@ -270,19 +270,17 @@ class TaskValidation:
             markdown = {path for path in changed if path.startswith("docs/designs/") and path.endswith(".md")}
             artifacts = {path for path in changed if path.startswith("docs/designs/") and path.endswith(".json")}
             model_files = {path for path in changed if path.startswith("model/") and path.endswith(".properties")}
-            design_sources = {path for path in changed if path.startswith('model/templates/') or
-                              path.startswith('model/parameters/') and Path(path).name in {'parameters.yaml', 'bindings.json'}}
+            design_sources = set(model_files)
             text = self.contract_text or input_text(task_path(self.root), encoding='utf-8')
             if '- Workflow: `import`' in self.section(text.splitlines(), '## Task contract'):
                 from import_guard import require_import_changes
                 try:
                     if not self.import_checked:
                         require_import_changes(self.root, self.scope_paths, final_candidate=self.final_candidate)
-                    design_sources |= {path for path in changed if path.startswith('model/parameters/') and Path(path).name == 'observed.json'}
                 except (OSError, ValueError) as error:
                     self.check(False, str(error))
             models = {'model/' + '/'.join(entry) + '.properties' for entry in (self.design_impact if self.design_impact is not None else affected(self.root, design_sources))}
-            self.check(bool(models), "design task must change authoritative YAML service inputs")
+            self.check(bool(models), "design task must change authoritative properties service inputs")
             for path in markdown:
                 expected = "model/" + path.removeprefix("docs/designs/").removesuffix(".md") + ".properties"
                 self.check(expected in models, f"changed design Markdown lacks changed service model: {path}")
@@ -310,16 +308,26 @@ class TaskValidation:
                     "infrastructure update phase must include generated detailed-design Markdown",
                 )
                 self.check(
-                    any(path.startswith("model/templates/") or path.startswith("model/parameters/") and Path(path).name in {"parameters.yaml", "bindings.json"} for path in changed),
-                    "infrastructure update phase must include human-changed authoritative YAML service inputs",
+                    any(path.startswith("model/") and path.endswith(".properties") for path in changed),
+                    "infrastructure update phase must include human-changed authoritative properties service inputs",
                 )
             elif self.infrastructure_phase == "destroy":
                 self.check(not iac_changed, "infrastructure destroy phase must not change IaC")
                 for relative in sorted(changed):
-                    if relative.startswith('model/parameters/'):
-                        self.check(Path(relative).name in {'observed.json'}, f'destroy cannot change template parameters: {relative}')
-                    if relative.startswith('model/templates/'):
-                        self.check(False, f'destroy cannot change template: {relative}')
+                    if relative.startswith('model/'):
+                        try:
+                            from worktree_task import git
+                            from model.observed import verify_observed_outputs
+                            if self.baseline is None:
+                                raise ValueError('destroy requires a versioned Model baseline')
+                            previous = git(self.root, 'show', self.baseline + ':' + relative, check=False)
+                            if previous.returncode:
+                                raise ValueError('destroy cannot add or remove Model files')
+                            path = self.root / relative
+                            verify_observed_outputs({path: previous.stdout.encode('utf-8')},
+                                                    {path: input_text(path, encoding='utf-8')})
+                        except (OSError, ValueError, TypeError) as error:
+                            self.check(False, f'destroy permits only observation patches: {relative}: {error}')
 
 
 

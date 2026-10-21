@@ -16,7 +16,8 @@ from support.security_group_tables_fixtures import *
 def main():
     catalog = VALIDATOR.Validator(REPOSITORY).catalog_design_properties()
     with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
+        root = Path(directory).resolve()
+        (root / "project.json").write_text(__import__("json").dumps({"targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
         path = root / "docs/designs/dev/123456789012/security-group.md"
         path.parent.mkdir(parents=True)
         vpc = path.with_name("vpc.md")

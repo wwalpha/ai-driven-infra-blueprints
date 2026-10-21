@@ -18,7 +18,7 @@ from validation.design import TABLE_HEADER, TABLE_ALIGNMENT, REQUIRED_NAME_PROPE
 from policy_tables import artifact_id, rendered_design as rendered_policy_design
 from design_catalog import DesignSchemaCatalog
 from design_layout import STACK_DESIGN
-from model_core import properties
+from model.core import properties
 from validation_scope import active_scope, scoped_files
 from design_document import DesignIndex
 from task_contract import SELECTOR, contract_reads, verify_contract_reads
@@ -86,8 +86,8 @@ class Validator:
         if self.scope == set() or self.contract_scope == set():
             self.check(False, '--write requires service scope; framework scope cannot generate Models')
             return self.report()
-        from sync_runtime import GenerationInputs
-        from model_templates import publication_lock
+        from generation_inputs import GenerationInputs
+        from model.sources import publication_lock
         from contextlib import ExitStack
         from utils.aws_mappings import mapping_alias, definition_root
         with publication_lock(self.root):
@@ -125,6 +125,17 @@ class Validator:
             if kind == 'check':
                 self.check(value in registered, f'unknown registered Acceptance check: {requirement}: {value}')
                 self.check(value in self.acceptance_stages, f'undefined Acceptance execution stage: {requirement}: {value}')
+        from model.migration.contract import migration_contract
+        migration = migration_contract(self.task.contract_text or '')
+        if migration is not None:
+            self.check(not self.write, 'format migration validates an explicit candidate; generated writes are forbidden')
+            self.check(self.scope == {tuple(service.split('/')) for service in migration.services},
+                       'format migration requires its exact service Validation scope')
+            self.check(self.task.import_checked, 'format migration equivalence guard failed')
+            self.findings.evaluate('model.format-migration', self.scope,
+                lambda: self.check(self.task.import_checked, 'format migration equivalence guard failed'))
+            self.check_acceptance_checks()
+            return self.report()
         self.input_check(snapshot, self.check_project_topology)
         self.check_validation_scope()
         if not self.write:
@@ -218,7 +229,7 @@ class Validator:
                 common = plan.validation.get(None)
                 actual = None if common is None else common.result('framework.policy-tables', plan.generated_scope)
                 if actual is None and plan.unavailable and not plan.failures:
-                    from model_core import ReferenceResolutionError
+                    from model.core import ReferenceResolutionError
                     raise ReferenceResolutionError('policy views unavailable because reference resolution failed')
                 self.check(actual is not None and actual.model_completion_allowed and
                            (self.scope is None or actual.scope == frozenset(plan.generated_scope)),
@@ -252,7 +263,7 @@ class Validator:
                 self.check(relative in modified and any(self.task.matches(relative, pattern) for pattern in allowed),
                            f'generated path is outside task scope: {relative}')
                 parts = path.relative_to(self.root / 'docs/designs').parts
-                identity = (*parts[:2], Path(parts[2]).stem)
+                identity = (*parts[:2], Path(parts[2]).stem if len(parts) == 3 else parts[2])
                 self.check(self.scope is None or identity in self.scope, f'generated path is outside Validation scope: {relative}')
             self.check_task_boundary(self.root / name, {p.relative_to(self.root).as_posix() for p in planned})
             if len(self.errors) != candidate_error_count:
@@ -311,13 +322,13 @@ class Validator:
         unavailable = generator.findings.result('framework.generated-service-model', self.scope).metadata.get('unverified', {})
         skipped = {tuple(entry.split('/')) for entry in unavailable}
         # Only View checks are unavailable; source checks remain independent.
-        from model_design import check_model_inputs
-        from model_templates import load_for_analysis
+        from model.validation import check_model_inputs
+        from model.sources import load_model
         for entry in sorted(skipped):
             def source_checks():
                 path = self.root / 'model' / entry[0] / entry[1] / (entry[2] + '.properties')
-                analysis = load_for_analysis(path)
-                independent = check_model_inputs(path, analysis.values, self.root, definitions_root=self.definitions_root)
+                analysis = load_model(path)
+                independent = check_model_inputs(path, analysis.authoritative, self.root, definitions_root=self.definitions_root)
                 self.errors.extend(independent.errors)
                 self.warnings.extend((*analysis.warnings, *independent.warnings))
                 self.checks += independent.checks
@@ -495,13 +506,12 @@ class Validator:
         else:
             self.task.impact = project.check_validation_scope(self.accounts, self.task.scope_paths, self.contract_scope, self.findings, self.root, self.scope, self.task_iac_paths, candidates=self.write)
         if self.write and self.task_type == 'design':
-            desired = {p for p in self.task.permission_paths if p.startswith('model/templates/') or
-                       p.startswith('model/parameters/') and Path(p).name in {'parameters.yaml', 'bindings.json'}}
+            desired = {p for p in self.task.permission_paths if p.startswith('model/') and p.endswith('.properties')}
             if not desired:
                 self.task.design_impact = set()
-            elif any(p.startswith('model/') and Path(p).name == 'observed.json' for p in self.task.permission_paths):
+            elif desired:
                 # Desired-source task requirements differ from all-source validation impact.
-                from model_templates import affected
+                from model.impact import affected
                 self.task.design_impact = affected(self.root, desired)
             else:
                 self.task.design_impact = self.task.impact
@@ -545,6 +555,7 @@ class Validator:
 
 
     acceptance_stages = {
+        "model.format-migration": "common",
         'framework.active-task-transition': 'common',
         'framework.rule-readings': 'common',
         'framework.design-handoff': 'common',
@@ -562,6 +573,7 @@ class Validator:
 
     def registered_checks(self):
         return {
+            "model.format-migration": lambda: self.check(self.task.import_checked, "format migration equivalence guard failed"),
             "framework.active-task-transition": self.check_framework_active_task_transition,
             "framework.rule-readings": self.check_framework_rule_readings,
             "framework.design-handoff": self.check_framework_design_handoff,

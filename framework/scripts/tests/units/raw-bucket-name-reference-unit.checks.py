@@ -9,13 +9,19 @@ if not __debug__:
 from support.raw_bucket_name_reference_fixtures import *
 
 def check_reference_schema():
-    ref = {'service':'s3','resource':'017','resourceType':'S3.Bucket'}
-    for spec in [{**ref,'format':'unknown'}, {**ref,'format':{}},
-        {'instance':'first','resourceType':'S3.Bucket','format':'name'}]:
-        rejected(lambda:reference_schema(spec),'invalid Model parameter format')
-    rejected(lambda:reference_schema({**ref,'format':'name','property':'BucketName'}),'template reference requires')
-    rejected(lambda:schema({'type':'string','description':'bad','required':True,'format':'name'}),'invalid Model parameter format')
-
+    key = 'desired.row.008-001.value'
+    values = resource('008', 'EC2.VPCEndpoint', 'consumer', [('PolicyDocument', 'saved')])
+    values.update(reference('fixed', key, 'saved', 'vpc', '001', 'S3.Bucket', mode='name', prop='S3.Bucket.BucketName'))
+    assert declarations(values)['fixed']['format'] == 'name'
+    for fields, phrase in [({'format': 'unknown'}, 'format/scope'),
+                           ({'labelPolicy': 'fixed'}, 'non-link'),
+                           ({'contextProperty': 'environment'}, 'forbidden'),
+                           ({'producerScope': '../team/vpc'}, 'unsafe'),
+                           ({'selector': 'first'}, 'fields')]:
+        bad = {**values, **{'desired.reference.fixed.' + field: value for field, value in fields.items()}}
+        rejected(lambda: declarations(bad), phrase)
+    bad = {key: value for key, value in values.items() if key != 'desired.reference.fixed.property'}
+    rejected(lambda: declarations(bad), 'missing or forbidden')
 
 
 if __name__ == '__main__':

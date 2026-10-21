@@ -47,7 +47,7 @@ classified as an independent documentation edit.
 | --- | --- |
 | Markdown, Skill or Prompt text only | `git diff --check`, diff review and necessary reference/description checks; no local loop or regression |
 | Isolated test fixture only | Tests consuming that fixture |
-| Individual Model Template or environment inputs | Target service validation, including every registered consumer of a shared template |
+| Individual service properties or parts | Target service validation and affected saved-reference consumers |
 | Individual module with proven bounded impact | Related tests and validation of the affected scope |
 | Shared Framework logic | Full local loop once |
 | Validation infrastructure or execution control | Related tests plus Full local loop once |
@@ -173,56 +173,25 @@ For tasks affecting runtime inputs or behavior, task-type-specific checks cannot
 
 ## Validation scope
 
-Registered template services follow [Model templates](model-templates.md). Include all
-direct registered consumers of changed templates in generation/Validation scope;
-parameter, binding and observed changes are environment/service scoped. Apply the common
-active resource-reference impact comparison from Model templates to downstream services:
-include only changed reference results/identities and unresolved consumers, stopping
-transitive propagation at unchanged reference results. Unknown baselines retain
-conservative dependency scope. The shared reader expands sources
-before all existing Model/catalog/schema/reference/view checks. Cache and immutable
-plan guards include source bytes, including comment-only edits and observed inputs.
-Broken/missing YAML authorities stop, stale generated views fail, and observed writes route
-only to observed.json. This does not authorize multi-environment deployment.
+Existing service entrances follow [Model sources](model-templates.md). Source and
+observation changes are environment/target/service scoped. Use common properties discovery
+and saved-reference impact analysis for incoming consumers, retaining conservative scope
+when the baseline or dependency meaning is unknown. Read-only producer discovery never
+expands Deployment scope, Allowed paths or AWS permission.
 
-The import workflow pins one environment/target/service. Its evidence/ownership scope
-includes read-only preservation inputs for direct shared-Definition users, never writes
-to their inputs/views or traversal of recursive dependencies. Import completion checks acquisition/source evidence only;
-it runs no design validation or local loop. This exception does not apply to framework
-implementation changes or ordinary design workflows.
+Assemble full properties authority before Model/catalog/schema/view checks. Input guards
+retain original bytes, comment-only changes, observation absence, parts sets, project and
+actual producer dependencies. Broken authorities stop; stale generated views fail.
+Observation writers patch only authorized observed.value in the same properties and
+preserve desired/display/reference/placementName. This grants no multi-environment deploy.
 
-Place `## Validation scope` in the active task with entries of ``- `<environment>/<target-directory>/<service-id>` ``. Use the alias as target directory when present, otherwise the AWS account ID. Specify services by model file stem (`ec2` for EC2). Stop for environment-only, account-only, or service-only specifications, unknown targets, or missing authoritative Model sources. Read-only validation also rejects missing saved Markdown; integrated write validates candidate presence after generation. Do not infer validation targets from Allowed paths or changed files. Also reject design changes outside scope.
+Import pins one environment/target/service. Its producer/incoming inputs are read-only;
+acquisition/source/display completion runs no design validation or local loop. The LLM
+owns service iteration and conversational consent. This exception does not apply to
+Framework implementation or ordinary design. A limited format migration proves semantic
+equivalence while preserving existing issues; it does not assert design/IaC validity.
+See [migration contract](../docs/model-migration.md).
 
-```md
-## Validation scope
-
-- `dev/cde/ec2`
-- `dev/non-cde/ec2`
-- `stg/cde/ec2`
-- `stg/non-cde/ec2`
-```
-
-`sync-model.py --write` and `--mode task` / `--mode local` / `--mode full` use the same Validation scope. Retain target services from validator through model matching; do not implicitly expand to `--all`. Validate target service models, generated Markdown/JSON equality, catalog/schema, naming, policies, and reference links. Read only anchors, names, and logical/current identifier information needed to resolve reference target links. Do not validate entire reference-target services' schemas, naming, or generated artifacts or count existing out-of-scope design errors such as prod as task failures. Retain task contracts, Requirement/Acceptance, change scope, project topology, catalog/schema snapshot integrity, and framework structure as common checks. Do not fully validate IaC contents or scenarios/results in ordinary design tasks.
-
-Validate multiple targets and multiple services within the same target with at most 4 parallel workers; wait for all workers and aggregate diagnostics in scope order. Parallelize read-only matching after generation candidates are ready; do not multiply target and service worker counts. `--validation-jobs 1` permits serial comparison. `sync-model.py --write` also uses active task scope to avoid generating other services. For an explicit single target/service, `--environment <env> --alias <alias> --service <service-id>` may be used (`--aws-account-id` without an alias).
-
-Framework-only governance/catalog-maintenance/migration may explicitly specify ``- `framework` ``. Validate actual designs for all services only with explicit `--all` or a sole ``- `all` `` Validation scope entry. If scope is missing, stop even in `full`; do not fall back to overall validation. Daily overall validation runs on a separately configured schedule. Do not add overall validation “just in case” after scoped validation.
-
-When Validation scope has no service targets, skip repository `project.json` and
-`model/`, including existence checks, directory discovery and cache inputs.
-Explicit service/all validation retains its required Model directories and project checks.
-
-
-`framework/scripts/validate-blueprint.py` remains the compatibility CLI;
-`validation/runner.py` owns the importable Validator and cache/worker coordinator.
-`validation/loop.py` owns the existing scheduler and calls run_validation directly. Its internal `validation/`
-modules separate Task/Acceptance state (`task.py`), framework contracts, Project topology/scope,
-Model/Design ownership/naming, table/schema checks, overview/link/artifact checks,
-CloudFormation/IaC inputs, and Scenario/Result records. Domains receive explicit inputs and
-the small `findings.py` collector, never the whole runner. The collector keeps ordered
-blocking/global and file-gated findings separate and reads the gate established by Task parsing.
-Scenario checks validate records without executing scenarios; a recorded FAIL remains valid.
-Shared internal modules conservatively select full regression under `--affected`.
 
 ## Validation cache
 
@@ -322,9 +291,9 @@ alone do not enable that setting.
 
 Before design questions, on resume, target changes, before design contract registration, and before saving, run `check-design-naming.py` for all targets as the start gate in `aws-resource-naming.md`, except for the dedicated `/import` workflow (including `--dry-run`). That workflow uses source/acquisition safety checks and separate display generation; design validation is deferred to explicit issues. Do not start/continue ordinary design for unregistered rules, empty patterns, read failures, or unexecuted/failed checks; identify missing resource types/properties and stop before model updates. Follow common naming rules for CREATE/IMPORT and explicit exclusion scope.
 
-1. Update authoritative template/parameters.yaml/bindings.json inputs specified by the active prompt. Only when existing-resource retrieval is specified, validate read-only AWS context before repository changes and directly reflect differences in selected properties of human-selected resources to current values.
-2. For existing-resource retrieval, reflect only necessary non-ARN current identifiers in observed.json. Do not save secrets, generated ARNs, or resource provenance.
-3. Save confirmed design values in the corresponding template/parameters.yaml/bindings inputs first. The integrated task loop with `--write` validates schema/catalog mandatory root properties in authoritative properties per service; for deficient services, generate no Markdown/JSON artifacts or policy tables, even temporary files. Retain properties as inputs and report missing resources/properties. Temporarily generate/validate only services with complete required items; save successful services in the same coherent change. Also generate `bucketDefinitions` Macie Job mapping tables from model documents. Retain saved Markdown/JSON for failing services and continue processing other services. If failures remain, do not treat as complete; correct authoritative properties and rerun.
+1. Update authoritative environment-specific properties inputs specified by the active prompt. Only when existing-resource retrieval is specified, validate read-only AWS context before repository changes and directly reflect differences in selected properties of human-selected resources to current values.
+2. For existing-resource retrieval, reflect only necessary non-ARN current identifiers in observed.row.*.value. Do not save secrets, generated ARNs, or resource provenance.
+3. Save confirmed design values in the corresponding properties first. The integrated task loop with `--write` validates schema/catalog mandatory root properties in authoritative properties per service; for deficient services, generate no Markdown/JSON artifacts or policy tables, even temporary files. Retain properties as inputs and report missing resources/properties. Temporarily generate/validate only services with complete required items; save successful services in the same coherent change. Also generate `bucketDefinitions` Macie Job mapping tables from model documents. Retain saved Markdown/JSON for failing services and continue processing other services. If failures remain, do not treat as complete; correct authoritative properties and rerun.
 4. Run `python -X utf8 framework/scripts/blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` once to generate and perform final validation.
 5. Finish the task without changing IaC, AWS mutation, scenarios, or results.
 

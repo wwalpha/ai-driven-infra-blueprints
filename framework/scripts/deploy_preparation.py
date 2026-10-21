@@ -2,7 +2,7 @@
 """Prepare CloudFormation offline, register its contract, or explicitly launch one controller."""
 from __future__ import annotations
 
-import model_projection
+from model import projection as model_projection
 import argparse
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -191,20 +191,18 @@ def rule_readings(root, source, text, engine=None):
 
 
 def candidate(root, task, env, directory, target, stacks, services):
-    from model_files import read_model
-    from model_core import properties, entries
+    from model.sources import load_model, FileReads
+    from model.core import entries
     from task_contract import safe_path
-    sync = module("preparation_sync", root / "framework/scripts/sync-model.py")
     files, sources, generated_views = {task}, set(), set()
+    reads = FileReads()
     for service in services:
         source = root / "model" / env / directory / (service + ".properties")
         design = root / "docs/designs" / env / directory / (service + ".md")
-        text = read_model(source)
-        values = properties(text)
-        from model_templates import source_inputs, service_source, source_paths
-        sources.update(source_inputs(source) | {design})
-        if service_source(source):
-            files.update(p.relative_to(root).as_posix() for p in source_inputs(source) | {source_paths(source)[2]/'observed.json'})
+        snapshot = load_model(source, reads)
+        values = snapshot.values
+        sources.update(set(snapshot.dependencies) | {design})
+        files.update(path.relative_to(root).as_posix() for path in snapshot.documents)
         generated_views.add(design)
         files.add(design.relative_to(root).as_posix())
         for rid, row in entries(values, "desired.row."):

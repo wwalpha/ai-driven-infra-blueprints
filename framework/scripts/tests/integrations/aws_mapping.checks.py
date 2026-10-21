@@ -33,7 +33,6 @@ def check_config():
               'environment': 'dev', 'directory': 'fixture'}
     with TemporaryDirectory() as directory:
         root = Path(directory)
-        # Exercise the existing variable expander, independent of consumer templates.
         schema = 'framework/materials/cloudformation-schema/ap-northeast-1/'
         index = json.loads((ROOT / schema / 'index.json').read_text(encoding='utf-8'))['resourceTypes']
         for relative in ['framework/mappings/aws/config.yaml', schema + 'index.json',
@@ -43,22 +42,10 @@ def check_config():
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes((ROOT / relative).read_bytes())
         (root / 'framework/mappings/aws/owners.json').write_text(json.dumps({kind: 'config' for kind in (RECORDER, CHANNEL)}), encoding='utf-8')
-        template = root / 'variable.properties.tpl'
-        template.write_text('\n'.join([
-            '# model-template: 1', '# definition: channel',
-            '# parameter: DeliveryBucketName {"type":"string","description":"Config delivery bucket","required":true}',
-            '# resource: channel', '# row: bucket channel',
-            'desired.resource.channel.resourceType=' + CHANNEL,
-            'desired.resource.channel.anchor=config-delivery-channel-fixture',
-            'desired.row.bucket.property=' + CHANNEL + '.S3BucketName',
-            'desired.row.bucket.value=`<<DeliveryBucketName>>`',
-            'desired.row.bucket.comment=fixture', '# end-definition', '']), encoding='utf-8')
-        expanded, _, _ = expand(template, {'instances': {'fixture': {'parameters': {
-            'DeliveryBucketName': 'fixture-bucket'}}}}, {'version': 1, 'values': {}}, {'instances': {'fixture': {
-                'definition': 'channel', 'resources': {'channel': '002'}, 'rows': {'bucket': '002-002'},
-                'parameters': {}}}})
-        bucket_value = expanded['desired.row.002-002.value']
-        assert bucket_value == '`fixture-bucket`'
+        (root / 'project.json').write_text(json.dumps({'targets': [{
+            'environment': 'dev', 'alias': 'fixture', 'awsAccountId': '123456789012',
+            'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n', encoding='utf-8')
+        bucket_value = '`fixture-bucket`'
         values = {'desired.service.config.serviceId': 'config',
                   'desired.service.config.ownedCatalogResourceTypes': RECORDER + ',' + CHANNEL,
                   'display.service.title': '# Config 詳細設計'}
@@ -111,7 +98,7 @@ def check_config():
         assert len(match) == 11 and sum(item['status'] == 'match' for item in match) == 10
         assert sum(item['status'] == 'identifier' for item in match) == 1
         assert [item['propertiesKey'] for item in difference if item['status'] == 'difference'] == [CHANNEL + '.S3BucketName']
-        importer = module('import-model.py', 'aws_mapping_config_import')
+        importer = module('model/importing/cli.py', 'model.importing.cli')
         records = [{'kind': kind, 'identity': payload['name'], 'getters': {getter: payload}}
                    for kind, getter, payload in [(RECORDER, 'recorder', recorder), (CHANNEL, 'channel', channel)]]
         ctx, _ = context()
@@ -144,7 +131,7 @@ def check_config():
 def main():
     with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
         check_config()
-    print('AWS Mapping checks: PASS (Config values, variables, Compare, IMPORT and display 18/18; no AWS connection)')
+    print('AWS Mapping checks: PASS (Config explicit values, Compare, IMPORT and display 18/18; no AWS connection)')
 
 
 if __name__ == '__main__':

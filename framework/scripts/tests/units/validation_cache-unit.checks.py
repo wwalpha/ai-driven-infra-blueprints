@@ -121,7 +121,7 @@ def check_retained_common_key(tmp_path):
     # Contract reuse belongs only to a read-only invocation, never to authority saves.
     from unittest.mock import patch
     import task_contract as tasks
-    import import_scope
+    from model.importing import scope as import_scope
     from validation_cache import input_context, memoized
     project = tmp_path/'contracts'
     (project/'tasks').mkdir(parents=True)
@@ -143,10 +143,12 @@ def check_retained_common_key(tmp_path):
     original = contract('first', 'sqs')
     first.write_text(original)
     second.write_text(contract('second', 's3'))
-    @import_scope.scoped_read
     @memoized
-    def read(path, context=None):
+    def read_cached(path, context):
         return object()
+    def read(path):
+        import_scope.require_readable(project, path)
+        return read_cached(path, import_scope.read_context(project))
     with tasks.selected_task(project, 'tasks/first.md'), input_context():
         with patch.object(tasks, '_contracts', wraps=tasks._contracts) as scans, \
                 patch.object(tasks, '_select_contract', wraps=tasks._select_contract) as selections:

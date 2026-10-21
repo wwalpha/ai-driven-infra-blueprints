@@ -14,7 +14,7 @@ from unittest.mock import patch
 from contextlib import redirect_stdout
 from support.sync_model_fixtures import MODULE, generated_policy
 from support.model_sources import write_model
-from model_files import load_model, read_model
+from model.files import load_model, read_model
 import sync_runtime
 import sync_views
 
@@ -25,7 +25,7 @@ from collections import defaultdict
 import subprocess
 import threading
 import validation_cache
-import model_templates
+import model.sources as model_sources
 from support.validator import diagnostics
 from validation.findings import Findings
 import utils.aws_mappings as mapping_state
@@ -132,12 +132,12 @@ def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
 
 def check_read_scope_lifetime(generated_policy):
     root, model, values, _, _, _ = generated_policy
-    original = model_templates.load_expansion
+    original = model_sources._read_model
     scopes = []
-    def expand(path):
+    def expand(*args):
         scopes.append(validation_cache.memo_table())
-        return original(path)
-    with patch.object(model_templates, 'load_expansion', side_effect=expand):
+        return original(*args)
+    with patch.object(model_sources, '_read_model', side_effect=expand):
         first = read_model(model)
         assert scopes[-1] is not None
         assert validation_cache.memo_table() is None
@@ -153,7 +153,7 @@ def check_read_scope_lifetime(generated_policy):
             assert validation_cache.memo_table() is scope
         nested()
     assert validation_cache.memo_table() is None
-    with patch.object(model_templates, 'load_expansion', side_effect=ValueError('injected')):
+    with patch.object(model_sources, '_read_model', side_effect=ValueError('injected')):
         with pytest.raises(ValueError, match='injected'):
             read_model(model)
     assert validation_cache.memo_table() is None
@@ -201,7 +201,7 @@ def check_generation_failures_never_pass(generated_policy, monkeypatch, fault):
             staged = stage / design.relative_to(root)
             staged.write_text(staged.read_text(encoding='utf-8').replace('app-dev-role', 'different-role'), encoding='utf-8')
         elif fault == 'input':
-            source = next(p for p in load_model(model).files if p.suffix == '.tpl')
+            source = model
             source.write_bytes(source.read_bytes() + b'\n')
         elif fault == 'exception':
             raise ValueError('injected generation exception')
@@ -252,7 +252,7 @@ def check_single_and_parallel_threads(tmp_path):
 
 
 def check_authorization_before_memo_and_publication(generated_policy, monkeypatch):
-    import import_scope
+    import model.importing.scope as import_scope
     root, model, _, design, artifact, register = generated_policy
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', register([design, artifact])['BLUEPRINT_TASK_FILE'])
     @validation_cache.input_scope
@@ -270,8 +270,10 @@ def check_authorization_before_memo_and_publication(generated_policy, monkeypatc
     def publish():
         loaded = load_model(model)
         assert validation_cache.memo_table()
-        model_templates.publish(root, {design: design.read_text(encoding='utf-8')})
-        assert load_model(model) is not loaded
+        original = model.read_bytes()
+        assert MODULE.sync(root, True, *ENTRY[:2], ['iam']) == 0
+        assert load_model(model) is loaded
+        assert model.read_bytes() == original
     publish()
 
 

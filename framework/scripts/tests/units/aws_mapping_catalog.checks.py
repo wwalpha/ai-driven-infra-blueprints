@@ -27,7 +27,7 @@ from design_catalog import design_material_files
 from script_loader import module
 
 ROOT = Path(__file__).resolve().parents[4]
-m = module('check-model-aws.py', 'model_aws_compare')
+m = module('model/adapters/aws.py', 'model.adapters.aws')
 
 
 @input_scope

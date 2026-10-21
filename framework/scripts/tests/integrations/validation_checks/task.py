@@ -112,28 +112,33 @@ def check_idle_without_active_task() -> None:
 @it_case
 def check_destroy_phase() -> None:
     with git_project() as root:
+        write(root / "project.json", __import__("json").dumps({"targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
         model = root / "model/dev/123456789012/ec2.properties"
         model.parent.mkdir(parents=True)
-        write(model, "desired.row.001-001.value=`fixed`\nobserved.row.001-001.value=`vpc-old`\n")
+        write(model, "desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.anchor=ec2-fixture\ndesired.row.001-001.property=EC2.VPC.VpcId\ndesired.row.001-001.comment=Physical ID\ndesired.row.001-001.value=[Vpc](#ec2-fixture)\nobserved.row.001-001.value=`vpc-old`\n")
         commit(root, ["."], "baseline")
         validator = MODULE.Validator(root)
         validator.task_type = "infrastructure"
         validator.infrastructure_phase = "destroy"
-        validator.changed_paths = {"model/parameters/dev/123456789012/ec2/observed.json", "tasks/destroy.md"}
-        write(model, "desired.row.001-001.value=`fixed`\nobserved.row.001-001.value=`PENDING_DEPLOY`\n")
+        validator.changed_paths = {"model/dev/123456789012/ec2.properties", "tasks/destroy.md"}
+        write(model, "desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.anchor=ec2-fixture\ndesired.row.001-001.property=EC2.VPC.VpcId\ndesired.row.001-001.comment=Physical ID\ndesired.row.001-001.value=[Vpc](#ec2-fixture)\nobserved.row.001-001.value=`PENDING_DEPLOY`\n")
+        validator.check_task_type_requirements()
+        assert any("versioned Model baseline" in error for error in validator.errors)
+        validator.errors.clear()
+        validator.task.fix_baseline()
         validator.check_task_type_requirements()
         validator.check_task_boundary(root / "tasks/destroy.md")
         assert not validator.errors, validator.errors
-        write(model, "desired.row.001-001.value=`changed`\nobserved.row.001-001.value=`PENDING_DEPLOY`\n")
-        validator.changed_paths = {"model/templates/123456789012/ec2.properties.tpl"}
+        write(model, "desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.anchor=ec2-fixture\ndesired.row.001-001.property=EC2.VPC.VpcId\ndesired.row.001-001.comment=Physical ID\ndesired.row.001-001.value=[Changed](#ec2-fixture)\nobserved.row.001-001.value=`PENDING_DEPLOY`\n")
+        validator.changed_paths = {"model/dev/123456789012/ec2.properties"}
         validator.check_task_type_requirements()
         validator.check_task_boundary(root / "tasks/destroy.md")
-        assert any("destroy phase permits only" in error for error in validator.errors)
+        assert any("destroy permits only observation patches" in error for error in validator.errors)
         validator.changed_paths = {"infra/cloudformation/templates/a.yaml", "framework/scripts/a.py", "project.json", "tests/results/a.md"}
         validator.check_task_type_requirements()
         validator.check_task_boundary(root / "tasks/destroy.md")
         assert any("must not change IaC" in error for error in validator.errors)
-        assert sum("destroy phase permits only" in error for error in validator.errors) == 5
+        assert sum("destroy phase permits only" in error for error in validator.errors) == 4
         # Exercise run() dispatch: destroy retains common/model checks but never enters IaC.
         validator = MODULE.Validator(root)
         validator.scope = {("dev", "123456789012", "ec2")}
@@ -160,13 +165,14 @@ def check_destroy_phase() -> None:
 def check_task_type_dispatch() -> None:
     from support.model_sources import write_model
     with project() as root, patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/active.md'}):
+        write(root/'project.json', __import__('json').dumps({'targets': [{'environment': 'dev', 'alias': 'cde', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n')
         write(root/'tasks/active.md', '## Task contract\n- Task type: `design`\n')
         for service, kind, prop in (('vpc', 'EC2.VPC', 'Name'), ('cloudwatch-logs', 'Logs.LogGroup', 'LogGroupName')):
             write_model(root/'model/dev/cde'/(service+'.properties'), {
                 'desired.resource.001.resourceType': kind,
                 'desired.resource.001.anchor': service+'-fixture',
                 'desired.row.001-001.property': kind+'.'+prop,
-                'desired.row.001-001.value': '`fixture`',
+                'desired.row.001-001.value': '`fixture`', 'desired.row.001-001.comment': 'Synthetic setting',
             })
         check_task_type_cases(root)
 
@@ -175,7 +181,7 @@ def check_task_type_dispatch() -> None:
 def check_task_type_cases(root) -> None:
     valid = {
         "initialization": {"project.json"},
-        "design": {"docs/designs/dev/cde/vpc.md", "model/parameters/dev/cde/vpc/parameters.yaml"},
+        "design": {"docs/designs/dev/cde/vpc.md", "model/dev/cde/vpc.properties"},
         "infrastructure": {"infra/cloudformation/templates/vpc.yaml"},
         "scenario-test": {"tests/scenarios/vpc/scenario.md", "tests/results/vpc/dev/123456789012/result.md"},
         "governance": {"README.md"},
@@ -206,7 +212,7 @@ def check_task_type_cases(root) -> None:
     validator.infrastructure_phase = "update"
     validator.changed_paths = {
         "docs/designs/dev/cde/vpc.md",
-        "model/parameters/dev/cde/vpc/parameters.yaml",
+        "model/dev/cde/vpc.properties",
         "infra/cloudformation/templates/vpc.yaml",
         "tasks/active.md",
     }
@@ -217,7 +223,7 @@ def check_task_type_cases(root) -> None:
     validator.task_type = "design"
     validator.changed_paths = {
         "docs/designs/dev/cde/iam/role01-policy.json",
-        "model/parameters/dev/cde/iam/parameters.yaml",
+        "model/dev/cde/iam.properties",
         "tasks/active.md",
     }
     validator.check_task_type_requirements()
@@ -226,9 +232,9 @@ def check_task_type_cases(root) -> None:
 
     # Generated equality is checked separately; views need not have a Git diff.
     for changed in (
-        {"model/parameters/dev/cde/cloudwatch-logs/parameters.yaml"},
-        {"model/templates/cde/cloudwatch-logs.properties.tpl"},
-        {"model/parameters/dev/cde/cloudwatch-logs/parameters.yaml", "model/parameters/dev/cde/vpc/parameters.yaml",
+        {"model/dev/cde/cloudwatch-logs.properties"},
+        {"model/dev/cde/cloudwatch-logs/part-003.properties"},
+        {"model/dev/cde/cloudwatch-logs.properties", "model/dev/cde/vpc.properties",
          "docs/designs/dev/cde/vpc.md"},
         {"docs/designs/dev/cde/vpc.md"},
         {"docs/designs/dev/cde/iam/role01-policy.json"},
@@ -238,5 +244,5 @@ def check_task_type_cases(root) -> None:
         validator.task_type = "design"
         validator.changed_paths = changed | {"tasks/active.md"}
         validator.check_task_type_requirements()
-        assert bool(validator.errors) == (not any(path.startswith(("model/parameters/", "model/templates/")) for path in changed)), validator.errors
+        assert bool(validator.errors) == (not any(path.startswith("model/") and path.endswith(".properties") for path in changed)), validator.errors
 

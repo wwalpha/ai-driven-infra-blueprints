@@ -3,7 +3,7 @@
 from __future__ import annotations
 from validation_cache import input_exists, input_text
 
-from model_core import ReferenceResolutionError
+from model.core import ReferenceResolutionError
 
 import json
 import re
@@ -12,7 +12,7 @@ from array_display import restored_rows
 from ec2_display import ec2_formal_rows
 from service_rows import (codebuild_formal_rows, pipeline_display_rows, restored_glue_argument_rows,
     CODEBUILD_VARIABLE, CODEBUILD_FORMAL_VARIABLE, COMPACT_SOURCE)
-from model_core import positive_integer, literal
+from model.core import positive_integer, literal
 
 from design_catalog import design_material_files
 from validation_cache import memoized, input_scope
@@ -189,21 +189,21 @@ def resource_mode(resource: dict[str, str]) -> str:
 
 def design_model_values(path: Path, root: Path) -> dict[str, str] | None:
     """Read the authoritative service model, including indexed parts, if present."""
-    from model_files import read_model
-    from model_core import properties
+    from model.files import read_model
+    from model.core import properties
     try:
         relative = path.relative_to(root / "docs/designs")
     except ValueError:
         return None
     source = (root / "model" / relative).with_suffix(".properties")
-    from model_templates import source_paths
-    return properties(read_model(source)) if input_exists(source_paths(source)[2]) else None
+    from model.sources import model_exists
+    return properties(read_model(source)) if model_exists(source) else None
 
 
 def resource_modes(lines: list[str], values: dict[str, str] | None = None) -> dict[str, str]:
     """Use model modes for validation; read legacy comments only without a model."""
     if values is not None:
-        from model_core import entries
+        from model.core import entries
         return {resource["anchor"]: resource_mode(resource)
                 for _, resource in entries(values, "desired.resource.") if "resourceMode" in resource}
     modes = {}
@@ -328,7 +328,7 @@ def stack_design(path: Path) -> list[dict[str, str]]:
 
 def stack_delivery(path: Path) -> dict[str, str]:
     """Read hidden template settings and artifact tables, including old stack views."""
-    from model_core import ARTIFACT_FIELDS
+    from model.core import ARTIFACT_FIELDS
     lines = [line for line in input_text(path, encoding="utf-8").splitlines() if line]
     result = {}
     for line in lines:
@@ -381,7 +381,7 @@ def stack_delivery(path: Path) -> dict[str, str]:
 def resource_identity_metadata(lines, *, values=None):
     """Use authoritative Model identities for validation; Markdown cannot supply CFn placement."""
     if values is not None:
-        from model_core import entries
+        from model.core import entries
         return ({resource["anchor"]: identity for identity, resource in entries(values, "desired.resource.")
                  if f"desired.resource.{identity}.logicalId" not in values}, {})
     anchors = set(ANCHOR.findall("\n".join(lines)))
@@ -643,7 +643,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
                         or any(not isinstance(row, list) or len(row) != 3 or any(not isinstance(cell, str) for cell in row) for row in source[0])):
                     raise ValueError('invalid packed compact source')
                 original = [[cells[0], *row] for row in source[0]]
-                from model_display import display_rows
+                from model.display import display_rows
                 counts = {'data': cloudtrail_count}
                 expected = display_rows(resource_type, original, root, mode=mode, _counts=counts)
                 cloudtrail_count = counts['data']

@@ -55,7 +55,7 @@ def check_structure(findings, root, *, consumer=True, definitions_root=None):
     for directory in REQUIRED_DIRECTORIES:
         findings.check(input_is_dir(root / directory), f"required directory missing: {directory}")
     if consumer:
-        for directory in ("model/parameters", "model/templates"):
+        for directory in ("model",):
             findings.check(input_is_dir(root / directory), f"required directory missing: {directory}")
     codex_prompt_names = sorted(
         path.name

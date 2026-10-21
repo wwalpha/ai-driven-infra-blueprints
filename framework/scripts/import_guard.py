@@ -1,7 +1,7 @@
 """Enforce IMPORT configuration authority at existing save, validation and Git boundaries."""
 from contextlib import contextmanager, ExitStack
 from collections.abc import Iterator
-from model_sources import SourceWriteContext, safe
+from model.sources import SourceWriteContext, safe, json_text
 from contextvars import ContextVar
 import hashlib
 import io
@@ -17,9 +17,7 @@ import subprocess
 import tarfile
 import tempfile
 
-from model_core import entries
-from model_files import load_model, resource_row_index
-from model_templates import affected, json_text, model_paths
+from model.core import entries, resource_row_index
 from policy_tables import literal
 from sync_files import atomic_files, save_files
 from task_contract import contracts, section, task_path, contract_path
@@ -56,20 +54,27 @@ def proof_path(root, *, contract_file=None):
     return evidence_store(root) / ((contract_path(root, selected=contract_file) if contract_file is not None else task_path(root)).stem + '.json')
 
 
-def base_revision(root, *, contract_file=None):
+def working_revision(root):
     result = subprocess.run(['git', 'rev-parse', '--verify', 'HEAD'], cwd=root, capture_output=True, text=True, encoding='utf-8')
     if result.returncode:
         valid = subprocess.run(['git', 'rev-parse', '--git-dir'], cwd=root, capture_output=True)
         if valid.returncode:
             raise ValueError('cannot determine the versioned IMPORT baseline')
         return None  # Initial registration has no previous versioned configuration.
+    return result.stdout.strip()
+
+
+def base_revision(root, *, contract_file=None):
+    head = working_revision(root)
+    if head is None:
+        return None
     if contracts(root):
         from worktree_task import task_start_commit
         name = (contract_path(root, selected=contract_file) if contract_file is not None else task_path(root)).relative_to(root).as_posix()
         start = task_start_commit(root, name)
         if start is not None:
             return start
-    return result.stdout.strip()
+    return head
 
 
 def changed_sources(root, supplied=None, *, contract_file=None):
@@ -79,63 +84,10 @@ def changed_sources(root, supplied=None, *, contract_file=None):
         if contracts(root):
             name = (contract_path(root, selected=contract_file) if contract_file is not None else task_path(root)).relative_to(root).as_posix()
             supplied |= committed_task_paths(root, name) or set()
-    return {str(p) for p in supplied if str(p).startswith(('model/templates/', 'model/parameters/')) or str(p) == 'project.json'}
+    return {str(p) for p in supplied if str(p).startswith('model/') or str(p) == 'project.json'}
 
 
-def resource_config(values, number, path=None, expansion=None, *, symbols=None):
-    spec = dict(entries(values, 'desired.resource.'))[number]
-    rows = resource_row_index(values)[number]
-    if symbols is not None:
-        compared = symbols
-        spec = {key: symbols.get(f'desired.resource.{number}.' + key, value) for key, value in spec.items()}
-    elif path is not None:
-        from model_templates import load_for_analysis as load_expansion
-        from import_preservation import preserved_values
-        expansion = expansion or load_expansion(path)
-        compared = preserved_values(path, expansion._replace(values=values))
-    else:
-        compared = values
-    configuration = []
-    observed = []
-    for rid, row in rows:
-        if 'document' in row:
-            document = compared.get('desired.row.' + rid + '.document', row['document'])
-            value = json.loads(document) if isinstance(document, str) else document
-        else:
-            raw = compared.get('desired.row.' + rid + '.value', row['value'])
-            value = literal(raw) if isinstance(raw, str) else raw
-            if isinstance(value, str) and value.startswith(('{', '[')):
-                try:
-                    value = json.loads(value)
-                except ValueError:
-                    pass
-        configuration.append([row['property'], value])
-        current = values.get('observed.row.' + rid + '.value')
-        if current is not None:
-            observed.append([row['property'], literal(current)])
-    # Comments, source layout and literal backticks do not change AWS configuration.
-    result = {'resource': spec, 'rows': configuration, 'observed': observed if spec.get('resourceMode') == 'IMPORT' else []}
-    if symbols is None and path is not None and spec.get('resourceMode', 'CREATE') != 'IMPORT':
-        from model_templates import load_for_analysis as load_expansion, parse_template, service_source, json_read
-        from model_parameter_inputs import schema
-        expansion = expansion or load_expansion(path)
-        _, template, directory = service_source(path)
-        definitions, _ = parse_template(template)
-        bindings = json_read(expansion.files[directory / 'bindings.json'])['instances']
-        references = {}
-        for key, trace in expansion.provenance.items():
-            parts = key.split('.')
-            owner = parts[2] if parts[1] == 'resource' else parts[2].rpartition('-')[0] if parts[1] == 'row' else None
-            if owner != number or 'definition' not in trace:
-                continue
-            declaration = definitions[trace['definition']]
-            for name in trace['parameters']:
-                reference = schema(declaration.parameters[name])
-                if reference['type'] == 'reference' and 'service' in reference:
-                    references.setdefault(key, {})[name] = {**reference, 'label': bindings[trace['instance']].get('labels', {}).get(name)}
-        if references:
-            result['references'] = references
-    return result
+from model.operations import resource_configuration as resource_config
 
 
 def digest(value):
@@ -172,7 +124,7 @@ def snapshots(root, base, output, definitions_root=None, *, detached=False):
         before = Path(directory).resolve() / 'before'
         paths = ['model', 'project.json']
         cache = _baselines.get()
-        key = (root, base, tuple(paths), mappings_for(definitions_root))
+        key = (root, base, tuple(paths), definitions_root.resolve())
         if cache is not None:
             before = cache[1].get(key)
         if cache is None or before is None:
@@ -203,48 +155,45 @@ def snapshots(root, base, output, definitions_root=None, *, detached=False):
 
 
 @input_scope
-def changes(root, sources, output=None, include_create=False, *, contract_file=None):
+def changes(root, sources, output=None, include_create=False, *, contract_file=None, final_candidate=None):
+    from model.sources import model_paths, load_model, source_scope
+    from model.operations import preserve_fixed_fields
+    from types import SimpleNamespace
     root = root.resolve()
-    from import_scope import selected
-    identity = selected(root, contract_file=contract_file)
-    base = base_revision(root, contract_file=contract_file)
+    base = final_candidate.base_commit if final_candidate is not None else base_revision(root, contract_file=contract_file)
     if not sources or base is None:
         return base, {}
     with snapshots(root, base, output or {}, detached=contract_file is not None) as (before, after):
-        scope = affected(after, sources, before=before)
-        # Include deleted consumers, which cannot authorize removal of IMPORT resources.
-        scope |= {tuple(Path(p).parts[2:5]) for p in sources if p.startswith('model/parameters/') and len(Path(p).parts) == 6}
+        # Saved consumer values never expand from a producer edit; compare only changed authorities.
+        scope = set()
+        for relative in sources:
+            if relative.startswith('model/'):
+                selected = source_scope(after, after / relative)
+                scope.add((selected.environment, selected.target, selected.service))
         found = {}
+        old_models = {path.relative_to(before): path for path in model_paths(before)}
+        new_models = {path.relative_to(after): path for path in model_paths(after)}
+        if 'project.json' in sources:
+            scope.update((path.parts[1], path.parts[2], path.stem) for path in old_models.keys() | new_models.keys())
         for env, target, service in sorted(scope):
             relative = Path('model') / env / target / (service + '.properties')
-            old_path, new_path = before / relative, after / relative
-            old_exists = old_path in model_paths(before, env, target)
-            new_exists = new_path in model_paths(after, env, target)
-            from model_templates import load_for_analysis
-            old_expansion = load_for_analysis(old_path) if old_exists else None
-            new_expansion = load_for_analysis(new_path) if new_exists else None
-            old = old_expansion.values if old_expansion else {}
-            new = new_expansion.values if new_expansion else {}
-            from model_reference_usage import _symbolic
-            from model_operation_checks import reference_equal
-            from model_core import report_reference_warnings
-            warnings = [w for expansion in (old_expansion, new_expansion) if expansion for w in expansion.warnings]
-            old_symbols = _symbolic(old_path, old_expansion, {}, warnings) if old_expansion else {}
-            new_symbols = _symbolic(new_path, new_expansion, {}, warnings) if new_expansion else {}
-            report_reference_warnings(warnings)
-            old_resources, new_resources = dict(entries(old, 'desired.resource.')), dict(entries(new, 'desired.resource.'))
+            old = load_model(old_models[relative]) if relative in old_models else None
+            new = load_model(new_models[relative]) if relative in new_models else None
+            if old is not None and new is not None:
+                preserve_fixed_fields(old, new, SimpleNamespace(action='design'))
+            left, right = dict(old.authoritative) if old else {}, dict(new.authoritative) if new else {}
+            old_resources, new_resources = dict(entries(left, 'desired.resource.')), dict(entries(right, 'desired.resource.'))
             for number in old_resources.keys() | new_resources.keys():
                 previous, current = old_resources.get(number, {}), new_resources.get(number, {})
                 imported = previous.get('resourceMode') == 'IMPORT' or current.get('resourceMode') == 'IMPORT'
                 if not imported and not include_create:
                     continue
-                left = resource_config(old, number, symbols=old_symbols) if previous else None
-                right = resource_config(new, number, symbols=new_symbols) if current else None
-                if not reference_equal(left, right):
-                    left = resource_config(old, number) if previous else None
-                    right = resource_config(new, number) if current else None
-                    found['/'.join((env, target, service, number))] = {'before': digest(left), 'after': digest(right), 'mode': 'IMPORT' if imported else 'CREATE',
-                        'action': 'add' if left is None else 'delete' if right is None else 'update'}
+                a = resource_config(left, number, before / relative) if previous else None
+                b = resource_config(right, number, after / relative) if current else None
+                if a != b:
+                    found['/'.join((env, target, service, number))] = {'before': digest(a), 'after': digest(b),
+                        'mode': 'IMPORT' if imported else 'CREATE',
+                        'action': 'add' if a is None else 'delete' if b is None else 'update'}
         return base, found
 
 
@@ -261,15 +210,22 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
     selected = (contract_path(root, selected=contract_file) if contract_file is not None else task_path(root)).relative_to(root).as_posix()
     text = contracts(root).get(selected, '')
     from task_contract import model_operation, model_refactor
+    from model.migration.contract import migration_contract, verify_migration
+    migration = migration_contract(text)
+    if migration is not None:
+        base = final_candidate.base_commit if final_candidate is not None else base_revision(root, contract_file=contract_file)
+        with snapshots(root, base, output or {}, detached=contract_file is not None) as (before, after):
+            return verify_migration(root, before, after, migration, base, sources)
     operation = model_operation(text)
     refactor = model_refactor(text)
     if operation is not None:
+        from model.impact import affected
         if generation:
             return  # Source/view generation does not decide final Model operation meaning.
         base = final_candidate.base_commit if final_candidate is not None else base_revision(root, contract_file=contract_file)
         if base is None:
             raise ValueError('IMPORT Model-only operation requires a versioned baseline')
-        from model_operation_checks import verify_model_operation
+        from model.operations import verify_model_operation
         with snapshots(root, base, output or {}, detached=contract_file is not None) as (before, after):
             if operation.action in {'import-retarget', 'import-delete'}:
                 from validation_scope import active_scope
@@ -280,11 +236,11 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
                 if scope is None or not required <= scope:
                     raise ValueError('Model operation requires all producers/consumers in Validation scope')
             warnings = verify_model_operation(before, after, operation, sources)
-        from model_core import report_reference_warnings
+        from model.core import report_reference_warnings
         report_reference_warnings(warnings)
         return warnings
     if refactor is not None:
-        from model_operation_checks import verify_model_refactor
+        from model.operations import verify_model_refactor
         from validation_scope import active_scope
         from task_contract import paths_in, matches, safe_path
         declared, allowed = paths_in(text, '## Modified files'), paths_in(text, '## Allowed paths')
@@ -298,7 +254,7 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
         scope = set(final_candidate.scope) if final_candidate is not None else active_scope(root, contract_file=contract_file)
         with snapshots(root, base, output or {}, detached=contract_file is not None) as (before, after):
             warnings = verify_model_refactor(before, after, refactor, sources, scope)
-        from model_core import report_reference_warnings
+        from model.core import report_reference_warnings
         report_reference_warnings(warnings)
         return warnings
     import_task = '- Workflow: `import`' in section(text, '## Task contract')
@@ -318,127 +274,19 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
         if output is None and not generation and (proof['model'] not in {'reflected', 'unchanged'} or not proof['complete']):
             raise ValueError('IMPORT retrieval/reflection is incomplete; task remains unfinished')
         return
-    base, differences = changes(root, sources, output, contract_file=contract_file)
+    base, differences = changes(root, sources, output, contract_file=contract_file, final_candidate=final_candidate)
     if differences:
         raise ValueError('IMPORT configuration changes require the registered design /import workflow')
 
 
-def read_proof(root, *, contract_file=None):
-    from import_scope import selected
-    from task_contract import safe_path
-    reference = {} if contract_file is None else {'contract_file': contract_file}
-    file = proof_path(root, **reference)
-    legacy = safe_path(root, '.blueprint/import/' + (contract_path(root, selected=contract_file) if contract_file is not None else task_path(root)).stem + '.json')
-    try:
-        source = file if file.exists() else legacy
-        if file.is_symlink() or source.is_symlink():
-            raise ValueError('symlink import evidence')
-        proof = read_sealed(root, source)
-        require_fresh_acquisition(proof)
-        if (proof['version'] != 5
-                or proof['task'] != workflow(root, **reference) or proof['base'] != base_revision(root, **reference)
-                or proof['scope'] != list(selected(root, **reference)) or not proof['acquisition']
-                or not isinstance(proof['sources'], dict) or not proof['plan']
-                or type(proof['complete']) is not bool
-                or proof['model'] not in {'pending', 'reflected', 'unchanged'}
-                or proof['markdown'] not in {'not-run', 'failed', 'generated', 'unchanged'}
-                or not isinstance(proof['ownedArtifacts'], list)):
-            raise ValueError('stale import evidence')
-        for relative, checksum in proof['sources'].items():
-            safe_path(root, relative)
-            if checksum is not None and (not isinstance(checksum, str) or len(checksum) != 64):
-                raise ValueError('invalid source checksum')
-        for relative in proof['ownedArtifacts']:
-            safe_path(root, relative)
-        from import_approval import verify_review_binding
-        binding = verify_review_binding(proof['reviewBinding'])
-        if proof['reviewBindingDigest'] != digest(binding):
-            raise ValueError('IMPORT Review binding checksum differs')
-        if (binding['task'] != proof['task'] or binding['worktree'] != str(root.resolve())
-                or binding['scope'] != proof['scope'] or binding['acquisitionDigest'] != proof['acquisition']
-                or binding['acquiredAt'] != proof['acquiredAt']):
-            raise ValueError('IMPORT Review binding belongs to another Task/Worktree/scope/acquisition')
-        if legacy.exists():
-            if any(file_hash(safe_path(root, relative)) != checksum for relative, checksum in proof['sources'].items()):
-                raise ValueError('legacy IMPORT sources differ from acquired change plan')
-            if read_sealed(root, legacy) != proof:
-                raise ValueError('conflicting legacy import evidence')
-            write_sealed(root, file, proof)
-            legacy.unlink()
-            for directory in (legacy.parent, legacy.parent.parent):
-                if not any(directory.iterdir()):
-                    directory.rmdir()
-        return proof
-    except (OSError, ValueError, KeyError, TypeError) as error:
-        raise ValueError('IMPORT change has no verified /import evidence; flags and contract declarations are insufficient') from error
 
 
-def record_import(root, output, evidence, plan, complete=True, *, review_binding=None):
-    """Bind a verified cross-process acquisition and checked candidate to exact bytes."""
-    from import_approval import verify_review_binding
-    source_hashes = {p.relative_to(root).as_posix(): text_hash(text) for p, text in output.items()}
-    verify_review_binding(review_binding)
-    from import_scope import selected
-    identity = selected(root)
-    acquisition = read_acquisition(root, evidence, identity, False)
-    if (acquisition['root'] != str(root.resolve()) or acquisition['task'] != workflow(root)
-            or acquisition['scope'] != list(identity) or acquisition['dryRun']):
-        raise ValueError('IMPORT evidence does not authorize this source publication')
-    planned = {p.relative_to(root).as_posix(): text for p, text in output.items()}
-    if (not isinstance(review_binding, dict) or review_binding.get('task') != acquisition['task']
-            or review_binding.get('worktree') != acquisition['root'] or review_binding.get('scope') != acquisition['scope']
-            or review_binding.get('acquisitionDigest') != digest(acquisition)
-            or review_binding.get('sourceBaselineDigest') != digest(acquisition['sources'])
-            or review_binding.get('selectionDigest') != digest(plan.get('selection'))):
-        raise ValueError('IMPORT Review binding differs from acquisition/selection/baseline')
-    if plan.get('sources') != planned:
-        raise ValueError('IMPORT evidence requires the checked candidate sources')
-    if proof_path(root).exists():
-        raise ValueError('IMPORT Task already published; use display recovery or a new Task')
-    sources = source_hashes
-    proof = {'version': 5, 'reviewBinding': review_binding, 'reviewBindingDigest': digest(review_binding), 'task': workflow(root), 'base': base_revision(root),
-             'scope': list(identity), 'sources': sources,
-             'before': {p.relative_to(root).as_posix(): file_hash(p) for p in output},
-             'plan': digest(plan), 'acquisition': digest(acquisition),
-             'acquiredAt': acquisition['acquiredAt'], 'ownedArtifacts': plan['ownedArtifacts'],
-             'connection': acquisition['connection'], 'complete': complete and acquisition_complete(acquisition),
-             'model': 'pending', 'markdown': 'not-run', 'designValidation': 'not-run'}
-    file = proof_path(root)
-    file.parent.mkdir(parents=True, exist_ok=True)
-    write_sealed(root, file, proof)
 
 
-def finish_import(root, model=None, markdown=None):
-    require_import_changes(root, generation=True)
-    proof = read_proof(root)
-    if model is not None:
-        proof['model'] = model
-    if markdown is not None:
-        proof['markdown'] = markdown
-    file = proof_path(root)
-    write_sealed(root, file, proof)
 
 
-def copy_import_proof(root, snapshot):
-    """Carry only currently valid evidence into an existing staged validation snapshot."""
-    require_import_changes(root)
-    proof = read_proof(root)
-    destination = proof_path(snapshot)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    write_sealed(snapshot, destination, proof)
 
 
-def discard_import_proof(root, task_name):
-    """Remove only this task's sealed receipt after verified integration/snapshot use."""
-    from task_contract import TASK_NAME
-    if not TASK_NAME.fullmatch(task_name):
-        raise ValueError('invalid evidence task identity')
-    file = evidence_store(root, create=False) / (Path(task_name).stem + '.json')
-    if file.exists() or file.is_symlink():
-        proof = read_sealed(root, file)
-        if proof.get('task') != task_name:
-            raise ValueError('IMPORT evidence belongs to another task')
-        file.unlink()
 
 
 def text_hash(text):
@@ -503,82 +351,16 @@ def write_sealed(root, file, value):
     atomic_files({file: sealed(root, value)}, staging_directory=file.parent)
 
 
-def acquired(root, identity, ctx, records, sources, consumers, dry_run):
-    if not ctx.verified or ctx.services != (identity[2],) or not ctx.trace:
-        raise ValueError('IMPORT acquisition requires a verified single-service AWS context')
-    from import_inventory import inventory_for
-    directory = Path(tempfile.mkdtemp(prefix='session-', dir=evidence_store(root)))
-    try:
-        value = {'version': 2, 'root': str(root.resolve()), 'task': None if dry_run else workflow(root),
-                 'base': base_revision(root), 'scope': list(identity), 'dryRun': dry_run,
-                 'acquiredAt': datetime.now(timezone.utc).isoformat(), 'status': 'acquired',
-                 'connection': {key: ctx.target.get(key) for key in ('environment', 'directory', 'awsExecutionAccountId', 'awsAccountId', 'awsRegion', 'awsProfile')},
-                 'sts': {'account': ctx.target.get('awsExecutionAccountId', ctx.target['awsAccountId']), 'verified': True},
-                 'trace': ctx.trace, 'records': records, 'sources': sources,
-                 'inventory': inventory_for(ctx).statuses,
-                 'metrics': dict(ctx.metrics),
-                 'consumers': [list(item) for item in sorted(consumers)]}
-        write_sealed(root, directory / 'acquisition.json', value)
-        (directory / 'candidates').mkdir()
-        # This is a disposition/evidence document, never a Model mutation language.
-        (directory / 'selection.json').write_text(json_text({'resources': [], 'excluded': [], 'unreflected': []}) + '\n', encoding='utf-8')
-        return directory / 'acquisition.json', value
-    except Exception:
-        shutil.rmtree(directory)
-        raise
 
 
-def read_acquisition(root, file, identity, dry_run):
-    file = Path(file).absolute()
-    store = evidence_store(root)
-    if file.name != 'acquisition.json' or file.parent.parent != store or not file.parent.name.startswith('session-') or file.parent.is_symlink():
-        raise ValueError('IMPORT acquisition must use its original external evidence identifier')
-    value = read_sealed(root, file)
-    require_fresh_acquisition(value)
-    if (value.get('version') not in {1, 2} or value.get('root') != str(root.resolve())
-            or value.get('scope') != list(identity) or value.get('dryRun') is not dry_run
-            or value.get('base') != base_revision(root) or value.get('status') != 'acquired'
-            or value.get('task') != (None if dry_run else workflow(root))
-            or value.get('sts', {}).get('verified') is not True):
-        raise ValueError('IMPORT acquisition is stale or belongs to another Task/Worktree/scope')
-    if value['version'] == 2:
-        validate_inventory(value)
-    return value
 
 
-def validate_inventory(value):
-    inventory = value.get('inventory')
-    allowed = {'complete', 'empty', 'unsupported', 'permission_denied', 'requires_filter', 'failed', 'not_modelled'}
-    if not isinstance(inventory, dict) or not inventory or any(
-            not isinstance(kind, str) or not isinstance(item, dict) or item.get('status') not in allowed
-            for kind, item in inventory.items()):
-        raise ValueError('IMPORT acquisition inventory status is invalid')
-    return inventory
 
 
-def acquisition_complete(value):
-    if value.get('version') == 1:
-        return True  # Sealed legacy sessions had all-or-error inventory acquisition.
-    if value.get('version') != 2:
-        raise ValueError('IMPORT unsupported acquisition evidence version')
-    return all(item['status'] in {'complete', 'empty'} for item in validate_inventory(value).values())
 
 
-def require_fresh_acquisition(value):
-    """A receipt cannot indefinitely authorize replay against an unchanged Git baseline."""
-    acquired_at = datetime.fromisoformat(value['acquiredAt'])
-    if acquired_at.tzinfo is None:
-        raise ValueError('IMPORT evidence time must include its timezone')
-    age = datetime.now(timezone.utc) - acquired_at
-    if age < -timedelta(minutes=5) or age > timedelta(days=7):
-        raise ValueError('IMPORT acquisition evidence expired')
 
 
-def discard_acquisition(root, file):
-    file = Path(file).absolute()
-    if file.name != 'acquisition.json' or file.parent.parent != evidence_store(root) or not file.parent.name.startswith('session-') or file.parent.is_symlink():
-        raise ValueError('IMPORT refusing to remove an unknown temporary directory')
-    shutil.rmtree(file.parent)
 
 
 def managed_source_write(root: Path, task_file: str) -> bool:
@@ -589,104 +371,17 @@ def managed_source_write(root: Path, task_file: str) -> bool:
     return bool(text and model_operation(text) is not None and task_start_commit(root, task_file) is not None)
 
 
-@contextmanager
-def source_write_context(root: Path, task_file: str) -> Iterator[SourceWriteContext]:
-    """Authorize one raw save in the selected running, unmerged Model-only worktree.
-
-    Records raw registered input bytes/file sets only, after journal recovery. Raises
-    ValueError/OSError on task, worktree, scope or input changes. No expansion/staging,
-    generation, final verification or task status changes occur here.
-    """
-    from model_sources import SourceWriteContext, read_sources, source_paths, consumers, publication_lock, safe
-    from sync_runtime import GenerationInputs
-    from task_contract import task_revision, validate_contract, model_operation, status, paths_in, matches, safe_path
-    from validation_scope import active_scope
-    from validation_cache import input_context, recording_inputs
-    from issue_gate import require_no_issues
+def managed_task_state(root: Path, name: str):
+    """Check live Task/worktree ownership; callers bind the returned state to their save."""
     from worktree_task import load, task_worktree
-    root = root.resolve()
-    name, text = task_revision(root, selected=task_file)
-    if name != task_file or text is None or status(text) != 'running':
-        raise ValueError('source write requires an explicit running parent task')
-    validate_contract(root, name, text)
-    operation = model_operation(text)
-    if operation is None:
-        raise ValueError('source write requires a Model-only update operation')
+    _, _, _, state = load(root, Path(name).stem)
+    if state['task_file'] != name or Path(state['worktree']) != root or state['merged'] is not None:
+        raise ValueError('source write task/worktree is mismatched or merged')
+    if task_worktree(root, state) != root:
+        raise ValueError('source write requires its managed worktree')
+    return state
 
-    def current_worktree():
-        _, _, _, state = load(root, Path(name).stem)
-        if state['task_file'] != name or Path(state['worktree']) != root or state['merged'] is not None:
-            raise ValueError('source write task/worktree is mismatched or merged')
-        if task_worktree(root, state) != root:
-            raise ValueError('source write requires its managed worktree')
-        return state
 
-    current_worktree()
-    with input_context(), publication_lock(root):
-        snapshot = GenerationInputs(root, task_file=name)
-        context = None
-        try:
-            writable, path_scopes = set(), {}
-            with recording_inputs(snapshot):
-                scope = active_scope(root, task_file=name)
-                selected = set(operation.scopes)
-                if operation.action == 'import-retarget':
-                    selected |= {tuple(a.split('/')[:3]) for ref in operation.references for a in (ref.source, ref.destination)}
-                if scope is None or not selected <= scope:
-                    raise ValueError('source write requires exact service Validation scope')
-                require_no_issues(root, scope if operation.action == 'import-retarget' else selected, task_file=name)
-                for identity in sorted(selected):
-                    env, alias, service = identity
-                    model = root / 'model' / env / alias / (service + '.properties')
-                    _, template, directory = source_paths(model)
-                    files = read_sources(model, read_context=snapshot)
-                    direct = consumers(root, alias, service)
-                    for path in files:
-                        if path.is_relative_to(root / 'model/templates'):
-                            writable.add(path)
-                            path_scopes[path] = direct
-                        elif identity in operation.source_scopes or path.name == 'parameters.yaml' or (operation.action == 'import-delete' and path.name == 'bindings.json'):
-                            writable.add(path)
-                            path_scopes[path] = {identity}
-                    for consumer in direct - {identity}:
-                        cenv, calias, cservice = consumer
-                        others = read_sources(root / 'model' / cenv / calias / (cservice + '.properties'), read_context=snapshot)
-                        for path in others:
-                            if path.name == 'parameters.yaml':
-                                writable.add(path)
-                                path_scopes[path] = {consumer}
-                if operation.action == 'import-retarget':
-                    # Freeze all authority files/sets before the caller can prepare its edit.
-                    for path in snapshot.select(root / 'model', '*', recursive=True, kinds=('file',)):
-                        safe(root, path)
-                        snapshot.read(path)
-                    snapshot.read(root / 'project.json')
-                # Incoming sources are read dependencies only, never write authority.
-                for directory in snapshot.select(root / 'model/parameters' / operation.scope[0] / operation.scope[1]):
-                    safe(root, directory)
-                    if snapshot.kind(directory) != 'dir':
-                        raise ValueError('invalid registered Model service directory')
-                    read_sources(root / 'model' / operation.scope[0] / operation.scope[1] / (directory.name + '.properties'), read_context=snapshot)
-            declared = paths_in(text, '## Modified files')
-            allowed = paths_in(text, '## Allowed paths')
+from model.adapters.task import source_write_context
 
-            def require_current(changes):
-                if task_revision(root, selected=name) != (name, text):
-                    raise ValueError('parent task changed before source publication')
-                current_worktree()
-                for path in changes:
-                    relative = path.relative_to(root).as_posix()
-                    safe_path(root, relative)
-                    if relative not in declared or not any(matches(relative, pattern) for pattern in allowed):
-                        raise ValueError('source write is outside Modified files/Allowed paths: ' + relative)
-                    if not path_scopes[path] <= scope:
-                        raise ValueError('changed source requires all direct consumers in Validation scope')
-
-            context = SourceWriteContext._authorized(root, snapshot, operation, require_current, frozenset(writable))
-        except BaseException:
-            snapshot.close()
-            raise
-    try:
-        yield context
-    finally:
-        context.close()
+from model.importing.evidence import (acquired, acquisition_complete, copy_import_proof, discard_acquisition, discard_import_proof, finish_import, read_acquisition, read_proof, record_import, require_fresh_acquisition, validate_inventory)

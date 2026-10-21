@@ -1,6 +1,6 @@
 """ec2: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model_aws_compare import one, Unresolved, AcquisitionError
+from model.adapters.aws import one, Unresolved, AcquisitionError
 
 APIS = {('ec2', 'describe_instances'), ('ec2', 'describe_volumes')}
 CLOUDCONTROL_RESOURCE_TYPES = frozenset({

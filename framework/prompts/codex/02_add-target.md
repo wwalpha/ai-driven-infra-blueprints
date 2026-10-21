@@ -93,7 +93,7 @@ As the first repository change, newly register `tasks/<task-name>.md` under the 
 - AWS mutation, AWS API, deploy, and apply are prohibited
 - In `Required changes`, separately state `project.json` updates, target path creation, and selected IaC path creation with unique Requirement IDs
 - Map `Acceptance checks` to each Requirement ID using `changed:project.json` and `exists:` or `changed:` for paths to create
-- Limit Allowed paths to `project.json`, added target `docs/designs/**` and `model/parameters/**`, selected IaC target paths, and `tasks/<task-name>.md`
+- Limit Allowed paths to `project.json`, added target `docs/designs/**` and `model/<environment>/<target-directory>/**`, selected IaC target paths, and `tasks/<task-name>.md`
 - Changes to existing targets, designs, models, IaC implementations, scenarios, or scenario results are prohibited
 
 ## Add project target
@@ -120,7 +120,7 @@ For targets without AWS profiles, omit the `awsProfile` key itself. Do not recor
 
 ## Create target paths
 
-Create only absent target paths and place `.gitkeep` in empty directories. Create a service directory under `model/parameters/<environment>/<target-directory>/` only when its explicit YAML inputs, bindings and template are ready; an uncreated environment has no service sources.
+Create only absent target paths and place `.gitkeep` in empty directories. Create `model/<environment>/<target-directory>/<service>.properties` only when explicit service Model values are ready; target registration alone creates no Model.
 
 ```text
 docs/designs/<environment>/<target-directory>/.gitkeep

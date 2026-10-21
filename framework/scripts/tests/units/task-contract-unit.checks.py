@@ -9,7 +9,7 @@ import pytest
 from support.pytest_cli import run
 from support.worktree_task_fixtures import contract
 import task_contract as tasks
-import import_scope
+from model.importing import scope as import_scope
 from validation_cache import input_scope
 
 if not __debug__:
@@ -93,30 +93,42 @@ def check_live_selection(tmp_path):
 
 
 
+def generation_plan(root, output):
+    """Unit candidate fixture; real Model/view preparation is exercised by IT."""
+    from types import SimpleNamespace
+    from generation_inputs import GenerationInputs
+    snapshot = GenerationInputs(root)
+    for path in output:
+        snapshot.read(path)
+    return SimpleNamespace(root=root, stage=root, snapshot=snapshot, expected_outputs={next(iter(output)): output},
+                           saved={}, failures=[], generated={})
+
+
 @pytest.mark.parametrize('change', ['scope', 'completed', 'suspend'])
 def check_task_change_rolls_back_publication(tmp_path, monkeypatch, change):
-    from model_templates import publish
+    from sync_runtime import publish_generation
     name = 'tasks/owner.md'
     file = tmp_path / 'file.txt'
     file.write_text('original')
     tasks.start(tmp_path, name, contract('owner', ['file.txt']))
     monkeypatch.setenv(tasks.SELECTOR, name)
-    def changed():
-        own = tmp_path / name
-        text = own.read_text()
-        own.write_text(text.replace('- `framework`', '- `dev/team/iam`') if change == 'scope' else
-                       text.replace('`running`', f'`{change}`') +
-                       ('## Suspension reason\nExplicit test stop\n' if change == 'suspend' else ''))
-    with pytest.raises(ValueError, match='suspend task' if change == 'suspend' else 'scope changed'):
-        publish(tmp_path, {file: 'candidate'}, verify=changed)
+    plan = generation_plan(tmp_path, {file: 'candidate'})
+    own = tmp_path / name
+    text = own.read_text()
+    own.write_text(text.replace('- `framework`', '- `dev/team/iam`') if change == 'scope' else
+                   text.replace('`running`', f'`{change}`') +
+                   ('## Suspension reason\nExplicit test stop\n' if change == 'suspend' else ''))
+    with pytest.raises(ValueError, match='inputs changed'):
+        publish_generation(plan)
     assert file.read_text() == 'original'
-    assert ('dev/team/iam' if change == 'scope' else f'`{change}`') in (tmp_path / name).read_text(), 'rollback must not undo an external contract edit'
+    assert ('dev/team/iam' if change == 'scope' else f'`{change}`') in own.read_text()
+
 
 
 
 @pytest.mark.parametrize('state', [None, 'running', 'completed', 'suspend'])
 def check_legacy_publication_preserves_contract(tmp_path, monkeypatch, state):
-    from model_templates import publish
+    from sync_runtime import publish_generation
     name = 'tasks/active.md'
     text = contract('active', ['file.txt'])
     if state is None:
@@ -138,58 +150,58 @@ def check_legacy_publication_preserves_contract(tmp_path, monkeypatch, state):
         if state == 'completed':
             assert tasks.task_path(tmp_path) == own
             assert tasks.task_revision(tmp_path) == (name, text)
-        with pytest.raises(ValueError, match=f'{state} task'):
-            publish(tmp_path, {file: 'saved', new: 'new'}, obsolete=[obsolete])
-        assert file.read_text() == 'original' and not new.exists()
-        assert obsolete.read_text() == 'keep'
+        with pytest.raises(ValueError, match='task cannot write|suspend task'):
+            publish_generation(generation_plan(tmp_path, {file: 'saved', new: 'new'}))
+        assert file.read_text() == 'original' and not new.exists() and obsolete.read_text() == 'keep'
     else:
         assert tasks.task_path(tmp_path) == own
-        publish(tmp_path, {file: 'saved'})
+        publish_generation(generation_plan(tmp_path, {file: 'saved'}))
         assert file.read_text() == 'saved'
     assert own.read_text() == text
     monkeypatch.delenv(tasks.SELECTOR)
     standalone = tmp_path / 'standalone'
     standalone.mkdir()
-    publish(standalone, {standalone / 'file.txt': 'without contract'})
+    publish_generation(generation_plan(standalone, {standalone / 'file.txt': 'without contract'}))
     assert (standalone / 'file.txt').read_text() == 'without contract'
 
 
 
+
 def check_source_guard_keeps_plan_consistency(tmp_path, monkeypatch):
-    from model_templates import publish
-    import import_guard
+    from sync_runtime import publish_generation
     name = 'tasks/owner.md'
-    source = tmp_path / 'model/parameters/dev/team/iam/parameters.yaml'
+    source = tmp_path / 'model/dev/team/iam.properties'
     tasks.start(tmp_path, name, contract('owner', [source.relative_to(tmp_path).as_posix()]))
     monkeypatch.setenv(tasks.SELECTOR, name)
-    def guard(*args, **kwargs):
-        own = tmp_path / name
-        own.write_text(own.read_text().replace('- `framework`', '- `dev/team/iam`'))
-    with patch.object(import_guard, 'require_import_changes', guard):
-        with pytest.raises(ValueError, match='scope changed'):
-            publish(tmp_path, {source: 'instances: {}\n'})
+    plan = generation_plan(tmp_path, {source: '# model-format: 2\n'})
+    own = tmp_path / name
+    own.write_text(own.read_text().replace('- `framework`', '- `dev/team/iam`'))
+    with pytest.raises(ValueError, match='inputs changed'):
+        publish_generation(plan)
     assert not source.exists()
 
 
 
+
 def check_scope_change_during_planning(tmp_path, monkeypatch):
-    from model_templates import publish
+    from sync_runtime import publish_generation
     name = 'tasks/example.md'
     tasks.start(tmp_path, name, contract('example', ['file.txt']))
     monkeypatch.setenv(tasks.SELECTOR, name)
-    expected = tasks.task_revision(tmp_path)
+    plan = generation_plan(tmp_path, {tmp_path / 'file.txt': 'candidate'})
     own = tmp_path / name
     own.write_text(own.read_text().replace('- `framework`', '- `dev/team/iam`'))
-    with pytest.raises(ValueError, match='scope changed'):
-        publish(tmp_path, {tmp_path / 'file.txt': 'candidate'}, expected_task=expected)
+    with pytest.raises(ValueError, match='inputs changed'):
+        publish_generation(plan)
     assert not (tmp_path / 'file.txt').exists()
     own.write_text(own.read_text().replace('`running`', '`completed`'))
     assert tasks.task_path(tmp_path) == own
     expected = tasks.task_revision(tmp_path)
     assert expected[1] == own.read_text()
     with pytest.raises(ValueError, match='completed task cannot write'):
-        publish(tmp_path, {tmp_path / 'file.txt': 'candidate'}, expected_task=expected)
+        publish_generation(generation_plan(tmp_path, {tmp_path / 'file.txt': 'candidate'}))
     assert not (tmp_path / 'file.txt').exists()
+
 
 
 def check_batch_operation_contract():

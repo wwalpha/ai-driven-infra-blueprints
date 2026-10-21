@@ -327,7 +327,13 @@ def common_checks(root):
     expect(ValueError, lambda: m.targets(root, 'dev', 'unknown'))
     text = model_text('Athena.WorkGroup', [('Athena.WorkGroup.Name', '`fixture`'), ('Athena.WorkGroup.State', '`ENABLED`')])
     path = directory / 'athena.properties'
-    write_model(path, '# padding\n' * 601 + text)
+    write_model(path, text)
+    data = path.read_text()
+    parts = path.with_suffix('')
+    parts.mkdir()
+    (parts / 'part-001.properties').write_text('# model-format: 2\ndesired.note.001.text=Standalone annotation\n')
+    (parts / 'part-002.properties').write_text(data)
+    path.write_text('# model-format: 2\n# model-index: 2\n# part: athena/part-001.properties\n# part: athena/part-002.properties\n')
     ctx = Offline(root)
     ctx.egress = False
     ctx.verify()
@@ -655,6 +661,8 @@ def check_domains(tmp_path, callback, subdirectory):
     from support.it_workspace import copy_framework
     root = tmp_path / subdirectory
     copy_framework(root / 'framework')
+    (root / 'project.json').write_text(json.dumps({'projectName': 'synthetic', 'targets': [
+        {key: value for key, value in TARGET.items() if key != 'directory'}]}) + '\n')
     callback(root)
 
 

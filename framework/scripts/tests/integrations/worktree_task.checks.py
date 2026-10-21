@@ -434,7 +434,7 @@ def check_real_loop_integration():
     from support import blueprint_loop_fixtures as loop_checks
     with fixture() as root:
         loop_checks.make_framework_fixture(SCRIPT.parents[2], root)
-        for name in ("docs/designs", "model/parameters", "model/templates", "infra", "tests/scenarios", "tests/results"):
+        for name in ("docs/designs", "model", "infra", "tests/scenarios", "tests/results"):
             (root/name).mkdir(parents=True,exist_ok=True)
             (root / name / ".gitkeep").touch()
         # This fixture tests the real child loop, not recursively the entire regression.
@@ -536,7 +536,7 @@ def check_approved_model_reads():
     from validation_scope import active_scope
     import pytest
     approval = 'Human accepts fixture validation failure for Git integration'
-    relative = 'model/parameters/stg/cde/vpc/parameters.yaml'
+    relative = 'model/stg/cde/vpc.properties'
     for mode in ('preserved', 'changed-import', 'proof', 'missing', 'tampered', 'expired',
                  'wrong-task', 'wrong-base', 'wrong-scope', 'incomplete', 'wrong-sources'):
         with fixture() as root:
@@ -572,7 +572,7 @@ def check_approved_model_reads():
                         guard.write_sealed(target, receipt, proof)
                     if mode == 'tampered':
                         receipt.write_text(receipt.read_text().replace('fixture-plan', 'modified-plan'))
-            tasks.suspend(target, state['task_file'], 'Synthetic validation FAIL: parameters.yaml')
+            tasks.suspend(target, state['task_file'], 'Synthetic validation FAIL: properties')
             saved = (target / state['task_file']).read_bytes()
             before = git(root, 'rev-parse', 'HEAD')
             with tasks.selected_task(target, state['task_file']):
@@ -609,7 +609,7 @@ def check_registered_normal_model_guard():
     import venv
     from support.import_model_fixtures import dependency_fixture
     from support.it_workspace import populate
-    relative = 'model/templates/cde/service-a.properties.tpl'
+    relative = 'model/stg/cde/service-a.properties'
     with fixture() as root:
         populate('framework', root)
         dependency_fixture(root)
@@ -634,7 +634,7 @@ def profile(frame, event, arg):
     name, file = frame.f_code.co_name, Path(frame.f_code.co_filename).name
     if file == 'worktree_task.py' and name in ('lifecycle_lock', 'finalize', 'prepare_integration', 'cleanup'):
         raise AssertionError('guard child entered lifecycle')
-    if file in ('model_reference_usage.py', 'model_templates.py') and name in ('_symbolic', '_load_for_analysis'):
+    if file in ('references.py', 'sources.py') and name in ('usages', '_read_model'):
         assert sys.modules['validation_cache'].memo_table() is not None
         counts[name] = counts.get(name, 0) + 1
 sys.setprofile(profile)
@@ -660,7 +660,7 @@ atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(co
         assert result.returncode == 0, response
         assert response['cleaned'] and response['merged']
         counts = json.loads(probe.read_text())
-        assert counts['_symbolic'] >= 4 and counts['_load_for_analysis'] >= 4
+        assert counts['usages'] >= 1 and counts['_read_model'] >= 1, counts
         assert not target.exists()
         assert wt.python_env.shared_ready(directory)
         assert (root / relative).read_text().endswith('# ordinary save\n')
@@ -710,7 +710,7 @@ def check_model_operation_integration():
                     if not approved:
                         finish_contract(target, state)
                     if corrupt:
-                        file = target / 'model/parameters/stg/cde/vpc/parameters.yaml'
+                        file = target / 'model/stg/cde/vpc.properties'
                         file.write_text(file.read_text().replace('10.9.0.0/16', '10.8.0.0/16'))
                     base_head = git(root, 'rev-parse', 'HEAD')
                     if approved:
@@ -722,7 +722,7 @@ def check_model_operation_integration():
                             retained(root, target, state, base_head)
                             assert git(target, 'rev-parse', 'HEAD') == state['start']
                         elif corrupt:
-                            with pytest.raises(ValueError, match='transferred'):
+                            with pytest.raises(ValueError, match='undeclared value/type'):
                                 wt.finalize(root, 'example', 'Human accepts fixture validation FAIL')
                             retained(root, target, state, base_head)
                             assert git(target, 'rev-parse', 'HEAD') == state['start']
@@ -743,7 +743,7 @@ def check_model_operation_integration():
                                 wt.validate_final_candidate(final)
                                 raise AssertionError('corrupted merge was accepted')
                             except ValueError as error:
-                                assert 'transferred' in str(error)
+                                assert 'undeclared value/type' in str(error)
                             retained(root, target, state, base_head)
                         else:
                             result = wt.validate_final_candidate(final)
@@ -757,7 +757,10 @@ def check_model_operation_integration():
 def check_model_refactor_integration():
     from support.import_model_fixtures import dependency_fixture, dependency_refactor, dependency_contract
     from utils.aws_mappings import mapping_alias
-    from model_templates import publish, load_expansion
+    from model.sources import load_model
+    from model import prepare_edit, publish_edit
+    from model.adapters.task import edit_write_context
+    import pytest
     from import_guard import require_import_changes, source_write_context
     from validation import loop
     for advance in (False, True):
@@ -783,21 +786,27 @@ def check_model_refactor_integration():
                 output = {target / name: (candidate / name).read_text() for name in sources}
                 original = {path: path.read_bytes() for path in output}
                 bad = {p: value.replace('same-name-stg', 'changed') for p, value in output.items()}
-                with redirect_stderr(io.StringIO()) as warnings:
-                    publish(target, bad, inputs=original)
-                assert 'reference effective value changed' in warnings.getvalue()
-                assert all(path.read_text() == value for path, value in bad.items())
-                publish(target, output, inputs={path: path.read_bytes() for path in output})
+                scope = {('stg', 'cde', 'service-b')}
+                with edit_write_context(target, scope, state['task_file']) as context:
+                    path = next(iter(bad))
+                    plan = prepare_edit(load_model(path, context.snapshot), bad, context)
+                    with pytest.raises(ValueError, match='changed a saved native value'):
+                        publish_edit(plan, context)
+                assert all(path.read_bytes() == raw for path, raw in original.items())
+                with edit_write_context(target, scope, state['task_file']) as context:
+                    path = next(iter(output))
+                    publish_edit(prepare_edit(load_model(path, context.snapshot), output, context), context)
                 require_import_changes(target)
-                assert load_expansion(target / 'model/stg/cde/service-b.properties').values['desired.row.002-001.value'] == 'same-name-stg'
-                for address in ('stg/cde/service-a/001', 'stg/cde/service-a/999'):
-                    result = subprocess.run([sys.executable, '-B', str(SCRIPT.with_name('model_reference_usage.py')),
-                        address, '--repository-root', str(target)], capture_output=True, text=True)
+                assert load_model(target / 'model/stg/cde/service-b.properties').values['desired.row.002-001.value'] == 'same-name-stg'
+                for identity in ('001', '999'):
+                    result = subprocess.run([sys.executable, '-B', str(SCRIPT.parent / 'model/cli.py'),
+                        'incoming', str(target / 'model/stg/cde/service-a.properties'), identity],
+                        capture_output=True, text=True)
                     assert result.returncode == 0, result.stderr + result.stdout
                     response = json.loads(result.stdout)
-                    assert response == {'status': 'resolved', 'references': [], 'warnings': [], 'complete': True}
+                    assert response == {'status': 'complete', 'references': [], 'warnings': []}
                 if advance:
-                    file = root / 'model/parameters/stg/cde/service-a/parameters.yaml'
+                    file = root / 'model/stg/cde/service-a.properties'
                     file.write_text(file.read_text().replace('same-name-stg', 'advanced-name'))
                     git(root, 'add', file); git(root, 'commit', '-qm', 'advance producer on base')
                 latest = git(root, 'rev-parse', 'HEAD')
@@ -813,7 +822,7 @@ def check_model_refactor_integration():
                 with patch.object(loop, 'run_loop', side_effect=validate):
                     with redirect_stderr(io.StringIO()) as warnings:
                         result = wt.validate_final_candidate(final)
-                    assert ('reference effective value changed' in warnings.getvalue()) == advance
+                    assert ('producer name/identifier differs from saved text' in warnings.getvalue()) == advance
                     assert wt.merge_validated_candidate(result)['merged'] == final.candidate_head
                     assert wt.cleanup(root, 'example')['cleaned']
                 assert calls == [final.candidate_head]

@@ -16,10 +16,13 @@ from support.it_workspace import copy_framework
 def main() -> None:
     import sync_runtime as model
     with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
+        root = Path(directory).resolve()
+        (root / "project.json").write_text(__import__("json").dumps({"projectName": "synthetic", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
         copy_framework(root / 'framework')
         glue, datazone = write_designs(root)
         glue_model = """# Synthetic authoritative Model fixture.
+display.service.title=# Glue 詳細設計
+display.resource.001.comment=合成 Glue catalog
 desired.service.glue.serviceId=glue
 desired.service.glue.ownedCatalogResourceTypes=Glue.Catalog
 desired.resource.001.resourceType=Glue.Catalog
@@ -42,6 +45,10 @@ desired.row.001-004.value=federated-catalog
 desired.row.001-004.comment=Glue federated catalog名
 """
         datazone_model = """# Synthetic authoritative Model fixture.
+display.service.title=# DataZone 詳細設計
+display.resource.001.comment=合成 DataZone domain
+display.resource.002.comment=合成 DataZone project
+display.resource.003.comment=合成 DataZone data source
 desired.service.datazone.serviceId=datazone
 desired.service.datazone.ownedCatalogResourceTypes=DataZone.Domain,DataZone.Project,DataZone.DataSource
 desired.resource.001.resourceType=DataZone.Domain
@@ -138,11 +145,15 @@ desired.row.003-007.comment=data sourceの種別
             output.parent.mkdir(parents=True, exist_ok=True)
             write_model(output, contents)
         original = {path: path.read_bytes() for path in (glue, datazone)}
-        with redirect_stdout(io.StringIO()) as output:
-            model.sync(root, False)
-        assert "anchor must be unique and match its name" in output.getvalue()
+        try:
+            with redirect_stdout(io.StringIO()):
+                model.sync(root, False)
+        except ValueError as error:
+            assert "generated Markdown is stale or missing" in str(error), error
+        else:
+            raise AssertionError("stale design accepted by generation")
         assert original == {path: path.read_bytes() for path in (glue, datazone)}
-    print("glue-datazone-catalog: PASS (schema and read-only projection and legacy-input rejection)")
+    print("glue-datazone-catalog: PASS (schema, fixed anchors, read-only projection and stale view rejection)")
 
 
 if __name__ == "__main__":

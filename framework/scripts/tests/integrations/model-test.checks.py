@@ -27,7 +27,7 @@ from support.model_sources import write_model
 from validation_cache import input_scope
 
 ROOT = Path(__file__).resolve().parents[4]
-generator = module('model-test.py', 'model_test_generator')
+generator = module('model/audit.py', 'model.audit')
 
 
 def snapshot(source):
@@ -62,7 +62,7 @@ POLICY = {'Version': '2012-10-17', 'Statement': [
 
 def runtime(data):
     namespace = {'__name__': 'audit_fixture', '__file__': '/offline/tests/dev/cde/vpc.py', 'SNAPSHOT': data}
-    exec(compile((ROOT / 'framework/scripts/model_test_runtime.py').read_text(encoding='utf-8'), '<runtime>', 'exec'), namespace)
+    exec(compile((ROOT / 'framework/scripts/model/audit_runtime.py').read_text(encoding='utf-8'), '<runtime>', 'exec'), namespace)
     return namespace
 
 
@@ -128,7 +128,7 @@ def check():
         text = contract('audit', ['tests/dev/cde/vpc.py']).replace('`governance`', '`migration`').replace('`framework`', '`dev/cde/vpc`')
         prompt.write_text(text)
         output = root / 'tests/dev/cde/vpc.py'
-        arguments = ['model-test.py', '--environment', 'dev', '--target', 'cde', '--service', 'vpc', '--task-file', name]
+        arguments = ['model/cli.py', '--repository-root', str(root), '--environment', 'dev', '--target', 'cde', '--service', 'vpc', '--task-file', name]
         with patch.object(generator, 'ROOT', root), patch.dict(os.environ, {SELECTOR: name}), \
              patch.object(sys, 'argv', arguments), redirect_stdout(io.StringIO()) as messages:
             assert generator.main() == 0, messages.getvalue()
@@ -153,7 +153,7 @@ def check():
             assert generator.main() == 2 and output.read_bytes() == before
     snapshots = {service: snapshot(source) for service, source in sources.items()}
     assert 'iam' in snapshots['vpc']['models'], 'VPC flow-log IAM reference dependency'
-    assert set(snapshots['vpc']['models']) != set(generator.module('check-model-aws.py', 'model_aws_compare').SERVICES)
+    assert set(snapshots['vpc']['models']) != set(generator.module('model/adapters/aws.py', 'model.adapters.aws').SERVICES)
     vpc = fixture(snapshots['vpc'], 'vpc', [('001', 'EC2.VPC', 'main-vpc', [
         ('Name', '`test-vpc`', None), ('CidrBlock', '`10.10.0.0/23`', None),
         ('EnableDnsSupport', '`true`', None), ('VpcId', '`vpc-observed`', None)])])

@@ -7,13 +7,11 @@ import shutil
 import subprocess
 import sys
 
-from script_loader import module
-from model_templates import json_text, load_for_edit, service_source
-from model_parameter_inputs import yaml_read
-from import_sources import parameter_edit
+from model.sources import json_text, load_model
+from yaml_values import yaml_read
 from support.model_sources import write_model
 
-m = module('import-model.py', 'import_model_cli')
+from model.importing import cli as m
 ACCOUNT = '123456789012'
 TARGET = 'cde'
 SERVICES = ('vpc', 'config', 'cloudwatch-logs', 'data-firehose', 'quicksight', 'security-hub', 'transit-gateway')
@@ -77,7 +75,7 @@ class AwsCli:
 
 def small_framework(root, services, kinds):
     from cloudformation_schema import REGION
-    kinds = set(kinds) | {kind for service in services for kind in m.yaml_read((m.ROOT / 'framework/mappings/aws' / (service + '.yaml')).read_text(encoding='utf-8'))['resourceTypes']}
+    kinds = set(kinds) | {kind for service in services for kind in yaml_read((m.ROOT / 'framework/mappings/aws' / (service + '.yaml')).read_text(encoding='utf-8'))['resourceTypes']}
     schema = Path('framework/materials/cloudformation-schema') / REGION
     index = json.loads((m.ROOT / schema / 'index.json').read_text(encoding='utf-8'))['resourceTypes']
     paths = {schema / 'index.json', Path('framework/rules/aws-resource-naming.md')}
@@ -98,48 +96,21 @@ def small_framework(root, services, kinds):
 
 
 
-def spec(kind='string', **extra):
-    return {'type': kind, 'description': '合成fixtureの設定', 'required': True, **extra}
+def service_values(service, kinds):
+    return {'desired.service.' + service + '.serviceId': service,
+            'desired.service.' + service + '.ownedCatalogResourceTypes': ','.join(kinds),
+            'display.service.title': '# ' + service + ' 詳細設計'}
 
 
-def metadata(service, kinds):
-    return ['# definition: Metadata', 'desired.service.' + service + '.serviceId=' + service,
-            'desired.service.' + service + '.ownedCatalogResourceTypes=' + ','.join(kinds),
-            'display.service.title=# ' + service + ' 詳細設計', '# end-definition']
-
-
-def binding(definition, number, rows, anchor):
-    return {'definition': definition, 'resources': {'resource': number},
-            'rows': {name: number + '-' + str(index).zfill(3) for index, name in enumerate(rows, 1)},
-            'parameters': {'Anchor': anchor}}
-
-
-def declaration(name, kind, fields, parameters, mode='<<ResourceMode>>'):
-    lines = ['# definition: ' + name, '# internal: Anchor string', '# resource: resource']
-    lines += ['# parameter: ' + key + ' ' + json_text(value) for key, value in parameters.items()]
-    lines += ['# row: ' + local + ' resource' for local in fields]
-    lines += ['desired.resource.resource.resourceType=' + kind,
-              'desired.resource.resource.anchor=<<Anchor>>',
-              'desired.resource.resource.resourceMode=' + mode,
-              'display.resource.resource.comment=合成テスト用のリソース']
-    for local, (prop, value) in fields.items():
-        lines += ['desired.row.' + local + '.property=' + kind + '.' + prop,
-                  'desired.row.' + local + '.value=' + value,
-                  'desired.row.' + local + '.comment=合成テストの取得設定']
-    return lines + ['# end-definition']
-
-
-def save_service(root, service, template, parameters, bindings, observed=None, environment='dev'):
-    import yaml
-    entry = root / 'model/templates' / TARGET / (service + '.properties.tpl')
-    directory = root / 'model/parameters' / environment / TARGET / service
-    entry.parent.mkdir(parents=True, exist_ok=True)
-    directory.mkdir(parents=True, exist_ok=True)
-    entry.write_text('\n'.join(template) + '\n', encoding='utf-8')
-    (directory / 'parameters.yaml').write_text('# Authored synthetic fixture; never live AWS evidence\n' + yaml.safe_dump(parameters, allow_unicode=True, sort_keys=False, default_flow_style=False), encoding='utf-8')
-    (directory / 'bindings.json').write_text(json.dumps(bindings, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    if observed:
-        (directory / 'observed.json').write_text(json.dumps({'version': 1, 'values': observed}, indent=2) + '\n', encoding='utf-8')
+def resource_values(rid, kind, anchor, mode, rows):
+    values = {f'desired.resource.{rid}.resourceType': kind, f'desired.resource.{rid}.resourceMode': mode,
+              f'desired.resource.{rid}.anchor': anchor, f'desired.resource.{rid}.logicalId': anchor,
+              f'display.resource.{rid}.comment': '合成テスト用のリソース'}
+    for index, (prop, raw) in enumerate(rows, 1):
+        prefix = f'desired.row.{rid}-{index:03d}.'
+        values.update({prefix + 'property': kind + '.' + prop, prefix + 'value': raw,
+                       prefix + 'comment': '合成テストの取得設定'})
+    return values
 
 
 def build_seed(root):
@@ -147,7 +118,7 @@ def build_seed(root):
     kinds = ['EC2.VPC', 'EC2.Subnet', 'Config.ConfigurationRecorder', 'Logs.LogGroup',
              'KinesisFirehose.DeliveryStream', 'QuickSight.DataSource', 'SecurityHub.Hub', 'EC2.TransitGatewayVpcAttachment']
     small_framework(root, SERVICES, kinds)
-    # This seed models only LogGroup; other Logs types have no selected properties.
+    # Install the selected catalog before any reader can cache it.
     import yaml
     mapping_path = root / 'framework/mappings/aws/cloudwatch-logs.yaml'
     mapping = yaml_read(mapping_path.read_text(encoding='utf-8'))
@@ -160,46 +131,31 @@ def build_seed(root):
     (root / 'project.json').write_text(json_text({'projectName': 'synthetic-import-fixture', 'targets': [
         {'environment': env, 'alias': TARGET, 'awsAccountId': ACCOUNT, 'awsRegion': 'ap-northeast-1',
          'awsProfile': 'confirmed', 'iacEngine': 'cloudformation'} for env in ('dev', 'stg')]}), encoding='utf-8')
-    empty = {'definition': 'Metadata', 'resources': {}, 'rows': {}, 'parameters': {}}
-    vpc_fields = {'id': ('VpcId', '[<<Id_resource>>](#<<Anchor>>)'), 'cidr': ('CidrBlock', '<<CidrBlock>>'),
-                  'name': ('Name', '`main-vpc`'), 'hostnames': ('EnableDnsHostnames', '`true`'), 'support': ('EnableDnsSupport', '`true`')}
-    subnet_fields = {'id': ('SubnetId', '[<<Id_resource>>](#<<Anchor>>)'), 'vpc': ('VpcId', '[001](#vpc-main)'),
-                     'cidr': ('CidrBlock', '<<CidrBlock>>'), 'name': ('Name', '<<SubnetName>>'),
-                     'zone': ('AvailabilityZone', '`<<AvailabilityZone1>>`'), 'public': ('MapPublicIpOnLaunch', '`false`')}
-    lines = ['# model-template: 1'] + ['# input: ' + name + ' ' + json_text(spec(source='service'))
-                                      for name in ('ResourceMode', 'AvailabilityZone1', 'AvailabilityZone2')]
-    lines += metadata('vpc', ['EC2.VPC', 'EC2.Subnet'])
-    lines += declaration('Vpc', 'EC2.VPC', vpc_fields, {'CidrBlock': spec(format='literal')})
-    lines += declaration('SubnetZone1', 'EC2.Subnet', subnet_fields, {'CidrBlock': spec(format='literal'), 'SubnetName': spec(format='literal')})
-    lines += declaration('SubnetZone2', 'EC2.Subnet', {k: (p, v.replace('AvailabilityZone1', 'AvailabilityZone2')) for k, (p, v) in subnet_fields.items()},
-                         {'CidrBlock': spec(format='literal'), 'SubnetName': spec(format='literal')})
-    parameters = {'parameters': {'ResourceMode': 'IMPORT', 'AvailabilityZone1': 'ap-northeast-1a', 'AvailabilityZone2': 'ap-northeast-1c'},
-                  'instances': {'main-vpc': {'parameters': {'CidrBlock': '10.10.0.0/23'}}}}
-    bindings = {'instances': {'service': empty, 'main-vpc': binding('Vpc', '001', vpc_fields, 'vpc-main')}}
-    observed = {'observed.row.001-001.value': VPC_ID}
-    for n, (name, cidr, az) in enumerate(SUBNETS, 2):
-        number = str(n).zfill(3)
-        parameters['instances'][name] = {'parameters': {'CidrBlock': cidr, 'SubnetName': name}}
-        bindings['instances'][name] = binding('SubnetZone1' if az.endswith('a') else 'SubnetZone2', number, subnet_fields, 'vpc-' + name)
-        observed['observed.row.' + number + '-001.value'] = 'subnet-' + str(n).zfill(17)
-        observed['observed.row.' + number + '-002.value'] = VPC_ID
-    save_service(root, 'vpc', lines, parameters, bindings, observed)
-    stg = copy.deepcopy(parameters)
-    stg['parameters']['ResourceMode'] = 'CREATE'
-    save_service(root, 'vpc', lines, stg, bindings, environment='stg')
-
-    fields = {'name': ('LogGroupName', '<<LogGroupName>>'), 'days': ('RetentionInDays', '<<RetentionDays>>'),
-              'protected': ('DeletionProtectionEnabled', '`false`'), 'class': ('LogGroupClass', '`STANDARD`')}
-    lines = ['# model-template: 1'] + metadata('cloudwatch-logs', ['Logs.LogGroup'])
-    lines += declaration('LogGroup', 'Logs.LogGroup', fields,
-                         {'ResourceMode': spec(), 'LogGroupName': spec(format='literal'), 'RetentionDays': spec('integer')})
-    bindings = {'instances': {'service': empty, 'application-log': binding('LogGroup', '001', fields, 'cloudwatch-logs-application'),
-                             'create-log': binding('LogGroup', '002', fields, 'cloudwatch-logs-create')}}
     for env in ('dev', 'stg'):
-        parameters = {'instances': {'application-log': {'parameters': {'ResourceMode': 'IMPORT' if env == 'dev' else 'CREATE',
-                           'LogGroupName': 'fixture-001' if env == 'dev' else 'stg-application', 'RetentionDays': 30}},
-                       'create-log': {'parameters': {'ResourceMode': 'CREATE', 'LogGroupName': 'fixture-002', 'RetentionDays': 30}}}}
-        save_service(root, 'cloudwatch-logs', lines, parameters, bindings, environment=env)
+        mode = 'IMPORT' if env == 'dev' else 'CREATE'
+        values = service_values('vpc', ['EC2.VPC', 'EC2.Subnet'])
+        values.update(resource_values('001', 'EC2.VPC', 'vpc-main', mode, [
+            ('VpcId', '[001](#vpc-main)'), ('CidrBlock', '`10.10.0.0/23`'), ('Name', '`main-vpc`'),
+            ('EnableDnsHostnames', '`true`'), ('EnableDnsSupport', '`true`')]))
+        if env == 'dev':
+            values['observed.row.001-001.value'] = VPC_ID
+        for n, (name, cidr, zone) in enumerate(SUBNETS, 2):
+            rid = f'{n:03d}'
+            values.update(resource_values(rid, 'EC2.Subnet', 'vpc-' + name, mode, [
+                ('SubnetId', f'[{rid}](#vpc-{name})'), ('VpcId', '[001](#vpc-main)'),
+                ('CidrBlock', m.model_literal(cidr)), ('Name', m.model_literal(name)),
+                ('AvailabilityZone', m.model_literal(zone)), ('MapPublicIpOnLaunch', '`false`')]))
+            if env == 'dev':
+                values[f'observed.row.{rid}-001.value'] = 'subnet-' + str(n).zfill(17)
+                values[f'observed.row.{rid}-002.value'] = VPC_ID
+        write_model(root / 'model' / env / TARGET / 'vpc.properties', values)
+        logs = service_values('cloudwatch-logs', ['Logs.LogGroup'])
+        for rid, name, logmode, anchor in [('001', 'fixture-001' if env == 'dev' else 'stg-application', mode, 'application'),
+                                          ('002', 'fixture-002', 'CREATE', 'create')]:
+            logs.update(resource_values(rid, 'Logs.LogGroup', 'cloudwatch-logs-' + anchor, logmode, [
+                ('LogGroupName', m.model_literal(name)), ('RetentionInDays', '`30`'),
+                ('DeletionProtectionEnabled', '`false`'), ('LogGroupClass', '`STANDARD`')]))
+        write_model(root / 'model' / env / TARGET / 'cloudwatch-logs.properties', logs)
     basic = {
         'config': ('Config.ConfigurationRecorder', {'Name': 'actual-recorder', 'Id': 'actual-recorder',
                    'RecordingGroup.AllSupported': False, 'RecordingGroup.IncludeGlobalResourceTypes': True,
@@ -216,7 +172,7 @@ def build_seed(root):
                   'desired.service.' + service + '.ownedCatalogResourceTypes': kind,
                   'display.service.title': '# ' + service + ' 詳細設計',
                   'desired.resource.001.resourceType': kind, 'desired.resource.001.resourceMode': 'IMPORT',
-                  'desired.resource.001.anchor': service + '-fixture', 'display.resource.001.comment': '合成fixture'}
+                  'desired.resource.001.anchor': service + '-fixture', 'desired.resource.001.logicalId': service + '-fixed', 'display.resource.001.comment': '合成fixture'}
         for i, (prop, value) in enumerate(fields.items(), 1):
             key = 'desired.row.001-' + str(i).zfill(3) + '.'
             values.update({key + 'property': kind + '.' + prop, key + 'value': m.model_literal(value), key + 'comment': '合成fixture'})
@@ -232,8 +188,8 @@ def fixture(root, service='cloudwatch-logs', register=True):
     subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'synthetic import seed'], cwd=root, check=True)
     path = root / 'model/dev' / TARGET / (service + '.properties')
     if register:
-        sources = {p.relative_to(root).as_posix() for p in load_for_edit(path).files}
-        sources |= {f'model/parameters/dev/{TARGET}/{service}/observed.json', f'docs/designs/dev/{TARGET}/{service}.md'}
+        sources = {p.relative_to(root).as_posix() for p in load_model(path).files}
+        sources |= {f'docs/designs/dev/{TARGET}/{service}.md'}
         paths = sorted(sources | {'tasks/import-fixture.md'})
         text = '\n'.join(['# Import fixture', '## Task contract', '- Task type: `design`', '- Workflow: `import`',
                            '- Task status: `running`', '- IMPORT target: `dev/' + TARGET + '/' + service + '`',
@@ -269,13 +225,23 @@ def aws(service='cloudwatch-logs', *, changed=False, noise=False, profile='confi
     return cli
 
 
-def stage(acquisition, files, resources=(), excluded=(), pending=()):
+def stage(root, acquisition, files, resources=(), excluded=(), pending=()):
+    """Build a complete external properties candidate, including explicit no-op candidates."""
     destination = Path(acquisition['candidates'])
+    scope = acquisition['scope']
+    entry = root / 'model' / scope[0] / scope[1] / (scope[2] + '.properties')
+    files = dict(files)
+    if entry.relative_to(root).as_posix() not in files:
+        if entry.is_file():
+            files = {**{file.relative_to(root).as_posix(): text for file, text in load_model(entry).files.items()}, **files}
+        else:
+            from model.format import serialize
+            files[entry.relative_to(root).as_posix()] = serialize({})
     for relative, text in files.items():
         path = destination / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding='utf-8')
-    Path(acquisition['selection']).write_text(json_text({'resources': list(resources), 'excluded': list(excluded), 'unreflected': list(pending)}), encoding='utf-8')
+    Path(acquisition['selection']).write_text(json_text({'resources': list(resources), 'excluded': list(excluded), 'unreflected': list(pending)}) + '\n', encoding='utf-8')
 
 
 def correspondence(acquisition, identity, resource='003', action='add', basis=()):
@@ -290,19 +256,15 @@ def exclusions(acquisition, selected):
 
 
 def logs_edit(root, acquisition, days=90):
-    path = root / 'model/parameters/dev' / TARGET / 'cloudwatch-logs/parameters.yaml'
-    original = path.read_text(encoding='utf-8')
-    params = yaml_read(original)
-    params['instances']['managed-log'] = {'parameters': {'ResourceMode': 'IMPORT', 'LogGroupName': 'managed-new', 'RetentionDays': days}}
-    bindings_file = path.with_name('bindings.json')
-    bindings = json.loads(bindings_file.read_text(encoding='utf-8'))
-    seed = bindings['instances']['application-log']
-    bindings['instances']['managed-log'] = {**copy.deepcopy(seed), 'resources': {'resource': '003'},
-        'rows': {local: number.replace('001-', '003-') for local, number in seed['rows'].items()}, 'parameters': {'Anchor': 'cloudwatch-logs-managed'}}
-    files = {path.relative_to(root).as_posix(): parameter_edit(original, params),
-             bindings_file.relative_to(root).as_posix(): json.dumps(bindings, indent=2) + '\n'}
+    from model.format import serialize
+    path = root / 'model/dev' / TARGET / 'cloudwatch-logs.properties'
+    values = dict(load_model(path).authoritative)
+    values.update(resource_values('003', 'Logs.LogGroup', 'cloudwatch-logs-managed', 'IMPORT', [
+        ('LogGroupName', '`managed-new`'), ('RetentionInDays', '`' + str(days) + '`'),
+        ('DeletionProtectionEnabled', '`false`'), ('LogGroupClass', '`STANDARD`')]))
+    files = {path.relative_to(root).as_posix(): serialize(values)}
     selected = [correspondence(acquisition, 'managed-new')]
-    stage(acquisition, files, selected, exclusions(acquisition, selected))
+    stage(root, acquisition, files, selected, exclusions(acquisition, selected))
     return files
 
 
@@ -313,38 +275,31 @@ def review_proof_fixture(root, proof):
     proof['acquisition'] = digest(proof['acquisition'])
     binding = {name: digest(name) for name in ('sourceBaselineDigest', 'reviewDigest', 'recordsDigest',
                'selectionDigest', 'referencesDigest', 'proposedValuesDigest', 'impactDigest')}
-    binding.update(task=proof['task'], worktree=str(root.resolve()), scope=proof['scope'],
+    from model.importing.evidence import FORMAT_FIELDS
+    binding.update(version=2, **FORMAT_FIELDS, task=proof['task'], worktree=str(root.resolve()), scope=proof['scope'],
                    acquisitionDigest=proof['acquisition'], acquiredAt=proof['acquiredAt'],
                    expiresAt=(datetime.fromisoformat(proof['acquiredAt']) + timedelta(days=7)).isoformat())
-    proof.update(version=5, reviewBinding=binding, reviewBindingDigest=digest(binding))
+    proof.update(version=6, **FORMAT_FIELDS, reviewBinding=binding, reviewBindingDigest=digest(binding))
 
 
-def review_fixture(root, acquisition, service='cloudwatch-logs'):
-    from import_approval import reference_provenance
-    from import_scope import new_references
-    from model_templates import Expansion
+def review_fixture(root, acquisition, service='cloudwatch-logs', dry_run=False):
+    from model.importing.approval import reference_provenance
+    from model.sources import candidate_sources, FileReads
     evidence = Path(acquisition['evidence'])
-    identity = ('dev', TARGET, service)
-    path = root / 'model/dev' / TARGET / (service + '.properties')
-    before = load_for_edit(path) or Expansion({}, {}, {})
-    output = m.candidate_sources(root, evidence.parent / 'candidates', identity)
-    proposed = load_for_edit(path, output)
-    selection = json.loads(Path(acquisition['selection']).read_text(encoding='utf-8'))
-    selected = m.selection_records(selection, acquisition['records'], before.values, proposed.values, m.property_schema)
-    with new_references(before, selected):
-        proposed = load_for_edit(path, output)
+    env, target, actual_service = acquisition['scope']
+    path = root / 'model' / env / target / (actual_service + '.properties')
+    before = m.before_model(path, FileReads())
+    _, after = candidate_sources(root, evidence.parent / 'candidates', before)
     (evidence.parent / 'review-input.json').write_text(json_text({
-        'proposedValues': proposed.values,
-        'referenceProvenance': reference_provenance(proposed),
+        'referenceProvenance': reference_provenance(after),
         'risks': {record['record']: [] for record in acquisition['records']}}), encoding='utf-8')
-    result = m.review_acquisition(root, 'dev', service, evidence, TARGET)
-    return result
+    return m.review_acquisition(root, env, actual_service, evidence, target, dry_run)
 
 
 def publish_fixture(root, acquisition, service='cloudwatch-logs', dry_run=False):
-    if not dry_run:
-        review_fixture(root, acquisition, service)
-    return m.publish_acquisition(root, 'dev', service, acquisition['evidence'], TARGET, dry_run)
+    review_fixture(root, acquisition, service, dry_run)
+    env, target, actual_service = acquisition['scope']
+    return m.publish_acquisition(root, env, actual_service, acquisition['evidence'], target, dry_run)
 
 
 def snapshot(root):
@@ -352,55 +307,44 @@ def snapshot(root):
 
 
 def operation_fixture(root):
-    from support.import_model_fixtures import metadata, declaration, binding, save_service, spec
-    fields = {'id': ('VpcId', '[<<Id_resource>>](#<<Anchor>>)'),
-              'cidr': ('CidrBlock', '<<CidrBlock>>'), 'dns': ('EnableDnsSupport', '`false`')}
-    incoming = {'dns': ('EnableDnsSupport', '`true`'), 'cidr': fields['cidr'], 'id': fields['id']}
-    params = {'CidrBlock': spec(format='literal'), 'ResourceMode': spec()}
-    template = ['# model-template: 1'] + metadata('vpc', ['EC2.VPC'])
-    template += declaration('Vpc', 'EC2.VPC', fields, params)
-    template += declaration('ImportedVpc', 'EC2.VPC', incoming, params)
-    empty = {'definition': 'Metadata', 'resources': {}, 'rows': {}, 'parameters': {}}
-    for env in ('dev', 'stg'):
-        parameters = {'instances': {'main-vpc': {'parameters': {'CidrBlock': '10.1.0.0/16', 'ResourceMode': 'CREATE' if env == 'dev' else 'IMPORT'}}}}
-        bindings = {'instances': {'service': empty, 'main-vpc': binding('Vpc', '001', fields, 'vpc-main')}}
-        observed = {'observed.row.001-001.value': 'vpc-' + env}
-        if env == 'stg':
-            parameters['instances']['imported-vpc'] = {'parameters': {'CidrBlock': '10.9.0.0/16', 'ResourceMode': 'IMPORT'}}
-            bindings['instances']['imported-vpc'] = binding('ImportedVpc', '009', incoming, 'vpc-imported')
-            observed['observed.row.009-003.value'] = 'vpc-source'
-        save_service(root, 'vpc', template, parameters, bindings, observed, environment=env)
+    root.mkdir(parents=True, exist_ok=True)
     (root / 'project.json').write_text(json.dumps({'targets': [
-        {'environment': env, 'alias': 'cde', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'} for env in ('dev', 'stg')]}))
+        {'environment': env, 'alias': TARGET, 'awsAccountId': ACCOUNT, 'awsRegion': 'ap-northeast-1',
+         'iacEngine': 'cloudformation'} for env in ('dev', 'stg')]}))
+    for env in ('dev', 'stg'):
+        values = service_values('vpc', ['EC2.VPC'])
+        values.update(resource_values('001', 'EC2.VPC', 'vpc-main', 'CREATE' if env == 'dev' else 'IMPORT', [
+            ('VpcId', '[001](#vpc-main)'), ('CidrBlock', '`10.1.0.0/16`'), ('EnableDnsSupport', '`false`')]))
+        values['observed.row.001-001.value'] = 'vpc-' + env
+        if env == 'stg':
+            values.update(resource_values('009', 'EC2.VPC', 'vpc-imported', 'IMPORT', [
+                ('EnableDnsSupport', '`true`'), ('CidrBlock', '`10.9.0.0/16`'), ('VpcId', '[009](#vpc-imported)')]))
+            values['observed.row.009-003.value'] = 'vpc-source'
+        write_model(root / 'model' / env / TARGET / 'vpc.properties', values)
 
 
 def operation_candidate(before, after, action='import-merge'):
-    import shutil
-    from support.import_model_fixtures import spec
-    from model_templates import json_text
+    from model.format import owner
+    from model.operations import operation_rows
     shutil.copytree(before, after)
-    directory = after / 'model/parameters/stg/cde/vpc'
-    params_file, bindings_file, observed_file = [directory / name for name in ('parameters.yaml', 'bindings.json', 'observed.json')]
-    parameters = yaml_read(params_file.read_text())
-    bindings, observed = [json.loads(file.read_text()) for file in (bindings_file, observed_file)]
-    del parameters['instances']['imported-vpc']
-    del bindings['instances']['imported-vpc']
-    observed['values'].pop('observed.row.009-003.value')
+    path = after / 'model/stg/cde/vpc.properties'
+    values = dict(load_model(path).authoritative)
     if action == 'import-merge':
-        parameters['instances']['main-vpc']['parameters'].update(CidrBlock='10.9.0.0/16', DnsSupport=True)
-        observed['values']['observed.row.001-001.value'] = 'vpc-source'
-        template = after / 'model/templates/cde/vpc.properties.tpl'
-        text = template.read_text().replace('# definition: Vpc\n', '# definition: Vpc\n# parameter: DnsSupport ' + json_text(spec('boolean', format='literal')) + '\n')
-        text = text.replace('desired.row.dns.value=`false`', 'desired.row.dns.value=<<DnsSupport>>')
-        template.write_text(text)
-        foreign = after / 'model/parameters/dev/cde/vpc/parameters.yaml'
-        inputs = yaml_read(foreign.read_text())
-        inputs['instances']['main-vpc']['parameters']['DnsSupport'] = False
-        foreign.write_text(parameter_edit(foreign.read_text(), inputs))
-    params_file.write_text(parameter_edit(params_file.read_text(), parameters))
-    bindings_file.write_text(json.dumps(bindings))
-    observed_file.write_text(json.dumps(observed))
-    return {p.relative_to(after).as_posix() for p in after.rglob('*') if p.is_file() and p.read_bytes() != (before / p.relative_to(after)).read_bytes()}
+        destination = operation_rows(values, '001')
+        for prop, (rid, row) in operation_rows(values, '009').items():
+            target_row = destination[prop][0] if prop in destination else '001-' + rid.split('-', 1)[1]
+            for field, raw in row.items():
+                if field != 'comment' or prop not in destination:
+                    values[f'desired.row.{target_row}.{field}'] = raw.replace('#vpc-imported)', '#vpc-main)').replace('[009]', '[001]')
+            old_observed, new_observed = f'observed.row.{rid}.value', f'observed.row.{target_row}.value'
+            if old_observed in values:
+                values[new_observed] = values[old_observed]
+            else:
+                values.pop(new_observed, None)
+    values = {key: value for key, value in values.items() if owner(key, values) != ('resource', '009')}
+    write_model(path, values)
+    return {p.relative_to(after).as_posix() for p in after.rglob('*') if p.is_file() and
+            (not (before / p.relative_to(after)).is_file() or p.read_bytes() != (before / p.relative_to(after)).read_bytes())}
 
 
 def operation_contract(action='import-merge', source='stg/cde/vpc/009', destination='stg/cde/vpc/001'):
@@ -461,85 +405,86 @@ class CloudControlCli:
 
 
 def batch_operation_fixture(before, after):
-    """Five independent authored pairs shared by semantic UT and managed-save IT."""
-    import copy
-    import yaml
+    """Five independent fixed pairs, with Row IDs transferred by formal Property."""
+    from model.format import owner
     operation_fixture(before)
-    operation_candidate(before, after)
     pairs = [('022', '009'), ('023', '010'), ('024', '011'), ('025', '012'), ('028', '013')]
-    for root in (before, after):
-        directory = root / 'model/parameters/stg/cde/vpc'
-        binding_file, parameter_file, observed_file = [directory / name for name in ('bindings.json', 'parameters.yaml', 'observed.json')]
-        bindings = json.loads(binding_file.read_text())
-        parameters = yaml_read(parameter_file.read_text())
-        observed = json.loads(observed_file.read_text())
-        new_bindings = {'service': bindings['instances']['service']}
-        new_parameters, new_observed = {}, {}
-        for source, destination in pairs:
-            for name, old_id, new_id in [('main-vpc', '001', destination), ('imported-vpc', '009', source)]:
-                if name not in bindings['instances']:
+    path = before / 'model/stg/cde/vpc.properties'
+    original = dict(load_model(path).authoritative)
+    expanded = {key: value for key, value in original.items() if owner(key, original)[0] != 'resource'}
+    for source, destination in pairs:
+        for old_id, new_id in [('001', destination), ('009', source)]:
+            for key, value in original.items():
+                if owner(key, original) != ('resource', old_id):
                     continue
-                binding = copy.deepcopy(bindings['instances'][name])
-                binding['resources'] = {k: new_id for k in binding['resources']}
-                binding['rows'] = {k: new_id + v[len(old_id):] for k, v in binding['rows'].items()}
-                binding['parameters'] = {k: v + '-' + new_id if isinstance(v, str) else v for k, v in binding['parameters'].items()}
-                new_bindings[name + new_id] = binding
-                new_parameters[name + new_id] = copy.deepcopy(parameters['instances'][name])
-                new_observed.update({k.replace('.' + old_id + '-', '.' + new_id + '-'): v for k, v in observed['values'].items() if k.startswith('observed.row.' + old_id + '-')})
-        bindings['instances'], parameters['instances'], observed['values'] = new_bindings, new_parameters, new_observed
-        binding_file.write_text(json.dumps(bindings))
-        parameter_file.write_text(yaml.safe_dump(parameters))
-        observed_file.write_text(json.dumps(observed))
+                new_key = key.replace('.' + old_id + '.', '.' + new_id + '.').replace('.' + old_id + '-', '.' + new_id + '-')
+                raw = value.replace('[' + old_id + ']', '[' + new_id + ']')
+                raw = raw.replace('#vpc-main)', '#vpc-main-' + destination + ')').replace('#vpc-imported)', '#vpc-imported-' + source + ')')
+                if key.endswith(('.anchor', '.logicalId')):
+                    raw += '-' + new_id
+                expanded[new_key] = raw
+    write_model(path, expanded)
+    shutil.copytree(before, after)
+    changed = dict(expanded)
+    from model.operations import operation_rows
+    for source, destination in pairs:
+        target_rows = operation_rows(expanded, destination)
+        for prop, (row_id, row) in operation_rows(expanded, source).items():
+            target_id = target_rows[prop][0]
+            for field, raw in row.items():
+                if field != 'comment':
+                    changed[f'desired.row.{target_id}.{field}'] = raw.replace(
+                        '#vpc-imported-' + source + ')', '#vpc-main-' + destination + ')').replace('[' + source + ']', '[' + destination + ']')
+            observed = f'observed.row.{row_id}.value'
+            if observed in expanded:
+                changed[f'observed.row.{target_id}.value'] = expanded[observed]
+        changed = {key: value for key, value in changed.items() if owner(key, changed) != ('resource', source)}
+    write_model(after / 'model/stg/cde/vpc.properties', changed)
     contract = operation_contract().split('- Source resource:')[0] + '## Model merge pairs\n' + ''.join(
         '- ' + json.dumps({'source': 'stg/cde/vpc/' + source, 'destination': 'stg/cde/vpc/' + destination}) + '\n'
         for source, destination in pairs)
-    sources = {p.relative_to(after).as_posix() for p in after.rglob('*') if p.is_file() and p.read_bytes() != (before / p.relative_to(after)).read_bytes()}
-    return contract, sources
+    return contract, {'model/stg/cde/vpc.properties'}
+
+
+def reference_fields(identity, key, text, producer, *, kind='ServiceA.Resource', mode='name', prop='ServiceA.Resource.Name', pointer=None):
+    scope, rid = producer.rsplit('/', 1)
+    fields = {'consumerKey': key, 'text': text, 'occurrence': '1', 'producerKind': 'resource',
+              'producerScope': scope, 'producerId': rid, 'resourceType': kind, 'format': mode,
+              'labelPolicy': 'resource-id' if mode == 'link' else 'none'}
+    if mode != 'link':
+        fields['property'] = prop
+    if pointer is not None:
+        fields['pointer'] = pointer
+    return {'desired.reference.' + identity + '.' + field: value for field, value in fields.items()}
 
 
 def dependency_fixture(root):
-    """Generic service-a/service-b resource cycle, with a resolvable name dependency."""
+    """Explicit cyclic links plus an independent same-name fixed producer."""
     root.mkdir(exist_ok=True, parents=True)
-    a_fields = {'name': ('Name', '<<Name>>'), 'peer': ('Peer', '<<Peer>>')}
-    a_parameters = {'Name': spec(), 'ResourceMode': spec(),
-                    'Peer': spec('reference', service='service-b', resourceType='ServiceB.Resource')}
-    a = ['# model-template: 1'] + metadata('service-a', ['ServiceA.Resource'])
-    a += declaration('Producer', 'ServiceA.Resource', a_fields, a_parameters)
-    a += declaration('Independent', 'ServiceA.Resource', {'name': a_fields['name']}, {'Name': spec(), 'ResourceMode': spec()})
-    b_fields = {'name': ('Name', '<<Origin>>')}
-    b_parameters = {'Origin': spec('reference', service='service-a', resourceType='ServiceA.Resource', format='name'), 'ResourceMode': spec()}
-    b = ['# model-template: 1'] + metadata('service-b', ['ServiceB.Resource'])
-    b += declaration('Consumer', 'ServiceB.Resource', b_fields, b_parameters)
-    empty = {'definition': 'Metadata', 'resources': {}, 'rows': {}, 'parameters': {}}
+    (root / 'project.json').write_text(json.dumps({'targets': [
+        {'environment': env, 'alias': TARGET, 'awsAccountId': ACCOUNT, 'awsRegion': 'ap-northeast-1',
+         'iacEngine': 'cloudformation'} for env in ('dev', 'stg')]}))
     for env in ('dev', 'stg'):
         name = 'same-name-' + env
-        save_service(root, 'service-a', a,
-            {'instances': {'producer': {'parameters': {'Name': name, 'Peer': '002', 'ResourceMode': 'IMPORT'}},
-                           'same-name': {'parameters': {'Name': name, 'ResourceMode': 'IMPORT'}}}},
-            {'instances': {'service': empty, 'producer': binding('Producer', '001', a_fields, 'producer'),
-                           'same-name': binding('Independent', '003', {'name': a_fields['name']}, 'other-producer')}}, environment=env)
-        save_service(root, 'service-b', b,
-            {'instances': {'consumer': {'parameters': {'Origin': '001', 'ResourceMode': 'IMPORT'}}}},
-            {'instances': {'service': empty, 'consumer': binding('Consumer', '002', b_fields, 'consumer')}}, environment=env)
-    (root / 'project.json').write_text(json.dumps({'targets': [
-        {'environment': env, 'alias': 'cde', 'awsAccountId': ACCOUNT, 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'} for env in ('dev', 'stg')]}))
+        a = service_values('service-a', ['ServiceA.Resource'])
+        a.update(resource_values('001', 'ServiceA.Resource', 'producer', 'IMPORT', [
+            ('Name', name), ('Peer', '[002](service-b.md#consumer)')]))
+        a.update(resource_values('003', 'ServiceA.Resource', 'other-producer', 'IMPORT', [('Name', name)]))
+        b = service_values('service-b', ['ServiceB.Resource'])
+        b.update(resource_values('002', 'ServiceB.Resource', 'consumer', 'IMPORT', [('Name', name)]))
+        b.update(reference_fields('origin', 'desired.row.002-001.value', name, env + '/cde/service-a/001'))
+        write_model(root / 'model' / env / TARGET / 'service-a.properties', a)
+        write_model(root / 'model' / env / TARGET / 'service-b.properties', b)
 
 
 def dependency_refactor(before, after):
-    """An authored candidate, reusing normal inputs and isolating one instance."""
-    import yaml
-    shutil.copytree(before / 'model', after / 'model')
-    shutil.copyfile(before / 'project.json', after / 'project.json')
-    template = after / 'model/templates/cde/service-b.properties.tpl'
-    lines = declaration('Detached', 'ServiceB.Resource', {'name': ('Name', '<<Name>>')}, {'Name': spec(), 'ResourceMode': spec()})
-    template.write_text(template.read_text() + '\n'.join(lines) + '\n')
-    directory = after / 'model/parameters/stg/cde/service-b'
-    parameters = {'instances': {'consumer': {'parameters': {'Name': 'same-name-stg', 'ResourceMode': 'IMPORT'}}}}
-    (directory / 'parameters.yaml').write_text(yaml.safe_dump(parameters))
-    bindings = json.loads((directory / 'bindings.json').read_text())
-    bindings['instances']['consumer']['definition'] = 'Detached'
-    (directory / 'bindings.json').write_text(json.dumps(bindings))
-    return {p.relative_to(after).as_posix() for p in (template, directory / 'parameters.yaml', directory / 'bindings.json')}
+    """Detach only the explicitly selected meaning; keep saved values byte-for-byte."""
+    shutil.copytree(before, after)
+    file = after / 'model/stg/cde/service-b.properties'
+    values = {key: value for key, value in load_model(file).authoritative.items()
+              if not key.startswith('desired.reference.origin.')}
+    write_model(file, values)
+    return {file.relative_to(after).as_posix()}
 
 
 def dependency_contract():

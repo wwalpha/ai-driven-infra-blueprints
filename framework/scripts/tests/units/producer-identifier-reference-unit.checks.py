@@ -9,11 +9,19 @@ if not __debug__:
 from support.producer_identifier_reference_fixtures import *
 
 def check_identifier_schema():
-    ref = {'service':'vpc', 'resource':'001', 'resourceType':'EC2.VPC', 'format':'identifier', 'property':'EC2.VPC.VpcId'}
-    for bad in [{k:v for k,v in ref.items() if k!='property'}, {**ref,'property':'EC2.VPC.Arn'}, {**ref,'property':'EC2.Subnet.SubnetId'}, {'instance':'main','resourceType':'EC2.VPC','format':'identifier','property':'EC2.VPC.VpcId'}]:
-        rejected(lambda: reference_schema(bad), 'identifier' if 'service' in bad else 'invalid Model parameter format')
-    rejected(lambda: schema({'type':'string','description':'bad','required':True,'format':'identifier','property':'EC2.VPC.VpcId'}), 'invalid Model parameter format')
-
+    key = 'desired.row.008-001.value'
+    values = resource('008', 'EC2.VPCEndpoint', 'consumer', [('PolicyDocument', 'saved')])
+    values.update(reference('fixed', key, 'saved', 'vpc', '001', 'EC2.VPC', mode='identifier', prop='EC2.VPC.VpcId'))
+    assert declarations(values)['fixed']['format'] == 'identifier'
+    for fields, phrase in [({'format': 'unknown'}, 'format/scope'),
+                           ({'labelPolicy': 'fixed'}, 'non-link'),
+                           ({'contextProperty': 'environment'}, 'forbidden'),
+                           ({'producerScope': '../team/vpc'}, 'unsafe'),
+                           ({'selector': 'first'}, 'fields')]:
+        bad = {**values, **{'desired.reference.fixed.' + field: value for field, value in fields.items()}}
+        rejected(lambda: declarations(bad), phrase)
+    bad = {key: value for key, value in values.items() if key != 'desired.reference.fixed.property'}
+    rejected(lambda: declarations(bad), 'missing or forbidden')
 
 
 if __name__ == '__main__':

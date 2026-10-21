@@ -108,7 +108,7 @@ def check_template_consumers(root):
     contract = root/'tasks/active.md'
     contract.write_text('## Task contract\n- Task type: `migration`\n## Validation scope\n' +
                         ''.join(f'- `{"/".join(entry)}`\n' for entry in sorted(scope)) +
-                        '## Allowed paths\n- `model/**`\n- `model/parameters/**`\n- `model/templates/**`\n- `docs/designs/**`\n')
+                        '## Allowed paths\n- `model/**`\n- `docs/designs/**`\n')
     subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
     command = [sys.executable, str(ROOT/'framework/scripts/sync-model.py'), '--repository-root', str(root)]
     for selection, expected in ((['--scope', 'dev/team/config', '--scope', 'stg/team/config'], 0),
@@ -120,11 +120,11 @@ def check_template_consumers(root):
         assert result.returncode == expected, (selection, result.stdout, result.stderr)
         if selection == ['--scope', 'dev/team/config']:
             assert 'stg/team/config' in result.stderr
-    # A parameter-only change still permits just that consumer; no template guard is weakened.
+    # One explicit environment source change permits only that environment scope.
     run = subprocess.run
     def parameter_diff(args, *a, **kw):
         if args[0] == 'git' and args[1] in ('diff', 'ls-files'):
-            changed = 'model/parameters/dev/team/config/parameters.yaml\0' if args[1:3] == ['diff', '--name-only'] else ''
+            changed = 'model/dev/team/config.properties\0' if args[1:3] == ['diff', '--name-only'] else ''
             return subprocess.CompletedProcess(args, 0, stdout=changed, stderr='')
         return run(args, *a, **kw)
     with patch.object(sys, 'argv', command[1:] + ['--scope', 'dev/team/config']), \
@@ -178,9 +178,9 @@ def main():
                 docs.mkdir(parents=True)
                 models.mkdir(parents=True)
                 (docs / "logs.md").write_text("invalid unrelated service\n")
-                write_model(models / 'logs.properties', 'observed.bad=arn:aws:logs:invalid\n')
+                (models / 'logs.properties').write_text('# model-format: 2\nobserved.bad=arn:aws:logs:invalid\n')
                 if env == "prod":
-                    write_model(models / 'ec2.properties', 'invalid=excluded EC2\n')
+                    (models / 'ec2.properties').write_text('# model-format: 2\ninvalid=excluded EC2\n')
                     (docs / "ec2.md").write_text("invalid excluded EC2\n")
                     continue
                 # A reference target with intentionally invalid schema/metadata must supply only link information.
@@ -198,6 +198,11 @@ def main():
 | No. | Property | Value | Source / Comment |
 invalid unrelated table alignment
 ''')
+                write_model(models / 'vpc.properties', {
+                    'desired.resource.001.resourceType': 'EC2.Subnet', 'desired.resource.001.anchor': anchor,
+                    'desired.row.001-001.property': 'EC2.Subnet.Name',
+                    'desired.row.001-001.value': '`subnet-app-' + env + '-' + target + '`',
+                    'desired.row.001-001.comment': '参照先のみを読む合成値'})
                 name = f"{env}-app-{target}-01"
                 values = {"desired.service.ec2.serviceId": "ec2", "desired.service.ec2.ownedCatalogResourceTypes": "EC2.Instance",
                           "desired.resource.001.resourceType": "EC2.Instance", "desired.resource.001.logicalId": "AppInstance",
@@ -273,7 +278,7 @@ invalid unrelated table alignment
         # Selected schema, naming, JSON, and generation errors remain failures.
         model = root / "model/dev/cde/ec2.properties"
         source = read_model(model)
-        for bad, token in ((source.replace('EC2.Instance.InstanceType', 'EC2.Instance.EbsOptimized'), 'EbsOptimized'),
+        for bad, token in ((source.replace('EC2.Instance.InstanceType', 'EC2.Instance.EbsOptimized'), 'fixed Property'),
                            (source.replace('`dev-app-cde-01`', '`UNSET`'), 'Name')):
             write_model(model, bad)
             try:
