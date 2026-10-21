@@ -8,6 +8,7 @@ from design_document import DesignIndex
 from design_layout import STACK_DESIGN
 from validation_cache import input_scope
 from utils.aws_mappings import definition_root
+from aws_mapping_display import _validation_projection_scope
 
 
 _saved_design_validation = ContextVar("saved_design_validation", default=None)
@@ -79,6 +80,7 @@ def validation_context(stage, root, generated, sources, accounts=None, definitio
 
 
 @input_scope
+@_validation_projection_scope()
 def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Path, dict[str, str]], *,
                    design_index: DesignIndex | None = None, context=None, definitions_root=None):
     """Return this candidate's domain results; never rerun Task/Git/common checks."""

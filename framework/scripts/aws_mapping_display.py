@@ -1,13 +1,41 @@
 """Mapping-owned Markdown names and visibility; formal Model rows stay intact."""
 from pathlib import Path
+from contextlib import contextmanager
+from contextvars import ContextVar
 
-from utils.aws_mappings import owners
+from utils.aws_mappings import owners, mappings_for
 from model.core import entries
 from validation_cache import input_scope, memoized
 
 ROOT = Path(__file__).resolve().parents[2]
 MODEL_ONLY = frozenset({'EC2.VPC.Name', 'EC2.Subnet.Name', 'EC2.RouteTable.Name',
                         'EC2.FlowLog.Name', 'S3.Bucket.Region'})
+
+
+_validation_projections = ContextVar('mapping_validation_projections', default=None)
+
+
+@contextmanager
+def _validation_projection_scope():
+    token = _validation_projections.set({})
+    try:
+        yield
+    finally:
+        _validation_projections.reset(token)
+
+
+def _validation_projection(source, root):
+    cache = _validation_projections.get()
+    if cache is None:
+        return projection(source, root)
+    key = (id(source), root, mappings_for(root))
+    signature = tuple(source.items())
+    saved = cache.get(key)
+    if saved is None or saved[1] != signature:
+        result = projection(source, root)
+        # Retain source identity and keep caller mutations out of the saved result.
+        saved = cache[key] = (source, signature, dict(result))
+    return dict(saved[2])
 
 
 @memoized
@@ -152,7 +180,7 @@ def validation_rows(rows, source, kind, logical_id, root=ROOT):
     if not source:
         return rows
     validate_mappings(source, root)
-    projected = projection(source, root)
+    projected = _validation_projection(source, root)
     if projected == source:
         return rows
     from collections import defaultdict, deque
@@ -187,7 +215,7 @@ def validation_lines(lines, source, root=ROOT):
     if not source:
         return lines
     validate_mappings(source, root)
-    if projection(source, root) == source:
+    if _validation_projection(source, root) == source:
         return lines
     from design_layout import ANCHOR, RESOURCE, HEADER, ALIGNMENT
     resources = {resource['anchor']: resource for _, resource in entries(source, 'desired.resource.')}
