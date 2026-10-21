@@ -185,13 +185,13 @@ def retarget_fixture(root):
     values = {'desired.resource.001.resourceType': 'EC2.SecurityGroup', 'desired.resource.001.resourceMode': 'CREATE',
         'desired.resource.001.logicalId': 'fixed-consumer', 'desired.resource.001.anchor': 'consumer',
         'desired.row.001-001.property': 'EC2.SecurityGroup.VpcId',
-        'desired.row.001-001.value': 'qa-synthetic:vpc-source', 'desired.row.001-001.comment': '合成参照'}
+        'desired.row.001-001.value': 'qa-synthetic:123456789012:vpc-source', 'desired.row.001-001.comment': '合成参照'}
     resource = {'consumerKey': 'desired.row.001-001.value', 'text': 'vpc-source', 'occurrence': '1',
         'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/network', 'producerId': '007',
         'resourceType': 'EC2.VPC', 'format': 'identifier', 'property': 'EC2.VPC.VpcId', 'labelPolicy': 'none'}
-    context = {'consumerKey': 'desired.row.001-001.value', 'text': 'qa-synthetic', 'occurrence': '1',
+    context = {'consumerKey': 'desired.row.001-001.value', 'text': '123456789012', 'occurrence': '1',
         'producerKind': 'context', 'producerScope': 'qa-synthetic/team-a', 'format': 'literal',
-        'labelPolicy': 'none', 'contextProperty': 'environment'}
+        'labelPolicy': 'none', 'contextProperty': 'executionAccountId'}
     for identity, spec in [('resource-use', resource), ('context-use', context)]:
         values.update({f'desired.reference.{identity}.{field}': value for field, value in spec.items()})
     consumer.path.write_text(serialize(values), encoding='utf-8')

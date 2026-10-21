@@ -129,10 +129,10 @@ def export_model(path):
                                     raise ValueError('cannot identify the legacy raw name Property: ' + producer_scope + '/' + rid)
                                 prop = candidates[0]
                             reference['property'] = prop
-                elif dependency in {'consumer.environment', 'consumer.executionAccountId'}:
+                elif dependency == 'consumer.executionAccountId':
                     reference = {'producerKind': 'context', 'producerScope': environment + '/' + target,
                                  'format': 'literal', 'labelPolicy': 'none',
-                                 'contextProperty': 'environment' if dependency.endswith('.environment') else 'executionAccountId'}
+                                 'contextProperty': 'executionAccountId'}
                 if reference is not None:
                     if not isinstance(value, str) or not value:
                         raise ValueError('legacy reference must have representable nonempty string text: ' + name)

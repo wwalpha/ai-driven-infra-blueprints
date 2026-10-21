@@ -18,7 +18,10 @@ Framework development checks are separate.
 The stored entrance is `model/<environment>/<target-directory>/<service>.properties`.
 Alias takes precedence over awsAccountId for the directory. awsExecutionAccountId is
 execution context only. Resolve environments, aliases and services from project.json
-and existing Model entrances. Never merge aliases sharing an account or create Models
+and existing Model entrances using the scope selected at task start. Environment names
+inside saved strings are ordinary literal values, with no environment context reference
+metadata, inference or automatic substitution. Only executionAccountId context declarations
+are accepted. Never merge aliases sharing an account or create Models
 merely because a target is registered.
 
 Each environment explicitly stores all its service values. There are no templates,

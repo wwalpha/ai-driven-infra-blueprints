@@ -340,16 +340,15 @@ def check_properties_retarget_keeps_other_fragments_and_reference_ids(tmp_path, 
     before, after = tmp_path / 'before', tmp_path / 'after'
     scope, values = retarget_fixture(before)
     shutil.copytree(before, after)
-    values['desired.row.001-001.value'] = 'qa-synthetic:vpc-destination'
+    values['desired.row.001-001.value'] = 'qa-synthetic:123456789012:vpc-destination'
     values['desired.reference.resource-use.producerId'] = '008'
     values['desired.reference.resource-use.text'] = 'vpc-destination'
     if change == 'prefix':
-        values['desired.row.001-001.value'] = 'changed-prefix:vpc-destination'
-        values['desired.reference.context-use.text'] = 'changed-prefix'
+        values['desired.row.001-001.value'] = 'changed-prefix:123456789012:vpc-destination'
     elif change == 'context-scope':
         values['desired.reference.context-use.producerScope'] = 'qa-synthetic/team-b'
     elif change == 'context-text':
-        values['desired.reference.context-use.text'] = 'qa'
+        values['desired.reference.context-use.text'] = '123'
     elif change == 'format':
         values['desired.reference.resource-use.format'] = 'name'
     elif change == 'rename-id':
@@ -465,7 +464,7 @@ def check_export_convert_and_strict_compare(old_checkout, tmp_path):
     model = load_model(Scope(candidate, 'qa-synthetic', 'team-a', 'network'))
     assert model.authoritative['observed.row.007-001.value'] == ''
     assert model.authoritative['desired.row.007-002.value'] == 'synthetic-qa-synthetic'
-    assert model.authoritative['desired.reference.migration-000001.contextProperty'] == 'environment'
+    assert not any(key.startswith('desired.reference.') for key in model.authoritative)
     assert model.authoritative['desired.row.007-003.value'] == opaque
     assert model.authoritative['desired.row.007-004.value'] == literal_link
     assert json.loads(model.authoritative['desired.row.007-005.value'][1:-1]) == {'a': [1, False, '1']}
@@ -494,7 +493,10 @@ def check_migration_rejects_meaning_loss(old_checkout, tmp_path, change):
     if change == 'missing':
         text = text.replace('observed.row.007-001.value=\n', '')
     elif change == 'reference':
-        text = text.replace('contextProperty=environment', 'contextProperty=executionAccountId')
+        text += ''.join('desired.reference.link.' + field + '=' + value + '\n' for field, value in {
+            'consumerKey': 'desired.row.007-001.value', 'text': '[Network](#network-fixed)', 'occurrence': '1',
+            'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/network', 'producerId': '007',
+            'resourceType': 'EC2.VPC', 'format': 'link', 'labelPolicy': 'fixed'}.items())
     elif change == 'identity':
         text = text.replace('fixed-logical-id', 'other-logical-id')
     elif change == 'observation':
@@ -510,7 +512,8 @@ def check_export_retains_name_identifier_and_local_link(old_checkout, tmp_path):
     root = tmp_path / 'source'
     legacy_fixture(root)
     template = root / 'model/templates/team-a/network.properties.tpl'
-    template.write_text(template.read_text(encoding='utf-8') + '''# definition: Subnet
+    template.write_text(template.read_text(encoding='utf-8').replace('# model-template: 1\n',
+        '# model-template: 1\n# input: Account {"type":"string","description":"実行先","required":true,"source":"consumer.executionAccountId"}\n') + '''# definition: Subnet
 # reference: Vpc {"instance":"selected","resourceType":"EC2.VPC"}
 # reference: RawName {"service":"network","resource":"007","resourceType":"EC2.VPC","format":"name"}
 # reference: PhysicalId {"service":"network","resource":"007","resourceType":"EC2.VPC","format":"identifier","property":"EC2.VPC.VpcId"}
@@ -529,7 +532,7 @@ desired.row.vpc.property=EC2.Subnet.VpcId
 desired.row.vpc.value=<<Vpc>>
 desired.row.vpc.comment=論理参照
 desired.row.tags.property=EC2.Subnet.Tags
-desired.row.tags.value=`[{"Key":"Name","Value":"prefix-<<RawName>>-<<RawName>>"},{"Key":"Id","Value":"<<PhysicalId>>"}]`
+desired.row.tags.value=`[{"Key":"Name","Value":"prefix-<<RawName>>-<<RawName>>"},{"Key":"Id","Value":"<<PhysicalId>>"},{"Key":"Environment","Value":"<<Environment>>"},{"Key":"Account","Value":"<<Account>>"}]`
 desired.row.tags.comment=参照付きJSON
 # end-definition
 ''', encoding='utf-8')
@@ -546,6 +549,10 @@ desired.row.tags.comment=参照付きJSON
     from model.references import declarations, usages
     specs = list(declarations(model.authoritative).values())
     assert {'literal', 'name', 'identifier', 'link'} <= {spec['format'] for spec in specs}
+    contexts = [spec for spec in specs if spec['producerKind'] == 'context']
+    assert len(contexts) == 1 and contexts[0]['contextProperty'] == 'executionAccountId'
+    tags = json.loads(model.authoritative['desired.row.008-003.value'][1:-1])
+    assert tags[2:] == [{'Key': 'Environment', 'Value': 'qa-synthetic'}, {'Key': 'Account', 'Value': '999999999999'}]
     names = [spec for spec in specs if spec['format'] == 'name']
     assert len(names) == 2 and {spec['occurrence'] for spec in names} == {'1', '2'}
     assert {spec['pointer'] for spec in names} == {'/0/Value'}
@@ -782,8 +789,8 @@ def check_managed_observation_preserves_exact_authority(monkeypatch, change):
                 elif change == 'reference':
                     proposed.update({'desired.reference.r01.' + field: value for field, value in {
                         'consumerKey': 'desired.row.007-002.value', 'text': 'synthetic', 'occurrence': '1',
-                        'producerKind': 'context', 'producerScope': 'qa-synthetic/team-a', 'format': 'literal',
-                        'labelPolicy': 'none', 'contextProperty': 'environment'}.items()})
+                        'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/network', 'format': 'name',
+                        'producerId': '007', 'resourceType': 'EC2.VPC', 'property': 'EC2.VPC.Name', 'labelPolicy': 'none'}.items()})
                 else:
                     proposed['observed.row.007-002.value'] = 'unselected row'
                 with pytest.raises(ValueError, match='non-observed|outside the authorized selection'):

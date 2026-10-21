@@ -590,7 +590,7 @@ def check_usage_index_retains_conflicting_direct_links(tmp_path, case):
         for field in ('producerId', 'resourceType'):
             del values[prefix + field]
         values.update({prefix + 'producerKind': 'context', prefix + 'producerScope': 'dev/target',
-                       prefix + 'format': 'literal', prefix + 'contextProperty': 'environment', prefix + 'labelPolicy': 'none'})
+                       prefix + 'format': 'literal', prefix + 'contextProperty': 'executionAccountId', prefix + 'labelPolicy': 'none'})
     records = usages(load_model(write_model(file, values)))
     assert len(records) == 2 and records[0].metadata_id == 'declared'
     assert records[1] == Usage(key, None, 0, len(link), link,
@@ -761,7 +761,7 @@ def check_diagnose_does_not_parse_unused_rows(tmp_path, monkeypatch, branch):
         values.update({'desired.reference.r000.producerKind': 'context',
                        'desired.reference.r000.producerScope': 'dev/target',
                        'desired.reference.r000.format': 'literal',
-                       'desired.reference.r000.contextProperty': 'environment'})
+                       'desired.reference.r000.contextProperty': 'executionAccountId'})
     snapshot = diagnostic_snapshot(tmp_path, values)
     snapshot = snapshot._replace(authoritative={**snapshot.authoritative, 'desired.row.invalid': 'bad'})
     original = references.entries

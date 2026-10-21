@@ -2097,3 +2097,12 @@ producer を読まず、構文・I/O・scope の不正を WARNING へ握り潰�
 | `lint-worker::custom-state` | `check_custom_rule_state_and_child_failure` | IT | [integrations/lint-worker.checks.py](integrations/lint-worker.checks.py) | pytest / 1 | 設定file切替、custom Python rule状態の分離、子process異常終了時の通信失敗とcleanup | lint |
 | `lint-worker::guards` | `check_backend_guards_and_diagnostics` | IT | [integrations/lint-worker.checks.py](integrations/lint-worker.checks.py) | pytest / 1 | AwsBackendの前後fresh digest、lint診断・読込み・検証中template/parameters変更拒否一致 | lint |
 | `lint-worker::cleanup` | `check_dead_worker_and_exception_cleanup` | IT | [integrations/lint-worker.checks.py](integrations/lint-worker.checks.py) | pytest / 1 | 実workerのcaller例外・通信断で終了待ち、callback復元 | lint |
+
+## Environment context retirement
+
+| ケース | 層 | ファイル | 実行 | 検証目的 |
+| --- | --- | --- | --- | --- |
+| `check_environment_literals_and_account_context` | UT | [units/model-environment-reference-unit.checks.py](units/model-environment-reference-unit.checks.py) | pytest / 1 | 環境名を含むscalar/JSONの保存値と選択scope、account参照・traceの保持 |
+| `check_retired_declarations_rejected` | UT | [units/model-environment-reference-unit.checks.py](units/model-environment-reference-unit.checks.py) | pytest / 4 | refid非依存でscalar/JSONの旧環境宣言をreader・Review・trace・export比較で拒否、bytes不変 |
+
+移行exportの環境変数は実値のみ。名前・タグ・JSONの環境名を保持し、account・Resource・Stackの参照意味と比較を継続する。retarget fixtureは通常の環境名prefixに加え同一leafのexecutionAccountId参照を持ち、literal断片と他の現役参照の保護を検証する。

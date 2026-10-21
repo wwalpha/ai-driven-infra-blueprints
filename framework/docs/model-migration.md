@@ -36,6 +36,10 @@ python3 -B <new-framework>/framework/scripts/model/cli.py migration-export --old
 export は全 desired／display／observed、固定 identity、Stack placement、native JSON、表示順序、
 参照 identity・形式・Property・label・使用位置、欠落／空／未観測を含みます。
 旧 tpl の技術的 provenance は監査情報として残し、新正本に必要な参照の意味と分離します。
+consumer.environment は旧変数を実値へ展開するだけで、参照宣言や位置追跡 marker を生成しません。
+名前・タグ・JSON 内の環境名も保持します。consumer.executionAccountId と Resource／Stack の参照は保持します。
+廃止した環境名参照を含む旧 export は入力検証で失敗します。固定旧 runtime と変更前の入力から
+export と候補を再生成し、対応する snapshot／Review／証跡も作り直します。暗黙の読み替えはしません。
 
 値・参照の意味を表現できる既存 WARNING は保持します。
 `Expansion.complete=False` だけで一律停止しません。

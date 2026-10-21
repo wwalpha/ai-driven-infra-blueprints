@@ -5,7 +5,9 @@
 target-directory は Alias があれば Alias、なければ awsAccountId です。
 awsExecutionAccountId は実行先照合に使い、Model のパスに使いません。
 同一 account の複数 Alias は別の Model を持ちます。
-環境・Alias・service の一覧は project と実在する入口から解決します。
+環境・Alias・service は作業開始時に選択した scope、Model のパスと project.json から確定します。
+dev、stg などを含む設定文字列は通常の保存値です。環境名由来の参照宣言は生成・受理せず、
+文字列から環境を推測したり、環境名を自動置換したりしません。
 登録済み target に Model がなければ、reader は生成しません。
 各環境の値をすべて明記し、tpl、継承、overlay、共通値の展開はありません。
 
@@ -102,7 +104,7 @@ refid はサービス内で固定し、並べ替えで採番し直しません�
 | format | resource: link／name／identifier、stack: name、context: literal |
 | property | name／identifier の正式 Property。stack は name。resource.link／context では禁止 |
 | labelPolicy | fixed／resource-id／display-name／none。link 以外は none |
-| contextProperty | context の environment／executionAccountId。resource／stack では禁止 |
+| contextProperty | context の executionAccountId のみ。resource／stack では禁止 |
 
 name は producer の desired の正式な名前 Property、identifier は対応 Row の observed を参照します。
 入れ子の Name や Description を raw name へ代用しません。未観測・空・PENDING・不正な識別子は保存値を保持して診断します。

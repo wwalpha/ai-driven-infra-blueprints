@@ -97,8 +97,8 @@ def declarations(values):
         elif kind == 'context':
             required = {'contextProperty'}
             forbidden = {'producerId', 'resourceType', 'property'}
-            if mode != 'literal' or len(scope.parts) != 2 or spec.get('contextProperty') not in {'environment', 'executionAccountId'}:
-                raise ValueError('invalid context reference: ' + identity)
+            if mode != 'literal' or len(scope.parts) != 2 or spec.get('contextProperty') != 'executionAccountId':
+                raise ValueError('invalid context reference (contextProperty must be executionAccountId): ' + identity)
         else:
             raise ValueError('unknown reference producerKind: ' + identity)
         if not required <= spec.keys() or forbidden & spec.keys() or any(not spec[field] for field in required):
@@ -237,7 +237,7 @@ def diagnose(snapshot, read_context=None, *, _producer_scope=None):
             env, target = usage.producer_scope.split('/')
             selected = Scope(snapshot.scope.root, env, target, snapshot.scope.service)
             context, project = target_for(selected, reads)
-            expected = env if spec['contextProperty'] == 'environment' else context.get('awsExecutionAccountId', context['awsAccountId'])
+            expected = context.get('awsExecutionAccountId', context['awsAccountId'])
             if usage.text != expected:
                 warn('context value differs from saved text')
             continue

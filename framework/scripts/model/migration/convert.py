@@ -18,6 +18,12 @@ def checked_export(value):
     if not isinstance(project, str) or hashlib.sha256(project.encode('utf-8')).hexdigest() != value['inputs'].get('project.json'):
         raise ValueError('legacy export project hash differs')
     strict_json(project)
+    from model.references import declarations
+    for model in value['models']:
+        try:
+            declarations(model['authoritative'])
+        except ValueError as error:
+            raise ValueError('invalid legacy export references; regenerate export and evidence: ' + str(error)) from error
     return value
 
 
