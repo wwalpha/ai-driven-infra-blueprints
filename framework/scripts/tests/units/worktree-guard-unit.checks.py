@@ -123,6 +123,55 @@ def check_cli_failure_diagnostics(tmp_path, capsys):
     assert result['status'] == 'blocked' and result['diagnostics'] == error.diagnostics
 
 
+@pytest.mark.parametrize('directory', ['plain', 'space 日本語', 'line\nbreak'])
+@pytest.mark.parametrize('linked', [False, True])
+def check_idle_git_paths_and_state(tmp_path, directory, linked):
+    root = tmp_path / directory
+    root.mkdir()
+    wt.git(root, 'init', '-q')
+    wt.git(root, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+           'commit', '--allow-empty', '-qm', 'initial')
+    if linked:
+        target = tmp_path / ('linked ' + directory)
+        wt.git(root, 'worktree', 'add', '-qb', 'linked', target)
+        root = target
+    names = ('MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD',
+             'rebase-merge', 'rebase-apply', 'sequencer')
+    markers = [Path(wt.output(root, 'rev-parse', '--path-format=absolute', '--git-path', name))
+               for name in names]
+    with patch.object(wt, 'git', wraps=wt.git) as calls:
+        wt.idle_git(root)
+        assert calls.call_count == (8 if '\n' in directory else 2)
+    for name, marker in zip(names, markers):
+        marker.write_text('marker', encoding='utf-8')
+        with pytest.raises(wt.Blocked) as caught:
+            wt.idle_git(root)
+        assert str(caught.value) == f'unfinished Git operation: {name}; worktree retained'
+        marker.unlink()
+        wt.idle_git(root)
+    for marker in markers:
+        marker.write_text('marker', encoding='utf-8')
+    for name, marker in zip(names, markers):
+        with pytest.raises(wt.Blocked) as caught:
+            wt.idle_git(root)
+        assert str(caught.value) == f'unfinished Git operation: {name}; worktree retained'
+        marker.unlink()
+    # A real unmerged index, independent of operation markers.
+    (root / 'conflict.txt').write_text('conflict\n', encoding='utf-8')
+    blob = wt.output(root, 'hash-object', '-w', 'conflict.txt')
+    index = ''.join(f'100644 {blob} {stage}\tconflict.txt\n' for stage in (1, 2, 3))
+    subprocess.run(['git', 'update-index', '--index-info'], cwd=root,
+                   input=index, encoding='utf-8', check=True)
+    with pytest.raises(wt.Blocked, match='^unresolved index conflicts; worktree retained$'):
+        wt.idle_git(root)
+    markers[0].write_text('marker', encoding='utf-8')
+    with pytest.raises(wt.Blocked, match='^unfinished Git operation: MERGE_HEAD; worktree retained$'):
+        wt.idle_git(root)
+    markers[0].unlink()
+    wt.git(root, 'read-tree', 'HEAD')
+    wt.idle_git(root)
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

@@ -209,8 +209,15 @@ def committed_task_paths(root, task_file):
 
 
 def idle_git(root):
-    for name in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply", "sequencer"):
-        path = Path(output(root, "rev-parse", "--path-format=absolute", "--git-path", name))
+    names = ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply", "sequencer")
+    arguments = [argument for name in names for argument in ("--git-path", name)]
+    resolved = output(root, "rev-parse", "--path-format=absolute", *arguments).splitlines()
+    # Newlines in a Git directory make the batched output ambiguous.
+    if len(resolved) != len(names):
+        resolved = [output(root, "rev-parse", "--path-format=absolute", "--git-path", name)
+                    for name in names]
+    for name, value in zip(names, resolved):
+        path = Path(value)
         if path.exists():
             raise Blocked(f"unfinished Git operation: {name}; worktree retained")
     if paths(root, "diff", "--name-only", "--diff-filter=U", "-z"):
