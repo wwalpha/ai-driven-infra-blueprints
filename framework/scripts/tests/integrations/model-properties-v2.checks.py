@@ -6,7 +6,6 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-import hashlib
 import subprocess
 import json
 import tempfile
@@ -879,59 +878,6 @@ def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, c
                         publish_edit(prepare_edit(before, {path: candidate}, context), context)
                         assert path.read_text(encoding='utf-8') == candidate
         assert (root / relative).read_bytes() == original
-
-
-
-def check_distribution_manifest_covers_deletions_support_and_fixed_blobs(tmp_path):
-    from model.migration.distribution import distribution_manifest
-    from support.worktree_task_fixtures import git
-    root = tmp_path / 'framework-only'
-    root.mkdir()
-    git(root, 'init', '-q', '-b', 'main')
-    git(root, 'config', 'user.name', 'Fixture')
-    git(root, 'config', 'user.email', 'fixture@example.invalid')
-    git(root, 'config', 'commit.gpgsign', 'false')
-    files = {'AGENTS.md': 'old authority\n', 'README.md': 'same bytes\n',
-        'framework/scripts/model/cli.py': 'entry\n', 'framework/scripts/requirements.txt': 'requirements\n',
-        'framework/scripts/tests/run_it.py': 'runner\n', 'framework/scripts/tests/CASES.md': 'cases\n',
-        'framework/scripts/tests/support/fixture.py': 'support\n',
-        '.agents/skills/env-diff/SKILL.md': 'retired\n'}
-    for relative, content in files.items():
-        path = root / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding='utf-8')
-    git(root, 'add', '.')
-    git(root, 'commit', '-qm', 'old distribution')
-    baseline = git(root, 'rev-parse', 'HEAD')
-    (root / 'AGENTS.md').write_text('properties authority\n', encoding='utf-8')
-    (root / '.agents/skills/env-diff/SKILL.md').unlink()
-    added = root / 'framework/scripts/tests/integrations/new.checks.py'
-    added.parent.mkdir(parents=True)
-    added.write_text('new same-revision tests\n', encoding='utf-8')
-    (root / 'framework/scripts/tests/run_it.py').chmod(0o755)
-    git(root, 'add', '.')
-    git(root, 'commit', '-qm', 'new distribution')
-    revision = git(root, 'rev-parse', 'HEAD')
-    (root / 'AGENTS.md').write_text('uncommitted text must not enter the manifest\n', encoding='utf-8')
-    output = tmp_path / 'manifest.json'
-    result = distribution_manifest(root, baseline, revision, output)
-    assert json.loads(output.read_text(encoding='utf-8')) == result
-    assert result['frameworkRevision'] == revision and result['copyPerformed'] is False
-    changes = {record['path']: record for record in result['changes']}
-    assert {path: record['action'] for path, record in changes.items()} == {
-        'AGENTS.md': 'overwrite', '.agents/skills/env-diff/SKILL.md': 'delete',
-        'framework/scripts/tests/integrations/new.checks.py': 'add', 'framework/scripts/tests/run_it.py': 'overwrite'}
-    assert changes['AGENTS.md']['after']['sha256'] == hashlib.sha256(b'properties authority\n').hexdigest()
-    assert changes['.agents/skills/env-diff/SKILL.md']['after'] is None
-    assert changes['framework/scripts/tests/run_it.py']['after']['gitMode'] == '100755'
-    inventory = {record['path']: record for record in result['files']}
-    assert {'README.md', 'framework/scripts/tests/support/fixture.py', 'framework/scripts/requirements.txt'} <= inventory.keys()
-    assert {record['revision'] for record in inventory.values()} == {revision}
-    with pytest.raises(ValueError, match='new external'):
-        distribution_manifest(root, baseline, revision, output)
-    with pytest.raises(ValueError, match='new external'):
-        distribution_manifest(root, baseline, revision, root / 'manifest.json')
-
 
 
 if __name__ == '__main__':

@@ -56,11 +56,6 @@ def main(argv=None):
     incoming.add_argument('resource')
     listing = commands.add_parser('list')
     listing.add_argument('--repository-root', type=Path, default=Path.cwd())
-    manifest = commands.add_parser('distribution-manifest')
-    manifest.add_argument('--repository-root', type=Path, default=Path.cwd())
-    manifest.add_argument('--baseline', required=True)
-    manifest.add_argument('--revision', required=True)
-    manifest.add_argument('--output', type=Path, required=True)
     export = commands.add_parser('migration-export')
     export.add_argument('--old-checkout', type=Path, required=True)
     export.add_argument('--old-python', type=Path, required=True)
@@ -119,10 +114,6 @@ def main(argv=None):
                       'references': [{'consumer': str(scope.path), **asdict(usage)} for scope, usage in records]}
         elif args.command == 'list':
             result = [str(scope.path) for scope in list_models(args.repository_root)]
-        elif args.command == 'distribution-manifest':
-            from model.migration.distribution import distribution_manifest
-            value = distribution_manifest(args.repository_root, args.baseline, args.revision, args.output)
-            result = {'status': 'manifest', 'revision': value['frameworkRevision'], 'changes': len(value['changes']), 'files': len(value['files']), 'output': str(args.output)}
         elif args.command == 'migration-export':
             from model.migration.export import export_legacy
             value = export_legacy(args.old_checkout, args.old_python, args.source_root, args.revision, args.output)

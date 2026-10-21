@@ -1939,7 +1939,6 @@ dirty baseは高コスト解析・commit前に拒否するため、既存テス�
 | `model-v2::check_properties_retarget_keeps_other_fragments_and_reference_ids` | `check_properties_retarget_keeps_other_fragments_and_reference_ids` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 6 | retarget の literal 断片・context・format・固定 refid 保持 | Model v2 |
 | `model-v2::check_managed_observation_preserves_exact_authority` | `check_managed_observation_preserves_exact_authority` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 8 | 実 Task の Row whitelist・非観測不変・IMPORT 物理 ID 保護 | Model v2 |
 | `model-v2::check_ordinary_properties_edit_uses_real_task_guard` | `check_ordinary_properties_edit_uses_real_task_guard` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 6 | 通常 design 編集と作成・固定 ID・IMPORT 構成・Task 保護 | Model v2 |
-| `model-v2::check_distribution_manifest_covers_deletions_support_and_fixed_blobs` | `check_distribution_manifest_covers_deletions_support_and_fixed_blobs` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 1 | 個別削除・同 revision の全 support/dependency・hash/mode・dirty 除外 | Model v2 |
 
 Model v2 の移行では、旧 `parameter_value` の literal 自動 backtick 化だけを廃止し、
 `check_one_way_model_contract` は参照／型／IMPORT 表示の検査を保持したまま、通常 scalar の
@@ -2091,4 +2090,4 @@ producer を読まず、構文・I/O・scope の不正を WARNING へ握り潰�
 
 移行exportの環境変数は実値のみ。名前・タグ・JSONの環境名を保持し、account・Resource・Stackの参照意味と比較を継続する。retarget fixtureは通常の環境名prefixに加え同一leafのexecutionAccountId参照を持ち、literal断片と他の現役参照の保護を検証する。
 
-Model v2 移行完了に伴い、固定旧 Framework の export/convert/compare と限定移行契約の10関数・23条件を廃止した。現行保存・Import・Deploy・参照更新・rollback の15関数・82条件は、ケースIDとparameter matrixを保ち model-properties-v2（42条件）、cloudformation-deploy（9条件）、import-model（31条件）へ統合する。distribution_manifest の現行CLI検証も維持する。
+Model v2 移行完了に伴い、固定旧 Framework の export/convert/compare と限定移行契約の10関数・23条件を廃止した。現行保存・Import・Deploy・参照更新・rollback の15関数・82条件は、ケースIDとparameter matrixを保ち model-properties-v2（42条件）、cloudformation-deploy（9条件）、import-model（31条件）へ統合する。

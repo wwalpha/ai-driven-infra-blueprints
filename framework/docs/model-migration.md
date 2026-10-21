@@ -60,26 +60,15 @@ python3 -B <new-framework>/framework/scripts/model/cli.py migration-compare --ex
 参照の違いを緩く許す reference_equal は使いません。
 結果の `designValidation: not-run` は形式同値だけの証明です。既存の設計／IaC issue は残ります。
 
-## 4. 手動配布 manifest を確認する
+## 4. 手動配布を確認する
 
-完成版 Framework の同じ revision から manifest を作ります。
-
-```console
-python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py distribution-manifest --repository-root . --baseline <old-framework-commit> --revision <completed-framework-commit> --output <external>/framework-manifest.json
-```
-
-manifest の `changes` は個別相対パスごとの add／overwrite／delete、旧新 revision、SHA-256、
-bytes と Git mode を含みます。`files` は同じ revision の配布対象全体です。
-framework、skills、AGENTS、README、Framework IT 設定、テスト、support、fixture、requirements を含みます。
-実行中 checkout の dirty bytes は使わず、固定 commit の blob から計算します。
-manifest 自体は repo の外へ保存するため、revision と自己 hash の循環がありません。
-
-consumer 側の before hash が異なるファイルは独自差分です。無条件に上書きせず、内容を比較して
+固定した旧版と完成版 Framework のファイル差分を確認し、追加・上書き・削除の対象を特定します。
+consumer の変更前ファイルを固定旧版と比較し、独自差分を無条件に上書きせず、内容を比較して
 同じ Task の明示的変更へ取り込みます。独自 helper は [接続仕様](model-helper-integration.md) に従います。
-追加・上書きだけでなく delete の各ファイルも処理し、旧 CLI／module／env-diff skill の削除漏れを確認します。
-空になった旧 Model ディレクトリも除去します。
-現行 sync-existing-files の実行だけで配布完了にはしません。
-コピー後は `files` の SHA-256・mode と完全なテスト/support/fixture/config/dependency の存在を照合します。
+旧 CLI／module／env-diff skill の削除漏れと、空になった旧 Model ディレクトリを確認します。
+現行 sync-existing-files は consumer 側の旧ファイルを自動削除しないため、その実行だけで配布完了にはしません。
+コピー後は固定した完成版と配布対象の bytes・mode、および同じ revision の
+テスト/support/fixture/config/dependency の存在を照合します。
 この照合は配布の完全性です。consumer の独自 helper の正常性まで証明しません。
 
 ## 5. 形式移行専用 Task を登録する
@@ -127,7 +116,7 @@ project、infra、issues は変更しません。dependency detach 契約へ偽�
 独自 helper の関連テストと配布対象 Framework の必要なオフライン検証も実施します。
 旧 acquisition、Review、checkpoint、receipt、Deploy session は再利用しません。
 
-## 切替と確認
+## 6. 切替と確認
 
 旧処理を止めたまま、検査済み候補の Model 入口・全 parts を配置し、列挙した旧 Model ファイルを削除します。
 project と IaC と issues の bytes／集合を再確認し、旧 authority が残っていないことを確認します。
@@ -136,7 +125,7 @@ project と IaC と issues の bytes／集合を再確認し、旧 authority が
 表示保存だけが失敗した Import は保存済み Model を保持して recover-display を使います。
 新たな AWS 取得や Import で上書きしません。
 
-## 復旧
+## 7. 復旧
 
 失敗した worktree と外部 export／Review／ログを保持し、push／deploy を進めません。
 保存中断の journal は正規のロック付き回復経路で扱います。手で削除しません。
@@ -162,7 +151,7 @@ and registered paths. It contacts no AWS API and grants no new edit rights. Afte
 rollback the unchanged acquisition/Review can be retried; after display rollback keep
 the saved Model and use recover-display. A different Task, HEAD or acquisition stops.
 
-## Framework のオフライン移行回帰
+## 8. Framework のオフライン移行回帰
 
 テスト配布にも新 revision の tests/support/fixture をすべて含めます。固定旧版は
 `d0c5824fed507db234a7532a309b3c8c3482fb60` です。consumer 自身の Git 履歴へこの
