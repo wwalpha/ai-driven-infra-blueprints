@@ -52,13 +52,12 @@ def fixture(tmp_path, document=False):
 
 def check_standalone_contract():
     operation = model_operation(contract())
-    assert operation.action == 'import-retarget' and operation.pairs == () and operation.delete_source is None
+    assert operation.action == 'import-retarget' and operation.pairs == () and operation.delete_sources == ()
     assert operation.references[0].consumer == REF['consumer']
     for text in [contract([]), contract([REF, REF]), contract([{**REF, 'source': REF['destination']}]),
                  contract([{**REF, 'destination': 'dev/cde/service-a/003'}]),
                  contract([{**REF, 'field': 'parentReference', 'property': None}]),
                  contract() + '## Model merge pairs\n- {"source":"stg/cde/service-a/001","destination":"stg/cde/service-a/003"}\n',
-                 contract().replace('## Model reference changes', '- Source resource: `stg/cde/service-a/001`\n## Model reference changes'),
                  contract([{**REF, 'property': '*'}]), contract() + 'trailing junk\n']:
         with pytest.raises(ValueError):
             model_operation(text)

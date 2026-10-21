@@ -551,7 +551,7 @@ def check_model_operation_contract_scope(tmp_path, change):
     elif change == 'same-id':
         text = text.replace('stg/cde/vpc/001', 'stg/cde/vpc/009')
     elif change == 'missing-target':
-        text = text[:text.index('- Destination resource:')]
+        text = text[:text.index('## Model merge pairs')]
     elif change == 'normal-task':
         text = text.replace('- Workflow: `update`', '- Workflow: `ordinary`')
     elif change == 'aws':
@@ -695,34 +695,6 @@ def check_external_completion_proof(tmp_path, monkeypatch, failure):
     assert not (root / '.blueprint').exists()
 
 
-@pytest.mark.parametrize('mixed', [False, True])
-def check_legacy_proof_migration(tmp_path, monkeypatch, mixed):
-    from datetime import datetime, timezone
-    root = tmp_path / 'repository'
-    root.mkdir()
-    monkeypatch.setattr(import_guard.tempfile, 'gettempdir', lambda: str(tmp_path))
-    monkeypatch.setattr(import_guard, 'task_path', lambda root: root / 'tasks/example.md')
-    monkeypatch.setattr(import_guard, 'workflow', lambda root: 'tasks/example.md')
-    monkeypatch.setattr(import_guard, 'base_revision', lambda root: 'base')
-    monkeypatch.setattr('model.importing.scope.selected', lambda root: ('stg', 'cde', 'vpc'))
-    proof = {'version': 3, 'task': 'tasks/example.md', 'base': 'base', 'scope': ['stg', 'cde', 'vpc'],
-             'acquisition': 'receipt', 'sources': {}, 'plan': 'verified', 'complete': True,
-             'model': 'unchanged', 'markdown': 'unchanged', 'ownedArtifacts': [],
-             'acquiredAt': datetime.now(timezone.utc).isoformat()}
-    legacy = root / '.blueprint/import/example.json'
-    legacy.parent.mkdir(parents=True)
-    import_guard.write_sealed(root, legacy, proof)
-    other = legacy.parent / 'unowned.txt'
-    if mixed:
-        other.write_text('preserve')
-    # A legacy local seal without authenticated approval cannot be migrated into authority.
-    with pytest.raises(ValueError, match='no verified'):
-        import_guard.read_proof(root)
-    assert legacy.exists() and not import_guard.proof_path(root).exists()
-    assert (root / '.blueprint').exists()
-    if mixed:
-        assert other.read_text() == 'preserve'
-    import_guard.discard_import_proof(root, 'tasks/example.md')
 
 
 def check_snapshot_proof_resigning_and_cleanup(tmp_path, monkeypatch):
@@ -1193,7 +1165,7 @@ def check_explicit_reference_operation(tmp_path, field):
         values['desired.reference.parent.producerLogicalId'] = 'EC2_VPC_001'
         values['desired.reference.parent.text'] = updated
     write_model(file, values)
-    contract = operation_contract().split('- Source resource:')[0] + '## Model merge pairs\n- ' + json.dumps({
+    contract = operation_contract().split('## Model merge pairs')[0].split('## Model delete sources')[0] + '## Model merge pairs\n- ' + json.dumps({
         'source': 'stg/cde/vpc/009', 'destination': 'stg/cde/vpc/001'}) + '\n'
     reference = {'consumer': 'stg/cde/vpc/020', 'field': 'value' if external else field,
                  'source': 'stg/cde/vpc/' + source, 'destination': 'stg/cde/vpc/001'}

@@ -98,7 +98,7 @@ def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
     subprocess.run(['git', 'init', '-q', str(root)], check=True)
     text = design.read_text(encoding='utf-8')
     if fault == 'names':
-        text = text.replace('id="iam-app-dev-role"', 'id="wrong-anchor"')
+        text = text.replace('id="resource-IAM_Role_001"', 'id="wrong-anchor"')
     elif fault == 'tables':
         text = text.replace('RoleName', 'Unknown')
     elif fault == 'overview':

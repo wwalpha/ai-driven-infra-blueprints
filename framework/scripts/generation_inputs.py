@@ -18,13 +18,13 @@ class GenerationInputs:
         self.sealed = False
         self.lifetime = ExitStack()
         self.stage = None
-        selected_task = task_path(root, selected=task_file)
-        raw_task = self.read(selected_task)
-        self.expected_task = (selected_task.relative_to(root).as_posix(),
+        selected_task = task_path(root, selected=task_file, required=False)
+        raw_task = self.read(selected_task) if selected_task is not None else None
+        self.expected_task = (None if selected_task is None else selected_task.relative_to(root).as_posix(),
                               None if raw_task is None else raw_task.decode('utf-8').replace('\r\n', '\n').replace('\r', '\n'))
         from task_contract import status
         name, text = self.expected_task
-        if text is not None and status(text, name == 'tasks/active.md') != 'running':
+        if text is not None and status(text) != 'running':
             raise ValueError('completed task cannot write')
 
     def tracks(self, path):
@@ -120,4 +120,3 @@ class GenerationInputs:
         if changed:
             raise ValueError('generation inputs changed before publication: ' +
                              ', '.join(str(p.relative_to(self.root)) if p.is_relative_to(self.root) else str(p) for p in sorted(changed)))
-

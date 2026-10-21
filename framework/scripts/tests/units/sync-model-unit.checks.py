@@ -98,7 +98,7 @@ def check_internal_sync_arguments(tmp_path, arguments, code, diagnostic, capsys)
     from script_loader import module
     runner = module('sync-model.py', 'blueprint_sync_model')
     (tmp_path/'tasks').mkdir()
-    (tmp_path/'tasks/active.md').write_text('## Validation scope\n- `all`\n')
+    (tmp_path/'tasks/example.md').write_text('## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n## Validation scope\n- `all`\n')
     result, text = runner.run(arguments, repository_root=tmp_path)
     assert result == code and diagnostic in text, text
     assert progress._current.get() is None and progress._output.get() is None
@@ -346,6 +346,9 @@ def check_git_baseline_fail_closed(tmp_path):
     from types import SimpleNamespace
     from validation.findings import Findings
     from validation.task import TaskValidation
+    from support.worktree_task_fixtures import contract
+    (tmp_path / 'tasks').mkdir()
+    (tmp_path / 'tasks/example.md').write_text(contract('example', ['file.txt']))
     def task():
         return TaskValidation(tmp_path, Findings(tmp_path))
     with patch('worktree_task.task_start_commit', return_value='task-start'), \

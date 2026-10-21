@@ -11,7 +11,6 @@ if __name__ == '__main__' and not __package__:
 import argparse
 import json
 from model.sources import load_model, list_models
-from utils.json_format import strict_json
 from validation_cache import input_scope
 
 
@@ -56,22 +55,12 @@ def main(argv=None):
     incoming.add_argument('resource')
     listing = commands.add_parser('list')
     listing.add_argument('--repository-root', type=Path, default=Path.cwd())
-    export = commands.add_parser('migration-export')
-    export.add_argument('--old-checkout', type=Path, required=True)
-    export.add_argument('--old-python', type=Path, required=True)
-    export.add_argument('--source-root', type=Path, required=True)
-    export.add_argument('--revision', required=True)
-    export.add_argument('--output', type=Path, required=True)
-    for name in ('migration-convert', 'migration-compare'):
-        command = commands.add_parser(name)
-        command.add_argument('--export', dest='export_file', type=Path, required=True)
-        command.add_argument('--output' if name == 'migration-convert' else '--candidate', type=Path, required=True)
     args = parser.parse_args(argv)
     try:
         if args.command in {'read', 'trace', 'resource', 'find', 'render', 'incoming'}:
             from model.sources import scope_for
             from task_contract import task_path
-            task_path(scope_for(args.model).root)
+            task_path(scope_for(args.model).root, required=False)
         if args.command == 'read':
             snapshot = load_model(args.model)
             result = {'scope': [snapshot.scope.environment, snapshot.scope.target, snapshot.scope.service],
@@ -114,18 +103,6 @@ def main(argv=None):
                       'references': [{'consumer': str(scope.path), **asdict(usage)} for scope, usage in records]}
         elif args.command == 'list':
             result = [str(scope.path) for scope in list_models(args.repository_root)]
-        elif args.command == 'migration-export':
-            from model.migration.export import export_legacy
-            value = export_legacy(args.old_checkout, args.old_python, args.source_root, args.revision, args.output)
-            result = {'status': 'exported', 'models': len(value['models']), 'output': str(args.output)}
-        else:
-            value = strict_json(args.export_file.read_text(encoding='utf-8'))
-            if args.command == 'migration-convert':
-                from model.migration.convert import convert_export
-                result = {'status': 'candidate', 'output': str(convert_export(value, args.output))}
-            else:
-                from model.migration.compare import compare_export
-                result = compare_export(value, args.candidate)
         print(json.dumps(result, ensure_ascii=False, allow_nan=False))
         return 0
     except (OSError, ValueError, KeyError, TypeError) as error:

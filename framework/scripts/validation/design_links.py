@@ -292,8 +292,8 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                     tagged_names[path.resolve(), pending_anchor] = heading.groups()
                 if heading.group(1) == heading.group(2):
                     type_names[path.resolve(), pending_anchor] = heading.group(1)
-                if heading.groups() in identities and identities[heading.groups()] != heading.group(2):
-                    hidden_ids[path.resolve(), pending_anchor] = identities[heading.groups()]
+                if pending_anchor in identities and identities[pending_anchor] != heading.group(2):
+                    hidden_ids[path.resolve(), pending_anchor] = identities[pending_anchor]
         pending_anchor = ""
         current: tuple[Path, str] | None = None
         lines = source_lines

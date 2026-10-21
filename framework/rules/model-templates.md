@@ -52,12 +52,12 @@ Other scalar bytes, quoting, spaces, backslashes and numeric-looking strings are
 ## Generation, tracing and scope
 
 Use the single `framework/scripts/model/cli.py` through run-python.py for read, resource,
-find, trace, render, incoming, Import, observations, AWS comparison, audit and migration.
+find, trace, render, incoming, Import, observations, AWS comparison, audit.
 Imports use model.*; do not dynamically load the same file under another module name.
 The public API and helper contracts are [documented here](../docs/model-helper-integration.md).
 
 The reader returns full authoritative fields separately from runtime projections.
-Serializer, save guards and migration comparison always include reference and placementName.
+Serializer and save guards always include reference and placementName.
 Use shared input recording/cache within an invocation; retain fresh prepublication checks.
 Read dependencies never grant write permission. Record raw bytes, absence, file sets,
 project and actual producer dependencies. Scope and Allowed paths are checked independently.
@@ -148,14 +148,5 @@ consumer. Keep saved native values and every undeclared meaning unchanged, and r
 only the declared dependency metadata. Direct links still represent dependencies; merely
 removing metadata does not detach them. Use the named retarget/delete operation for
 other explicit reference changes. Preserve retained refids; never renumber them on reorder.
-
-## One-time format migration
-
-Use the [limited format migration contract and recovery procedure](../docs/model-migration.md).
-Pin baseline, services, old/new formats, exact source paths and export hash. Export the
-old baseline in the isolated fixed old runtime, then strictly compare all new authority.
-Preserve project, IaC and issues bytes/file sets. Existing issues remain unresolved;
-format equivalence does not assert whole-design/IaC validation success. No normal-reader
-fallback, dependency-detach disguise, force or skip is permitted.
 
 Resource allocation and URI semantics follow [Resource logical identity](../docs/model-identity.md). The common allocate/preserve_allocation functions own counters for CREATE and IMPORT. Publish counters and additions atomically. Authoritative Resource anchors and read-time ID fallbacks are forbidden.

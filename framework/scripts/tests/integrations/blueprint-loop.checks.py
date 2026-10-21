@@ -203,10 +203,15 @@ display.resource.001.comment=通信ログを保存するLog Group
     subprocess.run(["git", "add", "."], cwd=root, check=True)
     subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
                     "commit", "-qm", "fixture"], cwd=root, check=True)
-    active = root / "tasks/active.md"
+    active = root / "tasks/example.md"
     active.write_text("""# Design fixture
 ## Task contract
 - Task type: `design`
+- Task status: `running`
+## Modified files
+- `tasks/example.md`
+- `model/dev/123456789012/logs.properties`
+- `docs/designs/dev/123456789012/logs.md`
 ## Validation scope
 - `dev/123456789012/logs`
 ## Required changes
@@ -215,7 +220,7 @@ display.resource.001.comment=通信ログを保存するLog Group
 - [R1] `changed:model/dev/123456789012/logs.properties`
 - [R1] `changed:docs/designs/dev/123456789012/logs.md`
 ## Allowed paths
-- `tasks/active.md`
+- `tasks/example.md`
 - `model/**`
 - `docs/designs/**`
 """, encoding="utf-8")
@@ -227,8 +232,8 @@ display.resource.001.comment=通信ログを保存するLog Group
     command = [sys.executable, str(scripts / SCRIPT.name), "--mode", "task", "--log-dir", str(tmp_path / "logs")]
 
     def run():
-        if tasks.status(active.read_text(encoding="utf-8"), legacy=True) == "suspend":
-            tasks.resume(root, "tasks/active.md")
+        if tasks.status(active.read_text(encoding="utf-8")) == "suspend":
+            tasks.resume(root, "tasks/example.md")
         result = subprocess.run(command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
         assert "START validate-blueprint.py" in result.stdout
         assert "validation scope: dev/123456789012/logs" in result.stdout or result.returncode != 0
@@ -259,7 +264,7 @@ display.resource.001.comment=通信ログを保存するLog Group
     assert "unresolved issue blocks task" in "\n".join(tasks.section(active.read_text(), "## Suspension reason"))
     issue.unlink()
     # Contract scope remains enforced before design validation.
-    tasks.resume(root, "tasks/active.md")
+    tasks.resume(root, "tasks/example.md")
     contract = active.read_text(encoding="utf-8")
     active.write_text(contract.replace("- `dev/123456789012/logs`", "- `dev/123456789012/ec2`"), encoding="utf-8")
     result = run()
@@ -729,13 +734,13 @@ def check_workflow(tmp_path) -> None:
     (scripts / "validate-blueprint.py").write_text("import sys\nassert '--all' not in sys.argv\n", encoding="utf-8")
     # A normal design edit skips regression; any shared framework change selects all checks.
     (root / "tasks").mkdir()
-    active = root / "tasks/active.md"
-    active.write_text("## Validation scope\n- `dev/cde/ec2`\n", encoding="utf-8")
+    active = root / "tasks/example.md"
+    active.write_text("## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n- `model/dev/cde/ec2.properties`\n## Allowed paths\n- `tasks/example.md`\n- `model/dev/cde/ec2.properties`\n## Validation scope\n- `dev/cde/ec2`\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     subprocess.run(["git", "add", "."], cwd=root, check=True)
     subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], cwd=root, check=True)
     (root / "continued").unlink()
-    model = root / "model/parameters/dev/cde/ec2/parameters.yaml"
+    model = root / "model/dev/cde/ec2.properties"
     model.parent.mkdir(parents=True)
     model.write_text('design change\n')
     scoped_command = [argument for argument in command if argument != "--all"]
@@ -754,7 +759,7 @@ def check_workflow(tmp_path) -> None:
                  "framework/schema/schema.json", "framework/catalog/catalog.json", "framework/prompts/prompt.md",
                  ".agents/skills/example/SKILL.md", "AGENTS.md", "README.md"):
         assert MODULE.framework_changed({path}), path
-    assert not MODULE.framework_changed({"model/parameters/dev/cde/ec2/parameters.yaml", "docs/designs/dev/cde/ec2.md", "tasks/active.md"})
+    assert not MODULE.framework_changed({"model/dev/cde/ec2.properties", "docs/designs/dev/cde/ec2.md", "tasks/example.md"})
     scoped_command[scoped_command.index("local")] = "task"
     (scripts / "a.py").write_text("# validator change\n", encoding="utf-8")
     result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
@@ -787,12 +792,12 @@ def check_workflow(tmp_path) -> None:
     model.write_bytes(b"design change\r\n        forbidden configured indent\r\n")
     result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode != 0 and "indent with spaces" in result.stdout, result.stdout + result.stderr
-    tasks.resume(root, "tasks/active.md")
+    tasks.resume(root, "tasks/example.md")
     subprocess.run(["git", "config", "--unset", "core.whitespace"], cwd=root, check=True)
     model.write_bytes(b"design change\r\ntrailing whitespace  \r\n")
     result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode != 0 and "FAIL git-diff-check" in result.stdout, result.stdout
-    tasks.resume(root, "tasks/active.md")
+    tasks.resume(root, "tasks/example.md")
     subprocess.run(["git", "add", str(model)], cwd=root, check=True)
     result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode != 0 and "FAIL git-diff-check" in result.stdout, result.stdout
@@ -848,4 +853,3 @@ def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

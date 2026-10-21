@@ -164,7 +164,7 @@ def pipeline_rows(rows: list[list[str]]) -> list[list[str]]:
         action = field.startswith("Actions[].")
         field = field.removeprefix("Actions[].")
         if not action_counts:
-            # Catalog order ends each stage with Name; legacy models put it first.
+            # Authored stage rows may put Name before or after their action rows.
             name_last = action
         if not action_counts or (name_last and "Name" in seen_stage) or (not action and field in seen_stage):
             seen_stage, seen_action = set(), set()
@@ -327,5 +327,3 @@ def restored_glue_argument_rows(rows: list[list[str]], kind: str) -> list[list[s
             result.append(rows[index])
             index += 1
     return result
-
-

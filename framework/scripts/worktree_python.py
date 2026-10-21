@@ -3,7 +3,6 @@
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import time
@@ -34,15 +33,6 @@ def run(command, root, env=None):
         raise ValueError(f"Python setup command failed ({result.returncode}): {' '.join(map(str, command))}\n"
                          + (result.stderr or result.stdout)[-6000:])
     return result.stdout.strip()
-
-
-def venv_directory(root):
-    directory = root / ".venv"
-    if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
-        raise ValueError("unexpected .venv structure; retain it for review")
-    if directory.exists() and not (directory / "pyvenv.cfg").is_file():
-        raise ValueError(".venv has no Python environment configuration; retain it for review")
-    return directory
 
 
 def probe(root, directory):
@@ -100,8 +90,6 @@ def shared_ready(directory):
 
 def setup(root, previous):
     directory = shared_directory(root)
-    # Inspect legacy artifacts without adopting, modifying or deleting them.
-    venv_directory(root)
     def result(installed):
         return {"status": "ready", "kind": "shared", "interpreter": str(python_path(directory)),
                 "bin": str(python_path(directory).parent), "installed": installed}
@@ -149,12 +137,6 @@ def setup(root, previous):
         return result(True)
     finally:
         lock.rmdir()
-
-
-def remove(root):
-    directory = venv_directory(root)
-    if directory.exists():
-        shutil.rmtree(directory)  # rmtree never follows directory symlinks within the environment.
 
 
 def runtime(root):

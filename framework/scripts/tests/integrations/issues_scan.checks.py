@@ -772,7 +772,7 @@ def symbolic_string_cases(_network):
         assert publish(desired_policy(model_sub)) == 'matched'
         assert publish(desired_policy({'Fn::Sub': '${Log.Arn}'})) == 'uncompared'
         assert publish(desired_policy(joined)) == 'uncompared'
-        different_link = link.replace('data1', 'data2')
+        different_link = link.replace('Logs_LogGroup_001', 'Logs_LogGroup_999')
         assert publish(desired_policy({'Fn::Sub': ['${Arn}:log-stream:account_*',
             {'Arn': {'Fn::Select': [0, {'Fn::Split': [':*', different_link]}]}}]})) == 'uncompared'
     print('Symbolic string evaluation: PASS (GetAtt/Split/Select/Join/Sub, typed equality and classifications)')
@@ -1853,7 +1853,7 @@ def check_glue_connection_names(_network):
             values.update(allocate(values, [identity]))
             template['Resources'][logical] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': {}}
         values.update({'desired.row.003-001.property': 'Glue.Job.Connections',
-                       'desired.row.003-001.value': '`{"Connections":resource://dev/123456789012/glue/Glue_Connection_001"]}`'})
+                       'desired.row.003-001.value': '`{"Connections":["resource://dev/123456789012/glue/Glue_Connection_001"]}`'})
         write(root / 'model/dev/123456789012/glue.properties', '\n'.join(f'{k}={v}' for k, v in values.items()) + '\n')
         template['Resources']['Job']['Properties'] = {'Connections': {'Connections': ['app-dev-data1']}}
         template['Resources']['Project']['Properties'] = {'Name': {'Fn::Sub': 'project-${Name}'}}
@@ -1977,8 +1977,8 @@ def check_added_reference_properties(_network):
                     comparison.desired_reference('s3', links[wrong], kind, path)
                 with pytest.raises(Blocked):
                     comparison.desired_reference('s3', links[logical], kind, path, 'Unknown')
-                with pytest.raises(Blocked, match='mapping matches=0'):
-                    comparison.desired_reference('s3', links[logical].replace('#', '#missing'), kind, path)
+                with pytest.raises(Blocked, match='Resource URI target'):
+                    comparison.desired_reference('s3', links[logical].rsplit('_', 1)[0] + '_999', kind, path)
                 service, identity = symbol['$resource']
                 comparison.resources[service][identity]['resourceMode'] = 'IMPORT'
                 with pytest.raises(Blocked, match='IMPORT'):

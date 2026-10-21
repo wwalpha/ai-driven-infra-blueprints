@@ -47,13 +47,8 @@ with tempfile.TemporaryDirectory() as directory:
     assert set(model_paths(root)) == {path, other}
     assert affected(root, [path.relative_to(root)]) == {('preview', 'team', 'example')}
     assert load_model(other).authoritative == values and design_source_digest(path) == old
-    legacy = root / 'model/parameters'
-    legacy.mkdir()
-    (legacy / 'parameters.json').write_text('{}')
-    rejected(lambda: load_model(path), 'legacy')
-    (legacy / 'parameters.json').unlink(); legacy.rmdir()
     with patch.object(Path, 'read_bytes', side_effect=PermissionError('denied')):
         rejected(lambda: load_model(path), 'denied')
-print('Runtime Models: PASS (discovery; no auto-generation; fixed identity; read idempotence; missing/corrupt/legacy rejection; raw snapshot invalidation; independent environments)')
+print('Runtime Models: PASS (discovery; no auto-generation; fixed identity; read idempotence; missing/corrupt rejection; raw snapshot invalidation; independent environments)')
 
 module_complete(__file__)

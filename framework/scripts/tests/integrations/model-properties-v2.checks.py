@@ -221,7 +221,7 @@ def check_source_save_conflict_and_rollback(failure, monkeypatch):
         if failure == 'source':
             scope.path.write_bytes(original + b'# concurrent change\n')
         elif failure == 'task':
-            task = scope.root / 'tasks/active.md'
+            task = scope.root / 'tasks/example.md'
             task.parent.mkdir(exist_ok=True)
             task.write_text('changed', encoding='utf-8')
         else:
@@ -300,15 +300,6 @@ def check_reference_occurrence_identifies_overlapping_text():
         assert len(matches) == 1 and matches[0].start == 1 and matches[0].end == 3
 
 
-@pytest.mark.parametrize('legacy', ['templates', 'parameters'])
-def check_normal_reader_rejects_legacy_authorities(legacy):
-    with tempfile.TemporaryDirectory() as directory:
-        scope, _ = fixture(Path(directory))
-        (scope.root / 'model' / legacy).mkdir()
-        with pytest.raises(ValueError, match='explicit migration'):
-            load_model(scope)
-        with pytest.raises(ValueError, match='explicit migration'):
-            list_models(scope.root)
 
 
 @pytest.mark.parametrize('action', ['add', 'refresh', 'bind', 'replace'])
@@ -468,7 +459,7 @@ def check_properties_normal_generation_uses_new_authority(tmp_path, monkeypatch)
         values = build_generated_policy(root, definitions_root=framework)
         model = root / 'model/dev/123456789012/iam.properties'
         design = root / 'docs/designs/dev/123456789012/iam.md'
-        artifact = design.with_suffix('') / 'app-role-trust-policy.json'
+        artifact = design.with_suffix('') / 'iam-role-001-trust-policy.json'
         before = {path: path.read_bytes() for path in (model, design, artifact)}
         with mapping_alias(framework, root):
             inputs = GenerationInputs(root, framework)

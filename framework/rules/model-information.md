@@ -169,13 +169,10 @@ persists no Model, displays, contract or completion receipt; retain its session 
 explicit Human termination. Pre-save failure, incomplete display or display I/O failure
 retains acquisition/review evidence for diagnosis and display-only recovery.
 Never save raw responses. Acquisition/receipt timestamps expire after seven days;
-future timestamps beyond five minutes are rejected. Review version 3 and receipt version 5
-record the conversational responsibility boundary. Version 5 binds Review/selection,
+future timestamps beyond five minutes are rejected. Review version 4 and receipt version 6
+record the conversational responsibility boundary. Version 6 binds Review/selection,
 acquisition/baseline, proposed values, Reference/Selector meaning, Task/Worktree/scope
-and exact saved source hashes. Versions 4 and earlier are rejected without automatic
-conversion; retain them for review and use a new explicitly authorized current-baseline
-import if needed. Valid version 5 receipts are verified before location migration; only
-the owned file and empty ancestor directories are removed. Local seals and the Review
+and exact saved source hashes. Receipt parsing requires the current version and sealed external location. Local seals and the Review
 binding provide integrity, not Human authentication. Worktree reuse remains rejected.
 Temporary snapshot receipts are removed in finally; source evidence remains retryable. Worktree evidence
 is removed only after verified integration and successful checkout/branch cleanup.
@@ -275,7 +272,7 @@ The stack listing is generated from the same-target `cloudformation-stacks.prope
 
 Resource identity uses immutable typed logicalId and full `resource://environment/target-directory/service/logicalId` addresses. See [Resource logical identity](../docs/model-identity.md) for allocation, references and the one-time consumer rewrite. Keep fixed entry/Row/Stack IDs and part placement. Resource anchors are generated only as `resource-<logicalId>` and never saved as authority or used for Model resolution. Resource declarations select producerLogicalId; Stack/context selectors are unchanged.
 
-CloudFormation CREATE resources with formal CFn types require explicit cfn-logicalId even when logicalId is present. Do not extend that requirement to IMPORT, Terraform or design-only types. Ordinary resolution has no old-ID/PascalCase fallback. Only the explicitly declared identity rewrite may prove a missing mapping from its immutable historical baseline and unchanged templates/stacks. Ambiguity is not permission to infer a mapping.
+CloudFormation CREATE resources with formal CFn types require explicit cfn-logicalId even when logicalId is present. Do not extend that requirement to IMPORT, Terraform or design-only types. Ordinary resolution has no old-ID/PascalCase fallback. Ambiguity is not permission to infer a mapping.
 
 Markdown is a generated view and cannot be imported as Model authority. Preserve names, settings, observed values and their absence; do not derive identity from names, labels or display order.
 

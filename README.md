@@ -588,7 +588,7 @@ Destroy performs one STS/context check per invocation, pinned StackId/protection
 
 ### Environment-specific properties Models
 
-See [format and public API](framework/docs/model-format-2.md), [source authority](framework/rules/model-templates.md), [custom helper integration](framework/docs/model-helper-integration.md), and [migration and recovery](framework/docs/model-migration.md).
+See [format and public API](framework/docs/model-format-2.md), [source authority](framework/rules/model-templates.md), [custom helper integration](framework/docs/model-helper-integration.md).
 
 The authoritative entrance is `model/<environment>/<alias-or-awsAccountId>/<service>.properties`.
 Alias wins over account ID, including multiple aliases for one account; execution account

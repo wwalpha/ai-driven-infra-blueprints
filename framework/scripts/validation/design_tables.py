@@ -146,9 +146,6 @@ def check_markdown_iam_policy_artifacts(
     if len(relative.parts) < 3:
         return
     target = (relative.parts[0], relative.parts[1])
-    from design_layout import resource_identity_metadata
-    entry_numbers, _ = resource_identity_metadata(input_text(path, encoding="utf-8").splitlines(), values=design_model_values(path, design_sources=design_sources, root=root)) if input_is_file(path) else ({}, {})
-    legacy = logical_id not in entry_numbers.values()
     properties = [row[1].removeprefix("IAM.Role.") for row in rows]
 
     for index, row in enumerate(rows):
@@ -157,7 +154,7 @@ def check_markdown_iam_policy_artifacts(
         if property_name == "AssumeRolePolicyDocument" and link:
             artifact = (path.parent / link.group(1)).resolve()
             expected = iam_role_policy_artifact_filename(logical_id)
-            findings.check(not legacy or artifact.name == expected, f"invalid IAM trust policy artifact name: {findings.relative(path)}: expected {expected}")
+            findings.check(artifact.name == expected, f"invalid IAM trust policy artifact name: {findings.relative(path)}: expected {expected}")
             key = (*target, logical_id, "trust")
             findings.check(key not in markdown_iam_policy_artifacts, f"duplicate IAM trust policy artifact: {findings.relative(path)}: {logical_id}")
             markdown_iam_policy_artifacts.setdefault(key, artifact)
@@ -178,7 +175,7 @@ def check_markdown_iam_policy_artifacts(
             continue
         artifact = (path.parent / link.group(1)).resolve()
         expected = iam_role_policy_artifact_filename(logical_id, policy_name)
-        findings.check(not legacy or artifact.name == expected, f"invalid IAM inline policy artifact name: {findings.relative(path)}: expected {expected}")
+        findings.check(artifact.name == expected, f"invalid IAM inline policy artifact name: {findings.relative(path)}: expected {expected}")
         key = (*target, logical_id, f"inline:{policy_name}")
         findings.check(key not in markdown_iam_policy_artifacts, f"duplicate IAM inline PolicyName: {findings.relative(path)}: {logical_id}: {policy_name}")
         markdown_iam_policy_artifacts.setdefault(key, artifact)
@@ -268,9 +265,12 @@ def check_design_tables(
             )
         table_count = 0
         index = 0
+        current_anchor = ""
         current_resource_type = ""
         current_logical_id = ""
         while index < len(lines):
+            if marker := ANCHOR_PATTERN.fullmatch(lines[index]):
+                current_anchor = marker.group(1)
             heading_match = RESOURCE_HEADING_PATTERN.fullmatch(lines[index])
             if heading_match:
                 current_resource_type = heading_match.group(1)
@@ -315,7 +315,7 @@ def check_design_tables(
             semantic = shown
             if all(len(row) == 4 for row in shown):
                 try:
-                    semantic = validation_rows(shown, values, current_resource_type, identities.get((current_resource_type, current_logical_id), current_logical_id), definitions_root, scope=(*path.parent.parts[-2:], path.stem))
+                    semantic = validation_rows(shown, values, current_resource_type, identities.get(current_anchor, current_logical_id), definitions_root, scope=(*path.parent.parts[-2:], path.stem))
                 except ReferenceResolutionError as error:
                     findings.warn(error)
                 except ValueError as error:
@@ -394,7 +394,7 @@ def check_design_tables(
                         for error in errors:
                             findings.check(
                                 False,
-                                f"provider schema violation: {findings.relative(path)}: {identities.get((current_resource_type, current_logical_id), current_logical_id)}: {schema_type}.{property_path}: {raw_value!r} {error}",
+                                f"provider schema violation: {findings.relative(path)}: {identities.get(current_anchor, current_logical_id)}: {schema_type}.{property_path}: {raw_value!r} {error}",
                             )
                     link_match = VALUE_LINK_PATTERN.fullmatch(cells[2])
                     artifact_link = link_match.group(1) if link_match else ""
@@ -493,14 +493,14 @@ def check_design_tables(
                                 f"required provider schema property missing: {findings.relative(path)}: {resource_type}.{property_name}",
                             )
                 check_generated_identifier(
-                    path, current_resource_type, identities.get((current_resource_type, current_logical_id), current_logical_id), rows, identifier_outputs
+                    path, current_resource_type, identities.get(current_anchor, current_logical_id), rows, identifier_outputs
                 , findings=findings, values=values)
                 check_required_name_tag(
                     path, current_resource_type, current_logical_id, rows,
                     heading_modes.get((current_resource_type, current_logical_id), "CREATE"),
                  findings=findings, schema_catalog=schema_catalog)
             if current_resource_type == "IAM.Role":
-                check_markdown_iam_policy_artifacts(path, identities.get((current_resource_type, current_logical_id), current_logical_id), rows, design_sources=design_sources, findings=findings, markdown_iam_policy_artifacts=markdown_iam_policy_artifacts, root=root)
+                check_markdown_iam_policy_artifacts(path, identities.get(current_anchor, current_logical_id), rows, design_sources=design_sources, findings=findings, markdown_iam_policy_artifacts=markdown_iam_policy_artifacts, root=root)
         findings.check(table_count > 0, f"resource design has no table: {findings.relative(path)}")
 
         previous = ""
@@ -512,8 +512,8 @@ def check_design_tables(
                 if path in service_metadata:
                     logical_id = heading_match.group(2)
                     if anchor_match is not None:
-                        expected = bound_anchors.get((heading_match.group(1), identities.get(heading_match.groups())),
-                                                     resource_anchor(service_metadata[path][0], logical_id, heading_match.group(1)))
+                        expected = bound_anchors.get((heading_match.group(1), identities.get(anchor_match.group(1))),
+                                                     'resource-' + identities[anchor_match.group(1)] if anchor_match.group(1) in identities else resource_anchor(service_metadata[path][0], logical_id, heading_match.group(1)))
                         findings.warn(anchor_match.group(1) == expected, f"resource anchor does not match service ID/logical ID: {findings.relative(path)}: expected {expected}")
             if line.strip():
                 previous = line.strip()
@@ -570,4 +570,3 @@ def check_api_design_rows(path: Path, resource_type: str, logical_id: str, rows:
                 findings.check(scope["bucketDefinitions"] == tables[logical_id][1], f"Macie bucket mapping differs from JSON artifact: {findings.relative(path)}: {logical_id}")
         else:
             findings.check(logical_id not in tables, f"Macie bucket table requires bucketDefinitions, not bucketCriteria: {findings.relative(path)}: {logical_id}")
-

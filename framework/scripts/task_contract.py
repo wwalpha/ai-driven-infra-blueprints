@@ -146,10 +146,8 @@ def _contracts(root):
     return result
 
 
-def status(text, legacy=False):
+def status(text):
     entries = [line for line in section(text, "## Task contract") if line.startswith("- Task status:")]
-    if legacy and not entries:
-        return "running"
     if len(entries) != 1 or entries[0] not in {f"- Task status: `{state}`" for state in ("running", "suspend", "completed")}:
         raise ValueError("Task status must be exactly one of running/suspend/completed")
     if entries[0] == "- Task status: `suspend`" and not section(text, "## Suspension reason"):
@@ -157,20 +155,11 @@ def status(text, legacy=False):
     return entries[0].split("`")[1]
 
 
-def model_migration(text):
-    if not re.search(r'^(?:-\s*|##\s+)Model format migration\b', text, re.M):
-        return None
-    from model.migration.contract import migration_contract
-    return migration_contract(text)
-
-
-def validate_contract(root, name, text, legacy=False, *, check_paths=True):
+def validate_contract(root, name, text, *, check_paths=True):
     """Validate the selected contract declaration."""
-    status(text, legacy)
+    status(text)
     model_operation(text)
     model_refactor(text)
-    model_migration(text)
-    model_identity_rewrite(text)
     files = paths_in(text, "## Modified files")
     allowed = paths_in(text, "## Allowed paths")
     if name not in files:
@@ -206,7 +195,6 @@ class ModelOperation:
     scope: tuple[str, str, str]
     pairs: tuple[MergePair, ...] = ()
     references: tuple[ReferenceChange, ...] = ()
-    delete_source: str | None = None
     delete_sources: tuple[str, ...] = ()
     detaches: tuple["DependencyDetach", ...] = ()
 
@@ -226,7 +214,7 @@ def model_operation(text: str) -> ModelOperation | None:
     """Parse only reserved operation declarations; never expand or read Model sources."""
     from utils.json_format import policy_json as strict_json
     lines = section(text, '## Task contract')
-    fields = ('Model operation', 'Source resource', 'Destination resource')
+    fields = ('Model operation',)
     headings = ('## Model merge pairs', '## Model reference changes', '## Model delete sources')
     reserved = [line for line in lines if any(re.match(r'-\s*' + name + r'\b', line) for name in fields)]
     present = {heading for heading in headings if heading in text.splitlines()}
@@ -240,10 +228,6 @@ def model_operation(text: str) -> ModelOperation | None:
     for line in reserved:
         if not any(re.fullmatch(r'- ' + name + r': `[^`]+`', line) for name in fields):
             raise ValueError('invalid Model operation declaration: ' + line)
-    legacy = any(line.startswith(('- Source resource:', '- Destination resource:')) for line in reserved)
-    if legacy and present - {'## Model reference changes'}:
-        raise ValueError('cannot mix legacy resources and Model operation sections')
-
     def field(name, required=True):
         selected = [line for line in lines if line.startswith('- ' + name + ':')]
         if not selected and not required:
@@ -277,29 +261,21 @@ def model_operation(text: str) -> ModelOperation | None:
     deleting = action == 'import-delete'
     delete_sources = ()
     if deleting:
-        if headings[0] in present or field('Destination resource', False) is not None:
-            raise ValueError('IMPORT deletion has no destination or merge pairs')
-        if legacy:
-            delete_sources = (address(field('Source resource')),)
-        else:
-            delete_sources = tuple(sorted(address(value) for value in paths_in(text, headings[2])))
+        if headings[0] in present:
+            raise ValueError('IMPORT deletion has no merge pairs')
+        delete_sources = tuple(sorted(address(value) for value in paths_in(text, headings[2])))
         if len({tuple(value.split('/')[:2]) for value in delete_sources}) != 1:
             raise ValueError('IMPORT deletion requires the same environment/target')
     elif headings[2] in present:
         raise ValueError('Model delete sources requires import-delete')
-    if legacy and present and not deleting:
-        raise ValueError('cannot mix legacy resources and Model operation sections')
     standalone = action == 'import-retarget'
-    if standalone and (legacy or headings[0] in present):
-        raise ValueError('standalone retarget has no merge pairs or legacy resources')
+    if standalone and headings[0] in present:
+        raise ValueError('standalone retarget has no merge pairs')
     pairs = []
-    if legacy and not deleting:
-        pairs.append(MergePair(address(field('Source resource')), address(field('Destination resource'))))
-    else:
-        for value in objects(headings[0]):
-            if set(value) != {'source', 'destination'}:
-                raise ValueError('merge pair requires exactly source and destination')
-            pairs.append(MergePair(address(value['source']), address(value['destination'])))
+    for value in objects(headings[0]):
+        if set(value) != {'source', 'destination'}:
+            raise ValueError('merge pair requires exactly source and destination')
+        pairs.append(MergePair(address(value['source']), address(value['destination'])))
     if not pairs and not standalone and not deleting:
         raise ValueError('IMPORT merge requires nonempty pairs')
     scope = tuple(pairs[0].source.split('/')[:3]) if pairs else None
@@ -349,10 +325,7 @@ def model_operation(text: str) -> ModelOperation | None:
         if headings[1] in present and not references:
             raise ValueError('Model reference changes must be nonempty')
         from dataclasses import replace
-        single = None
-        if len(delete_sources) == 1:
-            single = delete_sources[0]
-        operation = ModelOperation(action, scope, references=tuple(references), delete_source=single, delete_sources=delete_sources)
+        operation = ModelOperation(action, scope, references=tuple(references), delete_sources=delete_sources)
         return replace(operation, detaches=model_refactor(text, operation=operation) or ())
     return ModelOperation(action, scope, tuple(pairs), tuple(references))
 
@@ -418,34 +391,9 @@ def model_refactor(text: str, *, operation=None) -> tuple[DependencyDetach, ...]
     return tuple(result)
 
 
-def model_identity_rewrite(text):
-    """Explicit, narrow opt-in; ordinary refactors never authorize ID changes."""
-    lines = section(text, '## Task contract')
-    reserved = [line for line in lines if re.match(r'-\s*Model identity rewrite\b', line)]
-    if not reserved:
-        return False
-    if reserved != ['- Model identity rewrite: `logical-id-v1`']:
-        raise ValueError('invalid Model identity rewrite declaration')
-    for name, expected in [('Task type', 'migration'), ('AWS API execution', 'forbidden'), ('deploy/apply', 'forbidden')]:
-        found = [line for line in lines if re.match(r'-\s*' + re.escape(name) + r'\b', line)]
-        if found != ['- ' + name + ': `' + expected + '`']:
-            raise ValueError('Model identity rewrite requires ' + name + ': ' + expected)
-    if model_operation(text) is not None or model_refactor(text) is not None or model_migration(text) is not None:
-        raise ValueError('identity rewrite cannot be combined with another Model operation')
-    if any(line.startswith('- Workflow:') for line in lines):
-        raise ValueError('identity rewrite uses the existing migration Task without another workflow')
-    scopes = paths_in(text, '## Validation scope')
-    if not scopes or any(re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', scope) is None for scope in scopes):
-        raise ValueError('identity rewrite requires exact service Validation scope')
-    for path in paths_in(text, '## Modified files'):
-        if not path.startswith(('tasks/', 'model/', 'docs/designs/')):
-            raise ValueError('identity rewrite permits only Model sources and generated views: ' + path)
-    return True
-
-
 def final_model_task(text):
     """Only explicit Model operations/refactors share the final candidate composition."""
-    return model_operation(text) is not None or model_refactor(text) is not None or model_migration(text) is not None or model_identity_rewrite(text)
+    return model_operation(text) is not None or model_refactor(text) is not None
 
 
 _selected_tasks = ContextVar('selected_tasks', default={})
@@ -474,51 +422,52 @@ def _selected_contract(root, selected=None):
 def _select_contract(root, selected, records):
     if selected:
         selected_text(root, records, selected)
-    if "tasks/active.md" in records and len(records) != 1:
-        raise ValueError("migrate tasks/active.md before adding concurrent tasks")
-    states = {name: status(text, name == "tasks/active.md") for name, text in records.items()}
+    states = {name: status(text) for name, text in records.items()}
     if not selected:
         running = [name for name, state in states.items() if state == "running"]
         if len(running) > 1:
             raise ValueError(f"multiple running tasks; select a contract with {SELECTOR} or --task-file")
-        selected = running[0] if running else ("tasks/active.md" if "tasks/active.md" in records else None)
+        selected = running[0] if running else None
     if selected:
         text = records[selected]
-        if selected != "tasks/active.md" or section(text, "## Modified files"):
-            validate_contract(root, selected, text, legacy=selected == "tasks/active.md", check_paths=False)
+        validate_contract(root, selected, text, check_paths=False)
         return root / selected, text
-    return root / "tasks/active.md", None
+    return None, None
 
 
-def contract_path(root, selected=None):
+def contract_path(root, selected=None, *, required=True):
     """Read a valid contract in any status without granting execution permission."""
     path, text = _selected_contract(root, selected)
     if text is not None:
-        validate_contract(root, path.relative_to(root).as_posix(), text, legacy=path.name == 'active.md')
+        validate_contract(root, path.relative_to(root).as_posix(), text)
+    if required and path is None:
+        raise ValueError("selected task contract required")
     return path
 
 
-def task_path(root, selected=None):
+def task_path(root, selected=None, *, required=True):
     path, text = _selected_contract(root, selected)
-    if text is not None and status(text, path.name == 'active.md') == 'suspend':
+    if text is not None and status(text) == 'suspend':
         name = path.relative_to(root).as_posix()
         raise ValueError(f"suspend task cannot execute; resume with task_contract.py --task-file {name} --resume")
+    if required and path is None:
+        raise ValueError("selected task contract required")
     return path
 
 
 def task_revision(root, selected=None):
     """Pin task planning content so later changes invalidate the plan."""
-    path = task_path(root, selected)
+    path = task_path(root, selected, required=False)
+    if path is None:
+        return None, None
     text = path.read_text(encoding="utf-8") if path.is_file() else None
     return path.relative_to(root).as_posix(), text
 
 
 def start(root, name, text):
-    if name == "tasks/active.md" or not TASK_NAME.fullmatch(name):
+    if not TASK_NAME.fullmatch(name):
         raise ValueError("new task must use tasks/<task-name>.md")
     records = contracts(root)
-    if "tasks/active.md" in records:
-        raise ValueError("migrate tasks/active.md before adding concurrent tasks")
     if name in records:
         selected_text(root, records, name)
         raise ValueError(f"task contract already exists: {name}")
@@ -533,7 +482,7 @@ def start(root, name, text):
 def refresh(root, name, resuming=False):
     records = contracts(root)
     text = selected_text(root, records, name)
-    state = status(text, name == "tasks/active.md")
+    state = status(text)
     if state == "suspend" and not resuming:
         raise ValueError("suspend task cannot execute; use --resume")
     if state == "completed":
@@ -546,8 +495,7 @@ def refresh(root, name, resuming=False):
         from validation_scope import active_scope
         require_no_issues(root, active_scope(root, contract_file=name), contract_file=name)
     text = set_status(text, "running")
-    if name != "tasks/active.md" or section(text, "## Modified files"):
-        validate_contract(root, name, text)
+    validate_contract(root, name, text)
     if text != records[name]:
         atomic_files({safe_path(root, name): text}, staging_directory=root)
 
@@ -555,7 +503,7 @@ def refresh(root, name, resuming=False):
 def complete(root, name):
     records = contracts(root)
     text = selected_text(root, records, name)
-    if status(text, name == "tasks/active.md") != "running":
+    if status(text) != "running":
         raise ValueError("only a running task can complete")
     if "- Workflow: `import`" in section(text, "## Task contract") or final_model_task(text):
         from import_guard import require_import_changes
@@ -588,7 +536,7 @@ def suspend(root, name, reason):
         raise ValueError(f"invalid task selector: {name}")
     path = safe_path(root, name)
     text = path.read_text(encoding="utf-8")
-    if status(text, name == "tasks/active.md") != "running":
+    if status(text) != "running":
         return False
     # Do not inspect other contracts when suspending this task.
     text = set_status(text, "suspend")

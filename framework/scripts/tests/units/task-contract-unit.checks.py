@@ -126,11 +126,11 @@ def check_task_change_rolls_back_publication(tmp_path, monkeypatch, change):
 
 
 
-@pytest.mark.parametrize('state', [None, 'running', 'completed', 'suspend'])
-def check_legacy_publication_preserves_contract(tmp_path, monkeypatch, state):
+@pytest.mark.parametrize('state', ['running', 'completed', 'suspend'])
+def check_publication_preserves_contract(tmp_path, monkeypatch, state):
     from sync_runtime import publish_generation
-    name = 'tasks/active.md'
-    text = contract('active', ['file.txt'])
+    name = 'tasks/example.md'
+    text = contract('example', ['file.txt'])
     if state is None:
         text = text.replace('- Task status: `running`\n', '')
     else:
@@ -220,14 +220,11 @@ def check_batch_operation_contract():
     assert operation.references[0].pointer == '/Statement/0/Resource'
     with pytest.raises(FrozenInstanceError):
         operation.action = 'import-delete'
-    legacy = base + '- Source resource: `test/primary/network/022`\n- Destination resource: `test/primary/network/009`\n'
-    assert tasks.model_operation(legacy).pairs == operation.pairs[:1]
-    deletion = legacy.replace('import-merge', 'import-delete').replace('- Destination resource: `test/primary/network/009`\n', '')
-    assert tasks.model_operation(deletion).delete_source == pairs[0]['source']
+    deletion = base.replace('import-merge', 'import-delete') + '## Model delete sources\n- `' + pairs[0]['source'] + '`\n'
+    assert tasks.model_operation(deletion).delete_sources == (pairs[0]['source'],)
     malformed = [
         base + '## Model merge pairs\n',
         base + pair_text + pair_text,
-        legacy + pair_text,
         pair_text,
         base + pair_text + 'trailing junk\n',
         base + pair_text.replace('"022"', '"009"') + ref_text + ref_text,
@@ -263,7 +260,7 @@ def check_dependency_detach_contract():
                 text.replace('"key":', '"unknown": NaN, "key":'),
                 text.replace('"key":', '"pointer": "/bad~2", "key":'),
                 text.replace('## Model dependency detach', '## Model dependency detach extra'),
-                text.replace('## Model dependency detach', '- Model operation: `import-merge`\n- Source resource: `stg/cde/service-a/001`\n## Model dependency detach'),
+                text.replace('## Model dependency detach', '- Model operation: `import-merge`\n## Model dependency detach'),
                 text.split('## Model dependency detach')[0] + '## Model dependency detach\n',
                 text + 'unconsumed junk\n']:
         with pytest.raises(ValueError):

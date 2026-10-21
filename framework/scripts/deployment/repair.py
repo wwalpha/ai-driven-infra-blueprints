@@ -133,7 +133,7 @@ def repair_plan(root, environment, directory, target, mapping_plan, paths, aws, 
               and 'cancel' not in (event.get('ResourceStatusReason') or '').lower()]
     if not failed:
         raise Blocked('no resource failure diagnostics tied to this execution')
-    direct, legacy = comparison.index()
+    direct = comparison.index()
     from model.adapters.observed import mapped_resource
     from model.projection import catalog_outputs
     edits, classes, export_snapshot, producer_snapshots = [], [], {}, {}
@@ -142,7 +142,7 @@ def repair_plan(root, environment, directory, target, mapping_plan, paths, aws, 
         definition = document.get('Resources', {}).get(logical)
         if not definition or definition['Type'] != event['ResourceType']:
             raise Blocked('failed resource outside authoritative template ownership')
-        source, identity, resource, _ = mapped_resource(direct, legacy, unit['name'], logical, definition['Type'], True)
+        source, identity, resource, _ = mapped_resource(direct, unit['name'], logical, definition['Type'])
         if (environment, directory, source.stem) not in scope:
             raise Blocked('failure outside service task scope')
         comparison.results = []
@@ -428,5 +428,3 @@ def apply_candidate(root, workdir, file_digest, input_digest, deployment_input_p
     save()
     finish_repair(unit, state, entry)
     return True
-
-

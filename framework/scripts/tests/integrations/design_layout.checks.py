@@ -24,25 +24,25 @@ def check_secret_rotation_display(tmp_path, catalog) -> None:
 
 | No. | ResourceName | Comment |
 | ---: | --- | --- |
-| 1 | [app-dev-key](#secretsmanager-app-dev-key) | 定期更新する連携用key |
-| 2 | [app-dev-token](#secretsmanager-app-dev-token) | 連携用token |
+| 1 | [app-dev-key](#resource-SecretsManager_Secret_001) | 定期更新する連携用key |
+| 2 | [app-dev-token](#resource-SecretsManager_Secret_002) | 連携用token |
 
 ## リソース詳細
 
-<!-- resource-logical-id: AppKey -->
-<a id="secretsmanager-app-dev-key"></a>
+<!-- resource-logical-id: SecretsManager_Secret_001 -->
+<a id="resource-SecretsManager_Secret_001"></a>
 
 ### SecretsManager.Secret: app-dev-key
 
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 | 1 | Name | `app-dev-key` | secretの名前 |
-| 2 | SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate | `false` | <a id="secretsmanager-app-dev-key_rotate"></a><!-- logical-id: AppKeyRotation --> app-dev-key_rotate：更新直後のrotation実行設定 |
+| 2 | SecretsManager.RotationSchedule.RotateImmediatelyOnUpdate | `false` | <a id="resource-SecretsManager_RotationSchedule_001"></a><!-- logical-id: SecretsManager_RotationSchedule_001 --> app-dev-key_rotate：更新直後のrotation実行設定 |
 | 3 | SecretsManager.RotationSchedule.RotationRules.AutomaticallyAfterDays | `30` | rotationの間隔日数 |
-| 4 | SecretsManager.RotationSchedule.SecretId | [app-dev-key](#secretsmanager-app-dev-key) | 対象secretのID |
+| 4 | SecretsManager.RotationSchedule.SecretId | [app-dev-key](#resource-SecretsManager_Secret_001) | 対象secretのID |
 
-<!-- resource-logical-id: AppToken -->
-<a id="secretsmanager-app-dev-token"></a>
+<!-- resource-logical-id: SecretsManager_Secret_002 -->
+<a id="resource-SecretsManager_Secret_002"></a>
 
 ### SecretsManager.Secret: app-dev-token
 
@@ -104,7 +104,10 @@ desired.row.003-001.comment=secretの名前
                    'display.resource.001.comment': '定期更新する連携用key',
                    'display.resource.003.comment': '連携用token',
                    'display.resource.002.label': 'app-dev-key_rotate'})
-    rendered = model_design.markdown_for(path, values, REPOSITORY)
+    (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}))
+    write_model(root / 'model/dev/123456789012/cloudformation-stacks.properties', {'desired.stack.001.name': 'fixture', 'desired.stack.001.placementName': 'fixture', 'desired.stack.001.template': 'fixture.yaml', 'desired.stack.001.parameters': 'fixture.json', 'desired.stack.001.deployOrder': '1', 'display.stack.001.comment': '合成Stack'})
+    write_model(root / 'model/dev/123456789012/secretsmanager.properties', values)
+    rendered = model_design.markdown_for(path, values, root, definitions_root=REPOSITORY)
     assert rendered == text
     assert not errors(rendered), errors(rendered)
     assert rendered == text
@@ -119,14 +122,14 @@ desired.row.003-001.comment=secretの名前
         "desired.row.002-001.value": "`subnet-00000000000000001,  subnet-00000000000000002`",
         "desired.row.002-001.comment": "rotation Lambdaの配置先Subnet",
     })
-    csv_view = model_design.markdown_for(path, csv_values, REPOSITORY)
+    csv_view = model_design.markdown_for(path, csv_values, root, definitions_root=REPOSITORY)
     assert not errors(csv_view), errors(csv_view)
-    assert model_design.markdown_for(path, csv_values, REPOSITORY) == csv_view
+    assert model_design.markdown_for(path, csv_values, root, definitions_root=REPOSITORY) == csv_view
     assert "HostedRotationLambda.VpcSubnetIds[1]" in csv_view and "HostedRotationLambda.VpcSubnetIds[2]" in csv_view
     for invalid, message in (
         (text.replace("### SecretsManager.Secret: app-dev-key", "### SecretsManager.RotationSchedule: app-dev-key"), "independent heading"),
         (text.replace("### SecretsManager.Secret: app-dev-key", "### S3.Bucket: app-dev-key"), "wrong parent"),
-        (text.replace("[app-dev-key](#secretsmanager-app-dev-key)", "[app-dev-token](#secretsmanager-app-dev-token)"), "must reference enclosing"),
+        (text.replace("[app-dev-key](#resource-SecretsManager_Secret_001)", "[app-dev-token](#resource-SecretsManager_Secret_002)"), "must reference enclosing"),
         (text.replace("RotationRules.AutomaticallyAfterDays", "RotateImmediatelyOnUpdate"), "duplicate property"),
         (text.replace("`30`", "`invalid`"), "provider schema violation"),
         (text.replace("### SecretsManager.Secret\n", "### SecretsManager.RotationSchedule\n"), "resource overview types"),
@@ -322,7 +325,7 @@ def check_subnet_list_links(prop, tmp_path, catalog):
                 *row_table([
                     ["1", "Name", "`key`", "secretの名称"],
                     ["2", "SecretsManager.RotationSchedule.SecretId", "[key](#secretsmanager-key)",
-                     '<a id="secretsmanager-key-rotation"></a><!-- logical-id: KeyRotation --> key-rotation：対象secret'],
+                     '<a id="resource-KeyRotation"></a><!-- logical-id: KeyRotation --> key-rotation：対象secret'],
                     ["4", kind + "." + shown[0][1], shown[0][2], shown[0][3]],
                 ]),
             ]) + "\n"
@@ -636,7 +639,7 @@ def check_config_firehose_references(tmp_path, catalog) -> None:
         config.replace("RoleName |", "RoleARN |"),
         config.replace(role_link, "`config-role`"),
         config.replace(role_link, "[wrong](iam.md#iam-resource)"),
-        config.replace(role_link, "[alias/two](kms.md#kms-aliastwo)"),
+        config.replace(role_link, "[alias/two](kms.md#resource-AliasTwo)"),
         config.replace(role_link, "[config-role](iam.md#iam-missing)"),
     ):
         assert errors(config_text=bad), bad
@@ -644,7 +647,7 @@ def check_config_firehose_references(tmp_path, catalog) -> None:
         "[1234abcd-12ab-34cd-56ef-1234567890ab](kms.md#kms-keyone)",
         "[app-data](s3.md#s3-app-data)", role_link,
     ):
-        for replacement in ("`!ImportValue resource-export`", "`arn:aws:s3:::app-data`", "[wrong](s3.md#s3-app-data)", "[alias/two](kms.md#kms-aliastwo)", "`" + link + "`"):
+        for replacement in ("`!ImportValue resource-export`", "`arn:aws:s3:::app-data`", "[wrong](s3.md#s3-app-data)", "[alias/two](kms.md#resource-AliasTwo)", "`" + link + "`"):
             assert errors(kdf_text=firehose.replace(link, replacement)), replacement
     other_target = target.with_name("987654321098")
     other_target.mkdir()
@@ -694,7 +697,7 @@ desired.service.config.serviceId=config
 desired.service.config.ownedCatalogResourceTypes=Config.ConfigurationRecorder
 desired.resource.001.resourceType=Config.ConfigurationRecorder
 desired.resource.001.logicalId=Config_ConfigurationRecorder_001
-desired.resource.001.cfn-logicalId=ConfigRecorder
+desired.resource.001.cfn-logicalId=fixture-ConfigRecorder
 desired.service.identity.lastAllocated={"Config.ConfigurationRecorder":1}
 desired.row.001-001.property=Config.ConfigurationRecorder.Id
 desired.row.001-001.value=resource://dev/123456789012/config/Config_ConfigurationRecorder_001
@@ -710,6 +713,7 @@ desired.row.001-002.comment=設定する属性
     model_path = root / "model/dev/123456789012/config.properties"
     model_path.parent.mkdir(parents=True)
     write_model(model_path, "".join(f"{key}={value}\n" for key, value in values.items()))
+    write_model(model_path.with_name("cloudformation-stacks.properties"), {"desired.stack.001.name": "fixture", "desired.stack.001.placementName": "fixture", "desired.stack.001.template": "fixture.yaml", "desired.stack.001.parameters": "fixture.json", "desired.stack.001.deployOrder": "1", "display.stack.001.comment": "合成Stack"})
     path.unlink()
     assert sync_runtime.sync(root, True, "dev", "123456789012") == 0
     assert "| RoleName | `AWSServiceRoleForConfig` |" in path.read_text(encoding="utf-8")
@@ -719,7 +723,7 @@ desired.row.001-002.comment=設定する属性
 def check_resource_name_headings(tmp_path) -> None:
     name = "ebs-venus-dev-core-nightly-completed-detect-every-5m-0200-0455"
     logical_id = "CoreSystemNightlyProcessingCompletedDetect0200To0455Schedule"
-    anchor = resource_anchor("scheduler", name)
+    anchor = "resource-" + logical_id
     marker = f"<!-- resource-logical-id: {logical_id} -->"
     text = f"""# Scheduler 詳細設計
 
@@ -763,7 +767,7 @@ def check_resource_name_headings(tmp_path) -> None:
 
     assert not errors(text), errors(text)
     identities = resource_logical_ids(text.splitlines())
-    assert identities == {("Scheduler.Schedule", name): logical_id}
+    assert identities == {anchor: logical_id}
     assert f'<a id="{anchor}"></a>' in text
     assert len(expanded_design(text.splitlines())[1]) == 0
     assert model_projection.linked_resource(path, f"[{name}](#{anchor})") == ("Scheduler.Schedule", logical_id)
@@ -787,24 +791,24 @@ def check_resource_name_headings(tmp_path) -> None:
     kms = path.with_name("kms.md")
     kms.write_text(named_kms, encoding="utf-8")
     children = expanded_design(named_kms.splitlines())[1]
-    assert resource_logical_ids(named_kms.splitlines())[('KMS.Key', 'one')] == 'KeyOne'
-    assert children['kms-alias-one']['parentLogicalId'] == 'KeyOne'
-    assert children['kms-alias-one']['parentAnchor'] == 'kms-one'
+    assert resource_logical_ids(named_kms.splitlines())['kms-one'] == 'KeyOne'
+    assert children['resource-AliasOne']['parentLogicalId'] == 'KeyOne'
+    assert children['resource-AliasOne']['parentAnchor'] == 'kms-one'
     assert model_projection.linked_resource(path, "[PENDING_DEPLOY](kms.md#kms-one)") == ("KMS.Key", "KeyOne")
 
     group_name = "transfer service access"
     sg_anchor = resource_anchor("security-group", group_name)
     sg_text = text.replace("scheduler", "security-group").replace("Scheduler.Schedule", "EC2.SecurityGroup").replace(logical_id, "TransferSecurityGroup").replace(name, group_name)
-    sg_text = sg_text.replace("security-group-" + group_name, sg_anchor)
+    sg_text = sg_text.replace("resource-TransferSecurityGroup", "resource-TransferSecurityGroup")
     sg_text = sg_text.replace(f"| 1 | Name | `{group_name}` | scheduleの名前 |", "| 1 | Id | `PENDING_DEPLOY` | SGのID |\n| 2 | GroupDescription | `transfer service access` | 通信の用途 |\n| 3 | VpcId | `vpc-123` | 所属VPCのID |")
     sg = path.with_name("security-group.md")
     sg.write_text(sg_text, encoding="utf-8")
     validator = VALIDATOR.Validator(root)
     validator.check_resource_names({sg: ("security-group", ("EC2.SecurityGroup",)), kms: ("kms", ("KMS.Key", "KMS.Alias")), **metadata})
     assert not validator.errors, validator.errors
-    assert resource_logical_ids(sg_text.splitlines())[("EC2.SecurityGroup", group_name)] == "TransferSecurityGroup"
+    assert resource_logical_ids(sg_text.splitlines())["resource-TransferSecurityGroup"] == "TransferSecurityGroup"
 
-    assert resource_logical_ids(text.splitlines()) == {("Scheduler.Schedule", name): logical_id}
+    assert resource_logical_ids(text.splitlines()) == {anchor: logical_id}
 
 
 def check_quicksight_group_principal_reference(tmp_path) -> None:
@@ -889,19 +893,19 @@ def check_workflow(tmp_path, catalog) -> None:
     original = kms.read_bytes()
     lines, children = expanded_design(KMS.splitlines())
     assert kms.read_bytes() == original
-    assert children['kms-aliasone']['resourceType'] == 'KMS.Alias'
-    assert children['kms-aliasone']['logicalId'] == 'AliasOne'
-    assert children['kms-aliastwo']['logicalId'] == 'AliasTwo'
-    assert children['kms-aliastwo']['parentProperty'] == 'KMS.Alias.TargetKeyId'
-    assert children['kms-aliastwo']['parentLogicalId'] == 'KeyOne'
-    assert children['kms-aliasthree']['parentLogicalId'] == 'KeyTwo'
+    assert children['resource-AliasOne']['resourceType'] == 'KMS.Alias'
+    assert children['resource-AliasOne']['logicalId'] == 'AliasOne'
+    assert children['resource-AliasTwo']['logicalId'] == 'AliasTwo'
+    assert children['resource-AliasTwo']['parentProperty'] == 'KMS.Alias.TargetKeyId'
+    assert children['resource-AliasTwo']['parentLogicalId'] == 'KeyOne'
+    assert children['resource-AliasThree']['parentLogicalId'] == 'KeyTwo'
     model = "\n".join(lines)
     assert '| KMS.Alias.AliasName | `alias/two` |' in model
     assert '| KMS.Key.KeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` |' in model
     assert '| KMS.Key.KeyId | `PENDING_DEPLOY` |' in model
-    assert model_projection.linked_resource(s3, "[alias/two](kms.md#kms-aliastwo)") == ("KMS.Alias", "AliasTwo")
+    assert model_projection.linked_resource(s3, "[alias/two](kms.md#resource-AliasTwo)") == ("KMS.Alias", "AliasTwo")
     s3_model = "\n".join(expanded_display_rows(S3.splitlines()))
-    assert "| S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID | [alias/two](kms.md#kms-aliastwo) |" in s3_model
+    assert "| S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID | [alias/two](kms.md#resource-AliasTwo) |" in s3_model
     assert "| S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm | `aws:kms` |" in s3_model
     short_s3 = S3.replace("| S3.Bucket.", "| ")
     assert not errors(KMS, short_s3), errors(KMS, short_s3)
@@ -926,13 +930,13 @@ def check_workflow(tmp_path, catalog) -> None:
     ):
         assert any("formal property must use its Markdown display alias" in error for error in errors(KMS, s3_with_shortened_properties.replace(display, formal)))
 
-    marker = '<a id="kms-aliastwo"></a><!-- logical-id: AliasTwo --> '
+    marker = '<a id="resource-AliasTwo"></a><!-- logical-id: AliasTwo --> '
     bad_designs = [
         (KMS.replace(marker, ""), "requires anchor and logical ID"),
         (KMS.replace('KMS.Alias.AliasName', 'AliasName').replace(marker, ""), "full catalog name"),
         (KMS.replace('<!-- logical-id: AliasTwo -->', '<!-- logical-id: AliasOne -->'), "duplicate grouped logical ID"),
-        (KMS.replace('id="kms-aliastwo"', 'id="kms-aliasone"'), "duplicate resource anchor"),
-        (KMS.replace('id="kms-aliastwo"', 'id="kms-wrong"'), "logical ID/anchor"),
+        (KMS.replace('id="resource-AliasTwo"', 'id="resource-AliasOne"'), "duplicate resource anchor"),
+        (KMS.replace('id="resource-AliasTwo"', 'id="kms-wrong"'), "logical ID/anchor"),
         (KMS.replace('`alias/three`', '`alias/two`'), "duplicate grouped identity value"),
         (KMS.replace('`alias/three`', '`bad-alias`'), "provider schema violation"),
         (KMS.replace('### KMS.Key: KeyOne', '### S3.Bucket: KeyOne'), "wrong parent"),
@@ -944,8 +948,8 @@ def check_workflow(tmp_path, catalog) -> None:
     for markdown, message in bad_designs:
         failures = errors(markdown)
         assert any(message in error for error in failures), (message, failures)
-    for reference in ("[alias/one](kms.md#kms-aliastwo)", "[alias/two](kms.md#kms-keyone)", "[alias/two](kms.md#kms-missing)"):
-        assert errors(KMS, S3.replace("[alias/two](kms.md#kms-aliastwo)", reference))
+    for reference in ("[alias/one](kms.md#resource-AliasTwo)", "[alias/two](kms.md#kms-keyone)", "[alias/two](kms.md#kms-missing)"):
+        assert errors(KMS, S3.replace("[alias/two](kms.md#resource-AliasTwo)", reference))
     formal_kms = "S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID"
     assert any("must omit heading resource type" in error for error in errors(KMS, S3.replace("BucketEncryption[].KMSMasterKeyID", formal_kms)))
 
@@ -954,12 +958,12 @@ def check_workflow(tmp_path, catalog) -> None:
     moved = KMS.replace(alias_line + "\n", "").rstrip() + "\n" + alias_line.replace("| 4 |", "| 3 |") + "\n"
     assert not errors(moved), errors(moved)
     _, children = expanded_design(moved.splitlines())
-    assert children["kms-aliastwo"]["parentLogicalId"] == "KeyTwo"
-    assert children["kms-aliastwo"]["logicalId"] == "AliasTwo"
+    assert children["resource-AliasTwo"]["parentLogicalId"] == "KeyTwo"
+    assert children["resource-AliasTwo"]["logicalId"] == "AliasTwo"
     moved_children = expanded_design(kms.read_text().splitlines())[1]
-    assert moved_children['kms-aliastwo']['logicalId'] == 'AliasTwo'
-    assert moved_children['kms-aliastwo']['parentLogicalId'] == 'KeyTwo'
-    assert moved_children['kms-aliastwo']['parentAnchor'] == 'kms-keytwo'
+    assert moved_children['resource-AliasTwo']['logicalId'] == 'AliasTwo'
+    assert moved_children['resource-AliasTwo']['parentLogicalId'] == 'KeyTwo'
+    assert moved_children['resource-AliasTwo']['parentAnchor'] == 'kms-keytwo'
 
     # A new catalog type cannot silently inherit an independent display decision.
     copy_framework(root / 'framework/materials/aws', relative='materials/aws')

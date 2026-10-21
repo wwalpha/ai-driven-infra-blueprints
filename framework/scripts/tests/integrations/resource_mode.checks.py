@@ -25,6 +25,10 @@ def main():
         path.parent.mkdir(parents=True)
         source.parent.mkdir(parents=True)
 
+        write_model(source.with_name('cloudformation-stacks.properties'), {
+            'desired.stack.001.name': 'fixture', 'desired.stack.001.placementName': 'fixture',
+            'desired.stack.001.template': 'fixture.yaml', 'desired.stack.001.parameters': 'fixture.json',
+            'desired.stack.001.deployOrder': '1', 'display.stack.001.comment': '合成Stack'})
         def check(values):
             values = {key: value for key, value in values.items() if not (key.startswith("observed.row.") and key.endswith((".property", ".comment")))}
             original = "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
@@ -97,19 +101,8 @@ def main():
             assert "resourceMode must be CREATE or IMPORT" in check({**imported, "desired.resource.001.resourceMode": invalid})
         assert not (error := check(imported)), error
         original = path.read_text(encoding="utf-8")
-        marker = "<!-- resource-mode: ec2-private_subnet_01 IMPORT -->"
-        for replacement in (marker + "\n" + marker, marker.replace("IMPORT", "REFERENCE"), marker.replace("private_subnet_01", "missing")):
-            try:
-                resource_modes((original + replacement + "\n").splitlines())
-            except ValueError:
-                pass
-            else:
-                raise AssertionError("invalid resourceMode metadata accepted")
-        # Legacy comments cannot override the authoritative mode during verification.
-        stale = original + marker.replace("IMPORT", "CREATE") + "\n"
-        assert resource_modes(stale.splitlines(), imported)["resource-EC2_VPC_001"] == "IMPORT"
-        path.write_text(stale, encoding="utf-8")
-        sync_views.validate_views(root, root, [path], {path: imported})
+        stale = original + '# edited generated view\n'
+        path.write_text(stale, encoding='utf-8')
         try:
             SYNC.sync(root, False, "dev", "123456789012", services=["ec2"])
         except ValueError as error:

@@ -33,7 +33,7 @@ def mapping_inputs(tmp_path, monkeypatch):
 
 def resource(values, identity, logical):
     values.update({f'desired.resource.{identity}.resourceType': 'EC2.VPC',
-                   f'desired.resource.{identity}.logicalId': logical,
+                   f'desired.resource.{identity}.logicalId': 'EC2_VPC_' + identity,
                    f'desired.resource.{identity}.cfn-logicalId': 'Stack-' + logical})
 
 
@@ -41,69 +41,64 @@ def definition():
     return {'Type': 'AWS::EC2::VPC'}
 
 
-def check_prefix_order_and_dictionary_isolation(mapping_inputs):
+def check_fixed_ownership_and_invocation_isolation(mapping_inputs):
     root, loaded, invoke = mapping_inputs
-    path = root / 'model/dev/test/vpc.properties'
-    values = loaded[path] = {}
-    for identity, logical in [('a', 'Parent'), ('a-b', 'Child'), ('', 'Empty'), ('missing', 'Missing')]:
-        resource(values, identity, logical)
-    for rid in ['orphan-1', 'a-b-2', '-empty', 'a-b-1', 'a-1', 'ab-1', 'plain', 'a--tail', 'a-']:
+    values = loaded[root / 'model/dev/test/vpc.properties'] = {}
+    resource(values, '001', 'Parent')
+    resource(values, '002', 'Child')
+    for rid in ['001-002', '002-001', '001-001']:
         values[f'desired.row.{rid}.value'] = rid
         values[f'desired.row.{rid}.property'] = 'EC2.VPC.CidrBlock'
-    other = root / 'model/dev/test/other.properties'
-    loaded[other] = {}
-    resource(loaded[other], 'a', 'Other')
-    loaded[other]['desired.row.a-1.value'] = 'other'
-    _, result = invoke({name: definition() for name in ['Parent', 'Child', 'Empty', 'Missing', 'Other']})
-    assert list(result['Stack']) == ['Parent', 'Child', 'Empty', 'Missing', 'Other']
-    for name, identity in [('Parent', 'a'), ('Child', 'a-b'), ('Empty', ''), ('Missing', 'missing')]:
-        expected = [(rid, row) for rid, row in entries(values, 'desired.row.') if rid.startswith(identity + '-')]
-        actual = result['Stack'][name][3]
-        assert actual == expected
-        assert [list(row.items()) for _, row in actual] == [list(row.items()) for _, row in expected]
-    parent = dict(result['Stack']['Parent'][3])['a-b-1']
-    child = dict(result['Stack']['Child'][3])['a-b-1']
-    parent['value'] = 'changed'
-    assert child['value'] == values['desired.row.a-b-1.value'] == 'a-b-1'
-    assert result['Stack']['Other'][3] == [('a-1', {'value': 'other'})]
-    values['desired.row.a-b-1.value'] = 'next call'
-    assert dict(invoke({'Parent': definition()})[1]['Stack']['Parent'][3])['a-b-1']['value'] == 'next call'
+    result = invoke({'Parent': definition(), 'Child': definition()})[1]['Stack']
+    assert [rid for rid, row in result['Parent'][3]] == ['001-001', '001-002']
+    assert [rid for rid, row in result['Child'][3]] == ['002-001']
+    result['Parent'][3][0][1]['value'] = 'changed'
+    assert values['desired.row.001-001.value'] == '001-001'
+    values['desired.row.001-001.value'] = 'next call'
+    assert dict(invoke({'Parent': definition()})[1]['Stack']['Parent'][3])['001-001']['value'] == 'next call'
 
 
 def check_lazy_whole_model_parse_and_error_order(mapping_inputs):
     root, loaded, invoke = mapping_inputs
     values = loaded[root / 'model/dev/test/vpc.properties'] = {'desired.row.orphan': 'malformed'}
-    resource(values, 'a', 'First')
-    resource(values, 'b', 'Second')
+    resource(values, '001', 'First')
+    resource(values, '002', 'Second')
     assert invoke({})[1] == {'Stack': {}}
-    inactive = definition() | {'Condition': 'Never'}
-    # No selected resource means no Row parse, including an inactive resource.
     from unittest.mock import patch
     with patch.object(observed, 'condition_active', return_value=False):
-        assert invoke({'First': inactive})[1] == {'Stack': {}}
+        assert invoke({'First': definition()})[1] == {'Stack': {}}
     with pytest.raises(observed.MappingError) as caught:
         invoke({'Unknown': definition(), 'First': definition(), 'Second': definition()})
     assert caught.value.errors == {'Stack': [
         'Stack/Unknown: cfn-logicalId matches=0; explicit mapping required',
         'Stack/First: invalid model entry: desired.row.orphan',
         'Stack/Second: invalid model entry: desired.row.orphan']}
-    # A malformed unused model must remain unparsed.
     loaded[root / 'model/dev/test/unused.properties'] = {'desired.row.unused': 'malformed'}
     del values['desired.row.orphan']
     assert invoke({'First': definition()})[1]['Stack']['First'][3] == []
+    values['desired.row.999-001.value'] = 'orphan'
+    with pytest.raises(observed.MappingError, match='orphan desired row'):
+        invoke({'First': definition()})
 
 
-def check_owner_collision_precedes_row_parse(mapping_inputs):
+def check_explicit_mapping_uniqueness_and_no_name_inference(mapping_inputs):
     root, loaded, invoke = mapping_inputs
-    values = loaded[root / 'model/dev/test/vpc.properties'] = {'desired.row.orphan': 'malformed'}
-    resource(values, 'a', 'FirstName')
-    resource(values, 'b', 'FirstName')
+    values = loaded[root / 'model/dev/test/vpc.properties'] = {}
+    resource(values, '001', 'First')
+    del values['desired.resource.001.cfn-logicalId']
+    with pytest.raises(observed.MappingError, match='explicit mapping required'):
+        invoke({'First': definition()})
+    values['desired.resource.001.cfn-logicalId'] = 'Stack-First'
+    resource(values, '002', 'First')
+    with pytest.raises(observed.MappingError, match='matches=2'):
+        invoke({'First': definition()})
+    values['desired.row.orphan'] = 'malformed'
     with pytest.raises(observed.MappingError) as caught:
-        invoke({'FirstName': definition()})
+        invoke({'First': definition()})
     assert caught.value.errors == {'Stack': [
-        'Stack/FirstName: cfn-logicalId matches=2; explicit mapping required']}
+        'Stack/First: cfn-logicalId matches=2; explicit mapping required']}
 
 
 if __name__ == '__main__':
     from support.pytest_cli import run
-    raise SystemExit(run(__file__, message='observed mapping prefix checks: PASS'))
+    raise SystemExit(run(__file__, message='observed explicit mapping checks: PASS'))

@@ -285,15 +285,12 @@ def cleanup_state(root, path, state):
             raise Blocked("task worktree is dirty; cleanup refused")
         if path.with_suffix(".setup-lock").exists():
             raise Blocked("Python setup busy; cleanup refused")
-        managed_venv = python_env.venv_directory(target)
         # Preserve user artifacts before removing the owned environment or checkout.
         ignored = paths(target, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
         extras = {p for p in ignored if p != state["task_file"]
-                  and not (managed_venv.exists() and Path(p).parts[0] == ".venv")
                   and not ("__pycache__" in Path(p).parts and p.endswith(".pyc"))}
         if extras:
             raise Blocked("ignored files need preservation before cleanup: " + ", ".join(sorted(extras)))
-        python_env.remove(target)
         git(root, "worktree", "remove", str(target))
     if branch_exists(root, state["branch"]):
         tip = output(root, "rev-parse", f"refs/heads/{state['branch']}")
@@ -365,11 +362,7 @@ def _prepare_commit(root, path, state, target, approval):
     contract = (target / state['task_file']).read_text(encoding='utf-8')
     operation = tasks.final_model_task(contract)
     parsed_operation = tasks.model_operation(contract)
-    from model.migration.contract import migration_contract
-    migration = migration_contract(contract)
-    if migration is not None and output(root, 'rev-parse', f"refs/heads/{state['base']}") != migration.baseline:
-        raise Blocked('format migration requires its fixed current local base; re-export before integration')
-    if approval and (migration is not None or tasks.model_refactor(contract) is not None or parsed_operation is not None and parsed_operation.action in {'import-retarget', 'import-delete'}):
+    if approval and (tasks.model_refactor(contract) is not None or parsed_operation is not None and parsed_operation.action in {'import-retarget', 'import-delete'}):
         raise Blocked('Model refactor/retarget/delete integration requires successful final candidate validation')
     head = _commit_preconditions(target, state, changed, contract, parsed_operation)
     base_worktree(root, state)
@@ -380,7 +373,7 @@ def _prepare_commit(root, path, state, target, approval):
         index = output(target, 'diff', '--cached', '--raw', '--no-abbrev', '--no-renames')
         before = {p: (target / p).read_bytes() if (target / p).is_file() else None for p in changed}
         _run_model_guard(target, state['task_file'], bool(approval))
-        changed = changed_paths(target)  # Valid legacy receipts may have migrated.
+        changed = changed_paths(target)
         current = (target / state['task_file']).read_text(encoding='utf-8')
         if output(target, 'diff', '--cached', '--raw', '--no-abbrev', '--no-renames') != index:
             raise Blocked('task index changed during Model guard; retain worktree')
@@ -388,8 +381,6 @@ def _prepare_commit(root, path, state, target, approval):
             raise Blocked('task contract changed during Model guard; retain worktree')
         after = {p: (target / p).read_bytes() if (target / p).is_file() else None for p in changed}
         for p in before.keys() | after.keys():
-            if p.startswith('.blueprint/import/') and after.get(p) is None:
-                continue  # The guard may migrate a valid legacy receipt.
             if p not in before or p not in after or before[p] != after[p]:
                 raise Blocked('task changes changed during Model guard; retain worktree: ' + p)
         integration_task(target, state, approval)

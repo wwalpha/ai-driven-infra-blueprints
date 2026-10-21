@@ -8,15 +8,15 @@ import sys
 
 from validation_scope import active_scope
 from model.files import service_model_path
-from task_contract import task_path, contract_path, model_operation, validate_contract, status, model_identity_rewrite
+from task_contract import task_path, contract_path, model_operation, validate_contract, status
 
 
 SERVICE = r"[a-z0-9]+(?:[-_][a-z0-9]+)*"
 
 
 def remediation_scope(root: Path, *, task_file=None, contract_file=None) -> set[tuple[str, str, str]]:
-    path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, selected=task_file)
-    if not input_is_file(path):
+    path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, selected=task_file, required=False)
+    if path is None:
         return set()
     result = set()
     inside = False
@@ -185,28 +185,9 @@ def task_issue_errors(root: Path, scope, *, target=None, task_file=None, contrac
     """
     if task_file is not None and contract_file is not None:
         raise ValueError('select either an executing task or a read-only contract')
-    path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, selected=task_file)
-    if input_is_file(path):
+    path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, selected=task_file, required=False)
+    if path is not None:
         text = input_text(path, encoding='utf-8')
-        from model.migration.contract import migration_contract, require_preserved_inputs
-        migration = migration_contract(text)
-        if migration is not None:
-            declared = {tuple(service.split('/')) for service in migration.services}
-            if scope != declared or target is not None:
-                raise ValueError('format migration issue preservation requires its exact service scope')
-            require_preserved_inputs(root, migration)
-            return []  # Existing issues remain unchanged; this proves only a format transition.
-        if model_identity_rewrite(text):
-            name = path.relative_to(root).as_posix()
-            validate_contract(root, name, text)
-            declared = active_scope(root, task_file=task_file, contract_file=contract_file)
-            if (not scope or declared is None or not scope <= declared or
-                    target is not None and any(entry[:2] != target for entry in scope)):
-                raise ValueError('identity rewrite issue exception requires explicit matching service Validation scope')
-            if (root / '.git').exists():
-                from worktree_task import task_start_commit
-                task_start_commit(root, name)
-            return []  # Only the existing inventory gate; source/final preservation guards still run.
         operation = model_operation(text)
         if operation is not None and operation.action == 'import-delete':
             name = path.relative_to(root).as_posix()
@@ -239,7 +220,7 @@ def require_no_issues(root: Path, scope, *, target=None, task_file=None, contrac
 def require_target_no_issues(root: Path, target: tuple[str, str]) -> None:
     if not input_is_file(root / "issues" / target[0] / target[1] / "issues.md"):
         return
-    scope = active_scope(root) if input_is_file(task_path(root)) else None
+    scope = active_scope(root) if task_path(root, required=False) is not None else None
     if scope is not None and not any(entry[:2] == target for entry in scope):
         scope = None  # An unrelated contract cannot bypass a target's issues.
     require_no_issues(root, scope, target=target)

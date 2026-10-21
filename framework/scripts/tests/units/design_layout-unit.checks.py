@@ -71,6 +71,17 @@ def check_pipeline_expansion(catalog):
 
 
 
+def check_fixed_identity_anchors():
+    from design_layout import resource_logical_ids
+    import pytest
+    lines = []
+    for logical in ('EC2_Subnet_001', 'EC2_Subnet_002'):
+        lines += ['<!-- resource-logical-id: ' + logical + ' -->', '<a id="resource-' + logical + '"></a>', '### EC2.Subnet: same-name']
+    assert resource_logical_ids(lines) == {'resource-EC2_Subnet_001': 'EC2_Subnet_001', 'resource-EC2_Subnet_002': 'EC2_Subnet_002'}
+    with pytest.raises(ValueError, match='duplicate'):
+        resource_logical_ids(lines + lines[:3])
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

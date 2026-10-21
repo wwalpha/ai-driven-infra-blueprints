@@ -355,8 +355,10 @@ def operation_candidate(before, after, action='import-merge'):
 def operation_contract(action='import-merge', source='stg/cde/vpc/009', destination='stg/cde/vpc/001'):
     return ('## Task contract\n- Task type: `design`\n- Task status: `running`\n- Workflow: `update`\n'
             '- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n'
-            '- Model operation: `' + action + '`\n- Source resource: `' + source + '`\n'
-            + ('- Destination resource: `' + destination + '`\n' if action == 'import-merge' else ''))
+            '- Model operation: `' + action + '`\n'
+            + ('## Model merge pairs\n- ' + json.dumps({'source': source, 'destination': destination}) + '\n'
+               if action == 'import-merge' else '## Model delete sources\n- `' + source + '`\n'))
+
 
 
 class CloudControlCli:
@@ -446,7 +448,7 @@ def batch_operation_fixture(before, after):
                 changed[f'observed.row.{target_id}.value'] = expanded[observed]
         changed = {key: value for key, value in changed.items() if owner(key, changed) != ('resource', source)}
     write_model(after / 'model/stg/cde/vpc.properties', changed)
-    contract = operation_contract().split('- Source resource:')[0] + '## Model merge pairs\n' + ''.join(
+    contract = operation_contract().split('## Model merge pairs')[0].split('## Model delete sources')[0] + '## Model merge pairs\n' + ''.join(
         '- ' + json.dumps({'source': 'stg/cde/vpc/' + source, 'destination': 'stg/cde/vpc/' + destination}) + '\n'
         for source, destination in pairs)
     return contract, {'model/stg/cde/vpc.properties'}

@@ -188,13 +188,6 @@ def check_venv_fallback():
                 assert Path(executable) == py.python_path(directory)
                 assert Path(prefix) == Path(virtual) == directory
                 assert Path(first_bin) == py.python_path(directory).parent
-            # A legacy Task keeps its owned local venv until guarded cleanup.
-            import venv
-            venv.EnvBuilder(with_pip=False).create(target / ".venv")
-            _, _, path, record = wt.load(root, "first")
-            record["python_setup"]["kind"] = "venv"
-            wt.save(path, record)
-            assert not wt.setup(root, "first")["python_setup"]["installed"]
             wt.tasks.start(target, states[0]["task_file"], checks.contract("first", [py.REQUIREMENTS]))
             wt.tasks.complete(target, states[0]["task_file"])
             assert wt.finalize(root, "first")["cleaned"]
@@ -202,7 +195,7 @@ def check_venv_fallback():
             assert py.runtime(Path(states[1]["worktree"]))[0] == py.python_path(directory)
             print("Offline empty-requirements Create timings (total/setup/git+state seconds): " +
                   str([(round(t, 3), round(s, 3), round(t-s, 3)) for t, s in zip(times, setup_times)]))
-    print("Real fixed-path venv, one install, wrapper/CLI, legacy migration and shared survival after cleanup: PASS")
+    print("Real fixed-path venv, one install, wrapper/CLI, shared survival after cleanup: PASS")
 
 
 @it_case
@@ -317,20 +310,6 @@ def check_symlink_safety():
         external = root.parent / "external"
         external.mkdir()
         (external / "keep").write_text("keep")
-        directory = root / ".venv"
-        directory.symlink_to(external, target_is_directory=True)
-        blocked(lambda: py.remove(root), "unexpected")
-        blocked(lambda: py.setup(root, {}), "unexpected")
-        directory.unlink()
-        directory.mkdir()
-        (directory / "keep").write_text("not an environment")
-        blocked(lambda: py.remove(root), "no Python environment configuration")
-        blocked(lambda: py.setup(root, {}), "no Python environment configuration")
-        assert (directory / "keep").read_text() == "not an environment"
-        (directory / "pyvenv.cfg").write_text("home = fixture\n")
-        (directory / "external").symlink_to(external, target_is_directory=True)
-        py.remove(root)
-        assert (external / "keep").exists()
         shared = py.shared_directory(root)
         shared.parent.mkdir(parents=True)
         shared.symlink_to(external, target_is_directory=True)

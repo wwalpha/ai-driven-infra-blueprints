@@ -70,7 +70,7 @@ def linked_resource(path: Path, value: str, *, design_index: DesignIndex | None 
             pending_anchor = anchor.group(1)
         elif resource := RESOURCE.fullmatch(line):
             if pending_anchor == fragment:
-                return resource.group(1), identities.get(resource.groups(), resource.group(2))
+                return resource.group(1), identities.get(pending_anchor, resource.group(2))
             pending_anchor = ""
     return None
 

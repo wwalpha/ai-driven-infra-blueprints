@@ -47,7 +47,7 @@ def local_plan(root, environment, directory, requested, check_scope=True):
 def task_snapshot(root, environment, target, requested, plan):
     path = task_path(root)
     text = path.read_text(encoding="utf-8")
-    if status(text, path.name == "active.md") != "running":
+    if status(text) != "running":
         raise Blocked("destroy requires a running task")
     required = ["- Task type: `infrastructure`", "- Infrastructure phase: `destroy`",
                 "- AWS API execution: `allowed`", "- Destroy: `allowed`",

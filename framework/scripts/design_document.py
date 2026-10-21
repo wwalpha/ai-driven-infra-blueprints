@@ -29,11 +29,11 @@ class DesignView:
     _lock: object = field(default_factory=RLock, repr=False, compare=False)
 
     @cached_property
-    def _logical_ids(self) -> dict[tuple[str, str], str]:
+    def _logical_ids(self) -> dict[str, str]:
         return resource_logical_ids(list(self.lines))
 
     @property
-    def logical_ids(self) -> dict[tuple[str, str], str]:
+    def logical_ids(self) -> dict[str, str]:
         with self._lock:
             return self._logical_ids
 

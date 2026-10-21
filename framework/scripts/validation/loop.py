@@ -462,8 +462,8 @@ def _run_loop(root, args, final_candidate):
     selected_name = None if args.staged else args.task_file
     try:
         if not args.staged:
-            selected = task_path(root)
-            if selected.is_file():
+            selected = task_path(root, required=False)
+            if selected is not None:
                 selected_name = selected.relative_to(root).as_posix()
         scope = active_scope(root, args.all) if not args.staged else set()
         if args.write and (scope == set() or args.all and active_scope(root) == set()):
@@ -599,5 +599,3 @@ def _run_loop(root, args, final_candidate):
 
 def interrupt(signum, frame):
     raise KeyboardInterrupt
-
-

@@ -43,13 +43,14 @@ def fixture(base, service, resources):
                       'awsExecutionAccountId': '123456789012', 'awsRegion': 'ap-northeast-1'}
     values = {}
     for number, kind, anchor, rows in resources:
-        for key, value in {'resourceType': kind, 'anchor': anchor, 'logicalId': anchor}.items():
+        for key, value in {'resourceType': kind, 'cfn-logicalId': 'fixture-' + anchor.replace('-', '').title(), 'logicalId': kind.replace('.', '_') + '_' + str(number).zfill(3)}.items():
             values[f'desired.resource.{number}.{key}'] = value
         for index, (prop, value, document) in enumerate(rows, 1):
             prefix = f'desired.row.{number}-{index:03d}.'
             values.update({prefix + 'property': kind + '.' + prop, prefix + 'value': value, prefix + 'comment': 'fixture'})
             if document is not None:
                 values[prefix + 'document'] = json.dumps(document)
+    values['desired.service.identity.lastAllocated'] = json.dumps({kind: max(int(number) for number, selected, _, _ in resources if selected == kind) for _, kind, _, _ in resources})
     data['models'] = {'dev/cde/' + service: values}
     return data
 
@@ -110,8 +111,8 @@ def check():
             ('002','IAM.ManagedPolicy','managed',[('ManagedPolicyName','`managed`',None),('PolicyDocument','[managed](iam/managed.json)',POLICY)])])
         vpc = fixture({}, 'vpc', [
             ('001','EC2.VPC','main-vpc',[('Name','`fixture-vpc`',None),('CidrBlock','`10.10.0.0/23`',None),('EnableDnsSupport','`true`',None),('VpcId','`vpc-fixture`',None)]),
-            ('002','EC2.Subnet','subnet',[('Name','`fixture-subnet`',None),('VpcId','[main](#main-vpc)',None)]),
-            ('003','EC2.FlowLog','flowlog',[('DeliverLogsPermissionArn','[role](iam.md#role)',None)])])
+            ('002','EC2.Subnet','subnet',[('Name','`fixture-subnet`',None),('VpcId','resource://dev/cde/vpc/EC2_VPC_001',None)]),
+            ('003','EC2.FlowLog','flowlog',[('DeliverLogsPermissionArn','resource://dev/cde/iam/IAM_Role_001',None)])])
         for service, data in [('vpc',vpc),('iam',iam)]:
             write_model(root/'model/dev/cde'/(service+'.properties'),data['models']['dev/cde/' + service])
         sources = {service: generator.generate(root, 'dev', 'cde', service)[0] for service in ('vpc', 'iam')}
@@ -131,15 +132,12 @@ def check():
             gateway = fixture({}, 'ec2', [('001', 'EC2.TransitGateway', 'gateway', [('TransitGatewayId', '`tgw-fixture`', None)])])
             write_model(crossroot / 'model' / env / alias / 'ec2.properties', gateway['models']['dev/cde/ec2'])
         cross_values = dict(vpc['models']['dev/cde/vpc'])
-        cross_values['desired.row.002-002.value'] = '[other](../other/vpc.md#main-vpc)'
+        cross_values['desired.row.002-002.value'] = 'resource://dev/other/vpc/EC2_VPC_001'
         cross_values.update({'desired.row.002-003.property': 'EC2.Subnet.Tags',
-            'desired.row.002-003.value': '`["[prod](../../prod/cde/vpc.md#main-vpc)"]`',
+            'desired.row.002-003.value': '`["resource://prod/cde/vpc/EC2_VPC_001"]`',
             'desired.row.002-003.comment': 'cross environment',
-            'desired.row.002-004.property': 'EC2.Subnet.Tags',
-            'desired.row.002-004.value': '`["[missing](../other/missing.md#missing)"]`',
-            'desired.row.002-004.comment': 'missing producer',
             'desired.row.002-005.property': 'EC2.Subnet.Tags',
-            'desired.row.002-005.value': '`["[gateway](../other/ec2.md#gateway)","[gateway](../../prod/cde/ec2.md#gateway)"]`',
+            'desired.row.002-005.value': '`["resource://dev/other/ec2/EC2_TransitGateway_001","resource://prod/cde/ec2/EC2_TransitGateway_001"]`',
             'desired.row.002-005.comment': 'Cloud Control references'})
         write_model(crossroot / 'model/dev/cde/vpc.properties', cross_values)
         from validation_cache import input_context
@@ -150,11 +148,11 @@ def check():
             m = runtime(cross)['engine'](cross)
             ctx = m.Context(m.ROOT, cross['target'], cli_runner=lambda *a, **k: (_ for _ in ()).throw(AssertionError('AWS forbidden')))
             consumer = ctx.model(m.ROOT / 'model/dev/cde/vpc.properties').resources[1]
-            for link, address in [('[other](../other/vpc.md#main-vpc)', 'dev/other/vpc'),
-                                  ('[prod](../../prod/cde/vpc.md#main-vpc)', 'prod/cde/vpc')]:
+            for link, address in [('resource://dev/other/vpc/EC2_VPC_001', 'dev/other/vpc'),
+                                  ('resource://prod/cde/vpc/EC2_VPC_001', 'prod/cde/vpc')]:
                 producer = consumer.reference(link)
                 assert producer.model.path == m.ROOT / 'model' / (address + '.properties')
-                gateway_link = link.replace('vpc.md#main-vpc', 'ec2.md#gateway')
+                gateway_link = link.replace('/vpc/EC2_VPC_001', '/ec2/EC2_TransitGateway_001')
                 gateway = consumer.reference(gateway_link)
                 assert gateway.kind == 'EC2.TransitGateway'
                 for selected in (producer, gateway):
@@ -169,15 +167,15 @@ def check():
                         else:
                             raise AssertionError('cross-scope reference expanded AWS authorization')
             try:
-                consumer.reference('[missing](../other/missing.md#missing)')
+                consumer.reference('resource://dev/other/missing/EC2_VPC_001')
             except m.Unresolved as error:
                 assert 'producer Model is absent' in str(error)
             else:
                 raise AssertionError('absent producer used another scope')
             try:
-                consumer.reference('[escape](../../../escape.md#main-vpc)')
+                consumer.reference('resource://dev/../vpc/EC2_VPC_001')
             except ValueError as error:
-                assert 'outside the Model tree' in str(error)
+                assert 'invalid Resource URI scope' in str(error)
             else:
                 raise AssertionError('Model tree escape accepted')
         from task_contract import SELECTOR, task_revision
@@ -232,7 +230,7 @@ def check():
     assert status['EC2.VPC.VpcId'] == 'identifier', records
     stamp = datetime(2026, 10, 15, tzinfo=timezone.utc)
     text, code = rt['report'](vpc, 'dev-profile', account, records, stamp)
-    assert code == 2 and '[ERROR] main-vpc.EC2.VPC.VpcId' in text
+    assert code == 2 and '[ERROR] EC2_VPC_001.EC2.VPC.VpcId' in text
     assert 'aws ec2 describe-vpc-attribute' in text and 'Diff paths: $' in text
     assert 'Model SHA256:' in text and 'Executed:' in text
     # No lookup-only property can produce an overall configuration PASS.
@@ -258,13 +256,13 @@ def check():
     assert all(api == ('sts', 'get-caller-identity') for api, _, _ in cli.calls)
     # Unresolved references remain visible, independent of the other attributes.
     unresolved = copy.deepcopy(vpc)
-    unresolved['models']['dev/cde/vpc']['desired.row.001-002.value'] = '[missing](#missing)'
+    unresolved['models']['dev/cde/vpc']['desired.row.001-002.value'] = 'resource://dev/cde/vpc/EC2_VPC_999'
     result = rt['audit'](unresolved, None, CLI(responses))[2]
     assert any(r['propertiesKey'] == 'EC2.VPC.CidrBlock' and r['status'] == 'design_unresolved' for r in result)
     # A valid parent reference uses the fetched identity, then checks membership.
     referenced = fixture(snapshots['vpc'], 'vpc', [
         ('001', 'EC2.VPC', 'main-vpc', [('Name', '`test-vpc`', None), ('CidrBlock', '`10.10.0.0/23`', None)]),
-        ('002', 'EC2.Subnet', 'subnet', [('Name', '`test-subnet`', None), ('VpcId', '[main](#main-vpc)', None)])])
+        ('002', 'EC2.Subnet', 'subnet', [('Name', '`test-subnet`', None), ('VpcId', 'resource://dev/cde/vpc/EC2_VPC_001', None)])])
     membership = {**responses, ('ec2', 'describe-subnets'): {'Subnets': [
         {'SubnetId': 'subnet-01', 'VpcId': 'vpc-wrong-parent', 'Tags': [{'Key': 'Name', 'Value': 'test-subnet'}]}]}}
     resolved = rt['audit'](referenced, None, CLI(membership))[2]
@@ -313,9 +311,9 @@ def check():
     actual_policy = copy.deepcopy(POLICY)
     actual_policy['Statement'][0]['Resource'] = role_arn
     symbolic_responses[('iam', 'get-role')]['Role']['AssumeRolePolicyDocument'] = actual_policy
-    for expression, expected in [({'Fn::GetAtt': ['role', 'Arn']}, 'match'),
-                                 ({'Fn::GetAtt': ['role', 'RoleId']}, 'design_unresolved'),
-                                 ({'Fn::Sub': '${role.RoleId}'}, 'design_unresolved')]:
+    for expression, expected in [({'Fn::GetAtt': ['Role', 'Arn']}, 'match'),
+                                 ({'Fn::GetAtt': ['Role', 'RoleId']}, 'design_unresolved'),
+                                 ({'Fn::Sub': '${Role.RoleId}'}, 'design_unresolved')]:
         document = copy.deepcopy(POLICY)
         document['Statement'][0]['Resource'] = expression
         symbolic['models']['dev/cde/iam']['desired.row.001-002.document'] = json.dumps(document)
@@ -354,12 +352,12 @@ def check():
         script.write_text(source.replace(old, replacement, 1), encoding='utf-8')
         process = subprocess.run([sys.executable, '-I', '-B', str(script)], cwd=folder,
                                  env={**os.environ, 'PATH': str(folder)}, capture_output=True, text=True, timeout=30)
-        assert process.returncode == 2 and '[OK] main-vpc.EC2.VPC.CidrBlock' in process.stdout, (process.stdout, process.stderr)
+        assert process.returncode == 2 and '[OK] EC2_VPC_001.EC2.VPC.CidrBlock' in process.stdout, (process.stdout, process.stderr)
         flat = folder / 'vpc.py'
         flat.write_text(script.read_text(encoding='utf-8'), encoding='utf-8')
         process = subprocess.run([sys.executable, '-I', '-B', str(flat)], cwd=folder,
                                  env={**os.environ, 'PATH': str(folder)}, capture_output=True, text=True, timeout=30)
-        assert process.returncode == 2 and '[OK] main-vpc.EC2.VPC.CidrBlock' in process.stdout, (process.stdout, process.stderr)
+        assert process.returncode == 2 and '[OK] EC2_VPC_001.EC2.VPC.CidrBlock' in process.stdout, (process.stdout, process.stderr)
         assert any(path.read_text(encoding='utf-8') == process.stdout for path in logs[0].parent.glob('vpc-*.log'))
 
     from validation.scenario import check_results

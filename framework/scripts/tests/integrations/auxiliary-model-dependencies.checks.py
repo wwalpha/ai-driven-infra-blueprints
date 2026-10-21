@@ -39,14 +39,14 @@ def check(root):
     unrelated.parent.mkdir(parents=True)
     unrelated.write_text('invalid unrelated model\n')
     bucket = entrance.with_name('s3.properties')
-    values = resource('041', 'S3.Bucket', 's3-one', [('BucketName', '`fixture-role`'), ('Producer', '[fixture-role](iam.md#iam-one)')])
+    values = resource('041', 'S3.Bucket', 's3-one', [('BucketName', '`fixture-role`'), ('Producer', 'resource://preview/team/iam/IAM_Role_041')])
     values.update(reference('role-name', 'desired.row.041-001.value', 'fixture-role', 'iam', '041', 'IAM.Role', prop='IAM.Role.RoleName'))
-    values.update(reference('role-link', 'desired.row.041-002.value', '[fixture-role](iam.md#iam-one)', 'iam', '041', 'IAM.Role', mode='link', label='display-name'))
+    values.update(reference('role-link', 'desired.row.041-002.value', 'resource://preview/team/iam/IAM_Role_041', 'iam', '041', 'IAM.Role', mode='link', label='display-name'))
     write_model(bucket, values)
     stack = entrance.with_name('cloudformation-stacks.properties')
     values = {'desired.stack.001.name': 'fixture-role', 'desired.stack.001.placementName': 'fixture',
               'desired.stack.001.template': 'fixture.yaml', 'desired.stack.001.parameters': 'fixture.json',
-              'desired.stack.001.deployOrder': '1', 'desired.deployment.templateKeyPrefix': 'fixture/', 'desired.deployment.templateBucket': '[fixture-role](s3.md#s3-one)'}
+              'desired.stack.001.deployOrder': '1', 'desired.deployment.templateKeyPrefix': 'fixture/', 'desired.deployment.templateBucket': 'resource://preview/team/s3/S3_Bucket_041'}
     values.update(reference('bucket-name', 'desired.stack.001.name', 'fixture-role', 's3', '041', 'S3.Bucket', prop='S3.Bucket.BucketName'))
     write_model(stack, values)
     instance = entrance.with_name('ec2.properties')

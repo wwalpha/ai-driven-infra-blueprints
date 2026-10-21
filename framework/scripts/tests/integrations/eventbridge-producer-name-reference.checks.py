@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
+import pytest
 from support.it_case_receipt import it_case, module_complete
 from support.producer_identifier_reference_fixtures import *
 
@@ -46,7 +47,11 @@ def check(root, service, kind, property_name):
         ({**original, 'desired.row.052-001.value': '``'}, 'differs from saved text'),
         ({**original, 'desired.row.052-003.property': kind + '.' + property_name, 'desired.row.052-003.value': '`duplicate`', 'desired.row.052-003.comment': '重複'}, 'Property is absent or ambiguous')]:
         write_model(producer, bad)
-        assert warning(path, phrase).authoritative == snapshot.authoritative
+        if any(key in original and key.endswith('.resourceType') and original[key] != value for key, value in bad.items()):
+            with pytest.raises(ValueError, match='ResourceType prefix'):
+                load_model(path)
+        else:
+            assert warning(path, phrase).authoritative == snapshot.authoritative
     write_model(producer, original)
     rejected(lambda: declarations({**values, 'desired.reference.raw.labelPolicy': 'fixed'}), 'non-link')
     producer.unlink()

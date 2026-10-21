@@ -20,10 +20,12 @@ def job_bucket_tables(path: Path) -> dict[str, tuple[Path, list[dict]]]:
     lines = path.read_text(encoding="utf-8").splitlines()
     artifacts: dict[str, Path] = {}
     mappings: dict[str, list[dict]] = {}
-    current = ""
+    current = anchor = ""
     index = 0
     while index < len(lines):
         line = lines[index]
+        if marker := re.fullmatch(r'<a id="([^"]+)"></a>', line):
+            anchor = marker.group(1)
         if match := JOB.fullmatch(line):
             current = match.group(1)
         elif line.startswith("### "):
@@ -49,7 +51,7 @@ def job_bucket_tables(path: Path) -> dict[str, tuple[Path, list[dict]]]:
         last_account = ""
         while index < len(lines) and lines[index].startswith("|"):
             cells = [cell.strip() for cell in lines[index].strip("|").split("|")]
-            if len(cells) != 3 or cells[0] != f"[{current}](#macie-{current.lower()})" or not re.fullmatch(r"`[0-9]{12}`", cells[1]):
+            if len(cells) != 3 or cells[0] != f"[{current}](#{anchor})" or not re.fullmatch(r"`[0-9]{12}`", cells[1]):
                 raise ValueError(f"invalid Macie Job/account mapping row: {current}")
             bucket = cells[2][1:-1] if cells[2].startswith("`") and cells[2].endswith("`") else ""
             if match := BUCKET_LINK.fullmatch(cells[2]):

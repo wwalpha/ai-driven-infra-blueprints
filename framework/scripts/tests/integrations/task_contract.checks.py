@@ -55,17 +55,10 @@ def check_completed_legacy_and_paths(tmp_path):
         changed = {old, new, "README.md", "old.md", "tasks/removed.md"}
         for name in (old, new):
             (root / name).unlink()
-        legacy = contract("tasks/active.md", ["README.md"])
-        legacy = legacy.replace("- Task status: `running`\n", "")
-        legacy = legacy[:legacy.index("## Modified files")] + "## Allowed paths\n- `README.md`\n- `tasks/active.md`\n"
-        (root / "tasks/active.md").write_text(legacy)
-        assert tasks.task_path(root) == root / "tasks/active.md"
-        blocked(lambda: tasks.start(root, new, contract(new, ["new.md"])), "migrate tasks/active.md")
-        tasks.suspend(root, "tasks/active.md", "legacy check failed: README.md")
-        blocked(lambda: tasks.task_path(root), "suspend task cannot execute")
-        tasks.resume(root, "tasks/active.md")
-        assert tasks.task_path(root) == root / "tasks/active.md"
-        (root / "tasks/active.md").unlink()
+        assert tasks.task_path(root, required=False) is None
+        assert tasks.task_revision(root) == (None, None)
+        blocked(lambda: tasks.task_path(root), "selected task contract required")
+        blocked(lambda: tasks.status("## Task contract\n"), "Task status")
         for value in ("../escape", "/tmp/escape", "./file", "a//file", "a/../file", "*.md", "a/**", ".git/config", "."):
             blocked(lambda value=value: tasks.start(root, new, contract(new, [value])), "exact repository-relative path")
         (root / "linked").symlink_to(root / "elsewhere")
@@ -85,7 +78,7 @@ def check_suspend_and_resume(tmp_path):
         saved = (root / first).read_bytes()
         assert tasks.status(saved.decode()) == "suspend"
         assert "schema failure in model/dev/cde/ec2.properties" in saved.decode()
-        assert tasks.task_path(root) == root / "tasks/active.md"
+        assert tasks.task_path(root, required=False) is None
         assert active_scope(root) == set()
         with patch.dict(os.environ, {tasks.SELECTOR: first}):
             blocked(lambda: tasks.task_path(root), "suspend task cannot execute")

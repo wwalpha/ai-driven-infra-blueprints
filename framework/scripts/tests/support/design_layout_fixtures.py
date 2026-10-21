@@ -71,8 +71,8 @@ KMS = """# KMS 詳細設計
 | ---: | --- | --- | --- |
 | 1 | KeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` | KMS keyを識別するID |
 | 2 | EnableKeyRotation | `true` | key materialの自動rotationを有効にする設定 |
-| 3 | KMS.Alias.AliasName | `alias/one` | <a id="kms-aliasone"></a><!-- logical-id: AliasOne --> KMS keyを識別するalias |
-| 4 | KMS.Alias.AliasName | `alias/two` | <a id="kms-aliastwo"></a><!-- logical-id: AliasTwo --> KMS keyを識別するalias |
+| 3 | KMS.Alias.AliasName | `alias/one` | <a id="resource-AliasOne"></a><!-- logical-id: AliasOne --> KMS keyを識別するalias |
+| 4 | KMS.Alias.AliasName | `alias/two` | <a id="resource-AliasTwo"></a><!-- logical-id: AliasTwo --> KMS keyを識別するalias |
 
 <a id="kms-keytwo"></a>
 
@@ -81,7 +81,7 @@ KMS = """# KMS 詳細設計
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 | 1 | KeyId | `PENDING_DEPLOY` | KMS keyを識別するID |
-| 2 | KMS.Alias.AliasName | `alias/three` | <a id="kms-aliasthree"></a><!-- logical-id: AliasThree --> KMS keyを識別するalias |
+| 2 | KMS.Alias.AliasName | `alias/three` | <a id="resource-AliasThree"></a><!-- logical-id: AliasThree --> KMS keyを識別するalias |
 """
 
 S3 = """# S3 詳細設計
@@ -107,7 +107,7 @@ S3 = """# S3 詳細設計
 | ---: | --- | --- | --- |
 | 1 | BucketName | `app-data` | bucketの名前 |
 | 2 | Region | `us-east-1` | bucketを配置するregion |
-| 3 | BucketEncryption[].KMSMasterKeyID | [alias/two](kms.md#kms-aliastwo) | 暗号化に使用するKMS alias |
+| 3 | BucketEncryption[].KMSMasterKeyID | [alias/two](kms.md#resource-AliasTwo) | 暗号化に使用するKMS alias |
 | 4 | BucketEncryption[].SSEAlgorithm | `aws:kms` | 暗号化方式 |
 """
 

@@ -23,7 +23,7 @@ from deployment.secret_bootstrap import BOOTSTRAP_STAGES
 def active_scope(root, requested, environment, account, alias=None):
     contract = task_path(root)
     text = contract.read_text(encoding="utf-8")
-    if status(text, contract.name == "active.md") != "running":
+    if status(text) != "running":
         raise Blocked("completed task cannot deploy")
     for line in ("- Task type: `infrastructure`", "- AWS API execution: `allowed`", "- Deploy/apply: `allowed`",
                  f"- Target environment: `{environment}`", f"- Target AWS account: `{account}`"):

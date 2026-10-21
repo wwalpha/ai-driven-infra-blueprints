@@ -108,12 +108,12 @@ def source_context(scope, *, imported=False):
     values = parse(scope.path.read_text(encoding='utf-8')).values
     values['desired.resource.007.resourceMode'] = 'IMPORT' if imported else 'CREATE'
     scope.path.write_text(serialize(values), encoding='utf-8')
-    task = scope.root / 'tasks/active.md'
+    task = scope.root / 'tasks/example.md'
     task.parent.mkdir(exist_ok=True)
-    listed = ''.join('- `' + path + '`\n' for path in ('tasks/active.md', scope.path.relative_to(scope.root).as_posix()))
+    listed = ''.join('- `' + path + '`\n' for path in ('tasks/example.md', scope.path.relative_to(scope.root).as_posix()))
     task.write_text('## Task contract\n- Task type: `governance`\n- Task status: `running`\n' +
                     '## Modified files\n' + listed + '## Allowed paths\n' + listed, encoding='utf-8')
-    inputs = GenerationInputs(scope.root, task_file='tasks/active.md')
+    inputs = GenerationInputs(scope.root, task_file='tasks/example.md')
     model = load_model(scope, inputs)
     context = SourceWriteContext._authorized(scope.root, inputs, SimpleNamespace(action='import-delete'),
                                             lambda changes: None, frozenset(model.files))
@@ -295,7 +295,7 @@ def import_publication_case(monkeypatch, failure):
             value['resources'][0]['resource'] = '009'
             selection.write_text(json.dumps(value), encoding='utf-8')
         elif failure == 'candidate-resource':
-            candidate.write_text(candidate.read_text() + 'desired.resource.002.resourceType=Logs.LogGroup\ndesired.resource.002.resourceMode=IMPORT\ndesired.resource.002.anchor=unselected\n', encoding='utf-8')
+            candidate.write_text(patch(parse(candidate.read_text()), {'desired.resource.002.resourceType': 'Logs.LogGroup', 'desired.resource.002.resourceMode': 'IMPORT', 'desired.resource.002.logicalId': 'Logs_LogGroup_002', 'desired.service.identity.lastAllocated': '{"Logs.LogGroup":2}'}), encoding='utf-8')
         elif failure == 'candidate-reference':
             extra = {**parse(candidate.read_text()).values}
             for field, value in {'consumerKey': 'desired.row.001-001.value', 'text': '[fixture](#logs-fixed)', 'occurrence': '1',
@@ -305,7 +305,7 @@ def import_publication_case(monkeypatch, failure):
             from model.format import serialize
             candidate.write_text(serialize(extra), encoding='utf-8')
         if failure in {'source', 'task', 'head', 'review', 'candidate', 'source-set', 'selection-target', 'candidate-resource', 'candidate-reference'}:
-            with pytest.raises(ValueError, match='changed|differs|unregistered|stale|candidate|selected Resource|reference map|correspondence'):
+            with pytest.raises(ValueError, match='changed|differs|unregistered|stale|candidate|selected Resource|reference map|correspondence|reference occurrence|allocation'):
                 cli.publish_acquisition(target, 'qa-synthetic', 'cloudwatch-logs', evidence, 'team-a')
             assert path.read_bytes() == original + (b'# concurrent edit\n' if failure == 'source' else b'')
             from import_guard import proof_path

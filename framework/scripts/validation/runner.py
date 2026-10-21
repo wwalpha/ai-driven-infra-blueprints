@@ -125,17 +125,6 @@ class Validator:
             if kind == 'check':
                 self.check(value in registered, f'unknown registered Acceptance check: {requirement}: {value}')
                 self.check(value in self.acceptance_stages, f'undefined Acceptance execution stage: {requirement}: {value}')
-        from model.migration.contract import migration_contract
-        migration = migration_contract(self.task.contract_text or '')
-        if migration is not None:
-            self.check(not self.write, 'format migration validates an explicit candidate; generated writes are forbidden')
-            self.check(self.scope == {tuple(service.split('/')) for service in migration.services},
-                       'format migration requires its exact service Validation scope')
-            self.check(self.task.import_checked, 'format migration equivalence guard failed')
-            self.findings.evaluate('model.format-migration', self.scope,
-                lambda: self.check(self.task.import_checked, 'format migration equivalence guard failed'))
-            self.check_acceptance_checks()
-            return self.report()
         self.input_check(snapshot, self.check_project_topology)
         self.check_validation_scope()
         if not self.write:
@@ -202,7 +191,7 @@ class Validator:
         from sync_runtime import prepare_generation, validate_generation, publish_generation, report_generation, planned_outputs
         from task_contract import paths_in, status
         name, text = snapshot.expected_task
-        self.check(text is not None and status(text, name == 'tasks/active.md') == 'running',
+        self.check(text is not None and status(text) == 'running',
                    '--write requires a running task contract')
         if self.errors:
             return
@@ -555,7 +544,6 @@ class Validator:
 
 
     acceptance_stages = {
-        "model.format-migration": "common",
         'framework.active-task-transition': 'common',
         'framework.rule-readings': 'common',
         'framework.design-handoff': 'common',
@@ -573,7 +561,6 @@ class Validator:
 
     def registered_checks(self):
         return {
-            "model.format-migration": lambda: self.check(self.task.import_checked, "format migration equivalence guard failed"),
             "framework.active-task-transition": self.check_framework_active_task_transition,
             "framework.rule-readings": self.check_framework_rule_readings,
             "framework.design-handoff": self.check_framework_design_handoff,

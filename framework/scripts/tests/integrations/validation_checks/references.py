@@ -148,7 +148,7 @@ def check_s3_bucket_policy_grouping() -> None:
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 | 1 | KeyId | `1234abcd-12ab-34cd-56ef-1234567890ab` | KMS keyを識別するID |
-| 2 | KMS.Alias.AliasName | `alias/app-data` | <a id="kms-appdatakeyalias"></a><!-- logical-id: AppDataKeyAlias --> application data用keyを識別するalias |
+| 2 | KMS.Alias.AliasName | `alias/app-data` | <a id="resource-AppDataKeyAlias"></a><!-- logical-id: AppDataKeyAlias --> application data用keyを識別するalias |
 """
         )
         valid = """# Amazon S3 詳細設計
@@ -166,7 +166,7 @@ def check_s3_bucket_policy_grouping() -> None:
 | ---: | --- | --- | --- |
 | 1 | BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |
 | 2 | Region | `ap-northeast-1` | bucketを配置するAWS region |
-| 3 | BucketEncryption[].KMSMasterKeyID | [alias/app-data](kms.md#kms-appdatakeyalias) | 新規objectのdefault暗号化に使用するKMS key alias |
+| 3 | BucketEncryption[].KMSMasterKeyID | [alias/app-data](kms.md#resource-AppDataKeyAlias) | 新規objectのdefault暗号化に使用するKMS key alias |
 | 4 | BucketEncryption[].SSEAlgorithm | `aws:kms` | 暗号化方式 |
 | 5 | VersioningConfiguration.Status | `Enabled` | objectのversion保持状態 |
 | 6 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |
@@ -185,7 +185,7 @@ def check_s3_bucket_policy_grouping() -> None:
             validator.check_design_links(identifier_outputs)
             return diagnostics(validator)
 
-        assert not errors(valid)
+        assert not (failures := errors(valid)), failures
         wrong_order = valid.replace(
             "| 1 | BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |\n"
             "| 2 | Region | `ap-northeast-1` | bucketを配置するAWS region |",
@@ -198,7 +198,7 @@ def check_s3_bucket_policy_grouping() -> None:
         unset_region = valid.replace("`ap-northeast-1`", "`UNSET`")
         assert any("must be a confirmed AWS region ID" in error for error in errors(unset_region))
         literal_alias = valid.replace(
-            "[alias/app-data](kms.md#kms-appdatakeyalias)", "`alias/app-data`"
+            "[alias/app-data](kms.md#resource-AppDataKeyAlias)", "`alias/app-data`"
         )
         assert any("must link to a KMS.Alias" in error for error in errors(literal_alias))
         wrong_alias = valid.replace("[alias/app-data]", "[alias/other]")
@@ -366,7 +366,7 @@ def check_resource_overview() -> None:
             validator.check_design_overviews()
             return diagnostics(validator)
 
-        assert not errors(valid)
+        assert not (failures := errors(valid)), failures
         assert any("resource overview numbering error" in error for error in errors(valid.replace("| 1 | [app-dev-data", "| 2 | [app-dev-data", 1)))
         assert any("Comment must describe the resource in Japanese" in error for error in errors(valid.replace("アプリケーションのデータを保管するbucket |", "resource |", 1)))
         assert any("must state a distinct purpose or role" in error for error in errors(valid.replace("アプリケーションのデータを保管するbucket |", "バケット（app-dev-data-123456789012）の設定 |", 1)))

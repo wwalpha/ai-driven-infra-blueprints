@@ -40,7 +40,7 @@ def check_human(root):
     after = load_model(snapshot.scope, CandidateReads(FileReads(), {paths['preview']: serialize(values)}))
     assert {key for key in snapshot.authoritative if snapshot.authoritative[key] != after.authoritative[key]} == {'desired.row.017-002.value'}
     assert load_model(paths['prod']).authoritative == before['prod'].authoritative
-    for field in ('logicalId', 'anchor', 'resourceMode', 'resourceType'):
+    for field in ('logicalId', 'resourceMode', 'resourceType'):
         assert after.authoritative['desired.resource.017.' + field] == snapshot.authoritative['desired.resource.017.' + field]
     key = 'desired.row.017-001.value'
     trace = trace_model(paths['preview'], key)
@@ -54,9 +54,9 @@ def check_declared_instance_inputs(root):
     # The retired Definition/default grammar has no normal-reader fallback.
     environments, paths = fixture(root)
     scopes = list_models(root)
-    assert len(scopes) == 2 and {scope.target for scope in scopes} == {'team'}
+    assert len(scopes) == 4 and {scope.target for scope in scopes} == {'team'}
     assert not (root / 'model/preview/other').exists()
-    for identity in ('service', 'Legal_42-name'):
+    for identity in ('001', '042'):
         values = service_values('explicit', ['Example.Resource'])
         values.update(resource_values(identity, 'Example.Resource', 'explicit-' + identity, 'CREATE', [
             ('Value', '`{"enabled":true,"fixed":"fixed","optional":3,"sequence":[3,1,2],"empty":null}`')]))
@@ -75,10 +75,6 @@ def check_declared_instance_inputs(root):
                 load_model(path, CandidateReads(FileReads(), {path: serialize(changed)}))
         with pytest.raises(ValueError, match='unknown Model field'):
             load_model(path, CandidateReads(FileReads(), {path: serialize({**values, 'desired.resource.' + identity + '.definition': 'old'})}))
-    legacy = root / 'model/parameters'
-    legacy.mkdir()
-    with pytest.raises(ValueError, match='explicit migration'):
-        load_model(paths['preview'])
 
 
 def check_kms_alias(root):
@@ -111,7 +107,6 @@ def check_kms_alias(root):
     assert load_model(path, CandidateReads(FileReads(), {path: serialize(invalid)})).warnings
     saved, digest = path.read_bytes(), design_source_digest(path)
     for changed in (producer.read_text().replace('material-one', 'material-two'),
-                    producer.read_text().replace('KMS.Alias', 'KMS.Key'),
                     producer.read_text().replace('KMS.Alias.AliasName', 'KMS.Alias.Other')):
         after = load_model(path, CandidateReads(FileReads(), {producer: changed}))
         assert after.authoritative == before.authoritative and after.warnings

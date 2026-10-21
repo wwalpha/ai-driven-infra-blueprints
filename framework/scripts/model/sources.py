@@ -301,24 +301,6 @@ def target_for(scope, reads):
 
 
 
-def require_properties_authority(root, reads):
-    _safe(root, root / 'project.json', reads)
-    project = reads.read(root / 'project.json')
-    topology = None if project is None else _topology(project)
-    targets = topology.get('targets', []) if isinstance(topology, dict) else []
-    environments = {target['environment'] for target in targets if isinstance(target, dict)
-                    and isinstance(target.get('environment'), str)} if isinstance(targets, list) else set()
-    for name in ('templates', 'parameters'):
-        path = root / 'model' / name
-        if reads.kind(path) == 'missing':
-            continue
-        _safe(root, path, reads)
-        # These names may be real registered environments; only their v2 entrances/parts are valid.
-        if name not in environments or any(file.name in {'parameters.yaml', 'parameters.json', 'bindings.json', 'observed.json'}
-                or file.suffix == '.tpl' for file in reads.select(path, '*', recursive=True)):
-            raise ValueError('legacy Model authority requires explicit migration before normal reads: ' + str(path))
-
-
 def model_parts(path, *, read_context=None):
     reads = read_context or FileReads()
     scope = scope_for(path)
@@ -405,7 +387,7 @@ def _read_model(scope, read_context=None):
     require_readable(scope.root, scope.path)
     reads = read_context or _invocation_reads(scope.root)
     with publication_lock(scope.root, read_only=True):
-        require_properties_authority(scope.root, reads)
+
         target, project = target_for(scope, reads)
         path = scope.path
         parts = tuple(model_parts(path, read_context=reads))
@@ -472,7 +454,7 @@ def list_models(scope, read_context=None):
         root, environment, target = Path(scope).absolute(), None, None
     result = []
     with publication_lock(root, read_only=True):
-        require_properties_authority(root, reads)
+
         for path in sorted(reads.select(root / 'model', '*/*/*.properties')):
             selected = scope_for(path)
             if environment is not None and selected.environment != environment or target is not None and selected.target != target:
@@ -542,11 +524,10 @@ def candidate_base(path, reads):
     if reads.kind(path) != 'missing':
         return load_model(path, reads)
     scope = scope_for(path)
-    require_properties_authority(scope.root, reads)
+
     _, project = target_for(scope, reads)
     reads.read(path)
     if reads.select(path.with_suffix(''), '*', recursive=True):
         raise ValueError('missing Model entrance has unregistered parts: ' + str(path))
     return ModelSnapshot(scope, MappingProxyType({}), MappingProxyType({}), MappingProxyType({}),
         MappingProxyType({}), MappingProxyType({}), MappingProxyType({scope.root / 'project.json': project, path: None}), ())
-

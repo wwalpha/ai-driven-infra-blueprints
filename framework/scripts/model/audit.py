@@ -246,7 +246,7 @@ def main(argv=None):
             require_no_issues(root, active_scope(root))
             expected_task = task_revision(root, args.task_file)
             name, text = expected_task
-            if text is None or status(text, name == 'tasks/active.md') != 'running':
+            if text is None or status(text) != 'running':
                 raise ValueError('audit generation requires a running Task')
             validate_contract(root, name, text)
             output = root / 'tests' / args.environment / args.target / (args.service + '.py')

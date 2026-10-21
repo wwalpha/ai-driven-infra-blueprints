@@ -36,9 +36,10 @@ def check_internal_generation_dispatch(tmp_path, scope, workers):
 def check_active_scope(tmp_path):
     root = tmp_path
     (root / 'tasks').mkdir()
-    active = root / 'tasks/active.md'
+    active = root / 'tasks/example.md'
+    header = '## Task contract\n- Task type: `migration`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n'
     for text in ("", "## Validation scope\n- `dev/cde`\n", "## Validation scope\n- `ec2`\n"):
-        active.write_text(text)
+        active.write_text(header + text)
         try:
             active_scope(root)
         except ValueError:
@@ -46,11 +47,11 @@ def check_active_scope(tmp_path):
         else:
             raise AssertionError("missing/incomplete scope accepted")
     assert active_scope(root, True) is None
-    active.write_text("## Validation scope\n- `all`\n")
+    active.write_text(header + "## Validation scope\n- `all`\n")
     assert active_scope(root) is None
     scope = {(env, target, "ec2") for env in ("dev", "stg") for target in ("cde", "non-cde")}
     contract = "## Validation scope\n" + "".join(f"- `{'/'.join(item)}`\n" for item in sorted(scope))
-    active.write_text(contract)
+    active.write_text(header + contract)
     assert active_scope(root) == scope
 
 

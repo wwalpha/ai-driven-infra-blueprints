@@ -53,9 +53,9 @@ def fixture(root, environments=('dev','prod'), *, definitions_root=None):
     (root/'project.json').write_text(json_text({'projectName':'app','targets':[
         {'environment':env,'alias':alias,'awsAccountId':account,'awsRegion':'ap-northeast-1','iacEngine':'cloudformation'} for env in environments for alias,account in [('other','210987654321'),('team','123456789012')]]})+'\n',encoding='utf-8')
     (root/'tasks').mkdir()
-    (root/'tasks/active.md').write_text('## Task contract\n- Task type: `migration`\n## Validation scope\n'+
+    (root/'tasks/example.md').write_text('## Task contract\n- Task type: `migration`\n- Task status: `running`\n## Validation scope\n'+
         ''.join(f'- `{env}/team/{service}`\n' for env in environments for service in ('iam','config'))+
-        '## Allowed paths\n- `model/**`\n- `docs/designs/**`\n',encoding='utf-8')
+        '## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n',encoding='utf-8')
 
 def role_model(env,count):
     result={'desired.service.iam.serviceId':'iam','desired.service.iam.ownedCatalogResourceTypes':'IAM.Role','display.service.title':'# IAM 詳細設計'}
@@ -66,7 +66,7 @@ def role_model(env,count):
                        f'desired.resource.{identity}.resourceMode':'IMPORT',f'display.resource.{identity}.comment':'共通の処理権限',
                        f'desired.row.{identity}-004.property':'IAM.Role.RoleName',f'desired.row.{identity}-004.value':'`'+name+'`',
                        f'desired.row.{identity}-004.comment':'ロール名',f'desired.row.{identity}-008.property':'IAM.Role.AssumeRolePolicyDocument',
-                       f'desired.row.{identity}-008.value':f'[信頼ポリシー](iam/{name}-trust-policy.json)',
+                       f'desired.row.{identity}-008.value':f'[信頼ポリシー](iam/iam-role-{number + 1:03d}-trust-policy.json)',
                        f'desired.row.{identity}-008.comment':'Lambdaによる引受けを許可',
                        f'desired.row.{identity}-008.document':json_text({'Version':'2012-10-17','Statement':[{'Effect':'Allow','Principal':{'Service':'lambda.amazonaws.com'},'Action':'sts:AssumeRole'}]})})
     return result

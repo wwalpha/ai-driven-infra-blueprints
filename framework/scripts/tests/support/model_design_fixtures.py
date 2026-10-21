@@ -86,9 +86,12 @@ def model(service, kind, name, rows, logical_id=None, label=None):
         "desired.resource.001.resourceType": kind,
         "desired.resource.001.logicalId": kind.replace(".", "_") + "_001",
         "desired.service.identity.lastAllocated": json.dumps({kind: 1}),
-        "desired.resource.001.cfn-logicalId": "fixture-" + (logical_id or "Resource"),
+        "desired.resource.001.cfn-logicalId": "fixture-" + (logical_id or "Resource").replace("_", ""),
         "display.resource.001.comment": "対象環境のデータ処理を提供するresource",
     }
+    from design_catalog import DesignSchemaCatalog
+    if kind in DesignSchemaCatalog(ROOT).api_schemas:
+        result.pop('desired.resource.001.cfn-logicalId')
     if label:
         result["display.resource.001.label"] = label
     for number, (field, value, comment) in enumerate(rows, 1):
@@ -117,6 +120,15 @@ def roundtrip(path, values, root):
         if path.parent.name != target["awsAccountId"]:
             target["alias"] = path.parent.name
         project.write_text(json.dumps({"targets": [target]}))
+    stacks = project_root / 'model' / path.relative_to(project_root / 'docs/designs').parent / 'cloudformation-stacks.properties'
+    if not stacks.exists() and any(key.endswith('.cfn-logicalId') and value.startswith('fixture-') for key, value in values.items()):
+        write_model(stacks, {'desired.stack.001.name': 'fixture', 'desired.stack.001.placementName': 'fixture',
+            'desired.stack.001.template': 'fixture.yaml', 'desired.stack.001.parameters': 'fixture.json',
+            'desired.stack.001.deployOrder': '1', 'display.stack.001.comment': '合成Stack'})
+    if stacks.exists():
+        stack_values = dict(load_model(stacks).values)
+        stack_view = path.with_name("cloudformation-stacks.md")
+        stack_view.write_text(markdown_for(stack_view, stack_values, project_root, definitions_root=root), encoding="utf-8")
     write_model(project_root / "model" / path.relative_to(project_root / "docs/designs").with_suffix(".properties"), values)
     expected = markdown_for(path, values, project_root, definitions_root=root)
     path.write_text(expected, encoding="utf-8")
@@ -140,6 +152,13 @@ def project(root):
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{
         "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1",
         "iacEngine": "cloudformation"}]}) + "\n", encoding="utf-8")
+
+    stacks = root / "model/dev/123456789012/cloudformation-stacks.properties"
+    values = {"desired.stack.001.name": "fixture", "desired.stack.001.placementName": "fixture", "desired.stack.001.template": "fixture.yaml", "desired.stack.001.parameters": "fixture.json", "desired.stack.001.deployOrder": "1", "display.stack.001.comment": "合成Stack"}
+    write_model(stacks, values)
+    view = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
+    view.parent.mkdir(parents=True, exist_ok=True)
+    view.write_text(markdown_for(view, values, root))
 
 
 __all__ = ['ALIGNMENT', 'CODEBUILD_VPC_PROPERTIES', 'COMMENTS', 'Diagnostics', 'GROUP_COMMENTS', 'HEADER', 'Path', 'ROOT', 'SUBNET_LIST_PROPERTIES', 'SYNC', 'SimpleNamespace', 'catalog_display_rows', 'catalog_order_errors', 'design_naming_errors', 'display_rows', 'expanded_display_rows', 'io', 'json', 'load', 'load_model', 'markdown_for', 'model', 'model_design', 'model_projection', 'naming_errors', 'naming_rule_files', 'naming_target_matches', 'naming_targets', 'os', 'patch', 'project', 'properties', 'pytest', 'pytestmark', 'read_model', 'redirect_stderr', 'resource_anchor', 'resource_display_name', 'resource_has_name_property', 'resource_rows', 'root', 'roundtrip', 'row_table', 'run', 'shutil', 'snapshot_model', 'stack_deployment_policy', 'stack_design', 'stack_model', 'subprocess', 'sync_files', 'sync_runtime', 'sync_views', 'sys', 'text', 'validate_kms_policy_accounts', 'write_fixture_files', 'write_model']

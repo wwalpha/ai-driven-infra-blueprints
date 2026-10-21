@@ -33,6 +33,10 @@ def check_task_contract() -> None:
 ## Task contract
 
 - Task type: `governance`
+- Task status: `running`
+## Modified files
+- `tasks/example.md`
+- `README.md`
 
 ## Required changes
 
@@ -45,16 +49,16 @@ def check_task_contract() -> None:
 ## Allowed paths
 
 - `README.md`
-- `tasks/active.md`
+- `tasks/example.md`
 """
-        write(root / "tasks" / "active.md", governance)
+        write(root / "tasks" / "example.md", governance)
         write(root / "README.md", "changed\n")
         validator = MODULE.Validator(root)
         validator.check_task_scope()
         assert not validator.errors
         assert validator.requirement_ids == ["R1"]
 
-        active = root / "tasks" / "active.md"
+        active = root / "tasks" / "example.md"
         write(active,
             active.read_text(encoding="utf-8").replace("- [R1] `changed:README.md`", "")
         )
@@ -90,15 +94,15 @@ def check_idle_without_active_task() -> None:
         assert not validator.errors, validator.errors
 
         (root / "tasks").mkdir()
-        write(root / "tasks" / "active.md", "# completed\n")
-        commit(root, ["tasks/active.md"], "active-task")
+        write(root / "tasks" / "example.md", "## Task contract\n- Task type: `governance`\n- Task status: `completed`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n")
+        commit(root, ["tasks/example.md"], "active-task")
         validator = MODULE.Validator(root)
         validator.check_task_scope()
         validator.check_task_type_requirements()
         validator.check_acceptance_checks()
         assert not validator.errors, validator.errors
         assert not validator.task_type
-        (root / "tasks" / "active.md").unlink()
+        (root / "tasks" / "example.md").unlink()
         validator = MODULE.Validator(root)
         validator.check_task_scope()
         assert not validator.errors, validator.errors
@@ -164,9 +168,9 @@ def check_destroy_phase() -> None:
 @it_case
 def check_task_type_dispatch() -> None:
     from support.model_sources import write_model
-    with project() as root, patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/active.md'}):
+    with project() as root, patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/example.md'}):
         write(root/'project.json', __import__('json').dumps({'targets': [{'environment': 'dev', 'alias': 'cde', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n')
-        write(root/'tasks/active.md', '## Task contract\n- Task type: `design`\n')
+        write(root/'tasks/example.md', '## Task contract\n- Task type: `design`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n')
         for service, kind, prop in (('vpc', 'EC2.VPC', 'Name'), ('cloudwatch-logs', 'Logs.LogGroup', 'LogGroupName')):
             write_model(root/'model/dev/cde'/(service+'.properties'), {
                 'desired.resource.001.resourceType': kind,
@@ -193,14 +197,14 @@ def check_task_type_cases(root) -> None:
         validator = MODULE.Validator(root)
         validator.task_type = task_type
         validator.infrastructure_phase = "implement" if task_type == "infrastructure" else ""
-        validator.changed_paths = changed | {"tasks/active.md"}
+        validator.changed_paths = changed | {"tasks/example.md"}
         validator.check_task_type_requirements()
         assert not validator.errors, (task_type, validator.errors)
 
     validator = MODULE.Validator(root)
     validator.task_type = "infrastructure"
     validator.infrastructure_phase = "deploy"
-    validator.changed_paths = {"tasks/active.md"}
+    validator.changed_paths = {"tasks/example.md"}
     validator.check_task_type_requirements()
     assert not validator.errors, validator.errors
 
@@ -215,7 +219,7 @@ def check_task_type_cases(root) -> None:
         "docs/designs/dev/cde/vpc.md",
         "model/dev/cde/vpc.properties",
         "infra/cloudformation/templates/vpc.yaml",
-        "tasks/active.md",
+        "tasks/example.md",
     }
     validator.check_task_type_requirements()
     assert not validator.errors, validator.errors
@@ -225,7 +229,7 @@ def check_task_type_cases(root) -> None:
     validator.changed_paths = {
         "docs/designs/dev/cde/iam/role01-policy.json",
         "model/dev/cde/iam.properties",
-        "tasks/active.md",
+        "tasks/example.md",
     }
     validator.check_task_type_requirements()
     assert not validator.errors, validator.errors
@@ -243,7 +247,6 @@ def check_task_type_cases(root) -> None:
     ):
         validator = MODULE.Validator(root)
         validator.task_type = "design"
-        validator.changed_paths = changed | {"tasks/active.md"}
+        validator.changed_paths = changed | {"tasks/example.md"}
         validator.check_task_type_requirements()
         assert bool(validator.errors) == (not any(path.startswith("model/") and path.endswith(".properties") for path in changed)), validator.errors
-

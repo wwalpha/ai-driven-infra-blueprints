@@ -21,9 +21,9 @@ def main():
         original = "# 問題一覧\n\n## dev／cde\n\n### Amazon EC2\n\n1. 不正な設定。根拠: [ec2.properties:1](../../../model/dev/cde/ec2.properties)。\n\n```text\n1. 診断のcode例\n### fake\n```\n"
         path.write_text(original)
 
-        active = root / "tasks/active.md"
+        active = root / "tasks/example.md"
         active.parent.mkdir()
-        contract = "## Task contract\n\n- Task type: `design`\n\n## Validation scope\n\n- `dev/cde/ec2`\n"
+        contract = "## Task contract\n\n- Task type: `design`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n\n## Validation scope\n\n- `dev/cde/ec2`\n"
         active.write_text("legacy deployment contract without service Validation scope\n")
         path.unlink()
         require_target_no_issues(root, ("dev", "cde"))  # No inventory preserves existing preflight behavior.
@@ -41,12 +41,12 @@ def main():
         active.write_text(contract)
         for name in ("issues.md", "iac-issues.md"):
             report = f"issues/dev/cde/{name}"
-            investigation = contract.replace('Task type: `design`', 'Task type: `migration`') + (
-                f"\n## Allowed paths\n\n- `tasks/active.md`\n- `{report}`\n")
+            investigation = contract.replace('Task type: `design`', 'Task type: `migration`').split('## Modified files')[0] + ('## Modified files\n- `tasks/example.md`\n' + f'- `{report}`\n## Validation scope\n- `dev/cde/ec2`\n' +
+                f"\n## Allowed paths\n\n- `tasks/example.md`\n- `{report}`\n")
             active.write_text(investigation)
             instance = validator.Validator(root)
             instance.task_type = "migration"
-            instance.changed_paths = {"tasks/active.md", report}
+            instance.changed_paths = {"tasks/example.md", report}
             instance.check_issue_gate()
             assert not instance.errors  # Report saving does not require issue remediation.
             path.write_text("### Unknown service\n\n1. 調査中\n")
@@ -151,4 +151,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

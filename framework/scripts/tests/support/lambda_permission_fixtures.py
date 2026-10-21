@@ -72,7 +72,7 @@ def fixture(parents=1, children=1, deployed=False):
             reference = f"resource://dev/123456789012/lambda/{logical}"
             values.update({f"desired.resource.{child_id}.resourceType": PERMISSION,
                            f"desired.resource.{child_id}.logicalId": child_logical,
-                           f"desired.resource.{child_id}.cfn-logicalId": f"fixture-Invoke{parent + 1}_{child + 1}",
+                           f"desired.resource.{child_id}.cfn-logicalId": f"fixture-Invoke{parent + 1}Child{child + 1}",
                            f"desired.resource.{child_id}.parentProperty": PERMISSION + ".FunctionName",
                            f"desired.resource.{child_id}.parentReference": reference,
                            f"display.resource.{child_id}.label": child_name})

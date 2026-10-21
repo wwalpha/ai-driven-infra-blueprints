@@ -197,7 +197,6 @@ def check_model_task_boundaries() -> None:
     }.items():
         validator = MODULE.Validator(SCRIPT.parents[2])
         validator.task_type = task_type
-        validator.changed_paths = changed | {"tasks/active.md"}
+        validator.changed_paths = changed | {"tasks/example.md"}
         validator.check_task_boundary(prompt)
         assert not validator.errors, (task_type, validator.errors)
-

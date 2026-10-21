@@ -72,22 +72,3 @@ python framework/scripts/issue_gate.py --environment <environment> --target-dire
 ```
 
 Repeat `--service` for every related service. The task validator, `sync-model.py --write`, and deploy context use the common issue decision. AWS read-only context may be used for issue investigation but does not authorize continuing ordinary tasks. In addition to existing preflight, rerun the same issue check immediately before deploy/apply execution. Add `--task` to that immediately-before-execution check and use Issue remediation from the same active contract. Ordinary tasks recheck without repair exceptions.
-
-
-The explicit one-time Model format migration contract is a separate, narrow exception:
-pin baseline/services/formats/exact paths/export hash, prove full semantic equivalence
-with the isolated fixed old reader and new reader, and preserve project/IaC/issues bytes
-and file sets. Existing issues remain unresolved. This does not authorize ordinary Model
-updates, AWS execution or ignoring design validation failures. See
-[format migration](../docs/model-migration.md).
-
-## Explicit Resource identity rewrite exception
-
-The exact `Model identity rewrite: logical-id-v1` declaration, validated as a migration
-Task with forbidden AWS/deploy and explicit service scope, waives only the existing-issue
-stop decision through the task-aware gate. Requested scope must be nonempty and within
-that contract; managed Git worktrees retain Task ownership checks. Ordinary task and
-non-task issue checks remain unchanged. Keep every issue unresolved and its inventory
-unchanged. Source publication, target equivalence, settings/observations/CFn/parts
-preservation, generation and final-candidate validation still apply. This exception does
-not permit repairing unrelated issues or accepting any failed validation.

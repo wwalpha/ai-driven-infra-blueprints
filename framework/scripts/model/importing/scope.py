@@ -30,7 +30,9 @@ def selected(root, *, contract_file=None):
     records = contracts(root)
     if not records:
         return None
-    path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root)
+    path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, required=False)
+    if path is None:
+        return None
     name = path.relative_to(root).as_posix()
     # Select the current task and its IMPORT scope.
     if contract_file is None:

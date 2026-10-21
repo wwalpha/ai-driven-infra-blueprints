@@ -26,7 +26,7 @@ from support.import_model_fixtures import (service_values, resource_values, refe
 
 
 def contract(sources, references=(), detaches=()):
-    text = operation_contract('import-delete').split('- Source resource:')[0]
+    text = operation_contract('import-delete').split('## Model merge pairs')[0].split('## Model delete sources')[0]
     if detaches:
         text += '- Model refactor: `value-preserving`\n'
     text += '## Model delete sources\n' + ''.join('- `' + source + '`\n' for source in sources)
@@ -97,7 +97,7 @@ def check_ten_deletions(tmp_path, multiple):
         assert current.authoritative['desired.service.' + service + '.serviceId'] == service
 
 
-@pytest.mark.parametrize('bad', ['duplicate', 'empty', 'cross-target', 'legacy-mixed', 'merge', 'reference-unrelated', 'detach-unrelated'])
+@pytest.mark.parametrize('bad', ['duplicate', 'empty', 'cross-target', 'merge', 'reference-unrelated', 'detach-unrelated'])
 def check_contract_rejects_unscoped_deletion(bad):
     sources = ['stg/cde/service-a/001', 'stg/cde/service-b/002']
     text = contract(sources)
@@ -107,8 +107,6 @@ def check_contract_rejects_unscoped_deletion(bad):
         text = contract([])
     elif bad == 'cross-target':
         text = text.replace('stg/cde/service-b', 'dev/cde/service-b')
-    elif bad == 'legacy-mixed':
-        text = text.replace('## Model delete sources', '- Source resource: `' + sources[0] + '`\n## Model delete sources')
     elif bad == 'merge':
         text = text.replace('import-delete', 'import-merge')
     elif bad == 'reference-unrelated':
@@ -120,11 +118,11 @@ def check_contract_rejects_unscoped_deletion(bad):
         tasks.model_operation(text)
 
 
-def check_legacy_and_detach_normalization():
+def check_deletion_and_detach_normalization():
     old = tasks.model_operation(operation_contract('import-delete'))
     new = tasks.model_operation(contract(['stg/cde/vpc/009']))
-    assert old == new and old.delete_source == 'stg/cde/vpc/009'
-    text = dependency_contract().replace('## Model dependency detach', '- Model operation: `import-delete`\n- Source resource: `stg/cde/service-a/001`\n## Model dependency detach')
+    assert old == new and old.delete_sources == ('stg/cde/vpc/009',)
+    text = dependency_contract().replace('## Model dependency detach', '- Model operation: `import-delete`\n## Model delete sources\n- `stg/cde/service-a/001`\n## Model dependency detach')
     operation = tasks.model_operation(text)
     assert operation.detaches == tasks.model_refactor(text)
     assert operation.scopes == {('stg', 'cde', 'service-a'), ('stg', 'cde', 'service-b')}

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from model.identity import allocate
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from model.identity import allocate
 
 from support.model_sources import snapshot_model
 from model.files import read_model

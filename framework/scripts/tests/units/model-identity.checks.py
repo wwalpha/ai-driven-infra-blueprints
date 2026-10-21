@@ -46,7 +46,6 @@ def check_snapshots():
     from unittest.mock import patch
     from model.format import serialize
     from model.identity import Resolver
-    from model.identity_rewrite import verify
     from model.sources import load_model
     import model.sources as sources
     with tempfile.TemporaryDirectory() as directory:
@@ -73,12 +72,10 @@ def check_snapshots():
             after = {key: value for key, value in values.items() if not key.endswith(('.logicalId', '.anchor'))}
             after = allocate(after, [f'{i:03d}' for i in range(500)])
             after['desired.row.000-001.value'] = 'resource://' + scope + '/EC2_VPC_001'
-            for root, data in [(old, values), (new, after)]:
+            for root, data in [(old, after), (new, after)]:
                 path = root / 'model' / (scope + '.properties')
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(serialize(data), encoding='utf-8')
-        verify(old, new, set(scopes))
-        verify(new, new, set(scopes))
         resolver = Resolver(new)
         with patch.object(sources, '_read_model', wraps=sources._read_model) as read:
             for i in range(500):
@@ -88,10 +85,6 @@ def check_snapshots():
         assert resolver.resolve('resource://qa/two/vpc/EC2_VPC_001')[0].scope.target == 'two'
         assert resolver.resolve('resource://live/one/vpc/EC2_VPC_001')[0].scope.environment == 'live'
         rejects(lambda: resolver.resolve('resource://unknown/one/vpc/EC2_VPC_001'))
-        rejects(lambda: load_model(old / 'model/qa/one/vpc.properties'))
-        path = new / 'model/qa/one/vpc.properties'
-        path.write_text(path.read_text().replace('resource://qa/one/vpc/EC2_VPC_001', 'resource://qa/one/vpc/EC2_VPC_002'))
-        rejects(lambda: verify(old, new, set(scopes)))
         print('baseline preservation and 500 indexed resolutions: PASS')
 
 
@@ -100,117 +93,10 @@ if __name__ == '__main__':
     check_snapshots()
 
 
-def check_guarded_batch():
-    """Real save boundary: legacy baseline, atomic batch, conflict and rollback."""
-    import json
-    import tempfile
-    import subprocess
-    from unittest.mock import patch
-    from model import prepare_edit, publish_edits
-    from model.adapters.task import edit_write_context
-    from model.identity_rewrite import baseline_snapshot
-    from model.sources import Scope, load_model
-    from model.format import serialize
-    from task_contract import start, selected_task, model_identity_rewrite
-    from utils.aws_mappings import mapping_alias
-    import worktree_task
-    import sync_files
-    framework = Path(__file__).resolve().parents[4]
-    for mode in ('save', 'conflict', 'rollback', 'retarget', 'setting', 'observed', 'undeclared-consumer'):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory).resolve()
-            project = {'targets': [{'environment': 'qa', 'alias': 'team', 'awsAccountId': '123456789012',
-                        'awsRegion': 'ap-northeast-1', 'iacEngine': 'terraform'}]}
-            (root / 'project.json').write_text(json.dumps(project))
-            issues = root / 'issues/qa/team/issues.md'
-            issues.parent.mkdir(parents=True)
-            issues.write_text('### first\n1. Existing issue retained\n', encoding='utf-8')
-            issue_bytes = issues.read_bytes()
-            old, candidates = {}, {}
-            for service in ('first', 'second'):
-                values = {'desired.service.' + service + '.serviceId': service,
-                          'desired.resource.007.resourceType': 'S3.Bucket',
-                          'desired.resource.007.resourceMode': 'IMPORT',
-                          'desired.resource.007.anchor': 'old',
-                          'desired.row.007-001.property': 'S3.Bucket.BucketName',
-                          'desired.row.007-001.value': '[bucket](first.md#old)',
-                          'desired.row.007-001.comment': 'unchanged',
-                          'observed.row.007-001.value': '`physical-bucket`'}
-                path = root / 'model/qa/team' / (service + '.properties')
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(serialize(values))
-                old[path] = path.read_text()
-                updated = {key: value for key, value in values.items() if not key.endswith('.anchor')}
-                updated = allocate(updated, ['007'])
-                updated['desired.row.007-001.value'] = 'resource://qa/team/first/S3_Bucket_001'
-                if service == 'second' and mode == 'retarget':
-                    updated['desired.row.007-001.value'] = 'resource://qa/team/second/S3_Bucket_001'
-                if service == 'second' and mode == 'setting':
-                    updated['desired.row.007-001.comment'] = 'changed'
-                if service == 'second' and mode == 'observed':
-                    updated['observed.row.007-001.value'] = '`changed`'
-                candidates[path] = serialize(updated)
-            def git(*args):
-                return subprocess.run(['git', *args], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
-            git('init'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.invalid')
-            git('add', '.'); git('commit', '-m', 'synthetic legacy baseline')
-            base = git('rev-parse', 'HEAD')
-            scopes = {('qa', 'team', name) for name in ('first', 'second') if mode != 'undeclared-consumer' or name == 'first'}
-            name = 'tasks/identity.md'
-            listing = ''.join('- `' + p + '`\n' for p in [name, *(p.relative_to(root).as_posix() for p in old if ('qa', 'team', p.stem) in scopes)])
-            text = ('## Task contract\n- Task type: `migration`\n- Task status: `running`\n'
-                    '- Model identity rewrite: `logical-id-v1`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n'
-                    '## Validation scope\n' + ''.join('- `' + '/'.join(s) + '`\n' for s in sorted(scopes)) +
-                    '## Modified files\n' + listing + '## Allowed paths\n' + listing)
-            assert model_identity_rewrite(text)
-            rejects(lambda: model_identity_rewrite(text.replace('`migration`', '`design`')))
-            start(root, name, text)
-            state = {'task_file': name, 'worktree': str(root), 'merged': None}
-            with patch.object(worktree_task, 'load', return_value=(root, None, None, state)), \
-                 patch.object(worktree_task, 'task_worktree', return_value=root), \
-                 patch.object(worktree_task, 'task_start_commit', return_value=base), \
-                 mapping_alias(framework, root), selected_task(root, name):
-                with edit_write_context(root, scopes, name) as context:
-                    assert issues.read_bytes() == issue_bytes
-                    plans = [prepare_edit(baseline_snapshot(Scope(root, *scope), context.snapshot),
-                             {Scope(root, *scope).path: candidates[Scope(root, *scope).path]}, context) for scope in sorted(scopes)]
-                    if mode == 'conflict':
-                        path = next(iter(old))
-                        path.write_text(old[path] + '# concurrent change\n')
-                    if mode == 'rollback':
-                        original_write = sync_files.save_files
-                        def fail_after_write(output):
-                            original_write(output)
-                            raise OSError('synthetic interrupted publication')
-                        try:
-                            with patch.object(sync_files, 'save_files', fail_after_write):
-                                publish_edits(plans, context)
-                        except OSError:
-                            pass
-                        else:
-                            raise AssertionError('partial failure accepted')
-                    elif mode == 'save':
-                        assert len(publish_edits(plans, context)) == 2
-                        for path in old:
-                            assert load_model(path).authoritative['desired.resource.007.logicalId'] == 'S3_Bucket_001'
-                    else:
-                        rejects(lambda: publish_edits(plans, context))
-                if mode != 'save':
-                    for path, original in old.items():
-                        suffix = '# concurrent change\n' if mode == 'conflict' and path == next(iter(old)) else ''
-                        assert path.read_text() == original + suffix
-    print('guarded identity batch, incoming closure, conflict and rollback: PASS')
-
-
-if __name__ == '__main__':
-    check_guarded_batch()
-
-
 def check_cfn_and_outputs():
     import json
     import tempfile
     from model.format import serialize
-    from model.identity_rewrite import verify
     from model.projection import execution_document, reference_display, resource_display_rows
     from model.validation import validate_resource_identities
     from model.core import entries
@@ -239,14 +125,8 @@ def check_cfn_and_outputs():
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content)
         with mapping_alias(framework, before), mapping_alias(framework, after):
-            verify(before, after, {'qa/team/vpc'})
             missing = {key: value for key, value in new.items() if not key.endswith('.cfn-logicalId')}
             rejects(lambda: validate_resource_identities(after / 'docs/designs/qa/team/vpc.md', missing, after, list(entries(missing, 'desired.resource.')), definitions_root=framework))
-            path = after / 'infra/cloudformation/templates/team/network.yaml'
-            original = path.read_text()
-            path.write_text(original.replace('10.0.0.0/16', '10.1.0.0/16'))
-            rejects(lambda: verify(before, after, {'qa/team/vpc'}))
-            path.write_text(original)
             bucket = {'desired.service.s3.serviceId': 's3', 'desired.service.s3.ownedCatalogResourceTypes': 'S3.Bucket',
                       'display.service.title': '# Buckets', 'display.resource.007.comment': 'confirmed',
                       'desired.resource.007.resourceType': 'S3.Bucket', 'desired.resource.007.resourceMode': 'IMPORT',
@@ -319,46 +199,3 @@ def check_cfn_and_outputs():
 
 if __name__ == '__main__':
     check_cfn_and_outputs()
-
-
-def check_historical_format_comparison():
-    import hashlib
-    import json
-    import tempfile
-    from model.migration.convert import convert_export, legacy_declarations
-    from model.migration.compare import compare_export
-    from model.sources import Scope, load_model
-    from model.identity_rewrite import baseline_snapshot
-    values = {
-        'desired.resource.007.resourceType': 'EC2.VPC',
-        'desired.resource.007.logicalId': 'HistoricalVpc',
-        'desired.resource.007.anchor': 'old-vpc',
-        'desired.row.007-001.property': 'EC2.VPC.VpcId',
-        'desired.row.007-001.value': '[vpc](#old-vpc)',
-    }
-    spec = dict(consumerKey='desired.row.007-001.value', text='[vpc](#old-vpc)', occurrence='1',
-                producerKind='resource', producerScope='qa/team/vpc', producerId='007',
-                resourceType='EC2.VPC', format='link', labelPolicy='fixed')
-    values.update({'desired.reference.self.' + key: value for key, value in spec.items()})
-    assert legacy_declarations(values)['self'] == spec
-    from model.references import declarations
-    rejects(lambda: declarations(values))
-    project = json.dumps({'targets': [{'environment': 'qa', 'alias': 'team',
-        'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]})
-    exported = dict(exportFormat=2, modelFormat=2, snapshotVersion=2, complete=True, project=project,
-        inputs={'project.json': hashlib.sha256(project.encode()).hexdigest()},
-        models=[dict(complete=True, scope=['qa', 'team', 'vpc'], authoritative=values,
-                     resourceOrder=['007'], rowOrder=['007-001'])])
-    with tempfile.TemporaryDirectory() as directory:
-        root = convert_export(exported, Path(directory).resolve() / 'candidate')
-        scope = Scope(root, 'qa', 'team', 'vpc')
-        assert dict(baseline_snapshot(scope).authoritative) == values
-        rejects(lambda: load_model(scope))
-        assert compare_export(exported, root)['status'] == 'equivalent'
-        scope.path.write_text(scope.path.read_text().replace('HistoricalVpc', 'ChangedVpc'))
-        rejects(lambda: compare_export(exported, root))
-    print('historical format comparison remains isolated: PASS')
-
-
-if __name__ == '__main__':
-    check_historical_format_comparison()

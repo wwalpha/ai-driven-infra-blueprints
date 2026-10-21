@@ -268,7 +268,7 @@ def iac_actions(entries, environment, directory):
         cause = item.get('cause', {})
         path = cause.get('path')
         known_missing = (cause.get('kind') in {'template-missing', 'parameters-missing'} and path
-                         and cause.get('relationship') in {'direct', 'stack-input', 'export-search-incomplete', 'legacy-search-incomplete'})
+                         and cause.get('relationship') in {'direct', 'stack-input', 'export-search-incomplete'})
         if known_missing:
             action = 'confirm-create-template' if cause['kind'] == 'template-missing' else 'confirm-stack-parameters'
             key = [environment, directory, cause['kind'], path, action]
@@ -324,7 +324,8 @@ def iac_actions(entries, environment, directory):
             remedy = '該当ModelとIaC・適用条件の正しい設定を確認して同期する。修正先の選択には人間の判断が必要。'
         else:
             target = None
-            key = [environment, directory, 'unresolved', entry['id'], item['category'], item['reason'], item.get('iac'), entry.get('legacy')]
+            # Retain the grouping slot so existing current Issue IDs remain stable.
+            key = [environment, directory, 'unresolved', entry['id'], item['category'], item['reason'], item.get('iac'), None]
             title = f'{item["service"]} / {item["resource"]} / {item["property"]} の確認が必要'
             classification, status = ('処理エラー' if item['category'] == 'error' else '比較未完了' if item['category'] == 'uncompared' else '原因未確定'), '要調査'
             children = item.get('deferred_children', [])
@@ -417,7 +418,7 @@ def iac_summary(records, environment, directory, services, display=None, *, incl
             group['stacks'].add('未確定')
         group['uncompared'] += sum(item['category'] == 'uncompared' for item in members)
         group['errors'] += sum(item['category'] == 'error' for item in members)
-        group['cascading'] += sum(item.get('cause', {}).get('relationship') in {'export-search-incomplete', 'legacy-search-incomplete'} for item in members)
+        group['cascading'] += sum(item.get('cause', {}).get('relationship') in {'export-search-incomplete'} for item in members)
         for i in sorted(action['members'], key=lambda i: (entries[i]['record'].get('cause', {}).get('relationship') != 'direct', entries[i]['id'], identifier(entries[i]['record']))):
             if len(group['examples']) >= MAX_EXAMPLES:
                 break
@@ -468,7 +469,7 @@ def iac_summary(records, environment, directory, services, display=None, *, incl
                               for group in ordered]} if include_index else {}),
                 proven_causes=sum(any((entries[i]['record'].get('cause', {}).get('kind') in {'template-missing', 'parameters-missing'}
                                         and entries[i]['record'].get('cause', {}).get('path')
-                                        and entries[i]['record'].get('cause', {}).get('relationship') in {'direct', 'stack-input', 'export-search-incomplete', 'legacy-search-incomplete'})
+                                        and entries[i]['record'].get('cause', {}).get('relationship') in {'direct', 'stack-input', 'export-search-incomplete'})
                                        or entries[i]['record'].get('cause', {}).get('kind') in {'import-unresolved', 'cloudformation-unsupported'}
                                        or condition_disabled(entries[i]['record'])
                                        for i in action['members']) for action in actions),
@@ -573,7 +574,7 @@ def save_authority(root, environment, directory, services, filenames):
     text = prompt.read_text(encoding='utf-8')
     scope = active_scope(root)
     selected = {(environment, directory, service) for service in services}
-    if (status(text, prompt == root / 'tasks/active.md') != 'running' or not scope
+    if (status(text) != 'running' or not scope
             or not selected <= scope or '- Task type: `migration`' not in section(text, '## Task contract')):
         raise ValueError('report save requires a running report-only migration with explicit service scope')
     reports = {f'issues/{env}/{target}/{name}' for env, target, _ in scope for name in ('issues.md', 'iac-issues.md')}

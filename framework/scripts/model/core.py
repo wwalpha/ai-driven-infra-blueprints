@@ -240,25 +240,12 @@ def validate_authority(values):
 
 
 def resource_row_index(values: dict[str, str]) -> dict[str, list[tuple[str, dict[str, str]]]]:
-    """Index legacy IDs as well as numbered resources using the existing prefix rule.
-
-    Ambiguous overlapping legacy identities are rejected, never split at first '-'.
-    """
-    from model.core import entries
+    """Group rows by their fixed Resource number; reject orphan rows."""
     resources = dict(entries(values, "desired.resource."))
     index = {identity: [] for identity in resources}
-    # A row's final segment is its row number; legacy resource IDs may contain '-'.
     for rid, row in entries(values, "desired.row."):
         owner = rid.rpartition("-")[0]
         if owner not in resources:
             raise ValueError(f"orphan desired row: {rid}")
-        prefix, overlapping = owner, []
-        while "-" in prefix:
-            prefix = prefix.rpartition("-")[0]
-            if prefix in resources:
-                overlapping.append(prefix)
-        if overlapping:
-            raise ValueError(f"ambiguous legacy row ownership: {rid}: {overlapping + [owner]}")
         index[owner].append((rid, row))
     return index
-

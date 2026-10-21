@@ -34,18 +34,13 @@ class MappingError(ValueError):
             detail for details in errors.values() for detail in details))
 
 
-def cfn_identity(logical):
-    # The documented PascalCase conversion is mechanical; collisions never pick a winner.
-    return "".join(part[:1].upper() + part[1:] for part in re.split(r"[^A-Za-z0-9]+", logical) if part)
-
-
 def models(root, environment, directory):
     return {path: properties(read_model(path)) for path in model_paths(root, environment, directory)
             if path.stem != "cloudformation-stacks"}
 
 
 def resource_index(loaded, catalog):
-    direct, legacy = {}, {}
+    direct = {}
     for path, values in loaded.items():
         for identity, resource in entries(values, "desired.resource."):
             try:
@@ -55,7 +50,7 @@ def resource_index(loaded, catalog):
             entry = (path, identity, resource, cfn_type)
             if "cfn-logicalId" in resource:
                 direct.setdefault(cfn_resource_identity(resource["cfn-logicalId"]), []).append(entry)
-    return direct, legacy
+    return direct
 
 
 def validate_mapping_targets(root, environment, directory, values, *, definitions_root=None):
@@ -65,7 +60,7 @@ def validate_mapping_targets(root, environment, directory, values, *, definition
     names = set(bound_stack_names(root / 'model' / environment / directory / 'cloudformation-stacks.properties')) or {
         stack['name'] for _, stack in entries(values, 'desired.stack.')}
     loaded = models(root, environment, directory)
-    direct, _ = resource_index(loaded, DesignSchemaCatalog(definitions_root or root))
+    direct = resource_index(loaded, DesignSchemaCatalog(definitions_root or root))
     errors = {}
     for (name, logical), candidates in direct.items():
         if name not in names:
@@ -99,7 +94,7 @@ def identifier_source(catalog, resource, outputs, logical, prop, values):
     return primary, keys
 
 
-def mapped_resource(direct, legacy, name, logical, cfn_type, explicit):
+def mapped_resource(direct, name, logical, cfn_type):
     candidates = direct.get((name, logical), [])
     if len(candidates) != 1:
         raise ValueError(f"cfn-logicalId matches={len(candidates)}; explicit mapping required")
@@ -125,7 +120,7 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
     """Shared read-only implement/deploy validation; resource-owned IDs never fall back."""
     loaded = models(root, environment, directory)
     catalog = DesignSchemaCatalog(root) if loaded else None
-    direct, legacy = resource_index(loaded, catalog)
+    direct = resource_index(loaded, catalog)
     import_only = set()
     if implementation:
         modes = {}
@@ -163,7 +158,6 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
             pseudo["AWS::AccountId"] = target["awsExecutionAccountId"]
         result[name] = {}
         definitions = document.get("Resources", {}) | (removed or {}).get(name, {})
-        explicit = any(stack == name for stack, _ in direct)
         try:
             output_values = active_outputs(document, parameters, pseudo)
         except (ValueError, Blocked) as error:
@@ -189,9 +183,9 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
                         raise ValueError("integrated child parent missing, inactive or formal CFn type mismatch")
                     if not deleting and parent_type in import_only:
                         continue
-                    entry = mapped_resource(direct, legacy, name, parent_logical, parent_type, explicit)
+                    entry = mapped_resource(direct, name, parent_logical, parent_type)
                 else:
-                    entry = mapped_resource(direct, legacy, name, logical, definition["Type"], explicit)
+                    entry = mapped_resource(direct, name, logical, definition["Type"])
                 path, identity, resource, _ = entry
                 service = tuple(path.relative_to(root / "model").with_suffix("").parts)
                 if scope is not None and service not in scope:
@@ -204,14 +198,7 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
                 owners[owner] = (name, logical)
                 outputs = set() if rule else catalog_outputs(root, resource["resourceType"]) - HIDDEN_PROPERTIES
                 if path not in row_indexes:
-                    # Every hyphen prefix preserves startswith ownership, including
-                    # overlapping and empty owners. Parse all rows before indexing.
-                    index = {}
-                    for rid, row in entries(loaded[path], "desired.row."):
-                        for offset, char in enumerate(rid):
-                            if char == "-":
-                                index.setdefault(rid[:offset], []).append((rid, row))
-                    row_indexes[path] = index
+                    row_indexes[path] = resource_row_index(loaded[path])
                 rows = [(rid, dict(row)) for rid, row in row_indexes[path].get(identity, ())]
                 if rule:
                     rows = [(rid, row) for rid, row in rows if row["property"].startswith(kind + ".")]
@@ -377,7 +364,7 @@ def observed_destinations(root, environment, directory, loaded, changes, check_s
         design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
         views.add(design)
         for _, row in entries(loaded[path], "desired.row."):
-            if match := model_projection.JSON_URI.fullmatch(row["value"]):
+            if match := model_projection.JSON_LINK.fullmatch(row["value"]):
                 views.add((design.parent / match.group(1)).resolve())
     if not check_scope:
         return destinations, views, sync
@@ -392,7 +379,7 @@ def observed_destinations(root, environment, directory, loaded, changes, check_s
 def destroy_plan(root, environment, directory, stack_names, check_scope=True):
     """Resolve ownership/identifier propagation without templates, parameters or AWS.
 
-    Legacy IDs cannot establish stack ownership here; require explicit metadata.
+    Stack ownership requires explicit metadata.
     Unmapped designs without observed identifiers are reported, never synchronized.
     The returned plan is JSON serializable and remains stable after observed sync.
     """
@@ -400,7 +387,7 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
     require_fixed_stack_names(root / 'model' / environment / directory / 'cloudformation-stacks.properties', stack_names)
     loaded = models(root, environment, directory)
     catalog = DesignSchemaCatalog(root) if loaded else None
-    direct, _ = resource_index(loaded, catalog)
+    direct = resource_index(loaded, catalog)
     scope = active_scope(root) if check_scope else None
     for (name, logical), candidates in direct.items():
         if name in stack_names and any(resource.get("resourceMode", "CREATE") != "CREATE" or not formal

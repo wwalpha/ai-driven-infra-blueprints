@@ -20,6 +20,10 @@ def main() -> None:
         (root / "project.json").write_text(__import__("json").dumps({"projectName": "synthetic", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
         copy_framework(root / 'framework')
         glue, datazone = write_designs(root)
+        write_model(root / 'model/dev/123456789012/cloudformation-stacks.properties', {
+            'desired.stack.001.name': 'fixture', 'desired.stack.001.placementName': 'fixture',
+            'desired.stack.001.template': 'fixture.yaml', 'desired.stack.001.parameters': 'fixture.json',
+            'desired.stack.001.deployOrder': '1', 'display.stack.001.comment': '合成Stack'})
         glue_model = """# Synthetic authoritative Model fixture.
 display.service.title=# Glue 詳細設計
 display.resource.001.comment=合成 Glue catalog

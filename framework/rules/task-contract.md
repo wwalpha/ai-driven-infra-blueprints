@@ -49,7 +49,7 @@ IMPORT and other authority writers retain their dedicated publication checks and
 - When stopping for a check error, set only this task's Task status to `suspend`, whether the cause is this task, another task, unregistered changes, or the baseline. `## Suspension reason` is mandatory and must name the failed check, target file, concrete error, and any necessary log path outside the repository. Retain only the current stop reason; do not add execution history or evidence. The local loop automatically suspends after all checks finish or child processes stop, including precheck failures. Do not infer which of multiple running tasks to suspend without an explicit selector. Staged validation status changes apply only within the snapshot.
 - When stopping for a standalone check outside the local loop or an error during work, also suspend this contract with `task_contract.py --task-file tasks/<task-name>.md --suspend-reason '<具体的な問題>'`. Preserve other tasks' contracts and uncommitted changes; do not repair unrelated failures within this task.
 - Reject generation, deploy, and loops while suspended. Resume explicitly with `task_contract.py --task-file tasks/<task-name>.md --resume` to return to running and clear the stop reason. The same command can refresh a running task.
-- Permit the legacy `tasks/active.md` contract only when it is the sole contract. Before concurrent operation, migrate it to a separate contract and record Task status and Modified files. Reject non-contract changes when no contract exists.
+- Read-only calls may explicitly select no contract; updates require a selected current contract.
 - Do not create or execute another task after the loop succeeds.
 - Do not change task type or work phase during retry.
 - Do not proceed to scenario tests because infrastructure behavior changed.
@@ -110,15 +110,12 @@ The consumer remains in the same environment/target, including explicit other se
 References must match a pair or D→D for a registered destination's derived reevaluation.
 Use complete formal numbered Properties and non-root RFC 6901 scalar-leaf pointers.
 Unknown/missing/duplicate keys, duplicate sections/positions, empty/malformed declarations,
-legacy/new mixing, NaN/Infinity and unconsumed section lines fail closed. Existence, typed
+NaN/Infinity and unconsumed section lines fail closed. Existence, typed
 ownership and operation-position overlap are checked against raw before inputs at final
 validation. Reference-target mismatch, semantic ambiguity and unused reference declarations
 are warnings under [Reference diagnostics](model-information.md#reference-diagnostics). Ordinary Goal prose remains unrestricted.
 
-Legacy Source resource/Destination resource single merges normalize to one pair and no
-references. Single import-delete retains legacy Source resource compatibility. Alternatively declare
-one or more unique full fixed addresses in `## Model delete sources`, one backtick-quoted
-bullet per address. Do not mix that section with legacy Source resource. All sources
+Declare `## Model delete sources` with one exact address bullet per source. All sources
 remain in the same environment/target; multiple services are permitted. No destination
 resource or merge pairs are allowed. For example:
 
@@ -136,7 +133,7 @@ Model dependency detach records may coexist only with import-delete. Each detach
 name a deleted producer and a retained consumer. Register the exact relevant fields;
 unrelated properties/resources, identities and observations remain immutable.
 The normalized delete_sources, source_scopes and scopes are shared by authorization,
-Issue Gate and final checks; scope/delete_source retain legacy single-source compatibility.
+Issue Gate and final checks; the normalized operation carries all delete_sources.
 The LLM orders and executes one resource leaf at a time, inspecting each result.
 One Parent Task = one Worktree = one transaction. Leaves may save unfinished raw sources,
 but never generate final views, validate the parent, complete, commit, rebase, merge or
@@ -168,7 +165,7 @@ No persistent PASS receipt, public skip flag, automatic repair or workflow rollb
 
 Explicit Human `/update` authorization may use a running design Task with
 `Model operation: import-retarget`, forbidden AWS API execution and deploy/apply.
-This independent operation has no merge pairs, Source resource/Destination resource,
+This independent operation has no merge pairs,
 setting transfer, deletion, producer reevaluation or Subnet association changes.
 Keep the ordinary Issue Gate (including every producer/consumer service), naming,
 Validation scope, exact Modified files/Allowed paths and managed-worktree ownership.
@@ -320,28 +317,3 @@ lifecycle start separately, excluding inherited base changes from this Task scop
 No hand-written lifecycle metadata is permitted. Recovery never merges or grants a
 validation PASS. Run the required IT and Full checks, complete the contract, and use
 normal finalize/cleanup. Model tasks and approved-validation-failure tasks are excluded.
-
-
-## Model format migration contract
-
-The one-time [properties v2 migration](../docs/model-migration.md) has its own exact
-contract, separate from dependency detach. Pin the consumer baseline, complete service
-set, old/new formats, enumerated Model paths, export hash and isolated fixed old
-Framework/runtime. Verify the old baseline with the migration adapter and compare all
-new authority strictly. Preserve project/IaC/issues bytes and file sets. Existing issues
-remain unresolved; limited equivalence does not assert design/IaC validity. The same
-latest-base candidate/HEAD/Task must pass before integration. Baseline changes, extra
-paths or semantic loss stop. No force/skip or failed-validation exception bypasses this proof.
-
-## Explicit Resource identity rewrite
-
-Only `- Model identity rewrite: ` followed by the exact code value `logical-id-v1` in
-Task contract enables the narrow one-time preservation guard. Require Task type migration,
-AWS API execution forbidden, deploy/apply forbidden and exact nonempty service Validation scope.
-Do not combine it with another Model operation/refactor/migration or Workflow declaration.
-Allow only declared Model sources, generated docs/designs and the Task file. Follow the exact
-contract and shared publication API in [Resource logical identity](../docs/model-identity.md).
-The baseline reader is historical-only. Pair by scope plus fixed Resource entry, preserve
-configuration/observations/parts and prove every changed reference target. Unknown incoming
-consumers, retargeting or unproven CFn mappings fail. This declaration uses the existing
-final Model candidate guard; it is not a force or failed-validation integration path.

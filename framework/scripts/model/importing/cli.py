@@ -87,7 +87,7 @@ def contract_scope(root, scope):
     from model.importing.scope import selected
     if len(scope) != 1 or selected(root) not in scope or declared is None or not scope <= declared:
         raise ValueError('IMPORT requires one fixed environment/target/service within Validation scope')
-    if task_contract.status(text, task_path(root).name == 'active.md') != 'running':
+    if task_contract.status(text) != 'running':
         raise ValueError('IMPORT requires a running Task Contract')
 
 

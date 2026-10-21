@@ -81,7 +81,7 @@ def check_logs_roundtrip(tmp_path):
     assert after.authoritative['desired.row.003-001.value'] == '`managed-new`'
     display = (root / 'docs/designs/dev/cde/cloudwatch-logs.md').read_text()
     assert '| LogGroupName | `managed-new` |' in display and '``managed-new``' not in display
-    assert all(after.authoritative[key] == value for key, value in before.authoritative.items())
+    assert all(after.authoritative[key] == value for key, value in before.authoritative.items() if key != 'desired.service.identity.lastAllocated')
     assert len(files) == 1
     calls = list(cli.calls)
     assert m.recover_display(root, 'dev', 'cloudwatch-logs', TARGET)['status'] == 'complete'
@@ -186,9 +186,9 @@ def check_managed_resource_addition(tmp_path, kind, unknown):
     assert len(entries(current.authoritative, 'desired.resource.')) == 9
     assert all(current.authoritative[k] == v for k, v in original.authoritative.items() if k != 'desired.service.identity.lastAllocated')
     assert current.authoritative['observed.row.009-001.value'] == identity
-    assert current.authoritative['desired.row.009-001.value'] == '[009](#vpc-' + name + ')'
+    assert current.authoritative['desired.row.009-001.value'] == 'resource://dev/' + TARGET + '/vpc/' + current.authoritative['desired.resource.009.logicalId']
     if kind == 'subnet':
-        assert current.authoritative['desired.row.009-002.value'] == '[001](#vpc-main)'
+        assert current.authoritative['desired.row.009-002.value'] == 'resource://dev/' + TARGET + '/vpc/EC2_VPC_001'
     assert all(p.read_bytes() == data for p, data in foreign.items())
 
 
@@ -396,7 +396,7 @@ def check_add_identity_boundary(tmp_path, service, scenario):
         result = publish_fixture(root, acquired, service)
         assert result['status'] == 'complete'
         assert {change['resource'] for change in result['changes']} == {'009'}
-        assert all(load_model(path).authoritative[key] == value for key, value in original.items())
+        assert all(load_model(path).authoritative[key] == value for key, value in original.items() if key != 'desired.service.identity.lastAllocated')
     else:
         with patch.object(m, 'record_import', side_effect=AssertionError('must reject before recording')), \
              patch.object(m, 'publish_edit', side_effect=AssertionError('must reject before saving')), \
@@ -530,7 +530,7 @@ def check_yaml_candidate_edit(tmp_path):
     files = logs_edit(root, acquired)
     publish_fixture(root, acquired)
     current = input_file(root).read_text(encoding='utf-8')
-    assert current.startswith(original)
+    assert {key: value for key, value in properties(original).items() if key != 'desired.service.identity.lastAllocated'}.items() <= properties(current).items()
     assert 'desired.resource.003.resourceType=Logs.LogGroup' in current
     assert 'desired.row.003-002.value=`90`' in current
     assert next(iter(files.values())) == current
@@ -865,7 +865,11 @@ def check_reference_publication(tmp_path, present, race, diagnostic):
     values = dict(load_model(path).authoritative)
     values.update(resource_values('009', 'CloudTrail.Trail', 'cloudtrail-audit', 'IMPORT',
         [(prop.removeprefix('CloudTrail.Trail.'), m.model_literal(value)) for prop, value in captured.items()]))
-    link = '[audit-bucket](s3.md#s3-audit-bucket)'
+    from model.identity import allocate, COUNTERS
+    values[COUNTERS] = load_model(path).authoritative.get(COUNTERS, '{}')
+    del values['desired.resource.009.logicalId']
+    values = allocate(values, ['009'])
+    link = 'resource://dev/cde/s3/S3_Bucket_001'
     if present or diagnostic:
         for index, (prop, actual) in enumerate(captured.items(), 1):
             key = f'desired.row.009-{index:03d}.value'
@@ -932,7 +936,7 @@ def check_reference_publication(tmp_path, present, race, diagnostic):
     assert len(cli.calls) == calls
     document = root / 'docs/designs/dev/cde/cloudtrail.md'
     markdown = document.read_text()
-    assert (link if present or diagnostic else '`audit-bucket`') in markdown
+    assert ('](s3.md#resource-S3_Bucket_001)' if present or diagnostic else '`audit-bucket`') in markdown
     assert all(p.read_bytes() == raw for p, raw in foreign.items())
     assert not (root / 'docs/designs/dev/cde/s3.md').exists()
     before_recovery = source_files(root)
@@ -1064,6 +1068,11 @@ def check_first_resource_uses_existing_source_format(tmp_path, missing, shared_t
     cli = aws(changed=True)
     acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli)
     service.update(operation_values(seed, '001'))
+    from model.identity import allocate
+    del service['desired.resource.001.logicalId']
+    if missing:
+        service.pop('desired.service.identity.lastAllocated', None)
+    service = allocate(service, ['001'])
     service['desired.row.001-002.value'] = '`90`'
     selected = [correspondence(acquired, 'fixture-001', '001')]
     stage(root, acquired, {path.relative_to(root).as_posix(): serialize(service)}, selected, exclusions(acquired, selected))

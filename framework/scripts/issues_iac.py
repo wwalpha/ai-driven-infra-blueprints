@@ -282,9 +282,9 @@ class Comparison:
                 if path.stem != 'cloudformation-stacks':
                     self.model(path.stem)
             self.reference_models_loaded = True
-        direct, legacy = self.index()
+        direct = self.index()
         try:
-            entry = mapped_resource(direct, legacy, stack, logical, definition['Type'], any(name == stack for name, _ in direct))
+            entry = mapped_resource(direct, stack, logical, definition['Type'])
         except ValueError as error:
             if self.local_comparison:
                 raise Blocked(f'unproven resource correspondence: {stack}/{logical}: {error}') from error
@@ -928,7 +928,7 @@ class Comparison:
                         template, (document, parameters, pseudo) = self.stack(unit)
                         definition = document.get('Resources', {}).get(logical)
                         # Explicit identity is authoritative even if the template resource is missing.
-                        direct, _ = self.index()
+                        direct = self.index()
                         if len(direct.get((name, logical), [])) != 1:
                             raise Blocked(f'duplicate resource correspondence: {name}/{logical}')
                     else:

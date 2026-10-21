@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
+import pytest
 from support.it_case_receipt import it_case, module_complete
 from support.producer_identifier_reference_fixtures import *
 
@@ -19,7 +20,7 @@ def check(root):
     key = 'desired.row.003-002.document'
     values = resource('003', 'S3.Bucket', 's3-003', [('BucketName', '`audit-preview-archive`'),
         ('PolicyDocument', '[policy](s3/policy.json)')])
-    link = '[audit-preview](cloudtrail.md#cloudtrail-audit)'
+    link = 'resource://preview/team/cloudtrail/CloudTrail_Trail_017'
     values[key] = json.dumps({'Statement': [
         {'Condition': {'StringEquals': {'aws:SourceArn': link}}},
         {'Condition': {'NumericLessThan': {'s3:TlsVersion': 1.2}}}]})
@@ -38,18 +39,24 @@ def check(root):
     assert load_model(path).authoritative == snapshot.authoritative
     write_model(producer, {**original, 'desired.row.017-001.value': '`audit-next`'})
     assert warning(path, 'differs').authoritative == snapshot.authoritative
+    write_model(producer, {key.replace('.017', '.018', 1): value for key, value in original.items()})
+    assert not load_model(path).warnings
+    write_model(producer, original)
     for bad, phrase in [
         ({**original, 'desired.resource.017.resourceType': 'S3.Bucket'}, 'Type differs'),
-        ({key.replace('.017', '.018', 1): value for key, value in original.items()}, 'absent or ambiguous'),
         ({**original, 'desired.row.017-001.property': 'CloudTrail.Trail.Description'}, 'Property is absent'),
         ({**original, 'desired.row.017-001.value': '``'}, 'differs'),
         ({**original, 'desired.row.017-004.property': 'CloudTrail.Trail.TrailName', 'desired.row.017-004.value': '`duplicate`', 'desired.row.017-004.comment': '重複'}, 'Property is absent or ambiguous')]:
         write_model(producer, bad)
-        assert warning(path, phrase).authoritative == snapshot.authoritative
+        if any(key in original and key.endswith('.resourceType') and original[key] != value for key, value in bad.items()):
+            with pytest.raises(ValueError, match='ResourceType prefix'):
+                load_model(path)
+        else:
+            assert warning(path, phrase).authoritative == snapshot.authoritative
     write_model(producer, original)
     explicit = dict(values)
     explicit[key] = values[key].replace('[audit-preview]', '[existing-label]')
-    explicit['desired.reference.trail.text'] = '[existing-label](cloudtrail.md#cloudtrail-audit)'
+    explicit['desired.reference.trail.text'] = 'resource://preview/team/cloudtrail/CloudTrail_Trail_017'
     explicit['desired.reference.trail.labelPolicy'] = 'fixed'
     write_model(path, explicit)
     assert not load_model(path).warnings

@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
+import pytest
 from support.it_case_receipt import it_case, module_complete
 from support.producer_identifier_reference_fixtures import *
 
@@ -20,14 +21,16 @@ def check(root):
     values = {}
     for rid, label, policy in [('021', 'app-preview-one', 'display-name'), ('083', 'PENDING_DEPLOY', 'fixed')]:
         key = f'desired.row.{rid}-001.value'
-        link = '[' + label + '](security-group.md#security-group-app-preview-one)'
+        link = 'resource://preview/team/security-group/EC2_SecurityGroup_052'
         values.update(resource(rid, 'QuickSight.VPCConnection', 'quicksight-' + rid, [('SecurityGroupIds', link)]))
         values.update(reference('security-group-' + rid, key, link, 'security-group', '052', 'EC2.SecurityGroup', mode='link', label=policy))
+    values['desired.note.producerName.text'] = 'app-preview-one'
+    values.update(reference('producer-name', 'desired.note.producerName.text', 'app-preview-one', 'security-group', '052', 'EC2.SecurityGroup', prop='EC2.SecurityGroup.GroupName'))
     write_model(path, values)
     snapshot = load_model(path)
     assert not snapshot.warnings, snapshot.warnings
-    assert snapshot.authoritative['desired.row.021-001.value'] == '[app-preview-one](security-group.md#security-group-app-preview-one)'
-    assert snapshot.authoritative['desired.row.083-001.value'] == '[PENDING_DEPLOY](security-group.md#security-group-app-preview-one)'
+    assert snapshot.authoritative['desired.row.021-001.value'] == 'resource://preview/team/security-group/EC2_SecurityGroup_052'
+    assert snapshot.authoritative['desired.row.083-001.value'] == 'resource://preview/team/security-group/EC2_SecurityGroup_052'
     assert producer in source_inputs(path)
     assert affected(root, [producer.relative_to(root)]) == {('preview', 'team', 'security-group'), ('preview', 'team', 'quicksight')}
     digest, dependencies = design_source_digest(path), dependency_hashes(path)
@@ -36,15 +39,21 @@ def check(root):
     assert load_model(path).authoritative == snapshot.authoritative
     renamed = {key: value.replace('preview-one', 'preview-two') for key, value in original.items()}
     write_model(producer, renamed)
-    assert warning(path, 'differs from the saved link').authoritative == snapshot.authoritative
+    assert warning(path, 'differs from saved text').authoritative == snapshot.authoritative
+    write_model(producer, {key.replace('.052', '.053', 1): value for key, value in original.items()})
+    assert not load_model(path).warnings
+    write_model(producer, original)
     for bad, phrase in [
         ({**original, 'desired.resource.052.resourceType': 'S3.Bucket'}, 'Type differs'),
-        ({key.replace('.052', '.053', 1): value for key, value in original.items()}, 'absent or ambiguous'),
-        ({**original, 'desired.row.052-001.property': 'EC2.SecurityGroup.GroupDescription'}, 'display'),
-        ({**original, 'desired.row.052-001.value': '``'}, 'label differs'),
-        ({**original, 'desired.row.052-004.property': 'EC2.SecurityGroup.GroupName', 'desired.row.052-004.value': '`duplicate`', 'desired.row.052-004.comment': '重複'}, 'label differs')]:
+        ({**original, 'desired.row.052-001.property': 'EC2.SecurityGroup.GroupDescription'}, 'Property is absent'),
+        ({**original, 'desired.row.052-001.value': '``'}, 'differs from saved text'),
+        ({**original, 'desired.row.052-004.property': 'EC2.SecurityGroup.GroupName', 'desired.row.052-004.value': '`duplicate`', 'desired.row.052-004.comment': '重複'}, 'Property is absent or ambiguous')]:
         write_model(producer, bad)
-        assert warning(path, phrase).authoritative == snapshot.authoritative
+        if any(key in original and key.endswith('.resourceType') and original[key] != value for key, value in bad.items()):
+            with pytest.raises(ValueError, match='ResourceType prefix'):
+                load_model(path)
+        else:
+            assert warning(path, phrase).authoritative == snapshot.authoritative
     write_model(producer, original)
     bad = {**values, 'desired.reference.security-group-021.occurrence': '0'}
     rejected(lambda: declarations(bad), 'occurrence')

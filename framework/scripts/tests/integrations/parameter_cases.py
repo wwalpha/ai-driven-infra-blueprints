@@ -81,7 +81,9 @@ def check(root, alias, service):
         key = spec['consumerKey']
         after = proposed({key: before.authoritative[key].replace('-one', '-two'), 'desired.reference.result.text': 'fixture-bucket-001-two'}, {producer: changed_producer})
         assert not after.warnings and after.authoritative[key] != before.authoritative[key]
-        for invalid in (changed_producer.replace('S3.Bucket', 'IAM.Role'), changed_producer.replace('BucketName', 'Other')):
+        with pytest.raises(ValueError, match='logicalId requires ResourceType prefix'):
+            proposed({}, {producer: changed_producer.replace('S3.Bucket', 'IAM.Role')})
+        for invalid in (changed_producer.replace('BucketName', 'Other'),):
             preserved = proposed({}, {producer: invalid})
             assert preserved.authoritative == before.authoritative and preserved.warnings
         missing = proposed({}, {producer: None})
@@ -92,7 +94,7 @@ def check(root, alias, service):
         statement = document['Statement'][0]
         assert isinstance(document['Statement'], list) and statement['Action'] == 'sqs:SendMessage'
         assert statement['Resource']['Fn::GetAtt'] == ['HulftRetrievalDetectDlq', 'Arn']
-        assert any(raw == '[017](#fixture-sqs-017)' for raw in before.authoritative.values())
+        assert any(raw == 'resource://preview/' + alias + '/sqs/SQS_Queue_001' for raw in before.authoritative.values())
         assert statement['Condition']['StringEquals']['aws:SourceAccount'] == '123456789012'
         checksum = key.removesuffix('.document') + '.artifactSha256'
         assert before.values[checksum] == document_sha256(document) and checksum not in before.authoritative

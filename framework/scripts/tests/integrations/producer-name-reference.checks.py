@@ -8,6 +8,7 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+import pytest
 from support.it_case_receipt import it_case
 from support.producer_identifier_reference_fixtures import *
 
@@ -38,7 +39,7 @@ def check(root):
                 values.update({'desired.row.008-002.property': 'CodeBuild.Project.Environment.EnvironmentVariables[].Name',
                                'desired.row.008-002.value': '`AWS_REGION`', 'desired.row.008-002.comment': '入れ子Nameは名前参照に使わない',
                                'desired.row.008-003.property': 'CodeBuild.Project.LogsConfig.CloudWatchLogs.GroupName',
-                               'desired.row.008-003.value': '[logs](cloudwatch-logs.md#glue-log-002)', 'desired.row.008-003.comment': '循環する保存リンク'})
+                               'desired.row.008-003.value': 'resource://' + env + '/team/cloudwatch-logs/Logs_LogGroup_002', 'desired.row.008-003.comment': '循環する保存リンク'})
             write_model(producer, values)
             producers[producer] = values
         path = root / 'model' / env / 'team/cloudwatch-logs.properties'
@@ -64,7 +65,7 @@ def check(root):
         for name in ('Project', 'Repository', 'ExecutionRole'):
             service, rid, kind, _ = specs[name]
             label = 'existing-role-label' if name == 'ExecutionRole' else names[name]
-            link = '[' + label + '](' + service + '.md#' + service + '-original)'
+            link = 'resource://' + env + '/team/' + service + '/' + kind.replace('.', '_') + '_' + rid
             consumer = 'desired.note.' + name + 'Link.text'
             values[consumer] = link
             values.update(reference(name + 'Link', consumer, link, service, rid, kind, mode='link',
@@ -94,15 +95,21 @@ def check(root):
     assert design_source_digest(path) == initial and dependency_hashes(path) != dependencies
     assert affected(root, [producer.relative_to(root)]) == {('preview', 'team', 'iam'), ('preview', 'team', 'cloudwatch-logs'), ('preview', 'team', 'codebuild')}
     assert trace_model(path, 'desired.row.002-001.value')['references']['ExecutionRole-0']['format'] == 'name'
+    write_model(producer, {key.replace('.054', '.055', 1): value for key, value in original.items()})
+    assert not load_model(path).warnings
+    write_model(producer, original)
     for bad, phrase in [
         ({**original, 'desired.resource.054.resourceType': 'IAM.Policy'}, 'Type differs'),
-        ({key.replace('.054', '.055', 1): value for key, value in original.items()}, 'absent or ambiguous'),
         ({**original, 'desired.row.054-001.property': 'IAM.Role.Path'}, 'Property is absent'),
         ({**original, 'desired.row.054-001.property': 'Glue.SecurityConfiguration.Name'}, 'Property is absent'),
         ({**original, 'desired.row.054-001.value': '``'}, 'differs from saved text'),
         ({**original, 'desired.row.054-002.property': 'IAM.Role.RoleName', 'desired.row.054-002.value': '`duplicate`', 'desired.row.054-002.comment': '重複'}, 'Property is absent or ambiguous')]:
         write_model(producer, bad)
-        assert warning(path, phrase).authoritative == before
+        if any(key in original and key.endswith('.resourceType') and original[key] != value for key, value in bad.items()):
+            with pytest.raises(ValueError, match='ResourceType prefix'):
+                load_model(path)
+        else:
+            assert warning(path, phrase).authoritative == before
     write_model(producer, original)
     rejected(lambda: declarations({**before, 'desired.reference.ExecutionRole-0.labelPolicy': 'fixed'}), 'non-link')
     producer.unlink()

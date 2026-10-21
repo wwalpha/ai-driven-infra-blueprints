@@ -66,8 +66,8 @@ class TaskValidation:
         if self.baseline_fixed:
             return
         from worktree_task import task_start_commit, git, output
-        prompt = task_path(self.root).relative_to(self.root).as_posix()
-        start = task_start_commit(self.root, prompt)
+        prompt = task_path(self.root, required=False)
+        start = task_start_commit(self.root, prompt.relative_to(self.root).as_posix()) if prompt is not None else None
         if start is None:
             head = git(self.root, 'rev-parse', '--verify', 'HEAD^{commit}', check=False)
             if head.returncode == 0:
@@ -95,7 +95,7 @@ class TaskValidation:
 
     def check_task_scope(self, contract_text=None) -> None:
         self.fix_baseline()
-        prompt = task_path(self.root)
+        prompt = task_path(self.root, required=False)
         self.changed_paths = self.final_paths()
         self.permission_paths = (
             self.git_paths(['diff', '--no-renames', '--name-only', '-z']) |
@@ -105,12 +105,12 @@ class TaskValidation:
             self.permission_paths |= self.git_paths(['diff', '--no-renames', '--name-only', '-z', self.baseline, 'HEAD', '--']) - {'.lock'}
         if self.final_candidate is not None:
             self.permission_paths = set(self.final_candidate.changed_paths)
-        if not self.permission_paths and (not input_is_file(prompt) or
+        if not self.permission_paths and (prompt is None or
                 '- Task type:' not in input_text(prompt, encoding='utf-8')):
             return
-        if not input_is_file(prompt):
-            self.check(not (self.permission_paths - {'tasks/active.md'}),
-                       f'active task prompt missing: {self.relative(prompt)} while repository has non-contract changes')
+        if prompt is None:
+            self.check(not self.permission_paths,
+                       'selected task contract missing while repository has changes')
             return
 
         self.contract_text = contract_text if contract_text is not None else input_text(prompt, encoding="utf-8")

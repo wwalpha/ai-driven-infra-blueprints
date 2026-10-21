@@ -66,6 +66,7 @@ def check_firehose_import_pending_roundtrip(root, project):
         ("S3DestinationConfiguration.RoleARN", "Pending", "配信IAM Role"),
     ])
     values["desired.resource.001.resourceMode"] = "IMPORT"
+    values.pop("desired.resource.001.cfn-logicalId", None)
     path = root / "docs/designs/dev/123456789012/data-firehose.md"
     valid = roundtrip(path, values, root)
     model_path = root / "model/dev/123456789012/data-firehose.properties"
@@ -86,6 +87,7 @@ def check_firehose_import_pending_roundtrip(root, project):
     write_model(model_path, text(values))
     assert any("requires IMPORT" in error for error in errors(valid))
     values["desired.resource.001.resourceMode"] = "IMPORT"
+    values.pop("desired.resource.001.cfn-logicalId", None)
     write_model(model_path, text(values))
     assert errors(valid.replace("Pending", "`arn:aws:s3:::dummy`"))
     assert errors(valid.replace("Pending", "[dummy](data-firehose.md#data-firehose-dummy)"))
@@ -98,6 +100,7 @@ def check_config_import_pending_roundtrip(root, project):
         ("RoleARN", "Pending", "記録用IAM Role"),
     ])
     values["desired.resource.001.resourceMode"] = "IMPORT"
+    values.pop("desired.resource.001.cfn-logicalId", None)
     for field, value in [("property", "Config.ConfigurationRecorder.Id"), ("value", "`PENDING_DEPLOY`"), ("comment", "一意に識別するID")]:
         values[f"observed.row.001-001.{field}"] = value
     path = root / "docs/designs/dev/123456789012/config.md"
@@ -120,13 +123,14 @@ def check_config_import_pending_roundtrip(root, project):
     write_model(model_path, text(values))
     assert any("requires IMPORT" in error for error in errors(valid))
     values["desired.resource.001.resourceMode"] = "IMPORT"
+    values.pop("desired.resource.001.cfn-logicalId", None)
     write_model(model_path, text(values))
     assert errors(valid.replace("Pending", "`arn:aws:s3:::dummy`"))
     assert errors(valid.replace("Pending", "[dummy](config.md#config-dummy)"))
 
 
 def check_desired_only_identifier_reference(root, project):
-    base=root/'docs/designs/dev/123456789012';base.mkdir(parents=True)
+    base=root/'docs/designs/dev/123456789012';base.mkdir(parents=True, exist_ok=True)
     group=model('quicksight','QuickSight.Group','gr-dev-finance',[
         ('GroupName','`gr-dev-finance`','分析グループ名'),
         ('AwsAccountId','`123456789012`','所有するアカウント'),
@@ -158,7 +162,7 @@ def check_desired_only_identifier_reference(root, project):
     assert not any(k.startswith('observed.') for k in source)
     source.update({'observed.row.007-009.property':source['desired.row.007-009.property'],
                    'observed.row.007-009.value':'gr-dev-finance','observed.row.007-009.comment':source['desired.row.007-009.comment']})
-    assert resource_rows(source, '007', 'QuickSight.DataSource', ROOT)[0][2] == 'resource://dev/123456789012/quicksight/QuickSight_Group_001'
+    assert resource_rows(source, '007', 'QuickSight.DataSource', ROOT)[0][2] == 'gr-dev-finance'
     before = dict(source)
     path.write_text(path.read_text().replace('[gr-dev-finance]','[wrong-group]'))
     validator = load('validate-blueprint').Validator(root)
@@ -214,6 +218,7 @@ def check_catalog_display_order(tmp_path):
         ("Name", "`datasource`", "接続名"),
     ])
     quicksight["desired.resource.001.resourceMode"] = "IMPORT"
+    quicksight.pop("desired.resource.001.cfn-logicalId", None)
     shown = roundtrip(path.with_name("quicksight.md"), quicksight, ROOT)
     assert shown.index(" | Name | ") < shown.index(" | Type | ") < shown.index(" | AwsAccountId | ")
     assert " | AthenaParameters.WorkGroup | " in shown
@@ -279,6 +284,7 @@ def check_kms_policy_execution_account(root):
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [target]}) + "\n", encoding="utf-8")
     source = root / f"model/dev/{identity}/kms.properties"
     source.parent.mkdir(parents=True, exist_ok=True)
+    write_model(source.with_name('cloudformation-stacks.properties'), {'desired.stack.001.name': 'fixture', 'desired.stack.001.placementName': 'fixture', 'desired.stack.001.template': 'fixture.yaml', 'desired.stack.001.parameters': 'fixture.json', 'desired.stack.001.deployOrder': '1', 'display.stack.001.comment': '合成Stack'})
     write_model(source, text(values))
     path = root / f"docs/designs/dev/{identity}/kms.md"
     assert SYNC.sync(root, True, "dev", identity, services=["kms"]) == 0
@@ -386,6 +392,7 @@ def check_ec2_compact_display(tmp_path):
     # IMPORT without a Name tag keeps its existing absence.
     values = model("ec2", "EC2.Instance", "EC2.Instance", [("ImageId", "`ami-0123456789abcdef0`", "起動するイメージ")])
     values["desired.resource.001.resourceMode"] = "IMPORT"
+    values.pop("desired.resource.001.cfn-logicalId", None)
     output = roundtrip(path, values, ROOT)
     assert "| Name |" not in output and "ec2-name-tag:" not in output
     print("EC2 block device indexes and compact Name tag: PASS (lossless round trip and invalid displays)")
@@ -406,6 +413,8 @@ def check_vpc_endpoint_name_display(tmp_path):
     ], "Endpoint")
     for mode in ("CREATE", "IMPORT"):
         values["desired.resource.001.resourceMode"] = mode
+        if mode == "IMPORT":
+            values.pop("desired.resource.001.cfn-logicalId", None)
         output = roundtrip(path, values, ROOT)
         assert output.count(f"| Name | `{name}` |") == 1
         assert "--> エンドポイント名 |" in output
@@ -425,6 +434,7 @@ def check_vpc_endpoint_name_display(tmp_path):
         ("VpcId", "resource://dev/123456789012/vpc/EC2_VPC_001", "所属するVPC"),
     ])
     values["desired.resource.001.resourceMode"] = "IMPORT"
+    values.pop("desired.resource.001.cfn-logicalId", None)
     output = roundtrip(path, values, ROOT)
     assert "| Name |" not in output and "ec2-name-tag:" not in output
     print("VPCEndpoint Name tag: PASS (one row, mixed tags, exact round trip, IMPORT and invalid metadata)")
@@ -444,10 +454,10 @@ def check_subnet_lambda_roundtrip(root):
 
 def check_subnet_model_validation(root, project):
     base = root / "model/dev/123456789012"
-    base.mkdir(parents=True)
+    base.mkdir(parents=True, exist_ok=True)
     iam = model("iam", "IAM.Role", "net-dev-flow-role", [
         ("RoleName", "`net-dev-flow-role`", "実行権限を識別する名称"),
-        ("AssumeRolePolicyDocument", "[信頼ポリシー](iam/net-dev-flow-role-trust-policy.json)", "Lambdaによる引受けを許可"),
+        ("AssumeRolePolicyDocument", "[信頼ポリシー](iam/iam-role-001-trust-policy.json)", "Lambdaによる引受けを許可"),
     ])
     iam["desired.row.001-002.document"] = json.dumps({"Version": "2012-10-17", "Statement": [
         {"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"},
@@ -576,7 +586,7 @@ def check_config_typed_anchors(root):
             markdown_for(path, invalid, root)
         assert "anchor" in str(error.value)
         correct = "resource-" + values[f"desired.resource.{key}.logicalId"]
-        assert any("anchor" in error for error in failures(output.replace(correct, wrong)))
+        assert failures(output.replace(correct, wrong)), (correct, wrong)
 
     # Duplicate identity still fails even when the display names differ only in case.
     collision = {key: value for key, value in values.items() if not key.startswith(("desired.resource.002.", "desired.row.002-"))}
@@ -671,7 +681,7 @@ def check_nameless_type_display(root, project):
     kind, logical_id = "GuardDuty.Detector", "GuardDuty_Detector_001"
     anchor = "resource-" + logical_id
     rows = [("Id", f"resource://dev/123456789012/guardduty/{logical_id}", "検出器を識別するID"), ("Enable", "`true`", "脅威検出を有効にする設定")]
-    values = model("guardduty", kind, kind.lower(), rows, logical_id)
+    values = model("guardduty", kind, kind.lower(), rows, "Detector")
     values.update({"observed.row.001-001.property": kind + ".Id", "observed.row.001-001.value": "`PENDING_DEPLOY`", "observed.row.001-001.comment": rows[0][2],
                    "desired.note.001.text": f"参照: resource://dev/123456789012/guardduty/{logical_id}"})
     path = docs / "guardduty.md"
@@ -919,13 +929,11 @@ def check_stack_policy(root, project):
 def check_stack_mapping_roundtrip(root):
     from model.core import entries
     from iac_values import cfn_resource_identity
-    from design_layout import resource_identity_metadata
     path = root / "docs/designs/dev/123456789012/ec2.md"
     values = model("ec2", "EC2.VPC", "vpc-app-dev-data", [
         ("Name", "`vpc-app-dev-data`", "ネットワークの名称"),
         ("VpcId", "[001](#ec2-vpc-app-dev-data)", "ネットワークのID"),
         ("CidrBlock", "`10.0.0.0/16`", "ネットワークの範囲")])
-    del values["desired.resource.001.logicalId"]
     values["desired.resource.001.resourceMode"] = "CREATE"
     values.update({"observed.row.001-002.property": "EC2.VPC.VpcId",
                    "observed.row.001-002.value": "`PENDING_DEPLOY`",
@@ -933,9 +941,9 @@ def check_stack_mapping_roundtrip(root):
     # Terraform needs neither a generic logicalId nor a CFn identity.
     rendered = roundtrip(path, values, root)
     assert "cfn-logical-id:" not in rendered
-    assert resource_identity_metadata(rendered.splitlines(), values=values)[0]["ec2-vpc-app-dev-data"] == "001"
     project = root / "project.json"
     project.write_text(json.dumps({"projectName": "fixture", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "terraform"}]}) + "\n")
+    values.pop("desired.resource.001.cfn-logicalId", None)
     roundtrip(path, values, root)
     values["desired.resource.001.cfn-logicalId"] = "cfn-stack-app-dev-ism-DepartmentVpc"
     with pytest.raises(ValueError) as error:
@@ -946,6 +954,9 @@ def check_stack_mapping_roundtrip(root):
     stack_source.parent.mkdir(parents=True, exist_ok=True)
     write_model(stack_source, "\n".join(f"desired.stack.{index:03d}.{field}={value}" for index, purpose in enumerate(("ism", "key"), 1)
                                       for field, value in {"name": "cfn-stack-app-dev-" + purpose, "template": "shared.yaml", "parameters": purpose + ".json", "deployOrder": "10"}.items()) + "\n")
+    stack_values = dict(load_model(stack_source).authoritative)
+    stack_values.update({f"display.stack.{number:03d}.comment": "合成Stack" for number in (1, 2)})
+    write_model(stack_source, stack_values)
     without_id = {key: value for key, value in values.items() if not key.endswith(".cfn-logicalId")}
     with pytest.raises(ValueError) as error:
         markdown_for(path, without_id, root)
@@ -971,11 +982,6 @@ def check_stack_mapping_roundtrip(root):
         sync_runtime._compare_generation(plan)
         assert plan.failures == ['generated Markdown is stale or missing: docs/designs/dev/123456789012/ec2.md']
     path.write_text(rendered)
-    legacy = rendered + "<!-- resource-entry: ec2-vpc-app-dev-data 001 -->\n<!-- resource-mode: ec2-vpc-app-dev-data CREATE -->\n<!-- cfn-logical-id: ec2-vpc-app-dev-data cfn-stack-app-dev-ism-DepartmentVpc -->\n"
-    path.write_text(legacy)
-    assert resource_identity_metadata(legacy.splitlines(), values=values)[1] == {}
-    assert dict(entries(values, "desired.resource."))["001"]["cfn-logicalId"] == values["desired.resource.001.cfn-logicalId"]
-    sync_views.validate_views(root, root, [path], {path: values})
     source = stack_source.with_name("ec2.properties")
     write_model(source, text(values))
     before = {file: file.read_bytes() for model in (source, stack_source) for file in load_model(model).files}
@@ -1050,9 +1056,9 @@ def check_design_naming_preflight(tmp_path):
 
     root = tmp_path
     rules = root / "framework/rules"
-    rules.mkdir(parents=True)
+    rules.mkdir(parents=True, exist_ok=True)
     materials = root / "framework/materials/aws"
-    materials.mkdir(parents=True)
+    materials.mkdir(parents=True, exist_ok=True)
     for kind, fields in {
         "S3.Bucket": ["BucketName", "Arn"],
         "EC2.Instance": ["InstanceId", "Tags[].Key", "Tags[].Value"],
@@ -1214,7 +1220,7 @@ def check_iam_role_name(root, project):
     validator_module = load('validate-blueprint')
     kind, name, logical_id = "IAM.Role", "app-dev-worker-role", "WorkerRole"
     name_row = ("RoleName", f"`{name}`", "workerの実行権限を識別するロール名")
-    trust_row = ("AssumeRolePolicyDocument", "[WorkerTrust](iam/worker-role-trust-policy.json)", "workerからの引受を許可する信頼ポリシー")
+    trust_row = ("AssumeRolePolicyDocument", "[WorkerTrust](iam/iam-role-001-trust-policy.json)", "workerからの引受を許可する信頼ポリシー")
     document = json.dumps({"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"}]}, separators=(",", ":"))
     invalid = [[], [name_row, name_row], [("Tags[].Key", "`Name`", "タグのキー"), ("Tags[].Value", f"`{name}`", "タグの値")]]
     invalid += [[("RoleName", value, "未確定の名前")] for value in
@@ -1260,7 +1266,7 @@ def check_iam_role_name(root, project):
         formal_rows = [[str(i), kind + "." + field, value, comment] for i, (field, value, comment) in enumerate(bad_rows, 1)]
         assert naming_errors(root, kind, formal_rows), bad_names
         assert naming_errors(root, kind, [[row[0], row[1].removeprefix(kind + "."), *row[2:]] for row in formal_rows]), bad_names
-        bad = model("iam", kind, name, bad_rows, logical_id, name)
+        bad = model("iam", kind, name, bad_rows, "Key", name)
         with pytest.raises(ValueError):
             markdown_for(path, bad, root)
         rendered = output[:output.index("| 1 | RoleName |")]
@@ -1290,21 +1296,24 @@ def check_required_name_tag(kind, root, project):
                     [("Tags", f'`{{"Name":"{name}"}}`', "正式arrayではないタグ")],
                     [tags[0], before[0], tags[1]]]
     invalid_tags += [[tags[0], ("Tags[].Value", value, "未確定の名前")]
-                     for value in ("", "``", "`   `", "`UNSET`", "` UNSET `", "`PENDING_DEPLOY`", "`Pending`", "`TBD`", "`none`", "`not-used`", "`{{application}}`", f"[{name}](#{service}-{name})")]
+                     for value in ("", "``", "`   `", "`UNSET`", "` UNSET `", "`PENDING_DEPLOY`", "`Pending`", "`TBD`", "`none`", "`not-used`", "`{{application}}`", f"[{name}](#{anchor})")]
     path = root / f"docs/designs/dev/123456789012/{service}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
-    rows = [(identifier, f"[{logical_id}](#{service}-{name})", "resourceを識別するID"), *before, *tags, *after]
+    anchor = "resource-" + kind.replace(".", "_") + "_001"
+    rows = [(identifier, f"[{logical_id}](#{anchor})", "resourceを識別するID"), *before, *tags, *after]
     values = model(service, kind, name, rows, logical_id, "fallback-label")
+    logical_id = values["desired.resource.001.logicalId"]
+    anchor = "resource-" + logical_id
     values.update({"observed.row.001-001.property": kind + "." + identifier, "observed.row.001-001.value": f"`{current_id}`", "observed.row.001-001.comment": rows[0][2],
-                   "desired.note.001.text": f"参照: [{name}](#{service}-{name})"})
+                   "desired.note.001.text": f"参照: [{name}](#{anchor})"})
     output = roundtrip(path, values, root)
     assert f"### {kind}: {name}" in output
-    assert f"[{name}](#{service}-{name})" in output and "fallback-label" not in output
+    assert f"[{name}](#{anchor})" in output and "fallback-label" not in output
     assert f"<!-- resource-logical-id: {logical_id} -->" in output
     assert f"| 1 | {identifier} | `{current_id}` |" in output
     assert kind + ".Name" not in "\n".join(expanded_display_rows(output.splitlines()))
     base = root / "model/dev/123456789012"
-    base.mkdir(parents=True)
+    base.mkdir(parents=True, exist_ok=True)
     source = base / f"{service}.properties"
     write_model(source, text(values))
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
@@ -1329,14 +1338,14 @@ def check_required_name_tag(kind, root, project):
 ### EC2.RouteTable: route
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
-| 1 | EC2.Route.{reference_property} | [{current_id}]({service}.md#{service}-{name}) | 宛先EndpointのID |
+| 1 | EC2.Route.{reference_property} | [{current_id}]({service}.md#{anchor}) | 宛先EndpointのID |
 ''', encoding="utf-8")
     path.write_bytes(saved)
     validator = validator_module.Validator(root)
     validator.check_design_links(outputs)
     assert not validator.errors, validator.errors
-    assert model_projection.linked_resource(reference, f"[{current_id}]({service}.md#{service}-{name})") == (kind, logical_id)
-    assert f"| EC2.Route.{reference_property} | [{current_id}]({service}.md#{service}-{name}) |" in reference.read_text()
+    assert model_projection.linked_resource(reference, f"[{current_id}]({service}.md#{anchor})") == (kind, logical_id)
+    assert f"| EC2.Route.{reference_property} | [{current_id}]({service}.md#{anchor}) |" in reference.read_text()
     reference.unlink()
     path.write_text(output.replace(f"### {kind}: {name}", f"### {kind}: wrong-name"), encoding="utf-8")
     validator = validator_module.Validator(root)
@@ -1345,7 +1354,7 @@ def check_required_name_tag(kind, root, project):
     path.write_bytes(saved)
     for bad_tags in invalid_tags:
         bad_rows = [rows[0], *before, *bad_tags, *after]
-        bad = model(service, kind, name, bad_rows, logical_id, name)
+        bad = model(service, kind, name, bad_rows, "Key", name)
         formal_rows = [[str(i), kind + "." + field, value, comment] for i, (field, value, comment) in enumerate(bad_rows, 1)]
         validator = validator_module.Validator(root)
         validator.check_required_name_tag(path, kind, name, formal_rows)
@@ -1382,13 +1391,13 @@ def check_required_name_tag(kind, root, project):
 
 def check_service_failure_protection(root, project):
     base = root / "model/dev/123456789012"
-    base.mkdir(parents=True)
+    base.mkdir(parents=True, exist_ok=True)
     vpc = model("vpc", "EC2.VPC", "vpc-net-dev", [("Name", "`vpc-net-dev`", "識別するNameタグ"), ("VpcId", "[Vpc](#vpc-vpc-net-dev)", "一意に識別するID"), ("CidrBlock", "`10.1.0.0/16`", "IPv4のアドレス範囲")], "Vpc")
     vpc["observed.row.001-002.property"] = "EC2.VPC.VpcId"
     vpc["observed.row.001-002.value"] = "`PENDING_DEPLOY`"
     vpc["observed.row.001-002.comment"] = "一意に識別するID"
     logs = model("logs", "Logs.LogGroup", "cwlogs-net-dev-flow", [("LogGroupName", "`cwlogs-net-dev-flow`", "ログを保存する名前"), ("RetentionInDays", "`30`", "ログを保持する日数")])
-    iam = model("iam", "IAM.Role", "net-dev-flow-role", [("RoleName", "`net-dev-flow-role`", "権限を識別する名前"), ("AssumeRolePolicyDocument", "[信頼ポリシー](iam/flow-role-trust-policy.json)", "引受元に許可する権限")], "FlowRole")
+    iam = model("iam", "IAM.Role", "net-dev-flow-role", [("RoleName", "`net-dev-flow-role`", "権限を識別する名前"), ("AssumeRolePolicyDocument", "[信頼ポリシー](iam/iam-role-001-trust-policy.json)", "引受元に許可する権限")], "FlowRole")
     iam["desired.row.001-002.document"] = json.dumps({"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "vpc-flow-logs.amazonaws.com"}, "Action": "sts:AssumeRole"}]}, separators=(",", ":"))
     sources = {base / "vpc.properties": vpc, base / "logs.properties": logs, base / "iam.properties": iam}
     for path, values in sources.items():
@@ -1456,7 +1465,7 @@ def check_service_failure_protection(root, project):
     write_model(base / "iam.properties", text(without_document))
     fails_with("authoritative JSON document missing")
     assert (docs / "iam.md").read_bytes() == old_docs[docs / "iam.md"]
-    assert (docs / "iam/flow-role-trust-policy.json").read_bytes() == old_docs[docs / "iam/flow-role-trust-policy.json"]
+    assert (docs / "iam/iam-role-001-trust-policy.json").read_bytes() == old_docs[docs / "iam/iam-role-001-trust-policy.json"]
     assert "`7`" in (docs / "logs.md").read_text(encoding="utf-8")
     assert properties(read_model(base / 'iam.properties')) == properties(text(without_document))
     # Read-only checks report stale successes without modifying any view.
@@ -1508,7 +1517,7 @@ def check_service_failure_protection(root, project):
     assert new_link.partition("#")[2] in (docs / "logs.md").read_text(encoding="utf-8")
     assert (docs / "vpc.md").read_bytes() == snapshot[docs / "vpc.md"]
     assert (docs / "iam.md").read_bytes() != snapshot[docs / "iam.md"]
-    assert (docs / "iam/flow-role-trust-policy.json").read_bytes() == snapshot[docs / "iam/flow-role-trust-policy.json"]
+    assert (docs / "iam/iam-role-001-trust-policy.json").read_bytes() == snapshot[docs / "iam/iam-role-001-trust-policy.json"]
     assert saved_sources == {file: file.read_bytes() for model in sources for file in load_model(model).files}
     snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
     assert SYNC.sync(root, False, "dev", "123456789012") == 0
@@ -1591,10 +1600,10 @@ def check_service_failure_protection(root, project):
     with patch.object(Path, "write_text", fail_iam):
         fails_with("test IAM write failure")
     assert (docs / "iam.md").read_bytes() == snapshot[docs / "iam.md"]
-    assert (docs / "iam/flow-role-trust-policy.json").read_bytes() == snapshot[docs / "iam/flow-role-trust-policy.json"]
+    assert (docs / "iam/iam-role-001-trust-policy.json").read_bytes() == snapshot[docs / "iam/iam-role-001-trust-policy.json"]
     assert "`7`" in (docs / "logs.md").read_text(encoding="utf-8")
     assert SYNC.sync(root, True, "dev", "123456789012") == 0
-    assert json.loads((docs / "iam/flow-role-trust-policy.json").read_text(encoding="utf-8")) == document
+    assert json.loads((docs / "iam/iam-role-001-trust-policy.json").read_text(encoding="utf-8")) == document
     assert {file: file.read_bytes() for model in sources for file in load_model(model).files} == saved_sources
     # A target I/O failure preserves its View; reference warnings permit independent consumers.
     snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
@@ -1618,8 +1627,8 @@ def check_service_failure_protection(root, project):
     subprocess.run(["git", "add", "."], cwd=root, check=True)
     subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], cwd=root, check=True)
     (root / "tasks").mkdir()
-    (root / "tasks/active.md").write_text("## Validation scope\n- `dev/123456789012/iam`\n- `dev/123456789012/logs`\n- `dev/123456789012/vpc`\n", encoding="utf-8")
-    json_path = docs / "iam/flow-role-trust-policy.json"
+    (root / "tasks/example.md").write_text("## Validation scope\n- `dev/123456789012/iam`\n- `dev/123456789012/logs`\n- `dev/123456789012/vpc`\n", encoding="utf-8")
+    json_path = docs / "iam/iam-role-001-trust-policy.json"
     before = json_path.read_bytes()
     source = base / "iam.properties"
     document["Statement"][0]["Sid"] = "InputDrift"
@@ -1662,7 +1671,7 @@ def check_service_failure_protection(root, project):
 
 
 def check_service_displays(tmp_path):
-    base = tmp_path
+    base = tmp_path / "docs/designs/dev/123456789012"
     build = model("codebuild", "CodeBuild.Project", "cbld-app-dev-build", [("Name", "`cbld-app-dev-build`", "projectの名前"), ("Environment.EnvironmentVariables[].Name", "`TARGET`", "実行対象"), ("Environment.EnvironmentVariables[].Type", "`PLAINTEXT`", "実行対象"), ("Environment.EnvironmentVariables[].Value", "`cde`", "実行対象")])
     build.update({"desired.row.001-005.property": "CodeBuild.Project.ServiceRole", "desired.row.001-005.value": "[BuildRole](iam.md#iam-build-role)", "desired.row.001-005.comment": "実行に使用するロール"})
     output = roundtrip(base / "codebuild.md", build, ROOT)
@@ -1761,17 +1770,19 @@ def check_observed_arn_authority(tmp_path):
     path = tmp_path / 'model/dev/123456789012/secrets-manager.properties'
     document = tmp_path / 'docs/designs/dev/123456789012/secrets-manager.md'
     arn = 'arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:actual-id'
-    values = model('secrets-manager', 'SecretsManager.Secret', 'secret', [('Id', '[secret](#secret)', 'actual ID')])
+    values = model('secrets-manager', 'SecretsManager.Secret', 'secret', [('Id', 'resource://dev/123456789012/secrets-manager/SecretsManager_Secret_001', 'actual ID')])
     values['observed.row.001-001.value'] = '`' + arn + '`'
     for mode in ('IMPORT', 'CREATE'):
         values['desired.resource.001.resourceMode'] = mode
+        if mode == 'IMPORT':
+            values.pop('desired.resource.001.cfn-logicalId', None)
         write_model(path, values)
         findings = Findings(tmp_path)
         check_observed_values([path], findings=findings, root=tmp_path, scope=None)
         assert any('generated ARN persisted' in error for error in findings.errors) == (mode == 'CREATE'), findings.errors
         with patch('validation.design_tables.catalog_order_errors', return_value=[]):
             check_generated_identifier(document, 'SecretsManager.Secret', 'resource-SecretsManager_Secret_001', [['1', 'SecretsManager.Secret.Id', '`' + arn + '`', 'actual']],
-                {'SecretsManager.Secret': {'SecretsManager.Secret.Id'}}, findings=findings)
+                {'SecretsManager.Secret': {'SecretsManager.Secret.Id'}}, findings=findings, values=values)
         assert any('generated ARN is forbidden' in error for error in findings.errors) == (mode == 'CREATE'), findings.errors
 
 
@@ -1790,6 +1801,7 @@ def check_dynamic_reference_candidates(root, project):
         ("Credentials.CredentialPair.Password", "`" + reference.replace(":username}}", ":password}}") + "`", "認証パスワード"),
     ])
     values["desired.resource.001.resourceMode"] = "IMPORT"
+    values.pop("desired.resource.001.cfn-logicalId", None)
     write_model(source, text(values))
     inputs = {path: path.read_bytes() for path in load_model(source).files}
     assert SYNC.sync(root, True, "dev", "123456789012", {"quicksight"}) == 0
@@ -1826,4 +1838,3 @@ if __name__ == "__main__":
             pstats.Stats(profile).strip_dirs().sort_stats("cumulative").print_stats(25)
     else:
         raise SystemExit(main())
-

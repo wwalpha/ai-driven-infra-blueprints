@@ -308,7 +308,7 @@ desired.row.006-007.comment=付与するタグの値
         moved += "\n\n" + columns + "\n" + rule + "\n"
         assert not errors(moved), errors(moved)
         _, moved_children = expanded_design(moved.splitlines())
-        assert moved_children["resource-EC2_SecurityGroupEgress_001"]["parentLogicalId"] == "GroupTwo"
+        assert moved_children["resource-EC2_SecurityGroupEgress_001"]["parentLogicalId"] == "EC2_SecurityGroup_002"
         assert moved_children["resource-EC2_SecurityGroupEgress_001"]["logicalId"] == "EC2_SecurityGroupEgress_001"
 
         assert "| FromPort |" not in DESIGN and "| ToPort |" not in DESIGN

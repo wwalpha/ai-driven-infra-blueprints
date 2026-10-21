@@ -23,12 +23,12 @@ def check_snapshot(sync):
             projection = index.get(source).headings.expanded
             assert sum(call.args[0].suffix == ".md" for call in reads.call_args_list) == 1
             assert expands.call_count == 1  # The source table is normalized once.
-            assert model_projection.linked_resource(source, "[alias/two](kms.md#kms-aliastwo)", design_index=index) == ("KMS.Alias", "AliasTwo")
+            assert model_projection.linked_resource(source, "[alias/two](kms.md#resource-AliasTwo)", design_index=index) == ("KMS.Alias", "AliasTwo")
             assert model_projection.linked_resource(source, "[key](kms.md#kms-keyone)", design_index=index) == ("KMS.Key", "KeyHidden")
             assert model_projection.linked_resource(source, "[missing](kms.md#absent)", design_index=index) is None
             assert model_projection.linked_resource(source, "[missing](absent.md#absent)", design_index=index) is None
             assert model_projection.linked_resource(source, "literal", design_index=index) is None
-            assert model_projection.linked_resource(source, "[alias/three](kms.md#kms-aliasthree)", design_index=index) == ("KMS.Alias", "AliasThree")
+            assert model_projection.linked_resource(source, "[alias/three](kms.md#resource-AliasThree)", design_index=index) == ("KMS.Alias", "AliasThree")
             assert expands.call_count == 4
             assert sum(call.args[0].suffix == ".md" for call in reads.call_args_list) == 2
         assert projection is index.get(source).headings.expanded
@@ -43,7 +43,7 @@ def check_snapshot(sync):
         rows = [('S3.Bucket.BucketName', '`app-data`', 'bucketの名前'),
                 ('S3.Bucket.Region', '`us-east-1`', 'bucketを配置するregion')]
         rows += [('S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID',
-                  f'[alias/{"two" if n % 2 == 0 else "three"}](kms.md#kms-alias{"two" if n % 2 == 0 else "three"})',
+                  f'[alias/{"two" if n % 2 == 0 else "three"}](kms.md#resource-Alias{"Two" if n % 2 == 0 else "Three"})',
                   '暗号化に使用するKMS alias') for n in range(80)]
         rows += [('S3.Bucket.SourceKeyId', '[KeyHidden](kms.md#kms-keyone)', '参照ID'),
                  ('S3.Bucket.SourceKeyId', '[unresolved](absent.md#absent)', '未解決参照'),
@@ -57,23 +57,23 @@ def check_snapshot(sync):
                        'display.resource.001.comment': 'アプリケーションのデータを保管するbucket'})
         values["desired.resource.001.resourceMode"] = "IMPORT"
         rendered = model_design.markdown_for(source, values, repository)
-        assert hashlib.sha256(rendered.encode()).hexdigest() == "fccdd47fd7d3f08ab9ef18e58b6c075985ccb42f3adad200fe7fb184a7ba22f3"
+        assert hashlib.sha256(rendered.encode()).hexdigest() == "f35dc5f74aa31ec8c4fffdafc880611a2efebef14570c67494b4a49527cea357", hashlib.sha256(rendered.encode()).hexdigest()
         # Alias links also retain an explicit consumer observation, without inventing Alias identifiers.
         observed = "1234abcd-12ab-34cd-56ef-1234567890ab"
         alias_source = dict(values)
         alias_source.update({"observed.row.001-003.property": values["desired.row.001-003.property"],
                              "observed.row.001-003.comment": values["desired.row.001-003.comment"],
                              "observed.row.001-003.value": observed})
-        alias_text = text.replace("[alias/two](kms.md#kms-aliastwo)", f"[{observed}](kms.md#kms-aliastwo)", 1)
+        alias_text = text.replace("[alias/two](kms.md#resource-AliasTwo)", f"[{observed}](kms.md#resource-AliasTwo)", 1)
         source.write_text(alias_text, encoding="utf-8")
         from model.projection import resource_rows
         shown = resource_rows(alias_source, '001', 'S3.Bucket', repository)
-        assert shown[2][2] == f'[{observed}](kms.md#kms-aliastwo)'
-        assert values['desired.row.001-003.value'] == '[alias/two](kms.md#kms-aliastwo)'
+        assert shown[2][2] == f'[{observed}](kms.md#resource-AliasTwo)', shown
+        assert values['desired.row.001-003.value'] == '[alias/two](kms.md#resource-AliasTwo)'
         from types import SimpleNamespace
         from sync_runtime import _compare_generation
         for changed in (alias_text.replace(observed, 'different', 1),
-                        alias_text.replace('kms-aliastwo', 'kms-aliasthree', 1)):
+                        alias_text.replace('resource-AliasTwo', 'resource-AliasThree', 1)):
             source.write_text(changed, encoding='utf-8')
             plan = SimpleNamespace(root=source.parent, read_inputs={}, expected_outputs={source: {source: alias_text}}, failures=[], saved={})
             _compare_generation(plan)
@@ -131,15 +131,16 @@ def check_links(module):
         observed = "1234abcd-12ab-34cd-56ef-1234567890ab"
         model = {"desired.resource.001.resourceType": "S3.Bucket",
                  "desired.resource.001.logicalId": "S3_Bucket_001",
+                 "desired.resource.001.anchor": "resource-S3_Bucket_001",
                  "desired.service.identity.lastAllocated": '{"S3.Bucket":1}',
                  "desired.row.001-001.property": "S3.Bucket.SourceKeyId",
-                 "desired.row.001-001.value": "[alias/two](kms.md#kms-aliastwo)",
+                 "desired.row.001-001.value": "[alias/two](kms.md#resource-AliasTwo)",
                  "observed.row.001-001.value": observed}
-        alias_text = valid.replace(f"[{observed}](kms.md#kms-keyone)", f"[{observed}](kms.md#kms-aliastwo)")
+        alias_text = valid.replace("s3-app-data", "resource-S3_Bucket_001").replace(f"[{observed}](kms.md#kms-keyone)", f"[{observed}](kms.md#resource-AliasTwo)")
         for content, expected in [(alias_text, []),
                                   (alias_text.replace(observed, "different"), ["different"]),
-                                  (alias_text.replace(f"[{observed}](kms.md#kms-aliastwo)",
-                                                      f"[{observed}](kms.md#kms-aliasthree)"), [observed])]:
+                                  (alias_text.replace(f"[{observed}](kms.md#resource-AliasTwo)",
+                                                      f"[{observed}](kms.md#resource-AliasThree)"), [observed])]:
             source.write_text(content, encoding="utf-8")
             target.write_text(ref, encoding="utf-8")
             validator.errors.clear()

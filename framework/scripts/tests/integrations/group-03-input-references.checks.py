@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
+import pytest
 from support.it_case_receipt import it_case, module_complete
 from support.producer_identifier_reference_fixtures import *
 
@@ -49,7 +50,8 @@ def check(root, service, kind, name_property):
     write_model(path, values)
     invalid_type = {**original, 'desired.resource.052.resourceType': 'S3.Bucket'}
     write_model(producer, invalid_type)
-    assert load_model(path).warnings
+    with pytest.raises(ValueError, match='ResourceType prefix'):
+        load_model(path)
     missing = {key: value for key, value in original.items() if not key.startswith(('desired.resource.052.', 'desired.row.052-'))}
     write_model(producer, missing)
     assert warning(path, 'absent or ambiguous').authoritative == snapshot.authoritative

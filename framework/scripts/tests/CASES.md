@@ -324,7 +324,7 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `units/blueprint-loop-unit.checks.py::check_parallel_interruption` | 1（内部パラメータ化なし） |
 | `units/blueprint-loop-unit.checks.py::check_leaf_selection` | L78: 2 (('a', 'b'))<br>L83: 4 (('framework/scripts/shared.py', 'framework/rules/rule.md', 'framework/scripts/tests/integrations/deleted.checks.py', 'framework/materials/catalog.sha256'))<br>L82: 動的 (selected) |
 | `units/blueprint-loop-unit.checks.py::check_dependency_selection` | L98: 6 ((('integrations', 'task'), ('units', 'design'), ('units', 'references'), ('units', 'cloudformation'), ('integrations', 'scope'), ('units', 'contracts')))<br>L105: 3 (('iac_evaluation', 'script_loader', 'issues_iac'))<br>L107: 8 (('__init__', 'scheduler', 'aws_adapter', 'delivery', 'change_sets', 'repair', 'secret_bootstrap', 'session'))<br>L111: 2 (('framework/scripts/tests/support/validation_checks/unknown.py', 'framework/scripts/tests/support/unknown.py'))<br>L118: 7 (('service_rows', 'model_display', 'model_projection', 'model_references', 'sync_runtime', 'sync_views', 'sync_files'))<br>L109: 動的 ((SCRIPT.parent / 'tests').rglob('*.checks.py'))<br>L95: 動的 (MODULE.select_checks(root, set(paths), affected)[0]) |
-| `units/blueprint-loop-unit.checks.py::check_fixture_independence` | L140: 2 (('AGENTS.md', 'README.md'))<br>L142: 5 (('issues/dev/other/issues.md', 'model/dev/other/ec2.properties', 'docs/designs/dev/other/ec2.md', 'tasks/active.md', 'project.json')) |
+| `units/blueprint-loop-unit.checks.py::check_fixture_independence` | L140: 2 (('AGENTS.md', 'README.md'))<br>L142: 5 (('issues/dev/other/issues.md', 'model/dev/other/ec2.properties', 'docs/designs/dev/other/ec2.md', 'tasks/example.md', 'project.json')) |
 | `units/blueprint-loop-unit.checks.py::check_regression_discovery` | L158: 2 ((('parameter_cases', 'service-parameter-inputs.checks.py'), ('service_contracts', 'model_parameter_inputs.checks.py')))<br>L154: 動的 (MODULE.select_checks(root, set())[0])<br>L157: 動的 (all_checks)<br>L161: 動的 (selected) |
 | `units/check-model-aws-unit.checks.py::check_summary_exit_codes` | 1（内部パラメータ化なし） |
 | `units/check-model-aws-unit.checks.py::check_value_normalization` | 1（内部パラメータ化なし） |
@@ -1660,7 +1660,7 @@ main/module検証地点の現在配置: integrations=305, units=232。
 |---|---|---|---|---|---|---|
 | `integrations/task_contract.checks.py:204` | `check_atomic_output_rollback` | IT | [integrations/task_contract.checks.py:204](integrations/task_contract.checks.py#L204) | pytest / 1 | 通常の契約・保存・変更検出を維持 | 予約専用検証を除去し既存assertを整理 |
 | `units/task-contract-unit.checks.py:96` | `check_task_change_rolls_back_publication` | UT | [units/task-contract-unit.checks.py:97](units/task-contract-unit.checks.py#L97) | pytest / 3 | scope/completed/suspendへの処理中変更とrollbackを確認 | 予約専用検証を除去し既存assertを整理 |
-| `units/task-contract-unit.checks.py:114` | `check_legacy_publication_preserves_contract` | UT | [units/task-contract-unit.checks.py:118](units/task-contract-unit.checks.py#L118) | pytest / 4 | status省略/running/completed/suspend、拒否時の既存・新規・削除対象不変と契約なしpublishを確認 | 予約専用検証を除去し既存assertを整理 |
+| `units/task-contract-unit.checks.py:114` | `check_publication_preserves_contract` | UT | [units/task-contract-unit.checks.py:118](units/task-contract-unit.checks.py#L118) | pytest / 4 | running/completed/suspend、拒否時の既存・新規・削除対象不変と契約なしpublishを確認 | 予約専用検証を除去し既存assertを整理 |
 | `units/task-contract-unit.checks.py:131` | `check_source_guard_keeps_plan_consistency` | UT | [units/task-contract-unit.checks.py:158](units/task-contract-unit.checks.py#L158) | pytest / 1 | 通常の契約・保存・変更検出を維持 | 予約専用検証を除去し既存assertを整理 |
 | `units/task-contract-unit.checks.py:148` | `check_scope_change_during_planning` | UT | [units/task-contract-unit.checks.py:175](units/task-contract-unit.checks.py#L175) | pytest / 1 | 通常の契約・保存・変更検出を維持 | 予約専用検証を除去し既存assertを整理 |
 
@@ -1751,7 +1751,6 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `import-resource-consolidation::check_model_operation_row_correspondence` | `check_model_operation_row_correspondence` | UT | [units/import-model-unit.checks.py:582](units/import-model-unit.checks.py#L582) | pytest / 1 | Model-only統合・削除、共有Consumer不変性、外部証跡・保存境界 | IMPORT統合・削除 |
 | `import-resource-consolidation::check_model_operation_shape_preservation` | `check_model_operation_shape_preservation` | UT | [units/import-model-unit.checks.py:600](units/import-model-unit.checks.py#L600) | pytest / 5 | Model-only統合・削除、共有Consumer不変性、外部証跡・保存境界 | IMPORT統合・削除 |
 | `import-resource-consolidation::check_external_completion_proof` | `check_external_completion_proof` | UT | [units/import-model-unit.checks.py:682](units/import-model-unit.checks.py#L682) | pytest / 7 | Model-only統合・削除、共有Consumer不変性、外部証跡・保存境界 | IMPORT統合・削除 |
-| `import-resource-consolidation::check_legacy_proof_migration` | `check_legacy_proof_migration` | UT | [units/import-model-unit.checks.py:719](units/import-model-unit.checks.py#L719) | pytest / 2 | Model-only統合・削除、共有Consumer不変性、外部証跡・保存境界 | IMPORT統合・削除 |
 | `import-resource-consolidation::check_snapshot_proof_resigning_and_cleanup` | `check_snapshot_proof_resigning_and_cleanup` | UT | [units/import-model-unit.checks.py:746](units/import-model-unit.checks.py#L746) | pytest / 1 | Model-only統合・削除、共有Consumer不変性、外部証跡・保存境界 | IMPORT統合・削除 |
 | `import-resource-consolidation::check_model_only_publication` | `check_model_only_publication` | IT | [integrations/import-model.checks.py:590](integrations/import-model.checks.py#L590) | pytest / 6 | Model-only統合・削除、共有Consumer不変性、外部証跡・保存境界 | IMPORT統合・削除 |
 | `import-resource-consolidation::check_import_snapshot_evidence` | `check_import_snapshot_evidence` | IT | [integrations/blueprint-loop.checks.py:829](integrations/blueprint-loop.checks.py#L829) | pytest / 2 | Model-only統合・削除、共有Consumer不変性、外部証跡・保存境界 | IMPORT統合・削除 |
@@ -1783,7 +1782,7 @@ Athena ResultConfiguration EncryptionConfiguration.KmsKey regression in `integra
 ## Atomic Model operation contracts and API boundaries
 
 - `units/task-contract-unit.checks.py::check_batch_operation_contract`: five pairs,
-  immutable normalized contract, legacy merge/delete compatibility, duplicate/mixed/
+  immutable normalized contract, duplicate/mixed/
   missing/malformed declarations and JSON/pointer/scope rejection.
 - `units/import-model-unit.checks.py::check_batch_model_operation`: simultaneous five-pair
   semantic comparison and failure for a single missing observed transfer.
@@ -1869,7 +1868,7 @@ partial-cache validation spies on compare_generation with the full consumer scop
 
 `units/resource-delete-unit.checks.py` uses only temporary synthetic Models and the
 existing temporary Git fixture. It covers 10 sources in one service / two services,
-legacy normalization, duplicate/empty/cross-target/mixed/unrelated declaration rejection,
+duplicate/empty/cross-target/mixed/unrelated declaration rejection,
 missing/extra deletions, setting/identity/observation preservation, shared consumers,
 related retarget and two-consumer detach, remaining-reference warnings, fifth-save
 failure with retained prior saves and same-parent continuation, source-service-only
@@ -1917,7 +1916,6 @@ dirty baseは高コスト解析・commit前に拒否するため、既存テス�
 | `model-v2::check_observed_cannot_bypass_import_or_change_authority` | `check_observed_cannot_bypass_import_or_change_authority` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 1 | IMPORT 物理 ID 保護・非観測と未登録書込・承認 flag 拒否 | Model v2 |
 | `model-v2::check_declared_and_direct_links_coalesce_or_retain_conflicts` | `check_declared_and_direct_links_coalesce_or_retain_conflicts` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 1 | 直接リンク統合・意味競合の保持・incoming・読取非破壊 | Model v2 |
 | `model-v2::check_reference_occurrence_identifies_overlapping_text` | `check_reference_occurrence_identifies_overlapping_text` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 1 | 重なりを含む参照断片の厳密な出現位置 | Model v2 |
-| `model-v2::check_normal_reader_rejects_legacy_authorities` | `check_normal_reader_rejects_legacy_authorities` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 2 | 旧正本の検出・fallback 禁止 | Model v2 |
 | `model-v2::check_deploy_rejects_legacy_session_format` | `check_deploy_rejects_legacy_session_format` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py) | pytest / 4 | 旧 Deploy session の形式・snapshot・意味版の拒否 | Model v2 |
 | `model-v2::check_observed_insertion_is_local_without_reflow` | `check_observed_insertion_is_local_without_reflow` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py) | pytest / 1 | 観測キー追加削除と CRLF・無関係な原文の不変 | Model v2 |
 | `model-v2::check_import_observation_foreign_reference_and_identity_spoof` | `check_import_observation_foreign_reference_and_identity_spoof` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py) | pytest / 1 | IMPORT の外部参照観測更新・自身 ID 保護・偽装リンク拒否 | Model v2 |
@@ -2001,10 +1999,7 @@ JSON型/配列順序を実管理 worktree の prepare/publish、no-op bytes、�
 登録targetからの自動生成不存在、原文snapshot、環境独立性、旧形式拒否を検査する。
 
 
-Properties v2 の scope/discovery は、登録環境名 `templates` / `parameters` と旧形式の実データを
-区別する。通常 reader の旧形式 fallback は設けず、旧 tpl/YAML/sidecar を含む入口は拒否する。
-part の所属は service 名を拡張子で切り落とさずに入口へ対応付ける。project symlink は bytes
-読取前に拒否し、scope 外の Model を dependency 解析の権限として取り込まない。
+Properties v2 の scope/discovery は登録環境名 `templates` / `parameters` も通常の環境名として扱い、現行propertiesのパス・形式・part集合を検証する。
 
 `model_templates` IT の9入口は properties v2 へ移行した。実 journal の部分書込・callback・
 process-death・復元失敗・CRLF/no-op、固定 Role 数2/5・Row ID・JSONポリシー生成、parts/scope、

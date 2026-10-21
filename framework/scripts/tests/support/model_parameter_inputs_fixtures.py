@@ -52,11 +52,16 @@ def fixture(root):
         path = root / 'model' / env / 'team/vpc.properties'
         write_model(path, values)
         paths[env] = path
-    task = root / 'tasks/active.md'
+    for env in environments:
+        write_model(root / 'model' / env / 'team/cloudformation-stacks.properties', {
+            'desired.stack.001.name': 'fixture', 'desired.stack.001.placementName': 'fixture',
+            'desired.stack.001.template': 'fixture.yaml', 'desired.stack.001.parameters': 'fixture.json',
+            'desired.stack.001.deployOrder': '1', 'display.stack.001.comment': '合成Stack'})
+    task = root / 'tasks/example.md'
     task.parent.mkdir()
     task.write_text('## Task contract\n- Task type: `migration`\n- Task status: `running`\n' +
         '## Validation scope\n' + ''.join('- `' + env + '/team/' + service + '`\n' for env in environments for service in ('vpc', 'iam')) +
-        '## Modified files\n- `tasks/active.md`\n## Allowed paths\n- `tasks/active.md`\n- `model/**`\n- `docs/designs/**`\n')
+        '## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n')
     return environments, paths
 
 

@@ -2,8 +2,8 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-from model.identity import allocate
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from model.identity import allocate
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
@@ -150,7 +150,7 @@ def check_empty_rollback_recreation(tmp_path):
     scoped = units(10, 10)
     root = tmp_path
     (root / 'tasks').mkdir()
-    (root / 'tasks/active.md').write_text('- Controlled repair: `allowed`\n', encoding='utf-8')
+    (root / 'tasks/example.md').write_text('## Task contract\n- Task type: `infrastructure`\n- Task status: `running`\n- Infrastructure phase: `deploy`\n- Controlled repair: `allowed`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n', encoding='utf-8')
     # Both existing shells are deleted by ID before CREATE, without approval or IaC repair.
     backend = EmptyRollbackAws(root)
     saved = states(scoped)
@@ -287,8 +287,8 @@ def check_inputs(tmp_path):
     path.write_text(path.read_text().replace("<!-- max-concurrent-stacks: 2 -->", "<!-- max-concurrent-stacks: 3 -->"))
     rejects(lambda: M.load_units(root, "dev", "123456789012", ["A"]), "mismatch")
     (root / "tasks").mkdir()
-    contract = root / "tasks/active.md"
-    contract.write_text("- Task type: `governance`\n")
+    contract = root / "tasks/example.md"
+    contract.write_text("## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n")
     rejects(lambda: M.session_ops.active_scope(root, ["A"], "dev", TARGET["awsAccountId"]), "infrastructure")
     assert M.change_sets.import_names({"Fn::ImportValue": {"Fn::Join": ["", [{"Ref": "Prefix"}, "VpcId"]]}}, {"Prefix": "Network"}, {}) == {"NetworkVpcId"}
     rejects(lambda: M.change_sets.import_names({"Fn::ImportValue": {"Ref": "Resource"}}, {}, {}), "unsupported")
@@ -502,6 +502,8 @@ def check_delivery(tmp_path):
     view = design.read_text()
     assert "| Property | Value |" not in view and "| TemplateBucket |" not in view and "| TemplateKeyPrefix |" not in view
     assert "### 配置ファイル" in view and f"<!-- templateBucket: {reference} -->" in view
+    source_model = model.with_name("cloudformation-stacks.properties")
+    write_model(source_model, values)
     projected = stack_delivery(design) | {key: value for key, value in values.items() if key.startswith("desired.stack.")}
     settings, files = deployment_settings(projected)
     assert settings == deployment_settings(values)[0] and [a for _, a in files] == [a for _, a in deployment_settings(values)[1]]
@@ -509,10 +511,6 @@ def check_delivery(tmp_path):
     rejects(lambda: stack_delivery(design), "duplicate S3 delivery setting")
     design.write_text(view.replace("<!-- templateKeyPrefix: templates/ -->", "<!-- templateKeyPrefix: -->"))
     rejects(lambda: stack_delivery(design), "invalid S3 delivery setting comment")
-    legacy = view.replace(f"<!-- templateBucket: {reference} -->\n", "").replace("<!-- templateKeyPrefix: templates/ -->\n", "")
-    legacy = legacy.replace("## S3配置\n", f"## S3配置\n\n| Property | Value |\n| --- | --- |\n| TemplateBucket | {reference} |\n| TemplateKeyPrefix | templates/ |\n")
-    design.write_text(legacy)
-    assert stack_delivery(design) == {key: value for key, value in projected.items() if not key.startswith("desired.stack.")}
     design.write_text(view)
     source_model = model.with_name("cloudformation-stacks.properties")
     write_model(source_model, "\n".join(f"{key}={value}" for key, value in values.items()))
@@ -545,6 +543,7 @@ def check_delivery(tmp_path):
     only_templates = {key: value for key, value in values.items() if not key.startswith("desired.artifact.")}
     template_view = markdown_for(design, only_templates, root)
     assert "## S3配置" not in template_view and "| Property | Value |" not in template_view
+    write_model(source_model, only_templates)
     design.write_text(template_view)
     assert {k.removeprefix('desired.deployment.'):v for k,v in stack_delivery(design).items() if k.startswith('desired.deployment.')} == deployment_settings(values)[0]
     design.write_text(template_view.replace("<!-- templateKeyPrefix: templates/ -->", "<!-- templateKeyPrefix: changed/ -->"))
@@ -552,6 +551,7 @@ def check_delivery(tmp_path):
     __import__('sync_runtime')._compare_generation(plan)
     assert plan.failures == ['generated Markdown is stale or missing: docs/designs/dev/123456789012/cloudformation-stacks.md']
     only_artifacts = {key: value for key, value in values.items() if not key.startswith("desired.deployment.template")}
+    write_model(source_model, only_artifacts)
     design.write_text(markdown_for(design, only_artifacts, root))
     assert "| Property | Value |" not in design.read_text()
     assert deployment_settings(stack_delivery(design) | {"desired.stack.001.name": values["desired.stack.001.name"]})[1]
@@ -854,11 +854,11 @@ def check_session_cli(tmp_path):
         "| CloudFormation | Stack | `CloudFormation.Stack` | StackName | `.*` |\n")
     (root / "project.json").write_text(json.dumps({"targets": [{"environment": "dev", **TARGET, "awsProfile": "dev-profile"}, {"environment": "stg", **TARGET}]}))
     (root / "tasks").mkdir()
-    contract = root / "tasks/active.md"
-    contract.write_text("\n".join(["- Task type: `infrastructure`", "- Infrastructure phase: `deploy`",
+    contract = root / "tasks/example.md"
+    contract.write_text("\n".join(["## Task contract", "- Task status: `running`", "- Task type: `infrastructure`", "- Infrastructure phase: `deploy`",
                                  "- AWS API execution: `allowed`", "- Deploy/apply: `allowed`",
                                  "- Target environment: `dev`", "- Target AWS account: `123456789012`",
-                                 "- Deployment scope: `A`, `B`", "- Authorized delete/replacement: `none`", "## Validation scope", "- `all`"]))
+                                 "- Deployment scope: `A`, `B`", "- Authorized delete/replacement: `none`", "## Modified files", "- `tasks/example.md`", "## Allowed paths", "- `tasks/example.md`", "## Validation scope", "- `all`"]))
     values = {"desired.deployment.maxConcurrentStacks": "2"}
     for i, unit in enumerate(units(10, 20), 1):
         values.update({f"desired.stack.{i:03}.{key}": value for key, value in unit.items()})
@@ -1548,9 +1548,9 @@ def check_shared_stack_mapping(managed_framework_root):
         save(source, data if data is not None else actual)
         rejects(lambda: mappings(root, "dev", "123456789012", templates or backend.templates, scoped), message)
     check(actual | {"desired.resource.001.cfn-logicalId": "invalid"}, message="invalid cfn-logicalId")
-    check(actual | {"desired.resource.001.cfn-logicalId": scoped[0]["name"] + "-Missing"}, message="legacy fallback forbidden")
+    check(actual | {"desired.resource.001.cfn-logicalId": scoped[0]["name"] + "-Missing"}, message="explicit mapping required")
     check(actual | {"desired.resource.002.cfn-logicalId": scoped[0]["name"] + "-DepartmentVpc"}, message="matches=2")
-    # A same-name legacy resource cannot repair an explicitly wrong direct identity.
+    # A logicalId cannot repair an explicitly wrong CFn identity.
     check(actual | {"desired.resource.001.logicalId": "DepartmentVpc", "desired.resource.001.cfn-logicalId": scoped[0]["name"] + "-Missing"}, message="logicalId")
     check(actual | {"desired.resource.001.cfn-logicalId": "absent-DepartmentVpc"}, message="undeclared stack")
     save(source, actual)
@@ -1652,16 +1652,16 @@ def check_import_implementation_mapping(framework_root):
     write_model(model / "codecommit.properties", repository)
     write_model(model / "quicksight.properties", {
         "desired.resource.001.resourceType": "QuickSight.Group", "desired.resource.001.logicalId": "QuickSight_Group_001", "desired.service.identity.lastAllocated": '{"QuickSight.Group":1}'})
-    task = root / "tasks/active.md"
+    task = root / "tasks/example.md"
     task.parent.mkdir()
-    task.write_text("## Validation scope\n- `dev/123456789012/ec2`\n- `dev/123456789012/codecommit`\n")
+    task.write_text("## Task contract\n- Task type: `design`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n## Validation scope\n- `dev/123456789012/ec2`\n- `dev/123456789012/codecommit`\n")
     document = {"Resources": {"Vpc": {"Type": "AWS::EC2::VPC"}, "Subnet": {"Type": "AWS::EC2::Subnet"},
                              "Association": {"Type": "AWS::EC2::SubnetRouteTableAssociation", "Properties": {"SubnetId": {"Ref": "Subnet"}}},
                              "Repository": {"Type": "AWS::CodeCommit::Repository"}}}
     def mapping(doc=document, **kwargs):
         return mappings(root, "dev", "123456789012", {unit["name"]: (doc, {})}, [unit], target=TARGET, **kwargs)
     assert set(mapping(implementation=True)[1][unit["name"]]) == {"Repository"}
-    rejects(mapping, "legacy fallback forbidden")  # Deployment cannot adopt unowned template resources.
+    rejects(mapping, "explicit mapping required")  # Deployment cannot adopt unowned template resources.
     template = root / "infra/cloudformation/templates/app.yaml"
     template.parent.mkdir(parents=True)
     template.write_text(json.dumps(document))
@@ -1675,7 +1675,7 @@ def check_import_implementation_mapping(framework_root):
     for logical, definition, message in (
         ("Vpc", {"Type": "AWS::EC2::VPC", "Condition": "Unknown"}, "Condition"),
         ("Association", {"Type": "AWS::EC2::SubnetRouteTableAssociation", "Properties": {"SubnetId": {"Ref": "Vpc"}}}, "formal CFn type mismatch"),
-        ("Unknown", {"Type": "AWS::S3::Bucket"}, "legacy fallback forbidden"),
+        ("Unknown", {"Type": "AWS::S3::Bucket"}, "explicit mapping required"),
         ("Repository", {"Type": "AWS::S3::Bucket"}, "formal CFn type mismatch"),
     ):
         changed = copy.deepcopy(document)
@@ -1695,9 +1695,9 @@ def check_integrated_child_mapping(framework_root):
     (root / "project.json").write_text(json.dumps({"targets": [{"environment": "dev", **TARGET}]}) + "\n")
     model = root / "model/dev/123456789012"
     model.mkdir(parents=True)
-    task = root / "tasks/active.md"
+    task = root / "tasks/example.md"
     task.parent.mkdir()
-    task_text = "## Task contract\n- Task type: `design`\n- Task status: `running`\n## Validation scope\n- `dev/123456789012/s3`\n- `dev/123456789012/ec2`\n- `dev/123456789012/codecommit`\n## Allowed paths\n- `model/dev/123456789012/**`\n- `docs/designs/dev/123456789012/**`\n"
+    task_text = "## Task contract\n- Task type: `design`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Validation scope\n- `dev/123456789012/s3`\n- `dev/123456789012/ec2`\n- `dev/123456789012/codecommit`\n## Allowed paths\n- `tasks/example.md`\n- `model/dev/123456789012/**`\n- `docs/designs/dev/123456789012/**`\n"
     task.write_text(task_text)
     resources, documents = {}, {}
     unit = {"name": "cfn-stack-app-dev-integrated", "template": "integrated.yaml", "parameters": "integrated.json", "deployOrder": "10"}
@@ -1766,9 +1766,9 @@ def check_integrated_child_mapping(framework_root):
     write_model(source, original.replace("S3.BucketPolicy.PolicyDocument", "S3.Bucket.VersioningConfiguration.Status", 1))
     rejects(mapping, "integrated child settings missing")
     write_model(source, original.replace(unit["name"] + "-Bucket1\n", unit["name"] + "-Wrong\n", 1))
-    rejects(mapping, "legacy fallback forbidden")
+    rejects(mapping, "explicit mapping required")
     write_model(source, original)
-    task.write_text("## Task contract\n- Task type: `design`\n- Task status: `running`\n## Validation scope\n- `dev/123456789012/codecommit`\n")
+    task.write_text("## Task contract\n- Task type: `design`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n## Validation scope\n- `dev/123456789012/codecommit`\n")
     rejects(mapping, "task scope violation")
     task.write_text(task_text)
     before = {path: path.read_bytes() for path in model.rglob("*.properties")}
@@ -1798,7 +1798,7 @@ def check_secretsmanager_arn_identifiers(managed_framework_root):
     model.mkdir(parents=True)
     task = root / "tasks/observation-fixture.md"
     task.parent.mkdir(exist_ok=True)
-    task_text = "## Task contract\n- Task type: `design`\n- Task status: `running`\n## Validation scope\n- `dev/123456789012/secretsmanager`\n- `dev/123456789012/kms`\n## Allowed paths\n- `model/dev/123456789012/**`\n- `docs/designs/dev/123456789012/**`\n"
+    task_text = "## Task contract\n- Task type: `design`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Validation scope\n- `dev/123456789012/secretsmanager`\n- `dev/123456789012/kms`\n## Allowed paths\n- `tasks/example.md`\n- `model/dev/123456789012/**`\n- `docs/designs/dev/123456789012/**`\n"
     task.write_text(observation_contract(root, ("secretsmanager", "kms", "cloudformation-stacks")))
     selected = units(1, 2)
     secrets = rotation.fixture()
@@ -1925,7 +1925,7 @@ def check_controlled_repair(tmp_path):
     parameters.mkdir(parents=True)
     for key in ('a', 'b'):
         (parameters / (key + '.json')).write_text('[]\n')
-    task = root / 'tasks/active.md'
+    task = root / 'tasks/example.md'
     task.parent.mkdir(exist_ok=True)
     state_path = base / 'session.json'
     source_path = modeldir / 'ec2.properties'
@@ -1948,12 +1948,12 @@ def check_controlled_repair(tmp_path):
         contract = '\n'.join(['## Task contract', '- Task type: `infrastructure`', '- Task status: `running`',
             '- Infrastructure phase: `deploy`', '- Controlled repair: `allowed`',
             f'- Deploy repair session: `{state_path}`', '## Validation scope', f'- `dev/123456789012/{service}`',
-            '## Modified files', '- `tasks/active.md`', f'- `{relative}`',
-            '## Allowed paths', '- `tasks/active.md`', f'- `{relative}`'])
+            '## Modified files', '- `tasks/example.md`', f'- `{relative}`',
+            '## Allowed paths', '- `tasks/example.md`', f'- `{relative}`'])
         task.write_text(contract)
         backend = M.AwsBackend(root, 'dev', '123456789012', TARGET)
         session = {'states': states(scoped), 'metrics': {'observedSyncSeconds': 0},
-                   'repository': str(root), 'taskFile': 'tasks/active.md', 'taskDigest': task_digest(contract),
+                   'repository': str(root), 'taskFile': 'tasks/example.md', 'taskDigest': task_digest(contract),
                    'infraManifest': {p.relative_to(root).as_posix(): backend.file_digest(p) for p in backend.deployment_input_paths(scoped)},
                    'unitDigests': {u['name']: backend.input_digest(u) for u in scoped}}
         backend.session, backend.states = session, session['states']
@@ -2047,7 +2047,7 @@ def check_controlled_repair(tmp_path):
     spec = importlib.util.spec_from_file_location('repair_task_validator', (Path(__file__).resolve().parents[2] / 'validate-blueprint.py'))
     vm = importlib.util.module_from_spec(spec); spec.loader.exec_module(vm)
     validator = vm.Validator(root); validator.task_type = 'infrastructure'; validator.infrastructure_phase = 'deploy'
-    validator.changed_paths = {'infra/cloudformation/templates/a.yaml', 'tasks/active.md'}
+    validator.changed_paths = {'infra/cloudformation/templates/a.yaml', 'tasks/example.md'}
     validator.check_task_type_requirements(); assert not validator.errors, validator.errors
     template.write_text(template.read_text() + '# unauthorized\n')
     validator.check_task_type_requirements(); assert validator.errors
@@ -2316,10 +2316,10 @@ def check_secret_runtime_bootstrap(tmp_path):
     template_dir = root / 'infra/cloudformation/templates'
     parameter_dir = root / 'infra/cloudformation/parameters/dev/123456789012'
     template_dir.mkdir(parents=True); parameter_dir.mkdir(parents=True)
-    task = root / 'tasks/active.md'; task.parent.mkdir()
+    task = root / 'tasks/example.md'; task.parent.mkdir()
     task.write_text('\n'.join(['- Controlled repair: `allowed`', '- AWS API execution: `allowed`', '- Deploy/apply: `allowed`',
         '## Validation scope', '- `dev/123456789012/secretsmanager`', '- `dev/123456789012/quicksight`',
-        '## Modified files', '- `tasks/active.md`', '## Allowed paths', '- `tasks/active.md`']), encoding='utf-8')
+        '## Modified files', '- `tasks/example.md`', '## Allowed paths', '- `tasks/example.md`']), encoding='utf-8')
     write_model(modeldir / 'cloudformation-stacks.properties', '\n'.join(
         f'desired.stack.{i:03d}.{key}={value}' for i, unit in enumerate(selected, 1) for key, value in unit.items()))
     for service, kind, stack, logical in [('secretsmanager', 'SecretsManager.Secret', 'SecretOwner', 'Secret'),
@@ -2747,4 +2747,3 @@ def check_deploy_preparation_separates_producer_reads_from_writes(tmp_path, monk
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

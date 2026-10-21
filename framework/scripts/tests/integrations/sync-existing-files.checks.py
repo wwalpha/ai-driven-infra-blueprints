@@ -91,7 +91,7 @@ def main() -> None:
     check_failure_safety()
     with tempfile.TemporaryDirectory() as directory:
         target = Path(directory)
-        protected = ("project.json", "docs/keep.md", "infra/keep.yaml", "model/keep.properties", "tasks/active.md", "tests/keep.py", ".github/workflows/project.yml", ".github/workflows/framework-it.yml", "framework/scripts/tests/keep.py")
+        protected = ("project.json", "docs/keep.md", "infra/keep.yaml", "model/keep.properties", "tasks/example.md", "tests/keep.py", ".github/workflows/project.yml", ".github/workflows/framework-it.yml", "framework/scripts/tests/keep.py")
         for relative in protected:
             path = target / relative
             path.parent.mkdir(parents=True, exist_ok=True)

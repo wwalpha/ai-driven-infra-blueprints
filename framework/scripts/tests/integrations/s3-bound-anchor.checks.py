@@ -24,9 +24,9 @@ def check(root):
     (root / 'project.json').write_text(json.dumps({'projectName': 'anchor-fixture', 'targets': [{
         'environment': 'preview', 'alias': alias, 'awsAccountId': account,
         'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'} for alias, account in [('other', '210987654321'), ('team', '123456789012')]]}) + '\n')
-    task = root / 'tasks/active.md'; task.parent.mkdir()
-    task.write_text('## Task contract\n- Task type: `migration`\n## Validation scope\n- `preview/team/s3`\n'
-                    '## Allowed paths\n- `model/**`\n- `docs/designs/**`\n')
+    task = root / 'tasks/example.md'; task.parent.mkdir()
+    task.write_text('## Task contract\n- Task type: `migration`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Validation scope\n- `preview/team/s3`\n'
+                    '## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n')
     values = resource('003', 'S3.Bucket', 's3-archive-original', [('BucketName', '`archive-original`'), ('Region', '`ap-northeast-1`')])
     values.update({'desired.service.s3.serviceId': 's3',
         'desired.service.s3.ownedCatalogResourceTypes': 'S3.Bucket', 'display.service.title': '# Amazon S3 詳細設計'})

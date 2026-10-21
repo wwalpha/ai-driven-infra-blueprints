@@ -123,7 +123,7 @@ def check_stack_mapping_targets():
         model.parent.mkdir(parents=True)
         write(model, 'desired.resource.007.resourceType=IAM.Role\ndesired.resource.007.logicalId=IAM_Role_001\ndesired.service.identity.lastAllocated={"IAM.Role":1}\n')
         validator = MODULE.Validator(root)
-        validator.check_markdown_iam_policy_artifacts(path, "007", [["1", "AssumeRolePolicyDocument", "[Trust](iam/confirmed-role-trust-policy.json)", "信頼ポリシー"]])
+        validator.check_markdown_iam_policy_artifacts(path, "IAM_Role_001", [["1", "AssumeRolePolicyDocument", "[Trust](iam/iam-role-001-trust-policy.json)", "信頼ポリシー"]])
         assert not validator.errors, validator.errors
     prompt = (SCRIPT.parents[2] / "framework/prompts/codex/03_implement.md").read_text(encoding="utf-8")
     assert "framework/scripts/model/cli.py observed --environment" in prompt

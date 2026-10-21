@@ -2,8 +2,8 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-from model.identity import allocate
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from model.identity import allocate
 from support.validator import diagnostics
 
 if not __debug__:
@@ -110,12 +110,14 @@ def check_stage_definition_sources(generated_policy, tmp_path):
         document = json.loads(candidate['desired.row.001-002.document'])
         document['Statement'][0]['Condition'] = {'StringEquals': {'kms:KeyId': 'source-key'}}
         candidate['desired.row.001-002.document'] = json_text(document)
+        write_model(consumer.with_name('cloudformation-stacks.properties'), dict(load_model(model.with_name('cloudformation-stacks.properties')).authoritative))
         write_model(consumer, candidate)
         fields = {'consumerKey': 'desired.row.001-002.document', 'pointer': '/Statement/0/Condition/StringEquals/kms:KeyId',
                   'text': 'source-key', 'occurrence': '1', 'producerKind': 'resource',
                   'producerScope': environment + '/123456789012/kms', 'producerLogicalId': 'KMS_Key_001',
                   'resourceType': 'KMS.Key', 'format': 'identifier', 'property': 'KMS.Key.KeyId', 'labelPolicy': 'none'}
         candidate.update({'desired.reference.key-id.' + key: value for key, value in fields.items()})
+        write_model(consumer.with_name('cloudformation-stacks.properties'), dict(load_model(model.with_name('cloudformation-stacks.properties')).authoritative))
         write_model(consumer, candidate)
         destination = root/'docs/designs'/environment/'123456789012/iam.md'
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -641,7 +643,7 @@ def check_required_preflight(framework_root) -> None:
                  patch.object(sync_runtime, "save_files", side_effect=AssertionError("wrote before preflight")):
                 with pytest.raises(ValueError) as error:
                     MODULE.sync(root, write, "dev", "123456789012")
-                assert "AthenaSource: required provider schema property missing: QuickSight.DataSource.Type" in str(error.value)
+                assert "QuickSight_DataSource_001: required provider schema property missing: QuickSight.DataSource.Type" in str(error.value)
             assert read_model(model) == source
             if existing:
                 assert design.exists() and artifact.exists()
@@ -696,6 +698,7 @@ def check_required_property_parents(tmp_path) -> None:
     values = {"desired.service.glue.serviceId": "glue",
         "desired.service.glue.ownedCatalogResourceTypes": "Glue.Connection",
         "desired.resource.001.resourceType": "Glue.Connection",
+        "desired.resource.001.cfn-logicalId": "fixture-Connection",
         "display.service.title": "# AWS Glue 詳細設計",
         "display.resource.001.comment": "データ取得に使用する接続"}
     values.update(allocate(values, ['001']))
@@ -717,6 +720,7 @@ def check_required_property_parents(tmp_path) -> None:
     write_model(model, source)
     source = read_model(model)
     design = root / "docs/designs/dev/123456789012/glue.md"
+    write_model(model.with_name("cloudformation-stacks.properties"), {"desired.stack.001.name": "fixture", "desired.stack.001.placementName": "fixture", "desired.stack.001.template": "fixture.yaml", "desired.stack.001.parameters": "fixture.json", "desired.stack.001.deployOrder": "1", "display.stack.001.comment": "合成Stack"})
     model_validation.validate_required_properties(values, root)
     assert MODULE.sync(root, True, "dev", "123456789012") == 0
     assert read_model(model) == source
@@ -1026,7 +1030,7 @@ def check_two_consumer_cli(generated_policy):
                       ('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'baseline')]:
         subprocess.run(['git', *arguments], cwd=root, check=True, capture_output=True)
     outputs = [design, artifact, root / 'docs/designs/stg/123456789012/iam.md',
-               root / 'docs/designs/stg/123456789012/iam/app-role-trust-policy.json']
+               root / 'docs/designs/stg/123456789012/iam/iam-role-001-trust-policy.json']
     environment = register(outputs)
     name = environment[tasks.SELECTOR]
     (root / name).write_text((root / name).read_text().replace(
@@ -1386,6 +1390,8 @@ def check_multiple_targets_barrier(generated_policy, failure):
         'desired.row.001-001.property': 'Logs.LogGroup.LogGroupName',
         'desired.row.001-001.value': '`cwlogs-app-stg`',
         'desired.row.001-001.comment': 'ログを識別する名前'}
+    log_values['desired.resource.001.cfn-logicalId'] = 'cfn-stack-app-dev-iam-Log'
+    write_model(log_model.with_name('cloudformation-stacks.properties'), dict(load_model(model.with_name('cloudformation-stacks.properties')).authoritative))
     log_values.update(allocate(log_values, ['001']))
     if failure == 'candidate':
         del log_values['desired.row.001-001.value']

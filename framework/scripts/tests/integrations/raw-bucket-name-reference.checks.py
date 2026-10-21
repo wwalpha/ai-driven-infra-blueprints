@@ -6,6 +6,7 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+import pytest
 from support.it_case_receipt import it_case
 
 from support.raw_bucket_name_reference_fixtures import *
@@ -24,7 +25,7 @@ def check(root):
         document = {'bucketDefinitions': [{'accountId': '111111111111', 'buckets': ['app-preview-RAW-one', 'fixed-second']}],
                     'scoping': {'includes': {'and': [{'simpleScopeTerm': {'comparator': 'EQ', 'key': 'OBJECT_EXTENSION', 'values': ['csv']}}]}}}
         values.update(resource(rid, 'Macie.ClassificationJob', 'macie-' + rid, [
-            ('S3JobDefinition', f'[json](macie/job-{rid}.json)'), ('Name', '[PENDING_DEPLOY](s3.md#s3-raw-name)')]))
+            ('S3JobDefinition', f'[json](macie/job-{rid}.json)'), ('Name', 'resource://preview/team/s3/S3_Bucket_017')]))
         values[key] = json.dumps(document)
         values.update(reference('bucket-' + rid, key, 'app-preview-RAW-one', 's3', '017', 'S3.Bucket', prop='S3.Bucket.BucketName', pointer='/bucketDefinitions/0/buckets/0'))
         values.update(reference('link-' + rid, linkkey, values[linkkey], 's3', '017', 'S3.Bucket', mode='link', label='fixed'))
@@ -35,7 +36,7 @@ def check(root):
     doc = json.loads(snapshot.authoritative[key])
     assert doc['bucketDefinitions'][0]['buckets'] == ['app-preview-RAW-one', 'fixed-second']
     assert doc['bucketDefinitions'][0]['accountId'] == '111111111111'
-    assert snapshot.authoritative['desired.row.003-002.value'] == '[PENDING_DEPLOY](s3.md#s3-raw-name)'
+    assert snapshot.authoritative['desired.row.003-002.value'] == 'resource://preview/team/s3/S3_Bucket_017'
     assert producer in source_inputs(path)
     assert affected(root, [producer.relative_to(root)]) == {('preview', 'team', 's3'), ('preview', 'team', 'macie')}
     digest, dependencies = design_source_digest(path), dependency_hashes(path)
@@ -46,14 +47,20 @@ def check(root):
     write_model(producer, changed)
     assert warning(path, 'differs from saved text').authoritative == snapshot.authoritative
     assert design_source_digest(path) == digest
+    write_model(producer, {key.replace('.017', '.018', 1): value for key, value in original.items()})
+    assert not load_model(path).warnings
+    write_model(producer, original)
     for bad, phrase in [
         ({**original, 'desired.resource.017.resourceType': 'IAM.Role'}, 'Type differs'),
-        ({key.replace('.017', '.018', 1): value for key, value in original.items()}, 'absent or ambiguous'),
         ({**original, 'desired.row.017-001.property': 'S3.Bucket.Description'}, 'Property is absent'),
         ({**original, 'desired.row.017-001.value': '``'}, 'differs from saved text'),
         ({**original, 'desired.row.017-002.property': 'S3.Bucket.BucketName', 'desired.row.017-002.value': '`duplicate`', 'desired.row.017-002.comment': '重複'}, 'Property is absent or ambiguous')]:
         write_model(producer, bad)
-        assert warning(path, phrase).authoritative == snapshot.authoritative
+        if any(key in original and key.endswith('.resourceType') and original[key] != value for key, value in bad.items()):
+            with pytest.raises(ValueError, match='ResourceType prefix'):
+                load_model(path)
+        else:
+            assert warning(path, phrase).authoritative == snapshot.authoritative
     write_model(producer, original)
     invalid = dict(values)
     invalid['desired.reference.bucket-003.labelPolicy'] = 'fixed'
@@ -65,10 +72,11 @@ def check(root):
     explicit = dict(values)
     for rid in ('003', '088'):
         prefix = 'desired.reference.bucket-' + rid + '.'
-        explicit.update({prefix + 'producerScope': 'preview/team/athena', prefix + 'resourceType': 'Athena.WorkGroup', prefix + 'property': 'Athena.WorkGroup.Name'})
+        explicit.update({prefix + 'producerScope': 'preview/team/athena', prefix + 'resourceType': 'Athena.WorkGroup', prefix + 'property': 'Athena.WorkGroup.Name', prefix + 'producerLogicalId': 'Athena_WorkGroup_017'})
     write_model(path, explicit)
     assert json.loads(load_model(path).authoritative[key])['bucketDefinitions'][0]['buckets'][0] == 'app-preview-RAW-one'
-    write_model(athena, resource('017', 'KMS.Key', 'athena-raw-name', [('Description', '`app-preview-RAW-one`')]))
+    explicit['desired.reference.bucket-003.resourceType'] = 'KMS.Key'
+    write_model(path, explicit)
     assert warning(path, 'Type differs').authoritative == explicit
     print('Raw BucketName: PASS (explicit JSON values/order; links/labels; dependency hashes; warning preservation; metadata rejection)')
 

@@ -71,8 +71,8 @@ def base_revision(root, *, contract_file=None):
         return None
     if contracts(root):
         from worktree_task import task_start_commit
-        name = (contract_path(root, selected=contract_file) if contract_file is not None else task_path(root)).relative_to(root).as_posix()
-        start = task_start_commit(root, name)
+        path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, required=False)
+        start = task_start_commit(root, path.relative_to(root).as_posix()) if path is not None else None
         if start is not None:
             return start
     return head
@@ -83,8 +83,9 @@ def changed_sources(root, supplied=None, *, contract_file=None):
         from worktree_task import changed_paths, committed_task_paths
         supplied = changed_paths(root)
         if contracts(root):
-            name = (contract_path(root, selected=contract_file) if contract_file is not None else task_path(root)).relative_to(root).as_posix()
-            supplied |= committed_task_paths(root, name) or set()
+            path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, required=False)
+            if path is not None:
+                supplied |= committed_task_paths(root, path.relative_to(root).as_posix()) or set()
     return {str(p) for p in supplied if str(p).startswith('model/') or str(p) == 'project.json'}
 
 
@@ -210,36 +211,11 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
                if final_candidate is not None else changed_sources(root, supplied, contract_file=contract_file))
     if output:
         sources |= changed_sources(root, {p.relative_to(root).as_posix() for p in output})
-    selected = (contract_path(root, selected=contract_file) if contract_file is not None else task_path(root)).relative_to(root).as_posix()
-    text = contracts(root).get(selected, '')
+    path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, required=False)
+    if path is None and sources:
+        raise ValueError('selected task contract required for Model changes')
+    text = '' if path is None else contracts(root)[path.relative_to(root).as_posix()]
     from task_contract import model_operation, model_refactor
-    from model.migration.contract import migration_contract, verify_migration
-    from task_contract import model_identity_rewrite
-    if model_identity_rewrite(text):
-        from model.identity_rewrite import verify
-        from task_contract import paths_in, safe_path, matches
-        scopes = paths_in(text, '## Validation scope')
-        declared, allowed = paths_in(text, '## Modified files'), paths_in(text, '## Allowed paths')
-        for relative in sources:
-            safe_path(root, relative)
-            if relative not in declared or not any(matches(relative, item) for item in allowed):
-                raise ValueError('identity rewrite source is undeclared: ' + relative)
-            if relative == 'project.json':
-                raise ValueError('identity rewrite cannot change project.json')
-            from model.sources import source_scope
-            scope = source_scope(root, root / relative)
-            if '/'.join((scope.environment, scope.target, scope.service)) not in scopes:
-                raise ValueError('identity rewrite source is outside scope: ' + relative)
-        base = final_candidate.base_commit if final_candidate is not None else base_revision(root, contract_file=contract_file)
-        if base is None:
-            raise ValueError('identity rewrite requires a versioned baseline')
-        with snapshots(root, base, output or {}, detached=contract_file is not None, identity_inputs=True) as (before, after):
-            return verify(before, after, scopes)
-    migration = migration_contract(text)
-    if migration is not None:
-        base = final_candidate.base_commit if final_candidate is not None else base_revision(root, contract_file=contract_file)
-        with snapshots(root, base, output or {}, detached=contract_file is not None) as (before, after):
-            return verify_migration(root, before, after, migration, base, sources)
     operation = model_operation(text)
     refactor = model_refactor(text)
     if operation is not None:

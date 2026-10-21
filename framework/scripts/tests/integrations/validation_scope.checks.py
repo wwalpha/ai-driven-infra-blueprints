@@ -36,9 +36,9 @@ def check_single_target_cache(root):
                            f"observed.{row}.comment": "生成される識別子"})
         write_model(models / f"{service}.properties", "".join(f"{key}={value}\n" for key, value in values.items()))
     scope = {("dev", "cde", service) for service in ["ec2", *services]}
-    active = root / "tasks/active.md"
+    active = root / "tasks/example.md"
     saved_contract = active.read_text(encoding="utf-8")
-    active.write_text("## Validation scope\n" + "".join(f"- `{'/'.join(entry)}`\n" for entry in sorted(scope)), encoding="utf-8")
+    active.write_text(saved_contract.split("## Validation scope")[0] + "## Validation scope\n" + "".join(f"- `{'/'.join(entry)}`\n" for entry in sorted(scope)) + "## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n", encoding="utf-8")
     with redirect_stdout(io.StringIO()):
         SYNC.sync(root, True, "dev", "cde", services=[entry[2] for entry in sorted(scope)])
 
@@ -106,10 +106,10 @@ def check_template_consumers(root):
     for env in ('dev', 'stg'):
         source_checks.write_fixture(root, env, 'config', values)
     scope = {(env, 'team', 'config') for env in ('dev', 'stg')}
-    contract = root/'tasks/active.md'
-    contract.write_text('## Task contract\n- Task type: `migration`\n## Validation scope\n' +
+    contract = root/'tasks/example.md'
+    contract.write_text('## Task contract\n- Task type: `migration`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Validation scope\n' +
                         ''.join(f'- `{"/".join(entry)}`\n' for entry in sorted(scope)) +
-                        '## Allowed paths\n- `model/**`\n- `docs/designs/**`\n')
+                        '## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n')
     subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
     command = [sys.executable, str(ROOT/'framework/scripts/sync-model.py'), '--repository-root', str(root)]
     for selection, expected in ((['--scope', 'dev/team/config', '--scope', 'stg/team/config'], 0),
@@ -165,9 +165,9 @@ def main():
         root = Path(temporary).resolve()
         copy_framework(root / 'framework')
         (root / "tasks").mkdir()
-        active = root / "tasks/active.md"
+        active = root / "tasks/example.md"
         scope = {(env, target, 'ec2') for env in ('dev', 'stg') for target in ('cde', 'non-cde')}
-        contract = '## Validation scope\n' + ''.join(f"- `{'/'.join(item)}`\n" for item in sorted(scope))
+        contract = '## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n- `README.md`\n## Allowed paths\n- `tasks/example.md`\n- `README.md`\n## Validation scope\n' + ''.join(f"- `{'/'.join(item)}`\n" for item in sorted(scope))
         active.write_text(contract)
         project = {"projectName": "app", "targets": []}
         for env in ("dev", "prod", "stg"):
@@ -207,7 +207,7 @@ invalid unrelated table alignment
                 name = f"{env}-app-{target}-01"
                 values = {"desired.service.ec2.serviceId": "ec2", "desired.service.ec2.ownedCatalogResourceTypes": "EC2.Instance",
                           "desired.resource.001.resourceType": "EC2.Instance", "desired.resource.001.logicalId": "EC2_Instance_001",
-                          "desired.resource.001.cfn-logicalId": "AppInstance",
+                          "desired.resource.001.cfn-logicalId": "fixture-AppInstance",
                           "desired.service.identity.lastAllocated": '{"EC2.Instance":1}', "display.service.title": "# EC2 詳細設計",
                           "display.resource.001.comment": "アプリケーションの仮想マシン"}
                 for index, (prop, value) in enumerate((
@@ -222,6 +222,7 @@ invalid unrelated table alignment
                         values[f"observed.{key}.property"] = f"EC2.Instance.{prop}"
                         values[f"observed.{key}.value"] = "PENDING_DEPLOY"
                         values[f"observed.{key}.comment"] = "仮想マシンの設定"
+                write_model(models / 'cloudformation-stacks.properties', {'desired.stack.001.name': 'fixture', 'desired.stack.001.placementName': 'fixture', 'desired.stack.001.template': 'fixture.yaml', 'desired.stack.001.parameters': 'fixture.json', 'desired.stack.001.deployOrder': '1', 'display.stack.001.comment': '合成Stack'})
                 write_model(models / "ec2.properties", "".join(f"{key}={value}\n" for key, value in values.items()))
         (root / "project.json").write_text(json.dumps(project) + "\n")
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
@@ -318,4 +319,3 @@ invalid unrelated table alignment
 
 if __name__ == "__main__":
     main()
-

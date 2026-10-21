@@ -12,8 +12,6 @@ import pytest
 from model.files import trace_model
 from model.format import serialize
 from model.importing.approval import validate_reference_proposal
-from model.migration.convert import checked_export, convert_export
-from model.migration.compare import compare_export
 from model.references import declarations
 from model.sources import load_model
 from support.model_v2_fixtures import format_fixture
@@ -72,16 +70,6 @@ def check_retired_declarations_rejected(tmp_path, refid, structured):
         with pytest.raises(ValueError, match='contextProperty must be executionAccountId'):
             action()
         assert scope.path.read_bytes() == original
-    project = (tmp_path / 'project.json').read_text()
-    exported = {'exportFormat': 2, 'modelFormat': 2, 'snapshotVersion': 2, 'complete': True,
-                'project': project, 'inputs': {'project.json': hashlib.sha256(project.encode()).hexdigest()},
-                'models': [{'complete': True, 'authoritative': invalid}]}
-    candidate = tmp_path / 'candidate'
-    for action in (lambda: checked_export(exported), lambda: convert_export(exported, candidate),
-                   lambda: compare_export(exported, tmp_path)):
-        with pytest.raises(ValueError, match='regenerate export and evidence'):
-            action()
-        assert not candidate.exists() and scope.path.read_bytes() == original
 
 
 if __name__ == '__main__':

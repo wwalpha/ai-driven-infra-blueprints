@@ -67,6 +67,8 @@ def model(kind="EC2.VPC", name="vpc-app-dev", mode="CREATE", label=None):
         "desired.resource.001.cfn-logicalId": "fixture-InternalId",
         "display.resource.001.comment": "業務用ネットワークを構成するresource",
     }
+    if mode == 'IMPORT':
+        result.pop('desired.resource.001.cfn-logicalId')
     if mode is not None:
         result["desired.resource.001.resourceMode"] = mode
     if label:

@@ -119,7 +119,6 @@ consumer の所有者・使用位置が不明な宣言、構文不正、I/O、sc
 ## API と CLI
 
 公開 API と helper の接続は [Model helper integration](model-helper-integration.md)、
-旧形式の移行は [Migration and recovery](model-migration.md) を参照してください。
 
 ```console
 python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py list --repository-root .

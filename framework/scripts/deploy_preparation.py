@@ -60,8 +60,8 @@ def task_deployment_input_paths(root):
     """Resolve deploy/update IaC offline through the controller's authoritative readers."""
     from task_contract import task_path, section
     from cloudformation_inputs import Blocked, load_target
-    path = task_path(root)
-    if not path.is_file():
+    path = task_path(root, required=False)
+    if path is None:
         return None
     text = path.read_text(encoding="utf-8")
     lines = section(text, "## Task contract")
@@ -238,7 +238,7 @@ def candidate(root, task, env, directory, target, stacks, services):
 def prepare(root, args, run, timing):
     from task_contract import TASK_NAME, contracts, safe_path
     from issue_gate import issue_errors
-    if not TASK_NAME.fullmatch(args.task_file) or args.task_file == "tasks/active.md":
+    if not TASK_NAME.fullmatch(args.task_file):
         raise ValueError("use a new tasks/<task-name>.md")
     if not args.service or len(set(args.service)) != len(args.service) or any(
             not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", service) for service in args.service):

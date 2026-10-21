@@ -31,11 +31,11 @@ def check(root):
     (root / 'project.json').write_text(json.dumps({'projectName': 'app', 'targets': [
         {'environment': 'preview', 'alias': alias, 'awsAccountId': account, 'awsRegion': 'ap-northeast-1',
          'iacEngine': 'cloudformation'} for alias, account in [('other', '210987654321'), ('team', '123456789012')]]}) + '\n')
-    task = root / 'tasks/active.md'
+    task = root / 'tasks/example.md'
     task.parent.mkdir()
     task.write_text('## Task contract\n- Task type: `migration`\n- Task status: `running`\n'
         '## Validation scope\n- `preview/team/vpc`\n- `preview/team/cloudformation-stacks`\n'
-        '## Modified files\n- `tasks/active.md`\n## Allowed paths\n- `tasks/active.md`\n- `model/**`\n- `docs/designs/**`\n')
+        '## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n')
     path = root / 'model/preview/team/cloudformation-stacks.properties'
     values = {'display.service.title': '# CloudFormation Stacks 詳細設計', 'desired.deployment.maxConcurrentStacks': '2'}
     for rid, purpose in [('017', 'network'), ('083', 'empty')]:
@@ -103,11 +103,7 @@ def check(root):
     with pytest.raises((OSError, ValueError)):
         bound_stack_names(path)
     path.write_bytes(original)
-    legacy = root / 'model/parameters'
-    legacy.mkdir()
-    with pytest.raises(ValueError, match='explicit migration'):
-        bound_stack_names(path)
-    print('Bound Stacks: PASS (explicit names; fixed placement/IDs/observed; generation idempotence; raw/design digests; mapping/destroy safety; legacy rejection)')
+    print('Bound Stacks: PASS (explicit names; fixed placement/IDs/observed; generation idempotence; raw/design digests; mapping/destroy safety)')
 
 
 if __name__ == '__main__':

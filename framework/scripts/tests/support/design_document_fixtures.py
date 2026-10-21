@@ -44,7 +44,7 @@ def reference_fixture(root, count=80):
     target_text += '\n<!-- resource-logical-id: Bad! -->\n<a id="kms-unrelated"></a>\n### KMS.Key: unrelated\n'
     source_text = fixtures.S3.split('| 3 | BucketEncryption', 1)[0]
     for number in range(count):
-        label, anchor = ('alias/two', 'kms-aliastwo') if number % 2 == 0 else ('alias/three', 'kms-aliasthree')
+        label, anchor = ('alias/two', 'resource-AliasTwo') if number % 2 == 0 else ('alias/three', 'resource-AliasThree')
         source_text += f'| {number+3} | BucketEncryption[].KMSMasterKeyID | [{label}](kms.md#{anchor}) | 暗号化に使用するKMS alias |\n'
     source_text += f'| {count+3} | SourceKeyId | [1234abcd-12ab-34cd-56ef-1234567890ab](kms.md#kms-keyone) | 参照ID |\n'
     source_text += f'| {count+4} | SourceKeyId | [unresolved](absent.md#absent) | 未解決参照 |\n'

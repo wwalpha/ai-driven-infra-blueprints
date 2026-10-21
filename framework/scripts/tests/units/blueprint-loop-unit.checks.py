@@ -144,7 +144,7 @@ def check_fixture_independence(tmp_path):
     for name in ("AGENTS.md", "README.md"):
         (source / name).write_text("framework input", encoding="utf-8")
     for name in ("issues/dev/other/issues.md", "model/dev/other/ec2.properties",
-                 "docs/designs/dev/other/ec2.md", "tasks/active.md", "project.json"):
+                 "docs/designs/dev/other/ec2.md", "tasks/example.md", "project.json"):
         path = source / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("invalid consumer input", encoding="utf-8")

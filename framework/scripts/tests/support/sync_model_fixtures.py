@@ -39,7 +39,7 @@ def build_generated_policy(root, definitions_root=None):
         'desired.row.001-001.value': '`app-dev-role`',
         'desired.row.001-001.comment': '権限を識別する名前',
         'desired.row.001-002.property': 'IAM.Role.AssumeRolePolicyDocument',
-        'desired.row.001-002.value': '[信頼ポリシー](iam/app-role-trust-policy.json)',
+        'desired.row.001-002.value': '[信頼ポリシー](iam/iam-role-001-trust-policy.json)',
         'desired.row.001-002.comment': '引受元に許可する権限',
         'desired.row.001-002.document': json.dumps({'Version': '2012-10-17', 'Statement': [{
             'Effect': 'Allow', 'Principal': {'Service': 'lambda.amazonaws.com'}, 'Action': 'sts:AssumeRole'}]}),
@@ -52,6 +52,7 @@ def build_generated_policy(root, definitions_root=None):
         'desired.stack.001.template': 'iam.yaml',
         'desired.stack.001.parameters': 'iam.json',
         'desired.stack.001.deployOrder': '10',
+        'display.stack.001.comment': '合成Stack',
     }
     write_model(model.with_name('cloudformation-stacks.properties'), stacks)
     if MODULE.sync(root, True, 'dev', '123456789012', ['iam'], definitions_root=definitions_root) != 0:
@@ -74,7 +75,7 @@ def generated_policy(tmp_path, request):
     values = json.loads((root / 'fixture-values.json').read_text(encoding='utf-8'))
     (root / 'fixture-values.json').unlink()
     design = root / 'docs/designs/dev/123456789012/iam.md'
-    artifact = design.with_suffix('') / 'app-role-trust-policy.json'
+    artifact = design.with_suffix('') / 'iam-role-001-trust-policy.json'
 
     def register(outputs):
         import task_contract as tasks

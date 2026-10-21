@@ -13,7 +13,7 @@ TAGS_PREFIX = "<!-- security-group-tags:"
 SECURITY_GROUP_ID_PREFIX = "<!-- security-group-id:"
 OVERVIEW_COLUMNS = ["No.", "ResourceName", "Comment"]
 RESOURCE = re.compile(r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([^<>|`\s](?:[^<>|`]*[^<>|`\s])?)$")
-IDENTITY = re.compile(r'^(Inbound|Outbound) <a id="([a-z0-9_.-]+)"></a><!-- logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) --><!-- rule-id: ([^<>]+) -->$')
+IDENTITY = re.compile(r'^(Inbound|Outbound) <a id="([A-Za-z0-9_.-]+)"></a><!-- logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) --><!-- rule-id: ([^<>]+) -->$')
 HEADER = "| No. | Property | Value | Source / Comment |"
 ALIGNMENT = "| ---: | --- | --- | --- |"
 COMMENTS = {
@@ -119,7 +119,7 @@ def overview_groups(lines: list[str]) -> dict[str, str]:
         raise ValueError("Security Group overview requires No., ResourceName, Comment only")
     groups = {}
     for number, row in enumerate(rows, 1):
-        link = re.fullmatch(r"\[([^\]<>|`]+)\]\(#([a-z0-9_.-]+)\)", row[1])
+        link = re.fullmatch(r"\[([^\]<>|`]+)\]\(#([A-Za-z0-9_.-]+)\)", row[1])
         if row[0] != str(number) or not link or link.group(1) in groups:
             raise ValueError("Security Group overview requires a unique logical ID link")
         groups[link.group(1)] = link.group(2)

@@ -93,7 +93,7 @@ def check_preparation():
 @it_case
 def check_stale_and_conflicts():
     for reason in ("input", "issue", "runtime", "candidate", "model", "markdown-change",
-                   "markdown-delete", "json-change", "json-delete", "legacy-change", "legacy-delete"):
+                   "markdown-delete", "json-change", "json-delete"):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory).resolve()
             root = base / "repo"
@@ -101,12 +101,8 @@ def check_stale_and_conflicts():
             assert invoke(arguments(root, base)) == 0
             run = next((base / "logs").iterdir())
             path = run / "preparation.json"
-            if reason.startswith(("markdown-", "json-", "legacy-")):
+            if reason.startswith(("markdown-", "json-")):
                 generated = root / "docs/designs/dev/123456789012" / ("iam/worker-role-trust-policy.json" if reason.startswith("json-") else "ec2.md")
-                if reason.startswith("legacy-"):
-                    plan = json.loads(path.read_text(encoding="utf-8"))
-                    plan.pop("generatedViews")
-                    path.write_text(json.dumps(plan), encoding="utf-8")
                 if reason.endswith("delete"):
                     generated.unlink()
                 else:

@@ -13,9 +13,9 @@ def check_transactions(root):
     from generation_inputs import GenerationInputs
     from model.operations import _verify_published_inputs
     from sync_files import changed_files
-    task = root / 'tasks/active.md'
+    task = root / 'tasks/example.md'
     task.parent.mkdir()
-    task.write_text('## Task contract\n- Task type: `migration`\n- Task status: `running`\n## Validation scope\n- `framework`\n## Allowed paths\n- `**`\n')
+    task.write_text('## Task contract\n- Task type: `migration`\n- Task status: `running`\n## Validation scope\n- `framework`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `**`\n')
     def transaction(root, output, obsolete=(), *, read_paths=(), verify=None):
         snapshot = GenerationInputs(root)
         for path in set(output) | set(obsolete) | set(read_paths):
@@ -343,10 +343,6 @@ def check_invalid(root):
         assert load_model(path).authoritative['desired.row.011-004.value'] == value
     rejected(lambda: serialize({**values, 'desired.row.011-004.value': 'x\ninjected.key=bad'}))
     path.write_bytes(original)
-    legacy = root / 'model/parameters'; legacy.mkdir()
-    (legacy / 'parameters.json').write_text('{}')
-    rejected(lambda: read_model(path), 'explicit migration')
-    (legacy / 'parameters.json').unlink(); legacy.rmdir()
     path.unlink(); rejected(lambda: read_model(path)); path.write_bytes(original)
     path.write_text('desired.service.legacy.serviceId=legacy\n')
     rejected(lambda: read_model(path), 'unsupported Model format')
@@ -435,4 +431,3 @@ def main():
 
 if __name__ == '__main__':
     raise SystemExit(main())
-

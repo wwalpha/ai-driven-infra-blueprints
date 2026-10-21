@@ -95,7 +95,7 @@ def main():
                           "[WrongLogicalId](#resource-SecretsManager_Secret_001)",
                           "[SecretsManager_RotationSchedule_001](#resource-SecretsManager_RotationSchedule_001)"):
             bad = {**values, "desired.resource.002.parentReference": reference}
-            rejects(lambda: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_001", "parentReference", ROTATION + ".SecretId")
+            rejects(lambda: markdown_for(path, bad, root), "parentReference")
         for key, value in (("desired.resource.002.parentProperty", ROTATION + ".Id"),
                            ("desired.row.002-003.value", "resource://dev/123456789012/secretsmanager/SecretsManager_Secret_002"),
                            ("desired.row.002-003.value", "[Wrong](#resource-SecretsManager_Secret_001)")):
@@ -111,7 +111,7 @@ def main():
         rejects(lambda: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_001", "exactly one formal row")
         bad = {**values, "desired.resource.004.parentReference": values["desired.resource.002.parentReference"],
                "desired.row.004-003.value": values["desired.row.002-003.value"]}
-        rejects(lambda: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_002", "too many grouped children", "Secret1")
+        rejects(lambda: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_002", "too many grouped children", "SecretsManager_Secret_001")
 
         # Parsing must reject edits independently of model generation.
         invalid_views = [

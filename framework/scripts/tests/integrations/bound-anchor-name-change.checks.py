@@ -57,7 +57,7 @@ def check(root):
     kms_path = build_path.with_name('kms.properties')
     write_model(build_path, build)
     write_model(kms_path, kms)
-    contract = root / 'tasks/active.md'
+    contract = root / 'tasks/example.md'
     contract.write_text(contract.read_text().replace('## Modified files', '- `preview/team/codebuild`\n- `preview/team/kms`\n## Modified files'))
     assert sync_runtime.sync(root, True, 'preview', 'team', services=['codebuild']) == 0
     vpc_path = build_path.with_name('vpc.properties')
@@ -115,11 +115,7 @@ def check(root):
     build_path.unlink()
     assert bound_resource_anchors(build_path) == {}
     build_path.write_bytes(original)
-    legacy = root / 'model/parameters'
-    legacy.mkdir()
-    with pytest.raises(ValueError, match='explicit migration'):
-        bound_resource_anchors(build_path)
-    print('Fixed anchors: PASS (CodeBuild/VPC/grouped KMS rename; IDs/refs/observed; projection/validation; byte-identical rerun; malformed/legacy rejection)')
+    print('Fixed anchors: PASS (CodeBuild/VPC/grouped KMS rename; IDs/refs/observed; projection/validation; byte-identical rerun; malformed authority rejection)')
 
 
 if __name__ == '__main__':

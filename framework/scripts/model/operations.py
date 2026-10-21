@@ -243,11 +243,7 @@ def prepare_edit(snapshot, candidate, policy):
         if before != (None if text is None else text.encode('utf-8')):
             output[path] = text
     reads = CandidateReads(policy.snapshot, output)
-    if policy.operation.action == 'identity-rewrite':
-        from model.sources import _source_snapshot
-        after = _source_snapshot(snapshot.scope, reads)
-    else:
-        after = load_model(snapshot.scope, reads)
+    after = load_model(snapshot.scope, reads)
     if policy.operation.action == 'observed':
         from model.observed import verify_observed_outputs
         verify_observed_outputs({path: text.encode('utf-8') for path, text in snapshot.files.items()}, output)
@@ -256,8 +252,7 @@ def prepare_edit(snapshot, candidate, policy):
                         (key in snapshot.authoritative) != (key in after.authoritative)}
         if any((entry, key) not in policy.operation.keys for key in changed_keys):
             raise ValueError('observed candidate changed a Row outside the authorized selection')
-    if policy.operation.action != 'identity-rewrite':
-        preserve_fixed_fields(snapshot, after, policy.operation)
+    preserve_fixed_fields(snapshot, after, policy.operation)
     preserve_layout(snapshot, after)
     policy._require_current(output)
     return EditPlan._prepared(snapshot, after, MappingProxyType(output), policy)
@@ -301,7 +296,7 @@ def _publish_plans(plans, context):
                 _context(plan.before, context)
             context.snapshot.verify()
             context._require_current(changes)
-            if context.operation.action in {'import-retarget', 'edit', 'identity-rewrite'}:
+            if context.operation.action in {'import-retarget', 'edit'}:
                 from import_guard import require_import_changes
                 from task_contract import selected_task
                 from validation_cache import recording_inputs

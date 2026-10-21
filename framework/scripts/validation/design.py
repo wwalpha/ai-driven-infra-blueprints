@@ -272,7 +272,7 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
             mode = modes.get(anchor, "CREATE")
             try:
                 from aws_mapping_display import validation_rows
-                semantic = validation_rows(rows, values, resource_type, identities.get(current, current[1]), definitions_root, scope=(*path.parent.parts[-2:], path.stem))
+                semantic = validation_rows(rows, values, resource_type, identities.get(anchor, current[1]), definitions_root, scope=(*path.parent.parts[-2:], path.stem))
                 name = resource_display_name(resource_type, semantic, display, mode)
             except ReferenceResolutionError as error:
                 findings.warn(error)
@@ -287,11 +287,11 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
             if name is None:
                 if display == resource_type:
                     findings.check(counts[resource_type] == 1 and resource_type not in GROUPED and not resource_has_name_property(definitions_root, resource_type, mode), f"resource type display requires a single nameless independent resource: {findings.relative(path)}: {resource_type}")
-                confirmed_label = (resource_type, identities.get(current), display) in labels and not resource_has_name_property(definitions_root, resource_type, mode)
-                findings.check(current in identities and (display == resource_type or display != identities[current] or confirmed_label), f"resource without a name requires a display label or resource type and hidden logical ID: {findings.relative(path)}: {display}")
+                confirmed_label = (resource_type, identities.get(anchor), display) in labels and not resource_has_name_property(definitions_root, resource_type, mode)
+                findings.check(anchor in identities and (display == resource_type or confirmed_label or not values and display != identities[anchor]), f"resource without a name requires a display label or resource type and hidden logical ID: {findings.relative(path)}: {display}")
             if path in service_metadata:
-                expected = bound_anchors.get((resource_type, identities.get(current)),
-                                             resource_anchor(service_metadata[path][0], display, resource_type))
+                expected = bound_anchors.get((resource_type, identities.get(anchor)),
+                                             'resource-' + identities[anchor] if anchor in identities else resource_anchor(service_metadata[path][0], display, resource_type))
                 findings.warn(anchor == expected, f"resource anchor must use display name: {findings.relative(path)}: expected {expected}")
 
         for line in [*lines, "### end"]:
@@ -311,7 +311,7 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
                     if cells[1] == "KMS.Alias.AliasName" and path in service_metadata:
                         marker = CHILD.match(cells[3])
                         expected = bound_anchors.get(("KMS.Alias", marker.group(2) if marker else None),
-                                                     resource_anchor(service_metadata[path][0], unquoted(cells[2]), "KMS.Alias"))
+                                                     "resource-" + marker.group(2) if marker else None)
                         findings.check(bool(marker and marker.group(1) == expected), f"KMS Alias anchor must use AliasName: {findings.relative(path)}: expected {expected}")
 
 

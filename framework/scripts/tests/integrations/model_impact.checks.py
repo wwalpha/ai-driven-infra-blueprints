@@ -129,7 +129,7 @@ def check_identity_and_deletion(root):
         values = {key.replace('.001.', '.003.').replace('.001-', '.003-'): value for key, value in values.items()}
         write_model(source, values)
         assert affected(root, {source.relative_to(root)}, before=before) == {entry('iam'), entry('uses-identity')}
-        assert any('absent' in warning['message'] for warning in load_model(target).warnings)
+        assert not load_model(target).warnings  # Renumbering entries preserves logical identity.
         values = {key: value for key, value in values.items() if not key.startswith(('desired.resource.003.', 'desired.row.003-'))}
         write_model(source, values)
         assert affected(root, {source.relative_to(root)}, before=before) == {entry('iam'), entry('uses-identity')}
@@ -188,9 +188,9 @@ def check_type_and_unknown(root):
     source = producer(root, 'iam', 'IAM.Role', 'RoleName')
     target = consumer(root, 'build', 'iam', 'IAM.Role')
     baseline(root)
-    text = source.read_text(); source.write_text(text.replace('resourceType=IAM.Role', 'resourceType=IAM.User'))
+    text = source.read_text(); source.write_text(text.replace('IAM.Role', 'IAM.User').replace('IAM_Role', 'IAM_User'))
     assert affected(root, {source.relative_to(root)}) == {entry('iam'), entry('build')}
-    assert any('Type' in warning['message'] for warning in load_model(target).warnings)
+    assert any('absent' in warning['message'] for warning in load_model(target).warnings)
     source.write_text(text + 'desired.resource.001.resourceType=IAM.Role\n')
     try:
         affected(root, {source.relative_to(root)})

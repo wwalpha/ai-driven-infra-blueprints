@@ -45,6 +45,10 @@ def main():
         naming = root / "framework/rules/aws-resource-naming.md"
         naming.write_text(naming.read_text(encoding="utf-8") + "\n| Fixture | Job | `Macie.ClassificationJob` | `name` | `{{purpose}}` |\n", encoding="utf-8")
 
+        write_model(model.with_name('cloudformation-stacks.properties'), {
+            'desired.stack.001.name': 'fixture', 'desired.stack.001.placementName': 'fixture',
+            'desired.stack.001.template': 'fixture.yaml', 'desired.stack.001.parameters': 'fixture.json',
+            'desired.stack.001.deployOrder': '1', 'display.stack.001.comment': '合成Stack'})
         @input_scope
         def check(values=VALUES, text=None):
             artifact = design.with_suffix("") / "job-scope.json"
@@ -59,6 +63,7 @@ def main():
                 'desired.service.macie.ownedCatalogResourceTypes': 'Macie.Session,Macie.ClassificationJob',
                 'desired.resource.001.resourceType': 'Macie.Session',
                 'desired.resource.001.logicalId': 'Macie_Session_001',
+                'desired.resource.001.cfn-logicalId': 'fixture-Session',
                 'desired.service.identity.lastAllocated': '{"Macie.Session":1,"Macie.ClassificationJob":1}',
                 'desired.resource.002.resourceType': MACIE_JOB,
                 'desired.resource.002.logicalId': 'Macie_ClassificationJob_001',
@@ -96,7 +101,7 @@ def main():
             # Real generation and mismatch detection are exercised independently below.
             validator = VALIDATOR.Validator(root, model_check=lambda scope: [])
             validator.schema_catalog = schema
-            validator.accounts = {("dev", "123456789012"): {}}
+            validator.accounts = {("dev", "123456789012"): {"engine": "cloudformation", "account": "123456789012", "region": "ap-northeast-1"}}
             validator.check_designs()
             return validator.errors
 
@@ -230,7 +235,7 @@ def main():
         artifact.write_text('{"unknown":true}', encoding="utf-8")
         assert any("API schema violation" in error for error in check(text=text))
         artifact.unlink()
-        assert not check()
+        assert not (errors := check()), errors
         from model.sources import model_parts
         data_file = model_parts(model)[-1]
         data_file.write_bytes(data_file.read_bytes() + b"desired.extra=stale\n")

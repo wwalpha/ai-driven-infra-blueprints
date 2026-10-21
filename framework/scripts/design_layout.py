@@ -35,7 +35,7 @@ RESOURCE = re.compile(r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([^<>|`\s](?:[^<>|`]*
 ANCHOR = re.compile(r'<a\s+id="([^"]+)"\s*></a>')
 RESOURCE_ID = re.compile(r"^<!-- resource-logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) -->$")
 CHILD = re.compile(
-    r'^<a id="([a-z0-9_.-]+)"></a><!-- logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) -->\s*'
+    r'^<a id="([A-Za-z0-9_.-]+)"></a><!-- logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) -->\s*'
 )
 ROTATION_SCHEDULE = "SecretsManager.RotationSchedule"
 LAMBDA_PERMISSION = "Lambda.Permission"
@@ -90,7 +90,6 @@ HIDDEN_PROPERTIES = {
     "QuickSight.Group.Arn",
 }
 REQUIRED_NAME_TAG_TYPES = {"EC2.VPCEndpoint", "EC2.Instance"}
-RESOURCE_MODE = re.compile(r"^<!-- resource-mode: ([a-z0-9_.-]+) (CREATE|IMPORT) -->$")
 
 
 def is_service_role_reference(prop: str, value: str) -> bool:
@@ -139,25 +138,25 @@ def resource_heading_lines(lines: list[str]) -> list[str]:
     return result
 
 
-def resource_logical_ids(lines: list[str]) -> dict[tuple[str, str], str]:
+def resource_logical_ids(lines: list[str]) -> dict[str, str]:
     """Read hidden IDs before anchors without changing displayed headings."""
     identities = {}
     pending = ""
-    anchored = False
+    anchored = ""
     for line in resource_heading_lines(lines):
         if not line.strip():
             continue
         if marker := RESOURCE_ID.fullmatch(line):
             if pending:
                 raise ValueError("duplicate resource logical ID metadata")
-            pending, anchored = marker.group(1), False
+            pending, anchored = marker.group(1), ""
         elif pending and ANCHOR.fullmatch(line) and not anchored:
-            anchored = True
+            anchored = ANCHOR.fullmatch(line).group(1)
         elif pending and (heading := RESOURCE.fullmatch(line)) and anchored:
-            if heading.groups() in identities or pending in identities.values():
+            if anchored in identities or pending in identities.values():
                 raise ValueError("duplicate resource logical ID metadata")
-            identities[heading.groups()] = pending
-            pending, anchored = "", False
+            identities[anchored] = pending
+            pending, anchored = "", ""
         elif pending or line.startswith("<!-- resource-logical-id:"):
             raise ValueError("resource logical ID metadata must precede its anchor and heading")
     if pending:
@@ -201,21 +200,10 @@ def design_model_values(path: Path, root: Path) -> dict[str, str] | None:
 
 
 def resource_modes(lines: list[str], values: dict[str, str] | None = None) -> dict[str, str]:
-    """Use model modes for validation; read legacy comments only without a model."""
-    if values is not None:
-        from model.core import entries
-        return {"resource-" + resource["logicalId"]: resource_mode(resource)
-                for _, resource in entries(values, "desired.resource.") if "resourceMode" in resource}
-    modes = {}
-    anchors = set(ANCHOR.findall("\n".join(lines)))
-    for line in lines:
-        if not line.startswith("<!-- resource-mode:"):
-            continue
-        match = RESOURCE_MODE.fullmatch(line)
-        if not match or match[1] in modes or match[1] not in anchors:
-            raise ValueError(f"invalid, duplicate or orphan resource mode metadata: {line}")
-        modes[match[1]] = match[2]
-    return modes
+    """Read modes only from current authoritative Model values."""
+    from model.core import entries
+    return {"resource-" + resource["logicalId"]: resource_mode(resource)
+            for _, resource in entries(values or {}, "desired.resource.") if "resourceMode" in resource}
 
 
 def resource_has_name_property(root: Path, resource_type: str, mode: str = "CREATE") -> bool:
@@ -327,86 +315,24 @@ def stack_design(path: Path) -> list[dict[str, str]]:
 
 
 def stack_delivery(path: Path) -> dict[str, str]:
-    """Read hidden template settings and artifact tables, including old stack views."""
-    from model.core import ARTIFACT_FIELDS
-    values = design_model_values(path, path.parents[4]) if len(path.parents) >= 5 and path.parents[2].name == 'designs' else None
-    if values is not None:
-        return {key: value for key, value in values.items()
-                if key.startswith('desired.artifact.') or key in {'desired.deployment.templateBucket', 'desired.deployment.templateKeyPrefix'}}
-    lines = [line for line in input_text(path, encoding="utf-8").splitlines() if line]
-    result = {}
+    """Read delivery authority from the current Stack Model."""
+    lines = input_text(path, encoding="utf-8").splitlines()
+    settings = set()
     for line in lines:
         if line.startswith(("<!-- templateBucket:", "<!-- templateKeyPrefix:")):
             match = re.fullmatch(r"<!-- (templateBucket|templateKeyPrefix): (.+) -->", line)
             if not match:
                 raise ValueError("invalid S3 delivery setting comment")
-            key = "desired.deployment." + match.group(1)
-            if key in result:
+            if match.group(1) in settings:
                 raise ValueError("duplicate S3 delivery setting")
-            result[key] = match.group(2)
-    if "## S3配置" not in lines:
-        return result
-    lines = lines[lines.index("## S3配置") + 1:]
-    lines = lines[:next((index for index, line in enumerate(lines) if line.startswith("## ")), len(lines))]
-    if lines[:2] == ["| Property | Value |", "| --- | --- |"]:
-        index = 2
-    elif lines[:1] == ["### 配置ファイル"]:
-        index = 0
-    else:
-        raise ValueError("invalid S3 delivery settings header")
-    while index < len(lines) and lines[index] != "### 配置ファイル":
-        cells = [cell.strip() for cell in lines[index].strip("|").split("|")]
-        if not lines[index].startswith("|") or not lines[index].endswith("|") or len(cells) != 2 or cells[0] not in {"TemplateBucket", "TemplateKeyPrefix"} or not cells[1]:
-            raise ValueError("invalid S3 delivery setting")
-        key = "desired.deployment." + cells[0][0].lower() + cells[0][1:]
-        if key in result:
-            raise ValueError("duplicate S3 delivery setting")
-        result[key] = cells[1]
-        index += 1
-    if index < len(lines):
-        if lines[index:index + 3] != ["### 配置ファイル",
-                "| No. | StackName | Resource | Property | Source | Bucket | KeyPrefix |",
-                "| ---: | --- | --- | --- | --- | --- | --- |"]:
-            raise ValueError("invalid S3 artifact table header")
-        rows = lines[index + 3:]
-        if not rows:
-            raise ValueError("empty S3 artifact table")
-        for number, line in enumerate(rows, 1):
-            cells = [cell.strip() for cell in line.strip("|").split("|")]
-            if not line.startswith("|") or not line.endswith("|") or len(cells) != 7 or cells[0] != str(number) or not all(cells):
-                raise ValueError("invalid S3 artifact table row")
-            result.update({f"desired.artifact.{number:03d}.{field}": value
-                           for field, value in zip(ARTIFACT_FIELDS, cells[1:])})
-    if not result:
-        raise ValueError("empty S3 delivery settings")
-    return result
-
-
-def resource_identity_metadata(lines, *, values=None):
-    """Use authoritative Model identities for validation; Markdown cannot supply CFn placement."""
-    if values is not None:
-        from model.core import entries
-        return ({}, {})
-    anchors = set(ANCHOR.findall("\n".join(lines)))
-    result = {"resource-entry": {}, "cfn-logical-id": {}}
-    for line in lines:
-        for name, metadata in result.items():
-            if name == "cfn-logical-id":
-                continue
-            if not line.startswith("<!-- " + name + ":"):
-                continue
-            match = re.fullmatch(r"<!-- " + name + r": (\S+) (\S+) -->", line)
-            if not match or match[1] not in anchors or match[1] in metadata:
-                raise ValueError(f"invalid/duplicate {name} metadata")
-            anchor, value = match.groups()
-            if name == "resource-entry":
-                if not re.fullmatch(r"[0-9]{3}", value) or value in metadata.values():
-                    raise ValueError("invalid/duplicate resource entry number")
-            else:
-                from iac_values import cfn_resource_identity
-                cfn_resource_identity(value)
-            metadata[anchor] = value
-    return result["resource-entry"], result["cfn-logical-id"]
+            settings.add(match.group(1))
+    values = design_model_values(path, path.parents[4])
+    if values is None:
+        if settings or "## S3配置" in lines:
+            raise ValueError("S3 delivery settings require an authoritative Stack Model")
+        return {}
+    return {key: value for key, value in values.items()
+            if key.startswith('desired.artifact.') or key in {'desired.deployment.templateBucket', 'desired.deployment.templateKeyPrefix'}}
 
 
 def layout_errors(root: Path) -> list[str]:
@@ -821,7 +747,7 @@ def expanded_design(lines: list[str], *, normalized: bool = False,
             pending_anchor = anchor.group(1)
         if heading := RESOURCE.fullmatch(line):
             parent_type, parent_id = heading.groups()
-            parent_id = identities.get(heading.groups(), parent_id)
+            parent_id = identities.get(pending_anchor, parent_id)
             parent_anchor = pending_anchor
             pending_anchor = ""
             if parent_id in logical_ids:
@@ -876,11 +802,8 @@ def expanded_design(lines: list[str], *, normalized: bool = False,
                             if not label or label.group(1).strip() in {"", "UNSET", "PENDING_DEPLOY"}:
                                 raise ValueError(f"{resource_type}: {logical_id}: confirmed display name required on {prop}")
                             name = label.group(1)
-                        valid_anchors = {f"{service_id}-{logical_id.lower()}", resource_anchor(service_id, name, resource_type)}
-                        if resource_type in {ROTATION_SCHEDULE, LAMBDA_PERMISSION}:
-                            valid_anchors = {resource_anchor(service_id, name, resource_type)}
-                        if (resource_type, logical_id) in (bound_anchors or {}):
-                            valid_anchors = {bound_anchors[resource_type, logical_id]}
+                        from model.identity import display_anchor
+                        valid_anchors = {display_anchor(logical_id)}
                         if anchor not in valid_anchors or logical_id in logical_ids:
                             raise ValueError(f"invalid or duplicate grouped logical ID/anchor: {logical_id}")
                         logical_ids.add(logical_id)

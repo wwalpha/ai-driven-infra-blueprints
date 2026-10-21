@@ -188,9 +188,7 @@ preserve desired/display/reference/placementName. This grants no multi-environme
 Import pins one environment/target/service. Its producer/incoming inputs are read-only;
 acquisition/source/display completion runs no design validation or local loop. The LLM
 owns service iteration and conversational consent. This exception does not apply to
-Framework implementation or ordinary design. A limited format migration proves semantic
-equivalence while preserving existing issues; it does not assert design/IaC validity.
-See [migration contract](../docs/model-migration.md).
+Framework implementation or ordinary design.
 
 
 ## Validation cache
