@@ -15,6 +15,7 @@ from cloudformation_inputs import Blocked
 from model.adapters.observed import MappingError, mappings, sync_successful, removed_resources
 from task_contract import task_path, status, paths_in
 from validation_scope import active_scope as validation_scope
+from deployment import lint_worker
 from deployment.scheduler import run_group
 from deployment.secret_bootstrap import BOOTSTRAP_STAGES
 
@@ -365,19 +366,20 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                 save()
                 started = time.perf_counter()
                 try:
-                    for unit in units:
-                        try:
-                            backend.validate(unit)
-                        except Blocked:
-                            state = session['states'][unit['name']]
-                            events = getattr(backend, 'validation_failures', {}).get(unit['name'])
-                            if state['status'] != 'NOT_STARTED' or not events:
-                                raise
-                            state.update(status='FAILED', stackStatus='PRE_EXECUTION', failureEvents=events)
-                            save()
-                            if not backend.repair(unit, state):
-                                raise
-                            digest = validation_digest(backend.root, backend.target, backend.file_digest, unit_digests)
+                    with lint_worker.scope(backend, units):
+                        for unit in units:
+                            try:
+                                backend.validate(unit)
+                            except Blocked:
+                                state = session['states'][unit['name']]
+                                events = getattr(backend, 'validation_failures', {}).get(unit['name'])
+                                if state['status'] != 'NOT_STARTED' or not events:
+                                    raise
+                                state.update(status='FAILED', stackStatus='PRE_EXECUTION', failureEvents=events)
+                                save()
+                                if not backend.repair(unit, state):
+                                    raise
+                                digest = validation_digest(backend.root, backend.target, backend.file_digest, unit_digests)
                 finally:
                     metrics["lintSeconds"] += time.perf_counter() - started
                 if any(backend.input_digest(unit, fresh=True) != unit_digests[unit["name"]] for unit in units):

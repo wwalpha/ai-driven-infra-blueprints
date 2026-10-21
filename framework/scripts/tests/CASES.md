@@ -2086,3 +2086,14 @@ producer を読まず、構文・I/O・scope の不正を WARNING へ握り潰�
 | `check_diagnose_errors_propagate` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py) | pytest / 1 | 不正宣言・使用 row・解析例外の伝播 |
 | `check_diagnose_fresh_inputs_in_outer_context` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py) | pytest / 1 | outer input_context 内の診断間変更・削除・追加と snapshot 保持 |
 | `check_diagnose_display_name_uses_real_projection` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py) | pytest / 1 | 実 display-name 投影の警告と依存全体 |
+
+## Operation-owned cfn-lint worker
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `lint-worker::ownership` | `check_scope_ownership` | UT | [units/lint-worker-unit.checks.py](units/lint-worker-unit.checks.py) | pytest / 1 | 単一Stack・Windowsの従来CLI維持、遅延起動・例外時終了と元callback復元 | lint |
+| `lint-worker::communication` | `check_communication_rejects_and_reaps` | UT | [units/lint-worker-unit.checks.py](units/lint-worker-unit.checks.py) | pytest / 1 | EOF・不正応答・broken pipe・timeout終了待ち | lint |
+| `lint-worker::config` | `check_configuration_isolation` | IT | [integrations/lint-worker.checks.py](integrations/lint-worker.checks.py) | pytest / 1 | 実CLIの診断JSON・終了code・stderr一致、正常→異常→正常、custom rule・registry切替と同一schema変更 | lint |
+| `lint-worker::custom-state` | `check_custom_rule_state_and_child_failure` | IT | [integrations/lint-worker.checks.py](integrations/lint-worker.checks.py) | pytest / 1 | 設定file切替、custom Python rule状態の分離、子process異常終了時の通信失敗とcleanup | lint |
+| `lint-worker::guards` | `check_backend_guards_and_diagnostics` | IT | [integrations/lint-worker.checks.py](integrations/lint-worker.checks.py) | pytest / 1 | AwsBackendの前後fresh digest、lint診断・読込み・検証中template/parameters変更拒否一致 | lint |
+| `lint-worker::cleanup` | `check_dead_worker_and_exception_cleanup` | IT | [integrations/lint-worker.checks.py](integrations/lint-worker.checks.py) | pytest / 1 | 実workerのcaller例外・通信断で終了待ち、callback復元 | lint |

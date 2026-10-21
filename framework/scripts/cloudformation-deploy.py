@@ -106,7 +106,7 @@ class AwsBackend:
         digest = self.input_digest(unit, fresh=True)
         if unit["name"] in self.expected_digests and self.expected_digests[unit["name"]] != digest:
             raise Blocked("deployment inputs changed before validation")
-        result = subprocess.run(["cfn-lint", "--regions", self.target["awsRegion"], "--template", str(template), "--format", "json"],
+        result = getattr(self, "lint", subprocess.run)(["cfn-lint", "--regions", self.target["awsRegion"], "--template", str(template), "--format", "json"],
                                 capture_output=True, text=True)
         if result.returncode:
             events = []
