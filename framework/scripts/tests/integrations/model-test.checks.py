@@ -50,7 +50,7 @@ def fixture(base, service, resources):
             values.update({prefix + 'property': kind + '.' + prop, prefix + 'value': value, prefix + 'comment': 'fixture'})
             if document is not None:
                 values[prefix + 'document'] = json.dumps(document)
-    data['models'] = {service: values}
+    data['models'] = {'dev/cde/' + service: values}
     return data
 
 
@@ -113,11 +113,60 @@ def check():
             ('002','EC2.Subnet','subnet',[('Name','`fixture-subnet`',None),('VpcId','[main](#main-vpc)',None)]),
             ('003','EC2.FlowLog','flowlog',[('DeliverLogsPermissionArn','[role](iam.md#role)',None)])])
         for service, data in [('vpc',vpc),('iam',iam)]:
-            write_model(root/'model/dev/cde'/(service+'.properties'),data['models'][service])
+            write_model(root/'model/dev/cde'/(service+'.properties'),data['models']['dev/cde/' + service])
         sources = {service: generator.generate(root, 'dev', 'cde', service)[0] for service in ('vpc', 'iam')}
         for service, source in sources.items():
             assert generator.generate(root, 'dev', 'cde', service)[0] == source
             compile(source, service + '.py', 'exec')
+        # Same account, duplicate Alias/service names and another environment stay distinct.
+        crossroot = root / 'cross-synthetic'
+        crossroot.mkdir()
+        project = json.loads((root / 'project.json').read_text())
+        project['targets'][1]['awsAccountId'] = '123456789012'
+        project['targets'].append({**project['targets'][0], 'environment': 'prod'})
+        (crossroot / 'project.json').write_text(json.dumps(project), encoding='utf-8')
+        write_model(crossroot / 'model/dev/cde/iam.properties', iam['models']['dev/cde/iam'])
+        for env, alias in [('dev', 'other'), ('prod', 'cde')]:
+            write_model(crossroot / 'model' / env / alias / 'vpc.properties', vpc['models']['dev/cde/vpc'])
+        cross_values = dict(vpc['models']['dev/cde/vpc'])
+        cross_values['desired.row.002-002.value'] = '[other](../other/vpc.md#main-vpc)'
+        cross_values.update({'desired.row.002-003.property': 'EC2.Subnet.Tags',
+            'desired.row.002-003.value': '`["[prod](../../prod/cde/vpc.md#main-vpc)"]`',
+            'desired.row.002-003.comment': 'cross environment',
+            'desired.row.002-004.property': 'EC2.Subnet.Tags',
+            'desired.row.002-004.value': '`["[missing](../other/missing.md#missing)"]`',
+            'desired.row.002-004.comment': 'missing producer'})
+        write_model(crossroot / 'model/dev/cde/vpc.properties', cross_values)
+        from validation_cache import input_context
+        with input_context():
+            cross = snapshot(generator.generate(crossroot, 'dev', 'cde', 'vpc')[0])
+        assert {'dev/cde/vpc', 'dev/other/vpc', 'prod/cde/vpc'} <= cross['models'].keys()
+        with patch.dict(sys.modules):
+            m = runtime(cross)['engine'](cross)
+            ctx = m.Context(m.ROOT, cross['target'], cli_runner=lambda *a, **k: (_ for _ in ()).throw(AssertionError('AWS forbidden')))
+            consumer = ctx.model(m.ROOT / 'model/dev/cde/vpc.properties').resources[1]
+            for link, address in [('[other](../other/vpc.md#main-vpc)', 'dev/other/vpc'),
+                                  ('[prod](../../prod/cde/vpc.md#main-vpc)', 'prod/cde/vpc')]:
+                producer = consumer.reference(link)
+                assert producer.model.path == m.ROOT / 'model' / (address + '.properties')
+                try:
+                    producer.identity()
+                except m.Unresolved as error:
+                    assert 'outside authorized AWS retrieval scope' in str(error)
+                else:
+                    raise AssertionError('cross-scope reference expanded AWS authorization')
+            try:
+                consumer.reference('[missing](../other/missing.md#missing)')
+            except m.Unresolved as error:
+                assert 'producer Model is absent' in str(error)
+            else:
+                raise AssertionError('absent producer used another scope')
+            try:
+                consumer.reference('[escape](../../../escape.md#main-vpc)')
+            except ValueError as error:
+                assert 'outside the Model tree' in str(error)
+            else:
+                raise AssertionError('Model tree escape accepted')
         from task_contract import SELECTOR, task_revision
         from support.worktree_task_fixtures import contract
         from support.it_workspace import copy_framework
@@ -152,12 +201,12 @@ def check():
             prompt.unlink()
             assert generator.main() == 2 and output.read_bytes() == before
     snapshots = {service: snapshot(source) for service, source in sources.items()}
-    assert 'iam' in snapshots['vpc']['models'], 'VPC flow-log IAM reference dependency'
+    assert 'dev/cde/iam' in snapshots['vpc']['models'], 'VPC flow-log IAM reference dependency'
     assert set(snapshots['vpc']['models']) != set(generator.module('model/adapters/aws.py', 'model.adapters.aws').SERVICES)
     vpc = fixture(snapshots['vpc'], 'vpc', [('001', 'EC2.VPC', 'main-vpc', [
         ('Name', '`test-vpc`', None), ('CidrBlock', '`10.10.0.0/23`', None),
         ('EnableDnsSupport', '`true`', None), ('VpcId', '`vpc-observed`', None)])])
-    vpc['models']['vpc']['observed.row.001-004.value'] = '`vpc-observed`'
+    vpc['models']['dev/cde/vpc']['observed.row.001-004.value'] = '`vpc-observed`'
     responses = {('ec2', 'describe-vpcs'): {'Vpcs': [{'VpcId': 'vpc-observed', 'CidrBlock': '10.10.0.0/23',
                   'Tags': [{'Key': 'Name', 'Value': 'test-vpc'}]}]},
                  ('ec2', 'describe-vpc-attribute'): {'EnableDnsSupport': {'Value': False}}}
@@ -196,7 +245,7 @@ def check():
     assert all(api == ('sts', 'get-caller-identity') for api, _, _ in cli.calls)
     # Unresolved references remain visible, independent of the other attributes.
     unresolved = copy.deepcopy(vpc)
-    unresolved['models']['vpc']['desired.row.001-002.value'] = '[missing](#missing)'
+    unresolved['models']['dev/cde/vpc']['desired.row.001-002.value'] = '[missing](#missing)'
     result = rt['audit'](unresolved, None, CLI(responses))[2]
     assert any(r['propertiesKey'] == 'EC2.VPC.CidrBlock' and r['status'] == 'design_unresolved' for r in result)
     # A valid parent reference uses the fetched identity, then checks membership.
@@ -256,7 +305,7 @@ def check():
                                  ({'Fn::Sub': '${role.RoleId}'}, 'design_unresolved')]:
         document = copy.deepcopy(POLICY)
         document['Statement'][0]['Resource'] = expression
-        symbolic['models']['iam']['desired.row.001-002.document'] = json.dumps(document)
+        symbolic['models']['dev/cde/iam']['desired.row.001-002.document'] = json.dumps(document)
         result = irt['audit'](symbolic, None, CLI(symbolic_responses))[2]
         item, = [r for r in result if r['propertiesKey'] == 'IAM.Role.AssumeRolePolicyDocument']
         assert item['status'] == expected, item
@@ -265,7 +314,7 @@ def check():
     # Unsupported attributes are explicit errors, even when Mapping include=false.
     unsupported = copy.deepcopy(iam)
     for key, value in [('property', 'IAM.Role.MaxSessionDuration'), ('value', '`3600`'), ('comment', 'fixture')]:
-        unsupported['models']['iam']['desired.row.001-007.' + key] = value
+        unsupported['models']['dev/cde/iam']['desired.row.001-007.' + key] = value
     result = irt['audit'](unsupported, None, CLI(iam_responses))[2]
     assert any(r['propertiesKey'] == 'IAM.Role.MaxSessionDuration' and r['status'] == 'sdk_unavailable' and r['reason'] for r in result)
     assert irt['masked']({'password': 'never-print', 'Tags': [{'Key': 'token', 'Value': 'never-print'}]}) == {'password': '[REDACTED]', 'Tags': ['[REDACTED]']}

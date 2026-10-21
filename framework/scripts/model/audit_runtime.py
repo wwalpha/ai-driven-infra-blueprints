@@ -24,11 +24,14 @@ def engine(snapshot):
         exec(compile(source, '<adapter:' + name + '>', 'exec'), adapter.__dict__)
         adapters[name] = adapter
     m.service_module = adapters.__getitem__
-    m.model_paths = lambda root, environment, directory: [root / 'model' / environment / directory / (name + '.properties')
-                                                         for name in snapshot['models']]
+    m.model_paths = lambda root, environment, directory: [root / 'model' / (name + '.properties')
+        for name in snapshot['models'] if name.rsplit('/', 1)[0] == environment + '/' + directory]
 
     def load_model(path):
-        values = snapshot['models'][path.stem]
+        address = path.relative_to(m.ROOT / 'model').with_suffix('').as_posix()
+        if address not in snapshot['models']:
+            raise m.Unresolved('producer Model is absent from audit snapshot: ' + address)
+        values = snapshot['models'][address]
         return SimpleNamespace(values=values, locations={key: (Path('embedded') / path.name, 0) for key in values})
 
     original_resolve = m.Resource.resolve_json

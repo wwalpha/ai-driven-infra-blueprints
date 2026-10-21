@@ -30,7 +30,7 @@ def elements(raw):
 
 
 class Resolver:
-    def __init__(self, root, environment, target, *, definitions_root=None, local=None):
+    def __init__(self, root, environment, target, *, definitions_root=None, local=None, read_context=None):
         self.root, self.environment, self.target = Path(root), environment, target
         self.definitions_root = definitions_root or root
         self.local = local or {}
@@ -41,7 +41,7 @@ class Resolver:
         self.model_paths = set()
         self.warnings = []
         from model.sources import FileReads
-        self.reads, self.models = FileReads(), {}
+        self.reads, self.models = read_context or FileReads(), {}
 
     def index(self, kind):
         if kind in self.indexes:
@@ -49,6 +49,7 @@ class Resolver:
         from model.importing.scope import reference_reader
         from model.sources import load_model, safe
         from utils.aws_mappings import owners, mappings_for
+        self.reads.read(Path(self.definitions_root) / 'framework/mappings/aws/owners.json')
         service = owners(self.definitions_root).get(kind)
         result = {}
         self.indexes[kind] = result
@@ -56,6 +57,8 @@ class Resolver:
         if service is None:
             return result
         properties = attributes_for(kind)
+        from aws_mapping import mapping_path
+        self.reads.read(mapping_path(self.definitions_root, service))
         mapping = mappings_for(self.definitions_root).get(service)
         aliases = {prop: {prop} | {key for key, item in mapping.properties.items()
                                   if key.startswith(kind + '.') and item.field.getter and item.field.path
@@ -75,6 +78,7 @@ class Resolver:
             safe(self.root, path)
             if path not in self.models:
                 if self.reads.kind(path) == 'missing':
+                    self.reads.read(path)
                     self.files[path] = None
                     self.models[path] = None
                 else:
@@ -243,7 +247,8 @@ class Resolver:
             prop = row['property']
             raw = row.get('value', '')
             observed = values.get('observed.row.' + row_id + '.value')
-            location = {'resource': rid, 'key': 'desired.row.' + row_id + ('.document' if 'document' in row else '.value')}
+            location = {'resource': rid, 'consumerKey': 'desired.row.' + row_id + ('.document' if 'document' in row else '.value')}
+            location['key'] = location['consumerKey']
             if prop.endswith(('.Type', '.Provider')):
                 try:
                     context[prop] = json.loads(literal(raw))

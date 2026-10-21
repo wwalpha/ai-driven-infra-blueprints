@@ -107,6 +107,74 @@ def check_import_observation_foreign_reference_and_identity_spoof(tmp_path):
         observed_outputs(scope.path, {**snapshot.values, 'observed.row.008-002.value': 'subnet-other'})
 
 
+@pytest.mark.parametrize('existing', [None, '{"bucketDefinitions":[{"accountId":"123456789012","buckets":["stale"]}]}', 'broken JSON'])
+def check_macie_renders_current_document_without_artifact_reads(tmp_path, existing):
+    import shutil
+    from model.render import render_model
+    from support.model_v2_fixtures import format_fixture, FRAMEWORK
+    scope, _ = format_fixture(tmp_path, service='macie')
+    for directory in ('materials', 'mappings', 'rules'):
+        shutil.copytree(FRAMEWORK / 'framework' / directory, tmp_path / 'framework' / directory)
+    document = {'bucketDefinitions': [{'accountId': '123456789012', 'buckets': ['current-a', 'current-b']}]}
+    values = {'desired.service.macie.serviceId': 'macie',
+        'desired.service.macie.ownedCatalogResourceTypes': 'Macie.ClassificationJob',
+        'display.service.title': '# Fixture', 'desired.resource.007.resourceType': 'Macie.ClassificationJob',
+        'desired.resource.007.logicalId': 'fixed', 'desired.resource.007.anchor': 'fixed',
+        'desired.resource.007.resourceMode': 'IMPORT', 'display.resource.007.comment': 'fixture'}
+    for index, (prop, value) in enumerate([('name', '`fixture-job`'), ('s3JobDefinition', '[definition](macie/definition.json)')], 1):
+        values.update({f'desired.row.007-{index:03d}.property': 'Macie.ClassificationJob.' + prop,
+            f'desired.row.007-{index:03d}.value': value, f'desired.row.007-{index:03d}.comment': 'fixture'})
+    values['desired.row.007-002.document'] = json.dumps(document)
+    scope.path.write_text(serialize(values), encoding='utf-8')
+    artifact = tmp_path / 'docs/designs' / scope.environment / scope.target / 'macie/definition.json'
+    if existing is not None:
+        artifact.parent.mkdir(parents=True)
+        artifact.write_text(existing, encoding='utf-8')
+    original = scope.path.read_bytes()
+    files = render_model(load_model(scope), None)
+    assert json.loads(files[artifact]) == document
+    markdown = files[artifact.parent.with_suffix('.md')]
+    for bucket in document['bucketDefinitions'][0]['buckets']:
+        assert f'`{bucket}`' in markdown
+    assert '`stale`' not in markdown
+    assert scope.path.read_bytes() == original
+    assert (artifact.read_text(encoding='utf-8') if artifact.exists() else None) == existing
+
+
+@pytest.mark.parametrize('kind,label,rows,expected', [
+    ('CodeBuild.Project', 'fallback', [('CodeBuild.Project.Name', '`raw-name`')], 'raw-name'),
+    ('KMS.Key', 'fallback', [], 'fallback'),
+    ('EC2.SecurityGroupIngress', None, [], 'fixed'),
+    ('KMS.Key', None, [('KMS.Alias.AliasName', '`alias/grouped`')], 'grouped')])
+def check_shared_display_selection_and_diagnostics(tmp_path, kind, label, rows, expected):
+    from model.render import display_name
+    from support.model_v2_fixtures import format_fixture
+    scope, _ = format_fixture(tmp_path)
+    values = {'desired.resource.007.resourceType': kind, 'desired.resource.007.logicalId': 'fixed',
+        'desired.resource.007.anchor': 'producer', 'desired.resource.007.resourceMode': 'IMPORT'}
+    if label:
+        values['display.resource.007.label'] = label
+    for index, (prop, value) in enumerate(rows, 1):
+        rid = '008' if prop.startswith('KMS.Alias.') else '007'
+        values.update({f'desired.row.{rid}-{index:03d}.property': prop,
+            f'desired.row.{rid}-{index:03d}.value': value, f'desired.row.{rid}-{index:03d}.comment': 'fixture'})
+        if rid == '008':
+            values.update({'desired.resource.008.resourceType': 'KMS.Alias', 'desired.resource.008.logicalId': 'alias',
+                'desired.resource.008.anchor': 'alias', 'desired.resource.008.resourceMode': 'IMPORT',
+                'desired.resource.008.parentReference': '[key](#producer)'})
+    from model.core import entries
+    resource = dict(entries(values, 'desired.resource.'))['007']
+    assert display_name(values, '007', resource, [[str(i), prop, value, 'fixture'] for i, (prop, value) in enumerate(rows)])[0] == expected
+    text = f'[{expected}](#producer)'
+    values['desired.note.001.text'] = text
+    spec = {'consumerKey': 'desired.note.001.text', 'text': text, 'occurrence': '1', 'producerKind': 'resource',
+        'producerScope': '/'.join((scope.environment, scope.target, scope.service)), 'producerId': '007',
+        'resourceType': kind, 'format': 'link', 'labelPolicy': 'display-name'}
+    values.update({'desired.reference.name.' + key: value for key, value in spec.items()})
+    scope.path.write_text(serialize(values), encoding='utf-8')
+    assert load_model(scope).warnings == ()
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

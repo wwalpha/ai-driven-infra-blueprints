@@ -814,8 +814,9 @@ def check_batch_leaf_saves(monkeypatch):
 
 
 
-@pytest.mark.parametrize('present,race', [(False, False), (True, False), (True, True)])
-def check_reference_publication(tmp_path, present, race):
+@pytest.mark.parametrize('present,race,diagnostic', [(False, False, None), (True, False, None), (True, True, None),
+    (False, False, 'absent'), (True, False, 'mismatch'), (True, False, 'ambiguous'), (True, False, 'review-race')])
+def check_reference_publication(tmp_path, present, race, diagnostic):
     from collections import Counter
     from support.import_model_fixtures import CloudControlCli, small_framework, service_values, reference_fields
     from support.model_sources import write_model
@@ -832,6 +833,14 @@ def check_reference_publication(tmp_path, present, race):
     producer = path.with_name('s3.properties')
     if present:
         write_model(producer, resource_values('001', 'S3.Bucket', 's3-audit-bucket', 'CREATE', [('BucketName', '`audit-bucket`')]))
+    if diagnostic == 'mismatch':
+        producer.write_text(producer.read_text().replace('`audit-bucket`', '`different-bucket`'))
+    elif diagnostic == 'ambiguous':
+        from model.importing.scope import reference_reader
+        with reference_reader(producer):
+            fields = dict(load_model(producer).authoritative)
+        fields.update(resource_values('002', 'S3.Bucket', 'another-bucket', 'CREATE', [('BucketName', '`audit-bucket`')]))
+        write_model(producer, fields)
     for args in [('init', '-q'), ('add', '.'), ('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'reference fixture')]:
         subprocess.run(['git', *args], cwd=root, check=True)
     files = {path, root / 'docs/designs/dev/cde/cloudtrail.md'}
@@ -853,7 +862,7 @@ def check_reference_publication(tmp_path, present, race):
     values.update(resource_values('009', 'CloudTrail.Trail', 'cloudtrail-audit', 'IMPORT',
         [(prop.removeprefix('CloudTrail.Trail.'), m.model_literal(value)) for prop, value in captured.items()]))
     link = '[audit-bucket](s3.md#s3-audit-bucket)'
-    if present:
+    if present or diagnostic:
         for index, (prop, actual) in enumerate(captured.items(), 1):
             key = f'desired.row.009-{index:03d}.value'
             if prop == 'CloudTrail.Trail.S3BucketName':
@@ -870,7 +879,22 @@ def check_reference_publication(tmp_path, present, race):
             values[key] = 'display-name'
     selected = [correspondence(acquired, record['identity'], '009')]
     stage(root, acquired, {path.relative_to(root).as_posix(): serialize(values)}, selected)
-    review_fixture(root, acquired, 'cloudtrail')
+    reviewed = review_fixture(root, acquired, 'cloudtrail')['review']
+    if diagnostic:
+        assert reviewed['warnings'], reviewed
+        assert m.review_acquisition(root, 'dev', 'cloudtrail', acquired['evidence'], TARGET)['review'] == reviewed
+        if diagnostic == 'absent':
+            assert any(w.get('phase') == 'after' and 'absent' in w['message'] for w in reviewed['warnings'])
+            assert reviewed['referenceImpact']['inputs'][producer.relative_to(root).as_posix()] is None
+        elif diagnostic in {'mismatch', 'ambiguous'}:
+            assert any(w.get('phase') == 'physical' and w.get('acquiredValue') and
+                w.get('consumerKey') and w.get('referenceIds') for w in reviewed['warnings'])
+        else:
+            producer.write_text(producer.read_text() + '# changed decision input\n')
+            with pytest.raises(ValueError, match='Review changed or stale'):
+                m.publish_acquisition(root, 'dev', 'cloudtrail', acquired['evidence'], TARGET)
+            assert not import_guard.proof_path(root).exists()
+            return
     calls = len(cli.calls)
     reads = Counter()
     original_read = model.sources._read_model
@@ -904,7 +928,7 @@ def check_reference_publication(tmp_path, present, race):
     assert len(cli.calls) == calls
     document = root / 'docs/designs/dev/cde/cloudtrail.md'
     markdown = document.read_text()
-    assert (link if present else '`audit-bucket`') in markdown
+    assert (link if present or diagnostic else '`audit-bucket`') in markdown
     assert all(p.read_bytes() == raw for p, raw in foreign.items())
     assert not (root / 'docs/designs/dev/cde/s3.md').exists()
     before_recovery = source_files(root)

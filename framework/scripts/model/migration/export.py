@@ -70,8 +70,8 @@ def leaves(value, pointer=''):
         for index, child in enumerate(value):
             yield from leaves(child, pointer + '/' + str(index))
 
-def semantic_values(expansion):
-    return {key: value for key, value in expansion.values.items()
+def semantic_values(values):
+    return {key: value for key, value in values.items()
             if not (key.startswith('observed.') and not key.endswith('.value'))
             and not key.endswith('.artifactSha256')}
 
@@ -85,13 +85,16 @@ def export_model(path):
     bindings = legacy.json_read((directory / 'bindings.json').read_text(encoding='utf-8'))
     observed = legacy.read_observed(directory)[0]
     markers = {}
+    bound = {}
     environment, target, service = path.parent.parent.name, path.parent.name, path.stem
 
     def bind(template, parameters, bindings, definitions, environment):
         normalized, files = human_instances(template, parameters, bindings, definitions, environment, resolve_references=False)
         result = copy.deepcopy(normalized)
+        symbolic = copy.deepcopy(normalized)
         for item in result['instances']:
             original = next(value for value in normalized['instances'] if value['id'] == item['id'])
+            symbolic_item = next(candidate for candidate in symbolic['instances'] if candidate['id'] == item['id'])
             definition = definitions[item['definition']]
             for name in item['parameters']:
                 spec = schema(definition.parameters[name])
@@ -111,7 +114,7 @@ def export_model(path):
                     reference = {'producerKind': producer_kind, 'producerScope': producer_scope,
                                  'producerId': rid, 'format': mode,
                                  'labelPolicy': ('fixed' if name in bindings['instances'][item['id']].get('labels', {}) else
-                                                 'display-name' if 'service' in spec else 'resource-id') if mode == 'link' else 'none'}
+                                                 'display-name' if 'service' in spec and spec['resourceType'] != 'KMS.Key' else 'resource-id') if mode == 'link' else 'none'}
                     if producer_kind == 'stack':
                         reference['property'] = 'name'
                     else:
@@ -122,7 +125,8 @@ def export_model(path):
                                 producer = path.with_name(producer_service + '.properties')
                                 resolved = legacy.reference_values(producer, rid, spec['resourceType'], mode)
                                 candidates = [row['property'] for row_id, row in entries(resolved.values, 'desired.row.')
-                                              if row_id.rpartition('-')[0] == rid and row['property'].endswith(legacy.REFERENCE_NAME_SUFFIXES)]
+                                              if row_id.rpartition('-')[0] == rid and row['property'].rsplit('.', 1)[0] == spec['resourceType']
+                                              and row['property'].endswith(legacy.REFERENCE_NAME_SUFFIXES)]
                                 if len(candidates) != 1:
                                     raise ValueError('cannot identify the legacy raw name Property: ' + producer_scope + '/' + rid)
                                 prop = candidates[0]
@@ -138,11 +142,30 @@ def export_model(path):
                     if any(marker in raw for raw in expansion.values.values()):
                         raise ValueError('reserved migration marker in legacy input')
                     markers[marker] = value, reference
-                    item['parameters'][name] = marker
+                    symbolic_item['parameters'][name] = marker
+                else:
+                    symbolic_item['parameters'][name] = value
+        bound['actual'], bound['symbolic'] = result, symbolic
         return result, files
 
-    marked, _, _ = legacy.expand_inputs(template, parameters, observed, bindings, environment, bind, _parsed=(definitions, template_files))
-    expected = semantic_values(expansion)
+    checked, _, _ = legacy.expand_inputs(template, parameters, observed, bindings, environment, bind, _parsed=(definitions, template_files))
+    if semantic_values(checked) != semantic_values(expansion.values):
+        raise ValueError('legacy real-value expansion differs')
+    # Track substitutions only after the public reader has validated real inputs.
+    marked = {}
+    for instance, definition in legacy.prepare_instances(definitions, bound['actual'], observed):
+        symbolic = next(item for item in bound['symbolic']['instances'] if item['id'] == instance['id'])
+        context = dict(symbolic['parameters'])
+        context.update({'Id_' + key: value for key, value in instance['resources'].items()})
+        for local in definition.resources:
+            context['Anchor_' + local] = legacy.resolve(definition.values[f'desired.resource.{local}.anchor'], context)
+        for key, raw in definition.values.items():
+            output_key = legacy.remap_key(key, definition, instance['resources'], instance['rows'])
+            structured = (key.endswith('.document') or any(selected == key for selected, _ in definition.optional_json)
+                          or any(selected == key and pointer is not None for selected, pointer, _ in definition.choices))
+            marked[output_key] = (legacy.template_document_text(key, legacy.resolve(legacy.template_document(key, raw), context, structured=True))
+                                  if structured else legacy.resolve(raw, context))
+    expected = semantic_values(expansion.values)
     metadata = {}
     number = 1
     for key, raw in list(expected.items()):

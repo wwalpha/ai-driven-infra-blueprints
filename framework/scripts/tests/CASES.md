@@ -1803,7 +1803,7 @@ no new runner or live AWS/consumer inputs are introduced.
 
 | `atomic/batch-saves` | `check_batch_leaf_saves` | IT | [five pair saves](integrations/import-model.checks.py) | pytest / 1 | transfer saves retain all five sources, empty-reference retarget is no-op, delete removes all and final semantic check passes; base unchanged | Added |
 
-| `import/references` | `check_reference_publication` | IT | [physical reference publication](integrations/import-model.checks.py) | pytest / 3 | acquired Trail references link to a unique local CREATE bucket or retain the AWS literal; one producer read per expansion/physical-verification permission context and unchanged API count; a producer race rolls back sources and retains the external edit | Added |
+| `import/references` | `check_reference_publication` | IT | [physical reference publication](integrations/import-model.checks.py) | pytest / 7 | acquired Trail references link to a unique local CREATE bucket or retain the AWS literal; one producer read per expansion/physical-verification permission context and unchanged API count; a producer race rolls back sources and retains the external edit | Added |
 
 ## Generic Model dependency detach
 
@@ -2047,3 +2047,9 @@ Model v2 の原文取得 cache は Model ごとの raw snapshot と参照診断�
 producer を読まず、構文・I/O・scope の不正を WARNING へ握り潰さない。相対 Markdown の
 環境／target／dotted service は固定 scope として保持し、root 外への逸脱を拒否する。
 旧平置き Model/Import の20 module/CLI を廃止した。旧 reader は移行 export の隔離子プロセスだけで使う。
+
+| Case ID | Function | Level | Source | Mode / Count | Responsibility | Group |
+| --- | --- | --- | --- | --- | --- | --- |
+| `model-v2::legacy-reference-equivalence` | `check_export_real_stack_links_root_names_and_retained_display` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 1 | Real-value legacy validation, Stack placement/buckets, root Name, KMS default label and retained display-only comments | Model v2 |
+| `model-v2::macie-authority` | `check_macie_renders_current_document_without_artifact_reads` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py) | pytest / 3 | Missing/stale/broken JSON never overrides the current document or changes properties bytes | Model v2 |
+| `model-v2::display-diagnostics` | `check_shared_display_selection_and_diagnostics` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py) | pytest / 4 | Root name, explicit fallback label, rule-table and grouped KMS alias share final display selection | Model v2 |

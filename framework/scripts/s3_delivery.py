@@ -84,8 +84,11 @@ def referenced_key(backend, resource):
 def model_conditions(backend, bucket):
     # Reuse the comparator's resource/current/parent/reference resolution, without an SDK client.
     models = {}
-    ctx = SimpleNamespace()
+    ctx = SimpleNamespace(root=backend.root.resolve())
     def model(path):
+        path = path.resolve()
+        if path.parent != ctx.root / 'model' / backend.environment / backend.directory:
+            fail('INDETERMINATE', 'producer target context is outside authorized S3 placement retrieval scope: ' + str(path))
         if path not in models:
             models[path] = module('model/adapters/aws.py', 'model.adapters.aws').Model(ctx, path)
         return models[path]

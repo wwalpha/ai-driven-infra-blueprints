@@ -675,6 +675,18 @@ def check_delivery_encryption(tmp_path):
         assert snapshot_model(path) == before
     write_model(path, read_model(path).replace('observed.row.001-001.value=test-key', 'observed.row.001-001.value=other-key'))
     rejects(lambda: model_conditions(backend, bucket), 'approved parent')
+    # Reading a cross-Alias reference never authorizes KMS retrieval in that target.
+    foreign = path.parent.parent / 'other' / path.name
+    foreign.parent.mkdir(parents=True)
+    foreign.write_bytes(path.read_bytes())
+    project = backend.root / 'project.json'
+    topology = json.loads(project.read_text())
+    topology['targets'].append({'environment': 'dev', 'alias': 'other', **TARGET})
+    project.write_text(json.dumps(topology), encoding='utf-8')
+    backend.add_bucket(bucket, 'aws:kms', '[key](../other/kms.md#kms-key)')
+    calls = len(backend.calls)
+    rejects(lambda: model_conditions(backend, bucket), 'outside authorized S3 placement retrieval scope')
+    assert len(backend.calls) == calls
     # Approval is explicit; default delegation omits both headers, including for KMS defaults.
     for algorithm, key in (('AES256', None), ('aws:kms', 'test-key')):
         backend, source = fresh()

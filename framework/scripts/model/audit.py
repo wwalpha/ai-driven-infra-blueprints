@@ -39,12 +39,18 @@ def definitions(path, names):
 def dependencies(root, target, selected):
     """Embed only selected resources and explicitly referenced producer resources."""
     from iac_values import cfn_resource_identity
+    from model.sources import FileReads
+    reads = FileReads()
     cache, included, pending = {}, {}, [(selected, None)]
 
+    def model_identity(path):
+        return path.relative_to(root / 'model').with_suffix('').as_posix()
+
     def read(path):
-        if path.stem not in cache:
-            cache[path.stem] = load_model(path)
-        return cache[path.stem]
+        key = model_identity(path)
+        if key not in cache:
+            cache[key] = None if reads.kind(path) == 'missing' else load_model(path, reads)
+        return cache[key]
 
     def logical_names(value):
         if isinstance(value, list):
@@ -71,10 +77,10 @@ def dependencies(root, target, selected):
         data = read(path)
         specs = dict(entries(data.values, 'desired.resource.'))
         wanted = set(specs) if numbers is None else set(numbers)
-        new = wanted - included.get(path.stem, set())
+        new = wanted - included.get(model_identity(path), set())
         if not new:
             continue
-        included.setdefault(path.stem, set()).update(new)
+        included.setdefault(model_identity(path), set()).update(new)
         for number in sorted(new):
             spec = specs[number]
             stack = cfn_resource_identity(spec['cfn-logicalId'])[0] if 'cfn-logicalId' in spec else None
@@ -82,17 +88,19 @@ def dependencies(root, target, selected):
                       key.startswith('desired.row.' + number + '-') or key == 'desired.resource.' + number + '.parentReference']
             for value in values:
                 for filename, anchor in re.findall(r'\[[^\]]+\]\(([^)#]*?)#([^)]+)\)', value):
-                    if filename and (Path(filename).name != filename or not filename.endswith('.md')):
-                        raise ValueError('reference must stay in the same target')
-                    producer = path.parent / (Path(filename).stem + '.properties') if filename else path
-                    matches = {rid for rid, item in entries(read(producer).values, 'desired.resource.') if item.get('anchor') == anchor}
+                    from model.references import _link_scope
+                    producer = root / 'model' / (_link_scope(data, filename) + '.properties')
+                    source = read(producer)
+                    if source is None:
+                        continue
+                    matches = {rid for rid, item in entries(source.values, 'desired.resource.') if item.get('anchor') == anchor}
                     pending.append((producer, matches))
                 try:
                     names = logical_names(json.loads(value.strip('`')))
                 except (ValueError, TypeError):
                     names = set()
                 if names:
-                    for producer in model_paths(root, target['environment'], target['directory']):
+                    for producer in model_paths(root, data.scope.environment, data.scope.target):
                         matches = set()
                         for rid, item in entries(read(producer).values, 'desired.resource.'):
                             identity = cfn_resource_identity(item['cfn-logicalId']) if 'cfn-logicalId' in item else (None, item.get('logicalId'))
@@ -123,7 +131,9 @@ def generate(root, environment, selector, service):
     models = dependencies(root, target, path)
     catalog = DesignSchemaCatalog(ROOT)
     mappings, schemas, outputs = {}, {}, {}
-    for name, data in sorted(models.items()):
+    for name in sorted({data.scope.service for data in models.values()}):
+        selected_rows = [row for data in models.values() if data.scope.service == name
+                         for _, row in entries(data.values, 'desired.row.')]
         if name == 'cloudformation-stacks':
             continue
         mapping, props = comparison(ROOT, name)
@@ -140,7 +150,7 @@ def generate(root, environment, selector, service):
                 props[key] = replace(prop, field=replace(prop.field, getter='base', path='PermissionsBoundary.PermissionsBoundaryArn',
                                                        norm='arn', classification='supported', reason=''))
         from aws_mapping import Property
-        for _, row in entries(data.values, 'desired.row.'):
+        for row in selected_rows:
             key = row['property']
             if key not in props:
                 props[key] = Property(m.Field(classification='unimplemented', reason='no AWS Compare Mapping for selected attribute'),
@@ -149,7 +159,7 @@ def generate(root, environment, selector, service):
                           'identities': {k: asdict(v) for k, v in mapping.identities.items()},
                           'properties': {k: asdict(replace(v, field=replace(v.field, default=v.field.copy_default())))
                                          for k, v in props.items()}}
-        for _, row in entries(data.values, 'desired.row.'):
+        for row in selected_rows:
             prop = row['property']
             kind = '.'.join(prop.split('.')[:2])
             try:
@@ -167,10 +177,11 @@ def generate(root, environment, selector, service):
               'import argparse, hashlib, json, os, re, subprocess, sys\n'
               'from collections import Counter, defaultdict\n'
               'from copy import deepcopy\nfrom threading import RLock\nfrom concurrent.futures import Future\n'
-              'from dataclasses import dataclass\nfrom pathlib import Path\nfrom urllib.parse import unquote\n'
+              'from dataclasses import dataclass\nfrom pathlib import Path, PurePosixPath\nfrom urllib.parse import unquote\n'
               'ROOT = Path("/model-test-snapshot")\n'
               'LINK = re.compile(r"^\\[([^\\]]+)\\]\\(([^)]*?)#([^)]+)\\)$")\n'
               'def memo_table(): return None\n')
+    engine += definitions(scripts / 'model/references.py', ['link_scope'])
     engine += definitions(scripts / 'utils/lazy_definitions.py', ['load_once'])
     engine += definitions(scripts / 'iac_values.py', ['unique_object', 'invalid_constant', 'cfn_resource_identity'])
     engine += definitions(scripts / 'model/core.py', ['entries', 'literal'])
@@ -198,12 +209,12 @@ def generate(root, environment, selector, service):
               'import json\nSNAPSHOT = json.loads(' + repr(m.stable(snapshot)) + ')\n' + runtime)
     compile(result, f'{service}.py', 'exec')
     unsupported = []
-    for _, resource in entries(models[service].values, 'desired.resource.'):
+    for _, resource in entries(models['/'.join((environment, target['directory'], service))].values, 'desired.resource.'):
         kind = resource['resourceType']
         if kind in outputs:
             unsupported.extend((key, 'resource identifier; not a desired configuration value') for key in outputs[kind]
-                               if any(row['property'] == key for _, row in entries(models[service].values, 'desired.row.')))
-    for _, row in entries(models[service].values, 'desired.row.'):
+                               if any(row['property'] == key for _, row in entries(models['/'.join((environment, target['directory'], service))].values, 'desired.row.')))
+    for _, row in entries(models['/'.join((environment, target['directory'], service))].values, 'desired.row.'):
         key = row['property']
         field = mappings[service]['properties'][key]['field']
         if field['classification'] != 'supported':

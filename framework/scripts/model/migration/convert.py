@@ -30,7 +30,7 @@ def block_order(values, resource_order, row_order):
     for key, value in values.items():
         blocks.setdefault(owner(key, values), {})[key] = value
     resource_blocks = iter(blocks[('resource', identity)] for identity in resource_order)
-    ordered = [next(resource_blocks) if block[0] == 'resource' else fields for block, fields in blocks.items()]
+    ordered = [next(resource_blocks) if block[0] == 'resource' and block[1] in resources else fields for block, fields in blocks.items()]
     result = {}
     for block in ordered:
         def emit(key):

@@ -961,7 +961,8 @@ def check_fetch_singleflight_and_trace():
     ctx, cli = generic_context(resources={'DataZone.Domain': [domain()]})
     def get(context, resource, getter):
         return context.call('cloudcontrol', 'get_resource', TypeName='AWS::DataZone::Domain', Identifier='dzd-one')
-    resource = SimpleNamespace(model=SimpleNamespace(path=Path('/synthetic/datazone')), number='one', module=SimpleNamespace(fetch=get))
+    path = ctx.root / 'model' / ctx.target['environment'] / ctx.target['directory'] / 'datazone.properties'
+    resource = SimpleNamespace(model=SimpleNamespace(path=path), number='one', module=SimpleNamespace(fetch=get))
     with patch.object(resource.module, 'fetch', wraps=get) as fetch:
         with ThreadPoolExecutor(max_workers=8) as executor:
             results = list(executor.map(lambda _: ctx.fetch(resource, 'provider'), range(16)))

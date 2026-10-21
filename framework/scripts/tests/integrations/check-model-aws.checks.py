@@ -188,7 +188,7 @@ def check_cli_service_names(tmp_path, service, operation, cli_service, paginate)
 def batch_checks(root):
     directory = root / 'model/dev' / ACCOUNT
     directory.mkdir(parents=True)
-    (root / 'project.json').write_text(json.dumps({'targets': [TARGET]}), encoding='utf-8')
+    (root / 'project.json').write_text(json.dumps({'targets': [TARGET, dict(TARGET, environment='stg')]}), encoding='utf-8')
     s3 = directory / 's3.properties'
     s3_rows = [('S3.Bucket.BucketName', '`fixture`'), ('S3.Bucket.VersioningConfiguration.Status', '`Enabled`')]
     write_model(s3, model_text('S3.Bucket', s3_rows))
@@ -276,7 +276,13 @@ def batch_checks(root):
     check({item['service'] for item in batch['results']} == {'s3', 'iam'}, 'batch compares both requested services only')
     compare(['s3', 'iam'], direct=True)
     batch_items = m.inventory(root, selected, ['s3', 'iam'])
-    compare(['s3', 'iam'], direct=True, items=batch_items + [(dict(target, environment='stg'), path) for target, path in batch_items])
+    stg_items = []
+    for target, path in batch_items:
+        stg = root / 'model/stg' / target['directory'] / path.name
+        stg.parent.mkdir(parents=True, exist_ok=True)
+        stg.write_bytes(path.read_bytes())
+        stg_items.append((dict(target, environment='stg'), stg))
+    compare(['s3', 'iam'], direct=True, items=batch_items + stg_items)
 
     with patch.object(boto3, 'Session', side_effect=AssertionError('offline coverage must not create a session')) as factory, \
             patch.object(m.subprocess, 'run', side_effect=AssertionError('offline coverage must not invoke AWS CLI')) as process:
@@ -419,7 +425,7 @@ def common_checks(root):
     role = directory / 'iam.properties'
     write_model(role, model_text('IAM.Role', [('IAM.Role.RoleName', '`fixture`')], anchor='iam-fixture'))
     check(resource.resolve_json('[fixture](iam.md#iam-fixture)', 'arn').startswith('arn:' ) is False, 'SDK synthetic ARN used, not constructed')
-    expect(m.Unresolved, lambda: resource.reference('[x](../iam.md#iam-fixture)'))
+    expect(ValueError, lambda: resource.reference('[x](../../../iam.md#iam-fixture)'))
     expect(m.Unresolved, lambda: resource.reference('[x](iam.md#missing)'))
     # Ordered arrays remain ordered; tags keep Key/Value pairs together.
     check(m.normalize(ctx, 'false', 'boolean') is False and m.normalize(ctx, '60', 'number') == 60, 'typed SDK string values')

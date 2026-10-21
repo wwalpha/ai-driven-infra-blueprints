@@ -62,13 +62,22 @@ def stack_markdown(path, values, root, *, definitions_root=None):
             for number, (identity, stack) in enumerate(stacks, 1)], *delivery]) + "\n"
 
 
+def display_name(values, identity, resource, rows):
+    """Pure final display selection, shared by rendering and reference diagnostics."""
+    kind = resource['resourceType']
+    label = values.get(f'display.resource.{identity}.label')
+    if GROUPED.get(kind, {}).get('display') == 'rule-table':
+        return label or resource['logicalId'], None
+    configured = resource_display_name(kind, rows, label, resource_mode(resource))
+    return configured or label, configured
+
+
 def resource_presentation(values, identity, resource, root):
     kind = resource['resourceType']
     rows = catalog_display_rows(resource_rows(values, identity, kind, root), kind, root)
     rule_table = GROUPED.get(kind, {}).get('display') == 'rule-table'
-    configured = None if rule_table else resource_display_name(
-        kind, resource_display_rows(values, identity, resource, root), values.get(f'display.resource.{identity}.label'), resource_mode(resource))
-    name = (values.get(f'display.resource.{identity}.label') or resource['logicalId']) if rule_table else configured or values.get(f'display.resource.{identity}.label')
+    name, configured = display_name(values, identity, resource,
+                                    resource_display_rows(values, identity, resource, root))
     return name, configured, rows
 
 
@@ -262,8 +271,8 @@ def render_markdown(path, values, root, owned, details, grouped, policy_views=No
         if kind == "Macie.ClassificationJob":
             definitions = [row for row in rows if row[1] == kind + ".s3JobDefinition"]
             if definitions:
-                match = re.fullmatch(r"\[[^\]]+\]\(([^)#]+\.json)\)", definitions[0][2])
-                raw = (path.parent / match.group(1)).read_text(encoding="utf-8") if match else literal(definitions[0][2])
+                row_id = definitions[0][0]
+                raw = values[f"desired.row.{row_id}.document"]
                 document = json.loads(raw, object_pairs_hook=unique_object, parse_constant=invalid_constant)
                 if "bucketDefinitions" in document:
                     mappings = [[f'[{name}](#{resource["anchor"]})', f'`{group["accountId"]}`', f"`{bucket}`"] for group in document["bucketDefinitions"] for bucket in group["buckets"]]

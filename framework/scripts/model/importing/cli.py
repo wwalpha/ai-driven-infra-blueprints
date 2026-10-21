@@ -281,7 +281,7 @@ def source_state(root, inputs):
     sets = [{'base': base.relative_to(root).as_posix(), 'pattern': pattern, 'recursive': recursive,
              'kinds': kinds, 'paths': [path.relative_to(root).as_posix() for path in paths]}
             for (base, pattern, recursive, kinds), paths in inputs.selections.items() if base.is_relative_to(root)]
-    return files, sets
+    return dict(sorted(files.items())), sorted(sets, key=json_text)
 
 
 def unchanged_sets(root, sets):
@@ -308,12 +308,12 @@ def unchanged_sets(root, sets):
 def replacement_inputs(before, selected_records, reads):
     from dataclasses import asdict
     from model.references import incoming
-    warnings = list(before.warnings)
+    warnings = [{**warning, 'phase': 'before'} for warning in before.warnings]
     for rid, record in selected_records.items():
         if record.get('_action') not in {'replace', 'bind'}:
             continue
         producer = '/'.join((before.scope.environment, before.scope.target, before.scope.service, rid))
-        for scope, usage in incoming(before, rid, reads):
+        for scope, usage in incoming(before, rid, reads, warnings=warnings):
             owner_id = usage.consumer_key.split('.')[2].rpartition('-')[0] if usage.consumer_key.startswith('desired.row.') else usage.consumer_key.split('.')[2]
             consumer = '/'.join((scope.environment, scope.target, scope.service, owner_id))
             if consumer != producer:
@@ -371,14 +371,38 @@ def review_inputs(root, identity, evidence, acquisition, inputs):
         raise ValueError('IMPORT Review requires risks and optional complete referenceProvenance after map; flags grant no approval')
     selected_records = selection_records(selection, acquisition['records'], before.authoritative,
                                          after.authoritative, property_schema)
-    impact = replacement_inputs(before, selected_records, inputs)
-    review = import_approval.build_review(acquisition, selection, before, dict(after.authoritative), draft['risks'],
-        property_schema, proposed_references=draft.get('referenceProvenance'), reference_impact=impact)
-    if review['referenceProvenance']['after'] != import_approval.reference_provenance(after):
+    proposed_references = draft.get('referenceProvenance', import_approval.reference_provenance(before))
+    if proposed_references != import_approval.reference_provenance(after):
         raise ValueError('IMPORT candidate reference map differs from the complete Review after map')
     from model.importing.references import Resolver
-    references = Resolver(root, identity[0], identity[1], local={identity[2]: after})
+    references = Resolver(root, identity[0], identity[1], local={identity[2]: after}, read_context=inputs)
     changes = verify_values(before, after, selected_records, property_schema, references)
+    impact = replacement_inputs(before, selected_records, inputs)
+    warnings = [{**warning, 'phase': phase} for phase, items in (
+        ('after', after.warnings), ('physical', references.warnings)) for warning in items]
+    specs = import_approval.reference_provenance(after)
+    warnings = [*impact['warnings'], *warnings]
+    for warning in warnings:
+        warning.setdefault('phase', 'incoming')
+        key = warning.get('consumerKey', warning.get('consumer_key', warning.get('key')))
+        if key:
+            warning.setdefault('consumerKey', key)
+            if key.startswith('desired.row.'):
+                warning.setdefault('resource', key.split('.')[2].rpartition('-')[0])
+            elif key.startswith('desired.resource.'):
+                warning.setdefault('resource', key.split('.')[2])
+            matching = sorted(identity for identity, spec in specs.items()
+                              if spec['consumerKey'] == key and spec.get('pointer') == warning.get('pointer'))
+            if warning['phase'] == 'physical':
+                warning['referenceIds'] = matching
+    impact['warnings'] = sorted(warnings, key=json_text)
+    # Resolve physical and incoming dependencies before binding the final Review.
+    for path in after.dependencies:
+        if path not in after.files:
+            inputs.read(path)
+    impact['inputs'], impact['fileSets'] = source_state(root, inputs)
+    review = import_approval.build_review(acquisition, selection, before, dict(after.authoritative), draft['risks'],
+        property_schema, proposed_references=proposed_references, reference_impact=impact)
     if comparator().redacted(review) != review:
         raise ValueError('IMPORT Review contains sensitive data')
     return before, after, output, selection, review, changes, {selection_file: selection_text, draft_file: draft_text}

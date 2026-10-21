@@ -140,17 +140,22 @@ def _producer(snapshot, address, reads, cache):
     return cache[scope.path]
 
 
-def _link_scope(snapshot, filename):
+def link_scope(environment, target, service, filename):
     """Resolve a saved Markdown address lexically inside the registered Model tree."""
     import posixpath
     if not filename:
-        return '/'.join((snapshot.scope.environment, snapshot.scope.target, snapshot.scope.service))
+        return '/'.join((environment, target, service))
     if filename.startswith('/') or '\\' in filename:
         raise ValueError('direct Model reference is outside the Model tree: ' + filename)
-    relative = PurePosixPath(posixpath.normpath('/'.join((snapshot.scope.environment, snapshot.scope.target, filename))))
+    relative = PurePosixPath(posixpath.normpath('/'.join((environment, target, filename))))
     if len(relative.parts) != 3 or '..' in relative.parts or relative.suffix != '.md':
         raise ValueError('direct Model reference is outside the Model tree: ' + filename)
     return '/'.join((*relative.parts[:2], relative.stem))
+
+
+def _link_scope(snapshot, filename):
+    scope = snapshot.scope
+    return link_scope(scope.environment, scope.target, scope.service, filename)
 
 
 def usages(snapshot, read_context=None, *, _cache=None, _producer_scope=None, _coalesce=True):
@@ -274,19 +279,12 @@ def diagnose(snapshot, read_context=None, *, _producer_scope=None):
             if spec['labelPolicy'] == 'resource-id' and link[1] != identity:
                 warn('resource-id label differs')
             elif spec['labelPolicy'] == 'display-name':
-                from design_layout import resource_display_name
-                owned = {identity}
-                if resource['resourceType'] == 'KMS.Key':
-                    for child_id, child in resources.items():
-                        parent = LINKS.fullmatch(child.get('parentReference', ''))
-                        if child['resourceType'] == 'KMS.Alias' and parent and not parent[2] and parent[3] == resource.get('anchor'):
-                            owned.add(child_id)
-                display_rows = [[rid, row['property'], row['value'], row['comment']]
-                                for rid, row in entries(values, 'desired.row.') if rid.rpartition('-')[0] in owned]
+                from model.render import display_name
+                from model.projection import resource_display_rows
+                display_rows = resource_display_rows(values, identity, resource, producer.scope.root)
                 try:
                     # This pure function raises only name/display semantic failures.
-                    expected = resource_display_name(resource['resourceType'], display_rows,
-                        values.get(f'display.resource.{identity}.label'), resource.get('resourceMode', 'CREATE'))
+                    expected, _ = display_name(values, identity, resource, display_rows)
                 except ValueError as error:
                     warn('producer display name unavailable: ' + str(error))
                 else:

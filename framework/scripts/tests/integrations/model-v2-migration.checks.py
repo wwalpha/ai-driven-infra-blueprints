@@ -556,6 +556,82 @@ desired.row.tags.comment=参照付きJSON
     assert compare_export(exported, candidate)['status'] == 'equivalent'
 
 
+def check_export_real_stack_links_root_names_and_retained_display(old_checkout, tmp_path):
+    root = tmp_path / 'source'
+    legacy_fixture(root)
+
+    def service(name, definition, bindings):
+        template = root / 'model/templates/team-a' / (name + '.properties.tpl')
+        template.write_text('# model-template: 1\n# definition: Main\n' + definition + '\n# end-definition\n', encoding='utf-8')
+        directory = root / 'model/parameters/qa-synthetic/team-a' / name
+        directory.mkdir()
+        (directory / 'parameters.yaml').write_text('instances: {}\n', encoding='utf-8')
+        (directory / 'bindings.json').write_text(json.dumps(bindings), encoding='utf-8')
+
+    def resource(kind, props):
+        text = '# resource: main\ndesired.resource.main.resourceType=' + kind + '\n'
+        text += 'desired.resource.main.logicalId=fixed\ndesired.resource.main.anchor=fixed\ndesired.resource.main.resourceMode=IMPORT\n'
+        for number, (prop, value) in enumerate(props, 1):
+            text += f'# row: r{number} main\ndesired.row.r{number}.property={kind}.{prop}\ndesired.row.r{number}.value={value}\ndesired.row.r{number}.comment=fixture\n'
+        bindings = {'instances': {'main': {'definition': 'Main', 'resources': {'main': '001'},
+                    'rows': {'r' + str(i): f'001-{i:03d}' for i in range(1, len(props) + 1)}, 'parameters': {}}}}
+        return text, bindings
+
+    for name, kind, props in [
+        ('s3', 'S3.Bucket', [('BucketName', '`fixture-bucket`')]),
+        ('kms', 'KMS.Key', [('Description', '`fixture-key`')]),
+        ('codebuild', 'CodeBuild.Project', [('Name', '`fixture-project`'),
+            ('Environment.EnvironmentVariables[].Name', '`nested-name`'),
+            ('LogsConfig.CloudWatchLogs.GroupName', '`nested-group`')])]:
+        text, bindings = resource(kind, props)
+        service(name, text, bindings)
+    stacks = ('# reference: Bucket {"service":"s3","resource":"001","resourceType":"S3.Bucket"}\n'
+        'desired.stack.009.name=RenamedStack\ndesired.stack.009.template=stack.yaml\n'
+        'desired.stack.009.parameters=stack.json\ndesired.stack.009.deployOrder=1\ndisplay.stack.009.comment=fixture\n'
+        'desired.deployment.templateBucket=<<Bucket>>\ndesired.deployment.templateKeyPrefix=templates/\n'
+        'desired.artifact.001.stack=RenamedStack\ndesired.artifact.001.resource=Function\n'
+        'desired.artifact.001.property=Code\n'
+        'desired.artifact.001.source=infra/cloudformation/artifacts/function.zip\n'
+        'desired.artifact.001.bucket=<<Bucket>>\ndesired.artifact.001.keyPrefix=artifacts/\n')
+    service('cloudformation-stacks', stacks, {'stacks': {'009': 'FixedPlacement'},
+        'instances': {'main': {'definition': 'Main', 'resources': {}, 'rows': {}, 'parameters': {}}}})
+    template = root / 'model/templates/team-a/network.properties.tpl'
+    text = template.read_text(encoding='utf-8').replace('# resource: vpc',
+        '# reference: Build {"service":"codebuild","resource":"001","resourceType":"CodeBuild.Project","format":"name"}\n'
+        '# reference: Key {"service":"kms","resource":"001","resourceType":"KMS.Key"}\n'
+        '# resource: vpc')
+    text = text.replace('# end-definition', '# retained-display: 099\ndisplay.resource.099.comment=retained comment\n'
+        'desired.note.001.text=<<Build>> <<Key>> <<Key>>\n# end-definition')
+    template.write_text(text, encoding='utf-8')
+    before = {path.relative_to(root): path.read_bytes() for path in root.rglob('*') if path.is_file()}
+    exported = export_legacy(old_checkout, old_python(), root, BASELINE, tmp_path / 'export.json')
+    candidate = convert_export(exported, tmp_path / 'candidate')
+    assert compare_export(exported, candidate)['models'] == 5
+    model = load_model(Scope(candidate, 'qa-synthetic', 'team-a', 'network'))
+    from model.references import declarations
+    specs = list(declarations(model.authoritative).values())
+    assert [spec['property'] for spec in specs if spec['format'] == 'name'] == ['CodeBuild.Project.Name']
+    keys = [spec for spec in specs if spec.get('resourceType') == 'KMS.Key']
+    assert {spec['labelPolicy'] for spec in keys} == {'resource-id'}
+    assert {spec['occurrence'] for spec in keys} == {'1', '2'}
+    assert {spec['text'] for spec in keys} == {'[001](kms.md#fixed)'}
+    assert model.authoritative['display.resource.099.comment'] == 'retained comment'
+    assert 'desired.resource.099.resourceType' not in model.authoritative
+    from model.core import entries
+    assert list(dict(entries(model.authoritative, 'desired.resource.'))) == ['007']
+    # Independent public legacy resolution establishes the expected label, not exporter metadata.
+    program = "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); import model_templates as m; print(m.load_for_analysis(Path(sys.argv[2])).values['desired.note.001.text'])"
+    actual = subprocess.check_output([old_python(), '-I', '-B', '-c', program,
+        str(old_checkout / 'framework/scripts'), str(root / 'model/qa-synthetic/team-a/network.properties')], text=True).strip()
+    assert actual == 'fixture-project [001](kms.md#fixed) [001](kms.md#fixed)'
+    assert model.authoritative['desired.note.001.text'] == actual
+    stack = load_model(Scope(candidate, 'qa-synthetic', 'team-a', 'cloudformation-stacks'))
+    assert stack.authoritative['desired.stack.009.placementName'] == 'FixedPlacement'
+    bucket_refs = list(declarations(stack.authoritative).values())
+    assert {spec['consumerKey'] for spec in bucket_refs} == {'desired.deployment.templateBucket', 'desired.artifact.001.bucket'}
+    assert {path.relative_to(root): path.read_bytes() for path in root.rglob('*') if path.is_file()} == before
+
+
 def check_export_parent_runtime_isolated(old_checkout, tmp_path):
     root = tmp_path / 'source'
     legacy_fixture(root)

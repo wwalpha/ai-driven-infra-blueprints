@@ -27,6 +27,7 @@ from utils.lazy_definitions import load_once
 from comparison_rows import MISSING, Unresolved, put_row, select
 from design_catalog import DesignSchemaCatalog, selected_properties
 from model.projection import catalog_outputs
+from model.references import link_scope
 from model.core import LINK, entries, properties
 from model.sources import model_paths
 from model.files import load_model, read_model
@@ -194,7 +195,7 @@ def redacted(value):
 
 class Context:
     def __init__(self, root, target, session=None, cli_runner=None, services=None, import_mode=False):
-        self.root, self.target, self.session = Path(root), deepcopy(target), session
+        self.root, self.target, self.session = Path(root).resolve(), deepcopy(target), session
         self.cli_runner = cli_runner
         self.import_mode = import_mode
         self._cache_lock, self._flights = RLock(), {}
@@ -332,12 +333,12 @@ class Context:
         self.verified = True
 
     def model(self, path):
-        if self.services is not None and (path.stem not in self.services or
-                path.parent != self.root / 'model' / self.target['environment'] / self.target['directory']):
-            raise Unresolved('IMPORT reference is outside selected environment/target/service')
         if path.is_symlink():
             raise ValueError("model entrance must not be a symlink")
         path = path.resolve()
+        if self.services is not None and (path.stem not in self.services or
+                path.parent != self.root / 'model' / self.target['environment'] / self.target['directory']):
+            raise Unresolved('IMPORT reference is outside selected environment/target/service')
         if path not in self.models:
             self.models[path] = Model(self, path)
         return self.models[path]
@@ -349,6 +350,9 @@ class Context:
         return self.comparisons[service]
 
     def fetch(self, resource, getter, definition=None):
+        if resource.model.path.parent != self.root / 'model' / self.target['environment'] / self.target['directory']:
+            raise Unresolved('producer target context is outside authorized AWS retrieval scope: ' +
+                             str(resource.model.path))
         key = ('fetch', resource.model.path, resource.number, getter)
         with self._cache_lock:
             hit = key in self._flights
@@ -436,11 +440,13 @@ class Resource:
         link = LINK.fullmatch(value)
         if not link:
             raise Unresolved("invalid model reference")
-        filename = link.group(2)
-        if filename and (Path(filename).name != filename or not filename.endswith(".md")):
-            raise Unresolved("reference must stay in the same target")
-        path = self.model.path.parent / (Path(filename).stem + ".properties") if filename else self.model.path
-        model = self.ctx.model(path)
+        address = link_scope(self.model.path.parent.parent.name, self.model.path.parent.name,
+                             self.model.service, link.group(2))
+        path = self.ctx.root / 'model' / (address + '.properties')
+        try:
+            model = self.ctx.model(path)
+        except FileNotFoundError as error:
+            raise Unresolved('producer Model is absent: ' + address) from error
         matches = [r for r in model.resources if r.spec.get("anchor") == link.group(3)]
         if len(matches) != 1:
             raise Unresolved("model reference is missing or ambiguous")

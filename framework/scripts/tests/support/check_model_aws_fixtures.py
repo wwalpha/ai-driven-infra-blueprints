@@ -209,7 +209,7 @@ class FakeResource:
         self.spec = {'resourceType': kind, 'logicalId': 'fixture', 'anchor': 'fixture'}
         self.rows = [('001-001', {'property': prop, 'value': '`fixture`', 'comment': 'fixture'})] if prop else []
         self.desired = desired
-        self.model = SimpleNamespace(path=Path('/offline/' + service + '.properties'), service=service, resources=[self], values={},
+        self.model = SimpleNamespace(path=ctx.root / 'model' / ctx.target['environment'] / ctx.target['directory'] / (service + '.properties'), service=service, resources=[self], values={},
                                      locations={'desired.row.001-001.value': {'file': '/offline/fixture.properties', 'line': 1}})
         self.egress = kind.endswith('Egress')
         ctx.egress = self.egress
