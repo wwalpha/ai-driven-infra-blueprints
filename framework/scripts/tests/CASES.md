@@ -1,5 +1,14 @@
 # UT / IT 全ケース台帳
 
+## Static fixture cases
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `fixture-cases::loading` | `check_loading_and_independence` | UT | [units/fixture_cases-unit.checks.py](units/fixture_cases-unit.checks.py) | pytest / 1 | base浅い上書き、複数ケース、独立性、cache保護と再読込一致 | Fixture |
+| `fixture-cases::schema` | `check_invalid_schema` | UT | [units/fixture_cases-unit.checks.py](units/fixture_cases-unit.checks.py) | pytest / 1 | 重複キー、schema/version/ID/値型/再帰データ拒否 | Fixture |
+| `fixture-cases::files` | `check_materialize_files` | UT | [units/fixture_cases-unit.checks.py](units/fixture_cases-unit.checks.py) | pytest / 1 | 複数ファイル、UTF-8/空白/改行保持、逸脱/symlink/衝突拒否 | Fixture |
+| `fixture-cases::authored` | `check_authored_suite` | UT | [units/fixture_cases-unit.checks.py](units/fixture_cases-unit.checks.py) | pytest / 1 | issues_scanの2ケース読込、service順序、malformed末尾改行 | Fixture |
+
 ## Generation-local resource row reuse
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |

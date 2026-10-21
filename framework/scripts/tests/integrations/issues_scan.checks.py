@@ -10,26 +10,14 @@ from support.it_case_receipt import it_case
 
 from support.issues_scan_fixtures import *
 from model.identity import allocate
+from support.fixture_cases import load_case, materialize_files
 
 @it_case
 def naming_target_scope_cases():
     with tempfile.TemporaryDirectory(prefix='naming-target-path-') as directory:
         root = Path(directory) / 'project'
         fixture(root)
-        specifications = {
-            'codebuild': ('CodeBuild.Project', [
-                ('Name', '`invalid_root_name`'),
-                ('Environment.EnvironmentVariables[].Name', '`AWS_REGION`'),
-                ('Environment.EnvironmentVariables[].Name', '`BUILD_BUCKET_NAME`'),
-                ('Environment.EnvironmentVariables[].Name', '`TARGET`'),
-                ('Artifacts.Name', '`artifact-name`'),
-            ]),
-            'codepipeline': ('CodePipeline.Pipeline', [
-                ('Name', '`invalid_root_name`'), ('Stages[].Name', '`Source`'),
-                ('Stages[].Actions[].Name', '`SourceAction`'), ('Variables[].Name', '`release`'),
-            ]),
-            'glue': ('Glue.Job', [('Name', '`invalid_root_name`'), ('Command.Name', '`script`')]),
-        }
+        specifications = load_case('issues_scan', 'naming-target-scope')['data']['specifications']
         for service, (kind, rows) in specifications.items():
             values = {f'desired.service.{service}.serviceId': service,
                 f'desired.resource.001.resourceType': kind}
@@ -195,9 +183,10 @@ def checks(root, values, template):
         with patch('issues_reports.os.replace', side_effect=OSError('fixture save failure')):
             expect_error(lambda: save(root, 'dev', '123456789012', ['s3'], additions=[{'service': 's3', 'message': '保存不可'}]))
         assert ordinary.read_bytes() == previous
-        write(ordinary, 'malformed report without inventory\n')
+        malformed = load_case('issues_scan', 'malformed-report')['files']
+        materialize_files(root, malformed)
         expect_error(lambda: save(root, 'dev', '123456789012', ['s3']), 'malformed')
-        assert ordinary.read_text() == 'malformed report without inventory\n'
+        assert ordinary.read_text() == malformed[ordinary.relative_to(root).as_posix()]
         write(ordinary, previous.decode())
         parameter = root / 'infra/cloudformation/parameters/dev/123456789012/stack-1.json'
         original = parameter.read_text()

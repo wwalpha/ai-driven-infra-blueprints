@@ -1,0 +1,26 @@
+version: 1
+cases:
+  naming-target-scope:
+    data:
+      specifications:
+        codebuild:
+          - CodeBuild.Project
+          - - ['Name', '`invalid_root_name`']
+            - ['Environment.EnvironmentVariables[].Name', '`AWS_REGION`']
+            - ['Environment.EnvironmentVariables[].Name', '`BUILD_BUCKET_NAME`']
+            - ['Environment.EnvironmentVariables[].Name', '`TARGET`']
+            - ['Artifacts.Name', '`artifact-name`']
+        codepipeline:
+          - CodePipeline.Pipeline
+          - - ['Name', '`invalid_root_name`']
+            - ['Stages[].Name', '`Source`']
+            - ['Stages[].Actions[].Name', '`SourceAction`']
+            - ['Variables[].Name', '`release`']
+        glue:
+          - Glue.Job
+          - - ['Name', '`invalid_root_name`']
+            - ['Command.Name', '`script`']
+  malformed-report:
+    files:
+      issues/dev/123456789012/issues.md: |
+        malformed report without inventory
