@@ -45,6 +45,15 @@ def build_generated_policy(root, definitions_root=None):
             'Effect': 'Allow', 'Principal': {'Service': 'lambda.amazonaws.com'}, 'Action': 'sts:AssumeRole'}]}),
     }
     write_model(model, values)
+    stacks = {
+        'desired.deployment.maxConcurrentStacks': '1',
+        'desired.stack.001.name': 'cfn-stack-app-dev-iam',
+        'desired.stack.001.placementName': 'cfn-stack-app-dev-iam',
+        'desired.stack.001.template': 'iam.yaml',
+        'desired.stack.001.parameters': 'iam.json',
+        'desired.stack.001.deployOrder': '10',
+    }
+    write_model(model.with_name('cloudformation-stacks.properties'), stacks)
     if MODULE.sync(root, True, 'dev', '123456789012', ['iam'], definitions_root=definitions_root) != 0:
         raise RuntimeError('generated_policy fixture initialization failed')
     return values
