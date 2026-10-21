@@ -216,6 +216,16 @@ def diagnose(snapshot, read_context=None, *, _producer_scope=None):
     """Only semantic producer failures become warnings; syntax, scope and I/O propagate."""
     reads = read_context or FileReads()
     warnings, dependencies, cache = [], dict(snapshot.dependencies), {snapshot.scope.path: snapshot}
+    # The producer cache retains snapshots, so their IDs stay unique for this diagnosis.
+    parsed = {}
+
+    def producer_entries(producer, prefix):
+        key = (id(producer), prefix)
+        if key not in parsed:
+            result = entries(producer.authoritative, prefix)
+            parsed[key] = dict(result) if prefix == 'desired.resource.' else result
+        return parsed[key]
+
     specs = declarations(snapshot.authoritative)
     for usage in usages(snapshot, reads, _cache=cache, _producer_scope=_producer_scope):
         spec = specs.get(usage.metadata_id, {})
@@ -244,7 +254,7 @@ def diagnose(snapshot, read_context=None, *, _producer_scope=None):
             elif literal(usage.text) != literal(expected):
                 warn('Stack name differs from saved text')
             continue
-        resources = dict(entries(values, 'desired.resource.'))
+        resources = producer_entries(producer, 'desired.resource.')
         matches = ([usage.producer_id] if usage.producer_id in resources else []) if usage.metadata_id else [
             identity for identity, resource in resources.items() if resource.get('anchor') == usage.anchor]
         if len(matches) != 1:
@@ -263,7 +273,7 @@ def diagnose(snapshot, read_context=None, *, _producer_scope=None):
             if spec['format'] == 'name' and not prop.endswith(REFERENCE_NAME_SUFFIXES):
                 warn('producer Property is not a raw name Property')
                 continue
-            rows = [(rid, row) for rid, row in entries(values, 'desired.row.')
+            rows = [(rid, row) for rid, row in producer_entries(producer, 'desired.row.')
                     if rid.rpartition('-')[0] == identity and row.get('property') == spec['property']]
             if len(rows) != 1:
                 warn('producer Property is absent or ambiguous')

@@ -2067,3 +2067,14 @@ producer を読まず、構文・I/O・scope の不正を WARNING へ握り潰�
 
 | `model-v2::type-display-constraints` | `check_type_display_constraints` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py) | pytest / 4 | Multiple resources, required names and grouped resources retain type-display restrictions | Model v2 |
 | `model-v2::resource-acquisition-scope` | `check_resource_acquisition_scope` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py) | pytest / 12 | Adapter, SDK and Cloud Control guard direct and cached access across environment and Alias | Model v2 |
+
+## Invocation-local reference diagnostic parsing
+
+| 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 |
+|---|---|---|---|---|
+| `check_diagnose_lazy_parsing_and_exact_results` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py) | pytest / 2 | name/identifier の解析回数、警告順序・内容・依存全体、戻り値の変更分離 |
+| `check_diagnose_producers_are_separate` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py) | pytest / 1 | 実 producer 解決で snapshot/prefix 分離 |
+| `check_diagnose_does_not_parse_unused_rows` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py) | pytest / 6 | 空入力・不存在・早期分岐で不正 row を先行解析しない |
+| `check_diagnose_errors_propagate` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py) | pytest / 1 | 不正宣言・使用 row・解析例外の伝播 |
+| `check_diagnose_fresh_inputs_in_outer_context` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py) | pytest / 1 | outer input_context 内の診断間変更・削除・追加と snapshot 保持 |
+| `check_diagnose_display_name_uses_real_projection` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py) | pytest / 1 | 実 display-name 投影の警告と依存全体 |

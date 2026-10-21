@@ -657,3 +657,195 @@ def check_usage_index_is_invocation_local(tmp_path):
         snapshot.authoritative = dict(values)
         with pytest.raises(ValueError, match='occurrence'):
             usages(snapshot)
+
+
+def reference_values(mode='identifier', count=32):
+    values = {'desired.resource.001.resourceType': 'Logs.LogGroup',
+              'desired.resource.001.resourceMode': 'IMPORT',
+              'desired.resource.001.anchor': 'logs-fixed',
+              'desired.row.001-001.property': 'Logs.LogGroup.LogGroupName',
+              'desired.row.001-001.value': '`fixture-001`',
+              'desired.row.001-001.comment': '合成値',
+              'observed.row.001-001.value': '`fixture-001`'}
+    for index in range(count):
+        text = 'fixture-001' if index % 2 else 'stale'
+        key = f'desired.note.{index:03d}.text'
+        values[key] = text
+        spec = {'consumerKey': key, 'text': text, 'occurrence': '1', 'producerKind': 'resource',
+                'producerScope': 'dev/target/service', 'producerId': '001',
+                'resourceType': 'Logs.LogGroup', 'format': mode,
+                'property': 'Logs.LogGroup.LogGroupName', 'labelPolicy': 'none'}
+        values.update({f'desired.reference.r{index:03d}.{field}': raw for field, raw in spec.items()})
+    return values
+
+
+def diagnostic_snapshot(root, values):
+    from model.sources import Scope, FileReads, _source_snapshot
+    file = root / 'model/dev/target/service.properties'
+    write_model(file, values)
+    return _source_snapshot(Scope(root, 'dev', 'target', 'service'), FileReads())
+
+
+@pytest.mark.parametrize('mode', ['name', 'identifier'])
+def check_diagnose_lazy_parsing_and_exact_results(tmp_path, monkeypatch, mode):
+    from collections import Counter
+    import model.references as references
+    snapshot = diagnostic_snapshot(tmp_path, reference_values(mode))
+    calls = Counter()
+    original = references.entries
+    def counted(values, prefix):
+        calls[prefix] += 1
+        return original(values, prefix)
+    monkeypatch.setattr(references, 'entries', counted)
+    warnings, dependencies = references.diagnose(snapshot)
+    expected = tuple({'code': 'reference.mismatch', 'message': 'producer name/identifier differs from saved text',
+                      'consumerKey': f'desired.note.{index:03d}.text', 'pointer': None,
+                      'reference': f'r{index:03d}', 'text': 'stale'} for index in range(0, 32, 2))
+    assert warnings == expected
+    assert dependencies == dict(snapshot.dependencies)
+    assert calls == {'desired.resource.': 1, 'desired.row.': 1, 'desired.reference.': 2}
+    import copy
+    expected = copy.deepcopy(expected)
+    warnings[0]['message'] = 'caller mutation'
+    dependencies.clear()
+    again, dependencies = references.diagnose(snapshot)
+    assert again == expected
+    assert dependencies == dict(snapshot.dependencies)
+
+
+def check_diagnose_producers_are_separate(tmp_path, monkeypatch):
+    from collections import Counter
+    from model.sources import FileReads
+    import model.references as references
+    values = reference_values(count=4)
+    other = dict(reference_values(count=0))
+    other['observed.row.001-001.value'] = '`stale`'
+    write_model(tmp_path / 'model/dev/target/other.properties', other)
+    for index in (0, 1):
+        values[f'desired.reference.r{index:03d}.producerScope'] = 'dev/target/other'
+    snapshot = diagnostic_snapshot(tmp_path, values)
+    calls = Counter()
+    original = references.entries
+    def counted(values, prefix):
+        if prefix in ('desired.resource.', 'desired.row.'):
+            calls[id(values), prefix] += 1
+        return original(values, prefix)
+    monkeypatch.setattr(references, 'entries', counted)
+    warnings, dependencies = references.diagnose(snapshot, FileReads())
+    assert [w['reference'] for w in warnings] == ['r001', 'r002']
+    assert len(calls) == 4 and set(calls.values()) == {1}
+    other_path = tmp_path / 'model/dev/target/other.properties'
+    assert dependencies == {**snapshot.dependencies, other_path: other_path.read_bytes()}
+
+
+@pytest.mark.parametrize('branch', ['empty', 'missing-resource', 'missing-producer', 'wrong-property', 'stack', 'context'])
+def check_diagnose_does_not_parse_unused_rows(tmp_path, monkeypatch, branch):
+    import model.references as references
+    values = reference_values(count=1)
+    if branch == 'empty':
+        values = {}
+    elif branch == 'missing-resource':
+        values['desired.reference.r000.producerId'] = '999'
+    elif branch == 'missing-producer':
+        values['desired.reference.r000.producerScope'] = 'dev/target/missing'
+    elif branch == 'wrong-property':
+        values['desired.reference.r000.property'] = 'Other.Name'
+    elif branch == 'stack':
+        values['desired.reference.r000.producerKind'] = 'stack'
+        values['desired.reference.r000.format'] = 'name'
+        values['desired.reference.r000.property'] = 'name'
+        del values['desired.reference.r000.resourceType']
+    elif branch == 'context':
+        for field in ('producerId', 'resourceType', 'property'):
+            del values['desired.reference.r000.' + field]
+        values.update({'desired.reference.r000.producerKind': 'context',
+                       'desired.reference.r000.producerScope': 'dev/target',
+                       'desired.reference.r000.format': 'literal',
+                       'desired.reference.r000.contextProperty': 'environment'})
+    snapshot = diagnostic_snapshot(tmp_path, values)
+    snapshot = snapshot._replace(authoritative={**snapshot.authoritative, 'desired.row.invalid': 'bad'})
+    original = references.entries
+    def counted(values, prefix):
+        assert prefix != 'desired.row.'
+        return original(values, prefix)
+    monkeypatch.setattr(references, 'entries', counted)
+    warnings, dependencies = references.diagnose(snapshot)
+    assert len(warnings) == (0 if branch == 'empty' else 1)
+    if branch == 'missing-producer':
+        assert dependencies[tmp_path / 'model/dev/target/missing.properties'] is None
+
+
+def check_diagnose_errors_propagate(tmp_path, monkeypatch):
+    import model.references as references
+    snapshot = diagnostic_snapshot(tmp_path, reference_values(count=1))
+    invalid = {**snapshot.authoritative, 'desired.reference.r000.occurrence': '0'}
+    with pytest.raises(ValueError, match='text/occurrence'):
+        references.diagnose(snapshot._replace(authoritative=invalid))
+    for prefix in ('desired.resource.', 'desired.row.'):
+        with pytest.raises(ValueError, match='invalid model entry'):
+            references.diagnose(snapshot._replace(authoritative={**snapshot.authoritative, prefix + 'invalid': 'bad'}))
+    original = references.entries
+    error = PermissionError('parse denied')
+    def denied(values, prefix):
+        if prefix == 'desired.resource.':
+            raise error
+        return original(values, prefix)
+    monkeypatch.setattr(references, 'entries', denied)
+    with pytest.raises(PermissionError) as caught:
+        references.diagnose(snapshot)
+    assert caught.value is error
+
+
+def check_diagnose_fresh_inputs_in_outer_context(tmp_path):
+    from model.references import diagnose
+    from validation_cache import input_context
+    values = reference_values(count=2)
+    with input_context():
+        first = diagnostic_snapshot(tmp_path, values)
+        assert len(diagnose(first)[0]) == 1
+        values['observed.row.001-001.value'] = '`stale`'
+        second = diagnostic_snapshot(tmp_path, values)
+        assert [w['reference'] for w in diagnose(second)[0]] == ['r001']
+        del values['observed.row.001-001.value']
+        assert len(diagnose(diagnostic_snapshot(tmp_path, values))[0]) == 2
+        values['observed.row.001-001.value'] = '`fixture-001`'
+        assert [w['reference'] for w in diagnose(diagnostic_snapshot(tmp_path, values))[0]] == ['r000']
+        assert diagnose(first)[0] == diagnose(diagnostic_snapshot(tmp_path, reference_values(count=2)))[0]
+        producer = tmp_path / 'model/dev/target/other.properties'
+        values = reference_values(count=2)
+        for index in range(2):
+            values[f'desired.reference.r{index:03d}.producerScope'] = 'dev/target/other'
+        write_model(producer, reference_values(count=0))
+        assert [w['reference'] for w in diagnose(diagnostic_snapshot(tmp_path, values))[0]] == ['r000']
+        producer.unlink()
+        warnings, dependencies = diagnose(diagnostic_snapshot(tmp_path, values))
+        assert [w['message'] for w in warnings] == ['producer Model is absent'] * 2
+        assert dependencies[producer] is None
+        write_model(producer, reference_values(count=0))
+        assert [w['reference'] for w in diagnose(diagnostic_snapshot(tmp_path, values))[0]] == ['r000']
+
+
+def check_diagnose_display_name_uses_real_projection(tmp_path):
+    from support.model_v2_fixtures import logs_fixture
+    from model.sources import FileReads, Scope, _source_snapshot
+    from model.references import diagnose
+    file = logs_fixture(tmp_path)
+    snapshot = _source_snapshot(Scope(tmp_path, 'qa-synthetic', 'team-a', 'cloudwatch-logs'), FileReads())
+    values = dict(snapshot.authoritative)
+    values['desired.row.001-001.value'] = '`fixture-001`'
+    del values['observed.row.001-001.value']
+    for index, label in enumerate(('fixture-001', 'wrong')):
+        key = f'desired.note.{index}.text'
+        text = f'[{label}](#logs-fixed)'
+        values[key] = text
+        spec = {'consumerKey': key, 'text': text, 'occurrence': '1', 'producerKind': 'resource',
+                'producerScope': 'qa-synthetic/team-a/cloudwatch-logs', 'producerId': '001',
+                'resourceType': 'Logs.LogGroup', 'format': 'link', 'labelPolicy': 'display-name'}
+        values.update({f'desired.reference.r{index}.{field}': raw for field, raw in spec.items()})
+    write_model(file, values)
+    snapshot = _source_snapshot(snapshot.scope, FileReads())
+    warnings, dependencies = diagnose(snapshot)
+    assert warnings == ({'code': 'reference.mismatch', 'message': 'display-name label differs',
+                         'consumerKey': 'desired.note.1.text', 'pointer': None,
+                         'reference': 'r1', 'text': '[wrong](#logs-fixed)'},)
+    assert dependencies == dict(snapshot.dependencies)
