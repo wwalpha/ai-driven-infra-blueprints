@@ -6,12 +6,15 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).res
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
+import hashlib
+import subprocess
 import json
 import tempfile
 import pytest
 from model.format import FORMAT, INDEX, parse, patch, serialize, split
 from model.sources import Scope, load_model, list_models
 from model.references import declarations, diagnose
+from support.model_v2_fixtures import FRAMEWORK, properties_fixture
 from support.model_v2_fixtures import format_fixture as fixture, source_context, acquisition_fixture
 
 def check_discovery_alias_and_account():
@@ -489,6 +492,446 @@ def check_properties_normal_generation_uses_new_authority(tmp_path, monkeypatch)
             finally:
                 inputs.close()
         assert {path: path.read_bytes() for path in before} == before
+
+
+
+@pytest.mark.parametrize('failure', ['none', 'task', 'source', 'unregistered', 'reuse', 'io', 'head', 'post-dependency', 'post-task', 'post-head', 'post-file-set', 'callback', 'process-death'])
+def check_managed_properties_save(monkeypatch, failure):
+    from model import prepare_edit, publish_edit
+    from model.adapters.task import source_write_context
+    from model.format import patch
+    from validation_cache import input_context
+    from support.worktree_task_fixtures import fixture, git, start
+    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
+    with fixture() as root, input_context():
+        scope = properties_fixture(root)
+        relative = scope.path.relative_to(root).as_posix()
+        git(root, 'add', 'model', 'project.json')
+        git(root, 'commit', '-qm', 'synthetic properties')
+        target, state = start(root, files=(relative,))
+        name = state['task_file']
+        contract = '''# Model deletion
+## Task contract
+- Task type: `design`
+- Task status: `running`
+- Workflow: `update`
+- Model operation: `import-delete`
+- AWS API execution: `forbidden`
+- deploy/apply: `forbidden`
+- Source resource: `qa-synthetic/team-a/network/007`
+## Validation scope
+- `qa-synthetic/team-a/network`
+## Required changes
+- [R1] Synthetic Model-only deletion
+## Acceptance checks
+- [R1] `exists:project.json`
+'''
+        listed = ''.join('- `' + item + '`\n' for item in (name, relative))
+        for heading in ('Modified files', 'Allowed paths'):
+            contract += '\n## ' + heading + '\n' + listed
+        (target / name).write_text(contract, encoding='utf-8')
+        path = target / relative
+        original = path.read_bytes()
+        with source_write_context(target, name) as context:
+            with pytest.raises(AttributeError):
+                context.operation = type('Policy', (), {'action': 'import'})()
+            with pytest.raises(AttributeError):
+                context.closed = False
+            from model.operations import EditPlan
+            with pytest.raises(TypeError, match='constructor grants no save authority'):
+                EditPlan(approved=True)
+            snapshot = load_model(path, context.snapshot)
+            proposed = patch(snapshot.documents[path], {'desired.row.007-001.comment': '中間保存'})
+            plan = prepare_edit(snapshot, {path: proposed}, context)
+            if failure == 'task':
+                (target / name).write_text(contract + '\n# changed\n', encoding='utf-8')
+            elif failure == 'source':
+                path.write_bytes(original + b'# concurrent edit\n')
+            elif failure == 'unregistered':
+                with pytest.raises(ValueError, match='unregistered'):
+                    prepare_edit(snapshot, {target / 'project.json': '{}'}, context)
+                return
+            elif failure == 'process-death':
+                program = "import sys, os\nfrom pathlib import Path\nsys.path.insert(0, sys.argv[1])\nfrom task_contract import selected_task\nfrom model.adapters.task import source_write_context\nfrom model.sources import load_model\nfrom model.operations import prepare_edit, publish_edit\nfrom model.format import patch\nimport sync_files\nroot, name, path = Path(sys.argv[2]), sys.argv[3], Path(sys.argv[4])\ndef crash(outputs):\n    path.write_bytes(b'partial child bytes')\n    os._exit(17)\nwith selected_task(root, name), source_write_context(root, name) as context:\n    snapshot = load_model(path, context.snapshot)\n    candidate = patch(snapshot.documents[path], {'desired.row.007-001.comment': 'child candidate'})\n    plan = prepare_edit(snapshot, {path: candidate}, context)\n    sync_files.save_files = crash\n    publish_edit(plan, context)\n"
+                crashed = subprocess.run([sys.executable, '-B', '-c', program, str(FRAMEWORK / 'framework/scripts'), str(target), name, str(path)],
+                                         capture_output=True, text=True, encoding='utf-8')
+                assert crashed.returncode == 17, crashed.stdout + crashed.stderr
+                assert path.read_bytes() == b'partial child bytes'
+                with pytest.raises(ValueError, match='journal|publication|recovery'):
+                    load_model(path)
+                assert path.read_bytes() == b'partial child bytes'
+                with source_write_context(target, name) as recovered:
+                    assert recovered.snapshot.read(path) == original
+                assert path.read_bytes() == original
+                return
+            elif failure == 'callback':
+                def fail_callback():
+                    assert path.read_text(encoding='utf-8') == proposed
+                    assert load_model(path).authoritative['desired.row.007-001.comment'] == '中間保存'
+                    raise ValueError('injected source completion callback failure')
+                context._finish = fail_callback
+            elif failure == 'io':
+                import sync_files
+                def fail(files):
+                    path.write_bytes(b'partial')
+                    raise OSError('injected publication failure')
+                monkeypatch.setattr(sync_files, 'save_files', fail)
+            elif failure == 'head':
+                git(target, 'commit', '--allow-empty', '-qm', 'changed HEAD')
+            elif failure.startswith('post-'):
+                import sync_files
+                save = sync_files.save_files
+                def concurrent(files):
+                    save(files)
+                    if failure == 'post-dependency':
+                        project = target / 'project.json'
+                        project.write_bytes(project.read_bytes() + b'\n')
+                    elif failure == 'post-task':
+                        (target / name).write_text(contract + '\n# changed\n', encoding='utf-8')
+                    elif failure == 'post-head':
+                        git(target, 'commit', '--allow-empty', '-qm', 'changed HEAD during save')
+                    else:
+                        extra = path.with_suffix('') / 'part-099.properties'
+                        extra.parent.mkdir(exist_ok=True)
+                        extra.write_text('# competing file\n', encoding='utf-8')
+                monkeypatch.setattr(sync_files, 'save_files', concurrent)
+            if failure in {'none', 'reuse'}:
+                assert publish_edit(plan, context) == (path,)
+                assert path.read_text(encoding='utf-8') == proposed
+                if failure == 'reuse':
+                    with pytest.raises(ValueError, match='consumed'):
+                        publish_edit(plan, context)
+            else:
+                with pytest.raises((OSError, ValueError), match='changed|injected'):
+                    publish_edit(plan, context)
+                assert path.read_bytes() == original + (b'# concurrent edit\n' if failure == 'source' else b'')
+                if failure == 'callback':
+                    assert load_model(path).authoritative['desired.row.007-001.comment'] == '合成 ID'
+            assert context.closed
+        assert (root / relative).read_bytes() == original
+
+
+
+def check_properties_context_requires_managed_running_task(tmp_path, monkeypatch):
+    from model.adapters.task import source_write_context
+    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
+    properties_fixture(tmp_path)
+    with pytest.raises(ValueError, match='selected task contract missing'):
+        with source_write_context(tmp_path, 'tasks/missing.md'):
+            raise AssertionError('missing Task granted Model publication')
+
+
+
+def check_properties_standalone_audit_has_no_framework_runtime(tmp_path, monkeypatch):
+    from support.model_v2_fixtures import logs_fixture
+    from model.audit import generate
+    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
+    model = logs_fixture(tmp_path)
+    original = model.read_bytes()
+    source, inputs, _ = generate(tmp_path, 'qa-synthetic', 'team-a', 'cloudwatch-logs')
+    assert model.relative_to(tmp_path).as_posix() in inputs
+    assert not any(path.endswith(('parameters.yaml', 'bindings.json', 'observed.json')) for path in inputs)
+    output = tmp_path / 'standalone.py'
+    output.write_text(source, encoding='utf-8')
+    program = '''import sys,subprocess
+from pathlib import Path
+def forbidden(*args,**kwargs): raise AssertionError('audit setup called a subprocess')
+subprocess.run=forbidden
+namespace={'__name__':'standalone_audit_test'}
+exec(compile(Path(sys.argv[1]).read_text(encoding='utf-8'),sys.argv[1],'exec'),namespace)
+engine=namespace['engine'](namespace['SNAPSHOT'])
+assert engine.service_module('cloudwatch-logs').one is engine.one
+assert not any(name=='model' or name.startswith('model.') for name in sys.modules)
+print('standalone audit engine: PASS')
+'''
+    checked = subprocess.run([sys.executable, '-I', '-B', '-c', program, str(output)], capture_output=True, text=True)
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    assert model.read_bytes() == original
+
+
+
+@pytest.mark.parametrize('change', ['delete', 'merge', 'identity', 'observation', 'native', 'unselected'])
+def check_properties_model_operation_preservation(tmp_path, monkeypatch, change):
+    import shutil
+    from support.model_v2_fixtures import role_operation_fixture
+    from model.format import owner, serialize
+    from model.operations import verify_model_operation
+    from task_contract import ModelOperation, MergePair
+    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
+    before, after = tmp_path / 'before', tmp_path / 'after'
+    scope, values = role_operation_fixture(before)
+    shutil.copytree(before, after)
+    identity = scope.environment, scope.target, scope.service
+    source = '/'.join((*identity, '007'))
+    destination = '/'.join((*identity, '008'))
+    operation = ModelOperation('import-delete' if change == 'delete' else 'import-merge', identity,
+        pairs=() if change == 'delete' else (MergePair(source, destination),),
+        delete_source=source if change == 'delete' else None, delete_sources=(source,) if change == 'delete' else ())
+    candidate = {key: value for key, value in values.items() if owner(key, values) != ('resource', '007')}
+    if change != 'delete':
+        candidate['observed.row.008-001.value'] = values['observed.row.007-001.value']
+        candidate['desired.row.008-002.document'] = values['desired.row.007-002.document'].replace('resource://qa-synthetic/team-a/iam/IAM_Role_007', 'resource://qa-synthetic/team-a/iam/IAM_Role_008')
+    if change == 'identity':
+        candidate['desired.resource.008.logicalId'] = 'changed'
+    elif change == 'observation':
+        candidate['observed.row.008-001.value'] = '`lost-source-identity`'
+    elif change == 'native':
+        candidate['desired.row.008-002.document'] = candidate['desired.row.008-002.document'].replace('[1, "1", false]', '[true, "1", false]')
+    elif change == 'unselected':
+        candidate['display.resource.009.comment'] = 'changed unrelated display'
+    path = after / scope.path.relative_to(before)
+    path.write_text(serialize(candidate), encoding='utf-8')
+    sources = {scope.path.relative_to(before).as_posix()}
+    if change in {'delete', 'merge'}:
+        verify_model_operation(before, after, operation, sources)
+    else:
+        with pytest.raises(ValueError, match='identity|observation|undeclared|unspecified'):
+            verify_model_operation(before, after, operation, sources)
+
+
+
+@pytest.mark.parametrize('change', ['retarget', 'prefix', 'context-scope', 'context-text', 'format', 'rename-id'])
+def check_properties_retarget_keeps_other_fragments_and_reference_ids(tmp_path, monkeypatch, change):
+    import shutil
+    from support.model_v2_fixtures import retarget_fixture
+    from model.format import serialize
+    from model.operations import verify_model_operation
+    from task_contract import ModelOperation, ReferenceChange
+    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
+    before, after = tmp_path / 'before', tmp_path / 'after'
+    scope, values = retarget_fixture(before)
+    shutil.copytree(before, after)
+    values['desired.row.001-001.value'] = 'qa-synthetic:123456789012:vpc-destination'
+    values['desired.reference.resource-use.producerLogicalId'] = 'EC2_VPC_008'
+    values['desired.reference.resource-use.text'] = 'vpc-destination'
+    if change == 'prefix':
+        values['desired.row.001-001.value'] = 'changed-prefix:123456789012:vpc-destination'
+    elif change == 'context-scope':
+        values['desired.reference.context-use.producerScope'] = 'qa-synthetic/team-b'
+    elif change == 'context-text':
+        values['desired.reference.context-use.text'] = '123'
+    elif change == 'format':
+        values['desired.reference.resource-use.format'] = 'name'
+    elif change == 'rename-id':
+        values = {key.replace('desired.reference.resource-use.', 'desired.reference.renumbered.'): value for key, value in values.items()}
+    path = after / scope.path.relative_to(before)
+    path.write_text(serialize(values), encoding='utf-8')
+    identity = scope.environment, scope.target, scope.service
+    reference = ReferenceChange('/'.join((*identity, '001')), 'value',
+        'qa-synthetic/team-a/network/007', 'qa-synthetic/team-a/network/008', 'EC2.SecurityGroup.VpcId')
+    operation = ModelOperation('import-retarget', identity, references=(reference,))
+    if change == 'retarget':
+        verify_model_operation(before, after, operation, {path.relative_to(after).as_posix()})
+    else:
+        with pytest.raises(ValueError, match='affixes|another reference|format|fixed reference|renumber'):
+            verify_model_operation(before, after, operation, {path.relative_to(after).as_posix()})
+
+
+
+@pytest.mark.parametrize('change', ['none', 'desired', 'reference', 'row', 'import', 'io', 'task', 'concurrent'])
+def check_managed_observation_preserves_exact_authority(monkeypatch, change):
+    from model.adapters.task import observed_write_context
+    from model.observed import prepare_observed
+    from model.operations import prepare_edit, publish_edit
+    from model.format import parse, patch, serialize
+    from support.worktree_task_fixtures import fixture, git, start
+    from task_contract import selected_task
+    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
+    with fixture() as root:
+        scope = properties_fixture(root)
+        values = dict(load_model(scope).authoritative)
+        values['desired.resource.007.resourceMode'] = 'CREATE'
+        values['desired.row.007-002.property'] = 'EC2.VPC.Name'
+        values['desired.row.007-002.value'] = 'synthetic'
+        values['desired.row.007-002.comment'] = '合成名前'
+        scope.path.write_text(serialize(values) + '# preserve original trailing comment  \n', encoding='utf-8')
+        relative = scope.path.relative_to(root).as_posix()
+        git(root, 'add', 'model', 'project.json')
+        git(root, 'commit', '-qm', 'synthetic CREATE observation')
+        target, state = start(root, files=(relative,))
+        name, path = state['task_file'], target / relative
+        listed = ''.join('- `' + item + '`\n' for item in (name, relative))
+        contract = '''# Observation fixture
+## Task contract
+- Task type: `design`
+- Task status: `running`
+- Workflow: `update`
+- AWS API execution: `forbidden`
+- deploy/apply: `forbidden`
+## Validation scope
+- `qa-synthetic/team-a/network`
+## Required changes
+- [R1] Synthetic selected observation
+## Acceptance checks
+- [R1] `exists:project.json`
+'''
+        for heading in ('Modified files', 'Allowed paths'):
+            contract += '\n## ' + heading + '\n' + listed
+        (target / name).write_text(contract, encoding='utf-8')
+        if change == 'import':
+            path.write_text(path.read_text(encoding='utf-8').replace('resourceMode=CREATE', 'resourceMode=IMPORT'), encoding='utf-8')
+        original = path.read_bytes()
+        key = 'observed.row.007-001.value'
+        with selected_task(target, name), observed_write_context(target, {path: {key: '`vpc-updated`'}}) as context:
+            snapshot = load_model(path, context.snapshot)
+            if change == 'import':
+                with pytest.raises(ValueError, match='IMPORT physical identity'):
+                    prepare_observed(snapshot, {key: '`vpc-updated`'}, context)
+                return
+            if change in {'desired', 'reference', 'row'}:
+                proposed = {key: '`vpc-updated`'}
+                if change == 'desired':
+                    proposed['display.resource.007.label'] = 'unapproved display'
+                elif change == 'reference':
+                    proposed.update({'desired.reference.r01.' + field: value for field, value in {
+                        'consumerKey': 'desired.row.007-002.value', 'text': 'synthetic', 'occurrence': '1',
+                        'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/network', 'format': 'name',
+                        'producerLogicalId': 'EC2_VPC_001', 'resourceType': 'EC2.VPC', 'property': 'EC2.VPC.Name', 'labelPolicy': 'none'}.items()})
+                else:
+                    proposed['observed.row.007-002.value'] = 'unselected row'
+                with pytest.raises(ValueError, match='non-observed|outside the authorized selection'):
+                    prepare_edit(snapshot, {path: patch(snapshot.documents[path], proposed)}, context)
+                assert path.read_bytes() == original
+                return
+            plan = prepare_observed(snapshot, {key: '`vpc-updated`'}, context)
+            if change == 'io':
+                import sync_files
+                def fail(files):
+                    path.write_bytes(b'partial')
+                    raise OSError('injected observed I/O failure')
+                monkeypatch.setattr(sync_files, 'save_files', fail)
+            elif change == 'task':
+                (target / name).write_text(contract + '\n# changed\n', encoding='utf-8')
+            elif change == 'concurrent':
+                path.write_bytes(original + b'# concurrent\n')
+            if change == 'none':
+                publish_edit(plan, context)
+                assert path.read_text(encoding='utf-8') == patch(parse(original.decode('utf-8')), {key: '`vpc-updated`'})
+                assert dict(load_model(path).authoritative) == {**snapshot.authoritative, key: '`vpc-updated`'}
+            else:
+                with pytest.raises((OSError, ValueError), match='changed|injected'):
+                    publish_edit(plan, context)
+                assert path.read_bytes() == original + (b'# concurrent\n' if change == 'concurrent' else b'')
+        assert (root / relative).read_bytes() == original
+
+
+
+@pytest.mark.parametrize('change', ['display', 'create', 'import-config', 'fixed-id', 'missing-task', 'cli'])
+def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, change):
+    from model.adapters.task import edit_write_context
+    from model.operations import prepare_edit, publish_edit
+    from model.format import patch, serialize
+    from model.cli import main
+    from support.worktree_task_fixtures import fixture, git, start
+    from task_contract import selected_task
+    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
+    with fixture() as root:
+        import shutil
+        from support.it_workspace import copy_framework
+        copy_framework(root / "framework/materials", relative="materials")
+        mapping = root / "framework/mappings/aws/owners.json"
+        mapping.parent.mkdir(parents=True)
+        shutil.copyfile(FRAMEWORK / "framework/mappings/aws/owners.json", mapping)
+        scope = properties_fixture(root)
+        if change == 'create':
+            values = dict(load_model(scope).authoritative)
+            values['desired.resource.007.resourceMode'] = 'CREATE'
+            scope.path.write_text(serialize(values), encoding='utf-8')
+        relative = scope.path.relative_to(root).as_posix()
+        git(root, 'add', 'model', 'project.json', 'framework')
+        git(root, 'commit', '-qm', 'synthetic editable Model')
+        target, state = start(root, files=(relative,))
+        name, path = state['task_file'], target / relative
+        listed = ''.join('- `' + item + '`\n' for item in (name, relative))
+        contract = '# Ordinary Model edit\n## Task contract\n- Task type: `design`\n- Task status: `running`\n- Workflow: `update`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n## Validation scope\n- `qa-synthetic/team-a/network`\n## Required changes\n- [R1] Explicit candidate edit\n## Acceptance checks\n- [R1] `exists:project.json`\n'
+        for heading in ('Modified files', 'Allowed paths'):
+            contract += '\n## ' + heading + '\n' + listed
+        (target / name).write_text(contract, encoding='utf-8')
+        original = path.read_bytes()
+        fields = {'display.resource.007.label': 'explicit display'}
+        if change in {'create', 'import-config'}:
+            fields = {'desired.row.007-001.value': '[another](other.md#other)'}
+        elif change == 'fixed-id':
+            fields = {'desired.resource.007.logicalId': 'EC2_VPC_002', 'desired.service.identity.lastAllocated': '{"EC2.VPC":2}'}
+        if change == 'missing-task':
+            (target / name).unlink()
+            with pytest.raises(ValueError, match='selected task contract missing'):
+                with edit_write_context(target, {('qa-synthetic', 'team-a', 'network')}, name):
+                    raise AssertionError('missing Task granted source write')
+            return
+        with selected_task(target, name):
+            if change == 'cli':
+                before = load_model(path)
+                candidate = tmp_path / 'candidate' / relative
+                candidate.parent.mkdir(parents=True)
+                candidate.write_text(patch(before.documents[path], fields), encoding='utf-8')
+                assert main(['edit', str(path), '--candidate', str(tmp_path / 'candidate'), '--task-file', name]) == 0
+            else:
+                with edit_write_context(target, {('qa-synthetic', 'team-a', 'network')}, name) as context:
+                    before = load_model(path, context.snapshot)
+                    candidate = patch(before.documents[path], fields)
+                    if change in {'import-config', 'fixed-id'}:
+                        with pytest.raises(ValueError, match='IMPORT configuration|fixed identity'):
+                            plan = prepare_edit(before, {path: candidate}, context)
+                            publish_edit(plan, context)
+                        assert path.read_bytes() == original
+                    else:
+                        publish_edit(prepare_edit(before, {path: candidate}, context), context)
+                        assert path.read_text(encoding='utf-8') == candidate
+        assert (root / relative).read_bytes() == original
+
+
+
+def check_distribution_manifest_covers_deletions_support_and_fixed_blobs(tmp_path):
+    from model.migration.distribution import distribution_manifest
+    from support.worktree_task_fixtures import git
+    root = tmp_path / 'framework-only'
+    root.mkdir()
+    git(root, 'init', '-q', '-b', 'main')
+    git(root, 'config', 'user.name', 'Fixture')
+    git(root, 'config', 'user.email', 'fixture@example.invalid')
+    git(root, 'config', 'commit.gpgsign', 'false')
+    files = {'AGENTS.md': 'old authority\n', 'README.md': 'same bytes\n',
+        'framework/scripts/model/cli.py': 'entry\n', 'framework/scripts/requirements.txt': 'requirements\n',
+        'framework/scripts/tests/run_it.py': 'runner\n', 'framework/scripts/tests/CASES.md': 'cases\n',
+        'framework/scripts/tests/support/fixture.py': 'support\n',
+        '.agents/skills/env-diff/SKILL.md': 'retired\n'}
+    for relative, content in files.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding='utf-8')
+    git(root, 'add', '.')
+    git(root, 'commit', '-qm', 'old distribution')
+    baseline = git(root, 'rev-parse', 'HEAD')
+    (root / 'AGENTS.md').write_text('properties authority\n', encoding='utf-8')
+    (root / '.agents/skills/env-diff/SKILL.md').unlink()
+    added = root / 'framework/scripts/tests/integrations/new.checks.py'
+    added.parent.mkdir(parents=True)
+    added.write_text('new same-revision tests\n', encoding='utf-8')
+    (root / 'framework/scripts/tests/run_it.py').chmod(0o755)
+    git(root, 'add', '.')
+    git(root, 'commit', '-qm', 'new distribution')
+    revision = git(root, 'rev-parse', 'HEAD')
+    (root / 'AGENTS.md').write_text('uncommitted text must not enter the manifest\n', encoding='utf-8')
+    output = tmp_path / 'manifest.json'
+    result = distribution_manifest(root, baseline, revision, output)
+    assert json.loads(output.read_text(encoding='utf-8')) == result
+    assert result['frameworkRevision'] == revision and result['copyPerformed'] is False
+    changes = {record['path']: record for record in result['changes']}
+    assert {path: record['action'] for path, record in changes.items()} == {
+        'AGENTS.md': 'overwrite', '.agents/skills/env-diff/SKILL.md': 'delete',
+        'framework/scripts/tests/integrations/new.checks.py': 'add', 'framework/scripts/tests/run_it.py': 'overwrite'}
+    assert changes['AGENTS.md']['after']['sha256'] == hashlib.sha256(b'properties authority\n').hexdigest()
+    assert changes['.agents/skills/env-diff/SKILL.md']['after'] is None
+    assert changes['framework/scripts/tests/run_it.py']['after']['gitMode'] == '100755'
+    inventory = {record['path']: record for record in result['files']}
+    assert {'README.md', 'framework/scripts/tests/support/fixture.py', 'framework/scripts/requirements.txt'} <= inventory.keys()
+    assert {record['revision'] for record in inventory.values()} == {revision}
+    with pytest.raises(ValueError, match='new external'):
+        distribution_manifest(root, baseline, revision, output)
+    with pytest.raises(ValueError, match='new external'):
+        distribution_manifest(root, baseline, revision, root / 'manifest.json')
+
 
 
 if __name__ == '__main__':

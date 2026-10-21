@@ -23,11 +23,13 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test
 
 `--affected` は従来の依存マッピングと分割UT対応を適用してからUTだけを抽出する。共有・不明・欠落依存は全UTへfallbackする。`--staged` は同じ選択を固定snapshot内で行う。全UT選択時のWindows認証、UTF-8、診断ログ、失敗伝播を維持する。
 
-IT全66スイートは [Framework IT](../../../.github/workflows/framework-it.yml) がPR、main/masterへのpush、手動実行で検証する。Python 3.12と既存requirementsを使用し、唯一の公式入口 `python -B framework/scripts/tests/run_it.py` が各 `integrations/**/*.checks.py` を独立プロセスで起動する。既存のpytest・直接実行・トップレベル実行方式を維持する。
+IT全77スイートは [Framework IT](../../../.github/workflows/framework-it.yml) がPR、main/masterへのpush、手動実行で検証する。Python 3.12と既存requirementsを使用し、唯一の公式入口 `python -B framework/scripts/tests/run_it.py` が各 `integrations/**/*.checks.py` を独立プロセスで起動する。既存のpytest・直接実行・トップレベル実行方式を維持する。
 
 runnerは共通fixture bundleを1回初期化し、`framework`・`input_templates`・`typed_services`・`generated_policy`・`import_sources` の5 seedを各1回生成する。共有seedは読み取り専用で、変更領域は各ケースに独立したコピーを渡し、実行後に内容と権限の整合性を確認する。実プロジェクトのModelやAWS認証情報は使用しない。
 
-`CASES.md` は337実行入口・471条件を登録する（pytest 203関数、direct 115関数、direct_group 13入口、module 6末尾）。対象2 ITスイートの実collectionはsync-model 68条件、model_templates 9条件。pytestは既存 `PytestReceipt` で収集・PASS・パラメータ数を照合する。直接実行115関数と12のmain入口は最外側の `@it_case` が正常return後だけaudit完了イベントを発行し、module型は末尾の `module_complete(__file__)` で完了を通知する。同一ケースの複数回呼出しは独立ケース数に加算しない。未登録スイート、記録対象でない入口、未完了ケース、欠落・不正receipt、非0終了コードは失敗とする。
+`CASES.md` は373実行入口・593条件を登録する（pytest 237関数、direct 117関数、direct_group 13入口、module 6末尾）。対象2 ITスイートの実collectionはsync-model 68条件、model_templates 9条件。pytestは既存 `PytestReceipt` で収集・PASS・パラメータ数を照合する。直接実行117関数と13のmain入口は最外側の `@it_case` が正常return後だけaudit完了イベントを発行し、module型は末尾の `module_complete(__file__)` で完了を通知する。同一ケースの複数回呼出しは独立ケース数に加算しない。未登録スイート、記録対象でない入口、未完了ケース、欠落・不正receipt、非0終了コードは失敗とする。
+
+Model v2 移行専用の10関数・23条件と固定旧Framework checkout・専用Python環境は撤去済み。現行機能の15関数・82条件は既存3 ITへ統合し、ケースID・assertion・parameter matrix・pytest receiptを保持する。
 
 全関数・全行の監視は使用しない。ファイルコピー・子プロセス・fixture生成のauditイベントと、スイート別の時間・終了コード・receiptを維持する。FAIL後も残りのスイートを実行し、結果をActionsログとSummaryに記録する。追加のFull IT実行入口は設けず、`blueprint-loop.py` の回帰はUTのみとする。
 

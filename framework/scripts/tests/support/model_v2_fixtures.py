@@ -421,3 +421,41 @@ def import_publication_case(monkeypatch, failure):
         if incoming_source is not None:
             assert (target / incoming_source.relative_to(root)).read_bytes() == incoming_before
 
+
+
+def properties_fixture(root):
+    from model.sources import Scope
+    scope = Scope(root, 'qa-synthetic', 'team-a', 'network')
+    (root / 'project.json').write_text(json.dumps({'targets': [
+        {'environment': scope.environment, 'alias': scope.target, 'awsAccountId': '123456789012',
+         'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}), encoding='utf-8')
+    scope.path.parent.mkdir(parents=True)
+    scope.path.write_text(serialize({'desired.resource.007.resourceType': 'EC2.VPC',
+        'desired.resource.007.logicalId': 'EC2_VPC_001',
+        'desired.resource.007.cfn-logicalId': 'OriginalVpc',
+        'desired.service.identity.lastAllocated': '{"EC2.VPC":1}',
+        'desired.resource.007.resourceMode': 'IMPORT', 'desired.row.007-001.property': 'EC2.VPC.VpcId',
+        'desired.row.007-001.value': 'resource://qa-synthetic/team-a/network/EC2_VPC_001', 'desired.row.007-001.comment': '合成 ID',
+        'observed.row.007-001.value': 'vpc-original'}), encoding='utf-8')
+    return scope
+
+
+
+def deploy_properties_fixture(root):
+    from model.format import serialize
+    scope = properties_fixture(root)
+    stacks = scope.path.with_name('cloudformation-stacks.properties')
+    stacks.write_text(serialize({'desired.stack.009.name': 'CurrentName',
+        'desired.stack.009.placementName': 'FixedPlacement', 'desired.stack.009.template': 'stack.yaml',
+        'desired.stack.009.parameters': 'stack.json', 'desired.stack.009.deployOrder': '1'}), encoding='utf-8')
+    tasks = root / 'tasks'
+    tasks.mkdir()
+    (tasks / 'active.md').write_text('''# Deploy fixture
+## Task contract
+- Task type: `infrastructure`
+- Task status: `running`
+## Validation scope
+- `qa-synthetic/team-a/network`
+''', encoding='utf-8')
+    return scope, stacks
+

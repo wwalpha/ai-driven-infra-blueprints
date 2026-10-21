@@ -41,12 +41,6 @@ jobs:
           cache-dependency-path: framework/scripts/requirements.txt
       - name: Install dependencies
         run: python -m pip install -r framework/scripts/requirements.txt
-      - name: Prepare fixed legacy migration runtime
-        run: |
-          git clone --shared --no-checkout . "$RUNNER_TEMP/model-v1-framework"
-          git -C "$RUNNER_TEMP/model-v1-framework" checkout --detach d0c5824fed507db234a7532a309b3c8c3482fb60
-          python -m venv "$RUNNER_TEMP/model-v1-python"
-          "$RUNNER_TEMP/model-v1-python/bin/python" -m pip install -r "$RUNNER_TEMP/model-v1-framework/framework/scripts/requirements.txt"
       - name: Checkout measurement baseline
         if: github.event_name == 'workflow_dispatch' && inputs.baseline_ref != ''
         uses: actions/checkout@v5
@@ -57,6 +51,4 @@ jobs:
       - name: Run all integration suites
         env:
           IT_BASELINE: ${{ github.event_name == 'workflow_dispatch' && inputs.baseline_ref != '' && '.it-baseline' || '' }}
-          BLUEPRINT_LEGACY_FRAMEWORK: ${{ runner.temp }}/model-v1-framework
-          BLUEPRINT_LEGACY_PYTHON: ${{ runner.temp }}/model-v1-python/bin/python
         run: python -B framework/scripts/tests/run_it.py --baseline-root "$IT_BASELINE"

@@ -1131,6 +1131,40 @@ def check_approval_bound_save_guard(tmp_path, tamper):
 
 
 
+
+@pytest.mark.parametrize('failure', ['none', 'source', 'task', 'head', 'review', 'candidate', 'source-set', 'model-io', 'receipt', 'display-io', 'subprocess', 'source-crash', 'receipt-crash', 'display-crash', 'bind', 'replace'])
+def check_properties_import_acquire_review_publish(monkeypatch, failure):
+    from support.model_v2_fixtures import import_publication_case
+    import_publication_case(monkeypatch, failure)
+
+
+
+@pytest.mark.parametrize('failure', [None, 'review', 'draft', 'candidate', 'acquisition', 'baseline',
+                                    'approval-expired', 'source-save', 'display-save', 'task-baseline'])
+def check_publication_transaction_without_host(monkeypatch, failure):
+    from support.model_v2_fixtures import import_publication_case
+    action = {None: 'none', 'review': 'post-review', 'draft': 'post-draft', 'candidate': 'post-candidate',
+              'acquisition': 'post-acquisition', 'baseline': 'post-baseline', 'approval-expired': 'post-expiry',
+              'source-save': 'receipt', 'display-save': 'display-io', 'task-baseline': 'post-task'}[failure]
+    import_publication_case(monkeypatch, action)
+
+
+
+def check_saved_display_recovery_needs_no_new_approval(monkeypatch):
+    from support.model_v2_fixtures import import_publication_case
+    import_publication_case(monkeypatch, 'display-io')
+
+
+
+@pytest.mark.parametrize('change', ['property', 'destination', 'resource', 'selector'])
+def check_candidate_review_mismatch_rejected_without_host(monkeypatch, change):
+    from support.model_v2_fixtures import import_publication_case
+    action = {'property': 'candidate', 'destination': 'selection-target', 'resource': 'candidate-resource',
+              'selector': 'candidate-reference'}[change]
+    import_publication_case(monkeypatch, action)
+
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

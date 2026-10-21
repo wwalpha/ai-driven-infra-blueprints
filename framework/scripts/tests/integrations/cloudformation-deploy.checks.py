@@ -9,6 +9,7 @@ if not __debug__:
 
 from support.cloudformation_deploy_fixtures import *
 
+from support.model_v2_fixtures import deploy_properties_fixture
 from support.it_workspace import copy_framework
 
 def check_aws_adapter():
@@ -2662,6 +2663,86 @@ def check_secret_runtime_bootstrap(tmp_path):
 
 def main():
     return run(__file__, message='CloudFormation controller checks: PASS (scheduler, exact approvals, S3 mappings/uploads, byte limits, checksum/source drift and scoped generation)')
+
+
+
+@pytest.mark.parametrize('field', ['display', 'reference', 'placement'])
+def check_deploy_digest_covers_all_nonobserved_authority(tmp_path, monkeypatch, field):
+    from deployment.session import design_digest, model_input_manifest
+    from model.format import parse, patch
+    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
+    scope, stacks = deploy_properties_fixture(tmp_path)
+    before = design_digest(tmp_path, scope.environment, scope.target)
+    manifest = model_input_manifest(tmp_path, scope.environment, scope.target)
+    original = scope.path.read_text(encoding='utf-8')
+    scope.path.write_text(patch(parse(original), {'observed.row.007-001.value': 'vpc-observed'}), encoding='utf-8')
+    assert design_digest(tmp_path, scope.environment, scope.target) == before
+    assert model_input_manifest(tmp_path, scope.environment, scope.target) != manifest
+    path, changes = scope.path, {'display.resource.007.label': 'Changed display'}
+    if field == 'placement':
+        path, changes = stacks, {'desired.stack.009.placementName': 'ChangedPlacement'}
+    elif field == 'reference':
+        spec = {'consumerKey': 'desired.row.007-001.value', 'text': 'resource://qa-synthetic/team-a/network/EC2_VPC_001', 'occurrence': '1',
+                'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/network', 'producerLogicalId': 'EC2_VPC_001',
+                'resourceType': 'EC2.VPC', 'format': 'link', 'labelPolicy': 'fixed'}
+        changes = {f'desired.reference.stable.{key}': value for key, value in spec.items()}
+    path.write_text(patch(parse(path.read_text(encoding='utf-8')), changes), encoding='utf-8')
+    assert design_digest(tmp_path, scope.environment, scope.target) != before
+
+
+
+@pytest.mark.parametrize('change', ['observed', 'desired', 'display', 'raw', 'concurrent'])
+def check_deploy_observed_baseline_advances_only_proven_outputs(tmp_path, monkeypatch, change):
+    from deployment.session import design_digest, verify_observed_transition, model_input_manifest
+    from model.sources import authority_snapshot
+    from model.format import parse, patch
+    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
+    scope, _ = deploy_properties_fixture(tmp_path)
+    before = authority_snapshot(tmp_path, scope.environment, scope.target)
+    intended = design_digest(tmp_path, scope.environment, scope.target)
+    prior_manifest = model_input_manifest(tmp_path, scope.environment, scope.target)
+    original = scope.path.read_text(encoding='utf-8')
+    changes = {'observed.row.007-001.value': 'vpc-new'}
+    if change == 'desired':
+        changes['desired.row.007-001.comment'] = 'unrelated edit'
+    elif change == 'display':
+        changes['display.resource.007.label'] = 'unrelated edit'
+    output = patch(parse(original), changes)
+    if change == 'raw':
+        output += '# unrelated reformat\n'
+    scope.path.write_text(output + ('# concurrent edit\n' if change == 'concurrent' else ''), encoding='utf-8')
+    if change == 'observed':
+        advanced = verify_observed_transition(tmp_path, scope.environment, scope.target, before, {scope.path: output}, intended)
+        assert advanced != prior_manifest
+        assert design_digest(tmp_path, scope.environment, scope.target) == intended
+    else:
+        with pytest.raises((RuntimeError, ValueError), match='non-observed|unrelated|outside authorized'):
+            verify_observed_transition(tmp_path, scope.environment, scope.target, before, {scope.path: output}, intended)
+
+
+
+def check_deploy_preparation_separates_producer_reads_from_writes(tmp_path, monkeypatch):
+    from deploy_preparation import candidate
+    from model.format import parse, patch, serialize
+    from task_contract import paths_in
+    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
+    scope, stacks = deploy_properties_fixture(tmp_path)
+    producer = scope.path.with_name('security.properties')
+    producer.write_text(serialize({'desired.resource.009.resourceType': 'EC2.VPC',
+        'desired.resource.009.logicalId': 'EC2_VPC_001', 'desired.service.identity.lastAllocated': '{"EC2.VPC":1}', 'desired.resource.009.resourceMode': 'IMPORT'}), encoding='utf-8')
+    scope.path.write_text(patch(parse(scope.path.read_text(encoding='utf-8')), {
+        'desired.row.007-002.property': 'EC2.VPC.Name',
+        'desired.row.007-002.value': 'resource://qa-synthetic/team-a/security/EC2_VPC_001',
+        'desired.row.007-002.comment': '合成参照'}), encoding='utf-8')
+    text, sources, _, _ = candidate(tmp_path, 'tasks/deploy.md', scope.environment, scope.target,
+        {'awsAccountId': '123456789012', 'alias': scope.target}, ['CurrentName'], ['network', 'cloudformation-stacks'])
+    allowed = paths_in(text, '## Allowed paths')
+    assert producer in sources
+    assert producer.relative_to(tmp_path).as_posix() not in allowed
+    assert 'project.json' not in allowed and tmp_path / 'project.json' in sources
+    assert scope.path.relative_to(tmp_path).as_posix() in allowed
+    assert stacks.relative_to(tmp_path).as_posix() in allowed
+
 
 
 if __name__ == "__main__":

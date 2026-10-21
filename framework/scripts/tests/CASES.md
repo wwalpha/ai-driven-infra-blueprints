@@ -49,9 +49,9 @@ remain separate. Dry-run/incomplete/display-failed sessions are retained.
 | `import-approval::unselected-selector` | `check_unselected_reference_selector_is_rejected` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 未選択Resourceのselector変更を拒否 | Import Review |
 | `import-approval::loader-provenance` | `check_real_loader_retains_unresolved_reference_declaration` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 実loaderが未解決参照のService/type/Property/selectorを保持、Review構造検証は非ブロック | Import Review |
 
-| `import-approval::publication-transaction` | `check_publication_transaction_without_host` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 10 | Hostなしの正常保存、lock前Review/draft/candidate/acquisition/baseline変更・期限切れ拒否、実rollbackと表示保存失敗時のModel/証跡保持 | Publication |
-| `import-approval::display-recovery` | `check_saved_display_recovery_needs_no_new_approval` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 1 | sync-modelの既存回復workerで保存済みModelを保持して表示のみ保存、取得/承認呼出なし | Recovery |
-| `import-approval::unapproved-candidate` | `check_candidate_review_mismatch_rejected_without_host` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 4 | HostなしでもProperty・反映先・追加Resource・selector不一致を保存前拒否 | Publication |
+| `import-approval::publication-transaction` | `check_publication_transaction_without_host` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py) | pytest / 10 | Hostなしの正常保存、lock前Review/draft/candidate/acquisition/baseline変更・期限切れ拒否、実rollbackと表示保存失敗時のModel/証跡保持 | Publication |
+| `import-approval::display-recovery` | `check_saved_display_recovery_needs_no_new_approval` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py) | pytest / 1 | sync-modelの既存回復workerで保存済みModelを保持して表示のみ保存、取得/承認呼出なし | Recovery |
+| `import-approval::unapproved-candidate` | `check_candidate_review_mismatch_rejected_without_host` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py) | pytest / 4 | HostなしでもProperty・反映先・追加Resource・selector不一致を保存前拒否 | Publication |
 
 | `import-chat::check_explicit_bind_preserves_identity` | `check_explicit_bind_preserves_identity` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 12 | bind正常、既知ID・stale・CREATE・型・重複・無効ID・Anchor/Row/未取得変更拒否 | Chat approval |
 | `import-chat::check_subnet_answers_correction_and_resume` | `check_subnet_answers_correction_and_resume` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 複数SUBNET回答保持・訂正・session再開・baseline変更拒否。LLM判断品質の評価ではない | Chat approval |
@@ -1897,7 +1897,7 @@ dirty baseは高コスト解析・commit前に拒否するため、既存テス�
 
 ## Model properties v2
 
-観測保存の単体ケースは既存 capability 型の模擬 context を使用し、Task/worktree からの権限付与を実証しない。移行 IT は固定 revision `d0c5824fed507db234a7532a309b3c8c3482fb60` の Framework と合成旧正本だけを使用する。既存の Import 会話品質・新形式 Import/Deploy の実経路の実証とは区別する。
+観測保存の単体ケースは既存 capability 型の模擬 context を使用し、Task/worktree からの権限付与を実証しない。現行 IT は合成 properties と実管理 Task による保存・Import・Deploy の経路を検査する。Import の会話品質の実証とは区別する。
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
@@ -1918,14 +1918,6 @@ dirty baseは高コスト解析・commit前に拒否するため、既存テス�
 | `model-v2::check_declared_and_direct_links_coalesce_or_retain_conflicts` | `check_declared_and_direct_links_coalesce_or_retain_conflicts` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 1 | 直接リンク統合・意味競合の保持・incoming・読取非破壊 | Model v2 |
 | `model-v2::check_reference_occurrence_identifies_overlapping_text` | `check_reference_occurrence_identifies_overlapping_text` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 1 | 重なりを含む参照断片の厳密な出現位置 | Model v2 |
 | `model-v2::check_normal_reader_rejects_legacy_authorities` | `check_normal_reader_rejects_legacy_authorities` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 2 | 旧正本の検出・fallback 禁止 | Model v2 |
-| `model-v2::check_export_convert_and_strict_compare` | `check_export_convert_and_strict_compare` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 1 | 固定旧 Framework の隔離 export・変換・厳密比較・旧正本保持 | Model v2 |
-| `model-v2::check_migration_rejects_meaning_loss` | `check_migration_rejects_meaning_loss` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 5 | 欠落・参照意味・固定 identity・観測・型変更の検出 | Model v2 |
-| `model-v2::check_export_retains_name_identifier_and_local_link` | `check_export_retains_name_identifier_and_local_link` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 1 | name/identifier/link/context・JSON 使用位置・同一 leaf 内複数参照 | Model v2 |
-| `model-v2::check_export_parent_runtime_isolated` | `check_export_parent_runtime_isolated` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 1 | fresh 新 runtime が旧 module を import しない | Model v2 |
-| `model-v2::check_pending_journal_stops_export_without_recovery` | `check_pending_journal_stops_export_without_recovery` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 1 | export 外側 read-only lock・未完 journal で開始前停止・自動復旧なし | Model v2 |
-| `model-v2::check_legacy_export_rejects_changed_inputs` | `check_legacy_export_rejects_changed_inputs` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 2 | 旧入力 bytes/集合の終端照合・外部変更保持 | Model v2 |
-| `model-v2::check_export_file_failure_leaves_no_partial_result` | `check_export_file_failure_leaves_no_partial_result` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 1 | export 出力失敗の原子性・旧正本の保持 | Model v2 |
-| `model-v2::check_fixed_stack_placement_is_distinct_from_name` | `check_fixed_stack_placement_is_distinct_from_name` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 1 | 固定 Stack 配置と設計 name の厳密保持 | Model v2 |
 | `model-v2::check_deploy_rejects_legacy_session_format` | `check_deploy_rejects_legacy_session_format` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py) | pytest / 4 | 旧 Deploy session の形式・snapshot・意味版の拒否 | Model v2 |
 | `model-v2::check_observed_insertion_is_local_without_reflow` | `check_observed_insertion_is_local_without_reflow` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py) | pytest / 1 | 観測キー追加削除と CRLF・無関係な原文の不変 | Model v2 |
 | `model-v2::check_import_observation_foreign_reference_and_identity_spoof` | `check_import_observation_foreign_reference_and_identity_spoof` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py) | pytest / 1 | IMPORT の外部参照観測更新・自身 ID 保護・偽装リンク拒否 | Model v2 |
@@ -1936,19 +1928,18 @@ dirty baseは高コスト解析・commit前に拒否するため、既存テス�
 | `model-v2::check_stack_render_cli_uses_only_canonical_modules` | `check_stack_render_cli_uses_only_canonical_modules` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 1 | Stack render 別プロセス・model.* の型一貫性 | Model v2 |
 | `model-v2::check_incoming_missing_producer_does_not_match_unrelated_metadata` | `check_incoming_missing_producer_does_not_match_unrelated_metadata` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 1 | 不在 producer の incoming が無関係な宣言を含めない | Model v2 |
 | `model-v2::check_properties_normal_generation_uses_new_authority` | `check_properties_normal_generation_uses_new_authority` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 1 | 新正本からの通常生成・原文保持・stage 入力完全性 | Model v2 |
-| `model-v2::check_managed_properties_save` | `check_managed_properties_save` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 13 | 実 Task・HEAD・原文・集合競合・一回保存・rollback・中断 journal | Model v2 |
-| `model-v2::check_properties_context_requires_managed_running_task` | `check_properties_context_requires_managed_running_task` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 1 | 管理 worktree と running Task の保存権限 | Model v2 |
-| `model-v2::check_deploy_digest_covers_all_nonobserved_authority` | `check_deploy_digest_covers_all_nonobserved_authority` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 3 | display/reference/placement を含む非観測設計 digest | Model v2 |
-| `model-v2::check_deploy_observed_baseline_advances_only_proven_outputs` | `check_deploy_observed_baseline_advances_only_proven_outputs` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 5 | 観測差分だけの baseline 更新と同時設計変更拒否 | Model v2 |
-| `model-v2::check_deploy_preparation_separates_producer_reads_from_writes` | `check_deploy_preparation_separates_producer_reads_from_writes` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 1 | producer 読取依存と許可書込先の分離 | Model v2 |
-| `model-v2::check_properties_import_acquire_review_publish` | `check_properties_import_acquire_review_publish` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 16 | 一回取得・Review・別プロセス保存・source/receipt/view rollback・強制終了回復 | Model v2 |
-| `model-v2::check_properties_standalone_audit_has_no_framework_runtime` | `check_properties_standalone_audit_has_no_framework_runtime` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 1 | 独立 audit の生成・Framework import 不要・未取得 ERROR | Model v2 |
-| `model-v2::check_properties_model_operation_preservation` | `check_properties_model_operation_preservation` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 6 | merge/delete の固定 identity・観測・native type・非選択保持 | Model v2 |
-| `model-v2::check_properties_retarget_keeps_other_fragments_and_reference_ids` | `check_properties_retarget_keeps_other_fragments_and_reference_ids` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 6 | retarget の literal 断片・context・format・固定 refid 保持 | Model v2 |
-| `model-v2::check_managed_observation_preserves_exact_authority` | `check_managed_observation_preserves_exact_authority` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 8 | 実 Task の Row whitelist・非観測不変・IMPORT 物理 ID 保護 | Model v2 |
-| `model-v2::check_limited_format_migration_contract` | `check_limited_format_migration_contract` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 9 | 固定 baseline/export/列挙 path/意味同値・project/IaC/issues 保持 | Model v2 |
-| `model-v2::check_ordinary_properties_edit_uses_real_task_guard` | `check_ordinary_properties_edit_uses_real_task_guard` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 6 | 通常 design 編集と作成・固定 ID・IMPORT 構成・Task 保護 | Model v2 |
-| `model-v2::check_distribution_manifest_covers_deletions_support_and_fixed_blobs` | `check_distribution_manifest_covers_deletions_support_and_fixed_blobs` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 1 | 個別削除・同 revision の全 support/dependency・hash/mode・dirty 除外 | Model v2 |
+| `model-v2::check_managed_properties_save` | `check_managed_properties_save` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 13 | 実 Task・HEAD・原文・集合競合・一回保存・rollback・中断 journal | Model v2 |
+| `model-v2::check_properties_context_requires_managed_running_task` | `check_properties_context_requires_managed_running_task` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 1 | 管理 worktree と running Task の保存権限 | Model v2 |
+| `model-v2::check_deploy_digest_covers_all_nonobserved_authority` | `check_deploy_digest_covers_all_nonobserved_authority` | IT | [integrations/cloudformation-deploy.checks.py](integrations/cloudformation-deploy.checks.py) | pytest / 3 | display/reference/placement を含む非観測設計 digest | Model v2 |
+| `model-v2::check_deploy_observed_baseline_advances_only_proven_outputs` | `check_deploy_observed_baseline_advances_only_proven_outputs` | IT | [integrations/cloudformation-deploy.checks.py](integrations/cloudformation-deploy.checks.py) | pytest / 5 | 観測差分だけの baseline 更新と同時設計変更拒否 | Model v2 |
+| `model-v2::check_deploy_preparation_separates_producer_reads_from_writes` | `check_deploy_preparation_separates_producer_reads_from_writes` | IT | [integrations/cloudformation-deploy.checks.py](integrations/cloudformation-deploy.checks.py) | pytest / 1 | producer 読取依存と許可書込先の分離 | Model v2 |
+| `model-v2::check_properties_import_acquire_review_publish` | `check_properties_import_acquire_review_publish` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py) | pytest / 16 | 一回取得・Review・別プロセス保存・source/receipt/view rollback・強制終了回復 | Model v2 |
+| `model-v2::check_properties_standalone_audit_has_no_framework_runtime` | `check_properties_standalone_audit_has_no_framework_runtime` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 1 | 独立 audit の生成・Framework import 不要・未取得 ERROR | Model v2 |
+| `model-v2::check_properties_model_operation_preservation` | `check_properties_model_operation_preservation` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 6 | merge/delete の固定 identity・観測・native type・非選択保持 | Model v2 |
+| `model-v2::check_properties_retarget_keeps_other_fragments_and_reference_ids` | `check_properties_retarget_keeps_other_fragments_and_reference_ids` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 6 | retarget の literal 断片・context・format・固定 refid 保持 | Model v2 |
+| `model-v2::check_managed_observation_preserves_exact_authority` | `check_managed_observation_preserves_exact_authority` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 8 | 実 Task の Row whitelist・非観測不変・IMPORT 物理 ID 保護 | Model v2 |
+| `model-v2::check_ordinary_properties_edit_uses_real_task_guard` | `check_ordinary_properties_edit_uses_real_task_guard` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 6 | 通常 design 編集と作成・固定 ID・IMPORT 構成・Task 保護 | Model v2 |
+| `model-v2::check_distribution_manifest_covers_deletions_support_and_fixed_blobs` | `check_distribution_manifest_covers_deletions_support_and_fixed_blobs` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py) | pytest / 1 | 個別削除・同 revision の全 support/dependency・hash/mode・dirty 除外 | Model v2 |
 
 Model v2 の移行では、旧 `parameter_value` の literal 自動 backtick 化だけを廃止し、
 `check_one_way_model_contract` は参照／型／IMPORT 表示の検査を保持したまま、通常 scalar の
@@ -1958,7 +1949,7 @@ Model v2 の移行では、旧 `parameter_value` の literal 自動 backtick 化
 
 旧 check_other_definition_input_dependencies（8 variants）は Model の Definition／optional／choice／default／template owner が廃止されたため終了した。非選択 Resource／環境の値・identity・reference の保持は check_overwrite_does_not_grant_unrelated_edits と新 canonical snapshot/Task/Review 回帰に引き継ぐ。旧 YAML 部分編集ケースは properties の原文保持・native 値・no-op へ移管し、ケースと parameter matrix を保持する。
 
-旧 Import approval の保存 transaction 15 ケースは同じケース ID・parameter 数を維持して model-v2-migration IT へ移管した。削除済み publish_selected の Mock ではなく、実管理 worktree・取得 evidence・全件 Review・共通 publisher/receipt の競合・rollback と表示専用回復を検査する。AWS transport だけを合成に固定する。
+旧 Import approval の保存 transaction 15 ケースは同じケース ID・parameter 数を維持して import-model IT へ移管した。削除済み publish_selected の Mock ではなく、実管理 worktree・取得 evidence・全件 Review・共通 publisher/receipt の競合・rollback と表示専用回復を検査する。AWS transport だけを合成に固定する。
 
 | `model-v2::review-complete-canonical-changes` | `check_review_reports_every_canonical_change` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 全正本キー・Row comment・display・service の Before/After と存在性を全件 Review に表示 | Model v2 |
 
@@ -1981,7 +1972,7 @@ Properties v2 の検査移管（検査目的と parameter matrix を維持）:
 
 | 既存ケース | 現在の検査対象・保持する assertion |
 | --- | --- |
-| `import-model` の全77 pytest instances | canonical 候補の add／refresh／bind／replace／混在、全件 Review、非選択/CREATE/固定 identity/別環境の保持、実保存1回、外部変更拒否、source と receipt の rollback、表示のみ復旧、別プロセスの単一 CLI |
+| `import-model` の全108 pytest instances | canonical 候補の add／refresh／bind／replace／混在、全件 Review、非選択/CREATE/固定 identity/別環境の保持、実保存1回、外部変更拒否、source と receipt の rollback、表示のみ復旧、別プロセスの単一 CLI |
 | `check_model_only_publication` / `check_intermediate_model_sources` / `check_batch_leaf_saves` | 実管理 worktree の一回使い切り context と prepare/publish API、限定操作・通常編集の境界、一次保存と最終検証の分離、5組の転送→未削除状態→削除完了、base 不変、journal 復旧。親の完了は final-candidate の別ケースで検査 |
 | `check_reference_publication` | 明示された scalar/JSON Pointer の保存リンク、宣言/直接リンクの重複排除、read_context ごとの producer 読取再利用、読取依存の競合で source/receipt 復元、producer 外部変更の保持、再取得なしの表示復旧 |
 | raw-bucket / producer-identifier と各 schema UT | 正式 Property、固定 ID、backtick・JSON native type/順序、raw name と observed identifier、空/不存在/PENDING の区別、labelPolicy と必要/禁止フィールド。型・名前・識別子の不一致や producer 不在は値を保持して WARNING |
@@ -1991,7 +1982,6 @@ Properties v2 の検査移管（検査目的と parameter matrix を維持）:
 | 旧属性展開 cycle の拒否 | 展開 engine を廃止したため evaluator cycle は存在しない。相互に保存された Resource/Stack/name 参照が再帰せず、値・原文を自動変更しないことへ移行 |
 | 旧 producer 変更による design digest 変化 | 設計 digest は対象 Model の observed を除く全正本。producer/comment/observed の変更は完全な読取依存 snapshot の hash/照合で検知し、consumer の設計 digest と保存値は不変 |
 | producer-name の CodeBuild→Logs 直接リンク | 直接 Markdown リンクも依存として追跡するため、IAM→Logs→CodeBuild の affected 集合を検査する |
-| 固定旧 Framework の export/convert/compare | 動的 CFn 参照と backtick Markdown scalar を JSON と誤認せず原文を保持。JSON object の整数・Boolean・文字列・配列順序を厳密比較し、旧 source bytes と runtime module isolation を保持 |
 
 旧 template selector/input schema の廃止と実保存保護の削除を混同しない。
 ここでの Review と対話規約検査は合成 fixture／文書契約の検査であり、実際の LLM と
@@ -2023,11 +2013,6 @@ process-death・復元失敗・CRLF/no-op、固定 Role 数2/5・Row ID・JSON�
 旧 optional/choice engine の振舞いは、明示的な最小/完全 authority の JSON型・配列順・
 派生hashと構造異常へ置き換える。共通 transaction の fixture は公開保存権限を発行しない。
 
-固定旧版 export の同じ既存ケースで、既存の曖昧 anchor WARNING を保持して意味比較できること、
-未bindの不正設計型の Definition から Resource を追加しないこと、入力から展開済みの
-`<<literal>>` を原文として保持すること、未宣言の実 template 変数では export が未開始のまま停止し
-不完全ファイルを残さないことを検査する。
-
 
 Properties v2 の追加移行対応（model-properties-v2）:
 - `model_impact` の8入口は保存済み参照の保守的な推移閉包を検査する。旧展開 engine の
@@ -2058,7 +2043,6 @@ producer を読まず、構文・I/O・scope の不正を WARNING へ握り潰�
 
 | Case ID | Function | Level | Source | Mode / Count | Responsibility | Group |
 | --- | --- | --- | --- | --- | --- | --- |
-| `model-v2::legacy-reference-equivalence` | `check_export_real_stack_links_root_names_and_retained_display` | IT | [integrations/model-v2-migration.checks.py](integrations/model-v2-migration.checks.py) | pytest / 1 | Real-value legacy validation, Stack placement/buckets, root Name, KMS default label and retained display-only comments | Model v2 |
 | `model-v2::macie-authority` | `check_macie_renders_current_document_without_artifact_reads` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py) | pytest / 6 | Inline bucketCriteria and missing/stale/broken JSON never overrides the current document or changes properties bytes | Model v2 |
 | `model-v2::display-diagnostics` | `check_shared_display_selection_and_diagnostics` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py) | pytest / 5 | Nameless IMPORT type, root name, explicit fallback label, rule-table and grouped KMS alias share final display selection | Model v2 |
 
@@ -2106,3 +2090,5 @@ producer を読まず、構文・I/O・scope の不正を WARNING へ握り潰�
 | `check_retired_declarations_rejected` | UT | [units/model-environment-reference-unit.checks.py](units/model-environment-reference-unit.checks.py) | pytest / 4 | refid非依存でscalar/JSONの旧環境宣言をreader・Review・trace・export比較で拒否、bytes不変 |
 
 移行exportの環境変数は実値のみ。名前・タグ・JSONの環境名を保持し、account・Resource・Stackの参照意味と比較を継続する。retarget fixtureは通常の環境名prefixに加え同一leafのexecutionAccountId参照を持ち、literal断片と他の現役参照の保護を検証する。
+
+Model v2 移行完了に伴い、固定旧 Framework の export/convert/compare と限定移行契約の10関数・23条件を廃止した。現行保存・Import・Deploy・参照更新・rollback の15関数・82条件は、ケースIDとparameter matrixを保ち model-properties-v2（42条件）、cloudformation-deploy（9条件）、import-model（31条件）へ統合する。distribution_manifest の現行CLI検証も維持する。
