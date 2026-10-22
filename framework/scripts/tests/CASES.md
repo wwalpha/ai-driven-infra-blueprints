@@ -66,7 +66,7 @@ IMPORTのLogGroup限定ケースは既存の `resource_types=['Logs.LogGroup']` 
 
 Fixture整理：`aws_mapping_display_fixtures.change`、`aws_definitions.write/fixture`、各削除経路内の専用helperを削除。所有一覧の絞込み、Logs Mapping縮小、仮の命名Rule・縮小Catalog作成を削除し、通常検証に必要な既存定義は実Frameworkを共有参照する。
 
-台帳登録/展開数：UT 260/590 → 255/585（削除分）→ 397/959（未登録142件の補完・既存parameter件数1件訂正後）、IT 371/590 → 370/588。直接実行内部の部分削除は入口1件のままとし、検証地点・内部パターンを更新した。
+台帳登録/展開数：UT 260/590 → 255/585（削除分）→ 397/959（未登録142件の補完・既存parameter件数1件訂正後）→ 398/960（CodeCommit返却属性1件追加）、IT 371/590 → 370/588。直接実行内部の部分削除は入口1件のままとし、検証地点・内部パターンを更新した。
 
 ## IMPORT optional-name display
 
@@ -173,9 +173,12 @@ remain separate. Dry-run/incomplete/display-failed sessions are retained.
 | `s3-kms-reference::invalid` | `check_invalid_scalar` | UT | [units/s3-kms-reference-unit.checks.py](units/s3-kms-reference-unit.checks.py) | pytest / 11 | 不正属性/構造、Alias/他Type、不在/曖昧anchor、別targetを解決・最終候補guardで拒否 | Scalar contract |
 | `s3-kms-reference::pending` | `check_pending_key_projection` | UT | [units/s3-kms-reference-unit.checks.py](units/s3-kms-reference-unit.checks.py) | pytest / 1 | 未作成KeyIdのまま既存Key表示名で投影し、ARN導出・AWSを要求しない | Display only |
 | `s3-kms-reference::iac` | `check_iac_matrix` | UT | [units/s3-kms-reference-unit.checks.py](units/s3-kms-reference-unit.checks.py) | pytest / 11 | KeyArn一致、KeyId/別Key/AliasName/AliasArn不一致、未証明式・literal ARN uncompared、従来形式維持 | Synthetic CFn |
+| `issues-iac::codecommit-name` | `ImportValueResolutionTests.test_codecommit_name_uses_only_explicit_repository_name` | UT | [units/test_issues_iac.py](units/test_issues_iac.py) | pytest / 1 | Name→RepositoryName、Ref RepositoryId区別、文字列一致/差分、未解決/非文字列/欠落、Condition/Transform/型/Resource・Stack曖昧性を保留、ネットワーク禁止 | Synthetic CFn |
 
 CodeBuild PLAINTEXTの属性参照比較は `units/test_issues_iac.py::ImportValueResolutionTests.test_codebuild_plaintext_resource_attributes`
 （UT / unittest 1 case）で検証する。合成Model identityとCFn定義を使用し、Key ARN/GetAtt、Alias ARN/Subと両Export値の一致、Key/Alias・別対象・別属性の不一致、未確定参照・不正selector、Export名literalの非一致、既存S3 BucketName参照を確認する。実行中repoのproject/Model入力・AWSは使用しない。
+
+同UTに非S3属性不足の専用診断、非文字列返却属性、Secret/Typeコンテキスト、IMPORT受け渡し不足と具体値未証明の保留を追加。既存IT `issues_scan::check_reference_property_contract` はCodeCommit名literalのmatched/difference/uncompared、`check_aws_standard_comparison` はS3・Secret・明示Key ARN・Alias ARNの混在と異なる属性/Resource/未証明literal、親Environment JSONの属性不足/不正属性/非文字列を検証する。IT入口数は変更しない。
 
 `units/validation_checks/design.py::check_cidr_pending_deploy` は既存VPC fixtureで識別情報失敗の回帰も検証する。`resource_logical_ids` のValueError、`design_model_values` のOSErrorを単独ファイル／後続正常サービスありの各条件で注入し、元診断・ファイルパスの完全一致、当該ファイルの後続展開停止、正常サービスのName検証到達、集約結果FAILを確認する。CREATE正常／Name欠落、IMPORTのName省略と両展開関数へのmodes伝達も確認する。実Model・AWS・ITは使用しない。
 

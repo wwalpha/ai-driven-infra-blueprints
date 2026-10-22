@@ -17,7 +17,7 @@ from model.files import load_model, resource_row_index, MAX_LINES
 from policy_tables import literal, POLICY_FORMATS
 
 
-from iac_evaluation import Evaluation
+from iac_evaluation import Evaluation, RETURN_ATTRIBUTE_PROPERTIES
 from comparison_rows import Unresolved, cloudtrail_rows, put_row, select
 from service_rows import pipeline_rows
 from array_display import indexed_rows
@@ -543,7 +543,8 @@ class Comparison:
             if resource['resourceType'] == 'Events.Rule' and evaluator.evaluate(name, properties.get('EventBusName', 'default')) != 'default':
                 raise Blocked('rule ARN requires a confirmed default event bus')
             return f"arn:{pseudo['AWS::Partition']}:{service}:{pseudo['AWS::Region']}:{pseudo['AWS::AccountId']}:{prefix}{explicit}{suffix}"
-        if (attribute != REF_ATTRIBUTES.get(resource['resourceType']) and not secret_name) or attribute not in properties:
+        setting = RETURN_ATTRIBUTE_PROPERTIES.get((resource['resourceType'], attribute))
+        if (attribute != REF_ATTRIBUTES.get(resource['resourceType']) and not secret_name and setting is None) or (setting or attribute) not in properties:
             raise Blocked('reference has no explicit name property contract')
         result = evaluator.substitution(name, value, frozenset())
         if not isinstance(result, str):
@@ -744,11 +745,7 @@ class Comparison:
                 variable_type = context.get('Type')
                 if variable_type == 'SECRETS_MANAGER':
                     expected_kind, attribute = 'SecretsManager.Secret', 'Id'
-                elif variable_type == 'PLAINTEXT':
-                    if attribute is None:
-                        # Preserve the existing bucket-name link; arbitrary strings have no default attribute.
-                        expected_kind, attribute = 'S3.Bucket', 'BucketName'
-                else:
+                elif variable_type != 'PLAINTEXT':
                     raise Blocked('reference property contract unproven: CodeBuild environment Type is required')
             elif contract:
                 expected_kind, default_attribute = contract
@@ -768,6 +765,9 @@ class Comparison:
         forms = self.reference_forms(kind, path) if self.local_comparison else None
         refservice, identity = symbol['$resource']
         refkind = self.resources[refservice][identity]['resourceType']
+        if (self.local_comparison and kind == 'CodeBuild.Project' and path == 'Environment.EnvironmentVariables[].Value'
+                and context.get('Type') == 'PLAINTEXT' and attribute is None and refkind != 'S3.Bucket'):
+            raise Blocked(f'CodeBuild PLAINTEXT reference requires an explicit attribute for {refkind}; only S3.Bucket defaults to BucketName')
         if forms and symbol['$attribute'] not in {reference_attribute(refkind, form) for form in forms}:
             error = Blocked(f'reference attribute {symbol["$attribute"]} is outside property contract: {kind}.{path}')
             error.reference_detail = (symbol, path)

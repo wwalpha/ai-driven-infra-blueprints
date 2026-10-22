@@ -843,9 +843,23 @@ def reference_property_contract_cases():
         with patch('socket.socket', side_effect=AssertionError('network forbidden')):
             comparison, results = records()
             assert len(results) == 3 and all(item['category'] == 'matched' for item in results.values()), results
-            # Ref remains a different attribute even when the primaryIdentifier changes.
-            comparison.catalog.schema('CodeCommit.Repository')['primaryIdentifier'] = ['/properties/Name']
+            # Ref uses its documented attribute independently of provider identifiers.
             assert comparison.evaluate(stack, {'Ref': 'Repository'})['$attribute'] == 'RepositoryId'
+            repository_properties = template['Resources']['Repository']['Properties']
+            configuration = template['Resources']['Pipeline']['Properties']['Stages'][0]['Actions'][0]['Configuration']
+            for setting, category in [({'Fn::Sub': 'repository-${Name}'}, 'matched'),
+                                      ('another-repository', 'difference'), (None, 'uncompared'),
+                                      ({'Ref': 'Unknown'}, 'uncompared'), (123, 'uncompared')]:
+                repository_properties.clear()
+                if setting is not None:
+                    repository_properties['RepositoryName'] = setting
+                configuration['RepositoryName'] = 'repository-app-dev-data1'
+                mutate_template(root, template)
+                result = records()[1]['codepipeline']
+                assert result['category'] == category, result
+            repository_properties.clear()
+            configuration['RepositoryName'] = {'Fn::GetAtt': ['Repository', 'Name']}
+            mutate_template(root, template)
             assert comparison.evaluate(stack, {'Ref': 'Function'})['$attribute'] == 'FunctionName'
             expect_error(lambda: comparison.evaluate(stack, {'Ref': 'VpcConnection'}), 'Ref return attribute is unproven')
             expect_error(lambda: comparison.evaluate(stack, {'Fn::GetAtt': ['VpcConnection', 'VPCConnectionId']}), 'GetAtt return attribute')
@@ -2189,17 +2203,30 @@ def check_aws_standard_comparison(_network):
         policy = '[IAM_ManagedPolicy_001](iam.md#resource-IAM_ManagedPolicy_001)'
         secret = '[SecretsManager_Secret_001](secrets-manager.md#resource-SecretsManager_Secret_001)'
         bucket = '[S3_Bucket_001](s3.md#s3-bucket-app-dev-data1)'
+        key = '[KMS_Key_001](kms.md#resource-KMS_Key_001)'
+        alias = '[KMS_Alias_001](kms.md#resource-KMS_Alias_001)'
+        vpc = '[EC2_VPC_001](vpc.md#resource-EC2_VPC_001)'
+        key_reference = {'$resource': key, '$attribute': 'Arn'}
+        alias_reference = {'$resource': alias, '$attribute': 'AliasArn'}
         specs = {
             'iam': [('Role', 'IAM.Role', 'role', [('RoleName', '`role`'), ('ManagedPolicyArns', policy)]),
                     ('Policy', 'IAM.ManagedPolicy', 'policy', [('Roles', role)])],
             'secrets-manager': [('Secret', 'SecretsManager.Secret', 'secret', [('Name', '`app/secret`')])],
+            'kms': [('Key', 'KMS.Key', 'key', []), ('Alias', 'KMS.Alias', 'alias', []), ('OtherKey', 'KMS.Key', 'other', [])],
+            'vpc': [('Vpc', 'EC2.VPC', 'vpc', [])],
             'codebuild': [('Project', 'CodeBuild.Project', 'project', [
                 ('Environment.EnvironmentVariables[].Name', '`BUCKET`'),
                 ('Environment.EnvironmentVariables[].Value', bucket),
                 ('Environment.EnvironmentVariables[].Type', '`PLAINTEXT`'),
                 ('Environment.EnvironmentVariables[].Name', '`SECRET`'),
                 ('Environment.EnvironmentVariables[].Value', secret),
-                ('Environment.EnvironmentVariables[].Type', '`SECRETS_MANAGER`')])],
+                ('Environment.EnvironmentVariables[].Type', '`SECRETS_MANAGER`'),
+                ('Environment.EnvironmentVariables[].Name', '`KEY_ARN`'),
+                ('Environment.EnvironmentVariables[].Value', '`' + json.dumps(key_reference) + '`'),
+                ('Environment.EnvironmentVariables[].Type', '`PLAINTEXT`'),
+                ('Environment.EnvironmentVariables[].Name', '`ALIAS_ARN`'),
+                ('Environment.EnvironmentVariables[].Value', '`' + json.dumps(alias_reference) + '`'),
+                ('Environment.EnvironmentVariables[].Type', '`PLAINTEXT`')])],
         }
         for service, resources in specs.items():
             values = {f'desired.service.{service}.serviceId': service}
@@ -2216,14 +2243,35 @@ def check_aws_standard_comparison(_network):
         resources = template['Resources']
         resources['Role']['Properties'] = {'RoleName': 'role', 'ManagedPolicyArns': [{'Ref': 'Policy'}]}
         resources['Secret']['Properties'] = {'Name': 'app/secret'}
+        resources['Alias']['Properties'] = {'AliasName': 'alias/fixture', 'TargetKeyId': {'Ref': 'Key'}}
+        alias_arn = {'Fn::Sub': ['arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}', {'Alias': {'Ref': 'Alias'}}]}
         environment = {'EnvironmentVariables': [{'Name': 'BUCKET', 'Value': {'Ref': 'Bucket'}, 'Type': 'PLAINTEXT'},
-                                                {'Name': 'SECRET', 'Value': 'app/secret', 'Type': 'SECRETS_MANAGER'}]}
+                                                {'Name': 'SECRET', 'Value': 'app/secret', 'Type': 'SECRETS_MANAGER'},
+                                                {'Name': 'KEY_ARN', 'Value': {'Fn::GetAtt': ['Key', 'Arn']}, 'Type': 'PLAINTEXT'},
+                                                {'Name': 'ALIAS_ARN', 'Value': alias_arn, 'Type': 'PLAINTEXT'}]}
         resources['Project']['Properties']['Environment'] = environment
         mutate_template(root, template)
         comparison, records = compare(root, list(specs))
         tested = {'IAM.Role.ManagedPolicyArns', 'IAM.ManagedPolicy.Roles', 'CodeBuild.Project.Environment'}
         selected = [item for item in records if item['property'] in tested]
         assert len(selected) == 3 and all(item['category'] == 'matched' for item in selected), selected
+        for actual, category in [({'Ref': 'Key'}, 'difference'), ({'Fn::GetAtt': ['OtherKey', 'Arn']}, 'difference'),
+                                 (alias_arn, 'difference'),
+                                 ('arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012', 'uncompared')]:
+            environment['EnvironmentVariables'][2]['Value'] = actual
+            mutate_template(root, template)
+            result = next(item for item in compare(root, ['codebuild'])[1] if item['property'] == 'CodeBuild.Project.Environment')
+            assert result['category'] == category, result
+        environment['EnvironmentVariables'][2]['Value'] = {'Fn::GetAtt': ['Key', 'Arn']}
+        mutate_template(root, template)
+        # Parent Environment JSON and individual Value rows reuse the same context and validation.
+        for value, reason in [(key, 'requires an explicit attribute'), (alias, 'requires an explicit attribute'),
+                              ({'$resource': key, '$attribute': 'Missing'}, 'reference attribute not confirmed'),
+                              ({'$resource': vpc, '$attribute': 'CidrBlockAssociations'}, 'must be a proven string')]:
+            row = {'property': 'CodeBuild.Project.Environment', 'value': '', 'document': json.dumps({
+                'EnvironmentVariables': [{'Name': 'VALUE', 'Type': 'PLAINTEXT', 'Value': value}]})}
+            with pytest.raises(Blocked, match=reason):
+                comparison.desired_value('codebuild', row, 'CodeBuild.Project', stack=stack)
         symbol = comparison.reference('iam', policy, 'Arn')
         assert symbol['$attribute'] == 'PolicyArn'
         assert same(symbol, comparison.evaluate(stack, {'Ref': 'Policy'}))

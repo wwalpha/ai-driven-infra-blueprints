@@ -9,6 +9,10 @@ from cloudformation_inputs import Blocked, resolve_value
 from iac_values import ResourceReference, Expression, cfn_resource_identity
 
 
+# Returned attributes whose explicit setting has a different property name.
+RETURN_ATTRIBUTE_PROPERTIES = {('CodeCommit.Repository', 'Name'): 'RepositoryName'}
+
+
 class Evaluation:
     def __init__(self, stack_inputs, resources, property_schema, symbol, import_value, local_comparison):
         self.stack_inputs, self.resources = stack_inputs, resources
@@ -59,11 +63,15 @@ class Evaluation:
             # Glue's returned Name lives inside ConnectionInput, not Properties.Name.
             if resource['resourceType'] == 'Glue.Connection' and attribute == 'Name':
                 properties = properties.get('ConnectionInput', {})
-            if attribute not in properties:
+            setting = RETURN_ATTRIBUTE_PROPERTIES.get((resource['resourceType'], attribute), attribute)
+            if setting not in properties:
                 if self.string_operand(value):
                     return value
                 raise Blocked(f'resource substitution has no explicit string property: {logical}.{attribute}')
-            return self.substitution(name, self.evaluate(name, properties[attribute], seen | {token}), seen | {token})
+            resolved = self.evaluate(name, properties[setting], seen | {token})
+            if setting != attribute and not self.string_operand(resolved):
+                raise Blocked(f'resource substitution requires a proven string property: {logical}.{setting}')
+            return self.substitution(name, resolved, seen | {token})
         if isinstance(value, Expression) and self.string_operand(value):
             return value
         if type(value) in (int, float):
