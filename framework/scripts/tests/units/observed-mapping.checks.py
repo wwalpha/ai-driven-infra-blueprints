@@ -1,4 +1,4 @@
-"""Observed mappings retains permissive prefix selection and invocation isolation."""
+"""Observed mappings preserves ownership and narrowly permits static Export scaffolds."""
 import sys
 from pathlib import Path
 sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
@@ -25,9 +25,12 @@ def mapping_inputs(tmp_path, monkeypatch):
         def cloudformation_type(self, kind):
             return 'AWS::EC2::VPC'
     monkeypatch.setattr(observed, 'DesignSchemaCatalog', Catalog)
-    def invoke(resources):
-        return observed.mappings(tmp_path, 'dev', 'test', {'Stack': ({'Resources': resources}, {})},
-                                 [{'name': 'Stack'}], target={'awsRegion': 'ap-northeast-1'})
+    def invoke(resources, *, document=None, parameters=None, removed=None, implementation=False):
+        return observed.mappings(tmp_path, 'dev', 'test',
+                                 {'Stack': (document if document is not None else {'Resources': resources},
+                                            parameters or {'NetworkId': 'vpc-fixture'})},
+                                 [{'name': 'Stack'}], removed=removed,
+                                 target={'awsRegion': 'ap-northeast-1'}, implementation=implementation)
     return tmp_path, loaded, invoke
 
 
@@ -97,6 +100,205 @@ def check_explicit_mapping_uniqueness_and_no_name_inference(mapping_inputs):
         invoke({'First': definition()})
     assert caught.value.errors == {'Stack': [
         'Stack/First: cfn-logicalId matches=2; explicit mapping required']}
+
+
+HANDLE = 'AWS::CloudFormation::WaitConditionHandle'
+
+
+def static_template(logical='StaticExportHandle'):
+    return {'Parameters': {'NetworkId': {'Type': 'String'}},
+            'Resources': {logical: {'Type': HANDLE}},
+            'Outputs': {'NetworkId': {'Value': {'Ref': 'NetworkId'}, 'Export': {'Name': 'NetworkId'}}}}
+
+
+def check_static_exports_share_mapping_and_skip_observed(mapping_inputs, monkeypatch):
+    from types import SimpleNamespace
+    root, loaded, invoke = mapping_inputs
+    monkeypatch.setattr(observed, 'require_target_no_issues', lambda *args: None)
+    def unexpected(*args, **kwargs):
+        pytest.fail('static Export scaffold must not map, read AWS, or publish observations')
+    monkeypatch.setattr(observed, 'mapped_resource', unexpected)
+    monkeypatch.setattr(observed, 'publish_observed', unexpected)
+    for logical in ('StaticExportHandle', 'DifferentHandle'):
+        document = static_template(logical)
+        # Parameter-derived Export names use the existing intrinsic evaluator.
+        if logical == 'DifferentHandle':
+            document['Outputs']['NetworkId']['Export']['Name'] = {'Fn::Sub': 'Network${AWS::Region}'}
+        normal = invoke({}, document=document)
+        assert normal == invoke({}, document=document, implementation=True) == ({}, {'Stack': {}})
+        for cached in (False, True):
+            backend = SimpleNamespace(root=root, environment='dev', directory='test',
+                                      target={'awsRegion': 'ap-northeast-1'},
+                                      templates={'Stack': (document, {'NetworkId': 'vpc-fixture'})}, aws=unexpected)
+            if cached:
+                backend.mapping_plan = normal
+            states = {'Stack': {}}
+            assert observed.sync_successful(backend, [{'name': 'Stack'}], states) is None
+            assert states == {'Stack': {'observedSynced': True}}
+        assert loaded == {}
+
+
+def check_static_export_decoded_fixture(mapping_inputs):
+    root, _, invoke = mapping_inputs
+    template, inputs = root / 'static.yaml', root / 'static.json'
+    template.write_text('''Parameters:
+  NetworkId:
+    Type: String
+  SubnetId:
+    Type: String
+Resources:
+  StaticExportHandle:
+    Type: AWS::CloudFormation::WaitConditionHandle
+Outputs:
+  NetworkId:
+    Value: !Ref NetworkId
+    Export:
+      Name: NetworkId
+  SubnetId:
+    Value: !Ref SubnetId
+    Export:
+      Name: SubnetId
+''', encoding='utf-8')
+    inputs.write_text('[{"ParameterKey":"NetworkId","ParameterValue":"vpc-fixture"},'
+                      '{"ParameterKey":"SubnetId","ParameterValue":"subnet-fixture"}]', encoding='utf-8')
+    document, parameters = observed.load_template_inputs(template, inputs)
+    assert invoke({}, document=document, parameters=parameters) == invoke(
+        {}, document=document, parameters=parameters, implementation=True) == ({}, {'Stack': {}})
+
+
+def check_static_export_rejects_resource_configuration(mapping_inputs):
+    _, _, invoke = mapping_inputs
+    for key, value in (('Properties', {}), ('Condition', 'Enabled'), ('DependsOn', []),
+                       ('Metadata', {}), ('DeletionPolicy', 'Retain'), ('UpdateReplacePolicy', 'Retain'),
+                       ('CreationPolicy', {}), ('UpdatePolicy', {})):
+        document = static_template()
+        document['Resources']['StaticExportHandle'][key] = value
+        document['Conditions'] = {'Enabled': True}
+        for implementation in (False, True):
+            with pytest.raises(observed.MappingError, match='explicit mapping required'):
+                invoke({}, document=document, implementation=implementation)
+
+
+def check_static_export_requires_direct_parameter_exports(mapping_inputs):
+    from copy import deepcopy
+    _, _, invoke = mapping_inputs
+    invalid = [
+        {'Outputs': {}}, {'Parameters': {}}, {'Parameters': None},
+        {'Parameters': {'NetworkId': None}},
+        {'Parameters': {'NetworkId': {'Type': 'String'}, 'StaticExportHandle': {'Type': 'String'}}},
+        {'Outputs': {'NetworkId': {'Value': {'Ref': 'NetworkId'}}}},
+        {'Outputs': {'NetworkId': {'Value': {'Ref': 'NetworkId'}, 'Export': {}}}},
+    ]
+    for value in ({'Ref': 'StaticExportHandle'}, {'Ref': 'Unknown'}, 'literal',
+                  {'Fn::Sub': '${NetworkId}'}, {'Fn::Join': ['', [{'Ref': 'NetworkId'}]]},
+                  {'Fn::GetAtt': ['StaticExportHandle', 'Id']}):
+        output = deepcopy(static_template()['Outputs'])
+        output['NetworkId']['Value'] = value
+        invalid.append({'Outputs': output})
+    for export in (None, {}, {'Name': ''}, {'Name': None}, {'Name': {'Ref': 'Unknown'}},
+                   {'Name': 'NetworkId', 'Extra': 'value'}):
+        output = deepcopy(static_template()['Outputs'])
+        output['NetworkId']['Export'] = export
+        invalid.append({'Outputs': output})
+    for change in invalid:
+        document = static_template() | change
+        for implementation in (False, True):
+            with pytest.raises(observed.MappingError, match='explicit mapping required'):
+                invoke({}, document=document, implementation=implementation)
+    assert not observed.static_export_handle(static_template() | {'Outputs': None}, 'StaticExportHandle', {}, {})
+
+
+def check_static_export_rejects_dependencies_and_unknown_expressions(mapping_inputs):
+    _, _, invoke = mapping_inputs
+    expressions = [
+        {'Ref': 'StaticExportHandle'}, {'Fn::GetAtt': ['StaticExportHandle', 'Id']},
+        {'Fn::GetAtt': 'StaticExportHandle.Id'}, {'Fn::Sub': '${StaticExportHandle}'},
+        {'Fn::Sub': '${StaticExportHandle.Id}'},
+        {'Fn::Sub': ['${Alias}', {'Alias': {'Ref': 'StaticExportHandle'}}]},
+        {'Fn::Sub': ['literal', {'Unused': {'Ref': 'StaticExportHandle'}}]},
+        {'Fn::If': ['Enabled', 'unused', {'Ref': 'StaticExportHandle'}]},
+        {'Fn::Unknown': 'value'}, {'Ref': 'Unknown'}, {'Fn::Sub': [1]},
+        {'DependsOn': 'StaticExportHandle'}, {'DependsOn': ['StaticExportHandle']},
+    ]
+    for expression in expressions:
+        for location in ('Metadata', 'Export'):
+            document = static_template()
+            document['Conditions'] = {'Enabled': True}
+            if location == 'Export':
+                document['Outputs']['NetworkId']['Export']['Name'] = expression
+            else:
+                document['Metadata'] = {'Nested': [expression]}
+            for implementation in (False, True):
+                with pytest.raises(observed.MappingError, match='explicit mapping required'):
+                    invoke({}, document=document, parameters={'NetworkId': 'vpc-fixture',
+                           'StaticExportHandle': 'must-not-mask-resource-reference'}, implementation=implementation)
+    document = static_template() | {'Transform': 'UnknownTransform'}
+    with pytest.raises(observed.MappingError, match='explicit mapping required'):
+        invoke({}, document=document)
+
+
+def check_static_export_requires_sole_resource(mapping_inputs):
+    _, _, invoke = mapping_inputs
+    for other in ({'Other': definition()},
+                  {'Wait': {'Type': 'AWS::CloudFormation::WaitCondition',
+                            'Properties': {'Handle': {'Ref': 'StaticExportHandle'}, 'Timeout': '1'}}}):
+        document = static_template()
+        document['Resources'].update(other)
+        for implementation in (False, True):
+            with pytest.raises(observed.MappingError) as caught:
+                invoke({}, document=document, implementation=implementation)
+            assert len(caught.value.errors['Stack']) == 2
+            assert all('explicit mapping required' in error for error in caught.value.errors['Stack'])
+    document = static_template()
+    document['Resources']['StaticExportHandle'] = definition()
+    with pytest.raises(observed.MappingError, match='explicit mapping required'):
+        invoke({}, document=document)
+
+
+def check_static_export_preserves_explicit_mapping_checks(mapping_inputs, monkeypatch):
+    root, loaded, invoke = mapping_inputs
+    values = loaded[root / 'model/dev/test/vpc.properties'] = {}
+    resource(values, '001', 'StaticExportHandle')
+    document = static_template()
+    for implementation in (False, True):
+        with pytest.raises(observed.MappingError, match='formal CFn type mismatch'):
+            invoke({}, document=document, implementation=implementation)
+    monkeypatch.setattr(observed.DesignSchemaCatalog, 'cloudformation_type', lambda *args: HANDLE)
+    normal = invoke({}, document=document)
+    assert normal == invoke({}, document=document, implementation=True)
+    assert set(normal[1]['Stack']) == {'StaticExportHandle'}
+    values['desired.resource.001.resourceMode'] = 'IMPORT'
+    with pytest.raises(observed.MappingError, match='requires CREATE'):
+        invoke({}, document=document)
+    del values['desired.resource.001.resourceMode']
+    resource(values, '002', 'StaticExportHandle')
+    for implementation in (False, True):
+        with pytest.raises(observed.MappingError, match='matches=2'):
+            invoke({}, document=document, implementation=implementation)
+
+
+def check_static_export_preserves_removal_guards(mapping_inputs, monkeypatch):
+    from types import SimpleNamespace
+    root, _, invoke = mapping_inputs
+    document = static_template()
+    units = [{'name': 'Stack'}]
+    states = {'Stack': {'changes': [{'Action': 'Remove', 'LogicalResourceId': 'StaticExportHandle',
+                                   'ResourceType': HANDLE, 'PolicyAction': 'Delete'}]}}
+    removed = observed.removed_resources(units, states)
+    for resources in (document['Resources'], {}):
+        deleting_document = document | {'Resources': resources}
+        for implementation in (False, True):
+            with pytest.raises(observed.MappingError, match='explicit mapping required'):
+                invoke({}, document=deleting_document, removed=removed, implementation=implementation)
+    monkeypatch.setattr(observed, 'require_target_no_issues', lambda *args: None)
+    backend = SimpleNamespace(root=root, environment='dev', directory='test', target={},
+                              templates={'Stack': (document, {'NetworkId': 'vpc-fixture'})})
+    with pytest.raises(observed.MappingError, match='explicit mapping required'):
+        observed.sync_successful(backend, units, states)
+    backend.mapping_plan = invoke({}, document=document)
+    with pytest.raises(ValueError, match='removed resource has no mapping validated before execution'):
+        observed.sync_successful(backend, units, states)
+    assert 'observedSynced' not in states['Stack']
 
 
 if __name__ == '__main__':

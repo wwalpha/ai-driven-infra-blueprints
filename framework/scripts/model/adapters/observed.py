@@ -22,7 +22,7 @@ def own_key(path, resource):
     return (scope.environment, scope.target, scope.service, resource['logicalId'])
 
 from model.sources import scope_for
-from cloudformation_inputs import Blocked, condition_active, output_value, load_template_inputs, load_target
+from cloudformation_inputs import Blocked, condition_active, output_value, load_template_inputs, load_target, resolve_value
 from model.sources import design_source_digest
 from model.sources import model_paths, model_exists, input_snapshot
 from model.files import read_model, resource_row_index
@@ -118,6 +118,49 @@ def mapped_resource(direct, name, logical, cfn_type):
     return entry
 
 
+def static_export_handle(document, logical, parameters, pseudo):
+    """Prove a Type-only scaffold has no resource-dependent template expressions."""
+    if (document.get("Resources") != {logical: {"Type": "AWS::CloudFormation::WaitConditionHandle"}}
+            or "Transform" in document):
+        return False
+    declarations, outputs = document.get("Parameters"), document.get("Outputs")
+    if (not isinstance(declarations, dict) or logical in declarations
+            or not isinstance(outputs, dict) or not outputs):
+        return False
+    if not all(isinstance(item, dict) and isinstance(item.get("Type"), str) for item in declarations.values()):
+        return False
+    parameters = {key: value for key, value in parameters.items() if key in declarations}
+    for output in outputs.values():
+        if not isinstance(output, dict):
+            return False
+        value, export = output.get("Value"), output.get("Export")
+        if (not isinstance(value, dict) or set(value) != {"Ref"}
+                or not isinstance(value["Ref"], str) or value["Ref"] not in declarations
+                or not isinstance(export, dict) or set(export) != {"Name"}):
+            return False
+
+    def independent(value):
+        if isinstance(value, list):
+            return all(independent(item) for item in value)
+        if not isinstance(value, dict):
+            return True
+        if "DependsOn" in value:
+            return False
+        # Check every branch/map value, including expressions unused by If/Sub.
+        if not all(independent(item) for item in value.values()):
+            return False
+        if any(key in {"Ref", "Condition"} or key.startswith("Fn::") for key in value):
+            resolve_value(value, parameters, pseudo, conditions=document.get("Conditions", {}))
+        return True
+
+    try:
+        return independent(document) and all(
+            isinstance(name := resolve_value(output["Export"]["Name"], parameters, pseudo), str) and bool(name)
+            for output in outputs.values())
+    except (Blocked, ValueError, TypeError, KeyError, AttributeError, RecursionError):
+        return False
+
+
 def require_fixed_stack_names(source, selected):
     from model.projection import bound_stack_names
     bound = bound_stack_names(source)
@@ -178,6 +221,9 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
         for logical, definition in definitions.items():
             deleting = logical in (removed or {}).get(name, {})
             try:
+                if (not deleting and (name, logical) not in direct
+                        and static_export_handle(document, logical, parameters, pseudo)):
+                    continue
                 if not deleting and not condition_active(document, parameters, pseudo, definition):
                     continue
                 if not deleting and definition["Type"] in import_only:

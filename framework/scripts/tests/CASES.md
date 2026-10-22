@@ -2302,9 +2302,9 @@ Model v2 移行完了に伴い、固定旧 Framework の export/convert/compare 
 | `existing-ut-inventory` | `check_selected_model_row_consumption` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#L288) | pytest / 1 | selected model row consumption | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_reference_target_candidates` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L35) | pytest / 8 | reference target candidates | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_stack_target_identity` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L69) | pytest / 3 | stack target identity | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_fixed_ownership_and_invocation_isolation` | UT | [units/observed-mapping.checks.py](units/observed-mapping.checks.py#L44) | pytest / 1 | fixed ownership and invocation isolation | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_lazy_whole_model_parse_and_error_order` | UT | [units/observed-mapping.checks.py](units/observed-mapping.checks.py#L61) | pytest / 1 | lazy whole model parse and error order | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_explicit_mapping_uniqueness_and_no_name_inference` | UT | [units/observed-mapping.checks.py](units/observed-mapping.checks.py#L84) | pytest / 1 | explicit mapping uniqueness and no name inference | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_fixed_ownership_and_invocation_isolation` | UT | [units/observed-mapping.checks.py](units/observed-mapping.checks.py#L47) | pytest / 1 | fixed ownership and invocation isolation | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_lazy_whole_model_parse_and_error_order` | UT | [units/observed-mapping.checks.py](units/observed-mapping.checks.py#L64) | pytest / 1 | lazy whole model parse and error order | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_explicit_mapping_uniqueness_and_no_name_inference` | UT | [units/observed-mapping.checks.py](units/observed-mapping.checks.py#L87) | pytest / 1 | explicit mapping uniqueness and no name inference | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_ten_deletions` | UT | [units/resource-delete-unit.checks.py](units/resource-delete-unit.checks.py#L83) | pytest / 2 | ten deletions | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_contract_rejects_unscoped_deletion` | UT | [units/resource-delete-unit.checks.py](units/resource-delete-unit.checks.py#L101) | pytest / 6 | contract rejects unscoped deletion | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_deletion_and_detach_normalization` | UT | [units/resource-delete-unit.checks.py](units/resource-delete-unit.checks.py#L121) | pytest / 1 | deletion and detach normalization | 既存テストの登録漏れ補完・本体変更なし |
@@ -2335,3 +2335,16 @@ Humanが明示許可した例外として `integrations/sync-existing-files.chec
 既存 model-identity / json-resource-arn / s3-kms-reference の生成ケースは、JSON内selectorの生成拒否と正本不変を確認する。legacy operandの読取・影響分析・ARN解決・IaC比較は従来assertionを保持。純粋JSONの独立fixtureでArtifact生成を確認し、通常のJSON外部KMS Aliasリンクは引き続き生成・検証する。
 
 import-references のSubnet配列とCodePipeline Configuration生成fixtureは確認済みliteralを使用する。ConfigurationのProjectNameは既存外部name参照とJSON Pointerで追跡し、IMPORTがリンク要求warningを出さず取得値の相違は拒否することを確認。入口/展開数は維持。
+
+## Static Parameter Export scaffold mapping
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `static-export-handle::check_static_exports_share_mapping_and_skip_observed` | `check_static_exports_share_mapping_and_skip_observed` | UT | [units/observed-mapping.checks.py](units/observed-mapping.checks.py#L114) | pytest / 1 | 論理ID非依存、通常/implementation一致、直接・cached observed同期の除外 | Model |
+| `static-export-handle::check_static_export_decoded_fixture` | `check_static_export_decoded_fixture` | UT | [units/observed-mapping.checks.py](units/observed-mapping.checks.py#L141) | pytest / 1 | 独立YAMLのParameter直接Export再現、共有decoderと両モード一致 | Model |
+| `static-export-handle::check_static_export_rejects_resource_configuration` | `check_static_export_rejects_resource_configuration` | UT | [units/observed-mapping.checks.py](units/observed-mapping.checks.py#L169) | pytest / 1 | Properties・Condition・DependsOn・Metadata・Policy属性の拒否 | Model |
+| `static-export-handle::check_static_export_requires_direct_parameter_exports` | `check_static_export_requires_direct_parameter_exports` | UT | [units/observed-mapping.checks.py](units/observed-mapping.checks.py#L182) | pytest / 1 | 空Outputs・未宣言Parameter・式Value・Export不備の拒否 | Model |
+| `static-export-handle::check_static_export_rejects_dependencies_and_unknown_expressions` | `check_static_export_rejects_dependencies_and_unknown_expressions` | UT | [units/observed-mapping.checks.py](units/observed-mapping.checks.py#L211) | pytest / 1 | Ref/GetAtt/Sub・未使用分岐/変数・依存・未知式・Transformの拒否 | Model |
+| `static-export-handle::check_static_export_requires_sole_resource` | `check_static_export_requires_sole_resource` | UT | [units/observed-mapping.checks.py](units/observed-mapping.checks.py#L240) | pytest / 1 | WaitCondition参照・他Resource混在・通常未対応Resourceの拒否 | Model |
+| `static-export-handle::check_static_export_preserves_explicit_mapping_checks` | `check_static_export_preserves_explicit_mapping_checks` | UT | [units/observed-mapping.checks.py](units/observed-mapping.checks.py#L258) | pytest / 1 | 明示管理維持、重複・formal Type・CREATE制約と両モード一致 | Model |
+| `static-export-handle::check_static_export_preserves_removal_guards` | `check_static_export_preserves_removal_guards` | UT | [units/observed-mapping.checks.py](units/observed-mapping.checks.py#L280) | pytest / 1 | 削除対象の対応付けとcached同期の削除保護を維持 | Model |
