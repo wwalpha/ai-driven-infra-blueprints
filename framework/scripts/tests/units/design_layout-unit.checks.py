@@ -9,6 +9,30 @@ if not __debug__:
 from support.design_layout_fixtures import *
 
 def check_resource_display_names():
+    from design_layout import resource_display_selection, resource_has_name_property
+    kind = 'Config.ConfigurationRecorder'
+    assert resource_has_name_property(REPOSITORY, kind, 'IMPORT')
+    assert resource_display_selection(REPOSITORY, kind, [], 'Config recorder', 'IMPORT', 1) == ('Config recorder', None)
+    assert resource_display_selection(REPOSITORY, 'SNS.Topic', [], 'Notifications', 'IMPORT', 1) == ('Notifications', None)
+    assert resource_display_selection(REPOSITORY, kind, [['1', 'Name', '`default`', '名称']], 'label', 'IMPORT', 1) == ('default', 'default')
+    for mode, rows, label, message in (
+        ('CREATE', [], 'Config recorder', 'required Name is not selected'),
+        ('IMPORT', [], None, 'confirmed resource display label is missing'),
+        ('IMPORT', [['1', 'Name', '``', '名称']], 'label', 'confirmed and non-empty'),
+        ('IMPORT', [['1', 'Name', '`PENDING_DEPLOY`', '名称']], 'label', 'confirmed and non-empty'),
+        ('IMPORT', [['1', 'Name', '`{{application}}`', '名称']], 'label', 'confirmed and non-empty'),
+    ):
+        with pytest.raises(ValueError, match=message):
+            resource_display_selection(REPOSITORY, kind, rows, label, mode, 1)
+    for kind in ('CodeCommit.Repository', 'KMS.Alias', 'CloudFront.CachePolicy'):
+        with pytest.raises(ValueError, match='required provider schema property missing'):
+            resource_display_selection(REPOSITORY, kind, [], 'label', 'IMPORT', 1)
+    for kind in ('IAM.Role', 'CodeBuild.Project'):
+        with pytest.raises(ValueError, match='must appear exactly once'):
+            resource_display_selection(REPOSITORY, kind, [], 'label', 'IMPORT', 1)
+    for label in ('', 'UNSET', 'PENDING_DEPLOY'):
+        with pytest.raises(ValueError, match='confirmed resource display label is missing'):
+            resource_display_selection(REPOSITORY, 'GuardDuty.Detector', [], label, 'IMPORT', 1)
     assert resource_display_name("IAM.Role", [["1", "RoleName", "`role-app-dev`", "名前"]]) == "role-app-dev"
     assert resource_display_name("KMS.Key", [["1", "KMS.Alias.AliasName", "`alias/app`", "名前"]]) == "app"
     assert resource_display_name("Scheduler.Schedule", [["1", "GroupName", "`default`", "group"]]) is None

@@ -23,7 +23,7 @@ from design_layout import (
     resource_display_name,
     resource_name_fields,
     resource_anchor,
-    resource_has_name_property,
+    resource_display_selection,
     resource_mode,
     is_import_pending_reference,
     GROUPED_RESOURCE_TYPES,
@@ -37,7 +37,7 @@ from design_catalog import DesignSchemaCatalog, property_paths_with_parents, sel
 from validation_cache import input_scope, memoized
 
 
-from model.validation import naming_errors, validate_required_properties, validate_resource_identities
+from model.validation import validate_required_properties, validate_resource_identities
 
 def stack_markdown(path, values, root, *, definitions_root=None):
     limit, stacks = stack_model(values)
@@ -72,14 +72,24 @@ def display_name(values, identity, resource, rows, root):
     label = values.get(f'display.resource.{identity}.label')
     if GROUPED.get(kind, {}).get('display') == 'rule-table':
         return label or resource['logicalId'], None
-    configured = resource_display_name(kind, rows, label, resource_mode(resource))
-    name = configured or label
-    if configured is None and (name is None or name == kind):
-        count = sum(item['resourceType'] == kind for _, item in entries(values, 'desired.resource.'))
-        if kind in GROUPED or count != 1 or resource_has_name_property(root, kind, resource_mode(resource)):
-            return None, configured
-        name = kind
-    return name, configured
+    mode = resource_mode(resource)
+    if mode == 'IMPORT' and kind not in {'IAM.Role', 'CodeBuild.Project'}:
+        # Resolve a saved self-reference from its observation, never from its link label.
+        local = {''} | {value + '.md' for key, value in values.items()
+                        if key.startswith('desired.service.') and key.endswith('.serviceId')}
+        rows = [list(row) for row in rows]
+        for row in rows:
+            field = row[1].removeprefix(kind + '.')
+            link = LINK.fullmatch(row[2])
+            if field in resource_name_fields(kind) and link and link[2] in local and link[3] == resource['anchor']:
+                matches = [rid for rid, item in entries(values, 'desired.row.') if rid.startswith(identity + '-')
+                           and item.get('property') == kind + '.' + field
+                           and (source_link := LINK.fullmatch(item.get('value', '')))
+                           and source_link.groups()[1:] == link.groups()[1:]]
+                if len(matches) == 1:
+                    row[2] = values.get(f'observed.row.{matches[0]}.value', row[2])
+    count = sum(item['resourceType'] == kind for _, item in entries(values, 'desired.resource.'))
+    return resource_display_selection(root, kind, rows, label, mode, count)
 
 
 def resource_presentation(values, identity, resource, root, *, scope=None):
@@ -98,7 +108,6 @@ def resource_details(values, root, service, owned, resources, bound_anchors, *, 
         def inspect():
             nonlocal resource
             kind = resource["resourceType"]
-            mode = resource_mode(resource)
             if kind not in owned:
                 raise ValueError(f"resource is outside service ownership: {kind}")
             name, configured_name, rows = resource_presentation(values, identity, resource, root, scope=scope)
@@ -112,9 +121,6 @@ def resource_details(values, root, service, owned, resources, bound_anchors, *, 
             derived = anchor
             if anchor in by_anchor:
                 raise ReferenceResolutionError('duplicate Resource display anchor: ' + anchor)
-            errors = naming_errors(root, kind, rows, mode)
-            if errors:
-                raise ValueError("; ".join(errors))
             names.add(derived)
             item = (identity, resource, name, rows)
             by_anchor[anchor] = item

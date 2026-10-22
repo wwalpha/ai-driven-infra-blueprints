@@ -132,7 +132,7 @@ def main():
         for service, model_values in [('lambda', values), ('consumer', other_values)]:
             resources = entries(model_values, 'desired.resource.')
             kind = resources[0][1]['resourceType']
-            with patch('model.render.resource_presentation', return_value=('confirmed', 'confirmed', [])), patch('model.render.naming_errors', return_value=[]):
+            with patch('model.render.resource_presentation', return_value=('confirmed', 'confirmed', [])):
                 details, by_anchor = resource_details(model_values, root, service, [kind], resources, {})
             assert details[0][1]['anchor'] == resources[0][1]['anchor']
             displayed = {**model_values, 'display.service.title': '# Synthetic',

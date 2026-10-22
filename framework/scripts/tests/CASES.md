@@ -54,6 +54,17 @@ Fixture整理：`aws_mapping_display_fixtures.change`、`aws_definitions.write/f
 
 台帳登録/展開数：UT 260/590 → 255/585（削除分）→ 397/959（未登録142件の補完・既存parameter件数1件訂正後）、IT 371/590 → 370/588。直接実行内部の部分削除は入口1件のままとし、検証地点・内部パターンを更新した。
 
+## IMPORT optional-name display
+
+The existing `units/design_layout-unit.checks.py::check_resource_display_names` also checks shared selection for optional IMPORT names, CREATE rejection, missing labels, unconfirmed selected names, schema-required names and IAM/CodeBuild exceptions. Framework definitions remain unchanged.
+The existing type-display constraint cases accept the shared selection error for missing required names; the anchor/reference unit isolates presentation at its current boundary without mocking the moved naming validator. Expansion counts remain unchanged.
+Existing Import publication cases retain selected self-reference names and resolve only their own saved observations for presentation. Existing anchor-tampering cases retain warning severity. The CREATE Security Group heading fixture now selects its formal GroupName; no Framework definitions are changed.
+The Security Group table IT also selects an independent formal GroupName for its second CREATE resource, retaining tag-scalar cases introduced on the latest base.
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `import-display::optional-name` | `check_import_optional_name_label` | IT | [integrations/model_design.checks.py](integrations/model_design.checks.py) | pytest / 1 | Config IMPORT任意Name未選択の生成・表示検証・同期、正式名優先、CREATE/不正値/欠落必須/ID不一致/別ラベル拒否、正本とanchor不変 | Display |
+
 ## Static fixture cases
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |

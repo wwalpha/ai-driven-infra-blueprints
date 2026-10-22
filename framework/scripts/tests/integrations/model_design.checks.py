@@ -129,6 +129,91 @@ def check_config_import_pending_roundtrip(root, project):
     assert errors(valid.replace("Pending", "[dummy](config.md#config-dummy)"))
 
 
+def check_import_optional_name_label(root, project):
+    kind, label, logical_id = 'Config.ConfigurationRecorder', 'Config recorder', 'Config_ConfigurationRecorder_001'
+    path = root / 'docs/designs/dev/123456789012/config.md'
+    source = root / 'model/dev/123456789012/config.properties'
+    anchor = 'config-saved-recorder-anchor'
+    values = model('config', kind, label, [
+        ('Id', f'[{logical_id}](#{anchor})', '一意に識別するID'),
+        ('RoleARN', '`arn:aws:iam::123456789012:role/ConfigRecorderRole`', '記録用IAM Role'),
+    ], label=label)
+    values.update({'desired.resource.001.resourceMode': 'IMPORT',
+                   'desired.resource.001.anchor': anchor,
+                   'observed.row.001-001.value': '`PENDING_DEPLOY`',
+                   'desired.note.001.text': f'参照: [{label}](#{anchor})'})
+    values.pop('desired.resource.001.cfn-logicalId')
+    valid = roundtrip(path, values, root)
+    before = snapshot_model(source)
+    original = dict(values)
+    assert f'<!-- resource-logical-id: {logical_id} -->' in valid
+    assert f'<a id="{anchor}"></a>' in valid and f'### {kind}: {label}' in valid
+    sync_views.validate_views(root, root, [path], {path: values})
+    assert SYNC.sync(root, True, 'dev', '123456789012') == 0
+    assert SYNC.sync(root, False, 'dev', '123456789012') == 0
+    assert snapshot_model(source) == before and values == original
+    assert path.read_text(encoding='utf-8') == valid
+    assert model_projection.linked_resource(path, f'[{label}](#{anchor})') == (kind, logical_id)
+
+    validator_module = load('validate-blueprint')
+    def failures(content):
+        path.write_text(content, encoding='utf-8')
+        validator = validator_module.Validator(root)
+        validator.check_resource_names({path: ('config', (kind,))}, [path])
+        assert path.read_text(encoding='utf-8') == content
+        assert snapshot_model(source) == before
+        return validator.errors
+
+    for content, message in (
+        (valid.replace(f'<!-- resource-logical-id: {logical_id} -->', ''), 'hidden logical ID'),
+        (valid.replace(f'<!-- resource-logical-id: {logical_id} -->', '<!-- resource-logical-id: Config_ConfigurationRecorder_002 -->'), 'hidden logical ID'),
+        (valid.replace(f'### {kind}: {label}', f'### {kind}: other-recorder'), 'authoritative display label'),
+        (valid.replace(f'### {kind}: {label}', '### Config.DeliveryChannel: Config recorder'), 'hidden logical ID'),
+    ):
+        errors = failures(content)
+        assert len(errors) == 1 and message in errors[0], errors
+    assert not failures(valid)
+    # The selected formal Name wins even when a label and saved anchor already exist.
+    named = {**values, 'desired.row.001-003.property': kind + '.Name',
+             'desired.row.001-003.value': '`default`', 'desired.row.001-003.comment': '記録設定名',
+             'desired.note.001.text': f'参照: [default](#{anchor})'}
+    output = roundtrip(path, named, root)
+    named_before = snapshot_model(source)
+    sync_views.validate_views(root, root, [path], {path: named})
+    assert f'### {kind}: default' in output and f'<a id="{anchor}"></a>' in output
+    assert SYNC.sync(root, True, 'dev', '123456789012') == 0
+    assert SYNC.sync(root, False, 'dev', '123456789012') == 0
+    assert snapshot_model(source) == named_before
+    path.write_text(valid, encoding='utf-8')
+    validator = validator_module.Validator(root)
+    validator.check_resource_names({path: ('config', (kind,))}, [path])
+    assert any('does not match authoritative Model' in error for error in validator.errors), validator.errors
+    for invalid in ('', '``', '`   `', '`UNSET`', '`Pending`', '`PENDING_DEPLOY`', '`{{application}}`', '[name](#other)'):
+        bad = {**named, 'desired.row.001-003.value': invalid}
+        with pytest.raises(ValueError):
+            markdown_for(path, bad, root)
+        invalid_before = snapshot_model(source)
+        validator = validator_module.Validator(root)
+        validator.design_sources = {path: bad}
+        validator.check_resource_names({path: ('config', (kind,))}, [path])
+        assert len(validator.errors) == 1 and 'must be confirmed' in validator.errors[0], validator.errors
+        assert snapshot_model(source) == invalid_before and path.read_text(encoding='utf-8') == valid
+    write_model(source, text(named))
+    missing = dict(values)
+    missing.pop('display.resource.001.label')
+    with pytest.raises(ValueError, match='confirmed resource display label is missing'):
+        markdown_for(path, missing, root)
+    create = {**values, 'desired.resource.001.resourceMode': 'CREATE',
+              'desired.row.001-002.value': '`AWSServiceRoleForConfig`',
+              'desired.resource.001.cfn-logicalId': 'fixture-Recorder'}
+    with pytest.raises(ValueError, match='required Name is not selected'):
+        markdown_for(path, create, root)
+    required = {key: value for key, value in values.items() if '.row.001-002.' not in key}
+    from model.validation import validate_required_properties
+    with pytest.raises(ValueError, match='required provider schema property missing.*RoleARN'):
+        validate_required_properties(required, root)
+
+
 def check_desired_only_identifier_reference(root, project):
     base=root/'docs/designs/dev/123456789012';base.mkdir(parents=True, exist_ok=True)
     group=model('quicksight','QuickSight.Group','gr-dev-finance',[
@@ -749,7 +834,7 @@ def check_nameless_type_display(root, project):
     multiple = roundtrip(path, {**labeled, **additional}, root)
     assert not failures(multiple), failures(multiple)
     mixed = multiple.replace("guardduty-primary-detector", anchor).replace("primary-detector", kind)
-    assert any("single nameless independent resource" in error for error in failures(mixed))
+    assert any("authoritative display label" in error for error in failures(mixed))
     # An optional name property omitted from rows is still a named resource type.
     assert resource_has_name_property(root, "CodeCommit.Repository")
     assert resource_has_name_property(root, "SNS.Topic")
@@ -757,11 +842,11 @@ def check_nameless_type_display(root, project):
     topic = model("sns", "SNS.Topic", "sns.topic", [], "Topic")
     with pytest.raises(ValueError) as error:
         markdown_for(docs / "sns.md", topic, root)
-    assert "single nameless independent resource" in str(error.value)
+    assert "required Name is not selected" in str(error.value)
     path.write_text(output.replace(kind, "SNS.Topic").replace(anchor, "guardduty-sns.topic"), encoding="utf-8")
     validator = validator_module.Validator(root)
     validator.check_resource_names({path: ("guardduty", ("SNS.Topic",))}, [path])
-    assert any("single nameless independent resource" in error for error in diagnostics(validator))
+    assert any("required Name is not selected" in error or "hidden logical ID" in error for error in diagnostics(validator))
     assert resource_display_name(kind, [["1", "Tags[].Key", "`Name`", "キー"], ["2", "Tags[].Value", "`selected-name`", "名前"]]) == "selected-name"
     print("Nameless type display: PASS (generation, import, identity, references, single/multiple and named types)")
 
@@ -810,7 +895,7 @@ def check_nameless_logical_id_label(root, project):
         invalid += [{**values, key: value} for value in ("", "UNSET", "PENDING_DEPLOY", "wrong-label")]
         for bad in invalid:
             errors = failures(bad)
-            assert any("resource without a name requires a display label" in error for error in errors), errors
+            assert any("display label" in error for error in errors), errors
         for field, value in (("resourceType", "GuardDuty.Detector"), ("logicalId", "OtherPlan")):
             invalid_values = {**values, f"desired.resource.{identity}.{field}": value}
             with pytest.raises(ValueError, match="logicalId"):
@@ -824,7 +909,7 @@ def check_nameless_logical_id_label(root, project):
     assert not failures(renumbered), failures(renumbered)
     named = {key: value.replace(kind, "SNS.Topic").replace("GuardDuty_MalwareProtectionPlan_", "SNS_Topic_")
              for key, value in values.items()}
-    assert any("resource without a name requires a display label" in error or "display Mapping property missing" in error
+    assert any("required Name is not selected" in error or "display Mapping property missing" in error
                for error in failures(named, output.replace(kind, "SNS.Topic").replace("GuardDuty_MalwareProtectionPlan_", "SNS_Topic_")))
     failures(values)
     source.write_text('# model-format: 99\n')
@@ -1387,7 +1472,7 @@ def check_service_failure_protection(root, project):
 
     # Loop IT delegates detailed LogGroup failures here; retain exact inputs and non-writing behavior.
     for property_key, value, diagnostic in (
-        ("desired.row.001-001.value", "``", "confirmed resource display label is missing"),
+        ("desired.row.001-001.value", "``", "resource display name must be confirmed"),
         ("desired.row.001-002.value", "`31`", "schema"),
     ):
         invalid = {**logs, "desired.row.001-002.value": "`14`", property_key: value}
@@ -1636,6 +1721,7 @@ def check_service_displays(tmp_path):
     output = roundtrip(base / "guardduty.md", detector, ROOT)
     assert "| Features[1].S3_DATA_EVENTS | `ENABLED` |" in output
     trail = model("cloudtrail", "CloudTrail.Trail", "audit", [
+        ("TrailName", "`audit`", "証跡の名前"),
         ("EventSelectors[].DataResources[].Type", "`AWS::S3::Object`", "操作を記録するS3 bucket"),
         ("EventSelectors[].DataResources[].Values", '`["arn:aws:s3"]`', "操作を記録するS3 bucket"),
         ("EventSelectors[].IncludeManagementEvents", "`true`", "管理イベントを記録する"),

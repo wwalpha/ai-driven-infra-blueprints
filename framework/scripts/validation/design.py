@@ -14,13 +14,12 @@ from policy_tables import POLICY_FORMATS, rendered_design as rendered_policy_des
 from design_catalog import design_material_files, DesignSchemaCatalog, api_snapshot_errors
 from design_layout import (
     GROUPED, CHILD, HIDDEN_PROPERTIES, SECURITY_GROUP_TYPES, RESOURCE as RESOURCE_HEADING_PATTERN,
-    expanded_display_rows, resource_anchor, resource_display_name, resource_heading_lines,
-    resource_has_name_property, resource_logical_ids, resource_modes, STACK_DESIGN, layout_errors,
+    expanded_display_rows, resource_anchor, resource_display_selection, resource_heading_lines,
+    resource_logical_ids, resource_modes, STACK_DESIGN, layout_errors,
 )
 from security_group_tables import security_group_table_lines
 from model.projection import bound_resource_anchors
 from model.core import entries, properties
-from model.validation import naming_errors
 from model.files import MAX_LINES, read_model, model_parts
 from validation_scope import scoped_files
 import subprocess
@@ -250,12 +249,9 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
             lines = security_group_table_lines(lines, definitions_root)
             lines = expanded_display_rows(lines, definitions_root, modes=modes)
             values = values or {}
-            labels = {
-                (resource.get("resourceType"), resource.get("logicalId"), label)
-                for identity, resource in entries(values, "desired.resource.")
-                if (label := values.get(f"display.resource.{identity}.label"))
-                and label not in {"UNSET", "PENDING_DEPLOY"}
-            }
+            resources = {(resource['resourceType'], resource['logicalId']): (identity, resource)
+                         for identity, resource in entries(values, 'desired.resource.')}
+            model_anchors = {resource['anchor']: key for key, (_, resource) in resources.items()}
         except ReferenceResolutionError as error:
             findings.warn(error)
             continue
@@ -272,25 +268,42 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
                 return
             resource_type, display = current
             mode = modes.get(anchor, "CREATE")
+            label = None
+            if values:
+                key = (resource_type, identities.get(anchor))
+                matched = resources.get(key)
+                if not matched or model_anchors.get(anchor, key) != key:
+                    findings.check(False, f"hidden logical ID missing or mismatched with authoritative resource at anchor: {findings.relative(path)}: {resource_type}: {anchor}")
+                    return
+                label = values.get(f'display.resource.{matched[0]}.label')
+            elif display != resource_type:
+                label = display
             try:
                 from aws_mapping_display import validation_rows
                 semantic = validation_rows(rows, values, resource_type, identities.get(anchor, current[1]), definitions_root, scope=(*path.parent.parts[-2:], path.stem))
-                name = resource_display_name(resource_type, semantic, display, mode)
+                if values:
+                    from model.render import display_name, resource_presentation
+                    from model.sources import Scope
+                    name, configured = display_name(values, matched[0], matched[1], semantic, definitions_root)
+                    expected, _, _ = resource_presentation(values, matched[0], matched[1], definitions_root,
+                        scope=Scope(root, *path.parent.parts[-2:], path.stem))
+                    if name != expected:
+                        raise ValueError(f'resource display name does not match authoritative Model: {resource_type}: {name} != {expected}')
+                else:
+                    name, configured = resource_display_selection(definitions_root, resource_type, semantic,
+                                                                  label, mode, counts[resource_type])
             except ReferenceResolutionError as error:
                 findings.warn(error)
                 return
             except ValueError as error:
                 findings.check(False, f"{findings.relative(path)}: {error}")
                 return
-            for error in naming_errors(definitions_root, resource_type, rows, mode):
-                findings.check(False, f"{findings.relative(path)}: {error}")
             findings.check(name is None or name not in {"", "UNSET", "PENDING_DEPLOY"}, f"resource display name must be confirmed: {findings.relative(path)}: {resource_type}")
-            findings.check(name is None or display == name, f"resource heading must display resource name: {findings.relative(path)}: {resource_type}: {display} != {name}")
+            findings.check(name is None or display == name, f"resource heading must display {'resource name' if configured is not None else 'authoritative display label'}: {findings.relative(path)}: {resource_type}: {display} != {name}")
             if name is None:
-                if display == resource_type:
-                    findings.check(counts[resource_type] == 1 and resource_type not in GROUPED and not resource_has_name_property(definitions_root, resource_type, mode), f"resource type display requires a single nameless independent resource: {findings.relative(path)}: {resource_type}")
-                confirmed_label = (resource_type, identities.get(anchor), display) in labels and not resource_has_name_property(definitions_root, resource_type, mode)
-                findings.check(anchor in identities and (display == resource_type or confirmed_label or not values and display != identities[anchor]), f"resource without a name requires a display label or resource type and hidden logical ID: {findings.relative(path)}: {display}")
+                findings.check(False, f"resource type display requires a single nameless independent resource or confirmed display label: {findings.relative(path)}: {resource_type}")
+            elif configured is None and not values:
+                findings.check(anchor in identities and display != identities[anchor], f"resource without a name requires a display label or resource type and hidden logical ID: {findings.relative(path)}: {display}")
             if path in service_metadata:
                 expected = bound_anchors.get((resource_type, identities.get(anchor)),
                                              resource_anchor(service_metadata[path][0], display, resource_type))

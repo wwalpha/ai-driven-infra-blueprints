@@ -801,7 +801,7 @@ def check_resource_name_headings(tmp_path) -> None:
     group_name = "transfer service access"
     sg_anchor = resource_anchor("security-group", group_name)
     sg_text = text.replace(anchor, "resource-TransferSecurityGroup").replace("scheduler", "security-group").replace("Scheduler.Schedule", "EC2.SecurityGroup").replace(logical_id, "TransferSecurityGroup").replace(name, group_name)
-    sg_text = sg_text.replace(f"| 1 | Name | `{group_name}` | scheduleの名前 |", "| 1 | Id | `PENDING_DEPLOY` | SGのID |\n| 2 | GroupDescription | `transfer service access` | 通信の用途 |\n| 3 | VpcId | `vpc-123` | 所属VPCのID |")
+    sg_text = sg_text.replace(f"| 1 | Name | `{group_name}` | scheduleの名前 |", f"| 1 | Id | `PENDING_DEPLOY` | SGのID |\n| 2 | GroupDescription | `transfer service access` | 通信の用途 |\n| 3 | GroupName | `{group_name}` | SGの名前 |\n| 4 | VpcId | `vpc-123` | 所属VPCのID |")
     sg = path.with_name("security-group.md")
     sg.write_text(sg_text, encoding="utf-8")
     validator = VALIDATOR.Validator(root)

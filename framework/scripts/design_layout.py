@@ -287,6 +287,57 @@ def stack_deployment_policy(path: Path) -> int:
     return positive_integer(match.group(1), "MaxConcurrentStacks")
 
 
+def resource_display_selection(root: Path, resource_type: str, rows: list[list[str]],
+                               label: str | None, mode: str, count: int) -> tuple[str | None, str | None]:
+    """Select a configured name, confirmed label or existing nameless-type display."""
+    if GROUPED.get(resource_type, {}).get('display') == 'rule-table':
+        return label, None
+    from design_catalog import DesignSchemaCatalog, selected_properties
+    from model.validation import naming_errors
+    if errors := naming_errors(root, resource_type, rows, mode):
+        raise ValueError('; '.join(errors))
+    names = set(resource_name_fields(resource_type))
+    catalog_names = names & selected_properties(root, resource_type)
+    selected = [(row[1].removeprefix(resource_type + '.'), row[2]) for row in rows
+                if row[1].removeprefix(resource_type + '.') in names]
+    catalog = DesignSchemaCatalog(root)
+    for field, raw in selected:
+        value = raw.strip('`"')
+        if (not value.strip() or value.strip().lower() in {
+            'unset', 'pending', 'pending_deploy', 'tbd', 'n/a', 'none', 'not-used', 'not used', 'unused', '未使用', '未確定',
+        } or value.startswith('[') or '{{' in value):
+            raise ValueError(f'resource display name must be confirmed and non-empty: {resource_type}.{field}')
+        if field in catalog_names:
+            errors = catalog.literal_errors(resource_type, field, value)
+            if errors:
+                raise ValueError(f'{resource_type}.{field}: ' + '; '.join(errors))
+    configured = resource_display_name(resource_type, rows, label, mode)
+    if configured is not None:
+        return configured, configured
+    has_name = resource_has_name_property(root, resource_type, mode)
+    if has_name:
+        if mode != 'IMPORT' or resource_type in {'IAM.Role', 'CodeBuild.Project'}:
+            raise ValueError(f'required Name is not selected; display label substitution is not allowed: {resource_type}')
+        missing = set()
+        for field in catalog_names:
+            parent, _, leaf = field.rpartition('.')
+            schema = catalog.property_schema(resource_type, parent) if parent else catalog.schema(resource_type)
+            schema = catalog._resolve(catalog.schema(resource_type), schema)
+            if leaf in schema.get('required', []):
+                missing.add(field)
+        if missing:
+            raise ValueError(f'required provider schema property missing: {resource_type}.' + ', '.join(sorted(missing)))
+    if label is not None and label != resource_type:
+        if not label.strip() or label in {'UNSET', 'PENDING_DEPLOY'}:
+            raise ValueError(f'confirmed resource display label is missing: {resource_type}')
+        return label, None
+    if not has_name and count == 1 and resource_type not in GROUPED:
+        return resource_type, None
+    if has_name:
+        raise ValueError(f'confirmed resource display label is missing: {resource_type}')
+    return None, None
+
+
 def stack_design(path: Path) -> list[dict[str, str]]:
     """Read a target's stack detailed design."""
     lines = [line for line in input_text(path, encoding="utf-8").splitlines()

@@ -201,7 +201,11 @@ def check_type_display_constraints(tmp_path, kind, mode, multiple):
     if multiple:
         values.update({'desired.resource.008.resourceType': kind, 'desired.resource.008.logicalId': 'second'})
     resource = dict(entries(values, 'desired.resource.'))['007']
-    assert display_name(values, '007', resource, [], FRAMEWORK)[0] is None
+    if multiple:
+        assert display_name(values, '007', resource, [], FRAMEWORK)[0] is None
+    else:
+        with pytest.raises(ValueError):
+            display_name(values, '007', resource, [], FRAMEWORK)
     with pytest.raises(ValueError):
         resource_details(values, FRAMEWORK, 'network', {kind}, list(entries(values, 'desired.resource.')), {})
 
