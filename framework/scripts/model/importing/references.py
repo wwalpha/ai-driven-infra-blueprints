@@ -170,6 +170,9 @@ class Resolver:
         return next(iter(matches.values()), None)
 
     def verify(self, prop, raw, physical, context=None, *, contracts=None, require_links=True, location=None):
+        position = ((location or {}).get('consumerKey'), (location or {}).get('pointer'))
+        if isinstance(raw, str) and (position, raw) in getattr(self, 'literal_references', ()):
+            contracts = {}  # External metadata owns tracking; still compare the acquired literal.
         try:
             return self._verify(prop, raw, physical, context, contracts=contracts, require_links=require_links)
         except ReferenceResolutionError as error:
@@ -240,6 +243,13 @@ class Resolver:
         from model.sources import Scope
         services = [fields['serviceId'] for _, fields in entries(values, 'desired.service.') if 'serviceId' in fields]
         self.consumer_scope = scope or Scope(self.root, self.environment, self.target, services[0] if len(services) == 1 else '')
+        from model.references import declarations
+        self.literal_references = {
+            ((spec['consumerKey'], spec['pointer']), spec['text'])
+            for spec in declarations(values).values()
+            if spec['consumerKey'].startswith('desired.row.' + rid + '-')
+            and 'pointer' in spec and spec['format'] in {'identifier', 'name'}
+        }
         from model.core import resource_row_index
         from model.projection import catalog_outputs
         if identity_properties is None:

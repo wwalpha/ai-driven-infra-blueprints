@@ -138,15 +138,18 @@ def check_generation_and_snapshot_boundary(tmp_path):
     with mapping_alias(FRAMEWORK, root), mapping_alias(FRAMEWORK, stage):
         with patch.object(renderer, 'generate_markdown',
                           lambda path, values, root: original_markdown(path, values, FRAMEWORK)):
-            files = generate_files(design, runtime_values(policy), root)
+            with pytest.raises(ValueError, match='JSON setting contains'):
+                generate_files(design, runtime_values(policy), root)
+            literal_policy = {**policy, 'desired.row.009-002.document': json.dumps(expected)}
+            files = generate_files(design, runtime_values(literal_policy), root)
         assert json.loads(files[design.with_suffix('') / 'policy.json']) == expected
         assert '<a id="saved-policy"></a>' in files[design]
         failures, warnings, unavailable = [], [], {}
         generated = generate_views(stage, root, {design: runtime_values(policy)}, failures,
                                    definitions_root=FRAMEWORK, warnings=warnings, unavailable=unavailable)
-        assert not failures and not unavailable, (failures, warnings, unavailable)
-        assert design in generated
-        assert json.loads((stage / 'docs/designs/dev/consumer/iam/policy.json').read_text(encoding='utf-8')) == expected
+        assert failures and any('JSON setting contains' in error for error in failures), failures
+        assert design not in generated
+        assert not (stage / 'docs/designs/dev/consumer/iam/policy.json').exists()
     assert {p: p.read_bytes() for p in root.rglob('*') if p.is_file()} == originals
     resolver = Resolver(root)
     assert execution_document(document, root, scope=scope, resolver=resolver) == expected

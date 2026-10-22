@@ -250,6 +250,8 @@ def prepare_edit(snapshot, candidate, policy):
             output[path] = text
     reads = CandidateReads(policy.snapshot, output)
     after = load_model(snapshot.scope, reads)
+    from model.validation import validate_json_settings
+    validate_json_settings(after.authoritative, entry)
     if policy.operation.action == 'observed':
         from model.observed import verify_observed_outputs
         verify_observed_outputs({path: text.encode('utf-8') for path, text in snapshot.files.items()}, output)
@@ -850,6 +852,8 @@ def validate_candidates(root, sources, output, scope):
         if reads.kind(path) == 'missing':
             continue  # Incoming consumers are still checked, including deleted producers.
         model = load_model(source_scope(root, path), reads)
+        from model.validation import validate_json_settings
+        validate_json_settings(model.authoritative, path)
         from model.projection import scalar_reference_operand
         from model.identity import Resolver
         resolver = Resolver(root, reads)

@@ -181,7 +181,10 @@ def check_cfn_and_outputs():
             original_markdown = renderer.generate_markdown
             with patch.object(renderer, 'generate_markdown',
                               lambda path, values, root: original_markdown(path, values, framework)):
-                files = generate_files(design, runtime_values(policy), after)
+                rejects(lambda: generate_files(design, runtime_values(policy), after))
+                # A separate literal fixture exercises valid JSON artifact generation.
+                literal_policy = {**policy, 'desired.row.009-002.document': json.dumps(result)}
+                files = generate_files(design, runtime_values(literal_policy), after)
             assert json.loads(files[design.with_suffix('') / 'policy.json']) == result
             assert 'resource://' not in files[design]
             assert '<a id="saved-policy"></a>' in files[design]

@@ -312,7 +312,7 @@ def check_import_compact_display_and_create_guards():
 @pytest.mark.parametrize('kind,name,prop,desired,observed', [
     ('KinesisFirehose.DeliveryStream', 'DeliveryStreamName', 'S3DestinationConfiguration.BucketARN', '[target](s3.md#producer)', '`arn:aws:s3:::audit-bucket`'),
     ('CloudTrail.Trail', 'TrailName', 'S3BucketName', '[target](s3.md#producer)', '`audit-bucket`'),
-    ('CodeBuild.Project', 'Name', 'VpcConfig.Subnets', '`["[target](vpc.md#producer)","subnet-external"]`', '["subnet-confirmed","subnet-external"]'),
+    ('CodeBuild.Project', 'Name', 'VpcConfig.Subnets', '`["subnet-confirmed","subnet-external"]`', '["subnet-confirmed","subnet-external"]'),
 ])
 def check_markdown_roundtrip_keeps_physical_values(tmp_path, kind, name, prop, desired, observed):
     from model.render import generate_markdown
@@ -323,6 +323,8 @@ def check_markdown_roundtrip_keeps_physical_values(tmp_path, kind, name, prop, d
         'desired.service.' + service + '.ownedCatalogResourceTypes': kind,
         'display.service.title': '# 合成詳細設計', 'display.resource.009.comment': '合成設定',
         'desired.row.009-002.value': desired, 'observed.row.009-002.value': observed})
+    if kind == 'CodeBuild.Project':
+        del source['observed.row.009-002.value']
     path = tmp_path / 'docs/designs/dev/cde' / (service + '.md')
     path.parent.mkdir(parents=True)
     first = generate_markdown(path, source, ROOT)
@@ -332,11 +334,12 @@ def check_markdown_roundtrip_keeps_physical_values(tmp_path, kind, name, prop, d
     if resource_link(desired):
         expected = '[' + literal(observed) + '](s3.md#producer)'
     else:
-        expected = '[target](vpc.md#producer)'
+        expected = 'subnet-confirmed'
     assert 'resource://' not in first
     assert any(expected in line for line in normalized), normalized
     assert source['desired.row.009-002.value'] == desired
-    assert source['observed.row.009-002.value'] == observed
+    if kind != 'CodeBuild.Project':
+        assert source['observed.row.009-002.value'] == observed
     assert path.read_text() == first
 
 
@@ -484,7 +487,7 @@ def check_packed_pipeline_configuration_roundtrip(tmp_path):
     from model.render import generate_markdown
     kind = 'CodePipeline.Pipeline'
     producer(tmp_path, 'CodeBuild.Project', {'Name': 'audit-build'})
-    config = [[{'ProjectName': '[audit-build](codebuild.md#producer)', 'EnvironmentVariables': 'literal-json'}]]
+    config = [[{'ProjectName': 'audit-build', 'EnvironmentVariables': 'literal-json'}]]
     actual = [[{'ProjectName': 'audit-build', 'EnvironmentVariables': 'literal-json'}]]
     attrs = {'Name': 'pipeline-audit', 'Stages[].Actions[].ActionTypeId.Provider': json.dumps([['CodeBuild']]),
         'Stages[].Actions[].Configuration': json.dumps(config), 'Stages[].Actions[].Name': json.dumps([['Build']]),
@@ -494,23 +497,34 @@ def check_packed_pipeline_configuration_roundtrip(tmp_path):
         'desired.service.codepipeline.ownedCatalogResourceTypes': kind, 'display.service.title': '# Pipeline',
         'display.resource.009.comment': '合成Pipeline', 'observed.row.009-003.value': json.dumps(actual),
         'desired.row.009-003.comment': 'ProjectName: 合成Build / EnvironmentVariables: 合成変数'})
+    from support.producer_identifier_reference_fixtures import reference
+    source.update(reference('build', 'desired.row.009-003.value', 'audit-build', 'codebuild', '001',
+        'CodeBuild.Project', mode='name', prop='CodeBuild.Project.Name', pointer='/0/0/ProjectName', environment='dev'))
+    # This fixture uses cde rather than the shared helper's team alias.
+    source['desired.reference.build.producerScope'] = 'dev/cde/codebuild'
     resolver = Resolver(tmp_path, 'dev', 'cde', definitions_root=ROOT)
     resolver.verify_resource(source, '009')
+    assert not resolver.warnings, resolver.warnings
+    assert 'CodeBuild.Project' not in resolver.indexes
+    changed_acquired = [[{**actual[0][0], 'ProjectName': 'different-build'}]]
+    with pytest.raises(ValueError, match='literal differs'):
+        resolver.verify_resource({**source, 'observed.row.009-003.value': json.dumps(changed_acquired)}, '009')
+    del source['observed.row.009-003.value']
     path = tmp_path / 'docs/designs/dev/cde/codepipeline.md'
     path.parent.mkdir(parents=True)
     first = generate_markdown(path, source, ROOT)
     path.write_text(first)
-    assert '[audit-build](codebuild.md#producer)' in first
+    assert 'audit-build' in first and '[audit-build](codebuild.md#producer)' not in first
     from design_layout import expanded_display_rows
     normalized = expanded_display_rows(first.splitlines(), ROOT, modes={'codepipeline-audit': 'IMPORT'})
-    assert any('literal-json' in line and '[audit-build](codebuild.md#producer)' in line for line in normalized)
-    assert source['observed.row.009-003.value'] == json.dumps(actual)
+    assert any('literal-json' in line and 'audit-build' in line for line in normalized)
+    assert json.loads(source['desired.row.009-003.value'].strip('`')) == actual
     assert path.read_text() == first
     wrong = json.loads(json.dumps(config))
     wrong[0][0]['EnvironmentVariables'] = 'wrong'
     source['desired.row.009-003.value'] = '`' + json.dumps(wrong) + '`'
     with pytest.raises(ValueError, match='literal differs'):
-        resolver.verify_resource(source, '009')
+        resolver.verify_resource({**source, 'observed.row.009-003.value': json.dumps(actual)}, '009')
 
 
 

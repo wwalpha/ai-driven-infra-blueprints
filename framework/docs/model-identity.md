@@ -34,8 +34,8 @@ corrections may repair it along with every affected saved reference. New anchors
 Save the original Markdown Resource reference, for example
 `[lmda-venusinf-dev-inbound-detect](lambda.md#lambda-lmda-venusinf-dev-inbound-detect)`.
 Keep its label, relative path and fragment unless that occurrence is explicitly retargeted.
-Self links, parentReference, JSON string leaves and `$resource` operands, templateBucket
-and artifact buckets follow the same rule. Do not convert them to Resource URIs.
+Self links, parentReference, templateBucket and artifact buckets outside JSON bodies
+follow the same rule. Do not convert them to Resource URIs.
 
 `model.identity.parse_reference(value, consumer_scope)` uses the existing safe
 `model.references.link_scope()` to locate the producer scope. `Resolver(root, reads).resolve(
@@ -51,13 +51,20 @@ Ordinary web URLs, JSON artifact links and descriptive note links are not Resour
 Generate design `<a id>` and Resource links from the saved anchors, independently of
 logicalId comments. Preserve observed display and value-resolution responsibilities.
 
-AWS JSON resolves explicit operands to confirmed attributes. A bare Resource link needs
-an unambiguous receiving-property contract; a policy operand may use
-`{"$resource":"[bucket](s3.md#s3-existing-bucket)","$attribute":"Arn"}`.
-Unavailable or ambiguous values remain unresolved; never emit a Markdown reference as an
-AWS value or save generated ARNs into authority. Actual `s3://bucket/key` destinations
-are unchanged. Already converted consumer data requires a separate restoration task
-using pre-conversion properties or confirmed version-controlled originals.
+Model JSON documents and inline JSON objects/arrays contain meaningful AWS configuration
+values, never Markdown Resource links (including links inside `$resource`). Keep confirmed
+physical values unchanged; do not resolve them again or guess unobserved IDs. Track Resource
+relationships with existing external `desired.reference.*` metadata, `format=identifier`
+and RFC 6901 JSON Pointers for confirmed non-ARN identifiers. Producer identity, change
+impact and unavailable/changed observations retain the existing checks and warnings.
+
+Do not introduce new `$resource` uses, reference syntax, or automatic Model conversion.
+Legacy operand readers remain for investigation/comparison; source publication and view
+generation reject Resource links inside JSON before saving. Existing ARN operands cannot
+be replaced with generated ARNs: identifier metadata requires a confirmed non-ARN value.
+Retain those sources for a separately authorized correction and report unsupported cases
+without deleting tracking. Ordinary URLs, non-Resource strings and Markdown links outside
+JSON bodies (including JSON artifact links) retain their existing behavior.
 
 `cfn-logicalId` independently retains `<existing StackName>-<existing Resources key>`.
 CloudFormation CREATE with a formal CFn type requires it even when logicalId exists.

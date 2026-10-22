@@ -53,6 +53,27 @@ NAMING_EXEMPT_PROPERTIES = {
 }
 
 
+def validate_json_settings(values, model_path):
+    """Reject saved Resource markup without resolving or rewriting JSON settings."""
+    from model.references import _json, string_leaves
+    from model.identity import reference_tokens
+    for row_id, row in entries(values, 'desired.row.'):
+        for field in ('value', 'document'):
+            if field not in row:
+                continue
+            value, structured = _json(f'desired.row.{row_id}.{field}', row[field])
+            if not structured:
+                continue
+            for pointer, text in string_leaves(value):
+                if any(reference_tokens(text)):
+                    number = row_id.rpartition('-')[0]
+                    resource = values.get(f'desired.resource.{number}.logicalId', number)
+                    raise ValueError(
+                        f'JSON setting contains a Markdown Resource link: Model={model_path}, '
+                        f'Resource={resource} ({number}), Property={row["property"]}, '
+                        f'JSON Pointer={pointer!r}; use confirmed AWS values and external desired.reference metadata')
+
+
 @memoized
 def naming_rule_files(root: Path, namespace: str | None = None) -> tuple[Path, ...]:
     """Read the common entry and only explicitly indexed service rules."""
@@ -299,6 +320,7 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
     def structure():
         validate_model_keys(values)
         resource_row_index(values)
+        validate_json_settings(values, path)
     if findings.evaluate('model.structure', None, structure).errors:
         return findings
     if entries(values, 'desired.stack.'):

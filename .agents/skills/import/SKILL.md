@@ -27,3 +27,11 @@ order; do not introduce a Python batch controller. See 08_import for all decisio
 Run in the worktree selected by the Human, following the Prompt's contract and evidence procedure.
 
 Resource references retain their original Markdown label, relative path and fragment. Resolve with consumer scope through the common Model saved-anchor resolver; use fixed Resource numbers and typed logicalIds internally. Preserve independent saved anchors and desired links during IMPORT/observed updates. New anchors reuse `design_layout.resource_anchor()` and confirmed naming rules. No URI conversion or inferred consumer restoration.
+
+Follow [JSON settings](../../../framework/rules/model-information.md) and
+[Resource identity](../../../framework/docs/model-identity.md): JSON stores AWS configuration
+values without Markdown Resource links, including `$resource`. Reuse external
+`desired.reference.*` metadata with `format=identifier` and JSON Pointers for confirmed
+non-ARN identifiers. Never guess IDs, automatically migrate existing Models, or replace
+ARN selectors by saved generated ARNs; report unsupported cases. Keep Resource/artifact
+links outside JSON bodies.

@@ -322,7 +322,7 @@ def verify_values(before, after, selected, property_schema, references=None, *, 
         if new_resources[rid].get('resourceMode') != 'IMPORT':
             raise ValueError('IMPORT cannot update CREATE resources')
         if references is not None:
-            references.verify_resource(after.values, rid, scope=getattr(after, 'scope', None), identity_properties=record.get('identityProperties', [record['identityProperty']]),
+            references.verify_resource(after.authoritative, rid, scope=getattr(after, 'scope', None), identity_properties=record.get('identityProperties', [record['identityProperty']]),
                                        **({'properties': changed_properties[rid]} if rid in old_resources else {}))
         for row_id, row in new_index[rid]:
             prop = row['property']

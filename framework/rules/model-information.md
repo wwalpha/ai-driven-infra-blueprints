@@ -291,6 +291,18 @@ Markdown is a generated view and cannot be imported as Model authority. Preserve
 
 Retain the H1 title (including `# ...`) in `display.service.title`. Write resource functions, purposes, and roles in Japanese in `display.resource.<番号>.comment`. For types without name properties, derive the resource type as the display name if exactly 1 independent resource of that type exists within the same service and neither a selected Name tag nor an existing confirmed display label exists. In this case, do not require `display.resource.<番号>.label` or duplicate the type name into label. Use `### <catalog-resource-type>` for detail headings, the resource type for listings/ordinary reference links, and the saved anchor. Retain human-confirmed display names distinguishing multiple resources of the same type, or existing confirmed display names, in `display.resource.<番号>.label`. Even with type-name display, retain model entry numbers and immutable logicalIds; do not infer IaC IDs from type names. This does not apply to omitted name properties or missing mandatory Name tags. Generate display names for types with name properties from formal row values; do not duplicate them. `display.*` is display input; do not add it to catalog AWS properties or IaC settings. Use existing 3-digit formats for resource and row numbers.
 
+JSON bodies and inline JSON objects/arrays must contain meaningful AWS configuration
+values, without Markdown Resource links, including `$resource` operands. Reuse external
+`desired.reference.*`, `format=identifier` and JSON Pointer metadata for confirmed non-ARN
+identifiers; never invent physical IDs or resolve confirmed literals again. Existing
+producer integrity, change-impact analysis and warnings still apply. Source publication
+and generation reject embedded Resource links with Model, Resource, Property and JSON
+Pointer diagnostics. Do not automatically migrate/overwrite existing Models, introduce
+new reference syntax, or save generated ARNs. Legacy ARN selectors remain readable for
+investigation/comparison only; unsupported replacements require a separate Human decision.
+Ordinary URLs and legitimate non-Resource JSON strings remain valid. Resource links and
+JSON artifact links outside JSON bodies remain supported.
+
 Rows with JSON links require `desired.row.<番号>.document`; reject duplicate JSON keys, invalid constants, and non-objects. Artifact hashes are derived values that can be checked during generation; do not make them authoritative design values.
 
 Human-confirmed `display.resource.<番号>.label` for types without name properties is valid as a display name even if it is the same string as the internal logical ID. The validator matches `desired.resource.<番号>.resourceType`, `logicalId`, and explicit label of the same number against corresponding detail headings. Reject reuse of internal IDs without labels or substitution with labels from other resource types or logical IDs. Retain new-format model entry numbers or old-format hidden logical ID markers, saved anchors, and desired/observed namespaces and values. Do not create Name tags, catalog properties, or IaC settings from display labels.
@@ -345,15 +357,14 @@ Restore `Config.ConfigurationRecorder.RoleName`, `EC2.RouteTableId`, `S3.Bucket.
 
 Do not generate hidden `CodeCommit.Repository.RepositoryId` properties in models; also exclude them from identifier output reference detection. Retain RepositoryName and Markdown Resource link references in desired. Do not change the catalog.
 
-Restore CodePipeline `Stages[N]` and `Actions[M]`, including single actions, to formal `Stages[]`/`Actions[]` in models, retaining original row order and membership per stage/action. Combine consecutive `Configuration.<Key>` rows of the same action into one formal `CodePipeline.Pipeline.Stages[].Actions[].Configuration` property, generating Value as a JSON object of original string values. Retain resource links losslessly as string values of the corresponding JSON object keys; do not restore them to CFn import expressions or Export names. Combine each key's Japanese comments with key names in occurrence order. Do not save display-only indexes or per-key Configuration properties as model properties. Do not rewrite original Markdown during generation.
+Restore CodePipeline `Stages[N]` and `Actions[M]`, including single actions, to formal `Stages[]`/`Actions[]` in models, retaining original row order and membership per stage/action. Combine consecutive `Configuration.<Key>` rows of the same action into one formal `CodePipeline.Pipeline.Stages[].Actions[].Configuration` property, generating Value as a JSON object of original string values. Store confirmed AWS setting values under the corresponding JSON object keys and track Resource relationships with external reference metadata; do not restore them to CFn import expressions or Export names. Combine each key's Japanese comments with key names in occurrence order. Do not save display-only indexes or per-key Configuration properties as model properties. Do not rewrite original Markdown during generation.
 
 During display validation, expand the single-row display `CodeBuild.Project.Environment.Variables[N].<Name>` into 3 formal `EnvironmentVariables[].Name`, `Type`, and `Value` rows of the same array element. For literals, use Type=PLAINTEXT and retain Value as-is. For resource links, restore Type from the hidden `codebuild-variable-type` marker at the start of `Source / Comment`. Retain Value resource links, confirmed display-text names/selectors, and literal `:` losslessly; do not convert to identifier output references or separate into observed. Do not save display-only `Variables.<Name>` or Type markers in models.
 
-For local Model → IaC comparison of `CodeBuild.Project.Environment.EnvironmentVariables[].Value`
-with `Type=PLAINTEXT`, explicitly select the resource and string attribute with
-`{"$resource":"[key](kms.md#kms-existing-key)","$attribute":"Arn"}`. This object may appear
-in a row's JSON `document`, including an EnvironmentVariables array document, or as
-the JSON text of a formal Value row. The target is an full scoped Model Markdown Resource link; the selector has exactly these two fields. It reuses the common logical
+Legacy local Model → IaC comparison of `CodeBuild.Project.Environment.EnvironmentVariables[].Value`
+with `Type=PLAINTEXT` can read an existing resource/attribute selector such as
+`{"$resource":"[key](kms.md#kms-existing-key)","$attribute":"Arn"}`. Do not create or republish this object in JSON `document` or inline JSON Value rows.
+Keep legacy readers for diagnosis/comparison; no automatic conversion or tracking loss is permitted. The target is an full scoped Model Markdown Resource link; the selector has exactly these two fields. It reuses the common logical
 reference resolver and never stores a generated ARN or queries AWS. KMS Key uses
 `Arn` or `KeyId`; KMS Alias uses `AliasArn` or `AliasName`. `AliasArn` is the existing
 comparison's semantic alias ARN attribute, not a CloudFormation Alias GetAtt attribute.

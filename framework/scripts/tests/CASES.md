@@ -2318,3 +2318,14 @@ Model v2 移行完了に伴い、固定旧 Framework の export/convert/compare 
 Framework seedと全体・部分コピー専用helperを撤去。実リポジトリのFrameworkを `definition_root` / `mapping_alias` / `mappings_for` と既存 `definitions_root` 引数で読み取り、Model・Task・IaC入力・Outputだけを独立workspaceへ配置する。pytestは `shared_framework` と `project_workspace` / `managed_project_workspace` を使用する。残る4 seedは可変Projectデータ専用で、runnerのInventory・完了Receipt・到達性検証を維持する。
 
 Humanが明示許可した例外として `integrations/sync-existing-files.checks.py` の配布機能ITのみ実Frameworkをコピーする。テストfixtureのFrameworkコピーやsymlink/hardlinkは使用しない。Mapping/Schema読取例外は実ソースへの読取境界で検証し、定義ファイルを書き換えない。
+
+## JSON settings without Resource markup
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `json-settings::values` | `check_json_settings` | UT | [units/producer-identifier-reference-unit.checks.py](units/producer-identifier-reference-unit.checks.py) | pytest / 1 | document/inline JSONのResourceリンク拒否、escaped Pointer、URLとJSON外部リンク保持、identifierメタデータ再利用、物理値非解決 | Model |
+| `json-settings::boundaries` | `check_json_boundaries` | UT | [units/producer-identifier-reference-unit.checks.py](units/producer-identifier-reference-unit.checks.py) | pytest / 1 | 共通候補検証、独立Model検証、生成前拒否と正本不変 | Model |
+
+既存 model-identity / json-resource-arn / s3-kms-reference の生成ケースは、JSON内selectorの生成拒否と正本不変を確認する。legacy operandの読取・影響分析・ARN解決・IaC比較は従来assertionを保持。純粋JSONの独立fixtureでArtifact生成を確認し、通常のJSON外部KMS Aliasリンクは引き続き生成・検証する。
+
+import-references のSubnet配列とCodePipeline Configuration生成fixtureは確認済みliteralを使用する。ConfigurationのProjectNameは既存外部name参照とJSON Pointerで追跡し、IMPORTがリンク要求warningを出さず取得値の相違は拒否することを確認。入口/展開数は維持。

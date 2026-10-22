@@ -94,14 +94,25 @@ def check_authority_display_and_references(project_workspace, alias):
     assert load_model(scope, FileReads()).authoritative[ROW] == bucket[ROW]
     from model.validation import check_model_inputs
     schema = check_model_inputs(scope.path, bucket, scope.root, definitions_root=FRAMEWORK)
-    assert not schema.errors, schema.errors
+    if alias:
+        assert not schema.errors, schema.errors
+    else:
+        assert any('JSON setting contains' in error for error in schema.errors), schema.errors
     uses = incoming(load_model(Scope(scope.root, 'fixture', 'team', 'kms')), '002' if alias else '001')
     assert any(consumer == scope and usage.consumer_key == ROW and
                usage.pointer == (None if alias else '/$resource') for consumer, usage in uses)
-    validate_candidates(scope.root, {'model/fixture/team/s3.properties'}, {}, {('fixture', 'team', 's3')})
+    if alias:
+        validate_candidates(scope.root, {'model/fixture/team/s3.properties'}, {}, {('fixture', 'team', 's3')})
+    else:
+        with pytest.raises(ValueError, match='JSON setting contains'):
+            validate_candidates(scope.root, {'model/fixture/team/s3.properties'}, {}, {('fixture', 'team', 's3')})
     with patch('botocore.session.Session.create_client', side_effect=AssertionError('AWS forbidden')):
-        files = designs(scope, bucket, kms)
+        if not alias:
+            with pytest.raises(ValueError, match='JSON setting contains'):
+                designs(scope, bucket, kms)
         displayed = reference_display(bucket, scope.path, scope.root, definitions_root=FRAMEWORK)
+        # Reconstruct the historical Markdown from its ordinary displayed link.
+        files = designs(scope, displayed, kms)
     view = scope.root / 'docs/designs/fixture/team/s3.md'
     expected = ALIAS_LINK if alias else KEY_LINK
     assert expected in files[view] and '$resource' not in files[view]
@@ -186,8 +197,10 @@ def check_pending_key_projection(project_workspace):
     kms['observed.row.001-001.value'] = '`PENDING_DEPLOY`'
     write_model(Scope(scope.root, 'fixture', 'team', 'kms').path, kms)
     with patch('botocore.session.Session.create_client', side_effect=AssertionError('AWS forbidden')):
-        files = designs(scope, bucket, kms)
-    assert KEY_LINK in files[scope.root / 'docs/designs/fixture/team/s3.md']
+        with pytest.raises(ValueError, match='JSON setting contains'):
+            designs(scope, bucket, kms)
+        displayed = reference_display(bucket, scope.path, scope.root, definitions_root=FRAMEWORK)
+    assert displayed[ROW] == KEY_LINK
     assert load_model(scope).authoritative[ROW] == selector()
 
 

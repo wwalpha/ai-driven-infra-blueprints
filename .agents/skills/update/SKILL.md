@@ -43,3 +43,11 @@ branch in 05_update and the standalone Task contract. Call only model-retarget, 
 all declarations together; retain both producers and the ordinary Issue Gate. No merge
 pair, transfer/delete or value-preserving detach authority is implied. Generate through
 the existing APIs and finalize the running parent on the latest-base candidate.
+
+Follow [JSON settings](../../../framework/rules/model-information.md) and
+[Resource identity](../../../framework/docs/model-identity.md): JSON stores AWS configuration
+values without Markdown Resource links, including `$resource`. Reuse external
+`desired.reference.*` metadata with `format=identifier` and JSON Pointers for confirmed
+non-ARN identifiers. Never guess IDs, automatically migrate existing Models, or replace
+ARN selectors by saved generated ARNs; report unsupported cases. Keep Resource/artifact
+links outside JSON bodies.

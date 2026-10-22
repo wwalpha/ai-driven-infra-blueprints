@@ -229,6 +229,9 @@ def markdown_for(path: Path, values: dict[str, str], root: Path, *, definitions_
 
 def render_validated_model(path: Path, values: dict[str, str], root: Path, *, definitions_root: Path | None = None) -> str:
     """Internal renderer after mapping/required-property preflight, before artifacts."""
+    from model.validation import validate_json_settings
+    model_path = (root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties')
+    validate_json_settings(values, model_path)
     if path.stem == "cloudformation-stacks":
         return stack_markdown(path, values, root, definitions_root=definitions_root)
     from model.projection import reference_display
@@ -250,6 +253,8 @@ def render_validated_model(path: Path, values: dict[str, str], root: Path, *, de
 @input_scope
 def generate_markdown(path: Path, values: dict[str, str], root: Path) -> str:
     """Render the selected service without deciding whether its design is correct."""
+    from model.validation import validate_json_settings
+    validate_json_settings(values, (path.parents[4] / 'model' / path.relative_to(path.parents[4] / 'docs/designs')).with_suffix('.properties'))
     from model.projection import reference_display
     values = reference_display(values, path, path.parents[4], definitions_root=root)
     service = path.stem
@@ -339,6 +344,8 @@ from model.projection import JSON_LINK
 
 def generate_files(path, values, root):
     """Generate one service in memory, without validation or dependency publication."""
+    from model.validation import validate_json_settings
+    validate_json_settings(values, (root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties'))
     from model.sources import safe, scope_for
     from model.identity import Resolver
     resolver = Resolver(root)
