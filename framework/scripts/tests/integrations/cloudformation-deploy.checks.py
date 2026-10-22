@@ -915,8 +915,9 @@ def check_session_cli(tmp_path):
                 patch.object(M, "AwsBackend", side_effect=backend_factory), \
                 patch.object(shutil, "which", return_value="mock-command"), \
                 patch.object(M.subprocess, "run", side_effect=subprocess_result) as run, \
-                patch.object(M.session_ops, "run_session", side_effect=run_session):
-            result = M.main(argv + list(options), root=root)
+                patch.object(M.session_ops, "run_session", side_effect=run_session), \
+                patch.object(Path, "cwd", return_value=base if options else root):
+            result = M.main(argv + list(options), **({"root": root} if options else {}))
             if not state_file.exists() and "other" not in options:
                 assert False, output.getvalue() + errors_output.getvalue()
             if run.called:

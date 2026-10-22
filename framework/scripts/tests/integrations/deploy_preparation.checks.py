@@ -19,13 +19,16 @@ def check_preparation():
         fixture(root)
         original = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
         started = time.perf_counter()
-        assert invoke(arguments(root, base)) == 0
+        with patch.object(Path, "cwd", return_value=root):
+            assert invoke(arguments(root, base)[2:]) == 0
         wall = time.perf_counter() - started
         run = next((base / "logs").iterdir())
         path = run / "preparation.json"
         plan = json.loads(path.read_text(encoding="utf-8"))
         assert {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()} == original
         assert plan["controllerArgv"].count("--stack") == 2
+        assert "--repository-root" not in plan["controllerArgv"]
+        assert not (root / "framework").exists()
         assert "--sequential" in plan["controllerArgv"] and "--timing-log" in plan["controllerArgv"]
         assert plan["controllerArgv"][0] == sys.executable
         assert plan["scope"] == ["dev/123456789012/cloudformation-stacks", "dev/123456789012/ec2", "dev/123456789012/iam"]
@@ -79,15 +82,24 @@ def check_preparation():
             assert M.main(["--repository-root", str(root), "--run-controller", str(path)]) == 2
             assert launch.call_count == 1 and launch.call_args.args[0] == plan["controllerArgv"]
             assert launch.call_args.kwargs["env"]["BLUEPRINT_TASK_FILE"] == "tasks/deploy-offline.md"
+        plan = json.loads(path.read_text(encoding="utf-8"))
         original_command = plan["controllerArgv"][:]
-        for command in ([*original_command[:3], str(base / "other"), *original_command[4:]],
-                        [*original_command, "--repository-root", str(base / "other")],
-                        [*original_command[:2], *original_command[4:]]):
+        for command in ([str(base / "other-python"), *original_command[1:]],
+                        [original_command[0], str(base / "other-controller.py"), *original_command[2:]],
+                        [*original_command[:2], "--repository-root", str(root), *original_command[2:]],
+                        [*original_command, "--repository-root=" + str(root)]):
             plan["controllerArgv"] = command
             path.write_text(json.dumps(plan), encoding="utf-8")
             with patch.object(M.subprocess, "run", side_effect=AssertionError("foreign Project launched")), redirect_stderr(io.StringIO()):
                 assert M.main(["--repository-root", str(root), "--run-controller", str(path)]) == 1
         plan["controllerArgv"] = original_command
+        for field, value in (("repository", str(base / "other")), ("registeredContractDigest", "changed")):
+            saved = plan[field]
+            plan[field] = value
+            path.write_text(json.dumps(plan), encoding="utf-8")
+            with patch.object(M.subprocess, "run", side_effect=AssertionError("unapproved plan launched")), redirect_stderr(io.StringIO()):
+                assert M.main(["--repository-root", str(root), "--run-controller", str(path)]) == 1
+            plan[field] = saved
         path.write_text(json.dumps(plan), encoding="utf-8")
         events = [json.loads(line) for line in (run / "timing.jsonl").read_text().splitlines()]
         assert {"environment", "contractPreparation", "documentRead", "documentReview", "contractRegistration"} <= {e["phase"] for e in events}

@@ -359,7 +359,7 @@ def staged_snapshot(root, args, directory, environment):
         metadata = {"source": str(root), "base": base, "head": head, "tree": tree}
         (directory / "snapshot.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
         print(f"Staged snapshot: {tree}; base: {base}; metadata: {directory / 'snapshot.json'}", flush=True)
-        command = [sys.executable, "-X", "utf8", str(definition_root(snapshot) / "framework/scripts/blueprint-loop.py"), "--repository-root", str(snapshot),
+        command = [sys.executable, "-X", "utf8", str(definition_root(snapshot) / "framework/scripts/blueprint-loop.py"),
                    "--mode", args.mode, "--jobs", str(args.jobs), "--log-dir", str(directory),
                    "--validation-jobs", str(args.validation_jobs), *(["--fresh"] if args.fresh else []),
                    *(["--all"] if args.all else []), *(["--affected"] if args.affected else []),

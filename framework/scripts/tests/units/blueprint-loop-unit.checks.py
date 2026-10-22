@@ -177,7 +177,7 @@ def check_unit_dispatch(tmp_path):
         path.write_text("# Selection fixture; never executed\n", encoding="utf-8")
     runner = scripts / "blueprint-loop.py"
     with patch.dict(os.environ, {}, clear=True), \
-         patch.object(CLI, "__file__", str(runner)), \
+         patch.object(Path, "cwd", return_value=root), \
          patch.object(MODULE, "active_scope", side_effect=lambda root, all_: None if all_ else {"framework"}), \
          patch.object(MODULE, "changed_paths", return_value={"README.md"}) as changes, \
          patch.object(MODULE, "authorize_full_regression") as authorize, \

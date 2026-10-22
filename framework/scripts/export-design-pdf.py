@@ -262,7 +262,7 @@ def export(root: Path, output: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--repository-root", type=Path, default=Path.cwd().resolve())
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:

@@ -228,7 +228,7 @@ def require_target_no_issues(root: Path, target: tuple[str, str]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--repository-root", type=Path, default=Path.cwd().resolve())
     parser.add_argument("--environment", required=True)
     parser.add_argument("--target-directory", required=True)
     parser.add_argument("--service", action="append", required=True)

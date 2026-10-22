@@ -464,7 +464,7 @@ def check_real_loop_integration():
         overview.write_text("# Fixture changed\n")
         loop = SCRIPT.with_name("blueprint-loop.py")
         environment = {**os.environ, tasks.SELECTOR: state["task_file"], "PYTHONDONTWRITEBYTECODE": "1"}
-        result = subprocess.run([sys.executable, "-B", str(loop), "--repository-root", str(target), "--mode", "task", "--task-file", state["task_file"]],
+        result = subprocess.run([sys.executable, "-B", str(loop), "--mode", "task", "--task-file", state["task_file"]],
                                 cwd=target, env=environment, capture_output=True, encoding="utf-8")
         assert result.returncode == 0, result.stdout + result.stderr
         assert "Blueprint local loop: PASS" in result.stdout
@@ -473,7 +473,7 @@ def check_real_loop_integration():
         assert (root / "docs/system-overview.md").read_text() == "# Fixture changed\n"
         target, state = start(root, "failed-loop", files=("docs/system-overview.md",))
         (target / "docs/system-overview.md").write_text("# Trailing whitespace  \n")
-        result = subprocess.run([sys.executable, "-B", str(loop), "--repository-root", str(target),
+        result = subprocess.run([sys.executable, "-B", str(loop),
                                  "--mode", "task", "--task-file", state["task_file"]],
                                 cwd=target, env=environment, capture_output=True, encoding="utf-8")
         assert result.returncode != 0 and "FAIL" in result.stdout, result.stdout + result.stderr

@@ -550,7 +550,7 @@ def resume(root, name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--repository-root", type=Path, default=Path.cwd().resolve())
     parser.add_argument("--task-file", required=True)
     parser.add_argument("--source", type=Path, help="Register a new contract from a file outside the repository")
     transition = parser.add_mutually_exclusive_group()

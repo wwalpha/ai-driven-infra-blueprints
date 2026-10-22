@@ -391,7 +391,7 @@ def detail_payload(artifact, section, offset=0, limit=50, category=None, issue_i
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--repository-root', type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument('--repository-root', type=Path, default=Path.cwd().resolve())
     parser.add_argument('--task-file')
     commands = parser.add_subparsers(dest='command', required=True)
     scanparser = commands.add_parser('scan')

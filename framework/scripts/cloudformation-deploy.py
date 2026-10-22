@@ -329,7 +329,6 @@ class AwsBackend:
 
 def controller_main(argv=None, root=None, timing=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repository-root", type=Path)
     parser.add_argument("--environment", required=True)
     selector = parser.add_mutually_exclusive_group(required=True)
     selector.add_argument("--alias")
@@ -343,16 +342,15 @@ def controller_main(argv=None, root=None, timing=None):
     parser.add_argument("--sequential", action="store_true", help="limit this session to one stack at a time without changing the design")
     parser.add_argument("--pause-after-group", action="store_true", help="update phase only: explicit producer/consumer IaC handoff")
     args = parser.parse_args(argv)
-    root = (root or args.repository_root or Path(__file__).resolve().parents[2]).resolve()
+    root = (root if root is not None else Path.cwd()).resolve()
     return session_ops.run(args, root, timing, Path(__file__).parent, AwsBackend, load_units)
 
 
 def main(argv=None, root=None):
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--timing-log", type=Path)
-    parser.add_argument("--repository-root", type=Path)
     args, _ = parser.parse_known_args(argv)
-    root = (root or args.repository_root or Path(__file__).resolve().parents[2]).resolve()
+    root = (root if root is not None else Path.cwd()).resolve()
     try:
         timing = Timing(root, args.timing_log)
         with timing.phase("controller"):

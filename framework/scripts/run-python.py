@@ -10,13 +10,8 @@ import worktree_python
 
 def main():
     try:
-        root = Path(__file__).resolve().parents[2]
+        root = Path.cwd().resolve()
         args = sys.argv[1:]
-        if args[:1] == ["--repository-root"]:
-            if len(args) < 2:
-                raise ValueError("--repository-root requires a Project directory")
-            root = Path(args[1]).resolve()
-            args = args[2:]
         selected = worktree_python.runtime(root)
         interpreter, env = selected or (Path(sys.executable), os.environ.copy())
         if sys.dont_write_bytecode:

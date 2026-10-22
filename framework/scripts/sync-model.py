@@ -36,7 +36,7 @@ def run(argv, *, repository_root, definitions_root=None):
 @reported_main
 def main(argv=None, *, definitions_root=None) -> int:
     parser = ArgumentParser()
-    parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--repository-root", type=Path, default=Path.cwd().resolve())
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--environment")
     parser.add_argument("--aws-account-id")

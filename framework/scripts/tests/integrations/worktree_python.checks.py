@@ -136,10 +136,11 @@ def check_real_global():
         spec = spec_from_file_location("python_wrapper", Path(py.__file__).with_name("run-python.py"))
         wrapper = module_from_spec(spec)
         spec.loader.exec_module(wrapper)
-        with patch.object(wrapper.worktree_python, "runtime", return_value=None), \
+        with patch.object(wrapper.worktree_python, "runtime", return_value=None) as runtime, \
                 patch.object(wrapper.os, "execvpe") as execute, patch.object(wrapper.sys, "platform", "linux"), patch.object(wrapper.sys, "argv", ["wrapper", "-c", "pass"]):
             wrapper.main()
             assert execute.call_args.args[1][0] == sys.executable
+            runtime.assert_called_once_with(Path.cwd().resolve())
     print("Ordinary checkout wrapper retains launcher behavior: PASS")
 
 
@@ -175,7 +176,7 @@ def check_venv_fallback():
             wrapper = Path(py.__file__).with_name("run-python.py")
             code = "import sys,os,json; print(json.dumps([sys.executable,sys.prefix,os.environ['VIRTUAL_ENV'],os.environ['PATH'].split(os.pathsep)[0]]))"
             for arguments in (["-c", code], ["--command", "python", "-c", code]):
-                result = subprocess.run([sys.executable, "-B", str(wrapper), "--repository-root", str(target), *arguments], cwd=target,
+                result = subprocess.run([sys.executable, "-B", str(wrapper), *arguments], cwd=target,
                                         capture_output=True, text=True)
                 assert result.returncode == 0, result.stderr + result.stdout
                 executable, prefix, virtual, first_bin = json.loads(result.stdout)

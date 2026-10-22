@@ -119,7 +119,7 @@ def check_deploy_scope_isolation(tmp_path):
         name = f"tasks/{env}.md"
         if tasks.status((root / name).read_text()) == "suspend":
             tasks.resume(root, name)
-        return subprocess.run([sys.executable, "-c", child, "--repository-root", str(root), "--mode", mode,
+        return subprocess.run([sys.executable, "-c", child, "--mode", mode,
                                "--task-file", name, "--log-dir", str(tmp_path / "logs"), *options],
                               cwd=root, env=environment, capture_output=True, encoding="utf-8")
 
@@ -178,7 +178,7 @@ display.resource.001.comment=通信ログを保存するLog Group
         'desired.stack.001.deployOrder': '1', 'display.stack.001.comment': '合成Stack'})
     environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0"}
     environment.pop("BLUEPRINT_PROFILE_DIR", None)  # The fixture profiles only its explicit --profile run.
-    result = subprocess.run([sys.executable, str(scripts / "sync-model.py"), "--repository-root", str(root), "--write", "--all"],
+    result = subprocess.run([sys.executable, str(scripts / "sync-model.py"), "--write", "--all"],
                             cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode == 0, result.stdout + result.stderr
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
@@ -208,10 +208,10 @@ display.resource.001.comment=通信ログを保存するLog Group
 """, encoding="utf-8")
     design = root / "docs/designs/dev/123456789012/logs.md"
     write_model(model, original.replace("value=30", "value=14"))
-    subprocess.run([sys.executable, str(scripts / "sync-model.py"), "--repository-root", str(root), "--write", "--all"],
+    subprocess.run([sys.executable, str(scripts / "sync-model.py"), "--write", "--all"],
                    cwd=root, env=environment, check=True, capture_output=True)
     good_model, good_design = read_model(model), design.read_text(encoding="utf-8")
-    command = [sys.executable, str(scripts / SCRIPT.name), "--repository-root", str(root), "--mode", "task", "--log-dir", str(tmp_path / "logs")]
+    command = [sys.executable, str(scripts / SCRIPT.name), "--mode", "task", "--log-dir", str(tmp_path / "logs")]
 
     def run():
         if tasks.status(active.read_text(encoding="utf-8")) == "suspend":
@@ -364,7 +364,7 @@ def check_staged_snapshot(tmp_path):
     if not index.is_absolute():
         index = root / index
     saved_index = index.read_bytes()
-    result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
+    result = subprocess.run(command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode == 0 and "日本語 snapshot" in result.stdout, result.stdout + result.stderr
     assert "snapshot regression assertion executed" in result.stdout
     assert index.read_bytes() == saved_index
@@ -398,7 +398,7 @@ def check_staged_snapshot(tmp_path):
     validator.write_text(original_validator +
                         f"Path({str(root / '.lock')!r}).write_text('changed', encoding='utf-8')\n", encoding="utf-8")
     MODULE.git(root, "add", "checks/validate-blueprint.py")
-    result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
+    result = subprocess.run(command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode == 1 and "HEAD/index/.lock changed" in result.stdout, result.stdout + result.stderr
     (root / ".lock").write_text('{"local":"fixture service_source"}\n', encoding="utf-8")
     validator.write_text(original_validator, encoding="utf-8")
@@ -406,9 +406,9 @@ def check_staged_snapshot(tmp_path):
     validator.write_text(validator.read_text(encoding="utf-8") +
         f"subprocess.run(['git','add','tasks/snapshot.md'], cwd={str(root)!r}, check=True)\n", encoding="utf-8")
     MODULE.git(root, "add", "checks/validate-blueprint.py")
-    result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
+    result = subprocess.run(command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode == 1 and "snapshot is stale" in result.stdout, result.stdout + result.stderr
-    rejected = subprocess.run([*command, "--affected", "--all"], capture_output=True, encoding="utf-8")
+    rejected = subprocess.run([*command, "--affected", "--all"], cwd=root, capture_output=True, encoding="utf-8")
     assert rejected.returncode and "cannot narrow" in rejected.stderr
     # write-tree must reject unresolved conflicts before any validation starts.
     blob = MODULE.git(root, "rev-parse", "HEAD:tasks/snapshot.md")
@@ -416,7 +416,7 @@ def check_staged_snapshot(tmp_path):
     conflict += "".join(f"100644 {blob} {stage}\ttasks/snapshot.md\n" for stage in (1, 2, 3))
     subprocess.run(["git", "update-index", "--index-info"], cwd=root,
                    input=conflict, encoding="utf-8", check=True)
-    result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
+    result = subprocess.run(command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode != 0 and "START validate-blueprint.py" not in result.stdout
 
 
@@ -428,7 +428,7 @@ def check_regression_authorization(tmp_path):
     runner = scripts / SCRIPT.name
     runner.write_text("# fixture\n", encoding="utf-8")
     (scripts / "tests/units/a.checks.py").write_text("# fixture\n", encoding="utf-8")
-    with patch.object(CLI, "__file__", str(runner)), \
+    with patch.object(Path, "cwd", return_value=root), \
          patch.object(MODULE, "active_scope", return_value={"framework"}), \
          patch.object(MODULE, "changed_paths", return_value=set()) as changed, \
          patch.object(MODULE, "authorize_full_regression", side_effect=ValueError("fixture locked")) as authorize, \
@@ -499,7 +499,7 @@ def check_failure_suspension(tmp_path):
         command = [sys.executable, str(scripts / SCRIPT.name), "--mode", "full", "--task-file", first,
                    "--log-dir", str(tmp_path / "logs")]
         environment = MODULE.utf8_environment()
-        result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
+        result = subprocess.run(command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
         assert result.returncode == 1 and "Task suspended" in result.stdout, result.stdout + result.stderr
         text = (root / first).read_text()
         assert tasks.status(text) == "suspend" and "schema mismatch" in text
@@ -511,7 +511,7 @@ def check_failure_suspension(tmp_path):
         assert tasks.status((root / first).read_text()) == "running"
         validator.write_text("print('validator passed')\n", encoding="utf-8")
         save_inputs()
-        result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
+        result = subprocess.run(command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
         assert result.returncode == 0, result.stdout + result.stderr
         assert tasks.status((root / first).read_text()) == "running"
         tasks.suspend(root, replacement, "replacement paused after check failure")
@@ -519,7 +519,7 @@ def check_failure_suspension(tmp_path):
         validator.write_text("print('validator passed')\n", encoding="utf-8")
         check.write_text("assert False, 'own check: missing required field'\n", encoding="utf-8")
         save_inputs()
-        result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
+        result = subprocess.run(command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
         text = (root / first).read_text()
         assert result.returncode == 1 and tasks.status(text) == "suspend"
         assert "own.checks.py" in text and "missing required field" in text
@@ -599,7 +599,7 @@ def check_startup_diagnostics(tmp_path, phase):
                 "timing": ("timing.open", "pathlib.Path.open"),
                 "diagnostic-open": ("diagnostics.start", "pathlib.Path.open"),
                 "unexpected": ("git.config", "subprocess.run")}
-    with patch.object(CLI, "__file__", str(runner)), \
+    with patch.object(Path, "cwd", return_value=root), \
          patch.object(MODULE, "active_scope", return_value={"framework"}), \
          patch.object(MODULE, "changed_paths", return_value=set()), \
          patch.object(Path, "read_text", read), patch.object(Path, "open", open_file), \
@@ -706,7 +706,7 @@ def check_workflow(tmp_path) -> None:
     assert len(directories) == 2, "each run must retain its own logs"
     assert events((directories - {failed_directory}).pop())[-1]["status"] == "pass"
     assert events(failed_directory)[-1]["status"] == "fail", "previous logs must not be overwritten"
-    rejected = subprocess.run([*command[:-1], str(root / 'logs')], capture_output=True, encoding="utf-8")
+    rejected = subprocess.run([*command[:-1], str(root / 'logs')], cwd=root, capture_output=True, encoding="utf-8")
     assert rejected.returncode != 0 and "outside the repository" in rejected.stderr
 
     (scripts / "validate-blueprint.py").write_text("import sys\nassert '--all' not in sys.argv\n", encoding="utf-8")

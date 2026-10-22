@@ -4,7 +4,6 @@ from validation.loop import *
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--mode", choices=("task", "full", "local"), required=True,
                         help="task/local: active-scope validation; full: also all unit regression tests")
     parser.add_argument("--all", action="store_true", help="Explicit whole-repository validation and all unit regression tests")
@@ -26,7 +25,7 @@ def main() -> int:
         parser.error('--staged and --base must be specified together')
     if args.affected and (args.mode == 'full' or args.all):
         parser.error('--affected cannot narrow full/--all validation')
-    return run_loop(args.repository_root.resolve(), args)
+    return run_loop(Path.cwd().resolve(), args)
 
 if __name__ == "__main__":
     signal.signal(signal.SIGTERM, interrupt)

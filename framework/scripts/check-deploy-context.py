@@ -108,7 +108,7 @@ def main() -> int:
         help="verify AWS credentials and target without requiring an IaC command",
     )
     args = parser.parse_args()
-    root = Path(__file__).resolve().parents[2]
+    root = Path.cwd().resolve()
 
     try:
         target = check_deploy_context(

@@ -10,7 +10,7 @@ from model.validation import design_naming_errors
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--root", type=Path, default=Path.cwd().resolve())
     parser.add_argument("--resource-type", required=True)
     parser.add_argument("--mode", choices=("CREATE", "IMPORT"), default="CREATE")
     parser.add_argument("--name-tag", action="store_true", help="Check a human-selected optional Name tag")

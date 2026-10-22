@@ -70,7 +70,7 @@ sys.path.insert(0, {str(SCRIPT.parent)!r})
 from validation import loop, runner
 from script_loader import module
 cli = module('blueprint-loop.py', 'fixture_loop_cli')
-root = Path(__file__).resolve().parents[1]
+root = Path.cwd().resolve()
 original_changed = loop.framework_changed
 loop.framework_changed = lambda paths: original_changed(paths) or any(p.startswith('checks/') for p in paths)
 loop.select_checks = lambda *a, **k: (sorted((root / 'checks/tests/units').glob('*.checks.py')), 'orchestration outcomes')
@@ -91,7 +91,6 @@ def run_validation(root, options, **kwargs):
     return SimpleNamespace(display_report=report)
 runner.run_validation = run_validation
 loop.authorize_full_regression = lambda root: None
-sys.argv += ['--repository-root', str(root)]
 raise SystemExit(cli.main())
 """
     (scripts / 'blueprint-loop.py').write_text(bootstrap, encoding='utf-8')

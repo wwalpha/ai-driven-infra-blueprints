@@ -16,10 +16,10 @@ def main():
         root = Path(temporary).resolve()
         password = "fixture-only-long-password"
         lock = root / ".lock"
-        with patch.object(guard, "__file__", str(root / "framework/scripts/regression_guard.py")), \
+        with patch.object(Path, "cwd", return_value=root), \
              patch.object(guard, "password_input", side_effect=[password, "different-confirmation"]):
             rejected(guard.install)
-        with patch.object(guard, "__file__", str(root / "framework/scripts/regression_guard.py")), \
+        with patch.object(Path, "cwd", return_value=root), \
              patch.object(guard, "password_input", return_value=password) as entry:
             guard.install()
             assert [path.name for path in root.iterdir()] == [".lock"], "service_source created extra files/directories"

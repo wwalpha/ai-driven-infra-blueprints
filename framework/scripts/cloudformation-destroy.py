@@ -360,7 +360,7 @@ def controller_main(argv=None, root=None):
     parser.add_argument("--local-plan", action="store_true", help="local JSON resource/output plan; no AWS calls")
     parser.add_argument("--timing-log", type=Path)
     args = parser.parse_args(argv)
-    root = (root or Path(__file__).resolve().parents[2]).resolve()
+    root = (root if root is not None else Path.cwd()).resolve()
     session, lock, save = None, None, None
     try:
         context = context_module()

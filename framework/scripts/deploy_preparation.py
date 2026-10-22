@@ -326,7 +326,7 @@ def prepare(root, args, run, timing):
         documents.append({"source": args.task_file, "sha256": sha(contract), "chunks": chunks})
     selector = ["--alias", args.alias] if args.alias else ["--aws-account-id", args.aws_account_id]
     command = [sys.executable, str(definition_root(root) / "framework/scripts/cloudformation-deploy.py"),
-               "--repository-root", str(root), "--environment", args.environment, *selector]
+               "--environment", args.environment, *selector]
     for unit in units:
         command += ["--stack", unit["name"]]
     command += ["--state", str(run / "session.json"), "--timing-log", str(timing.path)]
@@ -424,11 +424,8 @@ def run_controller(root, path):
     plan = json.loads(path.read_text(encoding="utf-8"))
     if plan["repository"] != str(root) or plan["controllerArgv"][:2] != [sys.executable, str(definition_root(root) / "framework/scripts/cloudformation-deploy.py")]:
         raise ValueError("use the prepared repository and Python interpreter")
-    selector = argparse.ArgumentParser(add_help=False)
-    selector.add_argument("--repository-root", type=Path)
-    execution, _ = selector.parse_known_args(plan["controllerArgv"][2:])
-    if execution.repository_root != root:
-        raise ValueError("use the prepared Project Root")
+    if any(arg == "--repository-root" or arg.startswith("--repository-root=") for arg in plan["controllerArgv"][2:]):
+        raise ValueError("obsolete controller plan; prepare again")
     selected = task_path(root, plan["taskFile"])
     if sha(selected) != plan.get("registeredContractDigest", plan["contractDigest"]):
         raise ValueError("registered contract changed; use existing controller resume procedure")
@@ -442,7 +439,7 @@ def run_controller(root, path):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repository-root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--repository-root", type=Path, default=Path.cwd().resolve())
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--register", type=Path, help="register a reviewed external preparation.json; never deploy")
     mode.add_argument("--run-controller", type=Path, help="execute an explicitly authorized registered plan, one controller only")

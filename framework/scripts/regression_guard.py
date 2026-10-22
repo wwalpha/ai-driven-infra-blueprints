@@ -38,7 +38,7 @@ def password_hash(password, salt):
 
 
 def install():
-    lock = Path(__file__).resolve().parents[2] / ".lock"
+    lock = Path.cwd().resolve() / ".lock"
     if lock.exists() or lock.is_symlink():
         raise GuardError("repo .lock already exists; service_source will not overwrite it")
     password = password_input("New full-regression password (at least 12 characters): ")
@@ -93,7 +93,7 @@ def main():
     mode.add_argument("--verify", action="store_true", help="Interactively verify this repo's .lock")
     args = parser.parse_args()
     try:
-        install() if args.install else verify(Path(__file__).resolve().parents[2])
+        install() if args.install else verify(Path.cwd().resolve())
         return 0
     except KeyboardInterrupt:
         print("Regression authorization cancelled; no checks started.", file=sys.stderr)

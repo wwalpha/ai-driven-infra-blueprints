@@ -9,6 +9,10 @@ if not __debug__:
 from support.regression_guard_fixtures import *
 
 def check_password_input_diagnostics():
+    with patch.object(guard.sys, "argv", ["regression_guard.py", "--verify"]), \
+         patch.object(guard, "verify") as verify:
+        assert guard.main() == 0
+        verify.assert_called_once_with(Path.cwd().resolve())
     with patch.object(guard.sys.stdin, "isatty", return_value=False), \
          patch.object(guard.getpass, "getpass") as entry:
         rejected(lambda: guard.password_input("Password: "))
