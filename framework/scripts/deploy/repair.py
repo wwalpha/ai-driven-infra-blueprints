@@ -14,7 +14,7 @@ from iac_values import same
 from utils.json_format import fingerprint
 from cloudformation_inputs import Blocked, resolve_value, condition_active, output_value
 from validation_scope import active_scope as validation_scope
-from deployment.scheduler import SUCCESS
+from deploy.scheduler import SUCCESS
 
 
 def repair_template(text, logical, prop, value):
@@ -86,7 +86,7 @@ def repair_template(text, logical, prop, value):
         replacement = '\n'.join(' ' * indent + line for line in rendered.splitlines()) + '\n'
         result = text[:start] + replacement + text[end:]
     # Fail closed if the source-span edit touched anything except the selected property.
-    from cfnlint.decode import decode_str as loads
+    from utils.cloudformation_format import decode as loads
     before, errors = loads(text)
     after, later = loads(result)
     expected = copy.deepcopy(before)
@@ -114,17 +114,24 @@ def merge_selected(actual, desired, prop=""):
     return desired
 
 
-def repair_plan(root, environment, directory, target, mapping_plan, paths, aws, unit, state):
+def repair_plan(root, environment, directory, target, templates, paths, aws, unit, state):
     """Use the existing typed model projection; error text selects scope, never values."""
     scope = validation_scope(root)
     if not scope:
         raise Blocked('repair needs explicit service Validation scope')
-    owned = mapping_plan[1].get(unit['name'], {})
-    affected = {owned[event['LogicalResourceId']][0].stem for event in state.get('failureEvents', [])
-                if event.get('LogicalResourceId') in owned}
-    comparison = Comparison(root, environment, directory,
-                            sorted(affected) or [service for env, directory, service in scope
-                             if (env, directory) == (environment, directory) and service != 'cloudformation-stacks'])
+    from model.adapters.observed import resolve_resources
+    failed = [e for e in state.get('failureEvents', []) if e.get('ResourceType') != 'AWS::CloudFormation::Stack'
+              and e.get('ResourceStatus', '').endswith('_FAILED')
+              and 'cancel' not in (e.get('ResourceStatusReason') or '').lower()]
+    if not failed:
+        raise Blocked('no resource failure diagnostics tied to this execution')
+    _, mapped = resolve_resources(root, environment, directory, templates, [unit],
+        {unit['name']: {e['LogicalResourceId'] for e in failed}}, target=target, identifiers=False)
+    owned = mapped[unit['name']]
+    if any(e['LogicalResourceId'] not in owned for e in failed):
+        raise Blocked('failed resource has no explicit owner')
+    affected = {entry[0].stem for entry in owned.values()}
+    comparison = Comparison(root, environment, directory, sorted(affected))
     if comparison.load_errors:
         raise Blocked('authoritative repair model cannot be loaded')
     path, (document, _, _) = comparison.stack(unit)
@@ -208,20 +215,20 @@ def repair_plan(root, environment, directory, target, mapping_plan, paths, aws, 
                     if len(candidates) != 1:
                         raise Blocked('reference export ambiguous/missing')
                     if 'exports' not in export_snapshot:
-                        export_snapshot['exports'] = aws('list-exports').get('Exports', [])
+                        export_snapshot['exports'] = aws('list_exports').get('Exports', [])
                     exports = export_snapshot['exports']
                     owners = [entry for entry in exports if entry['Name'] == candidates[0]
                               and entry.get('ExportingStackId', '').split(':stack/')[-1].split('/')[0] == name]
                     if len(owners) != 1:
                         raise Blocked('reference export current owner not confirmed')
                     if name not in producer_snapshots:
-                        producer_snapshots[name] = (aws('describe-stacks', '--stack-name', name)['Stacks'][0],
-                                                    aws('get-template', '--stack-name', name)['TemplateBody'])
+                        producer_snapshots[name] = (aws('describe_stacks', StackName=name)['Stacks'][0],
+                                                    aws('get_template', StackName=name)['TemplateBody'])
                     current, actual = producer_snapshots[name]
                     if current['StackStatus'] not in SUCCESS:
                         raise Blocked('reference producer is not terminal success')
                     if isinstance(actual, str):
-                        from cfnlint.decode import decode_str
+                        from utils.cloudformation_format import decode as decode_str
                         actual, errors = decode_str(actual)
                         if errors:
                             raise Blocked('reference producer template unreadable')
@@ -294,7 +301,7 @@ def cleanup_failed_create(templates, aws, save, wait_cleanup, unit, state, *, em
         return True
     if state.get('cleanupStatus') == 'DELETE_INTENT':
         try:
-            current = aws('describe-stacks', '--stack-name', state['stackId'])['Stacks'][0]
+            current = aws('describe_stacks', StackName=state['stackId'])['Stacks'][0]
         except Blocked as error:
             if 'does not exist' not in str(error):
                 raise
@@ -309,11 +316,11 @@ def cleanup_failed_create(templates, aws, save, wait_cleanup, unit, state, *, em
         if current['StackStatus'] != 'ROLLBACK_COMPLETE':
             raise Blocked('interrupted cleanup state unsafe')
     document, _ = templates[unit['name']]
-    stack = aws('describe-stacks', '--stack-name', state['stackId'])['Stacks'][0]
+    stack = aws('describe_stacks', StackName=state['stackId'])['Stacks'][0]
     if (stack['StackId'] != state['stackId'] or stack['StackStatus'] != 'ROLLBACK_COMPLETE'
             or stack.get('EnableTerminationProtection') or stack.get('ParentId') or stack.get('RootId')):
         raise Blocked('failed CREATE identity/state changed or protected')
-    actuals = aws('list-stack-resources', '--stack-name', state['stackId'])['StackResourceSummaries']
+    actuals = aws('list_stack_resources', StackName=state['stackId'])['StackResourceSummaries']
     empty = all(item.get('ResourceStatus') == 'DELETE_COMPLETE' for item in actuals)
     if empty_only and not empty:
         return False
@@ -335,7 +342,7 @@ def cleanup_failed_create(templates, aws, save, wait_cleanup, unit, state, *, em
         raise Blocked('failed CREATE still owns resources; cleanup requires human')
     state.update(cleanupStatus='DELETE_INTENT', cleanupStackId=state['stackId'])
     save()
-    aws('delete-stack', '--stack-name', state['stackId'])
+    aws('delete_stack', StackName=state['stackId'])
     wait_cleanup(state)
     return True
 
@@ -343,7 +350,7 @@ def cleanup_failed_create(templates, aws, save, wait_cleanup, unit, state, *, em
 def wait_cleanup(aws, save, state):
     for _ in range(120):
         try:
-            current = aws('describe-stacks', '--stack-name', state['stackId'])['Stacks'][0]['StackStatus']
+            current = aws('describe_stacks', StackName=state['stackId'])['Stacks'][0]['StackStatus']
         except Blocked as error:
             if 'does not exist' not in str(error):
                 raise
@@ -428,3 +435,56 @@ def apply_candidate(root, workdir, file_digest, input_digest, deployment_input_p
     save()
     finish_repair(unit, state, entry)
     return True
+
+
+def verify_repair(root, environment, directory, target, templates, unit, state):
+    """Verify only properties named by persisted repair evidence and their references."""
+    history = state.get('repairs', [])
+    if not history or history[-1].get('classification') == 'RUNTIME_BOOTSTRAP':
+        return
+    from model.adapters.observed import resolve_resources
+    pairs = [item.split(':', 1) for item in history[-1]['failureClass'].split('|')]
+    _, mapped = resolve_resources(root, environment, directory, templates, [unit],
+        {unit['name']: {logical for logical, _ in pairs}}, target=target, identifiers=False)
+    comparison = Comparison(root, environment, directory, {entry[0].stem for entry in mapped[unit['name']].values()})
+    if comparison.load_errors:
+        raise Blocked('repaired resource Model unavailable')
+    path, (document, parameters, pseudo) = comparison.stack(unit)
+    # Enable local reference evaluation with only the explicit property's producers.
+    comparison.local_comparison = True
+    comparison.reference_models_loaded = True
+    comparison.exports = {}
+    producers = set()
+    def referenced(value):
+        if isinstance(value, dict):
+            if '$resource' in value:
+                service, identity = value['$resource']
+                producers.add(cfn_resource_identity(comparison.resources[service][identity]['cfn-logicalId'])[0])
+            for child in value.values():
+                referenced(child)
+        elif isinstance(value, list):
+            for child in value:
+                referenced(child)
+    for logical, prop in pairs:
+        source, identity, resource = mapped[unit['name']][logical][:3]
+        prefix = resource['resourceType'] + '.' + prop
+        for _, row in comparison.rows[source.stem][identity]:
+            if row['property'] == prefix or row['property'].startswith((prefix + '.', prefix + '[')):
+                referenced(comparison.desired_value(source.stem, row, resource['resourceType']))
+    for _, producer in comparison.templates():
+        if producer['name'] not in producers - {unit['name']}:
+            continue
+        _, (producer_doc, inputs, owner_pseudo) = comparison.stack(producer)
+        for output in producer_doc.get('Outputs', {}).values():
+            if 'Export' in output and condition_active(producer_doc, inputs, owner_pseudo, output):
+                name = resolve_value(output['Export']['Name'], inputs, owner_pseudo, conditions=producer_doc.get('Conditions', {}))
+                comparison.exports.setdefault(name, []).append((producer['name'], output.get('Value')))
+    for logical, prop in pairs:
+        source, identity, resource = mapped[unit['name']][logical][:3]
+        comparison.results = []
+        comparison.compare_rows(source.stem, identity, resource, unit['name'], logical, path,
+                                document['Resources'][logical], document)
+        prefix = resource['resourceType'] + '.' + prop
+        selected = [item for item in comparison.results if item.get('property') == prefix or str(item.get('property', '')).startswith((prefix + '.', prefix + '['))]
+        if not selected or any(item['category'] not in {'matched', 'excluded'} for item in selected):
+            raise Blocked('repaired property is not confirmed against its authoritative Model: ' + '; '.join(str(item.get('category')) + ': ' + str(item.get('reason')) for item in selected))

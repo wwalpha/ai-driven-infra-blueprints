@@ -101,7 +101,7 @@ def check_framework_active_task_transition(findings, root):
 
 
 def check_framework_rule_readings(findings, root):
-    from deploy_preparation import markdown_sections, rule_readings
+    from utils.markdown_format import markdown_sections, rule_readings, read_declaration, declared_readings
     # These entry sections must direct execution to the existing authorities.
     routes = {
         ("README.md", "task-transition"): {
@@ -138,7 +138,20 @@ def check_framework_rule_readings(findings, root):
                 reading = sections.get("read-first", sections.get("read-before-changing-files", ""))
                 required = {root / "framework/rules" / name for name in
                             ("task-contract.md", "issue-gate.md", "project-configuration.md")}
-                readings = rule_readings(root, source, reading)
+                if source.name == '04_deploy.md':
+                    declaration = read_declaration(text)
+                    conditions = {'always', 's3-required', 'destructive-change', 'execution-failed', 'resume', 'aws-success', 'terraform'}
+                    findings.check({v['when'] for v in declaration.values()} == conditions, 'deploy Read conditions must be finite and complete')
+                    for stage in declaration:
+                        declared_readings(root, source, [stage])
+                    readings = declared_readings(root, source, ['startup'])
+                    s3_readings = declared_readings(root, source, ['startup', 's3'])
+                    findings.check(sum(len(v['text']) for v in s3_readings.values()) <= 20000, 'deploy required startup including S3 exceeds 20000 characters')
+                    for name in ('task-contract.md', 'issue-gate.md', 'project-configuration.md'):
+                        entry = readings.get(root / 'framework/rules' / name)
+                        findings.check(bool(entry) and '' not in entry['sections'], f'deploy requires canonical section references: {name}')
+                else:
+                    readings = rule_readings(root, source, reading)
                 if source.name == "08_import.md":
                     required.remove(root / "framework/rules/issue-gate.md")
                     worktree = root / ".agents/skills/worktree/SKILL.md"
@@ -162,7 +175,7 @@ def check_framework_design_handoff(findings, root):
     prompt = input_text(path, encoding="utf-8")
     findings.check("Task type is `design`" in prompt, "service design prompt lacks design task contract")
     findings.check("blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md" in prompt, "service design prompt lacks integrated Model generation/validation")
-    from deploy_preparation import markdown_prose, markdown_sections, rule_readings
+    from utils.markdown_format import markdown_prose, markdown_sections, rule_readings
     try:
         completion = markdown_sections(prompt).get("completion", "")
         validation = next((line for _, line in markdown_prose(completion) if re.match(
@@ -214,7 +227,7 @@ def check_framework_task_completion_contract(findings, root):
     rules = input_text(root / "framework" / "rules" / "loop-engineering.md", encoding="utf-8")
     findings.check("Requirement ID" in contract and "Acceptance checks" in contract, "task rules lack completion contract")
     findings.check("task-contract.md#acceptance-contract" in rules, "loop lacks canonical completion contract reference")
-    from deploy_preparation import markdown_sections
+    from utils.markdown_format import markdown_sections
     transition = markdown_sections(contract).get("task-transition", "")
     for boundary in ("Suspension reason", "--resume", "--complete", "running"):
         findings.check(boundary in transition, f"Task transition safety boundary missing: {boundary}")
@@ -243,15 +256,3 @@ def check_framework_schema_backed_design_validation(findings, root):
     findings.check("CloudFormation provider schema" in prompt, "initial design prompt does not apply provider schemas")
     catalog = CloudFormationSchemaCatalog(root)
     findings.check(bool(catalog.literal_errors("Logs.LogGroup", "KmsKeyId", "not-used")), "schema-backed literal validation is inactive")
-
-
-def check_framework_cfn_lint_validation(findings, root):
-    paths = (
-        root / "framework" / "rules" / "cloudformation.md",
-        root / "framework" / "prompts" / "codex" / "03_implement.md",
-        root / "framework" / "prompts" / "codex" / "04_deploy.md",
-        root / "framework" / "scripts" / "check-deploy-context.py",
-    )
-    for path in paths:
-        findings.check("cfn-lint" in input_text(path, encoding="utf-8"), f"cfn-lint requirement missing: {path.relative_to(root).as_posix()}")
-

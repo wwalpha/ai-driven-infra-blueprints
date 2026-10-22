@@ -96,7 +96,7 @@ def check_scheduler():
             assert state['A']['status'] == 'SUCCESS' and state['A']['clientToken'] == token
             assert starts(fake) == ['A']
     # Worker writes are reflected only by the controller, including error snapshots.
-    from deployment.scheduler import read_parallel
+    from deploy.scheduler import read_parallel
     state = states(selected)
     def read(unit, snapshot):
         snapshot['readEvidence'] = unit['name']

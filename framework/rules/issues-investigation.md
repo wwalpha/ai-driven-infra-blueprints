@@ -30,7 +30,7 @@ Review every `naming.names[].id`, distinguishing missing/unknown components, pat
 
 ## Commands
 
-The following `python3` uses an existing local validation runtime that can import cfn-lint (missing decoders are processing errors). Do not add a full loop before scan.
+The following `python3` uses the existing local Python/PyYAML runtime and shared CloudFormation decoder (parse failures are processing errors). Do not add a full loop before scan.
 
 ```console
 python3 framework/scripts/issues_scan.py scan --environment dev --target-directory cde --service s3 --service iam --artifact /tmp/issues-scan.json

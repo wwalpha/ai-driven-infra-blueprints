@@ -108,8 +108,8 @@ def check_dependency_selection():
     assert selected("framework/scripts/comparison_rows.py") == comparison
     for name in ("iac_evaluation", "script_loader", "issues_iac"):
         assert selected(f"framework/scripts/{name}.py") == (comparison - {'check-model-aws-unit.checks.py'}) | ({'test_issues_iac.py'} if name == 'issues_iac' else set())
-    for name in ("__init__", "scheduler", "aws_adapter", "delivery", "change_sets", "repair", "secret_bootstrap", "session"):
-        assert selected(f"framework/scripts/deployment/{name}.py") == {'cloudformation-deploy-unit.checks.py', 'deploy_preparation-unit.checks.py', 'model_files-unit.checks.py'}
+    for name in ("__init__", "scheduler", "guards", "delivery", "change_sets", "repair", "secret_bootstrap", "session"):
+        assert selected(f"framework/scripts/deploy/{name}.py") == {'cloudformation-deploy-unit.checks.py', 'deploy_preparation-unit.checks.py', 'model_files-unit.checks.py'}
     all_checks = {p.name for p in (SCRIPT.parent / "tests/units").rglob("*.checks.py")} | {"test_issues_iac.py"}
     assert selected("framework/scripts/iac_values.py") == all_checks
     for unknown in ("framework/scripts/tests/support/validation_checks/unknown.py", "framework/scripts/tests/support/unknown.py"):

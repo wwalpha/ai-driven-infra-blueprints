@@ -115,7 +115,7 @@ def check_update_flow_prompt() -> None:
         for option in ("--environment", "--alias", "--stack", "--state", "--profile"):
             assert option in cfn_commands[0], option
         for token in ("responsible for final preflight", "account", "region", "issue gate", "immutable input",
-                      "cfn-lint", "validate-template", "MaxConcurrentStacks", "COMPLETE", "--resume"):
+                      "SDK", "validate-template", "MaxConcurrentStacks", "COMPLETE", "--resume"):
             assert token in cfn, token
         terraform = engine(deploy, "Terraform preflight and apply")
         tf_commands = commands(terraform)
@@ -186,7 +186,7 @@ def check_rule_reading_contract() -> None:
     validator.check_framework_rule_readings()
     assert not validator.errors, validator.errors
     # Required routes are checked in their execution section, including child rules.
-    from deploy_preparation import markdown_sections, rule_readings, markdown_prose
+    from utils.markdown_format import markdown_sections, rule_readings, markdown_prose
     from pathlib import Path
     repository = SCRIPT.parents[2]
     sources = [repository / "AGENTS.md", repository / "README.md",

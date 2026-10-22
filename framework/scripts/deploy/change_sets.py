@@ -5,7 +5,7 @@ from pathlib import Path
 
 from cloudformation_inputs import Blocked, resolve_value
 from utils.json_format import fingerprint
-from deployment.scheduler import SUCCESS
+from deploy.scheduler import SUCCESS
 
 
 def import_names(template, parameters, pseudo):
@@ -57,12 +57,12 @@ def change_summary(change_set):
     return sorted(result, key=lambda item: item["LogicalResourceId"] or "")
 
 
-def check_imports(target, templates, states, aws, unit):
+def check_imports(target, templates, states, aws, unit, exports=None):
     document, parameters = templates[unit["name"]]
     names = import_names(document, parameters, {"AWS::AccountId": target.get("awsExecutionAccountId", target["awsAccountId"]),
         "AWS::Region": target["awsRegion"], "AWS::StackName": unit["name"]})
     if names:
-        exports = {entry["Name"]: entry for entry in aws("list-exports").get("Exports", [])}
+        exports = fetch_exports(aws, names) if exports is None else exports
         missing = names - exports.keys()
         if missing:
             raise Blocked("designed DeployOrder conflicts with Import/Export: missing export / producer deploy required: "
@@ -74,12 +74,12 @@ def check_imports(target, templates, states, aws, unit):
 
 
 def describe_change_set(aws, unit, state):
-    return aws("describe-change-set", "--stack-name", unit["name"], "--change-set-name", state["changeSetId"])
+    return aws('describe_change_set', StackName=unit["name"], ChangeSetName=state["changeSetId"])
 
 
 def verify_stack_ownership(aws, templates, unit):
     """Inspect the exact designed stack, never enumerate unrelated stacks."""
-    actuals = aws("list-stack-resources", "--stack-name", unit["name"]).get("StackResourceSummaries", [])
+    actuals = aws('list_stack_resources', StackName=unit["name"]).get("StackResourceSummaries", [])
     actual_by_id = {item["LogicalResourceId"]: item for item in actuals}
     if len(actual_by_id) != len(actuals):
         raise Blocked("existing stack has ambiguous resource ownership")
@@ -91,16 +91,17 @@ def verify_stack_ownership(aws, templates, unit):
 
 def begin_prepare(unit, state, aws, save, check_imports, template_arguments, cleanup_failed_create,
         reset_after_cleanup, verify_stack_ownership, paths):
-    check_imports(unit)  # Also recheck when resuming an approved change set.
+    boundary = {}
+    check_imports(unit, boundary=boundary)  # Fresh Create boundary, never shared across approval waits.
     if state.get('cleanupStatus') == 'DELETE_INTENT':
         if not cleanup_failed_create(unit, state, empty_only=True):
             raise Blocked('failed CREATE resources are not all deleted; cleanup requires human')
         state['emptyStackRecreated'] = True
         reset_after_cleanup(state)
-    arguments = template_arguments(unit, state)
+    arguments = template_arguments(unit, state, boundary=boundary)
     if not state.get("changeSetId"):
         try:
-            stack = aws("describe-stacks", "--stack-name", unit["name"])["Stacks"][0]
+            stack = aws('describe_stacks', StackName=unit["name"])["Stacks"][0]
         except Blocked as error:
             if "does not exist" not in str(error):
                 raise
@@ -116,25 +117,24 @@ def begin_prepare(unit, state, aws, save, check_imports, template_arguments, cle
                 raise Blocked('failed CREATE resources are not all deleted; cleanup requires human')
             state['emptyStackRecreated'] = True
             reset_after_cleanup(state)
-            arguments = template_arguments(unit, state)
+            arguments = template_arguments(unit, state, boundary=boundary)
             stack = None
         if stack and stack["StackStatus"] not in SUCCESS | {"UPDATE_ROLLBACK_COMPLETE"}:
             raise Blocked(f"stack not updateable: {stack['StackStatus']}")
         if stack:
             verify_stack_ownership(unit)
         _, parameters = paths(unit)
-        aws("validate-template", *arguments)
+        aws("validate_template", **arguments)
         state["operationType"] = "UPDATE" if stack else "CREATE"
         state["absentBeforeCreate"] = stack is None
         state["changeSetId"] = "blueprint-" + uuid.uuid4().hex
         state["changeSetStarted"] = time.time()
         save()
         started = time.perf_counter()
-        response = aws("create-change-set", "--stack-name", unit["name"],
-            "--change-set-name", state["changeSetId"],
-            "--change-set-type", "UPDATE" if stack else "CREATE",
-            *arguments, "--parameters", "file://" + str(parameters),
-            "--capabilities", "CAPABILITY_NAMED_IAM")
+        import json
+        response = aws("create_change_set", StackName=unit["name"], ChangeSetName=state["changeSetId"],
+            ChangeSetType="UPDATE" if stack else "CREATE", **arguments,
+            Parameters=json.loads(parameters.read_text(encoding="utf-8")), Capabilities=["CAPABILITY_NAMED_IAM"])
         state["changeSetId"] = response["Id"]
         state["stackId"] = response.get("StackId")
         state["changeSetCreateSeconds"] = time.perf_counter() - started
@@ -150,7 +150,7 @@ def review_prepared(unit, state, approvals, aws, describe_change_set, change_set
                                          - state.get("changeSetCreateSeconds", 0))
     if change_set["Status"] == "FAILED" and any(text in change_set.get("StatusReason", "") for text in
             ("didn't contain changes", "No updates are to be performed")):
-        if aws("describe-stacks", "--stack-name", unit["name"])["Stacks"][0]["StackStatus"] in SUCCESS:
+        if aws('describe_stacks', StackName=unit["name"])["Stacks"][0]["StackStatus"] in SUCCESS:
             state["reason"] = "no changes; existing stack terminal success"
             return "SUCCESS"
     if change_set["Status"] != "CREATE_COMPLETE" or change_set["ExecutionStatus"] != "AVAILABLE":
@@ -165,12 +165,14 @@ def review_prepared(unit, state, approvals, aws, describe_change_set, change_set
         state["failureClassification"] = "HUMAN_REQUIRED"
         state["reason"] = "unapproved delete/replacement; change set unexecuted; human confirmation required"
         return "BLOCKED"
+    state["approvedChangeDigest"] = digest
     state.pop("reason", None)
     return "READY"
 
 
 def verify_execution(unit, state, expected, input_digest, file_digest, template_arguments, check_imports,
-        describe_change_set):
+        describe_change_set, boundary=None):
+    boundary = {} if boundary is None else boundary
     if expected is not None and input_digest(unit, fresh=True) != expected:
         state["status"] = "BLOCKED"
         raise Blocked("deployment inputs changed before execution")
@@ -178,14 +180,50 @@ def verify_execution(unit, state, expected, input_digest, file_digest, template_
         state["status"] = "BLOCKED"
         raise Blocked("prepared deployment template changed")
     try:
-        template_arguments(unit, state)
+        template_arguments(unit, state, boundary=boundary)
     except Blocked:
         state['status'] = 'BLOCKED'  # No stack execution was sent; drain only already-running peers.
         raise
-    check_imports(unit)
+    check_imports(unit, boundary=boundary)
     current = describe_change_set(unit, state)
     if current["Status"] != "CREATE_COMPLETE" or current["ExecutionStatus"] != "AVAILABLE" or \
             fingerprint(current.get("Changes", [])) != state["changeDigest"]:
         state["status"] = "BLOCKED"
         raise Blocked("change set expired or changed before execution; approval invalid")
 
+
+    if current.get('ChangeSetId') != state['changeSetId'] or current.get('StackId') != state['stackId']:
+        state['status'] = 'BLOCKED'
+        raise Blocked('latest ChangeSet/Stack identity differs from saved execution')
+    if state.get('approvedChangeDigest') != state['changeDigest']:
+        state['status'] = 'BLOCKED'
+        raise Blocked('same ChangeSet content has not been approved')
+    return current
+
+
+def fetch_exports(aws, names):
+    if not names:
+        return {}
+    entries = aws('list_exports').get('Exports', [])
+    result = {}
+    for entry in entries:
+        if entry.get('Name') in names:
+            if entry['Name'] in result or not {'Value', 'ExportingStackId'} <= entry.keys():
+                raise Blocked('required Export identity/value is incomplete or ambiguous')
+            result[entry['Name']] = entry
+    return result
+
+
+def record_execution(aws, unit, state, current, input_digest):
+    resources = change_summary(current)
+    missing = [item for item in resources if item['Action'] == 'Remove' and not item.get('PhysicalResourceId')]
+    if missing:
+        actuals = aws('list_stack_resources', StackName=current['StackId'])['StackResourceSummaries']
+        for item in missing:
+            candidates = [actual for actual in actuals if actual.get('LogicalResourceId') == item['LogicalResourceId']
+                          and actual.get('ResourceType') == item['ResourceType'] and actual.get('PhysicalResourceId')]
+            if len(candidates) == 1:
+                item['PhysicalResourceId'] = candidates[0]['PhysicalResourceId']
+    return {'StackId': current['StackId'], 'ChangeSetId': current['ChangeSetId'],
+            'changeDigest': state['changeDigest'], 'clientToken': state['clientToken'],
+            'inputDigest': input_digest, 'resources': resources}

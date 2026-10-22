@@ -67,3 +67,22 @@ def select_target(topology, environment, account_id=None, alias=None):
             raise DeployContextError("target AWS profile is invalid")
         resolved["awsProfile"] = profile
     return resolved
+
+
+def load_target(
+    root,
+    environment: str,
+    account_id: str | None = None,
+    alias: str | None = None,
+) -> dict[str, str]:
+    import json
+    from validation_cache import input_text
+    path = root / "project.json"
+    try:
+        topology = json.loads(input_text(path, encoding="utf-8"))
+    except FileNotFoundError as error:
+        raise DeployContextError("project.json is missing") from error
+    except json.JSONDecodeError as error:
+        raise DeployContextError(f"project.json is invalid: {error}") from error
+
+    return select_target(topology, environment, account_id, alias)

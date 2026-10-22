@@ -9,7 +9,7 @@ import time
 
 REQUIREMENTS = "framework/scripts/requirements.txt"
 # WeasyPrint loads native PDF libraries; check them only during PDF export.
-IMPORTS = "yaml boto3 botocore pytest cfnlint pypdf".split()
+IMPORTS = "yaml boto3 botocore pytest pypdf".split()
 
 
 def python_path(directory=None):

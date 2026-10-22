@@ -377,7 +377,7 @@ def check_standalone_generation(tmp_path):
 
 
 def check_standalone_and_cfn_boundaries(tmp_path):
-    from cfnlint.decode import decode
+    from utils.cloudformation_format import decode_file as decode
     from cloudformation_inputs import resolve_value
     document = {'Nested': [{'Enabled': True, 'Count': 2, 'Nothing': None}],
                 'PolicyVariable': '${aws:username}', 'Url': 'https://example.com',

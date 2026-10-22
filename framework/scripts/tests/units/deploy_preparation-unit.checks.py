@@ -9,13 +9,15 @@ if not __debug__:
 from support.deploy_preparation_fixtures import *
 
 def check_workflow_contract():
-    prompt = (ROOT / "framework/prompts/codex/04_deploy.md").read_text(encoding="utf-8")
-    reading = M.markdown_sections(prompt)["read-before-changing-files"]
-    assert "docs/designs/<environment>/<target-directory>/<service-id>.md" not in reading
-    for text in (prompt, *((ROOT / "framework/rules" / (engine + ".md")).read_text(encoding="utf-8") for engine in ("cloudformation", "terraform"))):
-        assert all(value in text for value in ("authoritative model properties", "desired.row.*.document", "desired.resource.*", "observed.*", "existence verification", "hash", "local loop", "fallback", "stop"))
-        assert "Read approved detailed designs and service models as input" not in text
-    assert all(value in prompt for value in ("generatedViews", "inputs", "unread sections", "load_units()", "Do not newly reregister already registered tasks"))
+    from utils.markdown_format import read_declaration, declared_readings
+    prompt = ROOT / 'framework/prompts/codex/04_deploy.md'
+    declaration = read_declaration(prompt.read_text(encoding='utf-8'))
+    assert set(declaration) == {'startup', 's3', 'approval', 'repair', 'resume', 'success', 'terraform'}
+    for stage in declaration:
+        assert declared_readings(ROOT, prompt, [stage])
+    assert sum(len(v['text']) for v in declared_readings(ROOT, prompt, ['startup', 's3']).values()) <= 20000
+    skill = (ROOT / '.agents/skills/deploy/SKILL.md').read_text()
+    assert '#normal-startup' in skill and '#read' in skill and 'in full' not in skill
 
 
 def check_dependencies_and_timing():
@@ -23,10 +25,10 @@ def check_dependencies_and_timing():
         try:
             M.environment(ROOT)
         except ValueError as error:
-            assert all(name in str(error) for name in ("boto3", "botocore", "PyYAML", "cfn-lint", "aws", "git"))
+            assert all(name in str(error) for name in ("boto3", "botocore", "PyYAML", "git"))
         else:
             raise AssertionError("missing dependencies accepted")
-    with patch.object(M.importlib, "import_module"), patch.object(M.importlib.metadata, "version", return_value="different.patch"), patch.object(M.shutil, "which", return_value="tool"), patch.object(M.subprocess, "run") as run:
+    with patch.object(M.importlib, "import_module"), patch.object(M.importlib.metadata, "version", return_value="different.patch"), patch.object(M.shutil, "which", return_value="tool"), patch.object(subprocess, "run") as run:
         run.return_value.returncode = 0
         assert M.environment(ROOT)["versions"]["boto3"] == "different.patch"
         assert run.call_args.args[0] == [sys.executable, "-m", "pip", "check"]

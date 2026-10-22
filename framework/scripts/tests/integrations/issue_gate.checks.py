@@ -98,7 +98,7 @@ def main():
         target = {"environment": "dev", "alias": "cde", "awsAccountId": "123456789012",
                   "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
         (root / "project.json").write_text(json.dumps({"targets": [target]}))
-        backend = deploy.AwsBackend(root, "dev", "cde", target)
+        backend = deploy.create_runtime(root, "dev", "cde", target)
         with mock.patch.object(context.shutil, "which", return_value="/mock/aws"), mock.patch.object(
             context.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, '{"Account":"123456789012"}', "")
         ) as run:
@@ -111,7 +111,7 @@ def main():
             run.assert_not_called()
             context.check_deploy_context(root, "dev", alias="cde", read_only=True)
             run.reset_mock()
-            for operation in ("create-change-set", "execute-change-set"):
+            for operation in ("create_change_set", "execute_change_set"):
                 try:
                     backend.aws(operation)
                 except deploy.Blocked as error:

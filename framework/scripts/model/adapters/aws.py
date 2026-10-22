@@ -738,7 +738,7 @@ def compare_resource(ctx, resource):
 
 
 def targets(root, environment=None, selector=None, all_targets=False):
-    resolver = load_file("aws_compare_target", ROOT / "framework/scripts/check-deploy-context.py")
+    import project_targets as resolver
     topology = json.loads((root / "project.json").read_text(encoding="utf-8"))
     found = []
     seen = set()

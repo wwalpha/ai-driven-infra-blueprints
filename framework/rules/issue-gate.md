@@ -9,16 +9,12 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 
 ## Unresolved issue gate
 
-- The issue list is `issues/<environment>/<target-directory>/issues.md`. The target directory is the project.json alias, or the AWS account ID when no alias exists. A missing or empty file means no unresolved issues.
-- Every numbered issue (`1. ...`) remaining in the list is unresolved. Remove only issues successfully repaired and revalidated within the explicit repair scope. Retain resolution history in Git; deletion/rewriting of the list alone does not mean repaired. If there are 0 issues, `未解決issueなし` may be written.
-- Identify services by `### <service-id>`, `<!-- issue-service: <service-id> -->`, or an evidence link to the same target's model properties/detailed design Markdown. Do not infer them from AWS service display names alone. Issues with unidentified ownership or invalid lists without numbered issues/a zero-issue declaration stop the entire target.
-- While unresolved issues exist for the target environment/target/service, do not start or continue other tasks such as design consultation, design saving, implement, deploy/apply, scenarios, or target migration. Do not stop other environments, targets, or services. When changing, implementing, or deploying multiple services, explicitly list every related service in Validation scope; stop the task if even one is blocked. Do not confuse overall validation with task targets.
-- Permit read-only issue investigation, issue repair explicitly requested by the human, the Model deletion exception and the save-only tasks below. Do not create new task types; retain existing task boundaries such as design/infrastructure and AWS execution authorization. Framework-only governance/catalog-maintenance are not service-targeted tasks, so consumer issues do not stop them.
-- Issue investigation/saving are `migration` tasks; only the explicit service Validation scope targets' `issues/<environment>/<target-directory>/issues.md` / `iac-issues.md` and this task's `tasks/<task-name>.md` are Allowed paths and change targets. Save-only tasks meeting these conditions do not apply existing-issue stop decisions and continue investigation, saving, and local validation. Items in iac-issues.md (non-blocking model → IaC comparison results) are not counted as unresolved issues and do not require repairing existing issues.md or adding Issue remediation. Retain issue gates for ordinary migration, design/model/IaC changes, model saving, and AWS mutation. Actual validation errors detected during investigation must still be reported as FAIL. IaC state files are not save-only output or deletion targets.
-
-Standalone `import-retarget` retains the ordinary pre-task/resume/save/generation/final
-Issue Gate for all declared producer and consumer services. It inherits no deletion
-exception and cannot change issue inventories or classify existing issues as fixed.
+- issues/<environment>/<alias-or-account>/issues.mdの番号付きissue（1.等）は全て未解決。fileなし/空は未解決なし。修復を明示依頼され、再検証と解消根拠がある項目だけ削除する。履歴はGitに残し、一覧の削除/書換えを解消扱いしない。0件なら「未解決issueなし」を記載できる。
+- owner serviceは### service-id、issue-service comment、同targetのModel properties/詳細設計linkで特定する。AWS表示名から推測しない。owner不明、番号も0件宣言もない不正一覧はtarget全体を停止する。ただし既存のreference-only診断は先に識別しwarningとして保持し、番号/count/Issue Gateに含めない。混在項目の実ERRORは停止する。link keywordだけではwarningにしない。
+- 該当environment/target/serviceの未解決issueは通常の相談・設計/save・implement・deploy/apply・scenario・migrationの開始/継続を止める。他target/serviceは止めない。複数serviceは全てValidation scopeに明示し、一つでもblockedなら停止する。全体検証scopeと実変更targetを混同しない。Framework-only governance/catalog-maintenanceはservice taskではない。
+- read-only調査、Human明示issue修復、Model deletion例外、save-only例外は許可する。既存Task種別/設計境界/AWS権限は維持する。
+- issue調査/saveはmigration。明示service scopeのissues.md/iac-issues.mdと当TaskだけがAllowed/変更先のsave-onlyは既存issueで停止せず、独立worktree不要。実validation ERRORはFAILと報告する。iac-issues.mdは非blocking Model→IaC比較で未解決issueに数えずIssue remediationも不要。iac stateは保存/削除対象でない。他のmigration/Model/IaC/save/AWS mutationは通常gateを維持する。
+- standalone import-retargetはproducer/consumer全serviceの通常pre-task/resume/save/generation/final gateを維持する。deletion例外を継承せず、issueの変更/解消扱いは禁止。
 
 ## Reference-only Issues
 
@@ -66,10 +62,10 @@ contracts do not grant the exception.
 
 ## Check timing
 
-- Except for save-only tasks and the explicit Model deletion exception above, check the latest issue list when targets are determined, before task start, on resume, before design saving, and before AWS mutation. Before starting, run the following check. This check does not use repair exceptions from old active contracts. For repair requests, confirm the stop reason and create a repair contract limited to the human's requested scope, then handle it with the existing workflow. An existing active contract does not lift issue stops for chat-only design consultation.
+save-only/Model deletionの明示例外以外は、target確定時、開始前、resume、設計save前、AWS mutation直前に最新一覧を確認する。開始前は次を実行し、複数serviceは同processに--serviceを繰り返す。旧Taskの修復例外で通常相談/実行を許可しない。修復依頼は停止原因を確認し、Human指定範囲の契約を登録して既存修復workflowへ進む。
 
 ```text
 python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>
 ```
 
-Repeat `--service` for every related service. The task validator, `sync-model.py --write`, and deploy context use the common issue decision. AWS read-only context may be used for issue investigation but does not authorize continuing ordinary tasks. In addition to existing preflight, rerun the same issue check immediately before deploy/apply execution. Add `--task` to that immediately-before-execution check and use Issue remediation from the same active contract. Ordinary tasks recheck without repair exceptions.
+Task validator、sync-model.py --write、deploy contextは共通判断を使う。AWS read-only contextは調査の認証確認だけで他task続行権限ではない。mutation直前は通常preflightに加えて同じgateを--task付きで確認し、そのTaskのIssue remediationだけ適用する。通常taskは修復例外なしで再確認する。

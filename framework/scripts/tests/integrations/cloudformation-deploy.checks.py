@@ -11,7 +11,7 @@ from support.cloudformation_deploy_fixtures import *
 
 from support.model_v2_fixtures import deploy_properties_fixture
 
-def check_aws_adapter():
+def check_sdk_execution():
     # Case 3: distinct AWS requests with the shared template and separate inputs.
     backend = StubAws()
     scoped = units(10, 10)
@@ -20,13 +20,13 @@ def check_aws_adapter():
         state = {"status": "NOT_STARTED", "clientToken": "token-" + unit["name"]}
         assert backend.prepare(unit, state) == "READY"
         backend.execute(unit, state)
-    creates = [args for operation, args in backend.calls if operation == "create-change-set"]
-    assert len(creates) == 2 and creates[0][1] == "A" and creates[1][1] == "B"
-    assert creates[0][creates[0].index("--template-body") + 1] == creates[1][creates[1].index("--template-body") + 1]
-    assert creates[0][creates[0].index("--parameters") + 1].endswith("a.json")
-    assert creates[1][creates[1].index("--parameters") + 1].endswith("b.json")
-    executes = [args for operation, args in backend.calls if operation == "execute-change-set"]
-    assert executes[0][3] == "cs-A" and executes[1][3] == "cs-B"
+    creates = [args for operation, args in backend.calls if operation == "create_change_set"]
+    assert len(creates) == 2 and creates[0]["StackName"] == "A" and creates[1]["StackName"] == "B"
+    assert creates[0]["TemplateBody"] == creates[1]["TemplateBody"]
+    assert creates[0]["Parameters"] == []
+    assert creates[1]["Parameters"] == []
+    executes = [args for operation, args in backend.calls if operation == "execute_change_set"]
+    assert executes[0]["ChangeSetName"] == "cs-A" and executes[1]["ChangeSetName"] == "cs-B"
     # Cases 6/7: producer succeeds before real list-exports and consumer change set.
     backend = StubAws()
     scoped = units(10, 20)
@@ -42,8 +42,8 @@ def check_aws_adapter():
         return "CREATE_COMPLETE"
     backend.poll = poll
     assert finish(scoped, 3, state, backend) == "COMPLETE"
-    consumer_cs = next(i for i, (op, args) in enumerate(backend.calls) if op == "create-change-set" and args[1] == "B")
-    assert backend.calls.index(("terminal", "A")) < next(i for i, (op, _) in enumerate(backend.calls) if op == "list-exports") < consumer_cs
+    consumer_cs = next(i for i, (op, args) in enumerate(backend.calls) if op == "create_change_set" and args["StackName"] == "B")
+    assert backend.calls.index(("terminal", "A")) < next(i for i, (op, _) in enumerate(backend.calls) if op == "list_exports") < consumer_cs
     for exports, expected in ((["NetworkVpcId"], "COMPLETE"), ([], "STOPPED")):
         backend = StubAws(exports)
         backend.templates["B"] = ({"Fn::ImportValue": "NetworkVpcId"}, {})
@@ -51,7 +51,7 @@ def check_aws_adapter():
         partial = [scoped[1]]
         state = states(partial)
         assert finish(partial, 2, state, backend) == expected
-        creates = [args[1] for op, args in backend.calls if op == "create-change-set"]
+        creates = [args["StackName"] for op, args in backend.calls if op == "create_change_set"]
         assert creates == (["B"] if exports else []) and "A" not in state
     # Missing export after a successful producer still blocks consumer.
     backend = StubAws()
@@ -60,32 +60,32 @@ def check_aws_adapter():
     assert finish([scoped[1]], 2, state, backend) == "STOPPED"
     assert state["B"]["status"] == "BLOCKED"
     assert "DeployOrder conflicts" in state["B"]["reason"]
-    assert not any(op == "create-change-set" for op, _ in backend.calls)
+    assert not any(op == "create_change_set" for op, _ in backend.calls)
     backend = StubAws()
     backend.templates = {"A": ({}, {}), "B": ({"Fn::ImportValue": "NetworkVpcId"}, {})}
     backend.execute, backend.poll = lambda *args: None, lambda *args: "CREATE_COMPLETE"
     state = states(scoped)
     assert finish(scoped, 2, state, backend) == "STOPPED"
     assert [entry["status"] for entry in state.values()] == ["SUCCESS", "BLOCKED"]
-    assert [args[1] for op, args in backend.calls if op == "create-change-set"] == ["A"]
+    assert [args["StackName"] for op, args in backend.calls if op == "create_change_set"] == ["A"]
     # Existing Export cannot bypass an unfinished in-scope producer in the same group.
     backend = StubAws()
     backend.templates["B"] = ({"Fn::ImportValue": "NetworkVpcId"}, {})
     backend.states = {"A": {"status": "RUNNING"}}
-    backend.aws = lambda *args: {"Exports": [{"Name": "NetworkVpcId", "ExportingStackId": "arn:aws:cloudformation:region:account:stack/A/id"}]}
+    backend.aws = lambda *args: {"Exports": [{"Name": "NetworkVpcId", "Value": "vpc-fixture", "ExportingStackId": "arn:aws:cloudformation:region:account:stack/A/id"}]}
     rejects(lambda: backend.check_imports(scoped[1]), "producer A has not succeeded")
     # Destructive change blocks. Human approval reuses and re-fetches exact ID/content.
     backend = StubAws(destructive=True)
     unit, state = scoped[0], {"status": "NOT_STARTED", "clientToken": "approved"}
     backend.templates["A"] = ({}, {})
     assert backend.prepare(unit, state) == "BLOCKED"
-    assert not any(op == "execute-change-set" for op, _ in backend.calls)
+    assert not any(op == "execute_change_set" for op, _ in backend.calls)
     backend.approvals = {state["changeSetId"]}
     assert backend.prepare(unit, state) == "READY"
-    with patch.object(M, "mappings", return_value=({}, {"A": {"App": ("model", "001")}})) as mapping_check:
+    with patch("model.adapters.observed.mappings", side_effect=AssertionError("Execute mapping forbidden")) as mapping_check:
         backend.execute(unit, state)
-    assert mapping_check.call_count == 1
-    assert sum(op == "create-change-set" for op, _ in backend.calls) == 1
+    assert mapping_check.call_count == 0
+    assert sum(op == "create_change_set" for op, _ in backend.calls) == 1
     backend.change["Changes"][0]["ResourceChange"]["PolicyAction"] = "Retain"
     rejects(lambda: backend.prepare(unit, state), "approval invalid")
     rejects(lambda: backend.execute(unit, state), "approval invalid")
@@ -99,17 +99,17 @@ def check_aws_adapter():
     backend.change["Changes"][0]["ResourceChange"]["Replacement"] = "Unknown"
     rejects(lambda: backend.prepare(unit, {"status": "NOT_STARTED"}), "unknown change set replacement")
     # A matching operation token and actual terminal stack status are both required.
-    backend = M.AwsBackend(ROOT, "dev", "123456789012", TARGET)
+    backend = Runtime(ROOT, "dev", "123456789012", TARGET)
     event = {"ResourceType": "AWS::CloudFormation::Stack", "ClientRequestToken": "current", "ResourceStatus": "CREATE_FAILED"}
     actual = ["ROLLBACK_IN_PROGRESS"]
-    backend.aws = lambda operation, *args: ({"StackEvents": [event]} if operation == "describe-stack-events" else {"Stacks": [{"StackStatus": actual[0]}]})
+    backend.aws = lambda operation, **args: ({"StackEvents": [event]} if operation == "describe_stack_events" else {"Stacks": [{"StackStatus": actual[0]}]})
     state = {"status": "RUNNING", "clientToken": "current", "changeSetId": "cs-A"}
     assert backend.poll(unit, state) == "ROLLBACK_IN_PROGRESS" and state["failureDetected"]
     actual[0], event["ResourceStatus"] = "ROLLBACK_COMPLETE", "ROLLBACK_COMPLETE"
     assert backend.poll(unit, state) == "ROLLBACK_COMPLETE"
     actual[0], event["ResourceStatus"] = "UPDATE_COMPLETE", "UPDATE_IN_PROGRESS"
     assert backend.poll(unit, state) == "UPDATE_IN_PROGRESS"  # Do not mistake old success for new success.
-    backend.aws = lambda operation, *args: ({"StackEvents": []} if operation == "describe-stack-events" else {"ExecutionStatus": "EXECUTE_IN_PROGRESS"})
+    backend.aws = lambda operation, **args: ({"StackEvents": []} if operation == "describe_stack_events" else {"ExecutionStatus": "EXECUTE_IN_PROGRESS"})
     assert backend.poll(unit, state) == "UPDATE_IN_PROGRESS"
 
 
@@ -118,6 +118,10 @@ def check_empty_rollback_recreation(tmp_path):
         def __init__(self, root):
             super().__init__()
             self.root = root
+            for unit in units(10, 10):
+                template, parameters = self.paths(unit)
+                template.parent.mkdir(parents=True, exist_ok=True); parameters.parent.mkdir(parents=True, exist_ok=True)
+                template.write_text('Resources: {}'); parameters.write_text('[]')
             self.current = {'A': 'ROLLBACK_COMPLETE', 'B': 'ROLLBACK_COMPLETE'}
             self.actuals = [{'ResourceStatus': 'DELETE_COMPLETE', 'LogicalResourceId': 'Old',
                             'ResourceType': 'AWS::S3::Bucket', 'PhysicalResourceId': 'deleted-bucket'}]
@@ -125,23 +129,23 @@ def check_empty_rollback_recreation(tmp_path):
             self.templates = {name: ({'Resources': {'Item': {'Type': 'AWS::S3::Bucket',
                                    'DeletionPolicy': 'Retain'}}}, {}) for name in self.current}
 
-        def aws(self, operation, *args):
-            if operation in {'describe-stacks', 'list-stack-resources', 'delete-stack'}:
+        def aws(self, operation, **args):
+            if operation in {'describe_stacks', 'list_stack_resources', 'delete_stack'}:
                 self.calls.append((operation, args))
-                target = args[args.index('--stack-name') + 1]
+                target = args['StackName']
                 name = target.removeprefix('old-')
-                if operation == 'describe-stacks':
+                if operation == 'describe_stacks':
                     if self.current[name] is None:
                         raise M.Blocked('stack does not exist')
                     return {'Stacks': [{'StackId': 'old-' + name, 'StackStatus': self.current[name], **self.extra}]}
-                if operation == 'list-stack-resources':
+                if operation == 'list_stack_resources':
                     assert target == 'old-' + name
                     return {'StackResourceSummaries': self.actuals}
                 assert target == 'old-' + name
                 self.deletes.append(target)
                 self.current[name] = None
                 return {}
-            return super().aws(operation, *args)
+            return super().aws(operation, **args)
 
         def poll(self, unit, state):
             return 'CREATE_COMPLETE'
@@ -153,11 +157,11 @@ def check_empty_rollback_recreation(tmp_path):
     # Both existing shells are deleted by ID before CREATE, without approval or IaC repair.
     backend = EmptyRollbackAws(root)
     saved = states(scoped)
-    assert finish(scoped, 2, saved, backend) == 'COMPLETE'
+    assert finish(scoped, 2, saved, backend) == 'COMPLETE', saved
     assert backend.deletes == ['old-A', 'old-B']
     for name in ('A', 'B'):
-        deletion = next(i for i, (op, args) in enumerate(backend.calls) if op == 'delete-stack' and args[1] == 'old-' + name)
-        creation = next(i for i, (op, args) in enumerate(backend.calls) if op == 'create-change-set' and args[1] == name)
+        deletion = next(i for i, (op, args) in enumerate(backend.calls) if op == 'delete_stack' and args["StackName"] == 'old-' + name)
+        creation = next(i for i, (op, args) in enumerate(backend.calls) if op == 'create_change_set' and args["StackName"] == name)
         assert deletion < creation and saved[name]['operationType'] == 'CREATE'
         assert saved[name]['absentBeforeCreate'] and saved[name]['emptyStackRecreated']
     # Resumed FAILED states also recover when no authoritative IaC correction exists.
@@ -198,7 +202,7 @@ def check_empty_rollback_recreation(tmp_path):
         assert not backend.deletes
     backend = EmptyRollbackAws(root)
     read = backend.aws
-    backend.aws = lambda op, *args: {} if op == 'list-stack-resources' else read(op, *args)
+    backend.aws = lambda op, **args: {} if op == 'list_stack_resources' else read(op, **args)
     try:
         backend.begin_prepare(scoped[0], {})
         raise AssertionError('missing resource response accepted')
@@ -226,29 +230,17 @@ def check_empty_rollback_recreation(tmp_path):
 
 
 def check_template_validation(tmp_path):
-    root = tmp_path
-    backend = M.AwsBackend(root, "dev", "123456789012", TARGET)
+    backend = Runtime(tmp_path, 'dev', '123456789012', TARGET)
     unit = units(10)[0]
-    template, params = backend.paths(unit)
-    template.parent.mkdir(parents=True)
-    params.parent.mkdir(parents=True)
-    template.write_text("Resources: {}\n")
-    params.write_text('[{"ParameterKey":"Prefix","ParameterValue":"Network"}]')
-    document = {"Parameters": {"Prefix": {"Default": "Default"}}, "Fn::ImportValue": {"Fn::Join": ["", [{"Ref": "Prefix"}, "VpcId"]]}}
-    calls = []
-    backend.aws = lambda operation, *args: calls.append((operation, args)) or {}
-    with patch.dict(sys.modules, {"cfnlint.decode": SimpleNamespace(decode=lambda path: (document, []))}), \
-            patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")) as run:
-        backend.validate(unit)
-        assert backend.templates["A"][1] == {"Prefix": "Network"}
-        assert run.call_args.args[0] == ["cfn-lint", "--regions", "ap-northeast-1", "--template", str(template), "--format", "json"]
-        assert not calls  # AWS validation happens at the unit's turn, after its bucket exists.
-        old = template.read_bytes()
-        template.write_text("Resources: {Changed: {}}\n")
-        rejects(lambda: backend.template_arguments(unit, {}), "changed after validation")
-        template.write_bytes(old)
-        document["Transform"] = "AWS::Serverless-2016-10-31"
-        rejects(lambda: backend.validate(unit), "transform template")
+    template, parameters = backend.paths(unit)
+    template.parent.mkdir(parents=True); parameters.parent.mkdir(parents=True)
+    template.write_text('Parameters: {Prefix: {Type: String, Default: Default}}\nResources: {}\n')
+    parameters.write_text('[{"ParameterKey":"Prefix","ParameterValue":"Network"}]')
+    with patch('socket.socket', side_effect=AssertionError('network forbidden')), patch.object(subprocess, 'run', side_effect=AssertionError('CLI forbidden')):
+        backend.load_inputs(unit)
+    assert backend.templates['A'][1] == {'Prefix': 'Network'}
+    template.write_text('Transform: AWS::Serverless-2016-10-31\nResources: {}')
+    rejects(lambda: backend.load_inputs(unit), 'transform template')
 
 
 def check_inputs(tmp_path):
@@ -314,23 +306,16 @@ def check_inputs(tmp_path):
         pass
     conditional["Conditions"]["Dev"] = {"Fn::Equals": [{"Ref": "Environment"}, MarkedString("dev")]}
     assert M.change_sets.import_names(conditional, {"Environment": "dev"}, {}) == {"DevBucketArn"}
-    # Standard CLI region/profile and full (automatic) pagination are retained.
-    backend = M.AwsBackend(ROOT, "dev", "123456789012", TARGET, "test")
-    with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout='{"Exports":[]}', stderr="")) as run:
-        backend.aws("list-exports")
-        args = run.call_args.args[0]
-        assert args[:5] == ["aws", "--region", "ap-northeast-1", "--profile", "test"]
-        assert "--no-paginate" not in args
-        configured = {**TARGET, "awsProfile": "configured"}
-        for explicit in (None, "configured"):
-            backend = M.AwsBackend(ROOT, "dev", "123456789012", configured, explicit)
-            backend.aws("describe-stacks")
-            assert run.call_args.args[0][:5] == ["aws", "--region", "ap-northeast-1", "--profile", "configured"]
-        run.reset_mock()
-        rejects(lambda: M.AwsBackend(ROOT, "dev", "123456789012", configured, "other"), "does not match target awsProfile")
-        run.assert_not_called()
-        M.AwsBackend(ROOT, "dev", "123456789012", TARGET).aws("list-exports")
-        assert "--profile" not in run.call_args.args[0]
+    from utils.aws import cloudformation as cfn
+    backend = Runtime(ROOT, 'dev', '123456789012', TARGET, 'test')
+    with patch.object(cfn, 'list_exports', return_value={'Exports': []}) as request:
+        backend.aws('list_exports')
+        assert request.call_args.args[0][:3] == ('test', 'ap-northeast-1', '123456789012')
+        configured = {**TARGET, 'awsProfile': 'configured'}
+        for explicit in (None, 'configured'):
+            backend = Runtime(ROOT, 'dev', '123456789012', configured, explicit)
+            assert backend.connection[0] == 'configured'
+        rejects(lambda: Runtime(ROOT, 'dev', '123456789012', configured, 'other'), 'does not match target awsProfile')
     # Native CFN pseudo parameters describe the stack account, independent of explicit resource IDs.
     execution = "999999999999"
     backend = StubAws([execution + "VpcId"])
@@ -343,11 +328,8 @@ def check_inputs(tmp_path):
         "Code": {"S3Bucket": "bucket", "S3Key": {"Fn::Sub": "${AWS::AccountId}/code.zip"}}}}}}
     assert backend.artifact_bindings({"name": "A", "artifacts": [artifact]}, document, {})[0][0] == artifact
     assert backend.target["awsAccountId"] == TARGET["awsAccountId"]
-    backend = M.AwsBackend(ROOT, "dev", "123456789012", {**TARGET, "awsExecutionAccountId": execution})
-    with patch.object(backend, "aws", return_value={"ChecksumSHA256": "checksum", "ContentLength": 1}) as aws:
-        rejects(lambda: backend.verify_object({"bucket": "bucket", "key": "key", "checksum": "checksum", "size": 1}), 'legacy object')
-        arguments = aws.call_args.args
-        assert arguments[arguments.index("--expected-bucket-owner") + 1] == execution
+    backend = Runtime(ROOT, 'dev', '123456789012', {**TARGET, 'awsExecutionAccountId': execution})
+    assert backend.connection[2] == execution
 
 
 def check_delivery(tmp_path):
@@ -362,20 +344,20 @@ def check_delivery(tmp_path):
     backend.templates["A"] = ({"Resources": {}}, {})
     settings = {"templateBucket": "app-dev-assets", "templateKeyPrefix": "templates/"}
     # Measure UTF-8 bytes, with the exact 51,200 byte boundary and 1 MiB maximum.
-    for size, mode in ((51200, "--template-body"), (51201, "--template-url"), (1024 * 1024, "--template-url")):
+    for size, mode in ((51200, "TemplateBody"), (51201, "TemplateURL"), (1024 * 1024, "TemplateURL")):
         template.write_bytes(("# あ\n".encode() * (size // 6)) + b" " * (size % 6))
         assert template.stat().st_size == size
         state = {"status": "NOT_STARTED"}
         assert backend.prepare(unit | settings, state) == "READY"
-        validations = [args for op, args in backend.calls if op == "validate-template"]
-        creates = [args for op, args in backend.calls if op == "create-change-set"]
-        assert validations[-1][0] == mode
-        assert validations[-1][1] == creates[-1][creates[-1].index(mode) + 1]
-        if mode == "--template-url":
-            assert validations[-1][1].endswith("?versionId=version%2B1")
-        count = sum(op == "put-object" for op, _ in backend.calls)
+        validations = [args for op, args in backend.calls if op == "validate_template"]
+        creates = [args for op, args in backend.calls if op == "create_change_set"]
+        assert mode in validations[-1]
+        assert validations[-1][mode] == creates[-1][mode]
+        if mode == "TemplateURL":
+            assert validations[-1][mode].endswith("?versionId=version%2B1")
+        count = sum(op == "put_object" for op, _ in backend.calls)
         assert backend.prepare(unit | settings, state) == "READY"
-        assert sum(op == "put-object" for op, _ in backend.calls) == count
+        assert sum(op == "put_object" for op, _ in backend.calls) == count
     template.write_bytes(b" " * (1024 * 1024 + 1))
     rejects(lambda: backend.prepare(unit | settings, {}), "1 MiB")
     template.write_bytes(b" " * 51201)
@@ -383,7 +365,7 @@ def check_delivery(tmp_path):
     template.write_text("Resources: {}\n", encoding="utf-8")
     backend.calls.clear()
     assert backend.prepare(unit, {}) == "READY"
-    assert not any(op in {"get-bucket-location", "head-object", "put-object"} for op, _ in backend.calls)
+    assert not any(op in {"get_bucket_location", "head_object", "put_object"} for op, _ in backend.calls)
 
     source = root / "infra/cloudformation/artifacts/function-a.zip"
     source.parent.mkdir(parents=True)
@@ -402,21 +384,21 @@ def check_delivery(tmp_path):
     prepared = unit | {"artifacts": [artifact("First"), artifact("Second"), artifact("Third", "app-dev-other")]}
     backend.calls.clear()
     state = {"status": "NOT_STARTED"}
-    with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")):
+    with patch.object(subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")):
         assert backend.prepare(prepared, state) == "READY"
     packaged = json.loads(Path(state["delivery"]["path"]).read_text())
     first, second, third = [packaged["Resources"][name]["Properties"]["Code"] for name in ("First", "Second", "Third")]
     assert first["S3Key"] == second["S3Key"] == third["S3Key"]
     assert first["S3Bucket"] != third["S3Bucket"] and first["S3ObjectVersion"] == "version+1"
-    assert sum(op == "put-object" for op, _ in backend.calls) == 2  # Shared ZIP reused within a bucket.
-    assert any(op == 'get-bucket-encryption' for op, _ in backend.calls)
+    assert sum(op == "put_object" for op, _ in backend.calls) == 2  # Shared ZIP reused within a bucket.
+    assert any(op == 'get_bucket_encryption' for op, _ in backend.calls)
     assert template.read_bytes() == original and document["Resources"]["First"]["Properties"]["Code"]["S3Key"] == "lambda/current.zip"
     assert packaged["Resources"]["First"]["Properties"]["Handler"] == "index.handler"
-    assert max(i for i, (op, _) in enumerate(backend.calls) if op == "put-object") < next(i for i, (op, _) in enumerate(backend.calls) if op == "create-change-set")
+    assert max(i for i, (op, _) in enumerate(backend.calls) if op == "put_object") < next(i for i, (op, _) in enumerate(backend.calls) if op == "create_change_set")
     resumed = DeliveryAws(root, base / "session.files")
     resumed.objects, resumed.templates = backend.objects, backend.templates
     assert resumed.prepare(prepared, state) == "READY"
-    assert not any(op in {"put-object", "create-change-set"} for op, _ in resumed.calls)
+    assert not any(op in {"put_object", "create_change_set"} for op, _ in resumed.calls)
     obj = state["delivery"]["objects"][0]
     resumed.objects[obj["bucket"], obj["key"]]["ChecksumSHA256"] = "changed"
     rejects(lambda: resumed.prepare(prepared, state), "checksum/size changed")
@@ -437,14 +419,14 @@ def check_delivery(tmp_path):
         resumed.calls.clear()
         bad = unit | {"artifacts": [artifact("First") | changed]}
         rejects(lambda: resumed.prepare(bad, {}), "differs from the approved template")
-        assert not any(op in {"put-object", "create-change-set"} for op, _ in resumed.calls)
+        assert not any(op in {"put_object", "create_change_set"} for op, _ in resumed.calls)
     fresh = DeliveryAws(root, base / "fresh.files")
     fresh.templates = backend.templates
     fresh.region = "us-east-1"
     rejects(lambda: fresh.prepare(prepared, {}), "region does not match")
-    fresh.region, fresh.fail = "ap-northeast-1", "put-object"
-    rejects(lambda: fresh.prepare(prepared, {}), "upload failure")
-    assert not any(op == "create-change-set" for op, _ in fresh.calls)
+    fresh.region, fresh.fail = "ap-northeast-1", "put_object"
+    rejects(lambda: fresh.prepare(prepared, {}), "AccessDenied")
+    assert not any(op == "create_change_set" for op, _ in fresh.calls)
     fresh.fail = None
     source.unlink()
     rejects(lambda: fresh.prepare(prepared, {}), "source is missing")
@@ -470,7 +452,7 @@ def check_delivery(tmp_path):
     fresh.templates["A"] = (other, {})
     mapped = unit | {"artifacts": [artifact("Layer", prop="Content"), artifact("Job", prop="Command.ScriptLocation", filename="job.py"),
                                    artifact("State", prop="DefinitionS3Location", filename="state.json")]}
-    with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")):
+    with patch.object(subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")):
         assert fresh.prepare(mapped, {}) == "READY"
     result = json.loads((fresh.workdir / "A.json").read_text())["Resources"]
     assert result["Job"]["Properties"]["Command"]["Name"] == "glueetl"
@@ -572,11 +554,11 @@ def check_delivery(tmp_path):
     backend.export_values = {"AssetsBucket": "app-dev-assets"}
     one = unit | {"artifacts": [artifact("First")]}
     blocked = {"status": "NOT_STARTED"}
-    with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")):
+    with patch.object(subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")):
         assert backend.prepare(one, blocked) == "READY"
     backend.export_values["AssetsBucket"] = "other-bucket"
     rejects(lambda: backend.execute(one, blocked), "differs from the approved template")
-    assert not any(op == "execute-change-set" for op, _ in backend.calls)
+    assert not any(op == "execute_change_set" for op, _ in backend.calls)
 
     # A small bootstrap stack can run before a later large template needs its bucket.
     bootstrap = DeliveryAws(root, base / "bootstrap.files")
@@ -587,16 +569,16 @@ def check_delivery(tmp_path):
         file, inputs = bootstrap.paths(entry)
         file.write_bytes(b" " * size)
         inputs.write_text("[]")
-    with patch.dict(sys.modules, {"cfnlint.decode": SimpleNamespace(decode=lambda _: ({"Resources": {}}, []))}), \
-            patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")):
+    with patch("socket.socket", side_effect=AssertionError("network forbidden")), \
+            patch.object(subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="", stderr="")):
         for entry in scoped:
-            bootstrap.validate(entry)
+            bootstrap.load_inputs(entry)
     assert not bootstrap.calls
     original_aws, bucket_created = bootstrap.aws, [False]
-    def ordered_aws(operation, *args, **kwargs):
-        if kwargs.get("service") == "s3api":
+    def ordered_aws(operation, **kwargs):
+        if kwargs.get("service") == "s3":
             assert bucket_created[0], "bucket used before producer completed"
-        return original_aws(operation, *args, **kwargs)
+        return original_aws(operation, **kwargs)
     bootstrap.aws = ordered_aws
     def complete(entry, state):
         if entry["name"] == "A":
@@ -605,13 +587,13 @@ def check_delivery(tmp_path):
     bootstrap.poll = complete
     session = states(scoped)
     assert scheduler.run_group(scoped, 1, session, bootstrap, sleep=lambda _: None) == "GROUP_COMPLETE"
-    assert session["B"]["status"] == "NOT_STARTED" and not any(op == "put-object" for op, _ in bootstrap.calls)
+    assert session["B"]["status"] == "NOT_STARTED" and not any(op == "put_object" for op, _ in bootstrap.calls)
     assert finish(scoped, 1, session, bootstrap) == "COMPLETE", session
-    assert any(op == "put-object" for op, _ in bootstrap.calls)
+    assert any(op == "put_object" for op, _ in bootstrap.calls)
 
 
 def check_delivery_encryption(tmp_path):
-    from s3_delivery import preflight, model_conditions, policy_conditions, ALGORITHM
+    from deploy.s3_delivery import preflight, model_conditions, policy_conditions, ALGORITHM
     def policy(bucket, header, operator, value, prefix='templates/'):
         return {'Statement': [{'Effect': 'Deny', 'Principal': '*', 'Action': 's3:PutObject',
                 'Resource': f'arn:aws:s3:::{bucket}/{prefix}*', 'Condition': {operator: {header: value}}}]}
@@ -633,11 +615,11 @@ def check_delivery_encryption(tmp_path):
     # Explicit SSE-S3, conditional PutObject, reuse and encryption drift.
     backend, source = fresh()
     obj = backend.upload(source, bucket, prefix)
-    request = next(args for op, args in backend.calls if op == 'put-object')
-    assert request[request.index('--server-side-encryption') + 1] == 'AES256'
+    request = next(args for op, args in backend.calls if op == 'put_object')
+    assert request['ServerSideEncryption'] == 'AES256'
     assert '--ssekms-key-id' not in request
     assert backend.upload(source, bucket, prefix) == obj
-    assert sum(op == 'put-object' for op, _ in backend.calls) == 1
+    assert sum(op == 'put_object' for op, _ in backend.calls) == 1
     assert all(v['effectiveWritePermission'] == 'UNCONFIRMED' for v in backend.session['placementPreflight'].values())
     backend.objects[bucket, obj['key']]['ServerSideEncryption'] = 'aws:kms'
     rejects(lambda: backend.upload(source, bucket, prefix), 'existing object encryption')
@@ -647,9 +629,9 @@ def check_delivery_encryption(tmp_path):
     backend.add_bucket(bucket, 'aws:kms', backend.key_arn)
     backend.policy = policy(bucket, key_header, 'StringNotEquals', backend.key_arn)
     obj = backend.upload(source, bucket, prefix)
-    request = next(args for op, args in backend.calls if op == 'put-object')
-    assert request[request.index('--server-side-encryption') + 1] == 'aws:kms'
-    assert request[request.index('--ssekms-key-id') + 1] == backend.key_arn
+    request = next(args for op, args in backend.calls if op == 'put_object')
+    assert request['ServerSideEncryption'] == 'aws:kms'
+    assert request['SSEKMSKeyId'] == backend.key_arn
     backend.objects[bucket, obj['key']]['SSEKMSKeyId'] = backend.key_arn.replace('test-key', 'another-key')
     rejects(lambda: backend.verify_object(obj), 'existing object KMS key')
     # Existing logical KMS Key/Alias and parent mapping; no generated ARN in model.
@@ -685,7 +667,7 @@ def check_delivery_encryption(tmp_path):
         backend.default_algorithm, backend.default_key = algorithm, key
         backend.add_bucket(bucket, algorithm, key, delegation=True)
         obj = backend.upload(source, bucket, prefix)
-        request = next(args for op, args in backend.calls if op == 'put-object')
+        request = next(args for op, args in backend.calls if op == 'put_object')
         assert '--server-side-encryption' not in request and '--ssekms-key-id' not in request
         assert obj['encryption']['mode'] == 'default'
     # Default delegation cannot satisfy a request-header mandate.
@@ -693,7 +675,7 @@ def check_delivery_encryption(tmp_path):
     backend.add_bucket(bucket, delegation=True)
     backend.policy = policy(bucket, algorithm_header, 'StringNotEquals', 'AES256')
     rejects(lambda: backend.upload(source, bucket, prefix), 'policy denies')
-    assert not any(op == 'put-object' for op, _ in backend.calls)
+    assert not any(op == 'put_object' for op, _ in backend.calls)
     # Scope, AND/Null/IfExists semantics and unknown clauses stay fail-closed.
     explicit = model_conditions(DeliveryAws(base / 'repo', base / 'other.files'), bucket)
     assert explicit['mode'] == 'explicit'
@@ -714,22 +696,22 @@ def check_delivery_encryption(tmp_path):
     # Unknown read failures and malformed responses remain distinct from design mismatches.
     backend, source = fresh()
     aws = backend.aws
-    def unreadable(operation, *args, **kwargs):
-        if operation == 'get-bucket-policy':
+    def unreadable(operation, **args):
+        if operation == 'get_bucket_policy':
             raise TimeoutError('read timed out')
-        return aws(operation, *args, **kwargs)
+        return aws(operation, **args)
     backend.aws = unreadable
     rejects(lambda: backend.upload(source, bucket, prefix), 'READ_UNCONFIRMED')
-    def malformed(operation, *args, **kwargs):
-        if operation == 'get-bucket-encryption':
+    def malformed(operation, **args):
+        if operation == 'get_bucket_encryption':
             return {'ServerSideEncryptionConfiguration': {'Rules': [{}]}}
-        return aws(operation, *args, **kwargs)
+        return aws(operation, **args)
     backend.aws = malformed
     rejects(lambda: backend.upload(source, bucket, prefix), 'INDETERMINATE')
-    def missing_policy(operation, *args, **kwargs):
-        if operation == 'get-bucket-policy':
+    def missing_policy(operation, **args):
+        if operation == 'get_bucket_policy':
             return {}
-        return aws(operation, *args, **kwargs)
+        return aws(operation, **args)
     backend.aws = missing_policy
     rejects(lambda: backend.upload(source, bucket, prefix), 'INDETERMINATE')
     rejects(lambda: policy_conditions({}, bucket, 'templates/key', explicit), 'INDETERMINATE')
@@ -739,19 +721,19 @@ def check_delivery_encryption(tmp_path):
         backend, source = fresh()
         change(backend)
         rejects(lambda: backend.upload(source, bucket, prefix), expected)
-        assert not any(op == 'put-object' for op, _ in backend.calls)
-    for operation in ('head-bucket', 'get-bucket-location', 'get-bucket-encryption', 'get-bucket-policy', 'describe-key'):
+        assert not any(op == 'put_object' for op, _ in backend.calls)
+    for operation in ('head_bucket', 'get_bucket_location', 'get_bucket_encryption', 'get_bucket_policy', 'describe_key'):
         backend, source = fresh()
         backend.add_bucket(bucket, 'aws:kms', 'test-key')
         backend.default_algorithm, backend.default_key = 'aws:kms', 'test-key'
         aws = backend.aws
-        def denied(op, *args, **kwargs):
+        def denied(op, **args):
             if op == operation:
-                raise M.Blocked('(AccessDenied)')
-            return aws(op, *args, **kwargs)
+                raise __import__('utils.aws.client', fromlist=['AwsError']).AwsError('s3', operation, 'AccessDenied', 403)
+            return aws(op, **args)
         backend.aws = denied
         rejects(lambda: backend.upload(source, bucket, prefix), 'READ_DENIED')
-        assert not any(op == 'put-object' for op, _ in backend.calls)
+        assert not any(op == 'put_object' for op, _ in backend.calls)
     backend, source = fresh()
     backend.add_bucket(bucket, 'aws:kms', 'test-key')
     backend.default_algorithm, backend.default_key = 'aws:kms', 'other-key'
@@ -776,7 +758,7 @@ def check_delivery_encryption(tmp_path):
     resumed.session, resumed.objects = session, backend.objects
     resumed.policy = {'Statement': [{'Effect': 'Allow', 'Principal': '*', 'Action': 's3:GetObject', 'Resource': '*'}]}
     rejects(lambda: resumed.verify_object(obj), 'CHANGED')
-    assert not any(op == 'put-object' for op, _ in resumed.calls)
+    assert not any(op == 'put_object' for op, _ in resumed.calls)
     resumed.policy, resumed.default_algorithm = None, 'aws:kms'
     rejects(lambda: resumed.verify_object(obj), 'MISMATCH')
     backend, source = fresh()
@@ -804,31 +786,31 @@ def check_delivery_encryption(tmp_path):
     state = states(scoped)
     backend.poll = lambda *args: 'CREATE_COMPLETE'
     assert finish(scoped, 1, state, backend) == 'COMPLETE'
-    put_indices = [i for i, (op, _) in enumerate(backend.calls) if op == 'put-object']
+    put_indices = [i for i, (op, _) in enumerate(backend.calls) if op == 'put_object']
     assert len(put_indices) == 2
-    assert max(put_indices) < next(i for i, (op, _) in enumerate(backend.calls) if op == 'create-change-set')
+    assert max(put_indices) < next(i for i, (op, _) in enumerate(backend.calls) if op == 'create_change_set')
     # A later peer's actual placement refusal prevents all new stacks, preserving drain.
     backend.calls.clear()
     backend.uploaded, backend.objects = {}, {}
     state = states(scoped)
     aws, count = backend.aws, [0]
-    def refuse_second(operation, *args, **kwargs):
-        if operation == 'put-object':
+    def refuse_second(operation, **args):
+        if operation == 'put_object':
             count[0] += 1
             if count[0] == 2:
-                raise M.Blocked('(AccessDenied)')
-        return aws(operation, *args, **kwargs)
+                raise __import__('utils.aws.client', fromlist=['AwsError']).AwsError('s3', operation, 'AccessDenied', 403)
+        return aws(operation, **args)
     backend.aws = refuse_second
     assert finish(scoped, 1, state, backend) == 'STOPPED'
-    assert 'UPLOAD_DENIED_OR_FAILED' in state['A']['reason']
+    assert 'AccessDenied' in state['A']['reason']
     assert state['B']['status'] == 'NOT_STARTED'
-    assert not any(op in {'create-change-set', 'execute-change-set'} for op, _ in backend.calls)
-    backend.aws, backend.fail = aws, 'put-object'
+    assert not any(op in {'create_change_set', 'execute_change_set'} for op, _ in backend.calls)
+    backend.aws, backend.fail = aws, 'put_object'
     state = states(scoped)
     state['A']['status'] = 'RUNNING'
     assert finish(scoped, 1, state, backend) == 'STOPPED'
     assert state['A']['status'] == 'SUCCESS' and state['B']['status'] == 'BLOCKED'
-    assert not any(op == 'execute-change-set' for op, _ in backend.calls)
+    assert not any(op == 'execute_change_set' for op, _ in backend.calls)
     print('S3 delivery encryption/preflight checks: PASS (SSE-S3/KMS/default, model/key/policy/read/write/object/resume guards, group barrier/drain)')
 
 
@@ -884,6 +866,7 @@ def check_session_cli(tmp_path):
             # This scheduler/session fixture has no model; approval uses replacement.
             backend.change["Changes"][0]["ResourceChange"].update(Action="Modify", Replacement="True")
         backend.root, backend.approvals = root, set(approvals)
+        backend.target, backend.profile = target, target.get("awsProfile") or profile
         def validate(unit):
             validation_calls.append(unit["name"])
             backend.templates.update({unit["name"]: ({}, {})})
@@ -912,18 +895,15 @@ def check_session_cli(tmp_path):
         def subprocess_result(command, **kwargs):
             return SimpleNamespace(returncode=0, stdout='{"Account":"123456789012"}' if "get-caller-identity" in command else "", stderr="")
         with redirect_stdout(io.StringIO()) as output, redirect_stderr(io.StringIO()) as errors_output, \
-                patch.object(M, "AwsBackend", side_effect=backend_factory), \
-                patch.object(shutil, "which", return_value="mock-command"), \
-                patch.object(M.subprocess, "run", side_effect=subprocess_result) as run, \
+                patch.object(M, "create_runtime", side_effect=backend_factory), \
+                patch("deploy.context.get_caller_identity", return_value={"Account": "123456789012"}) as sts, \
+                patch.object(subprocess, "run", side_effect=subprocess_result) as run, \
                 patch.object(M.session_ops, "run_session", side_effect=run_session), \
                 patch.object(Path, "cwd", return_value=base if options else root):
             result = M.main(argv + list(options), **({"root": root} if options else {}))
             if not state_file.exists() and "other" not in options:
                 assert False, output.getvalue() + errors_output.getvalue()
-            if run.called:
-                context_calls = [c for c in run.call_args_list if "get-caller-identity" in c.args[0]]
-                assert len(context_calls) == 1
-                assert context_calls[0].args[0][:3] == ["mock-command", "--profile", "dev-profile"]
+            assert sts.call_count == 0 if 'other' in options else sts.call_count <= 1
             last_output.append(output.getvalue() + errors_output.getvalue())
             return result
     assert invoke(["--profile", "other"]) == 2
@@ -931,36 +911,23 @@ def check_session_cli(tmp_path):
     timing = [json.loads(line) for line in (base / "timing.jsonl").read_text().splitlines()]
     assert any(event["phase"] == "authenticationContext" and event["result"] == "FAIL" for event in timing)
     assert timing[-1]["phase"] == "controller" and timing[-1]["result"] == "FAIL"
-    # Diagnose every mapping error before lint or AWS preparation, not 25 deployments.
-    errors = {"A": ["A/MissingVpc: model resource matches=0", "A/MissingRole: model resource matches=0"],
-              "B": ["B/Repository: identifier row missing/ambiguous: RepositoryId"]}
-    with patch.object(M.session_ops, "mappings", side_effect=M.session_ops.MappingError(errors)):
+    # Ordinary startup has no whole-scope mapping or static validation permission.
+    with patch('model.adapters.observed.mappings', side_effect=AssertionError('startup mapping forbidden')):
         assert invoke() == 2
-    stopped = json.loads(state_file.read_text())
-    assert stopped["result"] == "STOPPED" and stopped["validationErrors"] == errors
-    assert all(s["status"] == "NOT_STARTED" for s in stopped["states"].values())
-    assert all(stopped["states"][name]["preflightErrors"] == details for name, details in errors.items())
-    assert stopped["metrics"]["validationCount"] == stopped["metrics"]["lintSeconds"] == 0
-    assert stopped["metrics"]["inputLoadSeconds"] >= 0 and stopped["metrics"]["mappingCheckSeconds"] >= 0
-    assert stopped["metrics"]["contextCheckSeconds"] >= 0
-    assert not validation_calls and not backends[-1].calls and not execution_limits
-    assert invoke(["--resume"]) == 2
     session = json.loads(state_file.read_text())
-    assert "validationErrors" not in session and "validationError" not in session, session
-    assert not any("preflightErrors" in state for state in session["states"].values())
-    assert session["states"]["A"]["status"] == "BLOCKED", session
+    assert 'lintSeconds' not in session['metrics'] and 'validationStatus' not in session
+    assert session["states"]["A"]["status"] == "BLOCKED", (session, last_output[-1])
     assert session["states"]["B"]["status"] == "NOT_STARTED"
     assert invoke(["--resume", "--approve-change-set", "cs-A"]) == 2
     session = json.loads(state_file.read_text())
     assert session["result"] == "STOPPED" and session["states"]["A"]["status"] == "SUCCESS"
-    assert [args[1] for op, args in backends[-1].calls if op == "create-change-set"] == ["B"], last_output[-1]
+    assert [args["StackName"] for op, args in backends[-1].calls if op == "create_change_set"] == ["B"], last_output[-1]
     assert invoke(["--resume"]) == 2
     session = json.loads(state_file.read_text())
     assert session["states"]["B"]["status"] == "BLOCKED", session
     assert invoke(["--resume", "--approve-change-set", "cs-B"]) == 0, last_output[-1]
     assert invoke(["--resume"]) == 0
-    assert session["metrics"]["validationCount"] == 1
-    assert validation_calls == ["A", "B"]
+    assert "validationCount" not in session["metrics"] and not validation_calls
     assert not backends[-1].calls  # Completed run never redeploys successful stacks.
     # A/B: unrelated environment bytes (even invalid JSON) are absent from guards/resume.
     unrelated = root / "infra/cloudformation/parameters/stg/123456789012/other.json"
@@ -1059,23 +1026,12 @@ def check_session_cli(tmp_path):
         assert invoke() == 0
         session = json.loads(state_file.read_text())
         assert session["result"] == "COMPLETE", session
-        assert session["metrics"]["controllerInvocationCount"] == session["metrics"]["validationCount"] == 1
+        assert session["metrics"]["controllerInvocationCount"] == 1 and "validationCount" not in session["metrics"]
         assert session["metrics"]["deployOrderCount"] == len(set(orders))
         assert all(s["status"] == "SUCCESS" and s["observedSynced"] for s in session["states"].values())
         assert not any(op == "list-stacks" for op, _ in backends[-1].calls)
         assert invoke(["--resume"]) == 0 and not backends[-1].calls
-        assert json.loads(state_file.read_text())["metrics"]["validationCount"] == 1
-        # Old format sessions are rejected without rewriting or reexecuting them.
-        current_session = state_file.read_bytes()
-        session = json.loads(current_session)
-        for key in ("version", "validationStatus", "validationDigest", "validationTemplates", "validationTemplatesDigest"):
-            session.pop(key, None)
-        state_file.write_text(json.dumps(session))
-        legacy_bytes = state_file.read_bytes()
-        assert invoke(["--resume"]) == 2 and not backends[-1].calls
-        assert state_file.read_bytes() == legacy_bytes
-        state_file.write_bytes(current_session)
-
+        assert "validationCount" not in json.loads(state_file.read_text())["metrics"]
         # CLI resume dispatches the persisted bootstrap intent with the same token.
         session = json.loads(state_file.read_text())
         session['states']['A']['repairs'] = [{'classification': 'RUNTIME_BOOTSTRAP',
@@ -1090,9 +1046,9 @@ def check_session_cli(tmp_path):
         instructions = root / "AGENTS.md"
         original_instructions = instructions.read_bytes() if instructions.exists() else None
         instructions.write_text("validation input " + str(len(orders)))
-        prior = json.loads(state_file.read_text())["metrics"]["validationCount"]
-        assert invoke(["--resume"]) == 0 and not backends[-1].calls
-        assert json.loads(state_file.read_text())["metrics"]["validationCount"] == prior + 1
+        prior = json.loads(state_file.read_text())["executionDigest"]
+        assert invoke(["--resume"]) == 2 and not backends[-1].calls
+        assert json.loads(state_file.read_text())["executionDigest"] == prior
         if original_instructions is None:
             instructions.unlink()
         else:
@@ -1119,7 +1075,7 @@ def check_session_cli(tmp_path):
     pending.write_text('[{"ParameterKey":"Environment","ParameterValue":"dev"}]')
     assert invoke(["--resume", "--pause-after-group"]) == 0
     session = json.loads(state_file.read_text())
-    assert session["result"] == "COMPLETE" and session["metrics"]["validationCount"] == 2
+    assert session["result"] == "COMPLETE" and "validationCount" not in session["metrics"]
     prepared = params / selected[0]["parameters"]
     prepared.write_text('[{"ParameterKey":"Changed","ParameterValue":"value"}]')
     assert invoke(["--resume"]) == 2
@@ -1164,7 +1120,7 @@ def check_parallel_and_restart():
     poll_barrier, review_barrier = Barrier(4, timeout=3), Barrier(4, timeout=3)
     review = backend.describe_change_set
     def parallel_review(unit, snapshot):
-        assert sum(op == "create-change-set" for op, _ in backend.calls) == 4
+        assert sum(op == "create_change_set" for op, _ in backend.calls) == 4
         if snapshot["status"] == "CHANGESET_CREATING":
             review_barrier.wait()
         return review(unit, snapshot)
@@ -1179,7 +1135,7 @@ def check_parallel_and_restart():
         return "CREATE_COMPLETE"
     backend.poll = stack_poll
     assert scheduler.run_group(selected, 4, state, backend, sleep=lambda _: None) == "GROUP_COMPLETE"
-    assert sum(op == "execute-change-set" for op, _ in backend.calls) == 4
+    assert sum(op == "execute_change_set" for op, _ in backend.calls) == 4
 
     # Interruption after submitting one stack, while its peer is prepared but unexecuted.
     selected = units(10, 10)
@@ -1259,7 +1215,8 @@ def observed_collector_root():
 
 
 def check_observed_collector(observed_collector_root):
-    from model.adapters.observed import sync_successful, mappings
+    from deploy.observed import sync_successful
+    from model.adapters.observed import mappings
     root = observed_collector_root
     source = root / "model/dev/123456789012/ec2.properties"
     design = root / "docs/designs/dev/123456789012/ec2.md"
@@ -1267,7 +1224,7 @@ def check_observed_collector(observed_collector_root):
     task = root / "tasks/observation-fixture.md"
     task.parent.mkdir(exist_ok=True)
     task.write_text(observation_contract(root, ['ec2', 'cloudformation-stacks']))
-    backend = M.AwsBackend(root, "dev", "123456789012", TARGET)
+    backend = Runtime(root, "dev", "123456789012", TARGET)
     unit = units(10)[0]
     document = {"Resources": {"VpcTestDev": {"Type": "AWS::EC2::VPC"}},
                 "Outputs": {"VpcIdentity": {"Value": {"Ref": "VpcTestDev"}}}}
@@ -1279,10 +1236,13 @@ def check_observed_collector(observed_collector_root):
     document["Resources"]["VpcTestDev"]["Condition"] = "ThisStack"
     document["Outputs"]["VpcIdentity"]["Condition"] = "ThisStack"
     physical, output, removed = ["vpc-0123456789abcdef0"], ["vpc-0123456789abcdef0"], [False]
-    def aws(operation, *args):
-        if operation == "describe-stacks":
+    def aws(operation, **args):
+        if operation == 'describe_stack_events':
+            return {'StackEvents': [{'StackId': 'stack-A', 'ClientRequestToken': 'token', 'LogicalResourceId': 'VpcTestDev',
+                'ResourceType': 'AWS::EC2::VPC', 'PhysicalResourceId': physical[0], 'ResourceStatus': 'DELETE_COMPLETE'}]}
+        if operation == "describe_stacks":
             return {"Stacks": [{"StackStatus": "CREATE_COMPLETE", "Outputs": [{"OutputKey": "VpcIdentity", "OutputValue": output[0]}]}]}
-        assert operation == "list-stack-resources"
+        assert operation == "list_stack_resources"
         return {"StackResourceSummaries": [] if removed[0] else [{"LogicalResourceId": "VpcTestDev", "ResourceType": "AWS::EC2::VPC", "PhysicalResourceId": physical[0]}]}
     backend.aws = aws
     before = snapshot_model(source)
@@ -1380,9 +1340,13 @@ def check_observed_collector(observed_collector_root):
     saved["A"]["changes"] = [{"Action": "Remove", "LogicalResourceId": "VpcTestDev", "ResourceType": "AWS::EC2::VPC", "PolicyAction": "Retain"}]
     removed[0] = True
     before = read_model(source)
-    rejects(lambda: sync_successful(backend, [unit], saved), "does not prove physical destruction")
+    sync_successful(backend, [unit], saved)
     assert read_model(source) == before
     saved["A"]["changes"][0]["PolicyAction"] = "Delete"
+    saved['A'].update(stackId='stack-A', changeSetId='cs-A', changeDigest='digest', clientToken='token')
+    saved['A']['changes'][0]['PhysicalResourceId'] = physical[0]
+    saved['A']['executionEvidence'] = {'StackId': 'stack-A', 'ChangeSetId': 'cs-A', 'changeDigest': 'digest',
+        'clientToken': 'token', 'inputDigest': 'input', 'resources': copy.deepcopy(saved['A']['changes'])}
     with redirect_stdout(io.StringIO()):
         sync_successful(backend, [unit], saved)
     assert properties(read_model(source))["observed.row.001-002.value"] == "`PENDING_DEPLOY`"
@@ -1390,7 +1354,8 @@ def check_observed_collector(observed_collector_root):
 
 
 def check_shared_stack_mapping(managed_project_workspace):
-    from model.adapters.observed import mappings, sync_successful, preflight, validate_mapping_targets, removed_resources
+    from deploy.observed import sync_successful, removed_resources
+    from model.adapters.observed import mappings, preflight, validate_mapping_targets
     from model.files import read_model
     root = managed_project_workspace
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}) + "\n")
@@ -1437,7 +1402,7 @@ def check_shared_stack_mapping(managed_project_workspace):
                 "Resources": {"DepartmentVpc": {"Type": "AWS::EC2::VPC", "Condition": "Active"},
                               "OptionalRepository": {"Type": "AWS::CodeCommit::Repository", "Condition": "Disabled"}},
                 "Outputs": {"VpcId": {"Condition": "Active", "Value": {"Fn::If": ["Active", {"Ref": "DepartmentVpc"}, {"Ref": "AWS::NoValue"}]}}}}
-    backend = M.AwsBackend(root, "dev", "123456789012", TARGET)
+    backend = Runtime(root, "dev", "123456789012", TARGET)
     backend.templates = {unit["name"]: (document, {"Enabled": "yes"}) for unit in scoped}
     backend.mapping_plan = mappings(root, "dev", "123456789012", backend.templates, scoped)
     assert len(backend.mapping_plan[1]) == 3
@@ -1471,12 +1436,11 @@ def check_shared_stack_mapping(managed_project_workspace):
             result = entry(*args)
         return result, lookups.call_count, bodies, expanded.call_count
 
-    with patch.dict(sys.modules, {"cfnlint.decode": SimpleNamespace(decode=lambda path: (json.loads(Path(path).read_text()), []))}), \
-            patch.object(M, "subprocess") as no_aws:
+    with patch.object(subprocess, "run") as no_aws:
         assert preflight(root, "dev", "123456789012", [u["name"] for u in scoped])[1] == backend.mapping_plan[1]
         for entry, args, expected_before, expected_after in (
-            (mappings, (root, 'dev', '123456789012', backend.templates, scoped), 6, 5),
-            (preflight, (root, 'dev', '123456789012', [u['name'] for u in scoped]), 7, 5),
+            (mappings, (root, 'dev', '123456789012', backend.templates, scoped), 5, 5),
+            (preflight, (root, 'dev', '123456789012', [u['name'] for u in scoped]), 6, 5),
         ):
             with patch.object(observed, 'mappings', mappings.__wrapped__):
                 before, hits_before, bodies_before, expansions_before = measured(entry.__wrapped__, *args)
@@ -1537,12 +1501,12 @@ def check_shared_stack_mapping(managed_project_workspace):
             assert results[0] == results[1] and results[1][0] == int(name == 'missing')
             assert memo_table() is None
         no_aws.run.assert_not_called()
-    def aws(operation, *args):
+    def aws(operation, **args):
         assert memo_table() is None  # Mapping snapshots end before AWS waits and observed publication.
-        name = args[args.index("--stack-name") + 1]
-        if operation == "describe-stacks":
+        name = args['StackName']
+        if operation == "describe_stacks":
             return {"Stacks": [{"StackStatus": "CREATE_COMPLETE", "Outputs": [{"OutputKey": "VpcId", "OutputValue": expected[name]}]}]}
-        assert operation == "list-stack-resources"
+        assert operation == "list_stack_resources"
         return {"StackResourceSummaries": [{"LogicalResourceId": "DepartmentVpc", "ResourceType": "AWS::EC2::VPC", "PhysicalResourceId": expected[name]}]}
     task.write_text(observation_contract(root, ("ec2", "cloudformation-stacks")))
     backend.aws = aws
@@ -1622,13 +1586,22 @@ def check_shared_stack_mapping(managed_project_workspace):
     backend.templates = inactive
     removing = {scoped[1]["name"]: {"DepartmentVpc": {"Type": "AWS::EC2::VPC", "PolicyAction": "Delete"}}}
     backend.mapping_plan = mappings(root, "dev", "123456789012", backend.templates, scoped, removing)
-    def deletion_aws(operation, *args):
-        if operation == "describe-stacks":
+    def deletion_aws(operation, **args):
+        if operation == 'describe_stack_events':
+            return {'StackEvents': [{'LogicalResourceId': 'DepartmentVpc', 'ResourceType': 'AWS::EC2::VPC',
+                'StackId': 'stack-removed', 'ClientRequestToken': 'token', 'PhysicalResourceId': 'vpc-deleted', 'ResourceStatus': 'DELETE_COMPLETE'}]}
+        if operation == "describe_stacks":
             return {"Stacks": [{"StackStatus": "UPDATE_COMPLETE"}]}
         return {"StackResourceSummaries": []}
     backend.aws = deletion_aws
     deleted = states(scoped)
     deleted[scoped[1]["name"]]["changes"] = [{"Action": "Remove", "LogicalResourceId": "DepartmentVpc", "ResourceType": "AWS::EC2::VPC", "PolicyAction": "Delete"}]
+    removal_state = deleted[scoped[1]['name']]
+    removal_state.update(stackId='stack-removed', changeSetId='cs-removed', changeDigest='digest', clientToken='token')
+    removal_state['changes'][0]['PhysicalResourceId'] = 'vpc-deleted'
+    removal_state['executionEvidence'] = {'StackId': 'stack-removed', 'ChangeSetId': 'cs-removed', 'changeDigest': 'digest',
+        'clientToken': 'token', 'inputDigest': 'input', 'resources': copy.deepcopy(removal_state['changes'])}
+
     with redirect_stdout(io.StringIO()):
         sync_successful(backend, [scoped[1]], deleted)
     assert properties(read_model(source))["observed.row.002-002.value"] == "`PENDING_DEPLOY`"
@@ -1677,8 +1650,7 @@ def check_import_implementation_mapping(project_workspace):
     params = root / "infra/cloudformation/parameters/dev/123456789012/app.json"
     params.parent.mkdir(parents=True)
     params.write_text("[]")
-    with patch.dict(sys.modules, {"cfnlint.decode": SimpleNamespace(decode=lambda path: (json.loads(Path(path).read_text()), []))}), \
-            patch.object(M, "subprocess") as no_aws:
+    with patch.object(subprocess, "run") as no_aws:
         assert set(preflight(root, "dev", "123456789012", [unit["name"]])[1][unit["name"]]) == {"Repository"}
         no_aws.run.assert_not_called()
     for logical, definition, message in (
@@ -1699,7 +1671,8 @@ def check_import_implementation_mapping(project_workspace):
 
 
 def check_integrated_child_mapping(project_workspace):
-    from model.adapters.observed import mappings, sync_successful
+    from deploy.observed import sync_successful
+    from model.adapters.observed import mappings
     root = project_workspace
     (root / "project.json").write_text(json.dumps({"targets": [{"environment": "dev", **TARGET}]}) + "\n")
     model = root / "model/dev/123456789012"
@@ -1784,21 +1757,25 @@ def check_integrated_child_mapping(project_workspace):
     # Empty identifier sets must not collect child physical IDs or reset the parent's ID.
     children = {key: mapped[key] for key in [*child_ids, "Repository"]}
     backend = SimpleNamespace(root=root, environment="dev", directory="123456789012", target=TARGET,
-                              templates={unit["name"]: (document, {})}, mapping_plan=(plan[0], {unit["name"]: children}))
-    backend.aws = lambda operation, *args: ({"Stacks": [{"StackStatus": "UPDATE_COMPLETE"}]} if operation == "describe-stacks" else
+                              templates={unit["name"]: ({**document, "Resources": {k: v for k, v in resources.items() if k in children}}, {})})
+    backend.aws = lambda operation, **args: ({"Stacks": [{"StackStatus": "UPDATE_COMPLETE"}]} if operation == "describe_stacks" else
         {"StackResourceSummaries": [{"LogicalResourceId": key, "ResourceType": resources[key]["Type"], "PhysicalResourceId": "arn:aws:ignored"} for key in children]})
+    backend.templates[unit["name"]][0]["Resources"].update({k: v for k, v in resources.items() if k not in children})
     state = states([unit])
-    sync_successful(backend, [unit], state)
+    with patch("deploy.observed.resolve_resources", return_value=(plan[0], {unit["name"]: children})):
+        sync_successful(backend, [unit], state)
     assert state[unit["name"]]["observedSynced"]
     state[unit["name"]]["changes"] = [{"Action": "Remove", "LogicalResourceId": "ChildBucket1", "ResourceType": child["Type"], "PolicyAction": "Delete"}]
-    backend.aws = lambda operation, *args: {"Stacks": [{"StackStatus": "UPDATE_COMPLETE"}]} if operation == "describe-stacks" else {"StackResourceSummaries": [{"LogicalResourceId": key, "ResourceType": resources[key]["Type"]} for key in children if key != "ChildBucket1"]}
-    sync_successful(backend, [unit], state)
+    backend.aws = lambda operation, **args: {"Stacks": [{"StackStatus": "UPDATE_COMPLETE"}]} if operation == "describe_stacks" else {"StackResourceSummaries": [{"LogicalResourceId": key, "ResourceType": resources[key]["Type"]} for key in children if key != "ChildBucket1"]}
+    with patch("deploy.observed.resolve_resources", return_value=(plan[0], {unit["name"]: children})):
+        sync_successful(backend, [unit], state)
     assert before == {path: path.read_bytes() for path in before}
     print("Integrated child mapping: PASS (11 BucketPolicies, 5 associations, hidden RepositoryId, strict ownership/scope/Conditions, identifier-free sync/deletion)")
 
 
 def check_secretsmanager_arn_identifiers(managed_project_workspace):
-    from model.adapters.observed import mappings, sync_successful
+    from deploy.observed import sync_successful
+    from model.adapters.observed import mappings
     from model.projection import catalog_outputs
     from support import rotation_schedule_fixtures as rotation
     root = managed_project_workspace
@@ -1844,8 +1821,8 @@ def check_secretsmanager_arn_identifiers(managed_project_workspace):
                "PhysicalResourceId": "key-current" if logical == "Key" else arn}
               for logical, resource in document["Resources"].items()]
     outputs = [{"OutputKey": "KeyId", "OutputValue": "key-current"}]
-    def aws(operation, *args):
-        return ({"Stacks": [{"StackStatus": "CREATE_COMPLETE", "Outputs": outputs}]} if operation == "describe-stacks" else
+    def aws(operation, **args):
+        return ({"Stacks": [{"StackStatus": "CREATE_COMPLETE", "Outputs": outputs}]} if operation == "describe_stacks" else
                 {"StackResourceSummaries": actual})
     task.write_text(observation_contract(root, ("secretsmanager", "kms", "cloudformation-stacks")))
     backend.aws = aws
@@ -1894,24 +1871,25 @@ def check_secretsmanager_arn_identifiers(managed_project_workspace):
 
 
 def check_api_timing(tmp_path):
-    from deploy_preparation import Timing
-    path = tmp_path / "timing.jsonl"
-    backend = M.AwsBackend(ROOT, "dev", "123456789012", TARGET)
+    from deploy.timing import Timing
+    from utils.aws import cloudformation as cfn
+    from utils.aws.client import AwsError
+    path = tmp_path / 'timing.jsonl'
+    backend = Runtime(ROOT, 'dev', '123456789012', TARGET)
     backend.timing = Timing(ROOT, path)
-    with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout='{"Stacks":[]}', stderr="")):
-        assert backend.aws("describe-stacks", "--stack-name", "private-stack") == {"Stacks": []}
-    with patch.object(M.subprocess, "run", side_effect=M.subprocess.TimeoutExpired("aws", 60)):
-        with pytest.raises(M.subprocess.TimeoutExpired):
-            backend.aws("describe-stacks", "--stack-name", "private-stack")
+    with patch.object(cfn, 'describe_stacks', return_value={'Stacks': []}):
+        assert backend.aws('describe_stacks', StackName='private-stack') == {'Stacks': []}
+    with patch.object(cfn, 'describe_stacks', side_effect=AwsError('cloudformation', 'describe_stacks', 'ReadTimeoutError')):
+        with pytest.raises(M.Blocked): backend.aws('describe_stacks', StackName='private-stack')
     events = [json.loads(line) for line in path.read_text().splitlines()]
-    assert [event["result"] for event in events] == ["PASS", "FAIL"]
-    assert all(event["phase"] == "awsApi" and event["seconds"] >= 0 for event in events)
-    assert "private-stack" not in path.read_text() and "Stacks" not in path.read_text()
+    assert [e['result'] for e in events] == ['PASS', 'FAIL']
+    assert all(e['phase'] == 'awsApi' and e['seconds'] >= 0 for e in events)
+    assert 'private-stack' not in path.read_text() and 'Stacks' not in path.read_text()
 
 
 def check_controlled_repair(tmp_path):
     """Ten requested failure cases use real projection/edit/repair/scheduler/approval code."""
-    from deploy_preparation import repair_changes, task_digest
+    from deploy.contracts import repair_changes, task_digest
     from cloudformation_inputs import load_template_inputs
     from support import model_design_fixtures as helpers
     base = tmp_path
@@ -1960,7 +1938,7 @@ def check_controlled_repair(tmp_path):
             '## Modified files', '- `tasks/example.md`', f'- `{relative}`',
             '## Allowed paths', '- `tasks/example.md`', f'- `{relative}`'])
         task.write_text(contract)
-        backend = M.AwsBackend(root, 'dev', '123456789012', TARGET)
+        backend = Runtime(root, 'dev', '123456789012', TARGET)
         session = {'states': states(scoped), 'metrics': {'observedSyncSeconds': 0},
                    'repository': str(root), 'taskFile': 'tasks/example.md', 'taskDigest': task_digest(contract),
                    'infraManifest': {p.relative_to(root).as_posix(): backend.file_digest(p) for p in backend.deployment_input_paths(scoped)},
@@ -1972,37 +1950,37 @@ def check_controlled_repair(tmp_path):
         current = {'A': None if create else 'UPDATE_COMPLETE', 'B': None}
         stackid = {name: f'arn:aws:cloudformation:ap-northeast-1:123456789012:stack/{name}/session-unique' for name in ('A', 'B')}
         changes, tokens = {}, {}
-        def aws(operation, *args, **kwargs):
+        def aws(operation, **args):
             calls.append((operation, args))
-            if operation in {'delete-stack', 'execute-change-set', 'create-change-set'}:
+            if operation in {'delete_stack', 'execute_change_set', 'create_change_set'}:
                 backend.guard()
-            if '--stack-name' in args:
-                name = args[args.index('--stack-name')+1]
+            if 'StackName' in args:
+                name = args['StackName']
                 name = name.split(':stack/')[-1].split('/')[0]
             else:
                 name = 'A'
-            if operation == 'describe-stacks':
+            if operation == 'describe_stacks':
                 if current[name] is None:
                     raise M.Blocked('stack does not exist')
                 return {'Stacks': [{'StackStatus': current[name], 'StackId': stackid[name]}]}
-            if operation == 'list-stack-resources':
+            if operation == 'list_stack_resources':
                 return {'StackResourceSummaries': []}
-            if operation == 'create-change-set':
-                key = args[args.index('--change-set-name')+1]
+            if operation == 'create_change_set':
+                key = args['ChangeSetName']
                 changes[name] = key
                 return {'Id': key, 'StackId': stackid[name]}
-            if operation == 'describe-change-set':
+            if operation == 'describe_change_set':
                 replacement = destructive and executions.count('A') >= 1 and name == 'A'
-                return {'Status': 'CREATE_COMPLETE', 'ExecutionStatus': 'AVAILABLE', 'Changes': [{'ResourceChange': {
+                return {'Status': 'CREATE_COMPLETE', 'ExecutionStatus': 'AVAILABLE', 'ChangeSetId': args['ChangeSetName'], 'StackId': stackid[name], 'Changes': [{'ResourceChange': {
                     'LogicalResourceId': 'Item', 'ResourceType': 'AWS::' + kind.replace('.', '::'),
                     'Action': 'Modify' if replacement else 'Add', 'Replacement': 'True' if replacement else 'False'}}]}
-            if operation == 'execute-change-set':
+            if operation == 'execute_change_set':
                 executions.append(name)
-                tokens[name] = args[args.index('--client-request-token')+1]
+                tokens[name] = args['ClientRequestToken']
                 failed = name == 'A' and (executions.count('A') == 1 or repeated)
                 current[name] = ('ROLLBACK_COMPLETE' if create else 'UPDATE_ROLLBACK_COMPLETE') if failed else 'CREATE_COMPLETE'
                 return {}
-            if operation == 'describe-stack-events':
+            if operation == 'describe_stack_events':
                 events = [{'ResourceType': 'AWS::CloudFormation::Stack', 'ClientRequestToken': tokens[name],
                            'ResourceStatus': current[name], 'StackId': stackid[name]}]
                 if 'ROLLBACK' in current[name]:
@@ -2010,8 +1988,8 @@ def check_controlled_repair(tmp_path):
                                    'ResourceStatus': 'CREATE_FAILED', 'ResourceStatusReason': reason,
                                    'ClientRequestToken': tokens[name]})
                 return {'StackEvents': events}
-            if operation == 'delete-stack':
-                assert args[args.index('--stack-name')+1] == stackid['A']
+            if operation == 'delete_stack':
+                assert args['StackName'] == stackid['A']
                 current['A'] = None
             return {}
         backend.aws = aws
@@ -2027,7 +2005,8 @@ def check_controlled_repair(tmp_path):
         def validate(u):
             validations.append(u['name'])
             repair_changes(root, task.read_text(), {session['states'][u['name']]['repairs'][-1]['path']})
-            backend.validate(u)  # Real cfn-lint and template decoder, no AWS.
+            backend.load_inputs(u)
+            M.repair_ops.verify_repair(root, "dev", "123456789012", TARGET, backend.templates, u, session["states"][u["name"]])
             assert backend.input_digest(u) == session['unitDigests'][u['name']]
         backend.refresh_validation, backend.save = validate, save
         backend.load_inputs(unit)
@@ -2051,7 +2030,7 @@ def check_controlled_repair(tmp_path):
     assert 'EnableDnsSupport: true' in template.read_text() and 'CidrBlock: 10.0.0.0/16' in template.read_text()
     history = session['states']['A']['repairs']
     assert history[0]['classification'] == 'AUTO_REPAIRABLE' and history[0]['oldDigest'] != history[0]['newDigest']
-    assert len({args[args.index('--change-set-name')+1] for op, args in calls if op == 'create-change-set' and args[1] == 'A'}) == 2
+    assert len({args['ChangeSetName'] for op, args in calls if op == 'create_change_set' and args["StackName"] == 'A'}) == 2
     # Real task validator consumes session evidence, rejects arbitrary extra changes.
     spec = importlib.util.spec_from_file_location('repair_task_validator', (Path(__file__).resolve().parents[2] / 'validate-blueprint.py'))
     vm = importlib.util.module_from_spec(spec); spec.loader.exec_module(vm)
@@ -2088,7 +2067,7 @@ def check_controlled_repair(tmp_path):
     task.write_text(task.read_text().replace('## Modified files', '- `dev/123456789012/ec2`\n## Modified files'))
     session['taskDigest'] = task_digest(task.read_text()); backend.save()
     assert run() == 'COMPLETE', session
-    assert executed == ['A', 'A', 'B'] and any(op == 'delete-stack' for op, _ in calls)
+    assert executed == ['A', 'A', 'B'] and any(op == 'delete_stack' for op, _ in calls)
     assert '!Ref' in template.read_text() and 'Subnet' in template.read_text()
     assert session['states']['A']['cleanupStatus'] == 'DELETE_COMPLETE'
     # A nonfailing external Role expression does not force consultation for a known Subnet repair.
@@ -2103,8 +2082,8 @@ def check_controlled_repair(tmp_path):
     task.write_text(task.read_text().replace('## Modified files', '- `dev/123456789012/ec2`\n- `dev/123456789012/iam`\n## Modified files'))
     session['taskDigest'] = task_digest(task.read_text()); backend.save()
     event_subnet = {'LogicalResourceId': 'Item', 'ResourceType': 'AWS::Lambda::Function',
-                    'ResourceStatus': 'STATIC_VALIDATION_FAILED', 'ResourceStatusReason': 'SubnetNotFound old subnet'}
-    state = session['states']['A']; state.update(status='FAILED', stackStatus='PRE_EXECUTION', failureEvents=[event_subnet])
+                    'ResourceStatus': 'CREATE_FAILED', 'ResourceStatusReason': 'SubnetNotFound old subnet'}
+    state = session['states']['A']; state.update(status='FAILED', stackStatus='UPDATE_ROLLBACK_COMPLETE', failureEvents=[event_subnet])
     assert backend.repair(unit, state), state
     assert 'Role: !ImportValue RoleArn' in template.read_text()
     # Cross-stack Subnet correction confirms the existing actual Export expression and owner.
@@ -2121,22 +2100,22 @@ def check_controlled_repair(tmp_path):
     session['infraManifest']['infra/cloudformation/templates/b.yaml'] = backend.file_digest(template.with_name('b.yaml'), fresh=True)
     session['unitDigests']['B'] = backend.input_digest(following, fresh=True)
     original_aws = backend.aws
-    def reference_aws(operation, *args, **kwargs):
-        if operation == 'list-exports':
+    def reference_aws(operation, **args):
+        if operation == 'list_exports':
             calls.append((operation, args))
             return {'Exports': [{'Name': 'SubnetExport', 'Value': 'subnet-current',
                                  'ExportingStackId': 'arn:aws:cloudformation:ap-northeast-1:123456789012:stack/B/id'}]}
-        if operation == 'get-template':
+        if operation == 'get_template':
             calls.append((operation, args)); return {'TemplateBody': producer}
-        if operation == 'describe-stacks' and args == ('--stack-name', 'B'):
+        if operation == 'describe_stacks' and args == {'StackName': 'B'}:
             calls.append((operation, args)); return {'Stacks': [{'StackStatus': 'CREATE_COMPLETE', 'Parameters': []}]}
-        return original_aws(operation, *args, **kwargs)
+        return original_aws(operation, **args)
     backend.aws = reference_aws
-    state = session['states']['A']; state.update(status='FAILED', stackStatus='PRE_EXECUTION', failureEvents=[event_subnet])
+    state = session['states']['A']; state.update(status='FAILED', stackStatus='UPDATE_ROLLBACK_COMPLETE', failureEvents=[event_subnet])
     backend.save()
     assert backend.repair(unit, state), state
     assert '!ImportValue' in template.read_text() and 'SubnetExport' in template.read_text()
-    assert sum(op == 'get-template' for op, _ in calls) == 1
+    assert sum(op == 'get_template' for op, _ in calls) == 1
     subnet['desired.resource.001.cfn-logicalId'] = 'A-Subnet'
     # Case 3: explicit approved account projection, not an inference from AccessDenied.
     glue_text = 'Resources:\n  Item:\n    Type: AWS::Glue::Database\n    Properties:\n      CatalogId: "111111111111"\n      DatabaseInput:\n        Name: app_dev_database\n'
@@ -2149,7 +2128,7 @@ def check_controlled_repair(tmp_path):
         [('KmsKeyArn', '`UNSET`', 'external key unknown')], lambda_text, 'KMS key does not exist')
     before = template.read_bytes(); assert run() == 'STOPPED'
     assert template.read_bytes() == before and session['states']['A']['failureClassification'] == 'HUMAN_REQUIRED'
-    assert not validated and not any(op == 'delete-stack' for op, _ in calls)
+    assert not validated and not any(op == 'delete_stack' for op, _ in calls)
     # An IMPORT Key reference without an approved handoff is also never guessed.
     backend, session, calls, executed, validated, run = configure('lambda', 'Lambda.Function',
         [('KmsKeyArn', '[KMS_Key_001](kms.md#kms-app-dev-key)', 'external key')], lambda_text, 'KMS key does not exist')
@@ -2192,30 +2171,21 @@ def check_controlled_repair(tmp_path):
     state = session['states']['A']; state.update(status='FAILED', stackStatus='UPDATE_ROLLBACK_FAILED', reason='ResourcesToSkip required')
     before = template.read_bytes(); assert not backend.repair(unit, state)
     assert template.read_bytes() == before and state['failureClassification'] == 'HUMAN_REQUIRED'
-    assert not any(op in {'delete-stack', 'continue-update-rollback'} for op, _ in calls)
+    assert not any(op in {'delete_stack', 'continue-update-rollback'} for op, _ in calls)
     # The three-iteration cap is enforced independently of changing request/error strings.
     backend, session, calls, executed, validated, run = configure('ec2', 'EC2.VPC',
         [('CidrBlock', '`10.0.0.0/16`', 'network')], vpc, 'CidrBlock missing')
     state = session['states']['A']
     event = {'LogicalResourceId': 'Item', 'ResourceType': 'AWS::EC2::VPC',
-             'ResourceStatus': 'STATIC_VALIDATION_FAILED', 'ResourceStatusReason': 'CidrBlock missing'}
-    state.update(status='FAILED', stackStatus='PRE_EXECUTION', failureEvents=[event],
+             'ResourceStatus': 'CREATE_FAILED', 'ResourceStatusReason': 'CidrBlock missing'}
+    state.update(status='FAILED', stackStatus='UPDATE_ROLLBACK_COMPLETE', failureEvents=[event],
                  repairs=[{'failureClass': 'Item:CidrBlock|Peer' + str(i) + ':Property', 'newFileDigest': str(i), 'stage': 'RETRY_READY'} for i in range(3)])
     assert not backend.repair(unit, state) and 'iteration limit' in state['reason'] and not validated
-    # Structured lint failure is repaired before the first AWS change set.
-    invalid = vpc.replace('true', 'invalid_boolean') + '      CidrBlock: 10.0.0.0/16\n'
-    backend, session, calls, executed, validated, run = configure('ec2', 'EC2.VPC',
-        [('EnableDnsSupport', '`true`', 'DNS')], invalid, 'EnableDnsSupport invalid')
-    rejects(lambda: backend.validate(unit), 'cfn-lint failed')
-    assert backend.validation_failures['A']
-    state = session['states']['A']
-    state.update(status='FAILED', stackStatus='PRE_EXECUTION', failureEvents=backend.validation_failures['A'])
-    assert backend.repair(unit, state) and validated == ['A'] and not calls, state
     # Both interruption boundaries recover only persisted exact candidate bytes, then revalidate.
     for boundary in ('REPAIR_INTENT', 'VALIDATING'):
         backend, session, calls, executed, validated, run = configure('ec2', 'EC2.VPC',
             [('CidrBlock', '`10.0.0.0/16`', 'network')], vpc, 'CidrBlock missing')
-        state = session['states']['A']; state.update(status='FAILED', stackStatus='PRE_EXECUTION', failureEvents=[event])
+        state = session['states']['A']; state.update(status='FAILED', stackStatus='UPDATE_ROLLBACK_COMPLETE', failureEvents=[event])
         original_save = backend.save
         def interrupted():
             original_save()
@@ -2232,7 +2202,7 @@ def check_controlled_repair(tmp_path):
     for boundary in ('diagnostics', 'intent'):
         backend, session, calls, executed, validated, run = configure('ec2', 'EC2.VPC',
             [('CidrBlock', '`10.0.0.0/16`', 'network')], vpc, 'CidrBlock missing')
-        state = session['states']['A']; state.update(status='FAILED', stackStatus='PRE_EXECUTION', failureEvents=[event])
+        state = session['states']['A']; state.update(status='FAILED', stackStatus='UPDATE_ROLLBACK_COMPLETE', failureEvents=[event])
         untouched = template.read_bytes()
         if boundary == 'diagnostics':
             plan = backend.repair_plan
@@ -2264,7 +2234,7 @@ def check_controlled_repair(tmp_path):
     session['taskDigest'] = task_digest(task.read_text())
     session['infraManifest'][relative] = backend.file_digest(parameter, fresh=True)
     session['unitDigests']['A'] = backend.input_digest(unit, fresh=True)
-    state = session['states']['A']; state.update(status='FAILED', stackStatus='PRE_EXECUTION', failureEvents=[event])
+    state = session['states']['A']; state.update(status='FAILED', stackStatus='UPDATE_ROLLBACK_COMPLETE', failureEvents=[event])
     backend.save()
     before = template.read_bytes()
     assert backend.repair(unit, state) and template.read_bytes() == before
@@ -2275,8 +2245,8 @@ def check_controlled_repair(tmp_path):
     state = session['states']['A']
     # Unknown provenance and retained resource conditions are checked before delete.
     state.update(stackStatus='ROLLBACK_COMPLETE', operationType='CREATE', absentBeforeCreate=True, stackId='id', operationStackId='other')
-    def failed_without_id(operation, *args):
-        if operation == 'describe-stacks':
+    def failed_without_id(operation, **args):
+        if operation == 'describe_stacks':
             return {'Stacks': [{'StackId': 'id', 'StackStatus': 'ROLLBACK_COMPLETE'}]}
         return {'StackResourceSummaries': [{'LogicalResourceId': 'Item', 'ResourceType': 'AWS::EC2::VPC',
                                             'ResourceStatus': 'CREATE_FAILED'}]}
@@ -2286,12 +2256,12 @@ def check_controlled_repair(tmp_path):
     backend.templates['A'][0]['Resources']['Item']['DeletionPolicy'] = 'Retain'
     rejects(lambda: backend.cleanup_failed_create(unit, state), 'retained')
     backend.templates['A'][0]['Resources']['Item'].pop('DeletionPolicy')
-    def protected(operation, *args):
+    def protected(operation, **args):
         return {'Stacks': [{'StackId': 'id', 'StackStatus': 'ROLLBACK_COMPLETE', 'EnableTerminationProtection': True}]}
     backend.aws = protected
     rejects(lambda: backend.cleanup_failed_create(unit, state), 'protected')
-    def partial_asset(operation, *args):
-        if operation == 'describe-stacks':
+    def partial_asset(operation, **args):
+        if operation == 'describe_stacks':
             return {'Stacks': [{'StackId': 'id', 'StackStatus': 'ROLLBACK_COMPLETE'}]}
         return {'StackResourceSummaries': [{'LogicalResourceId': 'Item', 'ResourceType': 'AWS::EC2::VPC',
                                             'ResourceStatus': 'CREATE_FAILED', 'PhysicalResourceId': 'vpc-existing'}]}
@@ -2307,7 +2277,7 @@ def check_controlled_repair(tmp_path):
     sample = 'Resources:\n  Item:\n    Type: AWS::Glue::Database\n    Properties:\n      CatalogId: "old" # comment\n      DatabaseInput:\n        Name: db\n        Description: old\n      Tags: [one]\n'
     updated = M.repair_ops.repair_template(sample, 'Item', 'DatabaseInput', {'Name': 'db', 'Description': 'new'})
     assert 'Tags: [one]' in updated and 'CatalogId: "old" # comment' in updated
-    print('Controlled deploy repair: PASS (Cases 1-10, typed projection, static lint, session evidence, no guessed values, provenance/retention gates)')
+    print('Controlled deploy repair: PASS (Cases 1-10, typed projection, session evidence, no guessed values, provenance/retention gates)')
 
 
 def check_secret_runtime_bootstrap(tmp_path):
@@ -2366,8 +2336,8 @@ def check_secret_runtime_bootstrap(tmp_path):
             u = next(u for u in active if u['name'] == name)
             (template_dir / u['template']).write_text(json.dumps(doc), encoding='utf-8')
             (parameter_dir / u['parameters']).write_text('[]\n', encoding='utf-8')
-        backend = M.AwsBackend(root, 'dev', '123456789012', TARGET)
-        backend.mapping_units = active
+        backend = Runtime(root, 'dev', '123456789012', TARGET)
+        backend.units = active
         for unit in active:
             backend.load_inputs(unit)
         backend.mapping_plan = mappings(root, 'dev', '123456789012', backend.templates, active, target=TARGET)
@@ -2394,22 +2364,22 @@ def check_secret_runtime_bootstrap(tmp_path):
         def guard():
             assert all(p.read_bytes() == data for p, data in before.items()), 'runtime bootstrap changed repository inputs'
         backend.guard = guard
-        def aws(operation, *args, service='cloudformation'):
+        def aws(operation, service='cloudformation', **args):
             calls.append((operation, args))
             if service == 'secretsmanager':
-                if operation == 'describe-secret':
+                if operation == 'describe_secret':
                     if knobs['describeError']:
                         raise M.Blocked('ResourceNotFoundException')
                     return {'ARN': knobs['canonicalArn'], 'Name': 'app-dev-secret', 'RotationEnabled': knobs['rotation'],
                             'VersionIdsToStages': {k: list(v) for k, v in versions.items() if v}}
-                if operation == 'list-secret-version-ids':
+                if operation == 'list_secret_version_ids':
                     if knobs['listError']:
                         raise M.Blocked('AccessDeniedException')
                     if knobs['invalidVersionResponse']:
                         return {}
                     return {'ARN': arn, 'Versions': [{'VersionId': k, 'VersionStages': v} for k, v in versions.items()]}
-                if operation == 'get-secret-value':
-                    assert '--query' in args and args[args.index('--query')+1] == M.aws_adapter.SECRET_METADATA_QUERY
+                if operation == 'get_secret_value':
+                    assert 'SecretString' not in args and 'Query' not in args
                     if knobs['getError']:
                         raise M.Blocked(knobs['getError'])
                     current = [k for k, v in versions.items() if 'AWSCURRENT' in v]
@@ -2417,59 +2387,59 @@ def check_secret_runtime_bootstrap(tmp_path):
                         error = M.Blocked('current version missing'); error.current_missing = True
                         raise error
                     return {'ARN': arn, 'VersionId': current[0], 'VersionStages': versions[current[0]], 'HasValue': True}
-                if operation == 'put-secret-value':
+                if operation == 'put_secret_value':
                     guard()
                     saved = json.loads(session_path.read_text())['states']['B']['repairs'][-1]
                     assert saved['classification'] == 'RUNTIME_BOOTSTRAP' and saved['stage'] == 'PUT_SUBMITTED'
-                    token = args[args.index('--client-request-token')+1]
+                    token = args['ClientRequestToken']
                     assert saved['clientRequestToken'] == token
                     assert session['states']['A']['observedSynced'], 'successful peers must sync before PUT'
                     if knobs['race']:
                         versions['external-version'] = ['AWSCURRENT']
-                    stages = [args[args.index('--version-stages')+1]]
+                    stages = list(args['VersionStages'])
                     if not versions:
                         stages.append('AWSCURRENT')
                     versions.setdefault(token, stages)
                     if knobs['interruptPut']:
                         raise KeyboardInterrupt()
                     return {'ARN': arn, 'VersionId': token, 'VersionStages': versions[token]}
-                if operation == 'update-secret-version-stage':
+                if operation == 'update_secret_version_stage':
                     guard()
                     assert '--remove-from-version-id' not in args
                     if knobs['promotionRace']:
                         versions['external-version'] = ['AWSCURRENT']
                     if any('AWSCURRENT' in v for v in versions.values()):
                         raise M.Blocked('stage already exists')
-                    versions[args[args.index('--move-to-version-id')+1]].append('AWSCURRENT')
+                    versions[args['MoveToVersionId']].append('AWSCURRENT')
                     return {'ARN': arn, 'Name': 'app-dev-secret'}
                 raise AssertionError(operation)
-            name = args[args.index('--stack-name')+1] if '--stack-name' in args else 'B'
+            name = args['StackName'] if 'StackName' in args else 'B'
             name = name.split(':stack/')[-1].split('/')[0]
-            if operation == 'list-exports':
+            if operation == 'list_exports':
                 return {'Exports': [{'Name': 'SecretExport', 'Value': arn, 'ExportingStackId': stack_ids['SecretOwner']}]}
-            if operation == 'list-stack-resources':
+            if operation == 'list_stack_resources':
                 if name == 'FutureSecretOwner' and statuses[name] is None:
                     raise M.Blocked('stack does not exist')
                 return {'StackResourceSummaries': ([{'LogicalResourceId': 'Secret', 'ResourceType': 'AWS::SecretsManager::Secret',
                     'ResourceStatus': 'CREATE_COMPLETE', 'PhysicalResourceId': knobs['ownerArn']}] if name == 'SecretOwner' else
                     [{'LogicalResourceId': 'Consumer', 'ResourceType': 'AWS::QuickSight::DataSource', 'ResourceStatus': 'DELETE_SKIPPED'}]
                     if knobs['unsafeCleanup'] else [])}
-            if operation == 'get-template':
+            if operation == 'get_template':
                 return {'TemplateBody': docs[name]}
-            if operation == 'describe-stacks':
+            if operation == 'describe_stacks':
                 if statuses[name] is None:
                     raise M.Blocked('stack does not exist')
                 return {'Stacks': [{'StackId': stack_ids[name], 'StackStatus': statuses[name], 'Parameters': []}]}
-            if operation == 'create-change-set':
-                return {'Id': args[args.index('--change-set-name')+1], 'StackId': stack_ids[name]}
-            if operation == 'describe-change-set':
-                return {'Status': 'CREATE_COMPLETE', 'ExecutionStatus': 'AVAILABLE', 'Changes': []}
-            if operation == 'execute-change-set':
-                executed.append(name); tokens[name] = args[args.index('--client-request-token')+1]
+            if operation == 'create_change_set':
+                return {'Id': args['ChangeSetName'], 'StackId': stack_ids[name]}
+            if operation == 'describe_change_set':
+                return {'Status': 'CREATE_COMPLETE', 'ExecutionStatus': 'AVAILABLE', 'Changes': [], 'ChangeSetId': args['ChangeSetName'], 'StackId': stack_ids[name]}
+            if operation == 'execute_change_set':
+                executed.append(name); tokens[name] = args['ClientRequestToken']
                 failing = name == 'B' and (executed.count('B') == 1 or repeated)
                 statuses[name] = ('ROLLBACK_COMPLETE' if create else 'UPDATE_ROLLBACK_COMPLETE') if failing else 'CREATE_COMPLETE'
                 return {}
-            if operation == 'describe-stack-events':
+            if operation == 'describe_stack_events':
                 events = [{'ResourceType': 'AWS::CloudFormation::Stack', 'ClientRequestToken': tokens[name],
                            'ResourceStatus': statuses[name], 'StackId': stack_ids[name]}]
                 if 'ROLLBACK' in statuses[name]:
@@ -2477,16 +2447,16 @@ def check_secret_runtime_bootstrap(tmp_path):
                         'ResourceStatus': 'CREATE_FAILED', 'ClientRequestToken': tokens[name],
                         'ResourceStatusReason': "Secrets Manager can't find the specified secret value for staging label: AWSCURRENT"})
                 return {'StackEvents': events}
-            if operation == 'delete-stack':
-                assert args == ('--stack-name', stack_ids['B'])
+            if operation == 'delete_stack':
+                assert args == {'StackName': stack_ids['B']}
                 statuses[name] = None; return {}
-            if operation == 'validate-template':
+            if operation == 'validate_template':
                 return {}
             raise AssertionError(operation)
         backend.aws = aws
         def validate(unit):
             validations.append(unit['name'])
-            backend.validate(unit)  # Actual cfn-lint/decoder and unchanged input digests.
+            backend.load_inputs(unit)
             backend.mapping_plan = mappings(root, 'dev', '123456789012', backend.templates, active, target=TARGET)
         backend.refresh_validation = validate
         def synced(_backend, items, saved):
@@ -2509,13 +2479,13 @@ def check_secret_runtime_bootstrap(tmp_path):
             syncs=syncs, versions=versions, knobs=knobs, docs=docs, run=run, failed=failed, saved=session_path, before=before)
 
     def puts(f):
-        return [args for op, args in f.calls if op == 'put-secret-value']
+        return [args for op, args in f.calls if op == 'put_secret_value']
     # Cases 1, 8, 13: one JSON PUT, failed CREATE cleanup/retry, peer sync and original remaining order.
     f = configure()
     assert f.run() == 'COMPLETE', f.session
     assert f.executed == ['A', 'B', 'B', 'C'] and f.validations == ['B'] and f.syncs.count('A') == 1
     assert len(puts(f)) == 1
-    assert json.loads(puts(f)[0][puts(f)[0].index('--secret-string')+1]) == {'username': 'DUMMY_DEPLOY_ONLY', 'password': 'DUMMY_DEPLOY_ONLY'}
+    assert json.loads(puts(f)[0]['SecretString']) == {'username': 'DUMMY_DEPLOY_ONLY', 'password': 'DUMMY_DEPLOY_ONLY'}
     entry = f.session['states']['B']['repairs'][0]
     assert entry['classification'] == 'RUNTIME_BOOTSTRAP' and entry['stage'] == 'RETRY_READY'
     assert entry['requiredJsonKeys'] == ['password', 'username']
@@ -2524,7 +2494,7 @@ def check_secret_runtime_bootstrap(tmp_path):
     # Later uncreated Secret producers do not block the proven current Secret's bootstrap.
     f = configure(future=True)
     assert f.run() == 'COMPLETE' and f.executed == ['A', 'B', 'B', 'C', 'FutureSecretOwner'], f.session
-    assert len(puts(f)) == 1 and not any(op == 'list-stack-resources' and args == ('--stack-name', 'FutureSecretOwner')
+    assert len(puts(f)) == 1 and not any(op == 'list_stack_resources' and args == ('--stack-name', 'FutureSecretOwner')
                                         for op, args in f.calls)
     # Cases 2-7: existing value, denied reads/KMS, absent resource, IMPORT, foreign/unknown owner never PUT/cleanup.
     for mode in ('current', 'denied', 'kms', 'absent', 'import', 'crossAccount', 'crossRegion', 'unknownOwner', 'unknownVersions', 'invalidResponse', 'rotation', 'listDenied'):
@@ -2533,7 +2503,11 @@ def check_secret_runtime_bootstrap(tmp_path):
         if mode == 'denied': f.knobs['getError'] = 'AccessDeniedException'
         if mode == 'kms': f.knobs['getError'] = 'DecryptionFailure'
         if mode == 'absent': f.knobs['describeError'] = True
-        if mode == 'import': f.backend.mapping_plan[1]['SecretOwner']['Secret'][2]['resourceMode'] = 'IMPORT'
+        if mode == 'import':
+            owner_path = f.backend.mapping_plan[1]['SecretOwner']['Secret'][0]
+            identity = f.backend.mapping_plan[1]['SecretOwner']['Secret'][1]
+            write_model(owner_path, read_model(owner_path) + f'desired.resource.{identity}.resourceMode=IMPORT\n')
+            f.backend.guard = lambda: None
         if mode == 'crossAccount': f.knobs['canonicalArn'] = arn.replace('123456789012', '999999999999')
         if mode == 'crossRegion': f.knobs['canonicalArn'] = arn.replace('ap-northeast-1', 'us-east-1')
         if mode == 'unknownOwner': f.knobs['ownerArn'] = 'external'
@@ -2543,7 +2517,7 @@ def check_secret_runtime_bootstrap(tmp_path):
         if mode == 'listDenied': f.knobs['listError'] = True
         assert not f.backend.repair(selected[2], state), mode
         assert state['failureClassification'] == 'HUMAN_REQUIRED' and not puts(f), (mode, state)
-        assert not any(op == 'delete-stack' for op, _ in f.calls), mode
+        assert not any(op == 'delete_stack' for op, _ in f.calls), mode
     # Case 9: whole credential JSON/unknown special schema and mixed string/key consumers stop.
     for mode in ('opaque', 'mixed', 'pinned', 'multiple', 'unresolved', 'badExport', 'inactive'):
         f = configure(); state = f.failed(); credential = f.docs['B']['Resources']['Consumer']['Properties']['Credentials']['CredentialPair']
@@ -2561,7 +2535,7 @@ def check_secret_runtime_bootstrap(tmp_path):
         assert not f.backend.repair(selected[2], state) and not puts(f), (mode, state)
     # A proven scalar slot consumes the whole string; no JSON keys are invented.
     f = configure(keys=('', '')); assert f.run() == 'COMPLETE'
-    assert puts(f)[0][puts(f)[0].index('--secret-string')+1] == 'DUMMY_DEPLOY_ONLY'
+    assert puts(f)[0]['SecretString'] == 'DUMMY_DEPLOY_ONLY'
     # Explicit parameter files/defaults and Ref resolve the same owner, without failure-text IDs.
     for explicit in (True, False):
         f = configure(); state = f.failed()
@@ -2613,12 +2587,12 @@ def check_secret_runtime_bootstrap(tmp_path):
         # Reload all persisted state, as a new process would; the AWS versions survive.
         f.session.clear(); f.session.update(persisted)
         previous = f.backend
-        f.backend = M.AwsBackend(root, 'dev', '123456789012', TARGET)
+        f.backend = Runtime(root, 'dev', '123456789012', TARGET)
         f.backend.session = f.session; f.backend.states = f.session['states']
-        f.backend.mapping_units = selected; f.backend.mapping_plan = previous.mapping_plan
+        f.backend.units = selected; f.backend.mapping_plan = previous.mapping_plan
         f.backend.templates = previous.templates; f.backend.aws = previous.aws; f.backend.guard = previous.guard
         f.backend.expected_digests = f.session['unitDigests']
-        f.backend.refresh_validation = lambda unit: f.backend.validate(unit)
+        f.backend.refresh_validation = lambda unit: f.backend.load_inputs(unit)
         state = f.backend.states['B']; f.backend.save = save; f.knobs['interruptPut'] = False
         if boundary != 'RETRY_READY':
             assert f.backend.repair(selected[2], state), (boundary, state)
@@ -2630,41 +2604,39 @@ def check_secret_runtime_bootstrap(tmp_path):
     assert f.run() == 'STOPPED' and f.executed == ['A', 'B', 'B'] and len(puts(f)) == 1
     assert f.session['states']['B']['failureClassification'] == 'HUMAN_REQUIRED'
     assert f.session['states']['C']['status'] == 'NOT_STARTED'
-    assert sum(op == 'delete-stack' for op, _ in f.calls) == 1
+    assert sum(op == 'delete_stack' for op, _ in f.calls) == 1
     # Existing UPDATE_ROLLBACK_COMPLETE handling does not delete/redeploy the successful peer.
-    f = configure(create=False); assert f.run() == 'COMPLETE' and not any(op == 'delete-stack' for op, _ in f.calls)
+    f = configure(create=False); assert f.run() == 'COMPLETE' and not any(op == 'delete_stack' for op, _ in f.calls)
     # Ownership, current-state, guard and cleanup uncertainty fail closed.
     f = configure(); state = f.failed(); f.knobs['unsafeCleanup'] = True
-    assert not f.backend.repair(selected[2], state) and not any(op == 'delete-stack' for op, _ in f.calls)
+    assert not f.backend.repair(selected[2], state) and not any(op == 'delete_stack' for op, _ in f.calls)
     for race in ('race', 'promotionRace'):
         f = configure(); state = f.failed(); f.knobs[race] = True
         if race == 'promotionRace':
             f.versions.clear()
             original = f.backend.aws
-            def staging_only(operation, *args, **kwargs):
-                result = original(operation, *args, **kwargs)
-                if operation == 'put-secret-value':
+            def staging_only(operation, **args):
+                result = original(operation, **args)
+                if operation == 'put_secret_value':
                     for v in f.versions.values():
                         if 'AWSCURRENT' in v: v.remove('AWSCURRENT')
                 return result
             f.backend.aws = staging_only
         assert not f.backend.repair(selected[2], state) and f.versions['external-version'] == ['AWSCURRENT']
         assert len(puts(f)) == 1
-    # The wrapper never reveals secret values via exceptions, process timeout, stdout or timing.
-    backend = M.AwsBackend(root, 'dev', '123456789012', TARGET)
-    from deploy_preparation import Timing
+    # The SDK service projects only metadata; structured transport errors never contain values.
+    from utils.aws import secretsmanager as secrets
+    from utils.aws.client import AwsError
+    backend = Runtime(root, 'dev', '123456789012', TARGET)
+    from deploy.timing import Timing
     backend.timing = Timing(root, base / 'timing.jsonl')
-    rejects(lambda: backend.aws('get-secret-value', '--secret-id', arn, service='secretsmanager'), 'metadata-only')
-    for failure in ('denied', 'missing', 'timeout', 'invalid'):
-        result = SimpleNamespace(returncode=1, stdout='', stderr='An error occurred (AccessDeniedException) DUMMY_DEPLOY_ONLY')
-        if failure == 'missing': result.stderr = "An error occurred (ResourceNotFoundException): Secrets Manager can't find the specified secret value for staging label: AWSCURRENT"
-        if failure == 'invalid': result = SimpleNamespace(returncode=0, stdout='DUMMY_DEPLOY_ONLY', stderr='')
-        error = M.subprocess.TimeoutExpired(['aws', '--secret-string', 'DUMMY_DEPLOY_ONLY'], 60)
-        with patch.object(M.subprocess, 'run', side_effect=error if failure == 'timeout' else None, return_value=result):
+    with patch.object(secrets, 'request', return_value={'ARN': arn, 'VersionId': 'v', 'VersionStages': ['AWSCURRENT'], 'SecretString': 'DUMMY_DEPLOY_ONLY'}):
+        assert 'DUMMY_DEPLOY_ONLY' not in str(backend.aws('get_secret_value', SecretId=arn, service='secretsmanager'))
+    for code in ('AccessDeniedException', 'ReadTimeoutError', 'ResourceNotFoundException'):
+        with patch.object(secrets, 'get_secret_value', side_effect=AwsError('secretsmanager', 'get_secret_value', code)):
             with pytest.raises(M.Blocked) as caught:
-                backend.aws('get-secret-value', '--secret-id', arn, '--version-stage', 'AWSCURRENT', '--query', M.aws_adapter.SECRET_METADATA_QUERY, service='secretsmanager')
+                backend.aws('get_secret_value', SecretId=arn, service='secretsmanager')
             assert 'DUMMY_DEPLOY_ONLY' not in str(caught.value)
-            assert getattr(caught.value, 'current_missing', False) == (failure == 'missing')
     assert 'DUMMY_DEPLOY_ONLY' not in (base / 'timing.jsonl').read_text()
     print('Secrets Manager RUNTIME_BOOTSTRAP: PASS (Cases 1-13, one PUT, JSON/scalar, guards, interruption, peer sync/order, concurrent-value protection, redaction)')
 
@@ -2676,7 +2648,7 @@ def main():
 
 @pytest.mark.parametrize('field', ['display', 'reference', 'placement'])
 def check_deploy_digest_covers_all_nonobserved_authority(tmp_path, monkeypatch, field):
-    from deployment.session import design_digest, model_input_manifest
+    from deploy.session import design_digest, model_input_manifest
     from model.format import parse, patch
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     scope, stacks = deploy_properties_fixture(tmp_path)
@@ -2701,7 +2673,7 @@ def check_deploy_digest_covers_all_nonobserved_authority(tmp_path, monkeypatch, 
 
 @pytest.mark.parametrize('change', ['observed', 'desired', 'display', 'raw', 'concurrent'])
 def check_deploy_observed_baseline_advances_only_proven_outputs(tmp_path, monkeypatch, change):
-    from deployment.session import design_digest, verify_observed_transition, model_input_manifest
+    from deploy.session import design_digest, verify_observed_transition, model_input_manifest
     from model.sources import authority_snapshot
     from model.format import parse, patch
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
@@ -2730,7 +2702,7 @@ def check_deploy_observed_baseline_advances_only_proven_outputs(tmp_path, monkey
 
 
 def check_deploy_preparation_separates_producer_reads_from_writes(tmp_path, monkeypatch):
-    from deploy_preparation import candidate
+    from deploy.preparation import candidate
     from model.format import parse, patch, serialize
     from task_contract import paths_in
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)

@@ -35,21 +35,24 @@ def selected(resource, prop):
     return confirmed(rows[0][1]['value'])
 
 
-def read(backend, operation, *arguments, service='s3api', absent=None):
+def read(backend, operation, service='s3', absent=None, **arguments):
     try:
-        return backend.aws(operation, *arguments, service=service)
+        return backend.aws(operation, service=service, **arguments)
     except Exception as error:
-        if absent and f'({absent})' in str(error):
+        if absent and getattr(error, 'code', None) == absent and getattr(error, 'http_status', None) == 404:
             return None
-        category = 'READ_DENIED' if any(code in str(error) for code in
-            ('AccessDenied', 'Forbidden', '(403)', 'UnauthorizedOperation')) else 'READ_UNCONFIRMED'
+        category = 'READ_DENIED' if getattr(error, 'code', None) in {'AccessDenied', 'Forbidden', 'UnauthorizedOperation'} or getattr(error, 'http_status', None) == 403 else 'READ_UNCONFIRMED'
         fail(category, f'{service}.{operation}: {error}')
 
 
-def key_metadata(backend, key):
+def key_metadata(backend, key, boundary):
     if not isinstance(key, str) or not key:
         fail('INDETERMINATE', 'KMS key selector is missing or invalid')
-    metadata = read(backend, 'describe-key', '--key-id', key, service='kms').get('KeyMetadata', {})
+    selectors = boundary.setdefault('kmsSelectors', {})
+    identity = (getattr(backend, 'connection', None), key)
+    if identity in selectors:
+        return selectors[identity]
+    metadata = read(backend, 'describe_key', KeyId=key, service='kms').get('KeyMetadata', {})
     if not {'Arn', 'KeyId', 'AWSAccountId', 'KeyState', 'Enabled', 'KeyUsage', 'KeySpec'} <= metadata.keys():
         fail('INDETERMINATE', 'DescribeKey metadata is incomplete')
     arn = metadata.get('Arn', '')
@@ -65,24 +68,28 @@ def key_metadata(backend, key):
         fail('MISMATCH', 'KMS key is not compatible with S3 SSE-KMS')
     if metadata.get('KeyId') != parts[5].removeprefix('key/'):
         fail('INDETERMINATE', 'KMS key identity is inconsistent')
+    selectors[identity] = arn
+    for selector in (metadata["KeyId"], arn):
+        selectors[(getattr(backend, "connection", None), selector)] = arn
     return arn
 
 
-def referenced_key(backend, resource):
+def referenced_key(backend, resource, boundary):
     current = resource.current('KeyId')
     if current:
-        return key_metadata(backend, current)
+        return key_metadata(backend, current, boundary)
     aliases = [child for child in resource.model.resources if child.kind == 'KMS.Alias'
                and child.spec.get('parentReference') and child.parent().number == resource.number]
     if not aliases:
         fail('INDETERMINATE', 'referenced KMS key has no confirmed KeyId or approved alias; producer must succeed first')
-    keys = {key_metadata(backend, selected(alias, 'AliasName')) for alias in aliases}
+    keys = {key_metadata(backend, selected(alias, 'AliasName'), boundary) for alias in aliases}
     if len(keys) != 1:
         fail('MISMATCH', 'approved KMS aliases identify different keys')
     return keys.pop()
 
 
-def model_conditions(backend, bucket):
+def model_conditions(backend, bucket, boundary=None):
+    boundary = {} if boundary is None else boundary
     # Reuse the comparator's resource/current/parent/reference resolution, without an SDK client.
     models = {}
     ctx = SimpleNamespace(root=backend.root.resolve())
@@ -122,17 +129,17 @@ def model_conditions(backend, bucket):
                     parent = referenced.parent()
                     if parent.kind != 'KMS.Key':
                         fail('INDETERMINATE', 'KMS Alias parent is not a Key')
-                    key_arn = key_metadata(backend, selected(referenced, 'AliasName'))
-                    if referenced_key(backend, parent) != key_arn:
+                    key_arn = key_metadata(backend, selected(referenced, 'AliasName'), boundary)
+                    if referenced_key(backend, parent, boundary) != key_arn:
                         fail('MISMATCH', 'KMS Alias does not match its approved parent KeyId')
                 elif referenced.kind == 'KMS.Key':
-                    key_arn = referenced_key(backend, referenced)
+                    key_arn = referenced_key(backend, referenced, boundary)
                 else:
                     fail('INDETERMINATE', 'encryption reference is not a KMS Key/Alias')
                 request_key = key_arn
             else:
                 request_key = raw
-                key_arn = key_metadata(backend, raw)
+                key_arn = key_metadata(backend, raw, boundary)
         result = {'algorithm': algorithm, 'keyArn': key_arn, 'requestKey': request_key,
                   'mode': mode or 'explicit', 'account': backend.target.get('awsExecutionAccountId', backend.target['awsAccountId']),
                   'region': backend.target['awsRegion']}
@@ -222,21 +229,21 @@ def policy_conditions(policy, bucket, key, conditions):
             fail('INDETERMINATE', 'unsupported encryption policy Effect')
 
 
-def preflight(backend, bucket, prefix, keys):
+def preflight(backend, bucket, prefix, keys, boundary=None):
+    boundary = {} if boundary is None else boundary
     identity = json.dumps([bucket, prefix], separators=(',', ':'))
     reports = backend.session.setdefault('placementPreflight', {})
     try:
-        conditions = model_conditions(backend, bucket)
-        owner = ['--bucket', bucket, '--expected-bucket-owner', conditions['account']]
-        read(backend, 'head-bucket', *owner)
-        location = read(backend, 'get-bucket-location', *owner)
-        if 'LocationConstraint' not in location:
-            fail('INDETERMINATE', 'bucket location response is incomplete')
-        region = location['LocationConstraint'] or 'us-east-1'
-        if ('eu-west-1' if region == 'EU' else region) != conditions['region']:
+        account = backend.target.get('awsExecutionAccountId', backend.target['awsAccountId'])
+        identity_key = (getattr(backend, 'connection', None), bucket, account)
+        designs = boundary.setdefault('bucketDesigns', {})
+        if identity_key not in designs:
+            designs[identity_key] = model_conditions(backend, bucket, boundary)
+        conditions = dict(designs[identity_key])
+        information = bucket_information(backend, bucket, account, boundary)
+        region, rules, policy = information['region'], information['rules'], information['policy']
+        if region != conditions['region']:
             fail('MISMATCH', 'deployment bucket region does not match target')
-        encryption = read(backend, 'get-bucket-encryption', *owner)
-        rules = encryption.get('ServerSideEncryptionConfiguration', {}).get('Rules', [])
         if len(rules) != 1:
             fail('INDETERMINATE', 'bucket default encryption must have one supported rule')
         default = rules[0].get('ApplyServerSideEncryptionByDefault', {})
@@ -248,17 +255,16 @@ def preflight(backend, bucket, prefix, keys):
             key = default.get('KMSMasterKeyID')
             if not key:
                 fail('INDETERMINATE', 'bucket default KMS key is not explicit')
-            if key_metadata(backend, key) != conditions['keyArn']:
+            if key_metadata(backend, key, boundary) != conditions['keyArn']:
                 fail('MISMATCH', 'bucket default KMS key differs from the approved model')
         elif default.get('KMSMasterKeyID'):
             fail('INDETERMINATE', 'SSE-S3 default also contains a KMS key')
         if 'bucketKeyEnabled' in conditions and rules[0].get('BucketKeyEnabled', False) != conditions['bucketKeyEnabled']:
             fail('MISMATCH', 'bucket default BucketKeyEnabled differs from model')
-        raw_policy = read(backend, 'get-bucket-policy', *owner, absent='NoSuchBucketPolicy')
-        policy = strict_json(raw_policy['Policy']) if raw_policy is not None else {'Statement': []}
         for key in keys:
             policy_conditions(policy, bucket, key, conditions)
-        conditions['defaultEncryption'] = rules
+        conditions['defaultEncryption'] = {'algorithm': default['SSEAlgorithm'], 'keyArn': conditions['keyArn'],
+            'bucketKeyEnabled': rules[0].get('BucketKeyEnabled', False)}
         conditions['policyDigest'] = fingerprint(policy)
         previous = backend.session.setdefault('placementConditions', {}).get(identity)
         if previous is not None and previous != conditions:
@@ -278,12 +284,30 @@ def preflight(backend, bucket, prefix, keys):
         raise
 
 
+def bucket_information(backend, bucket, owner, boundary):
+    identity = (getattr(backend, 'connection', None), bucket, owner)
+    buckets = boundary.setdefault('buckets', {})
+    if identity not in buckets:
+        arguments = {'Bucket': bucket, 'ExpectedBucketOwner': owner}
+        read(backend, 'head_bucket', **arguments)
+        location = read(backend, 'get_bucket_location', **arguments)
+        if 'LocationConstraint' not in location:
+            fail('INDETERMINATE', 'bucket location response is incomplete')
+        region = location['LocationConstraint'] or 'us-east-1'
+        encryption = read(backend, 'get_bucket_encryption', **arguments)
+        raw = read(backend, 'get_bucket_policy', absent='NoSuchBucketPolicy', **arguments)
+        policy = strict_json(raw['Policy']) if raw is not None else {'Statement': []}
+        buckets[identity] = {'region': 'eu-west-1' if region == 'EU' else region,
+            'rules': encryption.get('ServerSideEncryptionConfiguration', {}).get('Rules', []), 'policy': policy}
+    return buckets[identity]
+
+
 def upload_options(conditions):
     if conditions['mode'] == 'default':
-        return []
-    result = ['--server-side-encryption', conditions['algorithm']]
+        return {}
+    result = {'ServerSideEncryption': conditions['algorithm']}
     if conditions['requestKey']:
-        result += ['--ssekms-key-id', conditions['requestKey']]
+        result['SSEKMSKeyId'] = conditions['requestKey']
     return result
 
 

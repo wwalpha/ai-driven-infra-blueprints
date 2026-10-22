@@ -51,7 +51,7 @@ def check_unsupported_version(header):
 
 @pytest.mark.parametrize('version', [None, 1, 2, 3.0])
 def check_deploy_rejects_legacy_session_format(version):
-    from deployment.session import require_session_format
+    from deploy.session import require_session_format
     from cloudformation_inputs import Blocked
     with pytest.raises(Blocked, match='format is incompatible'):
         require_session_format({'version': version, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1})

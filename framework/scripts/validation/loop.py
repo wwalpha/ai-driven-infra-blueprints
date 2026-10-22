@@ -285,13 +285,16 @@ def select_checks(root, paths, affected=False):
     mapping["framework/scripts/model/adapters/aws.py"] = comparison
     mapping["framework/scripts/issues_iac.py"] = comparison - {"check-model-aws.checks.py"}
     mapping["framework/scripts/cloudformation-deploy.py"] = {"cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
-    for name in ("__init__", "scheduler", "aws_adapter", "delivery", "change_sets", "repair", "secret_bootstrap", "session"):
-        mapping[f"framework/scripts/deployment/{name}.py"] = mapping["framework/scripts/cloudformation-deploy.py"]
+    for name in ("__init__", "preparation", "controller", "inputs", "contracts", "context", "guards", "session", "scheduler", "change_sets", "delivery", "s3_delivery", "repair", "secret_bootstrap", "observed", "timing"):
+        mapping[f"framework/scripts/deploy/{name}.py"] = mapping["framework/scripts/cloudformation-deploy.py"]
+    for name in ('__init__', 'client', 'sts', 'cloudformation', 's3', 'kms', 'secretsmanager'):
+        mapping[f'framework/scripts/utils/aws/{name}.py'] = mapping['framework/scripts/cloudformation-deploy.py'] | {'aws-client.checks.py', 'deploy-sdk.checks.py'}
+    mapping['framework/scripts/utils/cloudformation_format.py'] = comparison | {'cloudformation-format.checks.py', 'json-resource-arn-unit.checks.py'}
     # JSON/identity helpers are also used by shared design/catalog processing.
     mapping["framework/scripts/iac_values.py"] = {check.name for check in checks}
     mapping["framework/scripts/issues_reports.py"] = {"issues_scan.checks.py", "comparison_core.checks.py"}
     mapping["framework/scripts/issues_scan.py"] = {"issues_scan.checks.py"}
-    mapping["framework/scripts/s3_delivery.py"] = {"cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
+    mapping["framework/scripts/deploy/s3_delivery.py"] = {"cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
     mapping["framework/scripts/iac_evaluation.py"] = comparison - {"check-model-aws.checks.py"}
     mapping["framework/scripts/script_loader.py"] = comparison - {"check-model-aws.checks.py"}
     mapping.update({f"framework/scripts/validation/{name}.py": {check.name for check in checks}

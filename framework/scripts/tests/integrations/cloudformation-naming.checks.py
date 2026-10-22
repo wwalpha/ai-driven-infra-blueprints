@@ -9,7 +9,7 @@ from functools import cache
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from support.model_sources import write_model
-from cfnlint.decode import decode
+from utils.cloudformation_format import decode_file as decode
 from cloudformation_inputs import checked_parameters, resolve_value, load_target
 from model.core import entries, literal
 from model.files import load_model

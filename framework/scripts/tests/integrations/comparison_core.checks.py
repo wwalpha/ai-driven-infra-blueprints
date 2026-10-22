@@ -47,10 +47,11 @@ assert alternate.Expression is iac.Expression is values.Expression
 assert alternate.ResourceReference is iac.ResourceReference is values.ResourceReference
 assert alternate.Blocked is iac.Blocked is evaluation.Blocked
 from script_loader import module
-import issues_scan as scan, s3_delivery as delivery
+import issues_scan as scan
+from deploy import s3_delivery as delivery
 aws = module('model/adapters/aws.py', 'model.adapters.aws')
-deploy = module('cloudformation-deploy.py', 'core_deploy')
-from deployment import repair
+from deploy import controller as deploy
+from deploy import repair
 assert delivery.module('model/adapters/aws.py', 'model.adapters.aws') is aws
 assert aws.Unresolved is rows.Unresolved and aws.put_row is repair.put_row is rows.put_row
 assert repair.same is values.same and scan.Comparison is iac.Comparison

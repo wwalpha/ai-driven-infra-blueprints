@@ -7,6 +7,7 @@ if not __debug__:
 
 import pytest
 from model.adapters import observed
+from deploy import observed as deploy_observed
 from model.core import entries
 
 
@@ -25,12 +26,14 @@ def mapping_inputs(tmp_path, monkeypatch):
         def cloudformation_type(self, kind):
             return 'AWS::EC2::VPC'
     monkeypatch.setattr(observed, 'DesignSchemaCatalog', Catalog)
+    monkeypatch.setattr(deploy_observed, 'DesignSchemaCatalog', Catalog)
+    monkeypatch.setattr(deploy_observed, 'resolve_resources', lambda root, env, directory, templates, units, selected, removed=None, **kwargs: observed._mappings(root, env, directory, templates, units, removed, kwargs.get('target'), loaded=loaded, selection=selected))
     def invoke(resources, *, document=None, parameters=None, removed=None, implementation=False):
         return observed.mappings(tmp_path, 'dev', 'test',
                                  {'Stack': (document if document is not None else {'Resources': resources},
                                             parameters or {'NetworkId': 'vpc-fixture'})},
                                  [{'name': 'Stack'}], removed=removed,
-                                 target={'awsRegion': 'ap-northeast-1'}, implementation=implementation)
+                                 target={'awsRegion': 'ap-northeast-1', 'awsAccountId': '123456789012'}, implementation=implementation)
     return tmp_path, loaded, invoke
 
 
@@ -114,7 +117,7 @@ def static_template(logical='StaticExportHandle'):
 def check_static_exports_share_mapping_and_skip_observed(mapping_inputs, monkeypatch):
     from types import SimpleNamespace
     root, loaded, invoke = mapping_inputs
-    monkeypatch.setattr(observed, 'require_target_no_issues', lambda *args: None)
+    monkeypatch.setattr(deploy_observed, 'require_target_no_issues', lambda *args: None)
     def unexpected(*args, **kwargs):
         pytest.fail('static Export scaffold must not map, read AWS, or publish observations')
     monkeypatch.setattr(observed, 'mapped_resource', unexpected)
@@ -128,12 +131,12 @@ def check_static_exports_share_mapping_and_skip_observed(mapping_inputs, monkeyp
         assert normal == invoke({}, document=document, implementation=True) == ({}, {'Stack': {}})
         for cached in (False, True):
             backend = SimpleNamespace(root=root, environment='dev', directory='test',
-                                      target={'awsRegion': 'ap-northeast-1'},
+                                      target={'awsRegion': 'ap-northeast-1', 'awsAccountId': '123456789012'},
                                       templates={'Stack': (document, {'NetworkId': 'vpc-fixture'})}, aws=unexpected)
             if cached:
                 backend.mapping_plan = normal
             states = {'Stack': {}}
-            assert observed.sync_successful(backend, [{'name': 'Stack'}], states) is None
+            assert deploy_observed.sync_successful(backend, [{'name': 'Stack'}], states) is None
             assert states == {'Stack': {'observedSynced': True}}
         assert loaded == {}
 
@@ -284,20 +287,20 @@ def check_static_export_preserves_removal_guards(mapping_inputs, monkeypatch):
     units = [{'name': 'Stack'}]
     states = {'Stack': {'changes': [{'Action': 'Remove', 'LogicalResourceId': 'StaticExportHandle',
                                    'ResourceType': HANDLE, 'PolicyAction': 'Delete'}]}}
-    removed = observed.removed_resources(units, states)
+    removed = deploy_observed.removed_resources(units, states)
     for resources in (document['Resources'], {}):
         deleting_document = document | {'Resources': resources}
         for implementation in (False, True):
             with pytest.raises(observed.MappingError, match='explicit mapping required'):
                 invoke({}, document=deleting_document, removed=removed, implementation=implementation)
-    monkeypatch.setattr(observed, 'require_target_no_issues', lambda *args: None)
-    backend = SimpleNamespace(root=root, environment='dev', directory='test', target={},
+    monkeypatch.setattr(deploy_observed, 'require_target_no_issues', lambda *args: None)
+    backend = SimpleNamespace(root=root, environment='dev', directory='test', target={'awsRegion': 'ap-northeast-1', 'awsAccountId': '123456789012'},
                               templates={'Stack': (document, {'NetworkId': 'vpc-fixture'})})
     with pytest.raises(observed.MappingError, match='explicit mapping required'):
-        observed.sync_successful(backend, units, states)
+        deploy_observed.sync_successful(backend, units, states)
     backend.mapping_plan = invoke({}, document=document)
-    with pytest.raises(ValueError, match='removed resource has no mapping validated before execution'):
-        observed.sync_successful(backend, units, states)
+    with pytest.raises(observed.MappingError, match='explicit mapping required'):
+        deploy_observed.sync_successful(backend, units, states)
     assert 'observedSynced' not in states['Stack']
 
 

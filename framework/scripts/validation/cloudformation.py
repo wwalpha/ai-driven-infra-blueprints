@@ -256,20 +256,8 @@ def check_cloudformation_environment_parameters(root, iac_paths, accounts, stack
             continue
         if not input_is_file(path) or path.suffix.lower() not in {".yaml", ".yml", ".json"}:
             continue
-        try:
-            from cfnlint.decode import decode
-        except ImportError:
-            findings.check(False, "cfn-lint Python runtime is required for CloudFormation Environment validation")
-            return
-        from validation_cache import input_recorder, input_bytes
-        if input_recorder(path) is None:
-            document, decode_errors = decode(str(path))
-        else:
-            import tempfile
-            with tempfile.TemporaryDirectory(prefix='blueprint-cfn-') as directory:
-                candidate = Path(directory) / path.name
-                candidate.write_bytes(input_bytes(path))
-                document, decode_errors = decode(str(candidate))
+        from utils.cloudformation_format import decode_file
+        document, decode_errors = decode_file(path)
         if decode_errors or not isinstance(document, dict):
             detail = decode_errors[0] if decode_errors else "expected a template object"
             findings.check_file(False, path, f"invalid CloudFormation template for Environment validation: {findings.relative(path)}: {detail}")

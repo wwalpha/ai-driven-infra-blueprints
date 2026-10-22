@@ -55,21 +55,15 @@ def check_preparation():
         assert not generated & documents.keys()
         for relative, digest in plan["inputs"].items():
             assert digest == hashlib.sha256(((ROOT if relative.startswith(("framework/", ".agents/")) else root) / relative).read_bytes()).hexdigest()
-        assert {Path(c) for d in plan["documents"] for c in d["chunks"]} == {p.resolve() for p in (run / "documents").iterdir()}
+        assert {Path(c) for d in plan["documents"] for c in d["chunks"]} == {p.resolve() for p in (run / "documents").iterdir()} | {run / "target-summary.json"}
         assert len(documents) == len(plan["documents"])
         entrance = root / "model/dev/123456789012/ec2.properties"
-        assert all(p.relative_to(root).as_posix() in documents for p in source_inputs(entrance))
-        iam = documents["model/dev/123456789012/iam.properties"]
-        assert "desired.row.001-002.document=" in "".join(Path(c).read_text(encoding="utf-8") for c in iam["chunks"])
-        assert all("infra/cloudformation/parameters/dev/123456789012/" + str(i) + ".json" in documents for i in (1, 2))
-        assert "AGENTS.md" in documents
-        assert all(name in plan["controllerArgv"] for name in STACKS)
-        model_rules = documents["framework/rules/model-information.md"]
-        selected = "".join(Path(chunk).read_text(encoding="utf-8") for chunk in model_rules["chunks"])
-        assert "## CloudFormation deployment policy" in selected
-        assert "### Resource-level CloudFormation identity" in selected
-        assert "## Service display inputs" not in selected
-        assert model_rules["readCharacters"] < model_rules["sourceCharacters"]
+        assert all(p.relative_to(root).as_posix() in plan['inputs'] for p in source_inputs(entrance))
+        assert not any(name.startswith(('model/', 'infra/')) for name in documents)
+        assert 'AGENTS.md' in documents and 'target-summary' in documents
+        assert all(name in plan['controllerArgv'] for name in STACKS)
+        assert plan['readingCharacters']['fixed'] <= 20000
+        assert plan['readingCharacters']['variable'] > 0
         assert "framework/rules/task-contract.md" in documents
         assert "framework/rules/issue-gate.md" in documents
         assert "framework/rules/project-configuration.md" in documents
@@ -78,7 +72,7 @@ def check_preparation():
         registered = contracts(root)["tasks/deploy-offline.md"]
         assert paths_in(registered, "## Modified files") == paths_in(text, "## Modified files")
         assert invoke(arguments(root, base)) == 1  # Registered tasks keep the existing resume path.
-        with patch.object(M.subprocess, "run", return_value=subprocess.CompletedProcess(plan["controllerArgv"], 2)) as launch:
+        with patch.object(subprocess, "run", return_value=subprocess.CompletedProcess(plan["controllerArgv"], 2)) as launch:
             assert M.main(["--repository-root", str(root), "--run-controller", str(path)]) == 2
             assert launch.call_count == 1 and launch.call_args.args[0] == plan["controllerArgv"]
             assert launch.call_args.kwargs["env"]["BLUEPRINT_TASK_FILE"] == "tasks/deploy-offline.md"
@@ -90,14 +84,14 @@ def check_preparation():
                         [*original_command, "--repository-root=" + str(root)]):
             plan["controllerArgv"] = command
             path.write_text(json.dumps(plan), encoding="utf-8")
-            with patch.object(M.subprocess, "run", side_effect=AssertionError("foreign Project launched")), redirect_stderr(io.StringIO()):
+            with patch.object(subprocess, "run", side_effect=AssertionError("foreign Project launched")), redirect_stderr(io.StringIO()):
                 assert M.main(["--repository-root", str(root), "--run-controller", str(path)]) == 1
         plan["controllerArgv"] = original_command
         for field, value in (("repository", str(base / "other")), ("registeredContractDigest", "changed")):
             saved = plan[field]
             plan[field] = value
             path.write_text(json.dumps(plan), encoding="utf-8")
-            with patch.object(M.subprocess, "run", side_effect=AssertionError("unapproved plan launched")), redirect_stderr(io.StringIO()):
+            with patch.object(subprocess, "run", side_effect=AssertionError("unapproved plan launched")), redirect_stderr(io.StringIO()):
                 assert M.main(["--repository-root", str(root), "--run-controller", str(path)]) == 1
             plan[field] = saved
         path.write_text(json.dumps(plan), encoding="utf-8")
@@ -106,7 +100,7 @@ def check_preparation():
         assert all(e["result"] == "PASS" and e["seconds"] >= 0 for e in events)
         assert all("aws" not in e["phase"].lower() for e in events)
         (run / "session.json").write_text("{}", encoding="utf-8")
-        with patch.object(M.subprocess, "run", side_effect=AssertionError("existing session restarted")), redirect_stderr(io.StringIO()):
+        with patch.object(subprocess, "run", side_effect=AssertionError("existing session restarted")), redirect_stderr(io.StringIO()):
             assert M.main(["--repository-root", str(root), "--run-controller", str(path)]) == 1
         print(f"Offline preparation benchmark: {wall:.3f}s; phase timing generated (fixture, no AWS)")
 
@@ -169,9 +163,7 @@ def check_generated_boundaries():
         else:
             raise AssertionError("foreign JSON accepted")
         write_model(source, original)
-        controller = M.module("boundary_controller", ROOT / "framework/scripts/cloudformation-deploy.py")
-        real_module = M.module
-        real_load = controller.load_units
+        real_load = M.load_units
         artifacts = root / "infra/cloudformation/artifacts"
         artifacts.mkdir(parents=True)
         (artifacts / "execution.json").write_text('{"StartAt":"Done"}', encoding="utf-8")
@@ -184,20 +176,19 @@ def check_generated_boundaries():
                 {"source": "infra/cloudformation/artifacts/build.zip", "property": "Code"},
             ]
             return limit, units
-        def modules(name, path):
-            return controller if name == "preparation_controller" else real_module(name, path)
-        with patch.object(controller, "load_units", side_effect=load_with_artifacts), patch.object(M, "module", side_effect=modules):
+        with patch.object(M, 'load_units', side_effect=load_with_artifacts):
             assert invoke(arguments(root, base)) == 0
         run = next((base / "logs").iterdir())
         plan = json.loads((run / "preparation.json").read_text(encoding="utf-8"))
         documents = {d["source"] for d in plan["documents"]}
-        assert "infra/cloudformation/artifacts/execution.json" in documents
+        assert "infra/cloudformation/artifacts/execution.json" not in documents
+        assert "infra/cloudformation/artifacts/execution.json" in plan["inputs"]
         assert "infra/cloudformation/artifacts/build.zip" not in documents
         assert "infra/cloudformation/artifacts/build.zip" in plan["inputs"]
         assert "infra/cloudformation/artifacts/build.zip" not in plan["generatedViews"]
         for relative, digest in plan["inputs"].items():
             assert digest == M.sha((ROOT if relative.startswith(("framework/", ".agents/")) else root) / relative)
-        with patch.object(controller.AwsBackend, "paths", return_value=(root / "docs/designs/dev/123456789012/iam/worker-role-trust-policy.json", artifacts / "execution.json")), patch.object(M, "module", side_effect=modules):
+        with patch.object(M, "paths", return_value=(root / "docs/designs/dev/123456789012/iam/worker-role-trust-policy.json", artifacts / "execution.json")), patch.object(M, "deployment_input_paths", return_value=[root / "docs/designs/dev/123456789012/iam/worker-role-trust-policy.json"]):
             output = io.StringIO()
             with redirect_stderr(output):
                 assert M.main(arguments(root, base)) == 1
@@ -235,7 +226,7 @@ def check_service_generated_equality():
         write_model(source, values)
         (root / "docs/designs/dev/123456789012/iam/worker-role-trust-policy.json").rename(
             root / "docs/designs/dev/123456789012/iam/iam-role-001-trust-policy.json")
-        sync = M.module("equality_sync", ROOT / "framework/scripts/sync-model.py")
+        sync = __import__("sync_runtime")
         contract, _, _, _ = M.candidate(root, "tasks/deploy-offline.md", "dev", "123456789012", TARGET, STACKS, ["iam"])
         start(root, "tasks/deploy-offline.md", contract)
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):

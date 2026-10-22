@@ -123,7 +123,7 @@ IaC engine: cloudformation
 
 - Description: Create/change selected CloudFormation/Terraform from approved detailed designs and service models.
 - Timing: Design reflection by the chatbot's Codex prompt is complete and design diffs need reflection in IaC.
-- How to use: Pass environment, alias when present, AWS account, and implementation scope. Run `cfn-lint` for CloudFormation or local validation without backends for Terraform; do not run AWS APIs or deploy/apply.
+- How to use: Pass environment, alias when present, AWS account, and implementation scope. Use the shared decoder and independent Model/provider-schema/mapping checks for CloudFormation or local validation without backends for Terraform; do not run AWS APIs or deploy/apply.
 
 Usage example:
 

@@ -512,9 +512,6 @@ class Validator:
     def check_framework_schema_backed_design_validation(self) -> None:
         return framework_contracts.check_framework_schema_backed_design_validation(self.findings, self.definitions_root)
 
-    def check_framework_cfn_lint_validation(self) -> None:
-        return framework_contracts.check_framework_cfn_lint_validation(self.findings, self.definitions_root)
-
     def check_project_topology(self) -> None:
         if self.scope == set():
             return
@@ -554,7 +551,6 @@ class Validator:
         'framework.api-design-catalog': 'common',
         'framework.cloudformation-schema-catalog': 'common',
         'framework.schema-backed-design-validation': 'common',
-        'framework.cfn-lint-validation': 'common',
         'framework.generated-service-model': 'candidate',
         'framework.policy-tables': 'candidate',
     }
@@ -573,7 +569,6 @@ class Validator:
             "framework.api-design-catalog": self.check_api_design_catalog,
             "framework.cloudformation-schema-catalog": self.check_framework_cloudformation_schema_catalog,
             "framework.schema-backed-design-validation": self.check_framework_schema_backed_design_validation,
-            "framework.cfn-lint-validation": self.check_framework_cfn_lint_validation,
         }
     def check_acceptance_checks(self) -> None:
         self.task.check_acceptance_checks(self.registered_checks(), self.scope, results_only=self.write)
@@ -730,7 +725,7 @@ def run_validation(root: Path, options, *, final_candidate=None) -> Validator:
     read-only. Errors in inputs propagate to the CLI; validation findings stay ordered.
     """
     from task_contract import selected_task
-    from deploy_preparation import task_deployment_input_paths
+    from deploy.inputs import task_deployment_input_paths
     if final_candidate is not None:
         if root.resolve() != final_candidate.root or options.write:
             raise ValueError('final validation requires the actual read-only candidate')

@@ -71,6 +71,7 @@ class Comparison:
         self.catalog = catalog or DesignSchemaCatalog(root)
         self.models, self.rows, self.resources = {}, {}, {}
         self.documents, self.stack_inputs = {}, {}
+        self.template_locations = {}
         self._index, self.symbols = None, {}
         self.local_comparison, self.reference_models_loaded = False, False
         self.exports = None
@@ -158,9 +159,9 @@ class Comparison:
         condition = definition['Condition']
         path = template.relative_to(self.root).as_posix()
         location = {'path': path, 'key': f'Resources.{logical}.Condition'}
-        mark = getattr(next(key for key in definition if key == 'Condition'), 'start_mark', None) or getattr(definition, 'start_mark', None)
-        if mark is not None:
-            location['line'] = mark.line + 1
+        marks = self.template_locations.get(id(definition), {})
+        if line := marks.get('Condition', marks.get(None)):
+            location['line'] = line
         stack_id, unit = next((stack_id, unit) for stack_id, unit in self.templates() if unit['name'] == name)
         parameter_path = self.root / 'infra/cloudformation/parameters' / self.environment / self.directory / unit['parameters']
         supplied = {item['ParameterKey'] for item in strict_json(parameter_path.read_text(encoding='utf-8'))}
@@ -904,8 +905,8 @@ class Comparison:
                                      'relationship': 'stack-input'}
                 raise blocked
         if template not in self.documents:
-            from cfnlint.decode import decode
-            document, errors = decode(str(template))
+            from utils.cloudformation_format import decode_file
+            document, errors = decode_file(template, locations=self.template_locations)
             self.metrics['template_decodes'] += 1
             if errors or not isinstance(document, dict):
                 raise ValueError(f'invalid template: {template}')
@@ -1188,10 +1189,9 @@ class Comparison:
                                                                for diagnostic in child.get('reference_diagnostics', [])]
                     continue
                 iac_source = {'path': template.relative_to(self.root).as_posix()}
-                property_key = next((entry for entry in owner.get('Properties', {}) if entry == key), None)
-                mark = getattr(property_key, 'start_mark', None) or getattr(owner, 'start_mark', None)
-                if mark is not None:
-                    iac_source['line'] = mark.line + 1
+                marks = self.template_locations.get(id(owner.get('Properties', {})), {})
+                if line := marks.get(key, self.template_locations.get(id(owner), {}).get(None)):
+                    iac_source['line'] = line
                 actual = owner.get('Properties', {}).get(key)
                 inverse_roles = self.local_comparison and rowkind == 'IAM.ManagedPolicy' and key == 'Roles'
                 if key not in owner.get('Properties', {}) and not inverse_roles:

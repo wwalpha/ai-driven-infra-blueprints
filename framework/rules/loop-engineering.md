@@ -26,7 +26,7 @@ In managed worktrees, replace the launcher in Python examples with
 The wrapper runs the task's registered ready shared Python Interpreter
 and sets its CLI PATH for this process
 and all children; fresh shells need no activation. Use the same wrapper for standalone
-checks/pytest and `--command cfn-lint` for Python CLIs. Failed/stale setup must be recovered
+checks/pytest. Failed/stale setup must be recovered
 with `worktree_task.py setup --task-id <task-id>` before task execution. Lifecycle helpers
 use the ordinary launcher from a surviving checkout.
 
@@ -263,7 +263,7 @@ alone do not enable that setting.
 - The existing runner automatically adds regression in `task` / `local` for changed `framework/**`, `.agents/**`, `AGENTS.md` or `README.md`, including deletion/rename sources. This describes runner behavior, not an obligation to launch it for every edit; select the entrypoint under [Validation policy](#validation-policy). If Git cannot determine changes, stop rather than infer bounded impact.
 - `--mode local` is also valid as the same scoped validation as `task`. For a classification requiring a scoped loop, a skill's `local` execution suffices; do not add another `task` run. For a classification requiring Full, select the final Full directly instead of adding it after a redundant scoped loop. Explicit `--all` means overall validation plus all regression; `local` scope `all` likewise remains overall validation plus all regression. `full` alone or regression addition due to framework changes does not expand actual design scope.
 - Continue regression and diff checks even if the validator fails. Prevent Python optimization from disabling assertions. Failed/unexecuted selected checks are FAIL.
-- Retain existing mandatory CloudFormation `cfn-lint`, deploy context, `aws cloudformation validate-template`, change set/change summary, delete/replacement checks, AWS account/region checks, and Terraform fmt/init/validate/plan/apply procedures according to each phase's rules/prompts. The loop does not replace actual IaC/deployment procedures or combine implement and deploy.
+- Retain existing mandatory CloudFormation deploy context, `aws cloudformation validate-template`, change set/change summary, delete/replacement checks, AWS account/region checks, and Terraform fmt/init/validate/plan/apply procedures according to each phase's rules/prompts. The loop does not replace actual IaC/deployment procedures or combine implement and deploy.
 
 ## Conflict resolution and reproducible validation
 
@@ -303,14 +303,14 @@ Infrastructure task Task contracts must contain exactly 1 `Infrastructure phase`
 `implement` phase:
 
 1. Using approved design and service models as input, create/change only IaC specified by the active prompt.
-2. Perform local static validation with target-region `cfn-lint` for CloudFormation, or `terraform fmt -check`, `terraform init -backend=false`, and `terraform validate` for Terraform.
+2. Perform the existing local Model/provider-schema and mapping checks with shared CloudFormation decoding, or `terraform fmt -check`, `terraform init -backend=false`, and `terraform validate` for Terraform.
 3. Do not execute AWS APIs, CloudFormation change sets, Terraform plans, deploy/apply, or observed value updates.
 4. Run the local loop and finish.
 
 `deploy` phase:
 
 1. Run deterministic preflight with created/validated IaC. Classify failures under [Controlled deploy repair](cloudformation.md#controlled-deploy-repair); minimally repair/revalidate affected units only for AUTO_REPAIRABLE.
-2. Confirm scope with `cfn-lint`, `aws cloudformation validate-template`, and change sets for CloudFormation; validation and saved plans for Terraform.
+2. Confirm scope with AWS ValidateTemplate and change sets for CloudFormation; validation and saved plans for Terraform.
 3. If no unapproved delete/replacement exists, deploy/apply only targets authorized by the active prompt. If any exists, explain targets, reasons, impacts, and current execution state and wait for human confirmation; after approval, resume in the same task with the same change set or saved plan.
 4. Update model observed values and regenerate Markdown only when successful AWS mutation exists.
 5. Run the local loop and finish without proceeding to scenario tests.

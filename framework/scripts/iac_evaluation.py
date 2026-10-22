@@ -85,7 +85,7 @@ class Evaluation:
         if isinstance(value, list):
             return [item for item in (self.evaluate(stack, child, seen) for child in value) if item != {'$noValue': True}]
         if not isinstance(value, dict):
-            # cfn-lint attaches source marks using scalar subclasses; preserve JSON type.
+            # Preserve JSON scalar types across readers.
             if isinstance(value, str):
                 return str(value)
             if isinstance(value, bool):

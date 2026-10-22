@@ -1,6 +1,4 @@
 """External Deploy sessions, immutable guards, target locks and observed barriers."""
-import importlib.util
-import importlib.metadata
 import json
 import re
 import subprocess
@@ -13,12 +11,11 @@ from pathlib import Path
 from model.sources import model_paths, load_model, authority_snapshot, source_scope, FileReads
 from utils.json_format import fingerprint
 from cloudformation_inputs import Blocked
-from model.adapters.observed import MappingError, mappings, sync_successful, removed_resources
+from deploy.observed import sync_successful
 from task_contract import task_path, status, paths_in
 from validation_scope import active_scope as validation_scope
-from deployment import lint_worker
-from deployment.scheduler import run_group
-from deployment.secret_bootstrap import BOOTSTRAP_STAGES
+from deploy.scheduler import run_group
+from deploy.secret_bootstrap import BOOTSTRAP_STAGES
 
 
 def active_scope(root, requested, environment, account, alias=None):
@@ -71,7 +68,7 @@ def model_input_manifest(root, environment, directory):
 def require_session_format(session):
     expected = {'version': 3, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1}
     if any(type(session.get(key)) is not int or session[key] != value for key, value in expected.items()):
-        raise Blocked('controller session format is incompatible with properties v2; start a new session')
+        raise Blocked('controller session format is incompatible with properties v2; retain the original session for explicit migration')
 
 
 def verify_observed_transition(root, environment, directory, previous, outputs, intended_design):
@@ -85,17 +82,17 @@ def verify_observed_transition(root, environment, directory, previous, outputs, 
     return model_input_manifest(root, environment, directory)
 
 
-def validation_digest(root, target, file_digest, unit_digests):
+def execution_digest(root, target, file_digest, unit_digests):
     # Reuse is invalidated by controller, validators, rules, catalog/schema and project changes.
     paths = sorted(path for path in (definition_root(root) / "framework").rglob("*")
                    if path.is_file() and path.suffix in {".py", ".json", ".md", ".properties", ".sha256"})
     paths += [root / "AGENTS.md", root / "project.json"]
-    try:
-        lint_version = importlib.metadata.version("cfn-lint")
-    except importlib.metadata.PackageNotFoundError:
-        lint_version = None
-    return fingerprint([unit_digests, target, sys.version, lint_version,
-                        [(str(path.relative_to(root if path.is_relative_to(root) else definition_root(root))), file_digest(path)) for path in paths if path.is_file()]])
+    paths += sorted((definition_root(root) / '.agents/skills').rglob('*.md'))
+    paths.append(definition_root(root) / 'framework/scripts/requirements.txt')
+    return fingerprint([target, sys.version,
+        [(str(path.relative_to(root if path.is_relative_to(root) else definition_root(root))), file_digest(path))
+         for path in paths if path.is_file()]])
+
 
 
 def run_session(units, limit, session, backend, save, pause_after_group=False, sleep=time.sleep):
@@ -116,12 +113,15 @@ def run_session(units, limit, session, backend, save, pause_after_group=False, s
             session.pop("observedError", None)
             return True
         except Exception as error:
+            for unit in unsynced:
+                session["states"][unit["name"]].pop("observedSynced", None)
             session["observedError"] = str(error)
             return False
         finally:
             session["metrics"]["observedSyncSeconds"] += time.perf_counter() - started
             save()
 
+    backend.sync_completed = sync_completed
     while True:
         if not sync_completed():
             # A restart may contain both unsynced successes and still-running peers.
@@ -164,9 +164,7 @@ def run(args, root, timing, script_directory, backend_type, load_units):
     try:
         if state_path.is_relative_to(root):
             raise Blocked("deployment session must be outside repository; never store AWS status in Git")
-        spec = importlib.util.spec_from_file_location("deploy_context", script_directory / "check-deploy-context.py")
-        context = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(context)
+        from deploy import context
         selected = context.load_target(root, args.environment, args.aws_account_id, args.alias)
         phase = active_scope(root, args.stack, args.environment, selected["awsAccountId"], args.alias)
         if args.pause_after_group and phase != "update":
@@ -234,7 +232,7 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                 raise Blocked('unauthorized IaC change outside recorded repair; cannot resume')
             session['infraManifest'] = current_infra
             if phase == 'deploy':
-                from deploy_preparation import repair_changes
+                from deploy.contracts import repair_changes
                 paths = sorted({str(path.relative_to(root)) for unit in units for path in backend.paths(unit)})
                 revision = subprocess.run(['git', 'status', '--porcelain', '--', *paths], cwd=root,
                                           capture_output=True, text=True, timeout=30)
@@ -263,12 +261,16 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                 raise Blocked("new session requires unused state path and no approvals")
             session = {"inputDigest": digest, "unitDigests": unit_digests,
                        "states": {unit["name"]: {"status": "NOT_STARTED"} for unit in units}}
+        if not args.resume and getattr(args, "skill_started_at", None) is not None:
+            if args.skill_started_at > time.time():
+                raise Blocked("Skill start time is in the future")
+            session["skillStartedAt"] = args.skill_started_at
         session.update(version=3, modelFormat=2, snapshotVersion=2, referenceMeaningVersion=1,
                        designDigest=current_design, profile=backend.profile,
                        modelInputManifest=model_input_manifest(root, args.environment, directory))
         session.setdefault('repository', str(root))
         session.setdefault('taskFile', task_path(root).relative_to(root).as_posix())
-        from deploy_preparation import sha, task_digest
+        from deploy.contracts import sha, task_digest
         session.setdefault('taskDigest', task_digest(task_path(root).read_text(encoding='utf-8')))
         session.setdefault('infraManifest', current_infra)
         backend.session = session
@@ -276,8 +278,8 @@ def run(args, root, timing, script_directory, backend_type, load_units):
         if '- Controlled repair: `allowed`' in contract.splitlines() and f'- Deploy repair session: `{state_path}`' not in contract.splitlines():
             raise Blocked('controlled repair session path must match task contract')
         metrics = session.setdefault("metrics", {})
-        for key in ("controllerInvocationCount", "validationCount", "deployOrderCount", "observedSyncSeconds",
-                    "inputLoadSeconds", "mappingCheckSeconds", "lintSeconds", "totalControllerSeconds", "contextCheckSeconds"):
+        for key in ("controllerInvocationCount", "deployOrderCount", "observedSyncSeconds",
+                    "inputLoadSeconds", "totalControllerSeconds", "contextCheckSeconds"):
             metrics.setdefault(key, 0)
         metrics["controllerInvocationCount"] += 1
         metrics["contextCheckSeconds"] += context_seconds
@@ -310,8 +312,8 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                 raise Blocked('task contract changed before mutation')
             if any(backend.input_digest(unit) != unit_digests[unit["name"]] for unit in units):
                 raise Blocked("deployment inputs changed before mutation")
-            if validation_digest(backend.root, backend.target, backend.file_digest, unit_digests) != session.get("validationDigest"):
-                raise Blocked("validation dependencies changed before mutation")
+            if execution_digest(backend.root, backend.target, backend.file_digest, unit_digests) != session.get("executionDigest"):
+                raise Blocked("execution definitions changed before mutation")
         backend.guard = guard
         backend.before_observed = lambda: authority_snapshot(root, args.environment, directory)
         def after_observed(previous, outputs):
@@ -319,86 +321,43 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                 root, args.environment, directory, previous, outputs, current_design)
         backend.after_observed = after_observed
         def refresh_validation(unit):
-            # Reuse validator/cache, but schema/naming/policy/model checks concern only affected services.
-            mapped = backend.mapping_plan[1][unit['name']]
-            affected = {(args.environment, directory, entry[0].stem) for entry in mapped.values()}
-            spec = importlib.util.spec_from_file_location('repair_validator', definition_root(root) / 'framework/scripts/validate-blueprint.py')
-            validator_module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(validator_module)
-            validator = validator_module.Validator(root, affected, validation_scope(root), cache=True,
-                                                   iac_paths=set(backend.deployment_input_paths([unit])))
-            if validator.run():
-                raise Blocked('affected repair repository validation failed')
-            backend.validate(unit)
-            backend.mapping_plan = mappings(root, args.environment, directory, backend.templates, units,
-                                            removed_resources(units, session['states']), target=target)
-            session['validationDigest'] = validation_digest(backend.root, backend.target, backend.file_digest, unit_digests)
-            session['validationStatus'] = 'PASS'
-            metrics['validationCount'] += 1
+            # Recheck just the recorded resource corrections, never a scope-wide validator.
+            backend.load_inputs(unit)
+            from deploy.repair import verify_repair
+            verify_repair(root, args.environment, directory, target, backend.templates, unit, backend.states[unit['name']])
+            if backend.input_digest(unit, fresh=True) != unit_digests[unit['name']]:
+                raise Blocked('repaired inputs changed during verification')
+            session['executionDigest'] = execution_digest(root, target, backend.file_digest, unit_digests)
             save()
         backend.refresh_validation = refresh_validation
-        save()
-        # Cheap whole-scope diagnostics precede lint and every change set.
+        backend.units = units
+        # Legacy static PASS/failure metadata has no execution authority. Keep original intent/identity.
+        if 'validationStatus' in session or 'validationDigest' in session:
+            legacy = {key: session.pop(key) for key in ('validationStatus', 'validationDigest', 'validationError', 'validationErrors') if key in session}
+            session['legacyStaticValidation'] = legacy
+            session['migration'] = 'v3 execution-definition digest; prior static validation is historical only'
+        for state in session['states'].values():
+            if state.get('stackStatus') == 'PRE_EXECUTION':
+                raise Blocked('legacy static validation failure requires explicit repair; no AWS execution failure inferred')
+        started = time.perf_counter()
         try:
-            session.pop("validationErrors", None)
-            session.pop("validationError", None)
-            for state in session["states"].values():
-                state.pop("preflightErrors", None)
-            started = time.perf_counter()
-            try:
-                for unit in units:
-                    backend.load_inputs(unit)
-            finally:
-                metrics["inputLoadSeconds"] += time.perf_counter() - started
-            started = time.perf_counter()
-            try:
-                backend.mapping_units = units
-                backend.mapping_plan = mappings(root, args.environment, directory, backend.templates, units,
-                                                removed_resources(units, session["states"]), target=target)
-            finally:
-                metrics["mappingCheckSeconds"] += time.perf_counter() - started
-            digest = validation_digest(backend.root, backend.target, backend.file_digest, unit_digests)
-            if session.get("validationStatus") == "PASS" and session.get("validationDigest") == digest:
-                backend.validated_digests = dict(unit_digests)
-            else:
-                session["validationStatus"] = "RUNNING"
-                session["validationDigest"] = digest
-                metrics["validationCount"] += 1
-                save()
-                started = time.perf_counter()
-                try:
-                    with lint_worker.scope(backend, units):
-                        for unit in units:
-                            try:
-                                backend.validate(unit)
-                            except Blocked:
-                                state = session['states'][unit['name']]
-                                events = getattr(backend, 'validation_failures', {}).get(unit['name'])
-                                if state['status'] != 'NOT_STARTED' or not events:
-                                    raise
-                                state.update(status='FAILED', stackStatus='PRE_EXECUTION', failureEvents=events)
-                                save()
-                                if not backend.repair(unit, state):
-                                    raise
-                                digest = validation_digest(backend.root, backend.target, backend.file_digest, unit_digests)
-                finally:
-                    metrics["lintSeconds"] += time.perf_counter() - started
-                if any(backend.input_digest(unit, fresh=True) != unit_digests[unit["name"]] for unit in units):
-                    raise Blocked("deployment inputs changed during scope validation")
-                session["validationDigest"], session["validationStatus"] = digest, "PASS"
-                metrics["validatedInputDigest"] = fingerprint(unit_digests)
-                save()
-        except Exception as error:
-            session["result"] = "STOPPED"
-            session["validationStatus"], session["validationError"] = "FAILED", str(error)
-            if isinstance(error, MappingError):
-                session["validationErrors"] = error.errors
-                for name, errors in error.errors.items():
-                    session["states"][name]["preflightErrors"] = errors
+            for unit in units:
+                backend.load_inputs(unit)
+                state = session['states'][unit['name']]
+                if state['status'] not in {'SUCCESS', 'RUNNING', 'FAILED'}:
+                    from deploy.contracts import migrate_delivery
+                    if migrate_delivery(root, target, unit, state, backend.templates[unit['name']], backend.file_digest):
+                        session['migration'] = 'v3 SDK delivery arguments; execution identity retained'
+            current_execution = execution_digest(root, target, backend.file_digest, unit_digests)
+            if args.resume and session.get('executionDigest', current_execution) != current_execution:
+                raise Blocked('execution definitions changed; review and explicitly migrate the same session')
+            session['executionDigest'] = current_execution
             save()
-            # A resumed invocation may already own executions; validation cannot abandon them.
-            run_group(units, limit, session["states"], backend, save, drain_only=True)
+        except Exception:
+            run_group(units, limit, session['states'], backend, save, drain_only=True)
             raise
+        finally:
+            metrics['inputLoadSeconds'] += time.perf_counter() - started
         for unit in units:
             state = session['states'][unit['name']]
             if state.get('repairs') and state['repairs'][-1].get('stage') in {'REPAIR_INTENT', 'VALIDATING', 'VALIDATED'} | BOOTSTRAP_STAGES:

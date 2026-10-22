@@ -296,7 +296,7 @@ class TaskValidation:
                 self.check(iac_changed, "infrastructure implement phase must change selected IaC")
             elif self.infrastructure_phase == "deploy":
                 if iac_changed:
-                    from deploy_preparation import repair_changes
+                    from deploy.contracts import repair_changes
                     try:
                         repair_changes(self.root, input_text(task_path(self.root), encoding="utf-8"),
                                        {path for path in changed if self.under(path, "infra")})

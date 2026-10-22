@@ -70,6 +70,9 @@ def run_group(units, limit, states, backend, save=lambda: None, sleep=time.sleep
                 state["pollError"] = str(error)
                 stopped = True
             save()
+        if any(states[u["name"]]["status"] == "SUCCESS" and not states[u["name"]].get("observedSynced") for u in group) and hasattr(backend, "sync_completed"):
+            if not backend.sync_completed():
+                stopped = True
         running = sum(states[unit["name"]]["status"] == "RUNNING" for unit in group)
         assert running <= limit
         # Start multiple change sets without waiting for one to become CREATE_COMPLETE.

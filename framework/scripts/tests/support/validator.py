@@ -15,6 +15,8 @@ _load_lock = RLock()
 
 
 def load(name, module_name=None):
+    if name in {"cloudformation-deploy", "check-deploy-context", "deploy_preparation"}:
+        return importlib.import_module({"cloudformation-deploy": "deploy.controller", "check-deploy-context": "aws_context", "deploy_preparation": "deploy.preparation"}[name])
     with _load_lock:
         if module_name is not None and module_name in sys.modules:
             return sys.modules[module_name]

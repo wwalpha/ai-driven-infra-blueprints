@@ -33,7 +33,7 @@ import time
 
 from unittest.mock import patch
 
-import deploy_preparation as M
+from deploy import preparation as M
 
 from model.render import markdown_for
 
@@ -73,7 +73,7 @@ def fixture(root):
     write_model(source, text)
     (design / "ec2.md").write_text("# EC2\n" + "読み取り対象\n" * 1500, encoding="utf-8")
     # A real JSON-owning model; the synthetic EC2 view above only measures I/O.
-    examples = M.module("preparation_model_examples", ROOT / "framework/scripts/tests/support/model_design_fixtures.py")
+    from support import model_design_fixtures as examples
     values = examples.model("iam", "IAM.Role", "app-dev-worker-role", [
         ("RoleName", "`app-dev-worker-role`", "ロール名"),
         ("AssumeRolePolicyDocument", "[Trust](iam/worker-role-trust-policy.json)", "信頼ポリシー"),

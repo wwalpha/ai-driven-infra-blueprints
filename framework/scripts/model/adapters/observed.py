@@ -171,9 +171,9 @@ def require_fixed_stack_names(source, selected):
 
 
 @input_scope
-def mappings(root, environment, directory, templates, units, removed=None, target=None, *, implementation=False):
+def _mappings(root, environment, directory, templates, units, removed=None, target=None, *, implementation=False, loaded=None, selection=None, identifiers=True):
     """Shared read-only implement/deploy validation; resource-owned IDs never fall back."""
-    loaded = models(root, environment, directory)
+    loaded = models(root, environment, directory) if loaded is None else loaded
     catalog = DesignSchemaCatalog(root) if loaded else None
     direct = resource_index(loaded, catalog)
     import_only = set()
@@ -198,7 +198,7 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
     target = target or (load_target(root, environment, directory) if (root / "project.json").is_file() else {})
     result, owners, errors = {}, {}, {}
     row_indexes = {}
-    if values:
+    if values and selection is None:
         names = set(bound) or {stack["name"] for _, stack in entries(values, "desired.stack.")}
         for name, logical in direct:
             if name not in names:
@@ -214,11 +214,13 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
         result[name] = {}
         definitions = document.get("Resources", {}) | (removed or {}).get(name, {})
         try:
-            output_values = active_outputs(document, parameters, pseudo)
+            output_values = active_outputs(document, parameters, pseudo) if identifiers else {}
         except (ValueError, Blocked) as error:
             errors.setdefault(name, []).append(f"{name}/Outputs: {error}")
             output_values = {}
         for logical, definition in definitions.items():
+            if selection is not None and logical not in selection.get(name, set()):
+                continue
             deleting = logical in (removed or {}).get(name, {})
             try:
                 if (not deleting and (name, logical) not in direct
@@ -262,7 +264,7 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
                     rows = [(rid, row) for rid, row in rows if row["property"].startswith(kind + ".")]
                     if not rows:
                         raise ValueError(f"integrated child settings missing from parent model: {kind}")
-                for prop in outputs:
+                for prop in outputs if identifiers else ():
                     selected = [(rid, row) for rid, row in rows if row["property"] == prop]
                     link = resource_link(selected[0][1]["value"]) if len(selected) == 1 else None
                     if not link:
@@ -280,98 +282,43 @@ def mappings(root, environment, directory, templates, units, removed=None, targe
     return loaded, result
 
 
-def removed_resources(units, states):
-    return {unit["name"]: {change["LogicalResourceId"]: {"Type": change["ResourceType"], "PolicyAction": change.get("PolicyAction")}
-                            for change in states[unit["name"]].get("changes", []) if change["Action"] == "Remove"}
-            for unit in units}
+@input_scope
+def mappings(root, environment, directory, templates, units, removed=None, target=None, *, implementation=False):
+    return _mappings(root, environment, directory, templates, units, removed, target, implementation=implementation)
 
 
-def sync_successful(backend, units, states):
-    """Plan every update before writing; success markers are saved only after generation passes."""
-    root, environment, directory = backend.root, backend.environment, backend.directory
-    require_target_no_issues(root, (environment, directory))
-    removed = removed_resources(units, states)
-    plan = getattr(backend, "mapping_plan", None)
-    if plan is None:
-        # Direct read-only synchronization callers also pass through the same validator.
-        plan = mappings(root, environment, directory, backend.templates, units, removed, target=backend.target)
-    _, mapped = plan
-    if any(set(removed[name]) - mapped.get(name, {}).keys() for name in removed):
-        ambiguous("removed resource has no mapping validated before execution")
-    loaded = models(root, environment, directory)
-    catalog = DesignSchemaCatalog(root) if loaded else None
-    changes, identifiers = {}, {}
+def resolve_resources(root, environment, directory, templates, units, selected, removed=None, target=None, *, identifiers=True):
+    """Discover explicit ownership from raw metadata, validate only requested identities.
+
+    Unrelated authorities are not expanded or diagnosed. No naming inference is used.
+    """
+    from model.sources import raw_model, FileReads
+    wanted = {(name, logical) for name, logicals in selected.items() for logical in logicals}
+    catalog = DesignSchemaCatalog(root)
     for unit in units:
-        name = unit["name"]
-        document, parameters = backend.templates[name]
-        if not mapped[name]:
+        document, _ = templates[unit['name']]
+        definitions = document.get('Resources', {}) | (removed or {}).get(unit['name'], {})
+        for logical in selected.get(unit['name'], ()):
+            definition = definitions.get(logical, {})
+            rules = [rule for kind, rule in GROUPED.items()
+                     if rule['identityProperty'] is None and catalog.cloudformation_type(kind) == definition.get('Type')]
+            if rules:
+                parent = definition.get('Properties', {}).get(rules[0]['parentProperty'])
+                if not isinstance(parent, dict) or set(parent) != {'Ref'} or not isinstance(parent['Ref'], str):
+                    ambiguous(f"{unit['name']}/{logical}: integrated child parent evidence unavailable")
+                wanted.add((unit['name'], parent['Ref']))
+    loaded, reads = {}, FileReads()
+    for path in model_paths(root, environment, directory, reads):
+        if path.stem == 'cloudformation-stacks':
             continue
-        stack = backend.aws("describe-stacks", "--stack-name", name)["Stacks"][0]
-        if stack["StackStatus"] not in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}:
-            ambiguous(f"{name}: stack no longer terminal success")
-        outputs = {item["OutputKey"]: item["OutputValue"] for item in stack.get("Outputs", [])}
-        actuals = backend.aws("list-stack-resources", "--stack-name", name).get("StackResourceSummaries", [])
-        by_logical = {}
-        for actual in actuals:
-            logical = actual["LogicalResourceId"]
-            if logical in by_logical:
-                ambiguous(f"{name}/{logical}: duplicate actual resource")
-            by_logical[logical] = actual
-        for logical, (path, identity, resource, rows, selected_outputs) in mapped[name].items():
-            if logical in removed.get(name, {}):
-                # Only a confirmed deletion resets IDs. Retention/unknown policy cannot prove destruction.
-                actual = by_logical.get(logical)
-                if removed[name][logical]["PolicyAction"] not in {"Delete", "Snapshot"} or (actual and actual.get("ResourceStatus") != "DELETE_COMPLETE"):
-                    ambiguous(f"{name}/{logical}: removal does not prove physical destruction")
-                for rid, row in rows:
-                    if row["property"] in selected_outputs:
-                        changes.setdefault(path, {})[f"observed.row.{rid}.value"] = "`PENDING_DEPLOY`"
-                        design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
-                        identifiers[own_key(path, resource)] = "PENDING_DEPLOY"
-                continue
-            definition = document["Resources"][logical]
-            actual = by_logical.get(logical)
-            if not actual or actual["ResourceType"] != definition["Type"]:
-                ambiguous(f"{name}/{logical}: actual resource missing/type mismatch")
-            for rid, row in rows:
-                prop = row["property"]
-                if prop not in selected_outputs:
-                    continue
-                pseudo = {"AWS::StackName": name, "AWS::AccountId": backend.target.get("awsExecutionAccountId", backend.target["awsAccountId"]), "AWS::Region": backend.target["awsRegion"]}
-                primary, keys = identifier_source(catalog, resource, selected_outputs, logical, prop,
-                                                 active_outputs(document, parameters, pseudo))
-                values = []
-                for key in keys:
-                    if key not in outputs:
-                        ambiguous(f"{name}/{logical}: required Output absent: {key}")
-                    values.append(outputs[key])
-                physical = actual.get("PhysicalResourceId") if primary else None
-                if values and (len(set(values)) != 1 or physical is not None and physical != values[0]):
-                    ambiguous(f"{name}/{logical}: Outputs/physical identifier disagree: {prop}")
-                value = values[0] if values else physical
-                if not isinstance(value, str) or not value or re.search(r"\barn:aws[a-z-]*:", value, re.I) or any(c in value for c in "\r\n`"):
-                    ambiguous(f"{name}/{logical}: non-ARN identifier unavailable: {prop}")
-                link = resource_link(row["value"])
-                design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
-                if not link or reference_key(link[0], path) != own_key(path, resource):
-                    ambiguous(f"{name}/{logical}: identifier must reference its own Resource reference")
-                anchor_key = own_key(path, resource)
-                if anchor_key in identifiers and identifiers[anchor_key] != value:
-                    ambiguous(f"{name}/{logical}: multiple identifiers for one Resource")
-                identifiers[anchor_key] = value
-                changes.setdefault(path, {})[f"observed.row.{rid}.value"] = f"`{value}`"
-    propagate_references(root, loaded, changes, identifiers)
-    if not changes:
-        for unit in units:
-            states[unit["name"]]["observedSynced"] = True
-        return
-    destinations, views, sync = observed_destinations(root, environment, directory, loaded, changes)
-    publish_observed(root, destinations, {p: data for source in changes for p, data in input_snapshot(source).items()})
-    if sync.sync(root, True, environment, directory, services=sorted({path.stem for path in changes})):
-        raise ValueError("observed model sync/validation failed; resume same session after resolving blocker")
-    for unit in units:
-        states[unit["name"]]["observedSynced"] = True
-    return destinations
+        raw = raw_model(path, reads)
+        owners = [resource for _, resource in entries(raw.authoritative, 'desired.resource.')
+                  if 'cfn-logicalId' in resource and any(resource['cfn-logicalId'] == name + '-' + logical
+                     for name, logical in wanted)]
+        if owners:
+            loaded[path] = properties(read_model(path))
+    return _mappings(root, environment, directory, templates, units, removed, target,
+                     loaded=loaded, selection=selected, identifiers=identifiers)
 
 
 def propagate_references(root, loaded, changes, identifiers, by_identifier=None):

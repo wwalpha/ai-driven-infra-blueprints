@@ -27,10 +27,8 @@ from validation_scope import active_scope
 
 
 def context_module():
-    spec = importlib.util.spec_from_file_location("destroy_context", Path(__file__).with_name("check-deploy-context.py"))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    import aws_context
+    return aws_context
 
 
 def local_plan(root, environment, directory, requested, check_scope=True):

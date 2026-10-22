@@ -19,11 +19,7 @@ import tempfile
 from unittest import mock
 
 
-SCRIPT = (Path(__file__).resolve().parents[2] / 'check-deploy-context.py')
-SPEC = importlib.util.spec_from_file_location("check_deploy_context", SCRIPT)
-assert SPEC and SPEC.loader
-MODULE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(MODULE)
+import aws_context as MODULE
 
 
 def main() -> None:
@@ -89,7 +85,7 @@ def main() -> None:
             return_value=subprocess.CompletedProcess([], 0, '{"Account":"210987654321"}', ""),
         ) as run:
             MODULE.check_deploy_context(root, "production", account_id="210987654321")
-            assert commands == ["aws", "cfn-lint"]
+            assert commands == ["aws"]
             assert "--profile" not in run.call_args.args[0]
 
         commands = []

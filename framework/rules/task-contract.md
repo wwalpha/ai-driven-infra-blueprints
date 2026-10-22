@@ -32,18 +32,18 @@ external edits. Even unchanged outputs require this comparison. This boundary an
 operating rule do not guarantee continuous detection of every concurrent edit.
 IMPORT and other authority writers retain their dedicated publication checks and callbacks.
 
+### Task registration
+
+- Task typeはinitialization/design/infrastructure/scenario-test/governance/catalog-maintenance/migrationのみ。active promptが今回の変更契約であり永続設計正本ではない。
+- 変更前にtasks/<task-name>.mdのtype/target/Goalを最新依頼と一致させ、新Taskの最初の変更として別契約を登録する。他契約/未commit変更は保持する。cleanかつ契約なしはidle。read-only調査/chat-only相談は登録不要。
+- Task statusはrunning/suspend/completed。## Modified filesに自契約・新規file・生成物・parts・削除先を含む正確なfile pathを列挙し、Allowed paths内に制限する。glob/directory/他Task契約は禁止。
+- task_contract.py --task-file tasks/<task-name>.md --source <repository外の契約候補file>で登録する。各processはBLUEPRINT_TASK_FILEまたは--task-fileで選択し、複数running時は明示必須。予定file変更前にModified files/Allowed pathsを更新し、同--task-fileでrefreshする。
+
 ### Common transitions
 
-- Only `initialization`, `design`, `infrastructure`, `scenario-test`, `governance`, `catalog-maintenance`, and `migration` are permitted task types. The active prompt is the contract for this change, not the long-term design authority.
-
-- Before repository changes, select this task's `tasks/<task-name>.md` and match its task type, target, and Goal to the latest request. A clean repository without a contract is idle. Register a separate contract as the first change of a new task; do not overwrite existing contracts.
-- Record Task status (`running` / `suspend` / `completed`) and enumerate exact file paths under `## Modified files`. Globs, directories, and other tasks' contracts are prohibited. Declare paths within Allowed paths, including your own contract, not-yet-created files, generated artifacts, model parts, and deletion targets.
-- Register with `task_contract.py --task-file tasks/<task-name>.md --source <repository外の契約候補file>`. Preserve existing contracts and uncommitted changes.
 - Issues saves retain Scope checks and indivisible atomic publication/rollback. Saving ignores existing `iac-issues.state.json` without updating or deleting it.
 - Only the explicit service-scoped, report-only issues `migration` described in [Issue Gate](issue-gate.md#unresolved-issue-gate) runs without a worktree and excludes historical commit differences from change-scope validation. Check current worktree/index changes and untracked files against its report/own-contract Allowed paths. Do not compare Task-start/current main/master commits for success, stop/suspend on HEAD changes alone, or create a new Task for them. Retain contract/scope/Acceptance and scan content-integrity checks; changed inputs require rescan/review in the same Task before saving. Ordinary Tasks and worktree integration retain their Git safety rules.
 
-- Each process selects the contract with `BLUEPRINT_TASK_FILE`; the local loop/validator can also use `--task-file`. Explicit selection is mandatory when multiple tasks are running. Before changing planned files, update Modified files/Allowed paths and refresh with `task_contract.py --task-file tasks/<task-name>.md`.
-- Read-only investigation and chat-only design consultation do not require contract registration or switching.
 - Generated views whose publication bytes are unchanged are excluded from publication. Retain candidate validation and the single all-target input comparison in Selection and publication; publish only the validated changed bytes.
 - For isolated worktree Git integration only, explicit human approval of concrete validation failures may permit commit/rebase/merge/cleanup through `worktree_task.py finalize --human-approved-validation-failure "<approval and accepted failures>"`. Keep the task `suspend` and its current Suspension reason; do not use `--complete` or claim validation PASS. All requested work/inputs must otherwise be finished; scope errors, Git safety blocks, and AWS permission boundaries remain in force. See [worktree skill](../../.agents/skills/worktree/SKILL.md).
 - Complete only after successful final validation under [Validation policy](loop-engineering.md#validation-policy) and all requested work is finished. Use `task_contract.py --task-file tasks/<task-name>.md --complete`; IMPORT completion retains its evidence check. Delete completed contracts when the diff disappears; do not retain task history or evidence.

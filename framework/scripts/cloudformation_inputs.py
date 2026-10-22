@@ -143,14 +143,11 @@ def checked_parameters(document, inputs):
 
 
 def load_template_inputs(template, parameter_file, *, strict_parameters=False, document=None):
-    try:
-        from cfnlint.decode import decode
-    except ImportError as error:
-        raise Blocked("cfn-lint Python runtime is required for template decoding") from error
     if document is None:
-        document, errors = decode(str(template))
+        from utils.cloudformation_format import decode_file
+        document, errors = decode_file(template)
         if errors or not isinstance(document, dict) or document.get("Transform"):
-            raise Blocked("invalid/transform template; inputs must be resolvable locally")
+            raise Blocked("invalid/transform template; inputs must be resolvable locally: " + "; ".join(errors))
     if strict_parameters:
         inputs = policy_json(parameter_file.read_text(encoding="utf-8"))
     else:
@@ -184,13 +181,9 @@ def output_value(document, parameters, pseudo, value):
 
 def load_target(root, environment, directory):
     """Reuse topology validation without invoking credential checks or any AWS operation."""
-    import importlib.util
-    from pathlib import Path
-    spec = importlib.util.spec_from_file_location("mapping_context", Path(__file__).with_name("check-deploy-context.py"))
-    context = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(context)
+    from project_targets import load_target as select, DeployContextError
     try:
-        return context.load_target(root, environment, directory if directory.isdigit() else None,
-                                   None if directory.isdigit() else directory)
-    except context.DeployContextError as error:
+        return select(root, environment, directory if directory.isdigit() else None,
+                      None if directory.isdigit() else directory)
+    except DeployContextError as error:
         raise ValueError(str(error)) from error

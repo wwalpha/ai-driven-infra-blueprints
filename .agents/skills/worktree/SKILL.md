@@ -70,7 +70,6 @@ For every Python task/check/loop command in the returned worktree, use the commo
 ```console
 python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<task-id>.md --source <external-contract>
 python3 -B framework/scripts/run-python.py -B framework/scripts/blueprint-loop.py --mode full --task-file tasks/<task-id>.md
-python3 -B framework/scripts/run-python.py --command cfn-lint --template <template>
 ```
 
 Select validation mode under Validation policy; this example does not require Full for text-only work. Run lifecycle create/setup/finalize/cleanup with the ordinary launcher from a surviving checkout, so cleanup does not depend on the worktree-local Interpreter it removes. Pandoc and WeasyPrint native libraries remain OS prerequisites for PDF export; AWS CLI and Terraform remain external tools.

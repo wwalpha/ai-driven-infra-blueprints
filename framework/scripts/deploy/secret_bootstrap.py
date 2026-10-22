@@ -6,18 +6,17 @@ import uuid
 from cloudformation_inputs import Blocked, resolve_value, condition_active, output_value
 from task_contract import task_path
 from validation_scope import active_scope as validation_scope
-from deployment.aws_adapter import SECRET_METADATA_QUERY, secret_value_missing
-from deployment.change_sets import import_names
-from deployment.scheduler import SUCCESS
+from deploy.guards import secret_value_missing
+from deploy.change_sets import import_names
+from deploy.scheduler import SUCCESS
 
 BOOTSTRAP_STAGES = {'BOOTSTRAP_INTENT', 'VALUE_CHECKED_MISSING', 'PUT_SUBMITTED', 'BOOTSTRAP_CONFIRMED'}
 
 
-def bootstrap_plan(root, environment, directory, target, templates, states, mapping_plan, mapping_units, aws,
+def bootstrap_plan(root, environment, directory, target, templates, states, mapping_units, aws,
         check_secret_arn, unit, state):
     """Resolve consumer references and CREATE ownership through existing mappings."""
     scope = validation_scope(root)
-    owned = mapping_plan[1]
     document, parameters = templates[unit['name']]
     pseudo = {'AWS::AccountId': target.get('awsExecutionAccountId', target['awsAccountId']),
               'AWS::Region': target['awsRegion'], 'AWS::StackName': unit['name']}
@@ -27,6 +26,9 @@ def bootstrap_plan(root, environment, directory, target, templates, states, mapp
               and 'cancel' not in (event.get('ResourceStatusReason') or '').lower()]
     if not failed or not all(secret_value_missing(e.get('ResourceStatusReason')) for e in failed):
         raise Blocked('runtime bootstrap requires only confirmed missing-current-value failures')
+    from model.adapters.observed import resolve_resources
+    _, owned = resolve_resources(root, environment, directory, templates, [unit],
+        {unit['name']: {e['LogicalResourceId'] for e in failed}}, target=target, identifiers=False)
     for event in failed:
         logical = event['LogicalResourceId']
         mapping = owned.get(unit['name'], {}).get(logical)
@@ -36,7 +38,7 @@ def bootstrap_plan(root, environment, directory, target, templates, states, mapp
                 or mapping[2].get('resourceMode', 'CREATE') != 'CREATE'):
             raise Blocked('consumer resource ownership/scope unknown')
     names = import_names(document, parameters, pseudo)
-    entries = aws('list-exports').get('Exports', []) if names else []
+    entries = aws('list_exports').get('Exports', []) if names else []
     exports = {e['Name']: e['Value'] for e in entries}
     if len(exports) != len(entries) or names - exports.keys():
         raise Blocked('consumer Export resolution ambiguous/missing')
@@ -44,7 +46,7 @@ def bootstrap_plan(root, environment, directory, target, templates, states, mapp
                      if definition['Type'] == 'AWS::SecretsManager::Secret'
                      and condition_active(document, parameters, pseudo, definition)}
     if local_secrets:
-        actuals = aws('list-stack-resources', '--stack-name', state['stackId'])['StackResourceSummaries']
+        actuals = aws('list_stack_resources', StackName=state['stackId'])['StackResourceSummaries']
         for logical in local_secrets:
             matches = [r for r in actuals if r.get('LogicalResourceId') == logical
                        and r.get('ResourceType') == 'AWS::SecretsManager::Secret']
@@ -92,7 +94,8 @@ def bootstrap_plan(root, environment, directory, target, templates, states, mapp
                     or path not in scalar_slots.get(kind, set())):
                 raise Blocked('consumer Secret schema/version selector unsupported or ambiguous')
             references.append((logical, match[1], match[2] or '', used_exports))
-    for logical, definition in document.get('Resources', {}).items():
+    for logical in {event['LogicalResourceId'] for event in failed}:
+        definition = document['Resources'][logical]
         if condition_active(document, parameters, pseudo, definition):
             visit(definition.get('Properties', {}), logical, definition['Type'])
     affected = {e['LogicalResourceId'] for e in failed}
@@ -102,31 +105,33 @@ def bootstrap_plan(root, environment, directory, target, templates, states, mapp
     identifier = identifiers.pop()
     if identifier.startswith('arn:'):
         check_secret_arn(identifier)
-    metadata = aws('describe-secret', '--secret-id', identifier, service='secretsmanager')
+    metadata = aws('describe_secret', SecretId=identifier, service='secretsmanager')
     arn = metadata.get('ARN')
     check_secret_arn(arn)
     if identifier not in {arn, metadata.get('Name')}:
         raise Blocked('consumer Secret identifier does not match canonical identity')
     owners = []
     units = {u['name']: u for u in mapping_units}
-    for name, resources in owned.items():
+    for name, candidate_unit in units.items():
         owner_state = states.get(name, {})
         if owner_state.get('status') != 'SUCCESS' and not (
                 name == unit['name'] and owner_state.get('stackStatus') == 'UPDATE_ROLLBACK_COMPLETE'):
-            continue  # Uncreated later producers are not identity evidence for this consumer.
-        candidates = [(logical, mapping) for logical, mapping in resources.items()
-                      if mapping[2]['resourceType'] == 'SecretsManager.Secret']
+            continue
+        local, params = templates[name]
+        candidates = {logical for logical, definition in local.get('Resources', {}).items()
+                      if definition.get('Type') == 'AWS::SecretsManager::Secret'}
         if not candidates:
             continue
-        summaries = aws('list-stack-resources', '--stack-name', name)['StackResourceSummaries']
+        summaries = aws('list_stack_resources', StackName=name)['StackResourceSummaries']
         if len({r['LogicalResourceId'] for r in summaries}) != len(summaries):
             raise Blocked('Secret stack resource mapping ambiguous')
-        for logical, mapping in candidates:
-            matches = [r for r in summaries if r.get('LogicalResourceId') == logical and r.get('PhysicalResourceId') == arn
-                       and r.get('ResourceType') == 'AWS::SecretsManager::Secret'
-                       and r.get('ResourceStatus') in {'CREATE_COMPLETE', 'UPDATE_COMPLETE'}]
-            if matches:
-                owners.append((name, logical, mapping))
+        matching = {r['LogicalResourceId'] for r in summaries if r.get('LogicalResourceId') in candidates
+                    and r.get('PhysicalResourceId') == arn and r.get('ResourceType') == 'AWS::SecretsManager::Secret'
+                    and r.get('ResourceStatus') in {'CREATE_COMPLETE', 'UPDATE_COMPLETE'}}
+        if matching:
+            _, resolved = resolve_resources(root, environment, directory, templates, [candidate_unit],
+                {name: matching}, target=target, identifiers=False)
+            owners.extend((name, logical, resolved[name][logical]) for logical in matching)
     if len(owners) != 1:
         raise Blocked('Secret CREATE owner is unknown/external/ambiguous')
     name, logical, mapping = owners[0]
@@ -134,16 +139,16 @@ def bootstrap_plan(root, environment, directory, target, templates, states, mapp
     if (resource.get('resourceMode', 'CREATE') != 'CREATE' or resource.get('cfn-logicalId') != name + '-' + logical
             or (environment, directory, source.stem) not in scope or name not in units):
         raise Blocked('Secret is IMPORT or outside CREATE deployment ownership/scope')
-    current = aws('describe-stacks', '--stack-name', name)['Stacks'][0]
+    current = aws('describe_stacks', StackName=name)['Stacks'][0]
     stack_id = current.get('StackId')
     if (stack_id != states[name].get('stackId') or not isinstance(stack_id, str)
             or stack_id.split(':', 5)[2:5] != ['cloudformation', target['awsRegion'], pseudo['AWS::AccountId']]
             or current.get('ParentId') or current.get('RootId')
             or current.get('StackStatus') not in SUCCESS | {'UPDATE_ROLLBACK_COMPLETE'}):
         raise Blocked('Secret owner StackId/account/region/state unconfirmed')
-    actual = aws('get-template', '--stack-name', stack_id)['TemplateBody']
+    actual = aws('get_template', StackName=stack_id)['TemplateBody']
     if isinstance(actual, str):
-        from cfnlint.decode import decode_str
+        from utils.cloudformation_format import decode as decode_str
         actual, errors = decode_str(actual)
         if errors:
             raise Blocked('Secret owner template unreadable')
@@ -192,12 +197,12 @@ def check_secret_arn(target, arn):
 def bootstrap_current(aws, entry):
     """Retrieve metadata only. Never return/log/persist SecretString or SecretBinary."""
     arn, token = entry['secretId'], entry['clientRequestToken']
-    metadata = aws('describe-secret', '--secret-id', arn, service='secretsmanager')
+    metadata = aws('describe_secret', SecretId=arn, service='secretsmanager')
     if (metadata.get('ARN') != arn or metadata.get('Name') != entry['secretName']
             or metadata.get('DeletedDate') or metadata.get('OwningService') or metadata.get('RotationEnabled')
             or metadata.get('ReplicationStatus') or metadata.get('PrimaryRegion') not in (None, entry['region'])):
         raise Blocked('Secret runtime identity/deletion/rotation/service ownership unsafe')
-    response = aws('list-secret-version-ids', '--secret-id', arn, '--include-deprecated', service='secretsmanager')
+    response = aws('list_secret_version_ids', SecretId=arn, IncludeDeprecated=True, service='secretsmanager')
     versions = response.get('Versions')
     if not isinstance(versions, list) or response.get('NextToken') or response.get('ARN') != arn:
         raise Blocked('Secret version inventory incomplete/ambiguous')
@@ -212,8 +217,7 @@ def bootstrap_current(aws, entry):
             or {k: sorted(v) for k, v in summary.items()} != {k: sorted(v) for k, v in stages.items() if v}):
         raise Blocked('Secret version metadata ambiguous/inconsistent')
     try:
-        current = aws('get-secret-value', '--secret-id', arn, '--version-stage', 'AWSCURRENT',
-                           '--query', SECRET_METADATA_QUERY, service='secretsmanager')
+        current = aws('get_secret_value', SecretId=arn, VersionStage='AWSCURRENT', service='secretsmanager')
     except Blocked as error:
         if not getattr(error, 'current_missing', False) or any('AWSCURRENT' in v for v in stages.values()):
             raise Blocked('Secret current-value check denied/failed/ambiguous') from None
@@ -267,16 +271,13 @@ def bootstrap(root, states, guard, save, aws, bootstrap_plan, bootstrap_current,
                 value = (json.dumps({k: 'DUMMY_DEPLOY_ONLY' for k in entry['requiredJsonKeys']}, sort_keys=True)
                          if entry['valueType'] == 'JSON' else 'DUMMY_DEPLOY_ONLY')
                 # Explicit private stage avoids moving an existing AWSCURRENT during a concurrent write.
-                aws('put-secret-value', '--secret-id', entry['secretId'], '--secret-string', value,
-                         '--client-request-token', entry['clientRequestToken'],
-                         '--version-stages', 'BLUEPRINT_BOOTSTRAP_' + entry['clientRequestToken'], service='secretsmanager')
+                aws('put_secret_value', SecretId=entry['secretId'], SecretString=value, ClientRequestToken=entry['clientRequestToken'], VersionStages=['BLUEPRINT_BOOTSTRAP_' + entry['clientRequestToken']], service='secretsmanager')
         confirmed, submitted = bootstrap_current(entry)
         if not confirmed:
             if not submitted:
                 raise Blocked('bootstrap PUT not confirmed; resume same intent/token')
             # No RemoveFromVersionId: AWS refuses to move another version's AWSCURRENT.
-            aws('update-secret-version-stage', '--secret-id', entry['secretId'], '--version-stage', 'AWSCURRENT',
-                     '--move-to-version-id', entry['clientRequestToken'], service='secretsmanager')
+            aws('update_secret_version_stage', SecretId=entry['secretId'], VersionStage='AWSCURRENT', MoveToVersionId=entry['clientRequestToken'], service='secretsmanager')
             confirmed, _ = bootstrap_current(entry)
             if not confirmed:
                 raise Blocked('bootstrap current version not confirmed')

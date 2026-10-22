@@ -29,6 +29,21 @@ DESCRIPTION_PATTERNS = {
     ("AWS::EC2::SecurityGroup", "GroupDescription"): r"\A[a-zA-Z0-9 ._:/()#,@\[\]+=&;{}!$*\-]*\Z",
 }
 
+# Supported SSM secure string slots; paths retain array wildcards.
+SSM_SECURE_PROPERTIES = {
+    'Resources/AWS::DirectoryService::MicrosoftAD/Properties/Password',
+    'Resources/AWS::DirectoryService::SimpleAD/Properties/Password',
+    'Resources/AWS::ElastiCache::ReplicationGroup/Properties/AuthToken',
+    'Resources/AWS::IAM::User/Properties/LoginProfile/Password',
+    'Resources/AWS::KinesisFirehose::DeliveryStream/Properties/RedshiftDestinationConfiguration/Password',
+    'Resources/AWS::OpsWorks::App/Properties/AppSource/Password',
+    'Resources/AWS::OpsWorks::Stack/Properties/RdsDbInstances/*/DbPassword',
+    'Resources/AWS::OpsWorks::Stack/Properties/CustomCookbooksSource/Password',
+    'Resources/AWS::RDS::DBCluster/Properties/MasterUserPassword',
+    'Resources/AWS::RDS::DBInstance/Properties/MasterUserPassword',
+    'Resources/AWS::Redshift::Cluster/Properties/MasterUserPassword',
+}
+
 DYNAMIC_REFERENCE_START = re.compile(r"\{\{\s*resolve\b")
 DYNAMIC_REFERENCE = re.compile(r"\{\{resolve:([^{}]*)\}\}")
 SECRETS_MANAGER_REFERENCE = re.compile(
@@ -179,9 +194,8 @@ class CloudFormationSchemaCatalog:
                 if re.fullmatch(r"[a-zA-Z0-9_.\-/]+(?::[0-9]+)?", target) is None:
                     return ["invalid SSM dynamic reference syntax"]
                 if kind == "ssm-secure":
-                    from cfnlint.rules.functions.DynamicReferenceSecureString import DynamicReferenceSecureString
                     path = "Resources/" + resource_type + "/Properties/" + property_path.replace("[]", "/*").replace(".", "/")
-                    if path not in DynamicReferenceSecureString().exceptions:
+                    if path not in SSM_SECURE_PROPERTIES:
                         return ["SSM secure dynamic reference is unsupported for this resource property"]
             else:
                 return ["unsupported CloudFormation dynamic reference provider"]
@@ -241,7 +255,7 @@ class CloudFormationSchemaCatalog:
                     if re.search(pattern, value) is None:
                         errors.append(f"must match {pattern}")
                 except re.error:
-                    pass  # cfn-lint performs the authoritative template-level regex check.
+                    pass  # Provider regex dialect may exceed Python regular expressions.
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             if "minimum" in node and value < node["minimum"]:
                 errors.append(f"must be >= {node['minimum']}")

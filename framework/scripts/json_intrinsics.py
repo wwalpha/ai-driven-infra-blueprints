@@ -1,5 +1,4 @@
 """Design JSON projection using the existing CFn schemas and local evaluator."""
-from functools import lru_cache
 
 from cloudformation_inputs import Blocked
 from iac_values import Expression, ResourceReference
@@ -10,24 +9,10 @@ def intrinsic(value):
     return isinstance(value, dict) and any(key == 'Ref' or key.startswith('Fn::') for key in value)
 
 
-@lru_cache(maxsize=1)
-def syntax_validator():
-    from cfnlint.jsonschema import StandardValidator
-    from cfnlint.jsonschema.validators import create
-
-    def context(validator, spec, value, schema):
-        # No template context: validate literal shapes, defer operand types/identities.
-        if not intrinsic(value) and not isinstance(value, (Expression, ResourceReference)):
-            yield from validator.descend(value, spec['schema'])
-
-    return create(StandardValidator({}).validators | {'cfnContext': context})
-
-
 def project_document(document, *, evaluate=None, unresolved=None, warnings=None,
                      property_name=None, model_path=None, logical_id=None, template=False, pointer=''):
     """Keep unproven expressions intact; this never certifies AWS API readiness."""
-    from cfnlint.schema import OTHER_SCHEMA_MANAGER
-    from cfnlint.schema._exceptions import SchemaNotFoundError
+    from utils.cloudformation_format import intrinsic_shape_error, JSON_INTRINSICS
     from iac_evaluation import Evaluation
 
     warnings = [] if warnings is None else warnings
@@ -47,15 +32,11 @@ def project_document(document, *, evaluate=None, unresolved=None, warnings=None,
                 for name, argument in value.items():
                     if name != 'Ref' and not name.startswith('Fn::'):
                         continue
-                    try:
-                        schema = OTHER_SCHEMA_MANAGER.get_schema('other.functions.' + name.removeprefix('Fn::').lower())
-                    except SchemaNotFoundError:
-                        continue  # Unknown functions remain unverified, never accepted as valid CFn.
-                    if len(value) != 1:
+                    if name in JSON_INTRINSICS and len(value) != 1:
                         fail(pointer, value, 'intrinsic must contain exactly one function')
-                    errors = list(syntax_validator()(schema).iter_errors(argument))
-                    if errors:
-                        fail(pointer, value, f'invalid {name} structure: ' + '; '.join(error.message for error in errors))
+                    error = intrinsic_shape_error(name, argument)
+                    if error:
+                        fail(pointer, value, f'invalid {name} structure: {error}')
             for key, child in value.items():
                 syntax(child, pointer + '/' + key.replace('~', '~0').replace('/', '~1'))
         elif isinstance(value, list):

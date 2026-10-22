@@ -1,6 +1,9 @@
 """Deterministic scheduler and AWS CLI adapter regression checks (no live AWS)."""
 
 import sys
+import subprocess
+import tempfile
+from functools import partial
 
 from pathlib import Path
 
@@ -21,7 +24,7 @@ from support.pytest_cli import run
 
 import copy
 
-from deployment import scheduler
+from deploy import scheduler
 
 import sync_views
 
@@ -61,7 +64,23 @@ from model.core import stack_model, deployment_settings, properties
 
 from design_layout import stack_delivery
 
-M = load('cloudformation-deploy')
+from deploy import controller as M
+_production_runtime = M.create_runtime
+
+class Runtime:
+    def __init__(self, *args, **kwargs):
+        runtime = _production_runtime(*args, **kwargs)
+        self.__dict__.update(runtime.__dict__)
+        for name, value in runtime.__dict__.items():
+            if isinstance(value, partial):
+                if hasattr(type(self), name):
+                    del self.__dict__[name]
+                else:
+                    setattr(self, name, partial(value.func, self))
+
+for _name in ('template_arguments', 'prepare_delivery_group', 'repair', 'poll', 'execute', 'load_inputs'):
+    setattr(Runtime, _name, getattr(M, _name))
+
 
 ROOT = Path(__file__).resolve().parents[4]
 
@@ -115,10 +134,16 @@ def finish(units, limit, state, fake):
             return outcome
     raise AssertionError("groups did not complete")
 
-class StubAws(M.AwsBackend):
+class StubAws(Runtime):
     def __init__(self, exports=(), destructive=False):
         super().__init__(ROOT, "dev", "123456789012", TARGET)
         self.exports, self.calls = list(exports), []
+        self._temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self._temporary.name)
+        for unit in units(10, 10, 10, 10):
+            template, parameters = self.paths(unit)
+            template.parent.mkdir(parents=True, exist_ok=True); parameters.parent.mkdir(parents=True, exist_ok=True)
+            template.write_text('Resources: {}'); parameters.write_text('[]')
         self.change = {"Status": "CREATE_COMPLETE", "ExecutionStatus": "AVAILABLE", "Changes": [
             {"ResourceChange": {"LogicalResourceId": "App", "ResourceType": "AWS::S3::Bucket",
                                 "Action": "Remove" if destructive else "Add"}}]}
@@ -126,28 +151,31 @@ class StubAws(M.AwsBackend):
     def prepare_delivery_group(self, units, states):
         pass  # Scheduler/CFn adapter tests replace delivery; DeliveryAws exercises the real barrier.
 
-    def template_arguments(self, unit, state):
-        return ["--template-body", "file://" + str(self.paths(unit)[0])]
+    def template_arguments(self, unit, state, **kwargs):
+        return {'TemplateBody': 'Resources: {}'}
 
-    def aws(self, operation, *arguments):
-        self.calls.append((operation, arguments))
-        if operation == "list-exports":
-            return {"Exports": [{"Name": name} for name in self.exports]}
-        if operation == "describe-stacks":
-            raise M.Blocked("Stack does not exist")
-        if operation == "create-change-set":
-            return {"Id": "cs-" + arguments[1]}
-        if operation == "describe-change-set":
-            return json.loads(json.dumps(self.change))
-        if operation == "execute-change-set":
-            return {}
-        if operation == "validate-template":
+    def aws(self, operation, **arguments):
+        self.calls.append((operation, dict(arguments)))
+        if operation == 'list_exports':
+            return {'Exports': [{'Name': name, 'Value': 'export-value',
+                                'ExportingStackId': 'arn:aws:cloudformation:ap-northeast-1:123456789012:stack/External/id'} for name in self.exports]}
+        if operation == 'describe_stacks':
+            from utils.aws.client import AwsError
+            raise AwsError('cloudformation', operation, 'ValidationError', stack_absent=True)
+        if operation == 'create_change_set':
+            return {'Id': 'cs-' + arguments['StackName'], 'StackId': 'stackid-' + arguments['StackName']}
+        if operation == 'describe_change_set':
+            name = arguments['ChangeSetName'].removeprefix('cs-')
+            return json.loads(json.dumps(self.change)) | {'ChangeSetId': 'cs-' + name, 'StackId': 'stackid-' + name}
+        if operation == 'list_stack_resources':
+            return {'StackResourceSummaries': []}
+        if operation in {'execute_change_set', 'validate_template'}:
             return {}
         raise AssertionError(operation)
 
 class DeliveryAws(StubAws):
-    template_arguments = M.AwsBackend.template_arguments
-    prepare_delivery_group = M.AwsBackend.prepare_delivery_group
+    template_arguments = Runtime.template_arguments
+    prepare_delivery_group = Runtime.prepare_delivery_group
 
     def __init__(self, root, workdir, destructive=False):
         super().__init__(destructive=destructive)
@@ -181,7 +209,7 @@ class DeliveryAws(StubAws):
                        'desired.service.identity.lastAllocated': json.dumps({'S3.Bucket': max(int(identity), len(identities))})})
         if delegation:
             values[f'desired.resource.{identity}.deploymentEncryption'] = 'default'
-        from s3_delivery import ALGORITHM, KEY
+        from deploy.s3_delivery import ALGORITHM, KEY
         rows = [('BucketName', bucket), ('Region', self.region), (ALGORITHM, algorithm)]
         if key:
             rows.append((KEY, key))
@@ -191,53 +219,55 @@ class DeliveryAws(StubAws):
             values[f'desired.row.{identity}-{number:03d}.comment'] = '合成配置設定'
         write_model(path, '\n'.join(f'{k}={v}' for k, v in values.items()))
 
-    def aws(self, operation, *arguments, service="cloudformation"):
-        if service == "cloudformation":
-            if operation == "list-exports" and self.export_values:
-                self.calls.append((operation, arguments))
-                return {"Exports": [{"Name": name, "Value": value} for name, value in self.export_values.items()]}
-            return super().aws(operation, *arguments)
-        self.calls.append((operation, arguments))
+    def aws(self, operation, service='cloudformation', **arguments):
+        from utils.aws.client import AwsError
+        if service == 'cloudformation':
+            if operation == 'list_exports' and self.export_values:
+                self.calls.append((operation, dict(arguments)))
+                return {'Exports': [{'Name': name, 'Value': value,
+                    'ExportingStackId': 'arn:aws:cloudformation:ap-northeast-1:123456789012:stack/External/id'} for name, value in self.export_values.items()]}
+            return super().aws(operation, **arguments)
+        self.calls.append((operation, dict(arguments)))
         if self.fail == operation:
-            raise M.Blocked("simulated S3 permission/upload failure")
+            raise AwsError(service, operation, 'AccessDenied', 403)
         if service == 'kms':
-            assert operation == 'describe-key'
-            key = arguments[arguments.index('--key-id') + 1]
+            assert operation == 'describe_key'
+            key = arguments['KeyId']
             arn = self.key_arn if key in ('test-key', 'alias/test', self.key_arn) else key if key.startswith('arn:') else self.key_arn.replace('test-key', key)
             return {'KeyMetadata': {'Arn': arn, 'KeyId': arn.split('key/')[-1], 'AWSAccountId': arn.split(':')[4],
                     'KeyState': self.key_state, 'Enabled': self.key_enabled, 'KeyUsage': 'ENCRYPT_DECRYPT', 'KeySpec': 'SYMMETRIC_DEFAULT'}}
-        assert arguments[arguments.index("--expected-bucket-owner") + 1] == TARGET["awsAccountId"]
-        if operation == 'head-bucket':
+        assert arguments['ExpectedBucketOwner'] == TARGET['awsAccountId']
+        if operation == 'head_bucket':
             return {}
-        if operation == 'get-bucket-encryption':
+        if operation == 'get_bucket_encryption':
             default = {'SSEAlgorithm': self.default_algorithm}
             if self.default_key:
                 default['KMSMasterKeyID'] = self.default_key
             return {'ServerSideEncryptionConfiguration': {'Rules': [{'ApplyServerSideEncryptionByDefault': default}]}}
-        if operation == 'get-bucket-policy':
+        if operation == 'get_bucket_policy':
             if self.policy is None:
-                raise M.Blocked('(NoSuchBucketPolicy)')
+                raise AwsError('s3', operation, 'NoSuchBucketPolicy', 404)
             return {'Policy': json.dumps(self.policy)}
-        if operation == "get-bucket-location":
-            return {"LocationConstraint": self.region}
-        bucket, key = (arguments[arguments.index(flag) + 1] for flag in ("--bucket", "--key"))
-        if operation == "put-object":
-            assert arguments[arguments.index("--if-none-match") + 1] == "*"
+        if operation == 'get_bucket_location':
+            return {'LocationConstraint': self.region}
+        bucket, key = arguments['Bucket'], arguments['Key']
+        if operation == 'put_object':
+            assert arguments['IfNoneMatch'] == '*'
             if (bucket, key) in self.objects:
-                raise M.Blocked("(PreconditionFailed)")
-            data = Path(arguments[arguments.index("--body") + 1]).read_bytes()
+                raise AwsError('s3', operation, 'PreconditionFailed', 412)
+            data = arguments['Body'].read()
             checksum = base64.b64encode(hashlib.sha256(data).digest()).decode()
-            assert checksum == arguments[arguments.index("--checksum-sha256") + 1]
-            self.objects[bucket, key] = {"ChecksumSHA256": checksum, "ContentLength": len(data), "VersionId": "version+1", "data": data,
-                                      'ServerSideEncryption': arguments[arguments.index('--server-side-encryption') + 1] if '--server-side-encryption' in arguments else self.default_algorithm}
+            assert checksum == arguments['ChecksumSHA256']
+            self.objects[bucket, key] = {'ChecksumSHA256': checksum, 'ContentLength': len(data), 'VersionId': 'version+1', 'data': data,
+                                      'ServerSideEncryption': arguments.get('ServerSideEncryption', self.default_algorithm)}
             if self.objects[bucket, key]['ServerSideEncryption'] == 'aws:kms':
                 self.objects[bucket, key]['SSEKMSKeyId'] = self.key_arn
         if (bucket, key) not in self.objects:
-            raise M.Blocked("(404)")
+            raise AwsError('s3', operation, 'NotFound', 404)
         return self.objects[bucket, key]
 
 
-__all__ = ['Barrier', 'DeliveryAws', 'Fake', 'M', 'Path', 'ROOT', 'SimpleNamespace', 'StubAws', 'TARGET', 'base64', 'copy', 'deployment_bucket', 'deployment_settings', 'finish', 'get_ident', 'hashlib', 'importlib', 'io', 'json', 'load', 'markdown_for', 'model_projection', 'patch', 'properties', 'pytest', 'read_model', 'redirect_stderr', 'redirect_stdout', 'rejects', 'run', 'scheduler', 'shutil', 'snapshot_model', 'stack_delivery', 'stack_model', 'starts', 'states', 'sync_views', 'sys', 'time', 'units', 'write_fixture_files', 'write_model', 'zipfile']
+__all__ = ['Runtime', 'subprocess', 'Barrier', 'DeliveryAws', 'Fake', 'M', 'Path', 'ROOT', 'SimpleNamespace', 'StubAws', 'TARGET', 'base64', 'copy', 'deployment_bucket', 'deployment_settings', 'finish', 'get_ident', 'hashlib', 'importlib', 'io', 'json', 'load', 'markdown_for', 'model_projection', 'patch', 'properties', 'pytest', 'read_model', 'redirect_stderr', 'redirect_stdout', 'rejects', 'run', 'scheduler', 'shutil', 'snapshot_model', 'stack_delivery', 'stack_model', 'starts', 'states', 'sync_views', 'sys', 'time', 'units', 'write_fixture_files', 'write_model', 'zipfile']
 
 
 def remove_model(path):
