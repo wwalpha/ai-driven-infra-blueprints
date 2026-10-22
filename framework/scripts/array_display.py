@@ -103,6 +103,8 @@ def indexed_rows(rows, kind, root=ROOT):
                     items = ["`" + (item if isinstance(item, str) else json.dumps(item, ensure_ascii=False, separators=(",", ":"))) + "`" for item in parsed]
                     if any(any(char in item[1:-1] for char in "|`\n\r") for item in items):
                         raise ValueError("array display elements cannot contain Markdown table delimiters")
+                    # A complete source array is one parent field, regardless of its element count.
+                    template = numbered_property(template.removesuffix("[]"), states) + "[]"
         metadata = json.dumps([prop, value, max(1, len(items))], ensure_ascii=True)
         for char in "|<>":
             metadata = metadata.replace(char, f"\\u{ord(char):04x}")
