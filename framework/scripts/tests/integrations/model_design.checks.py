@@ -1125,18 +1125,40 @@ def check_secret_naming_values(tmp_path):
     from design_catalog import DesignSchemaCatalog
     secret_rules = naming_rule_files(ROOT, "SecretsManager")
     assert [path.name for path in secret_rules] == ["aws-resource-naming.md", "SecretsManager.md"]
-    assert "| `SecretsManager.Secret` | `Name` | `{{application}}/{{environment}}/{{purpose}}` |" in secret_rules[1].read_text(encoding="utf-8")
+    rules = secret_rules[1].read_text(encoding="utf-8")
+    assert "| `SecretsManager.Secret` | `Name` | `{{application}}/{{environment}}/{{purpose_path}}` |" in rules
+    for constraint in ("`application` as the first level", "`environment` as the second level",
+                       "one or more levels", "no upper limit on the number of levels",
+                       "do not force distinct purposes into the third level", "lower-kebab-case",
+                       "empty components and leading or trailing `/` are prohibited",
+                       "1–512 characters", "ASCII letters, numbers, and `/_+=.@-`",
+                       "IMPORT retains actual/current names"):
+        assert constraint in rules
+    for invalid in ("app/dev//keypair", "/app/dev/credentials", "app/dev/credentials/"):
+        assert f"`{invalid}`" in rules.partition("Invalid examples:")[2]
     path = tmp_path / "docs/designs/dev/cde/secrets-manager.md"
-    name = "sample/dev/db-credentials"
-    for field in ("Name", "SecretsManager.Secret.Name"):
-        assert not naming_errors(ROOT, "SecretsManager.Secret", [["1", field, f"`{name}`", "認証情報の名前"]])
-    assert not DesignSchemaCatalog(ROOT).literal_errors("SecretsManager.Secret", "Name", name)
-    values = model("secrets-manager", "SecretsManager.Secret", name, [("Name", f"`{name}`", "認証情報の名前")], "DatabaseCredentials")
-    assert f"### SecretsManager.Secret: {name}" in roundtrip(path, values, ROOT)
+    schema = DesignSchemaCatalog(ROOT)
+    for name in ("sample/dev/db-credentials", "app/dev/credentials", "app/dev/snowflake/keypair",
+                 "app/dev/snowflake/keypair/lambda", "app/dev/snowflake/keypair/lambda/rotation",
+                 "app/dev/snowflake/keypair/lambda/rotation/credentials"):
+        for field in ("Name", "SecretsManager.Secret.Name"):
+            assert not naming_errors(ROOT, "SecretsManager.Secret", [["1", field, f"`{name}`", "認証情報の名前"]])
+        assert not schema.literal_errors("SecretsManager.Secret", "Name", name)
+        values = model("secrets-manager", "SecretsManager.Secret", name, [("Name", f"`{name}`", "認証情報の名前")], "DatabaseCredentials")
+        assert f"### SecretsManager.Secret: {name}" in roundtrip(path, values, ROOT)
     for invalid in ("", "UNSET", "PENDING_DEPLOY"):
         values["desired.row.001-001.value"] = f"`{invalid}`"
         with pytest.raises(ValueError):
             markdown_for(path, values, ROOT)
+    name = "Legacy_Secret.Name"
+    rows = [["1", "Name", f"`{name}`", "既存の名前"]]
+    with patch("model.validation.naming_targets", return_value={}):
+        assert naming_errors(ROOT, "SecretsManager.Secret", rows) == ["naming rule missing: SecretsManager.Secret: Name"]
+        assert not naming_errors(ROOT, "SecretsManager.Secret", rows, "IMPORT")
+    values = model("secrets-manager", "SecretsManager.Secret", name, [("Name", f"`{name}`", "既存の名前")])
+    values["desired.resource.001.resourceMode"] = "IMPORT"
+    values.pop("desired.resource.001.cfn-logicalId")
+    assert f"### SecretsManager.Secret: {name}" in roundtrip(path, values, ROOT)
 
 
 
