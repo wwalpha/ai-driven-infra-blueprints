@@ -1132,6 +1132,7 @@ def check_secret_naming_values(tmp_path):
                        "do not force distinct purposes into the third level", "lower-kebab-case",
                        "empty components and leading or trailing `/` are prohibited",
                        "1–512 characters", "ASCII letters, numbers, and `/_+=.@-`",
+                       "Do not reject names solely for ending in a hyphen followed by 6 characters",
                        "IMPORT retains actual/current names"):
         assert constraint in rules
     for invalid in ("app/dev//keypair", "/app/dev/credentials", "app/dev/credentials/"):
@@ -1140,7 +1141,8 @@ def check_secret_naming_values(tmp_path):
     schema = DesignSchemaCatalog(ROOT)
     for name in ("sample/dev/db-credentials", "app/dev/credentials", "app/dev/snowflake/keypair",
                  "app/dev/snowflake/keypair/lambda", "app/dev/snowflake/keypair/lambda/rotation",
-                 "app/dev/snowflake/keypair/lambda/rotation/credentials"):
+                 "app/dev/snowflake/keypair/lambda/rotation/credentials",
+                 "app/dev/snowflake/keypair/lambda-skbm1r"):
         for field in ("Name", "SecretsManager.Secret.Name"):
             assert not naming_errors(ROOT, "SecretsManager.Secret", [["1", field, f"`{name}`", "認証情報の名前"]])
         assert not schema.literal_errors("SecretsManager.Secret", "Name", name)
