@@ -1749,7 +1749,7 @@ def check_arn_array_reference_forms():
             with patch.object(comparison, 'reference', return_value=policy) as reference:
                 row = {'property': prop, 'value': values['desired.row.001-001.value']}
                 assert comparison.desired_value('iam', row, 'IAM.Role') == [policy]
-                reference.assert_called_once_with('iam', link, 'Arn')
+            reference.assert_called_once_with('iam', link, 'Arn', consumer_property='IAM.Role.ManagedPolicyArns[]')
             assert comparison.reference_same(policy, policy, 'IAM.Role', 'ManagedPolicyArns[]') is True
             assert comparison.reference_same(policy, other, 'IAM.Role', 'ManagedPolicyArns[]') is False
             assert comparison.reference_forms('IAM.Role', 'ManagedPolicyArns[]') == {'Arn'}
@@ -2013,19 +2013,124 @@ def check_added_reference_properties(_network):
         group['VpcId'] = 'vpc-0123456789abcdef0'
         comparison.symbols.clear()
         assert same(comparison.evaluate(stack, {'Ref': 'Group'}), symbols['Group'])
-        # The API catalog does not prove this Group ARN as a CFn return attribute.
-        write(root / 'model/dev/123456789012/quicksight.properties', '\n'.join([
-            'desired.service.quicksight.serviceId=quicksight',
-            'desired.resource.001.resourceType=QuickSight.Group',
-            'desired.resource.001.logicalId=QuickSight_Group_001',
-            'desired.resource.001.anchor=resource-QuickSight_Group_001',
-            'desired.service.identity.lastAllocated={"QuickSight.Group":1}',
-            'desired.row.001-001.property=QuickSight.Group.Arn',
-            'desired.row.001-001.value=[QuickSight_Group_001](quicksight.md#resource-QuickSight_Group_001)',
-        ]) + '\n')
-        with pytest.raises(Blocked, match='reference attribute not confirmed: Arn'):
-            comparison.desired_reference('s3', '[QuickSight_Group_001](quicksight.md#resource-QuickSight_Group_001)',
-                                         'QuickSight.DataSource', 'Permissions[].Principal')
+        # API outputs prove the attribute; desired identity plus local context proves its value.
+        group_link = '[display label is not GroupName](quicksight.md#resource-QuickSight_Group_001)'
+        arn = 'arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts'
+        actions = ['quicksight:DescribeDataSource', 'quicksight:PassDataSource']
+        qs_path = root / 'model/dev/123456789012/quicksight.properties'
+        qs = {'desired.service.quicksight.serviceId': 'quicksight',
+              'desired.resource.001.resourceType': 'QuickSight.Group',
+              'desired.resource.001.resourceMode': 'IMPORT',
+              'desired.resource.002.resourceType': 'QuickSight.DataSource',
+              'desired.resource.002.cfn-logicalId': stack + '-DataSource',
+              'desired.row.002-001.property': 'QuickSight.DataSource.Permissions',
+              'desired.row.002-001.value': json.dumps([{'Principal': group_link, 'Actions': actions}])}
+        qs.update(allocate(qs, ['001', '002']))
+        for number, (field, value) in enumerate([
+                ('AwsAccountId', '210987654321'), ('Namespace', 'default'), ('GroupName', 'analysts')], 1):
+            qs.update({f'desired.row.001-{number:03d}.property': 'QuickSight.Group.' + field,
+                       f'desired.row.001-{number:03d}.value': value})
+        template['Resources']['DataSource'] = {'Type': 'AWS::QuickSight::DataSource', 'Properties': {}}
+
+        def group_comparison(principal=arn, *, actual_actions=None, model=None):
+            candidate = qs if model is None else model
+            write(qs_path, '\n'.join(f'{key}={value}' for key, value in candidate.items()) + '\n')
+            template['Resources']['DataSource']['Properties']['Permissions'] = [
+                {'Principal': principal, 'Actions': actions if actual_actions is None else actual_actions}]
+            mutate_template(root, template)
+            before = qs_path.read_bytes()
+            comparison, records = compare(root, ['quicksight'])
+            assert qs_path.read_bytes() == before
+            selected = [item for item in records if item['property'] == 'QuickSight.DataSource.Permissions'
+                        or item['category'] == 'uncompared' and item['resource'] == '*']
+            assert len(selected) == 1, records
+            assert not [item for item in records if item['category'] == 'error'], records
+            return comparison, selected[0]
+
+        group_comparator, result = group_comparison()
+        assert result['category'] == 'matched', result
+        symbol = group_comparator.desired_reference('quicksight', group_link, 'QuickSight.DataSource', 'Permissions[].Principal')
+        assert group_comparator.reference_literal(symbol) == arn
+        # No ARN/PrincipalId rows or cfn-logicalId exist on the API-only producer.
+        assert not any('QuickSight.Group.' + field in qs.values() for field in ('Arn', 'PrincipalId'))
+        assert 'desired.resource.001.cfn-logicalId' not in qs
+        for wrong in [arn.replace('/analysts', '/other'), arn.replace('/default/', '/other/'),
+                      arn.replace('210987654321', '123456789012'),
+                      arn.replace('ap-northeast-1', 'us-east-1'), arn.replace('arn:aws:', 'arn:aws-cn:')]:
+            _, result = group_comparison(wrong)
+            assert result['category'] == 'difference', result
+        for expression in [
+                {'Fn::Sub': 'arn:${AWS::Partition}:quicksight:${AWS::Region}:210987654321:group/default/analysts'},
+                {'Fn::Sub': ['arn:${AWS::Partition}:quicksight:${AWS::Region}:${Account}:group/${Namespace}/${Group}',
+                             {'Account': '210987654321', 'Namespace': 'default', 'Group': 'analysts'}]},
+                {'Fn::Join': ['', ['arn:', {'Ref': 'AWS::Partition'}, ':quicksight:', {'Ref': 'AWS::Region'},
+                                  ':210987654321:group/default/analysts']]}]:
+            _, result = group_comparison(expression)
+            assert result['category'] == 'matched', result
+        _, result = group_comparison({'Fn::Sub': 'arn:${AWS::Partition}:quicksight:${Missing}:210987654321:group/default/analysts'})
+        assert result['category'] == 'uncompared', result
+        for changed in [dict(qs, **{'desired.row.001-003.value': 'UNSET'}),
+                        dict(qs, **{'desired.row.001-001.value': 'invalid-account'}),
+                        dict(qs, **{'desired.row.001-003.value': group_link}),
+                        {key: value for key, value in qs.items() if not key.startswith('desired.row.001-002.')},
+                        {key: value for key, value in qs.items() if not key.startswith('desired.row.001-001.')},
+                        {key: value for key, value in qs.items() if not key.startswith('desired.row.001-003.')},
+                        dict(qs, **{'desired.row.001-004.property': 'QuickSight.Group.GroupName',
+                                    'desired.row.001-004.value': 'analysts'}),
+                        dict(qs, **{'desired.row.002-001.value': json.dumps([
+                            {'Principal': group_link.replace('resource-QuickSight_Group_001', 'missing'), 'Actions': actions}])}),
+                        dict(qs, **{'desired.resource.003.resourceType': 'QuickSight.Group',
+                                    'desired.resource.003.logicalId': 'QuickSight_Group_003',
+                                    'desired.service.identity.lastAllocated': '{"QuickSight.Group":3,"QuickSight.DataSource":1}',
+                                    'desired.resource.003.anchor': 'resource-QuickSight_Group_001'})]:
+            _, result = group_comparison(model=changed)
+            assert result['category'] == 'uncompared', result
+        # Both leaf and whole-setting paths use the existing nested comparison.
+        indexed = {key: value for key, value in qs.items() if not key.startswith('desired.row.002-001.')}
+        indexed.update({'desired.row.002-001.property': 'QuickSight.DataSource.Permissions[1].Principal',
+                        'desired.row.002-001.value': group_link,
+                        'desired.row.002-002.property': 'QuickSight.DataSource.Permissions[1].Actions',
+                        'desired.row.002-002.value': json.dumps(actions)})
+        _, result = group_comparison(model=indexed)
+        assert result['category'] == 'matched', result
+        for principal, actual_actions in [(arn, actions[::-1]), (arn, actions + actions[:1]),
+                                          (arn.replace('/analysts', '/other'), actions),
+                                          (arn, ['quicksight:UpdateDataSource'])]:
+            _, result = group_comparison(principal, actual_actions=actual_actions)
+            assert result['category'] == 'difference', result
+        group_comparator, _ = group_comparison()
+        observed = dict(qs, **{'desired.row.001-004.property': 'QuickSight.Group.Arn',
+                              'desired.row.001-004.value': group_link,
+                              'observed.row.001-004.value': 'PENDING_DEPLOY'})
+        _, result = group_comparison(model=observed)
+        assert result['category'] == 'matched', result
+        write(root / 'model/dev/999999999999/quicksight.properties',
+              '\n'.join(f'{key}={value}' for key, value in qs.items()) + '\n')
+        project = json.loads((root / 'project.json').read_text(encoding='utf-8'))
+        project['targets'].append(dict(project['targets'][0], awsAccountId='999999999999'))
+        write(root / 'project.json', json.dumps(project) + '\n')
+        with pytest.raises(Blocked, match='cross-target'):
+            group_comparator.desired_reference('quicksight', group_link.replace('quicksight.md', '../999999999999/quicksight.md'),
+                                               'QuickSight.DataSource', 'Permissions[].Principal')
+        for field in ('GroupName', 'Unknown', 'PrincipalId'):
+            with pytest.raises(Blocked):
+                group_comparator.desired_reference('quicksight', group_link, 'QuickSight.DataSource', 'Permissions[].Principal', field)
+        with pytest.raises(Blocked, match='IMPORT'):
+            group_comparator.reference('quicksight', group_link, 'Arn')
+        with pytest.raises(Blocked, match='IMPORT'):
+            group_comparator.desired_reference('quicksight', group_link, 'QuickSight.DataSource', 'Name', 'Arn')
+        group_comparator.local_comparison = False
+        with pytest.raises(Blocked):
+            group_comparator.desired_reference('quicksight', group_link, 'QuickSight.DataSource', 'Permissions[].Principal')
+        group_comparator.local_comparison = True
+        group_comparator.target['iacEngine'] = 'terraform'
+        with pytest.raises(Blocked, match='IMPORT'):
+            group_comparator.desired_reference('quicksight', group_link, 'QuickSight.DataSource', 'Permissions[].Principal')
+        group_comparator.target['iacEngine'] = 'cloudformation'
+        group_comparator.partition = None
+        with pytest.raises(Blocked, match='Region and partition'):
+            group_comparator.desired_reference('quicksight', group_link, 'QuickSight.DataSource', 'Permissions[].Principal')
+        assert group_comparator.reference_same(symbol, arn, 'QuickSight.DataSource', 'Permissions[].Principal') is None
         with pytest.raises(Blocked, match='reference target must be'):
             comparison.desired_reference('s3', links['Role'], 'QuickSight.DataSource', 'Permissions[].Principal')
         assert same(comparison.desired_reference('s3', links['Vpc'], 'EC2.FlowLog', 'ResourceId',

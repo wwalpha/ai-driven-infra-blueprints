@@ -223,7 +223,7 @@ class Comparison:
                            'condition': condition, 'result': False, 'relationship': 'direct',
                            'conditions': conditions, 'inputs': list(inputs.values())})
 
-    def reference(self, service, value, expected_attribute=None):
+    def reference(self, service, value, expected_attribute=None, *, consumer_property=None):
         from model.identity import parse_reference, anchor_index, select_anchor
         from model.sources import Scope
         consumer = Scope(self.root, self.environment, self.directory, service)
@@ -244,25 +244,34 @@ class Comparison:
         attributes = {row['property'].removeprefix(resource['resourceType'] + '.')
                       for _, row in self.rows[refservice][identity]
                       if row['property'] in catalog_outputs(self.root, resource['resourceType'])}
-        primary = self.catalog.schema(resource['resourceType']).get('primaryIdentifier', [])
+        schema = self.catalog.schema(resource['resourceType'])
+        primary = schema.get('primaryIdentifier', [])
         if expected_attribute is None:
             expected_attribute = REF_ATTRIBUTES.get(resource['resourceType'])
             if expected_attribute is None:
                 raise Blocked(f'reference attribute is unproven: {resource["resourceType"]}; explicit property contract required')
         expected_attribute = reference_attribute(resource['resourceType'], expected_attribute)
         # The link label is never a physical ID, including PENDING_DEPLOY.
-        readonly = self.catalog.schema(resource['resourceType']).get('readOnlyProperties', [])
+        readonly = schema.get('readOnlyProperties', [])
         alias_arn = resource['resourceType'] == 'KMS.Alias' and expected_attribute == 'AliasArn'
-        if not alias_arn and expected_attribute not in attributes and '/properties/' + expected_attribute not in primary + readonly:
+        if (not alias_arn and expected_attribute not in attributes
+                and expected_attribute not in schema.get('identifierOutputs', [])
+                and '/properties/' + expected_attribute not in primary + readonly):
             raise Blocked(f'reference attribute not confirmed: {expected_attribute}')
+        symbol = ResourceReference({'$resource': [refservice, identity], '$attribute': expected_attribute})
         if resource_mode(resource) == 'IMPORT':
+            if (self.local_comparison and consumer_property == 'QuickSight.DataSource.Permissions[].Principal'
+                    and REFERENCE_PROPERTIES.get(consumer_property) == (resource['resourceType'], expected_attribute)
+                    and self.target['iacEngine'] == 'cloudformation'):
+                self.reference_literal(symbol)
+                return symbol
             observed = [literal(self.models[refservice].values.get(f'observed.row.{rid}.value', 'PENDING_DEPLOY'))
                         for rid, row in self.rows[refservice][identity]
                         if row['property'] == resource['resourceType'] + '.' + expected_attribute]
             if not observed or all(value == 'PENDING_DEPLOY' for value in observed):
                 raise Blocked('IMPORT reference is PENDING_DEPLOY (not imported/unobserved); comparison deferred until approved handoff; no physical ID inference')
             raise Blocked('IMPORT reference requires approved handoff; no physical ID inference')
-        return ResourceReference({'$resource': [refservice, identity], '$attribute': expected_attribute})
+        return symbol
 
     def index(self):
         if self._index is None:
@@ -456,6 +465,30 @@ class Comparison:
             return re.sub(r'\$\{([^}]+)\}', replace, text)
         service, identity = value['$resource']
         resource = self.resources[service][identity]
+        if (self.local_comparison and resource['resourceType'] == 'QuickSight.Group'
+                and resource_mode(resource) == 'IMPORT' and value['$attribute'] == 'Arn'
+                and self.target['iacEngine'] == 'cloudformation'):
+            from model.importing.references import known
+            fields = {}
+            for field in self.catalog.schema('QuickSight.Group')['identityProperties']:
+                rows = [row for _, row in self.rows[service][identity]
+                        if row['property'] == 'QuickSight.Group.' + field]
+                if len(rows) != 1 or 'document' in rows[0]:
+                    raise Blocked('QuickSight Group requires one scalar identity property: ' + field)
+                candidate = literal(rows[0]['value'])
+                if not known(candidate) or self.catalog.literal_errors('QuickSight.Group', field, candidate):
+                    raise Blocked('QuickSight Group requires one confirmed identity property: ' + field)
+                fields[field] = candidate
+            # stack_input establishes partition from the target's recorded SDK Region.
+            partition = getattr(self, 'partition', None)
+            region = self.target.get('awsRegion')
+            if not partition or not region or not any(
+                    pseudo.get('AWS::Region') == region and pseudo.get('AWS::Partition') == partition
+                    for _, _, pseudo in self.stack_inputs.values()):
+                raise Blocked('QuickSight Group ARN requires a confirmed CloudFormation Region and partition')
+            # https://docs.aws.amazon.com/cli/latest/reference/quicksight/create-group.html
+            return (f"arn:{partition}:quicksight:{region}:{fields['AwsAccountId']}:"
+                    f"group/{fields['Namespace']}/{fields['GroupName']}")
         name, logical = cfn_resource_identity(resource['cfn-logicalId'])
         units = [unit for _, unit in self.templates() if unit['name'] == name]
         if len(units) != 1:
@@ -731,7 +764,7 @@ class Comparison:
                 attribute = 'Arn'
             elif attribute is None and self.reference_forms(kind, path) is None:
                 raise Blocked(f'reference property contract unproven: {kind}.{path}')
-        symbol = self.reference(service, value, attribute)
+        symbol = self.reference(service, value, attribute, consumer_property=kind + '.' + path)
         forms = self.reference_forms(kind, path) if self.local_comparison else None
         refservice, identity = symbol['$resource']
         refkind = self.resources[refservice][identity]['resourceType']
