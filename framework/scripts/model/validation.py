@@ -156,7 +156,7 @@ def naming_errors(root: Path, kind: str, rows: list[list[str]], mode: str = "CRE
     outputs = catalog_outputs(root, kind)
     selected = {row[1].removeprefix(kind + ".") for row in rows if kind + "." + row[1].removeprefix(kind + ".") not in outputs}
     tag_rows = [row for row in rows if row[1].removeprefix(kind + ".").startswith(("Tags", "HostedZoneTags"))]
-    return naming_coverage_errors(root, kind, selected, resource_display_name(kind, tag_rows) is not None, mode)
+    return naming_coverage_errors(root, kind, selected, resource_display_name(kind, tag_rows, root=root) is not None, mode)
 
 
 def validate_required_properties(values: dict[str, str], root: Path, *, warnings=None) -> list[dict]:

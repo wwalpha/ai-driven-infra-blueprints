@@ -899,14 +899,11 @@ def check_reference_publication(tmp_path, present, race, diagnostic):
                 values[key] = link
                 values[f'observed.row.009-{index:03d}.value'] = m.model_literal(actual)
                 values.update(reference_fields('bucket', key, link, 'dev/cde/s3/001', kind='S3.Bucket', mode='link', prop=None))
+                values['desired.reference.bucket.labelPolicy'] = 'display-name'
             elif prop == 'CloudTrail.Trail.EventSelectors[].DataResources[].Values':
-                values[key] = m.model_literal([[[link]]])
-                values[f'observed.row.009-{index:03d}.value'] = m.model_literal(actual)
-                values.update(reference_fields('nested-bucket', key, link, 'dev/cde/s3/001', kind='S3.Bucket', mode='link', prop=None, pointer='/0/0/0'))
-    for identity in ('bucket', 'nested-bucket'):
-        key = 'desired.reference.' + identity + '.labelPolicy'
-        if key in values:
-            values[key] = 'display-name'
+                values.update(reference_fields('nested-bucket', key, 'audit-bucket', 'dev/cde/s3/001',
+                    kind='S3.Bucket', mode='name', prop='S3.Bucket.BucketName', pointer='/0/0/0'))
+                assert values[key] == m.model_literal(actual)
     selected = [correspondence(acquired, record['identity'], '009')]
     stage(root, acquired, {path.relative_to(root).as_posix(): serialize(values)}, selected)
     reviewed = review_fixture(root, acquired, 'cloudtrail')['review']
@@ -959,6 +956,12 @@ def check_reference_publication(tmp_path, present, race, diagnostic):
     document = root / 'docs/designs/dev/cde/cloudtrail.md'
     markdown = document.read_text()
     assert ('](s3.md#s3-audit-bucket)' if present or diagnostic else '`audit-bucket`') in markdown
+    if present or diagnostic:
+        saved = load_model(path).authoritative
+        key = values['desired.reference.nested-bucket.consumerKey']
+        assert saved[key] == values[key]
+        assert saved['desired.reference.nested-bucket.format'] == 'name'
+        assert saved['desired.reference.nested-bucket.pointer'] == '/0/0/0'
     assert all(p.read_bytes() == raw for p, raw in foreign.items())
     assert not (root / 'docs/designs/dev/cde/s3.md').exists()
     before_recovery = source_files(root)

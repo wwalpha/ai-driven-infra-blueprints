@@ -92,7 +92,7 @@ def check_required_name_tag(
  *, findings, schema_catalog) -> None:
     if resource_type in REQUIRED_NAME_TAG_TYPES:
         try:
-            name = resource_display_name(resource_type, rows, mode=mode)
+            name = resource_display_name(resource_type, rows, mode=mode, root=findings.canonical_root)
         except ReferenceResolutionError as error:
             findings.warn(error)
             return

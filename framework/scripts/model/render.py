@@ -291,7 +291,7 @@ def render_markdown(path, values, root, owned, details, grouped, policy_views=No
     output += ["", "## リソース詳細"]
     for identity, resource, name, rows in independent:
         kind = resource["resourceType"]
-        heading = f"### {kind}" if name == kind and resource_display_name(kind, rows, mode=resource_mode(resource)) is None else f"### {kind}: {name}"
+        heading = f"### {kind}" if name == kind and resource_display_name(kind, rows, mode=resource_mode(resource), root=root) is None else f"### {kind}: {name}"
         output += ["", f'<!-- resource-logical-id: {resource["logicalId"]} -->', f'<a id="{resource["anchor"]}"></a>', "", heading, ""]
         children = grouped.get(identity, [])
         output += resource_table_lines(resource, name, rows, children, root)

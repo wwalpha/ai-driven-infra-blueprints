@@ -1166,6 +1166,11 @@ def check_naming_exclusions(root):
             "Route53.RecordSet": [("Type", "`A`", "レコードの種類")],
         }
         values = model(service, kind, "example", [(field, "`example`", "名前"), *required_rows.get(kind, [])])
+        if kind == 'Glue.Connection':
+            values.update({'desired.row.001-004.property': kind + '.Name',
+                           'desired.row.001-004.value': '[Glue_Connection_001](#glue-example)',
+                           'desired.row.001-004.comment': '生成される接続識別子',
+                           'observed.row.001-004.value': '`PENDING_DEPLOY`'})
         if kind == "GuardDuty.Detector" and field == "Name":
             # The naming exemption is retained; this synthetic non-Catalog field has no display Mapping.
             assert not naming_errors(root, kind, [["1", kind + ".Name", "`example`", "名前"]])
@@ -1177,6 +1182,25 @@ def check_naming_exclusions(root):
         validator = validator_module.Validator(root)
         validator.check_resource_names(metadata, [path])
         assert not validator.errors, validator.errors
+        if kind == 'Glue.Connection':
+            from model.core import entries
+            from model.render import display_name
+            desired = {key: value for key, value in values.items() if key.startswith('desired.')}
+            resource = next(iter(entries(values, 'desired.resource.')))[1]
+            for observed in ('PENDING_DEPLOY', 'generated-connection'):
+                values['observed.row.001-004.value'] = f'`{observed}`'
+                output = roundtrip(path, values, root)
+                assert '### Glue.Connection: example' in output
+                assert f'| Name | `{observed}` |' in output
+                assert {key: value for key, value in values.items() if key.startswith('desired.')} == desired
+                rows = catalog_display_rows(resource_rows(values, '001', kind, root), kind, root)
+                assert display_name(values, '001', resource, rows, root) == ('example', 'example')
+                validator = validator_module.Validator(root)
+                validator.check_generated_identifier(path, kind, resource['logicalId'], rows, {kind: {kind + '.Name'}})
+                assert not validator.errors, validator.errors
+                bad_rows = [row if row[1] != kind + '.Name' else [row[0], row[1], '`NOT_DEPLOYED`', row[3]] for row in rows]
+                validator.check_generated_identifier(path, kind, resource['logicalId'], bad_rows, {kind: {kind + '.Name'}})
+                assert any('identifier output must use PENDING_DEPLOY' in error for error in validator.errors)
         # Exemption does not bypass value checks or apply to Name tags.
         for invalid in ("", "UNSET", "PENDING_DEPLOY"):
             path.write_text(output.replace(f"| {field} | `example` |", f"| {field} | `{invalid}` |"), encoding="utf-8")

@@ -56,6 +56,8 @@ Fixture整理：`aws_mapping_display_fixtures.change`、`aws_definitions.write/f
 
 ## IMPORT optional-name display
 
+The existing `units/design_layout-unit.checks.py::check_resource_display_names` excludes catalog IDENTIFIER_OUTPUT fields from confirmed-value checks and configured-name selection, using Glue self-references, PENDING_DEPLOY and physical names in short/formal rows. CREATE missing names, IMPORT labels and UNSET configured names retain their checks. Existing `integrations/model_design.checks.py::check_naming_exclusions` also checks Glue identifier observations and Markdown rows without changing desired references, plus identifier-specific validation. Definitions and entrypoint counts remain unchanged.
+
 The existing `units/design_layout-unit.checks.py::check_resource_display_names` also checks shared selection for optional IMPORT names, CREATE rejection, missing labels, unconfirmed selected names, schema-required names and IAM/CodeBuild exceptions. Framework definitions remain unchanged.
 The existing type-display constraint cases accept the shared selection error for missing required names; the anchor/reference unit isolates presentation at its current boundary without mocking the moved naming validator. Expansion counts remain unchanged.
 Existing Import publication cases retain selected self-reference names and resolve only their own saved observations for presentation. Existing anchor-tampering cases retain warning severity. The CREATE Security Group heading fixture now selects its formal GroupName; no Framework definitions are changed.
@@ -1879,7 +1881,7 @@ no new runner or live AWS/consumer inputs are introduced.
 
 | `atomic/batch-saves` | `check_batch_leaf_saves` | IT | [five pair saves](integrations/import-model.checks.py#L798) | pytest / 1 | transfer saves retain all five sources, empty-reference retarget is no-op, delete removes all and final semantic check passes; base unchanged | Added |
 
-| `import/references` | `check_reference_publication` | IT | [physical reference publication](integrations/import-model.checks.py#L844) | pytest / 7 | acquired Trail references link to a unique local CREATE bucket or retain the AWS literal; one producer read per expansion/physical-verification permission context and unchanged API count; a producer race rolls back sources and retains the external edit | Added |
+| `import/references` | `check_reference_publication` | IT | [physical reference publication](integrations/import-model.checks.py#L844) | pytest / 7 | acquired Trail scalar links and JSON Pointer references to a unique local CREATE bucket; JSON retains acquired AWS literals with external name metadata; one producer read per expansion/physical-verification permission context and unchanged API count; a producer race rolls back sources and retains the external edit | Added |
 
 ## Generic Model dependency detach
 
@@ -2040,7 +2042,7 @@ Properties v2 の検査移管（検査目的と parameter matrix を維持）:
 | --- | --- |
 | `import-model` の全108 pytest instances | canonical 候補の add／refresh／bind／replace／混在、全件 Review、非選択/CREATE/固定 identity/別環境の保持、実保存1回、外部変更拒否、source と receipt の rollback、表示のみ復旧、別プロセスの単一 CLI |
 | `check_model_only_publication` / `check_intermediate_model_sources` / `check_batch_leaf_saves` | 実管理 worktree の一回使い切り context と prepare/publish API、限定操作・通常編集の境界、一次保存と最終検証の分離、5組の転送→未削除状態→削除完了、base 不変、journal 復旧。親の完了は final-candidate の別ケースで検査 |
-| `check_reference_publication` | 明示された scalar/JSON Pointer の保存リンク、宣言/直接リンクの重複排除、read_context ごとの producer 読取再利用、読取依存の競合で source/receipt 復元、producer 外部変更の保持、再取得なしの表示復旧 |
+| `check_reference_publication` | scalar保存リンクとJSON物理値＋外部name参照のJSON Pointer、宣言/直接リンクの重複排除、read_context ごとの producer 読取再利用、読取依存の競合で source/receipt 復元、producer 外部変更の保持、再取得なしの表示復旧 |
 | raw-bucket / producer-identifier と各 schema UT | 正式 Property、固定 ID、backtick・JSON native type/順序、raw name と observed identifier、空/不存在/PENDING の区別、labelPolicy と必要/禁止フィールド。型・名前・識別子の不一致や producer 不在は値を保持して WARNING |
 | CloudTrail / Lambda / Security Group / Group 03 / EventBridge / producer-name | 旧サービス/Resource/Row と case・suffix・固定ラベル・親子/逆リンクを保持。producer の変更による consumer 値の自動展開を廃止し、保存値不変・WARNING・producer 原文依存 hash の変化を検査 |
 | attribute `check_pair` / `check_fixed_label` / `check_stack` | 相互保存リンク・固定ラベル・厳密 JSON・Stack name と placementName の区別、参照 trace、未知形式/重複キーの読取時エラーと書込ゼロ、欠落 producer の WARNING、固定 snapshot の再利用と fresh 照合 |

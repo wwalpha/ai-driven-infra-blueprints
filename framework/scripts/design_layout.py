@@ -15,6 +15,7 @@ from service_rows import (codebuild_formal_rows, pipeline_display_rows, restored
 from model.core import positive_integer, literal
 
 from design_catalog import design_material_files
+from utils.aws_catalogs import catalogs_for
 from validation_cache import memoized, input_scope
 from security_group_tables import security_group_table_lines
 
@@ -207,19 +208,20 @@ def resource_modes(lines: list[str], values: dict[str, str] | None = None) -> di
             for _, resource in entries(values or {}, "desired.resource.") if "resourceMode" in resource}
 
 
+def configured_name_fields(root: Path, resource_type: str) -> list[str]:
+    """Keep configured name candidates separate from generated identifiers."""
+    outputs = catalogs_for(root).outputs(resource_type)
+    return [field for field in resource_name_fields(resource_type) if resource_type + '.' + field not in outputs]
+
+
 def resource_has_name_property(root: Path, resource_type: str, mode: str = "CREATE") -> bool:
     """Check the catalog, rather than treating an omitted optional name as nameless."""
     if resource_type in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"} | REQUIRED_NAME_TAG_TYPES:
         return mode != "IMPORT"  # Only CREATE requires a Name tag.
-    names = set(resource_name_fields(resource_type))
-    return any(line.partition("=")[0].removeprefix(resource_type + ".") in names
-               and line.partition("=")[2] != "IDENTIFIER_OUTPUT"
-               for path in design_material_files(root)
-               if path.stem.replace("_", ".", 1) == resource_type
-               for line in input_text(path, encoding="utf-8").splitlines())
+    return bool(set(configured_name_fields(root, resource_type)) & catalogs_for(root).selected(resource_type))
 
 
-def resource_display_name(resource_type: str, rows: list[list[str]], selected_label: str | None = None, mode: str = "CREATE") -> str | None:
+def resource_display_name(resource_type: str, rows: list[list[str]], selected_label: str | None = None, mode: str = "CREATE", *, root: Path = LAYOUT_PATH.parents[2]) -> str | None:
     """Find a selected root name; never invent an AWS name from an internal ID."""
     if resource_type == "KMS.Key":
         aliases = [row[2].strip("`\"") for row in rows if row[1] == "KMS.Alias.AliasName"]
@@ -257,7 +259,7 @@ def resource_display_name(resource_type: str, rows: list[list[str]], selected_la
         } or value.startswith("[") or "{{" in value:
             raise ValueError(f"{resource_type} Name tag value must be confirmed and non-empty")
         return value
-    names = resource_name_fields(resource_type)
+    names = configured_name_fields(root, resource_type)
     for field in names:
         if field in fields and not fields[field].startswith("["):
             return fields[field]
@@ -296,7 +298,7 @@ def resource_display_selection(root: Path, resource_type: str, rows: list[list[s
     from model.validation import naming_errors
     if errors := naming_errors(root, resource_type, rows, mode):
         raise ValueError('; '.join(errors))
-    names = set(resource_name_fields(resource_type))
+    names = set(configured_name_fields(root, resource_type))
     catalog_names = names & selected_properties(root, resource_type)
     selected = [(row[1].removeprefix(resource_type + '.'), row[2]) for row in rows
                 if row[1].removeprefix(resource_type + '.') in names]
@@ -311,7 +313,7 @@ def resource_display_selection(root: Path, resource_type: str, rows: list[list[s
             errors = catalog.literal_errors(resource_type, field, value)
             if errors:
                 raise ValueError(f'{resource_type}.{field}: ' + '; '.join(errors))
-    configured = resource_display_name(resource_type, rows, label, mode)
+    configured = resource_display_name(resource_type, rows, label, mode, root=root)
     if configured is not None:
         return configured, configured
     has_name = resource_has_name_property(root, resource_type, mode)

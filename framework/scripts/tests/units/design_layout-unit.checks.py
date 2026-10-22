@@ -38,6 +38,23 @@ def check_resource_display_names():
     assert resource_display_name("Scheduler.Schedule", [["1", "GroupName", "`default`", "group"]]) is None
     assert resource_display_name("EC2.SecurityGroup", [["1", "EC2.SecurityGroup.Tags[].Key", '"Name"', "タグ"], ["2", "EC2.SecurityGroup.Tags[].Value", '"sg-app-dev"', "タグ"]]) == "sg-app-dev"
     assert resource_anchor("secretsmanager", "app/dev/key") == "secretsmanager-app-dev-key"
+    kind = 'Glue.Connection'
+    configured = ['1', 'ConnectionInput.Name', '`configured-connection`', '接続の設定名']
+    for field in ('Name', kind + '.Name'):
+        for value in ('[Glue_Connection_001](#resource-Glue_Connection_001)', '`PENDING_DEPLOY`', '`generated-connection`'):
+            output = ['2', field, value, '生成識別子']
+            rows = [configured, output]
+            assert resource_display_selection(REPOSITORY, kind, rows, None, 'CREATE', 1) == ('configured-connection', 'configured-connection')
+            assert resource_display_selection(REPOSITORY, kind, rows, 'label', 'IMPORT', 1) == ('configured-connection', 'configured-connection')
+            assert resource_display_name(kind, rows) == 'configured-connection'
+            assert resource_display_name(kind, [output]) is None
+            with pytest.raises(ValueError, match='required Name is not selected'):
+                resource_display_selection(REPOSITORY, kind, [output], 'label', 'CREATE', 1)
+            assert resource_display_selection(REPOSITORY, kind, [output], 'label', 'IMPORT', 1) == ('label', None)
+            with pytest.raises(ValueError, match='confirmed resource display label is missing'):
+                resource_display_selection(REPOSITORY, kind, [output], None, 'IMPORT', 1)
+            with pytest.raises(ValueError, match='confirmed and non-empty'):
+                resource_display_selection(REPOSITORY, kind, [[*configured[:2], '`UNSET`', configured[3]], output], None, 'CREATE', 1)
 
 
 
