@@ -1,0 +1,62 @@
+version: 1
+base:
+  data:
+    presentation:
+      display.service.title: '# Security Group 詳細設計'
+      display.resource.001.comment: アプリケーションの通信を制御するSG
+      display.resource.006.comment: アプリケーションの通信を制御するSG
+      display.resource.006.label: GroupTwo
+    stacks:
+      desired.stack.001.name: fixture
+      desired.stack.001.placementName: fixture
+      desired.stack.001.template: fixture.yaml
+      desired.stack.001.parameters: fixture.json
+      desired.stack.001.deployOrder: '1'
+      display.stack.001.comment: 合成Stack
+    basic:
+      - [Id, '`PENDING_DEPLOY`', 一意に識別するID]
+      - [GroupDescription, '`No selected rules`', 用途の説明]
+      - [GroupName, group-two, 名前]
+      - [VpcId, '[vpc-00000001](vpc.md#vpc-vpc-app-dev)', 所属するVPCのID]
+cases:
+  plain:
+    data:
+      scalars: [Name, venusinf-dev-s3-interface-endpoint-sg]
+    expected: [Name, venusinf-dev-s3-interface-endpoint-sg]
+  quoted:
+    data:
+      scalars: ['"Name"', '"quoted value"']
+    expected: ['"Name"', '"quoted value"']
+  characters:
+    data:
+      scalars: ['path\タグ', '日本語\"引用"\end']
+    expected: ['path\タグ', '日本語\"引用"\end']
+  json-like:
+    data:
+      scalars: ['{"Key":"Name"}', '["日本語",true,123]']
+    expected: ['{"Key":"Name"}', '["日本語",true,123]']
+  numeric:
+    data:
+      scalars: ['00123', 'true']
+    expected: ['00123', 'true']
+  delimiters:
+    data:
+      scalars: ['<!--開始-->', '値-->続き<!--終わり']
+    expected: ['<!--開始-->', '値-->続き<!--終わり']
+  backticks:
+    data:
+      scalars: ['`Name`', '`"日本語\path"`']
+    expected: [Name, '"日本語\path"']
+  invalid-metadata:
+    data:
+      metadata:
+        - '{'
+        - '[]'
+        - '{"Key":"Name","Value":"value"}'
+        - '[{"Key":"Name"}]'
+        - '[{"Key":"Name","Value":"value","Extra":"x"}]'
+        - '[{"Key":123,"Value":"value"}]'
+        - '[{"Key":"Name","Value":false}]'
+        - '[{"Key":"Name","Value":null}]'
+        - '[{"Key":"Name","Value":"<!--"}]'
+        - '[{"Key":"Name","Value":"-->"}]'

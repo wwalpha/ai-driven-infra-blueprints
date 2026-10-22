@@ -11,6 +11,11 @@ if not __debug__:
 from support.it_case_receipt import it_case
 
 from support.security_group_tables_fixtures import *
+from support.fixture_cases import load_case, load_suite
+from model.sources import load_model
+from model.render import markdown_for
+from security_group_tables import cells
+import json
 
 @it_case
 def main():
@@ -212,16 +217,16 @@ observed.row.006-003.property=EC2.SecurityGroup.VpcId
 observed.row.006-003.value=vpc-00000001
 observed.row.006-003.comment=所属するVPCのID
 desired.row.006-004.property=EC2.SecurityGroup.Tags[].Key
-desired.row.006-004.value="Project"
+desired.row.006-004.value=Project
 desired.row.006-004.comment=付与するタグのキー
 desired.row.006-005.property=EC2.SecurityGroup.Tags[].Value
-desired.row.006-005.value="app"
+desired.row.006-005.value=app
 desired.row.006-005.comment=付与するタグの値
 desired.row.006-006.property=EC2.SecurityGroup.Tags[].Key
-desired.row.006-006.value="Environment"
+desired.row.006-006.value=Environment
 desired.row.006-006.comment=付与するタグのキー
 desired.row.006-007.property=EC2.SecurityGroup.Tags[].Value
-desired.row.006-007.value="dev"
+desired.row.006-007.value=dev
 desired.row.006-007.comment=付与するタグの値
 """
         assert path.read_bytes() == original
@@ -246,8 +251,8 @@ desired.row.006-007.comment=付与するタグの値
         assert "desired.row.001-004.value=[EC2_VPC_001](vpc.md#resource-EC2_VPC_001)\n" in generated
         assert "observed.row.001-004.value=vpc-00000001\n" in generated
         assert generated.count(".property=EC2.SecurityGroup.GroupDescription\n") == 2
-        assert 'desired.row.006-004.value="Project"\n' in generated
-        assert 'desired.row.006-007.value="dev"\n' in generated
+        assert 'desired.row.006-004.value=Project\n' in generated
+        assert 'desired.row.006-007.value=dev\n' in generated
         assert "desired.resource.002.resourceType=EC2.SecurityGroupIngress" in generated
         assert "desired.resource.002.logicalId=EC2_SecurityGroupIngress_001" in generated
         assert "desired.resource.002.parentProperty=EC2.SecurityGroupIngress.GroupId" in generated
@@ -262,6 +267,28 @@ desired.row.006-007.comment=付与するタグの値
         assert "desired.note." not in generated and "=—" not in generated
         assert model_projection.linked_resource(path, "[sgr-00000001](#resource-EC2_SecurityGroupIngress_001)") == ("EC2.SecurityGroupIngress", "EC2_SecurityGroupIngress_001")
         assert VALIDATOR.rendered_policy_design(path) == DESIGN
+
+        # Real properties v2 reader and renderer; Markdown expansion never saves authority.
+        write_model(model_path.with_name("cloudformation-stacks.properties"), load_case("security_group_tables", "plain")["data"]["stacks"])
+        for name in sorted(load_suite("security_group_tables")["cases"].keys() - {"invalid-metadata"}):
+            case = load_case("security_group_tables", name)
+            values = dict(load_model(model_path).values)
+            values.update(case["data"]["presentation"])
+            for identity in range(1, 7):
+                values[f"desired.resource.{identity:03}.cfn-logicalId"] = f"fixture-Resource{identity}"
+            for number, scalar in zip((4, 5), case["data"]["scalars"]):
+                values[f"desired.row.006-{number:03}.value"] = scalar
+            write_model(model_path, values)
+            source = {file: file.read_bytes() for file in load_model(model_path).files}
+            rendered = markdown_for(path, load_model(model_path).values, root, definitions_root=REPOSITORY)
+            marker = next(line for line in rendered.splitlines() if line.startswith("<!-- security-group-tags:"))
+            expected = [dict(zip(("Key", "Value"), case["expected"])), {"Key": "Environment", "Value": "dev"}]
+            assert json.loads(marker.removeprefix("<!-- security-group-tags: ").removesuffix(" -->")) == expected
+            restored = security_group_table_lines(rendered.splitlines(), REPOSITORY)
+            assert [cells(line)[1:3] for line in restored if line.startswith("|") and "EC2.SecurityGroup.Tags[]." in line] == [
+                ["EC2.SecurityGroup.Tags[]." + prop, tag[prop]] for tag in expected for prop in ("Key", "Value")]
+            assert {file: file.read_bytes() for file in source} == source
+        write_model(model_path, generated)
 
         normalized, children = expanded_design(DESIGN.splitlines())
         assert len(children) == 4

@@ -152,9 +152,9 @@ def sg_tables(rows: list[list[str]], children: list[tuple[dict, list[list[str]]]
             current[field] = row[2]
         elif prop.startswith("Tags[]."):
             if prop == "Tags[].Key":
-                tags.append({"Key": json.loads(row[2])})
+                tags.append({"Key": literal(row[2])})
             elif prop == "Tags[].Value" and tags and "Value" not in tags[-1]:
-                tags[-1]["Value"] = json.loads(row[2])
+                tags[-1]["Value"] = literal(row[2])
             else:
                 raise ValueError("SG tags require contiguous Key/Value pairs")
         else:
@@ -163,7 +163,9 @@ def sg_tables(rows: list[list[str]], children: list[tuple[dict, list[list[str]]]
     if tags:
         if any(set(tag) != {"Key", "Value"} for tag in tags):
             raise ValueError("incomplete SG tag")
-        output = ["<!-- security-group-tags: " + json.dumps(tags, ensure_ascii=False, separators=(",", ":")) + " -->", "", *output]
+        # JSON is Markdown metadata, not the Model scalar representation.
+        metadata = json.dumps(tags, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c").replace(">", "\\u003e")
+        output = ["<!-- security-group-tags: " + metadata + " -->", "", *output]
     for child, child_rows in children:
         values = {row[1].removeprefix(child["resourceType"] + "."): row[2] for row in child_rows}
         direction = "Inbound" if child["resourceType"].endswith("Ingress") else "Outbound"

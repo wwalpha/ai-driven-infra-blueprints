@@ -180,8 +180,7 @@ def security_group_table_lines(lines: list[str], root=None) -> list[str]:
                 raise ValueError("Security Group Tags must be a JSON array of Key/Value objects")
             for tag in tags:
                 for prop in ("Key", "Value"):
-                    value = json.dumps(tag[prop], ensure_ascii=False)
-                    tag_rows.append([f"{SECURITY_GROUP}.Tags[].{prop}", value, GROUP_COMMENTS[f"Tags[].{prop}"]])
+                    tag_rows.append([f"{SECURITY_GROUP}.Tags[].{prop}", tag[prop], GROUP_COMMENTS[f"Tags[].{prop}"]])
             block = [line for line in block if line not in tag_lines]
 
         start = next((position for position, line in enumerate(block) if line.startswith("|")), -1)

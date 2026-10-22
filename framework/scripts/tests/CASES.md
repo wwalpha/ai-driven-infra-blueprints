@@ -50,6 +50,15 @@ Fixture整理：`aws_mapping_display_fixtures.change`、`aws_definitions.write/f
 | `fixture-cases::files` | `check_materialize_files` | UT | [units/fixture_cases-unit.checks.py](units/fixture_cases-unit.checks.py) | pytest / 1 | 複数ファイル、UTF-8/空白/改行保持、逸脱/symlink/衝突拒否 | Fixture |
 | `fixture-cases::authored` | `check_authored_suite` | UT | [units/fixture_cases-unit.checks.py](units/fixture_cases-unit.checks.py) | pytest / 1 | issues_scanの2ケース読込、service順序、malformed末尾改行 | Fixture |
 
+## SecurityGroup tag scalar / Markdown metadata
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `sg-tags-scalar` | `check_tag_scalars` | UT | [units/security_group_tables-unit.checks.py](units/security_group_tables-unit.checks.py#check_tag_scalars) | pytest / 1 | YAML 7条件のscalar/引用符/backslash/日本語/JSON風/数値風/コメント境界/backtick、複数タグの順序・ペア・SG所有、GroupName分離、選択状態、既存IaC比較との一致 | 新規 |
+| `sg-tags-invalid` | `check_invalid_tag_metadata` | UT | [units/security_group_tables-unit.checks.py](units/security_group_tables-unit.checks.py#check_invalid_tag_metadata) | pytest / 1 | YAML 10条件の不正JSON、配列/ペア/string型違反、生コメント境界を拒否 | 新規 |
+
+既存IT `integrations/security_group_tables.checks.py::main` 内で、同じ7条件をproperties v2で保存・読取し、正式rendererでMarkdown生成・検証用展開する。Model authorityの不変を確認し、通常scalarの引用符期待値を訂正する。既存の正常系・不正metadata・配置・ルール・所有関係チェックは保持。静的データは `fixtures/security_group_tables.yaml` のみ、Framework定義は変更しない。入口は既存direct_group / 1のまま。
+
 ## Generation-local resource row reuse
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
@@ -189,7 +198,7 @@ Mappingのinclude/show、命名規則、Schema snapshotの書き換えに依存�
 
 | 種別 | Pythonファイル数 | 台帳登録pytest関数 / 展開数 | 直接関数 |
 |---|---:|---:|---:|
-| UT | 68 | 369 / 931 | 28 |
+| UT | 68 | 371 / 933 | 28 |
 | IT | 78 | 234 / 452 | 117 |
 | support | 44 | 0 / 0 | 0 |
 
@@ -1353,8 +1362,8 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/security_group_tables.checks.py:167` / `main` | IT | `integrations/security_group_tables.checks.py:54` | `assert 'desired.row.001-004.value=[vpc-app-dev](vpc.md#vpc-vpc-app-dev)\n' in generated` |
 | `unknown/security_group_tables.checks.py:168` / `main` | IT | `integrations/security_group_tables.checks.py:55` | `assert 'observed.row.001-004.value=vpc-00000001\n' in generated` |
 | `unknown/security_group_tables.checks.py:169` / `main` | IT | `integrations/security_group_tables.checks.py:56` | `assert generated.count('.property=EC2.SecurityGroup.GroupDescription\n') == 2` |
-| `unknown/security_group_tables.checks.py:170` / `main` | IT | `integrations/security_group_tables.checks.py:57` | `assert 'desired.row.006-004.value="Project"\n' in generated` |
-| `unknown/security_group_tables.checks.py:171` / `main` | IT | `integrations/security_group_tables.checks.py:58` | `assert 'desired.row.006-007.value="dev"\n' in generated` |
+| `unknown/security_group_tables.checks.py:170` / `main` | IT | `integrations/security_group_tables.checks.py:57` | `assert 'desired.row.006-004.value=Project\n' in generated` |
+| `unknown/security_group_tables.checks.py:171` / `main` | IT | `integrations/security_group_tables.checks.py:58` | `assert 'desired.row.006-007.value=dev\n' in generated` |
 | `unknown/security_group_tables.checks.py:172` / `main` | IT | `integrations/security_group_tables.checks.py:59` | `assert 'desired.resource.002.resourceType=EC2.SecurityGroupIngress' in generated` |
 | `unknown/security_group_tables.checks.py:173` / `main` | IT | `integrations/security_group_tables.checks.py:60` | `assert 'desired.resource.002.logicalId=IngressOne' in generated` |
 | `unknown/security_group_tables.checks.py:174` / `main` | IT | `integrations/security_group_tables.checks.py:61` | `assert 'desired.resource.002.parentProperty=EC2.SecurityGroupIngress.GroupId' in generated` |
