@@ -228,6 +228,67 @@ def reference_display(values, path, root, *, definitions_root=None):
     return result
 
 
+def _confirmed_attribute(snapshot, number, kind, attribute, uri, resolver):
+    from model.importing.references import known
+    from model.identity import resource_link
+    rows = [(rid, row) for rid, row in entries(snapshot.authoritative, 'desired.row.')
+            if rid.rpartition('-')[0] == number and row['property'] == kind + '.' + attribute]
+    if not rows:
+        return None
+    if len(rows) == 1:
+        rid, row = rows[0]
+        observed = snapshot.authoritative.get(f'observed.row.{rid}.value')
+        if observed is not None:
+            if not resource_link(row['value']):
+                raise ReferenceResolutionError('JSON observed output requires a logical Resource reference', reference=uri)
+            resolver.resolve(row['value'], snapshot.scope)
+        value = literal(observed if observed is not None else row['value'])
+        if known(value):
+            return value
+    raise ReferenceResolutionError('JSON Resource reference requires one confirmed output: ' + attribute, reference=uri)
+
+
+def _derived_arn(snapshot, number, kind, uri, resolver):
+    from reference_contracts import ARN_IDENTITIES
+    from model.sources import target_for
+    from botocore.session import get_session
+    from botocore.exceptions import UnknownRegionError
+    attribute, pattern = ARN_IDENTITIES[kind]
+    identifier = _confirmed_attribute(snapshot, number, kind, attribute, uri, resolver)
+    if identifier is None:
+        raise ReferenceResolutionError('JSON Resource ARN requires one confirmed ' + attribute, reference=uri)
+    target, _ = target_for(snapshot.scope, resolver.reads)
+    region = target['awsRegion']
+    session = get_session()
+    try:
+        partition = session.get_partition_for_region(region)
+    except UnknownRegionError as error:
+        raise ReferenceResolutionError('JSON Resource ARN requires a confirmed partition', reference=uri) from error
+    # SDK regex fallbacks also accept invented regions; require a recorded region.
+    if not any(item['partition'] == partition and region in item['regions']
+               for item in session.get_data('endpoints')['partitions']):
+        raise ReferenceResolutionError('JSON Resource ARN requires a confirmed Region', reference=uri)
+    if kind == 'KMS.Key':
+        account = target.get('awsExecutionAccountId', target['awsAccountId'])
+        arn = f'arn:{partition}:kms:{region}:{account}:key/{identifier}'
+    else:
+        # Additional general-purpose bucket restrictions absent from ARN_IDENTITIES.
+        # https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
+        if ('..' in identifier or identifier.startswith(('xn--', 'sthree-', 'amzn-s3-demo-'))
+                or identifier.endswith(('-s3alias', '--ol-s3', '.mrap', '--x-s3', '--table-s3'))
+                or len(identifier.split('.')) == 4 and all(part.isdecimal() for part in identifier.split('.'))):
+            raise ReferenceResolutionError('JSON Resource ARN requires a valid BucketName', reference=uri)
+        for rid, row in entries(snapshot.authoritative, 'desired.row.'):
+            if rid.rpartition('-')[0] != number and row['property'] == 'S3.Bucket.BucketName':
+                value = snapshot.authoritative.get(f'observed.row.{rid}.value', row['value'])
+                if literal(value) == identifier:
+                    raise ReferenceResolutionError('JSON Resource ARN requires a unique BucketName', reference=uri)
+        arn = f'arn:{partition}:s3:::{identifier}'
+    if re.fullmatch(pattern, arn) is None:
+        raise ReferenceResolutionError('JSON Resource ARN requires a valid ' + attribute, reference=uri)
+    return arn
+
+
 def execution_document(document, root, *, property_name=None, resolver=None, scope=None):
     """Resolve confirmed JSON operands; unresolved values cannot become AWS artifacts."""
     from model.identity import Resolver, resource_link, reference_tokens
@@ -241,18 +302,13 @@ def execution_document(document, root, *, property_name=None, resolver=None, sco
             if len(forms) != 1:
                 raise ReferenceResolutionError('JSON Resource reference requires an explicit attribute', reference=uri)
             attribute, = forms
-        matches = []
-        for rid, row in entries(snapshot.authoritative, 'desired.row.'):
-            if rid.rpartition('-')[0] != number:
-                continue
-            if row['property'] != resource['resourceType'] + '.' + attribute:
-                continue
-            value = snapshot.authoritative.get(f'observed.row.{rid}.value', row.get('value'))
-            if value is not None and not resource_link(value) and literal(value) not in {'', 'UNSET', 'PENDING_DEPLOY'}:
-                matches.append(literal(value))
-        if len(matches) != 1:
-            raise ReferenceResolutionError('JSON Resource reference requires one confirmed output', reference=uri)
-        return matches[0]
+        kind = resource['resourceType']
+        value = _confirmed_attribute(snapshot, number, kind, attribute, uri, resolver)
+        if value is not None:
+            return value
+        if attribute == 'Arn' and kind in {'KMS.Key', 'S3.Bucket'}:
+            return _derived_arn(snapshot, number, kind, uri, resolver)
+        raise ReferenceResolutionError('JSON Resource reference requires one confirmed output: ' + kind + '.' + attribute, reference=uri)
 
     def visit(value, field):
         if isinstance(value, str):
