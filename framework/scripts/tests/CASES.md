@@ -21,9 +21,15 @@
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
-| `standalone-json::expressions` | `check_standalone_expressions` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 15 | intrinsic/pseudo/dynamic/文字列化式を投影・表示・hashで拒否、Model/logicalId/property/Pointer/理由、Pointer escape、未確定参照によるWARNING化禁止、入力不変 | JSON projection |
-| `standalone-json::generation` | `check_standalone_generation` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 1 | 正常IAM変数・JSON/表示/hash一致、後続JSON失敗時に先行成果物を保存せず既存成果物/Model保持 | JSON projection |
+| `standalone-json::expressions` | `check_standalone_expressions` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 15 | 設計intrinsic/文字列化式は保持またはローカル解決、未解決WARNINGとPointer escape、AWS JSON/hashは拒否、裸pseudo/dynamicはERROR、入力不変 | JSON projection |
+| `standalone-json::generation` | `check_standalone_generation` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 1 | 正常IAM変数・JSON/表示/hash一致、後続JSONの不正GetAtt構造で先行成果物を保存せず既存成果物/Model保持 | JSON projection |
 | `standalone-json::cfn-boundary` | `check_standalone_and_cfn_boundaries` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 1 | 通常値/型とIAM変数保持、CFn YAMLタグと既存式評価維持 | JSON projection |
+| `design-json::pending-intrinsics` | `check_pending_intrinsic_generation` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 17 | Ref/Fn全般とネスト、未対応関数はWARNING、Model保存/生成/表示成功、原式保持、AWS直接適用拒否 | Synthetic Model JSON |
+| `design-json::api-intrinsics` | `check_api_json_intrinsics` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 1 | API設定JSONでも式だけ保留、リテラルの型・制約と不正構造のERRORを維持 | Synthetic JSON |
+| `design-json::policy-siblings` | `check_pending_policy_siblings` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 1 | 未解決Sid/Resourceを保留し、隣接Effect/Resource/Sidの不正とAWS適用拒否を維持 | Synthetic policy |
+| `design-json::invalid-intrinsics` | `check_invalid_intrinsic_structure` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 9 | 既存cfn-lintスキーマと評価器で証明された不正構造、JSON構文不正はERROR | Synthetic Model JSON |
+| `issues-iac::intrinsic-warnings` | `IntrinsicWarningTests.test_unresolved_leaves_keep_other_comparisons_and_report_counts` | UT | [units/test_issues_iac.py](units/test_issues_iac.py) | pytest / 1 | 未解決式は未比較と警告、同じ式でもMATCH禁止、隣接確定値の一致/差分、未比較集計とAWS境界 | Synthetic CFn |
+| `issues-iac::intrinsic-local` | `IntrinsicWarningTests.test_local_functions_resolve_with_proven_stack_inputs` | UT | [units/test_issues_iac.py](units/test_issues_iac.py) | pytest / 1 | Ref/Sub/Join/Split/Select/If/FindInMapは確定入力だけで評価、構造不正はERROR | Synthetic CFn |
 | `standalone-json::resource-types` | `check_resource_types` | UT | [units/policy_tables-unit.checks.py](units/policy_tables-unit.checks.py) | pytest / 12 | Resource/NotResourceのobject・混合配列・非string scalar拒否 | Policy |
 | `standalone-json::valid-resources` | `check_valid_resource_types` | UT | [units/policy_tables-unit.checks.py](units/policy_tables-unit.checks.py) | pytest / 4 | string/string配列、Statement object、Principal/NotAction/Condition、IAM変数を維持 | Policy |
 

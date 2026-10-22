@@ -342,10 +342,10 @@ def model_policy_views(values):
 
 from model.projection import JSON_LINK
 
-def generate_files(path, values, root):
+def generate_files(path, values, root, *, warnings=None):
     """Generate one service in memory, without validation or dependency publication."""
     from model.validation import validate_json_settings
-    validate_json_settings(values, (root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties'))
+    validate_json_settings(values, (root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties'), warnings=warnings)
     from model.sources import safe, scope_for
     from model.identity import Resolver
     resolver = Resolver(root)
@@ -364,7 +364,7 @@ def generate_files(path, values, root):
         from model.projection import execution_document
         document = execution_document(policy_json(row['document']), root, property_name=row['property'], resolver=resolver,
             scope=scope_for((root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties')),
-            logical_id=values.get(f'desired.resource.{identity.rpartition("-")[0]}.logicalId'))
+            logical_id=values.get(f'desired.resource.{identity.rpartition("-")[0]}.logicalId'), warnings=warnings)
         content = json.dumps(document, ensure_ascii=False, indent=2) + '\n'
         if artifact in artifacts and artifacts[artifact] != content:
             raise ValueError('conflicting authoritative JSON documents')

@@ -575,6 +575,8 @@ class Comparison:
 
     def reference_same(self, left, right, kind, path, diagnostics=None):
         """Compare proven identities under a property contract, retaining form/alias intent."""
+        if any(isinstance(value, Expression) and value.operation == 'Unverified' for value in (left, right)):
+            return None
         if (self.local_comparison and kind == 'CodeBuild.Project' and
                 path == 'Environment.EnvironmentVariables[].Value'):
             if isinstance(left, Expression) or isinstance(right, Expression):
@@ -809,12 +811,13 @@ class Comparison:
                     raise Blocked('property type is not uniquely determined')
                 value = strict_json(value)
         policy = row['property'].rsplit('.', 1)[-1] in {'PolicyDocument', 'AssumeRolePolicyDocument', 'KeyPolicy', 'Policy'}
-        def references(item, field='', operands=False, path='', context=context):
+        def references(item, field='', operands=False, path='', context=context, pointer=''):
             if isinstance(item, str) and resource_link(item):
                 attribute = 'Arn' if policy and field in {'Resource', 'NotResource', 'AWS'} else None
                 return self.desired_reference(service, item, kind, path, attribute, context)
             if isinstance(item, list):
-                return [references(child, field, operands, path + '[]', context) for child in item]
+                return [references(child, field, operands, path + '[]', context, pointer + '/' + str(index))
+                        for index, child in enumerate(item)]
             if isinstance(item, dict):
                 if '$resource' in item and not (self.local_comparison and kind == 'CodeBuild.Project'
                         and path == 'Environment.EnvironmentVariables[].Value'):
@@ -837,26 +840,19 @@ class Comparison:
                         if not (target_kind == 'KMS.Alias' and symbol['$attribute'] == 'AliasArn') and self.catalog.property_schema(target_kind, symbol['$attribute']).get('type') != 'string':
                             raise Blocked('Model environment reference attribute must be a proven string')
                         return symbol
-                    intrinsic = next((key for key in item if key == 'Ref' or key.startswith('Fn::')), None)
-                    if intrinsic:
-                        if kind == 'SQS.QueuePolicy' and intrinsic == 'Fn::GetAtt' and len(item) == 1 and stack is not None:
-                            return self.evaluate(stack, item)
-                        if intrinsic not in {'Fn::Split', 'Fn::Select', 'Fn::Join', 'Fn::Sub'} or len(item) != 1 or stack is None:
-                            raise Blocked(f'unproven model intrinsic reference: {intrinsic} {item[intrinsic]}; no confirmed template/target binding')
-                        argument = references(item[intrinsic], field, True, path, context)
-                        if intrinsic == 'Fn::Sub':
-                            text, variables = (argument, {}) if isinstance(argument, str) else argument if isinstance(argument, list) and len(argument) == 2 else (None, None)
-                            if not isinstance(text, str) or not isinstance(variables, dict):
-                                raise ValueError('invalid Fn::Sub')
-                            _, parameters, pseudo = self.stack_inputs[stack]
-                            bindings = parameters.keys() | pseudo.keys() | variables.keys()
-                            if any(not key.startswith('!') and key not in bindings for key in re.findall(r'\$\{([^}]+)\}', text)):
-                                raise Blocked('unproven model Sub variable; explicit bindings required')
-                        # Model resource variables still require explicit link bindings.
-                        return self.evaluate(stack, {intrinsic: argument})
+                    from json_intrinsics import intrinsic, project_document
+                    if intrinsic(item) and not operands:
+                        expression = {key: references(child, field, True, path, context, pointer + '/' + key)
+                                      for key, child in item.items()}
+                        return project_document(expression,
+                            evaluate=(lambda value: self.evaluate(stack, value)) if stack is not None else None,
+                            unresolved=lambda value: Expression('Unverified', [value]),
+                            warnings=getattr(self, 'warnings', None), property_name=row['property'],
+                            model_path=self.root / 'model' / self.environment / self.directory / (service + '.properties'), pointer=pointer)
                 if path.endswith(('.Actions[]', '.DataResources[]', '.EnvironmentVariables[]')):
                     context = item
-                return {key: references(child, field if operands else key, operands, path + '.' + key, context) for key, child in item.items()}
+                return {key: references(child, field if operands else key, operands, path + '.' + key, context,
+                                        pointer + '/' + key.replace('~', '~0').replace('/', '~1')) for key, child in item.items()}
             return item
         path = row['property'].removeprefix(kind + '.')
         if (self.local_comparison and kind == 'CodeBuild.Project' and
@@ -1033,6 +1029,15 @@ class Comparison:
 
     def compare_rows(self, service, identity, resource, name, logical, template, definition, document):
         kind = resource['resourceType']
+        def unverified(value, pointer=''):
+            if isinstance(value, Expression) and value.operation == 'Unverified':
+                yield pointer
+            elif isinstance(value, dict):
+                for key, child in value.items():
+                    yield from unverified(child, pointer + '/' + key.replace('~', '~0').replace('/', '~1'))
+            elif isinstance(value, list):
+                for index, child in enumerate(value):
+                    yield from unverified(child, pointer + '/' + str(index))
         grouped = {}
         all_rows = list(self.rows[service][identity])
         if resource.get('parentReference') and resource.get('parentProperty') and not any(row['property'] == resource['parentProperty'] for _, row in all_rows):
@@ -1194,11 +1199,21 @@ class Comparison:
                                 source=sources[key][0], template=iac_source)
                     self.results[-1]['model_sources'] = sources[key]
                     continue
+                actual_error = None
                 try:
                     if inverse_roles:
                         actual = self.managed_policy_roles(service, identity, name, owner.get('Properties', {}).get(key, []))
                     else:
-                        actual = self.evaluate(name, actual)
+                        try:
+                            actual = self.evaluate(name, actual)
+                        except (Blocked, KeyError) as error:
+                            actual_error = error
+                            from json_intrinsics import project_document
+                            if not self.local_comparison:
+                                raise
+                            actual = project_document(actual, evaluate=lambda value: self.evaluate(name, value),
+                                unresolved=lambda value: Expression('Unverified', [value]), template=True,
+                                warnings=self.warnings, property_name=prop, model_path=template)
                 except (Blocked, KeyError) as error:
                     self.record('uncompared', service, identity, prop, str(error), source=sources[key][0], template=iac_source, cause=getattr(error, 'iac_cause', None))
                     continue
@@ -1215,8 +1230,10 @@ class Comparison:
                          same(value, actual, reference=reference, path=key) if key in exact else
                          selected_same(value, actual, key, reference=reference, path=key))
                 if equal is None:
-                    self.record('uncompared', service, identity, prop, 'reference identity or property format is unproven',
-                                stack=name, source=sources[key][0], template=iac_source)
+                    self.record('uncompared', service, identity, prop,
+                                str(actual_error) if actual_error is not None else 'reference identity or property format is unproven',
+                                stack=None if actual_error is not None else name, source=sources[key][0], template=iac_source,
+                                cause=getattr(actual_error, 'iac_cause', None))
                     self.results[-1]['reference_diagnostics'] = diagnostics
                 elif not equal:
                     self.record('difference', service, identity, prop, 'value mismatch', value, actual, name, sources[key][0], iac_source)
@@ -1230,6 +1247,10 @@ class Comparison:
                     from issues_reports import identifier, value_differences
                     self.display_differences[identifier(self.results[-1])] = value_differences(
                         value, actual, prop, exact=key in exact, redact=self.redacted, reference=reference)
+                    for pointer in sorted(set(unverified(value)) | set(unverified(actual))):
+                        self.record('uncompared', service, identity, prop + '#' + pointer,
+                                    'unresolved/unverified intrinsic; JSON Pointer=' + repr(pointer),
+                                    stack=name, source=sources[key][0], template=iac_source)
                 else:
                     reason = 'reference expression equivalent' if self.reference_equivalent else 'equal'
                     self.record('matched', service, identity, prop, reason, stack=name, source=sources[key][0], template=iac_source)

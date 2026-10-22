@@ -7,6 +7,7 @@ if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
 from support.it_case_receipt import it_case
+from iac_values import Expression, ResourceReference
 
 from support.issues_scan_fixtures import *
 from support.model_sources import allocate_fixture as allocate
@@ -678,7 +679,9 @@ def local_reference_cases():
             policy = {'Statement': [{'Condition': {'Bool': {'aws:SecureTransport': 'false'}},
                                      'Resource': {'Fn::GetAtt': ['AppKey', 'Arn']}}]}
             row = {'property': 'S3.BucketPolicy.PolicyDocument', 'value': 'policy.json', 'document': json.dumps(policy)}
-            expect_error(lambda: comparison.desired_value('s3', row, 'S3.BucketPolicy'), 'AppKey')
+            pending = comparison.desired_value('s3', row, 'S3.BucketPolicy')['Statement'][0]['Resource']
+            assert isinstance(pending, Expression) and pending.operation == 'Unverified'
+            assert any(w['function'] == 'Fn::GetAtt' for w in comparison.warnings)
             del policy['Statement'][0]['Resource']
             assert comparison.desired_value('s3', dict(row, document=json.dumps(policy)), 'S3.BucketPolicy') == policy
             # Shared deploy repair callers never run Comparison.run(): retain their original behavior.
@@ -2307,7 +2310,7 @@ def check_aws_standard_comparison(_network):
         row = {'property': 'CodeBuild.Project.Environment', 'value': '`' + json.dumps({
             'EnvironmentVariables': [{'Name': 'SECRET', 'Type': 'SECRETS_MANAGER', 'Value': secret}]}) + '`'}
         assert comparison.desired_value('codebuild', row, 'CodeBuild.Project', stack=stack)['EnvironmentVariables'][0]['Value'] == desired['Value']
-        # Only confirmed parameters/pseudo or explicit variables bind Model Sub.
+        # Unproven Model Sub variables are warnings; confirmed stack bindings still resolve.
         def sub(argument):
             row = {'property': 'IAM.ManagedPolicy.PolicyDocument', 'value': '',
                    'document': json.dumps({'Statement': [{'Resource': {'Fn::Sub': argument}}]})}
@@ -2315,9 +2318,11 @@ def check_aws_standard_comparison(_network):
         assert sub('arn:${AWS::Partition}:s3:::${Name}/${!aws:username}') == 'arn:aws:s3:::app-dev-data1/${aws:username}'
         assert sub('${AWS::Region}/${AWS::AccountId}') == 'ap-northeast-1/123456789012'
         assert sub(['${AWS::Region}', {'AWS::Region': 'explicit'}]) == 'explicit'
-        for unknown in ('${Unknown}', '${Role}', '${Role.Arn}', '${aws:username}'):
-            with pytest.raises(Blocked, match='explicit bindings'):
-                sub(unknown)
+        for unknown in ('${Unknown}', '${aws:username}'):
+            pending = sub(unknown)
+            assert isinstance(pending, Expression) and pending.operation == 'Unverified'
+        assert sub('${Role}') == 'role'
+        assert isinstance(sub('${Role.Arn}'), (Expression, ResourceReference))
         # Unordered Statement comparison uses a bijection, not sorting or Sid-only matching.
         callback = lambda a, b, p: comparison.reference_same(a, b, 'IAM.Role', p)
         path = 'Policies[].PolicyDocument.Statement'

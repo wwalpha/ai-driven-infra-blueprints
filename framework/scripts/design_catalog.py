@@ -64,6 +64,11 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
 
     def api_value_errors(self, resource_type: str, node: dict, value, path: str) -> list[str]:
         """Validate the JSON Schema subset used by the pinned API snapshot."""
+        from json_intrinsics import intrinsic, project_document
+        if intrinsic(value):
+            value = project_document(value)
+            if intrinsic(value):
+                return []  # An unresolved expression has no proven literal type/value yet.
         node = self._resolve(self.schema(resource_type), node)
         expected = node.get("type")
         types = {"string": str, "integer": int, "boolean": bool, "array": list, "object": dict}

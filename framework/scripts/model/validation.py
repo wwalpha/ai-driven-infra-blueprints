@@ -53,8 +53,8 @@ NAMING_EXEMPT_PROPERTIES = {
 }
 
 
-def validate_json_settings(values, model_path):
-    """Reject saved Resource markup without resolving or rewriting JSON settings."""
+def validate_json_settings(values, model_path, *, warnings=None):
+    """Validate JSON links and intrinsic structure without rewriting Model authority."""
     from model.references import _json, string_leaves
     from model.identity import reference_tokens
     for row_id, row in entries(values, 'desired.row.'):
@@ -64,14 +64,17 @@ def validate_json_settings(values, model_path):
             value, structured = _json(f'desired.row.{row_id}.{field}', row[field])
             if not structured:
                 continue
+            number = row_id.rpartition('-')[0]
+            resource = values.get(f'desired.resource.{number}.logicalId', number)
             for pointer, text in string_leaves(value):
                 if any(reference_tokens(text)):
-                    number = row_id.rpartition('-')[0]
-                    resource = values.get(f'desired.resource.{number}.logicalId', number)
                     raise ValueError(
                         f'JSON setting contains a Markdown Resource link: Model={model_path}, '
                         f'Resource={resource} ({number}), Property={row["property"]}, '
                         f'JSON Pointer={pointer!r}; use confirmed AWS values and external desired.reference metadata')
+            from json_intrinsics import project_document
+            project_document(value, warnings=warnings, model_path=model_path,
+                             logical_id=resource, property_name=row['property'])
 
 
 @memoized
@@ -320,7 +323,7 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
     def structure():
         validate_model_keys(values)
         resource_row_index(values)
-        validate_json_settings(values, path)
+        validate_json_settings(values, path, warnings=findings.warnings)
     if findings.evaluate('model.structure', None, structure).errors:
         return findings
     if entries(values, 'desired.stack.'):

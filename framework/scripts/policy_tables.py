@@ -232,16 +232,25 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
     document = policy_json(artifact.read_text(encoding="utf-8"))
     if not isinstance(document, dict):
         raise ValueError(f"policy JSON must be an object: {policy.link}")
-    validate_policy_document(document, policy)
+    validate_policy_document(document, policy, design=True)
     return policy_document_lines(document, policy)
 
 
-def validate_policy_document(document, policy):
-    validate_aws_document(document)
+def validate_policy_document(document, policy, *, design=False):
+    from json_intrinsics import intrinsic, project_document
+    if design:
+        document = project_document(document, property_name=policy.property_name)
+    else:
+        validate_aws_document(document)
+    pending = lambda value: design and intrinsic(value)
+    if pending(document):
+        return
     style = POLICY_FORMATS[policy.property_name]
     if style == 'settings':
         if policy.property_name == 'ECR.Repository.LifecyclePolicy' and 'LifecyclePolicyText' in document:
             raw = document['LifecyclePolicyText']
+            if pending(raw):
+                return
             if not isinstance(raw, str):
                 raise ValueError('LifecyclePolicyText must be a JSON string')
             if not isinstance(policy_json(raw), dict):
@@ -251,29 +260,37 @@ def validate_policy_document(document, policy):
         if set(document) != {'PolicyDocument'}:
             raise ValueError(f'unsupported resource policy wrapper: {policy.link}')
         document = document['PolicyDocument']
+        if pending(document):
+            return
     if not isinstance(document, dict) or set(document) - POLICY_KEYS:
         raise ValueError(f'unsupported policy document keys: {policy.link}')
     statements = document.get('Statement')
+    if pending(statements):
+        return
     statements = [statements] if isinstance(statements, dict) else statements
     if not isinstance(statements, list) or not statements:
         raise ValueError(f'policy requires non-empty Statement: {policy.link}')
     for index, statement in enumerate(statements):
+        if pending(statement):
+            continue
         if not isinstance(statement, dict) or set(statement) - set(STATEMENT_KEYS):
             raise ValueError(f'unsupported policy Statement keys: {policy.link}')
-        if policy.property_name == 'IAM.Role.Policies[].PolicyDocument' and 'Sid' in statement:
+        if policy.property_name == 'IAM.Role.Policies[].PolicyDocument' and 'Sid' in statement and not pending(statement['Sid']):
             if not isinstance(statement['Sid'], str) or len(statement['Sid']) > 16:
                 raise ValueError(f'IAM inline policy Sid must be a string of at most 16 characters: {policy.link}')
-        if statement.get('Effect') not in ('Allow', 'Deny'):
+        if not pending(statement.get('Effect')) and statement.get('Effect') not in ('Allow', 'Deny'):
             raise ValueError(f'invalid policy Statement Effect: {policy.link}')
         for key in ('Resource', 'NotResource'):
             if key in statement:
                 value = statement[key]
-                if not (isinstance(value, str) or isinstance(value, list) and all(isinstance(item, str) for item in value)):
+                if not (isinstance(value, str) or pending(value) or isinstance(value, list) and all(isinstance(item, str) or pending(item) for item in value)):
                     prefix = '/PolicyDocument' if style == 'wrapped-statement' else ''
                     pointer = prefix + '/Statement' + (f'/{index}' if isinstance(document['Statement'], list) else '') + '/' + key
                     raise AwsDocumentError(pointer, value, f'{key} must be a string or string array')
         for key in ('Principal', 'NotPrincipal'):
             principal = statement.get(key)
+            if pending(principal):
+                continue
             if isinstance(principal, dict):
                 if not principal:
                     raise ValueError('empty policy Principal')
@@ -282,6 +299,8 @@ def validate_policy_document(document, policy):
                         raise ValueError(f'unsupported policy Principal type: {kind}')
         if 'Condition' in statement:
             condition = statement['Condition']
+            if pending(condition):
+                continue
             if not isinstance(condition, dict) or not condition:
                 raise ValueError('policy Condition must be a non-empty object')
             if any(not isinstance(entry, dict) or not entry for entry in condition.values()):

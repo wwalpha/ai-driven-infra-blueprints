@@ -327,8 +327,8 @@ def confirmed_property(snapshot, number, kind, attribute, uri, resolver):
     raise ReferenceResolutionError('JSON Resource reference requires one confirmed output: ' + kind + '.' + attribute, reference=uri)
 
 
-def execution_document(document, root, *, property_name=None, resolver=None, scope=None, logical_id=None):
-    """Resolve confirmed JSON operands; unresolved values cannot become AWS artifacts."""
+def execution_document(document, root, *, property_name=None, resolver=None, scope=None, logical_id=None, warnings=None):
+    """Project design JSON; unresolved CFn expressions retain their authored structure."""
     from reference_contracts import ARN_SHAPES, ARN_FORMS
     from model.sources import target_for
     from model.identity import Resolver
@@ -378,13 +378,15 @@ def execution_document(document, root, *, property_name=None, resolver=None, sco
     from utils.json_format import AwsDocumentError
     from policy_tables import POLICY_FORMATS, Policy, validate_policy_document
     try:
-        # Invalid template expressions must not be downgraded to a pending-reference warning.
-        validate_aws_document(document)
+        from json_intrinsics import project_document
+        document = project_document(document, warnings=warnings, property_name=property_name,
+                                    model_path=scope.path if scope else root, logical_id=logical_id)
         projected = document_references(document, root, property_name=property_name, resolver=resolver, scope=scope, resolve=reference)
         if property_name in POLICY_FORMATS:
-            validate_policy_document(projected, Policy('', '', '', '', property_name))
+            validate_policy_document(projected, Policy('', '', '', '', property_name), design=True)
         else:
-            validate_aws_document(projected)
+            project_document(projected, warnings=warnings, property_name=property_name,
+                             model_path=scope.path if scope else root, logical_id=logical_id)
     except AwsDocumentError as error:
         raise ValueError(f'Model={scope.path if scope else root}, Resource logicalId={logical_id}, '
                          f'Property={property_name}; {error}') from error

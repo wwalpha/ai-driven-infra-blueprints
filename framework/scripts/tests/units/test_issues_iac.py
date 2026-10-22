@@ -46,6 +46,63 @@ def legacy_comparison(root, count=3, services=1, stacks=2):
   return comparison
 
 
+class IntrinsicWarningTests(unittest.TestCase):
+  def test_unresolved_leaves_keep_other_comparisons_and_report_counts(self):
+    from issues_reports import iac_summary, comparison_status
+    from utils.json_format import validate_aws_document
+    expressions = [
+        {'Fn::Sub': '${Missing}'}, {'Fn::GetAtt': ['Missing', 'Arn']},
+        {'Fn::ImportValue': 'External'}, {'Ref': 'Missing'},
+        {'Fn::Join': ['', [{'Fn::GetAtt': ['Missing', 'Arn']}]]},
+        {'Fn::If': ['Pending', {'Ref': 'Missing'}, 'literal']},
+        {'Fn::UnknownFuture': 'unverified'},
+    ]
+    with tempfile.TemporaryDirectory() as directory, patch('socket.socket', side_effect=AssertionError('network forbidden')):
+      for expression in expressions:
+        with self.subTest(expression=expression):
+          comparison = legacy_comparison(Path(directory), count=1, stacks=1)
+          comparison.resources['service-0']['0000']['cfn-logicalId'] = 'stack0-Log0'
+          comparison.models['service-0'].values['desired.resource.0000.cfn-logicalId'] = 'stack0-Log0'
+          rows = comparison.rows['service-0']['0000']
+          rows.append(('0000-002', {'property': 'Logs.LogGroup.DataProtectionPolicy', 'value': '',
+              'document': json.dumps({'Known': 7, 'Deferred': expression})}))
+          unit = comparison.templates()[0][1]
+          template, (document, _, _) = comparison.stack(unit)
+          document['Resources']['Log0']['Properties']['DataProtectionPolicy'] = {'Known': 7, 'Deferred': expression}
+          results = comparison.run()
+          self.assertEqual([item['category'] for item in results], ['matched', 'uncompared'])
+          self.assertTrue(comparison.warnings)
+          self.assertTrue(all(w['severity'] == 'WARNING' and w['property'] == 'Logs.LogGroup.DataProtectionPolicy'
+                              and w['pointer'].startswith('/Deferred') for w in comparison.warnings))
+          summary = iac_summary(results, 'fixture', 'team', ['service-0'])
+          self.assertEqual(summary['records']['uncompared'], 1)
+          self.assertEqual(summary['records']['error'], 0)
+          self.assertEqual(comparison_status(summary['records']), 'partial')
+          document['Resources']['Log0']['Properties']['DataProtectionPolicy']['Known'] = 8
+          comparison.results = []
+          self.assertEqual([item['category'] for item in comparison.run()], ['matched', 'difference', 'uncompared'])
+          with self.assertRaises(ValueError):
+            validate_aws_document(json.loads(rows[-1][1]['document']))
+
+  def test_local_functions_resolve_with_proven_stack_inputs(self):
+    with tempfile.TemporaryDirectory() as directory:
+      comparison = legacy_comparison(Path(directory), count=1, stacks=1)
+      comparison.local_comparison = True
+      comparison.stack_inputs['stack0'] = ({'Conditions': {'Yes': {'Fn::Equals': [1, 1]}},
+          'Mappings': {'M': {'K': {'V': 'mapped'}}}}, {'Name': 'confirmed'}, {'AWS::Region': 'fixture-region'})
+      expressions = [({'Ref': 'Name'}, 'confirmed'), ({'Fn::Sub': '${AWS::Region}/${Name}'}, 'fixture-region/confirmed'),
+          ({'Fn::Join': ['-', ['a', 'b']]}, 'a-b'), ({'Fn::Split': [',', 'a,b']}, ['a', 'b']),
+          ({'Fn::Select': [0, ['a']]}, 'a'), ({'Fn::If': ['Yes', 'a', {'Ref': 'Unknown'}]}, 'a'),
+          ({'Fn::FindInMap': ['M', 'K', 'V']}, 'mapped')]
+      for expression, expected in expressions:
+        row = {'property': 'Logs.LogGroup.DataProtectionPolicy', 'value': '', 'document': json.dumps({'Value': expression})}
+        self.assertEqual(comparison.desired_value('service-0', row, 'Logs.LogGroup', stack='stack0'), {'Value': expected})
+      self.assertFalse(comparison.warnings)
+      row['document'] = '{"Value": {"Fn::Join": [""]}}'
+      with self.assertRaises(ValueError):
+        comparison.desired_value('service-0', row, 'Logs.LogGroup', stack='stack0')
+
+
 class ExplicitIdentityTests(unittest.TestCase):
   def test_missing_mapping_never_searches_legacy_ids(self):
     with tempfile.TemporaryDirectory() as directory:

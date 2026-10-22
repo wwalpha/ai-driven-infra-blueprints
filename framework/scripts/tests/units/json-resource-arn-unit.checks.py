@@ -1,6 +1,7 @@
 """Offline ARN projection from the identifiers actually saved by the catalogs."""
 import copy
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -292,17 +293,33 @@ def check_standalone_expressions(tmp_path, expression):
     key = 'desired.row.009-002.document'
     policy[key] = json.dumps(document)
     original = copy.deepcopy(document)
-    for operation in (
-        lambda: execution_document(document, tmp_path, scope=scope, logical_id='IAM_ManagedPolicy_001',
-                                   property_name='IAM.ManagedPolicy.PolicyDocument'),
-        lambda: reference_display(runtime_values(policy), scope.path, tmp_path),
-    ):
-        with pytest.raises(ValueError) as caught:
-            operation()
-        message = str(caught.value)
-        for part in (str(scope.path), 'IAM_ManagedPolicy_001', 'IAM.ManagedPolicy.PolicyDocument',
-                     '/Statement/0/Resource/0', 'expression=', 'CloudFormation', 'correct the Model'):
-            assert part in message, message
+    from json_intrinsics import project_document
+    from model.validation import validate_json_settings
+    warnings = []
+    pending = isinstance(expression, dict) and 'Fn::Select' not in expression or isinstance(expression, str) and expression.startswith('{"')
+    if pending or isinstance(expression, dict):
+        projected = execution_document(document, tmp_path, scope=scope, logical_id='IAM_ManagedPolicy_001',
+            property_name='IAM.ManagedPolicy.PolicyDocument', warnings=warnings)
+        expected = copy.deepcopy(document)
+        if expression == {'Fn::Select': [0, ['*']]}:
+            expected['Statement'][0]['Resource'] = ['*']
+        assert projected == expected
+        assert bool(warnings) == bool(pending)
+        for warning in warnings:
+            assert warning['severity'] == 'WARNING'
+            assert warning['property'] == 'IAM.ManagedPolicy.PolicyDocument'
+            assert warning['pointer'].startswith('/Statement/0/Resource/0')
+            assert warning['function'] in warning['message']
+            assert 'unresolved/unverified' in warning['message']
+        assert reference_display(runtime_values(policy), scope.path, tmp_path)[key] == json.dumps(expected, ensure_ascii=False)
+        validate_json_settings(policy, scope.path)
+    else:
+        with pytest.raises(ValueError):
+            execution_document(document, tmp_path, scope=scope)
+    escaped = []
+    if pending:
+        project_document({'a/b~': [expression]}, warnings=escaped)
+        assert escaped[0]['pointer'] == '/a~1b~0/0'
     artifact = tmp_path / 'policy.json'
     artifact.write_text(json.dumps(document), encoding='utf-8')
     with pytest.raises(ValueError, match='CloudFormation'):
@@ -310,9 +327,6 @@ def check_standalone_expressions(tmp_path, expression):
     with pytest.raises(ValueError, match='/a~1b~0/0'):
         validate_aws_document({'a/b~': [expression]})
     assert document == original
-    with pytest.raises(ValueError, match='independent AWS JSON') as caught:
-        execution_document([{'$resource': '[missing](absent.md#missing)'}, expression], tmp_path, scope=scope)
-    assert not isinstance(caught.value, ReferenceResolutionError)
 
 
 def check_standalone_generation(tmp_path):
@@ -345,18 +359,18 @@ def check_standalone_generation(tmp_path):
         policy['desired.row.010-001.value'] = '`second-policy`'
         policy['desired.row.010-002.value'] = '[Policy](iam/second.json)'
         policy['desired.row.010-002.document'] = json.dumps({'Statement': [
-            {'Effect': 'Allow', 'Action': '*', 'Resource': [{'Fn::ImportValue': 'UnknownExport'}]}]})
+            {'Effect': 'Allow', 'Action': '*', 'Resource': [{'Fn::GetAtt': ['Invalid']}]}]})
         save(scope, policy)
         artifact.parent.mkdir(parents=True)
         artifact.write_text('existing artifact\n', encoding='utf-8')
         design.write_text('existing design\n', encoding='utf-8')
         before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
-        with pytest.raises(ValueError, match='IAM_ManagedPolicy_002.*Fn::ImportValue'):
+        with pytest.raises(ValueError, match='Fn::GetAtt'):
             generate_files(design, runtime_values(policy), root)
         failures = []
         generated = generate_views(stage, root, {design: runtime_values(policy)}, failures,
                                    definitions_root=FRAMEWORK)
-        assert not generated and any('Fn::ImportValue' in error for error in failures), failures
+        assert not generated and any('Fn::GetAtt' in error for error in failures), failures
         assert (stage / artifact.relative_to(root)).read_bytes() == before[artifact]
         assert not (stage / artifact.with_name('second.json').relative_to(root)).exists()
         assert {p: p.read_bytes() for p in root.rglob('*') if p.is_file()} == before
@@ -369,9 +383,10 @@ def check_standalone_and_cfn_boundaries(tmp_path):
                 'PolicyVariable': '${aws:username}', 'Url': 'https://example.com',
                 'EncodedSettings': '{"rules":[{"name":"keep"}]}'}
     assert execution_document(document, tmp_path) == document
-    with patch('model.projection.document_references', return_value={'Ref': 'AWS::Region'}), \
-            pytest.raises(ValueError, match='CloudFormation'):
-        execution_document(document, tmp_path)
+    with patch('model.projection.document_references', return_value={'Ref': 'AWS::Region'}):
+        warnings = []
+        assert execution_document(document, tmp_path, warnings=warnings) == {'Ref': 'AWS::Region'}
+        assert warnings
     template_path = tmp_path / 'template.yaml'
     template_path.write_text('Value: !Sub "${AWS::Region}-${Name}"\nImport: !ImportValue Export\nAttr: !GetAtt Resource.Arn\n', encoding='utf-8')
     template, errors = decode(str(template_path))
@@ -379,9 +394,112 @@ def check_standalone_and_cfn_boundaries(tmp_path):
     original = copy.deepcopy(template)
     assert resolve_value(template['Value'], {'Name': 'confirmed'}, {'AWS::Region': 'ap-northeast-1'}) == 'ap-northeast-1-confirmed'
     assert resolve_value(template['Import'], {}, {}, exports={'Export': 'confirmed-export'}) == 'confirmed-export'
-    with pytest.raises(ValueError, match='CloudFormation'):
-        execution_document(template, tmp_path)
+    warnings = []
+    assert execution_document(template, tmp_path, warnings=warnings) == template
+    assert {warning['function'] for warning in warnings} == {'Fn::Sub', 'Fn::ImportValue', 'Fn::GetAtt'}
     assert template == original
+
+
+@pytest.mark.parametrize('expression', [
+    {'Fn::Sub': '${Missing}'}, {'Fn::GetAtt': ['Missing', 'Arn']},
+    {'Fn::ImportValue': 'External'}, {'Ref': 'Missing'},
+    {'Fn::Join': ['', ['prefix', {'Fn::GetAtt': ['Missing', 'Arn']}]]},
+    {'Fn::If': ['Pending', {'Ref': 'Missing'}, 'literal']},
+    {'Fn::Split': [',', {'Ref': 'Missing'}]}, {'Fn::FindInMap': ['Map', 'Key', 'Value']},
+    {'Fn::GetAZs': ''}, {'Fn::Base64': 'literal'}, {'Fn::Cidr': ['10.0.0.0/16', 2, 8]},
+    {'Fn::ToJsonString': {'Key': {'Ref': 'Missing'}}}, {'Fn::Length': [1, 2]},
+    {'Fn::Transform': {'Name': 'Macro', 'Parameters': {}}},
+    {'Fn::UnknownFuture': {'Ref': 'Missing'}}, {'Fn::And': [True, {'Ref': 'Missing'}]},
+    {'Fn::ForEach::Loop': ['Item', ['a'], {'Key': {'Ref': 'Item'}}], 'Other': 'retained'},
+])
+def check_pending_intrinsic_generation(tmp_path, expression):
+    from model.render import generate_files
+    from model.operations import prepare_edit, publish_edit, validate_candidates
+    from model.sources import SourceWriteContext
+    from generation_inputs import GenerationInputs
+    from types import SimpleNamespace
+    from sync_runtime import generate_views
+    from utils.aws_mappings import mapping_alias
+    from utils.json_format import validate_aws_document
+    root, stage = tmp_path / 'root', tmp_path / 'stage'
+    root.mkdir(); stage.mkdir()
+    scope, _, policy, _ = fixture(root)
+    key = 'desired.row.009-002.document'
+    policy[key] = json.dumps({'Statement': [{'Effect': 'Allow', 'Action': '*', 'Resource': [expression]}]})
+    design = root / 'docs/designs/dev/consumer/iam.md'
+    with patch('socket.socket', side_effect=AssertionError('network forbidden')), mapping_alias(FRAMEWORK, root), patch.dict(os.environ):
+        os.environ.pop('BLUEPRINT_TASK_FILE', None)
+        reads = GenerationInputs(root)
+        context = SourceWriteContext._authorized(root, reads, SimpleNamespace(action='edit'),
+            lambda changes: None, frozenset({scope.path}))
+        plan = prepare_edit(load_model(scope.path, reads), {scope.path: serialize(policy)}, context)
+        assert any(w['code'] == 'json.intrinsic.unresolved' for w in plan.candidate.warnings)
+        with patch('import_guard.require_import_changes') as task_guard:
+            publish_edit(plan, context)
+            task_guard.assert_called_once()
+        assert load_model(scope.path).authoritative[key] == policy[key]
+        before = scope.path.read_bytes()
+        warnings = validate_candidates(root, {scope.path.relative_to(root)}, {}, {('dev', 'consumer', 'iam')})
+        assert any(w['code'] == 'json.intrinsic.unresolved' for w in warnings)
+        warnings = []
+        files = generate_files(design, runtime_values(policy), root, warnings=warnings)
+        assert json.loads(files[design.with_suffix('') / 'policy.json']) == json.loads(policy[key])
+        assert warnings and all(w['severity'] == 'WARNING' for w in warnings)
+        failures, warnings, unavailable = [], [], {}
+        assert generate_views(stage, root, {design: runtime_values(policy)}, failures,
+            definitions_root=FRAMEWORK, warnings=warnings, unavailable=unavailable)
+        assert not failures and not unavailable, (failures, unavailable)
+        assert any(w['code'] == 'json.intrinsic.unresolved' for w in warnings)
+        assert scope.path.read_bytes() == before
+        with pytest.raises(ValueError, match='CloudFormation'):
+            validate_aws_document(json.loads((stage / design.relative_to(root)).with_suffix('').joinpath('policy.json').read_text()))
+
+
+@pytest.mark.parametrize('expression', [
+    {'Ref': 1}, {'Fn::GetAtt': ['OnlyOne']}, {'Fn::Sub': [1, {}]},
+    {'Fn::Join': ['']}, {'Fn::Split': ['', 'value']}, {'Fn::Select': [-1, ['x']]},
+    {'Fn::If': ['C', 'yes']}, {'Ref': 'X', 'Extra': True},
+    {'Fn::Join': ['', [{'Fn::GetAtt': [1, 'Arn']}]]},
+])
+def check_invalid_intrinsic_structure(tmp_path, expression):
+    from model.validation import validate_json_settings
+    scope, _, policy, _ = fixture(tmp_path)
+    key = 'desired.row.009-002.document'
+    policy[key] = json.dumps({'a/b~': [expression]})
+    with pytest.raises(ValueError, match='JSON Pointer'):
+        validate_json_settings(policy, scope.path)
+    with pytest.raises(ValueError, match='JSON Pointer'):
+        execution_document(json.loads(policy[key]), tmp_path)
+    policy[key] = '{"invalid":'
+    with pytest.raises(ValueError):
+        validate_json_settings(policy, scope.path)
+
+
+def check_api_json_intrinsics():
+    from design_catalog import DesignSchemaCatalog
+    catalog = DesignSchemaCatalog(FRAMEWORK)
+    for document in ({'Ref': 'Missing'}, {'bucketDefinitions': {'Ref': 'Missing'}},
+                     {'bucketDefinitions': [{'accountId': '111111111111', 'buckets': {'Ref': 'Missing'}}]}):
+        assert not catalog.literal_errors('Macie.ClassificationJob', 's3JobDefinition', json.dumps(document))
+    assert catalog.literal_errors('Macie.ClassificationJob', 's3JobDefinition',
+        json.dumps({'bucketDefinitions': [{'accountId': 'invalid', 'buckets': {'Ref': 'Missing'}}]}))
+    with pytest.raises(ValueError):
+        catalog.literal_errors('Macie.ClassificationJob', 's3JobDefinition', '{"Ref":1}')
+
+
+def check_pending_policy_siblings(tmp_path):
+    from policy_tables import Policy, validate_policy_document
+    document = {'Statement': [{'Sid': {'Fn::Sub': '${Missing}'}, 'Effect': 'Allow',
+        'Action': '*', 'Resource': [{'Ref': 'Missing'}, '*']}]}
+    policy = Policy('test', 'test.json', 'test', 'policy', 'IAM.Role.Policies[].PolicyDocument')
+    validate_policy_document(document, policy, design=True)
+    for key, value in [('Effect', 'Invalid'), ('Resource', [{'Ref': 'Missing'}, 42]), ('Sid', 'x' * 17)]:
+        invalid = copy.deepcopy(document)
+        invalid['Statement'][0][key] = value
+        with pytest.raises(ValueError):
+            validate_policy_document(invalid, policy, design=True)
+    with pytest.raises(ValueError):
+        validate_policy_document(document, policy)
 
 
 if __name__ == '__main__':
