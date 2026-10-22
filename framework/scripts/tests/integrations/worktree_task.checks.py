@@ -167,7 +167,27 @@ def check_ahead_and_rebase_conflict():
                 with pytest.raises(wt.Blocked, match='dirty'):
                     wt.recover(root, 'example', old, latest, finish=True)
                 (target / 'file.txt').write_text('base update\ntask\n')
-                recovered = wt.recover(root, 'example', old, latest, finish=True)
+                candidate = git(target, 'rev-parse', 'HEAD')
+                previous_receipt = wt.load(root, 'example')[3]['recovery']
+                (root / 'base.txt').write_text('concurrent base advancement\n')
+                git(root, 'add', 'base.txt')
+                git(root, 'commit', '-qm', 'base advanced during reviewed recovery')
+                advanced = git(root, 'rev-parse', 'HEAD')
+                with pytest.raises(wt.Blocked, match='base changed'):
+                    wt.recover(root, 'example', old, latest, finish=True)
+                with pytest.raises(wt.Blocked, match='differs from expected commit'):
+                    wt.recover(root, 'example', old, advanced, repin=True)
+                repinned = wt.recover(root, 'example', candidate, advanced, repin=True)
+                assert repinned['recovery']['previous'] == previous_receipt
+                assert repinned['recovery']['commit'] == candidate
+                assert repinned['recovery']['base'] == advanced
+                assert git(target, 'rev-parse', 'HEAD') == candidate
+                assert 'finish reviewed recovery' in cli(root, 'finalize', success=False)['error']
+                with pytest.raises(wt.Blocked, match='unexpected history'):
+                    wt.recover(root, 'example', candidate, advanced, finish=True)
+                git(target, 'rebase', advanced)
+                recovered = wt.recover(root, 'example', candidate, advanced, finish=True)
+                latest = advanced
                 assert recovered['tip'] == git(target, 'rev-parse', 'HEAD')
                 assert 'recovery' not in recovered
                 assert recovered['start'] == state['start']

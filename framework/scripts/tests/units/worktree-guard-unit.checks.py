@@ -173,6 +173,52 @@ def check_idle_git_paths_and_state(tmp_path, directory, linked):
     wt.idle_git(root)
 
 
+@pytest.mark.parametrize('violation', ['dirty', 'suspend', 'count', 'merge', 'scope', 'history',
+                                       'head', 'base', 'unverified', 'type', 'receipt', 'descendant'])
+def check_repin_rejects_before_state_write(tmp_path, violation):
+    import copy
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    old, latest, candidate = '1' * 40, '2' * 40, '3' * 40
+    task = 'tasks/example.md'
+    text = contract('example', ['file.txt'])
+    if violation == 'suspend':
+        text = text.replace('`running`', '`suspend`') + '\n## Suspension reason\nfixture\n'
+    if violation == 'type':
+        text = text.replace('`governance`', '`migration`')
+    (tmp_path / 'tasks').mkdir()
+    (tmp_path / task).write_text(text, encoding='utf-8')
+    state = dict(task_file=task, merged=None, verified=violation != 'unverified',
+                 recovery=dict(commit='4' * 40, base=old, count='1'))
+    if violation == 'receipt':
+        del state['recovery']
+    original = copy.deepcopy(state)
+    base = tmp_path / 'base'
+
+    def output(root, *args):
+        if args[0] == 'rev-parse':
+            return ('0' * 40 if violation == 'base' else latest) if root == base else candidate
+        if args[1] == '--count':
+            return '2' if violation == 'count' else '1'
+        return 'a merge' if violation == 'merge' else ''
+
+    with patch.object(wt, 'load', return_value=(tmp_path, None, tmp_path / 'state.json', state)), \
+         patch.object(wt, 'lifecycle_lock', return_value=nullcontext()), \
+         patch.object(wt, 'task_worktree', return_value=tmp_path), \
+         patch.object(wt, 'base_worktree', return_value=base), \
+         patch.object(wt, 'output', side_effect=output), \
+         patch.object(wt, 'git', side_effect=lambda root, *args, **kwargs: SimpleNamespace(
+             returncode=int(violation == 'history' and args[-1] == candidate or
+                            violation == 'descendant' and args[-1] == latest))), \
+         patch.object(wt, 'changed_paths', return_value={'file.txt'} if violation == 'dirty' else set()), \
+         patch.object(wt, 'paths', return_value={'outside.txt'} if violation == 'scope' else {'file.txt'}), \
+         patch.object(wt, 'save') as save:
+        with pytest.raises(wt.Blocked):
+            wt.recover(tmp_path, 'example', '0' * 40 if violation == 'head' else candidate, latest, repin=True)
+        save.assert_not_called()
+    assert state == original
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

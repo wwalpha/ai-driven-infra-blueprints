@@ -147,6 +147,14 @@ candidate through the helper. Do not hand-edit metadata. Then execute the requir
 IT/Full validation before completing and finalizing. This is not a failed-validation
 integration exception and does not apply to Model tasks.
 
+If the base advances during recovery, resume a suspended contract and review the
+clean candidate first. Run `recover --repin-recovery` with the full current candidate
+hash as `--expected-commit` and full latest base hash as `--expected-base`. The helper
+retains the old receipt and checks the old-base history/count/scope plus descendant
+base before re-pinning. Manually rebase onto that pinned base, then use those new
+commit/base arguments for `--finish-recovery`. Re-pinning grants no validation PASS;
+rerun IT/Full on the final candidate before normal completion/finalize/cleanup.
+
 Standalone `import-retarget` uses the existing running-parent final-candidate path.
 Require successful latest-base reference/preservation validation; failed-validation
 approval cannot bypass it. Never demand transfer/deletion for this operation or add

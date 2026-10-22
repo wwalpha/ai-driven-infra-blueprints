@@ -442,8 +442,27 @@ def _prepare_commit(root, path, state, target, approval):
     return latest
 
 
-def recover(where, task_id, expected_commit, expected_base, finish=False):
+def _recovery_candidate(target, state, text, recovery):
+    """Reuse the exact history/scope boundary for finishing and explicitly re-pinning."""
+    base = recovery['base']
+    head = output(target, 'rev-parse', 'HEAD')
+    if (changed_paths(target) or tasks.status(text) != 'running' or
+            git(target, 'merge-base', '--is-ancestor', base, head, check=False).returncode != 0 or
+            output(target, 'rev-list', '--count', base + '..' + head) != recovery['count'] or
+            output(target, 'rev-list', '--merges', base + '..' + head)):
+        raise Blocked("recovery candidate is dirty, unfinished or has unexpected history")
+    changed = paths(target, 'diff', '--name-only', '--no-renames', '-z', base, head)
+    declared = tasks.paths_in(text, '## Modified files')
+    allowed = tasks.paths_in(text, '## Allowed paths')
+    if changed - declared or any(not any(tasks.matches(p, pattern) for pattern in allowed) for p in changed):
+        raise Blocked("recovery candidate is outside the exact task contract")
+    return head
+
+
+def recover(where, task_id, expected_commit, expected_base, finish=False, repin=False):
     """Explicit reviewed recovery; pin old task/base and never merge or validate."""
+    if finish and repin:
+        raise Blocked("finish and re-pin recovery are mutually exclusive")
     root, _, path, state = load(where, task_id)
     with lifecycle_lock(root):
         target = task_worktree(root, state)
@@ -458,21 +477,24 @@ def recover(where, task_id, expected_commit, expected_base, finish=False):
         tasks.validate_contract(target, state['task_file'], text)
         if '- Task type: `governance`' not in tasks.section(text, '## Task contract'):
             raise Blocked("reviewed recovery is limited to governance tasks")
+        if repin:
+            recovery = state.get('recovery')
+            if not recovery:
+                raise Blocked("re-pin requires an existing recovery receipt")
+            head = _recovery_candidate(target, state, text, recovery)
+            if head != expected_commit:
+                raise Blocked("recovery candidate differs from expected commit")
+            if (expected_base == recovery['base'] or
+                    git(root, 'merge-base', '--is-ancestor', recovery['base'], expected_base, check=False).returncode):
+                raise Blocked("recovery re-pin requires a descendant of its previous base")
+            state['recovery'] = dict(commit=head, base=expected_base, count=recovery['count'], previous=recovery)
+            save(path, state)
+            return state
         if finish:
             recovery = state.get('recovery')
             if not recovery or (recovery['commit'], recovery['base']) != (expected_commit, expected_base):
                 raise Blocked("recovery receipt does not match expected commit/base")
-            head = output(target, 'rev-parse', 'HEAD')
-            if (changed_paths(target) or tasks.status(text) != 'running' or
-                    git(target, 'merge-base', '--is-ancestor', expected_base, head, check=False).returncode != 0 or
-                    output(target, 'rev-list', '--count', expected_base + '..' + head) != recovery['count'] or
-                    output(target, 'rev-list', '--merges', expected_base + '..' + head)):
-                raise Blocked("recovery candidate is dirty, unfinished or has unexpected history")
-            changed = paths(target, 'diff', '--name-only', '--no-renames', '-z', expected_base, head)
-            declared = tasks.paths_in(text, '## Modified files')
-            allowed = tasks.paths_in(text, '## Allowed paths')
-            if changed - declared or any(not any(tasks.matches(p, pattern) for pattern in allowed) for p in changed):
-                raise Blocked("recovery candidate is outside the exact task contract")
+            head = _recovery_candidate(target, state, text, recovery)
             state.update(tip=head, commit=head, verified=True, validation_base=expected_base)
             del state['recovery']
             save(path, state)
@@ -673,17 +695,20 @@ def main():
                         help="Finalize a suspended task only after explicit human approval of named validation failures")
     parser.add_argument("--expected-commit")
     parser.add_argument("--expected-base")
-    parser.add_argument("--finish-recovery", action="store_true")
+    recovery_mode = parser.add_mutually_exclusive_group()
+    recovery_mode.add_argument("--finish-recovery", action="store_true")
+    recovery_mode.add_argument("--repin-recovery", action="store_true",
+                               help="Explicitly pin a reviewed clean recovery candidate to the latest descendant base")
     args = parser.parse_args()
     if args.human_approved_validation_failure is not None and args.command != "finalize":
         parser.error("--human-approved-validation-failure is only valid with finalize")
-    if args.command != "recover" and (args.expected_commit or args.expected_base or args.finish_recovery):
+    if args.command != "recover" and (args.expected_commit or args.expected_base or args.finish_recovery or args.repin_recovery):
         parser.error("recovery arguments require recover")
     where = args.repository_root
     try:
         if args.command != "create":
             where = load(where, args.task_id)[0]  # Keep diagnostics usable after task checkout removal.
-        state = (recover(where, args.task_id, args.expected_commit, args.expected_base, args.finish_recovery)
+        state = (recover(where, args.task_id, args.expected_commit, args.expected_base, args.finish_recovery, args.repin_recovery)
                  if args.command == "recover" else finalize(where, args.task_id, args.human_approved_validation_failure)
                  if args.command == "finalize" else globals()[args.command](where, args.task_id))
         print(json.dumps({"status": "ok", **state}, ensure_ascii=False))

@@ -237,10 +237,26 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             findings.warn(error, source=str(source))
         except (OSError, ValueError) as error:
             findings.check(False, f'invalid IMPORT physical reference: {findings.relative(source)}: {error}')
-    from model.projection import reference_display
+    from model.projection import document_references
+    from model.identity import Resolver
+    from model.sources import scope_for
+    from utils.json_format import policy_json
     authority_values = source_values
-    source_values = {source: reference_display(values or {}, source, root, definitions_root=definitions_root)
-                     for source, values in authority_values.items()}
+    resolver = Resolver(root)
+    json_links = {source: [] for source in sources}
+    for source, values in source_values.items():
+        model_path = (root / 'model' / source.relative_to(root / 'docs/designs')).with_suffix('.properties')
+        for row_id, row in entries(values or {}, 'desired.row.'):
+            if 'document' not in row:
+                continue
+            try:
+                document_references(policy_json(row['document']), root, property_name=row['property'],
+                                    resolver=resolver, scope=scope_for(model_path),
+                                    resolve=lambda snapshot, number, resource, attribute, uri: json_links[source].append(uri))
+            except ReferenceResolutionError as error:
+                findings.warn(error, source=str(source), consumerKey='desired.row.' + row_id + '.document')
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                findings.check(False, f"invalid JSON Resource reference: {findings.relative(source)}: {error}")
     references = {path.resolve() for path in sources}
     fragments = {}
     visible_text = {}
@@ -252,6 +268,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                                     re.sub(r"<!--.*?-->", "", "\n".join(semantic), flags=re.DOTALL))
         except ValueError:
             visible_text[source] = document.visible_text
+        visible_text[source] += '\n' + '\n'.join(json_links[source])
     for source in sources:
         for raw in LINK_PATTERN.findall(visible_text[source]):
             target, separator, fragment = raw.partition("#")

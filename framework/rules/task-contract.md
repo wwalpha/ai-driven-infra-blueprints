@@ -309,6 +309,13 @@ After explicit Human authorization to repair a retained, verified governance tas
 --expected-base <full-current-base-hash>` reopens its completed contract and prepares
 only declared corrections. It pins both hashes and preserves a recovery receipt;
 normal finalize is blocked until recovery finishes. A failed rebase is aborted.
+If the base advances during recovery, explicitly resume any suspended contract and
+review the clean candidate against the previous pinned base. Use `recover
+--repin-recovery --expected-commit <full-current-candidate-hash> --expected-base
+<full-latest-base-hash>` before rebasing again. This retains the previous receipt,
+requires the existing linear commit count and declared paths, and accepts only a
+descendant base. It never rebases, merges or grants validation PASS. The new receipt's
+commit/base become the arguments for the subsequent `--finish-recovery`.
 After reviewing conflicts, rebase manually onto that exact base, resolve and continue,
 then run the same command with `--finish-recovery`. This accepts only a clean linear
 candidate on the unchanged base, with the expected commit count and declared paths.

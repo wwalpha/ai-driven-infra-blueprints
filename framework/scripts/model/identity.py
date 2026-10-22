@@ -181,3 +181,25 @@ class Resolver:
             self.models[producer.path] = snapshot
             self.indexes[producer.path] = anchor_index(snapshot.authoritative)
         return self.models[producer.path], *select_anchor(self.indexes[producer.path], anchor, value)
+
+    def operand(self, value, scope, *, attribute=None, field=None):
+        """Validate a JSON reference without requiring its physical identifier."""
+        from reference_contracts import ARN_FORMS, attributes_for, contract
+        snapshot, number, resource = self.resolve(value, scope)
+        kind = resource['resourceType']
+        declared = contract(field) if field else {}
+        if declared and kind not in declared:
+            raise ReferenceResolutionError('JSON Resource reference type differs from receiving property', reference=value)
+        if attribute is None:
+            forms = declared.get(kind, ())
+            if len(forms) != 1:
+                raise ReferenceResolutionError('JSON Resource reference requires an explicit attribute', reference=value)
+            attribute, = forms
+        if not isinstance(attribute, str) or not attribute:
+            raise ValueError('JSON Resource attribute must be a nonempty string')
+        from utils.aws_catalogs import catalogs_for
+        if (declared and attribute not in declared[kind] or
+                (kind, attribute) not in ARN_FORMS and kind + '.' + attribute not in attributes_for(kind)
+                and attribute not in catalogs_for(self.root).selected(kind)):
+            raise ReferenceResolutionError('unsupported JSON Resource attribute: ' + kind + '.' + attribute, reference=value)
+        return snapshot, number, resource, attribute

@@ -132,18 +132,17 @@ def check_cfn_and_outputs():
                       'display.service.title': '# Buckets', 'display.resource.007.comment': 'confirmed',
                       'desired.resource.007.resourceType': 'S3.Bucket', 'desired.resource.007.resourceMode': 'IMPORT',
                       'desired.row.007-001.property': 'S3.Bucket.BucketName', 'desired.row.007-001.value': '`physical-bucket`',
-                      'desired.row.007-001.comment': 'literal stays literal',
-                      'desired.row.007-002.property': 'S3.Bucket.Arn',
-                      'desired.row.007-002.value': '[bucket](s3.md#saved-bucket)',
-                      'desired.row.007-002.comment': 'confirmed output',
-                      'observed.row.007-002.value': '`arn:aws:s3:::physical-bucket`'}
+                      'desired.row.007-001.comment': 'literal stays literal'}
             bucket['desired.resource.007.anchor'] = 'saved-bucket'
             bucket = allocate(bucket, ['007'])
             path = after / 'model/qa/team/s3.properties'
             path.write_text(serialize(bucket))
             uri = '[bucket](s3.md#saved-bucket)'
             document = {'Statement': [{'Resource': {'$resource': uri, '$attribute': 'Arn'}, 'Effect': 'Allow'}]}
+            saved = path.read_bytes()
             result = execution_document(document, after, scope=Scope(after, 'qa', 'team', 'iam'))
+            assert path.read_bytes() == saved
+            assert 'arn:' not in saved.decode('utf-8')
             assert result['Statement'][0]['Resource'] == 'arn:aws:s3:::physical-bucket'
             assert 'resource://' not in json.dumps(result)
             assert document['Statement'][0]['Resource']['$resource'] == uri
@@ -151,12 +150,12 @@ def check_cfn_and_outputs():
             rejects(lambda: execution_document({'Statement': [{'Resource': uri}]}, after, scope=Scope(after, 'qa', 'team', 'iam')))
             displayed = reference_display(bucket, after / 'docs/designs/qa/team/s3.md', after, definitions_root=framework)
             assert displayed['desired.resource.007.anchor'] == 'saved-bucket'
-            assert '#saved-bucket)' in displayed['desired.row.007-002.value']
+            assert displayed == bucket
             assert bucket['desired.row.007-001.value'] == '`physical-bucket`'
             assert bucket['desired.resource.007.anchor'] == 'saved-bucket'
             renamed = {**bucket, 'desired.row.007-001.value': '`renamed-bucket`'}
             renamed_display = reference_display(renamed, after / 'docs/designs/qa/team/s3.md', after, definitions_root=framework)
-            assert renamed_display['desired.row.007-002.value'] == bucket['desired.row.007-002.value']
+            assert renamed_display == renamed
             from model.render import generate_files
             from model.sources import runtime_values
             policy = allocate({
@@ -187,6 +186,14 @@ def check_cfn_and_outputs():
             assert 'resource://' not in files[design]
             assert '<a id="saved-policy"></a>' in files[design]
             assert json.loads(policy['desired.row.009-002.document']) == document
+            from utils.json_format import document_sha256
+            display = reference_display(policy, design, after)
+            assert display['desired.row.009-002.artifactSha256'] == document_sha256(result)
+            assert 'artifactSha256' not in serialize(policy)
+            assert path.read_bytes() == saved
+            assert 'arn:' not in serialize(policy)
+            check_json_references(after, framework, bucket, policy, files)
+
     from model.adapters.aws import Resource
     from types import SimpleNamespace
     target = SimpleNamespace(kind='S3.Bucket',
@@ -198,6 +205,155 @@ def check_cfn_and_outputs():
     assert consumer.resolve_json({'$resource': uri, '$attribute': 'Arn'}) == 'resolved-arn'
     assert consumer.resolve_json({'$resource': uri, '$attribute': 'BucketName'}) == 'physical-bucket'
     print('CFn correspondence and output projections: PASS')
+
+
+def check_json_references(root, framework, bucket, policy, artifacts):
+    """Independent authorities exercise semantic checks separately from artifacts."""
+    import json
+    from unittest.mock import patch
+    from model.format import serialize
+    from model.projection import execution_document, document_references
+    from validation.design_links import check_design_links
+    from validation.findings import Findings
+    scope = Scope(root, 'qa', 'team', 'iam')
+    producer = root / 'model/qa/team/s3.properties'
+    design = root / 'docs/designs/qa/team/iam.md'
+    uri = '[bucket](s3.md#saved-bucket)'
+    operand = {'$resource': uri, '$attribute': 'Arn'}
+    original = producer.read_bytes()
+    project = (root / 'project.json').read_bytes()
+
+    def resolve(value=operand, field=None):
+        return execution_document(value, root, scope=scope, property_name=field)
+
+    def save(values):
+        producer.write_text(serialize(values), encoding='utf-8')
+
+    with patch('botocore.session.Session.create_client', side_effect=AssertionError('AWS forbidden')):
+        assert document_references(operand, root, scope=scope) == operand
+        for name in ['UPPER', 'ab', 'bad/name', 'bad*name', 'has..dots', '192.168.1.1', 'bad--x-s3',
+                     'xn--reserved', 'UNSET', 'PENDING_DEPLOY', 'TBD', '${BucketName}', '[label](#saved-bucket)']:
+            save({**bucket, 'desired.row.007-001.value': name})
+            assert document_references(operand, root, scope=scope) == operand
+            rejects(resolve)
+        for value in ['', 'PENDING_DEPLOY', 'UNSET']:
+            save({**bucket, 'observed.row.007-001.value': value})
+            rejects(resolve)
+        save({**bucket, 'desired.row.007-002.property': 'S3.Bucket.BucketName',
+              'desired.row.007-002.value': 'PENDING_DEPLOY', 'desired.row.007-002.comment': 'duplicate'})
+        rejects(resolve)
+        save({key: value for key, value in bucket.items() if not key.startswith('desired.row.')})
+        rejects(resolve)
+        save(bucket)
+        for attribute in ['NoSuchAttribute', 'ObjectArn']:
+            rejects(lambda: resolve({'$resource': uri, '$attribute': attribute}))
+        for value in [{'$resource': '[missing](s3.md#absent)', '$attribute': 'Arn'},
+                      {'$resource': '[missing](missing.md#absent)', '$attribute': 'Arn'},
+                      {'$resource': uri, '$attribute': None}, {'$resource': uri, '$attribute': 1},
+                      {'$resource': 1, '$attribute': 'Arn'}, {'$resource': uri, 'extra': True},
+                      {'$attribute': 'Arn'}]:
+            rejects(lambda: resolve(value))
+        rejects(lambda: resolve(operand, 'Lambda.Function.Role'))
+        wrong_kind = allocate({**{key: value for key, value in bucket.items()
+                                  if not key.endswith('.logicalId') and key != COUNTERS},
+                               'desired.resource.007.resourceType': 'EC2.VPC'}, ['007'])
+        save(wrong_kind)
+        rejects(resolve)
+        save(bucket)
+        rejects(lambda: resolve({'$resource': uri, '$attribute': 'BucketName'},
+                                'KinesisFirehose.DeliveryStream.S3DestinationConfiguration.BucketARN'))
+        duplicate = allocate({**bucket, 'desired.resource.008.resourceType': 'S3.Bucket',
+                              'desired.resource.008.anchor': 'saved-bucket'}, ['008'])
+        save(duplicate)
+        rejects(resolve)
+        save(bucket)
+        assert resolve(uri, 'CloudTrail.Trail.S3BucketName') == 'physical-bucket'
+        # The producer's target supplies context, even for a cross-target consumer.
+        topology = json.loads(project)
+        other = {**topology['targets'][0], 'alias': 'other', 'awsAccountId': '222222222222',
+                 'awsExecutionAccountId': '333333333333', 'awsRegion': 'cn-north-1'}
+        topology['targets'].append(other)
+        (root / 'project.json').write_text(json.dumps(topology), encoding='utf-8')
+        for region, partition in [('ap-northeast-1', 'aws'), ('cn-north-1', 'aws-cn'),
+                                  ('us-gov-west-1', 'aws-us-gov')]:
+            topology['targets'][0]['awsRegion'] = region
+            (root / 'project.json').write_text(json.dumps(topology), encoding='utf-8')
+            assert resolve() == f'arn:{partition}:s3:::physical-bucket'
+        topology['targets'][0]['awsRegion'] = 'unknown-north-1'
+        (root / 'project.json').write_text(json.dumps(topology), encoding='utf-8')
+        rejects(resolve)
+        cases = [
+            ('KMS.Key', 'kms', {'KeyId': '12345678-1234-1234-1234-123456789012'},
+             'kms:cn-north-1:333333333333:key/12345678-1234-1234-1234-123456789012'),
+            ('KMS.Key', 'kms', {'KeyId': 'mrk-' + 'a' * 32}, 'kms:cn-north-1:333333333333:key/mrk-' + 'a' * 32),
+            ('KMS.Alias', 'kms', {'AliasName': 'alias/audit'}, 'kms:cn-north-1:333333333333:alias/audit'),
+            ('IAM.Role', 'iam', {'RoleName': 'audit-role', 'Path': '/service-role/'},
+             'iam::333333333333:role/service-role/audit-role'),
+            ('Lambda.Function', 'lambda', {'FunctionName': 'audit-function'},
+             'lambda:cn-north-1:333333333333:function:audit-function'),
+            ('Logs.LogGroup', 'cloudwatch-logs', {'LogGroupName': '/audit/logs'},
+             'logs:cn-north-1:333333333333:log-group:/audit/logs'),
+        ]
+        for kind, service, fields, suffix in cases:
+            values = {'desired.resource.001.resourceType': kind, 'desired.resource.001.anchor': 'producer',
+                      'desired.resource.001.resourceMode': 'IMPORT'}
+            for index, (attribute, raw) in enumerate(fields.items(), 1):
+                prefix = f'desired.row.001-{index:03d}.'
+                values.update({prefix + 'property': kind + '.' + attribute, prefix + 'value': raw,
+                               prefix + 'comment': 'synthetic identifier'})
+            values = allocate(values, ['001'])
+            path = root / 'model/qa/other' / (service + '.properties')
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(serialize(values), encoding='utf-8')
+            ref = {'$resource': '[producer](../other/' + service + '.md#producer)', '$attribute': 'Arn'}
+            assert resolve(ref) == 'arn:aws-cn:' + suffix
+            assert 'arn:' not in path.read_text(encoding='utf-8')
+            pending = {**values, 'observed.row.001-001.value': 'PENDING_DEPLOY'}
+            path.write_text(serialize(pending), encoding='utf-8')
+            assert document_references(ref, root, scope=scope) == ref
+            rejects(lambda: resolve(ref))
+            path.write_text(serialize({**values, 'desired.row.001-001.value': 'invalid:*'}), encoding='utf-8')
+            rejects(lambda: resolve(ref))
+        (root / 'project.json').write_bytes(project)
+        for path, content in artifacts.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding='utf-8')
+        bucket_design = design.with_name('s3.md')
+        bucket_design.write_text('# Buckets\n\n<a id="saved-bucket"></a>\n\n### S3.Bucket: physical-bucket\n', encoding='utf-8')
+        document = json.loads(policy['desired.row.009-002.document'])
+        create_policy = {**policy, 'desired.resource.009.resourceMode': 'CREATE'}
+
+        def links(values=create_policy):
+            findings = Findings(root)
+            check_design_links({}, [design], design_sources={design: values}, findings=findings,
+                               root=root, scope=None, definitions_root=framework)
+            return findings
+
+        save({**bucket, 'desired.row.007-001.value': 'PENDING_DEPLOY'})
+        # A link-only check must never call either execution projection entrypoint.
+        with patch('model.projection.execution_document', side_effect=AssertionError('physical resolution forbidden')), \
+             patch('model.projection.reference_display', side_effect=AssertionError('physical display forbidden')):
+            valid = links()
+            assert not valid.errors and not valid.warnings, (valid.errors, valid.warnings)
+        rejects(lambda: resolve(document))
+        bad = {**create_policy, 'desired.row.009-002.document': json.dumps(
+            {'Resource': {'$resource': '[missing](s3.md#absent)', '$attribute': 'Arn'}})}
+        assert links(bad).warnings
+        bad = {**create_policy, 'desired.row.009-002.document': json.dumps(
+            {'Resource': {'$resource': uri, '$attribute': 'Unknown'}})}
+        assert links(bad).warnings
+        malformed = {**create_policy, 'desired.row.009-002.document': '{"$resource":123}'}
+        assert links(malformed).errors
+        bucket_design.write_text('# Buckets\n', encoding='utf-8')
+        assert any('missing design anchor' in warning['message'] for warning in links().warnings)
+        bucket_design.unlink()
+        assert any('broken design link' in warning['message'] for warning in links().warnings)
+        # Other Markdown checks continue after an unresolved JSON reference.
+        design.write_text(artifacts[design] + '\n[broken](iam/absent.json)\n', encoding='utf-8')
+        assert any('broken design link' in error for error in links(bad).errors)
+        producer.write_bytes(original)
+        assert 'arn:' not in producer.read_text(encoding='utf-8')
+    print('transient ARN, producer context, pending links, malformed references and no persistence: PASS')
 
 
 if __name__ == '__main__':

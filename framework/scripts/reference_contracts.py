@@ -119,20 +119,29 @@ IMPORT_PROPERTIES = {
 IMPORT_PROPERTIES.update({prop: (kind, {'EC2.Subnet': 'SubnetId', 'EC2.SecurityGroup': 'GroupId'}[kind])
                           for prop, kind in LINKED_LIST_PROPERTIES.items()})
 
-# AWS documented ARN identities. Parse an acquired ARN; never construct one.
+# AWS documented ARN identities. Parsing and transient projection share these shapes.
 # S3 bucket names are global. Regional/account-scoped identities require context.
-ARN_IDENTITIES = {
-    'S3.Bucket': ('BucketName', r'arn:(?P<partition>aws(?:-[a-z]+)*):s3:::(?P<id>[a-z0-9][a-z0-9.-]{1,61}[a-z0-9])'),
-    'KMS.Key': ('KeyId', r'arn:(?P<partition>aws(?:-[a-z]+)*):kms:(?P<region>[a-z0-9-]+):(?P<account>\d{12}):key/(?P<id>(?:[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}|mrk-[a-fA-F0-9]{32}))'),
-    'KMS.Alias': ('AliasName', r'arn:(?P<partition>aws(?:-[a-z]+)*):kms:(?P<region>[a-z0-9-]+):(?P<account>\d{12}):(?P<id>alias/[A-Za-z0-9:/_-]+)'),
+ARN_SHAPES = {
+    'S3.Bucket': ('BucketName', 'arn:{partition}:s3:::{id}', {'id': r'[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]'}),
+    'KMS.Key': ('KeyId', 'arn:{partition}:kms:{region}:{account}:key/{id}', {'id': r'(?:[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}|mrk-[a-fA-F0-9]{32})'}),
+    'KMS.Alias': ('AliasName', 'arn:{partition}:kms:{region}:{account}:{id}', {'id': r'alias/[A-Za-z0-9:/_-]+'}),
+    'Lambda.Function': ('FunctionName', 'arn:{partition}:lambda:{region}:{account}:function:{id}', {'id': r'[A-Za-z0-9_-]{1,64}'}),
+    'IAM.Role': ({'RoleName': 'id', 'Path': 'path'}, 'arn:{partition}:iam::{account}:role{path}{id}',
+                 {'path': r'/(?:[^/]+/)*', 'id': r'[A-Za-z0-9_+=,.@-]+'}),
+    'Logs.LogGroup': ('LogGroupName', 'arn:{partition}:logs:{region}:{account}:log-group:{id}', {'id': r'[.\-_/#A-Za-z0-9]{1,512}'}),
 }
-ARN_FORMS = {(kind, 'Arn'): descriptor for kind, descriptor in ARN_IDENTITIES.items()}
-ARN_FORMS.update({
-    ('S3.Bucket', 'ObjectArn'): ('BucketName', r'arn:(?P<partition>aws(?:-[a-z]+)*):s3:::(?P<id>[a-z0-9][a-z0-9.-]{1,61}[a-z0-9])/(?P<prefix>[^*]*)'),
-    ('Lambda.Function', 'Arn'): ('FunctionName', r'arn:(?P<partition>aws(?:-[a-z]+)*):lambda:(?P<region>[a-z0-9-]+):(?P<account>\d{12}):function:(?P<id>[A-Za-z0-9_-]{1,64})'),
-    ('IAM.Role', 'Arn'): ({'RoleName': 'id', 'Path': 'path'}, r'arn:(?P<partition>aws(?:-[a-z]+)*):iam::(?P<account>\d{12}):role(?P<path>/(?:[^/]+/)*)(?P<id>[A-Za-z0-9_+=,.@-]+)'),
-    ('Logs.LogGroup', 'Arn'): ('LogGroupName', r'arn:(?P<partition>aws(?:-[a-z]+)*):logs:(?P<region>[a-z0-9-]+):(?P<account>\d{12}):log-group:(?P<id>[.\-_/#A-Za-z0-9]{1,512})(?::\*)?'),
-})
+
+
+def _arn_pattern(shape):
+    _, template, identity_patterns = shape
+    patterns = {'partition': r'aws(?:-[a-z]+)*', 'region': r'[a-z0-9-]+', 'account': r'\d{12}', **identity_patterns}
+    return template.format(**{name: '(?P<' + name + '>' + pattern + ')' for name, pattern in patterns.items()})
+
+
+ARN_FORMS = {(kind, 'Arn'): (shape[0], _arn_pattern(shape) + (r'(?::\*)?' if kind == 'Logs.LogGroup' else ''))
+             for kind, shape in ARN_SHAPES.items()}
+ARN_IDENTITIES = {kind: ARN_FORMS[kind, 'Arn'] for kind in ('S3.Bucket', 'KMS.Key', 'KMS.Alias')}
+ARN_FORMS['S3.Bucket', 'ObjectArn'] = ('BucketName', ARN_FORMS['S3.Bucket', 'Arn'][1] + r'/(?P<prefix>[^*]*)')
 VALUE_IDENTITIES = {
     ('SecretsManager.Secret', 'Name'): r'(?P<id>[^:]+)(?::[^:]*){0,3}',
     ('SecretsManager.Secret', 'Id'): r'(?P<id>arn:[a-z0-9-]+:secretsmanager:[a-z0-9-]+:\d{12}:secret:[^:]+)(?::[^:]*){0,3}',
