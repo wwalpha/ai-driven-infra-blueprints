@@ -2,7 +2,7 @@
 """Render service policy tables from the linked design JSON, never the reverse."""
 
 from __future__ import annotations
-from utils.json_format import policy_json, unique_object, invalid_constant
+from utils.json_format import policy_json, unique_object, invalid_constant, validate_aws_document, AwsDocumentError
 
 from validation_cache import input_scope
 import argparse
@@ -237,6 +237,7 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
 
 
 def validate_policy_document(document, policy):
+    validate_aws_document(document)
     style = POLICY_FORMATS[policy.property_name]
     if style == 'settings':
         if policy.property_name == 'ECR.Repository.LifecyclePolicy' and 'LifecyclePolicyText' in document:
@@ -256,7 +257,7 @@ def validate_policy_document(document, policy):
     statements = [statements] if isinstance(statements, dict) else statements
     if not isinstance(statements, list) or not statements:
         raise ValueError(f'policy requires non-empty Statement: {policy.link}')
-    for statement in statements:
+    for index, statement in enumerate(statements):
         if not isinstance(statement, dict) or set(statement) - set(STATEMENT_KEYS):
             raise ValueError(f'unsupported policy Statement keys: {policy.link}')
         if policy.property_name == 'IAM.Role.Policies[].PolicyDocument' and 'Sid' in statement:
@@ -264,6 +265,13 @@ def validate_policy_document(document, policy):
                 raise ValueError(f'IAM inline policy Sid must be a string of at most 16 characters: {policy.link}')
         if statement.get('Effect') not in ('Allow', 'Deny'):
             raise ValueError(f'invalid policy Statement Effect: {policy.link}')
+        for key in ('Resource', 'NotResource'):
+            if key in statement:
+                value = statement[key]
+                if not (isinstance(value, str) or isinstance(value, list) and all(isinstance(item, str) for item in value)):
+                    prefix = '/PolicyDocument' if style == 'wrapped-statement' else ''
+                    pointer = prefix + '/Statement' + (f'/{index}' if isinstance(document['Statement'], list) else '') + '/' + key
+                    raise AwsDocumentError(pointer, value, f'{key} must be a string or string array')
         for key in ('Principal', 'NotPrincipal'):
             principal = statement.get(key)
             if isinstance(principal, dict):

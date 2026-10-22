@@ -2,6 +2,41 @@
 import hashlib
 import json
 import math
+import re
+
+
+class AwsDocumentError(ValueError):
+    def __init__(self, pointer, expression, reason):
+        super().__init__(f'independent AWS JSON: JSON Pointer={pointer!r}, '
+                         f'expression={json.dumps(expression, ensure_ascii=False)}; {reason}; '
+                         'correct the Model with confirmed AWS values')
+
+
+def validate_aws_document(document):
+    """Standalone AWS JSON has no CloudFormation template evaluation context."""
+    def visit(value, pointer):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                child_pointer = pointer + '/' + key.replace('~', '~0').replace('/', '~1')
+                if key == 'Ref' or key.startswith('Fn::'):
+                    raise AwsDocumentError(child_pointer, {key: child},
+                                           'CloudFormation intrinsic requires template context')
+                visit(key, child_pointer)
+                visit(child, child_pointer)
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                visit(child, pointer + '/' + str(index))
+        elif isinstance(value, str):
+            if re.search(r'\$\{AWS::[^}]*\}|\{\{resolve:|^(?:Fn::\w+|Ref)\s*:', value):
+                raise AwsDocumentError(pointer, value, 'unresolved CloudFormation substitution/reference')
+            # Some AWS settings contain JSON encoded as a string; encoding is not an escape hatch.
+            if value.lstrip().startswith(('{', '[')):
+                try:
+                    encoded = policy_json(value)
+                except ValueError:
+                    return
+                visit(encoded, pointer)
+    visit(document, '')
 
 
 def unique_object(pairs: list[tuple[str, object]], *, label='policy JSON') -> dict:

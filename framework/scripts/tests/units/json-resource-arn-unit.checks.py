@@ -273,6 +273,117 @@ def check_unsupported_references(tmp_path, case):
         execution_document(selected, tmp_path, scope=scope)
 
 
+
+@pytest.mark.parametrize('expression', [
+    {'Fn::Sub': 'arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/stg-vpc-01/*'},
+    {'Fn::ImportValue': 'UnknownExport'}, {'Fn::GetAtt': ['Unknown', 'Arn']},
+    {'Fn::Join': ['', ['arn:', {'Ref': 'Unknown'}]]}, {'Ref': 'AWS::Region'},
+    {'Fn::If': ['Condition', '*', 'arn:unknown']}, {'Fn::Select': [0, ['*']]},
+    {'Fn::Unknown': 'future'}, '${AWS::Region}', '${AWS::AccountId}',
+    '{{resolve:ssm:unacquired}}', '{"Fn::Sub":"${AWS::Region}"}',
+    '{"Fn::ImportValue":"UnknownExport"}', '{"Fn::GetAtt":["Unknown","Arn"]}',
+    'Fn::Sub: literal-looking-expression',
+])
+def check_standalone_expressions(tmp_path, expression):
+    from model.projection import json_sha256
+    from utils.json_format import validate_aws_document
+    scope, _, policy, _ = fixture(tmp_path)
+    document = {'Statement': [{'Effect': 'Allow', 'Action': '*', 'Resource': [expression]}]}
+    key = 'desired.row.009-002.document'
+    policy[key] = json.dumps(document)
+    original = copy.deepcopy(document)
+    for operation in (
+        lambda: execution_document(document, tmp_path, scope=scope, logical_id='IAM_ManagedPolicy_001',
+                                   property_name='IAM.ManagedPolicy.PolicyDocument'),
+        lambda: reference_display(runtime_values(policy), scope.path, tmp_path),
+    ):
+        with pytest.raises(ValueError) as caught:
+            operation()
+        message = str(caught.value)
+        for part in (str(scope.path), 'IAM_ManagedPolicy_001', 'IAM.ManagedPolicy.PolicyDocument',
+                     '/Statement/0/Resource/0', 'expression=', 'CloudFormation', 'correct the Model'):
+            assert part in message, message
+    artifact = tmp_path / 'policy.json'
+    artifact.write_text(json.dumps(document), encoding='utf-8')
+    with pytest.raises(ValueError, match='CloudFormation'):
+        json_sha256(artifact)
+    with pytest.raises(ValueError, match='/a~1b~0/0'):
+        validate_aws_document({'a/b~': [expression]})
+    assert document == original
+    with pytest.raises(ValueError, match='independent AWS JSON') as caught:
+        execution_document([{'$resource': '[missing](absent.md#missing)'}, expression], tmp_path, scope=scope)
+    assert not isinstance(caught.value, ReferenceResolutionError)
+
+
+def check_standalone_generation(tmp_path):
+    from model.render import generate_files
+    from sync_runtime import generate_views
+    from utils.aws_mappings import mapping_alias
+    root, stage = tmp_path / 'root', tmp_path / 'stage'
+    root.mkdir()
+    stage.mkdir()
+    scope, _, policy, _ = fixture(root)
+    good = {'Version': '2012-10-17', 'Statement': [{'Effect': 'Allow',
+        'Action': ['s3:GetObject'], 'Resource': ['arn:aws:s3:::bucket/${aws:username}'],
+        'Condition': {'StringEquals': {'s3:prefix': '${aws:PrincipalTag/team}'}}}]}
+    policy['desired.row.009-002.document'] = json.dumps(good)
+    design = root / 'docs/designs/dev/consumer/iam.md'
+    artifact = design.with_suffix('') / 'policy.json'
+    with mapping_alias(FRAMEWORK, root):
+        files = generate_files(design, runtime_values(policy), root)
+        displayed = reference_display(runtime_values(policy), scope.path, root)
+        assert json.loads(files[artifact]) == good
+        assert displayed['desired.row.009-002.artifactSha256'] == document_sha256(good)
+        assert '${aws:username}' in files[design]
+        # A valid first artifact must not be saved when a later document is rejected.
+        for key, value in list(policy.items()):
+            if key.startswith(('desired.resource.009.', 'display.resource.009.', 'desired.row.009-')):
+                policy[key.replace('.009', '.010', 1)] = value
+        policy[COUNTERS] = '{"IAM.ManagedPolicy":2}'
+        policy['desired.resource.010.logicalId'] = 'IAM_ManagedPolicy_002'
+        policy['desired.resource.010.anchor'] = 'second-policy'
+        policy['desired.row.010-001.value'] = '`second-policy`'
+        policy['desired.row.010-002.value'] = '[Policy](iam/second.json)'
+        policy['desired.row.010-002.document'] = json.dumps({'Statement': [
+            {'Effect': 'Allow', 'Action': '*', 'Resource': [{'Fn::ImportValue': 'UnknownExport'}]}]})
+        save(scope, policy)
+        artifact.parent.mkdir(parents=True)
+        artifact.write_text('existing artifact\n', encoding='utf-8')
+        design.write_text('existing design\n', encoding='utf-8')
+        before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
+        with pytest.raises(ValueError, match='IAM_ManagedPolicy_002.*Fn::ImportValue'):
+            generate_files(design, runtime_values(policy), root)
+        failures = []
+        generated = generate_views(stage, root, {design: runtime_values(policy)}, failures,
+                                   definitions_root=FRAMEWORK)
+        assert not generated and any('Fn::ImportValue' in error for error in failures), failures
+        assert (stage / artifact.relative_to(root)).read_bytes() == before[artifact]
+        assert not (stage / artifact.with_name('second.json').relative_to(root)).exists()
+        assert {p: p.read_bytes() for p in root.rglob('*') if p.is_file()} == before
+
+
+def check_standalone_and_cfn_boundaries(tmp_path):
+    from cfnlint.decode import decode
+    from cloudformation_inputs import resolve_value
+    document = {'Nested': [{'Enabled': True, 'Count': 2, 'Nothing': None}],
+                'PolicyVariable': '${aws:username}', 'Url': 'https://example.com',
+                'EncodedSettings': '{"rules":[{"name":"keep"}]}'}
+    assert execution_document(document, tmp_path) == document
+    with patch('model.projection.document_references', return_value={'Ref': 'AWS::Region'}), \
+            pytest.raises(ValueError, match='CloudFormation'):
+        execution_document(document, tmp_path)
+    template_path = tmp_path / 'template.yaml'
+    template_path.write_text('Value: !Sub "${AWS::Region}-${Name}"\nImport: !ImportValue Export\nAttr: !GetAtt Resource.Arn\n', encoding='utf-8')
+    template, errors = decode(str(template_path))
+    assert not errors
+    original = copy.deepcopy(template)
+    assert resolve_value(template['Value'], {'Name': 'confirmed'}, {'AWS::Region': 'ap-northeast-1'}) == 'ap-northeast-1-confirmed'
+    assert resolve_value(template['Import'], {}, {}, exports={'Export': 'confirmed-export'}) == 'confirmed-export'
+    with pytest.raises(ValueError, match='CloudFormation'):
+        execution_document(template, tmp_path)
+    assert template == original
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__, message='JSON Resource ARN projections: PASS'))

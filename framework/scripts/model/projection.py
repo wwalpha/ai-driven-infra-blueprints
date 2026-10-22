@@ -1,5 +1,5 @@
 """Derived execution/display fields; never serialize these into Model authority."""
-from utils.json_format import document_sha256
+from utils.json_format import document_sha256, policy_json, validate_aws_document
 from contextlib import contextmanager
 from contextvars import ContextVar
 import json
@@ -19,7 +19,8 @@ REFERENCE_NAME_SUFFIXES = ('.Name', '.RoleName', '.LogGroupName', '.BucketName',
                          '.QueueName', '.UserName', '.RepositoryName')
 
 def json_sha256(path: Path) -> str:
-    content = json.loads(input_text(path, encoding="utf-8"))
+    content = policy_json(input_text(path, encoding="utf-8"))
+    validate_aws_document(content)
     return document_sha256(content)
 
 
@@ -255,8 +256,9 @@ def reference_display(values, path, root, *, definitions_root=None):
     result = dict(values)
     for key, value in values.items():
         if key.startswith('desired.row.') and key.endswith('.document'):
-            projected = execution_document(json.loads(value), root,
-                property_name=values[key.removesuffix('document') + 'property'], resolver=resolver, scope=scope)
+            projected = execution_document(policy_json(value), root,
+                property_name=values[key.removesuffix('document') + 'property'], resolver=resolver, scope=scope,
+                logical_id=values.get(f'desired.resource.{key.split(".")[2].rpartition("-")[0]}.logicalId'))
             result[key] = json.dumps(projected, ensure_ascii=False)
             result[key.removesuffix('document') + 'artifactSha256'] = document_sha256(projected)
     for row_id, row in entries(values, 'desired.row.'):
@@ -325,7 +327,7 @@ def confirmed_property(snapshot, number, kind, attribute, uri, resolver):
     raise ReferenceResolutionError('JSON Resource reference requires one confirmed output: ' + kind + '.' + attribute, reference=uri)
 
 
-def execution_document(document, root, *, property_name=None, resolver=None, scope=None):
+def execution_document(document, root, *, property_name=None, resolver=None, scope=None, logical_id=None):
     """Resolve confirmed JSON operands; unresolved values cannot become AWS artifacts."""
     from reference_contracts import ARN_SHAPES, ARN_FORMS
     from model.sources import target_for
@@ -373,4 +375,17 @@ def execution_document(document, root, *, property_name=None, resolver=None, sco
                                    account=target.get('awsExecutionAccountId', target['awsAccountId']), **parts)
         return confirmed_property(snapshot, number, kind, attribute, uri, resolver)
 
-    return document_references(document, root, property_name=property_name, resolver=resolver, scope=scope, resolve=reference)
+    from utils.json_format import AwsDocumentError
+    from policy_tables import POLICY_FORMATS, Policy, validate_policy_document
+    try:
+        # Invalid template expressions must not be downgraded to a pending-reference warning.
+        validate_aws_document(document)
+        projected = document_references(document, root, property_name=property_name, resolver=resolver, scope=scope, resolve=reference)
+        if property_name in POLICY_FORMATS:
+            validate_policy_document(projected, Policy('', '', '', '', property_name))
+        else:
+            validate_aws_document(projected)
+    except AwsDocumentError as error:
+        raise ValueError(f'Model={scope.path if scope else root}, Resource logicalId={logical_id}, '
+                         f'Property={property_name}; {error}') from error
+    return projected

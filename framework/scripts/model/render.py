@@ -362,7 +362,9 @@ def generate_files(path, values, root):
         if artifact.parent != path.with_suffix('').resolve():
             raise ValueError('JSON artifact must belong to owning service')
         from model.projection import execution_document
-        document = execution_document(policy_json(row['document']), root, property_name=row['property'], resolver=resolver, scope=scope_for((root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties')))
+        document = execution_document(policy_json(row['document']), root, property_name=row['property'], resolver=resolver,
+            scope=scope_for((root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties')),
+            logical_id=values.get(f'desired.resource.{identity.rpartition("-")[0]}.logicalId'))
         content = json.dumps(document, ensure_ascii=False, indent=2) + '\n'
         if artifact in artifacts and artifacts[artifact] != content:
             raise ValueError('conflicting authoritative JSON documents')

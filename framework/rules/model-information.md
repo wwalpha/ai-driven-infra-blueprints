@@ -305,6 +305,18 @@ JSON artifact links outside JSON bodies remain supported.
 
 Rows with JSON links require `desired.row.<番号>.document`; reject duplicate JSON keys, invalid constants, and non-objects. Artifact hashes are derived values that can be checked during generation; do not make them authoritative design values.
 
+Independent AWS configuration/policy JSON is an AWS API document, not a CloudFormation
+template. The shared execution projection must reject nested `Fn::*`, CloudFormation
+`Ref`, unresolved `${AWS::...}` and dynamic references, including JSON encoded inside
+strings. These expressions require template/Stack/Export context; do not infer that
+context or persist generated ARNs. Report the Model path, Resource logicalId, Property,
+JSON Pointer, expression and reason, requesting a Model correction with confirmed values.
+Keep existing confirmed Resource operand projection for read/comparison compatibility.
+Generation, policy display and artifact hashes use the same projected document; validate
+the result before any publication. IAM `Resource`/`NotResource` must be strings or arrays
+of strings. Legitimate IAM variables such as `${aws:username}` remain literal strings.
+CloudFormation templates and their IaC comparison evaluator retain their own semantics.
+
 Human-confirmed `display.resource.<番号>.label` for types without name properties is valid as a display name even if it is the same string as the internal logical ID. The validator matches `desired.resource.<番号>.resourceType`, `logicalId`, and explicit label of the same number against corresponding detail headings. Reject reuse of internal IDs without labels or substitution with labels from other resource types or logical IDs. Retain new-format model entry numbers or old-format hidden logical ID markers, saved anchors, and desired/observed namespaces and values. Do not create Name tags, catalog properties, or IaC settings from display labels.
 
 During generation, arrange ordinary properties in catalog row order without changing model row numbers or saved order. Move contiguous groups of the same array while retaining internal element and field order. Track consumption of selected input row IDs in the existing display transformations; allow deliberate multi-row aggregation and exclude Mapping-hidden rows. Reject missing or duplicate consumption without constructing an intermediate Model. Check values and comments with transformation regression tests and saved-output comparison.

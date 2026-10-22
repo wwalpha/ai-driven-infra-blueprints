@@ -17,6 +17,16 @@
 | `json-resource-arn::target` | `check_unconfirmed_target` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 20 | producer Region/accountの欠落・不正、SDKにないRegion/partition拒否 | JSON projection |
 | `json-resource-arn::unsupported` | `check_unsupported_references` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 6 | 不在・曖昧anchor、非対応属性/ObjectArn、KMS Alias/他TypeのARN導出拒否 | JSON projection |
 
+## Independent AWS JSON
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `standalone-json::expressions` | `check_standalone_expressions` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 15 | intrinsic/pseudo/dynamic/文字列化式を投影・表示・hashで拒否、Model/logicalId/property/Pointer/理由、Pointer escape、未確定参照によるWARNING化禁止、入力不変 | JSON projection |
+| `standalone-json::generation` | `check_standalone_generation` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 1 | 正常IAM変数・JSON/表示/hash一致、後続JSON失敗時に先行成果物を保存せず既存成果物/Model保持 | JSON projection |
+| `standalone-json::cfn-boundary` | `check_standalone_and_cfn_boundaries` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 1 | 通常値/型とIAM変数保持、CFn YAMLタグと既存式評価維持 | JSON projection |
+| `standalone-json::resource-types` | `check_resource_types` | UT | [units/policy_tables-unit.checks.py](units/policy_tables-unit.checks.py) | pytest / 12 | Resource/NotResourceのobject・混合配列・非string scalar拒否 | Policy |
+| `standalone-json::valid-resources` | `check_valid_resource_types` | UT | [units/policy_tables-unit.checks.py](units/policy_tables-unit.checks.py) | pytest / 4 | string/string配列、Statement object、Principal/NotAction/Condition、IAM変数を維持 | Policy |
+
 ## Framework定義不変による削除
 
 定義ファイルはコピー先も含めて変更・追加・削除しない。現行定義の共有参照、メモリ上の入力辞書・既存Mockによるコード検証、独立した読取例外は維持する。cfn-lintの利用者指定config/外部registryと、同期処理の仮txt・Frameworkコードは固定Framework定義に含めない。

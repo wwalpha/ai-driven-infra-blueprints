@@ -160,7 +160,8 @@ def generate_views(stage, root, destinations, failures, definitions_root=None, *
                 if "document" not in row:
                     raise ValueError(f"authoritative JSON document missing: {path.name}: {identity}")
                 from model.projection import execution_document
-                document = execution_document(policy_json(row["document"]), root, property_name=row["property"], resolver=resolver, scope=model.scope)
+                document = execution_document(policy_json(row["document"]), root, property_name=row["property"], resolver=resolver,
+                    scope=model.scope, logical_id=values.get(f'desired.resource.{identity.rpartition("-")[0]}.logicalId'))
                 if not isinstance(document, dict):
                     raise ValueError(f"JSON document must be an object: {identity}")
                 artifact = (staged.parent / match.group(1)).resolve()

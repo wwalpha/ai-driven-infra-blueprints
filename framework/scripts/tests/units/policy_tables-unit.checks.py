@@ -46,6 +46,27 @@ def check_lossless_generation():
         validate_policy_document(document, policy)
 
 
+
+@pytest.mark.parametrize('key', ['Resource', 'NotResource'])
+@pytest.mark.parametrize('value', [{'unexpected': '*'}, [{'unexpected': '*'}], ['*', 1], None, 3, True])
+def check_resource_types(key, value):
+    from policy_tables import Policy, validate_policy_document
+    policy = Policy('test', 'policy.json', 'test', 'policy', 'IAM.ManagedPolicy.PolicyDocument')
+    with pytest.raises(ValueError, match=key + ' must be a string or string array'):
+        validate_policy_document({'Statement': [{'Effect': 'Allow', 'Action': '*', key: value}]}, policy)
+
+
+@pytest.mark.parametrize('key', ['Resource', 'NotResource'])
+@pytest.mark.parametrize('value', ['*', ['arn:aws:s3:::bucket/${aws:username}', '*']])
+def check_valid_resource_types(key, value):
+    from policy_tables import Policy, validate_policy_document
+    policy = Policy('test', 'policy.json', 'test', 'policy', 'IAM.ManagedPolicy.PolicyDocument')
+    document = {'Statement': {'Effect': 'Allow', 'NotAction': ['s3:DeleteObject'], key: value,
+        'Principal': {'AWS': ['111111111111']},
+        'Condition': {'StringEquals': {'aws:username': '${aws:username}'}}}}
+    validate_policy_document(document, policy)
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))
