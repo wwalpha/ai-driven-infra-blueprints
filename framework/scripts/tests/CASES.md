@@ -151,6 +151,13 @@ remain separate. Dry-run/incomplete/display-failed sessions are retained.
 
 ## 数え方
 
+| Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
+| --- | --- | --- | --- | --- | --- | --- |
+| `s3-kms-reference::authority` | `check_authority_display_and_references` | UT | [units/s3-kms-reference-unit.checks.py](units/s3-kms-reference-unit.checks.py) | pytest / 2 | Alias/明示Key Arnの保存再読込、schema、Markdown/表示検証、incoming、IMPORT、stale、正本バイト不変・生成ARN非保存 | Synthetic Models |
+| `s3-kms-reference::invalid` | `check_invalid_scalar` | UT | [units/s3-kms-reference-unit.checks.py](units/s3-kms-reference-unit.checks.py) | pytest / 11 | 不正属性/構造、Alias/他Type、不在/曖昧anchor、別targetを解決・最終候補guardで拒否 | Scalar contract |
+| `s3-kms-reference::pending` | `check_pending_key_projection` | UT | [units/s3-kms-reference-unit.checks.py](units/s3-kms-reference-unit.checks.py) | pytest / 1 | 未作成KeyIdのまま既存Key表示名で投影し、ARN導出・AWSを要求しない | Display only |
+| `s3-kms-reference::iac` | `check_iac_matrix` | UT | [units/s3-kms-reference-unit.checks.py](units/s3-kms-reference-unit.checks.py) | pytest / 11 | KeyArn一致、KeyId/別Key/AliasName/AliasArn不一致、未証明式・literal ARN uncompared、従来形式維持 | Synthetic CFn |
+
 CodeBuild PLAINTEXTの属性参照比較は `units/test_issues_iac.py::ImportValueResolutionTests.test_codebuild_plaintext_resource_attributes`
 （UT / unittest 1 case）で検証する。合成Model identityとCFn定義を使用し、Key ARN/GetAtt、Alias ARN/Subと両Export値の一致、Key/Alias・別対象・別属性の不一致、未確定参照・不正selector、Export名literalの非一致、既存S3 BucketName参照を確認する。実行中repoのproject/Model入力・AWSは使用しない。
 

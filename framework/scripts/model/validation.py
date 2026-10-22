@@ -339,6 +339,12 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
         for row_id, row in entries(selected, 'desired.row.'):
             def literal_check():
                 prop, value = row['property'], row.get('document', literal(row['value']))
+                from model.projection import scalar_reference, scalar_reference_operand
+                if scalar_reference(row) is not None:
+                    from model.sources import scope_for
+                    model_path = (root / 'model' / view.relative_to(root / 'docs/designs')).with_suffix('.properties')
+                    scalar_reference_operand(row, root, scope_for(model_path))
+                    return
                 if 'document' not in row and is_import_expression(prop, row['value'], view):
                     return
                 if 'document' not in row and resource_link(row['value']):

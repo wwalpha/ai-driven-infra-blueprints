@@ -3,6 +3,11 @@ import re
 from functools import lru_cache
 from design_layout import LINKED_LIST_PROPERTIES
 
+S3_KMS_MASTER_KEY_ID = ('S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[]'
+                        '.ServerSideEncryptionByDefault.KMSMasterKeyID')
+# Scalar selectors are enabled only for this receiving property.
+SCALAR_REFERENCE_PROPERTIES = {S3_KMS_MASTER_KEY_ID: ('KMS.Key', 'Arn')}
+
 # Documented identifier formats absent from the provider schema's string pattern.
 # Each entry is a property contract, not permission to erase reference attributes.
 # https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-kms-alias.html

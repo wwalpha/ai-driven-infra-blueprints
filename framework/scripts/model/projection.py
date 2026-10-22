@@ -211,6 +211,40 @@ def resource_display_rows(values: dict[str, str], identity: str, resource: dict[
 
 
 
+def scalar_reference(row):
+    """Decode the existing JSON scalar only at explicitly enabled properties."""
+    from reference_contracts import SCALAR_REFERENCE_PROPERTIES
+    from model.references import _json
+    from model.identity import resource_link
+    prop = re.sub(r'\[\d+\]', '[]', row['property'])
+    if prop not in SCALAR_REFERENCE_PROPERTIES or 'document' in row:
+        return None
+    value, structured = _json('desired.row.scalar.value', row['value'])
+    if not structured:
+        return None
+    if (not isinstance(value, dict) or set(value) != {'$resource', '$attribute'} or
+            not resource_link(value['$resource']) or value['$attribute'] != SCALAR_REFERENCE_PROPERTIES[prop][1]):
+        raise ValueError('scalar Resource reference requires a Resource link and explicit Arn: ' + prop)
+    return value
+
+
+def scalar_reference_operand(row, root, scope, *, resolver=None):
+    """Resolve scalar intent without acquiring or deriving any physical value."""
+    from reference_contracts import SCALAR_REFERENCE_PROPERTIES
+    from model.identity import Resolver
+    selector = scalar_reference(row)
+    if selector is None:
+        return None
+    operand = (resolver or Resolver(root)).operand(selector['$resource'], scope,
+        attribute=selector['$attribute'], field=row['property'])
+    snapshot, _, resource, attribute = operand
+    expected = SCALAR_REFERENCE_PROPERTIES[re.sub(r'\[\d+\]', '[]', row['property'])]
+    if ((resource['resourceType'], attribute) != expected or
+            (snapshot.scope.environment, snapshot.scope.target) != (scope.environment, scope.target)):
+        raise ReferenceResolutionError('scalar Arn reference requires a same-target KMS.Key', reference=selector['$resource'])
+    return operand
+
+
 def reference_display(values, path, root, *, definitions_root=None):
     """Preserve saved links/anchors and project only execution documents for display."""
     from model.identity import Resolver
@@ -225,6 +259,15 @@ def reference_display(values, path, root, *, definitions_root=None):
                 property_name=values[key.removesuffix('document') + 'property'], resolver=resolver, scope=scope)
             result[key] = json.dumps(projected, ensure_ascii=False)
             result[key.removesuffix('document') + 'artifactSha256'] = document_sha256(projected)
+    for row_id, row in entries(values, 'desired.row.'):
+        operand = scalar_reference_operand(row, root, scope, resolver=resolver)
+        if operand is not None:
+            snapshot, number, resource, _ = operand
+            from model.render import resource_presentation
+            from model.identity import address
+            name, _, _ = resource_presentation(snapshot.values, number, resource,
+                definitions_root or root, scope=snapshot.scope)
+            result[f'desired.row.{row_id}.value'] = address(snapshot.scope, resource, consumer_scope=scope, label=name)
     return result
 
 

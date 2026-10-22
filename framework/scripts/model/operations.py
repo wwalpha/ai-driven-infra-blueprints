@@ -850,6 +850,11 @@ def validate_candidates(root, sources, output, scope):
         if reads.kind(path) == 'missing':
             continue  # Incoming consumers are still checked, including deleted producers.
         model = load_model(source_scope(root, path), reads)
+        from model.projection import scalar_reference_operand
+        from model.identity import Resolver
+        resolver = Resolver(root, reads)
+        for _, row in entries(model.authoritative, 'desired.row.'):
+            scalar_reference_operand(row, root, model.scope, resolver=resolver)
         from model.identity import display_anchor
         anchors = [display_anchor(resource) for _, resource in entries(model.authoritative, 'desired.resource.')]
         if len(anchors) != len(set(anchors)):

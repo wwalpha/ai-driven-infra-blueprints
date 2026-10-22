@@ -259,6 +259,14 @@ class Resolver:
                     context[prop] = literal(raw)
             if properties is not None and prop not in properties:
                 continue
+            from model.projection import scalar_reference
+            selector = scalar_reference(row)
+            if selector is not None:
+                from reference_contracts import SCALAR_REFERENCE_PROPERTIES
+                kind, attribute = SCALAR_REFERENCE_PROPERTIES[re.sub(r'\[\d+\]', '[]', prop)]
+                self.verify(prop, selector['$resource'], _UNOBSERVED if observed is None else literal(observed),
+                            context, contracts={kind: (attribute,)}, require_links=require_links, location=location)
+                continue
             if prop in CONFIGURATION_PROPERTIES:
                 selector, choices = CONFIGURATION_PROPERTIES[prop]
                 desired = json.loads(row.get('document', literal(raw)))

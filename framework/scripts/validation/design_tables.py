@@ -406,7 +406,7 @@ def check_design_tables(
                     if cells[1] == S3_KMS_MASTER_KEY_ID:
                         findings.warn(
                             RESOURCE_LINK_PATTERN.fullmatch(cells[2]) is not None,
-                            f"S3 KMSMasterKeyID must link to a KMS.Alias: {findings.relative(path)}: {current_logical_id}",
+                            f"S3 KMSMasterKeyID must link to a KMS.Alias or an explicit Model KMS.Key/Arn: {findings.relative(path)}: {current_logical_id}",
                         )
                     if cells[1] == "EC2.SecurityGroup.VpcId":
                         findings.warn(

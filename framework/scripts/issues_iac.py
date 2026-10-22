@@ -10,7 +10,7 @@ from model.adapters.observed import resource_index, mapped_resource
 from design_catalog import DesignSchemaCatalog
 from design_layout import GROUPED, HIDDEN_PROPERTIES, resource_mode
 from iac_values import cfn_resource_identity
-from model.projection import catalog_outputs, reference_attribute
+from model.projection import catalog_outputs, reference_attribute, scalar_reference
 from model.core import LINK, entries, stack_model
 from model.sources import model_paths, model_exists
 from model.files import load_model, resource_row_index, MAX_LINES
@@ -25,7 +25,7 @@ from iac_values import ResourceReference, Expression, safe_value, same, selected
 from utils.json_format import policy_json as strict_json
 
 
-from reference_contracts import REFERENCE_FORMS, REFERENCE_PROPERTIES
+from reference_contracts import REFERENCE_FORMS, REFERENCE_PROPERTIES, SCALAR_REFERENCE_PROPERTIES
 
 # Local policy for the currently failing KMS consumers; other contracts stay unchanged.
 KMS_COMPARISON_FORMS = {
@@ -404,11 +404,12 @@ class Comparison:
         return self.reference_formats[key]
 
     def reference_diagnostic(self, left, right, kind, path, reason):
-        forms = self.reference_forms(kind, path)
+        explicit = getattr(left, 'explicit_attribute', False) and kind + '.' + path in SCALAR_REFERENCE_PROPERTIES
+        forms = {'KeyArn'} if explicit else self.reference_forms(kind, path)
         symbols = all(isinstance(value, ResourceReference) for value in (left, right))
         identity = ('same' if left['$resource'] == right['$resource'] else 'different') if symbols else 'unproven'
         def format_status(value):
-            if self.local_comparison and kind + '.' + path in KMS_COMPARISON_FORMS:
+            if explicit or self.local_comparison and kind + '.' + path in KMS_COMPARISON_FORMS:
                 form = self.kms_format(value)
                 return 'unproven' if form is None else 'allowed' if form in forms else 'outside allowed forms'
             if forms is None or not isinstance(value, ResourceReference):
@@ -562,6 +563,8 @@ class Comparison:
                     except (Blocked, ValueError, KeyError, TypeError, OSError):
                         return None
         allowed = KMS_COMPARISON_FORMS.get(kind + '.' + path) if self.local_comparison else None
+        if getattr(left, 'explicit_attribute', False) and kind + '.' + path in SCALAR_REFERENCE_PROPERTIES:
+            allowed = {'KeyArn'}
         if allowed:
             forms = self.kms_format(left), self.kms_format(right)
             reason = None
@@ -742,6 +745,16 @@ class Comparison:
         return symbol
 
     def desired_value(self, service, row, kind, *, stack=None, context=None):
+        selector = scalar_reference(row)
+        if selector is not None:
+            prop = re.sub(r'\[\d+\]', '[]', row['property'])
+            symbol = self.desired_reference(service, selector['$resource'], kind,
+                prop.removeprefix(kind + '.'), selector['$attribute'], context)
+            refservice, identity = symbol['$resource']
+            if self.resources[refservice][identity]['resourceType'] != SCALAR_REFERENCE_PROPERTIES[prop][0]:
+                raise Blocked('scalar Arn reference requires a KMS.Key')
+            symbol.explicit_attribute = True
+            return symbol
         raw = row.get('document', row['value'])
         if 'document' in row:
             value = strict_json(raw)
