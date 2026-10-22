@@ -226,8 +226,8 @@ def usages(snapshot, read_context=None, *, _cache=None, _producer_scope=None, _c
     return tuple(result)
 
 
-def diagnose(snapshot, read_context=None, *, _producer_scope=None):
-    """Only semantic producer failures become warnings; syntax, scope and I/O propagate."""
+def diagnose(snapshot, read_context=None, *, _producer_scope=None, errors=None):
+    """Retain producer warnings; validation may collect proven receiving-type errors."""
     reads = read_context or FileReads()
     warnings, dependencies, cache = [], dict(snapshot.dependencies), {snapshot.scope.path: snapshot}
     # The producer cache retains snapshots, so their IDs stay unique for this diagnosis.
@@ -306,6 +306,7 @@ def diagnose(snapshot, read_context=None, *, _producer_scope=None):
             expected = (producer.scope.environment, producer.scope.target, producer.scope.service)
             if address[:3] != expected:
                 warn('declared producer differs from the saved link; both meanings are retained')
+                continue
             else:
                 key = (id(producer), 'anchors')
                 if key not in parsed:
@@ -314,8 +315,23 @@ def diagnose(snapshot, read_context=None, *, _producer_scope=None):
                     number, _ = select_anchor(parsed[key], address[3], usage.text)
                     if number != identity:
                         warn('declared producer differs from the saved link; both meanings are retained')
+                        continue
                 except ReferenceResolutionError as error:
                     warn(str(error))
+                    continue
+        if (errors is not None and usage.consumer_key.startswith('desired.row.')
+                and usage.consumer_key.endswith('.value') and spec.get('format', 'link') == 'link'):
+            row = usage.consumer_key.rsplit('.', 1)[0]
+            if row + '.document' not in snapshot.authoritative:
+                from reference_contracts import contract
+                prop = snapshot.authoritative[row + '.property']
+                expected = contract(prop)
+                if expected and resource['resourceType'] not in expected:
+                    errors.append(
+                        f'Resource reference type mismatch: Property={prop}, '
+                        f'Consumer={usage.consumer_key}, Element={usage.text!r}, '
+                        f'Position={usage.start}:{usage.end}, Pointer={usage.pointer!r}, '
+                        f'ExpectedResourceType={"|".join(expected)}, ActualResourceType={resource["resourceType"]}')
     for path, producer in cache.items():
         if producer is None:
             dependencies[path] = None

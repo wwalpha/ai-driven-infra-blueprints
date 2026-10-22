@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-sys.path[:0] = [str(Path(__file__).resolve().parents[2])]
+sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 from model.core import entries, validate_model_keys, validate_runtime_keys, ReferenceResolutionError
@@ -14,6 +14,110 @@ from model.identity import Resolver, parse_reference, COUNTERS, preserve_allocat
 from model.sources import Scope, load_model
 from model.references import usages, incoming, symbolic, diagnose
 from model.projection import execution_document, reference_display
+
+
+def check_receiving_contracts(root):
+    from model.validation import check_model_inputs, validate_json_settings
+    from model.render import generate_markdown
+    from model.importing.references import Resolver as ImportResolver
+    from model.sources import FileReads
+    from reference_contracts import contract
+    from support.import_model_fixtures import resource_values, service_values
+    from support.model_sources import write_model
+    from design_document import DesignIndex
+
+    definitions = Path(__file__).resolve().parents[4]
+    scope = Scope(root, 'dev', 'cde', 'glue')
+    links = ['[Connection 001](glue.md#connection-001)', '[Connection 002](glue.md#connection-002)']
+    prop, key = 'Glue.Job.Connections.Connections', 'desired.row.009-004.value'
+    values = service_values('glue', ['Glue.Connection', 'Glue.Job'])
+    for number, link in enumerate(links, 1):
+        rid = f'{number:03d}'
+        values.update(resource_values(rid, 'Glue.Connection', 'connection-' + rid, 'IMPORT', [
+            ('Name', link), ('ConnectionInput.Name', '`physical-connection-' + rid + '`'),
+            ('ConnectionInput.ConnectionType', '`JDBC`'), ('CatalogId', '`123456789012`')]))
+        values[f'observed.row.{rid}-001.value'] = '`physical-connection-' + rid + '`'
+    values.update(resource_values('009', 'Glue.Job', 'job', 'IMPORT', [
+        ('Name', '`job`'), ('Role', '`existing-role`'), ('Command.Name', '`glueetl`'),
+        ('Connections.Connections', json.dumps(links))]))
+    values[COUNTERS] = '{"Glue.Connection":2,"Glue.Job":9}'
+    values['observed.row.009-004.value'] = json.dumps(['physical-connection-001', 'physical-connection-002'])
+    bucket = Scope(root, 'dev', 'cde', 's3')
+    write_model(bucket.path, resource_values('001', 'S3.Bucket', 'bucket', 'IMPORT', [('BucketName', '`bucket`')]))
+    write_model(scope.path, values)
+    saved = scope.path.read_bytes()
+    assert contract(prop) == contract(prop + '[17]') == {'Glue.Connection': ('Name',)}
+    snapshot = load_model(scope)
+    assert not snapshot.warnings and dict(snapshot.authoritative) == values
+    findings = check_model_inputs(scope.path, values, root, definitions_root=definitions)
+    assert not findings.errors, findings.errors
+    for index in (0, 1):
+        wrong = links.copy()
+        wrong[index] = '[Bucket](s3.md#bucket)'
+        candidate = {**values, key: json.dumps(wrong)}
+        findings = check_model_inputs(scope.path, candidate, root, definitions_root=definitions)
+        result = findings.result('model.references', None)
+        assert result.status == 'FAIL', (index, result)
+        assert len(result.errors) == 1 and all(text in result.errors[0] for text in
+            (prop, wrong[index], 'ExpectedResourceType=Glue.Connection', 'ActualResourceType=S3.Bucket')), result.errors
+    indexed = {**values, 'desired.row.009-004.property': prop + '[12]', key: json.dumps(wrong)}
+    assert check_model_inputs(scope.path, indexed, root, definitions_root=definitions).result('model.references', None).status == 'FAIL'
+    mixed = {**values, key: json.dumps(['[Missing](glue.md#missing)', '[Bucket](s3.md#bucket)'])}
+    assert check_model_inputs(scope.path, mixed, root, definitions_root=definitions).result('model.references', None).status == 'FAIL'
+    for text in ('[Missing](glue.md#missing)', '[Missing Model](absent.md#missing)'):
+        candidate = {**values, key: json.dumps([links[0], text])}
+        findings = check_model_inputs(scope.path, candidate, root, definitions_root=definitions)
+        assert findings.result('model.references', None).status == 'PASS'
+        assert any('absent' in warning['message'] for warning in findings.warnings), findings.warnings
+    duplicate = {**values, 'desired.resource.002.anchor': 'connection-001'}
+    write_model(scope.path, duplicate)
+    findings = check_model_inputs(scope.path, duplicate, root, definitions_root=definitions)
+    assert findings.result('model.references', None).status == 'PASS'
+    assert any('ambiguous' in warning['message'] for warning in findings.warnings)
+    scope.path.write_bytes(saved)
+    # Conflicting metadata remains a warning; the saved link supplies the proven type.
+    metadata = {'consumerKey': key, 'text': links[0], 'occurrence': '1', 'producerKind': 'resource',
+        'producerScope': 'dev/cde/s3', 'producerLogicalId': 'S3_Bucket_001', 'resourceType': 'S3.Bucket',
+        'format': 'link', 'labelPolicy': 'fixed'}
+    candidate = {**values, **{'desired.reference.conflict.' + field: value for field, value in metadata.items()}}
+    errors = []
+    warnings, _ = diagnose(snapshot._replace(authoritative=candidate), errors=errors)
+    assert not errors and any('both meanings are retained' in warning['message'] for warning in warnings)
+    # No inferred contracts; JSON documents retain their separate validation boundary.
+    for candidate in ({**values, 'desired.row.009-004.property': 'Glue.Job.Command.ScriptLocation', key: json.dumps(['[Bucket](s3.md#bucket)'])},
+                      {**values, 'desired.row.009-004.document': json.dumps(['[Bucket](s3.md#bucket)'])}):
+        errors = []
+        diagnose(snapshot._replace(authoritative=candidate), errors=errors)
+        assert not errors, errors
+    for link, physical in zip(links, ('physical-connection-001', 'physical-connection-002')):
+        resolver = Resolver(root)
+        assert resolver.operand(link, scope, field=prop)[3] == 'Name'
+        assert execution_document([link], root, scope=scope, property_name=prop) == [physical]
+    importer = ImportResolver(root, 'dev', 'cde', definitions_root=definitions, read_context=FileReads())
+    importer.verify_resource(values, '009', scope=scope, properties={prop})
+    assert not importer.warnings, importer.warnings
+    # Explicit backtick JSON still hits the existing prohibition; ordinary arrays do not.
+    validate_json_settings(values, scope.path)
+    try:
+        validate_json_settings({**values, key: '`' + values[key] + '`'}, scope.path)
+    except ValueError as error:
+        assert 'JSON setting contains a Markdown Resource link' in str(error) and "'/0'" in str(error)
+    else:
+        raise AssertionError('explicit JSON prohibition changed')
+    view = root / 'docs/designs/dev/cde/glue.md'
+    markdown = generate_markdown(view, values, definitions)
+    view.parent.mkdir(parents=True, exist_ok=True)
+    view.write_text(markdown, encoding='utf-8')
+    expanded, _ = DesignIndex().get(view).view().expanded
+    assert any(prop in line and values[key] in line for line in expanded), markdown
+    from array_display import indexed_rows, restored_rows
+    row = ['009-004', prop, values[key], '合成配列']
+    assert restored_rows(indexed_rows([row], 'Glue.Job', definitions), 'Glue.Job', definitions) == [row]
+    assert parse(serialize(values)).values[key] == values[key]
+    assert json.loads(load_model(scope).authoritative[key]) == links
+    assert generate_markdown(view, values, definitions) == markdown
+    assert scope.path.read_bytes() == saved
+    print('ordinary array receiving contracts, unresolved warnings, Name observations and unchanged generation: PASS')
 
 
 def main():
@@ -157,6 +261,7 @@ def main():
         assert result.returncode == 0, result.stderr
 
         print('saved Markdown references, anchors, scope, incoming, observed, JSON and allocation: PASS')
+        check_receiving_contracts(root)
 
 
 if __name__ == '__main__':

@@ -1,5 +1,9 @@
 # UT / IT 全ケース台帳
 
+## Ordinary receiving-property reference contracts
+
+既存の `units/model-markdown-reference.checks.py::main` に、Glue.Connection 001/002の2要素配列、各位置のS3型違反、不在・曖昧警告、明示契約なし、document除外、Name/observedとIMPORT契約、通常配列と明示JSON禁止の境界、保存・生成・再読取の値と順序不変を追加。入口数は変更しない。
+
 ## JSON Resource ARN projection
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |

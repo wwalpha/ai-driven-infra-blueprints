@@ -333,7 +333,7 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
         from model.references import diagnose
         model_path = (root / 'model' / view.relative_to(root / 'docs/designs')).with_suffix('.properties')
         candidate = SimpleNamespace(scope=scope_for(model_path), authoritative=values, dependencies={})
-        warnings, _ = diagnose(candidate)
+        warnings, _ = diagnose(candidate, errors=findings.errors)
         findings.warnings.extend(warnings)
     findings.evaluate('model.references', None, references)
     try:
