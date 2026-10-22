@@ -61,7 +61,6 @@ __all__ += ['policy_cli', 'policy_mapping_cache']
 def mapping_cache_checks():
     import aws_mapping
     import aws_mapping_display
-    from support.aws_mapping_fixtures import mapping_fixture
     from validation_cache import input_scope
 
     @input_scope
@@ -70,9 +69,10 @@ def mapping_cache_checks():
                 aws_mapping.runtime_registry(root, 'iam'))
 
     with tempfile.TemporaryDirectory() as directory:
-        roots = [mapping_fixture(Path(directory) / name, 'iam') for name in ('first', 'second')]
+        roots = [Path(directory) / name for name in ('first', 'second')]
         first, second = (read(root) for root in roots[:2])
-        assert first[2].root == roots[0] and second[2].root == roots[1]
+        from utils.aws_mappings import definition_root
+        assert first[2].root == definition_root(roots[0]) and second[2].root == definition_root(roots[1])
         assert read(roots[0])[2] is first[2]
         assert read(roots[1])[2] is second[2]
 

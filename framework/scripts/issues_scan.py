@@ -24,6 +24,7 @@ from model.projection import catalog_outputs
 from model.core import entries, ReferenceResolutionError
 from policy_tables import literal
 from validation_cache import input_scope, digest_files, PassCache
+from utils.aws_mappings import definition_root
 from task_contract import SELECTOR, contract_read_scope
 from issues_iac import Comparison
 from script_loader import module
@@ -114,14 +115,15 @@ def naming_materials(comparison):
                 if namespace not in rules:
                     shared = []
                     for file in naming_rule_files(comparison.root, namespace):
-                        comparison.inputs.add(file)
+                        if file.is_relative_to(comparison.root):
+                            comparison.inputs.add(file)
                         text = file.read_text(encoding='utf-8')
                         if file.name == 'aws-resource-naming.md':
                             text = '\n\n'.join(rule_section(text, heading) for heading in ('## Scope', '## General rules', '## Name tag policy'))
                         if file.name == 'aws-resource-naming.md':
-                            rules.setdefault('common', [{'path': file.relative_to(comparison.root).as_posix(), 'text': text}])
+                            rules.setdefault('common', [{'path': file.relative_to(definition_root(comparison.root)).as_posix(), 'text': text}])
                         else:
-                            shared.append({'path': file.relative_to(comparison.root).as_posix(), 'text': text})
+                            shared.append({'path': file.relative_to(definition_root(comparison.root)).as_posix(), 'text': text})
                     rules[namespace] = shared
                 targets = naming_targets(comparison.root, namespace).get(kind, set())
                 outputs = catalog_outputs(comparison.root, kind)

@@ -10,12 +10,11 @@ from support.it_case_receipt import it_case
 
 from support.aws_mapping_display_fixtures import *
 
-from support.it_workspace import copy_framework
 
 @it_case
 def check(root):
     seed = root / 'seed'
-    copy_framework(seed / 'framework')
+    seed.mkdir()
     (seed / 'project.json').write_text(json.dumps({'projectName': 'fixture', 'targets': [
         {'environment': 'dev', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n', encoding='utf-8')
 

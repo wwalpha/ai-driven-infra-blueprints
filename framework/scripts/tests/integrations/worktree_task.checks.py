@@ -430,24 +430,21 @@ def check_human_approved_validation_failure():
 
 @it_case
 def check_real_loop_integration():
-    # Reuse the existing minimal framework fixture, not a new completion engine.
+    # Use shared Framework code with the existing synthetic Project fixture.
     from support import blueprint_loop_fixtures as loop_checks
     with fixture() as root:
-        loop_checks.make_framework_fixture(SCRIPT.parents[2], root)
+        loop_checks.make_project_fixture(SCRIPT.parents[2], root)
         for name in ("docs/designs", "model", "infra", "tests/scenarios", "tests/results"):
             (root/name).mkdir(parents=True,exist_ok=True)
             (root / name / ".gitkeep").touch()
-        # This fixture tests the real child loop, not recursively the entire regression.
-        for path in (root / "framework/scripts/tests").rglob("*.checks.py"):
-            path.unlink()
         git(root, "add", ".")
-        git(root, "commit", "-qm", "framework fixture")
+        git(root, "commit", "-qm", "Project fixture")
         target, state = start(root, files=("docs/system-overview.md",))
         overview = target / "docs/system-overview.md"
         overview.write_text("# Fixture changed\n")
-        loop = target / "framework/scripts/blueprint-loop.py"
+        loop = SCRIPT.with_name("blueprint-loop.py")
         environment = {**os.environ, tasks.SELECTOR: state["task_file"], "PYTHONDONTWRITEBYTECODE": "1"}
-        result = subprocess.run([sys.executable, "-B", str(loop), "--mode", "task", "--task-file", state["task_file"]],
+        result = subprocess.run([sys.executable, "-B", str(loop), "--repository-root", str(target), "--mode", "task", "--task-file", state["task_file"]],
                                 cwd=target, env=environment, capture_output=True, encoding="utf-8")
         assert result.returncode == 0, result.stdout + result.stderr
         assert "Blueprint local loop: PASS" in result.stdout
@@ -456,7 +453,7 @@ def check_real_loop_integration():
         assert (root / "docs/system-overview.md").read_text() == "# Fixture changed\n"
         target, state = start(root, "failed-loop", files=("docs/system-overview.md",))
         (target / "docs/system-overview.md").write_text("# Trailing whitespace  \n")
-        result = subprocess.run([sys.executable, "-B", str(target / "framework/scripts/blueprint-loop.py"),
+        result = subprocess.run([sys.executable, "-B", str(loop), "--repository-root", str(target),
                                  "--mode", "task", "--task-file", state["task_file"]],
                                 cwd=target, env=environment, capture_output=True, encoding="utf-8")
         assert result.returncode != 0 and "FAIL" in result.stdout, result.stdout + result.stderr
@@ -540,10 +537,8 @@ def check_approved_model_reads():
     for mode in ('preserved', 'changed-import', 'proof', 'missing', 'tampered', 'expired',
                  'wrong-task', 'wrong-base', 'wrong-scope', 'incomplete', 'wrong-sources'):
         with fixture() as root:
-            from support.it_workspace import populate
-            populate('framework', root)
             operation_fixture(root)
-            git(root, 'add', 'framework', 'model', 'project.json')
+            git(root, 'add', 'model', 'project.json')
             git(root, 'commit', '-qm', 'synthetic Model baseline')
             target, state = start(root, files=(relative,))
             source = target / relative
@@ -610,10 +605,8 @@ def check_approved_model_reads():
 def check_registered_normal_model_guard():
     import venv
     from support.import_model_fixtures import dependency_fixture
-    from support.it_workspace import populate
     relative = 'model/stg/cde/service-a.properties'
     with fixture() as root:
-        populate('framework', root)
         dependency_fixture(root)
         (root / '.gitignore').write_text((root / '.gitignore').read_text() + '.venv/\n')
         git(root, 'add', '.'); git(root, 'commit', '-qm', 'synthetic runtime fixture')
@@ -692,10 +685,6 @@ def check_model_operation_integration():
                                       ("import-merge", True, False), ("import-merge", False, True),
                                       ("import-delete", False, True), ("import-merge", True, True)):
         with fixture() as root:
-            if approved:
-                from support.it_workspace import populate
-                populate("framework", root)
-                git(root, "add", "framework")
             operation_fixture(root)
             git(root, "add", "model", "project.json")
             git(root, "commit", "-qm", "model fixture")

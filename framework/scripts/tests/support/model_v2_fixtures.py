@@ -1,7 +1,6 @@
 """Explicit properties authorities and offline AWS transport; no executing project inputs."""
 import json
 from pathlib import Path
-import shutil
 import subprocess
 from model.format import serialize
 
@@ -9,9 +8,6 @@ FRAMEWORK = Path(__file__).resolve().parents[4]
 
 
 def logs_fixture(root):
-    """Install immutable catalog/mapping/schema inputs before the first reader."""
-    for name in ('materials', 'mappings', 'rules'):
-        shutil.copytree(FRAMEWORK / 'framework' / name, root / 'framework' / name)
     (root / 'project.json').write_text(json.dumps({'projectName': 'fixture', 'targets': [
         {'environment': 'qa-synthetic', 'alias': 'team-a', 'awsAccountId': '123456789012',
          'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}), encoding='utf-8')
@@ -239,7 +235,7 @@ def import_publication_case(monkeypatch, failure):
             incoming_source.write_text(serialize(fields), encoding='utf-8')
             incoming_before = incoming_source.read_bytes()
         relative = model.relative_to(root)
-        git(root, 'add', 'framework', 'model', 'project.json')
+        git(root, 'add', 'model', 'project.json')
         git(root, 'commit', '-qm', 'synthetic properties Import')
         target, state = start(root, files=(relative.as_posix(),))
         (target / state['task_file']).write_text(import_contract(state['task_file'], relative), encoding='utf-8')

@@ -140,13 +140,8 @@ def roundtrip(path, values, root):
     return path.read_text(encoding="utf-8")
 
 @pytest.fixture
-def root(tmp_path):
-    from support.it_fixture_bundle import source
-
-    (tmp_path / "framework").symlink_to(
-        source("framework") / "framework", target_is_directory=True,
-    )
-    return tmp_path.resolve()
+def root(project_workspace):
+    return project_workspace
 
 @pytest.fixture
 def project(root):

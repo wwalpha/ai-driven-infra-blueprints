@@ -33,14 +33,6 @@ def check_config():
               'environment': 'dev', 'directory': 'fixture'}
     with TemporaryDirectory() as directory:
         root = Path(directory)
-        schema = 'framework/materials/cloudformation-schema/ap-northeast-1/'
-        index = json.loads((ROOT / schema / 'index.json').read_text(encoding='utf-8'))['resourceTypes']
-        for relative in ['framework/mappings/aws/config.yaml', 'framework/mappings/aws/owners.json', schema + 'index.json',
-                *[schema + index['AWS::' + kind.replace('.', '::')] for kind in (RECORDER, CHANNEL)], *[
-                'framework/materials/aws/' + kind.replace('.', '_') + '.properties' for kind in (RECORDER, CHANNEL)]]:
-            destination = root / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_bytes((ROOT / relative).read_bytes())
         (root / 'project.json').write_text(json.dumps({'targets': [{
             'environment': 'dev', 'alias': 'fixture', 'awsAccountId': '123456789012',
             'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n', encoding='utf-8')
@@ -121,11 +113,6 @@ def check_config():
         document = root / 'docs/designs/dev/fixture/config.md'
         document.parent.mkdir(parents=True)
         document.write_text(markdown, encoding='utf-8')
-        catalog = root / 'framework/materials/aws'
-        catalog.mkdir(parents=True, exist_ok=True)
-        for kind in (RECORDER, CHANNEL):
-            name = kind.replace('.', '_') + '.properties'
-            (catalog / name).write_bytes((ROOT / 'framework/materials/aws' / name).read_bytes())
 
 
 def main():

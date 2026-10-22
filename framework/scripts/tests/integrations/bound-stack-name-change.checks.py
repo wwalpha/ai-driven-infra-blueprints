@@ -12,7 +12,6 @@ import tempfile
 from contextlib import redirect_stdout
 import pytest
 from support.model_sources import write_model
-from support.it_workspace import copy_framework
 from support.model_design_fixtures import model
 from model.core import stack_model
 from model.sources import load_model, design_source_digest
@@ -27,7 +26,6 @@ import sync_runtime
 
 @it_case
 def check(root):
-    copy_framework(root / 'framework')
     (root / 'project.json').write_text(json.dumps({'projectName': 'app', 'targets': [
         {'environment': 'preview', 'alias': alias, 'awsAccountId': account, 'awsRegion': 'ap-northeast-1',
          'iacEngine': 'cloudformation'} for alias, account in [('other', '210987654321'), ('team', '123456789012')]]}) + '\n')

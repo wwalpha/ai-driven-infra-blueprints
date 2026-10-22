@@ -61,16 +61,9 @@ def build_generated_policy(root, definitions_root=None):
 
 
 @pytest.fixture
-def generated_policy(tmp_path, request):
+def generated_policy(tmp_path, shared_framework):
     from support.it_workspace import populate
     root = populate("generated_policy", tmp_path)
-    from support.it_fixture_bundle import source
-    from support.it_workspace import copy_framework
-    from utils.aws_mappings import mapping_alias
-    definitions = source('framework')
-    if request.node.originalname == 'check_stage_definition_errors' or (request.node.originalname == 'check_publication_boundary' and request.node.callspec.params.get('fault') == 'mapping'):
-        definitions = tmp_path / 'private-definitions'
-        copy_framework(definitions / 'framework')
     model = root / 'model/dev/123456789012/iam.properties'
     values = json.loads((root / 'fixture-values.json').read_text(encoding='utf-8'))
     (root / 'fixture-values.json').unlink()
@@ -87,5 +80,6 @@ def generated_policy(tmp_path, request):
                     f'## Modified files\n{listed}\n## Allowed paths\n{listed}\n')
         return {tasks.SELECTOR: name}
 
-    with mapping_alias(definitions, root):
+    from utils.aws_mappings import mapping_alias
+    with mapping_alias(shared_framework.parent, root):
         yield root, model, values, design, artifact, register

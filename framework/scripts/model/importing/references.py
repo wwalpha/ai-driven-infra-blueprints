@@ -33,7 +33,8 @@ def elements(raw):
 class Resolver:
     def __init__(self, root, environment, target, *, definitions_root=None, local=None, read_context=None):
         self.root, self.environment, self.target = Path(root), environment, target
-        self.definitions_root = definitions_root or root
+        from utils.aws_mappings import definition_root
+        self.definitions_root = definitions_root or definition_root(root)
         self.local = local or {}
         self.files, self.indexes, self.targets = {}, {}, {}
         self.metrics = {'referenceModelReads': 0, 'referenceResources': 0}

@@ -6,7 +6,6 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[1]), str(Path(__file__).res
 
 
 import tempfile
-import shutil
 import pytest
 
 
@@ -19,9 +18,15 @@ def pytest_configure(config):
 
 
 @pytest.fixture
-def framework_root(tmp_path):
-    from support.it_workspace import populate
-    return populate("framework", tmp_path)
+def shared_framework():
+    return Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture
+def project_workspace(tmp_path, shared_framework):
+    from utils.aws_mappings import mapping_alias
+    with mapping_alias(shared_framework.parent, tmp_path):
+        yield tmp_path
 
 
 @pytest.fixture
@@ -32,13 +37,10 @@ def catalog_display_fixture():
 
 
 @pytest.fixture
-def managed_framework_root(request):
-    from support.worktree_task_fixtures import fixture, git, start
-    from support.it_workspace import copy_framework
+def managed_project_workspace(request):
+    from support.worktree_task_fixtures import fixture, start
     from task_contract import selected_task
     with fixture() as primary:
-        copy_framework(primary / 'framework')
-        git(primary, 'add', 'framework'); git(primary, 'commit', '-qm', 'synthetic Framework inputs')
         target, state = start(primary, task_id=getattr(request, 'param', 'observation-fixture'), files=('file.txt',))
         with selected_task(target, state['task_file']):
             yield target

@@ -2,6 +2,7 @@
 """Run the deterministic local blueprint validation on any supported OS."""
 
 from __future__ import annotations
+from utils.aws_mappings import definition_root
 
 import argparse
 from contextlib import contextmanager
@@ -244,6 +245,7 @@ def utf8_preflight(directory, environment, diagnostics=None):
 
 
 def select_checks(root, paths, affected=False):
+    root = definition_root(root)
     unit_root = root / "framework/scripts/tests/units"
     checks = sorted({*(root / "framework/scripts/tests").rglob("*.checks.py"),
                      *unit_root.rglob("test_*.py")}, key=lambda path: path.name)
@@ -357,7 +359,7 @@ def staged_snapshot(root, args, directory, environment):
         metadata = {"source": str(root), "base": base, "head": head, "tree": tree}
         (directory / "snapshot.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
         print(f"Staged snapshot: {tree}; base: {base}; metadata: {directory / 'snapshot.json'}", flush=True)
-        command = [sys.executable, "-X", "utf8", str(snapshot / "framework/scripts/blueprint-loop.py"),
+        command = [sys.executable, "-X", "utf8", str(definition_root(snapshot) / "framework/scripts/blueprint-loop.py"), "--repository-root", str(snapshot),
                    "--mode", args.mode, "--jobs", str(args.jobs), "--log-dir", str(directory),
                    "--validation-jobs", str(args.validation_jobs), *(["--fresh"] if args.fresh else []),
                    *(["--all"] if args.all else []), *(["--affected"] if args.affected else []),
@@ -522,7 +524,7 @@ def _run_loop(root, args, final_candidate):
             commands = [
                 [
                     sys.executable,
-                    str(root / "framework" / "scripts" / "validate-blueprint.py"),
+                    str(definition_root(root) / "framework/scripts/validate-blueprint.py"),
                     "--repository-root",
                     str(root),
                     "--jobs", str(args.validation_jobs),

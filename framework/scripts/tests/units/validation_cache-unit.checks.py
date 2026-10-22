@@ -21,7 +21,7 @@ def check_cache_inputs(tmp_path):
         for corrupted in ('{', 'null', '[]', '{"version":1,"checks":true}'):
             record.write_text(corrupted, encoding="utf-8")
             assert cache.load(key) is None
-        bytecode = root/"framework/scripts/__pycache__/fixture.cpython.pyc"
+        bytecode = root/"__pycache__/fixture.cpython.pyc"
         bytecode.parent.mkdir(parents=True,exist_ok=True);bytecode.write_bytes(b"generated cache")
         assert PassCache(root,directory=directory).key("catalog")==key
         bytecode.write_bytes(b"regenerated cache")

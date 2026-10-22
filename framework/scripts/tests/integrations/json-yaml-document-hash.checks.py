@@ -29,7 +29,7 @@ def check(root):
             path = primary / 'model' / environment / 'team/vpc-endpoint.properties'
             write_model(path, values)
             paths[environment] = path.relative_to(primary).as_posix()
-        git(primary, 'add', 'framework', 'model', 'project.json'); git(primary, 'commit', '-qm', 'explicit document sources')
+        git(primary, 'add', 'model', 'project.json'); git(primary, 'commit', '-qm', 'explicit document sources')
         target, state = start(primary, files=tuple(paths.values()))
         name = state['task_file']
         listed = ''.join('- `' + item + '`\n' for item in [name, *paths.values()])

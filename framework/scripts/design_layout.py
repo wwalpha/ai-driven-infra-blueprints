@@ -338,6 +338,8 @@ def stack_delivery(path: Path) -> dict[str, str]:
 
 def layout_errors(root: Path) -> list[str]:
     """Require an explicit display decision for every catalog resource."""
+    from utils.aws_mappings import definition_root
+    root = definition_root(root)
     errors = []
     try:
         layouts = json.loads(input_text(root / "framework" / "rules" / "resource-layout.json", encoding="utf-8"))

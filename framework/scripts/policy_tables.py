@@ -360,7 +360,8 @@ def policy_document_lines(document, policy):
 def rendered_design(path: Path, *, definitions_root: Path | None = None) -> str:
     original = path.read_text(encoding="utf-8")
     lines = without_policy_tables(original.splitlines())
-    root = definitions_root or next((parent for parent in path.resolve().parents if (parent / "framework/mappings/aws").is_dir()), None)
+    from utils.aws_mappings import definition_root
+    root = definitions_root or definition_root(path.resolve().parent)
     resources = resources_in(lines, root)
     if not resources:
         if START in original or IAM_START in original:

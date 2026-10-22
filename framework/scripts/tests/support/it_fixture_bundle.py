@@ -5,13 +5,12 @@ import atexit
 import hashlib
 import json
 import os
-import shutil
 import tempfile
 import sys
 
 ENV = 'BLUEPRINT_IT_FIXTURES'
 REPOSITORY = Path(__file__).resolve().parents[4]
-NAMES = ('framework', 'input_templates', 'typed_services', 'generated_policy', 'import_sources')
+NAMES = ('input_templates', 'typed_services', 'generated_policy', 'import_sources')
 _local = None
 
 
@@ -34,10 +33,7 @@ def protect(root, readonly):
 def build(root, name):
     destination = root / name
     destination.mkdir()
-    if name == 'framework':
-        shutil.copytree(REPOSITORY / 'framework', destination / 'framework',
-                        ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-    elif name in ('input_templates', 'typed_services'):
+    if name in ('input_templates', 'typed_services'):
         from support import service_fixtures
         getattr(service_fixtures, 'build_' + name)(destination)
     elif name == 'import_sources':
@@ -47,7 +43,7 @@ def build(root, name):
         from support.sync_model_fixtures import build_generated_policy
         from support.model_sources import catalog_display
         with catalog_display():
-            values = build_generated_policy(destination, definitions_root=root / 'framework')
+            values = build_generated_policy(destination, definitions_root=REPOSITORY)
         (destination / 'fixture-values.json').write_text(json.dumps(values), encoding='utf-8')
     else:
         raise ValueError(f'unknown IT fixture: {name}')
@@ -88,8 +84,6 @@ def source(name):
         atexit.register(cleanup)
     root = Path(_local.name)
     if not (root / name).is_dir():
-        if name == 'generated_policy':
-            source('framework')
         build(root, name)
         protect(root / name, True)
     return root / name

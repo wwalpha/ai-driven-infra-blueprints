@@ -10,7 +10,6 @@ if not __debug__:
 from support.cloudformation_deploy_fixtures import *
 
 from support.model_v2_fixtures import deploy_properties_fixture
-from support.it_workspace import copy_framework
 
 def check_aws_adapter():
     # Case 3: distinct AWS requests with the shared template and separate inputs.
@@ -273,7 +272,6 @@ def check_inputs(tmp_path):
     (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', **TARGET}]}))
     path = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
     path.parent.mkdir(parents=True)
-    copy_framework(root / "framework/rules", relative="rules")
     path.write_text(markdown_for(path, values, root))
     source = root / "model/dev/123456789012/cloudformation-stacks.properties"
     source.parent.mkdir(parents=True)
@@ -355,7 +353,6 @@ def check_inputs(tmp_path):
 def check_delivery(tmp_path):
     base = tmp_path
     root = base / "repo"
-    copy_framework(root / 'framework/materials', relative='materials')
     backend = DeliveryAws(root, base / "session.files")
     unit = units(10)[0]
     template, params = backend.paths(unit)
@@ -486,7 +483,6 @@ def check_delivery(tmp_path):
     values.update({"desired.deployment.templateBucket": reference, "desired.deployment.templateKeyPrefix": "templates/"})
     values.update({"desired.artifact.007." + field: value for field, value in artifact("First").items()})
     values["desired.artifact.007.bucket"] = reference
-    copy_framework(root / "framework/rules", relative="rules")
     design = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
     design.parent.mkdir(parents=True)
     model = root / "model/dev/123456789012/s3.properties"
@@ -523,7 +519,6 @@ def check_delivery(tmp_path):
     spec = importlib.util.spec_from_file_location("delivery_sync", ROOT / "framework/scripts/sync-model.py")
     sync = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(sync)
-    copy_framework(root / 'framework', dirs_exist_ok=True)
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}) + "\n")
     values["desired.stack.001.name"] = values["desired.artifact.007.stack"] = "cfn-stack-app-dev-job-01"
     write_model(source_model, "\n".join(f"{key}={value}" for key, value in values.items()))
@@ -841,10 +836,7 @@ def check_session_cli(tmp_path):
     """Exercise entrypoint, preflight, persisted groups, approvals and immutable inputs."""
     base = tmp_path
     root = (base / "repo").resolve()
-    (root / "framework/scripts").mkdir(parents=True)
-    shutil.copy(ROOT / "framework/scripts/check-deploy-context.py", root / "framework/scripts/check-deploy-context.py")
-    copy_framework(root / 'framework/materials/cloudformation-schema', relative='materials/cloudformation-schema')
-    copy_framework(root / "framework/rules", relative="rules")
+    root.mkdir(parents=True)
     (root / "project.json").write_text(json.dumps({"targets": [{"environment": "dev", **TARGET, "awsProfile": "dev-profile"}, {"environment": "stg", **TARGET}]}))
     (root / "tasks").mkdir()
     contract = root / "tasks/example.md"
@@ -991,8 +983,7 @@ def check_session_cli(tmp_path):
                        (source, read_model(source) + "display.deployment.comment=changed\n"),
                        (consumer, read_model(consumer) + "desired.row.002.value=changed\n"),
                        (reference, "desired.row.001.value=changed\n"),
-                       (contract, contract.read_text() + "\n# contract changed\n"),
-                       (root / "framework/scripts/check-deploy-context.py", "# controller dependency changed\n")):
+                       (contract, contract.read_text() + "\n# contract changed\n")):
         canonical = path.suffix == '.properties' and path.is_relative_to(root / 'model')
         before = path.read_bytes()
         if canonical:
@@ -1094,13 +1085,17 @@ def check_session_cli(tmp_path):
         assert invoke(['--resume']) == 0 and recovered[before:] == [('A', 'stable-bootstrap-token')]
         assert not backends[-1].calls
         runtime_resume[0] = False
-        # Framework or validation dependency changes invalidate a prior PASS.
-        policy = root / "framework/scripts/deployment/session.py"
-        policy.parent.mkdir(parents=True, exist_ok=True)
-        policy.write_text("validation input " + str(len(orders)))
+        # Project instructions remain part of the validation input boundary.
+        instructions = root / "AGENTS.md"
+        original_instructions = instructions.read_bytes() if instructions.exists() else None
+        instructions.write_text("validation input " + str(len(orders)))
         prior = json.loads(state_file.read_text())["metrics"]["validationCount"]
         assert invoke(["--resume"]) == 0 and not backends[-1].calls
         assert json.loads(state_file.read_text())["metrics"]["validationCount"] == prior + 1
+        if original_instructions is None:
+            instructions.unlink()
+        else:
+            instructions.write_bytes(original_instructions)
         if limit == 4:
             # Sequential is a session cap, not a design edit or per-stack invocation.
             state_file = base / f"sequential-{len(orders)}.json"
@@ -1254,9 +1249,8 @@ def observed_collector_root():
     from support.worktree_task_fixtures import fixture, git, start
     from task_contract import selected_task
     with fixture() as primary:
-        copy_framework(primary / 'framework')
         observed_collector_seed(primary)
-        git(primary, 'add', 'framework', 'project.json', 'model', 'docs')
+        git(primary, 'add', 'project.json', 'model', 'docs')
         git(primary, 'commit', '-qm', 'synthetic observed baseline')
         root, state = start(primary, task_id='observation-fixture', files=('file.txt',))
         with selected_task(root, state['task_file']):
@@ -1394,10 +1388,10 @@ def check_observed_collector(observed_collector_root):
     assert properties(read_model(source))["observed.row.002-002.value"] == "PENDING_DEPLOY"
 
 
-def check_shared_stack_mapping(managed_framework_root):
+def check_shared_stack_mapping(managed_project_workspace):
     from model.adapters.observed import mappings, sync_successful, preflight, validate_mapping_targets, removed_resources
     from model.files import read_model
-    root = managed_framework_root
+    root = managed_project_workspace
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}) + "\n")
     source = root / "model/dev/123456789012/ec2.properties"
     source.parent.mkdir(parents=True)
@@ -1646,9 +1640,9 @@ def check_shared_stack_mapping(managed_framework_root):
     print("Shared stack mapping checks: PASS (ism/ced/sd identifiers, Conditions, explicit failures, CodeCommit Outputs, validated-plan reuse, deletion)")
 
 
-def check_import_implementation_mapping(framework_root):
+def check_import_implementation_mapping(project_workspace):
     from model.adapters.observed import mappings, preflight
-    root = framework_root
+    root = project_workspace
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}))
     model = root / "model/dev/123456789012"
     unit = {"name": "cfn-stack-app-dev-import", "template": "app.yaml", "parameters": "app.json", "deployOrder": "10"}
@@ -1703,9 +1697,9 @@ def check_import_implementation_mapping(framework_root):
     print("IMPORT implement mapping: PASS (no creation mapping/Outputs, integrated parent, CREATE/mixed/unknown guards, Conditions, deploy unchanged, no AWS)")
 
 
-def check_integrated_child_mapping(framework_root):
+def check_integrated_child_mapping(project_workspace):
     from model.adapters.observed import mappings, sync_successful
-    root = framework_root
+    root = project_workspace
     (root / "project.json").write_text(json.dumps({"targets": [{"environment": "dev", **TARGET}]}) + "\n")
     model = root / "model/dev/123456789012"
     model.mkdir(parents=True)
@@ -1802,11 +1796,11 @@ def check_integrated_child_mapping(framework_root):
     print("Integrated child mapping: PASS (11 BucketPolicies, 5 associations, hidden RepositoryId, strict ownership/scope/Conditions, identifier-free sync/deletion)")
 
 
-def check_secretsmanager_arn_identifiers(managed_framework_root):
+def check_secretsmanager_arn_identifiers(managed_project_workspace):
     from model.adapters.observed import mappings, sync_successful
     from model.projection import catalog_outputs
     from support import rotation_schedule_fixtures as rotation
-    root = managed_framework_root
+    root = managed_project_workspace
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}) + "\n")
     model = root / "model/dev/123456789012"
     model.mkdir(parents=True)
@@ -1921,7 +1915,7 @@ def check_controlled_repair(tmp_path):
     from support import model_design_fixtures as helpers
     base = tmp_path
     root = (base / 'repo').resolve()
-    copy_framework(root / 'framework')
+    root.mkdir()
     (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', **TARGET}]}))
     modeldir = root / 'model/dev/123456789012'
     modeldir.mkdir(parents=True)
@@ -2322,7 +2316,6 @@ def check_secret_runtime_bootstrap(tmp_path):
     root = base / 'repo'
     root.mkdir()
     (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', **TARGET}]}))
-    copy_framework(root / 'framework/materials', relative='materials')
     modeldir = root / 'model/dev/123456789012'
     modeldir.mkdir(parents=True)
     selected = [dict(name=name, template=name.lower() + '.yaml', parameters=name.lower() + '.json', deployOrder=str(order))

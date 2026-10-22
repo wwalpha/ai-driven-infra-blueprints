@@ -12,7 +12,6 @@ import json
 from support.validator import MODULE, SCRIPT, project, write
 
 
-from support.it_workspace import copy_framework
 
 @it_case
 def check_cloudformation_stack_design() -> None:
@@ -89,7 +88,6 @@ def check_stack_mapping_targets():
     from model.render import markdown_for
     import shutil
     with project() as root:
-        copy_framework(root / 'framework')
         write(root / 'project.json', __import__('json').dumps({'targets': [{'environment': 'dev', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n')
         model_dir = root / "model/dev/123456789012"
         model_dir.mkdir(parents=True)

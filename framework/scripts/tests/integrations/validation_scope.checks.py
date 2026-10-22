@@ -10,7 +10,6 @@ from support.it_case_receipt import it_case
 
 from support.validation_scope_fixtures import *
 
-from support.it_workspace import copy_framework
 
 @it_case
 def check_single_target_cache(root):
@@ -159,7 +158,7 @@ def check_template_consumers(root):
         assert generate.call_args.args == (root, scope), generate.call_args
         options = generate.call_args.kwargs
         assert options.keys() == {'jobs', 'definitions_root', 'findings'}
-        assert options['jobs'] == 1 and options['definitions_root'] == root
+        assert options['jobs'] == 1 and options['definitions_root'] == __import__('utils.aws_mappings', fromlist=['definition_root']).definition_root(root)
         assert isinstance(options['findings'], type(partial.findings))
         assert options['findings'].canonical_root == root
         assert partial.checks == cold.checks
@@ -171,7 +170,6 @@ def check_template_consumers(root):
 def main():
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary).resolve()
-        copy_framework(root / 'framework')
         (root / "tasks").mkdir()
         active = root / "tasks/example.md"
         scope = {(env, target, 'ec2') for env in ('dev', 'stg') for target in ('cde', 'non-cde')}

@@ -4,6 +4,7 @@
 from __future__ import annotations
 from validation_cache import input_is_dir, input_is_file, input_select, input_text
 import re
+from utils.aws_mappings import definition_root
 from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
 from .task import TASK_TYPES
 
@@ -30,7 +31,7 @@ CODEX_PROMPT_FILENAME_PATTERN = re.compile(r"\d{2}_[a-z0-9]+(?:-[a-z0-9]+)*\.md"
 
 
 def check_structure(findings, root, *, consumer=True, definitions_root=None):
-    definitions_root = definitions_root or root
+    definitions_root = definitions_root or definition_root(root)
     for filename in (
         "AGENTS.md",
         "README.md",

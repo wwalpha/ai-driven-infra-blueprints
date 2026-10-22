@@ -72,26 +72,17 @@ def catalog_display():
     """Legacy catalog fixtures select all fields, independent of consumer display sets."""
     from dataclasses import replace
     from unittest.mock import patch
-    import array_display
     import aws_mapping_display
     from design_layout import HIDDEN_PROPERTIES
     from validation_cache import memoized
     original = aws_mapping_display.rules
-    validate = aws_mapping_display.validate_mappings
-    catalog = array_display.display_catalog
 
     @memoized
     def selectable(root, kind):
-        if not (root / 'framework/mappings/aws').is_dir():
-            root = aws_mapping_display.ROOT
         return {key: replace(prop, include=True, show=key not in HIDDEN_PROPERTIES)
                 for key, prop in original(root, kind).items()}
 
-    with patch.object(aws_mapping_display, 'rules', selectable), \
-         patch.object(aws_mapping_display, 'validate_mappings', lambda source, root: validate(
-             source, root if (root / 'framework/mappings/aws').is_dir() else aws_mapping_display.ROOT)), \
-         patch.object(array_display, 'display_catalog', lambda root: catalog(
-             root if (root / 'framework/rules/resource-layout.json').is_file() else aws_mapping_display.ROOT)):
+    with patch.object(aws_mapping_display, 'rules', selectable):
         yield
 
 

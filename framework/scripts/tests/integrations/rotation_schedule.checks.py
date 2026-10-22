@@ -32,7 +32,6 @@ SECRET = "SecretsManager.Secret"
 
 from support.rotation_schedule_fixtures import fixture
 
-from support.it_workspace import copy_framework
 
 def rejects(action, *messages):
     try:
@@ -47,7 +46,6 @@ def rejects(action, *messages):
 def main():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        copy_framework(root / 'framework')
         (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [
             {"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
         ]}) + "\n")

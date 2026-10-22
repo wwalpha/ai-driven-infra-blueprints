@@ -16,10 +16,10 @@ def check():
     if not __debug__:
         raise SystemExit('Focused checks require assertions; run without -O')
     from support.worktree_task_fixtures import fixture, git, contract
-    from support.blueprint_loop_fixtures import make_framework_fixture
+    from support.blueprint_loop_fixtures import make_project_fixture
     from task_contract import selected_task
     with fixture() as root:
-        make_framework_fixture(ROOT, root)
+        make_project_fixture(ROOT, root)
         git(root, 'add', '.')
         git(root, 'commit', '-qm', 'synthetic Framework inputs')
         name = 'tasks/isolation.md'

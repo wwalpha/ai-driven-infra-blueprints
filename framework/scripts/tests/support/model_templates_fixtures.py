@@ -36,7 +36,6 @@ import sync_runtime
 
 ROOT=Path(__file__).resolve().parents[4]
 
-from support.it_workspace import copy_framework
 
 def rejected(function, phrase=None):
     try:
@@ -47,9 +46,7 @@ def rejected(function, phrase=None):
         return str(error)
     raise AssertionError('invalid input accepted')
 
-def fixture(root, environments=('dev','prod'), *, definitions_root=None):
-    if definitions_root is None:
-        copy_framework(root / 'framework')
+def fixture(root, environments=('dev','prod')):
     (root/'project.json').write_text(json_text({'projectName':'app','targets':[
         {'environment':env,'alias':alias,'awsAccountId':account,'awsRegion':'ap-northeast-1','iacEngine':'cloudformation'} for env in environments for alias,account in [('other','210987654321'),('team','123456789012')]]})+'\n',encoding='utf-8')
     (root/'tasks').mkdir()
@@ -98,8 +95,8 @@ import pytest
 from support.pytest_cli import run
 
 @pytest.fixture
-def root(tmp_path):
-    return tmp_path.resolve()
+def root(project_workspace):
+    return project_workspace
 
 __all__ = ['Blocked', 'Path', 'ROOT', 'affected', 'config_model', 'copy', 'dependencies', 'entries', 'fixture',
     'install_candidate', 'io', 'json', 'json_text', 'json_read', 'load_model', 'model_file_contents', 'model_parts',

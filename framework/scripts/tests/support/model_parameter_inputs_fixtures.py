@@ -13,7 +13,6 @@ from model.sources import load_model
 from model.format import parse, serialize
 from support.model_sources import write_model
 from support.import_model_fixtures import service_values, resource_values, reference_fields
-from support.it_workspace import copy_framework
 
 ROOT = Path(__file__).resolve().parents[4]
 
@@ -28,7 +27,6 @@ def rejected(function, phrase):
 
 
 def fixture(root):
-    copy_framework(root / 'framework')
     environments = ('preview', 'prod')
     (root / 'project.json').write_text(json.dumps({'projectName': 'app', 'targets': [
         {'environment': env, 'alias': alias, 'awsAccountId': account, 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}
@@ -66,5 +64,5 @@ def fixture(root):
 
 
 @pytest.fixture
-def root(tmp_path):
-    return tmp_path.resolve()
+def root(project_workspace):
+    return project_workspace

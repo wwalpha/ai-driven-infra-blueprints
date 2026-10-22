@@ -1,4 +1,4 @@
-"""Private writable copies of immutable seeds; never hardlink test inputs."""
+"""Private writable Project data populated from authored seeds."""
 from pathlib import Path
 import shutil
 from support.it_fixture_bundle import source
@@ -19,7 +19,3 @@ def _copy_tree(seed, destination, **options):
 
 def populate(name, destination):
     return _copy_tree(source(name), destination, dirs_exist_ok=True)
-
-
-def copy_framework(destination, relative='', **options):
-    return _copy_tree(source('framework') / 'framework' / relative, destination, **options)

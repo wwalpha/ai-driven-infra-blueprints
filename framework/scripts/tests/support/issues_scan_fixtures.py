@@ -76,7 +76,6 @@ from issue_gate import issue_errors
 
 ROOT = Path(__file__).resolve().parents[4]
 
-from support.it_workspace import copy_framework
 
 def write(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -97,9 +96,7 @@ def render_iac(root, path, environment, directory, services, records, display=No
     return iac_report(environment, directory, services, records, display), {'entries': entries, 'actions': actions, 'value_differences': fields}
 
 def fixture(root, stacks=1, services=('s3', 'cloudwatch-logs', 'sqs'), parts=False):
-    # Only immutable framework inputs/runtime; never copy any consumer/task/report.
-    for directory in ('materials', 'rules', 'scripts', 'mappings'):
-        copy_framework(root / 'framework' / directory, relative=Path('') / directory, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+    # Only synthetic Project data is created here.
     target = {'environment': 'dev', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}
     write(root / 'project.json', json.dumps({'projectName': 'fixture', 'targets': [target]}) + '\n')
     specs = {'s3': ('S3.Bucket', 'Bucket', 'BucketName', 'bucket', [('VersioningConfiguration.Status', '`Enabled`')]),
@@ -233,7 +230,7 @@ def sequential_reports(root):
 def legacy_mechanical(root, services):
     # Benchmark-only 1005v1-equivalent service path: existing subprocess generator.
     import importlib.util
-    spec = importlib.util.spec_from_file_location('benchmark_validator', root / 'framework/scripts/validate-blueprint.py')
+    spec = importlib.util.spec_from_file_location('benchmark_validator', ROOT / 'framework/scripts/validate-blueprint.py')
     legacy_validator = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(legacy_validator)
     validator = legacy_validator.Validator(root, {('dev', '123456789012', service) for service in services}, cache=True, fresh=True, workers=1)
@@ -257,7 +254,7 @@ def required_context(root, services):
     shared = []
     for file, headings in [('model-information.md', ('## Model authority', '## Properties format')),
                            ('detailed-design.md', ('## Markdown structure', '## Links and anchors'))]:
-        text = (root / 'framework/rules' / file).read_text()
+        text = (ROOT / 'framework/rules' / file).read_text()
         shared.extend(rule_section(text, heading) for heading in headings)
     return '\n'.join([*(path.read_text() for path in sorted(files)), *shared])
 

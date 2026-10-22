@@ -12,7 +12,8 @@ _instances = {}
 
 class Catalogs:
     def __init__(self, root):
-        self.root = Path(root)
+        from utils.aws_mappings import definition_root
+        self.root = definition_root(root)
         self._lock = Lock()
         self._cache = {}
 

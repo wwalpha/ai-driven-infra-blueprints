@@ -455,32 +455,31 @@ def check_properties_normal_generation_uses_new_authority(tmp_path, monkeypatch)
     root = tmp_path / 'synthetic'
     root.mkdir()
     framework = Path(__file__).resolve().parents[4]
-    with catalog_display():
+    with catalog_display(), mapping_alias(framework, root):
         values = build_generated_policy(root, definitions_root=framework)
         model = root / 'model/dev/123456789012/iam.properties'
         design = root / 'docs/designs/dev/123456789012/iam.md'
         artifact = design.with_suffix('') / 'iam-role-001-trust-policy.json'
         before = {path: path.read_bytes() for path in (model, design, artifact)}
-        with mapping_alias(framework, root):
-            inputs = GenerationInputs(root, framework)
-            try:
-                stage = inputs.open_stage()
-                with recording_inputs(inputs):
-                    snapshot = load_model(model, inputs)
-                    stage_inputs(stage, root, {design: snapshot.values}, [model], [design], ['iam'], False, inputs, framework)
-                    failures = []
-                    generated = generate_views(stage, root, {design: snapshot.values}, failures, framework)
-                assert not failures, failures
-                assert generated[design]
-                assert (stage / model.relative_to(root)).read_bytes() == before[model]
-                assert (stage / artifact.relative_to(root)).read_bytes() == before[artifact]
-                assert (stage / design.relative_to(root)).read_bytes() == before[design]
-                assert not (stage / 'framework').exists()
-                assert all(not any(name in path.parts for name in ('templates', 'parameters')) for path in inputs.contents
-                           if path.is_relative_to(root / 'model'))
-                inputs.verify()
-            finally:
-                inputs.close()
+        inputs = GenerationInputs(root, framework)
+        try:
+            stage = inputs.open_stage()
+            with recording_inputs(inputs):
+                snapshot = load_model(model, inputs)
+                stage_inputs(stage, root, {design: snapshot.values}, [model], [design], ['iam'], False, inputs, framework)
+                failures = []
+                generated = generate_views(stage, root, {design: snapshot.values}, failures, framework)
+            assert not failures, failures
+            assert generated[design]
+            assert (stage / model.relative_to(root)).read_bytes() == before[model]
+            assert (stage / artifact.relative_to(root)).read_bytes() == before[artifact]
+            assert (stage / design.relative_to(root)).read_bytes() == before[design]
+            assert not (stage / 'framework').exists()
+            assert all(not any(name in path.parts for name in ('templates', 'parameters')) for path in inputs.contents
+                       if path.is_relative_to(root / 'model'))
+            inputs.verify()
+        finally:
+            inputs.close()
         assert {path: path.read_bytes() for path in before} == before
 
 
@@ -818,18 +817,13 @@ def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, c
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     with fixture() as root:
         import shutil
-        from support.it_workspace import copy_framework
-        copy_framework(root / "framework/materials", relative="materials")
-        mapping = root / "framework/mappings/aws/owners.json"
-        mapping.parent.mkdir(parents=True)
-        shutil.copyfile(FRAMEWORK / "framework/mappings/aws/owners.json", mapping)
         scope = properties_fixture(root)
         if change == 'create':
             values = dict(load_model(scope).authoritative)
             values['desired.resource.007.resourceMode'] = 'CREATE'
             scope.path.write_text(serialize(values), encoding='utf-8')
         relative = scope.path.relative_to(root).as_posix()
-        git(root, 'add', 'model', 'project.json', 'framework')
+        git(root, 'add', 'model', 'project.json')
         git(root, 'commit', '-qm', 'synthetic editable Model')
         target, state = start(root, files=(relative,))
         name, path = state['task_file'], target / relative

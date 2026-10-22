@@ -36,7 +36,7 @@ def _once(table, key, load):
 
 class Mappings:
     def __init__(self, root):
-        self._root = Path(root)
+        self._root = definition_root(root)
         index = policy_json(input_text(self._root / 'framework/mappings/aws/owners.json', encoding='utf-8'))
         if not isinstance(index, dict) or not index or any(
                 not re.fullmatch(r'[A-Za-z0-9]+\.[A-Za-z0-9]+', kind)
@@ -91,11 +91,13 @@ class Mappings:
 
 
 def definition_root(root):
-    """Resolve an explicitly aliased stage to its surviving source, without loading it."""
+    """Resolve shared definitions independently of the mutable Project workspace."""
     root = Path(root).absolute()
     with _lock:
         provider = _aliases.get(root)
-        return provider._root if provider is not None else root
+        if provider is not None:
+            return provider._root
+        return root if (root / "framework").is_dir() else Path(__file__).resolve().parents[3]
 
 
 def mappings_for(root):

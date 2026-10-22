@@ -9,7 +9,6 @@ if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 from support.it_case_receipt import it_case
 from support.producer_identifier_reference_fixtures import *
-from support.it_workspace import copy_framework
 from model.render import markdown_for
 from model.projection import bound_resource_anchors
 from model.references import usages
@@ -20,7 +19,6 @@ import sync_runtime
 
 @it_case
 def check(root):
-    copy_framework(root / 'framework')
     (root / 'project.json').write_text(json.dumps({'projectName': 'anchor-fixture', 'targets': [{
         'environment': 'preview', 'alias': alias, 'awsAccountId': account,
         'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'} for alias, account in [('other', '210987654321'), ('team', '123456789012')]]}) + '\n')

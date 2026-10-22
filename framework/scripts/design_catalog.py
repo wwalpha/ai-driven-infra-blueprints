@@ -18,6 +18,8 @@ QUICKSIGHT_GROUP = "QuickSight.Group"
 
 @memoized
 def design_material_files(root: Path) -> list[Path]:
+    from utils.aws_mappings import definition_root
+    root = definition_root(root)
     return sorted([*material_files(root), *input_select(root / "framework/materials/api", "*.properties")])
 
 
@@ -143,6 +145,8 @@ def selected_properties(root: Path, resource_type: str) -> set[str]:
 
 
 def api_snapshot_errors(root: Path) -> list[str]:
+    from utils.aws_mappings import definition_root
+    root = definition_root(root)
     directory = root / "framework/materials/api"
     files = sorted(input_select(directory, "*"))
     try:

@@ -20,10 +20,10 @@ import aws_mapping
 import aws_mapping_catalog
 from utils.aws_catalogs import Catalogs
 from utils.aws_mappings import Mappings, mapping_alias
+ROOT = Path(__file__).resolve().parents[4]
 from utils.aws_schemas import Schemas
 from utils.aws_sdk import Sdk, sdk_for
 from validation_cache import input_scope
-from support.aws_mapping_fixtures import mapping_fixture
 
 
 def parallel(obtain):
@@ -55,14 +55,14 @@ def check_sdk_lifetime():
     with TemporaryDirectory() as directory:
         first = sdk_for(Path(directory) / 'first')
         assert first is sdk_for(Path(directory) / 'first')
-        assert first is not sdk_for(Path(directory) / 'second')
+        assert first is sdk_for(Path(directory) / 'second')
 
 
 def check_failure_waiters():
     class Interrupted(BaseException):
         pass
     with TemporaryDirectory() as directory:
-        root = mapping_fixture(Path(directory), 'config')
+        root = Path(directory)
         schemas, catalogs = Schemas(root), Catalogs(root)
         error = Interrupted('injected cancellation')
         factory = Mock(side_effect=error)
@@ -96,7 +96,7 @@ def check_failure_waiters():
 
 def check_full_validation_dependencies():
     with TemporaryDirectory() as directory:
-        root = mapping_fixture(Path(directory) / 'root', 'sns', 'config')
+        root = Path(directory) / 'root'
         provider = Mappings(root)
         sdk, schemas, catalogs = Sdk(), Schemas(root), Catalogs(root)
         with patch('utils.aws_sdk.sdk_for', side_effect=AssertionError('runtime initialized SDK')), \
@@ -137,7 +137,7 @@ def check_full_validation_dependencies():
 
 def check_stage_survival_and_definition_sources():
     with TemporaryDirectory() as directory:
-        mapping_root = mapping_fixture(Path(directory) / 'mapping', 'config')
+        mapping_root = Path(directory) / 'mapping'
         short = Path(directory) / 'short'
         short.mkdir()
         with patch.object(aws_mapping_catalog, 'catalog_properties', wraps=aws_mapping_catalog.catalog_properties) as validate:

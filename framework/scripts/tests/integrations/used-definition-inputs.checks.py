@@ -26,7 +26,7 @@ def check(root):
             item[f'desired.resource.{rid}.resourceMode'] = 'CREATE'
             values.update(item)
         write_model(path, values)
-        git(primary, 'add', 'model', 'project.json', 'framework'); git(primary, 'commit', '-qm', 'explicit synthetic values')
+        git(primary, 'add', 'model', 'project.json'); git(primary, 'commit', '-qm', 'explicit synthetic values')
         relative = path.relative_to(primary).as_posix()
         target, state = start(primary, files=(relative,))
         name = state['task_file']

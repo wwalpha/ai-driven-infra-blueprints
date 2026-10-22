@@ -5,6 +5,7 @@ import json
 import re
 import subprocess
 import sys
+from utils.aws_mappings import definition_root
 import tempfile
 import time
 from pathlib import Path
@@ -86,7 +87,7 @@ def verify_observed_transition(root, environment, directory, previous, outputs, 
 
 def validation_digest(root, target, file_digest, unit_digests):
     # Reuse is invalidated by controller, validators, rules, catalog/schema and project changes.
-    paths = sorted(path for path in (root / "framework").rglob("*")
+    paths = sorted(path for path in (definition_root(root) / "framework").rglob("*")
                    if path.is_file() and path.suffix in {".py", ".json", ".md", ".properties", ".sha256"})
     paths += [root / "AGENTS.md", root / "project.json"]
     try:
@@ -94,7 +95,7 @@ def validation_digest(root, target, file_digest, unit_digests):
     except importlib.metadata.PackageNotFoundError:
         lint_version = None
     return fingerprint([unit_digests, target, sys.version, lint_version,
-                        [(str(path.relative_to(root)), file_digest(path)) for path in paths if path.is_file()]])
+                        [(str(path.relative_to(root if path.is_relative_to(root) else definition_root(root))), file_digest(path)) for path in paths if path.is_file()]])
 
 
 def run_session(units, limit, session, backend, save, pause_after_group=False, sleep=time.sleep):
@@ -321,7 +322,7 @@ def run(args, root, timing, script_directory, backend_type, load_units):
             # Reuse validator/cache, but schema/naming/policy/model checks concern only affected services.
             mapped = backend.mapping_plan[1][unit['name']]
             affected = {(args.environment, directory, entry[0].stem) for entry in mapped.values()}
-            spec = importlib.util.spec_from_file_location('repair_validator', root / 'framework/scripts/validate-blueprint.py')
+            spec = importlib.util.spec_from_file_location('repair_validator', definition_root(root) / 'framework/scripts/validate-blueprint.py')
             validator_module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(validator_module)
             validator = validator_module.Validator(root, affected, validation_scope(root), cache=True,

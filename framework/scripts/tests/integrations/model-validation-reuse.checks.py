@@ -29,8 +29,7 @@ import model.sources as model_sources
 from support.validator import diagnostics
 from validation.findings import Findings
 import utils.aws_mappings as mapping_state
-from utils.aws_mappings import mappings_for, mapping_alias
-from support.aws_mapping_fixtures import mapping_fixture
+from utils.aws_mappings import mappings_for, mapping_alias, definition_root
 import aws_mapping
 
 COMMON = ('check_resource_names', 'check_design_tables', 'check_design_overviews',
@@ -223,7 +222,6 @@ def check_generation_failures_never_pass(generated_policy, monkeypatch, fault):
 
 def check_single_and_parallel_threads(tmp_path):
     root, stage = tmp_path / 'root', tmp_path / 'stage'
-    mapping_fixture(root, 'iam', 's3')
     provider = mappings_for(root)
     paths = [root / 'docs/designs/dev/team' / (s + '.md') for s in ('iam', 's3')]
     main = threading.get_ident()
@@ -315,7 +313,7 @@ def check_scoped_validation_threads_and_failures(tmp_path):
 def check_sync_mapping_lifetime(generated_policy, monkeypatch, fault):
     root, _, _, _, _, register = generated_policy
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', register([])['BLUEPRINT_TASK_FILE'])
-    provider = mappings_for(root)
+    provider = mappings_for(definition_root(root))
     stages = []
     already_loaded = 'iam' in provider._runtime
     original = sync_runtime.stage_inputs
@@ -343,7 +341,7 @@ def check_sync_mapping_lifetime(generated_policy, monkeypatch, fault):
                     MODULE.sync(root, False, *ENTRY[:2], ['iam'])
         assert len(stages) == 1 and parse.call_count == (0 if already_loaded else 1)
     assert all(stage not in mapping_state._aliases and stage not in mapping_state._instances for stage in stages)
-    assert mappings_for(root) is provider
+    assert mappings_for(definition_root(root)) is provider
 
 
 if __name__ == '__main__':

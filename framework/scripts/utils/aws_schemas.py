@@ -13,7 +13,8 @@ _instances = {}
 
 class Schemas:
     def __init__(self, root):
-        self.root = Path(root)
+        from utils.aws_mappings import definition_root
+        self.root = definition_root(root)
         self.directory = self.root / 'framework/materials/cloudformation-schema/ap-northeast-1'
         self._lock = Lock()
         self._cache = {}

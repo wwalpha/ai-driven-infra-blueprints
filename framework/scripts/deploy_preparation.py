@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from model import projection as model_projection
+from utils.aws_mappings import definition_root
 import argparse
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -161,7 +162,7 @@ def markdown_sections(text):
 def rule_readings(root, source, text, engine=None):
     """Use the document's rule links as the single source of reading scope."""
     from task_contract import safe_path
-    root, source = root.resolve(), source.resolve()
+    root, source = definition_root(root).resolve(), source.resolve()
     readings, contents = {}, {}
     prose = "".join(re.sub(r"(`+).*?\1", "", line) for _, line in markdown_prose(text))
     for raw in re.findall(r"(?<!!)\[[^\]]+\]\(([^)]+)\)", prose):
@@ -246,8 +247,8 @@ def prepare(root, args, run, timing):
     with timing.phase("environment"):
         runtime = environment(root)
     with timing.phase("contractPreparation"):
-        controller = module("preparation_controller", root / "framework/scripts/cloudformation-deploy.py")
-        context = module("preparation_context", root / "framework/scripts/check-deploy-context.py")
+        controller = module("preparation_controller", definition_root(root) / "framework/scripts/cloudformation-deploy.py")
+        context = module("preparation_context", definition_root(root) / "framework/scripts/check-deploy-context.py")
         target = context.load_target(root, args.environment, args.aws_account_id, args.alias)
         if target["iacEngine"] != "cloudformation":
             raise ValueError("offline preparation currently supports CloudFormation only")
@@ -279,7 +280,7 @@ def prepare(root, args, run, timing):
         contract = run / "contract.md"
         contract.write_text(text, encoding="utf-8")
     with timing.phase("documentRead"):
-        prompt = root / "framework/prompts/codex/04_deploy.md"
+        prompt = definition_root(root) / "framework/prompts/codex/04_deploy.md"
         reading = markdown_sections(prompt.read_text(encoding="utf-8"))["read-before-changing-files"]
         reading = reading.split("\n### Conditional rule readings", 1)[0]
         rules = rule_readings(root, prompt, reading, engine="cloudformation")
@@ -287,7 +288,7 @@ def prepare(root, args, run, timing):
             raise ValueError("deployment prompt has no required rule readings")
         required = ["AGENTS.md", "project.json", "framework/prompts/codex/04_deploy.md"]
         sources.update(rules)
-        required_inputs = {*(root / path for path in required), *rules}
+        required_inputs = {*((definition_root(root) if path.startswith("framework/") else root) / path for path in required), *rules}
         conflicts = generated_views & (execution_inputs | required_inputs)
         if conflicts:
             raise ValueError("generated view conflicts with execution/required input: " +
@@ -297,8 +298,9 @@ def prepare(root, args, run, timing):
         docs = run / "documents"
         docs.mkdir()
         for index, path in enumerate(sorted(sources), 1):
-            relative = path.relative_to(root).as_posix()
-            safe_path(root, relative)
+            base = root if path.is_relative_to(root) else definition_root(root)
+            relative = path.relative_to(base).as_posix()
+            safe_path(base, relative)
             data = path.read_bytes()
             hashes[relative] = hashlib.sha256(data).hexdigest()
             if path in rules and data.decode("utf-8") != rules[path]["sourceText"]:
@@ -323,8 +325,8 @@ def prepare(root, args, run, timing):
             chunks.append(str(output))
         documents.append({"source": args.task_file, "sha256": sha(contract), "chunks": chunks})
     selector = ["--alias", args.alias] if args.alias else ["--aws-account-id", args.aws_account_id]
-    command = [sys.executable, str(root / "framework/scripts/cloudformation-deploy.py"),
-               "--environment", args.environment, *selector]
+    command = [sys.executable, str(definition_root(root) / "framework/scripts/cloudformation-deploy.py"),
+               "--repository-root", str(root), "--environment", args.environment, *selector]
     for unit in units:
         command += ["--stack", unit["name"]]
     command += ["--state", str(run / "session.json"), "--timing-log", str(timing.path)]
@@ -355,8 +357,9 @@ def register(root, path, timing):
     with timing.phase("documentReview", started=plan["reviewStarted"]):
         from task_contract import safe_path
         for relative, digest in plan["inputs"].items():
-            safe_path(root, relative)
-            if not (root / relative).is_file() or sha(root / relative) != digest:
+            base = definition_root(root) if relative.startswith(("framework/", ".agents/")) else root
+            safe_path(base, relative)
+            if not (base / relative).is_file() or sha(base / relative) != digest:
                 raise ValueError(f"preparation input changed or deleted; review the change and necessary inputs, then prepare again: {relative}")
         contract = Path(plan["contract"]).resolve()
         if contract.is_relative_to(root) or sha(contract) != plan["contractDigest"]:
@@ -365,7 +368,7 @@ def register(root, path, timing):
         errors = issue_errors(root, {tuple(value.split("/")) for value in plan["scope"]})
         if errors:
             raise ValueError("\n".join(errors))
-        result = subprocess.run([sys.executable, str(root / "framework/scripts/task_contract.py"),
+        result = subprocess.run([sys.executable, str(definition_root(root) / "framework/scripts/task_contract.py"),
                                  "--repository-root", str(root), "--task-file", plan["taskFile"],
                                  "--source", str(contract)], capture_output=True, text=True, encoding="utf-8")
         if result.returncode:
@@ -419,8 +422,13 @@ def run_controller(root, path):
     """One subprocess/session for the entire prepared scope; safety stays in the controller."""
     from task_contract import task_path
     plan = json.loads(path.read_text(encoding="utf-8"))
-    if plan["repository"] != str(root) or plan["controllerArgv"][:2] != [sys.executable, str(root / "framework/scripts/cloudformation-deploy.py")]:
+    if plan["repository"] != str(root) or plan["controllerArgv"][:2] != [sys.executable, str(definition_root(root) / "framework/scripts/cloudformation-deploy.py")]:
         raise ValueError("use the prepared repository and Python interpreter")
+    selector = argparse.ArgumentParser(add_help=False)
+    selector.add_argument("--repository-root", type=Path)
+    execution, _ = selector.parse_known_args(plan["controllerArgv"][2:])
+    if execution.repository_root != root:
+        raise ValueError("use the prepared Project Root")
     selected = task_path(root, plan["taskFile"])
     if sha(selected) != plan.get("registeredContractDigest", plan["contractDigest"]):
         raise ValueError("registered contract changed; use existing controller resume procedure")

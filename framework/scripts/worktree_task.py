@@ -319,7 +319,7 @@ def _run_model_guard(target, task_file, approved=False, *, sources=None):
     if sources is not None:
         serialized_sources = json.dumps(sorted(sources))
     command = [str(interpreter), '-B', '-c',
-               'import sys, json; from pathlib import Path; sys.path.insert(0, "framework/scripts"); '
+               f'import sys, json; from pathlib import Path; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r}); '
                'import task_contract as tasks; from import_guard import require_import_changes; '
                'root = Path.cwd()\n'
                'options = {}\n'
@@ -511,7 +511,7 @@ def finalize(where, task_id, human_approved_validation_failure=None):
         if tasks.final_model_task(text):
             interpreter, environment = python_env.runtime(target)
             command = [str(interpreter), '-B', '-c',
-                       'import sys; sys.path.insert(0, "framework/scripts"); '
+                       f'import sys; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r}); '
                        'from worktree_task import _integrate_model; '
                        '_integrate_model(sys.argv[1], sys.argv[2])', str(root), task_id]
             result = subprocess.run(command, cwd=target, env=environment, capture_output=True, text=True, encoding='utf-8')

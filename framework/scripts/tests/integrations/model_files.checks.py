@@ -10,7 +10,6 @@ from support.it_case_receipt import it_case
 
 from support.model_files_fixtures import *
 
-from support.it_workspace import copy_framework
 from contextlib import redirect_stderr
 import json
 import model.files as model_files
@@ -279,7 +278,6 @@ def main():
     from model.format import FORMAT, split
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
-        copy_framework(root / 'framework')
         (root / 'project.json').write_text(json.dumps({'projectName': 'test', 'targets': [{
             'environment': 'dev', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}))
         source = root / 'model/dev/123456789012/config.properties'

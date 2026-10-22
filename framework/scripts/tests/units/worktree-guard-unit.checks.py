@@ -19,19 +19,10 @@ from support.worktree_task_fixtures import contract
 @pytest.mark.parametrize('approved', [False, True])
 @pytest.mark.parametrize('outcome', ['success', 'reject', 'launch', 'runtime'])
 def check_registered_guard_process(tmp_path, capsys, approved, outcome):
-    scripts = tmp_path / 'framework/scripts'
-    scripts.mkdir(parents=True)
-    # Execute the real Task selection implementation with a hostile inherited selector.
-    import shutil
-    for name in ('task_contract.py', 'sync_files.py', 'validation_cache.py', 'iac_values.py'):
-        shutil.copyfile(Path(wt.__file__).with_name(name), scripts / name)
-    (scripts / 'utils').mkdir()
-    for name in ('json_format.py', 'file_operations.py'):
-        shutil.copyfile(Path(wt.__file__).parent / 'utils' / name, scripts / 'utils' / name)
     task = 'tasks/selected.md'
     (tmp_path / 'tasks').mkdir()
     (tmp_path / task).write_text(contract('selected', ['file.txt']))
-    (scripts / 'import_guard.py').write_text('''import sys, os
+    guard_source = '''import sys, os
 from pathlib import Path
 import task_contract as tasks
 def require_import_changes(root, **kwargs):
@@ -42,8 +33,16 @@ def require_import_changes(root, **kwargs):
     print('warning: synthetic reference', file=sys.stderr)
     if os.environ['GUARD_OUTCOME'] == 'reject':
         raise ValueError('guard rejection')
-''', encoding='utf-8')
+'''
     environment = {**os.environ, 'BLUEPRINT_TASK_FILE': 'tasks/foreign.md', 'GUARD_OUTCOME': outcome}
+    real_run = wt.subprocess.run
+    def child(command, **kwargs):
+        command = list(command)
+        at = command.index('-c') + 1
+        command[at] = (f'import sys, types; sys.path.insert(0, {str(Path(wt.__file__).parent)!r}); stub = types.ModuleType("import_guard"); '
+                       + 'exec(' + repr(guard_source) + ', stub.__dict__); '
+                       + 'sys.modules["import_guard"] = stub; ' + command[at])
+        return real_run(command, **kwargs)
     real_import = builtins.__import__
     def missing_parent_dependency(name, *args, **kwargs):
         if name in ('import_guard', 'pystache', 'yaml'):
@@ -51,6 +50,7 @@ def require_import_changes(root, **kwargs):
         return real_import(name, *args, **kwargs)
     with patch.object(wt.python_env, 'runtime', return_value=(Path(sys.executable), environment)) as runtime, \
          patch.object(wt.python_env, 'setup', side_effect=AssertionError('no setup')), \
+         patch.object(wt.subprocess, 'run', side_effect=child), \
          patch('builtins.__import__', side_effect=missing_parent_dependency):
         if outcome == 'runtime':
             runtime.side_effect = ValueError('stale runtime')

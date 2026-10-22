@@ -10,7 +10,6 @@ from support.it_case_receipt import it_case
 
 from support.glue_datazone_catalog_fixtures import *
 
-from support.it_workspace import copy_framework
 
 @it_case
 def main() -> None:
@@ -18,7 +17,6 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         (root / "project.json").write_text(__import__("json").dumps({"projectName": "synthetic", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
-        copy_framework(root / 'framework')
         glue, datazone = write_designs(root)
         write_model(root / 'model/dev/123456789012/cloudformation-stacks.properties', {
             'desired.stack.001.name': 'fixture', 'desired.stack.001.placementName': 'fixture',

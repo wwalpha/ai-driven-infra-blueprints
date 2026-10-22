@@ -53,13 +53,8 @@ def check_deploy_scope_isolation(tmp_path):
     """Exercise the real task loop and validation scopes with two environments."""
     from model.render import markdown_for
     root = tmp_path / "repository"
-    make_framework_fixture(SCRIPT.parents[2], root)
-    scripts = root / "framework/scripts"
-    # Full-mode assertions must not recursively launch this regression script.
-    for path in [*(scripts / "tests").rglob("*.checks.py"),
-                 *(scripts / "tests/units").rglob("test_*.py")]:
-        path.unlink()
-    (scripts / "tests/units/scope.checks.py").write_text("assert True\n")
+    make_project_fixture(SCRIPT.parents[2], root)
+    scripts = SCRIPT.parent
     target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
     (root / "project.json").write_text(json.dumps({"projectName": "app", "targets": [
         {"environment": env, **target} for env in ("dev", "stg")]}) + "\n")
@@ -113,11 +108,18 @@ def check_deploy_scope_isolation(tmp_path):
     designs["stg"].write_text(markdown_for(designs["stg"], values, root))
     environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0"}
 
+    scope_check = root / 'scope.checks.py'
+    scope_check.write_text('assert True\n')
+    child = (f"import sys; sys.path.insert(0, {str(SCRIPT.parent)!r}); "
+             "from validation import loop; from script_loader import module; "
+             f"loop.select_checks = lambda *a, **k: ([__import__('pathlib').Path({str(scope_check)!r})], 'scope fixture'); "
+             "cli = module('blueprint-loop.py', 'scope_loop_cli'); raise SystemExit(cli.main())")
+
     def run(env="dev", mode="task", options=()):
         name = f"tasks/{env}.md"
         if tasks.status((root / name).read_text()) == "suspend":
             tasks.resume(root, name)
-        return subprocess.run([sys.executable, str(scripts / SCRIPT.name), "--mode", mode,
+        return subprocess.run([sys.executable, "-c", child, "--repository-root", str(root), "--mode", mode,
                                "--task-file", name, "--log-dir", str(tmp_path / "logs"), *options],
                               cwd=root, env=environment, capture_output=True, encoding="utf-8")
 
@@ -145,8 +147,8 @@ def check_deploy_scope_isolation(tmp_path):
 def check_task_service_validation(tmp_path):
     """Use the real validator/generator, with no framework changes in the fixture."""
     root = tmp_path / "repository"
-    make_framework_fixture(SCRIPT.parents[2], root)
-    scripts = root / "framework/scripts"
+    make_project_fixture(SCRIPT.parents[2], root)
+    scripts = SCRIPT.parent
     (root / "project.json").write_text(json.dumps({"projectName": "app", "targets": [{
         "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1",
         "iacEngine": "cloudformation"}]}) + "\n", encoding="utf-8")
@@ -176,7 +178,7 @@ display.resource.001.comment=通信ログを保存するLog Group
         'desired.stack.001.deployOrder': '1', 'display.stack.001.comment': '合成Stack'})
     environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0"}
     environment.pop("BLUEPRINT_PROFILE_DIR", None)  # The fixture profiles only its explicit --profile run.
-    result = subprocess.run([sys.executable, str(scripts / "sync-model.py"), "--write", "--all"],
+    result = subprocess.run([sys.executable, str(scripts / "sync-model.py"), "--repository-root", str(root), "--write", "--all"],
                             cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode == 0, result.stdout + result.stderr
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
@@ -206,10 +208,10 @@ display.resource.001.comment=通信ログを保存するLog Group
 """, encoding="utf-8")
     design = root / "docs/designs/dev/123456789012/logs.md"
     write_model(model, original.replace("value=30", "value=14"))
-    subprocess.run([sys.executable, str(scripts / "sync-model.py"), "--write", "--all"],
+    subprocess.run([sys.executable, str(scripts / "sync-model.py"), "--repository-root", str(root), "--write", "--all"],
                    cwd=root, env=environment, check=True, capture_output=True)
     good_model, good_design = read_model(model), design.read_text(encoding="utf-8")
-    command = [sys.executable, str(scripts / SCRIPT.name), "--mode", "task", "--log-dir", str(tmp_path / "logs")]
+    command = [sys.executable, str(scripts / SCRIPT.name), "--repository-root", str(root), "--mode", "task", "--log-dir", str(tmp_path / "logs")]
 
     def run():
         if tasks.status(active.read_text(encoding="utf-8")) == "suspend":
@@ -317,20 +319,19 @@ def check_parallel_and_selection(tmp_path):
 
 def check_staged_snapshot(tmp_path):
     root = tmp_path / "source"
-    scripts = root / "framework/scripts"
+    scripts = root / "checks"
     scripts.mkdir(parents=True)
     (scripts / "tests/units").mkdir(parents=True, exist_ok=True)
     make_loop_fixture(scripts)
     # These isolated runner fixtures exercise orchestration after authorization.
-    (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
     (scripts / "tests/units/snapshot.checks.py").write_text(
         "print('snapshot regression assertion executed')\n", encoding="utf-8")
     (root / "tasks").mkdir()
     active = root / "tasks/snapshot.md"
     contract = ("## Task contract\n- Task type: `governance`\n- Task status: `running`\n"
                 "## Validation scope\n- `framework`\n## Modified files\n- `tasks/snapshot.md`\n"
-                "- `framework/scripts/validate-blueprint.py`\n## Allowed paths\n- `tasks/snapshot.md`\n"
-                "- `framework/scripts/validate-blueprint.py`\n")
+                "- `checks/validate-blueprint.py`\n## Allowed paths\n- `tasks/snapshot.md`\n"
+                "- `checks/validate-blueprint.py`\n")
     MODULE.git(root, "init", "-q")
     active.write_text(contract, encoding="utf-8")
     validator = scripts / "validate-blueprint.py"
@@ -354,7 +355,7 @@ def check_staged_snapshot(tmp_path):
     (root / ".lock").write_text('{"local":"fixture service_source"}\n', encoding="utf-8")
     validator.write_text(validator.read_text(encoding="utf-8") +
                         "assert __import__('json').loads(Path('.lock').read_text()) == {'local':'fixture service_source'}\n", encoding="utf-8")
-    MODULE.git(root, "add", "framework/scripts/validate-blueprint.py")
+    MODULE.git(root, "add", "checks/validate-blueprint.py")
     log_parent = tmp_path / "logs"
     command = [sys.executable, str(scripts / SCRIPT.name), "--mode", "task", "--staged", "--base", base,
                "--log-dir", str(log_parent)]
@@ -371,7 +372,7 @@ def check_staged_snapshot(tmp_path):
     metadata = json.loads(next(log_parent.glob("*/snapshot.json")).read_text(encoding="utf-8"))
     assert metadata["base"] == base and metadata["source_unchanged"]
     # Windows must reject an older staged guard before dispatching any child.
-    guard = scripts / "regression_guard.py"
+    guard = scripts / SCRIPT.name
     original_guard = guard.read_bytes()
     guard.write_text("# unstaged guard update\n", encoding="utf-8")
     rejected_logs = tmp_path / "rejected-logs"
@@ -396,7 +397,7 @@ def check_staged_snapshot(tmp_path):
     original_validator = validator.read_text(encoding="utf-8")
     validator.write_text(original_validator +
                         f"Path({str(root / '.lock')!r}).write_text('changed', encoding='utf-8')\n", encoding="utf-8")
-    MODULE.git(root, "add", "framework/scripts/validate-blueprint.py")
+    MODULE.git(root, "add", "checks/validate-blueprint.py")
     result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode == 1 and "HEAD/index/.lock changed" in result.stdout, result.stdout + result.stderr
     (root / ".lock").write_text('{"local":"fixture service_source"}\n', encoding="utf-8")
@@ -404,7 +405,7 @@ def check_staged_snapshot(tmp_path):
     # A concurrent index edit cannot be reported as current validation success.
     validator.write_text(validator.read_text(encoding="utf-8") +
         f"subprocess.run(['git','add','tasks/snapshot.md'], cwd={str(root)!r}, check=True)\n", encoding="utf-8")
-    MODULE.git(root, "add", "framework/scripts/validate-blueprint.py")
+    MODULE.git(root, "add", "checks/validate-blueprint.py")
     result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode == 1 and "snapshot is stale" in result.stdout, result.stdout + result.stderr
     rejected = subprocess.run([*command, "--affected", "--all"], capture_output=True, encoding="utf-8")
@@ -469,13 +470,11 @@ def check_regression_authorization(tmp_path):
 
 def check_failure_suspension(tmp_path):
     root = tmp_path / "repository"
-    scripts = root / "framework/scripts"
+    scripts = root / "checks"
     scripts.mkdir(parents=True)
     (scripts / "tests/units").mkdir(parents=True, exist_ok=True)
     make_loop_fixture(scripts)
     with patch.dict(os.environ, {}, clear=True):
-        (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
-        (scripts / "worktree_python.py").write_text("def runtime(root): return None\n", encoding="utf-8")
         validator = scripts / "validate-blueprint.py"
         validator.write_text("print('baseline: model/dev/cde/ec2.properties schema mismatch')\nraise SystemExit(1)\n", encoding="utf-8")
         check = scripts / "tests/units/own.checks.py"
@@ -497,7 +496,7 @@ def check_failure_suspension(tmp_path):
             MODULE.git(root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture")
 
         save_inputs()
-        command = [sys.executable, str(scripts / "run-python.py"), str(scripts / SCRIPT.name), "--mode", "full", "--task-file", first,
+        command = [sys.executable, str(scripts / SCRIPT.name), "--mode", "full", "--task-file", first,
                    "--log-dir", str(tmp_path / "logs")]
         environment = MODULE.utf8_environment()
         result = subprocess.run(command, env=environment, capture_output=True, encoding="utf-8")
@@ -664,12 +663,11 @@ def check_workflow(tmp_path) -> None:
         check_assertion_guards(tmp_path)
     root = tmp_path / "repository"
     log_parent = tmp_path / "logs"
-    scripts = root / "framework" / "scripts"
+    scripts = root / "checks"
     scripts.mkdir(parents=True)
     (scripts / "tests/units").mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
     make_loop_fixture(scripts)
-    (scripts / "regression_guard.py").write_text("def authorize_full_regression(root): pass\n", encoding="utf-8")
     (scripts / "validate-blueprint.py").write_text("raise SystemExit(1)\n", encoding="utf-8")
     (scripts / "tests/units/a.checks.py").write_text("assert False, 'assertions must run'\n", encoding="utf-8")
     (scripts / "tests/units/b.checks.py").write_text(

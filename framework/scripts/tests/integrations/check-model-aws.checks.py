@@ -173,8 +173,6 @@ def cli_checks(root):
 ])
 @pytest.mark.parametrize('paginate', [False, True])
 def check_cli_service_names(tmp_path, service, operation, cli_service, paginate):
-    from support.it_workspace import copy_framework
-    copy_framework(tmp_path / 'framework')
     ctx = m.Context(tmp_path, TARGET)
     ctx.verified = True
     with patch.object(m.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout='{}', stderr='')) as process:
@@ -668,9 +666,8 @@ def fixture_coverage(root):
     (cfn_identity_checks, "cfn-identity"), (fixture_coverage, "coverage"),
 ], ids=["services", "common", "associations", "identity-registry", "batch", "cli", "stacks", "cfn-identity", "coverage"])
 def check_domains(tmp_path, callback, subdirectory):
-    from support.it_workspace import copy_framework
     root = tmp_path / subdirectory
-    copy_framework(root / 'framework')
+    root.mkdir(exist_ok=True)
     (root / 'project.json').write_text(json.dumps({'projectName': 'synthetic', 'targets': [
         {key: value for key, value in TARGET.items() if key != 'directory'}]}) + '\n')
     callback(root)

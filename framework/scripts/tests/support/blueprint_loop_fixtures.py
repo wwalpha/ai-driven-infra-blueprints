@@ -47,14 +47,13 @@ from validation import loop as MODULE
 from script_loader import module
 CLI = module("blueprint-loop.py", "blueprint_loop_cli")
 
-from support.it_workspace import copy_framework
 
 def events(directory):
     return [json.loads(line) for line in (directory / "timing.jsonl").read_text(encoding="utf-8").splitlines()]
 
-def make_framework_fixture(source, root):
-    # Copy framework inputs only; never inherit consumer issues, models or tasks.
-    copy_framework(root / 'framework', ignore=shutil.ignore_patterns('__pycache__'))
+def make_project_fixture(source, root):
+    # Only Project configuration and writable directories belong to the fixture.
+    root.mkdir(parents=True, exist_ok=True)
     for name in ("AGENTS.md", "README.md"):
         shutil.copyfile(source / name, root / name)
     for name in ("tasks", "docs/designs", "model", "infra", "tests/scenarios", "tests/results"):
@@ -63,20 +62,39 @@ def make_framework_fixture(source, root):
 
 
 def make_loop_fixture(scripts):
-    copy_framework(scripts, relative="scripts", dirs_exist_ok=True, ignore=shutil.ignore_patterns("tests", "__pycache__"))
-    # Orchestration fixtures keep their scripted outcomes at the current validator API boundary.
-    (scripts / 'validation/runner.py').write_text("""import runpy
+    # Keep existing orchestration outcomes at the validator boundary; import real code.
+    bootstrap = f"""import sys, runpy
+from pathlib import Path
 from types import SimpleNamespace
+sys.path.insert(0, {str(SCRIPT.parent)!r})
+from validation import loop, runner
+from script_loader import module
+cli = module('blueprint-loop.py', 'fixture_loop_cli')
+root = Path(__file__).resolve().parents[1]
+original_changed = loop.framework_changed
+loop.framework_changed = lambda paths: original_changed(paths) or any(p.startswith('checks/') for p in paths)
+loop.select_checks = lambda *a, **k: (sorted((root / 'checks/tests/units').glob('*.checks.py')), 'orchestration outcomes')
+original_popen = loop.subprocess.Popen
+def child(command, *args, **kwargs):
+    if len(command) > 3 and command[1:3] == ['-X', 'utf8'] and command[3].endswith('blueprint-loop.py'):
+        command = [*command[:3], str(Path(kwargs['cwd']) / 'checks/blueprint-loop.py'), *command[4:]]
+    return original_popen(command, *args, **kwargs)
+loop.subprocess.Popen = child
 
 def run_validation(root, options, **kwargs):
     def report():
         try:
-            runpy.run_path(str(root / 'framework/scripts/validate-blueprint.py'), run_name='__main__')
+            runpy.run_path(str(root / 'checks/validate-blueprint.py'), run_name='__main__')
         except SystemExit as error:
             return error.code or 0
         return 0
     return SimpleNamespace(display_report=report)
-""", encoding='utf-8')
+runner.run_validation = run_validation
+loop.authorize_full_regression = lambda root: None
+sys.argv += ['--repository-root', str(root)]
+raise SystemExit(cli.main())
+"""
+    (scripts / 'blueprint-loop.py').write_text(bootstrap, encoding='utf-8')
 
 
-__all__ = ['CLI', 'MODULE', 'Path', 'SCRIPT', 'SimpleNamespace', 'annotations', 'events', 'importlib', 'io', 'json', 'make_framework_fixture', 'make_loop_fixture', 'os', 'patch', 'pytest', 'read_model', 'redirect_stdout', 'run', 'shutil', 'snapshot_model', 'subprocess', 'sys', 'tasks', 'write_fixture_files', 'write_model']
+__all__ = ['CLI', 'MODULE', 'Path', 'SCRIPT', 'SimpleNamespace', 'annotations', 'events', 'importlib', 'io', 'json', 'make_project_fixture', 'make_loop_fixture', 'os', 'patch', 'pytest', 'read_model', 'redirect_stdout', 'run', 'shutil', 'snapshot_model', 'subprocess', 'sys', 'tasks', 'write_fixture_files', 'write_model']

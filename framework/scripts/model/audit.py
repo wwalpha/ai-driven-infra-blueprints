@@ -171,7 +171,8 @@ def generate(root, environment, selector, service):
              for data in models.values() for file, content in data.dependencies.items()}
     files['project.json'] = project_source
     model_hash = hashlib.sha256(m.stable({'sources': files, 'target': target}).encode('utf-8')).hexdigest()
-    scripts = ROOT / 'framework/scripts'
+    from utils.aws_mappings import definition_root
+    scripts = definition_root(ROOT) / 'framework/scripts'
     engine = ('from __future__ import annotations\n'
               'import argparse, hashlib, json, os, re, subprocess, sys\n'
               'from collections import Counter, defaultdict\n'

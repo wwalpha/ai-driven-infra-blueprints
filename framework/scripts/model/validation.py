@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from utils.json_format import policy_json
+from utils.aws_mappings import definition_root
 
 from model.core import ReferenceResolutionError
 
@@ -55,6 +56,7 @@ NAMING_EXEMPT_PROPERTIES = {
 @memoized
 def naming_rule_files(root: Path, namespace: str | None = None) -> tuple[Path, ...]:
     """Read the common entry and only explicitly indexed service rules."""
+    root = definition_root(root)
     path = root / "framework/rules/aws-resource-naming.md"
     files = [path]
     for name, reference in re.findall(
@@ -243,7 +245,7 @@ def validate_resource_identities(path, values, root, resources, *, definitions_r
     (_kms_policy_check or validate_kms_policy_accounts)(values, target)
     stack_source = root / "model" / relative / "cloudformation-stacks.properties" if relative is not None else None
     stack_names = None
-    identity_catalog = DesignSchemaCatalog(definitions_root or root)
+    identity_catalog = DesignSchemaCatalog(definitions_root or definition_root(root))
     for identity, resource in resources:
         if "cfn-logicalId" not in resource:
             if target.get("iacEngine") == "cloudformation" and resource_mode(resource) == "CREATE":
@@ -292,7 +294,7 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
     from model.format import owner
     from aws_mapping_display import validate_mappings
     findings = Findings(root)
-    definitions = definitions_root or root
+    definitions = definitions_root or definition_root(root)
     view = (root / 'docs/designs' / path.relative_to(root / 'model')).with_suffix('.md') if path.is_relative_to(root / 'model') else path
     def structure():
         validate_model_keys(values)

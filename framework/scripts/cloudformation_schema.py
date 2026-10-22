@@ -46,6 +46,8 @@ def design_type(material: Path) -> str:
 
 
 def material_files(root: Path) -> list[Path]:
+    from utils.aws_mappings import definition_root
+    root = definition_root(root)
     return sorted(input_select(root / "framework" / "materials" / "aws", "*.properties"))
 
 

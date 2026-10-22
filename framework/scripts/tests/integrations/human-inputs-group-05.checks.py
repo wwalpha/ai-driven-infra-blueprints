@@ -41,7 +41,7 @@ def check_declared_inputs(service='cloudtrail'):
             path = primary / 'model' / environment / 'team' / (service + '.properties')
             write_model(path, values)
             paths[environment] = path.relative_to(primary).as_posix()
-        git(primary, 'add', 'project.json', 'model', 'framework'); git(primary, 'commit', '-qm', 'explicit group05 fixture')
+        git(primary, 'add', 'project.json', 'model'); git(primary, 'commit', '-qm', 'explicit group05 fixture')
         target, state = start(primary, files=tuple(paths.values()))
         name = state['task_file']
         listed = ''.join('- `' + path + '`\n' for path in (name, *paths.values()))

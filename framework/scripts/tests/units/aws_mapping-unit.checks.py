@@ -125,7 +125,7 @@ def check_v3_registry():
 
 def check_registry_cache():
     with TemporaryDirectory() as directory:
-        root = mapping_fixture(Path(directory), 'config')
+        root = Path(directory)
         @input_scope
         def cached():
             first = aws_mapping.registry(root, 'config')
@@ -180,7 +180,7 @@ assert not utils.aws_mappings._instances
 """
     subprocess.run([sys.executable, '-c', code], cwd=ROOT / 'framework/scripts', check=True)
     with TemporaryDirectory() as directory:
-        root = mapping_fixture(Path(directory), 'config', 'iam')
+        root = Path(directory)
         original = Path.read_text
         reads = []
         def read(path, *args, **kwargs):
@@ -196,7 +196,7 @@ assert not utils.aws_mappings._instances
             assert all(provider is providers[0] for provider in providers)
             assert owners(root) is owners(root)
             assert owners(root)[RECORDER] == 'config'
-            assert reads == [root / 'framework/mappings/aws/owners.json']
+            assert reads == [ROOT / 'framework/mappings/aws/owners.json']
             parse.assert_not_called()
             with pytest.raises(KeyError):
                 owners(root)['Unknown.Resource']
@@ -210,8 +210,8 @@ assert not utils.aws_mappings._instances
 
 def check_runtime_cache():
     with TemporaryDirectory() as directory:
-        root = mapping_fixture(Path(directory) / 'first', 'config', 'iam', 'sns')
-        other = mapping_fixture(Path(directory) / 'second', 'config')
+        root = Path(directory) / 'first'
+        other = Path(directory) / 'second'
         original = Path.read_text
         reads = []
         def read(path, *args, **kwargs):
@@ -235,13 +235,13 @@ def check_runtime_cache():
             assert mappings_for(root).get('iam').service == 'iam'
             assert mappings_for(other).get('config') is not first
             assert parse.call_count == compile.call_count == 3
-            assert reads == [root / 'framework/mappings/aws/config.yaml', root / 'framework/mappings/aws/iam.yaml',
-                             other / 'framework/mappings/aws/config.yaml']
+            assert reads == [ROOT / 'framework/mappings/aws/config.yaml', ROOT / 'framework/mappings/aws/iam.yaml',
+                             ROOT / 'framework/mappings/aws/config.yaml']
 
 
 def check_parallel_services():
     with TemporaryDirectory() as directory:
-        root = mapping_fixture(Path(directory), 'config', 'iam')
+        root = Path(directory)
         provider = mappings_for(root)
         start, parsing = Barrier(8), Barrier(2)
         original = aws_mapping.yaml_read
@@ -262,7 +262,7 @@ def check_parallel_services():
 def check_runtime_full_reuse():
     with TemporaryDirectory() as directory:
         for order in ('runtime-first', 'full-first', 'parallel'):
-            root = mapping_fixture(Path(directory) / order, 'sqs')
+            root = Path(directory) / order
             provider = mappings_for(root)
             barrier = Barrier(8)
             def obtain(number):
@@ -292,7 +292,7 @@ def check_runtime_failures():
         pass
     with TemporaryDirectory() as directory:
         for fault in ('read', 'runtime', 'control'):
-            root = mapping_fixture(Path(directory) / fault, 'config')
+            root = Path(directory) / fault
             provider = mappings_for(root)
             original = Path.read_text
             reads = []
@@ -339,7 +339,7 @@ def check_full_failure_isolation():
     from utils.aws_schemas import Schemas
     from utils.aws_catalogs import Catalogs
     with TemporaryDirectory() as directory:
-        root = mapping_fixture(Path(directory), 'sns')
+        root = Path(directory)
         runtime_provider = mappings_for(root)
         with patch.object(aws_mapping, 'yaml_read', wraps=aws_mapping.yaml_read) as parse:
             for target in ('sdk_shape', 'DesignSchemaCatalog'):
@@ -362,14 +362,14 @@ def check_full_failure_isolation():
 
 def check_stage_alias():
     with TemporaryDirectory() as directory:
-        root = mapping_fixture(Path(directory) / 'source', 'config')
-        stage = mapping_fixture(Path(directory) / 'stage', 'config')
+        root = Path(directory) / 'source'
+        stage = Path(directory) / 'stage'
         provider = mappings_for(root)
         with pytest.raises(RuntimeError, match='injected'), mapping_alias(root, stage):
             with ThreadPoolExecutor(max_workers=4) as pool:
                 results = list(pool.map(lambda _: mappings_for(stage).get('config'), range(4)))
             assert all(item is provider.get('config') for item in results)
-            sibling = mapping_fixture(Path(str(stage) + '-prefix'), 'config')
+            sibling = Path(str(stage) + '-prefix')
             assert mappings_for(sibling) is not provider
             with pytest.raises(ValueError, match='already has a provider'), mapping_alias(root, stage):
                 pass

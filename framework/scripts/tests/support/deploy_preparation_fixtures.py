@@ -47,15 +47,9 @@ TARGET = {"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap
 
 STACKS = ["cfn-stack-app-dev-one", "cfn-stack-app-dev-two"]
 
-from support.it_workspace import copy_framework
 
 def fixture(root):
-    copy_framework(root / 'framework/materials', relative='materials')
-    copy_framework(root / 'framework/mappings', relative='mappings')
-    copy_framework(root / 'framework/scripts', relative='scripts', ignore=shutil.ignore_patterns('tests', '__pycache__'))
-    copy_framework(root / 'framework/rules', relative='rules')
-    (root / "framework/prompts/codex").mkdir(parents=True)
-    shutil.copy(ROOT / "framework/prompts/codex/04_deploy.md", root / "framework/prompts/codex/04_deploy.md")
+    root.mkdir(parents=True, exist_ok=True)
     for name in ("AGENTS.md", "README.md"):
         shutil.copy(ROOT / name, root / name)
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [TARGET]}) + "\n", encoding="utf-8")

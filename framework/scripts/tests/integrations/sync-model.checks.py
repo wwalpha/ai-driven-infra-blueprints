@@ -34,7 +34,6 @@ from utils.aws_mappings import definition_root
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 
-from support.it_workspace import copy_framework
 
 def check_stage_definition_sources(generated_policy, tmp_path):
     from utils.aws_mappings import mapping_alias, mappings_for
@@ -248,7 +247,9 @@ def check_stage_definition_errors(generated_policy, tmp_path, definition):
                     from utils.aws_mappings import Mappings
                     Mappings(definition_root(root))
                 elif definition == 'schema':
-                    sync_views.view_validator(stage, root)
+                    from utils.aws_schemas import Schemas
+                    with patch('utils.aws_schemas.schemas_for', side_effect=lambda root: Schemas(root)):
+                        sync_views.view_validator(stage, root)
                 else:
                     model_design.markdown_for(staged, values, stage, definitions_root=definition_root(root))
     assert not (stage / 'framework').exists()
@@ -513,10 +514,10 @@ def check_unchanged_sidecar_validation(generated_policy):
     assert {file: file.read_bytes() for file in before} == before
 
 
-def check_failure_counts(framework_root) -> None:
+def check_failure_counts(project_workspace) -> None:
     from types import SimpleNamespace
     from validation.findings import Findings
-    root = framework_root
+    root = project_workspace
     (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', 'alias': 'non-cde',
         'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}))
     models = root / "model/dev/non-cde"
@@ -528,7 +529,7 @@ def check_failure_counts(framework_root) -> None:
         (docs / f"service-{number:02d}.md").write_text("generated\n")
 
     def render(path, values, stage, *, definitions_root=None):
-        assert definitions_root == root
+        assert definitions_root == definition_root(root)
         if int(path.stem.removeprefix("service-")) < 9:
             raise ValueError("fixture render failure")
         return "generated\n"
@@ -578,8 +579,8 @@ def check_failure_counts(framework_root) -> None:
 
 
 @pytest.mark.parametrize("write", [False, True])
-def check_incoming_reference_models(framework_root, tmp_path, write) -> None:
-    root = framework_root
+def check_incoming_reference_models(project_workspace, tmp_path, write) -> None:
+    root = project_workspace
     (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', 'awsAccountId': '123456789012',
         'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}))
     models = root / "model/dev/123456789012"
@@ -608,8 +609,8 @@ def check_incoming_reference_models(framework_root, tmp_path, write) -> None:
         assert (stage / incoming.relative_to(root)).exists()
 
 
-def check_required_preflight(framework_root) -> None:
-    root = framework_root
+def check_required_preflight(project_workspace) -> None:
+    root = project_workspace
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{
         "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
     model = root / "model/dev/123456789012/quicksight.properties"
@@ -690,7 +691,6 @@ def check_required_preflight(framework_root) -> None:
 
 def check_required_property_parents(tmp_path) -> None:
     root = tmp_path
-    copy_framework(definition_root(root) / 'framework')
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{
         "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
     model = root / "model/dev/123456789012/glue.properties"
@@ -750,8 +750,6 @@ def check_required_property_parents(tmp_path) -> None:
 
 def check_workflow(tmp_path) -> None:
     root = tmp_path
-    copy_framework(root / "framework/mappings", relative="mappings")
-    copy_framework(root / "framework/materials", relative="materials")
     design = root / "docs" / "designs" / "dev" / "123456789012" / "vpc.md"
     artifact = design.parent / "vpc" / "vpc01-policy.json"
     artifact.parent.mkdir(parents=True)
@@ -1095,12 +1093,11 @@ def check_input_mutation(generated_policy, filename, mutation):
 def internal_sync_project(tmp_path):
     from support.model_templates_fixtures import fixture, config_model, write_fixture
     import subprocess
-    from support.it_fixture_bundle import source as seed
     from utils.aws_mappings import mapping_alias
-    definitions = seed('framework')
+    definitions = definition_root(tmp_path)
     lifetime = __import__('contextlib').ExitStack()
     lifetime.enter_context(mapping_alias(definitions, tmp_path))
-    fixture(tmp_path, ('dev', 'stg'), definitions_root=definitions)
+    fixture(tmp_path, ('dev', 'stg'))
     for env in ('dev', 'stg'):
         write_fixture(tmp_path, env, 'config', config_model())
     active = tmp_path / 'tasks/example.md'

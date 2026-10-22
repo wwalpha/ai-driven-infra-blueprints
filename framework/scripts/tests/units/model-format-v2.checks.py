@@ -82,8 +82,6 @@ def check_import_observation_foreign_reference_and_identity_spoof(tmp_path):
     from model.format import serialize
     from support.model_v2_fixtures import format_fixture, FRAMEWORK
     scope, values = format_fixture(tmp_path)
-    for name in ('materials', 'mappings', 'rules'):
-        shutil.copytree(FRAMEWORK / 'framework' / name, tmp_path / 'framework' / name)
     values.update({'desired.resource.008.resourceType': 'EC2.Subnet', 'desired.resource.008.anchor': 'subnet-existing',
                    'desired.resource.008.resourceMode': 'IMPORT', 'desired.resource.008.logicalId': 'EC2_Subnet_001',
                    'desired.service.identity.lastAllocated': '{"EC2.VPC":1,"EC2.Subnet":1}',
@@ -115,8 +113,6 @@ def check_macie_renders_current_document_without_artifact_reads(tmp_path, existi
     from model.render import render_model
     from support.model_v2_fixtures import format_fixture, FRAMEWORK
     scope, _ = format_fixture(tmp_path, service='macie')
-    for directory in ('materials', 'mappings', 'rules'):
-        shutil.copytree(FRAMEWORK / 'framework' / directory, tmp_path / 'framework' / directory)
     document = {'bucketDefinitions': [{'accountId': '123456789012', 'buckets': ['current-a', 'current-b']}]}
     values = {'desired.service.macie.serviceId': 'macie',
         'desired.service.macie.ownedCatalogResourceTypes': 'Macie.ClassificationJob',

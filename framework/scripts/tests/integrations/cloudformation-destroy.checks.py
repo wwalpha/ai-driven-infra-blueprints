@@ -40,7 +40,6 @@ SPEC.loader.exec_module(M)
 TARGET = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
 
 
-from support.it_workspace import copy_framework
 
 def rejects(action, fragment):
     with pytest.raises((ValueError, M.Blocked)) as error:
@@ -268,8 +267,6 @@ def fixture(root, names, models=False):
                        {"name": name, "deployOrder": order, "template": name + ".yaml", "parameters": name + ".json"}.items()})
     write_model(root / "model/dev/123456789012/cloudformation-stacks.properties", "\n".join(key + "=" + value for key, value in values.items()) + "\n")
     if models:
-        if not (root / 'framework').exists():
-            copy_framework(root / 'framework')
         values = {"desired.service.ec2.serviceId": "ec2", "desired.service.ec2.ownedCatalogResourceTypes": "EC2.VPC,EC2.Subnet",
                   "display.service.title": "# EC2 詳細設計"}
         for number, name in enumerate(names, 1):
@@ -434,7 +431,7 @@ def managed_destroy_root():
     from task_contract import selected_task
     with repository() as primary:
         fixture(primary, {"A": 30, "B": 20, "C": 10}, models=True)
-        git(primary, 'add', 'framework', 'project.json', 'model', 'docs')
+        git(primary, 'add', 'project.json', 'model', 'docs')
         git(primary, 'commit', '-qm', 'synthetic IMPORT baseline')
         root, state = start(primary, task_id='destroy', files=('file.txt',))
         with selected_task(root, state['task_file']):

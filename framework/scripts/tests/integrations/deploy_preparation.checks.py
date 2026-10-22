@@ -10,7 +10,6 @@ from support.it_case_receipt import it_case
 
 from support.deploy_preparation_fixtures import *
 
-from support.it_workspace import copy_framework
 
 @it_case
 def check_preparation():
@@ -52,7 +51,7 @@ def check_preparation():
         assert generated <= plan["inputs"].keys() and generated <= declared
         assert not generated & documents.keys()
         for relative, digest in plan["inputs"].items():
-            assert digest == hashlib.sha256((root / relative).read_bytes()).hexdigest()
+            assert digest == hashlib.sha256(((ROOT if relative.startswith(("framework/", ".agents/")) else root) / relative).read_bytes()).hexdigest()
         assert {Path(c) for d in plan["documents"] for c in d["chunks"]} == {p.resolve() for p in (run / "documents").iterdir()}
         assert len(documents) == len(plan["documents"])
         entrance = root / "model/dev/123456789012/ec2.properties"
@@ -80,6 +79,16 @@ def check_preparation():
             assert M.main(["--repository-root", str(root), "--run-controller", str(path)]) == 2
             assert launch.call_count == 1 and launch.call_args.args[0] == plan["controllerArgv"]
             assert launch.call_args.kwargs["env"]["BLUEPRINT_TASK_FILE"] == "tasks/deploy-offline.md"
+        original_command = plan["controllerArgv"][:]
+        for command in ([*original_command[:3], str(base / "other"), *original_command[4:]],
+                        [*original_command, "--repository-root", str(base / "other")],
+                        [*original_command[:2], *original_command[4:]]):
+            plan["controllerArgv"] = command
+            path.write_text(json.dumps(plan), encoding="utf-8")
+            with patch.object(M.subprocess, "run", side_effect=AssertionError("foreign Project launched")), redirect_stderr(io.StringIO()):
+                assert M.main(["--repository-root", str(root), "--run-controller", str(path)]) == 1
+        plan["controllerArgv"] = original_command
+        path.write_text(json.dumps(plan), encoding="utf-8")
         events = [json.loads(line) for line in (run / "timing.jsonl").read_text().splitlines()]
         assert {"environment", "contractPreparation", "documentRead", "documentReview", "contractRegistration"} <= {e["phase"] for e in events}
         assert all(e["result"] == "PASS" and e["seconds"] >= 0 for e in events)
@@ -148,7 +157,7 @@ def check_generated_boundaries():
         else:
             raise AssertionError("foreign JSON accepted")
         write_model(source, original)
-        controller = M.module("boundary_controller", root / "framework/scripts/cloudformation-deploy.py")
+        controller = M.module("boundary_controller", ROOT / "framework/scripts/cloudformation-deploy.py")
         real_module = M.module
         real_load = controller.load_units
         artifacts = root / "infra/cloudformation/artifacts"
@@ -175,7 +184,7 @@ def check_generated_boundaries():
         assert "infra/cloudformation/artifacts/build.zip" in plan["inputs"]
         assert "infra/cloudformation/artifacts/build.zip" not in plan["generatedViews"]
         for relative, digest in plan["inputs"].items():
-            assert digest == M.sha(root / relative)
+            assert digest == M.sha((ROOT if relative.startswith(("framework/", ".agents/")) else root) / relative)
         with patch.object(controller.AwsBackend, "paths", return_value=(root / "docs/designs/dev/123456789012/iam/worker-role-trust-policy.json", artifacts / "execution.json")), patch.object(M, "module", side_effect=modules):
             output = io.StringIO()
             with redirect_stderr(output):

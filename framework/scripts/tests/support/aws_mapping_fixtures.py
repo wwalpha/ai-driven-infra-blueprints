@@ -68,27 +68,3 @@ BASELINE = {
 
 
 __all__ = ['BASELINE', 'CHANNEL', 'FrozenInstanceError', 'Path', 'RECORDER', 'ROOT', 'SimpleNamespace', 'TemporaryDirectory', 'astuple', 'aws_mapping', 'copy', 'display_rows', 'entries', 'hashlib', 'input_scope', 'json', 'load_model', 'm', 'module', 'patch', 'resource_rows', 'resource_table_lines', 'socket', 'sys', 'write_model']
-
-
-def mapping_fixture(root, *services):
-    """Copy selected static definitions and their pinned validation authorities only."""
-    from shutil import copyfile
-    index = json.loads((ROOT / 'framework/mappings/aws/owners.json').read_text(encoding='utf-8'))
-    owners = {kind: service for kind, service in index.items() if service in services}
-    schema = Path('framework/materials/cloudformation-schema/ap-northeast-1')
-    schemas = json.loads((ROOT / schema / 'index.json').read_text(encoding='utf-8'))['resourceTypes']
-    paths = {Path('framework/mappings/aws') / (service + '.yaml') for service in services}
-    paths.add(schema / 'index.json')
-    paths.add(Path('framework/mappings/aws/owners.json'))
-    for kind in owners:
-        name = kind.replace('.', '_', 1)
-        paths.add(Path('framework/materials/aws') / (name + '.properties'))
-        paths.add(schema / schemas['AWS::' + kind.replace('.', '::', 1)])
-    for relative in paths:
-        target = root / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        copyfile(ROOT / relative, target)
-    return root
-
-
-__all__ += ['mapping_fixture']

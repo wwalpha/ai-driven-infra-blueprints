@@ -180,8 +180,6 @@ def check():
                 raise AssertionError('Model tree escape accepted')
         from task_contract import SELECTOR, task_revision
         from support.worktree_task_fixtures import contract
-        from support.it_workspace import copy_framework
-        copy_framework(root / 'framework')
         name = 'tasks/audit.md'
         prompt = root / name
         prompt.parent.mkdir()

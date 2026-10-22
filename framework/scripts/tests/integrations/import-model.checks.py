@@ -726,11 +726,11 @@ def check_partial_acquisition_cannot_complete(tmp_path):
 
 
 def check_generic_acquisition_roundtrip(tmp_path):
-    from support.import_model_fixtures import small_framework, CloudControlCli
+    from support.import_model_fixtures import project_fixture, CloudControlCli
     from support.model_sources import write_model
     root = tmp_path / 'case'
     root.mkdir()
-    small_framework(root, ['datazone'], ['DataZone.Domain'])
+    project_fixture(root)
     path = root / 'model/dev' / ACCOUNT / 'datazone.properties'
     write_model(path, {'desired.service.datazone.serviceId': 'datazone',
                       'desired.service.datazone.ownedCatalogResourceTypes': 'DataZone.Domain',
@@ -843,14 +843,14 @@ def check_batch_leaf_saves(monkeypatch):
     (False, False, 'absent'), (True, False, 'mismatch'), (True, False, 'ambiguous'), (True, False, 'review-race')])
 def check_reference_publication(tmp_path, present, race, diagnostic):
     from collections import Counter
-    from support.import_model_fixtures import CloudControlCli, small_framework, service_values, reference_fields
+    from support.import_model_fixtures import CloudControlCli, project_fixture, service_values, reference_fields
     from support.model_sources import write_model
     from task_contract import start
     from model.importing.scope import read_context
     import model.sources
     root = tmp_path / 'reference-publication'
     root.mkdir()
-    small_framework(root, ['cloudtrail', 's3'], ['CloudTrail.Trail', 'S3.Bucket'])
+    project_fixture(root)
     (root / 'project.json').write_text(json_text({'targets': [{'environment': 'dev', 'alias': TARGET,
         'awsAccountId': ACCOUNT, 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n')
     path = root / 'model/dev/cde/cloudtrail.properties'

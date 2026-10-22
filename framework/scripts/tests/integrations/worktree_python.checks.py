@@ -150,14 +150,6 @@ def check_venv_fallback():
     import time
     with checks.fixture() as root:
         requirements(root)
-        # Include the actual wrapper and runtime modules in the synthetic checkout.
-        scripts = root / "framework/scripts"
-        for name in ("run-python.py", "worktree_python.py", "worktree_task.py", "task_contract.py", "sync_files.py", "validation_cache.py"):
-            shutil.copyfile(Path(py.__file__).with_name(name), scripts / name)
-        (scripts / "utils").mkdir(exist_ok=True)
-        shutil.copyfile(Path(py.__file__).parent / "utils/file_operations.py", scripts / "utils/file_operations.py")
-        checks.git(root, "add", ".")
-        checks.git(root, "commit", "-qm", "wrapper")
         with patch.object(py, "IMPORTS", []), patch.dict(py.os.environ, {"PIP_NO_INDEX": "1"}), \
                 patch.object(py, "run", wraps=py.run) as commands, patch.object(py, "verify", wraps=py.verify) as verification:
             times = []
@@ -180,10 +172,10 @@ def check_venv_fallback():
             assert sum("install" in c.args[0] for c in commands.call_args_list) == 1
             assert verification.call_count == 1
             target = Path(states[0]["worktree"])
-            wrapper = target / "framework/scripts/run-python.py"
+            wrapper = Path(py.__file__).with_name("run-python.py")
             code = "import sys,os,json; print(json.dumps([sys.executable,sys.prefix,os.environ['VIRTUAL_ENV'],os.environ['PATH'].split(os.pathsep)[0]]))"
             for arguments in (["-c", code], ["--command", "python", "-c", code]):
-                result = subprocess.run([sys.executable, "-B", str(wrapper), *arguments], cwd=target,
+                result = subprocess.run([sys.executable, "-B", str(wrapper), "--repository-root", str(target), *arguments], cwd=target,
                                         capture_output=True, text=True)
                 assert result.returncode == 0, result.stderr + result.stdout
                 executable, prefix, virtual, first_bin = json.loads(result.stdout)

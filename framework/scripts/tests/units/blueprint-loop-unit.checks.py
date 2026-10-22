@@ -148,11 +148,12 @@ def check_fixture_independence(tmp_path):
         path = source / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("invalid consumer input", encoding="utf-8")
-    make_framework_fixture(source, target)
+    make_project_fixture(source, target)
 
 
 def check_regression_discovery(tmp_path):
-    with pytest.raises(ValueError, match="no framework regression checks discovered"):
+    with patch.object(MODULE, "definition_root", return_value=tmp_path), \
+         pytest.raises(ValueError, match="no framework regression checks discovered"):
         MODULE.select_checks(tmp_path, set())
     root = Path(__file__).resolve().parents[4]
     all_checks = {p.name for p in MODULE.select_checks(root, set())[0]}
@@ -352,10 +353,6 @@ def check_it_fixture_isolation(tmp_path):
         generations.append(name)
         (root / name).mkdir()
         (root / name / 'value.txt').write_text(name)
-        if name == 'framework':
-            (root / name / 'framework/rules').mkdir(parents=True)
-            shutil.copyfile(Path(__file__).resolve().parents[4] / 'framework/rules/task-contract.md',
-                            root / name / 'framework/rules/task-contract.md')
     with patch.object(fixtures, 'build', side_effect=build):
         with fixtures.bundle() as root, patch.dict(os.environ, {fixtures.ENV: str(root)}):
             before = fixtures.fingerprint(root)
@@ -369,10 +366,9 @@ def check_it_fixture_isolation(tmp_path):
                     (first / 'value.txt').write_text('changed')
                     (first / 'new.txt').write_text('local')
                     assert (second / 'value.txt').read_text() == name
-                    assert set(p.name for p in second.iterdir()) == (
-                        {'value.txt', 'framework'} if name == 'framework' else {'value.txt'})
+                    assert set(p.name for p in second.iterdir()) == {'value.txt'}
             from support.model_design_fixtures import root as model_design_root
-            shared = fixtures.source('framework') / 'framework'
+            shared = fixtures.REPOSITORY / 'framework'
             with patch('support.it_workspace.populate', side_effect=AssertionError('case copy')), \
                  patch('shutil.copytree', side_effect=AssertionError('framework copy')):
                 for order in (('a', 'b'), ('b', 'a')):
@@ -382,11 +378,9 @@ def check_it_fixture_isolation(tmp_path):
                         directory.mkdir(parents=True)
                         case = model_design_root.__wrapped__(directory)
                         assert case == directory.resolve()
-                        assert (case / 'framework').is_symlink()
-                        assert (case / 'framework').resolve() == shared.resolve()
-                        assert not (case / 'framework/rules/task-contract.md').stat().st_mode & 0o222
-                        assert [p.relative_to(case).as_posix() for p in
-                                (case / 'framework').rglob('*.md')] == ['framework/rules/task-contract.md']
+                        from utils.aws_mappings import definition_root
+                        assert not (case / 'framework').exists()
+                        assert definition_root(case) / 'framework' == shared
                         assert not (case / 'model').exists()
                         (case / 'model').mkdir()
                         (case / 'model/value.txt').write_text(name)
@@ -398,8 +392,7 @@ def check_it_fixture_isolation(tmp_path):
                     subprocess.run(['git', 'add', '.'], cwd=cases['a'], check=True)
                     tracked = subprocess.run(['git', 'ls-files', '--stage'], cwd=cases['a'],
                                              check=True, capture_output=True, text=True).stdout
-                    assert any(line.startswith('120000 ') and line.endswith('\tframework')
-                               for line in tracked.splitlines())
+                    assert not any(line.endswith('\tframework') for line in tracked.splitlines())
                     assert 'framework/rules/task-contract.md' not in tracked
                     assert '\tmodel/value.txt' in tracked
             assert fixtures.fingerprint(root) == before
@@ -407,7 +400,7 @@ def check_it_fixture_isolation(tmp_path):
     assert not root.exists()
     with patch.object(fixtures, 'build', side_effect=build), pytest.raises(RuntimeError, match='modified'):
         with fixtures.bundle() as root:
-            victim = root / 'framework/value.txt'
+            victim = root / fixtures.NAMES[0] / 'value.txt'
             victim.chmod(0o600)
             victim.write_text('corrupt')
     assert not root.exists()

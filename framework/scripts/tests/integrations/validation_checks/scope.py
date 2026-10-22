@@ -35,7 +35,6 @@ def check_deployment_iac_scope():
     import task_contract as tasks
     import os
     with git_project() as root, patch.dict(os.environ, {}, clear=True):
-        shutil.copytree(SCRIPT.parents[2] / "framework/rules", root / "framework/rules")
         target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "alias": "shared", "iacEngine": "cloudformation"}
         write(root / "project.json", json.dumps({"projectName": "app", "targets": [
             {"environment": env, **target} for env in ("dev", "stg")]}) + "\n")

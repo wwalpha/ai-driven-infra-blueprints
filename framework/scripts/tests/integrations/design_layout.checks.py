@@ -10,7 +10,6 @@ if not __debug__:
 
 from support.design_layout_fixtures import *
 
-from support.it_workspace import copy_framework
 
 def check_secret_rotation_display(tmp_path, catalog) -> None:
     text = """# Secrets Manager 詳細設計
@@ -685,7 +684,6 @@ def check_config_firehose_references(tmp_path, catalog) -> None:
     directory = tmp_path / "case-1"
     directory.mkdir()
     root = directory
-    copy_framework(root / 'framework')
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{
         "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation",
     }]}) + "\n", encoding="utf-8")
@@ -760,9 +758,6 @@ def check_resource_name_headings(tmp_path) -> None:
     path = root / "docs/designs/dev/123456789012/scheduler.md"
     path.parent.mkdir(parents=True)
     metadata = {path: ("scheduler", ("Scheduler.Schedule",))}
-    (root / "framework/rules").mkdir(parents=True)
-    shutil.copyfile(REPOSITORY / "framework/rules/aws-resource-naming.md", root / "framework/rules/aws-resource-naming.md")
-    copy_framework(root / 'framework/rules/aws-resource-naming', relative='rules/aws-resource-naming')
 
     def errors(markdown):
         path.write_text(markdown, encoding="utf-8")

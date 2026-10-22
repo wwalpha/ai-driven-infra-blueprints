@@ -14,9 +14,9 @@ from support.model_sources import write_model
 
 
 def setup(root, services, kinds, environments=('preview',)):
-    from support.import_model_fixtures import small_framework
+    from support.import_model_fixtures import project_fixture
     root.mkdir(exist_ok=True)
-    small_framework(root, services, kinds)
+    project_fixture(root)
     (root / 'project.json').write_text(json.dumps({'targets': [
         {'environment': env, 'alias': 'team', 'awsAccountId': '111111111111',
          'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'} for env in environments]}) + '\n', encoding='utf-8')
