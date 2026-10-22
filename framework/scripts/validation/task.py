@@ -11,7 +11,7 @@ from model.files import service_model_path
 from model.impact import affected
 from validation_scope import active_scope
 from issue_gate import require_no_issues
-from task_contract import task_path, TASK_NAME, matches
+from task_contract import task_path, TASK_NAME, matches, issues_save_only
 
 TASK_TYPES = {
     "initialization",
@@ -35,6 +35,7 @@ class TaskValidation:
         self.permission_paths = None
         self.baseline = None
         self.baseline_fixed = False
+        self.issues_only = False
         self.task_type = ""
         self.infrastructure_phase = ""
         self.requirement_ids = []
@@ -65,6 +66,10 @@ class TaskValidation:
             return
         if self.baseline_fixed:
             return
+        self.issues_only = issues_save_only(self.root)
+        if self.issues_only:
+            self.baseline_fixed = True
+            return
         from worktree_task import task_start_commit, git, output
         prompt = task_path(self.root, required=False)
         start = task_start_commit(self.root, prompt.relative_to(self.root).as_posix()) if prompt is not None else None
@@ -86,7 +91,10 @@ class TaskValidation:
             return set(self.final_candidate.changed_paths)
         self.fix_baseline()
         untracked = self.git_paths(['ls-files', '--others', '--exclude-standard', '-z'])
-        if self.baseline is None:
+        if self.issues_only:
+            tracked = (self.git_paths(['diff', '--no-renames', '--name-only', '-z']) |
+                       self.git_paths(['diff', '--cached', '--no-renames', '--name-only', '-z']))
+        elif self.baseline is None:
             tracked = {p for p in self.git_paths(['ls-files', '--cached', '-z'])
                        if (self.root / p).exists() or (self.root / p).is_symlink()}
         else:
@@ -244,16 +252,9 @@ class TaskValidation:
             return
         try:
             scope = active_scope(self.root) if scope is ... else scope
-            if self.task_type == "migration" and scope:
-                reports = {f"issues/{env}/{target}/{name}" for env, target, _ in scope
-                           for name in ("issues.md", "iac-issues.md")}
-                prompt = task_path(self.root)
-                permitted = reports | {self.relative(prompt)}
-                lines = (self.contract_text or input_text(prompt, encoding="utf-8")).splitlines()
-                allowed = self.section(lines, "## Allowed paths")
-                allowed = {line[3:-1] for line in allowed if re.fullmatch(r"- `[^`]+`", line)}
-                if allowed & reports and allowed <= permitted and self.scope_paths <= permitted:
-                    return  # Report-only saves may continue; model saves and AWS guards still apply.
+            if self.task_type == "migration" and issues_save_only(
+                    self.root, scope=scope, text=self.contract_text, paths=self.scope_paths):
+                return  # Report-only saves may continue; model saves and AWS guards still apply.
             service_changed = any(path.startswith(("model/", "docs/designs/", "infra/", "issues/")) for path in self.scope_paths)
             if self.task_type in {"governance", "catalog-maintenance"} and scope is None and not service_changed:
                 scope = set()  # Framework-wide validation does not target consumer services.

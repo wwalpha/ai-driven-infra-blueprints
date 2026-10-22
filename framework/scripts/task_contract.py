@@ -60,6 +60,28 @@ def matches(path, pattern):
     return path == pattern or (pattern.endswith("/**") and path.startswith(pattern[:-3] + "/")) or fnmatch.fnmatchcase(path, pattern)
 
 
+def issues_save_only(root, *, scope=..., text=None, paths=()):
+    """Share the scoped report-only exception between saving, validation and Issue Gate."""
+    prompt = task_path(root, required=False)
+    if prompt is None:
+        return False
+    text = text if text is not None else input_text(prompt, encoding="utf-8")
+    types = [line for line in section(text, "## Task contract") if line.startswith("- Task type:")]
+    if types != ['- Task type: `migration`']:
+        return False
+    if scope is ...:
+        from validation_scope import active_scope
+        scope = active_scope(root)
+    if not scope:
+        return False
+    reports = {f"issues/{env}/{target}/{name}" for env, target, _ in scope
+               for name in ("issues.md", "iac-issues.md")}
+    permitted = reports | {prompt.relative_to(root).as_posix()}
+    allowed = paths_in(text, "## Allowed paths")
+    return bool(allowed & reports and allowed <= permitted
+                and paths_in(text, "## Modified files") <= permitted and set(paths) <= permitted)
+
+
 def safe_path(root, value):
     path = PurePosixPath(value)
     if (not value or not path.parts or path.is_absolute() or str(path) != value or ".." in path.parts
@@ -509,7 +531,11 @@ def complete(root, name):
     previous = os.environ.get(SELECTOR)
     try:
         os.environ[SELECTOR] = name
-        require_import_changes(root)
+        if issues_save_only(root, text=text):
+            from worktree_task import changed_paths
+            require_import_changes(root, changed_paths(root))
+        else:
+            require_import_changes(root)
     finally:
         if previous is None:
             os.environ.pop(SELECTOR, None)

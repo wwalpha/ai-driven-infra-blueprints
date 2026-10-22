@@ -6,6 +6,12 @@ The local issues-only entrypoint is `framework/scripts/issues_scan.py`. Process 
 
 Ordinary issues use `issues/<environment>/<target-directory>/issues.md`, model desired → IaC differences use `iac-issues.md` with full data only in the temporary external scan artifact, and environment comparisons retain `diff.md`. Ordinary gate implementation, service ownership format, and stop decisions remain unchanged. IaC differences alone must not cause failure exit, ordinary issue registration, suspension, or Issue remediation requirements. Retain existing validator diagnostics for schema, model/Markdown equality, references, policies, account/region, etc., and post-save validation under [Validation policy](loop-engineering.md#validation-policy).
 
+The scoped report-only `migration` Task runs without a worktree and is independent of
+Task-start/current main/master commits. HEAD changes alone do not stop investigation,
+save, validation or completion, suspend the Task, create a replacement Task or expand
+Validation scope. Validate current worktree/index changes and untracked files against
+the existing report-only Allowed paths and contract; other Tasks retain Git baseline checks.
+
 ## Read and review
 
 Apply AGENTS.md section-reading rules. Apply common rules, target namespace rules, Model authority/Properties format, Markdown structure, and target resource display/reference rules specified by the issues skill's naming check. This scan does not permit omitting mandatory rules.
@@ -89,6 +95,12 @@ Uncompared: Terraform (no existing reliable local mapping/evaluator), Transform,
 `load_model` shares validated parsing, actual files/parts/keys/line positions, and text; retain the public `read_model` API. Row indexes use fixed Resource numbers and reject orphan rows. Ordinary material and comparison within a new scan do not reparse the same model entries/parts. Scan generation equality uses the existing read-only sync API per target, omitting extra generator processes and scope rereads. Retain ordinary validator/loop default process paths, successful caches, and at most 4 parallel workers. Do not add service subagents, nested parallelism, or persistent caches. Also share evidence-line verification per file within saving. Template decoding is per file, evaluation per stack/parameters/context, and catalog/index/reference symbols are shared within the run.
 
 Scan artifacts are temporary handoffs outside the repository, not next-run caches. Before saving, confirm models, part sets, IaC, parameters, references, and rules/framework using existing digest/service dependency/common input helpers. Reject saving on changes and rescan the relevant scope. Do not rerun comparisons merely for saving.
+
+Keep `fingerprint` / `verify_inputs()` content checks: a changed commit SHA with unchanged
+inputs permits the existing scan. Changed actual inputs require a new scan of the necessary
+scope and renewed naming/judgment review before saving in the same Task. A stale scan is
+an input-integrity failure, independent of HEAD; never save it as current or call failed or
+unverified checks PASS. Reinvestigation grants no Model/IaC write authority.
 
 Save reports with indivisible atomic publication/rollback. Reread/merge ordinary `issues.md` service blocks conservatively, preserving out-of-scope services, human confirmations and unresolved issues. IaC Markdown is instead this run's Scope only: no old result merge, no automatic resolution claim and no out-of-scope results in current counts. Do not parse old IaC Markdown or preserve its notes; retain previous bytes only for publication rollback. Mask secrets/current ARNs/NoEcho values in artifacts, detail and reports. No additional comparison or Model/IaC parsing during saving.
 

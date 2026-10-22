@@ -129,6 +129,7 @@ When running a local loop, retain the following checks in its applicable scope. 
 
 - When changes exist, an active task prompt and valid Task type exist. An unchanged idle state may lack this task's `tasks/<task-name>.md`
 - Changed paths are within the Task type boundary and Allowed paths
+- For the explicit service-scoped issues report-only `migration` exception in [Issue Gate](issue-gate.md#unresolved-issue-gate), inspect only current worktree/index changes and untracked files; exclude historical commit differences. Main/master HEAD changes alone never fail/suspend validation or expand service scope. Keep contract/Allowed paths/Acceptance checks and content fingerprints; stale scans require rescan/review in the same Task. Other Tasks retain baseline/commit checks.
 - `tasks/` contains only contracts in `<task-name>.md` format. In idle state, `tasks/` itself may be omitted.
 - `framework/materials/aws/` matches `framework/materials/catalog.sha256`
 - The Tokyo region CloudFormation provider schema snapshot matches its lock and resolves every property path in `framework/materials/aws/`

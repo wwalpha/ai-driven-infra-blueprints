@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 
 from utils.file_operations import atomic_files
 from issue_gate import unresolved_services
-from task_contract import task_path, paths_in, safe_path, section, status
+from task_contract import task_path, paths_in, safe_path, status, issues_save_only
 from validation_scope import active_scope
 from validation_cache import input_scope, memoized
 from iac_values import safe_value, same, selected_same
@@ -574,13 +574,10 @@ def save_authority(root, environment, directory, services, filenames):
     text = prompt.read_text(encoding='utf-8')
     scope = active_scope(root)
     selected = {(environment, directory, service) for service in services}
-    if (status(text) != 'running' or not scope
-            or not selected <= scope or '- Task type: `migration`' not in section(text, '## Task contract')):
+    if status(text) != 'running' or not scope or not selected <= scope:
         raise ValueError('report save requires a running report-only migration with explicit service scope')
-    reports = {f'issues/{env}/{target}/{name}' for env, target, _ in scope for name in ('issues.md', 'iac-issues.md')}
     allowed = paths_in(text, '## Allowed paths')
-    permitted = reports | {prompt.relative_to(root).as_posix()}
-    if not allowed & reports or not allowed <= permitted or not paths_in(text, '## Modified files') <= permitted:
+    if not issues_save_only(root, scope=scope, text=text):
         raise ValueError('save-only exception does not permit model/IaC/unscoped outputs')
     paths = [safe_path(root, f'issues/{environment}/{directory}/{name}') for name in filenames]
     if any(path.relative_to(root).as_posix() not in allowed for path in paths):

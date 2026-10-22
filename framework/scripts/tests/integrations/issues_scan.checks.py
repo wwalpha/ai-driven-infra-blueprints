@@ -160,10 +160,22 @@ def checks(root, values, template):
     assert {item['service'] for item in names} == set(services)
     assert len([item for item in names if item['property'] != '(no selected naming property)']) == 9
     review = {'reviewed_names': [item['id'] for item in names], 'reviewed_judgments': [item['id'] for item in artifact['judgments']]}
+    def git(*args):
+        return subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test',
+                               *args], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
+    git('init', '--quiet', '--initial-branch=master')
+    git('commit', '--quiet', '--allow-empty', '-m', 'scan inputs')
+    scan_head = git('rev-parse', 'HEAD')
     with task(root, services):
         expect_error(lambda: save_scan(root, artifact, {}), 'all naming')
+        contract = (root / 'tasks/save.md').read_bytes()
+        git('commit', '--quiet', '--allow-empty', '-m', 'HEAD advances after scan')
         paths = save_scan(root, artifact, review)
         assert all(path.exists() for path in paths)
+        write(root / 'unrelated.txt', 'committed outside scan inputs')
+        git('add', 'unrelated.txt')
+        git('commit', '--quiet', '-m', 'unrelated input')
+        assert git('rev-parse', 'HEAD') != scan_head
         assert not issue_errors(root, {('dev', '123456789012', 's3')})
         with patch.object(Comparison, 'run', side_effect=AssertionError('save must not compare')):
             save_scan(root, artifact, review)
@@ -189,10 +201,26 @@ def checks(root, values, template):
         assert ordinary.read_text() == malformed[ordinary.relative_to(root).as_posix()]
         write(ordinary, previous.decode())
         parameter = root / 'infra/cloudformation/parameters/dev/123456789012/stack-1.json'
-        original = parameter.read_text()
-        write(parameter, original + ' ')
+        for input_path in (parameter, source, template_path, root / 'project.json'):
+            original = input_path.read_bytes()
+            saved = {path: path.read_bytes() for path in paths}
+            input_path.write_bytes(original + b'\n')
+            expect_error(lambda: save_scan(root, artifact, review), 'stale scan')
+            assert all(path.read_bytes() == content for path, content in saved.items())
+            input_path.write_bytes(original)
+        # Re-review current input and save within the same Task after a real IaC value change.
+        original = template_path.read_bytes()
+        current = json.loads(original)
+        current['Resources']['Bucket']['Properties']['VersioningConfiguration']['Status'] = 'Suspended'
+        mutate_template(root, current)
         expect_error(lambda: save_scan(root, artifact, review), 'stale scan')
-        write(parameter, original)
+        rescanned = scan(root, 'dev', '123456789012', services, fresh=True, jobs=1)
+        assert any(item['category'] == 'difference' for item in rescanned['iac'])
+        renewed = {'reviewed_names': [item['id'] for item in rescanned['naming']['names']],
+                   'reviewed_judgments': [item['id'] for item in rescanned['judgments']]}
+        save_scan(root, rescanned, renewed)
+        assert (root / 'tasks/save.md').read_bytes() == contract
+        template_path.write_bytes(original)
         record = dict(next(item for item in records if item['category'] == 'matched'), category='difference', reason='fixture difference', desired='old', actual='new')
         save(root, 'dev', '123456789012', services, iac=[record])
         report = paths[1]
