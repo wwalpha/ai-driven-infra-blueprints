@@ -379,6 +379,7 @@ def select_checks(root, paths, affected=False, *, integration_cases=None):
                  '.github/workflows/framework-it.yml'):
         mapping[path] = {'blueprint-loop-unit.checks.py'}
     mapping['README.md'] = set()
+    mapping['framework/scripts/tests/README.md'] = set()
     # Explicit dependencies for shared modules and their split responsibilities.
     for path in ('framework/scripts/array_display.py',):
         mapping[path] = {'array_display.checks.py'}
