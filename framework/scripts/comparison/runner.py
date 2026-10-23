@@ -46,7 +46,7 @@ class Comparison(Inputs):
             path=template.relative_to(self.root).as_posix(), parameter_path=parameter_path.relative_to(self.root).as_posix(),
             supplied=supplied, stack_id=stack_id, target=self.target, environment=self.environment,
             directory=self.directory, marks=self.template_locations.get(id(definition), {}),
-            source=self.source, redact=self.redacted)
+            source_lookup=self.source, redact=self.redacted)
         return self.make_record('difference', service, identity, prop,
             'CREATE resource is inactive under confirmed parameters', stack=name, template=location, cause=cause)
 

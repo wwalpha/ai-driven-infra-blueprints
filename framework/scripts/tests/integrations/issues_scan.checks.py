@@ -1582,6 +1582,13 @@ def check_condition_diagnostics():
         for invalid in (True, 'false', None, 0):
             forged = dict(records[0], cause=dict(cause, result=invalid))
             assert iac_summary([forged], 'dev', '123456789012', ['s3'])['proven_causes'] == 0
+        template['Conditions']['StackNameOff'] = {'Fn::Equals': [{'Ref': 'AWS::StackName'}, 'different-stack-name']}
+        cause, _ = disabled(candidate(condition='StackNameOff'))
+        evidence = Comparison(root, 'dev', '123456789012', ['s3'])
+        evidence.model('cloudformation-stacks')
+        expected_source = evidence.source('cloudformation-stacks', 'desired.stack.001.name')
+        assert expected_source is not None
+        assert cause['inputs'] == [{'name': 'AWS::StackName', 'value': 'cfn-stack-app-dev-data1', 'source': expected_source}]
         model = root / 'model/dev/123456789012/s3.properties'
         write(model, read_model(model) + 'desired.row.001-099.property=S3.BucketPolicy.PolicyDocument\n'
               'desired.row.001-099.value=policy.json\n'

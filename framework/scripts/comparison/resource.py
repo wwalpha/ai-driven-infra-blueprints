@@ -38,7 +38,7 @@ def inline_owner(kind, rowkind, logical, definition, document, parameters, pseud
         return None, ('difference', 'inline CREATE child missing')
     return children[0], None
 
-def inactive_evidence(name, logical, definition, document, parameters, pseudo, *, path, parameter_path, supplied, stack_id, target, environment, directory, marks, source, redact):
+def inactive_evidence(name, logical, definition, document, parameters, pseudo, *, path, parameter_path, supplied, stack_id, target, environment, directory, marks, source_lookup, redact):
     condition = definition['Condition']
     location = {'path': path, 'key': f'Resources.{logical}.Condition'}
     if line := marks.get('Condition', marks.get(None)):
@@ -73,24 +73,24 @@ def inactive_evidence(name, logical, definition, document, parameters, pseudo, *
                 key = value['Ref']
                 if key in parameters:
                     declaration = document['Parameters'][key]
-                    source = ({'kind': 'parameter-file', 'path': parameter_path,
+                    input_source = ({'kind': 'parameter-file', 'path': parameter_path,
                                'key': f'ParameterKey={key}'} if key in supplied else
                               {'kind': 'template-default', 'path': path, 'key': f'Parameters.{key}.Default'})
                     # NoEcho must also mask typed numeric/list parameters.
                     shown = '<masked sensitive parameter>' if declaration.get('NoEcho') else redact(parameters[key], key)
                 else:
                     if key == 'AWS::StackName':
-                        source = source('cloudformation-stacks', f'desired.stack.{stack_id}.name')
+                        input_source = source_lookup('cloudformation-stacks', f'desired.stack.{stack_id}.name')
                     elif key in {'AWS::Region', 'AWS::AccountId'}:
                         field = ('awsRegion' if key == 'AWS::Region' else
                                  'awsExecutionAccountId' if 'awsExecutionAccountId' in target else 'awsAccountId')
-                        source = {'kind': 'project-target', 'path': 'project.json', 'key': field,
+                        input_source = {'kind': 'project-target', 'path': 'project.json', 'key': field,
                                   'environment': environment, 'target': directory}
                     else:
-                        source = {'kind': 'botocore-endpoints' if key == 'AWS::Partition' else 'cloudformation-pseudo',
+                        input_source = {'kind': 'botocore-endpoints' if key == 'AWS::Partition' else 'cloudformation-pseudo',
                                   'region': pseudo['AWS::Region'], 'key': key}
                     shown = pseudo[key]
-                inputs[key] = {'name': key, 'value': shown, 'source': source}
+                inputs[key] = {'name': key, 'value': shown, 'source': input_source}
             else:
                 for child in value.values():
                     visit(child)
