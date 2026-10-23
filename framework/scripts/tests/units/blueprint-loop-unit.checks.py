@@ -86,8 +86,8 @@ def check_leaf_selection(tmp_path):
     assert [path.name for path in selected] == ["a.checks.py"]
     for unknown in ("framework/scripts/shared.py", "framework/rules/rule.md",
                     "framework/scripts/tests/integrations/deleted.checks.py", "framework/materials/catalog.sha256"):
-        selected, reason = MODULE.select_checks(root, paths | {unknown}, True)
-        assert len(selected) == 2 and "unknown dependency" in reason
+        with pytest.raises(ValueError, match="dependency not tracked"):
+            MODULE.select_checks(root, paths | {unknown}, True)
     assert len(MODULE.select_checks(root, paths, False)[0]) == 2
     assert not MODULE.select_checks(root, {"model/dev/cde/ec2.properties"}, True)[0]
 
@@ -105,9 +105,11 @@ def check_dependency_selection():
     leaf = "framework/scripts/tests/integrations/validation_checks/task.py"
     assert selected(leaf, "framework/scripts/blueprint-loop.py") == shared
     comparison = {'comparison_core-unit.checks.py', 'issues_scan-unit.checks.py', 'check-model-aws-unit.checks.py', 'cloudformation-deploy-unit.checks.py', 'deploy_preparation-unit.checks.py', 'model_files-unit.checks.py'}
-    assert selected("framework/scripts/comparison_rows.py") == comparison
-    for name in ("iac_evaluation", "script_loader"):
-        assert selected(f"framework/scripts/{name}.py") == (comparison - {'check-model-aws-unit.checks.py'})
+    engine = {"comparison_core-unit.checks.py", "test_issues_iac.py", "s3-kms-reference-unit.checks.py",
+              "security_group_tables-unit.checks.py", "check-model-aws-unit.checks.py"}
+    assert selected("framework/scripts/comparison_rows.py") == engine
+    assert selected("framework/scripts/iac_evaluation.py") == engine
+    assert selected("framework/scripts/script_loader.py") == comparison - {"check-model-aws-unit.checks.py"}
     for name in ("__init__", "scheduler", "guards", "delivery", "s3_delivery", "observed", "observed_resume", "controller", "inputs", "change_sets", "recovery", "failures", "retry_policy", "handoff", "resume", "secret_bootstrap", "session"):
         assert selected(f"framework/scripts/deploy/{name}.py") == {'cloudformation-deploy-unit.checks.py', 'deploy_preparation-unit.checks.py', 'model_files-unit.checks.py',
             'deploy-sdk.checks.py', 'deploy-runtime-unit.checks.py', 'deploy-observed-unit.checks.py', 'deploy-observed-resume-unit.checks.py', 'deploy-handoff-unit.checks.py'}
@@ -123,31 +125,59 @@ def check_dependency_selection():
         assert expected <= {p.name for p in checks}
         assert reason.startswith('affected:')
         assert all('/units/' in p.as_posix() for p in checks)
-    expected_comparison = (comparison - {'check-model-aws-unit.checks.py'}) | {
-        'test_issues_iac.py', 'issues-lint-unit.checks.py', 's3-kms-reference-unit.checks.py',
-        'security_group_tables-unit.checks.py', 'deploy-runtime-unit.checks.py'}
-    for path in ('comparison/runner.py', 'comparison/inputs.py', 'comparison/references.py',
-                 'comparison/services/s3.py', 'comparison/services/kms.py', 'comparison/services/security_group.py'):
-        checks, reason = MODULE.select_checks(root, {'framework/scripts/' + path}, True)
-        assert {p.name for p in checks} == expected_comparison
-        assert reason.startswith('affected:')
-        assert all('/units/' in p.as_posix() for p in checks)
+    common = {'comparison_core-unit.checks.py', 'test_issues_iac.py',
+              's3-kms-reference-unit.checks.py', 'security_group_tables-unit.checks.py'}
+    for path in ('comparison/resource.py', 'comparison/runner.py', 'comparison/inputs.py', 'comparison/references.py'):
+        assert selected('framework/scripts/' + path) == common
+    for service in ('s3', 'kms', 'security_group'):
+        expected = {'comparison_core-unit.checks.py', 'test_issues_iac.py'} | {
+            'security_group_tables-unit.checks.py' if service == 'security_group' else 's3-kms-reference-unit.checks.py'}
+        assert selected('framework/scripts/comparison/services/' + service + '.py') == expected
     assert selected('framework/scripts/utils/cfn_lint.py') == selected('framework/scripts/issues/cfn_lint.py')
     all_checks = {p.name for p in (SCRIPT.parent / "tests/units").rglob("*.checks.py")} | {"test_issues_iac.py"}
-    assert selected("framework/scripts/iac_values.py") == all_checks
+    assert selected("framework/scripts/iac_values.py") == engine
     for unknown in ("framework/scripts/tests/support/validation_checks/unknown.py", "framework/scripts/tests/support/unknown.py"):
-        assert selected(leaf, unknown) == all_checks
+        with pytest.raises(ValueError, match="dependency not tracked"):
+            selected(leaf, unknown)
     with patch.object(Path, "is_file", return_value=False):
-        assert selected(leaf) == all_checks  # Known path removed/renamed without a resolvable source.
+        with pytest.raises(ValueError, match="dependency not tracked"):
+            selected(leaf)  # A removed source requires dependency review.
     assert selected("framework/scripts/tests/support/validator.py") == all_checks
     assert selected("framework/scripts/tests/integrations/model_design.checks.py") == all_checks
     assert selected("framework/scripts/tests/integrations/rotation_schedule.checks.py") == {'cloudformation-deploy-unit.checks.py'}
-    for name in ("service_rows", "model_display", "model_projection", "model_references", "sync_runtime", "sync_views", "sync_files"):
+    for name in ("service_rows", "sync_runtime", "sync_views", "sync_files"):
         assert selected(f"framework/scripts/{name}.py") == all_checks
-    assert selected("framework/scripts/model_core.py") == all_checks
+    for name in ("model_display", "model_projection", "model_references", "model_core"):
+        with pytest.raises(ValueError, match="dependency not tracked"):
+            selected(f"framework/scripts/{name}.py")
     assert selected("framework/scripts/ec2_display.py") == all_checks
     assert selected(leaf, affected=False) == all_checks
     assert selected("framework/scripts/tests/integrations/design_layout.checks.py") == {'design_layout-unit.checks.py', 'design_document-unit.checks.py', 'validation-units.checks.py', 'sync-model-unit.checks.py', 'policy_tables-unit.checks.py'}
+
+    import run_it
+    ledger, errors = run_it.inventory(root / 'framework/scripts/tests')
+    assert not errors, errors
+    def integrations(*paths):
+        return MODULE.select_checks(root, set(paths), True, integration_cases=ledger)[0]
+    resource = 'framework/scripts/comparison/resource.py'
+    service = 'framework/scripts/comparison/services/cloudtrail.py'
+    cases = integrations(resource)
+    assert ('integrations/issues_scan.checks.py', 'check_condition_diagnostics') in cases
+    assert integrations(service) == {('integrations/issues_scan.checks.py', 'check_cloudtrail_membership'): ('pytest', 1)}
+    assert integrations(resource, service) == cases | integrations(service)
+    assert selected(resource, service) == selected(resource) | selected(service)
+    assert integrations('framework/scripts/iac_evaluation.py') == cases
+    assert all(path == 'integrations/issues_scan.checks.py' for path, name in cases)
+    assert not integrations('framework/scripts/tests/run_it.py')
+    assert integrations('framework/scripts/deploy/controller.py')  # A real deploy change retains its own consumers.
+    assert integrations(resource, 'framework/scripts/deploy/controller.py') == cases | integrations('framework/scripts/deploy/controller.py')
+    assert MODULE.select_checks(root, set(), integration_cases=ledger)[0] == ledger
+    with pytest.raises(ValueError, match='dependency not tracked'):
+        integrations('framework/scripts/unknown.py')
+    missing = dict(ledger)
+    del missing[('integrations/issues_scan.checks.py', 'check_condition_diagnostics')]
+    with pytest.raises(ValueError, match='not registered'):
+        MODULE.select_checks(root, {resource}, True, integration_cases=missing)
 
 
 
@@ -202,7 +232,7 @@ def check_unit_dispatch(tmp_path):
     with patch.dict(os.environ, {}, clear=True), \
          patch.object(Path, "cwd", return_value=root), \
          patch.object(MODULE, "active_scope", side_effect=lambda root, all_: None if all_ else {"framework"}), \
-         patch.object(MODULE, "changed_paths", return_value={"README.md"}) as changes, \
+         patch.object(MODULE, "changed_paths", return_value={"framework/scripts/tests/units/a.checks.py"}) as changes, \
          patch.object(MODULE, "authorize_full_regression") as authorize, \
          patch.object(MODULE, "run_commands", return_value=0) as dispatch, \
          patch.object(MODULE, "utf8_preflight"), \
@@ -214,13 +244,17 @@ def check_unit_dispatch(tmp_path):
             with patch.object(sys, "argv", [str(runner), *args, "--log-dir", str(tmp_path / "logs")]):
                 assert CLI.main() == 0
             commands = dispatch.call_args.args[1]
-            assert [Path(command[1]).name for command in commands[1:-2]] == ["a.checks.py", "test_extra.py"]
+            full = "full" in args or "--all" in args
+            assert [Path(command[1]).name for command in commands[1:-2]] == (["a.checks.py", "test_extra.py"] if full else ["a.checks.py"])
             assert all("integrations" not in command[1] for command in commands)
             assert "--repository-wide-iac" in commands[0]
             assert ("--all" in commands[0]) == ("--all" in args)
             if args == ["--mode", "full"]:
                 assert "--fresh" in commands[0] and "--contract-scope" in commands[0]
-            authorize.assert_called_once_with(root)
+            if full:
+                authorize.assert_called_once_with(root)
+            else:
+                authorize.assert_not_called()
         changes.return_value = set()
         with patch.object(sys, "argv", [str(runner), "--mode", "task", "--log-dir", str(tmp_path / "logs")]):
             assert CLI.main() == 0
@@ -272,6 +306,15 @@ def check_ci_workflow(tmp_path):
         rows, receipts = run_it.execute_suites(tests, output, io.StringIO())
     assert all(row['code'] != 0 for row in rows) and not receipts
 
+    outcome = {'reachability_errors': [], 'suites': []}
+    with patch.object(sys, 'argv', ['run_it.py', '--affected', 'base']), \
+         patch.object(run_it.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, 'framework/scripts/comparison/resource.py\0', '')), \
+         patch.object(MODULE, 'select_checks', side_effect=[({}, 'IT selection'), ([SCRIPT], 'UT selection')]), \
+         patch.object(MODULE, 'run_commands', return_value=1) as unit_dispatch, \
+         patch.object(run_it, 'run_all', return_value=outcome):
+        assert run_it.main() == 1  # A selected UT failure fails CI even if IT succeeds.
+    assert unit_dispatch.call_args.kwargs['jobs'] == 2
+
 
 def check_it_reachability(tmp_path):
     import run_it
@@ -307,6 +350,19 @@ if __name__ == '__main__':
     cases[('integrations/receipt.checks.py', 'check_body')] = ('pytest', 3)
     assert 'expected 3, collected 2, passed body 2' in run_it.reachability(cases, [data])[0]
     assert run_it.reachability(cases, [{**data, 'passed': []}])
+
+    selected = {('integrations/receipt.checks.py', 'check_body'): ('pytest', 2)}
+    output = tmp_path / 'selected-receipts'
+    output.mkdir()
+    rows, receipts = run_it.execute_suites(tests, output, io.StringIO(), selected=selected)
+    assert [row['code'] for row in rows] == [0]
+    assert not run_it.reachability(selected, receipts)
+    assert all(receipt['metrics'].get('subprocess.git', 0) == 0 for receipt in receipts)
+    failed = {('integrations/receipt.checks.py', 'check_not_called'): ('pytest', 1)}
+    rows, receipts = run_it.execute_suites(tests, output, io.StringIO(), selected=failed)
+    assert rows[0]['code'] != 0 and run_it.reachability(failed, receipts)
+    rows, receipts = run_it.execute_suites(tests, output, io.StringIO(), selected={})
+    assert rows == receipts == []
 
     suite.write_text(f"import sys\nsys.path.insert(0, {str(Path(run_it.__file__).parent.parent)!r})\n" + """from support.it_case_receipt import it_case, module_complete
 from unittest.mock import patch
@@ -484,6 +540,13 @@ def check_it_run_lifecycle(tmp_path):
         assert not result['reachability_errors']
         assert os.environ[fixtures.ENV] == 'previous-bundle'
         assert os.environ['BLUEPRINT_VALIDATION_CACHE_DIR'] == 'previous-cache'
+    ledger, errors = run_it.inventory(tmp_path)
+    assert not errors
+    with patch.object(fixtures, 'bundle', side_effect=AssertionError('unrelated seeds forbidden')), \
+         patch.object(run_it, 'execute_suites', return_value=([], [])):
+        result = run_it.run_all(tmp_path, io.StringIO(), selected={})
+    assert result['selection'] == 'affected' and result['reachability'] == 'not required (no affected IT)'
+    assert result['bundle_initializations'] == 0 and result['seed_generations'] == {}
     # Old baseline may have neither ledger nor markers; only process results are comparable.
     (tmp_path / 'CASES.md').unlink()
     with patch.object(run_it, 'execute_suites', return_value=([{'suite': 'old', 'code': 7}], [])):

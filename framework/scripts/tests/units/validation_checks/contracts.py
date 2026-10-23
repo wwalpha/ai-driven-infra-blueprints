@@ -182,6 +182,7 @@ def check_design_handoff_prompt() -> None:
 
 
 def check_rule_reading_contract() -> None:
+    import pytest
     validator = MODULE.Validator(SCRIPT.parents[2])
     validator.check_framework_rule_readings()
     assert not validator.errors, validator.errors
@@ -212,6 +213,11 @@ def check_rule_reading_contract() -> None:
     for path in ("framework/scripts/deploy_preparation.py", "framework/scripts/validation_cache.py",
                  "framework/scripts/validation/framework_contracts.py", "README.md",
                  ".agents/skills/worktree/SKILL.md", "framework/rules/loop-engineering.md"):
-        selected, reason = loop.select_checks(repository, {path}, True)
-        assert selected == all_checks, (path, selected, reason)
+        if path in {'framework/scripts/deploy_preparation.py', 'framework/scripts/validation_cache.py', '.agents/skills/worktree/SKILL.md'}:
+            with pytest.raises(ValueError, match='dependency not tracked'):
+                loop.select_checks(repository, {path}, True)
+        else:
+            selected, reason = loop.select_checks(repository, {path}, True)
+            expected = [] if path == 'README.md' else [SCRIPT.parent / 'tests/units/blueprint-loop-unit.checks.py'] if path.endswith('loop-engineering.md') else all_checks
+            assert selected == expected, (path, selected, reason)
 

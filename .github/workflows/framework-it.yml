@@ -48,7 +48,14 @@ jobs:
           ref: ${{ inputs.baseline_ref }}
           path: .it-baseline
           persist-credentials: false
-      - name: Run all integration suites
+      - name: Run affected UT and IT cases (manual dispatch runs full IT)
         env:
           IT_BASELINE: ${{ github.event_name == 'workflow_dispatch' && inputs.baseline_ref != '' && '.it-baseline' || '' }}
-        run: python -B framework/scripts/tests/run_it.py --baseline-root "$IT_BASELINE"
+          IT_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          IT_EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$IT_EVENT" = workflow_dispatch ]; then
+            python -B framework/scripts/tests/run_it.py --baseline-root "$IT_BASELINE"
+          else
+            python -B framework/scripts/tests/run_it.py --affected "$IT_BASE"
+          fi

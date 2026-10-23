@@ -88,7 +88,7 @@ def changed_paths(root: Path) -> set[str]:
 
 def framework_changed(paths: set[str]) -> bool:
     # Shared distribution inputs; cover all framework dependencies without a resolver.
-    return any(path.startswith(("framework/", ".agents/")) or path in {"AGENTS.md", "README.md"}
+    return any(path.startswith(("framework/", ".agents/")) or path in {"AGENTS.md", "README.md", ".github/workflows/framework-it.yml"}
                for path in paths)
 
 
@@ -244,7 +244,7 @@ def utf8_preflight(directory, environment, diagnostics=None):
         (directory / "utf8.txt").unlink()
 
 
-def select_checks(root, paths, affected=False):
+def select_checks(root, paths, affected=False, *, integration_cases=None):
     root = definition_root(root)
     unit_root = root / "framework/scripts/tests/units"
     checks = sorted({*(root / "framework/scripts/tests").rglob("*.checks.py"),
@@ -253,8 +253,8 @@ def select_checks(root, paths, affected=False):
     if not units:
         raise ValueError("no framework regression checks discovered")
     if not affected:
-        return units, "all UT requested"
-    # Exact paths only: unknown siblings and unresolved deletions stay full regression.
+        return (units if integration_cases is None else integration_cases), "all requested"
+    # Exact paths only: unknown siblings and unresolved deletions need dependency review.
     mapping = {path.relative_to(root).as_posix(): {path.name} for path in checks}
     mapping["framework/scripts/tests/integrations/parameter_cases.py"] = {"service-parameter-inputs.checks.py"}
     mapping["framework/scripts/tests/integrations/service_contracts.py"] = {"model_parameter_inputs.checks.py"}
@@ -300,7 +300,7 @@ def select_checks(root, paths, affected=False):
     mapping["framework/scripts/iac_evaluation.py"] = comparison - {"check-model-aws.checks.py"}
     mapping["framework/scripts/script_loader.py"] = comparison - {"check-model-aws.checks.py"}
     mapping.update({f"framework/scripts/validation/{name}.py": {check.name for check in checks}
-                    for name in ("scenario", "cloudformation", "task", "framework_contracts", "project",
+                    for name in ("scenario", "cloudformation", "iac", "terraform", "task", "framework_contracts", "project",
                                  "design", "design_tables", "design_links", "findings")})
     # A split suite keeps its unit cases in every existing dependency selection.
     names = {check.name for check in checks}
@@ -320,17 +320,64 @@ def select_checks(root, paths, affected=False):
         mapping[f'framework/scripts/issues/{name}.py'].add('model-reference-warnings-unit.checks.py')
     for name in ('publication', 'reports'):
         mapping[f'framework/scripts/issues/{name}.py'].add('issue_gate-unit.checks.py')
-    for path in (root / 'framework/scripts/comparison').rglob('*.py'):
-        mapping[path.relative_to(root).as_posix()] = issues_tests | {'s3-kms-reference-unit.checks.py', 'security_group_tables-unit.checks.py', 'deploy-runtime-unit.checks.py'}
     for support in ('cloudformation_deploy_fixtures', 'deploy_controller_fixtures'):
         mapping[f'framework/scripts/tests/support/{support}.py'] = set(deploy_tests)
+    # Use the same dependency map for UTs and registered IT cases. Case selectors
+    # keep comparison changes away from scan/publication and deployment workflows.
+    comparison_units = {'comparison_core-unit.checks.py', 'test_issues_iac.py'}
+    comparison_cases = {'check_comparison_repair', 'check_local_reference', 'check_symbolic_string',
+                        'check_reference_property_contract', 'check_reference_identity_report', 'check_reference_diagnostics',
+                        'check_condition_diagnostics', 'check_aws_standard_comparison',
+                        'check_nested_membership', 'check_cloudtrail_membership',
+                        'check_glue_secret_reference', 'check_arn_array_reference_forms',
+                        'check_eventbridge_reference_literals', 'check_glue_connection_names',
+                        'check_added_reference_properties'}
+    service_cases = {
+        's3': {'check_local_reference', 'check_aws_standard_comparison'},
+        'kms': {'check_aws_standard_comparison'},
+        'cloudtrail': {'check_cloudtrail_membership'},
+        'security_group': {'check_nested_membership'},
+        'events': {'check_eventbridge_reference_literals'},
+        'glue': {'check_glue_secret_reference', 'check_glue_connection_names'},
+    }
+    for path in (root / 'framework/scripts/comparison').rglob('*.py'):
+        cases = comparison_cases
+        targets = comparison_units | {'s3-kms-reference-unit.checks.py', 'security_group_tables-unit.checks.py'}
+        if path.parent.name == 'services':
+            cases = service_cases.get(path.stem, {'check_reference_property_contract', 'check_added_reference_properties', 'check_aws_standard_comparison'})
+            targets = set(comparison_units)
+            if path.stem in {'s3', 'kms'}:
+                targets.add('s3-kms-reference-unit.checks.py')
+            if path.stem == 'security_group':
+                targets.add('security_group_tables-unit.checks.py')
+        mapping[path.relative_to(root).as_posix()] = targets | {
+            'issues_scan.checks.py::' + name for name in cases}
+    for name in ('comparison_rows', 'iac_values', 'iac_evaluation'):
+        mapping['framework/scripts/' + name + '.py'] = comparison_units | {
+            's3-kms-reference-unit.checks.py', 'security_group_tables-unit.checks.py',
+            'check-model-aws-unit.checks.py'} | {'issues_scan.checks.py::' + case for case in comparison_cases}
+    mapping['framework/scripts/validation/loop.py'] = {'blueprint-loop-unit.checks.py'}
+    for path in ('framework/scripts/tests/run_it.py', 'framework/rules/loop-engineering.md',
+                 '.github/workflows/framework-it.yml'):
+        mapping[path] = {'blueprint-loop-unit.checks.py'}
+    mapping['README.md'] = set()
+    known = {check.name for check in checks}
+    if integration_cases is not None:
+        known.update(Path(path).name + '::' + name for path, name in integration_cases)
     selected = set()
     for path in sorted(paths):
         if not framework_changed({path}):
             continue
-        if path not in mapping or not (root / path).is_file() or not mapping[path] <= {check.name for check in checks}:
-            return units, f"all UT: shared or unknown dependency: {path}"
+        targets = mapping.get(path)
+        valid = targets is not None and all(target.split('::', 1)[0] in known for target in targets)
+        if not valid or not (root / path).is_file():
+            raise ValueError(f'dependency not tracked: {path}; register related tests before validation')
+        if integration_cases is not None and not targets <= known:
+            raise ValueError(f'IT case dependency not registered: {path}')
         selected.update(mapping[path])
+    if integration_cases is not None:
+        return {key: value for key, value in integration_cases.items()
+                if Path(key[0]).name in selected or Path(key[0]).name + '::' + key[1] in selected}, 'affected: registered IT dependencies'
     return [path for path in units if path.name in selected], "affected: explicit leaf/runner mapping, UT only"
 
 
@@ -475,6 +522,7 @@ def _run_loop(root, args, final_candidate):
         fail('invalid staged/write/base options')
     if args.affected and (args.mode == 'full' or args.all):
         fail('--affected cannot narrow full/--all validation')
+    affected = args.affected or (args.mode != 'full' and not args.all)
     if cache_directory := os.environ.get("BLUEPRINT_VALIDATION_CACHE_DIR"):
         cache_path = Path(cache_directory).resolve()
         if cache_path == root or root in cache_path.parents:
@@ -497,12 +545,12 @@ def _run_loop(root, args, final_candidate):
     regression = (args.mode == "full" or args.all or framework_changed(repository_changed)
                   or (args.mode == "local" and scope is None))
     try:
-        checks, reason = select_checks(root, repository_changed, args.affected) if regression else ([], "shared framework unchanged")
+        checks, reason = select_checks(root, repository_changed, affected) if regression else ([], "shared framework unchanged")
     except ValueError as error:
         print(f"Blueprint local loop: ERROR ({error})", file=sys.stderr)
         suspend_selected(root, selected_name, f"Regression discovery failed: {error}")
         return 2
-    if regression and not args.staged and (not args.affected or
+    if regression and not args.staged and (not affected or
             set(checks) == set(select_checks(root, set())[0])):
         try:
             authorize_full_regression(root)
@@ -564,11 +612,11 @@ def _run_loop(root, args, final_candidate):
                 environment["BLUEPRINT_PROFILE_DIR"] = str(directory)
         if not args.staged:
             diagnostics.print(f"Validation: {'all' if full_validation else 'active scope'}; "
-                              f"framework regression: {('selected UT' if args.affected else 'all UT') if regression else 'skipped (shared framework unchanged)'}")
+                              f"framework regression: {('selected UT' if affected else 'all UT') if regression else 'skipped (shared framework unchanged)'}")
         if regression and not args.staged:
             diagnostics.print(f"Regression selection: {reason}; {len(checks)} UT suites selected: {', '.join(path.name for path in checks) or 'none'}")
             omitted = sorted(path.name for path in select_checks(root, set())[0] if path not in checks)
-            diagnostics.print("IT execution: GitHub Actions only (0 local IT suites)")
+            diagnostics.print("IT execution: separate run_it.py entrypoint (0 IT suites in this loop)")
             diagnostics.print(f"UT not executed: {', '.join(omitted) or 'none'}")
         utf8_preflight(directory, environment, diagnostics)
         if args.staged:

@@ -49,15 +49,15 @@ classified as an independent documentation edit.
 | Isolated test fixture only | Tests consuming that fixture |
 | Individual service properties or parts | Target service validation and affected saved-reference consumers |
 | Individual module with proven bounded impact | Related tests and validation of the affected scope |
-| Shared Framework logic | Full local loop once |
-| Validation infrastructure or execution control | Related tests plus Full local loop once |
-| Unknown impact | Full local loop once |
+| Shared Framework logic | Dependency-selected UTs and necessary related IT cases; scoped validator |
+| Validation infrastructure or execution control | Related selection/runner tests plus scoped validator |
+| Unknown impact | Stop for missing dependency evidence; identify related feature tests before validation |
 
-During development, run directly related tests first. After a failure and a material fix,
+Normal changes use the existing dependency mapping; sharing a module never by itself requires all IT. Explicit release validation may separately request all UT/IT. During development, run directly related tests first. After a failure and a material fix,
 rerun the failed test or affected service; for a fixture fix, run its consuming tests.
 Do not run Full after each correction, repeat unchanged results, or retry Full with known
 failures left unfixed. Reuse the existing `--affected` mapping when it selects the needed
-subset. If it selects all regression, directly invoke the relevant existing UT
+subset. If dependencies need investigation, directly invoke the relevant existing UT
 `framework/scripts/tests/units/<name>.checks.py` entrypoints or installed pytest test nodes during
 repair. This narrowing does not replace a required final Full or prove unknown impact safe.
 For bounded final validation, use these tests and the existing scoped validator rather
@@ -73,8 +73,9 @@ Use pytest only for existing pytest suites and an already available dependency; 
 script entrypoints for other suites. The standalone validator uses the contract's explicit
 Validation scope; do not add `--all` or `--repository-wide-iac` for bounded checks.
 Local regression selects only UTs; dependency mappings, caches, worker counts and validation scope are retained.
-The current loop still adds regression for framework paths and `--affected` still falls
-back to all for shared/unknown dependencies. Documentation-only completion therefore
+The loop adds dependency-selected UT regression for framework paths in task/local mode.
+Unknown or missing dependency mappings stop with an error; register related feature tests
+rather than silently expanding to all tests. Documentation-only completion therefore
 uses the lightweight row without invoking it. Explicit Full uses
 `blueprint-loop.py --mode full --task-file tasks/<task-name>.md` once after repairs stabilize;
 Full does not expand service scope to `all`.
@@ -228,19 +229,24 @@ current-run deduplication remains active.
 Local development and every local loop mode (`task`, `local`, `full`, `--all`,
 `--affected`, `--staged`) execute UT regression only. Full retains its existing
 validator scope and safety checks; only its regression portion changes to all UTs.
-Scopes that previously required no regression still require none. `--affected`
-uses the existing dependency mapping before filtering to UTs; unknown or missing
-dependencies fall back to all UTs.
+Scopes that previously required no regression still require none. Task/local modes
+use the existing dependency mapping by default, as does `--affected`. Unknown or missing
+dependencies are errors, not all-test fallback or PASS. Explicit Full retains all UTs.
 
 IT runs in [Framework IT](../../.github/workflows/framework-it.yml) on pull requests
 and pushes to `main`/`master` that include `.py` changes, and on manual dispatch, using Python 3.12 and the existing
-requirements. Its sole entrypoint is `framework/scripts/tests/run_it.py`, which discovers
-`integrations/**/*.checks.py` and executes their existing pytest/direct entrypoints in
-independent processes. It continues after suite failures, records PASS/FAIL and duration,
+requirements. Its sole entrypoint is `framework/scripts/tests/run_it.py`, which uses the same dependency mapping with `--affected BASE` for normal CI.
+Affected CI runs selected UTs through the existing loop scheduler and selected ITs through
+the existing IT runner; either failure fails the job. It selects registered cases in `tests/CASES.md`; pytest cases run by node, and a related
+feature suite is retained where finer dependencies are not registered. Unknown mappings
+or stale case names fail before execution. Manual dispatch remains explicit full IT.
+Existing pytest/direct entrypoints run in independent processes. It continues after suite failures, records PASS/FAIL and duration,
 and reconciles runtime verification receipts with `tests/CASES.md`. Missing execution,
 skipped pytest bodies, stale registrations and parameter-count mismatches fail the job.
-The runner owns one immutable authored fixture bundle and its cleanup; modifying cases
-use independent copies. Generation events and before/after content/permission fingerprints
+Full IT owns one immutable authored fixture bundle and its cleanup; modifying cases
+use independent copies. Affected IT creates only the seeds requested by its cases,
+without the full bundle. Git/worktree integration tests belong only to changes in that
+functionality; other tests must not initialize Git/worktree environments unnecessarily. Generation events and before/after content/permission fingerprints
 verify initialization counts and shared-fixture integrity. No real consumer Model inputs,
 AWS credentials or live AWS resources are required. Do not add an extra Full loop.
 Optional manual `baseline_ref` measures before/after once under identical dependencies
@@ -270,7 +276,7 @@ alone do not enable that setting.
 - Launch with `python -X utf8 framework/scripts/blueprint-loop.py --mode task` is recommended. Even under ordinary launch, the runner restarts in UTF-8 mode and passes `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8` to child processes. Before validation, confirm Japanese file reads/writes and child process output; do not start regression if this fails. Explicitly specify UTF-8 for text I/O.
 - After conflict resolution, stage files to validate and this task's `tasks/<task-name>.md`, then specify `--staged --base <比較元commit>`. Explicitly specify a base commit matching the human's change scope and include incoming changes in the diff against it. Stop on unresolved index conflicts. Ordinary mode continues to validate unstaged/staged/untracked changes.
 - Staged mode fixes the base commit, HEAD, and index tree and expands them into an independent Git repository outside the repository to validate that snapshot's runner, contract, and inputs. Do not include original workspace unstaged/untracked files or rewrite the original index. Setting snapshot HEAD to the base makes contracts, changed paths, and diff checks use the same basis. If original HEAD/index tree changes by completion, exit nonzero as stale; do not treat the old tree's result as a PASS for the latest state. This does not lock subsequent edits.
-- When using an affected loop, select `--mode task --affected` (`local` is also permitted). The runner narrows regression only through its explicit mapping. The mapping covers regression entries, the standalone runner, exact validator test modules, shared test support consumers, and dynamic reference/layout fixture consumers. Unknown files (including siblings in these directories), missing mapped files, and unresolved deletion/rename sources fall back to full regression. The current mapping conservatively selects all for common validators/generators, rules, catalogs and prompts; choose development and final entrypoints under [Validation policy](#validation-policy). Do not omit merely because changes are incoming.
+- When using an affected loop, select `--mode task --affected` (`local` is also permitted). The runner narrows regression only through its explicit mapping. The mapping covers regression entries, the standalone runner, exact validator test modules, shared test support consumers, and dynamic reference/layout fixture consumers. Unknown files (including siblings in these directories), missing mapped files, and unresolved deletion/rename sources stop for dependency investigation. Existing explicit mappings for common validators/generators retain their registered consumers; choose development and final entrypoints under [Validation policy](#validation-policy). Do not omit merely because changes are incoming.
 - `--affected` cannot be combined with `full` / `--all`. Do not omit common validation, task-specific checks, Acceptance checks, or diff checks. Display selection reasons, selected checks, and unexecuted checks. Final validation follows [Validation policy](#validation-policy).
 - Every regression test uses explicit synthetic project/Model inputs generated in temporary directories within tests, regardless of repository type or active Validation scope. Do not inspect the executing repository's `project.json` or `model/`, including existence checks, test-case discovery and cache inputs. Necessary framework inputs may be used; do not copy actual consumer issues, projects, models, designs or active tasks into fixtures. This rule does not restrict the selected service validation or ordinary import/issues workflows from reading their authorized inputs. Compare filesystem paths with `Path`; use `as_posix()` only for contract values requiring POSIX notation such as Markdown links.
 - Only independent regression scripts run with at most 2 parallel workers; validators and Git diff checks run serially. `--jobs 1` permits serial comparison. Each check owns its temporary fixture and must not write shared workspaces. Run remaining checks after failure; on interruption, stop running child processes.
