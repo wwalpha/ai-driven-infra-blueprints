@@ -1,4 +1,8 @@
 """Durable, sealed offline handoff records. This module never launches an LLM or Git."""
+from __future__ import annotations
+
+from collections.abc import Iterable, Iterator, Sequence
+from types import SimpleNamespace
 
 import copy
 import hashlib
@@ -27,6 +31,9 @@ import deploy.change_sets as _imports_deploy_change_sets
 import deploy.inputs as _imports_deploy_inputs
 import deploy.session as _imports_deploy_session
 from deploy import failures, retry_policy
+from deploy.typing import InputPaths, Manifest, PathsFor, Session, StackUnit
+from utils.type_contracts import JsonObject
+from utils.type_contracts import JsonValue as JsonValue
 
 # Timing and obsolete measurement metadata are historical, never execution authority.
 HISTORICAL = {'metrics', 'skillStartedAt', 'firstExecuteAcceptedAt', 'within120Seconds',
@@ -35,21 +42,21 @@ HISTORICAL = {'metrics', 'skillStartedAt', 'firstExecuteAcceptedAt', 'within120S
 _verified = {}
 
 
-def protected(session):
+def protected(session: Session) -> JsonObject:
     return {key: value for key, value in session.items() if key not in HISTORICAL}
 
 
-def binding_path(root, task_file):
+def binding_path(root: Path, task_file: str) -> Path:
     return evidence_store(root) / ('deploy-workflow-' + fingerprint([str(root), task_file]) + '.json')
 
 
-def write_session(path, session):
+def write_session(path: Path, session: Session) -> None:
     temporary = path.with_suffix(path.suffix + '.tmp')
     temporary.write_text(json.dumps(session, indent=2) + '\n', encoding='utf-8')
     temporary.replace(path)
 
 
-def save(path, session):
+def save(path: Path, session: Session) -> None:
     if not session.get('workflowBinding'):
         # Pure scheduler fixtures and explicitly unmigrated legacy sessions have no ledger.
         write_session(path, session)
@@ -73,7 +80,7 @@ def save(path, session):
     _verified[id(session)] = (str(path), record['sequence'])
 
 
-def restore(root, path, session):
+def restore(root: Path, path: Path, session: Session) -> None:
     """Verify a saved revision or finish its sealed write intent; reject stale copies."""
     proof = binding_path(root, session['taskFile'])
     if not proof.exists():
@@ -105,7 +112,7 @@ def restore(root, path, session):
     _verified[id(session)] = (str(path), record['sequence'])
 
 
-def recover_session(root, path, task_file):
+def recover_session(root: Path, path: Path, task_file: str) -> Session:
     proof = binding_path(root, task_file)
     record = read_sealed(root, proof)
     if record['session'] != str(path) or record['taskFile'] != task_file:
@@ -118,7 +125,7 @@ def recover_session(root, path, task_file):
 
 
 @contextmanager
-def locked(path):
+def locked(path: Path) -> Iterator[None]:
     lock = path.with_name(path.name + '.handoff-lock')
     try:
         lock.mkdir()
@@ -130,14 +137,14 @@ def locked(path):
         lock.rmdir()
 
 
-def external(root, path):
+def external(root: Path, path: str | Path) -> Path:
     path = Path(path)
     if not path.is_absolute() or path.is_symlink() or path.resolve().is_relative_to(root.resolve()):
         raise Blocked('handoff evidence must be an absolute external file')
     return path.resolve()
 
 
-def workflow(session):
+def workflow(session: Session) -> JsonObject:
     if 'workflow' not in session:
         session['workflow'] = {'workflowId': uuid.uuid4().hex, 'budget': retry_policy.DEFAULT_BUDGET,
                                'reserved': 0, 'problems': {}, 'attempts': {}, 'accepted': [], 'diagnosisVersion': 1}
@@ -154,7 +161,7 @@ def workflow(session):
     return session['workflow']
 
 
-def bind(root, path, session):
+def bind(root: Path, path: Path, session: Session) -> None:
     """One unfinished workflow per Task; replacing/deleting its session is not a reset."""
     current = workflow(session)
     if not current['attempts'] and not current.get('reserved') and not current.get('budgetExtensions'):
@@ -177,7 +184,7 @@ def bind(root, path, session):
         activate='- External IaC repair: `allowed`' in contract.splitlines() or bool(current['attempts']) or current['reserved'] > 0)
 
 
-def effective(root, units, paths_for, input_paths):
+def effective(root: Path, units: Iterable[StackUnit], paths_for: PathsFor, input_paths: InputPaths) -> dict[str, str]:
     """Existing CFn decoder, JSON parameters and artifact hashes; no intrinsic evaluation."""
     result = {}
     for unit in units:
@@ -198,7 +205,7 @@ def effective(root, units, paths_for, input_paths):
     return result
 
 
-def record_stop(session, units):
+def record_stop(session: Session, units: Iterable[StackUnit]) -> None:
     current = workflow(session)
     observed = []
     for unit in units:
@@ -240,7 +247,7 @@ def _reference(root, manifest, reference):
             raise Blocked('artifact diagnosis must reference the whole exact source')
 
 
-def diagnose(root, session, diagnosis):
+def diagnose(root: Path, session: Session, diagnosis: JsonObject) -> str:
     """Publish a complete diagnosis atomically, without partially rewriting histories."""
     candidate = copy.deepcopy(session)
     result = _diagnose(root, candidate, diagnosis)
@@ -439,7 +446,14 @@ def _diagnose(root, session, diagnosis):
     return current['status']
 
 
-def issue_request(root, path, session, problem_ids, allowed_paths, expectation):
+def issue_request(
+    root: Path,
+    path: Path,
+    session: Session,
+    problem_ids: Sequence[str],
+    allowed_paths: Sequence[str],
+    expectation: list[JsonObject],
+) -> JsonObject:
     current = workflow(session)
     if current.get('status') in {'NEEDS_DIAGNOSIS', 'WAITING_HUMAN', 'STOPPED', 'CLOSED', 'COMPLETE'}:
         raise ValueError('repair policy: ' + current['status'])
@@ -488,8 +502,12 @@ def issue_request(root, path, session, problem_ids, allowed_paths, expectation):
     return pending
 
 
-def verify_inputs(root, session, child_paths=(), contract_file=None):
-
+def verify_inputs(
+    root: Path,
+    session: Session,
+    child_paths: Iterable[str] = (),
+    contract_file: str | None = None,
+) -> Manifest:
     load_target = _imports_project_targets.load_target
     selected_task = _imports_task_contract.selected_task
 
@@ -515,7 +533,7 @@ def verify_inputs(root, session, child_paths=(), contract_file=None):
     return actual
 
 
-def dependencies(backend, units):
+def dependencies(backend: SimpleNamespace, units: Iterable[StackUnit]) -> dict[str, list[str]]:
 
     condition_active = _imports_cloudformation_inputs.condition_active
     resolve_value = _imports_cloudformation_inputs.resolve_value
@@ -548,7 +566,7 @@ def dependencies(backend, units):
     return {name: sorted(set(values)) for name, values in result.items()}
 
 
-def record_outcomes(session):
+def record_outcomes(session: Session) -> None:
     current = workflow(session)
     for attempt in current['attempts'].values():
         if attempt.get('acceptedRevision') is None or attempt['acceptedRevision'] > session.get('inputRevision', 0):

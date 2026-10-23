@@ -177,7 +177,7 @@ def check_signed_ledger_rejects_rollback_and_recovers(tmp_path):
     session['workflow']['reserved'] = 1
     actual_replace = Path.replace
     interrupted = _bind_framework_callback(_callback_check_signed_ledger_rejects_rollback_and_recovers_interrupted, actual_replace, path)
-    with patch.object(Path, 'replace', interrupted), pytest.raises(OSError):
+    with patch.object(Path, 'replace', autospec=True, side_effect=interrupted), pytest.raises(OSError, match='injected after real session replacement'):
         handoff.save(path, session)
     recovered = json.loads(path.read_text())
     handoff.restore(root, path, recovered)

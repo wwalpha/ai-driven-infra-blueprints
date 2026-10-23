@@ -328,6 +328,125 @@ def check_generated_plan_snapshot(proposal):
     assert plan['groups'] == {view.relative_to(root).as_posix(): sorted(plan['originals'])}
 
 
+
+
+@pytest.fixture
+def owned_proposal(proposal):
+    root, session, source, old, new = proposal
+    task = root / 'tasks/deploy.md'
+    view = root / 'docs/designs/dev/team/service.md'
+    view.parent.mkdir(parents=True)
+    view.write_text('', encoding='utf-8')
+    relative = view.relative_to(root).as_posix()
+    text = task.read_text(encoding='utf-8').replace('## Task contract',
+        '## Task contract\n- Task type: `infrastructure`\n- Infrastructure phase: `deploy`\n'
+        '- AWS API execution: `allowed`\n- Deploy/apply: `allowed`\n'
+        '- Target environment: `dev`\n- Target AWS account: `123456789012`\n- Deployment scope: `A`')
+    text = text.replace('## Modified files', '## Modified files\n- `' + relative + '`')
+    text = text.replace('## Allowed paths', '## Allowed paths\n- `' + relative + '`')
+    task.write_text(text, encoding='utf-8')
+    session.update(repository=str(root), taskFile='tasks/deploy.md', taskDigest=M.task_digest(text),
+                   inputDigest='inputs', executionDigest='execution', infraManifest={}, unitDigests={'A': 'unit'})
+    plan = session['pendingObserved']
+    plan['identity'] = M._identity(root, session, {}, 'dev', 'team')
+    plan['generated'] = {'groups': {relative: [relative]}, 'originals': {relative: ''},
+                         'outputs': None, 'stage': 'PREPARED'}
+    return root, session, source, old, new
+
+
+@pytest.mark.parametrize('problem', ['none', 'legacy', 'task-body', 'task-merged', 'worktree-moved',
+                                     'worktree-deleted', 'tampered-session', 'foreign-journal', 'external-model'])
+def check_owned_resume_boundaries(owned_proposal, problem):
+    root, session, source, old, new = owned_proposal
+    path = root.parent / (root.name + '-session.json')
+    plan = session['pendingObserved']
+    if problem == 'legacy':
+        plan['identity']['managedTask'] = {'merged': 'historical metadata', 'tip': 'old'}
+    handoff.bind(root, path, session)
+    handoff.save(path, session)
+    restored = json.loads(path.read_text(encoding='utf-8'))
+    if problem == 'tampered-session':
+        restored['pendingObserved']['outputs'] = {}
+    if problem == 'tampered-session':
+        with pytest.raises(Blocked, match='ledger'):
+            handoff.restore(root, path, restored)
+        return
+    handoff.restore(root, path, restored)
+    task = root / 'tasks/deploy.md'
+    if problem == 'task-body':
+        task.write_text(task.read_text(encoding='utf-8') + '\nchanged authority\n', encoding='utf-8')
+    if problem == 'task-merged':
+        task.write_text(task.read_text(encoding='utf-8').replace('`running`', '`completed`'), encoding='utf-8')
+        with pytest.raises(Blocked, match='completed task'):
+            controller.active_scope(root, ['A'], 'dev', '123456789012')
+    if problem == 'worktree-moved':
+        moved = root.with_name(root.name + '-moved')
+        root.rename(moved)
+        try:
+            with selected_task(moved, 'tasks/deploy.md'), pytest.raises(Blocked, match='repository changed'):
+                M.validate_plan(moved, restored, {}, 'dev', 'team')
+        finally:
+            moved.rename(root)
+        return
+    if problem == 'worktree-deleted':
+        removed = root.with_name(root.name + '-removed')
+        root.rename(removed)
+        try:
+            with pytest.raises((Blocked, ValueError, OSError)):
+                M.validate_plan(root, restored, {}, 'dev', 'team')
+        finally:
+            removed.rename(root)
+        return
+    if problem in {'task-body', 'task-merged', 'worktree-deleted'}:
+        with pytest.raises((Blocked, ValueError, OSError)):
+            M.validate_plan(root, restored, {}, 'dev', 'team')
+        return
+    if problem == 'external-model':
+        source.write_text(old + '# external edit\n', encoding='utf-8')
+    before = source.read_bytes()
+    with patch.object(M, 'authority_snapshot', return_value={source: before}):
+        if problem == 'external-model':
+            with pytest.raises(Blocked, match='cannot explain'):
+                M.reconcile(root, restored, {}, 'dev', 'team')
+        elif problem == 'foreign-journal':
+            record = {'originals': {'model/dev/team/foreign.properties': None}}
+            with pytest.raises(Blocked, match='not owned'):
+                M._callback_reconcile_recovery('team', 'dev', root, restored, {}, record)
+        else:
+            assert M.reconcile(root, restored, {}, 'dev', 'team') == 'PREPARED'
+    assert source.read_bytes() == before
+
+
+@pytest.mark.parametrize('stage', ['PREPARED', 'MODEL_PUBLISHED'])
+def check_owned_interrupted_stages(owned_proposal, stage):
+    root, session, source, old, new = owned_proposal
+    source.write_text(old if stage == 'PREPARED' else new, encoding='utf-8')
+    # On disk the intent may still say PREPARED after the Model transaction committed.
+    with patch.object(M, 'authority_snapshot', return_value={source: source.read_bytes()}):
+        assert M.reconcile(root, session, {}, 'dev', 'team') == stage
+    assert session['pendingObserved']['stage'] == stage
+    assert session['modelInputManifest'] == session['pendingObserved'][
+        'beforeManifest' if stage == 'PREPARED' else 'afterManifest']
+
+
+@pytest.mark.parametrize('stage', ['PREPARED', 'MODEL_PUBLISHED'])
+def check_finish_guard_precedes_publication(owned_proposal, stage):
+    root, session, source, old, new = owned_proposal
+    source.write_text(old if stage == 'PREPARED' else new, encoding='utf-8')
+    backend = SimpleNamespace(root=root, session=session, target={}, environment='dev', directory='team',
+                              save=lambda: None, guard=lambda: (_ for _ in ()).throw(Blocked('live guard refused')))
+    before = source.read_bytes()
+    with patch.object(M, 'authority_snapshot', return_value={source: before}), \
+         patch.object(observed, 'collect_successful', return_value=({source: new}, ['service'], None)), \
+         patch('model.adapters.observed.publish_observed') as publish, \
+         patch('sync_runtime.prepare_generation') as generate:
+        with pytest.raises(Blocked, match='live guard refused'):
+            M.finish(backend, [{'name': 'A'}])
+    publish.assert_not_called()
+    generate.assert_not_called()
+    assert source.read_bytes() == before
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

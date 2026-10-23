@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
+from typing import NoReturn
+
 import copy
 from dataclasses import dataclass
 from dataclasses import replace as replace
@@ -33,6 +36,10 @@ from model.configuration import resource_configuration as resource_configuration
 from model.core import ReferenceResolutionError
 from model.core import entries as entries
 from model.format import owner
+from task_contract_core import DependencyDetach, ModelOperation
+from utils.type_contracts import JsonObject
+from utils.type_contracts import JsonValue as JsonValue
+import model.adapters.task as _task_adapter
 
 
 def _same(left, right):
@@ -53,7 +60,7 @@ def _warn(warnings, message, **details):
     warnings.append({'code': 'reference.operation_impact', 'message': message, **details})
 
 
-def operation_values(values, number):
+def operation_values(values: Mapping[str, str], number: str) -> dict[str, str]:
     """All canonical fields owned by a Resource, including its reference declarations."""
     return {key: value for key, value in values.items() if owner(key, values) == ('resource', number)}
 
@@ -62,7 +69,11 @@ def operation_values(values, number):
 
 
 
-def preserve_fixed_fields(before, after, operation):
+def preserve_fixed_fields(
+    before: _dependency_model_sources.ModelSnapshot,
+    after: _dependency_model_sources.ModelSnapshot,
+    operation: ModelOperation | _task_adapter.ObservedOperation,
+) -> None:
     entries = _imports_model_core.entries
     preserve_allocation = _imports_model_identity.preserve_allocation
     old, new = before.authoritative, after.authoritative
@@ -121,10 +132,10 @@ def preserve_fixed_fields(before, after, operation):
 class EditPlan:
     before: _dependency_model_sources.ModelSnapshot
     candidate: _dependency_model_sources.ModelSnapshot
-    changes: object
+    changes: Mapping[Path, str | None]
     policy: _dependency_model_sources.SourceWriteContext
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: NoReturn, **kwargs: NoReturn) -> NoReturn:
         raise TypeError('use prepare_edit or prepare_observed; an EditPlan constructor grants no save authority')
 
     @classmethod
@@ -146,7 +157,10 @@ def _callback_preserve_layout_order(values, prefix=None):
                               for key in values if prefix is None or key.startswith(prefix)))
 
 
-def preserve_layout(before, after):
+def preserve_layout(
+    before: _dependency_model_sources.ModelSnapshot,
+    after: _dependency_model_sources.ModelSnapshot,
+) -> None:
     relative = _preserve_layout_relative
     old_parts = [relative(before, path) for path in before.parts]
     new_parts = [relative(after, path) for path in after.parts]
@@ -179,7 +193,11 @@ def _context(snapshot, policy):
             raise ValueError('Model snapshot differs from authorized inputs: ' + str(path))
 
 
-def prepare_edit(snapshot, candidate, policy):
+def prepare_edit(
+    snapshot: _dependency_model_sources.ModelSnapshot | Path,
+    candidate: Mapping[Path, str | None],
+    policy: _dependency_model_sources.SourceWriteContext,
+) -> EditPlan:
     validate_json_settings = _imports_model_validation.validate_json_settings
     if isinstance(snapshot, Path):
         edit_base = _imports_model_sources.edit_base
@@ -242,7 +260,7 @@ def _verify_published_inputs(context, changes):
         raise ValueError('Task changed during Model publication')
 
 
-def publish_edit(plan, context):
+def publish_edit(plan: EditPlan, context: _dependency_model_sources.SourceWriteContext) -> tuple[Path, ...]:
     return _publish_plans((plan,), context)
 
 
@@ -283,7 +301,7 @@ def _publish_plans(plans, context):
         context.close()
 
 
-def operation_rows(values, number):
+def operation_rows(values: Mapping[str, str], number: str) -> dict[str, tuple[str, dict[str, str]]]:
     """Formal Property and array position identify rows, never matching row numbers."""
     ROOT = _imports_array_display.ROOT
     array_template = _imports_array_display.array_template
@@ -559,7 +577,12 @@ def _verify_model_operation_explicit(values, identity):
     return {key[len(prefix):]: value for key, value in values.items() if key.startswith(prefix)}
 
 
-def verify_model_operation(before, after, operation, sources):
+def verify_model_operation(
+    before: Path,
+    after: Path,
+    operation: ModelOperation,
+    sources: Iterable[str],
+) -> list[JsonObject]:
     """Final latest-base proof for exactly declared deletions, transfers and reference edits."""
     source_scope = _imports_model_sources.source_scope
     _require_declared_sources(before, after, sources)
@@ -753,7 +776,13 @@ def _verify_detaches(old_models, new_models, declarations_):
     return removed
 
 
-def verify_model_refactor(before, after, detaches, sources, validation_scope):
+def verify_model_refactor(
+    before: Path,
+    after: Path,
+    detaches: Iterable[DependencyDetach],
+    sources: Iterable[str],
+    validation_scope: set[tuple[str, str, str]] | None,
+) -> list[JsonObject]:
     source_scope = _imports_model_sources.source_scope
     _require_declared_sources(before, after, sources)
     direct = {tuple(declaration.consumer.split('/')[:3]) for declaration in detaches}
@@ -786,7 +815,15 @@ def verify_model_refactor(before, after, detaches, sources, validation_scope):
     return warnings
 
 
-def validate_candidates(root, sources, output, scope, *, base=None, contract_file=None):
+def validate_candidates(
+    root: Path,
+    sources: Iterable[str],
+    output: Mapping[Path, str | None],
+    scope: set[tuple[str, str, str]] | None,
+    *,
+    base: str | None = None,
+    contract_file: str | None = None,
+) -> list[JsonObject]:
     """Common ordinary-save/Task/integration check: validate only the final authority."""
     scope_diagnostic = _imports_model_impact.scope_diagnostic
     task_impact = _imports_model_impact.task_impact
@@ -825,9 +862,12 @@ def validate_candidates(root, sources, output, scope, *, base=None, contract_fil
     return warnings
 
 
-def load_model(scope, read_context=None):
+def load_model(
+    scope: _dependency_model_sources.Scope | str | Path,
+    read_context: _dependency_model_sources.ReadContext | None = None,
+) -> _dependency_model_sources.ModelSnapshot:
     return _dependency_model_sources.load_model(scope, read_context)
 
 
-def declarations(values):
+def declarations(values: Mapping[str, str]) -> dict[str, dict[str, str]]:
     return _dependency_model_references.declarations(values)

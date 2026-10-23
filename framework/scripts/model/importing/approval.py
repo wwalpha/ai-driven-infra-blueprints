@@ -1,4 +1,9 @@
 """Import Review integrity; the LLM owns explicit Human consent in conversation."""
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+from utils.type_contracts import JsonObject
+from utils.type_contracts import JsonValue as JsonValue
 
 from datetime import datetime, timedelta, timezone
 from functools import partial as _bind_framework_callback
@@ -20,7 +25,7 @@ from model.format import FORMAT_FIELDS, REFERENCE_NAME_SUFFIXES, owner
 from model.format import require_format as require_format
 
 
-def review_binding(review, acquisition):
+def review_binding(review: JsonObject, acquisition: JsonObject) -> JsonObject:
     """Bind verified Review content to its acquisition; this is not Human authentication."""
     verify_review(review, review)
     _dependency_model_importing_evidence.require_format(acquisition, 3, 'acquisition')
@@ -40,7 +45,7 @@ def review_binding(review, acquisition):
             'acquiredAt': acquisition['acquiredAt'], 'expiresAt': review['expiresAt']})
 
 
-def verify_review_binding(binding):
+def verify_review_binding(binding: JsonObject) -> JsonObject:
     """Validate receipt structure/lifetime, never authenticate conversational consent."""
     _dependency_model_importing_evidence.require_format(binding, 2, 'Review binding')
     hashes = {'acquisitionDigest', 'sourceBaselineDigest', 'reviewDigest', 'recordsDigest',
@@ -64,7 +69,7 @@ def verify_review_binding(binding):
     return binding
 
 
-def checkpoint(acquisition, answers):
+def checkpoint(acquisition: JsonObject, answers: list[JsonObject]) -> JsonObject:
     """Wrap LLM-owned partial answers; never choose a question, target or default."""
     _dependency_model_importing_evidence.require_format(acquisition, 3, 'acquisition')
     value = {'version': 2, **FORMAT_FIELDS, 'acquisitionDigest': _dependency_import_guard.digest(acquisition), 'sourceBaselineDigest': _dependency_import_guard.digest(acquisition['sources']),
@@ -74,7 +79,7 @@ def checkpoint(acquisition, answers):
     return value
 
 
-def verify_checkpoint(acquisition, value):
+def verify_checkpoint(acquisition: JsonObject, value: JsonObject) -> list[JsonObject]:
     """Mechanical resume check; caller first reloads evidence and compares live sources."""
     _dependency_model_importing_evidence.require_fresh_acquisition(acquisition)
     _dependency_model_importing_evidence.require_format(acquisition, 3, 'acquisition')
@@ -119,7 +124,17 @@ def _callback_build_review_rows(property_schema, /, values, indexed, rid, prop):
     return result
 
 
-def build_review(acquisition, selection, before, proposed, risks, property_schema, *, proposed_references=None, reference_impact=None):
+def build_review(
+    acquisition: JsonObject,
+    selection: JsonObject,
+    before: _dependency_model_sources.ModelSnapshot,
+    proposed: dict[str, str],
+    risks: dict[str, list[str]],
+    property_schema: Callable[[str], JsonObject],
+    *,
+    proposed_references: dict[str, dict[str, str]] | None = None,
+    reference_impact: JsonObject | None = None,
+) -> JsonObject:
     """Validate an LLM-authored proposed authoritative snapshot; never edit source files."""
     COUNTERS = _imports_model_identity.COUNTERS
     preserve_allocation = _imports_model_identity.preserve_allocation
@@ -231,7 +246,7 @@ def build_review(acquisition, selection, before, proposed, risks, property_schem
     return {**review, 'reviewDigest': _dependency_import_guard.digest(review)}
 
 
-def verify_review(review, expected):
+def verify_review(review: JsonObject, expected: JsonObject) -> None:
     """Integrity/meaning comparison only; a matching digest never grants approval."""
     _dependency_model_importing_evidence.require_format(review, 4, 'Review')
     _dependency_model_importing_evidence.require_format(expected, 4, 'expected Review')
@@ -241,11 +256,11 @@ def verify_review(review, expected):
 
 
 
-def reference_provenance(snapshot):
+def reference_provenance(snapshot: _dependency_model_sources.ModelSnapshot) -> dict[str, dict[str, str]]:
     return _dependency_model_references.declarations(snapshot.authoritative)
 
 
-def validate_reference_proposal(proposal, values):
+def validate_reference_proposal(proposal: dict[str, dict[str, str]], values: Mapping[str, str]) -> dict[str, str]:
     if not isinstance(proposal, dict) or any(not isinstance(identity, str) or not isinstance(spec, dict)
             or any(not isinstance(k, str) or not isinstance(v, str) for k, v in spec.items())
             for identity, spec in proposal.items()):

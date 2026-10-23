@@ -1,4 +1,12 @@
 """Safe structured failure evidence; cause diagnosis belongs to the supervising LLM."""
+from __future__ import annotations
+
+from utils.type_contracts import JsonValue as JsonValue
+
+from collections.abc import Iterable
+from deploy.typing import AwsResponse, Session, StackState, StackUnit
+from deploy.typing import AwsValue as AwsValue
+from utils.type_contracts import JsonObject
 import copy
 import re
 
@@ -11,7 +19,7 @@ AUTH_CODES = {'AccessDenied', 'AccessDeniedException', 'UnauthorizedOperation', 
               'ExpiredTokenException', 'InvalidClientTokenId', 'UnrecognizedClientException'}
 
 
-def exception(state, error, stage):
+def exception(state: StackState, error: Exception, stage: str) -> None:
     if hasattr(error, 'deploy_failure'):
         state['failure'] = copy.deepcopy(error.deploy_failure)
         return
@@ -27,7 +35,7 @@ def exception(state, error, stage):
                         'classification': classification, 'executionState': 'UNKNOWN' if state.get('status') == 'RUNNING' else 'NOT_EXECUTED'}
 
 
-def event(event, document):
+def event(event: AwsResponse, document: AwsResponse) -> JsonObject:
     logical = event.get('LogicalResourceId')
     reason = event.get('ResourceStatusReason') or ''
     # Keep names only when confirmed by the authored template. Never persist raw AWS prose.
@@ -44,13 +52,13 @@ def event(event, document):
     return result
 
 
-def template_safety(document):
+def template_safety(document: AwsResponse) -> JsonObject:
     return {'Resources': {key: {field: value for field, value in resource.items()
                                if field in {'Type', 'DeletionPolicy', 'UpdateReplacePolicy'}}
                           for key, resource in document.get('Resources', {}).items()}}
 
 
-def capture(session, unit, state):
+def capture(session: Session, unit: StackUnit, state: StackState) -> JsonObject | None:
     if state.get('status') not in {'FAILED', 'BLOCKED'}:
         return None
     execution = state.get('clientToken') if state.get('executionEvidence') else state.get('preparationId')
@@ -72,7 +80,7 @@ def capture(session, unit, state):
     return observation
 
 
-def repairable(observation):
+def repairable(observation: JsonObject) -> bool:
     state = observation['awsState']
     failure = state.get('failure', {})
     if failure.get('classification') in {'AUTHORIZATION', 'SUBMISSION_UNKNOWN', 'NEEDS_HUMAN', 'APPROVAL'}:
@@ -83,7 +91,7 @@ def repairable(observation):
             failure.get('executionState') == 'NOT_EXECUTED')
 
 
-def structured(observation, indices):
+def structured(observation: JsonObject, indices: Iterable[int]) -> set[str]:
     """Observation identity only, never a root-cause classifier or prose fingerprint."""
     state = observation['awsState']
     events = state.get('failureEvents', [])

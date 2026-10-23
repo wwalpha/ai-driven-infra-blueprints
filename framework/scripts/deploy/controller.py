@@ -1,6 +1,8 @@
 """Assemble deployment state and functions; AWS clients live in utils.aws.client."""
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
+
 import argparse
 import sys
 import time
@@ -22,9 +24,19 @@ from deploy.guards import call, secret_value_missing
 from deploy.inputs import load_units
 from deploy.secret_bootstrap import BOOTSTRAP_STAGES
 from deploy.timing import Timing
+from deploy.typing import AwsResponse, AwsValue, DeliveryBoundary, StackState, StackUnit, States, Target
+from utils.type_contracts import JsonObject
+from utils.type_contracts import JsonValue as JsonValue
 
 
-def create_runtime(root, environment, directory, target, profile=None, approvals=()):
+def create_runtime(
+    root: Path,
+    environment: str,
+    directory: str,
+    target: Target,
+    profile: str | None = None,
+    approvals: Iterable[str] = (),
+) -> SimpleNamespace:
     connection_context = _imports_utils_aws_client.connection_context
     configured = target.get("awsProfile")
     if configured and profile is not None and profile != configured:
@@ -68,29 +80,34 @@ def create_runtime(root, environment, directory, target, profile=None, approvals
     return runtime
 
 
-def aws(runtime, operation, service="cloudformation", **arguments):
+def aws(
+    runtime: SimpleNamespace,
+    operation: str,
+    service: str = "cloudformation",
+    **arguments: AwsValue,
+) -> AwsResponse:
     try:
         return call(runtime, service, operation, arguments)
     except Exception as error:
         error.deploy_service, error.deploy_operation = service, operation
         raise
 
-def paths(runtime, unit):
+def paths(runtime: SimpleNamespace, unit: StackUnit) -> tuple[Path, Path]:
     return inputs.paths(runtime.root, runtime.environment, runtime.directory, runtime.target, unit)
 
-def source_path(runtime, artifact):
+def source_path(runtime: SimpleNamespace, artifact: dict[str, str]) -> Path:
     return delivery.source_path(runtime.root, artifact)
 
-def file_digest(runtime, path, fresh=False):
+def file_digest(runtime: SimpleNamespace, path: Path, fresh: bool = False) -> str:
     return inputs.file_digest(runtime.hashes, path, fresh)
 
-def deployment_input_paths(runtime, units):
+def deployment_input_paths(runtime: SimpleNamespace, units: Iterable[StackUnit]) -> list[Path]:
     return inputs.deployment_input_paths(runtime.root, runtime.environment, runtime.directory, runtime.target, units)
 
-def input_digest(runtime, unit, fresh=False):
+def input_digest(runtime: SimpleNamespace, unit: StackUnit, fresh: bool = False) -> str:
     return fingerprint([runtime.file_digest(path, fresh) for path in runtime.deployment_input_paths([unit])])
 
-def load_inputs(runtime, unit):
+def load_inputs(runtime: SimpleNamespace, unit: StackUnit) -> None:
     """Decode current immutable files cheaply; never persist parameter/secret contents."""
     template, parameters = runtime.paths(unit)
     try:
@@ -111,21 +128,31 @@ def load_inputs(runtime, unit):
     if hasattr(runtime, 'states') and unit['name'] in runtime.states:
         runtime.states[unit['name']].setdefault('successfulPreparationOperations', {})['decode_input'] = runtime.input_digest(unit)
 
-def placement(runtime):
+def placement(runtime: SimpleNamespace) -> SimpleNamespace:
     return delivery.placement(runtime.root, runtime.environment, runtime.directory, runtime.target,
                               runtime.session, runtime.save, runtime.aws, runtime.connection)
 
 
-def verify_object(runtime, obj, boundary=None):
+def verify_object(runtime: SimpleNamespace, obj: JsonObject, boundary: DeliveryBoundary | None = None) -> AwsResponse:
     return delivery.verify_object(runtime.placement(), obj, boundary)
 
 
-def upload(runtime, path, bucket, prefix, boundary=None):
+def upload(
+    runtime: SimpleNamespace,
+    path: Path,
+    bucket: str,
+    prefix: str,
+    boundary: DeliveryBoundary | None = None,
+) -> JsonObject:
     return delivery.upload(runtime.placement(), runtime.file_digest, path, bucket, prefix,
                            {} if boundary is None else boundary)
 
 
-def exports_for(runtime, units, boundary):
+def exports_for(
+    runtime: SimpleNamespace,
+    units: Iterable[StackUnit],
+    boundary: DeliveryBoundary,
+) -> dict[str, AwsResponse]:
     if 'exports' not in boundary:
         names = {}
         for unit in units:
@@ -138,7 +165,13 @@ def exports_for(runtime, units, boundary):
     return boundary['exports']
 
 
-def artifact_bindings(runtime, unit, document, parameters, boundary=None):
+def artifact_bindings(
+    runtime: SimpleNamespace,
+    unit: StackUnit,
+    document: JsonObject,
+    parameters: JsonObject,
+    boundary: DeliveryBoundary | None = None,
+) -> list[tuple[dict[str, str], JsonObject, str, tuple[str, ...] | None]]:
     boundary = {} if boundary is None else boundary
     if unit['name'] not in runtime.templates:
         # Direct callers supply the current document explicitly.
@@ -150,38 +183,49 @@ def artifact_bindings(runtime, unit, document, parameters, boundary=None):
     return delivery.artifact_bindings(runtime.target, unit, document, parameters, exports)
 
 
-def prepare_delivery_group(runtime, units, states):
+def prepare_delivery_group(runtime: SimpleNamespace, units: Sequence[StackUnit], states: States) -> None:
     return delivery.prepare_delivery_group(runtime.placement(), units, states, runtime.templates, runtime.workdir,
         runtime.paths, runtime.input_digest, runtime.file_digest, runtime.check_imports, runtime.exports_for)
 
 
-def template_arguments(runtime, unit, state, stage_only=False, boundary=None):
+def template_arguments(
+    runtime: SimpleNamespace,
+    unit: StackUnit,
+    state: StackState,
+    stage_only: bool = False,
+    boundary: DeliveryBoundary | None = None,
+) -> JsonObject:
     boundary = {} if boundary is None else boundary
     runtime.exports_for([unit], boundary)
     return delivery.template_arguments(runtime.placement(), unit, state, runtime.templates[unit['name']],
         runtime.paths(unit)[0], runtime.workdir, runtime.input_digest, runtime.file_digest, boundary, stage_only)
 
 
-def check_imports(runtime, unit, boundary=None):
+def check_imports(runtime: SimpleNamespace, unit: StackUnit, boundary: DeliveryBoundary | None = None) -> None:
     boundary = {} if boundary is None else boundary
     return change_sets.check_imports(runtime.target, runtime.templates, runtime.states, runtime.aws, unit,
                                     runtime.exports_for([unit], boundary))
 
 
-def describe_change_set(runtime, unit, state):
+def describe_change_set(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> AwsResponse:
     return change_sets.describe_change_set(runtime.aws, unit, state)
 
-def verify_stack_ownership(runtime, unit):
+def verify_stack_ownership(runtime: SimpleNamespace, unit: StackUnit) -> None:
     return change_sets.verify_stack_ownership(runtime.aws, runtime.templates, unit)
 
-def begin_prepare(runtime, unit, state):
+def begin_prepare(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
     return change_sets.begin_prepare(unit, state, runtime.aws, runtime.save, runtime.check_imports, runtime.template_arguments,
                                      runtime.cleanup_failed_create, runtime.reset_after_cleanup, runtime.verify_stack_ownership, runtime.paths)
 
-def review_prepared(runtime, unit, state, change_set=None):
+def review_prepared(
+    runtime: SimpleNamespace,
+    unit: StackUnit,
+    state: StackState,
+    change_set: AwsResponse | None = None,
+) -> str:
     return change_sets.review_prepared(unit, state, runtime.approvals, runtime.aws, runtime.describe_change_set, change_set)
 
-def prepare(runtime, unit, state):
+def prepare(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
     """Compatibility entry point; the controller uses nonblocking preparation."""
     runtime.begin_prepare(unit, state)
     while True:
@@ -190,7 +234,7 @@ def prepare(runtime, unit, state):
             return result
         time.sleep(5)
 
-def execute(runtime, unit, state):
+def execute(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> None:
     expected = runtime.expected_digests.get(unit['name'])
     try:
         current = change_sets.verify_execution(unit, state, expected, runtime.input_digest, runtime.file_digest,
@@ -210,36 +254,42 @@ def execute(runtime, unit, state):
     runtime.save()
 
 
-def bootstrap_plan(runtime, unit, state):
+def bootstrap_plan(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> JsonObject:
     return secret_bootstrap.bootstrap_plan(runtime.root, runtime.environment, runtime.directory, runtime.target,
                                            runtime.templates, runtime.states,
                                            runtime.units, runtime.aws, runtime.check_secret_arn, unit, state)
 
-def check_secret_arn(runtime, arn):
+def check_secret_arn(runtime: SimpleNamespace, arn: str) -> None:
     return secret_bootstrap.check_secret_arn(runtime.target, arn)
 
-def bootstrap_current(runtime, entry):
+def bootstrap_current(runtime: SimpleNamespace, entry: JsonObject) -> tuple[bool, bool]:
     return secret_bootstrap.bootstrap_current(runtime.aws, entry)
 
-def bootstrap(runtime, unit, state, entry=None):
+def bootstrap(runtime: SimpleNamespace, unit: StackUnit, state: StackState, entry: JsonObject | None = None) -> bool:
     return secret_bootstrap.bootstrap(runtime.root, runtime.states, runtime.guard, runtime.save, runtime.aws,
                                      runtime.bootstrap_plan, runtime.bootstrap_current, runtime.finish_repair, unit, state, entry)
 
-def cleanup_failed_create(runtime, unit, state, *, empty_only=False):
+def cleanup_failed_create(
+    runtime: SimpleNamespace,
+    unit: StackUnit,
+    state: StackState,
+    *,
+    empty_only: bool = False,
+) -> bool:
     return repair_ops.cleanup_failed_create(runtime.templates, runtime.aws, runtime.save, runtime.wait_cleanup,
                                             unit, state, empty_only=empty_only)
 
-def wait_cleanup(runtime, state):
+def wait_cleanup(runtime: SimpleNamespace, state: StackState) -> None:
     return repair_ops.wait_cleanup(runtime.aws, runtime.save, state)
 
-def reset_after_cleanup(runtime, state, *, retain_delivery=False):
+def reset_after_cleanup(runtime: SimpleNamespace, state: StackState, *, retain_delivery: bool = False) -> None:
     return repair_ops.reset_after_cleanup(runtime.save, state, retain_delivery=retain_delivery)
 
-def finish_repair(runtime, unit, state, entry):
+def finish_repair(runtime: SimpleNamespace, unit: StackUnit, state: StackState, entry: JsonObject) -> None:
     return repair_ops.finish_repair(runtime.refresh_validation, runtime.save, runtime.cleanup_failed_create,
                                     runtime.reset_after_cleanup, unit, state, entry)
 
-def repair(runtime, unit, state):
+def repair(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> bool:
     """Runtime recovery only. External IaC work always returns to the supervising LLM."""
     history = state.setdefault('repairs', [])
     try:
@@ -272,7 +322,7 @@ def repair(runtime, unit, state):
         return False
 
 
-def poll(runtime, unit, state):
+def poll(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> str:
     failures = _imports_deploy_failures
     state["pollCount"] = state.get("pollCount", 0) + 1
     # An old *_COMPLETE is not evidence that the new execution completed.
@@ -313,7 +363,7 @@ def poll(runtime, unit, state):
         raise Blocked("stack status/event terminal status disagree; retrying observation")
     return stack_status
 
-def controller_main(argv=None, root=None, timing=None):
+def controller_main(argv: Sequence[str] | None = None, root: Path | None = None, timing: Timing | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--environment", required=True)
     selector = parser.add_mutually_exclusive_group(required=True)
@@ -339,7 +389,7 @@ def controller_main(argv=None, root=None, timing=None):
     return session_ops.run(args, root, timing, Path(__file__).parent.parent, create_runtime, load_units)
 
 
-def main(argv=None, root=None):
+def main(argv: Sequence[str] | None = None, root: Path | None = None) -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--timing-log", type=Path)
     args, _ = parser.parse_known_args(argv)

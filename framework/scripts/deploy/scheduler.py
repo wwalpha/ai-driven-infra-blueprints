@@ -1,4 +1,8 @@
 """Ordered group control through an injected backend, without AWS transport."""
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+from typing import TypeVar
 
 import copy
 import time
@@ -9,6 +13,10 @@ from functools import partial as _bind_framework_callback
 from cloudformation_inputs import Blocked
 
 from deploy import failures
+from deploy.typing import Save, SchedulerBackend, Sleep, StackState, StackUnit, States
+from utils.type_contracts import JsonValue as JsonValue
+
+ReadResult = TypeVar("ReadResult")
 
 SUCCESS = {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
 FAILED = {"CREATE_FAILED", "ROLLBACK_COMPLETE", "ROLLBACK_FAILED", "DELETE_COMPLETE", "DELETE_FAILED",
@@ -24,7 +32,12 @@ def _callback_read_parallel_read(method, states, /, unit):
         return unit, state, None, error
 
 
-def read_parallel(units, states, method, limit):
+def read_parallel(
+    units: Sequence[StackUnit],
+    states: States,
+    method: Callable[[StackUnit, StackState], ReadResult],
+    limit: int,
+) -> list[tuple[StackUnit, StackState, ReadResult | None, Exception | None]]:
     """Workers own copies only; all decisions and persistence remain on the controller."""
     read = _bind_framework_callback(_callback_read_parallel_read, method, states)
     if len(units) <= 1:
@@ -33,14 +46,32 @@ def read_parallel(units, states, method, limit):
         return list(pool.map(read, units))
 
 
-def run_group(units, limit, states, backend, save=lambda: None, sleep=time.sleep, drain_only=False):
+def run_group(
+    units: Sequence[StackUnit],
+    limit: int,
+    states: States,
+    backend: SchedulerBackend,
+    save: Save = lambda: None,
+    sleep: Sleep = time.sleep,
+    drain_only: bool = False,
+) -> str:
     """Single event loop owns the queue; AWS executions overlap, Python decisions do not."""
     pending = [unit for unit in units if states[unit["name"]]["status"] != "SUCCESS"]
     if not pending:
-        return "COMPLETE"
+        return "STOPPED" if any(s.get('schedulerError') for s in states.values()) else "COMPLETE"
     order = min(int(unit["deployOrder"]) for unit in pending)
     group = [unit for unit in pending if int(unit["deployOrder"]) == order]
-    stopped = drain_only or any(state["status"] == "FAILED" for state in states.values())
+    active = [u for u in units if states[u['name']]['status'] == 'RUNNING']
+    violation = None
+    if len(active) > limit:
+        violation = f'RUNNING stacks exceed concurrency limit {limit}: ' + ', '.join(u['name'] for u in active)
+    elif any(int(u['deployOrder']) != order for u in active):
+        violation = 'RUNNING stacks cross the active DeployOrder barrier'
+    if violation:
+        for unit in active:
+            states[unit['name']].setdefault('schedulerError', violation)
+        save()
+    stopped = drain_only or any(state["status"] == "FAILED" or state.get('schedulerError') for state in states.values())
     if not stopped and hasattr(backend, 'prepare_delivery_group'):
         try:
             backend.prepare_delivery_group(group, states)
@@ -53,7 +84,7 @@ def run_group(units, limit, states, backend, save=lambda: None, sleep=time.sleep
             save()
     while True:
         # Poll every running stack before reusing any freed slot.
-        active = [unit for unit in group if states[unit["name"]]["status"] == "RUNNING"]
+        active = [unit for unit in (units if stopped else group) if states[unit["name"]]["status"] == "RUNNING"]
         for unit, snapshot, status, error in read_parallel(active, states, backend.poll, limit):
             state = states[unit["name"]]
             state.update(snapshot)
@@ -83,7 +114,6 @@ def run_group(units, limit, states, backend, save=lambda: None, sleep=time.sleep
             if not backend.sync_completed():
                 stopped = True
         running = sum(states[unit["name"]]["status"] == "RUNNING" for unit in group)
-        assert running <= limit
         # Start multiple change sets without waiting for one to become CREATE_COMPLETE.
         # Preparation is bounded too; do not speculate across DeployOrder barriers.
         preparing = sum(states[u["name"]]["status"] == "CHANGESET_CREATING" for u in group)
@@ -138,7 +168,7 @@ def run_group(units, limit, states, backend, save=lambda: None, sleep=time.sleep
                 save()
                 if stopped:
                     break
-        running = sum(states[u["name"]]["status"] == "RUNNING" for u in group)
+        running = sum(states[u["name"]]["status"] == "RUNNING" for u in (units if stopped else group))
         if not running:
             if stopped:
                 return "STOPPED"

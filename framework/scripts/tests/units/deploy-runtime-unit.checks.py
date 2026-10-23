@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
 
+import os
 import sys
 from functools import partial as _bind_framework_callback
 from pathlib import Path
@@ -1781,6 +1782,119 @@ def check_secret_runtime_bootstrap(tmp_path):
             assert 'DUMMY_DEPLOY_ONLY' not in str(caught.value)
     assert 'DUMMY_DEPLOY_ONLY' not in (base / 'timing.jsonl').read_text()
     print('Secrets Manager RUNTIME_BOOTSTRAP: PASS (Cases 1-13, one PUT, JSON/scalar, guards, interruption, peer sync/order, concurrent-value protection, redaction)')
+
+
+
+
+class CapacityFake(Fake):
+    def __init__(self, completions=None, poll_error=False):
+        super().__init__(completions)
+        self.poll_error = poll_error
+        self.delivery_calls, self.repair_calls = [], []
+
+    def prepare_delivery_group(self, group, states):
+        self.delivery_calls.append([u['name'] for u in group])
+
+    def repair(self, unit, state):
+        self.repair_calls.append(unit['name'])
+        return False
+
+    def poll(self, unit, state):
+        if self.poll_error:
+            self.poll_error = False
+            state['pollApiCount'] = state.get('pollApiCount', 0) + 1
+            raise OSError('temporary poll failure')
+        return super().poll(unit, state)
+
+
+def _capacity_save(path, session, snapshots):
+    _imports_deploy_handoff.save(path, session)
+    snapshots.append(json.loads(path.read_text(encoding='utf-8')))
+
+
+@pytest.mark.parametrize('limit,count', [(1, 1), (2, 2), (1, 2), (2, 3)])
+@pytest.mark.parametrize('failure,poll_error,cross_order', [(False, False, False), (True, False, False),
+                                                         (False, True, False), (False, False, True)])
+def check_capacity_drain(tmp_path, limit, count, failure, poll_error, cross_order):
+    scoped = units(*([10] * count + [20 if cross_order else 10] * 2))
+    saved = states(scoped)
+    backend = CapacityFake({'A': ['ROLLBACK_COMPLETE']} if failure else {}, poll_error)
+    for unit in scoped[:count]:
+        name = unit['name']
+        saved[name].update(status='RUNNING', clientToken='token-' + name, changeSetId='cs-' + name,
+                           executionEvidence={'clientToken': 'token-' + name})
+        backend.running.add(name)
+        if name != 'A':
+            backend.completions[name] = ['CREATE_IN_PROGRESS', 'CREATE_COMPLETE']
+    if cross_order and count > 1:
+        scoped[count - 1]['deployOrder'] = '30'
+    violation = count > limit or cross_order and count > 1
+    # A restored READY peer must not Execute or trigger delivery when a violation exists.
+    saved[scoped[-2]['name']].update(status='READY', changeSetId='cs-ready')
+    session = {'states': saved, 'metrics': {'observedSyncSeconds': 0}}
+    snapshots, synced = [], []
+    path = tmp_path / 'session.json'
+    save = _bind_framework_callback(_capacity_save, path, session, snapshots)
+    sync = _bind_framework_callback(_callback_check_parallel_and_restart_sync, synced)
+    with patch.object(M.session_ops, 'sync_successful', side_effect=sync):
+        result = M.session_ops.run_session(scoped, limit, session, backend, save, sleep=lambda _: None)
+    # Ordinary failure/retry behavior is covered by the existing runtime recovery cases.
+    if violation:
+        assert result == 'STOPPED'
+        assert not starts(backend) and not backend.delivery_calls and not backend.repair_calls
+        assert not any(e[0] == 'prepare' for e in backend.events)
+        assert all(saved[u['name']]['schedulerError'] for u in scoped[:count])
+        assert all(snapshots[0]['states'][u['name']]['status'] == 'RUNNING' for u in scoped[:count])
+        assert all(saved[u['name']]['clientToken'] == 'token-' + u['name'] for u in scoped[:count])
+        assert saved[scoped[-2]['name']]['status'] == 'READY'
+        assert saved[scoped[-1]['name']]['status'] == 'NOT_STARTED'
+        assert all(saved[u['name']]['executionEvidence'] == {'clientToken': 'token-' + u['name']} for u in scoped[:count])
+        if poll_error:
+            assert any(s['states']['A'].get('pollError') and s['states']['A']['status'] == 'RUNNING' for s in snapshots)
+        # Resume from the actual saved session preserves the stop even after peers drained.
+        restored = json.loads(path.read_text(encoding='utf-8'))
+        with patch.object(M.session_ops, 'sync_successful', side_effect=sync):
+            assert M.session_ops.run_session(scoped, limit, restored, backend, lambda: None, sleep=lambda _: None) == 'STOPPED'
+        assert not starts(backend) and not backend.repair_calls
+    elif not failure and not poll_error:
+        assert result == 'COMPLETE'
+        assert starts(backend) == [u['name'] for u in scoped[-2:]]
+        assert not any(s.get('schedulerError') for s in saved.values())
+    assert not backend.running
+    assert saved['A']['status'] == ('FAILED' if failure else 'SUCCESS')
+    for unit in scoped[:count]:
+        if saved[unit['name']]['status'] == 'SUCCESS':
+            assert saved[unit['name']]['observedSynced']
+    assert snapshots[-1]['states'] == saved
+
+
+def check_capacity_optimized_python():
+    code = """
+import json
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
+from deploy.session import run_session
+units = [{'name': n, 'deployOrder': 10} for n in ('A', 'B', 'C')]
+states = {n: {'status': 'RUNNING' if n != 'C' else 'READY', 'clientToken': n} for n in ('A', 'B', 'C')}
+session = {'states': states, 'metrics': {'observedSyncSeconds': 0}}
+backend = SimpleNamespace(poll=Mock(return_value='CREATE_COMPLETE'), prepare=Mock(), execute=Mock(),
+                          prepare_delivery_group=Mock(), repair=Mock())
+with patch('deploy.session.sync_successful'):
+    result = run_session(units, 1, session, backend, lambda: None, sleep=lambda _: None)
+for state in states.values():
+    state.pop('executionSeconds', None)
+print(json.dumps([result, states, backend.prepare.call_count, backend.execute.call_count,
+                  backend.prepare_delivery_group.call_count, backend.repair.call_count]))
+"""
+    outputs = []
+    for options in ([], ['-O']):
+        child = subprocess.run([sys.executable, *options, '-B', '-c', code],
+                               env={**os.environ, 'PYTHONPATH': str(ROOT / 'framework/scripts')},
+                               capture_output=True, text=True, timeout=30, check=True)
+        outputs.append(json.loads(child.stdout))
+    assert outputs[0] == outputs[1]
+    assert outputs[0][0] == 'STOPPED' and outputs[0][2:] == [0, 0, 0, 0]
+    assert [s['status'] for s in outputs[0][1].values()] == ['SUCCESS', 'SUCCESS', 'READY']
 
 
 if __name__ == '__main__':

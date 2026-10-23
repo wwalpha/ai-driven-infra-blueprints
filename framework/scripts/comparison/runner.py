@@ -1,4 +1,14 @@
 """Assemble lazy inputs and atomic comparison steps; run() retains its full-scan contract."""
+from __future__ import annotations
+
+from collections.abc import Iterable
+from pathlib import Path
+from typing import TypeAlias
+from design_catalog import DesignSchemaCatalog
+from iac_values import Expression, ResourceReference
+from utils.type_contracts import JsonObject, JsonValue
+
+ComparisonValue: TypeAlias = JsonValue | Expression | ResourceReference | tuple[str, str] | list['ComparisonValue'] | dict[str, 'ComparisonValue']
 import re
 from dataclasses import dataclass, field
 
@@ -17,32 +27,66 @@ from .result import RowResult, record, setting_result
 from .values import compare_values
 
 
+ComparisonValue: TypeAlias = JsonValue | Expression | ResourceReference | tuple[str, str] | list['ComparisonValue'] | dict[str, 'ComparisonValue']
+
+
+
 @dataclass
 class Settings:
-    desired: dict = field(default_factory=dict)
-    sources: dict = field(default_factory=dict)
-    incomplete: dict = field(default_factory=dict)
-    exact: set = field(default_factory=set)
+    desired: dict[str, ComparisonValue] = field(default_factory=dict)
+    sources: dict[str, list[JsonObject | None]] = field(default_factory=dict)
+    incomplete: dict[str, list[JsonObject]] = field(default_factory=dict)
+    exact: set[str] = field(default_factory=set)
     result: RowResult = field(default_factory=RowResult)
 
 
 class Comparison(Inputs):
-    def __init__(self, root, environment, directory, services, *, catalog=None):
+    def __init__(
+        self,
+        root: Path,
+        environment: str,
+        directory: str,
+        services: Iterable[str],
+        *,
+        catalog: DesignSchemaCatalog | None = None,
+    ) -> None:
         super().__init__(root, environment, directory, services, catalog=catalog)
         self.results, self.display_differences = [], {}
 
-    def make_record(self, category, service, identity, prop, reason, desired=None, actual=None,
-                    stack=None, source=None, template=None, cause=None, **details):
+    def make_record(
+        self,
+        category: str,
+        service: str,
+        identity: str,
+        prop: str,
+        reason: str,
+        desired: ComparisonValue = None,
+        actual: ComparisonValue = None,
+        stack: str | None = None,
+        source: JsonObject | None = None,
+        template: JsonObject | None = None,
+        cause: JsonObject | None = None,
+        **details: JsonValue,
+    ) -> JsonObject:
         return record(category, service, identity, prop, reason, desired, actual, stack,
             source or self.source(service, f'desired.resource.{identity}.resourceType'), template,
             cause, redact=self.redacted, **details)
 
-    def record(self, *args, **kwargs):
+    def record(self, *args: ComparisonValue, **kwargs: ComparisonValue) -> JsonObject:
         item = self.make_record(*args, **kwargs)
         self.results.append(item)
         return item
 
-    def inactive_record(self, service, identity, prop, name, logical, template, definition):
+    def inactive_record(
+        self,
+        service: str,
+        identity: str,
+        prop: str,
+        name: str,
+        logical: str,
+        template: Path,
+        definition: JsonObject,
+    ) -> JsonObject:
         document, parameters, pseudo = self.stack_inputs[name]
         stack_id, unit = next((stack_id, unit) for stack_id, unit in self.templates() if unit['name'] == name)
         parameter_path, supplied = self.parameter_keys(unit)
@@ -54,10 +98,10 @@ class Comparison(Inputs):
         return self.make_record('difference', service, identity, prop,
             'CREATE resource is inactive under confirmed parameters', stack=name, template=location, cause=cause)
 
-    def record_inactive(self, *args):
+    def record_inactive(self, *args: str | Path | JsonObject) -> None:
         self.results.append(self.inactive_record(*args))
 
-    def run(self):
+    def run(self) -> list[JsonObject]:
         self.local_comparison = True
         self.symbols.clear()
         for service, message in self.reference_unavailable.items():
@@ -129,7 +173,19 @@ class Comparison(Inputs):
                     self.record('error', service, identity, '*', str(error))
         return self.results
 
-    def compare_rows(self, service, identity, resource, name, logical, template, definition, document, *, properties=None):
+    def compare_rows(
+        self,
+        service: str,
+        identity: str,
+        resource: dict[str, str],
+        name: str,
+        logical: str,
+        template: Path,
+        definition: JsonObject,
+        document: JsonObject,
+        *,
+        properties: set[str] | None = None,
+    ) -> RowResult:
         result = RowResult()
         grouped = row_rules.grouped_rows(resource, self.rows[service][identity])
         for rowkind, rows in grouped.items():
@@ -143,7 +199,21 @@ class Comparison(Inputs):
                 break
         return result
 
-    def compare_group(self, service, identity, kind, rowkind, rows, name, logical, template, definition, document, *, properties=None):
+    def compare_group(
+        self,
+        service: str,
+        identity: str,
+        kind: str,
+        rowkind: str,
+        rows: list[tuple[str, dict[str, str]]],
+        name: str,
+        logical: str,
+        template: Path,
+        definition: JsonObject,
+        document: JsonObject,
+        *,
+        properties: set[str] | None = None,
+    ) -> RowResult:
         result = RowResult()
         try:
             if properties is not None:
@@ -206,7 +276,17 @@ class Comparison(Inputs):
             result.failure = error
             return result
 
-    def prepare_settings(self, service, identity, kind, rows, contexts, name, owner, template):
+    def prepare_settings(
+        self,
+        service: str,
+        identity: str,
+        kind: str,
+        rows: list[tuple[str, dict[str, str]]],
+        contexts: dict[str, JsonObject],
+        name: str,
+        owner: JsonObject,
+        template: Path,
+    ) -> Settings:
         settings = Settings()
         try:
             outputs = catalog_outputs(self.root, kind) | HIDDEN_PROPERTIES
@@ -257,7 +337,18 @@ class Comparison(Inputs):
             settings.result.failure = error
             return settings
 
-    def compare_setting(self, service, identity, kind, key, value, settings, name, owner, template):
+    def compare_setting(
+        self,
+        service: str,
+        identity: str,
+        kind: str,
+        key: str,
+        value: ComparisonValue,
+        settings: Settings,
+        name: str,
+        owner: JsonObject,
+        template: Path,
+    ) -> RowResult:
         prop = kind + '.' + key
         sources = settings.sources[key]
         if key in settings.incomplete:

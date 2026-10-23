@@ -1,4 +1,9 @@
 """External Deploy sessions, immutable guards, target locks and observed barriers."""
+from __future__ import annotations
+
+from argparse import Namespace
+from collections.abc import Callable, Iterable, Sequence
+from types import SimpleNamespace
 
 import hashlib
 import json
@@ -24,15 +29,24 @@ import deploy.contracts as _imports_deploy_contracts
 import deploy.observed as _dependency_deploy_observed
 from deploy import failures, handoff, observed_resume
 from deploy import resume as repair_resume
+from deploy.typing import Manifest, Save, SchedulerBackend, Session, Sleep, StackUnit, States, Target
+from utils.type_contracts import JsonValue as JsonValue
+from deploy.timing import Timing
 from deploy.scheduler import run_group
 from deploy.secret_bootstrap import BOOTSTRAP_STAGES
 
 
-def save_session(path, session):
+def save_session(path: Path, session: Session) -> None:
     handoff.save(path, session)
 
 
-def active_scope(root, requested, environment, account, alias=None):
+def active_scope(
+    root: Path,
+    requested: Iterable[str],
+    environment: str,
+    account: str,
+    alias: str | None = None,
+) -> str:
     contract = task_path(root)
     text = contract.read_text(encoding="utf-8")
     if status(text) != "running":
@@ -51,7 +65,7 @@ def active_scope(root, requested, environment, account, alias=None):
     return "update" if "- Infrastructure phase: `update`" in text.splitlines() else "deploy"
 
 
-def design_digest(root, environment, directory, *, contract_file=None):
+def design_digest(root: Path, environment: str, directory: str, *, contract_file: str | None = None) -> str:
     scope = validation_scope(root, contract_file=contract_file)
     pending = ([root / "model" / env / target / (service + ".properties") for env, target, service in scope
                 if (env, target) == (environment, directory)] if scope is not None
@@ -73,18 +87,25 @@ def design_digest(root, environment, directory, *, contract_file=None):
     return fingerprint({str(path.relative_to(root)): values for path, values in snapshot.items()})
 
 
-def model_input_manifest(root, environment, directory):
+def model_input_manifest(root: Path, environment: str, directory: str) -> Manifest:
     return {path.relative_to(root).as_posix(): None if raw is None else hashlib.sha256(raw).hexdigest()
             for path, raw in authority_snapshot(root, environment, directory).items()}
 
 
-def require_session_format(session):
+def require_session_format(session: Session) -> None:
     expected = {'version': 4, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1}
     if any(type(session.get(key)) is not int or session[key] != value for key, value in expected.items()):
         raise Blocked('controller session format is incompatible; explicit v3 to v4 migration must retain original identity/history/candidates')
 
 
-def verify_observed_transition(root, environment, directory, previous, outputs, intended_design):
+def verify_observed_transition(
+    root: Path,
+    environment: str,
+    directory: str,
+    previous: dict[Path, bytes | None],
+    outputs: dict[Path, str],
+    intended_design: str,
+) -> Manifest:
     verify_observed_outputs = _imports_model_observed.verify_observed_outputs
     verify_observed_outputs(previous, outputs)
     expected = {**previous, **{path: text.encode('utf-8') for path, text in outputs.items()}}
@@ -95,8 +116,12 @@ def verify_observed_transition(root, environment, directory, previous, outputs, 
     return model_input_manifest(root, environment, directory)
 
 
-def execution_digest(root, target, file_digest, unit_digests):
-    # Reuse is invalidated by controller, validators, rules, catalog/schema and project changes.
+def execution_digest(
+    root: Path,
+    target: Target,
+    file_digest: Callable[[Path], str | None],
+    unit_digests: dict[str, str],
+) -> str: # Reuse is invalidated by controller, validators, rules, catalog/schema and project changes.
     paths = sorted(path for path in (definition_root(root) / "framework").rglob("*")
                    if path.is_file() and path.suffix in {".py", ".json", ".md", ".properties", ".sha256"})
     paths += [root / "AGENTS.md", root / "project.json"]
@@ -151,7 +176,15 @@ def _callback_run_session_sync_completed(session, sync_once, /):
             return True
 
 
-def run_session(units, limit, session, backend, save, pause_after_group=False, sleep=time.sleep):
+def run_session(
+    units: Sequence[StackUnit],
+    limit: int,
+    session: Session,
+    backend: SchedulerBackend,
+    save: Save,
+    pause_after_group: bool = False,
+    sleep: Sleep = time.sleep,
+) -> str:
     """Observed synchronization is an idempotent, persisted barrier between groups."""
     sync_once = _bind_framework_callback(_callback_run_session_sync_once, backend, save, session, units)
 
@@ -181,7 +214,7 @@ def run_session(units, limit, session, backend, save, pause_after_group=False, s
             handoff.record_stop(session, units)
             save()
             failed = [u for u in units if session["states"][u["name"]]["status"] == "FAILED"]
-            if synced and failed and hasattr(backend, "repair"):
+            if synced and failed and not any(s.get('schedulerError') for s in session['states'].values()) and hasattr(backend, "repair"):
                 repaired = all([backend.repair(u, session["states"][u["name"]]) for u in failed])
                 save()
                 if repaired:
@@ -231,7 +264,14 @@ def _callback_run_refresh_validation(backend, unit_digests, /, unit):
         raise Blocked('runtime recovery changed immutable IaC inputs')
 
 
-def run(args, root, timing, script_directory, backend_type, load_units):
+def run(
+    args: Namespace,
+    root: Path,
+    timing: Timing,
+    script_directory: Path,
+    backend_type: Callable[[Path, str, str, Target, str | None, Iterable[str]], SimpleNamespace],
+    load_units: Callable[[Path, str, str, list[str]], tuple[int, list[StackUnit]]],
+) -> int:
     state_path = args.state.resolve()
     lock_path = None
     lock = None
@@ -465,5 +505,5 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                     lock_path.unlink(missing_ok=True)
 
 
-def sync_successful(backend, units, states):
+def sync_successful(backend: SimpleNamespace, units: Sequence[StackUnit], states: States) -> dict[Path, str] | None:
     return _dependency_deploy_observed.sync_successful(backend, units, states)

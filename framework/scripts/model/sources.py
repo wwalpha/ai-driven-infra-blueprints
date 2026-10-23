@@ -8,11 +8,12 @@ import os
 import re
 import tempfile
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
-from typing import Callable, Mapping
+from typing import Callable, Mapping, NoReturn, TypeAlias
 
 import generation_inputs
 import sync_files
@@ -35,7 +36,9 @@ from utils.source_reads import FileReads as FileReads
 import model.core as _imports_model_core
 import model.importing.scope as _imports_model_importing_scope
 import model.references as _imports_model_references
-from model.format import FORMAT, INDEX, PART, parse, validate_blocks
+from model.format import FORMAT, INDEX, PART, Document, parse, validate_blocks
+from utils.type_contracts import JsonObject
+from utils.type_contracts import JsonValue as JsonValue
 
 if os.name == 'nt':
     import msvcrt
@@ -47,12 +50,14 @@ _guard = threading.Lock()
 _local = threading.local()
 
 
+ReadContext: TypeAlias = FileReads | CandidateReads | generation_inputs.GenerationInputs
+
 json_read = strict_json
 
 
 
 
-def safe(root, path):
+def safe(root: Path, path: Path) -> None:
     if '..' in path.parts or not path.is_relative_to(root) or any(
             input_is_symlink(p) for p in (path, *path.parents) if p.is_relative_to(root)):
         raise ValueError('unsafe Model source path: ' + str(path))
@@ -72,7 +77,12 @@ def _receipt_original(root, record):
 
 
 @contextmanager
-def publication_lock(root, *, read_only=False, recovery_check=None):
+def publication_lock(
+    root: Path,
+    *,
+    read_only: bool = False,
+    recovery_check: Callable[[JsonObject], None] | None = None,
+) -> Iterator[Path]:
     """OS releases the lock on process exit; restore an interrupted batch before reads."""
     key = str(root.resolve())
     with _guard:
@@ -194,18 +204,18 @@ class Scope:
     service: str
 
     @property
-    def path(self):
+    def path(self) -> Path:
         return self.root / 'model' / self.environment / self.target / (self.service + '.properties')
 
 
-def scope_for(path):
+def scope_for(path: str | Path) -> Scope:
     path = Path(path).absolute()
     if len(path.parents) < 4 or path.parents[2].name != 'model' or path.suffix != '.properties':
         raise ValueError('Model requires model/<environment>/<target>/<service>.properties')
     return Scope(path.parents[3], path.parents[1].name, path.parent.name, path.stem)
 
 
-def source_scope(root, file):
+def source_scope(root: Path, file: str | Path) -> Scope:
     """Map only an entrance or a named part to its Model scope, including absent files."""
     file = Path(file)
     relative = file.relative_to(root / 'model')
@@ -216,21 +226,26 @@ def source_scope(root, file):
     raise ValueError('invalid authoritative Model path: ' + str(file))
 
 
-def model_paths(root, environment=None, alias=None, read_context=None):
+def model_paths(
+    root: Path,
+    environment: str | None = None,
+    alias: str | None = None,
+    read_context: ReadContext | None = None,
+) -> list[Path]:
     return [scope.path for scope in list_models(root, read_context)
             if (environment is None or scope.environment == environment)
             and (alias is None or scope.target == alias)]
 
 
-def input_snapshot(path, read_context=None):
+def input_snapshot(path: Path, read_context: ReadContext | None = None) -> dict[Path, bytes | None]:
     return dict(load_model(path, read_context).dependencies)
 
 
-def source_inputs(path, read_context=None):
+def source_inputs(path: Path, read_context: ReadContext | None = None) -> set[Path]:
     return set(input_snapshot(path, read_context))
 
 
-def model_exists(path, read_context=None):
+def model_exists(path: Path, read_context: ReadContext | None = None) -> bool:
     scope = scope_for(path)
     reads = read_context or FileReads()
     _safe(scope.root, scope.path, reads)
@@ -240,14 +255,19 @@ def model_exists(path, read_context=None):
     return kind == 'file'
 
 
-def design_source_digest(path, read_context=None):
+def design_source_digest(path: Path, read_context: ReadContext | None = None) -> str:
     snapshot = load_model(path, read_context)
     authority = {key: value for key, value in snapshot.authoritative.items() if not key.startswith('observed.')}
     return hashlib.sha256(json.dumps(authority, sort_keys=True, ensure_ascii=False,
                                     allow_nan=False, separators=(',', ':')).encode('utf-8')).hexdigest()
 
 
-def authority_snapshot(root, environment, directory, read_context=None):
+def authority_snapshot(
+    root: Path,
+    environment: str,
+    directory: str,
+    read_context: ReadContext | None = None,
+) -> dict[Path, bytes | None]:
     reads = read_context or FileReads()
     return {file: data
             for path in model_paths(root, environment, directory, reads)
@@ -270,7 +290,7 @@ def _topology(raw):
     return strict_json(raw.decode('utf-8'))
 
 
-def target_for(scope, reads):
+def target_for(scope: Scope, reads: ReadContext) -> tuple[dict[str, str], bytes]:
     for name in (scope.environment, scope.target, scope.service):
         if not name or name in {'.', '..'} or '/' in name or '\\' in name:
             raise ValueError('invalid Model scope component')
@@ -289,7 +309,7 @@ def target_for(scope, reads):
 
 
 
-def model_parts(path, *, read_context=None):
+def model_parts(path: Path, *, read_context: ReadContext | None = None) -> list[Path]:
     reads = read_context or FileReads()
     scope = scope_for(path)
     _safe(scope.root, path, reads)
@@ -333,23 +353,23 @@ class ModelSnapshot:
     scope: Scope
     authoritative: Mapping[str, str]
     values: Mapping[str, str]
-    documents: Mapping[Path, object]
+    documents: Mapping[Path, Document]
     locations: Mapping[str, tuple[Path, int]]
     files: Mapping[Path, str]
     dependencies: Mapping[Path, bytes | None]
     parts: tuple[Path, ...]
-    warnings: tuple = ()
-    provenance: Mapping = field(default_factory=dict)
+    warnings: tuple[JsonObject, ...] = ()
+    provenance: Mapping[str, JsonObject] = field(default_factory=dict)
 
     @property
-    def text(self):
+    def text(self) -> str:
         return ''.join(key + '=' + value + '\n' for key, value in self.values.items())
 
     def _replace(self, **changes):
         return replace(self, **changes)
 
 
-def runtime_values(authoritative):
+def runtime_values(authoritative: Mapping[str, str]) -> dict[str, str]:
     """Derived metadata is never a serializer input."""
     validate_authority = _imports_model_core.validate_authority
     validate_authority(authoritative)
@@ -409,7 +429,7 @@ def _source_snapshot(scope, reads):
     return models[key]
 
 
-def load_model(scope, read_context=None):
+def load_model(scope: Scope | str | Path, read_context: ReadContext | None = None) -> ModelSnapshot:
     scope = scope if isinstance(scope, Scope) else scope_for(scope)
     permission_context = _imports_model_importing_scope.read_context
     require_readable = _imports_model_importing_scope.require_readable
@@ -435,7 +455,7 @@ def _invocation_reads(root):
     return memo.setdefault((FileReads, root, read_context(root)), FileReads())
 
 
-def list_models(scope, read_context=None):
+def list_models(scope: Scope | str | Path, read_context: ReadContext | None = None) -> list[Scope]:
     """Discover existing entries only; project targets never create a Model."""
     reads = read_context or FileReads()
     if isinstance(scope, Scope):
@@ -467,7 +487,7 @@ class SourceWriteContext:
     paths = property(lambda self: self._paths)
     closed = property(lambda self: self._closed)
 
-    def __init__(self):
+    def __init__(self) -> NoReturn:
         raise TypeError('use model.adapters.task.source_write_context')
 
     @classmethod
@@ -486,7 +506,11 @@ class SourceWriteContext:
 
 
 
-def candidate_sources(root, directory, before):
+def candidate_sources(
+    root: Path,
+    directory: str | Path,
+    before: ModelSnapshot,
+) -> tuple[dict[Path, str | None], ModelSnapshot]:
     """A complete selected-service properties candidate never grants producer write access."""
     directory = Path(directory).absolute()
     if directory.is_relative_to(root) or not directory.is_dir():
@@ -509,7 +533,7 @@ def candidate_sources(root, directory, before):
 
 
 
-def edit_base(path, reads):
+def edit_base(path: Path, reads: ReadContext) -> ModelSnapshot:
     """Record repair inputs as bytes; their old syntax and meaning grant no authority."""
     scope = scope_for(path)
     require_readable = _imports_model_importing_scope.require_readable
@@ -528,7 +552,7 @@ def edit_base(path, reads):
             path: reads.read(path), **{file: text.encode('utf-8', errors='surrogateescape') for file, text in files.items()}}), ())
 
 
-def raw_model(scope, read_context=None):
+def raw_model(scope: Scope | str | Path, read_context: ReadContext | None = None) -> ModelSnapshot:
     """Read preservation/dependency fields without imposing full Model validity."""
     scope = scope if isinstance(scope, Scope) else scope_for(scope)
     reads = read_context or FileReads()
@@ -546,7 +570,7 @@ def raw_model(scope, read_context=None):
                          documents=MappingProxyType(documents), locations=MappingProxyType(locations), parts=parts)
 
 
-def candidate_base(path, reads):
+def candidate_base(path: Path, reads: ReadContext) -> ModelSnapshot:
     if reads.kind(path) != 'missing':
         return load_model(path, reads)
     scope = scope_for(path)
