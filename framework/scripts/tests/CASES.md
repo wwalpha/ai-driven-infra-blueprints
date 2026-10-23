@@ -20,7 +20,15 @@
 | `issues-v2::check_legacy_worker_scope` | `check_legacy_worker_scope` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | 従来Worker/scope・CLI応答・例外回収 | Issues v2 |
 | `issues-v2::check_offline_schema` | `check_offline_schema` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 2 | provider/schema欠落・offline阻止・not_run | Issues v2 |
 | `issues-v2::check_timeout` | `check_timeout` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | timeoutとhelper/child回収 | Issues v2 |
-| `issues-v2::check_scan_publication_and_missing_view` | `check_scan_publication_and_missing_view` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | scan→review→atomic save・guard/cache順序・共有dedup・stale・独立View検査 | Issues v2 |
+| `issues-v2::check_scan_publication_and_missing_view` | `check_scan_publication_and_missing_view` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 2 | scan→review→atomic save・guard/cache順序・共有dedup・stale・欠落/不正UTF-8 Viewと独立lint | Issues v2 |
+
+| `issues-v2::check_plan_without_stack` | `check_plan_without_stack` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 4 | IMPORT/API-only先行分類・混在CREATE未検証・Stack loader回数 | Issues v2 |
+| `issues-v2::check_processing_coverage_keeps_matches` | `check_processing_coverage_keeps_matches` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | schema障害時の未完了coverageと通常/未知type診断保持・exit 2 | Issues v2 |
+| `issues-v2::check_failed_model_input_guards` | `check_failed_model_input_guards` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 5 | 欠落入口/part/参照先/不正UTF-8/読取不能の初回観測と保存前guard | Issues v2 |
+| `issues-v2::check_first_model_observation_is_not_replaced` | `check_first_model_observation_is_not_replaced` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | 失敗中のpart追加・矛盾するhashを後追いsnapshotで隠せない | Issues v2 |
+| `issues-v2::check_notice_resolution_and_update_series` | `check_notice_resolution_and_update_series` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | T1〜T4日時/scope・ordinary解消ID・legacy/別scope/Human保全・save-results非再実行 | Issues v2 |
+| `issues-v2::check_view_read_failure_policy` | `check_view_read_failure_policy` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | issues局所View障害・独立service/source診断・実チェック件数・非cache・raw guard・通常Validator伝播 | Issues v2 |
+| `issues-v2::check_corrupt_provider_schema` | `check_corrupt_provider_schema` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 2 | 隔離cacheのJSON/Schema構築障害・診断0件/混在保持・未知type/override非誤分類・回収 | Issues v2 |
 
 ## Ordinary receiving-property reference contracts
 

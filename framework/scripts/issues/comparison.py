@@ -1,7 +1,6 @@
 """Target-batched, local desired → CloudFormation comparison. No AWS/provider calls."""
 from __future__ import annotations
 
-import hashlib
 import re
 
 from cloudformation_inputs import Blocked, condition_active, load_target, resolve_value, output_value
@@ -23,6 +22,7 @@ from utils.json_format import policy_json as strict_json
 from .references import KMS_COMPARISON_FORMS, REF_ATTRIBUTES
 
 from model.core import ReferenceResolutionError
+from model.sources import _invocation_reads
 
 from . import inputs, references, records
 
@@ -41,6 +41,9 @@ class Comparison:
         self.export_failures, self.stack_errors = [], {}
         self._templates, self.reference_formats = None, {}
         self.read_hashes, self.sensitive_values = {}, set()
+        self.model_reads = _invocation_reads(root)
+        self.unreadable_inputs = False
+        self.view_errors = {}
         self.load_errors = []
         self.warnings = []
         self.reference_unavailable = {}
@@ -55,9 +58,9 @@ class Comparison:
                 self.warnings.append({**error.diagnostic, 'service': service})
                 self.reference_unavailable[service] = str(error)
                 from model.sources import load_model
-                analysis = load_model(root / 'model' / environment / directory / (service + '.properties'))
+                analysis = load_model(root / 'model' / environment / directory / (service + '.properties'), self.model_reads)
                 self.inputs.update(analysis.files)
-                self.read_hashes.update({file: hashlib.sha256(text.encode('utf-8')).hexdigest() for file, text in analysis.files.items()})
+                inputs.retain_reads(self)
                 self.warnings.extend(analysis.warnings)
                 self.resources[service], self.rows[service] = {}, {}
             except (OSError, ValueError, KeyError, TypeError) as error:

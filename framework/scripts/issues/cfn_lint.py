@@ -11,12 +11,17 @@ def plan(comparison):
     jobs, coverage = {}, []
     if comparison.target['iacEngine'] != 'cloudformation':
         return [], [dict(status='not_applicable', reason='Terraform scope')]
-    try:
-        stacks = {}
-        for _, unit in entries(comparison.model('cloudformation-stacks').values, 'desired.stack.'):
-            stacks.setdefault(unit['name'], []).append(unit)
-    except (OSError, ValueError, KeyError, TypeError) as error:
-        return [], [dict(status='unverified', reason='declared Stack Model unavailable', exception=type(error).__name__)]
+    stacks, stack_error = None, None
+    def declared_stacks():
+        nonlocal stacks, stack_error
+        if stacks is None:
+            stacks = {}
+            try:
+                for _, unit in entries(comparison.model('cloudformation-stacks').values, 'desired.stack.'):
+                    stacks.setdefault(unit['name'], []).append(unit)
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                stack_error = type(error).__name__
+        return stacks
     def add(unit, origin):
         filename = unit.get('template')
         if not isinstance(filename,str) or Path(filename).name != filename or Path(filename).suffix not in {'.yaml','.yml'} or '\\' in filename:
@@ -37,9 +42,11 @@ def plan(comparison):
             coverage.append(dict(status='unverified', service=service, reason='selected Model unavailable'))
             continue
         if service=='cloudformation-stacks':
-            for units in stacks.values():
+            for units in declared_stacks().values():
                 for unit in units:
                     add(unit,dict(service=service,stack=unit['name'],logical=None,resource=None))
+            if stack_error:
+                coverage.append(dict(status='unverified', service=service, reason='declared Stack Model unavailable', exception=stack_error))
         for identity, resource in comparison.resources[service].items():
             origin = dict(service=service, resource=identity)
             try:
@@ -50,7 +57,10 @@ def plan(comparison):
                 if not resource.get('cfn-logicalId'):
                     raise ValueError('explicit cfn-logicalId unavailable')
                 name, logical = cfn_resource_identity(resource['cfn-logicalId'])
-                units = stacks.get(name, [])
+                units = declared_stacks().get(name, [])
+                if stack_error:
+                    coverage.append(dict(status='unverified', reason='declared Stack Model unavailable', exception=stack_error, **origin))
+                    continue
                 if len(units)!=1:
                     raise ValueError('Stack correspondence is not unique/declared')
                 add(units[0], dict(origin, stack=name, logical=logical))
@@ -62,8 +72,6 @@ def plan(comparison):
 def classify(match, execution):
     level, rule = match.get('Level'), match.get('Rule',{}).get('Id')
     if level not in {'Error','Warning','Informational'}:
-        return 'processing_errors'
-    if rule == 'E3006' and any(error.get('code')=='schema_unavailable' for error in execution.get('processing_errors', [])):
         return 'processing_errors'
     if rule in {'E0001','E0002','E0003'}:
         return 'processing_errors'
@@ -162,7 +170,7 @@ def run_lint(comparison):
                 if match.get('Rule',{}).get('Id')=='E0001' and not outside:
                     channels['unverified'].append(dict(code='lint.rules_after_transform_not_run',diagnostic_id=diagnostic['id']))
             job['counts'] = counts
-            coverage.append(dict(job_id=job['id'],status='completed' if result.get('decode_complete') and result['completed'] and not result['unverified'] and not any(m.get('Rule',{}).get('Id') in {'E0001','E0002','E0003'} for m in result['matches']) else 'unverified'))
+            coverage.append(dict(job_id=job['id'],status='completed' if result.get('decode_complete') and result['completed'] and not result['unverified'] and not result['processing_errors'] and not any(m.get('Rule',{}).get('Id') in {'E0001','E0002','E0003'} for m in result['matches']) else 'unverified'))
     for item in coverage:
         if item['status'] in {'unverified','input_missing','excluded_by_config'}:
             channels['unverified'].append(dict(code='lint.coverage', **item))

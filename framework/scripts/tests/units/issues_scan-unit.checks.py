@@ -338,6 +338,206 @@ def check_operation_pass_cache():
         with patch.object(issues_scan, 'verify_service_keys', side_effect=lambda *_, **kwargs: write(common, '{}\n')):
             assert outcome(lambda: issues_scan.verify_inputs(root, refreshed)) == (ValueError, 'stale scan: framework/project input changed')
 
+@pytest.mark.parametrize('failure', ['entrance', 'part', 'reference', 'decode', 'permission'])
+def check_failed_model_input_guards(tmp_path, failure):
+    from types import SimpleNamespace
+    from model.sources import FileReads, load_model as real_load
+    from model.format import FORMAT, INDEX, PART
+    from issues.inputs import model, templates
+    from issues.integrity import fingerprint
+    from validation_cache import digest_files
+    root = tmp_path
+    (root / 'project.json').write_text(json.dumps({'projectName': 'fixture', 'targets': [
+        dict(environment='dev', awsAccountId='123456789012', awsRegion='ap-northeast-1', iacEngine='cloudformation')]}))
+    entrance = root / 'model/dev/123456789012/cloudformation-stacks.properties'
+    entrance.parent.mkdir(parents=True)
+    dependency = entrance
+    if failure == 'part':
+        dependency = entrance.with_suffix('') / 'part-001.properties'
+        entrance.write_text(FORMAT + '\n' + INDEX + '\n' + PART + 'cloudformation-stacks/part-001.properties\n')
+    elif failure in {'decode', 'permission'}:
+        entrance.write_bytes(b'\xff')
+    elif failure == 'reference':
+        dependency = entrance.with_name('producer.properties')
+        entrance.write_text(FORMAT + '\n')
+    comparison = SimpleNamespace(root=root, environment='dev', directory='123456789012', services=[],
+        models={}, model_reads=FileReads(), inputs=set(), read_hashes={}, unreadable_inputs=False,
+        warnings=[], resources={}, rows={}, symbols={}, metrics={'model_loads': 0, 'model_parses': 0}, sensitive_values=set())
+    def read_reference(path, reads):
+        reads.read(path)
+        reads.kind(dependency)
+        reads.read(dependency)
+        raise ValueError('reference unavailable')
+    def denied(path):
+        if path == entrance:
+            raise PermissionError('input body must not escape')
+        return original_read(path)
+    original_read = Path.read_bytes
+    with patch('issues.inputs.load_model', side_effect=read_reference if failure == 'reference' else real_load), \
+         patch.object(Path, 'read_bytes', denied if failure == 'permission' else original_read):
+        with pytest.raises((OSError, ValueError)):
+            model(comparison, 'cloudformation-stacks')
+    artifact = dict(fingerprint=fingerprint(comparison, common_key='common'))
+    cache = SimpleNamespace(common_key=lambda: 'common')
+    if failure == 'permission':
+        with pytest.raises(ValueError, match='freshness unprovable'):
+            verify_inputs(root, artifact, cache=cache)
+        return
+    verify_inputs(root, artifact, cache=cache)
+    dependency.parent.mkdir(parents=True, exist_ok=True)
+    dependency.write_text(FORMAT + '\n')
+    with pytest.raises(ValueError, match='stale scan'):
+        verify_inputs(root, artifact, cache=cache)
+    # A templates() absence check must be guarded even without a successful Model load.
+    if failure == 'entrance':
+        dependency.unlink()
+        comparison._templates = None
+        assert templates(comparison) == []
+        artifact = dict(fingerprint=fingerprint(comparison, common_key='common'))
+        dependency.write_text(FORMAT + '\n')
+        with pytest.raises(ValueError, match='stale scan'):
+            verify_inputs(root, artifact, cache=cache)
+
+
+def check_first_model_observation_is_not_replaced(tmp_path):
+    from types import SimpleNamespace
+    from model.sources import FileReads
+    from issues.inputs import model, retain_hash
+    from issues.integrity import fingerprint
+    root = tmp_path
+    path = root / 'model/dev/team/s3.properties'
+    path.parent.mkdir(parents=True)
+    path.write_text('first')
+    comparison = SimpleNamespace(root=root, environment='dev', directory='team', services=['s3'], models={},
+        model_reads=FileReads(), inputs=set(), read_hashes={}, unreadable_inputs=False)
+    def interrupted(entrance, reads):
+        reads.read(entrance)
+        (entrance.with_suffix('') / 'part-001.properties').parent.mkdir()
+        (entrance.with_suffix('') / 'part-001.properties').write_text('added during read')
+        raise ValueError('parse interrupted')
+    with patch('issues.inputs.load_model', side_effect=interrupted), pytest.raises(ValueError):
+        model(comparison, 's3')
+    artifact = dict(fingerprint=fingerprint(comparison, common_key='common'))
+    with pytest.raises(ValueError, match='selection changed'):
+        verify_inputs(root, artifact, cache=SimpleNamespace(common_key=lambda: 'common'))
+    with pytest.raises(ValueError, match='contradictory'):
+        retain_hash(comparison, path, 'later bytes')
+    with pytest.raises(ValueError, match='contradictory'):
+        fingerprint(comparison, common_key='common')
+
+
+def check_notice_resolution_and_update_series(tmp_path):
+    from issues.materials import existing_materials
+    from issues.reports import normal_merge, notice_report, split_notices
+    from datetime import datetime as real_datetime
+    from unittest.mock import Mock
+    root = tmp_path
+    path = root / 'issues/dev/team/issues.md'
+    path.parent.mkdir(parents=True)
+    legacy = '<!-- reference-warnings:start -->\n## 旧参照\n- legacy warning\n<!-- reference-warnings:end -->\n'
+    ordinary = '# 問題一覧\n\nHuman確認済み\n<!-- human-comment -->\n\n## dev／team\n\n### s3\n\n1. selected issue\n\n### sqs\n\n1. outside issue\n'
+    text = notice_report(ordinary + legacy, 'dev', 'team', ['sqs'], {'warnings': [{'message': 'outside warning'}]})
+    path.write_text(text)
+    ids = []
+    for index, channels in enumerate(({'warnings': [{'message': 'current warning'}]},
+                                      {'unverified': [{'message': 'not run'}]},
+                                      {'unverified': [{'message': 'not run'}]}, {}), 1):
+        clock = Mock()
+        clock.now.return_value = real_datetime(2026, 10, 23, 0, 0, index)
+        with patch('issues.reports.datetime', clock):
+            merged = normal_merge(root, path, 'dev', 'team', ['s3'], [], [], [])
+        assert f'更新日時: 2026-10-23 00:00:0{index} Asia/Tokyo' in split_notices(merged)[0]
+        assert '今回確認した範囲: dev／team／s3' in split_notices(merged)[0]
+        text = notice_report(merged, 'dev', 'team', ['s3'], channels, preserve_prior=index in {2, 3})
+        path.write_text(text)
+        issues, human = existing_materials(root, 'dev', 'team', ['s3'])
+        assert len(issues) == 1 and human == ['Human確認済み', '<!-- human-comment -->']
+        ids.append(issues[0]['id'])
+        assert 'legacy warning' in text and 'outside warning' in text
+        assert text.count('current warning') == int(index < 4) and text.count('not run') <= 1
+        assert 'outside issue' in text and len(split_notices(text)[1]) == 3
+    assert len(set(ids)) == 1
+    resolution = dict(id=ids[0], reason='explicit revalidation', evidence='confirmed fixture')
+    merged = normal_merge(root, path, 'dev', 'team', ['s3'], [], [], [resolution])
+    assert 'selected issue' not in merged and 'outside issue' in merged
+    assert 'legacy warning' in merged and 'outside warning' in merged and '<!-- human-comment -->' in merged
+    # save-results does not invoke notice_report, comparison, lint or aggregation.
+    with patch('issues.publication.save_authority', return_value=[path]), \
+         patch('issues.publication.atomic_files') as atomic, \
+         patch('issues.reports.notice_report', side_effect=AssertionError('notice rerun')), \
+         patch('issues.comparison.Comparison.run', side_effect=AssertionError('comparison rerun')), \
+         patch('issues.cfn_lint.run_lint', side_effect=AssertionError('lint rerun')):
+        save(root, 'dev', 'team', ['s3'], resolutions=[resolution], artifact=None, warnings=())
+    saved = atomic.call_args.args[0][path]
+    assert split_notices(saved)[1] == split_notices(merged)[1]
+    assert "selected issue" not in saved and "outside issue" in saved
+
+
+
+def check_view_read_failure_policy(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from issues.inputs import view_text
+    from issues.integrity import fingerprint
+    from validation.runner import Validator
+    from validation_cache import PassCache
+    root = tmp_path
+    docs = root / 'docs/designs/dev/team'
+    docs.mkdir(parents=True)
+    bad, good = docs / 's3.md', docs / 'sqs.md'
+    bad.write_bytes(b'\xff private body')
+    good.write_text('independent view')
+    comparison = SimpleNamespace(root=root, inputs=set(), read_hashes={}, view_errors={}, unreadable_inputs=False,
+                                 services=['s3', 'sqs'], environment='dev', directory='team')
+    assert view_text(comparison, bad, phase='view-preflight') is None
+    assert view_text(comparison, good, phase='view-preflight') == 'independent view'
+    assert comparison.view_errors[bad]['exception'] == 'UnicodeDecodeError'
+    assert 'private body' not in json.dumps(comparison.view_errors[bad])
+    cache = SimpleNamespace(common='common', service_key=lambda entry: str(entry), load=lambda _: None, save=Mock())
+    validator = Validator(root, {('dev', 'team', 's3'), ('dev', 'team', 'sqs')}, workers=1)
+    validator.cache = cache
+    generated = []
+    source_checks = Mock(return_value=SimpleNamespace(errors=[], warnings=[], checks=7))
+    def ownership(instance, paths):
+        if bad in paths:
+            raise UnicodeDecodeError('utf-8', b'\xff', 0, 1, 'bad input')
+        return {}, set(), {}, {}
+    def generation(instance):
+        generated.append(instance.scope)
+        instance.findings.result('framework.generated-service-model', instance.scope).status = 'PASS'
+    def service(instance):
+        assert instance.scope == {('dev', 'team', 'sqs')}
+        instance.check(False, 'independent sqs diagnostic')
+        instance.check_design_links({})
+    with patch.object(Validator, 'check_design_service_ownership', ownership), \
+         patch.object(Validator, 'check_stack_designs', return_value={}), \
+         patch.object(Validator, 'check_generated_service_models', generation), \
+         patch.object(Validator, 'check_designs', service), \
+         patch.object(Validator, 'check_observed_values'), \
+         patch('model.sources.load_model', return_value=SimpleNamespace(authoritative={}, warnings=[])), \
+         patch('model.validation.check_model_inputs', source_checks):
+        validator.check_scoped_designs(defer_cache=True, view_errors=comparison.view_errors)
+        assert 'independent sqs diagnostic' in validator.errors
+        assert source_checks.call_count == 1 and generated == [{('dev', 'team', 'sqs')}]
+        assert validator.checks >= 8 and validator.findings.unverified
+        assert not validator.service_cache_pending
+        assert validator.findings.result('design.service', {('dev', 'team', 's3')}).status == 'NOT_RUN'
+        assert validator.findings.result('framework.generated-service-model', validator.scope).status == 'NOT_RUN'
+        default = Validator(root, validator.scope, workers=1)
+        with pytest.raises(UnicodeDecodeError):
+            default.check_scoped_designs()
+    artifact = dict(fingerprint=fingerprint(comparison, common_key='common'))
+    verify_inputs(root, artifact, cache=SimpleNamespace(common_key=lambda: 'common'))
+    bad.write_bytes(b'changed bytes')
+    with pytest.raises(ValueError, match='stale scan'):
+        verify_inputs(root, artifact, cache=SimpleNamespace(common_key=lambda: 'common'))
+    with patch.object(Path, 'read_bytes', side_effect=PermissionError('private exception body')):
+        assert view_text(comparison, good, phase='review-prose') is None
+    artifact = dict(fingerprint=fingerprint(comparison, common_key='common'))
+    with pytest.raises(ValueError, match='freshness unprovable'):
+        verify_inputs(root, artifact, cache=SimpleNamespace(common_key=lambda: 'common'))
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

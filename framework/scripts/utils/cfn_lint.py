@@ -327,6 +327,7 @@ def structured(request, emit=None):
         from cfnlint.formatters import JsonFormatter
         from cfnlint.decode import cfn_yaml, cfn_json
         from cfnlint.schema.manager import ProviderSchemaManager
+        from cfnlint.schema._exceptions import ResourceNotFoundError
         from cfnlint.schema import PROVIDER_SCHEMA_MANAGER as manager
         import cfnlint.schema.manager as manager_module
         import cfnlint.helpers as helpers
@@ -355,7 +356,9 @@ def structured(request, emit=None):
         ProviderSchemaManager._load_provider_module = provider
         original_schema = ProviderSchemaManager.get_resource_schema
         def schema(self, region, resource_type):
-            if resource_type not in self._registry_schemas and resource_type != 'Module':
+            schema_hash = None
+            normalized = self._normalize_resource_type(resource_type)
+            if resource_type not in self._registry_schemas and normalized != 'Module' and normalized not in self._removed_types:
                 mapping = self._load_provider_module(region)
                 schema_hash = mapping.get(self._normalize_resource_type(resource_type))
                 if schema_hash:
@@ -363,7 +366,18 @@ def structured(request, emit=None):
                     track(path)
                     if not path.is_file():
                         offline()
-            return original_schema(self,region,resource_type)
+            try:
+                return original_schema(self,region,resource_type)
+            except ResourceNotFoundError as error:
+                # The pinned loader chains only provider I/O/JSON/Schema construction failures.
+                if schema_hash and error.__cause__ is not None:
+                    failure = dict(code='schema_unavailable', resource_type=resource_type, region=region,
+                                   exception=type(error.__cause__).__name__)
+                    if failure not in response['processing_errors']:
+                        response['processing_errors'].append(failure)
+                    response['fatal'] = True
+                    progress()
+                raise
         schema.cache_clear = original_schema.cache_clear  # Preserve reset/override behavior of the pinned cached API.
         ProviderSchemaManager.get_resource_schema = schema
         original_glob = ConfigMixIn._glob_filenames
@@ -494,6 +508,7 @@ def structured(request, emit=None):
             match['Message'] = 'Template decode incomplete; see Rule and Location'
     if response['processing_errors']:
         response['status'] = 'processing_error'
+        response['completed'] = False
         if not response['unverified']:
             response['unverified'].append(dict(code='lint.processing_incomplete'))
     response['matches'] = redact(response['matches'])

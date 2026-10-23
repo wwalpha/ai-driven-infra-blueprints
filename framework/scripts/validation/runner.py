@@ -55,6 +55,7 @@ class Validator:
         self.service_cache_pending = []
         self.catalog_pending = None
         self.catalog_key = None
+        self.unavailable_views = {}
         self.model_check = model_check
         self.cache = PassCache(root, fresh, include_project=scope != set(), definitions_root=definitions_root) if cache else None
         self.relative_paths = self.findings.relative_paths
@@ -283,9 +284,15 @@ class Validator:
         finally:
             plan.close()
 
-    def check_scoped_designs(self, *, defer_cache=False) -> None:
+    def check_scoped_designs(self, *, defer_cache=False, view_errors=None) -> None:
+        self.unavailable_views = view_errors or {}
+        unreadable = {(*path.relative_to(self.root / 'docs/designs').parts[:2], path.stem)
+                      for path in self.unavailable_views}
+        if unreadable:
+            self.findings.unverified.append(dict(code='design.ownership_incomplete', scope=sorted('/'.join(e) for e in self.scope),
+                                                message='selected saved Views unavailable'))
         # These whole-scope checks must also run when individual services are reused.
-        self.check_design_service_ownership(self.design_files())
+        self.check_design_service_ownership([p for p in self.design_files() if p not in self.unavailable_views])
         self.findings.evaluate('design.stacks', self.scope, lambda: {'stack_definitions': self.check_stack_designs()})
         keys = {}
         reused = {}
@@ -294,22 +301,24 @@ class Validator:
                 keys[entry] = self.cache.service_key(entry) if self.cache else None
             except (OSError, ValueError, KeyError, TypeError):
                 keys[entry] = None
-            checks = self.cache.load(keys[entry]) if self.cache else None
+            checks = self.cache.load(keys[entry]) if self.cache and not unreadable else None
             if checks is not None:
                 reused[entry] = checks
         self.service_keys = keys
         missing = self.scope - reused.keys()
         # Generation needs the whole selected consumer scope, even with partial cache hits.
-        generator = Validator(self.root, self.scope, workers=self.workers, model_check=self.model_check, definitions_root=self.definitions_root)
+        generation_scope = self.scope - unreadable
+        generator = Validator(self.root, generation_scope, workers=self.workers, model_check=self.model_check, definitions_root=self.definitions_root)
         generator.accounts = self.accounts
-        if missing:
+        if missing - unreadable:
             generator.check_generated_service_models()
             self.errors.extend(generator.errors)
             self.warnings.extend(generator.warnings)
         # Generated equality is covered by each service record; keep target counts stable.
-        self.checks += len({entry[:2] for entry in self.scope})
+        self.checks += len({entry[:2] for entry in generation_scope})
 
-        unavailable = generator.findings.result('framework.generated-service-model', self.scope).metadata.get('unverified', {})
+        unavailable = dict(generator.findings.result('framework.generated-service-model', generation_scope).metadata.get('unverified', {}))
+        unavailable.update({'/'.join(entry): dict(reason='view-read', complete=False) for entry in unreadable})
         skipped = {tuple(entry.split('/')) for entry in unavailable}
         # Only View checks are unavailable; source checks remain independent.
         from model.validation import check_model_inputs
@@ -334,6 +343,7 @@ class Validator:
                 validator.accounts = self.accounts
                 validator.schema_catalog = self.schema_catalog or DesignSchemaCatalog(self.definitions_root)
                 validator.generated_models_checked = True
+                validator.unavailable_views = self.unavailable_views
                 validator.check_designs()
                 validator.check_observed_values(scoped_files(self.root, "model", ".properties", scope))
             return validator
@@ -358,13 +368,15 @@ class Validator:
                 self.checks += validator.checks
                 self.errors.extend(validator.errors)
                 self.warnings.extend(validator.warnings)
+                if view_errors is not None:
+                    self.findings.unverified.extend(validator.findings.unverified)
             if self.cache and keys[entry] is not None:
                 try:
                     unchanged = keys[entry] == self.cache.service_key(entry)
                 except (OSError, ValueError, KeyError, TypeError):
                     unchanged = False
                 self.check(unchanged, f"validation inputs changed during service validation: {'/'.join(entry)}")
-                if unchanged and entry not in reused and not results[entry].errors and not generator.errors and not results[entry].warnings and not generator.warnings and not results[entry].findings.unverified and not unavailable:
+                if unchanged and entry not in reused and not results[entry].errors and not generator.errors and not results[entry].warnings and not generator.warnings and not results[entry].findings.unverified and not unavailable and not (view_errors is not None and self.findings.unverified):
                     successful.append((keys[entry], results[entry].checks))
         self.service_cache_pending = successful
         if not defer_cache and self.cache and self.cache.common is not None:
@@ -375,13 +387,13 @@ class Validator:
         generation.status = 'FAIL' if generator.errors else 'NOT_RUN' if unavailable else 'PASS'
         generation.errors = tuple(generator.errors)
         generation.warnings = tuple(generator.warnings)
-        generation.metadata = generator.findings.result('framework.generated-service-model', self.scope).metadata
+        generation.metadata = dict(generator.findings.result('framework.generated-service-model', generation_scope).metadata, unverified=unavailable)
         policy = self.findings.result('framework.policy-tables', self.scope)
         policies = [validator.findings.result('framework.policy-tables', {entry})
                     for entry, validator in results.items()]
         policy.status = 'FAIL' if any(not p.model_completion_allowed for p in policies) else 'NOT_RUN' if skipped or any(p.status == 'NOT_RUN' for p in policies) else 'PASS'
         if policy.status == 'NOT_RUN':
-            policy.metadata = {'complete': False, 'reason': 'reference', 'unverified': unavailable}
+            policy.metadata = {'complete': False, 'reason': 'view-read' if unreadable else 'reference', 'unverified': unavailable}
         policy.warnings = tuple(w for p in policies for w in p.warnings)
         policy.errors = tuple(error for p in policies for error in p.errors)
         self.generated_models_checked = True
@@ -676,6 +688,21 @@ class Validator:
 
     def check_design_links(self, identifier_outputs: dict[str, set[str]], paths: list[Path] | None = None, *,
                            design_index: DesignIndex | None = None) -> None:
+        if self.unavailable_views:
+            from sync_runtime import local_design_links
+            from validation_cache import input_text
+            available = []
+            for path in self.design_files() if paths is None else paths:
+                values = design.design_model_values(path, design_sources=getattr(self, 'design_sources', {}), root=self.root)
+                targets = local_design_links(self.root, path, [input_text(path), *(values or {}).values()])
+                if targets & self.unavailable_views.keys():
+                    self.findings.unverified.append(dict(code='design.links_unavailable', path=self.relative(path),
+                                                        message='linked View unavailable; cross-View checks not run'))
+                else:
+                    available.append(path)
+            if not available:
+                return
+            paths = available
         return design_links.check_design_links(identifier_outputs, self.design_files() if paths is None else paths, design_index=design_index, design_sources=getattr(self, "design_sources", {}), findings=self.findings, root=self.root, scope=self.scope, definitions_root=self.definitions_root)
 
     def check_design_artifacts(self, paths: list[Path] | None = None) -> None:

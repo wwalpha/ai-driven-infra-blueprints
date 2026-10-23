@@ -238,10 +238,15 @@ class FileReads:
         self.models = {}
         self.selections = {}
         self.kinds = {}
+        self.read_failures = {}
 
     def read(self, path):
         if path not in self.contents:
-            self.contents[path] = input_bytes(path) if input_exists(path) else None
+            try:
+                self.contents[path] = input_bytes(path) if input_exists(path) else None
+            except OSError as error:
+                self.read_failures.setdefault(path, type(error).__name__)
+                raise
         return self.contents[path]
 
     def kind(self, path):
@@ -307,6 +312,7 @@ def model_parts(path, *, read_context=None):
     _safe(scope.root, path, reads)
     directory = path.with_suffix('')
     _safe(scope.root, directory, reads)
+    selected_parts = reads.select(directory, '*', recursive=True)
     raw = reads.read(path)
     if raw is None:
         raise FileNotFoundError(path)
@@ -333,7 +339,7 @@ def model_parts(path, *, read_context=None):
             raise ValueError('Model index has no parts')
     else:
         parse(raw.decode('utf-8'))
-    extras = set(reads.select(directory, '*', recursive=True)) - set(parts)
+    extras = set(selected_parts) - set(parts)
     if extras:
         raise ValueError('unregistered Model parts: ' + ', '.join(str(p) for p in sorted(extras)))
     return parts or [path]

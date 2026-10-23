@@ -312,6 +312,12 @@ def select_checks(root, paths, affected=False):
         mapping[f'framework/scripts/issues/{name}.py'] = set(issues_tests)
     mapping['framework/scripts/utils/cfn_lint.py'] = set(issues_tests)
     mapping['framework/scripts/issues_scan.py'] = set(issues_tests)
+    for name in ('materials', 'reports'):
+        mapping[f'framework/scripts/issues/{name}.py'].add('model-reference-warnings-unit.checks.py')
+    for name in ('publication', 'reports'):
+        mapping[f'framework/scripts/issues/{name}.py'].add('issue_gate-unit.checks.py')
+    for name in ('comparison', 'references'):
+        mapping[f'framework/scripts/issues/{name}.py'].update({'s3-kms-reference-unit.checks.py', 'security_group_tables-unit.checks.py'})
     selected = set()
     for path in sorted(paths):
         if not framework_changed({path}):

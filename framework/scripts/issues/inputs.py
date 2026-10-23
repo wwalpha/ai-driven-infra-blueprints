@@ -12,20 +12,68 @@ from model.files import load_model, resource_row_index
 from policy_tables import literal
 
 
+def retain_reads(self):
+    observed = getattr(self, 'model_observations', set())
+    self.model_observations = observed
+    for file in self.model_reads.contents.keys() - observed:
+        raw = self.model_reads.contents[file]
+        if file.is_relative_to(self.root):
+            retain_hash(self, file, None if raw is None else hashlib.sha256(raw).hexdigest())
+        observed.add(file)
+
+
+def retain_hash(self, path, value):
+    self.inputs.add(path)
+    if self.read_hashes.setdefault(path, value) != value:
+        self.stale_inputs = True
+        raise ValueError('stale scan: contradictory input observations: ' + path.relative_to(self.root).as_posix())
+
+
+def view_text(self, path, *, phase):
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        retain_hash(self, path, None)
+        return None
+    except OSError as error:
+        self.unreadable_inputs = True
+        raw = None
+        failure = error
+    else:
+        retain_hash(self, path, hashlib.sha256(raw).hexdigest())
+        try:
+            return raw.decode('utf-8')
+        except UnicodeError as error:
+            failure = error
+    self.view_errors[path] = dict(code='mechanical.view_read', service=path.stem,
+        path=path.relative_to(self.root).as_posix(), phase=phase, exception=type(failure).__name__,
+        message='saved View could not be read; dependent checks not run')
+    return None
+
+
 def model(self, service):
     if not re.fullmatch(r'[a-z0-9]+(?:[-_][a-z0-9]+)*', service):
         raise ValueError('invalid reference service')
     if service not in self.models:
         path = self.root / 'model' / self.environment / self.directory / (service + '.properties')
-        loaded = load_model(path)
+        # Discovery must precede any parsing failure; never take a later repair as baseline.
+        self.model_reads.select(path.with_suffix(''), '*', recursive=True)
+        try:
+            loaded = load_model(path, self.model_reads)
+        except OSError as error:
+            if not isinstance(error, FileNotFoundError):
+                self.unreadable_inputs = True
+            raise
+        finally:
+            retain_reads(self)
         self.warnings.extend(getattr(loaded, "warnings", ()))
         if service != 'cloudformation-stacks' and loaded.values.get(f'desired.service.{service}.serviceId') != service:
             raise ValueError(f'mismatched service ID: {path}')
         self.models[service] = loaded
         self._index = None
         self.symbols.clear()
-        self.inputs.update(loaded.dependencies)
-        self.read_hashes.update({file: None if raw is None else hashlib.sha256(raw).hexdigest() for file, raw in loaded.dependencies.items()})
+        for file, raw in loaded.dependencies.items():
+            retain_hash(self, file, None if raw is None else hashlib.sha256(raw).hexdigest())
         self.metrics['model_loads'] += 1
         self.metrics['model_parses'] += 1
         self.resources[service] = dict(entries(loaded.values, 'desired.resource.'))
@@ -44,9 +92,16 @@ def source(self, service, key):
 
 
 def track(self, path):
-    self.inputs.add(path)
-    if path not in self.read_hashes:
-        self.read_hashes[path] = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+    if path in self.read_hashes:
+        return
+    try:
+        value = hashlib.sha256(path.read_bytes()).hexdigest()
+    except FileNotFoundError:
+        value = None
+    except OSError:
+        self.unreadable_inputs = True
+        raise
+    retain_hash(self, path, value)
 
 
 def index(self):
@@ -61,9 +116,13 @@ def templates(self):
     if self._templates is not None:
         return self._templates
     stackpath = self.root / 'model' / self.environment / self.directory / 'cloudformation-stacks.properties'
-    if not model_exists(stackpath):
-        self._templates = []
-        return self._templates
+    self.model_reads.select(stackpath.with_suffix(''), '*', recursive=True)
+    try:
+        if not model_exists(stackpath, self.model_reads):
+            self._templates = []
+            return self._templates
+    finally:
+        retain_reads(self)
     _, stacks = stack_model(self.model('cloudformation-stacks').values)
     self._templates = stacks
     return self._templates

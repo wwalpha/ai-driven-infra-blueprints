@@ -98,7 +98,8 @@ def evidence(root, report, source):
 def normal_merge(root, path, environment, directory, services, candidates, additions, resolutions):
     old = path.read_text(encoding='utf-8') if path.exists() else ''
     inventories(root, path)
-    preamble, existing = owned_blocks(root, path, old)
+    ordinary, notices = split_notices(old)
+    preamble, existing = owned_blocks(root, path, ordinary)
     if not preamble:
         preamble = '# 問題一覧\n\n'
     # Human confirmation/exception prose stays in the original preamble.
@@ -157,7 +158,7 @@ def normal_merge(root, path, environment, directory, services, candidates, addit
     text = preamble + ''.join(output)
     if not re.search(r'^\d+\. ', text, re.M):
         text = text.rstrip() + '\n\n未解決issueなし\n'
-    return text
+    return attach_notices(text, notices)
 
 
 def iac_report(environment, directory, services, records, display=None, *, stamp=None, artifact=None):
@@ -245,27 +246,45 @@ NOTICE = r'<!-- issues-notices:([^ >]+):start -->.*?<!-- issues-notices:\1:end -
 LEGACY_NOTICE = r'<!-- reference-warnings:start -->.*?<!-- reference-warnings:end -->\s*'
 
 def without_notices(text):
-    return re.sub(LEGACY_NOTICE, '', re.sub(NOTICE, '', text, flags=re.S), flags=re.S)
+    return split_notices(text)[0]
+
+
+def split_notices(text):
+    notices = []
+    def remove(match):
+        notices.append((match.group(1), match[0].rstrip()))
+        return ''
+    ordinary = re.sub(NOTICE + '|' + LEGACY_NOTICE, remove, text, flags=re.S)
+    return ordinary, notices
+
+
+def attach_notices(text, notices):
+    if not notices:
+        return text
+    header, newline, body = text.partition('\n')
+    return header + (newline or '\n') + '\n'.join(block for _, block in notices) + '\n\n' + body
 
 def notice_report(text, environment, directory, services, channels, *, preserve_prior=False):
     scope_id = identifier([environment, directory, sorted(services)])
-    pattern = r'<!-- issues-notices:' + scope_id + r':start -->.*?<!-- issues-notices:' + scope_id + r':end -->\s*'
-    previous = re.findall(pattern,text,re.S)
+    text, notices = split_notices(text)
+    previous = [block for scope, block in notices if scope == scope_id]
     retained = list(dict.fromkeys(line for block in previous for line in block.splitlines() if line.startswith('- '))) if preserve_prior else []
-    text = re.sub(pattern, '', text, flags=re.S)
+    notices = [(scope, block) for scope, block in notices if scope != scope_id]
     # Legacy notices have unknown scope; consolidate without asserting resolution.
-    legacy = re.findall(LEGACY_NOTICE,text,re.S)
+    legacy = [block for scope, block in notices if scope is None]
     if legacy:
-        notices = list(dict.fromkeys(line for block in legacy for line in block.splitlines() if line.startswith('- ')))
-        text = re.sub(LEGACY_NOTICE,'',text,flags=re.S)
-        text += '\n<!-- reference-warnings:start -->\n## 旧警告（scope不明・今回の解消未確認）\n' + '\n'.join(notices) + '\n<!-- reference-warnings:end -->\n'
+        legacy_lines = list(dict.fromkeys(line for block in legacy for line in block.splitlines() if line.startswith('- ')))
+        notices = [(scope, block) for scope, block in notices if scope is not None]
+        notices.append((None, '<!-- reference-warnings:start -->\n## 旧警告（scope不明・今回の解消未確認）\n' + '\n'.join(legacy_lines) + '\n<!-- reference-warnings:end -->'))
     lines = [f'<!-- issues-notices:{scope_id}:start -->', f'今回の機械診断scope: {environment}／{directory}／{", ".join(sorted(services))}']
     for channel, heading in [('warnings', '警告（非ブロッキング）'), ('information', '情報'), ('unverified', '未検証範囲'), ('processing_errors', '処理エラー（未検証範囲あり）')]:
         values = channels.get(channel, [])
         if values:
             lines += ['## ' + heading, ''] + ['- ' + safe_text(json.dumps(value, ensure_ascii=False)) for value in values]
     if retained:
-        lines += ['### 前回診断（今回未検証・解消未確認）', *retained]
+        current = set(line for line in lines if line.startswith('- '))
+        retained = [line for line in retained if line not in current]
+        if retained:
+            lines += ['### 前回診断（今回未検証・解消未確認）', *retained]
     lines.append(f'<!-- issues-notices:{scope_id}:end -->')
-    header, newline, body = text.partition('\n')
-    return header + newline + '\n'.join(lines) + '\n\n' + body
+    return attach_notices(text, [(scope_id, '\n'.join(lines)), *notices])

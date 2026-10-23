@@ -181,7 +181,8 @@ def check_timeout(tmp_path,monkeypatch):
         worker.close()
 
 
-def check_scan_publication_and_missing_view(tmp_path,monkeypatch):
+@pytest.mark.parametrize("view_failure", ["missing", "utf8"])
+def check_scan_publication_and_missing_view(tmp_path,monkeypatch,view_failure):
     from support.issues_scan_fixtures import fixture,task,review_for,write
     from issues.runner import scan
     from issues.publication import save_scan
@@ -220,11 +221,72 @@ def check_scan_publication_and_missing_view(tmp_path,monkeypatch):
         previous=template.read_bytes();template.write_bytes(previous+b'\n')
         with pytest.raises(ValueError,match='stale scan'): save_scan(root,artifact,review)
         template.write_bytes(previous)
-    (root/'docs/designs/dev/123456789012/s3.md').unlink()
+    bad = root/'docs/designs/dev/123456789012/s3.md'
+    if view_failure == 'missing':
+        bad.unlink()
+    else:
+        bad.write_bytes(b'\xff private fixture body')
     doc=root/'docs/designs/dev/123456789012/sqs.md';doc.write_text(doc.read_text()+'\nfixture drift\n')
     result=scan(root,'dev','123456789012',['s3','sqs'],fresh=True,jobs=1)
-    assert any(n['code']=='mechanical.view_missing' and n['service']=='s3' for n in result['unverified'])
+    code = 'mechanical.view_missing' if view_failure == 'missing' else 'mechanical.view_unverified'
+    assert any(n['code'] == code and n.get('service') == 's3' for n in result['unverified'])
+    assert result['cfn_lint']['jobs'] and all(j['completed'] for j in result['cfn_lint']['jobs'])
+    if view_failure == 'utf8':
+        assert result['processing_errors'] and result['validation_status'] == 'ERROR'
+        assert 'private fixture body' not in json.dumps(result)
+        with task(root, ['s3', 'sqs']):
+            files = save_scan(root, result, review_for(result))
+            assert all(p.is_file() for p in files)
+            assert '処理エラー' in files[0].read_text()
+            original = bad.read_bytes(); bad.write_bytes(b'repaired')
+            with pytest.raises(ValueError, match='stale scan'):
+                save_scan(root, result, review_for(result))
+            bad.write_bytes(original)
     assert any('sqs' in str(item) for item in result['ordinary']+result['judgments'])
+
+
+@pytest.mark.parametrize('broken', ['{ broken json', '{}'])
+def check_corrupt_provider_schema(tmp_path, monkeypatch, broken):
+    home, cwd = isolated(tmp_path, monkeypatch)
+    from cfnlint.helpers import get_cache_dir
+    cache = Path(get_cache_dir())
+    (cache / 'providers').mkdir(parents=True)
+    (cache / 'resources').mkdir()
+    (cache / 'version.json').write_text('{"schema_date":"9999-12-31"}')
+    (cache / 'providers/us-east-1.json').write_text(json.dumps({
+        'AWS::S3::Bucket': 'broken-local-schema', 'AWS::SQS::Queue': 'valid-local-schema'}))
+    schema = cache / 'resources/broken-local-schema.json'
+    schema.write_text(broken)
+    (cache / 'resources/valid-local-schema.json').write_text(json.dumps({
+        'typeName': 'AWS::SQS::Queue', 'description': 'synthetic queue',
+        'properties': {'QueueName': {'type': 'string'}}, 'additionalProperties': False,
+        'primaryIdentifier': ['/properties/QueueName']}))
+    template = cwd / 'app.yaml'
+    template.write_text('Resources:\n  Queue:\n    Type: AWS::SQS::Queue\n    Properties:\n      Wrong: true\n  Bucket:\n    Type: AWS::S3::Bucket\n    Properties:\n      MadeUpProperty: true\n  Unknown:\n    Type: AWS::Fixture::Absent\n')
+    with lint_session(cwd) as session:
+        result = validate_template(session, template, 'ap-northeast-1')
+        assert result['status'] == 'processing_error' and not result['completed'] and result['unverified'], result
+        assert any(error.get('resource_type') == 'AWS::S3::Bucket' and error['code'] == 'schema_unavailable'
+                   for error in result['processing_errors']), result
+        assert {'E3002', 'E3006'} <= {m['Rule']['Id'] for m in result['matches']}, result
+        assert result['fatal'] and validate_template(session, template, 'ap-northeast-1')['status'] == 'not_run'
+    verify_dependencies(result['dependencies'])
+    # A zero-match schema failure still cannot become completed lint.
+    template.write_text('Resources:\n  Bucket:\n    Type: AWS::S3::Bucket\n    Properties:\n      MadeUpProperty: true\n')
+    with lint_session(cwd) as session:
+        empty = validate_template(session, template, 'ap-northeast-1')
+    assert not empty['matches'] and empty['processing_errors'] and empty['unverified'] and not empty['completed'], empty
+    # Unknown and intentionally removed resource types keep normal diagnostics.
+    for body, settings in [('Resources:\n  Unknown:\n    Type: AWS::Fixture::Absent\n', {}),
+                           (template.read_text(), {'override_spec': str(cwd / 'override.json')})]:
+        (cwd / 'override.json').write_text(json.dumps({'IncludeResourceTypes': ['AWS::SQS::Queue']}))
+        (cwd / '.cfnlintrc').write_text(json.dumps(settings))
+        template.write_text(body)
+        with lint_session(cwd) as session:
+            normal = validate_template(session, template, 'ap-northeast-1')
+        assert normal['completed'] and not normal['processing_errors'] and not normal['unverified'], normal
+        assert any(m['Rule']['Id'] == 'E3006' for m in normal['matches']), normal
+    assert schema.read_text() == broken
 
 
 if __name__=='__main__':

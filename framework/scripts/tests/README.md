@@ -19,7 +19,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test
 
 `pytest.ini`は既存のpytest型ファイルと`*-unit.checks.py`を対象にする。全UTがpytest型ではない。`array_display`、`aws_mapping_catalog`、`check-deploy-context`、`cloudformation_schema`、`comparison_core-unit`、`script_loader`、`update-catalog-lock`、`validation-units`には直接実行の入口がある。`validation_checks/*.py`は同じ分類のaggregatorから呼ぶ。`test_issues_iac.py`は既存unittestメソッドをpytestでも収集する。
 
-`blueprint-loop.py` は `units/**/*.checks.py`（59スイート）と `units/**/test_*.py`（既存unittest 1スイート）を、既存のPython直接実行入口で起動する。合計60 UTスイート。`full` / `--all` も回帰部分は全UTのみで、validatorのScopeや安全制御は維持する。`task` / `local` の自動回帰もUT限定。元々回帰不要のScopeではUTを追加しない。
+`blueprint-loop.py` は `units/**/*.checks.py`（64スイート）と `units/**/test_*.py`（既存unittest 1スイート）を、既存のPython直接実行入口で起動する。合計65 UTスイート。`full` / `--all` も回帰部分は全UTのみで、validatorのScopeや安全制御は維持する。`task` / `local` の自動回帰もUT限定。元々回帰不要のScopeではUTを追加しない。
 
 `--affected` は従来の依存マッピングと分割UT対応を適用してからUTだけを抽出する。共有・不明・欠落依存は全UTへfallbackする。`--staged` は同じ選択を固定snapshot内で行う。全UT選択時のWindows認証、UTF-8、診断ログ、失敗伝播を維持する。
 
@@ -27,7 +27,7 @@ IT全68スイートは [Framework IT](../../../.github/workflows/framework-it.ym
 
 runnerは共通fixture bundleを1回初期化し、`framework`・`input_templates`・`typed_services`・`generated_policy`・`import_sources` の5 seedを各1回生成する。共有seedは読み取り専用で、変更領域は各ケースに独立したコピーを渡し、実行後に内容と権限の整合性を確認する。実プロジェクトのModelやAWS認証情報は使用しない。
 
-`CASES.md` のIT登録は370実行入口・588条件（pytest 234関数、direct 117関数、direct_group 13入口、module 6末尾）。UT登録は398実行入口・960条件。削除分は260登録・590条件から255登録・585条件への減少で、既存の未登録142件とparameter件数1件の訂正、CodeCommit返却属性1件を別途反映した。sync-modelのpublication boundaryはmappingを除いた6条件。model_templatesは9条件。pytestは既存 `PytestReceipt` で収集・PASS・パラメータ数を照合する。直接実行117関数と13のmain入口は最外側の `@it_case` が正常return後だけaudit完了イベントを発行し、module型は末尾の `module_complete(__file__)` で完了を通知する。同一ケースの複数回呼出しは独立ケース数に加算しない。未登録スイート、記録対象でない入口、未完了ケース、欠落・不正receipt、非0終了コードは失敗とする。
+`CASES.md` のIT登録は376実行入口・600条件（pytest 240関数、direct 117関数、direct_group 13入口、module 6末尾）。UT登録は450実行入口・1198条件。削除分は260登録・590条件から255登録・585条件への減少で、既存の未登録142件とparameter件数1件の訂正、CodeCommit返却属性1件を別途反映した。sync-modelのpublication boundaryはmappingを除いた6条件。model_templatesは9条件。pytestは既存 `PytestReceipt` で収集・PASS・パラメータ数を照合する。直接実行117関数と13のmain入口は最外側の `@it_case` が正常return後だけaudit完了イベントを発行し、module型は末尾の `module_complete(__file__)` で完了を通知する。同一ケースの複数回呼出しは独立ケース数に加算しない。未登録スイート、記録対象でない入口、未完了ケース、欠落・不正receipt、非0終了コードは失敗とする。
 
 Model v2 移行専用の10関数・23条件と固定旧Framework checkout・専用Python環境は撤去済み。現行機能の15関数・82条件は既存3 ITへ統合し、ケースID・assertion・parameter matrix・pytest receiptを保持する。
 
@@ -73,6 +73,6 @@ loaderのUTは `units/fixture_cases-unit.checks.py`。正式ITと性能の全体
 
 ## Issues v2 / cfn-lint
 
-issuesの正規APIは `issues/`。旧 `issues_iac.py` / `issues_reports.py` のwrapperは置かず、CLIだけ `issues_scan.py` を維持する。UT追加は `issues-lint-unit.checks.py` の7関数15条件、IT追加は `issues-lint.checks.py` の8関数12条件。正式ITは既存 `Framework IT` / `tests/run_it.py` だけを使う。固定版1.57.2が無い環境で、CLI同等性・状態隔離の検証を実施済みとは扱わない。
+issuesの正規APIは `issues/`。旧 `issues_iac.py` / `issues_reports.py` のwrapperは置かず、CLIだけ `issues_scan.py` を維持する。UT追加は `issues-lint-unit.checks.py` の9関数20条件、IT追加は `issues-lint.checks.py` の9関数15条件。正式ITは既存 `Framework IT` / `tests/run_it.py` だけを使う。固定版1.57.2が無い環境で、CLI同等性・状態隔離の検証を実施済みとは扱わない。
 
 一時HOME/cwd/config/custom rule/provider schemaを実環境から分離し、本物のHOMEとインストール済みpackageには書き込まない。Framework定義はコピーも読取専用。モデル・template・parametersは独立した可変fixtureを使う。summary/detail/saveはv2の保存済み集計だけを使う。

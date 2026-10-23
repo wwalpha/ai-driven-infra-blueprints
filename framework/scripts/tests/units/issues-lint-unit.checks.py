@@ -30,7 +30,7 @@ if not __debug__:
     ('E3002','unknown',False,'processing_errors')])
 def check_classification(rule,level,defect,expected):
     assert classify({'Rule':{'Id':rule},'Level':level},{'input_defect':defect})==expected
-    assert classify({'Rule':{'Id':'E3006'},'Level':'Error'},{'processing_errors':[{'code':'schema_unavailable'}]})=='processing_errors'
+    assert classify({'Rule':{'Id':'E3006'},'Level':'Error'},{'processing_errors':[{'code':'schema_unavailable'}]})=='ordinary'
 
 
 def check_explicit_plan():
@@ -180,7 +180,7 @@ def check_scan_cache_guard_order():
             validator=SimpleNamespace(findings=SimpleNamespace(unverified=[],result=lambda *_:SimpleNamespace(metadata={})),
                                       cache=cache,checks=20,service_cache_pending=[('new-key',20)],check=lambda condition,_:condition)
             validator.finalize_service_cache=lambda key:Validator.finalize_service_cache(validator,key)
-            comp=SimpleNamespace(inputs={root/'project.json'},read_hashes={},services=['s3'],root=root,
+            comp=SimpleNamespace(inputs={root/'project.json'},read_hashes={},view_errors={},services=['s3'],root=root,
                                  environment='dev',directory='team',warnings=[],catalog=None,models={},results=[],metrics={},display_differences={},
                                  redacted=lambda value,prop='':safe_value(value,prop),run=lambda:[])
             def track(path):
@@ -209,6 +209,42 @@ def check_scan_cache_guard_order():
                     assert result['version']==2 and result['checks']==20
                     assert events.index('aggregation')<events.index('live')<events.index('cache')
 
+
+
+@pytest.mark.parametrize('kinds,needs_stack', [
+    (['IMPORT'], False), (['API'], False), (['IMPORT', 'API', 'CREATE'], True), (['CREATE'], True)])
+def check_plan_without_stack(kinds, needs_stack):
+    resources = {str(i): ({'resourceMode': 'IMPORT'} if kind == 'IMPORT' else
+                         {'resourceType': 'QuickSight.Group'} if kind == 'API' else
+                         {'cfn-logicalId': 'Stack-Bucket'}) for i, kind in enumerate(kinds)}
+    loader = Mock(side_effect=FileNotFoundError())
+    comparison = SimpleNamespace(target={'iacEngine': 'cloudformation'}, services=['s3'],
+        models={'s3': True}, resources={'s3': resources}, model=loader,
+        catalog=SimpleNamespace(api_schemas={'QuickSight.Group'}))
+    jobs, coverage = plan(comparison)
+    assert not jobs and loader.call_count == int(needs_stack)
+    assert sum(item['status'] == 'not_applicable' for item in coverage) == sum(k != 'CREATE' for k in kinds)
+    assert sum(item['status'] == 'unverified' for item in coverage) == sum(k == 'CREATE' for k in kinds)
+    assert all(item['reason'] for item in coverage)
+
+
+def check_processing_coverage_keeps_matches():
+    from issues.cfn_lint import run_lint
+    failure = dict(code='schema_unavailable', resource_type='AWS::S3::Bucket')
+    matches = [{'Rule': {'Id': 'E3002'}, 'Level': 'Error', 'Message': 'property error'},
+               {'Rule': {'Id': 'E3006'}, 'Level': 'Error', 'Message': 'unknown resource'}]
+    result = dict(status='processing_error', completed=True, decode_complete=True, matches=matches,
+                  processing_errors=[failure], unverified=[], dependencies={})
+    job = dict(id='job', template='/fixture/template.yaml', region='ap-northeast-1', status='planned')
+    comparison = SimpleNamespace(root=Path('/fixture'), sensitive_values=set(), redacted=lambda value: value)
+    with patch('issues.cfn_lint.plan', return_value=([job], [])), \
+         patch('issues.cfn_lint.lint_session'), patch('issues.cfn_lint.validate_template', return_value=result), \
+         patch('issues.cfn_lint.owner', return_value=('s3', False)):
+        lint = run_lint(comparison)
+    assert lint['status'] == 'incomplete' and lint['coverage'][0]['status'] == 'unverified'
+    assert len(lint['ordinary']) == 2 and lint['processing_errors'][0]['code'] == 'schema_unavailable'
+    assert len(lint['unverified']) == 1
+    assert scan_exit_code(dict(ordinary=lint['ordinary'], processing_errors=lint['processing_errors'])) == 2
 
 if __name__=='__main__':
     raise SystemExit(run(__file__))

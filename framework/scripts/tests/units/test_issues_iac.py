@@ -40,7 +40,7 @@ def legacy_comparison(root, count=3, services=1, stacks=2):
       path.write_text(json.dumps(value), encoding='utf-8')
   catalog = issues_iac.DesignSchemaCatalog(Path(__file__).resolve().parents[4])
   target = {'iacEngine': 'cloudformation', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1'}
-  with patch('issues.comparison.load_target', return_value=target), patch('issues.inputs.load_model', side_effect=loaded.__getitem__):
+  with patch('issues.comparison.load_target', return_value=target), patch('issues.inputs.load_model', side_effect=lambda path, reads: loaded[path]):
     comparison = issues_iac.Comparison(root, 'fixture', 'team', models, catalog=catalog)
   comparison.templates = lambda: units
   return comparison

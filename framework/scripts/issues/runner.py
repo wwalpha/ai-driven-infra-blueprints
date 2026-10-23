@@ -15,10 +15,11 @@ from .records import identifier, safe_text
 from .materials import naming_materials, existing_materials
 from .integrity import selected_scope, fingerprint, verify_inputs, live_common_key
 from .aggregate import aggregate
+from .inputs import view_text
 import uuid
 
 @contract_read_scope
-def mechanical(root, scope, *, fresh=False, jobs=4, catalog=None, fingerprint_out=None, warnings=None, cache=None, validator_out=None):
+def mechanical(root, scope, *, fresh=False, jobs=4, catalog=None, fingerprint_out=None, warnings=None, cache=None, validator_out=None, view_errors=None):
     """Reuse service checks/cache/parallelism, without contract/deploy/full-loop execution."""
     os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
     validator_module = module('validate-blueprint.py', 'issues_validator')
@@ -32,7 +33,7 @@ def mechanical(root, scope, *, fresh=False, jobs=4, catalog=None, fingerprint_ou
         validator.check_validation_scope()
         validator.check_model_files()
         # Continue diagnosable checks even when model/Markdown equality fails.
-        validator.check_scoped_designs(defer_cache=validator_out is not None)
+        validator.check_scoped_designs(defer_cache=validator_out is not None, view_errors=view_errors)
         validator.check_iac_selection()
     if validator_out is not None:
         validator_out.append(validator)
@@ -55,7 +56,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     # Capture before checks too: an edit during diagnostics must not produce a current artifact.
     for service in services:
         doc = root / 'docs/designs' / environment / directory / (service + '.md')
-        comparison.track(doc)
+        view_text(comparison, doc, phase='view-preflight')
         entrance = root / 'model' / environment / directory / (service + '.properties')
         comparison.track(entrance)
         for part in entrance.with_suffix('').rglob('*'):
@@ -66,7 +67,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     before = fingerprint(comparison, common_key=cache.common)
     begin = time.perf_counter()
     validators = []
-    errors, checks, diagnostics = mechanical(root, scope, fresh=fresh, jobs=jobs, catalog=comparison.catalog, fingerprint_out=service_keys, warnings=warnings, cache=cache, validator_out=validators)
+    errors, checks, diagnostics = mechanical(root, scope, fresh=fresh, jobs=jobs, catalog=comparison.catalog, fingerprint_out=service_keys, warnings=warnings, cache=cache, validator_out=validators, view_errors=comparison.view_errors)
     mechanical_seconds = time.perf_counter() - begin
     ordinary, judgments = [], []
     for message in dict.fromkeys(errors):
@@ -80,8 +81,10 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     judgments.extend({'id': item['id'], 'service': item['service'], 'kind': 'existing-issue-correspondence', 'materials': item} for item in existing)
     for service in services:
         doc = root / 'docs/designs' / environment / directory / (service + '.md')
-        if doc.is_file():
-            text = doc.read_text(encoding='utf-8')
+        if doc.is_file() and doc not in comparison.view_errors:
+            text = view_text(comparison, doc, phase='review-prose')
+            if text is None:
+                continue
             # Only notes/implementation prose remains for LLM review; verified tables are not repeated.
             known_notes = {value for key, value in comparison.models[service].values.items() if key.startswith('desired.note.')} if service in comparison.models else set()
             notes = []
@@ -117,6 +120,8 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     unverified = list(lint.pop('unverified'))
     validator = validators[0]
     unverified.extend(validator.findings.unverified)
+    view_errors = list(comparison.view_errors.values())
+    unverified.extend(dict(error, code='mechanical.view_unverified') for error in view_errors)
     for entry in sorted(scope):
         view = root / 'docs/designs' / entry[0] / entry[1] / (entry[2] + '.md')
         if not view.is_file():
@@ -124,6 +129,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     for entry, info in validator.findings.result('framework.generated-service-model', scope).metadata.get('unverified', {}).items():
         unverified.append({'code': 'mechanical.view_unverified', 'scope': entry, 'details': info})
     processing = lint.pop('processing_errors')
+    processing.extend(view_errors)
     # Stage failures are distinct from the number of affected comparison records.
     stage_errors = {}
     for record in iac:
@@ -160,6 +166,9 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     current_common = live_common_key(cache)  # Live enumeration and bytes, never the starting memo.
     if current_common != cache.common:
         raise ValueError('stale scan: framework/project input changed')
+    if view_errors:
+        # Scope-wide ownership/reference coverage was incomplete; discard unproved candidates.
+        validator.service_cache_pending = []
     validator.finalize_service_cache(current_common)
     artifact['checks'] = validator.checks
     artifact['metrics'] = comparison.metrics | dict(mechanical_seconds=mechanical_seconds, iac_seconds=iac_seconds,

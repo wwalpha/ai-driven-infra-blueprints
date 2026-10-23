@@ -111,7 +111,17 @@ def check_dependency_selection():
     for name in ("__init__", "scheduler", "guards", "delivery", "change_sets", "repair", "secret_bootstrap", "session"):
         assert selected(f"framework/scripts/deploy/{name}.py") == {'cloudformation-deploy-unit.checks.py', 'deploy_preparation-unit.checks.py', 'model_files-unit.checks.py'}
     for name in ('__init__','cli','runner','inputs','integrity','materials','comparison','references','records','aggregate','artifact','reports','publication','cfn_lint'):
-        assert selected(f'framework/scripts/issues/{name}.py') == (comparison - {'check-model-aws-unit.checks.py'}) | {'test_issues_iac.py','issues-lint-unit.checks.py'}
+        expected = (comparison - {'check-model-aws-unit.checks.py'}) | {'test_issues_iac.py','issues-lint-unit.checks.py'}
+        if name in {'materials', 'reports'}:
+            expected.add('model-reference-warnings-unit.checks.py')
+        if name in {'publication', 'reports'}:
+            expected.add('issue_gate-unit.checks.py')
+        if name in {'comparison', 'references'}:
+            expected.update({'s3-kms-reference-unit.checks.py', 'security_group_tables-unit.checks.py'})
+        checks, reason = MODULE.select_checks(root, {f'framework/scripts/issues/{name}.py'}, True)
+        assert expected <= {p.name for p in checks}
+        assert reason.startswith('affected:')
+        assert all('/units/' in p.as_posix() for p in checks)
     assert selected('framework/scripts/utils/cfn_lint.py') == selected('framework/scripts/issues/cfn_lint.py')
     all_checks = {p.name for p in (SCRIPT.parent / "tests/units").rglob("*.checks.py")} | {"test_issues_iac.py"}
     assert selected("framework/scripts/iac_values.py") == all_checks
