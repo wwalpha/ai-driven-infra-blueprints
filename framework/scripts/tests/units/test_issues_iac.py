@@ -41,7 +41,7 @@ def legacy_comparison(root, count=3, services=1, stacks=2):
     path.parent.mkdir(parents=True, exist_ok=True)
     raw = json.dumps(values).encode()
     path.write_bytes(raw)
-    loaded[path] = SimpleNamespace(values=values, dependencies={path: raw}, locations={})
+    loaded[path] = SimpleNamespace(values=values, authoritative=values, dependencies={path: raw}, locations={})
   for number, document in enumerate(documents):
     unit = {'name': f'stack{number}', 'template': f'{number}.json', 'parameters': f'{number}.json'}
     units.append((str(number), unit))
@@ -255,6 +255,7 @@ class ImportValueResolutionTests(unittest.TestCase):
     # Authored identities and templates only; no consumer inputs or physical identifiers.
     with tempfile.TemporaryDirectory() as directory:
       comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
+      comparison.export_provenance = {}
       comparison.root = Path(directory)
       comparison.environment, comparison.directory = 'fixture', 'team'
       comparison.catalog = DesignSchemaCatalog(Path(__file__).resolve().parents[4])

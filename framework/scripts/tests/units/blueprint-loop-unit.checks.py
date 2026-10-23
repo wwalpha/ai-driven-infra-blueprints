@@ -143,7 +143,7 @@ def check_dependency_selection():
     leaf = "framework/scripts/tests/integrations/validation_checks/task.py"
     assert selected(leaf, "framework/scripts/blueprint-loop.py") == shared
     comparison = {'comparison_core-unit.checks.py', 'issues_scan-unit.checks.py', 'check-model-aws-unit.checks.py', 'cloudformation-deploy-unit.checks.py', 'deploy_preparation-unit.checks.py', 'model_files-unit.checks.py'}
-    engine = {"comparison_core-unit.checks.py", "test_issues_iac.py", "s3-kms-reference-unit.checks.py",
+    engine = {"comparison_core-unit.checks.py", "test_issues_iac.py", "reference-evidence-unit.checks.py", "s3-kms-reference-unit.checks.py",
               "security_group_tables-unit.checks.py", "check-model-aws-unit.checks.py"}
     assert selected("framework/scripts/comparison_rows.py") == engine
     assert selected("framework/scripts/iac_evaluation.py") == engine
@@ -163,12 +163,13 @@ def check_dependency_selection():
         assert expected <= {p.name for p in checks}
         assert reason.startswith('affected:')
         assert all('/units/' in p.as_posix() for p in checks)
-    common = {'comparison_core-unit.checks.py', 'test_issues_iac.py',
+    common = {'comparison_core-unit.checks.py', 'test_issues_iac.py', 'reference-evidence-unit.checks.py',
               's3-kms-reference-unit.checks.py', 'security_group_tables-unit.checks.py'}
-    for path in ('comparison/resource.py', 'comparison/runner.py', 'comparison/inputs.py', 'comparison/references.py'):
+    for path in ('comparison/resource.py', 'comparison/runner.py', 'comparison/inputs.py', 'comparison/references.py',
+                 'comparison/model_reference.py', 'comparison/reference_evidence.py', 'comparison/expressions.py'):
         assert selected('framework/scripts/' + path) == common
     for service in ('s3', 'kms', 'security_group'):
-        expected = {'comparison_core-unit.checks.py', 'test_issues_iac.py'} | {
+        expected = {'comparison_core-unit.checks.py', 'test_issues_iac.py', 'reference-evidence-unit.checks.py'} | {
             'security_group_tables-unit.checks.py' if service == 'security_group' else 's3-kms-reference-unit.checks.py'}
         assert selected('framework/scripts/comparison/services/' + service + '.py') == expected
     assert selected('framework/scripts/utils/cfn_lint.py') == selected('framework/scripts/issues/cfn_lint.py')

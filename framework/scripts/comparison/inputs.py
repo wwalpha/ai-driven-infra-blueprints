@@ -30,7 +30,15 @@ from utils.aws_catalogs import catalog_outputs
 from utils.aws_sdk import aws_runtime
 from utils.json_format import policy_json as strict_json
 
-from . import design_link, evaluation, references, registry, values
+from . import (
+    design_link,
+    evaluation,
+    model_reference,
+    reference_evidence,
+    references,
+    registry,
+    values,
+)
 from .result import redacted
 
 
@@ -46,6 +54,8 @@ class Inputs:
         self._index, self.symbols = None, {}
         self.local_comparison, self.reference_models_loaded = False, False
         self.exports = None
+        self.model_references = {}
+        self.export_provenance = {}
         self.export_failures, self.stack_errors = [], {}
         self._templates, self.reference_formats = None, {}
         self.read_hashes, self.sensitive_values = {}, set()
@@ -358,14 +368,20 @@ class Inputs:
             raise blocked
         producer, value = candidates[0]
         try:
-            return self.evaluate(producer, value, seen | {token})
+            result = self.evaluate(producer, value, seen | {token})
+            if isinstance(result, (ResourceReference, Expression)):
+                # Keep provenance on this import occurrence without mutating cached symbols.
+                origins = reference_evidence.export_origins(result, self.export_provenance)
+                result = ResourceReference(result) if isinstance(result, ResourceReference) else Expression(result.operation, result.operands)
+                self.export_provenance[id(result)] = (result, [{'export_name': name, 'export_stack': producer}, *origins])
+            return result
         except Blocked as error:
             if not getattr(error, 'iac_cause', None):
                 error.iac_cause = {'kind': 'import-unresolved', 'export': name, 'relationship': 'import', 'consumer_stack': stack}
             raise
 
-    def reference_literal(self, value):
-        """Resolve explicit names/ARNs and supported expressions, never generated IDs."""
+    def reference_literal(self, value, *, recorded=None):
+        """Resolve local values; an optional comparison proof may use recorded outputs."""
         if isinstance(value, Expression):
             return references.literal_expression(value, resolve_literal=self.reference_literal, resource_type=self.resource_type)
         service, identity = value['$resource']
@@ -408,6 +424,8 @@ class Inputs:
                                       evaluate=lambda value: evaluator.evaluate(name, value))
         setting = RETURN_ATTRIBUTE_PROPERTIES.get((resource['resourceType'], attribute))
         if (attribute != registry.ref_attribute(resource['resourceType']) and not secret_name and setting is None) or (setting or attribute) not in properties:
+            if recorded is not None:
+                return recorded(value)
             raise Blocked('reference has no explicit name property contract')
         result = evaluator.substitution(name, value, frozenset())
         if not isinstance(result, str):
@@ -446,14 +464,22 @@ class Inputs:
         return registry.kms_format(value, self.resources)
 
     def reference_diagnostic(self, left, right, kind, path, reason):
-        return references.reference_diagnostic(left, right, kind, path, reason,
+        detail = references.reference_diagnostic(left, right, kind, path, reason,
             local_comparison=self.local_comparison, forms_for=self.reference_forms,
             kms_format=self.kms_format, resource_type=self.resource_type, redact=self.redacted)
+        origins = reference_evidence.export_origins(right, getattr(self, 'export_provenance', {}))
+        if origins:
+            detail['exports'] = self.redacted(origins)
+        return detail
 
     def reference_decision(self, left, right, kind, path):
         return references.reference_same(left, right, kind, path, local_comparison=self.local_comparison,
             forms_for=self.reference_forms, resolve_literal=self.reference_literal,
-            resource_type=self.resource_type, kms_format=self.kms_format, diagnostic=self.reference_diagnostic)
+            resource_type=self.resource_type, kms_format=self.kms_format, diagnostic=self.reference_diagnostic,
+            evidence=self.reference_evidence if self.local_comparison else None)
+
+    def reference_evidence(self, left, right, kind, path):
+        return reference_evidence.compare(self, left, right, kind, path)
 
     def reference_same(self, left, right, kind, path):
         return self.reference_decision(left, right, kind, path).equal
@@ -463,12 +489,24 @@ class Inputs:
             local_comparison=self.local_comparison, reference=self.reference,
             resource_type=self.resource_type, forms_for=self.reference_forms)
 
-    def prepare_value(self, service, row, kind, *, stack=None, context=None):
+    def normalize_model_reference(self, service, row_id, field, value):
+        try:
+            if service not in self.model_references:
+                self.model_references[service] = model_reference.ModelReferences(self, service)
+            key = f'desired.row.{row_id}.{field}'
+            return self.model_references[service].normalize(self, key, value,
+                '' if field == 'document' or isinstance(value, (list, dict)) else None)
+        except (KeyError, ValueError, TypeError) as error:
+            raise Blocked(str(error)) from error
+
+    def prepare_value(self, service, row, kind, *, stack=None, context=None, row_id=None):
+        normalize = (lambda value: self.normalize_model_reference(service, row_id,
+            'document' if 'document' in row else 'value', value)) if self.local_comparison and row_id is not None else None
         return values.desired_value(service, row, kind, stack=stack, context=context,
             local_comparison=self.local_comparison, desired_reference=self.desired_reference,
             resource_type=self.resource_type, property_schema=self.catalog.property_schema,
-            evaluate=self.evaluate, model_path=self.root / 'model' / self.environment / self.directory / (service + '.properties'))
-
+            evaluate=self.evaluate, model_path=self.root / 'model' / self.environment / self.directory / (service + '.properties'),
+            normalize=normalize)
 
     def project_rows(self, kind, rows):
         indexed_rows = _imports_array_display.indexed_rows

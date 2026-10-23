@@ -708,6 +708,46 @@ def _callback_local_reference_cases_candidate(root, /):
     return comparison
 
 
+def recorded_reference_case():
+    with tempfile.TemporaryDirectory(prefix='recorded-reference-') as directory, \
+         patch('socket.socket', side_effect=AssertionError('network forbidden')):
+        root = Path(directory) / 'project'
+        _, template = fixture(root, stacks=2, services=['s3'])
+        fixed = 'vpc-0123456789abcdef0'
+        template['Outputs'] = {'Vpc': {'Value': {'Ref': 'OtherService'}, 'Export': {'Name': {'Fn::Sub': '${Name}-VpcId'}}}}
+        template['Resources']['Subnet'] = {'Type': 'AWS::EC2::Subnet', 'Properties': {'VpcId': {'Fn::ImportValue': 'app-dev-data2-VpcId'}}}
+        mutate_template(root, template)
+        model = {'desired.service.vpc.serviceId': 'vpc',
+            'desired.resource.001.resourceType': 'EC2.VPC',
+            'desired.resource.001.cfn-logicalId': 'cfn-stack-app-dev-data2-OtherService',
+            'desired.row.001-001.property': 'EC2.VPC.VpcId', 'desired.row.001-001.value': '`PENDING_DEPLOY`',
+            'observed.row.001-001.value': '`' + fixed + '`',
+            'desired.resource.002.resourceType': 'EC2.Subnet',
+            'desired.resource.002.cfn-logicalId': 'cfn-stack-app-dev-data1-Subnet',
+            'desired.row.002-001.property': 'EC2.Subnet.VpcId', 'desired.row.002-001.value': '`' + fixed + '`'}
+        model.update(allocate(model, ['001', '002']))
+        spec = dict(consumerKey='desired.row.002-001.value', text=fixed, occurrence='1', producerKind='resource',
+            producerScope='dev/123456789012/vpc', producerLogicalId=model['desired.resource.001.logicalId'],
+            resourceType='EC2.VPC', format='identifier', property='EC2.VPC.VpcId', labelPolicy='none')
+        model.update({'desired.reference.vpc.' + key: value for key, value in spec.items()})
+        path = root / 'model/dev/123456789012/vpc.properties'
+        write(path, '\n'.join(key + '=' + value for key, value in model.items()) + '\n')
+        before = {file: file.read_bytes() for file in sources.load_model(path).files}
+        comparison, records = compare(root, ['vpc'])
+        record = next(item for item in records if item['property'] == 'EC2.Subnet.VpcId')
+        assert record['category'] == 'matched', records
+        assert record['reference_diagnostics'][0]['evidence_type'] == 'recorded_observed'
+        assert 'desired.reference.vpc.consumerKey' in comparison.models['vpc'].authoritative
+        assert 'desired.reference.vpc.consumerKey' not in comparison.models['vpc'].values
+        assert {file: file.read_bytes() for file in before} == before
+        model['observed.row.001-001.value'] = '`PENDING_DEPLOY`'
+        write(path, '\n'.join(key + '=' + value for key, value in model.items()) + '\n')
+        _, records = compare(root, ['vpc'])
+        record = next(item for item in records if item['property'] == 'EC2.Subnet.VpcId')
+        assert record['category'] == 'uncompared', records
+        assert 'identifier_unobserved' in record['reference_diagnostics'][0]['reason']
+
+
 def local_reference_cases():
     with tempfile.TemporaryDirectory(prefix='local-references-') as directory:
         root = Path(directory) / 'project'
@@ -791,6 +831,7 @@ def local_reference_cases():
             # A missing declared stack prevents proof of export uniqueness.
             (root / 'infra/cloudformation/parameters/dev/123456789012/stack-2.json').unlink()
             expect_error(lambda: candidate().evaluate(consumer, imported), 'search incomplete')
+    recorded_reference_case()
 
 
 def _callback_symbolic_string_cases_category(comparison, name, prop, resource, root, template, /, actual, desired):
@@ -1515,6 +1556,10 @@ def check_nested_membership(scan_project):
             ('Stages[].Name', '`first`'), ('Stages[].Name', '`last`')]
     comparison.rows['codepipeline'] = {'001': [(f'001-{number:03d}', {'property': kind + '.' + prop,
                                       'value': value}) for number, (prop, value) in enumerate(rows, 1)]}
+    authority = {f'desired.row.{rid}.{key}': value
+                 for rid, row in comparison.rows['codepipeline']['001'] for key, value in row.items()}
+    comparison.models['codepipeline'] = sources.ModelSnapshot(
+        sources.Scope(root, 'dev', '123456789012', 'codepipeline'), authority, authority, {}, {}, {}, {}, ())
     template = root / 'infra/cloudformation/templates/shared.yaml'
     # An independent property still reports its real difference.
     definition = {'Properties': {'RestartExecutionOnUpdate': True, 'Stages': [{'Name': 'first'}]}}

@@ -43,12 +43,14 @@ class ValueDecision:
     equivalent: bool
 
 
-def desired_value(service, row, kind, *, local_comparison, desired_reference, resource_type, property_schema, evaluate, model_path, stack=None, context=None):
+def desired_value(service, row, kind, *, local_comparison, desired_reference, resource_type, property_schema, evaluate, model_path, stack=None, context=None, normalize=None):
     warnings = []
     try:
         value = _desired_value(service, row, kind, local_comparison=local_comparison,
             desired_reference=desired_reference, resource_type=resource_type, property_schema=property_schema,
             evaluate=evaluate, model_path=model_path, stack=stack, context=context, warnings=warnings)
+        if normalize is not None:
+            value = normalize(value)
     except (Blocked, KeyError, ValueError, TypeError) as error:
         return PreparedValue(None, warnings, error)
     return PreparedValue(value, warnings)

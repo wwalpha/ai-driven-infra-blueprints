@@ -341,7 +341,7 @@ def select_checks(root, paths, affected=False, *, integration_cases=None):
         mapping[f'framework/scripts/tests/support/{support}.py'] = set(deploy_tests)
     # Use the same dependency map for UTs and registered IT cases. Case selectors
     # keep comparison changes away from scan/publication and deployment workflows.
-    comparison_units = {'comparison_core-unit.checks.py', 'test_issues_iac.py'}
+    comparison_units = {'comparison_core-unit.checks.py', 'test_issues_iac.py', 'reference-evidence-unit.checks.py'}
     comparison_cases = {'check_comparison_repair', 'check_local_reference', 'check_symbolic_string',
                         'check_reference_property_contract', 'check_reference_identity_report', 'check_reference_diagnostics',
                         'check_condition_diagnostics', 'check_aws_standard_comparison',

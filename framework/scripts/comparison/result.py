@@ -152,7 +152,8 @@ def setting_result(service, identity, prop, desired, actual, decision, stack, so
     if decision.equal:
         return RowResult([record('matched', service, identity, prop,
             'reference expression equivalent' if decision.equivalent else 'equal', stack=stack,
-            source=source, template=template, redact=redact)])
+            source=source, template=template, redact=redact,
+            **({"reference_diagnostics": list(decision.diagnostics)} if decision.diagnostics else {}))])
     details = {'model_sources': sources}
     reason = 'value mismatch'
     if decision.diagnostics:

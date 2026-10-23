@@ -225,7 +225,7 @@ class Comparison(Inputs):
                 else:
                     try:
                         parent = re.split(r'\.(?:Configuration|Values)(?:\[|\.|$)', short)[0]
-                        prepared = self.prepare_value(service, row, kind, stack=name, context=contexts.get(rid, contexts.get(parent)))
+                        prepared = self.prepare_value(service, row, kind, row_id=rid, stack=name, context=contexts.get(rid, contexts.get(parent)))
                         settings.result.warnings.extend(prepared.warnings)
                         if prepared.error is not None:
                             raise prepared.error

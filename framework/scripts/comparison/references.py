@@ -61,10 +61,10 @@ def reference_diagnostic(left, right, kind, path, reason, *, local_comparison, f
                               allowed_forms=sorted(forms) if forms is not None else None,
                               format=dict(model=format_status(left), iac=format_status(right)), reason=reason))
 
-def _callback_reference_same_reference(diagnostic, forms_for, kind, kms_format, local_comparison, nested, resolve_literal, resource_type, /, a, b, p):
+def _callback_reference_same_reference(diagnostic, evidence, forms_for, kind, kms_format, local_comparison, nested, resolve_literal, resource_type, /, a, b, p):
     outcome = reference_same(a, b, kind, p, local_comparison=local_comparison,
         forms_for=forms_for, resolve_literal=resolve_literal, resource_type=resource_type,
-        kms_format=kms_format, diagnostic=diagnostic)
+        kms_format=kms_format, diagnostic=diagnostic, evidence=evidence)
     nested.append(outcome)
     return outcome.equal
 
@@ -78,11 +78,13 @@ def _callback_reference_same_decision(nested, /, equal, diagnostics=(), equivale
                              equivalent or any(result.equivalent for result in nested))
 
 
-def reference_same(left, right, kind, path, *, local_comparison, forms_for, resolve_literal, resource_type, kms_format, diagnostic):
+def reference_same(left, right, kind, path, *, local_comparison, forms_for, resolve_literal, resource_type, kms_format, diagnostic, evidence=None):
+    if evidence is not None and hasattr(left, "saved_literal"):
+        return evidence(left, right, kind, path)
     if any(isinstance(value, Expression) and value.operation == 'Unverified' for value in (left, right)):
         return ReferenceDecision(None)
     nested = []
-    reference = _bind_framework_callback(_callback_reference_same_reference, diagnostic, forms_for, kind, kms_format, local_comparison, nested, resolve_literal, resource_type)
+    reference = _bind_framework_callback(_callback_reference_same_reference, diagnostic, evidence, forms_for, kind, kms_format, local_comparison, nested, resolve_literal, resource_type)
     decision = _bind_framework_callback(_callback_reference_same_decision, nested)
     hook = registry.hook(kind, 'reference_compare')
     if hook is not None:
@@ -101,6 +103,8 @@ def reference_same(left, right, kind, path, *, local_comparison, forms_for, reso
         result, reason = registry.compare_kms_forms(left, right, allowed, resolve_literal=resolve_literal,
                                                     format_of=kms_format)
         return decision(result, [diagnostic(left, right, kind, path, reason)] if reason else ())
+    if evidence is not None and isinstance(left, str) and isinstance(right, (ResourceReference, Expression)):
+        return evidence(left, right, kind, path)
     unproven = _bind_framework_callback(_callback_reference_same_unproven, decision, diagnostic, kind, left, path, right)
 
     if isinstance(left, Expression) or isinstance(right, Expression):
