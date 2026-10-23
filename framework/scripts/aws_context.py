@@ -3,19 +3,16 @@
 
 from __future__ import annotations
 
-from validation_cache import input_text
-
 import argparse
 import json
-import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
 from issue_gate import require_target_no_issues
-
-
-from project_targets import DeployContextError, select_target, load_target
+from project_targets import DeployContextError as DeployContextError
+from project_targets import load_target as load_target
 
 
 def check_deploy_context(
@@ -115,5 +112,3 @@ def main() -> int:
         print(f"- AWS profile: {target.get('awsProfile') or args.profile}")
     print(f"- IaC engine: {target['iacEngine']}")
     return 0
-
-

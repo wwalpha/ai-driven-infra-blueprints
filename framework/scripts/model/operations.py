@@ -1,15 +1,38 @@
 """Prepare ordinary properties candidates; consume existing guarded save contexts."""
+
+from __future__ import annotations
+
+import copy
 from dataclasses import dataclass
+from dataclasses import replace as replace
+from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import MappingProxyType
-from dataclasses import replace
-import re
+
+import array_display as _imports_array_display
+import generation_inputs as _imports_generation_inputs
+import import_guard as _imports_import_guard
+import task_contract_core as _imports_task_contract
+import task_contract_core as _imports_task_contract_core
+import utils.input_cache as _imports_utils_input_cache
+from utils.source_reads import CandidateReads as CandidateReads
+
+import model.core as _imports_model_core
+import model.identity as _dependency_model_identity
+import model.identity as _imports_model_identity
+import model.impact as _imports_model_impact
+import model.observed as _imports_model_observed
+import model.projection as _imports_model_projection
+import model.references as _dependency_model_references
+import model.sources as _dependency_model_sources
+import model.sources as _imports_model_sources
+import model.validation as _imports_model_validation
+from model.configuration import ConfigurationIndex as ConfigurationIndex
+from model.configuration import _observed_index
+from model.configuration import resource_configuration as resource_configuration
+from model.core import ReferenceResolutionError
+from model.core import entries as entries
 from model.format import owner
-from model.sources import (ModelSnapshot, SourceWriteContext, load_model, model_parts,
-                           publication_lock, _publish_transaction, safe)
-from model.core import entries, LINK
-from model.identity import resource_link
-from model.references import declarations, pointer_leaf, usages, _json
 
 
 def _same(left, right):
@@ -18,12 +41,12 @@ def _same(left, right):
     if isinstance(left, dict):
         return left.keys() == right.keys() and all(_same(value, right[key]) for key, value in left.items())
     if isinstance(left, (tuple, list)):
-        return len(left) == len(right) and all(_same(a, b) for a, b in zip(left, right))
+        return len(left) == len(right) and all(_same(a, b) for a, b in zip(left, right, strict=False))
     return left == right
 
 
 def _field_value(key, value):
-    return _json(key, value)[0]
+    return _dependency_model_references._json(key, value)[0]
 
 
 def _warn(warnings, message, **details):
@@ -35,54 +58,14 @@ def operation_values(values, number):
     return {key: value for key, value in values.items() if owner(key, values) == ('resource', number)}
 
 
-def _observed_index(values):
-    result = {}
-    for key, value in values.items():
-        if key.startswith('observed.row.'):
-            identity = key.removeprefix('observed.row.')
-            for offset, char in enumerate(identity):
-                if char == '-':
-                    result.setdefault(identity[:offset], {})[key] = value
-    return result
 
 
-class ConfigurationIndex:
-    """Lazy indexes owned by one comparison; retain the source authority itself."""
-    def __init__(self, values):
-        self.values = values
-        self.resources = {}
-        for key, value in values.items():
-            if key.startswith('desired.resource.'):
-                number, _, field = key.removeprefix('desired.resource.').partition('.')
-                self.resources.setdefault(number, {})[field] = value
-        self.rows = self.references = self.observed = None
-
-    def resource_rows(self, number):
-        if self.rows is None:
-            from model.core import resource_row_index
-            self.rows = resource_row_index(self.values)
-        return self.rows[number]
-
-    def resource_references(self, number):
-        if self.references is None:
-            references = {}
-            for identity, spec in declarations(self.values).items():
-                kind, rid = owner(spec['consumerKey'], self.values)
-                if kind == 'resource':
-                    references.setdefault(rid, {})[identity] = spec
-            self.references = references
-        return self.references.get(number, {})
-
-    def resource_observed(self, number):
-        if self.observed is None:
-            self.observed = _observed_index(self.values)
-        return self.observed.get(number, {})
 
 
 def preserve_fixed_fields(before, after, operation):
-    from model.core import entries
+    entries = _imports_model_core.entries
+    preserve_allocation = _imports_model_identity.preserve_allocation
     old, new = before.authoritative, after.authoritative
-    from model.identity import preserve_allocation
     preserve_allocation(old, new)
     previous_refs, current_refs = declarations(old), declarations(new)
     removed_refs = previous_refs.keys() - current_refs.keys()
@@ -118,7 +101,7 @@ def preserve_fixed_fields(before, after, operation):
                 old_observed, new_observed = _observed_index(old), _observed_index(new)
             before_observed, after_observed = old_observed.get(rid, {}), new_observed.get(rid, {})
             if before_observed != after_observed:
-                from model.observed import require_observable_row
+                require_observable_row = _imports_model_observed.require_observable_row
                 for key in before_observed.keys() | after_observed.keys():
                     if before_observed.get(key) != after_observed.get(key) or (key in before_observed) != (key in after_observed):
                         require_observable_row(before, key.removeprefix('observed.row.').removesuffix('.value'))
@@ -132,53 +115,14 @@ def preserve_fixed_fields(before, after, operation):
             raise ValueError('fixed Stack placementName changed: ' + identity)
 
 
-class CandidateReads:
-    """Overlay candidate bytes on the existing input recorder, including file sets."""
-    def __init__(self, before, changes):
-        self.before, self.changes = before, changes
-
-    def read(self, path):
-        if path in self.changes:
-            value = self.changes[path]
-            return None if value is None else value.encode('utf-8')
-        return self.before.read(path)
-
-    def kind(self, path):
-        actual = self.before.kind(path)
-        if actual == 'symlink':
-            return actual
-        if path in self.changes:
-            return 'missing' if self.changes[path] is None else 'file'
-        if any(value is not None and path in candidate.parents for candidate, value in self.changes.items()):
-            return 'dir'
-        return actual
-
-    def select(self, base, pattern='*', recursive=False, kinds=None):
-        result = set(self.before.select(base, pattern, recursive=recursive, kinds=kinds))
-        candidates = set(self.changes)
-        for path, value in self.changes.items():
-            if value is not None:
-                candidates.update(parent for parent in path.parents if parent.is_relative_to(base) and parent != base)
-        for path in candidates:
-            if not path.is_relative_to(base) or path == base:
-                continue
-            relative = path.relative_to(base)
-            if not relative.match(pattern) or (not recursive and '**' not in pattern and len(relative.parts) != len(Path(pattern).parts)):
-                continue
-            kind = self.kind(path)
-            if kind == 'missing' or kinds is not None and kind not in kinds:
-                result.discard(path)
-            else:
-                result.add(path)
-        return tuple(sorted(result))
 
 
 @dataclass(frozen=True, init=False)
 class EditPlan:
-    before: ModelSnapshot
-    candidate: ModelSnapshot
+    before: _dependency_model_sources.ModelSnapshot
+    candidate: _dependency_model_sources.ModelSnapshot
     changes: object
-    policy: SourceWriteContext
+    policy: _dependency_model_sources.SourceWriteContext
 
     def __init__(self, *args, **kwargs):
         raise TypeError('use prepare_edit or prepare_observed; an EditPlan constructor grants no save authority')
@@ -191,9 +135,19 @@ class EditPlan:
         return plan
 
 
+
+
+def _preserve_layout_relative(snapshot, path):
+    return path.relative_to(snapshot.scope.root)
+
+
+def _callback_preserve_layout_order(values, prefix=None):
+    return list(dict.fromkeys(owner(key, values) if prefix is None else key[len(prefix):].partition('.')[0]
+                              for key in values if prefix is None or key.startswith(prefix)))
+
+
 def preserve_layout(before, after):
-    def relative(snapshot, path):
-        return path.relative_to(snapshot.scope.root)
+    relative = _preserve_layout_relative
     old_parts = [relative(before, path) for path in before.parts]
     new_parts = [relative(after, path) for path in after.parts]
     retained = set(old_parts) & set(new_parts)
@@ -207,9 +161,7 @@ def preserve_layout(before, after):
         expected = new_parts[0] if promotion else previous
         if relative(after, after.locations[key][0]) != expected:
             raise ValueError('dedicated operations must preserve existing block placement: ' + key)
-    def order(values, prefix=None):
-        return list(dict.fromkeys(owner(key, values) if prefix is None else key[len(prefix):].partition('.')[0]
-                                  for key in values if prefix is None or key.startswith(prefix)))
+    order = _callback_preserve_layout_order
     for prefix in (None, 'desired.row.'):
         old, new = order(before.authoritative, prefix), order(after.authoritative, prefix)
         common = set(old) & set(new)
@@ -218,7 +170,7 @@ def preserve_layout(before, after):
 
 
 def _context(snapshot, policy):
-    if not isinstance(policy, SourceWriteContext) or policy.closed:
+    if not isinstance(policy, _dependency_model_sources.SourceWriteContext) or policy.closed:
         raise ValueError('Model edit requires an open authorized source context; names and flags grant no rights')
     if snapshot.scope.root != policy.root:
         raise ValueError('Model snapshot belongs to another save context')
@@ -228,8 +180,10 @@ def _context(snapshot, policy):
 
 
 def prepare_edit(snapshot, candidate, policy):
+    validate_json_settings = _imports_model_validation.validate_json_settings
     if isinstance(snapshot, Path):
-        from model.sources import edit_base, raw_model
+        edit_base = _imports_model_sources.edit_base
+        raw_model = _imports_model_sources.raw_model
         reader = raw_model
         if policy.operation.action == 'edit':
             reader = edit_base
@@ -240,7 +194,7 @@ def prepare_edit(snapshot, candidate, policy):
     for path, text in candidate.items():
         if not isinstance(path, Path) or not path.is_absolute() or '..' in path.parts:
             raise ValueError('Model candidates require absolute canonical paths')
-        safe(policy.root, path)
+        _dependency_model_sources.safe(policy.root, path)
         if path not in policy.paths or not (path == entry or path.parent == entry.with_suffix('') and path.suffix == '.properties'):
             raise ValueError('unregistered Model candidate path: ' + str(path))
         if text is not None and not isinstance(text, str):
@@ -250,12 +204,11 @@ def prepare_edit(snapshot, candidate, policy):
             output[path] = text
     reads = CandidateReads(policy.snapshot, output)
     after = load_model(snapshot.scope, reads)
-    from model.validation import validate_json_settings
     warnings = list(after.warnings)
     validate_json_settings(after.authoritative, entry, warnings=warnings)
     after = after._replace(warnings=tuple(warnings))
     if policy.operation.action == 'observed':
-        from model.observed import verify_observed_outputs
+        verify_observed_outputs = _imports_model_observed.verify_observed_outputs
         verify_observed_outputs({path: text.encode('utf-8') for path, text in snapshot.files.items()}, output)
         changed_keys = {key for key in snapshot.authoritative.keys() | after.authoritative.keys()
                         if snapshot.authoritative.get(key) != after.authoritative.get(key) or
@@ -271,7 +224,8 @@ def prepare_edit(snapshot, candidate, policy):
 
 def _verify_published_inputs(context, changes):
     """Only planned bytes/file additions may differ from the input snapshot after a save."""
-    from generation_inputs import GenerationInputs
+    GenerationInputs = _imports_generation_inputs.GenerationInputs
+    task_revision = _imports_task_contract.task_revision
     overlay = CandidateReads(context.snapshot, changes)
     for path in tuple(context.snapshot.contents):
         expected = overlay.read(path)
@@ -284,13 +238,18 @@ def _verify_published_inputs(context, changes):
         expected = overlay.select(base, pattern, recursive, kinds)
         if tuple(GenerationInputs.live_select(base, pattern, recursive, kinds)) != expected:
             raise ValueError('Model input file set changed during publication: ' + str(base))
-    from task_contract import task_revision
     if task_revision(context.root, selected=context.snapshot.expected_task[0]) != context.snapshot.expected_task:
         raise ValueError('Task changed during Model publication')
 
 
 def publish_edit(plan, context):
     return _publish_plans((plan,), context)
+
+
+def _callback__publish_plans_finish(changes, context, /):
+    if context._finish is not None:
+        context._finish()
+    _verify_published_inputs(context, changes)
 
 
 def _publish_plans(plans, context):
@@ -302,23 +261,20 @@ def _publish_plans(plans, context):
             raise ValueError('Model batch contains overlapping source writes')
         changes.update(plan.changes)
     try:
-        with publication_lock(context.root) as journal:
+        with _dependency_model_sources.publication_lock(context.root) as journal:
             for plan in plans:
                 _context(plan.before, context)
             context._require_current(changes)
             if context.operation.action in {'import-retarget', 'edit'}:
-                from import_guard import require_import_changes
-                from task_contract import selected_task
-                from validation_cache import recording_inputs
+                require_import_changes = _imports_import_guard.require_import_changes
+                selected_task = _imports_task_contract_core.selected_task
+                recording_inputs = _imports_utils_input_cache.recording_inputs
                 with selected_task(context.root, context.snapshot.expected_task[0]), recording_inputs(context.snapshot):
                     require_import_changes(context.root, output=changes)
             context.snapshot.verify()
-            def finish():
-                if context._finish is not None:
-                    context._finish()
-                _verify_published_inputs(context, changes)
+            finish = _bind_framework_callback(_callback__publish_plans_finish, changes, context)
             if changes or context._receipt is not None:
-                _publish_transaction(context.root, {p: text for p, text in changes.items() if text is not None},
+                _dependency_model_sources._publish_transaction(context.root, {p: text for p, text in changes.items() if text is not None},
                                      {p for p, text in changes.items() if text is None}, journal, start=context._start, finish=finish, receipt=context._receipt)
             else:
                 finish()
@@ -329,8 +285,12 @@ def _publish_plans(plans, context):
 
 def operation_rows(values, number):
     """Formal Property and array position identify rows, never matching row numbers."""
-    from array_display import ROOT, array_template, numbered_property
-    from model.core import resource_row_index
+    ROOT = _imports_array_display.ROOT
+    array_template = _imports_array_display.array_template
+    numbered_property = _imports_array_display.numbered_property
+
+    resource_row_index = _imports_model_core.resource_row_index
+
     result, states = {}, {}
     for rid, row in resource_row_index(values)[number]:
         key = numbered_property(array_template(row['property'], values['desired.resource.' + number + '.resourceType'], ROOT), states)
@@ -350,8 +310,10 @@ def _self_value(value, reference):
         return {key: _self_value(child, reference) for key, child in value.items()}
     if isinstance(value, list):
         return [_self_value(child, reference) for child in value]
-    if isinstance(value, str) and resource_link(value):
-        from model.identity import parse_reference, anchor_index, select_anchor
+    if isinstance(value, str) and _dependency_model_identity.resource_link(value):
+        anchor_index = _imports_model_identity.anchor_index
+        parse_reference = _imports_model_identity.parse_reference
+        select_anchor = _imports_model_identity.select_anchor
         snapshot, resource = reference
         environment, target, service, anchor = parse_reference(value, snapshot.scope)
         scope = snapshot.scope
@@ -366,7 +328,7 @@ def _self_value(value, reference):
 
 
 def _pointer_parent(value, pointer):
-    pointer_leaf(value, pointer)
+    _dependency_model_references.pointer_leaf(value, pointer)
     tokens = [part.replace('~1', '/').replace('~0', '~') for part in pointer.split('/')[1:]]
     if not tokens:
         return None, None
@@ -392,9 +354,19 @@ def _mask_references(leaf, records):
     return tuple(result)
 
 
+def _callback__compare_field_select(resolved, /, records, path, address):
+    resources = [usage for usage in records if usage.producer_kind == 'resource']
+    selected = [usage for usage in resources if resolved[path, usage] == address]
+    if not selected:
+        if len({(usage.start, usage.end) for usage in resources}) != 1:
+            raise ValueError('Model reference declaration cannot identify an unambiguous saved resource occurrence')
+        selected = resources
+    return selected
+
+
 def _compare_field(before, old_key, after, new_key, references, warnings, usages_by_path, *, self_anchors=None):
-    left, structured_left = _json(old_key, before.authoritative[old_key])
-    right, structured_right = _json(new_key, after.authoritative[new_key])
+    left, structured_left = _dependency_model_references._json(old_key, before.authoritative[old_key])
+    right, structured_right = _dependency_model_references._json(new_key, after.authoritative[new_key])
     if structured_left != structured_right:
         raise ValueError('Model operation changed JSON/backtick representation: ' + new_key)
     if self_anchors is not None and not references:
@@ -403,14 +375,13 @@ def _compare_field(before, old_key, after, new_key, references, warnings, usages
         if not _same(left, right):
             raise ValueError('Model operation changed an undeclared value/type: ' + new_key)
         return
-    import copy
     left, right = copy.deepcopy(left), copy.deepcopy(right)
     for declaration in references:
         pointer = declaration.pointer
         if structured_left != (pointer is not None):
             raise ValueError('Model reference edit requires an explicit JSON string-leaf pointer')
-        old_leaf = pointer_leaf(left, pointer) if pointer is not None else left
-        new_leaf = pointer_leaf(right, pointer) if pointer is not None else right
+        old_leaf = _dependency_model_references.pointer_leaf(left, pointer) if pointer is not None else left
+        new_leaf = _dependency_model_references.pointer_leaf(right, pointer) if pointer is not None else right
         if not isinstance(old_leaf, str) or not isinstance(new_leaf, str):
             raise ValueError('Model reference edit requires string leaves')
         all_previous = [usage for usage in usages_by_path[before.scope.path]
@@ -418,14 +389,7 @@ def _compare_field(before, old_key, after, new_key, references, warnings, usages
         all_current = [usage for usage in usages_by_path[after.scope.path]
                    if usage.consumer_key == new_key and usage.pointer == pointer]
         resolved = usages_by_path['resolved']
-        def select(records, path, address):
-            resources = [usage for usage in records if usage.producer_kind == 'resource']
-            selected = [usage for usage in resources if resolved[path, usage] == address]
-            if not selected:
-                if len({(usage.start, usage.end) for usage in resources}) != 1:
-                    raise ValueError('Model reference declaration cannot identify an unambiguous saved resource occurrence')
-                selected = resources
-            return selected
+        select = _bind_framework_callback(_callback__compare_field_select, resolved)
         previous = select(all_previous, before.scope.path, declaration.source)
         previous_ids = {usage.metadata_id for usage in previous if usage.metadata_id is not None}
         matching_ids = [usage for usage in all_current if usage.metadata_id in previous_ids]
@@ -472,13 +436,12 @@ def _resource_references(operation, scope, rid, field, prop=None):
 
 
 def _models(root, targets, *, raw=False):
-    from model.sources import list_models, FileReads, raw_model
-    reads = FileReads()
+    reads = _dependency_model_sources.FileReads()
     reader = load_model
     if raw:
-        reader = raw_model
+        reader = _dependency_model_sources.raw_model
     return {(scope.environment, scope.target, scope.service): reader(scope, reads)
-            for scope in list_models(root, reads) if (scope.environment, scope.target) in targets}
+            for scope in _dependency_model_sources.list_models(root, reads) if (scope.environment, scope.target) in targets}
 
 
 def _check_reference_metadata(before, after, editable, moved_keys, removed, warnings, editable_ids, text_ids, detached=frozenset()):
@@ -503,7 +466,7 @@ def _check_reference_metadata(before, after, editable, moved_keys, removed, warn
         for identity, spec, self_reference in expected.get(key, ()):
             found = None
             for index, (_, actual) in enumerate(candidates):
-                position = (key, spec.get('pointer'))
+                _ = (key, spec.get('pointer'))
                 ignored = {'text'} if self_reference else set()
                 if identity in editable_ids.get(before.scope.path, set()):
                     ignored |= {'producerScope', 'producerId', 'producerLogicalId', 'text'}
@@ -559,14 +522,15 @@ def _check_reference_metadata(before, after, editable, moved_keys, removed, warn
 
 def _require_declared_sources(before, after, sources):
     """Detect raw changes outside the selected targets without parsing unrelated Models."""
-    from model.sources import FileReads, source_scope
+    FileReads = _imports_model_sources.FileReads
+    source_scope = _imports_model_sources.source_scope
     inventories = []
     for root in (before, after):
         reads, files = FileReads(), {}
         for path in reads.select(root / 'model', '*', recursive=True):
             if path.suffix != '.properties' or reads.kind(path) == 'dir':
                 continue
-            safe(root, path)
+            _dependency_model_sources.safe(root, path)
             source_scope(root, path)
             files[path.relative_to(root).as_posix()] = reads.read(path)
         inventories.append(files)
@@ -576,9 +540,28 @@ def _require_declared_sources(before, after, sources):
         raise ValueError('Model operation has undeclared raw source changes')
 
 
+
+
+
+
+
+
+def _verify_model_operation_raw_files(models, root):
+    return {path.relative_to(root).as_posix(): text for model in models.values() for path, text in model.files.items()}
+
+
+def _verify_model_operation_remaining(values, handled):
+    return {key: _field_value(key, value) for key, value in values.items() if key not in handled and (not key.startswith('desired.reference.'))}
+
+
+def _verify_model_operation_explicit(values, identity):
+    prefix = f'desired.resource.{identity}.'
+    return {key[len(prefix):]: value for key, value in values.items() if key.startswith(prefix)}
+
+
 def verify_model_operation(before, after, operation, sources):
     """Final latest-base proof for exactly declared deletions, transfers and reference edits."""
-    from model.sources import source_scope
+    source_scope = _imports_model_sources.source_scope
     _require_declared_sources(before, after, sources)
     # Source identity is independent of changes to a mutable Stack name.
     if (before / 'project.json').read_bytes() != (after / 'project.json').read_bytes():
@@ -588,8 +571,7 @@ def verify_model_operation(before, after, operation, sources):
     old_models, new_models = _models(before, targets, raw=True), _models(after, targets)
     if old_models.keys() != new_models.keys():
         raise ValueError('Model-only operation cannot add/remove service Models')
-    def raw_files(models, root):
-        return {path.relative_to(root).as_posix(): text for model in models.values() for path, text in model.files.items()}
+    raw_files = _verify_model_operation_raw_files
     old_raw, new_raw = raw_files(old_models, before), raw_files(new_models, after)
     changed_raw = {path for path in old_raw.keys() | new_raw.keys() if old_raw.get(path) != new_raw.get(path)}
     if changed_raw - set(sources):
@@ -631,7 +613,7 @@ def verify_model_operation(before, after, operation, sources):
                 raise ValueError('retarget missing or ambiguous formal Property: ' + str(ref.property_name))
     detached = _verify_detaches(old_models, new_models, operation.detaches)
     caches = {model.scope.path: model for collection in (old_models, new_models) for model in collection.values()}
-    usage_records = {path: usages(model, _cache=caches) for path, model in list(caches.items())}
+    usage_records = {path: _dependency_model_references.usages(model, _cache=caches) for path, model in list(caches.items())}
     addresses, resolved = {}, {}
     for path, records in usage_records.items():
         model = caches[path]
@@ -672,9 +654,7 @@ def verify_model_operation(before, after, operation, sources):
             if pair and (old_resources[rid].get('resourceMode') != 'IMPORT' or source_resource['resourceType'] != old_resources[rid]['resourceType']):
                 raise ValueError('Model merge requires matching existing IMPORT Resource Types')
             fixed = {'resourceType', 'logicalId', 'anchor', 'resourceMode', 'cfn-logicalId', 'parentProperty', 'parentReference'}
-            def explicit(values, identity):
-                prefix = f'desired.resource.{identity}.'
-                return {key[len(prefix):]: value for key, value in values.items() if key.startswith(prefix)}
+            explicit = _verify_model_operation_explicit
             source_fields, actual_fields = explicit(source_values, source_id), explicit(actual_values, rid)
             ignored = fixed if pair else set()
             if source_fields.keys() - ignored != actual_fields.keys() - ignored:
@@ -722,9 +702,7 @@ def verify_model_operation(before, after, operation, sources):
             handled_new.update(operation_values(new.authoritative, rid))
         for rid in deleted.get(scope, set()):
             handled_old.update(operation_values(old.authoritative, rid))
-        def remaining(values, handled):
-            return {key: _field_value(key, value) for key, value in values.items()
-                    if key not in handled and not key.startswith('desired.reference.')}
+        remaining = _verify_model_operation_remaining
         if not _same(remaining(old.authoritative, handled_old), remaining(new.authoritative, handled_new)):
             raise ValueError('Model operation changed an unrelated service, Stack or display field')
         _check_reference_metadata(old, new, editable, moved_keys,
@@ -735,40 +713,8 @@ def verify_model_operation(before, after, operation, sources):
     return warnings
 
 
-def resource_configuration(values, number, path=None, expansion=None, *, index=None):
-    """Compare configuration/native values and fixed reference meaning, excluding display labels."""
-    def native(value):
-        if isinstance(value, dict):
-            return {'object': {key: native(child) for key, child in value.items()}}
-        if isinstance(value, list):
-            return {'array': [native(child) for child in value]}
-        if not isinstance(value, str):
-            return {type(value).__name__: value}
-        return {'string': value}
-    index = index if index is not None else ConfigurationIndex(values)
-    resource = {key: native(value) for key, value in index.resources.get(number, {}).items()}
-    rows = []
-    for row_id, row in index.resource_rows(number):
-        key = f'desired.row.{row_id}.' + ('document' if 'document' in row else 'value')
-        rows.append([row_id, row['property'], native(_field_value(key, values[key]))])
-    references = {}
-    for identity, spec in index.resource_references(number).items():
-        consumer = spec['consumerKey']
-        if owner(consumer, values) != ('resource', number) or not (consumer.startswith('desired.resource.') or
-                consumer.startswith('desired.row.') and consumer.endswith(('.value', '.document'))):
-            continue
-        references[identity] = {field: native(value) if field == 'text' and spec['format'] == 'link' else value
-                                for field, value in spec.items()}
-    observed = index.resource_observed(number)
-    if observed and path is not None and values.get(f'desired.resource.{number}.resourceMode') == 'IMPORT':
-        from types import SimpleNamespace
-        from model.sources import scope_for
-        from model.observed import foreign_observation
-        snapshot = SimpleNamespace(scope=scope_for(path), authoritative=values)
-        observed = {key: value for key, value in observed.items() if not foreign_observation(
-            snapshot, key.removeprefix('observed.row.').removesuffix('.value'))}
-    return {'resource': resource, 'rows': rows, 'references': references,
-            'observed': observed if values.get(f'desired.resource.{number}.resourceMode', 'CREATE') == 'IMPORT' else {}}
+
+
 
 
 def _verify_detaches(old_models, new_models, declarations_):
@@ -801,14 +747,14 @@ def _verify_detaches(old_models, new_models, declarations_):
         if any(usage.producer_scope == '/'.join(producer_scope) and
                usage.producer_id == producer_id and
                usage.consumer_key == key and (declaration.pointer is None or usage.pointer == declaration.pointer)
-               for usage in usages(new)):
+               for usage in _dependency_model_references.usages(new)):
             raise ValueError('declared dependency still has a direct or declared usage after detach')
         removed.setdefault(scope, set()).update(matches)
     return removed
 
 
 def verify_model_refactor(before, after, detaches, sources, validation_scope):
-    from model.sources import source_scope
+    source_scope = _imports_model_sources.source_scope
     _require_declared_sources(before, after, sources)
     direct = {tuple(declaration.consumer.split('/')[:3]) for declaration in detaches}
     for relative in sources:
@@ -842,10 +788,11 @@ def verify_model_refactor(before, after, detaches, sources, validation_scope):
 
 def validate_candidates(root, sources, output, scope, *, base=None, contract_file=None):
     """Common ordinary-save/Task/integration check: validate only the final authority."""
-    from model.sources import FileReads, source_scope
-    from model.impact import task_impact, scope_diagnostic
-    from model.sources import _invocation_reads
-    original = _invocation_reads(root)
+    scope_diagnostic = _imports_model_impact.scope_diagnostic
+    task_impact = _imports_model_impact.task_impact
+    _ = _imports_model_sources.FileReads
+    source_scope = _imports_model_sources.source_scope
+    original = _dependency_model_sources._invocation_reads(root)
     reads = CandidateReads(original, output) if output else original
     required = set(task_impact(root, sources, output=output, base=base,
                               contract_file=contract_file, read_context=original).services)
@@ -857,14 +804,14 @@ def validate_candidates(root, sources, output, scope, *, base=None, contract_fil
         if reads.kind(path) == 'missing':
             continue  # Incoming consumers are still checked, including deleted producers.
         model = load_model(source_scope(root, path), reads)
-        from model.validation import validate_json_settings
+        validate_json_settings = _imports_model_validation.validate_json_settings
         validate_json_settings(model.authoritative, path, warnings=warnings)
-        from model.projection import scalar_reference_operand
-        from model.identity import Resolver
+        Resolver = _imports_model_identity.Resolver
+        scalar_reference_operand = _imports_model_projection.scalar_reference_operand
         resolver = Resolver(root, reads)
         for _, row in entries(model.authoritative, 'desired.row.'):
             scalar_reference_operand(row, root, model.scope, resolver=resolver)
-        from model.identity import display_anchor
+        display_anchor = _imports_model_identity.display_anchor
         anchors = [display_anchor(resource) for _, resource in entries(model.authoritative, 'desired.resource.')]
         if len(anchors) != len(set(anchors)):
             raise ValueError('duplicate Resource anchor: ' + str(path))
@@ -876,3 +823,11 @@ def validate_candidates(root, sources, output, scope, *, base=None, contract_fil
                 raise ValueError('invalid candidate reference: ' + str(path) + ': ' + warning['message'])
             warnings.append(warning)
     return warnings
+
+
+def load_model(scope, read_context=None):
+    return _dependency_model_sources.load_model(scope, read_context)
+
+
+def declarations(values):
+    return _dependency_model_references.declarations(values)

@@ -1,14 +1,69 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace as _CallbackState
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import support.design_layout_fixtures as _exports_support_design_layout_fixtures
+from design_layout import is_import_pending_reference
+from support.design_layout_fixtures import (
+    CODEBUILD,
+    GUARDDUTY,
+    HIDDEN_PROPERTIES,
+    KMS,
+    LAYOUTS,
+    REPOSITORY,
+    RESOURCE_REFERENCE_PROPERTIES,
+    S3,
+    SUBNET_LIST_PROPERTIES,
+    VALIDATOR,
+    Path,
+    display_rows,
+    expanded_design,
+    expanded_display_rows,
+    formal_property,
+    json,
+    layout_errors,
+    model_core,
+    model_design,
+    model_projection,
+    pytest,
+    re,
+    resource_anchor,
+    resource_logical_ids,
+    resources_in,
+    row_table,
+    run,
+    shutil,
+    sync_runtime,
+    sys,
+    write_model,
+)
+from support.design_layout_fixtures import pytestmark as pytestmark
 from support.validator import diagnostics
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.design_layout_fixtures import *
+_CALLBACK_DEFAULT = object()
+
+
+# Preserve shared fixtures and compatibility exports under their historical names.
+catalog = _exports_support_design_layout_fixtures.catalog
+
+
+
+def _callback_check_secret_rotation_display_errors(catalog, path, root, /, content):
+    path.write_text(content, encoding="utf-8")
+    validator = VALIDATOR.Validator(root)
+    validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+    validator.check_design_tables({path: ("secretsmanager", ("SecretsManager.Secret", "SecretsManager.RotationSchedule"))}, *catalog)
+    validator.check_design_overviews()
+    return diagnostics(validator)
 
 
 def check_secret_rotation_display(tmp_path, catalog) -> None:
@@ -53,13 +108,7 @@ def check_secret_rotation_display(tmp_path, catalog) -> None:
     path = root / "docs/designs/dev/123456789012/secretsmanager.md"
     path.parent.mkdir(parents=True)
 
-    def errors(content):
-        path.write_text(content, encoding="utf-8")
-        validator = VALIDATOR.Validator(root)
-        validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
-        validator.check_design_tables({path: ("secretsmanager", ("SecretsManager.Secret", "SecretsManager.RotationSchedule"))}, *catalog)
-        validator.check_design_overviews()
-        return diagnostics(validator)
+    errors = _bind_framework_callback(_callback_check_secret_rotation_display_errors, catalog, path, root)
 
     assert not errors(text), errors(text)
     model = """# Synthetic authoritative Model fixture.
@@ -140,6 +189,15 @@ desired.row.003-001.comment=secretの名前
         assert any(message in error for error in failures), (message, failures)
 
 
+def _callback_check_codebuild_variable_display_errors(catalog, path, root, /, content: str):
+    path.write_text(content, encoding="utf-8")
+    validator = VALIDATOR.Validator(root)
+    validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+    validator.check_design_tables({path: ("codebuild", ("CodeBuild.Project",))}, *catalog)
+    validator.check_design_links(catalog[2])
+    return diagnostics(validator)
+
+
 def check_codebuild_variable_display(tmp_path, catalog) -> None:
     codebuild = CODEBUILD.replace('| 6 | Environment.Variables.SECOND | `cde` | 環境変数の値 |', '| 6 | Environment.Variables.SECOND | [venus-dev-snowflake-cicd-keypair-cde](secretsmanager.md#secretsmanager-snowflakekey) | <!-- codebuild-variable-type: SECRETS_MANAGER --> 環境変数の参照先 |')
     root = tmp_path
@@ -154,13 +212,7 @@ def check_codebuild_variable_display(tmp_path, catalog) -> None:
 | 1 | Name | `venus-dev-snowflake-cicd-keypair-cde` | secretの名前 |
 """, encoding="utf-8")
 
-    def errors(content: str) -> list[str]:
-        path.write_text(content, encoding="utf-8")
-        validator = VALIDATOR.Validator(root)
-        validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
-        validator.check_design_tables({path: ("codebuild", ("CodeBuild.Project",))}, *catalog)
-        validator.check_design_links(catalog[2])
-        return diagnostics(validator)
+    errors = _bind_framework_callback(_callback_check_codebuild_variable_display_errors, catalog, path, root)
 
     assert not errors(codebuild), errors(codebuild)
     model = "\n".join(expanded_display_rows(codebuild.splitlines()))
@@ -210,6 +262,17 @@ def check_codebuild_variable_display(tmp_path, catalog) -> None:
     assert errors(codebuild.replace("(secretsmanager.md#", "(../987654321098/secretsmanager.md#"))
     secret.write_text(secret.read_text(encoding="utf-8").replace("SecretsManager.Secret:", "S3.Bucket:"), encoding="utf-8")
     assert errors(codebuild)
+
+
+def _callback_check_codebuild_vpc_display_errors(catalog, design, path, root, /, content: str):
+    path.write_text(content, encoding="utf-8")
+    validator = VALIDATOR.Validator(root)
+    validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+    validator.design_files = lambda: [path]
+    validator.check_design_tables({path: ("codebuild", ("CodeBuild.Project",))}, *catalog)
+    validator.design_files = lambda: sorted(design.glob("*.md"))
+    validator.check_design_links(catalog[2])
+    return diagnostics(validator)
 
 
 def check_codebuild_vpc_display(tmp_path, catalog) -> None:
@@ -265,15 +328,7 @@ def check_codebuild_vpc_display(tmp_path, catalog) -> None:
 | 3 | VpcId | [vpc-00000000000000001](vpc.md#vpc-main) | 所属するVPC |
 """, encoding="utf-8")
 
-    def errors(content: str) -> list[str]:
-        path.write_text(content, encoding="utf-8")
-        validator = VALIDATOR.Validator(root)
-        validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
-        validator.design_files = lambda: [path]
-        validator.check_design_tables({path: ("codebuild", ("CodeBuild.Project",))}, *catalog)
-        validator.design_files = lambda: sorted(design.glob("*.md"))
-        validator.check_design_links(catalog[2])
-        return diagnostics(validator)
+    errors = _bind_framework_callback(_callback_check_codebuild_vpc_display_errors, catalog, design, path, root)
 
     assert not errors(design_text), errors(design_text)
     model = "\n".join(expanded_display_rows(design_text.splitlines()))
@@ -294,6 +349,30 @@ def check_codebuild_vpc_display(tmp_path, catalog) -> None:
         design_text.replace("[subnet-00000000000000001](vpc.md#vpc-sbnt-one)", "[PENDING_DEPLOY](security-group.md#security-group-codebuild-sg)"),
     ):
         assert errors(bad), bad
+
+
+def _callback_check_subnet_list_links_content(kind, prop, /, value):
+    shown = display_rows(kind, [["1", prop, value, "配置先Subnet"]])
+    if kind == "SecretsManager.RotationSchedule":
+        return "\n".join([
+            "# Secrets Manager 詳細設計", "- Design service ID: `secretsmanager`",
+            '<a id="secretsmanager-key"></a>', "### SecretsManager.Secret: key",
+            *row_table([
+                ["1", "Name", "`key`", "secretの名称"],
+                ["2", "SecretsManager.RotationSchedule.SecretId", "[key](#secretsmanager-key)",
+                 '<a id="resource-KeyRotation"></a><!-- logical-id: KeyRotation --> key-rotation：対象secret'],
+                ["4", kind + "." + shown[0][1], shown[0][2], shown[0][3]],
+            ]),
+        ]) + "\n"
+    return "\n".join(["# Subnet参照の設計", "", "<a id=\"owner\"></a>", f"### {kind}: owner", *row_table(shown)]) + "\n"
+
+
+def _callback_check_subnet_list_links_errors(content, outputs, path, root, /, value):
+    path.write_text(content(value), encoding="utf-8")
+    validator = VALIDATOR.Validator(root)
+    validator.design_files = lambda: [path]
+    validator.check_design_links(outputs)
+    return diagnostics(validator)
 
 
 @pytest.mark.parametrize("prop", sorted(SUBNET_LIST_PROPERTIES))
@@ -318,27 +397,9 @@ def check_subnet_list_links(prop, tmp_path, catalog):
     kind = ".".join(prop.split(".")[:2])
     path = design / (kind.split(".")[0].lower() + ".md")
 
-    def content(value):
-        shown = display_rows(kind, [["1", prop, value, "配置先Subnet"]])
-        if kind == "SecretsManager.RotationSchedule":
-            return "\n".join([
-                "# Secrets Manager 詳細設計", "- Design service ID: `secretsmanager`",
-                '<a id="secretsmanager-key"></a>', "### SecretsManager.Secret: key",
-                *row_table([
-                    ["1", "Name", "`key`", "secretの名称"],
-                    ["2", "SecretsManager.RotationSchedule.SecretId", "[key](#secretsmanager-key)",
-                     '<a id="resource-KeyRotation"></a><!-- logical-id: KeyRotation --> key-rotation：対象secret'],
-                    ["4", kind + "." + shown[0][1], shown[0][2], shown[0][3]],
-                ]),
-            ]) + "\n"
-        return "\n".join(["# Subnet参照の設計", "", "<a id=\"owner\"></a>", f"### {kind}: owner", *row_table(shown)]) + "\n"
+    content = _bind_framework_callback(_callback_check_subnet_list_links_content, kind, prop)
 
-    def errors(value):
-        path.write_text(content(value), encoding="utf-8")
-        validator = VALIDATOR.Validator(root)
-        validator.design_files = lambda: [path]
-        validator.check_design_links(outputs)
-        return diagnostics(validator)
+    errors = _bind_framework_callback(_callback_check_subnet_list_links_errors, content, outputs, path, root)
 
     assert not errors("[subnet-00000000000000001](vpc.md#subnet-a)"), (prop, errors("[subnet-00000000000000001](vpc.md#subnet-a)"))
     assert errors("[subnet-00000000000000001](../987654321098/vpc.md#subnet-a)"), prop
@@ -349,17 +410,20 @@ def check_subnet_list_links(prop, tmp_path, catalog):
         print("Subnet list links: PASS (15 properties, same-target Subnet type, grouped RotationSchedule)")
 
 
+def _callback_check_guardduty_feature_display_errors(catalog, path, root, /, content: str):
+    path.write_text(content, encoding="utf-8")
+    validator = VALIDATOR.Validator(root)
+    validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+    validator.check_design_tables({path: ("guardduty", ("GuardDuty.Detector",))}, *catalog)
+    return diagnostics(validator)
+
+
 def check_guardduty_feature_display(tmp_path, catalog) -> None:
     root = tmp_path
     path = root / "docs/designs/dev/123456789012/guardduty.md"
     path.parent.mkdir(parents=True)
 
-    def errors(content: str) -> list[str]:
-        path.write_text(content, encoding="utf-8")
-        validator = VALIDATOR.Validator(root)
-        validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
-        validator.check_design_tables({path: ("guardduty", ("GuardDuty.Detector",))}, *catalog)
-        return diagnostics(validator)
+    errors = _bind_framework_callback(_callback_check_guardduty_feature_display_errors, catalog, path, root)
 
     assert not errors(GUARDDUTY), errors(GUARDDUTY)
     model = "\n".join(expanded_display_rows(GUARDDUTY.splitlines()))
@@ -373,6 +437,15 @@ def check_guardduty_feature_display(tmp_path, catalog) -> None:
     assert errors(GUARDDUTY.replace("Features.EKS_AUDIT_LOGS", "Features.S3_DATA_EVENTS"))
     assert errors(GUARDDUTY.replace("`ENABLED`", "`INVALID`"))
     assert errors(GUARDDUTY.replace("Features.S3_DATA_EVENTS | `ENABLED`", "Features[].Name | `S3_DATA_EVENTS`"))
+
+
+def _callback_check_cloudtrail_data_resources_errors(catalog, path, root, /, content: str):
+    path.write_text(content, encoding="utf-8")
+    validator = VALIDATOR.Validator(root)
+    validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+    validator.check_design_tables({path: ("cloudtrail", ("CloudTrail.Trail",))}, *catalog)
+    validator.check_design_links(catalog[2])
+    return diagnostics(validator)
 
 
 def check_cloudtrail_data_resources(tmp_path, catalog) -> None:
@@ -430,13 +503,7 @@ def check_cloudtrail_data_resources(tmp_path, catalog) -> None:
     assert "| CloudTrail.Trail.EventSelectors[].DataResources[].Type | `AWS::Lambda::Function` |" in model
     assert "DataResources[1]" not in model
 
-    def errors(content: str) -> list[str]:
-        path.write_text(content, encoding="utf-8")
-        validator = VALIDATOR.Validator(root)
-        validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
-        validator.check_design_tables({path: ("cloudtrail", ("CloudTrail.Trail",))}, *catalog)
-        validator.check_design_links(catalog[2])
-        return diagnostics(validator)
+    errors = _bind_framework_callback(_callback_check_cloudtrail_data_resources_errors, catalog, path, root)
 
     assert not errors(trail), errors(trail)
     all_buckets = trail.replace(
@@ -476,15 +543,27 @@ def check_cloudtrail_data_resources(tmp_path, catalog) -> None:
         assert errors(bad), bad
 
 
+def _callback_check_codepipeline_display_design(service: str, resource_type: str, logical_id: str, rows: list[tuple[str, str]]):
+    return "\n".join([
+        f"# {service} 詳細設計", f"- Design service ID: `{service}`",
+        f"- Owned catalog resource types: `{resource_type}`", "## リソース詳細",
+        f'<a id="{service}-{logical_id.lower()}"></a>', f"### {resource_type}: {logical_id}",
+        "| No. | Property | Value | Source / Comment |", "| ---: | --- | --- | --- |",
+        *(f"| {n} | {prop} | {value} | 設定する属性 |" for n, (prop, value) in enumerate(rows, 1)),
+    ]) + "\n"
+
+
+def _callback_check_codepipeline_display_errors(catalog, path, repo_path, root, /, content: str):
+    path.write_text(content, encoding="utf-8")
+    validator = VALIDATOR.Validator(root)
+    validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+    validator.check_design_tables({path: ("codepipeline", ("CodePipeline.Pipeline",)), repo_path: ("codecommit", ("CodeCommit.Repository",))}, *catalog)
+    validator.check_design_links(catalog[2])
+    return diagnostics(validator)
+
+
 def check_codepipeline_display(tmp_path, catalog) -> None:
-    def design(service: str, resource_type: str, logical_id: str, rows: list[tuple[str, str]]) -> str:
-        return "\n".join([
-            f"# {service} 詳細設計", f"- Design service ID: `{service}`",
-            f"- Owned catalog resource types: `{resource_type}`", "## リソース詳細",
-            f'<a id="{service}-{logical_id.lower()}"></a>', f"### {resource_type}: {logical_id}",
-            "| No. | Property | Value | Source / Comment |", "| ---: | --- | --- | --- |",
-            *(f"| {n} | {prop} | {value} | 設定する属性 |" for n, (prop, value) in enumerate(rows, 1)),
-        ]) + "\n"
+    design = _callback_check_codepipeline_display_design
 
     rows = [
         ("Name", "`pipeline`"),
@@ -520,13 +599,7 @@ def check_codepipeline_display(tmp_path, catalog) -> None:
         ("RoleName", "`role`"), ("AssumeRolePolicyDocument", "[trust](iam/role-trust-policy.json)"),
     ]), encoding="utf-8")
 
-    def errors(content: str) -> list[str]:
-        path.write_text(content, encoding="utf-8")
-        validator = VALIDATOR.Validator(root)
-        validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
-        validator.check_design_tables({path: ("codepipeline", ("CodePipeline.Pipeline",)), repo_path: ("codecommit", ("CodeCommit.Repository",))}, *catalog)
-        validator.check_design_links(catalog[2])
-        return diagnostics(validator)
+    errors = _bind_framework_callback(_callback_check_codepipeline_display_errors, catalog, path, repo_path, root)
 
     assert not errors(pipeline), errors(pipeline)
     original = path.read_bytes()
@@ -576,22 +649,35 @@ def check_codepipeline_display(tmp_path, catalog) -> None:
     assert "must not be displayed" in str(error.value)
 
 
+
+
+def _check_config_firehose_references_design(service, kind, rows):
+    return '\n'.join([f'# {service} 詳細設計', f'- Design service ID: `{service}`', f'- Owned catalog resource types: `{kind}`', '## リソース詳細', f'<a id="{service}-resource"></a>', f'### {kind}: Resource', '| No. | Property | Value | Source / Comment |', '| ---: | --- | --- | --- |', *(f'| {n} | {prop} | {value} | 設定する属性 |' for n, (prop, value) in enumerate(rows, 1))]) + '\n'
+
+
+def _callback_check_config_firehose_references_errors_691(_state_check_config_firehose_references_654, catalog, config_path, kdf_path, _default_config_text, _default_kdf_text, /, config_text=_CALLBACK_DEFAULT, kdf_text=_CALLBACK_DEFAULT):
+    if config_text is _CALLBACK_DEFAULT:
+        config_text = _default_config_text
+    if kdf_text is _CALLBACK_DEFAULT:
+        kdf_text = _default_kdf_text
+    config_path.write_text(config_text, encoding="utf-8")
+    kdf_path.write_text(kdf_text, encoding="utf-8")
+    validator = VALIDATOR.Validator(_state_check_config_firehose_references_654.root)
+    validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+    validator.check_design_tables({}, *catalog)
+    validator.check_design_links(catalog[2])
+    return diagnostics(validator)
+
+
 def check_config_firehose_references(tmp_path, catalog) -> None:
-    from design_layout import is_import_pending_reference
+    _state_check_config_firehose_references_654 = _CallbackState()
     assert is_import_pending_reference("Config.ConfigurationRecorder.RoleARN", "Pending")
     assert not is_import_pending_reference("Config.ConfigurationRecorder.RoleARN", "`Pending`")
     assert not is_import_pending_reference("Config.DeliveryChannel.S3BucketName", "Pending")
     assert is_import_pending_reference("KinesisFirehose.DeliveryStream.S3DestinationConfiguration.BucketARN", "Pending")
     assert not is_import_pending_reference("KinesisFirehose.DeliveryStream.DeliveryStreamEncryptionConfigurationInput.KeyARN", "Pending")
     assert not is_import_pending_reference("KinesisFirehose.DeliveryStream.S3DestinationConfiguration.BucketARN", "`arn:aws:s3:::dummy`")
-    def design(service, kind, rows):
-        return "\n".join([
-            f"# {service} 詳細設計", f"- Design service ID: `{service}`",
-            f"- Owned catalog resource types: `{kind}`", "## リソース詳細",
-            f'<a id="{service}-resource"></a>', f"### {kind}: Resource",
-            "| No. | Property | Value | Source / Comment |", "| ---: | --- | --- | --- |",
-            *(f"| {n} | {prop} | {value} | 設定する属性 |" for n, (prop, value) in enumerate(rows, 1)),
-        ]) + "\n"
+    design = _check_config_firehose_references_design
 
     role_link = "[config-role](iam.md#iam-resource)"
     config = design("config", "Config.ConfigurationRecorder", [
@@ -606,8 +692,8 @@ def check_config_firehose_references(tmp_path, catalog) -> None:
     ])
     directory = tmp_path / "case-0"
     directory.mkdir()
-    root = directory
-    target = root / "docs/designs/dev/123456789012"
+    _state_check_config_firehose_references_654.root = directory
+    target = _state_check_config_firehose_references_654.root / "docs/designs/dev/123456789012"
     target.mkdir(parents=True)
     (target / "kms.md").write_text(KMS, encoding="utf-8")
     (target / "s3.md").write_text(S3, encoding="utf-8")
@@ -619,14 +705,7 @@ def check_config_firehose_references(tmp_path, catalog) -> None:
     ]), encoding="utf-8")
     config_path, kdf_path = target / "config.md", target / "kdf.md"
 
-    def errors(config_text=config, kdf_text=firehose):
-        config_path.write_text(config_text, encoding="utf-8")
-        kdf_path.write_text(kdf_text, encoding="utf-8")
-        validator = VALIDATOR.Validator(root)
-        validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
-        validator.check_design_tables({}, *catalog)
-        validator.check_design_links(catalog[2])
-        return diagnostics(validator)
+    errors = _bind_framework_callback(_callback_check_config_firehose_references_errors_691, _state_check_config_firehose_references_654, catalog, config_path, kdf_path, config, firehose)
 
     assert not errors(), errors()
     model = "\n".join(expanded_display_rows(config.splitlines()))
@@ -683,11 +762,11 @@ def check_config_firehose_references(tmp_path, catalog) -> None:
 
     directory = tmp_path / "case-1"
     directory.mkdir()
-    root = directory
-    (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{
+    _state_check_config_firehose_references_654.root = directory
+    (_state_check_config_firehose_references_654.root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{
         "environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation",
     }]}) + "\n", encoding="utf-8")
-    path = root / "docs/designs/dev/123456789012/config.md"
+    path = _state_check_config_firehose_references_654.root / "docs/designs/dev/123456789012/config.md"
     path.parent.mkdir(parents=True)
     source = design("config", "Config.ConfigurationRecorder", [
         ("Id", "`PENDING_DEPLOY`"), ("RoleName", "`AWSServiceRoleForConfig`"),
@@ -715,14 +794,23 @@ desired.row.001-003.value=`recorder`
 desired.row.001-003.comment=記録するrecorderの名前
 """)
     values.update({"display.service.title": "# Config 詳細設計", "display.resource.001.label": "recorder", "display.resource.001.comment": "AWSリソースの設定を記録するrecorder"})
-    model_path = root / "model/dev/123456789012/config.properties"
+    model_path = _state_check_config_firehose_references_654.root / "model/dev/123456789012/config.properties"
     model_path.parent.mkdir(parents=True)
     write_model(model_path, "".join(f"{key}={value}\n" for key, value in values.items()))
     write_model(model_path.with_name("cloudformation-stacks.properties"), {"desired.stack.001.name": "fixture", "desired.stack.001.placementName": "fixture", "desired.stack.001.template": "fixture.yaml", "desired.stack.001.parameters": "fixture.json", "desired.stack.001.deployOrder": "1", "display.stack.001.comment": "合成Stack"})
     path.unlink()
-    assert sync_runtime.sync(root, True, "dev", "123456789012") == 0
+    assert sync_runtime.sync(_state_check_config_firehose_references_654.root, True, "dev", "123456789012") == 0
     assert "| RoleName | `AWSServiceRoleForConfig` |" in path.read_text(encoding="utf-8")
-    assert sync_runtime.sync(root, False, "dev", "123456789012") == 0
+    assert sync_runtime.sync(_state_check_config_firehose_references_654.root, False, "dev", "123456789012") == 0
+
+
+def _callback_check_resource_name_headings_errors(metadata, path, root, /, markdown):
+    path.write_text(markdown, encoding="utf-8")
+    validator = VALIDATOR.Validator(root)
+    validator.check_resource_names(metadata)
+    validator.check_design_overviews()
+    validator.check_design_links({})
+    return diagnostics(validator)
 
 
 def check_resource_name_headings(tmp_path) -> None:
@@ -759,13 +847,7 @@ def check_resource_name_headings(tmp_path) -> None:
     path.parent.mkdir(parents=True)
     metadata = {path: ("scheduler", ("Scheduler.Schedule",))}
 
-    def errors(markdown):
-        path.write_text(markdown, encoding="utf-8")
-        validator = VALIDATOR.Validator(root)
-        validator.check_resource_names(metadata)
-        validator.check_design_overviews()
-        validator.check_design_links({})
-        return diagnostics(validator)
+    errors = _bind_framework_callback(_callback_check_resource_name_headings_errors, metadata, path, root)
 
     assert not errors(text), errors(text)
     identities = resource_logical_ids(text.splitlines())
@@ -799,7 +881,7 @@ def check_resource_name_headings(tmp_path) -> None:
     assert model_projection.linked_resource(path, "[PENDING_DEPLOY](kms.md#kms-one)") == ("KMS.Key", "KeyOne")
 
     group_name = "transfer service access"
-    sg_anchor = resource_anchor("security-group", group_name)
+    _ = resource_anchor("security-group", group_name)
     sg_text = text.replace(anchor, "resource-TransferSecurityGroup").replace("scheduler", "security-group").replace("Scheduler.Schedule", "EC2.SecurityGroup").replace(logical_id, "TransferSecurityGroup").replace(name, group_name)
     sg_text = sg_text.replace(f"| 1 | Name | `{group_name}` | scheduleの名前 |", f"| 1 | Id | `PENDING_DEPLOY` | SGのID |\n| 2 | GroupDescription | `transfer service access` | 通信の用途 |\n| 3 | GroupName | `{group_name}` | SGの名前 |\n| 4 | VpcId | `vpc-123` | 所属VPCのID |")
     sg = path.with_name("security-group.md")
@@ -810,6 +892,13 @@ def check_resource_name_headings(tmp_path) -> None:
     assert resource_logical_ids(sg_text.splitlines())["resource-TransferSecurityGroup"] == "TransferSecurityGroup"
 
     assert resource_logical_ids(text.splitlines()) == {anchor: logical_id}
+
+
+def _callback_check_quicksight_group_principal_reference_errors(root, target, /, design_text: str):
+    target.write_text(design_text, encoding="utf-8")
+    validator = VALIDATOR.Validator(root)
+    validator.check_design_links({"QuickSight.Group": {"QuickSight.Group.PrincipalId"}}, [target])
+    return diagnostics(validator)
 
 
 def check_quicksight_group_principal_reference(tmp_path) -> None:
@@ -848,15 +937,26 @@ def check_quicksight_group_principal_reference(tmp_path) -> None:
 """
     target.write_text(text, encoding="utf-8")
 
-    def errors(design_text: str) -> list[str]:
-        target.write_text(design_text, encoding="utf-8")
-        validator = VALIDATOR.Validator(root)
-        validator.check_design_links({"QuickSight.Group": {"QuickSight.Group.PrincipalId"}}, [target])
-        return diagnostics(validator)
+    errors = _bind_framework_callback(_callback_check_quicksight_group_principal_reference_errors, root, target)
 
     assert not errors(text), errors(text)
     assert errors(text.replace("[reader-group](#quicksight-reader-group)", "[wrong](#quicksight-reader-group)"))
     assert errors(text.replace("[reader-group](#quicksight-reader-group)", "[reader-group](#quicksight-source)"))
+
+
+def _callback_check_workflow_errors_958(catalog, kms, metadata, root, s3, _default_kms_text, _default_s3_text, /, kms_text=_CALLBACK_DEFAULT, s3_text=_CALLBACK_DEFAULT):
+    if kms_text is _CALLBACK_DEFAULT:
+        kms_text = _default_kms_text
+    if s3_text is _CALLBACK_DEFAULT:
+        s3_text = _default_s3_text
+    kms.write_text(kms_text, encoding="utf-8")
+    s3.write_text(s3_text, encoding="utf-8")
+    validator = VALIDATOR.Validator(root)
+    validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+    validator.check_design_tables(metadata, *catalog)
+    validator.check_design_overviews()
+    validator.check_design_links(catalog[2])
+    return diagnostics(validator)
 
 
 def check_workflow(tmp_path, catalog) -> None:
@@ -880,15 +980,7 @@ def check_workflow(tmp_path, catalog) -> None:
     s3 = kms.with_name("s3.md")
     metadata = {kms: ("kms", ("KMS.Key", "KMS.Alias")), s3: ("s3", ("S3.Bucket",))}
 
-    def errors(kms_text=KMS, s3_text=S3):
-        kms.write_text(kms_text, encoding="utf-8")
-        s3.write_text(s3_text, encoding="utf-8")
-        validator = VALIDATOR.Validator(root)
-        validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
-        validator.check_design_tables(metadata, *catalog)
-        validator.check_design_overviews()
-        validator.check_design_links(catalog[2])
-        return diagnostics(validator)
+    errors = _bind_framework_callback(_callback_check_workflow_errors_958, catalog, kms, metadata, root, s3, KMS, S3)
 
     assert not errors(), errors()
     original = kms.read_bytes()
@@ -974,4 +1066,3 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

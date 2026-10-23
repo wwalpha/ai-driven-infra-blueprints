@@ -1,6 +1,12 @@
 """Markdown prose and section selection, excluding fenced examples."""
+
 import re
 from pathlib import Path
+
+import task_contract_core as _imports_task_contract
+
+import utils.aws_mappings as _imports_utils_aws_mappings
+
 
 def markdown_prose(text):
     """Yield original offsets and lines outside fenced examples."""
@@ -41,8 +47,10 @@ def markdown_sections(text):
 
 def rule_readings(root, source, text, engine=None):
     """Use the document's rule links as the single source of reading scope."""
-    from task_contract import safe_path
-    from utils.aws_mappings import definition_root
+    safe_path = _imports_task_contract.safe_path
+
+    definition_root = _imports_utils_aws_mappings.definition_root
+
     root, source = definition_root(root).resolve(), source.resolve()
     readings, contents = {}, {}
     prose = "".join(re.sub(r"(`+).*?\1", "", line) for _, line in markdown_prose(text))

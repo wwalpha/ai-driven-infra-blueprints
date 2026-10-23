@@ -3,24 +3,26 @@
 
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+
+import json
+import tempfile
+from unittest.mock import patch
+
+from iac_values import same
+from support import issues_scan_fixtures as fixtures
+from support.it_case_receipt import it_case
+from support.validator import load as load
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import it_case
-
-import tempfile
-import json
-from unittest.mock import patch
-
-from iac_values import same
-from support.validator import load
-
 
 @it_case
 def main_checks():
-    from support import issues_scan_fixtures as fixtures
     with tempfile.TemporaryDirectory(prefix='issues-ref-returns-') as temporary:
         root = Path(temporary) / 'project'
         _, template = fixtures.fixture(root, stacks=2, services=('s3',))
@@ -30,7 +32,7 @@ def main_checks():
                  ('iam', 'IAM.ManagedPolicy', 'ManagedPolicy', 'PolicyArn'),
                  ('quicksight', 'QuickSight.VPCConnection', 'Unknown', None)]
         template['Outputs'] = {}
-        for service, kind, logical, attribute in specs:
+        for service, kind, logical, _attribute in specs:
             model = {f'desired.service.{service}.serviceId': service}
             for number, stack in enumerate((consumer, producer), 1):
                 identity = f'{number:03d}'
@@ -51,11 +53,11 @@ def main_checks():
             for service, kind, logical, attribute in specs:
                 imported = {'Fn::ImportValue': 'app-dev-data2-' + logical}
                 if attribute is None:
-                    fixtures.expect_error(lambda: comparison.evaluate(consumer, {'Ref': logical}),
+                    fixtures.expect_error(lambda *, logical=logical: comparison.evaluate(consumer, {'Ref': logical}),
                                           'Ref return attribute is unproven')
-                    fixtures.expect_error(lambda: comparison.evaluate(consumer, imported),
+                    fixtures.expect_error(lambda *, imported=imported: comparison.evaluate(consumer, imported),
                                           'Ref return attribute is unproven')
-                    fixtures.expect_error(lambda: comparison.reference(service, '[QuickSight_VPCConnection_001](quicksight.md#resource-QuickSight_VPCConnection_001)'),
+                    fixtures.expect_error(lambda *, service=service: comparison.reference(service, '[QuickSight_VPCConnection_001](quicksight.md#resource-QuickSight_VPCConnection_001)'),
                                           'reference attribute is unproven')
                     continue
                 expected = {'$resource': [service, '001'], '$attribute': attribute}
@@ -78,7 +80,7 @@ def main_checks():
                     assert not same(direct, 'same-name')
                     assert not same(direct, dict(direct, **{'$attribute': 'ManagedPolicyName'}))
                     assert not same(direct, dict(direct, **{'$attribute': 'Arn'}))
-                    fixtures.expect_error(lambda: comparison.reference_literal(direct), 'no explicit name property contract')
+                    fixtures.expect_error(lambda *, direct=direct: comparison.reference_literal(direct), 'no explicit name property contract')
                 else:
                     assert comparison.reference_literal(direct) == 'same-name'
     print('Ref return checks: PASS (3 types, local exports/imports, distinct resources, unsupported Ref, no primary/name inference)')

@@ -1,29 +1,21 @@
 """Framework validation must never inspect real consumer inputs."""
 
 import sys
-
 from pathlib import Path
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-
-from contextlib import ExitStack, redirect_stdout
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import io
-
+from contextlib import ExitStack, redirect_stdout
 from tempfile import TemporaryDirectory
-
 from unittest.mock import patch
 
 from support.validator import MODULE
-
-from validation.framework_contracts import check_structure
-
 from validation.findings import Findings
-
+from validation.framework_contracts import check_structure
 from validation.project import check_validation_scope
-
 from validation_cache import PassCache
-
 
 ROOT = Path(__file__).resolve().parents[4]
 

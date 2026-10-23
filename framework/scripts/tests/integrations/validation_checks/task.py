@@ -3,25 +3,20 @@
 
 from __future__ import annotations
 
-from support.it_case_receipt import it_case
-
-
-import json
-
-
 import io
-
-
 import os
-
-
 from contextlib import ExitStack, redirect_stdout
-
-
+from functools import partial as _bind_framework_callback
 from unittest.mock import patch
 
+import support.model_sources as _imports_support_model_sources
+from support.it_case_receipt import it_case
+from support.validator import MODULE, commit, git_project
+from support.validator import project as project
+from support.validator import write as write
 
-from support.validator import MODULE, SCRIPT, project, git_project, commit, write
+_CALLBACK_DEFAULT = object()
+
 
 
 @it_case
@@ -114,6 +109,13 @@ def check_idle_without_active_task() -> None:
         assert any("selected task contract missing" in error for error in validator.errors)
 
 
+def _callback_check_destroy_phase_check_150(banned, invoked, _default_name, /, *args, name=_CALLBACK_DEFAULT):
+    if name is _CALLBACK_DEFAULT:
+        name = _default_name
+    assert name not in banned, name
+    invoked.append(name)
+
+
 @it_case
 def check_destroy_phase() -> None:
     with git_project() as root:
@@ -151,15 +153,12 @@ def check_destroy_phase() -> None:
         validator.infrastructure_phase = "destroy"
         banned = {"check_iac_selection", "check_cloudformation_yaml_rules", "check_cloudformation_environment_parameters"}
         invoked = []
-        from contextlib import ExitStack
         with ExitStack() as stack:
             for name in ("check_structure", "check_task_scope", "check_project_topology", "check_validation_scope",
                          "check_model_files", "check_issue_gate", "check_task_type_requirements", "check_initialized_paths",
                          "check_catalog", "check_resource_layout", "check_scoped_designs", "check_designs", "check_observed_values",
                          "check_acceptance_checks", *banned):
-                def check(*args, name=name):
-                    assert name not in banned, name
-                    invoked.append(name)
+                check = _bind_framework_callback(_callback_check_destroy_phase_check_150, banned, invoked, name)
                 stack.enter_context(patch.object(validator, name, check))
             with redirect_stdout(io.StringIO()):
                 assert validator.run() == 0
@@ -168,7 +167,7 @@ def check_destroy_phase() -> None:
 
 @it_case
 def check_task_type_dispatch() -> None:
-    from support.model_sources import write_model
+    write_model = _imports_support_model_sources.write_model
     with project() as root, patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/example.md'}):
         write(root/'project.json', __import__('json').dumps({'targets': [{'environment': 'dev', 'alias': 'cde', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n')
         write(root/'tasks/example.md', '## Task contract\n- Task type: `design`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n')

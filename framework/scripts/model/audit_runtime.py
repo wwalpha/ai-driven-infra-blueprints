@@ -1,13 +1,33 @@
 """Runtime source embedded into each generated file; requires only Python stdlib."""
+
 import argparse
-from collections import Counter
-from datetime import datetime
 import io
 import json
-from pathlib import Path
 import re
 import sys
+from collections import Counter
+from datetime import datetime
+from functools import partial as _bind_framework_callback
+from functools import partialmethod
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
+
+
+def _callback_engine_load_model(m, snapshot, /, path):
+    address = path.relative_to(m.ROOT / 'model').with_suffix('').as_posix()
+    if address not in snapshot['models']:
+        raise m.Unresolved('producer Model is absent from audit snapshot: ' + address)
+    values = snapshot['models'][address]
+    return SimpleNamespace(values=values, locations={key: (Path('embedded') / path.name, 0) for key in values})
+
+
+def _callback_engine_resolve_json(self, m, original_resolve, /, value, norm='typed'):
+    if isinstance(value, dict) and 'Fn::GetAtt' in value:
+        item = value['Fn::GetAtt']
+        attribute = item[1] if isinstance(item, list) and len(item) == 2 else item.partition('.')[2] if isinstance(item, str) else None
+        if len(value) != 1 or attribute != 'Arn':
+            raise m.Unresolved('unsupported GetAtt attribute; only Arn has a confirmed identity mapping')
+    return original_resolve(self, value, norm)
 
 
 def engine(snapshot):
@@ -16,6 +36,7 @@ def engine(snapshot):
     sys.modules[m.__name__] = m
     exec(compile(snapshot['engine'], '<existing-comparator>', 'exec'), m.__dict__)
     sys.modules['iac_values'] = m
+    m._imports_iac_values = m
     m.SERVICES = tuple(snapshot['adapters'])
     adapters = {}
     for name, source in snapshot['adapters'].items():
@@ -27,22 +48,10 @@ def engine(snapshot):
     m.model_paths = lambda root, environment, directory: [root / 'model' / (name + '.properties')
         for name in snapshot['models'] if name.rsplit('/', 1)[0] == environment + '/' + directory]
 
-    def load_model(path):
-        address = path.relative_to(m.ROOT / 'model').with_suffix('').as_posix()
-        if address not in snapshot['models']:
-            raise m.Unresolved('producer Model is absent from audit snapshot: ' + address)
-        values = snapshot['models'][address]
-        return SimpleNamespace(values=values, locations={key: (Path('embedded') / path.name, 0) for key in values})
+    load_model = _bind_framework_callback(_callback_engine_load_model, m, snapshot)
 
     original_resolve = m.Resource.resolve_json
-    def resolve_json(self, value, norm='typed'):
-        if isinstance(value, dict) and 'Fn::GetAtt' in value:
-            item = value['Fn::GetAtt']
-            attribute = item[1] if isinstance(item, list) and len(item) == 2 else item.partition('.')[2] if isinstance(item, str) else None
-            if len(value) != 1 or attribute != 'Arn':
-                raise m.Unresolved('unsupported GetAtt attribute; only Arn has a confirmed identity mapping')
-        return original_resolve(self, value, norm)
-    m.Resource.resolve_json = resolve_json
+    m.Resource.resolve_json = partialmethod(_callback_engine_resolve_json, m, original_resolve)
     m.load_model = load_model
     m.DesignSchemaCatalog = lambda root: SimpleNamespace(property_schema=lambda kind, path: snapshot['schemas'][kind + '.' + path])
     m.catalog_outputs = lambda root, kind: snapshot['outputs'].get(kind, [])
@@ -61,6 +70,7 @@ def engine(snapshot):
     mapped.select, mapped.module, mapped.project = m.select, projection.module, projection.project
     exec(compile(snapshot['mapped'], '<existing-mapping-value>', 'exec'), mapped.__dict__)
     sys.modules[mapped.__name__] = mapped
+    m._imports_aws_mapping_compare = mapped
     return m
 
 
@@ -152,10 +162,13 @@ def audit(snapshot, profile=None, cli_runner=None):
     return m, account, records
 
 
+def _callback_report_line(output, /, value=''):
+    print(value, file=output)
+
+
 def report(snapshot, profile, account, records, timestamp):
     output = io.StringIO()
-    def line(value=''):
-        print(value, file=output)
+    line = _bind_framework_callback(_callback_report_line, output)
     target = snapshot['target']
     line('Executed: ' + timestamp.isoformat())
     for label, value in [('Environment', target['environment']), ('Alias', target['directory']),
@@ -193,6 +206,7 @@ def report(snapshot, profile, account, records, timestamp):
 
 
 def main(argv=None, cli_runner=None, script_path=None):
+    SNAPSHOT = globals()['SNAPSHOT']
     parser = argparse.ArgumentParser(description='Read-only audit against embedded Model expectations')
     parser.add_argument('--profile')
     args = parser.parse_args(argv)

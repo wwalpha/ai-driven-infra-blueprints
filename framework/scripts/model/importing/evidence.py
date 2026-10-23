@@ -1,22 +1,33 @@
 """Versioned Import acquisition, Review-bound receipts and external evidence retention."""
-from pathlib import Path
-from datetime import datetime, timedelta, timezone
+
 import shutil
 import tempfile
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import import_guard as _imports_import_guard
+import task_contract_core as _imports_task_contract
+import utils.import_evidence as _receipt_storage
 from utils.json_format import json_text
 
-FORMAT_FIELDS = {'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1}
+import model.importing.approval as _imports_model_importing_approval
+import model.importing.inventory as _imports_model_importing_inventory
+import model.importing.repository as _imports_model_importing_repository
+import model.importing.scope as _imports_model_importing_scope
+from model.format import FORMAT_FIELDS as FORMAT_FIELDS
+from model.format import require_format as require_format
 
-
-def require_format(value, version, label):
-    expected = {'version': version, **FORMAT_FIELDS}
-    if not isinstance(value, dict) or any(type(value.get(key)) is not int or value[key] != item for key, item in expected.items()):
-        raise ValueError('IMPORT ' + label + ' format is incompatible; requires ' + str(expected))
 
 def read_proof(root, *, contract_file=None):
-    from import_guard import base_revision, digest, proof_path, read_sealed, workflow
-    from model.importing.scope import selected
-    from task_contract import safe_path
+    base_revision = _imports_import_guard.base_revision
+    digest = _imports_import_guard.digest
+    proof_path = _imports_import_guard.proof_path
+    read_sealed = _imports_import_guard.read_sealed
+    workflow = _imports_import_guard.workflow
+    safe_path = _imports_task_contract.safe_path
+
+    selected = _imports_model_importing_scope.selected
+
     reference = {} if contract_file is None else {'contract_file': contract_file}
     file = proof_path(root, **reference)
     try:
@@ -40,7 +51,7 @@ def read_proof(root, *, contract_file=None):
                 raise ValueError('invalid source checksum')
         for relative in proof['ownedArtifacts']:
             safe_path(root, relative)
-        from model.importing.approval import verify_review_binding
+        verify_review_binding = _imports_model_importing_approval.verify_review_binding
         binding = verify_review_binding(proof['reviewBinding'])
         if proof['reviewBindingDigest'] != digest(binding):
             raise ValueError('IMPORT Review binding checksum differs')
@@ -55,11 +66,18 @@ def read_proof(root, *, contract_file=None):
 
 def record_import(root, output, evidence, plan, complete=True, *, review_binding=None):
     """Bind a verified cross-process acquisition and checked candidate to exact bytes."""
-    from import_guard import base_revision, digest, file_hash, proof_path, text_hash, workflow, write_sealed
-    from model.importing.approval import verify_review_binding
+    base_revision = _imports_import_guard.base_revision
+    digest = _imports_import_guard.digest
+    file_hash = _imports_import_guard.file_hash
+    proof_path = _imports_import_guard.proof_path
+    text_hash = _imports_import_guard.text_hash
+    workflow = _imports_import_guard.workflow
+    write_sealed = _imports_import_guard.write_sealed
+
+    verify_review_binding = _imports_model_importing_approval.verify_review_binding
+    selected = _imports_model_importing_scope.selected
     source_hashes = {p.relative_to(root).as_posix(): text_hash(text) for p, text in output.items()}
     verify_review_binding(review_binding)
-    from model.importing.scope import selected
     identity = selected(root)
     acquisition = read_acquisition(root, evidence, identity, False)
     if (acquisition['root'] != str(root.resolve()) or acquisition['task'] != workflow(root)
@@ -90,7 +108,9 @@ def record_import(root, output, evidence, plan, complete=True, *, review_binding
 
 
 def finish_import(root, model=None, markdown=None):
-    from import_guard import proof_path, require_import_changes, write_sealed
+    proof_path = _imports_import_guard.proof_path
+    require_import_changes = _imports_import_guard.require_import_changes
+    write_sealed = _imports_import_guard.write_sealed
     require_import_changes(root, generation=True)
     proof = read_proof(root)
     if model is not None:
@@ -103,7 +123,9 @@ def finish_import(root, model=None, markdown=None):
 
 def copy_import_proof(root, snapshot):
     """Carry only currently valid evidence into an existing staged validation snapshot."""
-    from import_guard import proof_path, require_import_changes, write_sealed
+    proof_path = _imports_import_guard.proof_path
+    require_import_changes = _imports_import_guard.require_import_changes
+    write_sealed = _imports_import_guard.write_sealed
     require_import_changes(root)
     proof = read_proof(root)
     destination = proof_path(snapshot)
@@ -112,26 +134,22 @@ def copy_import_proof(root, snapshot):
 
 
 def discard_import_proof(root, task_name):
-    """Remove only this task's sealed receipt after verified integration/snapshot use."""
-    from import_guard import evidence_store, read_sealed
-    from task_contract import TASK_NAME
-    if not TASK_NAME.fullmatch(task_name):
-        raise ValueError('invalid evidence task identity')
-    file = evidence_store(root, create=False) / (Path(task_name).stem + '.json')
-    if file.exists() or file.is_symlink():
-        proof = read_sealed(root, file)
-        if proof.get('task') != task_name:
-            raise ValueError('IMPORT evidence belongs to another task')
-        file.unlink()
+    return _receipt_storage.discard_import_proof(root, task_name)
 
 
 def acquired(root, identity, ctx, records, sources, consumers, dry_run, *, source_sets):
-    from import_guard import base_revision, evidence_store, workflow, write_sealed, working_revision, managed_task_state
+    base_revision = _imports_import_guard.base_revision
+    evidence_store = _imports_import_guard.evidence_store
+    managed_task_state = _imports_import_guard.managed_task_state
+    workflow = _imports_import_guard.workflow
+    working_revision = _imports_import_guard.working_revision
+    write_sealed = _imports_import_guard.write_sealed
+
+    inventory_for = _imports_model_importing_inventory.inventory_for
     if not ctx.verified or ctx.services != (identity[2],) or not ctx.trace:
         raise ValueError('IMPORT acquisition requires a verified single-service AWS context')
-    from model.importing.inventory import inventory_for
     if not dry_run:
-        from model.importing.repository import task_start_commit
+        task_start_commit = _imports_model_importing_repository.task_start_commit
         name = workflow(root)
         if task_start_commit(root, name) is not None:
             managed_task_state(root, name)
@@ -157,7 +175,12 @@ def acquired(root, identity, ctx, records, sources, consumers, dry_run, *, sourc
 
 
 def read_acquisition(root, file, identity, dry_run):
-    from import_guard import base_revision, evidence_store, read_sealed, workflow, working_revision, managed_task_state
+    base_revision = _imports_import_guard.base_revision
+    evidence_store = _imports_import_guard.evidence_store
+    managed_task_state = _imports_import_guard.managed_task_state
+    read_sealed = _imports_import_guard.read_sealed
+    workflow = _imports_import_guard.workflow
+    working_revision = _imports_import_guard.working_revision
     file = Path(file).absolute()
     store = evidence_store(root)
     if file.name != 'acquisition.json' or file.parent.parent != store or not file.parent.name.startswith('session-') or file.parent.is_symlink():
@@ -173,7 +196,7 @@ def read_acquisition(root, file, identity, dry_run):
             or value.get('sts', {}).get('verified') is not True):
         raise ValueError('IMPORT acquisition is stale or belongs to another Task/Worktree/scope')
     if not dry_run:
-        from model.importing.repository import task_start_commit
+        task_start_commit = _imports_model_importing_repository.task_start_commit
         name = workflow(root)
         if task_start_commit(root, name) is not None:
             managed_task_state(root, name)
@@ -209,9 +232,8 @@ def require_fresh_acquisition(value):
 
 
 def discard_acquisition(root, file):
-    from import_guard import evidence_store
+    evidence_store = _imports_import_guard.evidence_store
     file = Path(file).absolute()
     if file.name != 'acquisition.json' or file.parent.parent != evidence_store(root) or not file.parent.name.startswith('session-') or file.parent.is_symlink():
         raise ValueError('IMPORT refusing to remove an unknown temporary directory')
     shutil.rmtree(file.parent)
-

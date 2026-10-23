@@ -1,14 +1,49 @@
 """Collect only unambiguously mapped CloudFormation identifiers, then use model sync."""
-import sync_files
-from model import projection as model_projection
-from pathlib import Path
-import re
 
+import argparse
+import hashlib
+from functools import partial as _bind_framework_callback
+from pathlib import Path
+
+import sync_runtime as _imports_sync_runtime
+from cloudformation_inputs import (
+    Blocked,
+    condition_active,
+    load_target,
+    load_template_inputs,
+    output_value,
+    resolve_value,
+)
 from design_catalog import DesignSchemaCatalog
 from iac_values import cfn_resource_identity
-from model.projection import catalog_outputs
-from model.core import properties, entries, stack_model
-from model.identity import resource_link, Resolver, parse_reference
+from issue_gate import require_target_no_issues as require_target_no_issues
+from task_contract_core import matches as matches
+from task_contract_core import paths_in as paths_in
+from task_contract_core import section as section
+from task_contract_core import task_path as task_path
+from utils.aws_catalogs import catalog_outputs
+from utils.input_cache import input_scope
+from utils.layout_schema import CODEBUILD_FORMAL_VARIABLE, GROUPED, HIDDEN_PROPERTIES
+from utils.source_reads import FileReads
+from validation_scope import active_scope
+
+import model.observed as _imports_model_observed
+import model.projection as _imports_model_projection
+from model import projection as model_projection
+from model.core import entries, properties, stack_model
+from model.files import read_model, resource_row_index
+from model.identity import Resolver, parse_reference, resource_link
+from model.sources import (
+    design_source_digest,
+    input_snapshot,
+    model_exists,
+    model_paths,
+    raw_model,
+    scope_for,
+)
+from model.sources import (
+    load_model as load_model,
+)
 
 
 def reference_key(value, path, resolver=None):
@@ -21,18 +56,7 @@ def own_key(path, resource):
     scope = scope_for(path)
     return (scope.environment, scope.target, scope.service, resource['logicalId'])
 
-from model.sources import scope_for
-from cloudformation_inputs import Blocked, condition_active, output_value, load_template_inputs, load_target, resolve_value
-from model.sources import design_source_digest
-from model.sources import model_paths, model_exists, input_snapshot
-from model.files import read_model, resource_row_index
-from model.sources import load_model
-from task_contract import task_path, paths_in, matches, section
-from validation_scope import active_scope
-from issue_gate import require_target_no_issues
-from design_layout import GROUPED, HIDDEN_PROPERTIES
-from service_rows import CODEBUILD_FORMAL_VARIABLE
-from validation_cache import input_scope
+
 
 
 def ambiguous(detail):
@@ -67,8 +91,8 @@ def resource_index(loaded, catalog):
 
 def validate_mapping_targets(root, environment, directory, values, *, definitions_root=None):
     """Validate resource-owned stack identities before templates exist."""
+    bound_stack_names = _imports_model_projection.bound_stack_names
     stack_model(values)
-    from model.projection import bound_stack_names
     names = set(bound_stack_names(root / 'model' / environment / directory / 'cloudformation-stacks.properties')) or {
         stack['name'] for _, stack in entries(values, 'desired.stack.')}
     loaded = models(root, environment, directory)
@@ -118,6 +142,21 @@ def mapped_resource(direct, name, logical, cfn_type):
     return entry
 
 
+def _recursive_static_export_handle_independent(document, parameters, pseudo, /, value):
+    if isinstance(value, list):
+        return all(_recursive_static_export_handle_independent(document, parameters, pseudo, item) for item in value)
+    if not isinstance(value, dict):
+        return True
+    if "DependsOn" in value:
+        return False
+    # Check every branch/map value, including expressions unused by If/Sub.
+    if not all(_recursive_static_export_handle_independent(document, parameters, pseudo, item) for item in value.values()):
+        return False
+    if any(key in {"Ref", "Condition"} or key.startswith("Fn::") for key in value):
+        resolve_value(value, parameters, pseudo, conditions=document.get("Conditions", {}))
+    return True
+
+
 def static_export_handle(document, logical, parameters, pseudo):
     """Prove a Type-only scaffold has no resource-dependent template expressions."""
     if (document.get("Resources") != {logical: {"Type": "AWS::CloudFormation::WaitConditionHandle"}}
@@ -139,19 +178,7 @@ def static_export_handle(document, logical, parameters, pseudo):
                 or not isinstance(export, dict) or set(export) != {"Name"}):
             return False
 
-    def independent(value):
-        if isinstance(value, list):
-            return all(independent(item) for item in value)
-        if not isinstance(value, dict):
-            return True
-        if "DependsOn" in value:
-            return False
-        # Check every branch/map value, including expressions unused by If/Sub.
-        if not all(independent(item) for item in value.values()):
-            return False
-        if any(key in {"Ref", "Condition"} or key.startswith("Fn::") for key in value):
-            resolve_value(value, parameters, pseudo, conditions=document.get("Conditions", {}))
-        return True
+    independent = _bind_framework_callback(_recursive_static_export_handle_independent, document, parameters, pseudo)
 
     try:
         return independent(document) and all(
@@ -162,7 +189,7 @@ def static_export_handle(document, logical, parameters, pseudo):
 
 
 def require_fixed_stack_names(source, selected):
-    from model.projection import bound_stack_names
+    bound_stack_names = _imports_model_projection.bound_stack_names
     bound = bound_stack_names(source)
     for fixed, desired in bound.items():
         if desired in selected and fixed != desired:
@@ -292,7 +319,6 @@ def resolve_resources(root, environment, directory, templates, units, selected, 
 
     Unrelated authorities are not expanded or diagnosed. No naming inference is used.
     """
-    from model.sources import raw_model, FileReads
     wanted = set()
     target = target or (load_target(root, environment, directory) if (root / 'project.json').is_file() else {})
     catalog = DesignSchemaCatalog(root)
@@ -341,7 +367,6 @@ def propagate_references(root, loaded, changes, identifiers, by_identifier=None)
     """Discover incoming links mechanically; both deploy and destroy use this scanner."""
     # Read out-of-target models only if a raw incoming link reaches an updated identifier.
     # This is link discovery, not validation of unrelated prod/service designs.
-    from model.sources import raw_model, FileReads
     resolver = Resolver(root)
     incoming = {(*own_key(path, resource)[:3], resource.get('anchor'))
                 for path, values in loaded.items() for _, resource in entries(values, 'desired.resource.')
@@ -350,7 +375,7 @@ def propagate_references(root, loaded, changes, identifiers, by_identifier=None)
     for path in model_paths(root, read_context=reads) if identifiers else []:
         if path in loaded or path.stem == "cloudformation-stacks":
             continue
-        design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
+        _ = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
         linked = False
         values = raw_model(path, reads).authoritative
         for key, value in values.items():
@@ -361,7 +386,7 @@ def propagate_references(root, loaded, changes, identifiers, by_identifier=None)
             loaded[path] = properties(read_model(path))
     # Include every incoming reference, including out-of-scope ones; reject before any write.
     for path, values in loaded.items():
-        design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
+        _ = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
         for rid, row in entries(values, "desired.row."):
             link = resource_link(row["value"])
             if not link or row["property"] == CODEBUILD_FORMAL_VARIABLE + "Value":
@@ -375,18 +400,18 @@ def propagate_references(root, loaded, changes, identifiers, by_identifier=None)
 
 def observed_destinations(root, environment, directory, loaded, changes, check_scope=True):
     """Plan exact model parts/views before writes, preserving desired/display bytes."""
+    sync = _imports_sync_runtime
     scope = active_scope(root) if check_scope else None
     destinations = {}
     for path, updates in changes.items():
         service = tuple(path.relative_to(root / "model").with_suffix("").parts)
         if scope is not None and service not in scope or service[:2] != (environment, directory):
             raise ValueError(f"task scope violation: observed reference requires {'/'.join(service)}")
-        from model.observed import observed_outputs
+        observed_outputs = _imports_model_observed.observed_outputs
         projected = observed_outputs(path, {**loaded[path], **updates})
         if projected is None:
             raise ValueError(f'properties Model sources missing for observed update: {path}')
         destinations.update(projected)
-    import sync_runtime as sync
     views = set()
     for path in changes:
         design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
@@ -411,7 +436,6 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
     Unmapped designs without observed identifiers are reported, never synchronized.
     The returned plan is JSON serializable and remains stable after observed sync.
     """
-    import hashlib
     require_fixed_stack_names(root / 'model' / environment / directory / 'cloudformation-stacks.properties', stack_names)
     loaded = models(root, environment, directory)
     catalog = DesignSchemaCatalog(root) if loaded else None
@@ -455,7 +479,7 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
                 raise ValueError(f"task scope violation: destroy ownership requires {'/'.join(service)}")
             owners[name].append({"model": path.relative_to(root).as_posix(), "resource": identity,
                                  "logicalId": logical})
-            design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
+            _ = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
             for prop in outputs:
                 selected = [(rid, row) for rid, row in rows[identity] if row["property"] == prop]
                 if len(selected) != 1:
@@ -508,7 +532,6 @@ def sync_destroyed(backend, states, plan):
     if any(not states[name].get("StackId") or not states[name].get("deleteObserved") for name in completed):
         raise ValueError("destroy observed sync requires pinned StackId and deletion evidence")
     loaded, changes = {}, {}
-    import hashlib
     for name in completed:
         for relative, updates in plan["updates"][name].items():
             path = root / relative
@@ -561,7 +584,6 @@ def preflight(root, environment, directory, stack_names):
 
 
 def main(argv=None):
-    import argparse
     parser = argparse.ArgumentParser(description="Read-only local CloudFormation resource/identifier preflight; no AWS calls")
     parser.add_argument("--environment", required=True)
     parser.add_argument("--target-directory", required=True)
@@ -581,5 +603,5 @@ if __name__ == "__main__":
 
 
 def publish_observed(root, destinations, inputs=None):
-    from model.observed import publish_observed_candidates
+    publish_observed_candidates = _imports_model_observed.publish_observed_candidates
     publish_observed_candidates(root, destinations, inputs)

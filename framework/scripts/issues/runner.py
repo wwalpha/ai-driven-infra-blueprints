@@ -1,22 +1,29 @@
-from contextlib import redirect_stdout
-import io
+
 import hashlib
+import io
 import os
 import re
 import time
+import uuid
+from contextlib import redirect_stdout
 
-from model.core import ReferenceResolutionError
-from model.sources import FileReads
-from validation_cache import input_scope, digest_files, PassCache
-from task_contract import contract_read_scope
-from script_loader import module
 from comparison import Comparison
-from .records import identifier, safe_text
-from .materials import naming_materials, existing_materials
-from .integrity import selected_scope, fingerprint, verify_inputs, live_common_key
+from model.core import ReferenceResolutionError
+from script_loader import module
+from task_contract_core import contract_read_scope
+from utils.input_cache import digest_files, input_scope
+from utils.source_reads import FileReads
+from validation_cache import PassCache
+
+import issues.artifact as _imports_issues_artifact
+import issues.cfn_lint as _imports_issues_cfn_lint
+
 from .aggregate import aggregate
 from .inputs import view_text
-import uuid
+from .integrity import fingerprint, live_common_key, selected_scope, verify_inputs
+from .materials import existing_materials, naming_materials
+from .records import identifier, safe_text
+
 
 @contract_read_scope
 def mechanical(root, scope, *, fresh=False, jobs=4, catalog=None, fingerprint_out=None, warnings=None, cache=None, validator_out=None, view_errors=None, view_reader=None):
@@ -108,7 +115,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
                for service in services]
     warnings.extend(w for w in comparison.warnings if w not in warnings)
     iac_seconds = time.perf_counter() - begin
-    from .cfn_lint import run_lint
+    run_lint = _imports_issues_cfn_lint.run_lint
     begin = time.perf_counter()
     lint = run_lint(comparison)
     lint_seconds = time.perf_counter() - begin
@@ -177,7 +184,9 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     artifact['metrics'] = comparison.metrics | dict(mechanical_seconds=mechanical_seconds, iac_seconds=iac_seconds,
         lint_seconds=lint_seconds, aggregation_seconds=aggregation_seconds, input_guard_seconds=time.perf_counter()-begin,
         wall_seconds=time.perf_counter()-started, wall_scope='runner through aggregation, final input guards and cache finalization; excludes CLI JSON/output')
-    from .artifact import validation_status, channel_summary, CHANNELS
+    CHANNELS = _imports_issues_artifact.CHANNELS
+    channel_summary = _imports_issues_artifact.channel_summary
+    validation_status = _imports_issues_artifact.validation_status
     artifact['validation_status'] = validation_status(artifact)
     artifact['review_required'] = True
     artifact['notice_overview'] = {name:channel_summary(artifact[name],name) for name in CHANNELS}

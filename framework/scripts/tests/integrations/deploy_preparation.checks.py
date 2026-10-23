@@ -1,15 +1,47 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
-import sys
-from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
 
+import sys
+from functools import partial as _bind_framework_callback
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from contextlib import chdir
+
+import model.files as _imports_model_files
+import model.format as _imports_model_format
+import model.sources as _imports_model_sources
+from support.deploy_preparation_fixtures import (
+    ROOT,
+    STACKS,
+    TARGET,
+    M,
+    Path,
+    arguments,
+    contracts,
+    fixture,
+    hashlib,
+    invoke,
+    io,
+    json,
+    patch,
+    paths_in,
+    read_model,
+    redirect_stderr,
+    redirect_stdout,
+    start,
+    subprocess,
+    sys,
+    tempfile,
+    write_model,
+    zipfile,
+)
 from support.it_case_receipt import it_case
 
-from support.deploy_preparation_fixtures import *
-from contextlib import chdir
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 @it_case
@@ -33,7 +65,8 @@ def check_preparation():
         assert plan["scope"] == ["dev/123456789012/cloudformation-stacks", "dev/123456789012/ec2", "dev/123456789012/iam"]
         text = (run / "contract.md").read_text(encoding="utf-8")
         declared = paths_in(text, "## Modified files")
-        from model.sources import model_parts, source_inputs
+        model_parts = _imports_model_sources.model_parts
+        source_inputs = _imports_model_sources.source_inputs
         outputs = {p.relative_to(root).as_posix() for p in model_parts(root / "model/dev/123456789012/ec2.properties")}
         assert outputs <= declared
         assert "model/dev/123456789012/iam.properties" in declared
@@ -135,6 +168,15 @@ def check_stale_and_conflicts():
             assert json.loads((run / "timing.jsonl").read_text().splitlines()[-1])["result"] == "FAIL"
 
 
+def _callback_check_generated_boundaries_load_with_artifacts(real_load, /, *args):
+    limit, units = real_load(*args)
+    units[0]["artifacts"] = [
+        {"source": "infra/cloudformation/artifacts/execution.json", "property": "DefinitionS3Location"},
+        {"source": "infra/cloudformation/artifacts/build.zip", "property": "Code"},
+    ]
+    return limit, units
+
+
 @it_case
 def check_generated_boundaries():
     with tempfile.TemporaryDirectory() as directory:
@@ -142,8 +184,8 @@ def check_generated_boundaries():
         root = base / "repo"
         fixture(root)
         source = root / "model/dev/123456789012/iam.properties"
-        from model.sources import load_model
-        from model.format import serialize
+        serialize = _imports_model_format.serialize
+        load_model = _imports_model_sources.load_model
         original = serialize(load_model(source).authoritative)
         write_model(source, "\n".join(line for line in original.splitlines() if ".document=" not in line) + "\n")
         try:
@@ -167,13 +209,7 @@ def check_generated_boundaries():
         (artifacts / "execution.json").write_text('{"StartAt":"Done"}', encoding="utf-8")
         with zipfile.ZipFile(artifacts / "build.zip", "w") as archive:
             archive.writestr("main.py", "pass")
-        def load_with_artifacts(*args):
-            limit, units = real_load(*args)
-            units[0]["artifacts"] = [
-                {"source": "infra/cloudformation/artifacts/execution.json", "property": "DefinitionS3Location"},
-                {"source": "infra/cloudformation/artifacts/build.zip", "property": "Code"},
-            ]
-            return limit, units
+        load_with_artifacts = _bind_framework_callback(_callback_check_generated_boundaries_load_with_artifacts, real_load)
         with patch.object(M, 'load_units', side_effect=load_with_artifacts):
             assert invoke(arguments(root, base)) == 0
         run = next((base / "logs").iterdir())
@@ -216,7 +252,7 @@ def check_service_generated_equality():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve() / "repo"
         fixture(root)
-        from model.files import load_model
+        load_model = _imports_model_files.load_model
         source = root / "model/dev/123456789012/iam.properties"
         values = dict(load_model(source).authoritative)
         values["desired.resource.001.cfn-logicalId"] = STACKS[0] + "-WorkerRole"
@@ -251,4 +287,3 @@ if __name__ == "__main__":
         check_generated_boundaries()
         check_service_generated_equality()
         print("Deployment preparation checks: PASS")
-

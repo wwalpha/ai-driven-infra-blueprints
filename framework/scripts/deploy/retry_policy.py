@@ -1,4 +1,7 @@
 """Pure repair decisions. Static validation and file changes are never AWS progress."""
+
+import uuid
+
 MAX_PROBLEM_CYCLES = 3
 DEFAULT_BUDGET = 20
 
@@ -64,7 +67,6 @@ def reserve(workflow, request_id, problem_ids):
     result = decision(workflow, problem_ids)
     if result != 'REPAIR_ALLOWED':
         raise ValueError('repair policy: ' + result)
-    import uuid
     identity = uuid.uuid4().hex
     attempt = {'attemptId': identity, 'requestId': request_id, 'problemIds': sorted(problem_ids),
                'stage': 'RESERVED', 'staticFailures': 0}

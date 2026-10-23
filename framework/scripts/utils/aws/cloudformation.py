@@ -1,5 +1,5 @@
 """cloudformation SDK operations with structured AWS arguments."""
-from .client import request, pages
+from .client import pages, request
 
 
 def get_template(context, **arguments):
@@ -40,5 +40,3 @@ def execute_change_set(context, **arguments):
 
 def delete_stack(context, **arguments):
     return request(context, 'cloudformation', 'delete_stack', arguments)
-
-

@@ -9,11 +9,10 @@ import hashlib
 import hmac
 import json
 import os
-from pathlib import Path
 import secrets
 import sys
 import warnings
-
+from pathlib import Path
 
 ITERATIONS = 600_000
 

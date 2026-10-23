@@ -1,19 +1,37 @@
 """Explicit environment properties retain identities, policy types and reference meanings."""
+
 import json
 import os
+from functools import partial as _bind_framework_callback
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+
 import pytest
-from support.model_sources import write_model
-from support.it_workspace import populate
-from model.sources import FileReads, list_models, load_model, design_source_digest
-from model.operations import CandidateReads
-from model.format import parse, patch as patch_properties, serialize
-from model.references import declarations
+import support.it_fixture_bundle as _imports_support_it_fixture_bundle
 from model.files import trace_model
+from model.format import parse, serialize
+from model.format import patch as patch_properties
+from model.operations import CandidateReads
 from model.projection import document_sha256
+from model.references import declarations
+from model.sources import design_source_digest, list_models, load_model
+from support.it_workspace import populate
+from support.model_sources import write_model as write_model
+from utils.source_reads import FileReads
+
 ROOT = Path(__file__).resolve().parents[4]
+
+
+def _callback_check_proposed(before, fixed, original, other, other_before, path, /, changes, dependencies=None):
+    values = {**before.authoritative, **changes}
+    values = {key: value for key, value in values.items() if value is not None}
+    text = serialize(values)
+    result = load_model(before.scope, CandidateReads(FileReads(), {path: text, **(dependencies or {})}))
+    assert {key: value for key, value in result.authoritative.items() if key.startswith('desired.resource.')} == fixed
+    assert load_model(other).authoritative == other_before.authoritative
+    assert all(p.read_bytes() == raw for p, raw in original.items())
+    return result
 
 
 def check(root, alias, service):
@@ -34,15 +52,7 @@ def check(root, alias, service):
     assert all(not key.endswith('.artifactSha256') for key in before.authoritative)
     assert all(not key.startswith('observed.') or key.endswith('.value') for key in before.authoritative)
 
-    def proposed(changes, dependencies=None):
-        values = {**before.authoritative, **changes}
-        values = {key: value for key, value in values.items() if value is not None}
-        text = serialize(values)
-        result = load_model(before.scope, CandidateReads(FileReads(), {path: text, **(dependencies or {})}))
-        assert {key: value for key, value in result.authoritative.items() if key.startswith('desired.resource.')} == fixed
-        assert load_model(other).authoritative == other_before.authoritative
-        assert all(p.read_bytes() == raw for p, raw in original.items())
-        return result
+    proposed = _bind_framework_callback(_callback_check_proposed, before, fixed, original, other, other_before, path)
 
     # Initial values/order survive a serializer round trip and a byte-local no-op.
     assert load_model(before.scope, CandidateReads(FileReads(), {path: serialize(before.authoritative)})).authoritative == before.authoritative
@@ -119,7 +129,7 @@ def check(root, alias, service):
 
 
 def run(service):
-    from support.it_fixture_bundle import source
+    source = _imports_support_it_fixture_bundle.source
     with patch(__name__ + '.ROOT', source('input_templates')):
         aliases = sorted({scope.target for scope in list_models(ROOT) if scope.service == service})
         assert aliases, 'no explicit service fixture cases'

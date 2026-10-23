@@ -1,9 +1,10 @@
 """Explicit service properties for offline checks; no template or input expansion."""
-from pathlib import Path
 import json
+
+import support.import_model_fixtures as import_fixtures
+import support.it_workspace as workspace
 from model.sources import json_text
 from support.model_sources import write_model
-from support.import_model_fixtures import service_values, resource_values, reference_fields
 
 
 def topology(root, environments):
@@ -15,9 +16,9 @@ def topology(root, environments):
 
 
 def authored_service(root, environment, service, resources, *, extra=None):
-    values = service_values(service, list(dict.fromkeys(kind for _, kind, _, _ in resources)))
+    values = import_fixtures.service_values(service, list(dict.fromkeys(kind for _, kind, _, _ in resources)))
     for rid, kind, anchor, rows in resources:
-        values.update(resource_values(rid, kind, anchor, 'CREATE', [(prop, raw) for prop, raw, *document in rows]))
+        values.update(import_fixtures.resource_values(rid, kind, anchor, 'CREATE', [(prop, raw) for prop, raw, *document in rows]))
         values[f'desired.resource.{rid}.cfn-logicalId'] = 'fixture-Resource' + rid
         for index, (_, _, *document) in enumerate(rows, 1):
             if document:
@@ -76,7 +77,7 @@ def build_typed_services(root):
                         ('mwaa', 'MWAA.Environment', 'Name', 'fixture'), ('cloudtrail', 'CloudTrail.Trail', 'TrailName', 'fixture')]:
                     key = 'desired.note.producer_' + producer + '.text'
                     extra[key] = name
-                    extra.update(reference_fields('producer_' + producer, key, name, env + '/team/' + producer + '/001',
+                    extra.update(import_fixtures.reference_fields('producer_' + producer, key, name, env + '/team/' + producer + '/001',
                                                   kind=kind, prop=kind + '.' + prop))
             authored_service(root, env, service, resources, extra=extra)
         write_model(root / 'model' / env / 'team/cloudformation-stacks.properties', {
@@ -95,7 +96,7 @@ def build_input_templates(root):
             ('ControlFindingGenerator', '`SECURITY_CONTROL`'), ('EnableDefaultStandards', '`true`')])])
         authored_service(root, env, 's3', [('001', 'S3.Bucket', 'bucket-001', [('BucketName', '`fixture-bucket-001-one`')])])
         key = 'desired.row.017-002.value'
-        references = reference_fields('result', key, 'fixture-bucket-001-one', env + '/team/s3/001',
+        references = import_fixtures.reference_fields('result', key, 'fixture-bucket-001-one', env + '/team/s3/001',
                                       kind='S3.Bucket', prop='S3.Bucket.BucketName')
         authored_service(root, env, 'athena', [('017', 'Athena.WorkGroup', 'fixture-athena-017', [
             ('Name', '`fixture`'), ('WorkGroupConfiguration.ResultConfiguration.OutputLocation', '`s3://fixture-bucket-001-one/results/`')])], extra=references)
@@ -115,10 +116,8 @@ def build_input_templates(root):
 
 
 def typed_services(root):
-    from support.it_workspace import populate
-    populate('typed_services', root)
+    workspace.populate('typed_services', root)
 
 
 def input_templates(root):
-    from support.it_workspace import populate
-    populate('input_templates', root)
+    workspace.populate('input_templates', root)

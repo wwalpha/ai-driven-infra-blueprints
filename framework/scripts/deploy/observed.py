@@ -1,13 +1,27 @@
 """Post-success synchronization and execution-bound deletion evidence."""
-from pathlib import Path
+
 import re
-from cloudformation_inputs import Blocked
+
+import cloudformation_inputs as _imports_cloudformation_inputs
+import design_layout as _imports_design_layout
+from cloudformation_inputs import Blocked as Blocked
 from design_catalog import DesignSchemaCatalog
-from model.adapters.observed import (ambiguous, resolve_resources, active_outputs, identifier_source,
-    reference_key, own_key, propagate_references, observed_destinations, publish_observed)
+from issue_gate import require_target_no_issues
+from model.adapters.observed import (
+    active_outputs,
+    ambiguous,
+    identifier_source,
+    observed_destinations,
+    own_key,
+    propagate_references,
+    publish_observed,
+    reference_key,
+    resolve_resources,
+)
 from model.identity import resource_link
 from model.sources import input_snapshot
-from issue_gate import require_target_no_issues
+
+import deploy.observed_resume as _dependency_deploy_observed_resume
 
 
 def removed_resources(units, states):
@@ -31,13 +45,13 @@ def removed_resources(units, states):
 
 def collect_successful(backend, units, states, *, generated_views=None):
     """Resolve exact candidates from fresh successful Stack reads without writing."""
+    condition_active = _imports_cloudformation_inputs.condition_active
+    GROUPED = _imports_design_layout.GROUPED
     root, environment, directory = backend.root, backend.environment, backend.directory
     require_target_no_issues(root, (environment, directory))
     removed = removed_resources(units, states)
     selected = {}
-    from design_layout import GROUPED
     grouped = {DesignSchemaCatalog(root).cloudformation_type(kind) for kind, rule in GROUPED.items() if rule['identityProperty'] is None}
-    from cloudformation_inputs import condition_active
     for unit in units:
         name = unit['name']
         document, parameters = backend.templates[name]
@@ -67,7 +81,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
             if logical in by_logical:
                 ambiguous(f"{name}/{logical}: duplicate actual resource")
             by_logical[logical] = actual
-        for logical, (path, identity, resource, rows, selected_outputs) in mapped[name].items():
+        for logical, (path, _identity, resource, rows, selected_outputs) in mapped[name].items():
             if logical in removed.get(name, {}):
                 if not selected_outputs:
                     continue  # Integrated children have no independent identifier to reset.
@@ -76,7 +90,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
                 for rid, row in rows:
                     if row["property"] in selected_outputs:
                         changes.setdefault(path, {})[f"observed.row.{rid}.value"] = "`PENDING_DEPLOY`"
-                        design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
+                        _ = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
                         identifiers[own_key(path, resource)] = "PENDING_DEPLOY"
                 continue
             definition = document["Resources"][logical]
@@ -102,7 +116,7 @@ def collect_successful(backend, units, states, *, generated_views=None):
                 if not isinstance(value, str) or not value or re.search(r"\barn:aws[a-z-]*:", value, re.I) or any(c in value for c in "\r\n`"):
                     ambiguous(f"{name}/{logical}: non-ARN identifier unavailable: {prop}")
                 link = resource_link(row["value"])
-                design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
+                _ = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
                 if not link or reference_key(link[0], path) != own_key(path, resource):
                     ambiguous(f"{name}/{logical}: identifier must reference its own Resource reference")
                 anchor_key = own_key(path, resource)
@@ -121,9 +135,8 @@ def collect_successful(backend, units, states, *, generated_views=None):
 
 def sync_successful(backend, units, states):
     """Keep successful AWS state while the Model and generated views cross their barrier."""
-    from deploy.observed_resume import prepare, finish
     if getattr(backend, 'session', {}).get('pendingObserved'):
-        destinations = finish(backend, units)
+        destinations = _dependency_deploy_observed_resume.finish(backend, units)
         names = backend.session['pendingObserved']['evidence']
     else:
         views = set()
@@ -131,8 +144,8 @@ def sync_successful(backend, units, states):
         names = [unit['name'] for unit in units]
         if services:
             if getattr(backend, 'session', {}).get('modelInputManifest') is not None:
-                prepare(backend, units, destinations, services, views)
-                finish(backend, units)
+                _dependency_deploy_observed_resume.prepare(backend, units, destinations, services, views)
+                _dependency_deploy_observed_resume.finish(backend, units)
             else:
                 root = backend.root
                 publish_observed(root, destinations, {path: raw for service in services

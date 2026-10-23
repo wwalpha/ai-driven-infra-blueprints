@@ -1,7 +1,26 @@
 """Version 2 properties syntax. Scalars are text; only explicit JSON is parsed."""
-from utils.json_format import strict_json
-from dataclasses import dataclass
+import posixpath
 import re
+from dataclasses import dataclass
+from pathlib import PurePosixPath
+
+from utils.json_format import strict_json
+
+LINKS = re.compile(r'\[([^\]]+)\]\(([^)]*?)#([^)]+)\)')
+
+
+def link_scope(environment, target, service, filename):
+    """Resolve a saved Markdown address lexically inside the registered Model tree."""
+    if not filename:
+        return '/'.join((environment, target, service))
+    if filename.startswith('/') or '\\' in filename:
+        raise ValueError('direct Model reference is outside the Model tree: ' + filename)
+    relative = PurePosixPath(posixpath.normpath('/'.join((environment, target, filename))))
+    if len(relative.parts) != 3 or '..' in relative.parts or relative.suffix != '.md':
+        raise ValueError('direct Model reference is outside the Model tree: ' + filename)
+    return '/'.join((*relative.parts[:2], relative.stem))
+
+
 
 FORMAT = '# model-format: 2'
 INDEX = '# model-index: 2'
@@ -220,3 +239,21 @@ def patch(document, changes):
     if parse(text).values != expected:
         raise ValueError('Model edit cannot be represented losslessly')
     return text
+
+
+JSON_LINK = re.compile(r"^\[[^\]]+\]\(([^)#]+\.json)\)$")
+
+RESOURCE_LINK = re.compile(r"^\[([^\]]+)\]\(([^)]*?)#([^)]+)\)$")
+
+REFERENCE_NAME_SUFFIXES = ('.Name', '.RoleName', '.LogGroupName', '.BucketName', '.AliasName',
+                         '.GroupName', '.InstanceProfileName', '.FunctionName', '.TrailName',
+                         '.QueueName', '.UserName', '.RepositoryName')
+
+
+FORMAT_FIELDS = {'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1}
+
+
+def require_format(value, version, label):
+    expected = {'version': version, **FORMAT_FIELDS}
+    if not isinstance(value, dict) or any(type(value.get(key)) is not int or value[key] != item for key, item in expected.items()):
+        raise ValueError('IMPORT ' + label + ' format is incompatible; requires ' + str(expected))

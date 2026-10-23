@@ -1,18 +1,22 @@
 """One acquisition inventory per verified Context; static definitions remain shared."""
-from utils.json_format import policy_json
-from model.identity import parse_reference, resource_link
-from model.sources import scope_for
-from copy import deepcopy
+
 import json
+from copy import deepcopy
+from functools import partial as _bind_framework_callback
 from threading import RLock
 
+import aws_mapping_compare as mapping_compare
 from aws_mapping import readonly
-from aws_mapping_compare import import_comparison
 from aws_mapping_catalog import project
 from script_loader import module
 from utils.aws_mappings import owners
 from utils.aws_schemas import schemas_for
+from utils.json_format import policy_json
 from utils.lazy_definitions import load_once
+
+import model.identity as _dependency_model_identity
+import model.projection as _imports_model_projection
+import model.sources as _dependency_model_sources
 
 
 def comparator():
@@ -63,8 +67,8 @@ def cloudcontrol_value(ctx, resource, getter):
         current = resource.current(prop)
         if current is None:
             rows = resource.rows_for(prop)
-            scope = scope_for(resource.model.path)
-            if any(resource_link(row['value']) and parse_reference(row['value'], scope) ==
+            scope = _dependency_model_sources.scope_for(resource.model.path)
+            if any(_dependency_model_identity.resource_link(row['value']) and _dependency_model_identity.parse_reference(row['value'], scope) ==
                    (scope.environment, scope.target, scope.service, resource.spec.get('anchor')) for _, row in rows):
                 raise comparator().Unresolved('provider self identity has no confirmed observation')
             current = resource.value(prop)
@@ -76,46 +80,110 @@ def cloudcontrol_value(ctx, resource, getter):
     return properties_json(response['ResourceDescription']['Properties'])
 
 
+def _callback_ImportInventory___new___create(cls, ctx, /):
+    result = object.__new__(cls)
+    result.ctx = ctx
+    result._lock, result._cache = RLock(), {}
+    result._statuses = {}
+    return result
+
+
+def _callback_ImportInventory_once_run(key, load, self, /):
+    with self._lock:
+        self.ctx.metrics['inventory_' + key[0] + '_runs'] += 1
+    return load()
+
+
+def _callback_ImportInventory_resource_types_resolve(self, service, /):
+    mapping, _ = self.mapping(service)
+    index = owners(self.ctx.root)
+    kinds = tuple(sorted(kind for kind, owner in index.items() if owner == service))
+    if set(kinds) != mapping.resource_types:
+        raise ValueError('IMPORT Mapping ownership mismatch')
+    return kinds
+
+
+def _callback_ImportInventory_schema_load(kind, self, /):
+    try:
+        return readonly(schemas_for(self.ctx.root).cloudformation(type_name(kind)))
+    except KeyError:
+        raise comparator().AcquisitionError('cloudcontrol', 'SchemaUnsupported', 'unsupported') from None
+
+
+def _callback_ImportInventory_identity_resolve(kind, record, self, /):
+    catalog_outputs = _imports_model_projection.catalog_outputs
+    mapping, mapped = self.mapping(owners(self.ctx.root)[kind])
+    if 'cloudProperties' in record:
+        pointers = self.schema(kind).get('primaryIdentifier', ())
+        values = [pointer_value(record['cloudProperties'], pointer) for pointer in pointers]
+        props = [kind + '.' + pointer.removeprefix('/properties/').replace('/', '.') for pointer in pointers]
+        known = bool(values) and all(value is not None and value != '' for value in values)
+        return {'identityProperty': props[0] if len(props) == 1 else None,
+                'identityProperties': props, 'identityComponents': [
+                    {'property': prop, 'value': value} for prop, value in zip(props, values, strict=False)],
+                'identityStatus': 'known' if known else 'unknown'}
+    descriptor = mapping.identities[kind]
+    props = [p for p, item in mapped.items() if p.startswith(kind + '.') and
+             item.field.path == descriptor.id_path and item.field.getter == descriptor.getter]
+    outputs = catalog_outputs(self.ctx.root, kind)
+    props.sort(key=lambda prop: prop not in outputs)
+    return {'identityProperty': props[0] if props else None, 'identityProperties': props}
+
+
+def _callback_ImportInventory_normalize_run(normalize, record, self, service, /):
+    result = normalize(self.ctx, service, [record])[0]
+    required = self.schema(record['kind']).get('required', ()) if 'cloudProperties' in record else ()
+    missing_required = any(value['status'] == 'missing' and prop.removeprefix(record['kind'] + '.').split('.')[0] in required
+                           for prop, value in result['properties'].items())
+    if missing_required or result.get('identityStatus') == 'unknown' or any(value['status'] == 'unavailable' for value in result['properties'].values()):
+        denied = any('AccessDenied' in capture.get('reason', '') or 'Unauthorized' in capture.get('reason', '')
+                     for capture in result['properties'].values())
+        self.status(record['kind'], 'permission_denied' if denied else 'failed', 'Property or identity acquisition incomplete')
+    return result
+
+
+def _callback_ImportInventory_inventory_collect(filters, kind, self, service, /):
+    mapping, mapped = self.mapping(service)
+    if not any(prop.include for key, prop in mapped.items() if key.startswith(kind + '.')):
+        self.status(kind, 'not_modelled')
+        return []
+    try:
+        if kind in ADAPTER_INVENTORIES and kind in mapping.identities:
+            records = adapter_inventory(self.ctx, service, (kind,))
+        elif kind == 'EC2.SubnetRouteTableAssociation' and 'EC2.RouteTable' in mapping.resource_types:
+            # Associations belong to the existing subnet expansion, not independent candidates.
+            records = []
+        else:
+            records = self.cloud_inventory(service, kind, filters)
+        self.status(kind, 'complete' if records else 'empty')
+        return records
+    except (comparator().AcquisitionError, ValueError, KeyError, TypeError, comparator().Unresolved) as error:
+        self.failure(kind, error)
+    return []
+
+
 class ImportInventory:
     def __new__(cls, ctx):
         if not ctx.verified:
             raise ValueError('IMPORT Inventory requires a verified AWS Context')
-        def create():
-            result = object.__new__(cls)
-            result.ctx = ctx
-            result._lock, result._cache = RLock(), {}
-            result._statuses = {}
-            return result
+        create = _bind_framework_callback(_callback_ImportInventory___new___create, cls, ctx)
         return ctx.once(('import_inventory',), create)
 
     def once(self, key, load):
         with self._lock:
             self.ctx.metrics['inventory_cache_hits' if key in self._cache else 'inventory_cache_misses'] += 1
-        def run():
-            with self._lock:
-                self.ctx.metrics['inventory_' + key[0] + '_runs'] += 1
-            return load()
+        run = _bind_framework_callback(_callback_ImportInventory_once_run, key, load, self)
         return load_once(self._lock, self._cache, key, run)
 
     def mapping(self, service):
         return self.once(('mapping', service), lambda: import_comparison(self.ctx.root, service))
 
     def resource_types(self, service):
-        def resolve():
-            mapping, _ = self.mapping(service)
-            index = owners(self.ctx.root)
-            kinds = tuple(sorted(kind for kind, owner in index.items() if owner == service))
-            if set(kinds) != mapping.resource_types:
-                raise ValueError('IMPORT Mapping ownership mismatch')
-            return kinds
+        resolve = _bind_framework_callback(_callback_ImportInventory_resource_types_resolve, self, service)
         return self.once(('resource_types', service), resolve)
 
     def schema(self, kind):
-        def load():
-            try:
-                return readonly(schemas_for(self.ctx.root).cloudformation(type_name(kind)))
-            except KeyError:
-                raise comparator().AcquisitionError('cloudcontrol', 'SchemaUnsupported', 'unsupported') from None
+        load = _bind_framework_callback(_callback_ImportInventory_schema_load, kind, self)
         return self.once(('schema', kind), load)
 
     def property_schema(self, prop):
@@ -126,37 +194,11 @@ class ImportInventory:
         return deepcopy(self.once(('property_schema', kind, prop), lambda: self.ctx.catalog.property_schema(kind, path)))
 
     def identity(self, kind, record):
-        def resolve():
-            mapping, mapped = self.mapping(owners(self.ctx.root)[kind])
-            if 'cloudProperties' in record:
-                pointers = self.schema(kind).get('primaryIdentifier', ())
-                values = [pointer_value(record['cloudProperties'], pointer) for pointer in pointers]
-                props = [kind + '.' + pointer.removeprefix('/properties/').replace('/', '.') for pointer in pointers]
-                known = bool(values) and all(value is not None and value != '' for value in values)
-                return {'identityProperty': props[0] if len(props) == 1 else None,
-                        'identityProperties': props, 'identityComponents': [
-                            {'property': prop, 'value': value} for prop, value in zip(props, values)],
-                        'identityStatus': 'known' if known else 'unknown'}
-            descriptor = mapping.identities[kind]
-            props = [p for p, item in mapped.items() if p.startswith(kind + '.') and
-                     item.field.path == descriptor.id_path and item.field.getter == descriptor.getter]
-            from model.projection import catalog_outputs
-            outputs = catalog_outputs(self.ctx.root, kind)
-            props.sort(key=lambda prop: prop not in outputs)
-            return {'identityProperty': props[0] if props else None, 'identityProperties': props}
+        resolve = _bind_framework_callback(_callback_ImportInventory_identity_resolve, kind, record, self)
         return deepcopy(self.once(('identity', kind, record['identity']), resolve))
 
     def normalize(self, service, record, normalize):
-        def run():
-            result = normalize(self.ctx, service, [record])[0]
-            required = self.schema(record['kind']).get('required', ()) if 'cloudProperties' in record else ()
-            missing_required = any(value['status'] == 'missing' and prop.removeprefix(record['kind'] + '.').split('.')[0] in required
-                                   for prop, value in result['properties'].items())
-            if missing_required or result.get('identityStatus') == 'unknown' or any(value['status'] == 'unavailable' for value in result['properties'].values()):
-                denied = any('AccessDenied' in capture.get('reason', '') or 'Unauthorized' in capture.get('reason', '')
-                             for capture in result['properties'].values())
-                self.status(record['kind'], 'permission_denied' if denied else 'failed', 'Property or identity acquisition incomplete')
-            return result
+        run = _bind_framework_callback(_callback_ImportInventory_normalize_run, normalize, record, self, service)
         return deepcopy(self.once(('normalize', service, record['kind'], record['identity']), run))
 
     @property
@@ -200,24 +242,7 @@ class ImportInventory:
             self.status(kind, 'failed', type(error).__name__)
 
     def inventory(self, service, kind, filters=None):
-        def collect():
-            mapping, mapped = self.mapping(service)
-            if not any(prop.include for key, prop in mapped.items() if key.startswith(kind + '.')):
-                self.status(kind, 'not_modelled')
-                return []
-            try:
-                if kind in ADAPTER_INVENTORIES and kind in mapping.identities:
-                    records = adapter_inventory(self.ctx, service, (kind,))
-                elif kind == 'EC2.SubnetRouteTableAssociation' and 'EC2.RouteTable' in mapping.resource_types:
-                    # Associations belong to the existing subnet expansion, not independent candidates.
-                    records = []
-                else:
-                    records = self.cloud_inventory(service, kind, filters)
-                self.status(kind, 'complete' if records else 'empty')
-                return records
-            except (comparator().AcquisitionError, ValueError, KeyError, TypeError, comparator().Unresolved) as error:
-                self.failure(kind, error)
-            return []
+        collect = _bind_framework_callback(_callback_ImportInventory_inventory_collect, filters, kind, self, service)
         return deepcopy(self.once(('inventory', kind, json.dumps(filters, sort_keys=True)), collect))
 
     def cloud_inventory(self, service, kind, filters):
@@ -350,3 +375,7 @@ def adapter_inventory(ctx, service, resource_types):
         raise ValueError('IMPORT inventory contains duplicate identifiers')
     return records
 
+
+
+def import_comparison(root, service):
+    return mapping_compare.import_comparison(root, service)

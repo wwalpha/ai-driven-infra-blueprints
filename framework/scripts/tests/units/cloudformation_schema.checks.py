@@ -5,15 +5,20 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
-if not __debug__:
-    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
 from design_catalog import DesignSchemaCatalog
+from design_layout import resource_display_name, resource_name_fields
+from utils.layout_schema import LAYOUTS
+
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 def main() -> None:
@@ -181,7 +186,6 @@ def main() -> None:
         assert catalog.property_schema("Scheduler.Schedule", path)
     assert catalog.literal_errors("Scheduler.Schedule", "FlexibleTimeWindow.Mode", "OFF") == []
     assert catalog.literal_errors("Scheduler.Schedule", "FlexibleTimeWindow.Mode", "WRONG")
-    from design_layout import LAYOUTS, resource_display_name, resource_name_fields
     for kind, paths in {
         "EC2.VPCBlockPublicAccessOptions": "AccountId InternetGatewayBlockMode",
         "EC2.VPCBlockPublicAccessExclusion": "ExclusionId InternetGatewayExclusionMode VpcId SubnetId Tags[].Key Tags[].Value",

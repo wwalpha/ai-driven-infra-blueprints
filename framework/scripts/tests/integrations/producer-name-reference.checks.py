@@ -3,14 +3,33 @@
 
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 
 import pytest
 from support.it_case_receipt import it_case
-from support.producer_identifier_reference_fixtures import *
+from support.producer_identifier_reference_fixtures import (
+    Path,
+    affected,
+    declarations,
+    dependency_hashes,
+    design_source_digest,
+    json,
+    load_model,
+    reference,
+    rejected,
+    resource,
+    setup,
+    tempfile,
+    trace_model,
+    warning,
+    write_model,
+)
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 @it_case
@@ -64,7 +83,7 @@ def check(root):
                                         prop=kind + '.' + prop, pointer=pointer, environment=env))
         for name in ('Project', 'Repository', 'ExecutionRole'):
             service, rid, kind, _ = specs[name]
-            label = 'existing-role-label' if name == 'ExecutionRole' else names[name]
+            _ = 'existing-role-label' if name == 'ExecutionRole' else names[name]
             link = f'[{names[name]}]({service}.md#{service}-original)'
             consumer = 'desired.note.' + name + 'Link.text'
             values[consumer] = link

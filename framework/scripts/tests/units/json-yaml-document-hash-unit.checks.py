@@ -2,11 +2,21 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from support.json_yaml_document_hash_fixtures import (
+    Path,
+    document_sha256,
+    hashlib,
+    json,
+    json_text,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.json_yaml_document_hash_fixtures import *
 
 def check_json_hash_types():
     sample={'x':'日本語','n':2,'b':False}

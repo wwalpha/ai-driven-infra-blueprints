@@ -1,23 +1,47 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from contextlib import nullcontext
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import import_guard
+import issue_gate
+import pytest
+import sync_runtime
+import task_contract as tasks
+import worktree_state
+from issues.publication import save
+from script_loader import module
+from support.import_model_fixtures import operation_contract
+from support.issue_gate_fixtures import (
+    Path,
+    issue_errors,
+    json,
+    mock,
+    require_no_issues,
+    subprocess,
+    sys,
+)
+from validation.findings import Findings
+from validation.task import TaskValidation
+from validation_scope import active_scope
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.issue_gate_fixtures import *
-import pytest
-import task_contract as tasks
-from support.import_model_fixtures import operation_contract
+
+def _callback_check_report_commit_independence_git(tmp_path, /, *args):
+    return subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test',
+                           *args], cwd=tmp_path, check=True, capture_output=True, text=True).stdout.strip()
 
 
 @pytest.mark.parametrize('kind', ['reports', 'migration', 'design'])
 def check_report_commit_independence(tmp_path, monkeypatch, kind):
-    from validation.findings import Findings
-    from validation.task import TaskValidation
-    from validation_scope import active_scope
-    from issues.publication import save
     name = 'tasks/investigation.md'
     reports = {'issues/dev/cde/issues.md', 'issues/dev/cde/iac-issues.md'}
     permitted = reports | {name}
@@ -29,9 +53,7 @@ def check_report_commit_independence(tmp_path, monkeypatch, kind):
             '## Allowed paths\n' + ''.join(f'- `{path}`\n' for path in sorted(permitted)))
     if kind == 'migration':
         text += '- `infra/**`\n'  # An ordinary migration must retain its Git baseline.
-    def git(*args):
-        return subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test',
-                               *args], cwd=tmp_path, check=True, capture_output=True, text=True).stdout.strip()
+    git = _bind_framework_callback(_callback_check_report_commit_independence_git, tmp_path)
     git('init', '--quiet', '--initial-branch=master')
     for path in reports | {'outside.txt'}:
         destination = tmp_path / path
@@ -44,7 +66,7 @@ def check_report_commit_independence(tmp_path, monkeypatch, kind):
     monkeypatch.setenv(tasks.SELECTOR, name)
     findings = Findings(tmp_path)
     task = TaskValidation(tmp_path, findings)
-    with mock.patch('worktree_task.task_start_commit', return_value=baseline) as start:
+    with mock.patch('worktree_state.task_start_commit', return_value=baseline) as start:
         task.fix_baseline()
         assert start.call_count == (0 if kind == 'reports' else 1)
         git('commit', '--quiet', '--allow-empty', '-m', 'advance HEAD')
@@ -89,7 +111,7 @@ def check_report_commit_independence(tmp_path, monkeypatch, kind):
     (tmp_path / 'untracked.txt').unlink()
     task.check_task_scope()
     assert not findings.errors, findings.errors
-    with mock.patch('worktree_task.task_start_commit', side_effect=AssertionError('report completion used a baseline')):
+    with mock.patch('worktree_state.task_start_commit', side_effect=AssertionError('report completion used a baseline')):
         tasks.complete(tmp_path, name)
     assert tasks.status((tmp_path / name).read_text()) == 'completed'
 
@@ -109,8 +131,6 @@ def deletion_gate(tmp_path, monkeypatch):
 
 
 def check_deletion_gate_and_task_validation(deletion_gate):
-    from validation.findings import Findings
-    from validation.task import TaskValidation
     path, text, issues, scope = deletion_gate
     root = path.parent.parent
     original = issues.read_bytes()
@@ -173,7 +193,6 @@ def check_deletion_scope_fail_closed(deletion_gate, scope, target):
 
 
 def check_deletion_task_selection(deletion_gate):
-    import worktree_task
     path, text, issues, scope = deletion_gate
     root = path.parent.parent
     other = 'tasks/ordinary.md'
@@ -182,7 +201,7 @@ def check_deletion_task_selection(deletion_gate):
     with tasks.selected_task(root, other), pytest.raises(ValueError, match='unresolved issue'):
         require_no_issues(root, scope)
     (root / '.git').mkdir()
-    with mock.patch.object(worktree_task, 'task_start_commit', side_effect=ValueError('selected task does not match managed task_file')):
+    with mock.patch.object(worktree_state, 'task_start_commit', side_effect=ValueError('selected task does not match managed task_file')):
         with pytest.raises(ValueError, match='managed task_file'):
             require_no_issues(root, scope)
 
@@ -201,7 +220,6 @@ def check_remediation_still_requires_explicit_scope(deletion_gate):
 
 @pytest.mark.parametrize('use_task', [False, True])
 def check_deletion_cli_requires_task_opt_in(deletion_gate, use_task):
-    import issue_gate
     path, text, issues, scope = deletion_gate
     args = ['issue_gate.py', '--repository-root', str(path.parent.parent), '--environment', 'stg',
             '--target-directory', 'cde', '--service', 'vpc'] + (['--task'] if use_task else [])
@@ -230,10 +248,7 @@ def check_resume_issue_gate(deletion_gate, deletion):
 
 @pytest.mark.parametrize('entrypoint', ['cli', 'runtime'])
 def check_generation_uses_deletion_gate(deletion_gate, entrypoint):
-    from contextlib import nullcontext
-    import import_guard
-    import sync_runtime
-    from script_loader import module
+
     path, text, issues, scope = deletion_gate
     root = path.parent.parent
     runner = module('sync-model.py', 'issue_gate_sync_cli')

@@ -1,22 +1,31 @@
 """External Deploy sessions, immutable guards, target locks and observed barriers."""
+
+import hashlib
 import json
 import re
 import subprocess
 import sys
-from utils.aws_mappings import definition_root
 import tempfile
 import time
+from functools import partial as _bind_framework_callback
 from pathlib import Path
 
-from model.sources import model_paths, load_model, authority_snapshot, source_scope, FileReads
-from utils.json_format import fingerprint
+import model.observed as _imports_model_observed
 from cloudformation_inputs import Blocked
-from deploy.observed import sync_successful
-from task_contract import task_path, status, paths_in
+from model.sources import authority_snapshot, load_model, model_paths, source_scope
+from task_contract_core import paths_in, status, task_path
+from utils.aws_mappings import definition_root
+from utils.json_format import fingerprint
+from utils.source_reads import FileReads
 from validation_scope import active_scope as validation_scope
+
+import deploy.context as _imports_deploy_context
+import deploy.contracts as _imports_deploy_contracts
+import deploy.observed as _dependency_deploy_observed
+from deploy import failures, handoff, observed_resume
+from deploy import resume as repair_resume
 from deploy.scheduler import run_group
 from deploy.secret_bootstrap import BOOTSTRAP_STAGES
-from deploy import handoff, resume as repair_resume, failures, observed_resume
 
 
 def save_session(path, session):
@@ -65,7 +74,6 @@ def design_digest(root, environment, directory, *, contract_file=None):
 
 
 def model_input_manifest(root, environment, directory):
-    import hashlib
     return {path.relative_to(root).as_posix(): None if raw is None else hashlib.sha256(raw).hexdigest()
             for path, raw in authority_snapshot(root, environment, directory).items()}
 
@@ -77,7 +85,7 @@ def require_session_format(session):
 
 
 def verify_observed_transition(root, environment, directory, previous, outputs, intended_design):
-    from model.observed import verify_observed_outputs
+    verify_observed_outputs = _imports_model_observed.verify_observed_outputs
     verify_observed_outputs(previous, outputs)
     expected = {**previous, **{path: text.encode('utf-8') for path, text in outputs.items()}}
     if authority_snapshot(root, environment, directory) != expected:
@@ -100,47 +108,54 @@ def execution_digest(root, target, file_digest, unit_digests):
 
 
 
+def _callback_run_session_sync_once(backend, save, session, units, /):
+    unsynced = [u for u in units if session["states"][u["name"]]["status"] == "SUCCESS"
+                and not session["states"][u["name"]].get("observedSynced")]
+    if not unsynced:
+        return True
+    started = time.perf_counter()
+    try:
+        if hasattr(backend, 'guard'):
+            backend.guard()
+        previous = backend.before_observed() if hasattr(backend, 'before_observed') else None
+        outputs = sync_successful(backend, unsynced, session["states"])
+        if hasattr(backend, 'after_observed'):
+            backend.after_observed(previous, outputs or {})
+        session.pop('pendingObserved', None)
+        session.pop("observedError", None)
+        session.pop('observedRecoveryError', None)
+        return True
+    except Exception as error:
+        for unit in unsynced:
+            session["states"][unit["name"]].pop("observedSynced", None)
+        session.setdefault('observedError', str(error))
+        session['observedRecoveryError'] = str(error)
+        failure = {'stage': session.get('pendingObserved', {}).get('stage', 'PLANNING'), 'cause': str(error)}
+        failures = session.setdefault('observedFailures', [])
+        if not failures or failures[-1] != failure:
+            failures.append(failure)
+        return False
+    finally:
+        session["metrics"]["observedSyncSeconds"] += time.perf_counter() - started
+        save()
+
+
+# Peers may have completed while an earlier persisted plan was blocked.
+def _callback_run_session_sync_completed(session, sync_once, /):
+    # Peers may have completed while an earlier persisted plan was blocked.
+    while True:
+        pending = session.get('pendingObserved')
+        if not sync_once():
+            return False
+        if not pending:
+            return True
+
+
 def run_session(units, limit, session, backend, save, pause_after_group=False, sleep=time.sleep):
     """Observed synchronization is an idempotent, persisted barrier between groups."""
-    def sync_once():
-        unsynced = [u for u in units if session["states"][u["name"]]["status"] == "SUCCESS"
-                    and not session["states"][u["name"]].get("observedSynced")]
-        if not unsynced:
-            return True
-        started = time.perf_counter()
-        try:
-            if hasattr(backend, 'guard'):
-                backend.guard()
-            previous = backend.before_observed() if hasattr(backend, 'before_observed') else None
-            outputs = sync_successful(backend, unsynced, session["states"])
-            if hasattr(backend, 'after_observed'):
-                backend.after_observed(previous, outputs or {})
-            session.pop('pendingObserved', None)
-            session.pop("observedError", None)
-            session.pop('observedRecoveryError', None)
-            return True
-        except Exception as error:
-            for unit in unsynced:
-                session["states"][unit["name"]].pop("observedSynced", None)
-            session.setdefault('observedError', str(error))
-            session['observedRecoveryError'] = str(error)
-            failure = {'stage': session.get('pendingObserved', {}).get('stage', 'PLANNING'), 'cause': str(error)}
-            failures = session.setdefault('observedFailures', [])
-            if not failures or failures[-1] != failure:
-                failures.append(failure)
-            return False
-        finally:
-            session["metrics"]["observedSyncSeconds"] += time.perf_counter() - started
-            save()
+    sync_once = _bind_framework_callback(_callback_run_session_sync_once, backend, save, session, units)
 
-    def sync_completed():
-        # Peers may have completed while an earlier persisted plan was blocked.
-        while True:
-            pending = session.get('pendingObserved')
-            if not sync_once():
-                return False
-            if not pending:
-                return True
+    sync_completed = _bind_framework_callback(_callback_run_session_sync_completed, session, sync_once)
 
     backend.sync_completed = sync_completed
     while True:
@@ -174,6 +189,48 @@ def run_session(units, limit, session, backend, save, pause_after_group=False, s
         return result
 
 
+def _callback_run_infra_manifest(backend, root, units, /):
+    return {path.relative_to(root).as_posix(): backend.file_digest(path)
+            for path in sorted(set(backend.deployment_input_paths(units)))}
+
+
+def _callback_run_save(invocation_started, metrics, previous_duration, session, state_path, /):
+    metrics["totalControllerSeconds"] = previous_duration + time.perf_counter() - invocation_started
+    metrics["awsPollCount"] = sum(s.get("pollApiCount", 0) for s in session["states"].values())
+    save_session(state_path, session)
+
+
+def _callback_run_guard(args, backend, context, current_design, directory, infra_manifest, root, selected, session, target, task_digest, unit_digests, units, /):
+    active_scope(root, args.stack, args.environment, selected["awsAccountId"], args.alias)
+    if context.load_target(root, args.environment, args.aws_account_id, args.alias) != target:
+        raise Blocked("project target changed before mutation")
+    if design_digest(root, args.environment, directory) != current_design:
+        raise Blocked("intended model changed before mutation")
+    if model_input_manifest(root, args.environment, directory) != session['modelInputManifest']:
+        raise Blocked('Model raw inputs or dependency file set changed before mutation')
+    if infra_manifest() != session['infraManifest']:
+        raise Blocked('unauthorized IaC change outside accepted input revision')
+    if task_digest(task_path(root).read_text(encoding='utf-8')) != session['taskDigest']:
+        raise Blocked('task contract changed before mutation')
+    if any(backend.input_digest(unit) != unit_digests[unit["name"]] for unit in units):
+        raise Blocked("deployment inputs changed before mutation")
+    if execution_digest(backend.root, backend.target, backend.file_digest, unit_digests) != session.get("executionDigest"):
+        raise Blocked("execution definitions changed before mutation")
+
+
+def _callback_run_after_observed(args, current_design, directory, root, session, /, previous, outputs):
+    session['modelInputManifest'] = verify_observed_transition(
+        root, args.environment, directory, previous, outputs, current_design)
+
+
+# Runtime bootstrap does not change IaC or grant a validation/hash exception.
+def _callback_run_refresh_validation(backend, unit_digests, /, unit):
+    # Runtime bootstrap does not change IaC or grant a validation/hash exception.
+    backend.load_inputs(unit)
+    if backend.input_digest(unit, fresh=True) != unit_digests[unit['name']]:
+        raise Blocked('runtime recovery changed immutable IaC inputs')
+
+
 def run(args, root, timing, script_directory, backend_type, load_units):
     state_path = args.state.resolve()
     lock_path = None
@@ -185,7 +242,7 @@ def run(args, root, timing, script_directory, backend_type, load_units):
     try:
         if state_path.is_relative_to(root):
             raise Blocked("deployment session must be outside repository; never store AWS status in Git")
-        from deploy import context
+        context = _imports_deploy_context
         selected = context.load_target(root, args.environment, args.aws_account_id, args.alias)
         phase = active_scope(root, args.stack, args.environment, selected["awsAccountId"], args.alias)
         if args.pause_after_group and phase != "update":
@@ -213,7 +270,7 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                 require_session_format(session)
             if session.get('pendingObserved') and not getattr(args, 'observe_only', False):
                 # Recovery must precede load_units/design_digest and all read-only Model snapshots.
-                from deploy.contracts import sha
+                sha = _imports_deploy_contracts.sha
                 try:
                     if any(sha(root / path) != digest for path, digest in session['infraManifest'].items()):
                         raise Blocked('IaC changed during pending observed publication')
@@ -242,9 +299,7 @@ def run(args, root, timing, script_directory, backend_type, load_units):
         if backend.workdir.is_relative_to(root):
             raise Blocked("deployment files directory must be outside repository")
         unit_digests = {unit["name"]: backend.input_digest(unit) for unit in units}
-        def infra_manifest():
-            return {path.relative_to(root).as_posix(): backend.file_digest(path)
-                    for path in sorted(set(backend.deployment_input_paths(units)))}
+        infra_manifest = _bind_framework_callback(_callback_run_infra_manifest, backend, root, units)
         current_infra = infra_manifest()
         if args.resume:
             if getattr(args, 'observe_only', False):
@@ -301,7 +356,8 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                        modelInputManifest=model_input_manifest(root, args.environment, directory))
         session.setdefault('repository', str(root))
         session.setdefault('taskFile', task_path(root).relative_to(root).as_posix())
-        from deploy.contracts import sha, task_digest
+        sha = _imports_deploy_contracts.sha
+        task_digest = _imports_deploy_contracts.task_digest
         session.setdefault('taskDigest', task_digest(task_path(root).read_text(encoding='utf-8')))
         session.setdefault('infraManifest', current_infra)
         session.setdefault('unitInputPaths', {u['name']: [p.relative_to(root).as_posix() for p in backend.deployment_input_paths([u])] for u in units})
@@ -336,39 +392,15 @@ def run(args, root, timing, script_directory, backend_type, load_units):
         backend.states = session["states"]
         backend.expected_digests = session["unitDigests"]
         previous_duration = metrics["totalControllerSeconds"]
-        def save():
-            metrics["totalControllerSeconds"] = previous_duration + time.perf_counter() - invocation_started
-            metrics["awsPollCount"] = sum(s.get("pollApiCount", 0) for s in session["states"].values())
-            save_session(state_path, session)
+        save = _bind_framework_callback(_callback_run_save, invocation_started, metrics, previous_duration, session, state_path)
         backend.save = save
         persist = save
-        def guard():
-            active_scope(root, args.stack, args.environment, selected["awsAccountId"], args.alias)
-            if context.load_target(root, args.environment, args.aws_account_id, args.alias) != target:
-                raise Blocked("project target changed before mutation")
-            if design_digest(root, args.environment, directory) != current_design:
-                raise Blocked("intended model changed before mutation")
-            if model_input_manifest(root, args.environment, directory) != session['modelInputManifest']:
-                raise Blocked('Model raw inputs or dependency file set changed before mutation')
-            if infra_manifest() != session['infraManifest']:
-                raise Blocked('unauthorized IaC change outside accepted input revision')
-            if task_digest(task_path(root).read_text(encoding='utf-8')) != session['taskDigest']:
-                raise Blocked('task contract changed before mutation')
-            if any(backend.input_digest(unit) != unit_digests[unit["name"]] for unit in units):
-                raise Blocked("deployment inputs changed before mutation")
-            if execution_digest(backend.root, backend.target, backend.file_digest, unit_digests) != session.get("executionDigest"):
-                raise Blocked("execution definitions changed before mutation")
+        guard = _bind_framework_callback(_callback_run_guard, args, backend, context, current_design, directory, infra_manifest, root, selected, session, target, task_digest, unit_digests, units)
         backend.guard = guard
         backend.before_observed = lambda: authority_snapshot(root, args.environment, directory)
-        def after_observed(previous, outputs):
-            session['modelInputManifest'] = verify_observed_transition(
-                root, args.environment, directory, previous, outputs, current_design)
+        after_observed = _bind_framework_callback(_callback_run_after_observed, args, current_design, directory, root, session)
         backend.after_observed = after_observed
-        def refresh_validation(unit):
-            # Runtime bootstrap does not change IaC or grant a validation/hash exception.
-            backend.load_inputs(unit)
-            if backend.input_digest(unit, fresh=True) != unit_digests[unit['name']]:
-                raise Blocked('runtime recovery changed immutable IaC inputs')
+        refresh_validation = _bind_framework_callback(_callback_run_refresh_validation, backend, unit_digests)
         backend.refresh_validation = refresh_validation
         backend.units = units
         started = time.perf_counter()
@@ -387,7 +419,7 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                     raise
                 state = session['states'][unit['name']]
                 if state['status'] not in {'SUCCESS', 'RUNNING', 'FAILED'}:
-                    from deploy.contracts import migrate_delivery
+                    migrate_delivery = _imports_deploy_contracts.migrate_delivery
                     if migrate_delivery(root, target, unit, state, backend.templates[unit['name']], backend.file_digest):
                         session['migration'] = 'v3 SDK delivery arguments; execution identity retained'
             current_execution = execution_digest(root, target, backend.file_digest, unit_digests)
@@ -431,3 +463,7 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                 if lock is not None:
                     lock.close()
                     lock_path.unlink(missing_ok=True)
+
+
+def sync_successful(backend, units, states):
+    return _dependency_deploy_observed.sync_successful(backend, units, states)

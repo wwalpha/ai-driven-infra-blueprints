@@ -2,11 +2,24 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from support.validator import MODULE
+from units.validation_checks import (
+    cloudformation,
+    contracts,
+    design,
+    references,
+    runner,
+    scenario,
+    task,
+    terraform,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-
-from units.validation_checks import terraform, cloudformation, contracts, design, references, runner, scenario, task
 
 
 def main():
@@ -30,7 +43,6 @@ def main():
     runner.check_boundaries()
     runner.check_module_keys()
     scenario.check_timestamp()
-    from support.validator import MODULE
     assert MODULE.CODEX_PROMPT_FILENAME_PATTERN.fullmatch("01_initialize.md")
     assert not MODULE.CODEX_PROMPT_FILENAME_PATTERN.fullmatch("initialize.md")
     print("Validator units: PASS")

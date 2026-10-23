@@ -2,30 +2,44 @@
 
 
 from __future__ import annotations
-from model.core import ReferenceResolutionError
-from validation_cache import input_text
-from validation_cache import input_scope
-from model.sources import model_exists
-from collections import Counter
+
 import re
-from pathlib import Path
-from validation_cache import memoized
-from policy_tables import POLICY_FORMATS, rendered_design as rendered_policy_design, without_policy_tables
-from design_catalog import design_material_files, DesignSchemaCatalog, api_snapshot_errors
-from design_layout import (
-    GROUPED, CHILD, HIDDEN_PROPERTIES, SECURITY_GROUP_TYPES, RESOURCE as RESOURCE_HEADING_PATTERN,
-    expanded_display_rows, resource_anchor, resource_display_selection, resource_heading_lines,
-    resource_logical_ids, resource_modes, STACK_DESIGN, layout_errors,
-)
-from security_group_tables import security_group_table_lines
-from model.projection import bound_resource_anchors
-from model.core import entries, properties
-from model.files import MAX_LINES, read_model, model_parts
-from validation_scope import scoped_files
 import subprocess
 import sys
-from cloudformation_schema import snapshot_errors, material_files
-from .project import LOWER_KEBAB_PATTERN
+from collections import Counter
+from functools import partial as _bind_framework_callback
+from pathlib import Path
+
+import aws_mapping_display as _imports_aws_mapping_display
+import design_layout as _dependency_design_layout
+import design_layout as _imports_design_layout
+import model.files as _dependency_model_files
+import model.projection as _dependency_model_projection
+import model.render as _imports_model_render
+import model.sources as _dependency_model_sources
+import model.sources as _imports_model_sources
+import policy_tables as _dependency_policy_tables
+import security_group_tables as _dependency_security_group_tables
+import utils.aws_catalogs as _imports_utils_aws_catalogs
+import validation_scope as _dependency_validation_scope
+from cloudformation_schema import material_files, snapshot_errors
+from design_catalog import (
+    DesignSchemaCatalog,
+    api_snapshot_errors,
+    design_material_files,
+)
+from model.core import ReferenceResolutionError, entries, properties
+from project_targets import LOWER_KEBAB_PATTERN
+from utils.input_cache import input_scope, input_text, memoized
+from utils.layout_schema import (
+    CHILD,
+    GROUPED,
+    HIDDEN_PROPERTIES,
+    POLICY_FORMATS,
+    SECURITY_GROUP_TYPES,
+    STACK_DESIGN,
+)
+from utils.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
 
 TABLE_HEADER = "| No. | Property | Value | Source / Comment |"
 TABLE_ALIGNMENT = "| ---: | --- | --- | --- |"
@@ -69,9 +83,9 @@ S3_KMS_MASTER_KEY_ID = (
 
 
 def check_model_files(findings, root, scope) -> None:
-    for path in scoped_files(root, "model", ".properties", scope):
+    for path in _dependency_validation_scope.scoped_files(root, "model", ".properties", scope):
         try:
-            from model.sources import load_model
+            load_model = _imports_model_sources.load_model
             analysis = load_model(path)
             if analysis is None:
                 raise ValueError("missing service model")
@@ -86,7 +100,7 @@ def check_model_files(findings, root, scope) -> None:
 @memoized
 def catalog_design_properties(
     root) -> tuple[set[str], dict[str, set[str]], dict[str, set[str]]]:
-    from utils.aws_catalogs import catalogs_for
+    catalogs_for = _imports_utils_aws_catalogs.catalogs_for
     types, owners, outputs = catalogs_for(root).design_properties()
     resource_types = set(types)
     property_owners = {key: set(value) for key, value in owners.items()}
@@ -187,7 +201,7 @@ def check_design_service_ownership(
         relative = markdown_path.relative_to(docs_base)
         model_path = (model_base / relative).with_suffix(".properties")
         markdown_metadata = markdown_service_metadata(markdown_path, catalog_types, findings=findings)
-        model_metadata = model_service_metadata(model_path, catalog_types, findings=findings, values=(design_sources or {}).get(markdown_path)) if model_exists(model_path) else None
+        model_metadata = model_service_metadata(model_path, catalog_types, findings=findings, values=(design_sources or {}).get(markdown_path)) if _dependency_model_sources.model_exists(model_path) else None
         if markdown_metadata is None or model_metadata is None:
             continue
         findings.check(markdown_metadata == model_metadata, f"Markdown/model service metadata mismatch: {findings.relative(markdown_path)}")
@@ -224,30 +238,78 @@ def is_policy_document_property(property_name: str) -> bool:
 
 
 def design_model_values(path: Path, *, design_sources, root) -> dict[str, str] | None:
-    from design_layout import design_model_values
+    design_model_values = _imports_design_layout.design_model_values
     sources = design_sources
     return sources[path] if path in sources else design_model_values(path, root)
 
 
 def check_resource_layout(findings, root) -> None:
-    errors = layout_errors(root)
+    errors = _dependency_design_layout.layout_errors(root)
     findings.check(not errors, "; ".join(errors) or "resource layout decisions are invalid")
+
+
+def _callback_check_resource_names_check_name(anchor, bound_anchors, counts, current, definitions_root, findings, identities, model_anchors, modes, path, resources, root, rows, service_metadata, values, /) -> None:
+    if current is None:
+        return
+    resource_type, display = current
+    mode = modes.get(anchor, "CREATE")
+    label = None
+    if values:
+        key = (resource_type, identities.get(anchor))
+        matched = resources.get(key)
+        if not matched or model_anchors.get(anchor, key) != key:
+            findings.check(False, f"hidden logical ID missing or mismatched with authoritative resource at anchor: {findings.relative(path)}: {resource_type}: {anchor}")
+            return
+        label = values.get(f'display.resource.{matched[0]}.label')
+    elif display != resource_type:
+        label = display
+    try:
+        validation_rows = _imports_aws_mapping_display.validation_rows
+        semantic = validation_rows(rows, values, resource_type, identities.get(anchor, current[1]), definitions_root, scope=(*path.parent.parts[-2:], path.stem))
+        if values:
+            display_name = _imports_model_render.display_name
+            resource_presentation = _imports_model_render.resource_presentation
+            Scope = _imports_model_sources.Scope
+            name, configured = display_name(values, matched[0], matched[1], semantic, definitions_root)
+            expected, _, _ = resource_presentation(values, matched[0], matched[1], definitions_root,
+                scope=Scope(root, *path.parent.parts[-2:], path.stem))
+            if name != expected:
+                raise ValueError(f'resource display name does not match authoritative Model: {resource_type}: {name} != {expected}')
+        else:
+            name, configured = _dependency_design_layout.resource_display_selection(definitions_root, resource_type, semantic,
+                                                          label, mode, counts[resource_type])
+    except ReferenceResolutionError as error:
+        findings.warn(error)
+        return
+    except ValueError as error:
+        findings.check(False, f"{findings.relative(path)}: {error}")
+        return
+    findings.check(name is None or name not in {"", "UNSET", "PENDING_DEPLOY"}, f"resource display name must be confirmed: {findings.relative(path)}: {resource_type}")
+    findings.check(name is None or display == name, f"resource heading must display {'resource name' if configured is not None else 'authoritative display label'}: {findings.relative(path)}: {resource_type}: {display} != {name}")
+    if name is None:
+        findings.check(False, f"resource type display requires a single nameless independent resource or confirmed display label: {findings.relative(path)}: {resource_type}")
+    elif configured is None and not values:
+        findings.check(anchor in identities and display != identities[anchor], f"resource without a name requires a display label or resource type and hidden logical ID: {findings.relative(path)}: {display}")
+    if path in service_metadata:
+        expected = bound_anchors.get((resource_type, identities.get(anchor)),
+                                     _dependency_design_layout.resource_anchor(service_metadata[path][0], display, resource_type))
+        findings.warn(anchor == expected, f"resource anchor must match saved Model anchor: {findings.relative(path)}: expected {expected}")
 
 
 @input_scope
 def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]]], paths: list[Path] | None = None, *, design_sources, findings, root, scope, definitions_root=None) -> None:
     definitions_root = definitions_root or root
     for path in design_files(root=root, scope=scope) if paths is None else paths:
-        lines = resource_heading_lines(without_policy_tables(input_text(path, encoding="utf-8").splitlines()))
+        lines = _dependency_design_layout.resource_heading_lines(_dependency_policy_tables.without_policy_tables(input_text(path, encoding="utf-8").splitlines()))
         try:
-            identities = resource_logical_ids(lines)
-            bound_anchors = bound_resource_anchors(path)
+            identities = _dependency_design_layout.resource_logical_ids(lines)
+            bound_anchors = _dependency_model_projection.bound_resource_anchors(path)
             values = design_model_values(path, design_sources=design_sources, root=root)
             bound_anchors.update({(resource['resourceType'], resource['logicalId']): resource['anchor']
                                   for _, resource in entries(values or {}, 'desired.resource.') if resource.get('anchor')})
-            modes = resource_modes(lines, values)
-            lines = security_group_table_lines(lines, definitions_root)
-            lines = expanded_display_rows(lines, definitions_root, modes=modes)
+            modes = _dependency_design_layout.resource_modes(lines, values)
+            lines = _dependency_security_group_tables.security_group_table_lines(lines, definitions_root)
+            lines = _dependency_design_layout.expanded_display_rows(lines, definitions_root, modes=modes)
             values = values or {}
             resources = {(resource['resourceType'], resource['logicalId']): (identity, resource)
                          for identity, resource in entries(values, 'desired.resource.')}
@@ -263,61 +325,16 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
         rows = []
         counts = Counter(match.group(1) for line in lines if (match := RESOURCE_HEADING_PATTERN.fullmatch(line)))
 
-        def check_name() -> None:
-            if current is None:
-                return
-            resource_type, display = current
-            mode = modes.get(anchor, "CREATE")
-            label = None
-            if values:
-                key = (resource_type, identities.get(anchor))
-                matched = resources.get(key)
-                if not matched or model_anchors.get(anchor, key) != key:
-                    findings.check(False, f"hidden logical ID missing or mismatched with authoritative resource at anchor: {findings.relative(path)}: {resource_type}: {anchor}")
-                    return
-                label = values.get(f'display.resource.{matched[0]}.label')
-            elif display != resource_type:
-                label = display
-            try:
-                from aws_mapping_display import validation_rows
-                semantic = validation_rows(rows, values, resource_type, identities.get(anchor, current[1]), definitions_root, scope=(*path.parent.parts[-2:], path.stem))
-                if values:
-                    from model.render import display_name, resource_presentation
-                    from model.sources import Scope
-                    name, configured = display_name(values, matched[0], matched[1], semantic, definitions_root)
-                    expected, _, _ = resource_presentation(values, matched[0], matched[1], definitions_root,
-                        scope=Scope(root, *path.parent.parts[-2:], path.stem))
-                    if name != expected:
-                        raise ValueError(f'resource display name does not match authoritative Model: {resource_type}: {name} != {expected}')
-                else:
-                    name, configured = resource_display_selection(definitions_root, resource_type, semantic,
-                                                                  label, mode, counts[resource_type])
-            except ReferenceResolutionError as error:
-                findings.warn(error)
-                return
-            except ValueError as error:
-                findings.check(False, f"{findings.relative(path)}: {error}")
-                return
-            findings.check(name is None or name not in {"", "UNSET", "PENDING_DEPLOY"}, f"resource display name must be confirmed: {findings.relative(path)}: {resource_type}")
-            findings.check(name is None or display == name, f"resource heading must display {'resource name' if configured is not None else 'authoritative display label'}: {findings.relative(path)}: {resource_type}: {display} != {name}")
-            if name is None:
-                findings.check(False, f"resource type display requires a single nameless independent resource or confirmed display label: {findings.relative(path)}: {resource_type}")
-            elif configured is None and not values:
-                findings.check(anchor in identities and display != identities[anchor], f"resource without a name requires a display label or resource type and hidden logical ID: {findings.relative(path)}: {display}")
-            if path in service_metadata:
-                expected = bound_anchors.get((resource_type, identities.get(anchor)),
-                                             resource_anchor(service_metadata[path][0], display, resource_type))
-                findings.warn(anchor == expected, f"resource anchor must match saved Model anchor: {findings.relative(path)}: expected {expected}")
 
         for line in [*lines, "### end"]:
             if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
-                check_name()
+                _callback_check_resource_names_check_name(anchor, bound_anchors, counts, current, definitions_root, findings, identities, model_anchors, modes, path, resources, root, rows, service_metadata, values)
                 current, rows = heading.groups(), []
             elif line.startswith("### "):
-                check_name()
+                _callback_check_resource_names_check_name(anchor, bound_anchors, counts, current, definitions_root, findings, identities, model_anchors, modes, path, resources, root, rows, service_metadata, values)
                 current = None
             elif match := ANCHOR_PATTERN.fullmatch(line):
-                check_name()
+                _callback_check_resource_names_check_name(anchor, bound_anchors, counts, current, definitions_root, findings, identities, model_anchors, modes, path, resources, root, rows, service_metadata, values)
                 current, anchor = None, match.group(1)
             elif current and line.startswith("| "):
                 cells = [cell.strip() for cell in line.strip("|").split("|")]
@@ -334,7 +351,7 @@ def check_policy_tables(paths, findings, *, definitions_root=None) -> None:
     for path in paths:
         try:
             findings.check(
-                rendered_policy_design(path, definitions_root=definitions_root) == input_text(path, encoding="utf-8"),
+                _dependency_policy_tables.rendered_design(path, definitions_root=definitions_root) == input_text(path, encoding="utf-8"),
                 f"Policy tables or overview differ from design JSON/properties: {findings.relative(path)}",
             )
         except ReferenceResolutionError as error:
@@ -344,9 +361,9 @@ def check_policy_tables(paths, findings, *, definitions_root=None) -> None:
 
 
 def check_observed_values(paths: list[Path] | None = None, *, findings, root, scope, design_sources=None) -> None:
-    for path in scoped_files(root, "model", ".properties", scope) if paths is None else paths:
+    for path in _dependency_validation_scope.scoped_files(root, "model", ".properties", scope) if paths is None else paths:
         try:
-            if not model_exists(path):
+            if not _dependency_model_sources.model_exists(path):
                 continue
             view = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
             values = (design_sources or {}).get(view)
@@ -369,16 +386,21 @@ def check_observed_values(paths: list[Path] | None = None, *, findings, root, sc
 
 
 def design_files(root, scope) -> list[Path]:
-    return [path for path in scoped_files(root, "docs/designs", ".md", scope) if path.name != STACK_DESIGN]
+    return [path for path in _dependency_validation_scope.scoped_files(root, "docs/designs", ".md", scope) if path.name != STACK_DESIGN]
 
 
 def stack_design_files(root, scope) -> list[Path]:
-    return [path for path in scoped_files(root, "docs/designs", ".md", scope) if path.name == STACK_DESIGN]
+    return [path for path in _dependency_validation_scope.scoped_files(root, "docs/designs", ".md", scope) if path.name == STACK_DESIGN]
 
 
 def check_api_design_catalog(findings, root):
     errors = api_snapshot_errors(root)
     findings.check(not errors, "; ".join(errors) or "API design catalog is invalid")
+
+
+def _callback_check_catalog_inputs_schema_check(findings, root, /):
+    errors = snapshot_errors(root)
+    findings.check(not errors, '; '.join(errors) or 'CloudFormation schema snapshot check failed')
 
 
 def check_catalog_inputs(findings, root, set_schema_catalog, scope=None):
@@ -391,9 +413,7 @@ def check_catalog_inputs(findings, root, set_schema_catalog, scope=None):
     )
     findings.check(result.returncode == 0, result.stdout.strip() or "catalog lock check failed")
 
-    def schema_check():
-        errors = snapshot_errors(root)
-        findings.check(not errors, '; '.join(errors) or 'CloudFormation schema snapshot check failed')
+    schema_check = _bind_framework_callback(_callback_check_catalog_inputs_schema_check, findings, root)
     schema = findings.evaluate('framework.cloudformation-schema-catalog', scope, schema_check)
     api = findings.evaluate('framework.api-design-catalog', scope, lambda: check_api_design_catalog(findings, root))
     if schema.status == api.status == 'PASS':
@@ -407,3 +427,7 @@ def check_catalog_inputs(findings, root, set_schema_catalog, scope=None):
             lines = text.splitlines()
             findings.check(len(lines) == len({line.partition("=")[0] for line in lines}), f"catalog properties must be unique; file order is display order: {path.relative_to(root).as_posix()}")
 
+
+
+def read_model(path):
+    return _dependency_model_files.read_model(path)

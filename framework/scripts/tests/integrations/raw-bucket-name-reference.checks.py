@@ -2,14 +2,33 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
 from support.it_case_receipt import it_case
+from support.raw_bucket_name_reference_fixtures import (
+    Path,
+    affected,
+    declarations,
+    dependency_hashes,
+    design_source_digest,
+    json,
+    load_model,
+    reference,
+    rejected,
+    resource,
+    setup,
+    source_inputs,
+    tempfile,
+    warning,
+    write_model,
+)
 
-from support.raw_bucket_name_reference_fixtures import *
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
 
 @it_case
 def check(root):
@@ -84,4 +103,3 @@ def check(root):
 if __name__=='__main__':
     with tempfile.TemporaryDirectory() as directory:
         check(Path(directory).resolve())
-

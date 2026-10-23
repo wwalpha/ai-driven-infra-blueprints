@@ -1,39 +1,50 @@
 """Stack ownership, Change Set preparation, exact content approval and execution checks."""
+
+import json
 import time
 import uuid
+from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 from cloudformation_inputs import Blocked, resolve_value
 from utils.json_format import fingerprint
+
+import deploy.failures as _imports_deploy_failures
 from deploy.scheduler import SUCCESS
+
+
+def _callback_import_names_condition(conditions, parameters, pseudo, /, name):
+    return resolve_value({"Condition": name}, parameters, pseudo, conditions=conditions)
+
+
+def _recursive_import_names_visit(condition, conditions, names, parameters, pseudo, /, value):
+    if isinstance(value, dict):
+        if "Fn::If" in value:
+            argument = value["Fn::If"]
+            if len(value) != 1 or not isinstance(argument, list) or len(argument) != 3:
+                raise Blocked("invalid Fn::If expression")
+            _recursive_import_names_visit(condition, conditions, names, parameters, pseudo, argument[1 if condition(argument[0]) else 2])
+            return
+        for key, child in value.items():
+            if key == "Fn::ImportValue":
+                name = resolve_value(child, parameters, pseudo, conditions=conditions)
+                if not isinstance(name, str) or not name:
+                    raise Blocked("ImportValue name must be nonempty")
+                names.add(name)
+            else:
+                _recursive_import_names_visit(condition, conditions, names, parameters, pseudo, child)
+    elif isinstance(value, list):
+        for child in value:
+            _recursive_import_names_visit(condition, conditions, names, parameters, pseudo, child)
 
 
 def import_names(template, parameters, pseudo):
     """Resolve only stack-independent intrinsic expressions; unknown expressions block."""
     names = set()
     conditions = template.get("Conditions", {})
-    def condition(name):
-        return resolve_value({"Condition": name}, parameters, pseudo, conditions=conditions)
+    condition = _bind_framework_callback(_callback_import_names_condition, conditions, parameters, pseudo)
 
-    def visit(value):
-        if isinstance(value, dict):
-            if "Fn::If" in value:
-                argument = value["Fn::If"]
-                if len(value) != 1 or not isinstance(argument, list) or len(argument) != 3:
-                    raise Blocked("invalid Fn::If expression")
-                visit(argument[1 if condition(argument[0]) else 2])
-                return
-            for key, child in value.items():
-                if key == "Fn::ImportValue":
-                    name = resolve_value(child, parameters, pseudo, conditions=conditions)
-                    if not isinstance(name, str) or not name:
-                        raise Blocked("ImportValue name must be nonempty")
-                    names.add(name)
-                else:
-                    visit(child)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child)
+    visit = _bind_framework_callback(_recursive_import_names_visit, condition, conditions, names, parameters, pseudo)
     for section, contents in template.items():
         if section in {"Resources", "Outputs"}:
             for definition in contents.values():
@@ -139,7 +150,6 @@ def begin_prepare(unit, state, aws, save, check_imports, template_arguments, cle
         state["changeSetStarted"] = time.time()
         save()
         started = time.perf_counter()
-        import json
         response = aws("create_change_set", StackName=unit["name"], ChangeSetName=state["changeSetId"],
             ChangeSetType="UPDATE" if stack else "CREATE", **arguments,
             Parameters=json.loads(parameters.read_text(encoding="utf-8")), Capabilities=["CAPABILITY_NAMED_IAM"])
@@ -162,7 +172,7 @@ def review_prepared(unit, state, approvals, aws, describe_change_set, change_set
             state["reason"] = "no changes; existing stack terminal success"
             return "SUCCESS"
     if change_set["Status"] != "CREATE_COMPLETE" or change_set["ExecutionStatus"] != "AVAILABLE":
-        from deploy import failures
+        failures = _imports_deploy_failures
         diagnostic = failures.event({'ResourceStatusReason': change_set.get('StatusReason', '')}, {})
         state['changeSetFailure'] = {'status': change_set['Status'], 'executionStatus': change_set.get('ExecutionStatus'),
                                      'code': diagnostic['code'], 'reasonDigest': diagnostic['reasonDigest']}

@@ -2,12 +2,21 @@
 
 
 from __future__ import annotations
-from validation_cache import input_is_dir, input_is_file, input_text
-from pathlib import Path
+
 import json
 import re
+from pathlib import Path
+
+import model.core as _imports_model_core
+import model.importing.scope as _imports_model_importing_scope
+import model.sources as _imports_model_sources
+import sync_progress as _imports_sync_progress
+from model.impact import affected, scope_diagnostic, task_impact
+from project_targets import LOWER_KEBAB_PATTERN as LOWER_KEBAB_PATTERN
+from utils.input_cache import input_is_dir, input_is_file, input_text
+
 from .terraform import root_directory
-LOWER_KEBAB_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+
 
 def check_target_file(path: Path, base: Path, *, accounts, findings) -> tuple[str, str] | None:
     parts = path.relative_to(base).parts
@@ -26,7 +35,6 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
                 findings.check(root / changed in task_iac_paths,
                            f"changed IaC path is outside Deployment scope: {changed}")
     scope = contract_scope if contract_scope is not None else scope
-    from model.impact import affected, task_impact, scope_diagnostic
     impact = set()
     if scope or candidates:
         try:
@@ -41,7 +49,7 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
                        'Model source changes require service Validation scope')
     for environment, target, service in sorted(scope):
         findings.check((environment, target) in accounts, f"validation target is not defined in project.json: {environment}/{target}")
-        from model.sources import model_exists
+        model_exists = _imports_model_sources.model_exists
         try:
             findings.check(model_exists(root/"model"/environment/target/(service+".properties")), f"validation properties input missing: {environment}/{target}/{service}")
         except (OSError, ValueError) as error:
@@ -49,8 +57,8 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
         for design_base, suffix in (() if candidates else (("docs/designs", ".md"),)):
             relative = f"{design_base}/{environment}/{target}/{service}{suffix}"
             if not input_is_file(root / relative):
-                from model.sources import load_model
-                from model.core import ReferenceResolutionError
+                ReferenceResolutionError = _imports_model_core.ReferenceResolutionError
+                load_model = _imports_model_sources.load_model
                 try:
                     load_model(root / 'model' / environment / target / (service + '.properties'))
                 except ReferenceResolutionError as error:
@@ -61,7 +69,7 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
                     continue
             findings.check(input_is_file(root / relative), f"validation input missing: {relative}")
     if impact != scope:
-        from sync_progress import output_file
+        output_file = _imports_sync_progress.output_file
         print('Model impact: ' + scope_diagnostic(impact, scope), file=output_file())
     for entry in impact:
         findings.check(entry in scope, f"Model source change requires affected validation scope: {'/'.join(entry)}")
@@ -70,7 +78,7 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
             if changed.startswith(base):
                 parts = Path(changed.removeprefix(base)).parts
                 if base == 'model/':
-                    from model.sources import source_scope
+                    source_scope = _imports_model_sources.source_scope
                     try:
                         selected = source_scope(root, root / changed)
                         identity = selected.environment, selected.target, selected.service
@@ -85,6 +93,7 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
 
 
 def check_project_topology(accounts, findings, root, template_mode, *, scope_import=True):
+    selected = _imports_model_importing_scope.selected
     path = root / "project.json"
     if template_mode:
         return
@@ -107,10 +116,9 @@ def check_project_topology(accounts, findings, root, template_mode, *, scope_imp
     findings.check(isinstance(targets, list) and bool(targets), "targets must be a non-empty array")
     if not isinstance(targets, list):
         return
-    from model.importing.scope import selected
     identity = selected(root) if scope_import else None
     if identity is not None:
-        from model.importing.scope import view_targets
+        view_targets = _imports_model_importing_scope.view_targets
         target_scope = {item[:2] for item in view_targets(root)}
         targets = [target for target in targets if isinstance(target, dict) and
                    (target.get('environment'), target.get('alias', target.get('awsAccountId'))) in target_scope]
@@ -232,4 +240,3 @@ def check_initialized_paths(accounts, findings, root, scope, template_mode, *, c
             paths.append(root_directory(root, (environment, target_directory)))
         for path in paths:
             findings.check(input_is_dir(path), f"initialized target path missing: {findings.relative(path)}")
-

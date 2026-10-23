@@ -3,48 +3,34 @@
 from __future__ import annotations
 
 import sys
-
 from pathlib import Path
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import importlib.util
+import io
+import json
+import os
+import shutil
+import subprocess
+from contextlib import redirect_stdout
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from support.model_sources import snapshot_model
-
+import pytest
+import task_contract as tasks
 from model.files import read_model
+from script_loader import module
+from support.model_sources import snapshot_model, write_fixture_files, write_model
+from support.pytest_cli import run
+from validation import loop as MODULE
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-from support.model_sources import write_model, write_fixture_files
-
-import pytest
-
-from support.pytest_cli import run
-
-import os
-
-import importlib.util
-
-import io
-
-import json
-
-import shutil
-
-import subprocess
-
-from contextlib import redirect_stdout
-
-from unittest.mock import patch
-
-from types import SimpleNamespace
-
-import task_contract as tasks
-
 SCRIPT = (Path(__file__).resolve().parents[2] / 'blueprint-loop.py')
 
-from validation import loop as MODULE
-from script_loader import module
+
 CLI = module("blueprint-loop.py", "blueprint_loop_cli")
 
 

@@ -2,33 +2,73 @@
 
 
 from __future__ import annotations
-from model.core import ReferenceResolutionError
-from validation_cache import input_is_file, input_text
-from model.projection import bound_resource_anchors, is_import_expression
+
 import json
 import re
 from pathlib import Path
-from policy_tables import iam_role_policy_artifact_filename
-from design_catalog import property_paths_with_parents
-from macie_bucket_tables import job_bucket_tables
-from design_layout import (
-    SUBNET_LIST_PROPERTIES, GROUPED, REQUIRED_NAME_TAG_TYPES,
-    is_service_role_reference, is_import_pending_reference, config_role_arn, SECURITY_GROUP_TYPES, GROUPED_RESOURCE_TYPES,
-    IMPLICIT_GROUPED_PROPERTIES, RESOURCE as RESOURCE_HEADING_PATTERN, expanded_display_rows,
-    expanded_design, resource_anchor, resource_display_name, resource_heading_lines,
-    resource_logical_ids, resource_modes, catalog_order_errors,
-)
-from security_group_tables import security_group_table_lines
-from model.core import properties, entries, literal
+
+import model.core as _exports_model_core
+import model.files as _imports_model_files
 from aws_mapping_display import validation_rows
-from validation_cache import input_scope
-from .design import (
-    ANCHOR_PATTERN, DESIGN_ONLY_PROPERTIES, FORBIDDEN_DESIGN_METADATA_PATTERN,
-    FORBIDDEN_DESIGN_SECTION_PATTERN, GROUPED_CHILD_RESOURCE_TYPES, JAPANESE_TEXT_PATTERN,
-    LINK_PATTERN, LOWER_KEBAB_PATTERN, REQUIRED_NAME_PROPERTIES, RESOURCE_LINK_PATTERN,
-    S3_KMS_MASTER_KEY_ID, TABLE_ALIGNMENT, TABLE_HEADER, VALUE_LINK_PATTERN, design_files,
-    design_model_values, is_policy_document_property, resource_property_path, unquoted,
+from design_catalog import property_paths_with_parents
+from design_layout import (
+    SUBNET_LIST_PROPERTIES,
+    catalog_order_errors,
+    config_role_arn,
+    expanded_design,
+    expanded_display_rows,
+    is_import_pending_reference,
+    is_service_role_reference,
+    resource_display_name,
+    resource_heading_lines,
+    resource_logical_ids,
+    resource_modes,
 )
+from macie_bucket_tables import job_bucket_tables
+from model.core import ReferenceResolutionError, literal
+from model.core import entries as entries
+from model.projection import bound_resource_anchors, is_import_expression
+from policy_tables import iam_role_policy_artifact_filename
+from security_group_tables import security_group_table_lines
+from utils.input_cache import input_scope as input_scope
+from utils.input_cache import input_text
+from utils.layout_schema import (
+    GROUPED,
+    GROUPED_RESOURCE_TYPES,
+    IMPLICIT_GROUPED_PROPERTIES,
+    REQUIRED_NAME_TAG_TYPES,
+    SECURITY_GROUP_TYPES,
+    resource_anchor,
+)
+from utils.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
+
+from .design import (
+    ANCHOR_PATTERN,
+    DESIGN_ONLY_PROPERTIES,
+    FORBIDDEN_DESIGN_METADATA_PATTERN,
+    FORBIDDEN_DESIGN_SECTION_PATTERN,
+    GROUPED_CHILD_RESOURCE_TYPES,
+    JAPANESE_TEXT_PATTERN,
+    LINK_PATTERN,
+    LOWER_KEBAB_PATTERN,
+    REQUIRED_NAME_PROPERTIES,
+    RESOURCE_LINK_PATTERN,
+    S3_KMS_MASTER_KEY_ID,
+    TABLE_ALIGNMENT,
+    TABLE_HEADER,
+    VALUE_LINK_PATTERN,
+    design_files,
+    design_model_values,
+    is_policy_document_property,
+    resource_property_path,
+    unquoted,
+)
+
+# Preserve shared fixtures and compatibility exports under their historical names.
+properties = _exports_model_core.properties
+
+
+
 
 def check_cidr_value(path: Path, property_name: str, value: str, *, findings) -> None:
     findings.check(
@@ -44,8 +84,8 @@ def check_generated_identifier(
     rows: list[list[str]],
     identifier_outputs: dict[str, set[str]],
  *, findings, values=None) -> None:
+    load_model = _imports_model_files.load_model
     acquired = set()
-    from model.files import load_model
     model = findings.canonical_root / 'model' / path.resolve().relative_to(findings.canonical_root / 'docs/designs').with_suffix('.properties')
     try:
         if values is None:

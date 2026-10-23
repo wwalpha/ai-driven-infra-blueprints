@@ -3,18 +3,36 @@
 
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import io
+from contextlib import redirect_stdout
+
+import support.producer_identifier_reference_fixtures as _exports_support_producer_identifier_reference_fixtures
+import sync_runtime
+from model.projection import bound_resource_anchors
+from model.render import markdown_for as markdown_for
+from support.it_case_receipt import it_case
+from support.producer_identifier_reference_fixtures import (
+    Path,
+    json,
+    load_model,
+    reference,
+    rejected,
+    resource,
+    serialize,
+    tempfile,
+    write_model,
+)
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-from support.it_case_receipt import it_case
-from support.producer_identifier_reference_fixtures import *
-from model.render import markdown_for
-from model.projection import bound_resource_anchors
-from model.references import usages
-from contextlib import redirect_stdout
-import io
-import sync_runtime
+
+# Preserve shared fixtures and compatibility exports under their historical names.
+usages = _exports_support_producer_identifier_reference_fixtures.usages
+
 
 
 @it_case
@@ -22,7 +40,8 @@ def check(root):
     (root / 'project.json').write_text(json.dumps({'projectName': 'anchor-fixture', 'targets': [{
         'environment': 'preview', 'alias': alias, 'awsAccountId': account,
         'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'} for alias, account in [('other', '210987654321'), ('team', '123456789012')]]}) + '\n')
-    task = root / 'tasks/example.md'; task.parent.mkdir()
+    task = root / 'tasks/example.md'
+    task.parent.mkdir()
     task.write_text('## Task contract\n- Task type: `migration`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Validation scope\n- `preview/team/s3`\n'
                     '## Allowed paths\n- `tasks/example.md`\n- `model/**`\n- `docs/designs/**`\n')
     values = resource('003', 'S3.Bucket', 's3-archive-original', [('BucketName', '`archive-original`'), ('Region', '`ap-northeast-1`')])
@@ -73,7 +92,8 @@ def check(root):
     path.unlink()
     rejected(lambda: load_model(path), 's3.properties')
     path.write_bytes(original)
-    legacy = root / 'model/parameters'; legacy.mkdir()
+    legacy = root / 'model/parameters'
+    legacy.mkdir()
     assert bound_resource_anchors(path) == {('S3.Bucket', 'S3_Bucket_003'): 's3-archive-original'}
     assert path.read_bytes() == original
     print('Fixed S3 anchors: PASS (explicit rename/consumer update; fixed names/links/IDs; generation; syntax/identity rejection; unrelated directory isolation)')

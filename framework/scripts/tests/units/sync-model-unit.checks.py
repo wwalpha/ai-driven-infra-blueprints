@@ -1,22 +1,47 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import io
+import threading
+from contextlib import redirect_stderr
+from unittest.mock import patch
+
+import pytest
+import sync_progress as progress
+import sync_runtime
+import sync_views
+import validation.design_links as _imports_validation_design_links
+import validation_cache as _imports_validation_cache
+from design_catalog import property_paths_with_parents
+from script_loader import module
+from support.validator import load
+from support.worktree_task_fixtures import contract
+from sync_files import changed_files, markdown_newlines
+from utils.input_cache import (
+    input_bytes,
+    input_context,
+    input_scope,
+    memo_table,
+    recording_inputs,
+)
+from validation.findings import CheckResult, Findings
+from validation.task import TaskValidation
+
+from model import projection
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-import io
-from contextlib import redirect_stderr
-import os
-import pytest
-from unittest.mock import patch
-from support.validator import load
-from design_catalog import property_paths_with_parents
-import sync_runtime
-import sync_views
-from sync_files import save_files as write_fixture_files
-
+_CALLBACK_DEFAULT = object()
 
 
 
@@ -33,7 +58,6 @@ def check_property_path_parents():
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
 @pytest.mark.parametrize("final", [False, True])
 def check_markdown_newlines(tmp_path, newline, final):
-    from sync_files import markdown_newlines, changed_files
     path = tmp_path / 'design.md'
     expected = ('# 日本語' + newline + 'value' + (newline if final else '')).encode('utf-8')
     path.write_bytes(expected)
@@ -48,41 +72,34 @@ def check_markdown_newlines(tmp_path, newline, final):
         markdown_newlines(path, 'one\ntwo\n')
 
 
-import threading
-import sync_progress as progress
 
 
 
-
-
-
+def _callback_check_internal_sync_concurrent_output_execute(barrier, reports, /, root, write, **kwargs):
+    memo = memo_table()
+    memo['root'] = root
+    reports.append(progress._current.get()[0])
+    barrier.wait()
+    assert memo == {'root': root}
+    print(str(root), file=progress.output_file())
+    with progress.phase('isolated-heartbeat'):
+        reporter = progress._current.get()[0]
+        with patch.object(reporter.stop, 'wait', side_effect=[False, True]):
+            reporter.heartbeat()
+    raise ValueError('invalid generation at ' + str(root))
 
 
 def check_internal_sync_concurrent_output(tmp_path, capsys):
-    from concurrent.futures import ThreadPoolExecutor
-    from script_loader import module
-    from validation_cache import input_scope, memo_table
+
     runner = module('sync-model.py', 'blueprint_sync_model')
     barrier = threading.Barrier(2, timeout=10)
     reports = []
-    @input_scope
-    def execute(root, write, **kwargs):
-        memo = memo_table()
-        memo['root'] = root
-        reports.append(progress._current.get()[0])
-        barrier.wait()
-        assert memo == {'root': root}
-        print(str(root), file=progress.output_file())
-        with progress.phase('isolated-heartbeat'):
-            reporter = progress._current.get()[0]
-            with patch.object(reporter.stop, 'wait', side_effect=[False, True]):
-                reporter.heartbeat()
-        raise ValueError('invalid generation at ' + str(root))
+    execute = (input_scope)(_bind_framework_callback(_callback_check_internal_sync_concurrent_output_execute, barrier, reports))
     roots = [tmp_path/'first', tmp_path/'second']
     with patch.object(runner, 'sync', side_effect=execute), ThreadPoolExecutor(2) as executor:
         futures = [executor.submit(runner.run, ['--all'], repository_root=root) for root in roots]
         results = [future.result() for future in futures]
-    for root, other, (code, text) in zip(roots, reversed(roots), results):
+    for root, other, (code, text) in zip(roots, reversed(roots), results, strict=False):
         assert code == 1 and str(root) in text and str(other) not in text
         assert 'heartbeat' in text and 'invalid generation at' in text
     assert len({id(report) for report in reports}) == 2
@@ -95,7 +112,6 @@ def check_internal_sync_concurrent_output(tmp_path, capsys):
     (['--environment', 'dev'], 2, 'exactly one'),
     (['--scope', '../team/config'], 1, 'invalid generation scope')])
 def check_internal_sync_arguments(tmp_path, arguments, code, diagnostic, capsys):
-    from script_loader import module
     runner = module('sync-model.py', 'blueprint_sync_model')
     (tmp_path/'tasks').mkdir()
     (tmp_path/'tasks/example.md').write_text('## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n## Validation scope\n- `all`\n')
@@ -103,6 +119,26 @@ def check_internal_sync_arguments(tmp_path, arguments, code, diagnostic, capsys)
     assert result == code and diagnostic in text, text
     assert progress._current.get() is None and progress._output.get() is None
     assert capsys.readouterr() == ('', '')
+
+
+def _callback_check_progress_heartbeat_and_waits_ReleasedLock_release(self, lock, /):
+    lock.release()
+
+
+class ReleasedLock:
+    def __init__(self, lock, acquire):
+        self.lock = lock
+        self.original_acquire = acquire
+
+    def acquire(self, blocking=True):
+        if not blocking:
+            return False
+        self.lock.release()
+        return self.original_acquire()
+
+    def release(self):
+        self.lock.release()
+
 
 
 def check_progress_heartbeat_and_waits():
@@ -118,15 +154,7 @@ def check_progress_heartbeat_and_waits():
         lock = threading.Lock()
         lock.acquire()
         original_acquire = lock.acquire
-        class ReleasedLock:
-            def acquire(self, blocking=True):
-                if not blocking:
-                    return False
-                lock.release()
-                return original_acquire()
-            def release(self):
-                lock.release()
-        with progress.thread_lock(ReleasedLock()):
+        with progress.thread_lock(ReleasedLock(lock, original_acquire)):
             pass
         with progress.phase('generation', status='running'):
             pass
@@ -145,7 +173,10 @@ def check_progress_heartbeat_and_waits():
 
 
 def check_snapshot_conflict(tmp_path):
-    from validation_cache import recording_inputs, input_bytes, input_select, input_is_file
+    input_bytes = _imports_validation_cache.input_bytes
+    input_is_file = _imports_validation_cache.input_is_file
+    input_select = _imports_validation_cache.input_select
+    recording_inputs = _imports_validation_cache.recording_inputs
     snapshot = sync_runtime.GenerationInputs(tmp_path)
     path = tmp_path / 'project.json'
     assert snapshot.read(path) is None
@@ -171,10 +202,7 @@ def check_snapshot_conflict(tmp_path):
 
 
 def check_planned_outputs_and_boundary(tmp_path):
-    from types import SimpleNamespace
-    from sync_files import markdown_newlines
-    from validation.findings import Findings
-    from validation.task import TaskValidation
+
     path, created = tmp_path/'view.md', tmp_path/'new.json'
     path.write_bytes(b'original\r\n')
     snapshot = sync_runtime.GenerationInputs(tmp_path)
@@ -195,11 +223,16 @@ def check_planned_outputs_and_boundary(tmp_path):
     snapshot.close()
 
 
+def _callback_check_stage_dependency_selection_loaded(authority, inputs, values, /, path, read_context=None):
+    assert read_context is None or read_context is inputs
+    return SimpleNamespace(values=values, files={authority: input_bytes(authority).decode()},
+                           dependencies={authority: input_bytes(authority)})
+
+
 def check_stage_dependency_selection(tmp_path):
-    from types import SimpleNamespace
-    from validation_cache import recording_inputs
+
     root, stage = tmp_path/'root', tmp_path/'stage'
-    selected = root/'docs/designs/dev/team/iam.md'
+    _ = root/'docs/designs/dev/team/iam.md'
     files = {'docs/designs/dev/team/iam.md': '# selected\n',
              'docs/designs/dev/team/iam/policy.json': '{}\n',
              'docs/designs/dev/team/other.md': '# unrelated\n',
@@ -217,11 +250,7 @@ def check_stage_dependency_selection(tmp_path):
     inputs = sync_runtime.GenerationInputs(root)
     # Caller-owned snapshots are reused, including readers, without inner cleanup.
     values = {'link': '[out](out.md#id)'}
-    def loaded(path, read_context=None):
-        assert read_context is None or read_context is inputs
-        from validation_cache import input_bytes
-        return SimpleNamespace(values=values, files={authority: input_bytes(authority).decode()},
-                               dependencies={authority: input_bytes(authority)})
+    loaded = _bind_framework_callback(_callback_check_stage_dependency_selection_loaded, authority, inputs, values)
     inputs.stage = stage
     with patch.object(sync_runtime.GenerationInputs, '__init__', side_effect=AssertionError('duplicate recorder')), \
          patch.object(inputs, 'close', wraps=inputs.close) as close, \
@@ -243,10 +272,8 @@ def check_stage_dependency_selection(tmp_path):
 
 @pytest.mark.parametrize('write', [False, True])
 def check_linked_attachments(tmp_path, write):
-    from validation_cache import recording_inputs
-    from contextlib import nullcontext
-    from validation.design_links import check_design_links
-    from validation.findings import Findings
+
+    check_design_links = _imports_validation_design_links.check_design_links
     root, stage = tmp_path/'root', tmp_path/'stage'
     design = root/'docs/designs/dev/team/service.md'
     reference = design.with_name('reference.md')
@@ -308,6 +335,17 @@ def check_linked_attachments(tmp_path, write):
             snapshot.close()
 
 
+def _callback_check_final_git_paths_git_paths(baseline, calls, committed, final, index, /, args):
+    calls.append(args)
+    if args[0] == 'ls-files':
+        return final if '--cached' in args else set()
+    if '--cached' in args:
+        return index
+    if 'HEAD' in args:
+        return committed
+    return final if baseline in args else set()
+
+
 @pytest.mark.parametrize('baseline,final,index,committed', [
     ('start', {'view.md'}, set(), {'view.md'}),
     ('start', set(), {'view.md'}, {'view.md'}),
@@ -315,22 +353,12 @@ def check_linked_attachments(tmp_path, write):
     (None, {'new.md'}, {'new.md'}, set()),
 ])
 def check_final_git_paths(tmp_path, baseline, final, index, committed):
-    from validation.findings import Findings
-    from validation.task import TaskValidation
     task = TaskValidation(tmp_path, Findings(tmp_path))
     task.baseline, task.baseline_fixed = baseline, True
     if baseline is None:
         (tmp_path/'new.md').write_bytes(b'exists')
     calls = []
-    def git_paths(args):
-        calls.append(args)
-        if args[0] == 'ls-files':
-            return final if '--cached' in args else set()
-        if '--cached' in args:
-            return index
-        if 'HEAD' in args:
-            return committed
-        return final if baseline in args else set()
+    git_paths = _bind_framework_callback(_callback_check_final_git_paths_git_paths, baseline, calls, committed, final, index)
     task.git_paths = git_paths
     assert task.final_paths() == final
     assert all('--cached' not in call for call in calls if call[0] == 'diff')
@@ -342,33 +370,36 @@ def check_final_git_paths(tmp_path, baseline, final, index, committed):
     assert bool(task.acceptance_results) == ('view.md' in final)
 
 
+def _callback_check_git_baseline_fail_closed_task(tmp_path, /):
+    return TaskValidation(tmp_path, Findings(tmp_path))
+
+
+def _callback_check_git_baseline_fail_closed_git(root, *args, **kwargs):
+    return SimpleNamespace(returncode=1 if args[0] == 'show-ref' else 128, stdout='', stderr='missing HEAD')
+
+
 def check_git_baseline_fail_closed(tmp_path):
-    from types import SimpleNamespace
-    from validation.findings import Findings
-    from validation.task import TaskValidation
-    from support.worktree_task_fixtures import contract
+
     (tmp_path / 'tasks').mkdir()
     (tmp_path / 'tasks/example.md').write_text(contract('example', ['file.txt']))
-    def task():
-        return TaskValidation(tmp_path, Findings(tmp_path))
-    with patch('worktree_task.task_start_commit', return_value='task-start'), \
-         patch('worktree_task.git', side_effect=AssertionError('managed fallback to HEAD')):
+    task = _bind_framework_callback(_callback_check_git_baseline_fail_closed_task, tmp_path)
+    with patch('worktree_state.task_start_commit', return_value='task-start'), \
+         patch('worktree_state.git', side_effect=AssertionError('managed fallback to HEAD')):
         current = task()
         current.fix_baseline()
         assert current.baseline == 'task-start'
-    def git(root, *args, **kwargs):
-        return SimpleNamespace(returncode=1 if args[0] == 'show-ref' else 128, stdout='', stderr='missing HEAD')
-    with patch('worktree_task.task_start_commit', return_value=None), \
-         patch('worktree_task.output', return_value='refs/heads/new'), patch('worktree_task.git', side_effect=git):
+    git = _callback_check_git_baseline_fail_closed_git
+    with patch('worktree_state.task_start_commit', return_value=None), \
+         patch('worktree_state.output', return_value='refs/heads/new'), patch('worktree_state.git', side_effect=git):
         current = task()
         current.fix_baseline()
         assert current.baseline_fixed and current.baseline is None
-    with patch('worktree_task.task_start_commit', side_effect=ValueError('invalid managed state')), \
+    with patch('worktree_state.task_start_commit', side_effect=ValueError('invalid managed state')), \
          pytest.raises(ValueError, match='invalid managed state'):
         task().fix_baseline()
-    with patch('worktree_task.task_start_commit', return_value=None), \
-         patch('worktree_task.output', side_effect=ValueError('broken Git')), \
-         patch('worktree_task.git', side_effect=git), pytest.raises(ValueError, match='broken Git'):
+    with patch('worktree_state.task_start_commit', return_value=None), \
+         patch('worktree_state.output', side_effect=ValueError('broken Git')), \
+         patch('worktree_state.git', side_effect=git), pytest.raises(ValueError, match='broken Git'):
         task().fix_baseline()
     with patch('validation.task.subprocess.run', return_value=SimpleNamespace(returncode=0, stdout='rename old\0追加 file\0deleted\0', stderr='')):
         assert task().git_paths(['diff']) == {'rename old', '追加 file', 'deleted'}
@@ -387,16 +418,17 @@ def check_framework_write_does_not_discover(tmp_path, scope, contract_scope):
         assert 'framework scope' in validator.errors[0]
 
 
+def _callback_check_result_reuse_is_scoped_fail(calls, findings, /):
+    calls.append('fail')
+    findings.check(False, 'content failed')
+
+
 def check_result_reuse_is_scoped(tmp_path):
-    from validation.findings import Findings, CheckResult
-    from validation.task import TaskValidation
     findings = Findings(tmp_path)
     task = TaskValidation(tmp_path, findings)
     first, second = {('dev', 'team', 'iam')}, {('stg', 'team', 'iam')}
     calls = []
-    def fail():
-        calls.append('fail')
-        findings.check(False, 'content failed')
+    fail = _bind_framework_callback(_callback_check_result_reuse_is_scoped_fail, calls, findings)
     task.acceptance_checks = [('R1', 'check', 'content'), ('R2', 'check', 'content')]
     findings.evaluate('content', first, fail)
     task.check_acceptance_checks({'content': fail}, first)
@@ -416,13 +448,19 @@ def check_result_reuse_is_scoped(tmp_path):
     assert stale.status == 'NOT_RUN' and stale.metadata == {}
 
 
+def _callback_check_resource_row_reuse_and_edits_rows_444(_default_mapping, _default_identity, /, mapping=_CALLBACK_DEFAULT, identity=_CALLBACK_DEFAULT):
+    if mapping is _CALLBACK_DEFAULT:
+        mapping = _default_mapping
+    if identity is _CALLBACK_DEFAULT:
+        identity = _default_identity
+    return projection.resource_rows(mapping, identity, 'IAM.Role', Path('/synthetic'))
+
+
 def check_resource_row_reuse_and_edits():
-    from model import projection
-    from validation_cache import input_context
+
     values = {f'desired.row.role-001.{key}': value for key, value in
               dict(property='IAM.Role.Description', value='first', comment='fixture').items()}
-    def rows(mapping=values, identity='role'):
-        return projection.resource_rows(mapping, identity, 'IAM.Role', Path('/synthetic'))
+    rows = _bind_framework_callback(_callback_check_resource_row_reuse_and_edits_rows_444, values, 'role')
     with input_context(), patch.object(projection, 'catalog_outputs', return_value=set()), \
             patch.object(projection, 'entries', wraps=projection.entries) as parse:
         with projection.resource_row_scope():
@@ -467,7 +505,6 @@ def check_resource_row_reuse_and_edits():
 
 
 def check_resource_row_legacy_and_invalid_entries():
-    from model import projection
     values = {}
     for identity in ('legacy-001', 'legacy-child-001', 'legacyish-001'):
         values.update({f'desired.row.{identity}.{key}': value for key, value in
@@ -487,8 +524,12 @@ def check_resource_row_legacy_and_invalid_entries():
         assert projection.resource_rows(values, 'legacy', 'IAM.Role', Path('/synthetic')) == rows
 
 
+def _callback_check_resource_row_scope_restoration_fail(outer, /, _):
+    assert projection._resource_row_cache.get() is not outer
+    raise RuntimeError('generation failed')
+
+
 def check_resource_row_scope_restoration():
-    from model import projection
     assert projection._resource_row_cache.get() is None
     with projection.resource_row_scope():
         outer = projection._resource_row_cache.get()
@@ -497,9 +538,7 @@ def check_resource_row_scope_restoration():
                 assert projection._resource_row_cache.get() is not outer
                 raise RuntimeError('generation failed')
         assert projection._resource_row_cache.get() is outer
-        def fail(_):
-            assert projection._resource_row_cache.get() is not outer
-            raise RuntimeError('generation failed')
+        fail = _bind_framework_callback(_callback_check_resource_row_scope_restoration_fail, outer)
         with patch.object(sync_runtime, 'total', side_effect=fail), pytest.raises(RuntimeError):
             sync_runtime.generate_views(Path('/stage'), Path('/root'), {}, [], definitions_root=Path('/definitions'))
         assert projection._resource_row_cache.get() is outer

@@ -1,27 +1,23 @@
 """Offline shared setup, runtime registration and deletion boundary regression."""
 
 import sys
-
 from pathlib import Path
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+
+import importlib.metadata
+import importlib.util
+import json
+import tempfile
+from unittest.mock import patch
+
+import worktree_python as py
+import worktree_task as wt
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
-
-import importlib.util
-
-import importlib.metadata
-
-import json
-
-import tempfile
-
-from unittest.mock import patch
-
-import worktree_task as wt
-
-import worktree_python as py
 
 spec = importlib.util.spec_from_file_location("lifecycle_checks", (Path(__file__).resolve().parents[4] / 'framework/scripts/tests/support/worktree_task_fixtures.py'))
 

@@ -2,20 +2,35 @@
 """Render service policy tables from the linked design JSON, never the reverse."""
 
 from __future__ import annotations
-from utils.json_format import policy_json, unique_object, invalid_constant, validate_aws_document, AwsDocumentError
 
-from validation_cache import input_scope
 import argparse
-from dataclasses import dataclass
 import html
 import json
-from pathlib import Path
 import re
 import sys
+from dataclasses import dataclass
+from functools import partial as _bind_framework_callback
+from pathlib import Path
 
+import array_display as _dependency_array_display
+import design_layout as _module_design_layout
+import json_intrinsics as _imports_json_intrinsics
+import utils.aws_mappings as _imports_utils_aws_mappings
 from model.core import literal
-from array_display import restored_rows
-from design_layout import ANCHOR, HEADER, RESOURCE, formal_property, resource_heading_lines
+from utils.input_cache import input_scope
+from utils.json_format import (
+    AwsDocumentError,
+    policy_json,
+    validate_aws_document,
+)
+from utils.json_format import (
+    invalid_constant as invalid_constant,
+)
+from utils.json_format import (
+    unique_object as unique_object,
+)
+from utils.layout_schema import ANCHOR, HEADER, RESOURCE
+from utils.layout_schema import POLICY_FORMATS as POLICY_FORMATS
 
 START = "<!-- policy-tables:start -->"
 END = "<!-- policy-tables:end -->"
@@ -23,39 +38,6 @@ IAM_START = "<!-- iam-policy-tables:start -->"
 IAM_END = "<!-- iam-policy-tables:end -->"
 JSON_LINK = re.compile(r"\[([^\]]+)\]\(([^)#]+\.json)\)")
 # Exact catalog properties: policy names, ARNs and enum settings are not documents.
-POLICY_FORMATS = {
-    "ApiGateway.RestApi.Policy": "statement",
-    "DynamoDB.GlobalTable.Replicas[].ReplicaStreamSpecification.ResourcePolicy.PolicyDocument": "statement",
-    "DynamoDB.GlobalTable.Replicas[].ResourcePolicy.PolicyDocument": "statement",
-    "DynamoDB.Table.ResourcePolicy": "wrapped-statement",
-    "DynamoDB.Table.StreamSpecification.ResourcePolicy.PolicyDocument": "statement",
-    "EC2.VPCEndpoint.PolicyDocument": "statement",
-    "ECR.Repository.RepositoryPolicyText": "statement",
-    "Events.EventBus.Policy": "statement",
-    "IAM.ManagedPolicy.PolicyDocument": "statement",
-    "IAM.Role.AssumeRolePolicyDocument": "statement",
-    "IAM.Role.Policies[].PolicyDocument": "statement",
-    "IAM.User.Policies[].PolicyDocument": "statement",
-    "KMS.Key.KeyPolicy": "statement",
-    "Logs.LogGroup.ResourcePolicyDocument": "statement",
-    "Logs.ResourcePolicy.PolicyDocument": "statement",
-    "S3.BucketPolicy.PolicyDocument": "statement",
-    "SNS.TopicPolicy.PolicyDocument": "statement",
-    "SQS.QueuePolicy.PolicyDocument": "statement",
-    "SSO.PermissionSet.InlinePolicy": "statement",
-    "SecretsManager.ResourcePolicy.ResourcePolicy": "statement",
-    "ECR.Repository.LifecyclePolicy": "settings",
-    "Logs.LogGroup.DataProtectionPolicy": "settings",
-    "Organizations.Policy.Content": "settings",
-    "SNS.Subscription.DeliveryPolicy": "settings",
-    "SNS.Subscription.FilterPolicy": "settings",
-    "SNS.Subscription.RedrivePolicy": "settings",
-    "SNS.Subscription.ReplayPolicy": "settings",
-    "SNS.Topic.ArchivePolicy": "settings",
-    "SNS.Topic.DataProtectionPolicy": "settings",
-    "SQS.Queue.RedriveAllowPolicy": "settings",
-    "SQS.Queue.RedrivePolicy": "settings",
-}
 POLICY_KEYS = {"Version", "Id", "Statement"}
 INLINE_POLICY_DOCUMENTS = {
     "IAM.Role.Policies[].PolicyDocument",
@@ -148,7 +130,7 @@ class Resource:
 
 @input_scope
 def resources_in(lines: list[str], root: Path | None = None) -> list[Resource]:
-    lines = resource_heading_lines(lines)
+    lines = _module_design_layout.resource_heading_lines(lines)
     resources = []
     current_type = logical_id = anchor = pending_anchor = ""
     index = 0
@@ -174,9 +156,9 @@ def resources_in(lines: list[str], root: Path | None = None) -> list[Resource]:
                 raise ValueError(f"invalid resource property row: {logical_id}")
             rows.append(cells)
             index += 1
-        rows = restored_rows(rows, current_type, root) if root else restored_rows(rows, current_type)
+        rows = _dependency_array_display.restored_rows(rows, current_type, root) if root else _dependency_array_display.restored_rows(rows, current_type)
         for row in rows:
-            row[1] = formal_property(row[1], current_type, root)
+            row[1] = _module_design_layout.formal_property(row[1], current_type, root)
         names = [literal(row[2]) for row in rows if row[1] == "IAM.Role.RoleName"]
         if len(names) > 1:
             raise ValueError(f"duplicate IAM RoleName: {logical_id}")
@@ -236,13 +218,18 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
     return policy_document_lines(document, policy)
 
 
+def _lambda_validate_policy_document_pending_259(design, intrinsic, /, value):
+    return design and intrinsic(value)
+
+
 def validate_policy_document(document, policy, *, design=False):
-    from json_intrinsics import intrinsic, project_document
+    intrinsic = _imports_json_intrinsics.intrinsic
+    project_document = _imports_json_intrinsics.project_document
     if design:
         document = project_document(document, property_name=policy.property_name)
     else:
         validate_aws_document(document)
-    pending = lambda value: design and intrinsic(value)
+    pending = _bind_framework_callback(_lambda_validate_policy_document_pending_259, design, intrinsic)
     if pending(document):
         return
     style = POLICY_FORMATS[policy.property_name]
@@ -385,9 +372,9 @@ def policy_document_lines(document, policy):
 
 @input_scope
 def rendered_design(path: Path, *, definitions_root: Path | None = None) -> str:
+    definition_root = _imports_utils_aws_mappings.definition_root
     original = path.read_text(encoding="utf-8")
     lines = without_policy_tables(original.splitlines())
-    from utils.aws_mappings import definition_root
     root = definitions_root or definition_root(path.resolve().parent)
     resources = resources_in(lines, root)
     if not resources:

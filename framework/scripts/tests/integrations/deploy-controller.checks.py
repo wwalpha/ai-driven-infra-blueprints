@@ -1,20 +1,51 @@
 #!/usr/bin/env python3
 """Production controller -> guards/SDK -> durable session and observed publication."""
+
+import hashlib
+import re
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import json
 import os
 import subprocess
 import tempfile
+
+import deploy.handoff as _imports_deploy_handoff
+import deploy.observed_resume as _imports_deploy_observed_resume
+import deploy.session as _imports_deploy_session
+import project_targets as _imports_project_targets
 import pytest
-from support.deploy_controller_fixtures import seed, aws_state, invoke, child_environment, ACCOUNT
+import sync_runtime as _imports_sync_runtime
+import worktree_task as wt
+from deploy import controller, handoff
+from deploy import session as sessions
+from deploy.contracts import accepted_changes
+from deploy.session import model_input_manifest
+from deploy_handoff import main as migrate
 from model.core import properties
 from model.files import read_model
+from project_targets import load_target
+from support.deploy_controller_fixtures import (
+    ACCOUNT,
+    aws_state,
+    child_environment,
+    git,
+    invoke,
+    seed,
+)
+from task_contract import complete, resume
+from task_contract_core import selected_task, start, suspend
+from utils.cloudformation_format import decode
 from utils.json_format import fingerprint
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 @pytest.fixture(autouse=True)
@@ -141,9 +172,8 @@ def check_subprocess_execution_resume(project, crash):
     if crash:
         assert saved['states']['cfn-stack-app-dev-first']['status'] == 'RUNNING'
         # The test owns and has reaped this child; only it may recover its remaining lock.
-        from project_targets import load_target
+        load_target = _imports_project_targets.load_target
         target = load_target(root, 'dev', ACCOUNT)
-        import tempfile
         lock = Path(tempfile.gettempdir()) / ('blueprint-cfn-' + fingerprint(['dev', target]) + '.lock')
         assert lock.exists()
         lock.unlink()
@@ -159,8 +189,7 @@ def check_subprocess_execution_resume(project, crash):
 
 def recover_owned_lock(root, child):
     assert child.returncode is not None  # subprocess.run has reaped this exact child.
-    from project_targets import load_target
-    import tempfile
+
     target = load_target(root, 'dev', ACCOUNT)
     lock = Path(tempfile.gettempdir()) / ('blueprint-cfn-' + fingerprint(['dev', target]) + '.lock')
     assert lock.exists()
@@ -235,12 +264,30 @@ def check_bootstrap_process_resume(tmp_path, monkeypatch, external_current):
         assert after['result'] == 'COMPLETE' and 'AWSCURRENT' in final['versions'][token]
 
 
+def _callback_external_round_trip_lifecycle(command, target, identity, *options):
+    env = child_environment() | {'BLUEPRINT_TASK_FILE': 'tasks/' + identity + '.md'}
+    result = subprocess.run([sys.executable, '-B', str(Path(wt.__file__)), command,
+        '--repository-root', str(target), '--task-id', identity, *map(str, options)], cwd=target,
+        env=env, capture_output=True, text=True, timeout=90)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return json.loads(result.stdout)
+
+
+def _callback_external_round_trip_record_validation(diagnostics, real_run, /, command, *args, **kwargs):
+    result = real_run(command, *args, **kwargs)
+    if '--fresh' in command:
+        diagnostics.append(result.stdout + result.stderr)
+    return result
+
+
+def _callback_external_round_trip_interrupted_git(actual_git, parent, /, target, *args, **kwargs):
+    result = actual_git(target, *args, **kwargs)
+    if target == parent and args[:2] == ('merge', '--ff-only'):
+        raise InterruptedError('injected after real parent FF')
+    return result
+
+
 def external_round_trip(tmp_path, monkeypatch, boundary):
-    from task_contract import selected_task, suspend, resume, start, complete
-    from deploy import handoff
-    from deploy.contracts import sha, accepted_changes
-    import worktree_task as wt
-    from support.deploy_controller_fixtures import git
     unexecuted = boundary in {'input-decode', 'validate-template', 'create-change-set', 'changeset-review'}
     case = 'shared-success' if boundary == 'shared-success' else 'input-syntax' if boundary == 'input-decode' else 'repair-series' if boundary in {'new-problem', 'regression'} else 'repair'
     parent = seed(tmp_path / 'project', tmp_path / 'session.json', case)
@@ -295,7 +342,7 @@ def external_round_trip(tmp_path, monkeypatch, boundary):
         diagnosis_path, expectation_path = tmp_path / 'diagnosis.json', tmp_path / 'expectation.json'
         diagnosis_path.write_text(json.dumps(diagnosis))
         expectation_path.write_text(json.dumps(expectation))
-        source = Path(wt.__file__).with_name('deploy_handoff.py')
+        _ = Path(wt.__file__).with_name('deploy_handoff.py')
         command = [sys.executable, '-B', '-c',
             "import os,sys,json; from pathlib import Path; from unittest.mock import patch; "
             "from deploy_handoff import main; actual=os.replace\n"
@@ -312,13 +359,7 @@ def external_round_trip(tmp_path, monkeypatch, boundary):
     assert handoff.issue_request(parent, session, saved, problems, [relative], expectation) == pending
     assert saved['workflow']['reserved'] == 1
     handoff.save(session, saved)
-    def lifecycle(command, target, identity, *options):
-        env = child_environment() | {'BLUEPRINT_TASK_FILE': 'tasks/' + identity + '.md'}
-        result = subprocess.run([sys.executable, '-B', str(Path(wt.__file__)), command,
-            '--repository-root', str(target), '--task-id', identity, *map(str, options)], cwd=target,
-            env=env, capture_output=True, text=True, timeout=90)
-        assert result.returncode == 0, result.stdout + result.stderr
-        return json.loads(result.stdout)
+    lifecycle = _callback_external_round_trip_lifecycle
     request = lifecycle('repair-checkpoint', parent, 'deploy', '--state', session) if boundary == 'normal' else wt.deploy_checkpoint(parent, 'deploy', session)
     assert request['parentTip'] == git(parent, 'rev-parse', 'HEAD').strip()
     suspend(parent, 'tasks/deploy.md', 'authorized external implement repair ' + request['requestId'])
@@ -340,13 +381,8 @@ def external_round_trip(tmp_path, monkeypatch, boundary):
         (child / relative).write_text('Resources: {Vpc: {Type: AWS::EC2::VPC, Properties: {CidrBlock: 10.0.0.0/16}}}\n')
     else:
         (child / relative).write_text((child / relative).read_text().replace('10.2.0.0/16', '10.0.0.0/16'))
-    from unittest.mock import patch
     real_run, diagnostics = subprocess.run, []
-    def record_validation(command, *args, **kwargs):
-        result = real_run(command, *args, **kwargs)
-        if '--fresh' in command:
-            diagnostics.append(result.stdout + result.stderr)
-        return result
+    record_validation = _bind_framework_callback(_callback_external_round_trip_record_validation, diagnostics, real_run)
     if boundary == 'normal':
         approved = (child / relative).read_text()
         (child / relative).write_text('Resources: [invalid')
@@ -368,11 +404,7 @@ def external_round_trip(tmp_path, monkeypatch, boundary):
         complete(child, child_task)
     if boundary == 'merge':
         actual_git = wt.git
-        def interrupted_git(target, *args, **kwargs):
-            result = actual_git(target, *args, **kwargs)
-            if target == parent and args[:2] == ('merge', '--ff-only'):
-                raise InterruptedError('injected after real parent FF')
-            return result
+        interrupted_git = _bind_framework_callback(_callback_external_round_trip_interrupted_git, actual_git, parent)
         with patch.object(wt, 'git', side_effect=interrupted_git), pytest.raises(InterruptedError):
             wt.finalize(child, 'repair-one')
     result = lifecycle('finalize', child, 'repair-one') if boundary == 'normal' else wt.finalize(child, 'repair-one')
@@ -406,7 +438,9 @@ def external_round_trip(tmp_path, monkeypatch, boundary):
             assert failed['cleanupStatus'] == 'DELETE_INTENT' and failed['recoveryPending']
         recover_owned_lock(parent, stopped)
     if boundary == 'repeat':
-        data = json.loads(aws.read_text()); data['knobs']['repeat_cidr'] = True; aws.write_text(json.dumps(data))
+        data = json.loads(aws.read_text())
+        data['knobs']['repeat_cidr'] = True
+        aws.write_text(json.dumps(data))
     resumed_code = invoke(parent, session, aws, ['--resume', '--repair-result', str(result_path)])
     if boundary == 'shared-success':
         assert resumed_code == 2
@@ -417,7 +451,8 @@ def external_round_trip(tmp_path, monkeypatch, boundary):
         return
     if boundary in {'repeat', 'new-problem', 'regression'}:
         assert resumed_code == 2
-        saved = json.loads(session.read_text()); handoff.restore(parent, session, saved)
+        saved = json.loads(session.read_text())
+        handoff.restore(parent, session, saved)
         current = next(o for o in saved['failureObservations'] if o['observationId'] in saved['workflow']['latestObservations'])
         entry = dict(problem) if boundary == 'repeat' else {**problem, 'property':'EnableDnsSupport', 'constraint':'approved-DNS'}
         entry = json.loads(json.dumps(entry))
@@ -456,7 +491,9 @@ def external_round_trip(tmp_path, monkeypatch, boundary):
         wt.cleanup(parent,'repair-two')
         resume(parent,'tasks/deploy.md')
         if boundary == 'regression':
-            data=json.loads(aws.read_text()); data['knobs']['repeat_cidr']=True; aws.write_text(json.dumps(data))
+            data=json.loads(aws.read_text())
+            data['knobs']['repeat_cidr']=True
+            aws.write_text(json.dumps(data))
         resumed_code = invoke(parent,session,aws,['--resume','--repair-result',second_result['repair_result']])
         after = json.loads(session.read_text())
         assert after['workflow']['reserved'] == 2 and after['inputRevision'] == 2
@@ -464,7 +501,8 @@ def external_round_trip(tmp_path, monkeypatch, boundary):
             assert resumed_code == 2
             handoff.restore(parent,session,after)
             current = next(o for o in after['failureObservations'] if o['observationId'] in after['workflow']['latestObservations'])
-            again = json.loads(json.dumps(problem)); again['observationId']=current['observationId']
+            again = json.loads(json.dumps(problem))
+            again['observationId']=current['observationId']
             again.update(relation='SAME', relatedProblemIds=problems)
             again['evidenceRefs'].append({'observationId':current['observationId'], 'revision':current['revision'], 'eventIndices':[0]})
             again['inputRefs'][0]['sha256']=after['infraManifest'][relative]
@@ -500,11 +538,7 @@ def external_round_trip(tmp_path, monkeypatch, boundary):
 
 @pytest.mark.parametrize('stage', ['REPAIR_INTENT', 'VALIDATING', 'VALIDATED'])
 def check_explicit_legacy_migration(tmp_path, monkeypatch, stage):
-    from deploy import controller, handoff, session as sessions
-    from deploy.contracts import task_digest
-    from project_targets import load_target
-    from utils.cloudformation_format import decode
-    import hashlib
+
     root = seed(tmp_path / 'project', tmp_path / 'session.json')
     path, aws = tmp_path / 'session.json', tmp_path / 'aws.json'
     monkeypatch.chdir(root)
@@ -550,7 +584,6 @@ def check_explicit_legacy_migration(tmp_path, monkeypatch, stage):
     assert all(p.read_bytes() == raw for p,raw in inputs.items())
     assert observed['executionDigest'] == old_execution
     new_execution = sessions.execution_digest(root,target,backend.file_digest,{})
-    from deploy_handoff import main as migrate
     assert migrate(['migrate','--state',str(path),'--repository-root',str(root),
         '--old-execution-digest',old_execution,'--new-execution-digest',new_execution,
         '--acknowledge-legacy-cycles','1','--authorization','explicit synthetic migration review']) == 0
@@ -591,8 +624,6 @@ def assert_single_execution(aws, evidence):
 
 
 def assert_published(root, session, evidence):
-    from deploy.session import model_input_manifest
-    from task_contract import selected_task
     saved = json.loads(session.read_text())
     assert saved['result'] == 'COMPLETE' and 'pendingObserved' not in saved
     assert saved['repository'] == str(root) and saved['taskFile'] == 'tasks/deploy.md'
@@ -608,7 +639,7 @@ def assert_published(root, session, evidence):
         assert values['observed.row.002-001.value'].strip('`') == 'subnet-fixture'
     with selected_task(root, 'tasks/deploy.md'):
         assert saved['modelInputManifest'] == model_input_manifest(root, 'dev', ACCOUNT)
-        from sync_runtime import sync
+        sync = _imports_sync_runtime.sync
         assert sync(root, False, 'dev', ACCOUNT, services=['s3', 'ec2', 'cloudformation-stacks']) == 0
 
 
@@ -640,7 +671,8 @@ def check_observed_publication_process_resume(tmp_path, monkeypatch, fault, exit
         if fault in {'generation-io', 'design-io', 'design-partial', 'design-committed'}:
             assert plan['stage'] == 'MODEL_PUBLISHED'
         if fault == 'model-partial':
-            from deploy.observed_resume import classify, manifest
+            classify = _imports_deploy_observed_resume.classify
+            manifest = _imports_deploy_observed_resume.manifest
             current = manifest({p.relative_to(root).as_posix(): p.read_bytes() for p in original})
             # project.json is an authority dependency as well as the Model sources.
             current['project.json'] = __import__('hashlib').sha256((root / 'project.json').read_bytes()).hexdigest()
@@ -678,7 +710,6 @@ def check_observed_drains_peer_then_resumes(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('change', ['append', 'value', 'json', 'add', 'delete', 'json-delete', 'journal', 'no-proof', 'generation-append'])
 def check_generated_external_change_rejected(tmp_path, monkeypatch, change):
-    import hashlib
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     session, aws = tmp_path / 'session.json', tmp_path / 'aws.json'
     root = seed(tmp_path / 'project', session, 'multi-observed', generated_artifacts=True)
@@ -686,29 +717,35 @@ def check_generated_external_change_rejected(tmp_path, monkeypatch, change):
     fault = 'design-partial' if change == 'journal' else 'generation-io' if change == 'generation-append' else 'design-io'
     child = child_run(root, session, aws, fault=fault)
     assert child.returncode == (79 if change == 'journal' else 2), child.stdout + child.stderr
-    if change == 'journal': recover_owned_lock(root, child)
+    if change == 'journal':
+        recover_owned_lock(root, child)
     saved = json.loads(session.read_text())
     evidence = saved['states'][FIRST]['executionEvidence']
     generated = saved['pendingObserved']['generated']
     design = root / f'docs/designs/dev/{ACCOUNT}/ec2.md'
     artifact = root / f'docs/designs/dev/{ACCOUNT}/s3/s3-bucket-001-bucket-policy.json'
     assert artifact.relative_to(root).as_posix() in generated['originals']
-    if change in {'append', 'journal', 'generation-append'}: design.write_bytes(design.read_bytes() + b'\nexternal append\n')
+    if change in {'append', 'journal', 'generation-append'}:
+        design.write_bytes(design.read_bytes() + b'\nexternal append\n')
     if change == 'value':
         raw = design.read_bytes()
         altered = raw.replace(b'app-dev-subnet', b'external-subnet')
         assert altered != raw
         design.write_bytes(altered)
-    if change == 'json': artifact.write_bytes(b'{"external": true}\n')
-    if change == 'add': artifact.with_name('external.json').write_bytes(b'{}\n')
-    if change == 'delete': design.unlink()
-    if change == 'json-delete': artifact.unlink()
+    if change == 'json':
+        artifact.write_bytes(b'{"external": true}\n')
+    if change == 'add':
+        artifact.with_name('external.json').write_bytes(b'{}\n')
+    if change == 'delete':
+        design.unlink()
+    if change == 'json-delete':
+        artifact.unlink()
     if change == 'no-proof':
         # Exercise a real signed older pending-plan shape, not a tampered workflow ledger.
-        from deploy import handoff
+        handoff = _imports_deploy_handoff
         handoff.restore(root, session, saved)
         saved['pendingObserved'].pop('generated')
-        from deploy.session import save_session
+        save_session = _imports_deploy_session.save_session
         save_session(session, saved)
     retained = {p: p.read_bytes() for p in root.rglob('*') if p.is_file() and '.git' not in p.parts}
     journal = Path(tempfile.gettempdir()) / 'blueprint-model-publication' / (hashlib.sha256(str(root).encode()).hexdigest() + '.json')
@@ -754,9 +791,6 @@ def check_generated_change_during_publication(tmp_path, monkeypatch):
     ('model-committed', 'iac'), ('model-committed', 'evidence'),
     ('model-committed', 'approval')])
 def check_observed_external_change_rejected(tmp_path, monkeypatch, request, fault, change):
-    import hashlib
-    import re
-    import tempfile
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     session, aws = tmp_path / 'session.json', tmp_path / 'aws.json'
     root = seed(tmp_path / 'project', session, 'multi-observed')

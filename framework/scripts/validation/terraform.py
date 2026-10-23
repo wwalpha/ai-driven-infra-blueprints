@@ -1,9 +1,9 @@
 """Terraform root/module boundaries; Terraform itself retains full syntax validation."""
-from validation_cache import input_is_dir, input_is_file, input_select, input_text
-
 import json
 import re
 from pathlib import Path
+
+from utils.input_cache import input_is_dir, input_is_file, input_select, input_text
 
 
 def root_directory(root, target):

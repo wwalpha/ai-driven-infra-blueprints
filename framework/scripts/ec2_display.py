@@ -3,7 +3,6 @@
 import json
 import re
 
-
 EC2_BLOCK_DEVICE = "EC2.Instance.BlockDeviceMappings[]."
 EC2_NAME_TAG = re.compile(r"^<!-- ec2-name-tag: (.+?) -->\s*")
 
@@ -74,5 +73,3 @@ def ec2_formal_rows(rows: list[list[str]], resource_type: str) -> list[list[str]
             prop = EC2_BLOCK_DEVICE + field
         result.append([identity, prop, value, comment])
     return result
-
-

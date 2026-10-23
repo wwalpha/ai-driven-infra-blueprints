@@ -1,30 +1,35 @@
 """Build one union of old/new saved reference edges and traverse Resource/Stack nodes."""
+
 from collections import defaultdict
 from pathlib import Path
+
+from utils.source_reads import FileReads as FileReads
+
+import model.identity as _dependency_model_identity
+import model.impact_changes as _dependency_model_impact_changes
+import model.references as _dependency_model_references
+import model.sources as _dependency_model_sources
+import model.sources as _imports_model_sources
 from model.core import entries
 from model.format import owner
-from model.identity import resource_index
-from model.references import usages, declarations
-from model.sources import FileReads, list_models, raw_model, load_model
-from model.impact_changes import node
 
 
 def models(root, reads, *, previous=False, raw=False, allowed=None):
     result = {}
     try:
-        scopes = list_models(root, reads)
+        scopes = _dependency_model_sources.list_models(root, reads)
     except (OSError, ValueError):
         if not previous:
             raise
         # Discovery must still retain each identifiable old service when topology is broken.
-        from model.sources import scope_for
+        scope_for = _imports_model_sources.scope_for
         scopes = [scope_for(path) for path in reads.select(Path(root) / 'model', '*/*/*.properties')]
     for scope in scopes:
         identity = scope.environment, scope.target, scope.service
         if allowed is not None and identity not in allowed:
             continue
         try:
-            result[identity] = (raw_model if previous or raw else load_model)(scope, reads)
+            result[identity] = (_dependency_model_sources.raw_model if previous or raw else load_model)(scope, reads)
         except (OSError, ValueError) as error:
             if not previous:
                 raise
@@ -38,8 +43,8 @@ def owned(scope, key, values):
         logical = values.get(f'desired.resource.{identity}.logicalId')
         if not logical:
             raise ValueError('consumer Resource logicalId is absent')
-        return node(scope, kind, logical)
-    return node(scope, kind, identity) if kind == 'stack' else node(scope)
+        return _dependency_model_impact_changes.node(scope, kind, logical)
+    return _dependency_model_impact_changes.node(scope, kind, identity) if kind == 'stack' else _dependency_model_impact_changes.node(scope)
 
 
 class Graph:
@@ -59,11 +64,11 @@ class Graph:
             if isinstance(model, Exception):
                 continue
             try:
-                resource_index(model.authoritative)
+                _dependency_model_identity.resource_index(model.authoritative)
                 cache[model.scope.path] = model
                 for _, resource in entries(model.authoritative, 'desired.resource.'):
-                    self.members[scope].add(node(scope, 'resource', resource['logicalId']))
-                self.members[scope].update(node(scope, 'stack', identity) for identity, _ in entries(model.authoritative, 'desired.stack.'))
+                    self.members[scope].add(_dependency_model_impact_changes.node(scope, 'resource', resource['logicalId']))
+                self.members[scope].update(_dependency_model_impact_changes.node(scope, 'stack', identity) for identity, _ in entries(model.authoritative, 'desired.stack.'))
             except (ValueError, KeyError, TypeError):
                 # usages() retains declared logical IDs and unresolved direct links with an absent producer.
                 cache[model.scope.path] = None
@@ -72,13 +77,13 @@ class Graph:
             try:
                 if isinstance(model, Exception):
                     raise model
-                for usage in usages(model, reads, _cache=cache):
+                for usage in _dependency_model_references.usages(model, reads, _cache=cache):
                     if usage.producer_kind == 'context':
                         continue  # project.json changes keep the existing conservative context behavior.
                     producer_scope = tuple(usage.producer_scope.split('/'))
                     consumer = owned(scope, usage.consumer_key, model.authoritative)
                     identity = usage.logical_id if usage.producer_kind == 'resource' else usage.producer_id
-                    producer = node(producer_scope, usage.producer_kind, identity) if identity else node(producer_scope)
+                    producer = _dependency_model_impact_changes.node(producer_scope, usage.producer_kind, identity) if identity else _dependency_model_impact_changes.node(producer_scope)
                     producer_model = records.get(producer_scope)
                     missing_stack = usage.producer_kind == 'stack' and (producer_model is None or
                         isinstance(producer_model, Exception) or
@@ -86,17 +91,17 @@ class Graph:
                     if usage.producer_id is None or missing_stack:
                         self.reasons.append({'scope': usage.producer_scope, 'reason': 'unresolved producer',
                                              'consumer': '/'.join(scope), 'key': usage.consumer_key})
-                        self.add(node(producer_scope), consumer)
+                        self.add(_dependency_model_impact_changes.node(producer_scope), consumer)
                     self.add(producer, consumer)
             except (OSError, ValueError, KeyError, TypeError) as error:
                 try:
-                    producers = {tuple(spec['producerScope'].split('/')) for spec in declarations(model.authoritative).values()
+                    producers = {tuple(spec['producerScope'].split('/')) for spec in _dependency_model_references.declarations(model.authoritative).values()
                                  if spec['producerKind'] != 'context'}
                 except (AttributeError, ValueError, KeyError, TypeError):
                     producers = set()
                 # An unparseable consumer may hide direct links; retain only that consumer's uncertainty.
                 for producer_scope in all_scopes | producers:
-                    self.add(node(producer_scope), node(scope))
+                    self.add(_dependency_model_impact_changes.node(producer_scope), _dependency_model_impact_changes.node(scope))
                 self.reasons.append({'scope': '/'.join(scope), 'reason': 'unreadable reference graph: ' + str(error)})
 
     def traverse(self, seeds):
@@ -107,8 +112,12 @@ class Graph:
                 continue
             visited.add(current)
             scope = current[:3]
-            incoming = self.edges[current] | self.edges[node(scope)]
+            incoming = self.edges[current] | self.edges[_dependency_model_impact_changes.node(scope)]
             if current[3] == 'service':
                 incoming = incoming | self.members[scope]
             pending.update(incoming - visited)
         return visited
+
+
+def load_model(scope, read_context=None):
+    return _dependency_model_sources.load_model(scope, read_context)

@@ -1,10 +1,13 @@
 """Convert Model resource links under explicit receiving-property contracts."""
 import re
+
 from cloudformation_inputs import Blocked
 from iac_values import ResourceReference
 from model.projection import reference_attribute
 from reference_contracts import REFERENCE_PROPERTIES
+
 from . import registry
+
 
 def desired_reference(service, value, kind, path, attribute=None, context=None, *, local_comparison, reference, resource_type, forms_for):
     path = re.sub(r'\[\d+\]', '[]', path)

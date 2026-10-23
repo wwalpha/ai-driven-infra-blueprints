@@ -1,7 +1,12 @@
 """Decode CloudFormation JSON/YAML without evaluation or AWS access."""
+
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-import json
+
+import iac_values as _imports_iac_values
 import yaml
+
+import utils.input_cache as _imports_validation_cache
 
 
 class CloudFormationLoader(yaml.SafeLoader):
@@ -46,6 +51,24 @@ CloudFormationLoader.add_constructor('tag:yaml.org,2002:map', mapping)
 CloudFormationLoader.add_multi_constructor('!', intrinsic)
 
 
+def _recursive_decode_size(active, sizes, /, value):
+    if not isinstance(value, (dict, list)):
+        return 1
+    identity = id(value)
+    if identity in active:
+        raise ValueError('recursive YAML alias')
+    if identity not in sizes:
+        active.add(identity)
+        total = 1
+        for child in value.values() if isinstance(value, dict) else value:
+            total += _recursive_decode_size(active, sizes, child)
+            if total > 250000:
+                raise ValueError('YAML alias expansion exceeds 250000 nodes')
+        active.remove(identity)
+        sizes[identity] = total
+    return sizes[identity]
+
+
 def decode(text, source='<template>', *, locations=None):
     """Return (plain values, parse errors); accept already acquired text or bytes."""
     try:
@@ -59,22 +82,7 @@ def decode(text, source='<template>', *, locations=None):
             loader.dispose()
         # Bound alias expansion and reject cycles before downstream recursive walkers.
         sizes, active = {}, set()
-        def size(value):
-            if not isinstance(value, (dict, list)):
-                return 1
-            identity = id(value)
-            if identity in active:
-                raise ValueError('recursive YAML alias')
-            if identity not in sizes:
-                active.add(identity)
-                total = 1
-                for child in value.values() if isinstance(value, dict) else value:
-                    total += size(child)
-                    if total > 250000:
-                        raise ValueError('YAML alias expansion exceeds 250000 nodes')
-                active.remove(identity)
-                sizes[identity] = total
-            return sizes[identity]
+        size = _bind_framework_callback(_recursive_decode_size, active, sizes)
         if '&' in text:
             size(document)
         return {} if document is None else document, []
@@ -83,7 +91,7 @@ def decode(text, source='<template>', *, locations=None):
 
 
 def decode_file(path, *, locations=None):
-    from validation_cache import input_bytes
+    input_bytes = _imports_validation_cache.input_bytes
     return decode(input_bytes(Path(path)), str(path), locations=locations)
 
 
@@ -93,13 +101,25 @@ JSON_INTRINSICS = {'Ref', 'Condition', 'Fn::GetAtt', 'Fn::Sub', 'Fn::Join', 'Fn:
                    'Fn::ToJsonString', 'Fn::Transform'}
 
 
+def _lambda_intrinsic_shape_error_sequence_111(argument, /, count):
+    return isinstance(argument, list) and len(argument) == count
+
+
+def _lambda_intrinsic_shape_error_string_110(symbolic, /, value):
+    return isinstance(value, str) or symbolic(value)
+
+
+def _lambda_intrinsic_shape_error_symbolic_108(Expression, ResourceReference, /, value):
+    return isinstance(value, (Expression, ResourceReference)) or (isinstance(value, dict) and len(value) == 1 and any((key == 'Ref' or key.startswith('Fn::') for key in value)))
+
+
 def intrinsic_shape_error(name, argument):
     """The Model JSON structural contract, without template semantic validation."""
-    from iac_values import Expression, ResourceReference
-    symbolic = lambda value: isinstance(value, (Expression, ResourceReference)) or (isinstance(value, dict) and len(value) == 1 and any(
-        key == 'Ref' or key.startswith('Fn::') for key in value))
-    string = lambda value: isinstance(value, str) or symbolic(value)
-    sequence = lambda count: isinstance(argument, list) and len(argument) == count
+    Expression = _imports_iac_values.Expression
+    ResourceReference = _imports_iac_values.ResourceReference
+    symbolic = _bind_framework_callback(_lambda_intrinsic_shape_error_symbolic_108, Expression, ResourceReference)
+    string = _bind_framework_callback(_lambda_intrinsic_shape_error_string_110, symbolic)
+    sequence = _bind_framework_callback(_lambda_intrinsic_shape_error_sequence_111, argument)
     valid = True
     if name in {'Ref', 'Condition'}:
         valid = isinstance(argument, str) and bool(argument)

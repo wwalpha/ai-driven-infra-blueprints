@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import re
+from pathlib import Path
 
+import aws_mapping_display as _imports_aws_mapping_display
 from design_catalog import DesignSchemaCatalog
-from validation_cache import memoized, input_scope
-
+from utils.input_cache import input_scope, memoized
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = re.compile(r"^<!-- array-source: (.+?) --> ")
@@ -24,10 +24,10 @@ def display_catalog(root):
 
 
 def array_template(prop, kind, root):
+    formal_name = _imports_aws_mapping_display.formal_name
     catalog, prefixes = display_catalog(root)
     qualified = prop if prop.startswith(prefixes) else kind + "." + prop
     owner = ".".join(qualified.split(".")[:2])
-    from aws_mapping_display import formal_name
     formal = (formal_name(prop, kind, root) if kind + "." in prefixes else None) or qualified
     template = prop
     # Retain a displayed ancestor when an alias hides an array component.

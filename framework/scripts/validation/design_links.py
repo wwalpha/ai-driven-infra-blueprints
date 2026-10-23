@@ -2,27 +2,57 @@
 
 
 from __future__ import annotations
-from validation_cache import input_is_file, input_select, input_text
+
 import json
 import re
+from collections import defaultdict, deque
 from pathlib import Path
-from design_layout import (
-    CLOUDTRAIL_DATA_RESOURCE, LINKED_LIST_PROPERTIES,
-    linked_list_property, DETAILS_HEADING, GROUPED,
-    REQUIRED_NAME_TAG_TYPES, RESOURCE_REFERENCE_PROPERTIES, RESOURCE as RESOURCE_HEADING_PATTERN,
-    resource_heading_lines, design_model_values, formal_property,
-)
-from service_rows import CODEBUILD_FORMAL_VARIABLE, CODEPIPELINE_STAGE
-from security_group_tables import security_group_table_lines
-from design_document import DesignIndex
-from model.files import resource_row_index
-from model.core import LINK, literal, entries, ReferenceResolutionError
-from validation_cache import input_scope
+
+import model.identity as _imports_model_identity
+import model.importing.references as _imports_model_importing_references
+import model.importing.scope as _imports_model_importing_scope
+import model.projection as _imports_model_projection
+import model.references as _imports_model_references
+import model.sources as _imports_model_sources
+import utils.json_format as _imports_utils_json_format
 from aws_mapping_display import validation_lines
+from design_document import DesignIndex
+from design_layout import (
+    LINKED_LIST_PROPERTIES,
+    design_model_values,
+    formal_property,
+    linked_list_property,
+    resource_heading_lines,
+)
+from model.core import LINK, ReferenceResolutionError, entries, literal
+from model.files import resource_row_index
+from security_group_tables import security_group_table_lines
+from utils.input_cache import input_is_file, input_scope, input_select, input_text
+from utils.layout_schema import (
+    CLOUDTRAIL_DATA_RESOURCE,
+    CODEBUILD_FORMAL_VARIABLE,
+    CODEPIPELINE_STAGE,
+    DETAILS_HEADING,
+    GROUPED,
+    REQUIRED_NAME_TAG_TYPES,
+    RESOURCE_REFERENCE_PROPERTIES,
+)
+from utils.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
+
 from .design import (
-    ANCHOR_PATTERN, JAPANESE_TEXT_PATTERN, LINK_PATTERN, LOWER_KEBAB_PATTERN, OVERVIEW_HEADING,
-    OVERVIEW_TYPE_HEADING_PATTERN, RESOURCE_LINK_PATTERN, S3_KMS_MASTER_KEY_ID, TABLE_ALIGNMENT,
-    TABLE_HEADER, design_files, normalized, unquoted,
+    ANCHOR_PATTERN,
+    JAPANESE_TEXT_PATTERN,
+    LINK_PATTERN,
+    LOWER_KEBAB_PATTERN,
+    OVERVIEW_HEADING,
+    OVERVIEW_TYPE_HEADING_PATTERN,
+    RESOURCE_LINK_PATTERN,
+    S3_KMS_MASTER_KEY_ID,
+    TABLE_ALIGNMENT,
+    TABLE_HEADER,
+    design_files,
+    normalized,
+    unquoted,
 )
 
 
@@ -180,6 +210,9 @@ def check_design_overviews(paths: list[Path] | None = None, *, findings, root, s
 def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path] | None = None, *,
                        design_index: DesignIndex | None = None, design_sources=None, findings, root, scope, definitions_root=None,
                        view_reader=None, unavailable_views=None) -> None:
+    outside_design = _imports_model_importing_scope.outside_design
+    scope_for = _imports_model_sources.scope_for
+    policy_json = _imports_utils_json_format.policy_json
     definitions_root = definitions_root or root
     design_index = design_index or DesignIndex(definitions_root)
     source_values = {}
@@ -194,7 +227,6 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             except (OSError, ValueError, KeyError, TypeError) as error:
                 findings.check(False, f"invalid reference observations: {findings.relative(source)}: {error}")
                 source_values[source] = {}
-    from model.importing.scope import outside_design
     sources = list(source_values)
     imported = {}
     for source in sources:
@@ -203,8 +235,8 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                             if resource.get('resourceMode') == 'IMPORT'}
         if not imported[source]:
             continue
-        from collections import defaultdict, deque
-        from model.importing.references import Resolver
+
+        Resolver = _imports_model_importing_references.Resolver
         queues = defaultdict(deque)
         for row_id, row in entries(values, 'desired.row.'):
             queues[row_id.rpartition('-')[0], row['property']].append(row_id)
@@ -223,12 +255,12 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 rows = queues[imported[source][anchor], prop]
                 if rows:
                     row_key = 'desired.row.' + rows.popleft() + '.value'
-                    from model.identity import resource_link
-                    from model.projection import scalar_reference
+                    resource_link = _imports_model_identity.resource_link
+                    scalar_reference = _imports_model_projection.scalar_reference
                     if not resource_link(values[row_key]) and scalar_reference({'property': prop, 'value': values[row_key]}) is None:
                         candidate[row_key] = cells[2]
             relative = source.relative_to(root / 'docs/designs')
-            from model.sources import load_model
+            load_model = _imports_model_sources.load_model
             resolver = Resolver(root, relative.parts[0], relative.parts[1], definitions_root=definitions_root,
                                 local={source.stem: load_model((root / 'model' / relative).with_suffix('.properties'))})
             for rid in imported[source].values():
@@ -239,14 +271,13 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             findings.warn(error, source=str(source))
         except (OSError, ValueError) as error:
             findings.check(False, f'invalid IMPORT physical reference: {findings.relative(source)}: {error}')
-    from model.projection import document_references, scalar_reference, scalar_reference_operand
-    from model.identity import Resolver
-    from model.sources import scope_for
-    from utils.json_format import policy_json
+    Resolver = _imports_model_identity.Resolver
+    document_references = _imports_model_projection.document_references
+    scalar_reference = _imports_model_projection.scalar_reference
+    scalar_reference_operand = _imports_model_projection.scalar_reference_operand
     authority_values = source_values
     resolver = Resolver(root)
     json_links = {source: [] for source in sources}
-    from collections import defaultdict, deque
     scalar_rows = {source: defaultdict(deque) for source in sources}
     for source, values in source_values.items():
         model_path = (root / 'model' / source.relative_to(root / 'docs/designs')).with_suffix('.properties')
@@ -268,7 +299,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             try:
                 document_references(policy_json(row['document']), root, property_name=row['property'],
                                     resolver=resolver, scope=scope_for(model_path),
-                                    resolve=lambda snapshot, number, resource, attribute, uri: json_links[source].append(uri))
+                                    resolve=lambda snapshot, number, resource, attribute, uri, *, source=source: json_links[source].append(uri))
             except ReferenceResolutionError as error:
                 findings.warn(error, source=str(source), consumerKey='desired.row.' + row_id + '.document')
             except (OSError, ValueError, KeyError, TypeError) as error:
@@ -420,11 +451,11 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
         observed_references = set()
         automatic_references = set()
         values = source_values[source] or {}
-        from model.importing.scope import selected
+        selected = _imports_model_importing_scope.selected
         expansion = None
         if selected(root) is not None:
-            from model.sources import load_model
-            from model.references import declarations
+            declarations = _imports_model_references.declarations
+            load_model = _imports_model_sources.load_model
             model_path = (root / 'model' / source.relative_to(root / 'docs/designs')).with_suffix('.properties')
             expansion = load_model(model_path)
         for identity, rows in resource_row_index(values).items():
@@ -587,8 +618,8 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 )
             if cells[1] == S3_KMS_MASTER_KEY_ID:
                 if scalar is not None:
-                    from model.identity import parse_reference
-                    from model.sources import Scope
+                    parse_reference = _imports_model_identity.parse_reference
+                    Scope = _imports_model_sources.Scope
                     consumer = Scope(root, *source.parent.parts[-2:], source.stem)
                     environment, directory, service, anchor = parse_reference(scalar['$resource'], consumer)
                     findings.warn(
@@ -658,4 +689,3 @@ def check_design_artifacts(paths: list[Path] | None = None, *, accounts, finding
             continue
         findings.check(isinstance(content, dict), f"design JSON artifact root must be an object: {findings.relative(artifact)}")
     findings.check(artifacts == markdown_design_artifacts, "design JSON artifacts must match Markdown links")
-

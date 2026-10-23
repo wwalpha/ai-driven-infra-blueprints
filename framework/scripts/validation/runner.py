@@ -3,30 +3,115 @@
 
 
 from __future__ import annotations
-import argparse
+
+import argparse as argparse
+import os as os
+import subprocess as subprocess
+import sys as sys
 from concurrent.futures import ThreadPoolExecutor
-import os
-import subprocess
-import sys
+from contextlib import ExitStack, nullcontext
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-from validation_cache import PassCache, input_scope, recording_inputs, input_is_file
-from validation import scenario, cloudformation, iac, terraform, design, design_tables, design_links, project, framework_contracts
-from validation.task import TaskValidation
-from validation.framework_contracts import CODEX_PROMPT_FILENAME_PATTERN
-from validation.findings import Findings
-from validation.design import TABLE_HEADER, TABLE_ALIGNMENT, REQUIRED_NAME_PROPERTIES
-from policy_tables import artifact_id, rendered_design as rendered_policy_design
+from types import SimpleNamespace as _CallbackState
+
+import deploy.inputs as _imports_deploy_inputs
+import generation_inputs as _imports_generation_inputs
+import model.core as _exports_model_core
+import model.core as _imports_model_core
+import model.sources as _imports_model_sources
+import model.validation as _imports_model_validation
+import sync_runtime as _imports_sync_runtime
+import sync_views as _imports_sync_views
+import task_contract_core as _imports_task_contract
+import utils.aws_mappings as _imports_utils_aws_mappings
+import validation.task as _dependency_validation_task
 from design_catalog import DesignSchemaCatalog
-from design_layout import STACK_DESIGN
-from model.core import properties
-from validation_scope import active_scope, scoped_files
 from design_document import DesignIndex
-from task_contract import SELECTOR, contract_reads, verify_contract_reads
+from policy_tables import artifact_id as artifact_id
+from policy_tables import rendered_design
+from task_contract_core import SELECTOR as SELECTOR
+from task_contract_core import contract_reads as contract_reads
+from task_contract_core import verify_contract_reads as verify_contract_reads
+from utils.input_cache import input_is_file, input_scope, recording_inputs
+from utils.layout_schema import STACK_DESIGN
+from validation import (
+    cloudformation,
+    design,
+    design_links,
+    design_tables,
+    framework_contracts,
+    iac,
+    project,
+    scenario,
+    terraform,
+)
+from validation.design import REQUIRED_NAME_PROPERTIES as REQUIRED_NAME_PROPERTIES
+from validation.design import TABLE_ALIGNMENT as TABLE_ALIGNMENT
+from validation.design import TABLE_HEADER as TABLE_HEADER
+from validation.findings import Findings
+from validation.framework_contracts import (
+    CODEX_PROMPT_FILENAME_PATTERN as CODEX_PROMPT_FILENAME_PATTERN,
+)
+from validation_cache import PassCache
+from validation_scope import active_scope, scoped_files
+
+# Preserve shared fixtures and compatibility exports under their historical names.
+properties = _exports_model_core.properties
+
+
+
+rendered_policy_design = rendered_design
+
 
 def owned_field(owner, name):
     """Keep the used Validator attributes attached to their specific state owner."""
     return property(lambda validator: getattr(getattr(validator, owner), name),
                     lambda validator, value: setattr(getattr(validator, owner), name, value))
+
+
+def _callback_Validator_generate_and_validate_generated(plan, self, snapshot, /):
+    self.warnings.extend(plan.reference_warnings)
+    for error in plan.failures:
+        self.check(False, error)
+    for findings in plan.validation.values():
+        if findings is not None:
+            self.checks += findings.checks
+            self.warnings.extend(findings.warnings)
+    return {"inputs": snapshot, "candidates": plan.expected_outputs, "validation": plan.validation,
+            "complete": not plan.unavailable, "reference_unavailable": plan.unavailable}
+
+
+def _callback_Validator_generate_and_validate_policy_result(plan, self, /):
+    common = plan.validation.get(None)
+    actual = None if common is None else common.result('framework.policy-tables', plan.generated_scope)
+    if actual is None and plan.unavailable and not plan.failures:
+        ReferenceResolutionError = _imports_model_core.ReferenceResolutionError
+        raise ReferenceResolutionError('policy views unavailable because reference resolution failed')
+    self.check(actual is not None and actual.model_completion_allowed and
+               (self.scope is None or actual.scope == frozenset(plan.generated_scope)),
+               'candidate policy validation is FAIL or NOT_RUN for the required scope')
+
+
+def _callback_Validator_check_scoped_designs_validate(self, /, scope):
+    with contract_reads(self.root):
+        validator = Validator(self.root, scope, definitions_root=self.definitions_root)
+        validator.accounts = self.accounts
+        validator.schema_catalog = self.schema_catalog or DesignSchemaCatalog(self.definitions_root)
+        validator.generated_models_checked = True
+        validator.unavailable_views = self.unavailable_views
+        validator.view_reader = self.view_reader
+        validator.check_designs()
+        validator.check_observed_values(scoped_files(self.root, "model", ".properties", scope))
+    return validator
+
+
+def _callback_Validator_check_scoped_designs_source_checks(_state_check_scoped_designs_351, check_model_inputs, load_model, self, /):
+    path = self.root / 'model' / _state_check_scoped_designs_351.entry[0] / _state_check_scoped_designs_351.entry[1] / (_state_check_scoped_designs_351.entry[2] + '.properties')
+    analysis = load_model(path)
+    independent = check_model_inputs(path, analysis.authoritative, self.root, definitions_root=self.definitions_root)
+    self.errors.extend(independent.errors)
+    self.warnings.extend((*analysis.warnings, *independent.warnings))
+    self.checks += independent.checks
 
 
 class Validator:
@@ -42,6 +127,7 @@ class Validator:
     warnings = owned_field("findings", "warnings")
 
     def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4, model_check=None, iac_paths=None, task_iac_paths=None, write=False, definitions_root: Path | None = None, final_candidate=None) -> None:
+        definition_root = _imports_utils_aws_mappings.definition_root
         self.findings = Findings(root)
         self.warn = self.findings.warn
         self.check = self.findings.check
@@ -64,9 +150,8 @@ class Validator:
         self.contract_scope = contract_scope
         self.generated_models_checked = False
         self.root = root
-        from utils.aws_mappings import definition_root
         self.definitions_root = definitions_root or definition_root(root)
-        self.task = TaskValidation(root, self.findings, final_candidate=final_candidate)
+        self.task = _dependency_validation_task.TaskValidation(root, self.findings, final_candidate=final_candidate)
         self.template_mode = True
         self.accounts: dict[tuple[str, str], dict[str, str]] = {}
         self.scenario_ids: set[str] = set()
@@ -78,9 +163,11 @@ class Validator:
 
     @input_scope
     def run(self) -> int:
+        GenerationInputs = _imports_generation_inputs.GenerationInputs
+        publication_lock = _imports_model_sources.publication_lock
+        definition_root = _imports_utils_aws_mappings.definition_root
+        mapping_alias = _imports_utils_aws_mappings.mapping_alias
         if not self.write:
-            from contextlib import ExitStack
-            from utils.aws_mappings import mapping_alias, definition_root
             with ExitStack() as lifetime:
                 if self.scope != set() and self.definitions_root != self.root and definition_root(self.root) != self.definitions_root:
                     lifetime.enter_context(mapping_alias(self.definitions_root, self.root))
@@ -89,10 +176,7 @@ class Validator:
         if self.scope == set() or self.contract_scope == set():
             self.check(False, '--write requires service scope; framework scope cannot generate Models')
             return self.report()
-        from generation_inputs import GenerationInputs
-        from model.sources import publication_lock
-        from contextlib import ExitStack
-        from utils.aws_mappings import mapping_alias, definition_root
+
         with publication_lock(self.root):
             snapshot = GenerationInputs(self.root, self.definitions_root)
         with ExitStack() as lifetime:
@@ -191,8 +275,13 @@ class Validator:
 
 
     def generate_and_validate(self, snapshot, registered):
-        from sync_runtime import prepare_generation, validate_generation, publish_generation, report_generation, planned_outputs
-        from task_contract import paths_in, status
+        planned_outputs = _imports_sync_runtime.planned_outputs
+        prepare_generation = _imports_sync_runtime.prepare_generation
+        publish_generation = _imports_sync_runtime.publish_generation
+        report_generation = _imports_sync_runtime.report_generation
+        validate_generation = _imports_sync_runtime.validate_generation
+        paths_in = _imports_task_contract.paths_in
+        status = _imports_task_contract.status
         name, text = snapshot.expected_task
         self.check(text is not None and status(text) == 'running',
                    '--write requires a running task contract')
@@ -205,27 +294,10 @@ class Validator:
             common_ids = {name for name, phase in self.acceptance_stages.items() if phase == 'common'}
             self.findings.bind_candidate(plan.candidate, common_ids)
             # Candidate validation is the content authority for this exact input/final stage.
-            def generated():
-                self.warnings.extend(plan.reference_warnings)
-                for error in plan.failures:
-                    self.check(False, error)
-                for findings in plan.validation.values():
-                    if findings is not None:
-                        self.checks += findings.checks
-                        self.warnings.extend(findings.warnings)
-                return {"inputs": snapshot, "candidates": plan.expected_outputs, "validation": plan.validation,
-                        "complete": not plan.unavailable, "reference_unavailable": plan.unavailable}
+            generated = _bind_framework_callback(_callback_Validator_generate_and_validate_generated, plan, self, snapshot)
             self.findings.evaluate('framework.generated-service-model', self.scope, generated)
             # Reuse the actual scope-wide policy result, never infer it from generation.
-            def policy_result():
-                common = plan.validation.get(None)
-                actual = None if common is None else common.result('framework.policy-tables', plan.generated_scope)
-                if actual is None and plan.unavailable and not plan.failures:
-                    from model.core import ReferenceResolutionError
-                    raise ReferenceResolutionError('policy views unavailable because reference resolution failed')
-                self.check(actual is not None and actual.model_completion_allowed and
-                           (self.scope is None or actual.scope == frozenset(plan.generated_scope)),
-                           'candidate policy validation is FAIL or NOT_RUN for the required scope')
+            policy_result = _bind_framework_callback(_callback_Validator_generate_and_validate_policy_result, plan, self)
             self.findings.evaluate('framework.policy-tables', self.scope, policy_result)
             candidate_error_count = len(self.errors)
             # Resolve every registered content handler before the first repository write.
@@ -286,6 +358,11 @@ class Validator:
             plan.close()
 
     def check_scoped_designs(self, *, defer_cache=False, view_errors=None, view_reader=None) -> None:
+        _state_check_scoped_designs_351 = _CallbackState()
+        load_model = _imports_model_sources.load_model
+        check_model_inputs = _imports_model_validation.check_model_inputs
+        selected_task = _imports_task_contract.selected_task
+        task_revision = _imports_task_contract.task_revision
         self.unavailable_views = view_errors if view_errors is not None else {}
         self.view_reader = view_reader
         unreadable = {(*path.relative_to(self.root / 'docs/designs').parts[:2], path.stem)
@@ -298,14 +375,14 @@ class Validator:
         self.findings.evaluate('design.stacks', self.scope, lambda: {'stack_definitions': self.check_stack_designs()})
         keys = {}
         reused = {}
-        for entry in sorted(self.scope):
+        for _state_check_scoped_designs_351.entry in sorted(self.scope):
             try:
-                keys[entry] = self.cache.service_key(entry) if self.cache else None
+                keys[_state_check_scoped_designs_351.entry] = self.cache.service_key(_state_check_scoped_designs_351.entry) if self.cache else None
             except (OSError, ValueError, KeyError, TypeError):
-                keys[entry] = None
-            checks = self.cache.load(keys[entry]) if self.cache and not unreadable else None
+                keys[_state_check_scoped_designs_351.entry] = None
+            checks = self.cache.load(keys[_state_check_scoped_designs_351.entry]) if self.cache and not unreadable else None
             if checks is not None:
-                reused[entry] = checks
+                reused[_state_check_scoped_designs_351.entry] = checks
         self.service_keys = keys
         missing = self.scope - reused.keys()
         # Generation needs the whole selected consumer scope, even with partial cache hits.
@@ -323,64 +400,43 @@ class Validator:
         unavailable.update({'/'.join(entry): dict(reason='view-read', complete=False) for entry in unreadable})
         skipped = {tuple(entry.split('/')) for entry in unavailable}
         # Only View checks are unavailable; source checks remain independent.
-        from model.validation import check_model_inputs
-        from model.sources import load_model
-        for entry in sorted(skipped):
-            def source_checks():
-                path = self.root / 'model' / entry[0] / entry[1] / (entry[2] + '.properties')
-                analysis = load_model(path)
-                independent = check_model_inputs(path, analysis.authoritative, self.root, definitions_root=self.definitions_root)
-                self.errors.extend(independent.errors)
-                self.warnings.extend((*analysis.warnings, *independent.warnings))
-                self.checks += independent.checks
-            self.findings.evaluate('design.model-inputs', {entry}, source_checks)
+        for _state_check_scoped_designs_351.entry in sorted(skipped):
+            source_checks = _bind_framework_callback(_callback_Validator_check_scoped_designs_source_checks, _state_check_scoped_designs_351, check_model_inputs, load_model, self)
+            self.findings.evaluate('design.model-inputs', {_state_check_scoped_designs_351.entry}, source_checks)
         missing -= skipped
-        from task_contract import selected_task, task_revision
         selected_name, selected_text = task_revision(self.root)
-        @selected_task(self.root, selected_name if selected_text is not None else None)
-        @input_scope
-        def validate(scope):
-            with contract_reads(self.root):
-                validator = Validator(self.root, scope, definitions_root=self.definitions_root)
-                validator.accounts = self.accounts
-                validator.schema_catalog = self.schema_catalog or DesignSchemaCatalog(self.definitions_root)
-                validator.generated_models_checked = True
-                validator.unavailable_views = self.unavailable_views
-                validator.view_reader = self.view_reader
-                validator.check_designs()
-                validator.check_observed_values(scoped_files(self.root, "model", ".properties", scope))
-            return validator
+        validate = (selected_task(self.root, selected_name if selected_text is not None else None))((input_scope)(_bind_framework_callback(_callback_Validator_check_scoped_designs_validate, self)))
 
         with ThreadPoolExecutor(max_workers=min(self.workers, len(missing) or 1)) as executor:
             mapper = map if self.workers == 1 or len(missing) == 1 else executor.map
-            results = dict(zip(sorted(missing), mapper(validate, [{entry} for entry in sorted(missing)])))
+            results = dict(zip(sorted(missing), mapper(validate, [{entry} for entry in sorted(missing)]), strict=False))
         verify_contract_reads(self.root)
         successful = []
-        for entry in sorted(self.scope):
-            if entry in skipped:
-                result = self.findings.result('design.service', {entry})
-                source = self.findings.result('design.model-inputs', {entry})
+        for _state_check_scoped_designs_351.entry in sorted(self.scope):
+            if _state_check_scoped_designs_351.entry in skipped:
+                result = self.findings.result('design.service', {_state_check_scoped_designs_351.entry})
+                source = self.findings.result('design.model-inputs', {_state_check_scoped_designs_351.entry})
                 result.errors, result.warnings = source.errors, source.warnings
                 result.status = 'FAIL' if source.errors else 'NOT_RUN'
-                result.metadata = {'complete': False, 'reason': 'reference', **unavailable['/'.join(entry)]}
+                result.metadata = {'complete': False, 'reason': 'reference', **unavailable['/'.join(_state_check_scoped_designs_351.entry)]}
                 continue
-            if entry in reused:
-                self.checks += reused[entry]
+            if _state_check_scoped_designs_351.entry in reused:
+                self.checks += reused[_state_check_scoped_designs_351.entry]
             else:
-                validator = results[entry]
+                validator = results[_state_check_scoped_designs_351.entry]
                 self.checks += validator.checks
                 self.errors.extend(validator.errors)
                 self.warnings.extend(validator.warnings)
                 if view_errors is not None:
                     self.findings.unverified.extend(validator.findings.unverified)
-            if self.cache and keys[entry] is not None:
+            if self.cache and keys[_state_check_scoped_designs_351.entry] is not None:
                 try:
-                    unchanged = keys[entry] == self.cache.service_key(entry)
+                    unchanged = keys[_state_check_scoped_designs_351.entry] == self.cache.service_key(_state_check_scoped_designs_351.entry)
                 except (OSError, ValueError, KeyError, TypeError):
                     unchanged = False
-                self.check(unchanged, f"validation inputs changed during service validation: {'/'.join(entry)}")
-                if unchanged and entry not in reused and not results[entry].errors and not generator.errors and not results[entry].warnings and not generator.warnings and not results[entry].findings.unverified and not unavailable and not (view_errors is not None and self.findings.unverified):
-                    successful.append((keys[entry], results[entry].checks))
+                self.check(unchanged, f"validation inputs changed during service validation: {'/'.join(_state_check_scoped_designs_351.entry)}")
+                if unchanged and _state_check_scoped_designs_351.entry not in reused and not results[_state_check_scoped_designs_351.entry].errors and not generator.errors and not results[_state_check_scoped_designs_351.entry].warnings and not generator.warnings and not results[_state_check_scoped_designs_351.entry].findings.unverified and not unavailable and not (view_errors is not None and self.findings.unverified):
+                    successful.append((keys[_state_check_scoped_designs_351.entry], results[_state_check_scoped_designs_351.entry].checks))
         self.service_cache_pending = successful
         if not defer_cache and self.cache and self.cache.common is not None:
             self.finalize_service_cache(self.cache.common_key())
@@ -414,6 +470,8 @@ class Validator:
         return self.findings.evaluate('framework.generated-service-model', self.scope, self._check_generated_service_models)
 
     def _check_generated_service_models(self) -> None:
+        compare_generation = _imports_sync_runtime.compare_generation
+        saved_design_validation = _imports_sync_views.saved_design_validation
         if self.generated_models_checked:
             return
         self.generated_models_checked = True
@@ -423,9 +481,7 @@ class Validator:
             errors = self.model_check(self.scope)
             self.check(not errors, "\n".join(errors) or "generated service models match")
             return
-        from sync_runtime import compare_generation
-        from sync_views import saved_design_validation
-        from contextlib import nullcontext
+
         context = saved_design_validation(self.root, next(iter(self.scope))) if self.scope is not None and len(self.scope) == 1 else nullcontext()
         with context:
             errors = compare_generation(self.root, self.scope, jobs=self.workers, definitions_root=self.definitions_root, findings=self.findings)
@@ -737,8 +793,8 @@ def run_validation(root: Path, options, *, final_candidate=None) -> Validator:
     Final candidates fix the actual worktree and latest-base difference and are always
     read-only. Errors in inputs propagate to the CLI; validation findings stay ordered.
     """
-    from task_contract import selected_task
-    from deploy.inputs import task_deployment_input_paths
+    task_deployment_input_paths = _imports_deploy_inputs.task_deployment_input_paths
+    selected_task = _imports_task_contract.selected_task
     if final_candidate is not None:
         if root.resolve() != final_candidate.root or options.write:
             raise ValueError('final validation requires the actual read-only candidate')

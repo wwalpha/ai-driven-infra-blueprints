@@ -2,13 +2,28 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from support.aws_mapping_compare_fixtures import (
+    ROOT,
+    Path,
+    checks,
+    comparison,
+    input_scope,
+    m,
+    mapped_value,
+    outcome,
+    patch,
+    socket,
+    sys,
+)
+from support.it_case_receipt import it_case
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import it_case
-
-from support.aws_mapping_compare_fixtures import *
 
 @it_case
 @input_scope
@@ -74,4 +89,3 @@ def mapping_checks():
 if __name__ == '__main__':
     with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
         mapping_checks()
-

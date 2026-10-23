@@ -1,15 +1,38 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
+import json
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+from types import SimpleNamespace
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import design_layout as _imports_design_layout
+import model.projection as _imports_model_projection
+import support.model_sources as _imports_support_model_sources
+import sync_runtime as _imports_sync_runtime
+import validation.design_links as _imports_validation_design_links
+from support.design_document_fixtures import (
+    DesignIndex,
+    Path,
+    aws_mapping_display,
+    documents,
+    hashlib,
+    model_design,
+    model_projection,
+    patch,
+    reference_fixture,
+    sys,
+    tempfile,
+)
 from support.it_case_receipt import it_case
 from support.validator import diagnostics
 
-from support.design_document_fixtures import *
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
 
 @it_case
 @patch.object(aws_mapping_display, 'MODEL_ONLY', aws_mapping_display.MODEL_ONLY | {'S3.Bucket.SourceKeyId'})
@@ -49,15 +72,15 @@ def check_snapshot(sync):
                  ('S3.Bucket.SourceKeyId', '[unresolved](absent.md#absent)', '未解決参照'),
                  ('S3.Bucket.SourceKeyId', '[unresolved](kms.md#absent)', '未解決anchor')]
         for number, row in enumerate(rows, 1):
-            values.update({f'desired.row.001-{number:03d}.' + field: value for field, value in zip(('property', 'value', 'comment'), row)})
+            values.update({f'desired.row.001-{number:03d}.' + field: value for field, value in zip(('property', 'value', 'comment'), row, strict=False)})
         values.update({'observed.row.001-083.property': 'S3.Bucket.SourceKeyId',
                        'observed.row.001-083.value': '1234abcd-12ab-34cd-56ef-1234567890ab',
                        'observed.row.001-083.comment': '参照ID'})
         values.update({'display.service.title': '# S3 詳細設計',
                        'display.resource.001.comment': 'アプリケーションのデータを保管するbucket'})
         values["desired.resource.001.resourceMode"] = "IMPORT"
-        import json
-        from support.model_sources import write_model
+
+        write_model = _imports_support_model_sources.write_model
         project_root = source.parents[4]
         (project_root / "project.json").write_text(json.dumps({"targets": [{"environment": "dev", "alias": "account", "awsAccountId": "123456789012", "awsRegion": "us-east-1", "iacEngine": "cloudformation"}]}))
         values["desired.resource.001.anchor"] = "s3-app-data"
@@ -72,19 +95,19 @@ def check_snapshot(sync):
                              "observed.row.001-003.value": observed})
         alias_text = text.replace("[alias/two](kms.md#resource-AliasTwo)", f"[{observed}](kms.md#resource-AliasTwo)", 1)
         source.write_text(alias_text, encoding="utf-8")
-        from model.projection import resource_rows
+        resource_rows = _imports_model_projection.resource_rows
         shown = resource_rows(alias_source, '001', 'S3.Bucket', repository)
         assert shown[2][2] == f'[{observed}](kms.md#resource-AliasTwo)', shown
         assert values['desired.row.001-003.value'] == '[alias/two](kms.md#resource-AliasTwo)'
-        from types import SimpleNamespace
-        from sync_runtime import _compare_generation
+
+        _compare_generation = _imports_sync_runtime._compare_generation
         for changed in (alias_text.replace(observed, 'different', 1),
                         alias_text.replace('resource-AliasTwo', 'resource-AliasThree', 1)):
             source.write_text(changed, encoding='utf-8')
             plan = SimpleNamespace(root=source.parent, read_inputs={}, expected_outputs={source: {source: alias_text}}, failures=[], saved={})
             _compare_generation(plan)
             assert plan.failures == ['generated Markdown is stale or missing: s3.md']
-        from design_layout import resource_modes
+        resource_modes = _imports_design_layout.resource_modes
         for mode in ('CREATE', 'IMPORT'):
             source.write_text(f'<!-- resource-mode: s3-app-data {mode} -->\n' + text, encoding='utf-8')
             assert resource_modes(source.read_text().splitlines(), values | {'desired.resource.001.resourceMode': mode})['s3-app-data'] == mode
@@ -133,7 +156,7 @@ def check_links(module):
             assert sorted(set(diagnostics(validator))) == sorted(set(expected)), diagnostics(validator)
             assert all(error.startswith("invalid grouped design:") for error in validator.errors)
             assert validator.checks == checks
-        from validation import design_links
+        design_links = _imports_validation_design_links
         observed = "1234abcd-12ab-34cd-56ef-1234567890ab"
         model = {"desired.resource.001.resourceType": "S3.Bucket",
                  "desired.resource.001.logicalId": "S3_Bucket_001",
@@ -155,7 +178,7 @@ def check_links(module):
                 validator.check_design_links({"KMS.Key": {"KMS.Key.KeyId"}}, [source])
             assert not validator.errors
             assert len(validator.findings.warnings) == len(expected), validator.findings.warnings
-            assert all(label in error for label, error in zip(expected, diagnostics(validator)))
+            assert all(label in error for label, error in zip(expected, diagnostics(validator), strict=False))
         source.write_text(text, encoding="utf-8")
         target.write_text(ref, encoding="utf-8")
         read_text = Path.read_text
@@ -171,4 +194,3 @@ if __name__ == "__main__":
         check_snapshot(load("sync-model"))
         check_links(load("validate-blueprint"))
         print("design-document: PASS (single read/parse, concurrent reuse, selective groups, immutable snapshot, invalidation)")
-

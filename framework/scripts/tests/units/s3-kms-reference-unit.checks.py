@@ -1,27 +1,37 @@
 """S3 scalar Key/Arn intent across authority, display and local IaC comparison."""
+
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import model.validation as _imports_model_validation
 import pytest
-from model.core import entries, ReferenceResolutionError
-from model.format import serialize, parse, patch as patch_model
+from comparison import Comparison
+from design_catalog import DesignSchemaCatalog
+from model.core import ReferenceResolutionError, entries
+from model.format import parse, serialize
+from model.format import patch as patch_model
 from model.identity import COUNTERS
-from model.sources import Scope, load_model, FileReads
-from model.projection import scalar_reference_operand, reference_display
-from model.render import generate_markdown
-from model.references import incoming
+from model.importing.references import Resolver as ImportResolver
 from model.operations import validate_candidates
+from model.projection import reference_display, scalar_reference_operand
+from model.references import incoming
+from model.render import generate_markdown
+from model.sources import Scope, load_model
 from reference_contracts import S3_KMS_MASTER_KEY_ID as PROP
-from support.model_sources import write_model, catalog_display
+from support.model_sources import catalog_display, write_model
+from sync_runtime import _compare_generation
+from utils.source_reads import FileReads
 from validation.design_links import check_design_links as validate_links
 from validation.design_tables import check_design_tables as validate_tables
 from validation.findings import Findings
-from design_catalog import DesignSchemaCatalog
-from comparison import Comparison
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 FRAMEWORK = Path(__file__).resolve().parents[4]
 KEY_LINK = '[fixture-key](kms.md#key-one)'
@@ -92,7 +102,7 @@ def check_authority_display_and_references(project_workspace, alias):
     # Exercise the normal lossless source patch/save/reload representation.
     scope.path.write_text(patch_model(parse(serialize(bucket)), {ROW: bucket[ROW]}), encoding='utf-8')
     assert load_model(scope, FileReads()).authoritative[ROW] == bucket[ROW]
-    from model.validation import check_model_inputs
+    check_model_inputs = _imports_model_validation.check_model_inputs
     schema = check_model_inputs(scope.path, bucket, scope.root, definitions_root=FRAMEWORK)
     if alias:
         assert not schema.errors, schema.errors
@@ -121,7 +131,6 @@ def check_authority_display_and_references(project_workspace, alias):
     validate_links({}, [view], design_sources={view: bucket}, findings=findings,
                        root=scope.root, scope=None, definitions_root=FRAMEWORK)
     assert not findings.errors and not findings.warnings, (findings.errors, findings.warnings)
-    from model.importing.references import Resolver as ImportResolver
     imported = ImportResolver(scope.root, 'fixture', 'team', definitions_root=FRAMEWORK)
     imported.verify_resource(bucket, '001', scope=scope, observed_only=True)
     assert not imported.warnings, imported.warnings
@@ -140,8 +149,7 @@ def check_authority_display_and_references(project_workspace, alias):
             scope=None, definitions_root=FRAMEWORK)
     assert not findings.errors and not findings.warnings, (findings.errors, findings.warnings)
     assert all(p.read_bytes() == raw and b'arn:' not in raw for p, raw in before.items())
-    from sync_runtime import _compare_generation
-    from types import SimpleNamespace
+
     plan = SimpleNamespace(root=scope.root, read_inputs=before, expected_outputs={view: {view: files[view]}}, failures=[], saved={})
     _compare_generation(plan)
     assert not plan.failures and view in plan.saved

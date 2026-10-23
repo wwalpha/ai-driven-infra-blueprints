@@ -2,15 +2,18 @@
 """Model input and generated Markdown agree on limited Route53 expressions."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from support.model_design_fixtures import model, ROOT
-from support.validator import schema_validator
-from model.validation import check_model_inputs as _check_model_inputs
 from model.render import markdown_for
+from model.validation import check_model_inputs as _check_model_inputs
+from support.model_design_fixtures import ROOT, model
+from support.validator import schema_validator
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 @pytest.mark.usefixtures('catalog_display_fixture')

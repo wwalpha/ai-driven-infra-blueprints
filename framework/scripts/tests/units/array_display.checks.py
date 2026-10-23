@@ -4,17 +4,19 @@
 import json
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
-if not __debug__:
-    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 from array_display import SOURCE, indexed_rows, restored_rows
 from design_catalog import DesignSchemaCatalog, design_material_files
-from validation_cache import input_scope
+from utils.input_cache import input_scope
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 ROOT = Path(__file__).resolve().parents[4]
 

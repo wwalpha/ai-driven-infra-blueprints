@@ -2,24 +2,28 @@
 """Name edits preserve fixed Resource anchors, groups, observations and references."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
-from support.it_case_receipt import it_case
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import io
 import tempfile
 from contextlib import redirect_stdout
+
 import pytest
+import sync_runtime
+from design_document import DesignIndex
 from model.core import entries
-from model.sources import load_model
 from model.projection import bound_resource_anchors
 from model.render import markdown_for
-from design_document import DesignIndex
+from model.sources import load_model
+from support import model_design_fixtures as MODELS
+from support import model_parameter_inputs_fixtures as INPUTS
+from support.it_case_receipt import it_case
 from support.model_sources import write_model
 from support.validator import schema_validator
-from support import model_parameter_inputs_fixtures as INPUTS
-from support import model_design_fixtures as MODELS
-import sync_runtime
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 def validated(root, path):
@@ -94,7 +98,7 @@ def check(root):
     values['desired.row.083-001.value'] = values['desired.row.042-001.value']
     write_model(vpc_path, values)
     saved = {p: p.read_bytes() for base in ('model', 'docs/designs') for p in (root / base).rglob('*') if p.is_file()}
-    with redirect_stdout(io.StringIO()) as warnings:
+    with redirect_stdout(io.StringIO()) as _:
         assert sync_runtime.sync(root, True, 'preview', 'team', services=['vpc']) == 0
     assert load_model(vpc_path).authoritative['desired.resource.042.logicalId'] != load_model(vpc_path).authoritative['desired.resource.083.logicalId']
     assert len(set(bound_resource_anchors(vpc_path).values())) == 3

@@ -3,14 +3,28 @@
 Symbol/export lookups may load tracked local inputs; the evaluator itself does no I/O.
 AWS/deploy mode deliberately retains its existing narrower evaluation contract.
 """
+
 import re
+from functools import partial as _bind_framework_callback
 
 from cloudformation_inputs import Blocked, resolve_value
-from iac_values import ResourceReference, Expression, cfn_resource_identity
-
+from iac_values import Expression, ResourceReference, cfn_resource_identity
 
 # Returned attributes whose explicit setting has a different property name.
 RETURN_ATTRIBUTE_PROPERTIES = {('CodeCommit.Repository', 'Name'): 'RepositoryName'}
+
+
+def _callback_Evaluation_evaluate_replace(resolved, seen, self, stack, substitutions, /, match):
+    key = match.group(1)
+    if key.startswith('!'):
+        return '${' + key[1:] + '}'
+    if key in substitutions:
+        child = substitutions[key]
+    else:
+        child = self.evaluate(stack, {'Fn::GetAtt': key} if '.' in key else {'Ref': key}, seen)
+    child = self.substitution(stack, child, seen)
+    resolved[key] = child
+    return child if isinstance(child, str) else match.group(0)
 
 
 class Evaluation:
@@ -171,17 +185,7 @@ class Evaluation:
                     raise ValueError('invalid Fn::Sub')
                 substitutions = parameters | pseudo | {key: self.evaluate(stack, child, seen) for key, child in variables.items()}
                 resolved = {}
-                def replace(match):
-                    key = match.group(1)
-                    if key.startswith('!'):
-                        return '${' + key[1:] + '}'
-                    if key in substitutions:
-                        child = substitutions[key]
-                    else:
-                        child = self.evaluate(stack, {'Fn::GetAtt': key} if '.' in key else {'Ref': key}, seen)
-                    child = self.substitution(stack, child, seen)
-                    resolved[key] = child
-                    return child if isinstance(child, str) else match.group(0)
+                replace = _bind_framework_callback(_callback_Evaluation_evaluate_replace, resolved, seen, self, stack, substitutions)
                 concrete = re.sub(r'\$\{([^}]+)\}', replace, text)
                 if all(isinstance(child, str) for child in resolved.values()):
                     return concrete
@@ -208,4 +212,3 @@ class Evaluation:
             if key == 'Ref' or key.startswith('Fn::') or key == 'Condition':
                 return resolve_value(value, {k: str(v) if type(v) in (int, float) else v for k, v in parameters.items()} if key == 'Fn::Sub' else parameters, pseudo, conditions=document.get('Conditions', {}))
         return {key: item for key, item in ((key, self.evaluate(stack, child, seen)) for key, child in value.items()) if item != {'$noValue': True}}
-

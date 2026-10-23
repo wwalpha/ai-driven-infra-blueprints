@@ -2,13 +2,27 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from support.it_case_receipt import it_case
+from support.regression_guard_fixtures import (
+    Path,
+    SimpleNamespace,
+    guard,
+    io,
+    json,
+    patch,
+    redirect_stdout,
+    rejected,
+    sys,
+    tempfile,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import it_case
-
-from support.regression_guard_fixtures import *
 
 @it_case
 def main():
@@ -63,4 +77,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

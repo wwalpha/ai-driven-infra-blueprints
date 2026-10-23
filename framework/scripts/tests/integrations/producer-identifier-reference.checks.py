@@ -2,13 +2,42 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import shutil as _imports_shutil
+
+import support.producer_identifier_reference_fixtures as _exports_support_producer_identifier_reference_fixtures
+from support.it_case_receipt import it_case
+from support.producer_identifier_reference_fixtures import (
+    Path,
+    affected,
+    declarations,
+    dependency_hashes,
+    design_source_digest,
+    json,
+    load_model,
+    reference,
+    rejected,
+    resource,
+    serialize,
+    setup,
+    source_inputs,
+    tempfile,
+    trace_model,
+    warning,
+    write_model,
+)
+from utils.aws_mappings import mapping_alias
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import it_case
+# Preserve shared fixtures and compatibility exports under their historical names.
+shutil = _exports_support_producer_identifier_reference_fixtures.shutil
 
-from support.producer_identifier_reference_fixtures import *
+
 
 @it_case
 def check(root):
@@ -37,8 +66,8 @@ def check(root):
         changed = load_model(path)
         assert changed.warnings and changed.authoritative == snapshot.authoritative
         assert design_source_digest(path) == digest and dependency_hashes(path) != dependencies
-    import shutil
-    from utils.aws_mappings import mapping_alias
+    shutil = _imports_shutil
+
     with tempfile.TemporaryDirectory() as directory:
         stage = Path(directory)
         shutil.copytree(root / 'model', stage / 'model')
@@ -59,13 +88,13 @@ def check(root):
         ({**original, 'observed.row.001-002.value': 'arn:aws:fixture'}, 'nonempty non-ARN')]:
         write_model(producer, changed)
         assert warning(path, phrase).authoritative == snapshot.authoritative
-    for suffix, raw, phrase in [('property', 'EC2.Subnet.SubnetId', 'derived'), ('value', False, 'str')]:
+    for suffix, raw, _phrase in [('property', 'EC2.Subnet.SubnetId', 'derived'), ('value', False, 'str')]:
         if suffix == 'property':
             bad = {**original, 'observed.row.001-002.property': raw}
             write_model(producer, bad)
             rejected(lambda: load_model(producer), 'unknown Model field')
         else:
-            rejected(lambda: serialize({**original, 'observed.row.001-002.value': raw}), 'str')
+            rejected(lambda *, raw=raw: serialize({**original, 'observed.row.001-002.value': raw}), 'str')
     write_model(producer, original)
     for change, phrase in [({'producerLogicalId': 'EC2_VPC_002'}, 'absent or ambiguous'),
         ({'resourceType': 'EC2.Subnet', 'property': 'EC2.Subnet.SubnetId'}, 'Type differs'),
@@ -84,4 +113,3 @@ def check(root):
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory() as directory:
         check(Path(directory).resolve())
-

@@ -1,28 +1,54 @@
 #!/usr/bin/env python3
 """Offline integration through the official IT runner."""
+
+import base64
 import sys
+import tempfile
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import json
 import socket
 import subprocess
 from unittest.mock import patch
+
+import model.importing.repository as _imports_model_importing_repository
 import pytest
+import support.import_model_fixtures as _imports_support_import_model_fixtures
 import sync_files
-from model.format import parse, serialize
-from model.sources import load_model
-from support.import_model_fixtures import TARGET
+from model.adapters.task import edit_write_context, source_write_context
+from model.format import owner, parse, serialize
+from model.operations import verify_model_operation
+from model.sources import load_model, publication_lock
+from support.import_model_fixtures import (
+    TARGET,
+    batch_operation_fixture,
+    operation_contract,
+    operation_fixture,
+)
+from support.import_repository_fixtures import fixture, repositories, start
+from task_contract_core import model_operation, status
+
+from model import prepare_edit, publish_edit
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
+
+
+
+def _offline_no_subprocess(*args, **kwargs):
+    raise AssertionError('Model value/save IT must not start subprocesses')
+
 
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     monkeypatch.setattr(socket.socket, 'connect', lambda *a, **k: (_ for _ in ()).throw(AssertionError('live network forbidden')))
-    from support.import_repository_fixtures import repositories
-    def no_subprocess(*args, **kwargs):
-        raise AssertionError('Model value/save IT must not start subprocesses')
+    no_subprocess = _offline_no_subprocess
     monkeypatch.setattr(subprocess, 'Popen', no_subprocess)
     with repositories(monkeypatch):
         yield
@@ -32,14 +58,24 @@ def offline(monkeypatch):
 def source_files(root):
     return {p.relative_to(root): p.read_bytes() for p in (root / 'model').rglob('*') if p.is_file()}
 
+def _callback_check_model_only_publication_fail_save(path, /, output):
+    path.write_text('partial interrupted source')
+    raise OSError('injected source publication failure')
+
+
+def _callback_check_model_only_publication_save(context, failure, output, path, snapshot, /):
+    plan = prepare_edit(snapshot, output, context)
+    if failure == 'race':
+        path.write_bytes(path.read_bytes() + b'# concurrent human input\n')
+    return publish_edit(plan, context)
+
+
 @pytest.mark.parametrize('failure', ['none', 'rollback', 'race', 'wrong-target', 'ordinary', 'ordinary-delete'])
 def check_model_only_publication(tmp_path, monkeypatch, failure):
-    from support.import_model_fixtures import operation_fixture, operation_candidate, operation_contract
-    from support.import_repository_fixtures import fixture, start
-    from model import prepare_edit, publish_edit
-    from model.adapters.task import source_write_context, edit_write_context
-    from model.operations import verify_model_operation
-    from task_contract import model_operation, status
+    operation_candidate = _imports_support_import_model_fixtures.operation_candidate
+    operation_contract = _imports_support_import_model_fixtures.operation_contract
+    operation_fixture = _imports_support_import_model_fixtures.operation_fixture
+
     action = 'import-delete' if failure == 'ordinary-delete' else 'import-merge'
     with fixture() as root:
         operation_fixture(root)
@@ -58,19 +94,13 @@ def check_model_only_publication(tmp_path, monkeypatch, failure):
         before = source_files(target)
         path = target / 'model/stg/cde/vpc.properties'
         if failure == 'rollback':
-            def fail_save(output):
-                path.write_text('partial interrupted source')
-                raise OSError('injected source publication failure')
+            fail_save = _bind_framework_callback(_callback_check_model_only_publication_fail_save, path)
             monkeypatch.setattr(sync_files, 'save_files', fail_save)
         authority = edit_write_context(target, {('stg', TARGET, 'vpc')}, name) if failure in {'ordinary', 'ordinary-delete'} else source_write_context(target, name)
         with authority as context:
             snapshot = load_model(path, context.snapshot)
             output = {target / relative: text for relative, text in candidate.items()}
-            def save():
-                plan = prepare_edit(snapshot, output, context)
-                if failure == 'race':
-                    path.write_bytes(path.read_bytes() + b'# concurrent human input\n')
-                return publish_edit(plan, context)
+            save = _bind_framework_callback(_callback_check_model_only_publication_save, context, failure, output, path, snapshot)
             if failure not in {'none', 'ordinary', 'ordinary-delete'}:
                 with pytest.raises((ValueError, OSError)):
                     save()
@@ -91,12 +121,8 @@ def check_model_only_publication(tmp_path, monkeypatch, failure):
 
 
 def check_intermediate_model_sources(monkeypatch):
-    import base64
-    from support.import_repository_fixtures import fixture, start
-    from support.import_model_fixtures import operation_fixture, operation_contract
-    from model import prepare_edit, publish_edit
-    from model.adapters.task import source_write_context
-    from model.sources import publication_lock
+
+
     with fixture() as root:
         operation_fixture(root)
         relative = 'model/stg/cde/vpc.properties'
@@ -133,14 +159,8 @@ def check_intermediate_model_sources(monkeypatch):
 
 
 def check_batch_leaf_saves(monkeypatch):
-    import tempfile
-    from support.import_repository_fixtures import fixture, start
-    from support.import_model_fixtures import batch_operation_fixture
-    from model import prepare_edit, publish_edit
-    from model.adapters.task import source_write_context
-    from model.operations import verify_model_operation
-    from model.format import owner
-    from task_contract import model_operation
+
+
     with fixture() as root, tempfile.TemporaryDirectory() as temporary:
         candidate = Path(temporary) / 'candidate'
         contract, sources = batch_operation_fixture(root, candidate)
@@ -170,7 +190,7 @@ def check_batch_leaf_saves(monkeypatch):
         for rid in deleted:
             assert f'desired.resource.{rid}.resourceType' not in load_model(path).authoritative
         verify_model_operation(root, target, operation, sources)
-        from model.importing.repository import working_revision
+        working_revision = _imports_model_importing_repository.working_revision
         assert working_revision(root) == state['start']
 
 

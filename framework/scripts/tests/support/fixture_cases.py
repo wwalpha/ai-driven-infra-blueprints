@@ -1,9 +1,9 @@
 """Static YAML cases shared by test suites; no Model or runner behavior."""
+import math
+import re
 from copy import deepcopy
 from functools import lru_cache
-import math
 from pathlib import Path, PureWindowsPath
-import re
 
 from utils.yaml_format import yaml_read
 

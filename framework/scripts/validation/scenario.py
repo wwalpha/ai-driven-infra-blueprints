@@ -1,12 +1,18 @@
 """Scenario definitions and current Result records; never execute scenarios."""
-from validation_cache import input_is_dir, input_is_file, input_is_symlink, input_select, input_text
-
-
+import re
 from datetime import datetime
 from pathlib import Path
-import re
+
+from utils.input_cache import (
+    input_is_dir,
+    input_is_file,
+    input_is_symlink,
+    input_select,
+    input_text,
+)
 
 from .project import LOWER_KEBAB_PATTERN
+
 RESULT_STATUSES = {"PASS", "FAIL", "BLOCKED", "STALE", "NOT_EXECUTED"}
 RESULT_METADATA = ("Scenario ID", "Environment", "AWS account ID", "AWS region", "Status", "Executed at")
 
@@ -167,5 +173,3 @@ def check_scenario_changes(changed_paths, result_files, findings) -> None:
         for result_file in result_files.get(scenario_id, []):
             path = findings.relative(result_file)
             findings.check(path in changed_paths, f"scenario changed without updating existing result: {path}")
-
-

@@ -2,14 +2,32 @@
 """Explicit properties authority, runtime derivation and raw input safety."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from unittest.mock import patch
+
+from model.format import parse
+from model.format import patch as patch_properties
+from model.sources import _publish_transaction as _publish_transaction
+from model.sources import model_paths as model_paths
+from model.sources import publication_lock as publication_lock
+from support.it_case_receipt import module_complete
+from support.producer_identifier_reference_fixtures import (
+    FileReads,
+    Path,
+    affected,
+    load_model,
+    rejected,
+    serialize,
+    setup,
+    tempfile,
+    trace_model,
+    write_model,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-from unittest.mock import patch
-from support.it_case_receipt import module_complete
-from support.producer_identifier_reference_fixtures import *
-from model.sources import model_paths, publication_lock, _publish_transaction
-from model.format import parse, patch as patch_properties
 
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory).resolve()
@@ -25,7 +43,8 @@ with tempfile.TemporaryDirectory() as directory:
     for value in ('false', '0', '', 'null', '`PENDING_DEPLOY`'):
         candidate = {**desired, key: value}
         text = serialize(candidate)
-        reads = FileReads(); reads.read(path)
+        reads = FileReads()
+        reads.read(path)
         with publication_lock(root) as journal:
             reads.verify()
             _publish_transaction(root, {path: text}, (), journal)
@@ -44,7 +63,7 @@ with tempfile.TemporaryDirectory() as directory:
             assert path.read_bytes() == before
     original = path.read_bytes()
     for invalid in (False, 0, None):
-        rejected(lambda: serialize({**desired, key: invalid}), 'strings')
+        rejected(lambda *, invalid=invalid: serialize({**desired, key: invalid}), 'strings')
     for invalid in ({key: 'x', 'observed.row.017-023.property': 'wrong'}, {'observed.row.999-001.value': 'x'},
                     {'observed.row.017-023.state': 'unknown'}):
         path.write_text(serialize({**desired, **invalid}))
@@ -59,7 +78,8 @@ with tempfile.TemporaryDirectory() as directory:
     path.write_bytes(original)
     with patch.object(Path, 'read_bytes', side_effect=PermissionError('denied')):
         rejected(lambda: load_model(path), 'denied')
-    marker = root / 'marker'; marker.write_text('before')
+    marker = root / 'marker'
+    marker.write_text('before')
     def interrupted(output):
         marker.write_text('partial')
         raise OSError('interrupted')
@@ -70,7 +90,8 @@ with tempfile.TemporaryDirectory() as directory:
         with publication_lock(root) as journal:
             _publish_transaction(root, {path: serialize(desired)}, (), journal)
         assert load_model(path).authoritative == desired and key not in load_model(path).values
-    reads = FileReads(); reads.read(path)
+    reads = FileReads()
+    reads.read(path)
     external = path.read_bytes() + b'# concurrent observed edit\n'
     path.write_bytes(external)
     rejected(reads.verify, 'input changed')

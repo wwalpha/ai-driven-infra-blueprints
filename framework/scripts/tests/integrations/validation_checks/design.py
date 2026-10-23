@@ -3,17 +3,36 @@
 
 from __future__ import annotations
 
+from functools import partial as _bind_framework_callback
+
 from support.it_case_receipt import it_case
-from support.validator import diagnostics
+from support.validator import (
+    MODULE,
+    SCRIPT,
+    diagnostics,
+    project,
+    schema_validator,
+    write,
+)
+from support.validator import (
+    load as load,
+)
+
+_CALLBACK_DEFAULT = object()
 
 
-import json
 
-
-import shutil
-
-
-from support.validator import MODULE, SCRIPT, project, write, schema_validator, load
+def _callback_check_description_design_constraints_validate_82(catalog, iam, metadata, root, sg, _default_role_text, _default_group_text, /, role_text=_CALLBACK_DEFAULT, group_text=_CALLBACK_DEFAULT):
+    if role_text is _CALLBACK_DEFAULT:
+        role_text = _default_role_text
+    if group_text is _CALLBACK_DEFAULT:
+        group_text = _default_group_text
+    write(iam, role_text)
+    write(sg, group_text)
+    validator = schema_validator(root)
+    validator.check_design_tables(metadata, *catalog, paths=[iam, sg])
+    validator.check_design_overviews(paths=[iam, sg])
+    return validator
 
 
 @it_case
@@ -78,13 +97,7 @@ def check_description_design_constraints() -> None:
 """
         metadata = {iam: ("iam", ("IAM.Role",)), sg: ("security-group", ("EC2.SecurityGroup",))}
 
-        def validate(role_text=iam_text, group_text=sg_text):
-            write(iam, role_text)
-            write(sg, group_text)
-            validator = schema_validator(root)
-            validator.check_design_tables(metadata, *catalog, paths=[iam, sg])
-            validator.check_design_overviews(paths=[iam, sg])
-            return validator
+        validate = _bind_framework_callback(_callback_check_description_design_constraints_validate_82, catalog, iam, metadata, root, sg, iam_text, sg_text)
 
         # Both Japanese overview Comments and Source / Comments remain valid.
         assert not validate().errors, validate().errors
@@ -106,4 +119,3 @@ def check_description_design_constraints() -> None:
         assert any("broken design link" in error and "trust-policy.json" in error for error in diagnostics(validator))
         assert iam.read_text(encoding="utf-8") == iam_text.replace("Application role", "日本語")
         assert sg.read_text(encoding="utf-8") == sg_text.replace("Application access", "日本語")
-

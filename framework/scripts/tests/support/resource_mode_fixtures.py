@@ -1,40 +1,31 @@
 """CREATE compatibility and IMPORT's naming-only exemption through generated views."""
 
 import sys
-
 from pathlib import Path
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import json
+import shutil
+import tempfile
 
-from support.model_sources import snapshot_model
+import model.projection as model_projection
+import sync_runtime as SYNC
+import sync_views
+from design_layout import resource_mode, resource_modes
+from model.core import properties
+from model.files import read_model
+from model.render import markdown_for
+from model.validation import naming_errors
+from support.model_sources import snapshot_model, write_model
+from utils.layout_schema import resource_anchor
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-from model.files import read_model
-
-from support.model_sources import write_model
-
-import sync_views
-
-import model.projection as model_projection
-
-import json
-
-import shutil
-
-import tempfile
-
-from design_layout import resource_anchor, resource_mode, resource_modes
-
-from model.render import markdown_for
-from model.validation import naming_errors
-
-from model.core import properties
-
 ROOT = Path(__file__).resolve().parents[4]
 
-import sync_runtime as SYNC
+
 
 def model(kind="EC2.VPC", name="vpc-app-dev", mode="CREATE", label=None):
     service = "ec2"

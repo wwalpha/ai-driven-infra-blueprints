@@ -1,21 +1,33 @@
 #!/usr/bin/env python3
 """Standalone retarget contracts and guards use only authored temporary authorities."""
+
+import subprocess
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+from types import SimpleNamespace
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
 import shutil
 from unittest.mock import patch
+
+import import_guard
 import pytest
-import yaml
-from task_contract import model_operation
-from model.operations import verify_model_operation, prepare_edit, publish_edit
-from support.import_model_fixtures import dependency_fixture
+import worktree_state
+import worktree_task
+from model.adapters.task import edit_write_context, source_write_context
+from model.format import owner as owner
+from model.operations import prepare_edit, publish_edit, verify_model_operation
 from model.sources import load_model
-from model.format import serialize, owner
+from support.import_model_fixtures import dependency_fixture
 from support.model_sources import write_model
+from task_contract_core import final_model_task, model_operation, selected_task, start
+from utils.aws_mappings import mapping_alias
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 REF = {'consumer': 'stg/cde/service-b/002', 'field': 'value', 'property': 'ServiceB.Resource.Name',
        'source': 'stg/cde/service-a/001', 'destination': 'stg/cde/service-a/003'}
@@ -148,7 +160,6 @@ def check_json_positions(tmp_path, field):
 
 
 def check_route_table_pair_example(tmp_path):
-    from support.model_sources import write_model
     before, after = tmp_path / 'before', tmp_path / 'after'
     before.mkdir()
     (before / 'project.json').write_text(json.dumps({'targets': [{'environment': 'stg', 'alias': 'cde',
@@ -185,18 +196,20 @@ def check_route_table_pair_example(tmp_path):
         verify_model_operation(before, after, model_operation(contract(refs[:1])), sources)
 
 
+def _callback_check_guarded_save_git(before, /, *args):
+    return subprocess.run(['git', *args], cwd=before, check=True, capture_output=True, text=True).stdout.strip()
+
+
 @pytest.mark.parametrize('mode', ['success', 'reuse', 'conflict', 'new-file', 'task-change', 'wrong-owner', 'invalid', 'normal-save', 'mixed-save', 'missing-scope', 'issue', 'other-issue'])
 def check_guarded_save(tmp_path, monkeypatch, mode):
-    import subprocess
-    import worktree_task
-    from utils.aws_mappings import mapping_alias
-    from model.adapters.task import source_write_context, edit_write_context
-    from task_contract import start, selected_task
+
     before, after, sources = fixture(tmp_path)
-    def git(*args):
-        return subprocess.run(['git', *args], cwd=before, check=True, capture_output=True, text=True).stdout.strip()
-    git('init'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.invalid')
-    git('add', '.'); git('commit', '-m', 'synthetic baseline')
+    git = _bind_framework_callback(_callback_check_guarded_save_git, before)
+    git('init')
+    git('config', 'user.name', 'Fixture')
+    git('config', 'user.email', 'fixture@example.invalid')
+    git('add', '.')
+    git('commit', '-m', 'synthetic baseline')
     base = git('rev-parse', 'HEAD')
     inputs = before / next(iter(sources))
     candidate = (after / next(iter(sources))).read_text()
@@ -212,9 +225,9 @@ def check_guarded_save(tmp_path, monkeypatch, mode):
         p = before / ('issues/dev/cde/issues.md' if mode == 'other-issue' else 'issues/stg/cde/issues.md')
         p.parent.mkdir(parents=True)
         p.write_text(('### service-b\n' if mode == 'other-issue' else '### service-a\n') + '1. existing issue\n')
-    with patch.object(worktree_task, 'load', return_value=(before, None, None, state)), \
-         patch.object(worktree_task, 'task_worktree', return_value=before), \
-         patch.object(worktree_task, 'task_start_commit', return_value=base), \
+    with patch.object(worktree_state, 'load', return_value=(before, None, None, state)), \
+         patch.object(worktree_state, 'task_worktree', return_value=before), \
+         patch.object(worktree_state, 'task_start_commit', return_value=base), \
          mapping_alias(Path(__file__).resolve().parents[4], before), selected_task(before, name):
         if mode in {'wrong-owner', 'missing-scope', 'issue', 'other-issue'}:
             with pytest.raises(ValueError):
@@ -260,23 +273,28 @@ def check_guarded_save(tmp_path, monkeypatch, mode):
                 assert publish_edit(prepare_edit(load_model(inputs, context.snapshot), {inputs: candidate}, context), context) == ()
 
 
+def _callback_check_final_candidate_uses_latest_base_git(before, /, *args):
+    return subprocess.run(['git', *args], cwd=before, check=True, capture_output=True, text=True).stdout.strip()
+
+
 def check_final_candidate_uses_latest_base(tmp_path):
-    import subprocess
-    from types import SimpleNamespace
-    import import_guard
-    import worktree_task
-    from task_contract import start, selected_task, final_model_task
-    from utils.aws_mappings import mapping_alias
+
     before, after, sources = fixture(tmp_path)
-    def git(*args):
-        return subprocess.run(['git', *args], cwd=before, check=True, capture_output=True, text=True).stdout.strip()
+    git = _bind_framework_callback(_callback_check_final_candidate_uses_latest_base_git, before)
     (before / '.gitignore').write_text('tasks/\n')
-    git('init'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.invalid')
-    git('add', '.'); git('commit', '-m', 'creation baseline'); original_base = git('rev-parse', 'HEAD')
+    git('init')
+    git('config', 'user.name', 'Fixture')
+    git('config', 'user.email', 'fixture@example.invalid')
+    git('add', '.')
+    git('commit', '-m', 'creation baseline')
+    original_base = git('rev-parse', 'HEAD')
     producer = before / 'model/stg/cde/service-a.properties'
     producer.write_text(producer.read_text().replace('same-name-stg', 'latest-name'))
-    git('add', '.'); git('commit', '-m', 'latest base settings'); latest = git('rev-parse', 'HEAD')
-    relative = next(iter(sources)); (before / relative).write_bytes((after / relative).read_bytes())
+    git('add', '.')
+    git('commit', '-m', 'latest base settings')
+    latest = git('rev-parse', 'HEAD')
+    relative = next(iter(sources))
+    (before / relative).write_bytes((after / relative).read_bytes())
     name = 'tasks/retarget.md'
     listing = ''.join('- `' + p + '`\n' for p in [name, relative])
     text = contract() + '## Validation scope\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n## Modified files\n' + listing + '## Allowed paths\n' + listing
@@ -284,10 +302,11 @@ def check_final_candidate_uses_latest_base(tmp_path):
     candidate = SimpleNamespace(base_commit=latest, changed_paths=frozenset(sources), scope={('stg', 'cde', 'service-a'), ('stg', 'cde', 'service-b')})
     assert final_model_task(text)
     with mapping_alias(Path(__file__).resolve().parents[4], before), selected_task(before, name), \
-         patch.object(worktree_task, 'task_start_commit', return_value=original_base):
+         patch.object(worktree_state, 'task_start_commit', return_value=original_base):
         import_guard.require_import_changes(before, final_candidate=candidate)
         candidate.base_commit = original_base
-        with pytest.raises(ValueError): import_guard.require_import_changes(before, final_candidate=candidate)
+        with pytest.raises(ValueError):
+            import_guard.require_import_changes(before, final_candidate=candidate)
         state = {'task_file': name, 'task_id': 'retarget'}
         with pytest.raises(worktree_task.Blocked, match='successful final candidate'):
             worktree_task._prepare_commit(before, before / 'unused-state.json', state, before, 'approval cannot bypass')

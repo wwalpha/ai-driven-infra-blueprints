@@ -1,17 +1,32 @@
 """Offline boundary counts, execution evidence, and deployment safety regressions."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+from types import SimpleNamespace
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import copy
 import json
 from unittest.mock import patch
+
 import pytest
-from support.cloudformation_deploy_fixtures import DeliveryAws, units, states, TARGET
-from deploy import change_sets, observed, guards
+from deploy import change_sets as change_sets
+from deploy import guards
+from deploy import observed as observed
+from deploy.recovery import reset_after_cleanup
+from deploy.s3_delivery import preflight
+from deploy.timing import Timing
+from support.cloudformation_deploy_fixtures import TARGET as TARGET
+from support.cloudformation_deploy_fixtures import DeliveryAws
+from support.cloudformation_deploy_fixtures import states as states
+from support.cloudformation_deploy_fixtures import units as units
 from utils.aws.client import AwsError
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 def runtime_inputs(tmp_path, large=False, artifact=False, count=1):
@@ -22,7 +37,8 @@ def runtime_inputs(tmp_path, large=False, artifact=False, count=1):
         document['Resources']['Job'] = {'Type': 'AWS::Glue::Job', 'Properties': {
             'Command': {'ScriptLocation': 's3://app-dev-assets/artifacts/current.py'}}}
         source = runtime.root / 'infra/cloudformation/artifacts/job.py'
-        source.parent.mkdir(parents=True); source.write_text("print('hello')\n")
+        source.parent.mkdir(parents=True)
+        source.write_text("print('hello')\n")
         for unit in selected:
             unit['artifacts'] = [{'stack': unit['name'], 'resource': 'Job', 'property': 'Command.ScriptLocation',
                 'source': source.relative_to(runtime.root).as_posix(), 'bucket': 'app-dev-assets', 'keyPrefix': 'artifacts/'}]
@@ -32,8 +48,10 @@ def runtime_inputs(tmp_path, large=False, artifact=False, count=1):
             unit.update(templateBucket='app-dev-assets', templateKeyPrefix='templates/')
     for unit in selected:
         template, parameters = runtime.paths(unit)
-        template.parent.mkdir(parents=True, exist_ok=True); parameters.parent.mkdir(parents=True, exist_ok=True)
-        template.write_text(json.dumps(document)); parameters.write_text('[]')
+        template.parent.mkdir(parents=True, exist_ok=True)
+        parameters.parent.mkdir(parents=True, exist_ok=True)
+        template.write_text(json.dumps(document))
+        parameters.write_text('[]')
         runtime.load_inputs(unit)
     runtime.states = states(selected)
     runtime.expected_digests = {unit['name']: runtime.input_digest(unit) for unit in selected}
@@ -47,7 +65,8 @@ def check_boundary_sharing(tmp_path, large, artifact, count):
     with patch('model.adapters.observed.mappings', side_effect=AssertionError('whole-scope mapping forbidden')), \
          patch('subprocess.run', side_effect=AssertionError('AWS CLI/lint forbidden')):
         runtime.prepare_delivery_group(selected, runtime.states)
-        unit = selected[0]; state = runtime.states[unit['name']]
+        unit = selected[0]
+        state = runtime.states[unit['name']]
         assert runtime.prepare(unit, state) == 'READY'
         state['clientToken'] = 'token'
         runtime.execute(unit, state)
@@ -71,11 +90,14 @@ def check_exports_and_boundary_freshness(tmp_path):
         document['Outputs'] = {'Imported': {'Value': {'Fn::ImportValue': 'Required'}}}
     runtime.export_values = {'Required': 'value', 'Unrelated': 'before'}
     runtime.states = states(selected)
-    runtime.calls.clear(); runtime.prepare_delivery_group(selected, runtime.states)
+    runtime.calls.clear()
+    runtime.prepare_delivery_group(selected, runtime.states)
     assert sum(op == 'list_exports' for op, _ in runtime.calls) == 1
     runtime.export_values['Unrelated'] = 'after'
-    state = runtime.states['A']; assert runtime.prepare(selected[0], state) == 'READY'
-    state['clientToken'] = 'token'; runtime.execute(selected[0], state)
+    state = runtime.states['A']
+    assert runtime.prepare(selected[0], state) == 'READY'
+    state['clientToken'] = 'token'
+    runtime.execute(selected[0], state)
     assert sum(op == 'list_exports' for op, _ in runtime.calls) == 3
     runtime.export_values['Required'] = 'changed'
     state = runtime.states['B']
@@ -124,7 +146,6 @@ def check_remove_without_startup_mapping(tmp_path):
     ('Delete','DELETE_SKIPPED','vpc-old',False),('Delete','DELETE_COMPLETE','vpc-old',True),
     ('Snapshot','DELETE_COMPLETE','vpc-old',True),('Delete',None,None,None)])
 def check_deletion_evidence(action, status, physical, expected):
-    from types import SimpleNamespace
     state = {'stackId':'stack','changeSetId':'change','changeDigest':'digest','clientToken':'token'}
     state['executionEvidence'] = {'StackId':'stack','ChangeSetId':'change','changeDigest':'digest','clientToken':'token'}
     removal = {'Type':'AWS::EC2::VPC','PolicyAction':action,'PhysicalResourceId':physical}
@@ -138,8 +159,7 @@ def check_deletion_evidence(action, status, physical, expected):
 
 
 def check_mutation_guard_is_immediate(tmp_path):
-    from types import SimpleNamespace
-    from deploy.timing import Timing
+
     runtime = SimpleNamespace(root=tmp_path,environment='dev',directory='target',connection=('context',),timing=Timing(tmp_path))
     runtime.guard = lambda: (_ for _ in ()).throw(RuntimeError('changed input'))
     for operation,service in [('create_change_set','cloudformation'),('execute_change_set','cloudformation'),
@@ -152,21 +172,24 @@ def check_mutation_guard_is_immediate(tmp_path):
 
 
 
+def _callback_check_conditional_put_outcomes_aws(code, committed, original, requests, status, /, operation, **arguments):
+    if operation == 'put_object':
+        requests.append(dict(arguments))
+        assert arguments['IfNoneMatch'] == '*' and 'ExpectedBucketOwner' in arguments
+        if len(requests) == 1:
+            if committed:
+                original(operation, **arguments)
+            raise AwsError('s3', operation, code, status)
+    return original(operation, **arguments)
+
+
 @pytest.mark.parametrize('code,status,committed,puts', [('PreconditionFailed',412,True,1),
     ('ReadTimeoutError',None,True,1),('ConditionalRequestConflict',409,False,2),('AccessDenied',403,False,1)])
 def check_conditional_put_outcomes(tmp_path, code, status, committed, puts):
     runtime, selected = runtime_inputs(tmp_path, artifact=True)
     original = runtime.aws
     requests = []
-    def aws(operation, **arguments):
-        if operation == 'put_object':
-            requests.append(dict(arguments))
-            assert arguments['IfNoneMatch'] == '*' and 'ExpectedBucketOwner' in arguments
-            if len(requests) == 1:
-                if committed:
-                    original(operation, **arguments)
-                raise AwsError('s3', operation, code, status)
-        return original(operation, **arguments)
+    aws = _bind_framework_callback(_callback_check_conditional_put_outcomes_aws, code, committed, original, requests, status)
     runtime.aws = aws
     if status == 403:
         with pytest.raises(RuntimeError, match='AccessDenied'):
@@ -179,7 +202,6 @@ def check_conditional_put_outcomes(tmp_path, code, status, committed, puts):
 
 
 def check_key_policy_scope(tmp_path):
-    from deploy.s3_delivery import preflight
     runtime, _ = runtime_inputs(tmp_path)
     placement = runtime.placement()
     runtime.policy = {'Statement': [{'Effect':'Deny','Principal':'*','Action':'s3:PutObject',
@@ -190,6 +212,33 @@ def check_key_policy_scope(tmp_path):
     with pytest.raises(RuntimeError,match='MISMATCH'):
         preflight(placement,'app-dev-assets','denied/',['denied/file'],boundary)
     assert sum(op == 'get_bucket_policy' for op,_ in runtime.calls) == 1
+
+
+def _callback_check_cleanup_refreshes_create_boundary_aws(cleaned, mutation, original, /, operation, **arguments):
+    if operation == 'describe_stacks' and not cleaned:
+        return {'Stacks': [{'StackStatus': 'ROLLBACK_COMPLETE', 'StackId': 'failed-stack'}]}
+    response = original(operation, **arguments)
+    if operation == 'list_exports' and cleaned and mutation == 'producer':
+        response['Exports'][0]['ExportingStackId'] = 'changed-producer'
+    return response
+
+
+def _callback_check_cleanup_refreshes_create_boundary_cleanup(cleaned, mutation, runtime, state, /, *args, **kwargs):
+    cleaned.append(True)
+    if mutation == 'encryption':
+        runtime.default_algorithm = 'aws:kms'
+    if mutation == 'policy':
+        runtime.policy = {'Statement': [{'Effect': 'Deny', 'Principal': '*', 'Action': 's3:PutObject',
+            'Resource': 'arn:aws:s3:::app-dev-assets/artifacts/*',
+            'Condition': {'StringEquals': {'s3:x-amz-server-side-encryption': 'AES256'}}}]}
+    if mutation == 'kms':
+        runtime.key_state, runtime.key_enabled = 'Disabled', False
+    if mutation == 'current':
+        obj = state['delivery']['objects'][0]
+        runtime.objects[obj['bucket'], obj['key']]['ChecksumSHA256'] = 'changed'
+    if mutation == 'export':
+        runtime.export_values['Required'] = 'after'
+    return True
 
 
 @pytest.mark.parametrize('resume', [False, True])
@@ -208,26 +257,8 @@ def check_cleanup_refreshes_create_boundary(tmp_path, resume, mutation):
         state['cleanupStatus'] = 'DELETE_INTENT'
     original = runtime.aws
     cleaned = []
-    def aws(operation, **arguments):
-        if operation == 'describe_stacks' and not cleaned:
-            return {'Stacks': [{'StackStatus': 'ROLLBACK_COMPLETE', 'StackId': 'failed-stack'}]}
-        response = original(operation, **arguments)
-        if operation == 'list_exports' and cleaned and mutation == 'producer':
-            response['Exports'][0]['ExportingStackId'] = 'changed-producer'
-        return response
-    def cleanup(*args, **kwargs):
-        cleaned.append(True)
-        if mutation == 'encryption': runtime.default_algorithm = 'aws:kms'
-        if mutation == 'policy':
-            runtime.policy = {'Statement': [{'Effect': 'Deny', 'Principal': '*', 'Action': 's3:PutObject',
-                'Resource': 'arn:aws:s3:::app-dev-assets/artifacts/*',
-                'Condition': {'StringEquals': {'s3:x-amz-server-side-encryption': 'AES256'}}}]}
-        if mutation == 'kms': runtime.key_state, runtime.key_enabled = 'Disabled', False
-        if mutation == 'current':
-            obj = state['delivery']['objects'][0]
-            runtime.objects[obj['bucket'], obj['key']]['ChecksumSHA256'] = 'changed'
-        if mutation == 'export': runtime.export_values['Required'] = 'after'
-        return True
+    aws = _bind_framework_callback(_callback_check_cleanup_refreshes_create_boundary_aws, cleaned, mutation, original)
+    cleanup = _bind_framework_callback(_callback_check_cleanup_refreshes_create_boundary_cleanup, cleaned, mutation, runtime, state)
     runtime.aws = aws
     runtime.cleanup_failed_create = cleanup
     if mutation == 'unchanged':
@@ -241,7 +272,6 @@ def check_cleanup_refreshes_create_boundary(tmp_path, resume, mutation):
 
 
 def check_cleanup_delivery_evidence_is_durable():
-    from deploy.recovery import reset_after_cleanup
     record = {'imports': {'Required': {'Value': 'before', 'ExportingStackId': 'producer'}}}
     state = {'status': 'BLOCKED', 'delivery': record, 'cleanupStatus': 'DELETE_COMPLETE'}
     saved = []

@@ -1,16 +1,65 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
+import shutil
 import sys
+from datetime import datetime, timedelta, timezone
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace as _CallbackState
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import io
+import venv
+from contextlib import redirect_stderr
+
+import import_guard as _imports_import_guard
+import import_guard as guard
+import pytest
+import pytest as _imports_pytest
+import support.import_model_fixtures as _imports_support_import_model_fixtures
+import validation.loop as _imports_validation_loop
+from deploy import handoff
+from deploy_handoff import main as handoff_cli
+from import_guard import require_import_changes, source_write_context
+from model.adapters.task import edit_write_context
+from model.sources import load_model
+from support import blueprint_loop_fixtures as loop_checks
+from support.import_model_fixtures import dependency_fixture, operation_fixture
+from support.it_case_receipt import it_case
+from support.worktree_task_fixtures import (
+    SCRIPT,
+    Path,
+    cli,
+    finish_contract,
+    fixture,
+    git,
+    json,
+    os,
+    patch,
+    retained,
+    start,
+    subprocess,
+    sys,
+    tasks,
+    tempfile,
+    wt,
+)
+from support.worktree_task_fixtures import (
+    contract as contract,
+)
+from task_contract_core import task_digest
+from utils.aws_mappings import mapping_alias
+from validation import loop
+from validation_scope import active_scope
+
+from model import prepare_edit, publish_edit
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import it_case
-import io
-from contextlib import redirect_stderr
-
-from support.worktree_task_fixtures import *
 
 @it_case
 def check_sync_base_preserves_candidate():
@@ -33,19 +82,19 @@ def check_sync_base_preserves_candidate():
         assert cli(root, 'finalize')['cleaned']
 
 
+def _callback_check_deploy_workflow_cross_task_reset_rejected_initial(target, /, root, state):
+    return {'repository':str(root), 'taskFile':state['task_file'], 'target':target,
+            'taskDigest':task_digest((root / state['task_file']).read_text()),
+            'states':{'Stack':{'status':'NOT_STARTED'}}}
+
+
 @it_case
 def check_deploy_workflow_cross_task_reset_rejected():
-    from deploy import handoff
-    from deploy.contracts import task_digest
-    from deploy_handoff import main as handoff_cli
     with fixture() as primary:
         parent, parent_state = start(primary, task_id='deploy-one', files=('file.txt',))
         other, other_state = start(primary, task_id='deploy-two', files=('file.txt',))
         target = {'awsAccountId':'123456789012','awsRegion':'ap-northeast-1'}
-        def initial(root, state):
-            return {'repository':str(root), 'taskFile':state['task_file'], 'target':target,
-                    'taskDigest':task_digest((root / state['task_file']).read_text()),
-                    'states':{'Stack':{'status':'NOT_STARTED'}}}
+        initial = _bind_framework_callback(_callback_check_deploy_workflow_cross_task_reset_rejected_initial, target)
         path = primary.parent / 'original-session.json'
         original = initial(parent,parent_state)
         handoff.bind(parent,path,original)
@@ -229,7 +278,7 @@ def check_ahead_and_rebase_conflict():
                 assert (target / "file.txt").read_text() == "task\n"
                 wt.idle_git(target)
                 assert git(target, "status", "--porcelain") == ""
-                import pytest
+                pytest = _imports_pytest
                 old = result['commit']
                 with pytest.raises(wt.Blocked, match='commit changed'):
                     wt.recover(root, 'example', '0' * 40, latest)
@@ -393,6 +442,12 @@ def check_metadata_storage():
     print("Shared .worktrees/.blueprint state/locks, no old-location fallback, sibling retention and symlink guards: PASS")
 
 
+def _callback_check_cleanup_failure_and_retry_deny_remove(real_git, /, where, *args, **kwargs):
+    if args[:2] == ("worktree", "remove"):
+        raise wt.Blocked("injected cleanup failure")
+    return real_git(where, *args, **kwargs)
+
+
 @it_case
 def check_cleanup_failure_and_retry():
     with fixture() as root:
@@ -400,10 +455,7 @@ def check_cleanup_failure_and_retry():
         (target / "file.txt").write_text("task\n")
         finish_contract(target, state)
         real_git = wt.git
-        def deny_remove(where, *args, **kwargs):
-            if args[:2] == ("worktree", "remove"):
-                raise wt.Blocked("injected cleanup failure")
-            return real_git(where, *args, **kwargs)
+        deny_remove = _bind_framework_callback(_callback_check_cleanup_failure_and_retry_deny_remove, real_git)
         with patch.object(wt, "git", side_effect=deny_remove):
             try:
                 wt.finalize(root, "example")
@@ -418,7 +470,8 @@ def check_cleanup_failure_and_retry():
         assert "ignored files" in cli(root, "cleanup", success=False)["error"]
         assert (target / "secret.bin").read_bytes() == b"ignored human data"
         (target / "secret.bin").rename(root.parent / "saved-secret.bin")
-        from import_guard import evidence_store, write_sealed
+        evidence_store = _imports_import_guard.evidence_store
+        write_sealed = _imports_import_guard.write_sealed
         evidence = evidence_store(target)
         own, other = evidence / 'example.json', evidence / 'other.json'
         write_sealed(target, own, {'task': state['task_file']})
@@ -442,8 +495,22 @@ def check_cleanup_failure_and_retry():
     print("Cleanup failure/retry/ignored data/merged history preserved: PASS")
 
 
+def _callback_check_merge_retry_and_commit_failure_commit_hook_changes(real_git, target, /, where, *args, **kwargs):
+    if args[:1] == ("commit",):
+        (target / "outside.txt").write_text("hook staged unrelated work\n")
+        real_git(target, "add", "outside.txt")
+    return real_git(where, *args, **kwargs)
+
+
+def _callback_check_merge_retry_and_commit_failure_deny_merge(_state_check_merge_retry_and_commit_failure_505, /, where, *args, **kwargs):
+    if args[:1] == ("merge",):
+        raise wt.Blocked("injected ff-only merge failure")
+    return _state_check_merge_retry_and_commit_failure_505.real_git(where, *args, **kwargs)
+
+
 @it_case
 def check_merge_retry_and_commit_failure():
+    _state_check_merge_retry_and_commit_failure_505 = _CallbackState()
     for empty in (False, True):
         with fixture() as root:
             target, state = start(root)
@@ -454,11 +521,8 @@ def check_merge_retry_and_commit_failure():
             git(root, "add", "base.txt")
             git(root, "commit", "-qm", "ahead")
             latest = git(root, "rev-parse", "HEAD")
-            real_git = wt.git
-            def deny_merge(where, *args, **kwargs):
-                if args[:1] == ("merge",):
-                    raise wt.Blocked("injected ff-only merge failure")
-                return real_git(where, *args, **kwargs)
+            _state_check_merge_retry_and_commit_failure_505.real_git = wt.git
+            deny_merge = _bind_framework_callback(_callback_check_merge_retry_and_commit_failure_deny_merge, _state_check_merge_retry_and_commit_failure_505)
             with patch.object(wt, "git", side_effect=deny_merge):
                 try:
                     wt.finalize(root, "example")
@@ -475,12 +539,8 @@ def check_merge_retry_and_commit_failure():
         (target / "file.txt").write_text("task\n")
         finish_contract(target, state)
         latest = git(root, "rev-parse", "HEAD")
-        real_git = wt.git
-        def commit_hook_changes(where, *args, **kwargs):
-            if args[:1] == ("commit",):
-                (target / "outside.txt").write_text("hook staged unrelated work\n")
-                real_git(target, "add", "outside.txt")
-            return real_git(where, *args, **kwargs)
+        _state_check_merge_retry_and_commit_failure_505.real_git = wt.git
+        commit_hook_changes = _bind_framework_callback(_callback_check_merge_retry_and_commit_failure_commit_hook_changes, _state_check_merge_retry_and_commit_failure_505.real_git, target)
         with patch.object(wt, "git", side_effect=commit_hook_changes):
             try:
                 wt.finalize(root, "example")
@@ -531,7 +591,6 @@ def check_human_approved_validation_failure():
 @it_case
 def check_real_loop_integration():
     # Use shared Framework code with the existing synthetic Project fixture.
-    from support import blueprint_loop_fixtures as loop_checks
     with fixture() as root:
         loop_checks.make_project_fixture(SCRIPT.parents[2], root)
         for name in ("docs/designs", "model", "infra", "tests/scenarios", "tests/results"):
@@ -568,12 +627,17 @@ def check_real_loop_integration():
     print("Real Task Contract + child local loop success/failure/approved failure integration: PASS")
 
 
+def _callback_check_final_candidate_staleness_validate(state, /, root, options, *, final_candidate):
+    assert not wt.metadata_directory(Path(state['primary'])).joinpath('lifecycle.lock').exists()
+    return 0
+
+
 @it_case
 def check_final_candidate_staleness():
-    from types import SimpleNamespace
-    from validation import loop
-    from support.import_model_fixtures import operation_fixture, operation_candidate, operation_contract
-    import shutil
+
+    operation_candidate = _imports_support_import_model_fixtures.operation_candidate
+    operation_contract = _imports_support_import_model_fixtures.operation_contract
+    operation_fixture = _imports_support_import_model_fixtures.operation_fixture
     for change in ('base', 'head', 'task', 'dirty', 'none'):
         with fixture() as root:
             operation_fixture(root)
@@ -591,24 +655,25 @@ def check_final_candidate_staleness():
                 for name in sources:
                     shutil.copyfile(candidate / name, target / name)
                 (root / 'unrelated.txt').write_text('new base\n')
-                git(root, 'add', 'unrelated.txt'); git(root, 'commit', '-qm', 'unrelated base')
+                git(root, 'add', 'unrelated.txt')
+                git(root, 'commit', '-qm', 'unrelated base')
                 latest = git(root, 'rev-parse', 'HEAD')
                 final = wt.prepare_integration(root, 'example')
                 assert final.base_commit == latest and 'unrelated.txt' not in final.changed_paths
                 assert not wt.changed_paths(target) and final.changed_paths == sources
-                def validate(root, options, *, final_candidate):
-                    assert not wt.metadata_directory(Path(state['primary'])).joinpath('lifecycle.lock').exists()
-                    return 0
+                validate = _bind_framework_callback(_callback_check_final_candidate_staleness_validate, state)
                 with patch.object(loop, 'run_loop', side_effect=validate) as checked:
                     result = wt.validate_final_candidate(final)
                     checked.assert_called_once()
                 if change == 'base':
                     (root / 'unrelated.txt').write_text('advanced\n')
-                    git(root, 'add', 'unrelated.txt'); git(root, 'commit', '-qm', 'advance')
+                    git(root, 'add', 'unrelated.txt')
+                    git(root, 'commit', '-qm', 'advance')
                 elif change == 'head':
                     git(target, 'commit', '--allow-empty', '-qm', 'unexpected')
                 elif change == 'task':
-                    file = target / state['task_file']; file.write_text(file.read_text() + '\n## Goal\nchanged\n')
+                    file = target / state['task_file']
+                    file.write_text(file.read_text() + '\n## Goal\nchanged\n')
                 elif change == 'dirty':
                     (target / 'file.txt').write_text('changed\n')
                 base_head = git(root, 'rev-parse', 'HEAD')
@@ -626,12 +691,7 @@ def check_final_candidate_staleness():
 
 @it_case
 def check_approved_model_reads():
-    from datetime import datetime, timezone, timedelta
-    import import_guard as guard
-    from support.import_model_fixtures import operation_fixture
-    from utils.aws_mappings import mapping_alias
-    from validation_scope import active_scope
-    import pytest
+
     approval = 'Human accepts fixture validation failure for Git integration'
     relative = 'model/stg/cde/vpc.properties'
     for mode in ('preserved', 'changed-import', 'proof', 'missing', 'tampered', 'expired',
@@ -673,8 +733,8 @@ def check_approved_model_reads():
             saved = (target / state['task_file']).read_bytes()
             before = git(root, 'rev-parse', 'HEAD')
             with tasks.selected_task(target, state['task_file']):
-                for call in (lambda: tasks.task_path(target), lambda: active_scope(target),
-                             lambda: guard.require_import_changes(target)):
+                for call in (lambda *, target=target: tasks.task_path(target), lambda *, target=target: active_scope(target),
+                             lambda *, target=target: guard.require_import_changes(target)):
                     with pytest.raises(ValueError, match='suspend task cannot execute'):
                         call()
             cli(root, 'finalize', success=False)
@@ -703,13 +763,13 @@ def check_approved_model_reads():
 
 @it_case
 def check_registered_normal_model_guard():
-    import venv
-    from support.import_model_fixtures import dependency_fixture
+
     relative = 'model/stg/cde/service-a.properties'
     with fixture() as root:
         dependency_fixture(root)
         (root / '.gitignore').write_text((root / '.gitignore').read_text() + '.venv/\n')
-        git(root, 'add', '.'); git(root, 'commit', '-qm', 'synthetic runtime fixture')
+        git(root, 'add', '.')
+        git(root, 'commit', '-qm', 'synthetic runtime fixture')
         target, state = start(root, files=(relative,))
         contract_path = target / state['task_file']
         text = contract_path.read_text().replace('`governance`', '`design`').replace('- `framework`', '- `stg/cde/service-a`\n- `stg/cde/service-b`')
@@ -733,7 +793,7 @@ def profile(frame, event, arg):
     if file == 'worktree_task.py' and name in ('lifecycle_lock', 'finalize', 'prepare_integration', 'cleanup'):
         raise AssertionError('guard child entered lifecycle')
     if file in ('references.py', 'sources.py') and name in ('usages', '_read_model'):
-        assert sys.modules['validation_cache'].memo_table() is not None
+        assert sys.modules['utils.input_cache'].memo_table() is not None
         counts[name] = counts.get(name, 0) + 1
 sys.setprofile(profile)
 atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(counts)))
@@ -776,11 +836,19 @@ def main():
     print("worktree-task: PASS (isolated lifecycle and failure retention)")
 
 
+def _callback_check_model_operation_integration_validate(require_import_changes, /, root, options, *, final_candidate):
+    assert not (root.parent / '.blueprint/lifecycle.lock').exists()
+    with tasks.selected_task(root, final_candidate.task_file):
+        require_import_changes(root, final_candidate.changed_paths, final_candidate=final_candidate)
+    return 0
+
+
 @it_case
 def check_model_operation_integration():
-    import shutil
-    from support.import_model_fixtures import operation_fixture, operation_candidate, operation_contract
-    from utils.aws_mappings import mapping_alias
+
+    operation_candidate = _imports_support_import_model_fixtures.operation_candidate
+    operation_contract = _imports_support_import_model_fixtures.operation_contract
+    operation_fixture = _imports_support_import_model_fixtures.operation_fixture
     for action, corrupt, approved in (("import-merge", False, False), ("import-delete", False, False),
                                       ("import-merge", True, False), ("import-merge", False, True),
                                       ("import-delete", False, True), ("import-merge", True, True)):
@@ -808,7 +876,7 @@ def check_model_operation_integration():
                         file.write_text(file.read_text().replace('10.9.0.0/16', '10.8.0.0/16'))
                     base_head = git(root, 'rev-parse', 'HEAD')
                     if approved:
-                        import pytest
+                        pytest = _imports_pytest
                         tasks.suspend(target, state['task_file'], 'Synthetic validation FAIL')
                         if action == 'import-delete':
                             with pytest.raises(wt.Blocked, match='requires successful final candidate validation'):
@@ -824,13 +892,9 @@ def check_model_operation_integration():
                             assert wt.finalize(root, 'example', 'Human accepts fixture validation FAIL')['cleaned']
                         continue
                     final = wt.prepare_integration(root, 'example')
-                    from import_guard import require_import_changes
-                    from validation import loop
-                    def validate(root, options, *, final_candidate):
-                        assert not (root.parent / '.blueprint/lifecycle.lock').exists()
-                        with tasks.selected_task(root, final_candidate.task_file):
-                            require_import_changes(root, final_candidate.changed_paths, final_candidate=final_candidate)
-                        return 0
+                    require_import_changes = _imports_import_guard.require_import_changes
+                    loop = _imports_validation_loop
+                    validate = _bind_framework_callback(_callback_check_model_operation_integration_validate, require_import_changes)
                     with patch.object(loop, 'run_loop', side_effect=validate):
                         if corrupt:
                             try:
@@ -847,20 +911,25 @@ def check_model_operation_integration():
     print('Model-only merge/delete integration and post-completion guard: PASS')
 
 
+def _callback_check_model_refactor_integration_validate(calls, /, root, options, *, final_candidate):
+    calls.append(final_candidate.candidate_head)
+    assert not (root.parent / '.blueprint/lifecycle.lock').exists()
+    with tasks.selected_task(root, final_candidate.task_file):
+        require_import_changes(root, final_candidate.changed_paths, final_candidate=final_candidate)
+    return 0
+
+
 @it_case
 def check_model_refactor_integration():
-    from support.import_model_fixtures import dependency_fixture, dependency_refactor, dependency_contract
-    from utils.aws_mappings import mapping_alias
-    from model.sources import load_model
-    from model import prepare_edit, publish_edit
-    from model.adapters.task import edit_write_context
-    import pytest
-    from import_guard import require_import_changes, source_write_context
-    from validation import loop
+    dependency_contract = _imports_support_import_model_fixtures.dependency_contract
+    dependency_fixture = _imports_support_import_model_fixtures.dependency_fixture
+    dependency_refactor = _imports_support_import_model_fixtures.dependency_refactor
+
     for advance in (False, True):
         with fixture() as root, tempfile.TemporaryDirectory() as directory:
             dependency_fixture(root)
-            git(root, 'add', 'model', 'project.json'); git(root, 'commit', '-qm', 'generic Model fixture')
+            git(root, 'add', 'model', 'project.json')
+            git(root, 'commit', '-qm', 'generic Model fixture')
             candidate = Path(directory) / 'candidate'
             sources = dependency_refactor(root, candidate)
             target, state = start(root, files=tuple(sorted(sources)))
@@ -902,17 +971,13 @@ def check_model_refactor_integration():
                 if advance:
                     file = root / 'model/stg/cde/service-a.properties'
                     file.write_text(file.read_text().replace('same-name-stg', 'advanced-name'))
-                    git(root, 'add', file); git(root, 'commit', '-qm', 'advance producer on base')
+                    git(root, 'add', file)
+                    git(root, 'commit', '-qm', 'advance producer on base')
                 latest = git(root, 'rev-parse', 'HEAD')
                 final = wt.prepare_integration(root, 'example')
                 assert final.base_commit == latest
                 calls = []
-                def validate(root, options, *, final_candidate):
-                    calls.append(final_candidate.candidate_head)
-                    assert not (root.parent / '.blueprint/lifecycle.lock').exists()
-                    with tasks.selected_task(root, final_candidate.task_file):
-                        require_import_changes(root, final_candidate.changed_paths, final_candidate=final_candidate)
-                    return 0
+                validate = _bind_framework_callback(_callback_check_model_refactor_integration_validate, calls)
                 with patch.object(loop, 'run_loop', side_effect=validate):
                     with redirect_stderr(io.StringIO()) as warnings:
                         result = wt.validate_final_candidate(final)
@@ -924,4 +989,3 @@ def check_model_refactor_integration():
 
 if __name__ == "__main__":
     main()
-

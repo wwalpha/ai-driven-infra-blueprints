@@ -1,23 +1,32 @@
 #!/usr/bin/env python3
 """Generic static fixture loading and workspace path boundaries."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from unittest.mock import patch
+
+import pytest
+from support import fixture_cases as fixtures
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from unittest.mock import patch
-import pytest
-from support import fixture_cases as fixtures
+
+def _callback_suite_write(tmp_path, /, text):
+    fixtures._suite.cache_clear()
+    (tmp_path / 'example.yaml').write_text(text, encoding='utf-8')
 
 
 @pytest.fixture
 def suite(tmp_path, monkeypatch):
     monkeypatch.setattr(fixtures, '_FIXTURES', tmp_path)
     fixtures._suite.cache_clear()
-    def write(text):
-        fixtures._suite.cache_clear()
-        (tmp_path / 'example.yaml').write_text(text, encoding='utf-8')
+    write = _bind_framework_callback(_callback_suite_write, tmp_path)
     yield write
     fixtures._suite.cache_clear()
 

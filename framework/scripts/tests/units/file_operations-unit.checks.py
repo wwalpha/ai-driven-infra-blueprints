@@ -1,26 +1,39 @@
 #!/usr/bin/env python3
 """Byte preservation and failure boundaries of shared file publication."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit("Focused checks require assertions; run without -O")
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from unittest.mock import patch
+
 import pytest
+import sync_files
 from support.pytest_cli import run
 from utils import file_operations as files
-import sync_files
+
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 
 def check_atomic_bytes(tmp_path):
     old, new, deleted = [tmp_path / name for name in ('old', 'new', 'deleted')]
-    old.write_bytes(b'original\r\n'); deleted.write_bytes(b'delete\x00')
+    old.write_bytes(b'original\r\n')
+    deleted.write_bytes(b'delete\x00')
     files.atomic_files({old: '日本語\r\n', new: 'new\x00', deleted: None})
     assert old.read_bytes() == '日本語\r\n'.encode('utf-8')
     assert new.read_bytes() == b'new\x00' and not deleted.exists()
     with patch.object(files.os, 'replace', wraps=files.os.replace):
         files.atomic_files({old: '日本語\r\n'})
     assert sorted(p.name for p in tmp_path.iterdir()) == ['new', 'old']
+
+
+def _callback_check_atomic_failure_replace(last, real_replace, /, source, destination):
+    if destination == last:
+        raise OSError('injected replace')
+    return real_replace(source, destination)
 
 
 @pytest.mark.parametrize('failure', ['write', 'replace'])
@@ -30,10 +43,7 @@ def check_atomic_failure(tmp_path, failure):
     for path, content in originals.items():
         path.write_bytes(content)
     real_replace = files.os.replace
-    def replace(source, destination):
-        if destination == last:
-            raise OSError('injected replace')
-        return real_replace(source, destination)
+    replace = _bind_framework_callback(_callback_check_atomic_failure_replace, last, real_replace)
     target = patch.object(files.os, 'fsync', side_effect=OSError('injected write')) if failure == 'write' else patch.object(files.os, 'replace', side_effect=replace)
     with target, pytest.raises(OSError, match='injected'):
         files.atomic_files({old: 'updated', new: 'created', deleted: None, last: 'changed'})
@@ -42,15 +52,18 @@ def check_atomic_failure(tmp_path, failure):
     assert set(tmp_path.iterdir()) == set(originals)
 
 
+def _callback_check_save_rollback_patch_fail(new, write, /, path, *args, **kwargs):
+    if path == new:
+        path.write_bytes(b'partial')
+        raise OSError('injected write')
+    return write(path, *args, **kwargs)
+
+
 def check_save_rollback_patch(tmp_path):
     old, new = tmp_path / 'old', tmp_path / 'new'
     old.write_bytes(b'old\r\n\x00')
     write = Path.write_text
-    def fail(path, *args, **kwargs):
-        if path == new:
-            path.write_bytes(b'partial')
-            raise OSError('injected write')
-        return write(path, *args, **kwargs)
+    fail = _bind_framework_callback(_callback_check_save_rollback_patch_fail, new, write)
     with patch.object(Path, 'write_text', side_effect=AssertionError('unchanged write')):
         sync_files.save_files({old: 'old\r\n\x00'})
     with patch.object(Path, 'write_text', fail), patch.object(sync_files, 'restore_files', wraps=files.restore_files) as restore, pytest.raises(OSError, match='injected write'):

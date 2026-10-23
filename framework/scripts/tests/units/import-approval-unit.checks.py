@@ -2,23 +2,29 @@
 """Synthetic Review/publication integrity units; conversational consent is an agent responsibility."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import copy
-from datetime import datetime, timedelta, timezone
 import json
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import pytest
-from model.importing import approval
 import import_guard
-from support.model_v2_fixtures import value_snapshot as Expansion
-from script_loader import module
-
+import model.format as _imports_model_format
+import pytest
+from model.format import serialize
+from model.importing import approval
 from model.importing import cli as m
+from model.operations import operation_values
+from model.sources import load_model
+from script_loader import module as module
+from support.model_v2_fixtures import value_snapshot as Expansion
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 def schema(prop):
@@ -240,7 +246,6 @@ def check_unselected_reference_changes_are_not_reviewed_as_selected():
 
 
 def source_review_case(tmp_path):
-    from model.format import serialize
     acquisition, selection, before, proposed, risks = proposal()
     root = tmp_path / 'repo'
     source = root / 'model/dev/cde/vpc.properties'
@@ -274,7 +279,7 @@ def check_review_command_is_read_only(tmp_path, failure):
         case.acquisition['records'][0]['properties']['EC2.VPC.CidrBlock']['value'] = {'password': 'never-output'}
         candidate = dict(case.proposed)
         candidate['desired.row.001-002.value'] = '`{"password":"never-output"}`'
-        from model.format import serialize
+        serialize = _imports_model_format.serialize
         case.candidate.write_text(serialize(candidate), encoding='utf-8')
     original = case.source.read_bytes()
     with patch.object(m, 'target_for', return_value={'directory': 'cde'}), \
@@ -295,7 +300,6 @@ def check_review_command_is_read_only(tmp_path, failure):
 
 @pytest.mark.parametrize('failure', [None, 'load', 'render', 'review', 'property', 'selection', 'baseline', 'provenance'])
 def check_preflight_before_any_save(tmp_path, failure):
-    from model.format import serialize
     case = source_review_case(tmp_path)
     with patch.object(m, 'target_for', return_value={'directory': 'cde'}), \
          patch.object(m, 'read_acquisition', return_value=case.acquisition), \
@@ -416,8 +420,6 @@ def check_unselected_reference_selector_is_rejected():
 
 
 def check_real_loader_retains_unresolved_reference_declaration(tmp_path):
-    from model.sources import load_model
-    from model.format import serialize
     (tmp_path / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', 'alias': 'cde',
         'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}), encoding='utf-8')
     fields = {'desired.resource.001.resourceType': 'EC2.Subnet', 'desired.resource.001.resourceMode': 'IMPORT',
@@ -438,7 +440,6 @@ def check_real_loader_retains_unresolved_reference_declaration(tmp_path):
 @pytest.mark.parametrize('failure', [None, 'known', 'stale', 'create', 'type', 'collision', 'duplicate-target',
                                      'duplicate-physical', 'invalid-id', 'anchor', 'row', 'uncaptured'])
 def check_explicit_bind_preserves_identity(failure):
-    from model.operations import operation_values
     acquisition, selection, before, proposed, risks = proposal()
     before.authoritative.pop('observed.row.001-001.value')
     decision = selection['resources'][0]

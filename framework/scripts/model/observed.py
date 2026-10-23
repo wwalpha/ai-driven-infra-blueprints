@@ -1,12 +1,21 @@
 """Observation-only proposals preserve every non-observed byte and field."""
+
 import re
+
+import model.adapters.task as _imports_model_adapters_task
+import model.configuration as _configuration
+import model.core as _imports_model_core
+import model.format as _imports_model_format
+import model.operations as _dependency_model_operations
+import model.operations as _imports_model_operations
+import model.projection as _imports_model_projection
+import model.sources as _imports_model_sources
 from model.format import patch
-from model.operations import _context, prepare_edit
 
 
 def verify_observed_outputs(previous, outputs):
     """Prove the writer's outputs contain only explicit observation patches, byte for byte."""
-    from model.format import parse
+    parse = _imports_model_format.parse
     for file, text in outputs.items():
         if file not in previous or previous[file] is None or not isinstance(text, str):
             raise ValueError('observed publication cannot add an authority file: ' + str(file))
@@ -20,28 +29,7 @@ def verify_observed_outputs(previous, outputs):
 
 
 def foreign_observation(snapshot, row):
-    """Prove a Row observes only foreign Resources and is not a native physical ID."""
-    from model.core import entries
-    from model.references import usages
-    resource_id = row.rpartition('-')[0]
-    resource = dict(entries(snapshot.authoritative, 'desired.resource.'))[resource_id]
-    key = f'desired.row.{row}.value'
-    own_scope = '/'.join((snapshot.scope.environment, snapshot.scope.target, snapshot.scope.service))
-    uses = [use for use in usages(snapshot, _coalesce=False) if use.consumer_key == key]
-    if not uses or any(use.producer_kind != 'resource' or use.producer_scope == own_scope and
-                       use.producer_id == resource_id for use in uses):
-        return False
-    from model.projection import catalog_outputs
-    from utils.aws_schemas import schemas_for
-    kind = resource['resourceType']
-    try:
-        schema = schemas_for(snapshot.scope.root).cloudformation('AWS::' + kind.replace('.', '::', 1))
-    except KeyError:
-        raise ValueError('IMPORT physical identity cannot be proven without its schema: ' + kind) from None
-    identities = catalog_outputs(snapshot.scope.root, kind) | {
-        kind + '.' + pointer.removeprefix('/properties/').replace('/', '.')
-        for pointer in schema.get('primaryIdentifier', ())}
-    return bool(schema.get('primaryIdentifier')) and snapshot.authoritative[f'desired.row.{row}.property'] not in identities
+    return _configuration.foreign_observation(snapshot, row, outputs=_imports_model_projection.catalog_outputs)
 
 
 def require_observable_row(snapshot, row):
@@ -52,7 +40,7 @@ def require_observable_row(snapshot, row):
 
 
 def prepare_observed(snapshot, changes, policy):
-    _context(snapshot, policy)
+    _dependency_model_operations._context(snapshot, policy)
     by_file = {}
     for key, value in changes.items():
         match = re.fullmatch(r'observed\.row\.([A-Za-z0-9_-]+)\.value', key)
@@ -65,13 +53,13 @@ def prepare_observed(snapshot, changes, policy):
         if snapshot.authoritative.get(key) != value or (key in snapshot.authoritative) != (value is not None):
             require_observable_row(snapshot, row)
         if value is not None:
-            from model.core import entries
-            from model.projection import observed_value
+            entries = _imports_model_core.entries
+            observed_value = _imports_model_projection.observed_value
             observed_value(row, dict(entries(snapshot.authoritative, 'desired.row.'))[row], value, ())
         file = snapshot.locations[desired][0]
         by_file.setdefault(file, {})[key] = value
     output = {file: patch(snapshot.documents[file], changes) for file, changes in by_file.items()}
-    plan = prepare_edit(snapshot, output, policy)
+    plan = _dependency_model_operations.prepare_edit(snapshot, output, policy)
     previous = {key: value for key, value in snapshot.authoritative.items() if not key.startswith('observed.')}
     current = {key: value for key, value in plan.candidate.authoritative.items() if not key.startswith('observed.')}
     if previous != current:
@@ -81,9 +69,9 @@ def prepare_observed(snapshot, changes, policy):
 
 def observed_outputs(path, values):
     """Produce only byte-preserving observation patches; no derived metadata is serialized."""
-    from model.sources import load_model
-    from model.core import entries
-    from model.projection import observed_value
+    entries = _imports_model_core.entries
+    observed_value = _imports_model_projection.observed_value
+    load_model = _imports_model_sources.load_model
     snapshot = load_model(path)
     if {key: value for key, value in snapshot.values.items() if not key.startswith('observed.')} != {
             key: value for key, value in values.items() if not key.startswith('observed.')}:
@@ -108,10 +96,11 @@ def observed_outputs(path, values):
 
 def publish_observed_candidates(root, outputs, inputs=None):
     """Recheck selected Rows under the real Task context and publish one atomic Model batch."""
-    from model.sources import load_model, source_scope
-    from model.adapters.task import observed_write_context
-    from model.format import parse
-    from model.operations import _publish_plans
+    observed_write_context = _imports_model_adapters_task.observed_write_context
+    parse = _imports_model_format.parse
+    _publish_plans = _imports_model_operations._publish_plans
+    load_model = _imports_model_sources.load_model
+    source_scope = _imports_model_sources.source_scope
     changes, candidates = {}, {}
     for file, text in outputs.items():
         scope = source_scope(root, file)

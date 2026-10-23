@@ -1,10 +1,13 @@
 """Invocation-local diagnostics and progress; elapsed time is not a work estimate."""
-from contextlib import contextmanager
-from contextvars import ContextVar
-from functools import wraps
+
 import sys
 import threading
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
+from functools import partial as _bind_framework_callback
+
+from utils.function_wrapper import FunctionWrapper
 
 _current = ContextVar('sync_progress', default=None)
 _output = ContextVar('sync_output', default=None)
@@ -134,43 +137,52 @@ def advance():
             state[3] += 1
 
 
-def stage(name):
-    def decorate(function):
-        @wraps(function)
-        def wrapped(*args, **kwargs):
-            with phase(name):
-                return function(*args, **kwargs)
-        return wrapped
-    return decorate
+def _invoke_stage_decorate(function, name, /, *args, **kwargs):
+    with phase(name):
+        return function(*args, **kwargs)
 
 
-def tracked_sync(function):
-    @wraps(function)
-    def wrapped(root, write, environment=None, target_directory=None, services=None, jobs=4, **kwargs):
-        current = _current.get()
-        if current is None:
-            return function(root, write, environment, target_directory, services, jobs, **kwargs)
-        progress, _ = current
-        label = '/'.join((environment or '*', target_directory or '*', ','.join(services or ['*'])))
-        with progress.worker(label):
-            return function(root, write, environment, target_directory, services, jobs, **kwargs)
+def _callback_stage_decorate(name, /, function):
+    wrapped = FunctionWrapper(function, _invoke_stage_decorate, name)
     return wrapped
 
 
+def stage(name):
+    decorate = _bind_framework_callback(_callback_stage_decorate, name)
+    return decorate
+
+
+def _invoke_tracked_sync(function, /, root, write, environment=None, target_directory=None, services=None, jobs=4, **kwargs):
+    current = _current.get()
+    if current is None:
+        return function(root, write, environment, target_directory, services, jobs, **kwargs)
+    progress, _ = current
+    label = '/'.join((environment or '*', target_directory or '*', ','.join(services or ['*'])))
+    with progress.worker(label):
+        return function(root, write, environment, target_directory, services, jobs, **kwargs)
+
+
+def tracked_sync(function):
+    wrapped = FunctionWrapper(function, _invoke_tracked_sync)
+    return wrapped
+
+
+def _invoke_reported_main(function, /, *args, **kwargs):
+    progress = Progress(output=output_file(error=True))
+    thread = threading.Thread(target=progress.heartbeat, daemon=True)
+    thread.start()
+    try:
+        with progress.worker('selection'):
+            result = function(*args, **kwargs)
+            _, state = _current.get()
+            state[5] = ('failed' if result else 'completed' if progress.consumers == progress.completed else 'unfinished')
+            progress.emit(state, state[5])
+            return result
+    finally:
+        progress.stop.set()
+        thread.join()
+
+
 def reported_main(function):
-    @wraps(function)
-    def wrapped(*args, **kwargs):
-        progress = Progress(output=output_file(error=True))
-        thread = threading.Thread(target=progress.heartbeat, daemon=True)
-        thread.start()
-        try:
-            with progress.worker('selection'):
-                result = function(*args, **kwargs)
-                _, state = _current.get()
-                state[5] = ('failed' if result else 'completed' if progress.consumers == progress.completed else 'unfinished')
-                progress.emit(state, state[5])
-                return result
-        finally:
-            progress.stop.set()
-            thread.join()
+    wrapped = FunctionWrapper(function, _invoke_reported_main)
     return wrapped

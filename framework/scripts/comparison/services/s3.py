@@ -1,9 +1,13 @@
 """s3 comparison contracts and projections."""
 
+import re
+
+from cloudformation_inputs import Blocked
+
 REF_ATTRIBUTES = {'S3.Bucket': 'BucketName'}
 
-import re
-from cloudformation_inputs import Blocked
+
+
 SUB_ARN_KINDS = {'S3.Bucket'}
 
 def literal_arn(bucket, pseudo, mode):

@@ -1,12 +1,13 @@
 """Existing invocation-owned deployment timing."""
+import json
+import os
+import sys
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
-import os
-import sys
-import time
-import json
+
 
 class Timing:
     """Invocation-owned, thread-safe diagnostics outside the repository."""
@@ -33,5 +34,3 @@ class Timing:
                          "pid": os.getpid(), "python": sys.executable, **fields}
                 with self.lock, self.path.open("a", encoding="utf-8") as stream:
                     stream.write(json.dumps(event, ensure_ascii=False) + "\n")
-
-

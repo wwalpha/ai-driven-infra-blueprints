@@ -1,10 +1,16 @@
 """Resource reads and source traces over the canonical Model reader."""
+
 from pathlib import Path
-from model.sources import load_model, scope_for
-from model.core import resource_row_index
-from validation_cache import input_scope
-from model.sources import model_parts, source_scope
-from model.format import LIMIT as MAX_LINES
+
+from utils.input_cache import input_scope
+
+import model.core as _imports_model_core
+import model.format as _imports_model_format
+import model.identity as resource_identity
+import model.references as _imports_model_references
+import model.sources as _dependency_model_sources
+from model.core import entries, properties
+from model.core import resource_row_index as resource_row_index
 
 
 @input_scope
@@ -14,6 +20,7 @@ def read_model(path):
 
 @input_scope
 def trace_model(path, key):
+    declarations = _imports_model_references.declarations
     snapshot = load_model(path)
     origin = key
     if key not in snapshot.authoritative:
@@ -25,7 +32,6 @@ def trace_model(path, key):
     result = {'key': key, 'value': snapshot.values[key] if origin != key else snapshot.authoritative[key], 'file': str(file), 'line': line}
     if origin != key:
         result['derivedFrom'] = origin
-    from model.references import declarations
     references = {identity: spec for identity, spec in declarations(snapshot.authoritative).items()
                   if spec['consumerKey'] == origin}
     if references:
@@ -34,13 +40,14 @@ def trace_model(path, key):
 
 
 def service_model_path(path, base):
-    return source_scope(base.parent, path).path
+    return _dependency_model_sources.source_scope(base.parent, path).path
 
 
 def model_file_contents(path, text, *, validate=True):
     """Initial layout only; ordinary edits use format.patch and retain existing parts."""
-    from model.format import parse, split
-    from model.core import validate_authority
+    validate_authority = _imports_model_core.validate_authority
+    parse = _imports_model_format.parse
+    split = _imports_model_format.split
     values = parse(text).values
     if validate:
         validate_authority(values)
@@ -49,23 +56,21 @@ def model_file_contents(path, text, *, validate=True):
 
 def resource_keys(text: str, selector: str, *, scope=None) -> set[str]:
     """Select one resource's display group and service-wide context without rewriting values."""
-    from model.core import LINK, entries, properties
     values = properties(text)
     resources = dict(entries(values, "desired.resource."))
     matches = [identity for identity, resource in resources.items()
                if selector and selector in (identity, resource.get("logicalId"))]
     if len(matches) != 1:
         raise ValueError(f"resource selector must match exactly one fixed entry number or logicalId: {selector!r} ({len(matches)} matches)")
-    from model.identity import parse_reference, anchor_index, select_anchor
-    anchors = anchor_index(values)
+    anchors = resource_identity.anchor_index(values)
     neighbors = {identity: set() for identity in resources}
     for identity, resource in resources.items():
         if 'parentReference' not in resource:
             continue
-        environment, target, service, logical = parse_reference(resource['parentReference'], scope)
+        environment, target, service, logical = resource_identity.parse_reference(resource['parentReference'], scope)
         if scope is None or (environment, target, service) != (scope.environment, scope.target, scope.service):
             raise ValueError('grouped parent requires the same explicit service scope')
-        match = select_anchor(anchors, logical, resource['parentReference'])
+        match = resource_identity.select_anchor(anchors, logical, resource['parentReference'])
         if match is None:
             raise ValueError('grouped parent is absent: ' + identity)
         parent = match[0]
@@ -90,9 +95,9 @@ def resource_keys(text: str, selector: str, *, scope=None) -> set[str]:
 @input_scope
 def read_resource(model_path: Path, selector: str) -> dict[str, tuple[Path, int, str]]:
     """Return selected group keys with source locations/values; expansion errors propagate."""
+    owner = _imports_model_format.owner
     loaded = load_model(model_path.absolute())
     keys = resource_keys(loaded.text, selector, scope=loaded.scope)
-    from model.format import owner
     selected = {owner(key, loaded.authoritative) for key in keys if key in loaded.authoritative}
     return {key: (*loaded.locations[key], value) for key, value in loaded.authoritative.items()
             if owner(key, loaded.authoritative) in selected}
@@ -104,3 +109,11 @@ def find_model(model_path: Path, query: str) -> dict[str, tuple[Path, int]]:
     loaded = load_model(model_path.absolute())
     return {key: loaded.locations[key] for key, value in loaded.authoritative.items() if query in key + '=' + value}
 
+
+
+def load_model(scope, read_context=None):
+    return _dependency_model_sources.load_model(scope, read_context)
+
+
+def model_parts(path, *, read_context=None):
+    return _dependency_model_sources.model_parts(path, read_context=read_context)

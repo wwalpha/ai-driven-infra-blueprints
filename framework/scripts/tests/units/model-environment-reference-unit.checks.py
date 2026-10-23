@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Environment strings are literals; retired declarations fail at shared boundaries."""
-import hashlib
 import json
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
 from model.files import trace_model
@@ -15,6 +14,9 @@ from model.importing.approval import validate_reference_proposal
 from model.references import declarations
 from model.sources import load_model
 from support.model_v2_fixtures import format_fixture
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 def check_environment_literals_and_account_context(tmp_path):

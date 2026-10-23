@@ -3,17 +3,23 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import re
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
+import task_contract_core as _exports_task_contract_core
 from issue_gate import unresolved_services
-from task_contract import safe_path, status
-from validation_cache import memoized
+from task_contract_core import safe_path as safe_path
+from utils.input_cache import memoized
+
+from .aggregate import comparison_status, iac_summary
+from .records import brief, identifier, safe_text
+
+# Preserve shared fixtures and compatibility exports under their historical names.
+status = _exports_task_contract_core.status
 
 
-from .records import identifier, safe_text, brief
-from .aggregate import iac_summary, comparison_status
+
 
 def inventories(root, path):
     if not path.is_file():
@@ -46,7 +52,7 @@ def blocks(text):
     starts = markdown_matches(text, r'^### (.+)$')
     preamble = text[:starts[0][0]] if starts else text
     result = []
-    for i, (start, end, heading) in enumerate(starts):
+    for i, (start, _end, heading) in enumerate(starts):
         body = text[start: starts[i + 1][0] if i + 1 < len(starts) else len(text)]
         markers = re.findall(r'<!-- issue-service: ([a-z0-9_-]+) -->', body)
         service = markers[0] if len(set(markers)) == 1 else heading if re.fullmatch(r'[a-z0-9_-]+', heading) else None
@@ -186,7 +192,7 @@ def iac_report(environment, directory, services, records, display=None, *, stamp
         f'問題: {summary["issue_count"]}件（原因・必要対応単位）',
         f'影響: 差分 {counts["difference"]}件 / 未比較 {counts["uncompared"]}項目 / 処理エラー {counts["error"]}項目',
         f'元レコード数: {summary["record_count"]}（一致 {counts["matched"]} / 除外 {counts["excluded"]}）',
-        f'分類: ' + ' / '.join(f'{category} {count}件' for category, count in summary['categories'].items()),
+        '分類: ' + ' / '.join(f'{category} {count}件' for category, count in summary['categories'].items()),
         f'表示{len(summary["groups"])}／全{summary["issue_count"]}対応単位、未表示{summary["omitted_issues"]}',
         '未表示の分類: ' + ' / '.join(f'{category} {count}件' for category, count in summary['omitted_categories'].items()),
         '未表示の影響: ' + ' / '.join(f'{kind} {count}件' for kind, count in summary['omitted_record_categories'].items()), '']

@@ -1,34 +1,26 @@
 """Responsibility boundaries: dispatch, mutable findings, callbacks and import safety."""
 
-
-from contextlib import ExitStack, redirect_stdout
-
-
 import io
-
-
-import os
-
-
+from contextlib import ExitStack, redirect_stdout
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-
-
-import subprocess
-
-
-import sys
-
-
+from types import SimpleNamespace as _CallbackState
 from unittest.mock import patch
 
-
-from support.validator import MODULE, SCRIPT, project, write, load
-
-
+from support.validator import MODULE, SCRIPT, load, project, write
 from validation_cache import PassCache
 
 
+def _callback_check_dispatch_run_check(_state_check_dispatch_13, /, name):
+    _state_check_dispatch_13.invoked.append(name)
+    if name == 'check_task_scope':
+        _state_check_dispatch_13.validator.task_type, _state_check_dispatch_13.validator.infrastructure_phase = _state_check_dispatch_13.task_type, _state_check_dispatch_13.phase
+    if _state_check_dispatch_13.failed and name == 'check_model_files':
+        _state_check_dispatch_13.validator.check(False, 'prior model error')
+
+
 def check_dispatch():
+    _state_check_dispatch_13 = _CallbackState()
     common = ['check_structure', 'check_task_scope', 'check_project_topology',
               'check_validation_scope', 'check_model_files', 'check_issue_gate',
               'check_initialized_paths', 'check_catalog', 'check_resource_layout']
@@ -47,21 +39,16 @@ def check_dispatch():
     methods = set(common + ['check_task_type_requirements', 'check_acceptance_checks'])
     methods.update(name for *_, tail in cases for name in tail)
     with project() as root:
-        for scope, task_type, phase, failed, tail in cases:
-            validator = MODULE.Validator(root, scope)
-            invoked = []
-            def run_check(name):
-                invoked.append(name)
-                if name == 'check_task_scope':
-                    validator.task_type, validator.infrastructure_phase = task_type, phase
-                if failed and name == 'check_model_files':
-                    validator.check(False, 'prior model error')
+        for scope, _state_check_dispatch_13.task_type, _state_check_dispatch_13.phase, _state_check_dispatch_13.failed, tail in cases:
+            _state_check_dispatch_13.validator = MODULE.Validator(root, scope)
+            _state_check_dispatch_13.invoked = []
+            run_check = _bind_framework_callback(_callback_check_dispatch_run_check, _state_check_dispatch_13)
             with ExitStack() as stack, redirect_stdout(io.StringIO()):
-                stack.enter_context(patch.object(validator.task, 'fix_baseline', lambda: invoked.append('fix_baseline')))
+                stack.enter_context(patch.object(_state_check_dispatch_13.validator.task, 'fix_baseline', lambda *, invoked=_state_check_dispatch_13.invoked: invoked.append('fix_baseline')))
                 for name in methods:
-                    stack.enter_context(patch.object(validator, name, lambda name=name: run_check(name)))
-                assert validator.run() == int(failed)
-            assert invoked == ['fix_baseline'] + common + tail + ['check_acceptance_checks'], invoked
+                    stack.enter_context(patch.object(_state_check_dispatch_13.validator, name, lambda name=name, run_check=run_check: run_check(name)))
+                assert _state_check_dispatch_13.validator.run() == int(_state_check_dispatch_13.failed)
+            assert _state_check_dispatch_13.invoked == ['fix_baseline'] + common + tail + ['check_acceptance_checks'], _state_check_dispatch_13.invoked
 
 
 def check_boundaries():
@@ -155,4 +142,3 @@ def check_module_keys():
     for name in names:
         selected, _ = loop.select_checks(SCRIPT.parents[2], {f'framework/scripts/validation/{name}.py'}, True)
         assert selected == all_checks, name
-

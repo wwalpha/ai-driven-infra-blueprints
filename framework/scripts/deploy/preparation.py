@@ -2,26 +2,34 @@
 """Prepare CloudFormation offline, register its contract, or explicitly launch one controller."""
 from __future__ import annotations
 
-from deploy.inputs import load_units, paths, deployment_input_paths
-from deploy.contracts import sha
-from deploy.timing import Timing
-from project_targets import load_target
-from utils.markdown_format import markdown_sections, rule_readings
-from model import projection as model_projection
-from utils.aws_mappings import definition_root
 import argparse
 import hashlib
 import importlib
 import importlib.metadata
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
+
+import issue_gate as _imports_issue_gate
+import model.core as _imports_model_core
+import model.sources as _imports_model_sources
+import task_contract_core as _imports_task_contract
+from model.sources import load_model
+from project_targets import load_target
+from utils.aws_mappings import definition_root
+from utils.file_operations import sha
+from utils.markdown_format import markdown_sections, rule_readings
+from utils.source_reads import FileReads
+
+from deploy.inputs import deployment_input_paths, load_units, paths
+from deploy.timing import Timing
+from model import projection as model_projection
 
 
 def environment(root):
@@ -46,9 +54,8 @@ def environment(root):
 
 
 def candidate(root, task, env, directory, target, stacks, services):
-    from model.sources import load_model, FileReads
-    from model.core import entries
-    from task_contract import safe_path
+    entries = _imports_model_core.entries
+    safe_path = _imports_task_contract.safe_path
     files, sources, generated_views = {task}, set(), set()
     reads = FileReads()
     for service in services:
@@ -91,8 +98,10 @@ def candidate(root, task, env, directory, target, stacks, services):
 
 
 def prepare(root, args, run, timing):
-    from task_contract import TASK_NAME, contracts, safe_path
-    from issue_gate import issue_errors
+    issue_errors = _imports_issue_gate.issue_errors
+    TASK_NAME = _imports_task_contract.TASK_NAME
+    contracts = _imports_task_contract.contracts
+    safe_path = _imports_task_contract.safe_path
     if not TASK_NAME.fullmatch(args.task_file):
         raise ValueError("use a new tasks/<task-name>.md")
     if not args.service or len(set(args.service)) != len(args.service) or any(
@@ -206,13 +215,13 @@ def prepare(root, args, run, timing):
 
 
 def model_input_paths(root, scope):
-    from model.sources import source_inputs
+    source_inputs = _imports_model_sources.source_inputs
     return sorted({path.relative_to(root).as_posix() for entry in scope
                    for path in source_inputs(root / 'model' / (entry + '.properties'))})
 
 
 def register(root, path, timing):
-    from issue_gate import issue_errors
+    issue_errors = _imports_issue_gate.issue_errors
     plan = json.loads(path.read_text(encoding="utf-8"))
     if plan["repository"] != str(root) or plan["runtime"]["python"] != sys.executable:
         raise ValueError("use the same repository and Python interpreter as preparation")
@@ -223,7 +232,7 @@ def register(root, path, timing):
     if {name: shutil.which(name) for name in plan["runtime"]["tools"]} != plan["runtime"]["tools"]:
         raise ValueError("prepared command paths changed")
     with timing.phase("documentReview", started=plan["reviewStarted"]):
-        from task_contract import safe_path
+        safe_path = _imports_task_contract.safe_path
         for relative, digest in plan["inputs"].items():
             base = definition_root(root) if relative.startswith(("framework/", ".agents/")) else root
             safe_path(base, relative)
@@ -252,7 +261,7 @@ def register(root, path, timing):
 
 def run_controller(root, path):
     """One subprocess/session for the entire prepared scope; safety stays in the controller."""
-    from task_contract import task_path
+    task_path = _imports_task_contract.task_path
     plan = json.loads(path.read_text(encoding="utf-8"))
     if plan["repository"] != str(root) or plan["controllerArgv"][:2] != [sys.executable, str(definition_root(root) / "framework/scripts/cloudformation-deploy.py")]:
         raise ValueError("use the prepared repository and Python interpreter")

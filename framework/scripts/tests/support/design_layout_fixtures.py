@@ -1,47 +1,47 @@
 """Check grouped identities, references and catalog display coverage end to end."""
 
 import sys
-
 from pathlib import Path
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import json
+import re
+import shutil
+
+import model.core as model_core
+import model.projection as model_projection
+import model.render as model_design
+import pytest
+import sync_runtime
+from design_layout import (
+    SUBNET_LIST_PROPERTIES,
+    expanded_design,
+    expanded_display_rows,
+    formal_property,
+    layout_errors,
+    resource_display_name,
+    resource_logical_ids,
+)
+from model.display import display_rows, row_table
+from policy_tables import resources_in
+from service_rows import pipeline_rows
+from support.model_sources import write_model
+from support.pytest_cli import run
+from support.validator import load
+from utils.layout_schema import (
+    HIDDEN_PROPERTIES,
+    LAYOUTS,
+    RESOURCE_REFERENCE_PROPERTIES,
+    resource_anchor,
+)
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-from support.model_sources import write_model
-
-import pytest
-
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
-from support.pytest_cli import run
 
-import sync_runtime
-
-import model.render as model_design
-
-import model.core as model_core
-
-import model.projection as model_projection
-
-import json
-
-import re
-
-import shutil
-
-from support.validator import load
-
-from design_layout import HIDDEN_PROPERTIES, LAYOUTS, RESOURCE_REFERENCE_PROPERTIES, expanded_design, expanded_display_rows, formal_property, layout_errors, resource_anchor, resource_display_name, resource_logical_ids
-
-from policy_tables import resources_in
-
-from service_rows import pipeline_rows
-
-from model.display import display_rows, row_table
-
-from design_layout import SUBNET_LIST_PROPERTIES
 
 REPOSITORY = Path(__file__).resolve().parents[4]
 

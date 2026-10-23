@@ -1,19 +1,55 @@
 """Reference diagnostics retain literal validation and never require live AWS or Git."""
+
+import copy
 import json
-from pathlib import Path
+import shutil
 import sys
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from collections import Counter
+from contextlib import ExitStack, closing, nullcontext
+from functools import partial as _bind_framework_callback
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import model.references as references
+import model.sources as sources
+import pytest
+import sync_runtime as runtime
+from design_layout import expanded_display_rows
+from generation_inputs import GenerationInputs
+from import_guard import file_hash
+from issue_gate import (
+    issue_errors,
+    reference_issue_parts,
+    task_issue_errors,
+    unresolved_services,
+)
+from issues.materials import existing_materials
+from model.cli import main
+from model.core import ReferenceResolutionError
+from model.display import display_rows, row_table
+from model.format import owner
+from model.importing.cli import replacement_inputs
+from model.importing.references import Resolver
+from model.importing.scope import read_consumers, read_context, restrict
+from model.operations import _mask_references, _same
+from model.projection import deployment_bucket, reference_display
+from model.references import Usage, diagnose, incoming, usages
+from model.sources import Scope, _source_snapshot, load_model
+from model.validation import check_model_inputs as _check_model_inputs
+from support.import_model_fixtures import dependency_fixture
+from support.model_sources import write_model
+from support.model_v2_fixtures import logs_fixture
+from utils.input_cache import input_context
+from utils.source_reads import FileReads
+from validation.findings import CheckResult, Findings
+from validation.runner import Validator
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-
-import pytest
-from model.core import ReferenceResolutionError
-from model.sources import load_model
-from model.references import incoming, Usage
-from model.operations import _mask_references, _same
-from support.model_sources import write_model
-from support.import_model_fixtures import dependency_fixture
-from validation.findings import Findings
 
 
 @pytest.fixture(autouse=True)
@@ -23,10 +59,13 @@ def synthetic_project(tmp_path):
          'awsRegion': 'ap-northeast-1', 'iacEngine': 'terraform'}]}) + '\n')
 
 
+def _callback_check_reference_leaf_preservation_masked(text, start=7):
+    usage = Usage('desired.row.001-001.value', None, start, len(text) - 7, text[start:-7], 'dev/target/service', 'resource', '001')
+    return _mask_references(text, [usage])
+
+
 def check_reference_leaf_preservation():
-    def masked(text, start=7):
-        usage = Usage('desired.row.001-001.value', None, start, len(text) - 7, text[start:-7], 'dev/target/service', 'resource', '001')
-        return _mask_references(text, [usage])
+    masked = _callback_check_reference_leaf_preservation_masked
     reference = masked('prefix-old-suffix')
     assert _same({'target': reference, 'timeout': 30}, {'target': masked('prefix-new-suffix'), 'timeout': 30})
     assert not _same({'target': reference, 'timeout': 30}, {'target': masked('prefix-new-suffix'), 'timeout': 31})
@@ -34,10 +73,15 @@ def check_reference_leaf_preservation():
     assert not _same({'target': reference}, {'target': 3})
 
 
+
+
+def _check_typed_findings_unresolved():
+    raise ReferenceResolutionError('missing target', key='desired.row.001-001.value')
+
+
 def check_typed_findings(tmp_path):
     findings = Findings(tmp_path)
-    def unresolved():
-        raise ReferenceResolutionError('missing target', key='desired.row.001-001.value')
+    unresolved = _check_typed_findings_unresolved
     result = findings.evaluate('links', set(), unresolved)
     assert result.status == 'NOT_RUN' and result.metadata['reason'] == 'reference'
     assert result.warnings and not result.errors
@@ -70,8 +114,7 @@ def check_reference_analysis_keeps_invalid_source_error(tmp_path):
 
 
 def check_deleted_target_retains_before_value(tmp_path):
-    import shutil
-    from model.format import owner
+
     before, after = tmp_path / 'before', tmp_path / 'after'
     dependency_fixture(before)
     shutil.copytree(before, after)
@@ -86,10 +129,7 @@ def check_deleted_target_retains_before_value(tmp_path):
 
 
 def check_replace_keeps_snapshot_and_reports_impact(tmp_path):
-    from model.importing.cli import replacement_inputs
-    from generation_inputs import GenerationInputs
-    from contextlib import closing
-    from import_guard import file_hash
+
     dependency_fixture(tmp_path)
     with closing(GenerationInputs(tmp_path)) as reads:
         before = load_model(tmp_path / 'model/stg/cde/service-a.properties', reads)
@@ -99,8 +139,19 @@ def check_replace_keeps_snapshot_and_reports_impact(tmp_path):
         assert any(warning['code'] == 'reference.replace_impact' for warning in impact['warnings'])
 
 
+
+
+
+
+def _check_reference_view_retained_but_io_still_fails_fail(*a, **k):
+    raise ReferenceResolutionError('missing target')
+
+
+def _check_reference_view_retained_but_io_still_fails_io_fail(*a, **k):
+    raise OSError('write denied')
+
+
 def check_reference_view_retained_but_io_still_fails(tmp_path, monkeypatch):
-    import sync_runtime as runtime
     root, stage = tmp_path / 'root', tmp_path / 'stage'
     path = root / 'docs/designs/dev/target/service.md'
     path.parent.mkdir(parents=True)
@@ -113,8 +164,7 @@ def check_reference_view_retained_but_io_still_fails(tmp_path, monkeypatch):
     for name in ('validate_mappings', 'validate_required_properties', 'validate_kms_policy_accounts'):
         monkeypatch.setattr(runtime, name, lambda *a, **k: None)
     monkeypatch.setattr(runtime, 'design_target', lambda *a: {})
-    def fail(*a, **k):
-        raise ReferenceResolutionError('missing target')
+    fail = _check_reference_view_retained_but_io_still_fails_fail
     monkeypatch.setattr(runtime, 'markdown_for', fail)
     warnings, unavailable, failures = [], {}, []
     generated = runtime.generate_views(stage, root, {path: {}}, failures, definitions_root=root,
@@ -123,15 +173,18 @@ def check_reference_view_retained_but_io_still_fails(tmp_path, monkeypatch):
     assert unavailable[path]['status'] == 'NOT_RUN'
     assert (stage / path.relative_to(root)).read_text() == 'saved view'
     assert (stage / artifact.relative_to(root)).read_text() == '{"original":true}'
-    def io_fail(*a, **k):
-        raise OSError('write denied')
+    io_fail = _check_reference_view_retained_but_io_still_fails_io_fail
     monkeypatch.setattr(runtime, 'markdown_for', io_fail)
     runtime.generate_views(stage, root, {path: {}}, failures, definitions_root=root)
     assert failures and 'write denied' in failures[0]
 
 
+def _callback_check_completion_only_waives_reference_not_run_mixed(findings, /):
+    findings.check(False, 'literal mismatch')
+    raise ReferenceResolutionError('missing target')
+
+
 def check_completion_only_waives_reference_not_run(tmp_path):
-    from validation.findings import CheckResult
     result = CheckResult('check', frozenset(), object())
     assert not result.model_completion_allowed
     result.metadata['reason'] = 'reference'
@@ -139,15 +192,12 @@ def check_completion_only_waives_reference_not_run(tmp_path):
     result.errors = ('literal mismatch',)
     assert not result.model_completion_allowed
     findings = Findings(tmp_path)
-    def mixed():
-        findings.check(False, 'literal mismatch')
-        raise ReferenceResolutionError('missing target')
+    mixed = _bind_framework_callback(_callback_check_completion_only_waives_reference_not_run_mixed, findings)
     result = findings.evaluate('mixed', set(), mixed)
     assert result.status == 'FAIL' and result.warnings and result.errors
 
 
 def check_legacy_issues_keep_number_and_mixed_error(tmp_path):
-    from issue_gate import issue_errors, unresolved_services, reference_issue_parts
     path = tmp_path / 'issues/dev/target/issues.md'
     path.parent.mkdir(parents=True)
     source = '1. broken local parentReference\n'
@@ -163,7 +213,6 @@ def check_legacy_issues_keep_number_and_mixed_error(tmp_path):
 
 
 def check_json_leaf_warning_keeps_sibling_error(tmp_path):
-    from model.importing.references import Resolver
     resolver = Resolver(tmp_path, 'dev', 'target', definitions_root=Path(__file__).resolve().parents[4])
     with pytest.raises(ValueError, match='literal differs'):
         resolver.verify_tree('CodeBuild.Project.VpcConfig', {'VpcId': '[vpc](vpc.md#missing)', 'timeout': 30},
@@ -174,7 +223,6 @@ def check_json_leaf_warning_keeps_sibling_error(tmp_path):
 
 
 def check_json_cli_warning_success(tmp_path, monkeypatch, capsys):
-    from model.cli import main
     dependency_fixture(tmp_path)
     file = tmp_path / 'model/stg/cde/service-b.properties'
     values = dict(load_model(file).authoritative)
@@ -186,8 +234,7 @@ def check_json_cli_warning_success(tmp_path, monkeypatch, capsys):
 
 
 def check_generation_metadata_reaches_findings(tmp_path, monkeypatch):
-    from contextlib import ExitStack
-    import sync_runtime as runtime
+
     path = tmp_path / 'docs/designs/dev/target/service.md'
     plan = runtime.Generation(tmp_path, tmp_path / 'stage', {('dev', 'target', 'service')}, [], [], None, ExitStack())
     plan.unavailable[path] = {'reason': 'reference', 'status': 'NOT_RUN', 'retainedView': str(path)}
@@ -213,8 +260,6 @@ def check_generation_metadata_reaches_findings(tmp_path, monkeypatch):
 ])
 @pytest.mark.parametrize('mixed', [False, True])
 def check_legacy_diagnostic_forms(tmp_path, diagnostic, mixed):
-    from issue_gate import issue_errors, reference_issue_parts, task_issue_errors
-    from issues.materials import existing_materials
     path = tmp_path / 'issues/dev/target/issues.md'
     path.parent.mkdir(parents=True)
     source = '7. <!-- issue-id: old-7 --> invalid service model: model/dev/target/service.properties: ' + diagnostic + '\n'
@@ -233,9 +278,13 @@ def check_legacy_diagnostic_forms(tmp_path, diagnostic, mixed):
     assert path.read_text() == source
 
 
+
+
+def _check_bucket_missing_source_and_real_errors_denied(*args, **kwargs):
+    raise PermissionError('read denied')
+
+
 def check_bucket_missing_source_and_real_errors(tmp_path, monkeypatch):
-    from model.projection import deployment_bucket
-    import model.sources as sources
     view = tmp_path / 'docs/designs/dev/target/cloudformation-stacks.md'
     with pytest.raises(ReferenceResolutionError) as caught:
         deployment_bucket('[bucket](s3.md#s3-bucket)', view, tmp_path)
@@ -248,16 +297,13 @@ def check_bucket_missing_source_and_real_errors(tmp_path, monkeypatch):
         deployment_bucket('[bucket](s3.md#s3-bucket)', view, tmp_path)
     assert not isinstance(caught.value, ReferenceResolutionError)
     source.write_bytes(saved)
-    def denied(*args, **kwargs):
-        raise PermissionError('read denied')
+    denied = _check_bucket_missing_source_and_real_errors_denied
     monkeypatch.setattr(sources, '_source_snapshot', denied)
     with pytest.raises(PermissionError, match='read denied'):
         deployment_bucket('[bucket](s3.md#s3-bucket)', view, tmp_path)
 
 
 def check_link_display_and_readback_classification(tmp_path):
-    from model.display import display_rows, row_table
-    from design_layout import expanded_display_rows
     definitions = Path(__file__).resolve().parents[4]
     prop = 'CodeBuild.Project.VpcConfig.Subnets'
     with pytest.raises(ReferenceResolutionError):
@@ -302,16 +348,20 @@ def codebuild_values(anchor='project', missing_name=False, second=False):
 @pytest.mark.parametrize('anchor', ['project', 'broken'])
 @pytest.mark.parametrize('second', [False, True])
 def check_independent_model_validation(tmp_path, anchor, second):
-    from model.validation import check_model_inputs
     values = codebuild_values(anchor, missing_name=True, second=second)
-    result = check_model_inputs(tmp_path / 'model/dev/target/codebuild.properties', values, tmp_path,
+    result = _check_model_inputs(tmp_path / 'model/dev/target/codebuild.properties', values, tmp_path,
                                 definitions_root=Path(__file__).resolve().parents[4])
     assert any('CodeBuild.Project.Name must appear exactly once' in e for e in result.errors)
     assert values['desired.resource.001.logicalId'] == 'CodeBuild_Project_001'
 
 
+
+
+def _check_generation_warning_keeps_independent_error_unavailable(*a, **k):
+    raise ReferenceResolutionError('resource anchor mismatch')
+
+
 def check_generation_warning_keeps_independent_error(tmp_path, monkeypatch):
-    import sync_runtime as runtime
     root, stage = tmp_path / 'root', tmp_path / 'stage'
     path = root / 'docs/designs/dev/target/codebuild.md'
     values = codebuild_values('broken', missing_name=True)
@@ -321,8 +371,7 @@ def check_generation_warning_keeps_independent_error(tmp_path, monkeypatch):
     for name in ('validate_mappings', 'validate_required_properties', 'validate_kms_policy_accounts'):
         monkeypatch.setattr(runtime, name, lambda *a, **k: None)
     monkeypatch.setattr(runtime, 'design_target', lambda *a: {})
-    def unavailable(*a, **k):
-        raise ReferenceResolutionError('resource anchor mismatch')
+    unavailable = _check_generation_warning_keeps_independent_error_unavailable
     monkeypatch.setattr(runtime, 'markdown_for', unavailable)
     failures, warnings, unverified = [], [], {}
     assert runtime.generate_views(stage, root, {path: values}, failures,
@@ -333,12 +382,14 @@ def check_generation_warning_keeps_independent_error(tmp_path, monkeypatch):
 
 
 
+def _callback_check_unavailable_service_keeps_source_errors_and_no_cache_generation(scope, /, self):
+    result = self.findings.result('framework.generated-service-model', scope)
+    result.metadata = {'unverified': {'dev/target/codebuild': {'status': 'NOT_RUN', 'reason': 'reference', 'retainedView': None}}}
+
+
 @pytest.mark.parametrize('missing_name', [False, True])
 def check_unavailable_service_keeps_source_errors_and_no_cache(tmp_path, monkeypatch, missing_name):
-    from types import SimpleNamespace
-    from unittest.mock import Mock
-    from validation.runner import Validator
-    from support.model_sources import write_model
+
     root = tmp_path
     scope = {('dev', 'target', 'codebuild')}
     path = root / 'model/dev/target/codebuild.properties'
@@ -348,9 +399,7 @@ def check_unavailable_service_keeps_source_errors_and_no_cache(tmp_path, monkeyp
     validator.cache = SimpleNamespace(common=None, service_key=lambda _: 'key', load=lambda _: None, save=Mock())
     monkeypatch.setattr(Validator, 'check_design_service_ownership', lambda *a: None)
     monkeypatch.setattr(Validator, 'check_stack_designs', lambda *a: None)
-    def generation(self):
-        result = self.findings.result('framework.generated-service-model', scope)
-        result.metadata = {'unverified': {'dev/target/codebuild': {'status': 'NOT_RUN', 'reason': 'reference', 'retainedView': None}}}
+    generation = _bind_framework_callback(_callback_check_unavailable_service_keeps_source_errors_and_no_cache_generation, scope)
     monkeypatch.setattr(Validator, 'check_generated_service_models', generation)
     validator.check_scoped_designs()
     assert bool(validator.errors) is missing_name, validator.errors
@@ -364,14 +413,13 @@ def check_unavailable_service_keeps_source_errors_and_no_cache(tmp_path, monkeyp
 
 @pytest.mark.parametrize('missing_name', [False, True])
 def check_model_warning_only_completion_and_literal_error(tmp_path, missing_name):
-    from model.validation import check_model_inputs
     values = codebuild_values('broken', missing_name=missing_name)
     if missing_name:
         # A separate literal error must survive the unresolved anchor too.
         values.update({'desired.row.001-999.property': 'CodeBuild.Project.TimeoutInMinutes',
                        'desired.row.001-999.value': '`invalid-integer`',
                        'desired.row.001-999.comment': '不正な設定'})
-    findings = check_model_inputs(tmp_path / 'model/dev/target/codebuild.properties', values, tmp_path,
+    findings = _check_model_inputs(tmp_path / 'model/dev/target/codebuild.properties', values, tmp_path,
                                  definitions_root=Path(__file__).resolve().parents[4])
     assert bool(findings.errors) is missing_name, findings.errors
     assert findings.warnings
@@ -383,7 +431,6 @@ def check_model_warning_only_completion_and_literal_error(tmp_path, missing_name
 
 
 def check_model_document_uses_authoritative_json(tmp_path):
-    from model.validation import check_model_inputs
     values = {'desired.service.iam.serviceId': 'iam',
               'desired.service.iam.ownedCatalogResourceTypes': 'IAM.Role',
               'desired.resource.001.resourceType': 'IAM.Role',
@@ -398,7 +445,7 @@ def check_model_document_uses_authoritative_json(tmp_path):
               'desired.row.001-002.value': '[policy](iam/policy.json)',
               'desired.row.001-002.document': '{"Version":"2012-10-17","Statement":[]}',
               'desired.row.001-002.comment': '合成設定'}
-    result = check_model_inputs(tmp_path / 'model/dev/target/iam.properties', values, tmp_path,
+    result = _check_model_inputs(tmp_path / 'model/dev/target/iam.properties', values, tmp_path,
                                 definitions_root=Path(__file__).resolve().parents[4])
     assert not result.errors, result.errors
     assert not result.warnings
@@ -407,8 +454,6 @@ def check_model_document_uses_authoritative_json(tmp_path):
 
 @pytest.mark.parametrize('missing_name', [False, True])
 def check_analysis_generation_keeps_independent_checks(tmp_path, monkeypatch, missing_name):
-    import sync_runtime as runtime
-    from support.model_sources import write_model
     model = tmp_path / 'model/dev/target/codebuild.properties'
     write_model(model, codebuild_values('broken', missing_name=missing_name))
     # Actual saved references warn without abandoning independent source validation.
@@ -435,19 +480,20 @@ if __name__ == '__main__':
     raise SystemExit(run(__file__))
 
 
+def _callback_check_shared_snapshot_parses_each_producer_once_and_rechecks_permission_counted(parsed, read, /, scope, inputs):
+    parsed[scope.path, read_context(scope.root)] += 1
+    return read(scope, inputs)
+
+
 def check_shared_snapshot_parses_each_producer_once_and_rechecks_permission(tmp_path, monkeypatch):
-    import model.sources as sources
-    from model.importing.scope import restrict, read_consumers, read_context
-    from collections import Counter
+
     dependency_fixture(tmp_path)
     left = tmp_path / 'model/dev/cde/service-a.properties'
     right = left.with_name('service-b.properties')
     original = {file: file.read_bytes() for file in (left, right)}
     parsed = Counter()
     read = sources._read_model
-    def counted(scope, inputs):
-        parsed[scope.path, read_context(scope.root)] += 1
-        return read(scope, inputs)
+    counted = _bind_framework_callback(_callback_check_shared_snapshot_parses_each_producer_once_and_rechecks_permission_counted, parsed, read)
     monkeypatch.setattr(sources, '_read_model', counted)
     inputs = sources.FileReads()
     sources.load_model(left, inputs)
@@ -465,8 +511,6 @@ def check_shared_snapshot_parses_each_producer_once_and_rechecks_permission(tmp_
 
 
 def check_cross_environment_direct_link_preserves_scope_and_dependency(tmp_path):
-    from model.references import usages
-    from model.sources import FileReads
     data = json.loads((tmp_path / 'project.json').read_text())
     data['targets'].append({**data['targets'][0], 'environment': 'release', 'alias': 'other'})
     (tmp_path / 'project.json').write_text(json.dumps(data))
@@ -484,8 +528,7 @@ def check_cross_environment_direct_link_preserves_scope_and_dependency(tmp_path)
     assert len(records) == 1 and records[0].producer_scope == 'release/other/network.v1'
     assert producer in snapshot.dependencies and not snapshot.warnings
     assert snapshot.authoritative == values
-    from model.importing.scope import restrict
-    from contextlib import nullcontext
+
     for restricted in (False, True):
         with restrict(('release', 'other', 'network.v1')) if restricted else nullcontext():
             records = incoming(load_model(producer), '007')
@@ -524,9 +567,12 @@ def _usage_spec(values, identity, key, text, *, pointer=None, occurrence='1', **
     values.update({f'desired.reference.{identity}.{field}': value for field, value in spec.items()})
 
 
+def _callback_check_usage_index_preserves_order_and_all_candidates_counted(calls, producer, /, snapshot, address, reads, cache):
+    calls.append(address)
+    return producer(snapshot, address, reads, cache)
+
+
 def check_usage_index_preserves_order_and_all_candidates(tmp_path, monkeypatch):
-    from model.references import usages, diagnose
-    import model.references as references
     file = tmp_path / 'model/dev/target/service.properties'
     link, missing = '[producer](service.md#saved-producer)', '[producer](service.md#missing)'
     key, nested = 'desired.row.001-101.value', 'desired.row.001-001.document'
@@ -544,9 +590,7 @@ def check_usage_index_preserves_order_and_all_candidates(tmp_path, monkeypatch):
     snapshot = load_model(write_model(file, reference_rows(values)))
     calls = []
     producer = references._producer
-    def counted(snapshot, address, reads, cache):
-        calls.append(address)
-        return producer(snapshot, address, reads, cache)
+    counted = _bind_framework_callback(_callback_check_usage_index_preserves_order_and_all_candidates_counted, calls, producer)
     monkeypatch.setattr(references, '_producer', counted)
     records = usages(snapshot)
     assert [record.metadata_id for record in records] == ['a-wrong', 'b-right', 'c-second', 'd-nested', None]
@@ -561,16 +605,18 @@ def check_usage_index_preserves_order_and_all_candidates(tmp_path, monkeypatch):
     assert len(warnings) == 2
 
 
+def _callback_check_usage_index_skips_accumulated_direct_links_counted(calls, original, /, *args):
+    calls.append(1)
+    return original(*args)
+
+
 def check_usage_index_skips_accumulated_direct_links(tmp_path, monkeypatch):
-    import model.references as references
     file = tmp_path / 'model/dev/target/service.properties'
     values = {f'desired.row.001-{index + 100:03d}.value': '[producer](service.md#saved-producer)' for index in range(1, 101)}
     snapshot = load_model(write_model(file, reference_rows(values)))
     calls = []
     original = references._producer
-    def counted(*args):
-        calls.append(1)
-        return original(*args)
+    counted = _bind_framework_callback(_callback_check_usage_index_skips_accumulated_direct_links_counted, calls, original)
     monkeypatch.setattr(references, '_producer', counted)
     records = references.usages(snapshot)
     assert len(records) == 100 and len(calls) == 1
@@ -578,7 +624,6 @@ def check_usage_index_skips_accumulated_direct_links(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('case', ['wrong-id', 'missing-producer', 'missing-anchor', 'ambiguous', 'name', 'context'])
 def check_usage_index_retains_conflicting_direct_links(tmp_path, case):
-    from model.references import usages
     file = tmp_path / 'model/dev/target/service.properties'
     key, link = 'desired.row.001-101.value', '[producer](service.md#saved-producer)'
     values = {'desired.resource.001.resourceType': 'EC2.VPC', 'desired.resource.001.logicalId': 'EC2_VPC_001',
@@ -610,8 +655,17 @@ def check_usage_index_retains_conflicting_direct_links(tmp_path, case):
     assert records[1].metadata_id is None and records[1].text == link
 
 
+def _callback_check_usage_index_keeps_producer_order_and_io_errors_counted(calls, producer, /, snapshot, address, reads, cache):
+    calls.append(address)
+    return producer(snapshot, address, reads, cache)
+
+
+def _callback_check_usage_index_keeps_producer_order_and_io_errors_denied(calls, /, snapshot, address, reads, cache):
+    calls.append(address)
+    raise OSError('producer read denied')
+
+
 def check_usage_index_keeps_producer_order_and_io_errors(tmp_path, monkeypatch):
-    import model.references as references
     file = tmp_path / 'model/dev/target/service.properties'
     values = {}
     for index, service in enumerate(('second', 'first'), 1):
@@ -625,16 +679,12 @@ def check_usage_index_keeps_producer_order_and_io_errors(tmp_path, monkeypatch):
     snapshot = load_model(write_model(file, reference_rows(values)))
     calls = []
     producer = references._producer
-    def counted(snapshot, address, reads, cache):
-        calls.append(address)
-        return producer(snapshot, address, reads, cache)
+    counted = _bind_framework_callback(_callback_check_usage_index_keeps_producer_order_and_io_errors_counted, calls, producer)
     monkeypatch.setattr(references, '_producer', counted)
     assert len(references.usages(snapshot)) == 2
     assert calls == ['dev/target/first', 'dev/target/second']
     calls.clear()
-    def denied(snapshot, address, reads, cache):
-        calls.append(address)
-        raise OSError('producer read denied')
+    denied = _bind_framework_callback(_callback_check_usage_index_keeps_producer_order_and_io_errors_denied, calls)
     monkeypatch.setattr(references, '_producer', denied)
     with pytest.raises(OSError, match='producer read denied'):
         references.usages(snapshot)
@@ -642,10 +692,7 @@ def check_usage_index_keeps_producer_order_and_io_errors(tmp_path, monkeypatch):
 
 
 def check_usage_index_is_invocation_local(tmp_path):
-    from types import SimpleNamespace
-    from model.references import usages
-    from model.sources import Scope
-    from validation_cache import input_context
+
     key, link = 'desired.row.001-101.value', '[producer](service.md#saved-producer)'
     values = {key: link, 'desired.resource.001.resourceType': 'EC2.VPC',
               'desired.resource.001.logicalId': 'EC2_VPC_001',
@@ -693,22 +740,23 @@ def reference_values(mode='identifier', count=32):
 
 
 def diagnostic_snapshot(root, values):
-    from model.sources import Scope, FileReads, _source_snapshot
     file = root / 'model/dev/target/service.properties'
     write_model(file, values)
     return _source_snapshot(Scope(root, 'dev', 'target', 'service'), FileReads())
 
 
+def _callback_check_diagnose_lazy_parsing_and_exact_results_counted(calls, original, /, values, prefix):
+    calls[prefix] += 1
+    return original(values, prefix)
+
+
 @pytest.mark.parametrize('mode', ['name', 'identifier'])
 def check_diagnose_lazy_parsing_and_exact_results(tmp_path, monkeypatch, mode):
-    from collections import Counter
-    import model.references as references
+
     snapshot = diagnostic_snapshot(tmp_path, reference_values(mode))
     calls = Counter()
     original = references.entries
-    def counted(values, prefix):
-        calls[prefix] += 1
-        return original(values, prefix)
+    counted = _bind_framework_callback(_callback_check_diagnose_lazy_parsing_and_exact_results_counted, calls, original)
     monkeypatch.setattr(references, 'entries', counted)
     warnings, dependencies = references.diagnose(snapshot)
     expected = tuple({'code': 'reference.mismatch', 'message': 'producer name/identifier differs from saved text',
@@ -717,7 +765,6 @@ def check_diagnose_lazy_parsing_and_exact_results(tmp_path, monkeypatch, mode):
     assert warnings == expected
     assert dependencies == dict(snapshot.dependencies)
     assert calls == {'desired.resource.': 1, 'desired.row.': 1, 'desired.reference.': 2}
-    import copy
     expected = copy.deepcopy(expected)
     warnings[0]['message'] = 'caller mutation'
     dependencies.clear()
@@ -726,10 +773,14 @@ def check_diagnose_lazy_parsing_and_exact_results(tmp_path, monkeypatch, mode):
     assert dependencies == dict(snapshot.dependencies)
 
 
+def _callback_check_diagnose_producers_are_separate_counted(calls, original, /, values, prefix):
+    if prefix in ('desired.resource.', 'desired.row.'):
+        calls[id(values), prefix] += 1
+    return original(values, prefix)
+
+
 def check_diagnose_producers_are_separate(tmp_path, monkeypatch):
-    from collections import Counter
-    from model.sources import FileReads
-    import model.references as references
+
     values = reference_values(count=4)
     other = dict(reference_values(count=0))
     other['observed.row.001-001.value'] = '`stale`'
@@ -739,10 +790,7 @@ def check_diagnose_producers_are_separate(tmp_path, monkeypatch):
     snapshot = diagnostic_snapshot(tmp_path, values)
     calls = Counter()
     original = references.entries
-    def counted(values, prefix):
-        if prefix in ('desired.resource.', 'desired.row.'):
-            calls[id(values), prefix] += 1
-        return original(values, prefix)
+    counted = _bind_framework_callback(_callback_check_diagnose_producers_are_separate_counted, calls, original)
     monkeypatch.setattr(references, 'entries', counted)
     warnings, dependencies = references.diagnose(snapshot, FileReads())
     assert [w['reference'] for w in warnings] == ['r001', 'r002']
@@ -751,9 +799,13 @@ def check_diagnose_producers_are_separate(tmp_path, monkeypatch):
     assert dependencies == {**snapshot.dependencies, other_path: other_path.read_bytes()}
 
 
+def _callback_check_diagnose_does_not_parse_unused_rows_counted(original, /, values, prefix):
+    assert prefix != 'desired.row.'
+    return original(values, prefix)
+
+
 @pytest.mark.parametrize('branch', ['empty', 'missing-resource', 'missing-producer', 'wrong-property', 'stack', 'context'])
 def check_diagnose_does_not_parse_unused_rows(tmp_path, monkeypatch, branch):
-    import model.references as references
     values = reference_values(count=1)
     if branch == 'empty':
         values = {}
@@ -780,9 +832,7 @@ def check_diagnose_does_not_parse_unused_rows(tmp_path, monkeypatch, branch):
     snapshot = diagnostic_snapshot(tmp_path, values)
     snapshot = snapshot._replace(authoritative={**snapshot.authoritative, 'desired.row.invalid': 'bad'})
     original = references.entries
-    def counted(values, prefix):
-        assert prefix != 'desired.row.'
-        return original(values, prefix)
+    counted = _bind_framework_callback(_callback_check_diagnose_does_not_parse_unused_rows_counted, original)
     monkeypatch.setattr(references, 'entries', counted)
     warnings, dependencies = references.diagnose(snapshot)
     assert len(warnings) == (0 if branch == 'empty' else 1)
@@ -790,8 +840,13 @@ def check_diagnose_does_not_parse_unused_rows(tmp_path, monkeypatch, branch):
         assert dependencies[tmp_path / 'model/dev/target/missing.properties'] is None
 
 
+def _callback_check_diagnose_errors_propagate_denied(error, original, /, values, prefix):
+    if prefix == 'desired.resource.':
+        raise error
+    return original(values, prefix)
+
+
 def check_diagnose_errors_propagate(tmp_path, monkeypatch):
-    import model.references as references
     snapshot = diagnostic_snapshot(tmp_path, reference_values(count=1))
     invalid = {**snapshot.authoritative, 'desired.reference.r000.occurrence': '0'}
     with pytest.raises(ValueError, match='text/occurrence'):
@@ -801,10 +856,7 @@ def check_diagnose_errors_propagate(tmp_path, monkeypatch):
             references.diagnose(snapshot._replace(authoritative={**snapshot.authoritative, prefix + 'invalid': 'bad'}))
     original = references.entries
     error = PermissionError('parse denied')
-    def denied(values, prefix):
-        if prefix == 'desired.resource.':
-            raise error
-        return original(values, prefix)
+    denied = _bind_framework_callback(_callback_check_diagnose_errors_propagate_denied, error, original)
     monkeypatch.setattr(references, 'entries', denied)
     with pytest.raises(PermissionError) as caught:
         references.diagnose(snapshot)
@@ -812,8 +864,6 @@ def check_diagnose_errors_propagate(tmp_path, monkeypatch):
 
 
 def check_diagnose_fresh_inputs_in_outer_context(tmp_path):
-    from model.references import diagnose
-    from validation_cache import input_context
     values = reference_values(count=2)
     with input_context():
         first = diagnostic_snapshot(tmp_path, values)
@@ -841,9 +891,6 @@ def check_diagnose_fresh_inputs_in_outer_context(tmp_path):
 
 
 def check_diagnose_display_name_uses_real_projection(tmp_path):
-    from support.model_v2_fixtures import logs_fixture
-    from model.sources import FileReads
-    from model.projection import reference_display
     file = logs_fixture(tmp_path)
     values = dict(load_model(file).authoritative)
     values['desired.note.001.text'] = '[fixture-001](#logs-existing)'

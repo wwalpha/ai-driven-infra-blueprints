@@ -1,17 +1,39 @@
 """Synthetic format/discovery checks; never inspect the executing project's Models."""
+
 import sys
+from concurrent.futures import Future
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+
+import json
+
+import model.references as _imports_model_references
+import model.render as _imports_model_render
+import pytest
+from aws_mapping_compare import value as mapped_value
+from cloudformation_inputs import Blocked
+from deploy.session import require_session_format
+from design_catalog import DesignSchemaCatalog
+from model.core import entries
+from model.format import FORMAT, serialize
+from model.format import parse as parse
+from model.format import patch as patch
+from model.format import split as split
+from model.importing import inventory
+from model.observed import observed_outputs
+from model.references import diagnose as diagnose
+from model.render import display_name, render_model, resource_details
+from model.sources import load_model
+from script_loader import module
+from support.model_v2_fixtures import FRAMEWORK, format_fixture
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-
-import json
-import tempfile
-import pytest
-from model.format import FORMAT, INDEX, parse, patch, serialize, split
-from model.sources import Scope, load_model, list_models
-from model.references import declarations, diagnose
 
 
 def check_scalar_spelling_and_patch():
@@ -22,7 +44,7 @@ def check_scalar_spelling_and_patch():
     assert edited == text.replace('`true`', '`false`')
     for raw in ('`{{resolve:secretsmanager:secret:SecretString:token}}`', '`[Policy](iam/policy.json)`', '`[Role](iam.md#role)`'):
         assert parse(FORMAT + '\ndesired.row.007-001.value=' + raw + '\n').values['desired.row.007-001.value'] == raw
-        from model.references import _json
+        _json = _imports_model_references._json
         assert _json('desired.row.007-001.value', raw) == (raw, False)
 
 
@@ -51,8 +73,6 @@ def check_unsupported_version(header):
 
 @pytest.mark.parametrize('version', [None, 1, 2, 3, 3.0, 4.0])
 def check_deploy_rejects_legacy_session_format(version):
-    from deploy.session import require_session_format
-    from cloudformation_inputs import Blocked
     with pytest.raises(Blocked, match='format is incompatible'):
         require_session_format({'version': version, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1})
     require_session_format({'version': 4, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1})
@@ -76,11 +96,7 @@ def check_observed_insertion_is_local_without_reflow():
 
 
 def check_import_observation_foreign_reference_and_identity_spoof(tmp_path):
-    import shutil
-    from model.sources import load_model
-    from model.observed import observed_outputs
-    from model.format import serialize
-    from support.model_v2_fixtures import format_fixture, FRAMEWORK
+
     scope, values = format_fixture(tmp_path)
     values.update({'desired.resource.008.resourceType': 'EC2.Subnet', 'desired.resource.008.anchor': 'subnet-existing',
                    'desired.resource.008.resourceMode': 'IMPORT', 'desired.resource.008.logicalId': 'EC2_Subnet_001',
@@ -109,9 +125,7 @@ def check_import_observation_foreign_reference_and_identity_spoof(tmp_path):
 @pytest.mark.parametrize('inline', [False, True])
 @pytest.mark.parametrize('existing', [None, '{"bucketDefinitions":[{"accountId":"123456789012","buckets":["stale"]}]}', 'broken JSON'])
 def check_macie_renders_current_document_without_artifact_reads(tmp_path, existing, inline):
-    import shutil
-    from model.render import render_model
-    from support.model_v2_fixtures import format_fixture, FRAMEWORK
+
     scope, _ = format_fixture(tmp_path, service='macie')
     document = {'bucketDefinitions': [{'accountId': '123456789012', 'buckets': ['current-a', 'current-b']}]}
     values = {'desired.service.macie.serviceId': 'macie',
@@ -156,8 +170,6 @@ def check_macie_renders_current_document_without_artifact_reads(tmp_path, existi
     ('EC2.SecurityGroupIngress', None, [], 'EC2_SecurityGroupIngress_001'),
     ('KMS.Key', None, [('KMS.Alias.AliasName', '`alias/grouped`')], 'grouped')])
 def check_shared_display_selection_and_diagnostics(tmp_path, kind, label, rows, expected):
-    from model.render import display_name
-    from support.model_v2_fixtures import format_fixture
     scope, _ = format_fixture(tmp_path)
     values = {'desired.resource.007.anchor': 'resource-existing', 'desired.resource.007.resourceType': kind, 'desired.resource.007.logicalId': kind.replace('.', '_') + '_001',
         'desired.service.identity.lastAllocated': json.dumps({kind: 1}), 'desired.resource.007.resourceMode': 'IMPORT'}
@@ -171,11 +183,10 @@ def check_shared_display_selection_and_diagnostics(tmp_path, kind, label, rows, 
             values.update({'desired.resource.008.resourceType': 'KMS.Alias', 'desired.resource.008.logicalId': 'KMS_Alias_001',
                 'desired.service.identity.lastAllocated': json.dumps({kind: 1, 'KMS.Alias': 1}), 'desired.resource.008.resourceMode': 'IMPORT',
                 'desired.resource.008.parentReference': '[key](#resource-existing)'})
-    from model.core import entries
     resource = dict(entries(values, 'desired.resource.'))['007']
     assert display_name(values, '007', resource, [[str(i), prop, value, 'fixture'] for i, (prop, value) in enumerate(rows)], tmp_path)[0] == expected
     if kind == 'EC2.VPC':
-        from model.render import resource_details
+        resource_details = _imports_model_render.resource_details
         details, _ = resource_details(values, tmp_path, 'network', {kind}, [(identity, item) for identity, item in entries(values, 'desired.resource.')], {})
         assert details[0][2] == expected
     text = '[resource](#resource-existing)'
@@ -193,10 +204,7 @@ def check_shared_display_selection_and_diagnostics(tmp_path, kind, label, rows, 
     ('EC2.VPC', 'IMPORT', True), ('EC2.VPC', 'CREATE', False),
     ('KMS.Alias', 'IMPORT', False), ('CodeBuild.Project', 'IMPORT', False)])
 def check_type_display_constraints(tmp_path, kind, mode, multiple):
-    from model.render import display_name, resource_details
-    from support.model_v2_fixtures import FRAMEWORK
-    from model.core import entries
-    values = {'desired.resource.007.anchor': 'resource-existing', 'desired.resource.007.resourceType': kind, 'desired.resource.007.resourceMode': mode,
+    values = { 'desired.resource.007.resourceType': kind, 'desired.resource.007.resourceMode': mode,
         'desired.resource.007.logicalId': 'fixed', 'desired.resource.007.anchor': 'network'}
     if multiple:
         values.update({'desired.resource.008.resourceType': kind, 'desired.resource.008.logicalId': 'second'})
@@ -210,19 +218,23 @@ def check_type_display_constraints(tmp_path, kind, mode, multiple):
         resource_details(values, FRAMEWORK, 'network', {kind}, list(entries(values, 'desired.resource.')), {})
 
 
+def _callback_check_resource_acquisition_scope_call(calls, /, *args, **kwargs):
+    calls.append(args)
+    return {'ResourceDescription': {'Properties': '{"TransitGatewayId":"tgw-fixture"}'}}
+
+
+def _callback_check_resource_acquisition_scope_fetch(calls, provider, /, *args):
+    calls.append(provider)
+    return {'id': 'tgw-fixture'}
+
+
 @pytest.mark.parametrize('scope', ['dev/one', 'dev/two', 'prod/one', 'prod/two'])
 @pytest.mark.parametrize('provider', ['adapter', 'sdk', 'cloudcontrol'])
 def check_resource_acquisition_scope(tmp_path, monkeypatch, scope, provider):
-    from types import SimpleNamespace
-    from script_loader import module
-    from model.importing import inventory
-    from aws_mapping_compare import value as mapped_value
-    from concurrent.futures import Future
+
     m = module('model/adapters/aws.py', 'model.adapters.aws')
     target = {'environment': 'dev', 'directory': 'one', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1'}
     calls = []
-    from support.model_v2_fixtures import FRAMEWORK
-    from design_catalog import DesignSchemaCatalog
     monkeypatch.setattr(m, 'DesignSchemaCatalog', lambda root: DesignSchemaCatalog(FRAMEWORK))
     ctx = m.Context(tmp_path, target)
     ctx.verified = True
@@ -232,13 +244,9 @@ def check_resource_acquisition_scope(tmp_path, monkeypatch, scope, provider):
     monkeypatch.setattr(ctx, 'comparison', lambda service: (mapping, {}))
     monkeypatch.setattr(inventory, 'inventory_for', lambda ctx: SimpleNamespace(schema=lambda kind: {
         'primaryIdentifier': getter['identifier'], 'handlers': {'read': {}}}))
-    def call(*args, **kwargs):
-        calls.append(args)
-        return {'ResourceDescription': {'Properties': '{"TransitGatewayId":"tgw-fixture"}'}}
+    call = _bind_framework_callback(_callback_check_resource_acquisition_scope_call, calls)
     monkeypatch.setattr(ctx, 'call', call)
-    def fetch(*args):
-        calls.append(provider)
-        return {'id': 'tgw-fixture'}
+    fetch = _bind_framework_callback(_callback_check_resource_acquisition_scope_fetch, calls, provider)
     model = SimpleNamespace(path=tmp_path / 'model' / (scope + '/ec2.properties'), ctx=ctx, service='ec2',
         values={'desired.row.007-001.property': 'EC2.TransitGateway.TransitGatewayId',
                 'desired.row.007-001.value': '`tgw-fixture`'})

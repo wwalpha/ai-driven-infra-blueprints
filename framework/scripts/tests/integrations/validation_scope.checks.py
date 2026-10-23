@@ -1,14 +1,59 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import sync_runtime as _imports_sync_runtime
+from support import model_templates_fixtures as source_checks
+from support.it_case_receipt import it_case
+from support.validation_scope_fixtures import (
+    ROOT,
+    SYNC,
+    VALIDATOR,
+    DesignSchemaCatalog,
+    PassCache,
+    Path,
+    io,
+    json,
+    model_projection,
+    patch,
+    read_model,
+    redirect_stdout,
+    scoped_files,
+    subprocess,
+    sys,
+    tempfile,
+    threading,
+    write_model,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import it_case
 
-from support.validation_scope_fixtures import *
+def _callback_check_single_target_cache_overlap(barrier, original, /, worker):
+    barrier.wait()
+    original(worker)
+
+
+def _callback_check_single_target_cache_changed(model, original, saved, /, worker):
+    original(worker)
+    if ("dev", "cde", "sqs") in worker.scope:
+        write_model(model, saved + "# input changed during validation\n")
+
+
+def _callback_check_single_target_cache_validate(root, scope, /, workers=4, cache=None):
+    validator = VALIDATOR.Validator(root, scope, workers=workers)
+    validator.cache = cache
+    validator.check_project_topology()
+    with redirect_stdout(io.StringIO()):
+        validator.check_scoped_designs()
+    return validator
 
 
 @it_case
@@ -44,20 +89,12 @@ def check_single_target_cache(root):
     with redirect_stdout(io.StringIO()):
         SYNC.sync(root, True, "dev", "cde", services=[entry[2] for entry in sorted(scope)])
 
-    def validate(workers=4, cache=None):
-        validator = VALIDATOR.Validator(root, scope, workers=workers)
-        validator.cache = cache
-        validator.check_project_topology()
-        with redirect_stdout(io.StringIO()):
-            validator.check_scoped_designs()
-        return validator
+    validate = _bind_framework_callback(_callback_check_single_target_cache_validate, root, scope)
 
     serial = validate(1)
     barrier = threading.Barrier(4, timeout=10)
     original = VALIDATOR.Validator.check_designs
-    def overlap(worker):
-        barrier.wait()
-        original(worker)
+    overlap = _bind_framework_callback(_callback_check_single_target_cache_overlap, barrier, original)
     with patch.object(VALIDATOR.Validator, "check_designs", overlap):
         parallel = validate()
     assert not serial.errors and not parallel.errors, serial.errors + parallel.errors
@@ -89,10 +126,7 @@ def check_single_target_cache(root):
         saved = read_model(model)
         old_key = cache.service_key(("dev", "cde", "sqs"))
         (Path(directory) / f"{old_key}.json").unlink()
-        def changed(worker):
-            original(worker)
-            if ("dev", "cde", "sqs") in worker.scope:
-                write_model(model, saved + "# input changed during validation\n")
+        changed = _bind_framework_callback(_callback_check_single_target_cache_changed, model, original, saved)
         with patch.object(VALIDATOR.Validator, "check_designs", changed):
             invalid = validate(cache=cache)
         assert any("inputs changed" in error for error in invalid.errors), invalid.errors
@@ -103,9 +137,18 @@ def check_single_target_cache(root):
     active.write_text(saved_contract, encoding="utf-8")
 
 
+def _callback_check_template_consumers_validate(directory, root, scope, /):
+    validator = VALIDATOR.Validator(root, scope, workers=1)
+    validator.cache = PassCache(root, directory=directory)
+    validator.check_project_topology()
+    with redirect_stdout(io.StringIO()):
+        validator.check_scoped_designs()
+    assert not validator.errors, validator.errors
+    return validator
+
+
 @it_case
 def check_template_consumers(root):
-    from support import model_templates_fixtures as source_checks
     source_checks.fixture(root, ('dev', 'stg'))
     values = source_checks.config_model()
     for env in ('dev', 'stg'):
@@ -140,18 +183,11 @@ def check_template_consumers(root):
         assert SYNC.active_scope(root) == scope
         assert SYNC.main() == 0
     with tempfile.TemporaryDirectory() as directory:
-        def validate():
-            validator = VALIDATOR.Validator(root, scope, workers=1)
-            validator.cache = PassCache(root, directory=directory)
-            validator.check_project_topology()
-            with redirect_stdout(io.StringIO()):
-                validator.check_scoped_designs()
-            assert not validator.errors, validator.errors
-            return validator
+        validate = _bind_framework_callback(_callback_check_template_consumers_validate, directory, root, scope)
         cold = validate()
         dev_key = cold.service_keys[('dev', 'team', 'config')]
         (Path(directory)/f'{dev_key}.json').unlink()
-        import sync_runtime
+        sync_runtime = _imports_sync_runtime
         with patch.object(sync_runtime, 'compare_generation', wraps=sync_runtime.compare_generation) as generate:
             partial = validate()
         assert generate.call_count == 1, generate.call_args_list
@@ -165,6 +201,12 @@ def check_template_consumers(root):
         with patch.object(VALIDATOR.Validator, 'check_generated_service_models', side_effect=AssertionError('unchanged generation reran')):
             warm = validate()
         assert warm.checks == cold.checks
+
+
+def _callback_main_overlapping(barrier, original, workers, /, worker):
+    workers.add(threading.get_ident())
+    barrier.wait()
+    original(worker)
 
 
 def main():
@@ -248,10 +290,7 @@ invalid unrelated table alignment
         barrier = threading.Barrier(4, timeout=10)
         original = VALIDATOR.Validator.check_designs
         workers = set()
-        def overlapping(worker):
-            workers.add(threading.get_ident())
-            barrier.wait()
-            original(worker)
+        overlapping = _bind_framework_callback(_callback_main_overlapping, barrier, original, workers)
         with patch.object(VALIDATOR.Validator, "check_designs", overlapping), redirect_stdout(io.StringIO()):
             validator.check_scoped_designs()
         assert len(workers) == 4 and not validator.errors, validator.errors

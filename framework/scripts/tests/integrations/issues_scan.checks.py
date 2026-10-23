@@ -1,17 +1,100 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from functools import partial
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace as _CallbackState
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import cloudformation_inputs as _imports_cloudformation_inputs
+import comparison.services.iam as _imports_comparison_services_iam
+import iac_values as _imports_iac_values
+import model.sources as sources
+import support.issues_scan_fixtures as _fixture_scan_project
+import support.issues_scan_fixtures as _retained_fixture_protected_sources
+from cloudformation_inputs import Blocked, load_template_inputs
+from comparison.values import PreparedValue
+from iac_values import Expression, ResourceReference, safe_value, unordered_same
+from issues.aggregate import iac_actions
+from issues.records import iac_key
+from model.core import ReferenceResolutionError
+from support.fixture_cases import load_case, materialize_files
+from support.issues_scan_fixtures import (
+    ROOT,
+    Comparison,
+    Counter,
+    Path,
+    aggregate,
+    argparse,
+    benchmark,
+    compare,
+    detail_payload,
+    entries,
+    expect_error,
+    fixture,
+    iac_dataset,
+    iac_report,
+    iac_summary,
+    identifier,
+    input_scope,
+    issue_errors,
+    json,
+    load_model,
+    mechanical,
+    mutate_template,
+    naming_materials,
+    naming_target_matches,
+    naming_targets,
+    os,
+    patch,
+    properties,
+    pytest,
+    re,
+    read_model,
+    remove_model,
+    render_iac,
+    resource_name_fields,
+    resource_row_index,
+    review_for,
+    run,
+    same,
+    save,
+    save_scan,
+    scan,
+    selected_same,
+    sequential_reports,
+    strict_json,
+    subprocess,
+    summary,
+    summary_fixture,
+    sys,
+    task,
+    tempfile,
+    value_differences,
+    worker,
+    write,
+    write_model,
+    write_report,
+)
+from support.issues_scan_fixtures import pytestmark as pytestmark
+from support.it_case_receipt import it_case
+from support.model_sources import allocate_fixture as allocate
+from sync_files import save_files
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import it_case
-from iac_values import Expression, ResourceReference
+protected_sources = _retained_fixture_protected_sources.protected_sources
 
-from support.issues_scan_fixtures import *
-from support.model_sources import allocate_fixture as allocate
-from support.fixture_cases import load_case, materialize_files
+scan_project = _fixture_scan_project.scan_project
+
+_CALLBACK_DEFAULT = object()
+
+
 
 @it_case
 def naming_target_scope_cases():
@@ -21,7 +104,7 @@ def naming_target_scope_cases():
         specifications = load_case('issues_scan', 'naming-target-scope')['data']['specifications']
         for service, (kind, rows) in specifications.items():
             values = {f'desired.service.{service}.serviceId': service,
-                f'desired.resource.001.resourceType': kind}
+                'desired.resource.001.resourceType': kind}
             values.update(allocate(values, ['001']))
             for number, (prop, value) in enumerate(rows, 1):
                 key = f'{number:03d}'
@@ -56,6 +139,19 @@ def naming_target_scope_cases():
     print('Naming Target issue candidates: PASS (root candidates 3→3; nested false positives 8→0)')
 
 
+def _callback_checks_git(root, /, *args):
+    return subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test',
+                           *args], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
+
+
+def _callback_checks_shared_parse(root, /):
+    with patch.object(sources, '_read_model', wraps=sources._read_model) as parse:
+        path = root / 'model/dev/123456789012/s3.properties'
+        one, two = load_model(path), load_model(path)
+        assert one is two and read_model(path) == one.text
+        assert parse.call_count == 1
+
+
 @it_case
 def checks(root, values, template):
     services = sorted(values)
@@ -84,7 +180,6 @@ def checks(root, values, template):
         assert categories['003']['category'] == 'difference'
     finally:
         mutate_template(root, template)
-    from iac_values import safe_value
     assert safe_value([{'Name': 'SECRET_TOKEN', 'Value': 'confidential'}])[0]['Value'] == '<masked>'
     assert same(1, True) is False and same('1', 1) is False
     assert not same([1, 2], [2, 1]) and not same([1, 1], [1])
@@ -106,14 +201,7 @@ def checks(root, values, template):
     legacy['desired.resource.legacy.resourceType'] = 'S3.Bucket'
     assert resource_row_index(legacy)['legacy'] == []
     assert len(resource_row_index(legacy)['legacy-id']) == 1
-    @input_scope
-    def shared_parse():
-        import model.sources as sources
-        with patch.object(sources, '_read_model', wraps=sources._read_model) as parse:
-            path = root / 'model/dev/123456789012/s3.properties'
-            one, two = load_model(path), load_model(path)
-            assert one is two and read_model(path) == one.text
-            assert parse.call_count == 1
+    shared_parse = (input_scope)(_bind_framework_callback(_callback_checks_shared_parse, root))
     shared_parse()
     # Different parameter files must remain different evaluations of a shared template.
     assert len({item['stack'] for item in records if item['category'] == 'matched'}) == 3
@@ -161,9 +249,7 @@ def checks(root, values, template):
     assert {item['service'] for item in names} == set(services)
     assert len([item for item in names if item['property'] != '(no selected naming property)']) == 9
     review = dict(review_for(artifact), **{'reviewed_names': [item['id'] for item in names], 'reviewed_judgments': [item['id'] for item in artifact['judgments']]})
-    def git(*args):
-        return subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test',
-                               *args], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
+    git = _bind_framework_callback(_callback_checks_git, root)
     git('init', '--quiet', '--initial-branch=master')
     git('commit', '--quiet', '--allow-empty', '-m', 'scan inputs')
     scan_head = git('rev-parse', 'HEAD')
@@ -270,15 +356,18 @@ def checks(root, values, template):
     assert report.read_bytes() == before and not iac.exists()
 
 
+def _callback_resource_cases_publish(source, /, model):
+    remove_model(source)
+    write_model(source, model)
+
+
 @it_case
 def resource_cases(root):
     # Compact independent fixture edits, not consumer data.
     values = load_model(root / 'model/dev/123456789012/s3.properties').values.copy()
     source = root / 'model/dev/123456789012/s3.properties'
     original_files = {path: text for path, text in load_model(source).files.items()}
-    def publish(model):
-        remove_model(source)
-        write_model(source, model)
+    publish = _bind_framework_callback(_callback_resource_cases_publish, source)
     values['desired.resource.001.resourceMode'] = 'IMPORT'
     publish(values)
     comparator, records = compare(root, ['s3'])
@@ -325,7 +414,6 @@ def resource_cases(root):
     # Restore all real part files, then Terraform remains explicit partial without CFn IDs.
     for part in source.with_suffix('').glob('*.properties'):
         part.unlink()
-    from sync_files import save_files
     save_files(original_files)
     project = root / 'project.json'
     original = project.read_text()
@@ -335,14 +423,29 @@ def resource_cases(root):
     write(project, original)
 
 
+def _callback_extended_cases_publish(source, /, values):
+    remove_model(source)
+    write_model(source, values)
+
+
+def _callback_extended_cases_publish_kms(kms, kmspath, /):
+    write(kmspath, '\n'.join(f'{key}={value}' for key, value in kms.items()) + '\n')
+
+
+def _callback_extended_cases_mutation_isolated():
+    text = 'desired.note.001.text=confirmed\n'
+    properties(text)['desired.note.001.text'] = 'changed'
+    assert properties(text)['desired.note.001.text'] == 'confirmed'
+    expect_error(lambda: properties('bad\n'), 'invalid')
+    expect_error(lambda: properties('same=1\nsame=2\n'), 'duplicate')
+
+
 @it_case
 def extended_cases(root, template):
     source = root / 'model/dev/123456789012/s3.properties'
     originals = load_model(source).files.copy()
     values = load_model(source).values.copy()
-    def publish(values):
-        remove_model(source)
-        write_model(source, values)
+    publish = _bind_framework_callback(_callback_extended_cases_publish, source)
     # Inline child stays with its owning parent, even in a mixed-service template.
     policy = {'Version': '2012-10-17', 'Statement': [{'Effect': 'Allow', 'Action': ['s3:GetObject'], 'Resource': ['first', 'second']}]}
     values.update({'desired.row.001-090.property': 'S3.BucketPolicy.PolicyDocument',
@@ -370,7 +473,6 @@ def extended_cases(root, template):
     assert any(item['category'] == 'error' for item in records)
     for part in source.with_suffix('').glob('*.properties'):
         part.unlink()
-    from sync_files import save_files
     save_files(originals)
     mutate_template(root, template)
     # Independent grouped child uses its own mode and formal implicit parentReference.
@@ -390,8 +492,7 @@ def extended_cases(root, template):
         'desired.row.002-001.comment': 'human例外: IMPORTのactual名称'}
     kms.update(allocate(kms, ['001', '002']))
     kmspath = root / 'model/dev/123456789012/kms.properties'
-    def publish_kms():
-        write(kmspath, '\n'.join(f'{key}={value}' for key, value in kms.items()) + '\n')
+    publish_kms = _bind_framework_callback(_callback_extended_cases_publish_kms, kms, kmspath)
     publish_kms()
     changed = strict_json(json.dumps(template))
     changed['Resources']['Key'] = {'Type': 'AWS::KMS::Key', 'Properties': {'Description': 'fixture-key'}}
@@ -424,7 +525,8 @@ def extended_cases(root, template):
     comparison = Comparison(root, 'dev', '123456789012', ['codebuild'])
     value = comparison.prepare_value('codebuild', comparison.rows['codebuild']['001'][0][1], 'CodeBuild.Project').require_value()
     assert isinstance(value, list) and len(value) == 1 and value[0]['$attribute'] == 'SubnetId'
-    remove_model(modelpath); remove_model(refpath)
+    remove_model(modelpath)
+    remove_model(refpath)
     # Pattern disagreement, unknown components, required missing Name are separate review material.
     vpc = {'desired.service.vpc.serviceId': 'vpc',
         'desired.service.vpc.ownedCatalogResourceTypes': 'EC2.VPC',
@@ -462,13 +564,7 @@ def extended_cases(root, template):
     assert any('omitted' in item['reason'] for item in records)
     mutate_template(root, template)
     # Cache hits retain parse validity but cannot leak mutation between old public callers.
-    @input_scope
-    def mutation_isolated():
-        text = 'desired.note.001.text=confirmed\n'
-        properties(text)['desired.note.001.text'] = 'changed'
-        assert properties(text)['desired.note.001.text'] == 'confirmed'
-        expect_error(lambda: properties('bad\n'), 'invalid')
-        expect_error(lambda: properties('same=1\nsame=2\n'), 'duplicate')
+    mutation_isolated = (input_scope)(_callback_extended_cases_mutation_isolated)
     mutation_isolated()
     # All syntax and reference diagnostics remain normal validation failures.
     doc = root / 'docs/designs/dev/123456789012/s3.md'
@@ -491,7 +587,6 @@ def extended_cases(root, template):
 
 
 def comparison_repair_cases():
-    from cloudformation_inputs import load_template_inputs
     with tempfile.TemporaryDirectory(prefix='comparison-repair-') as directory:
         root = Path(directory) / 'project'
         _, template = fixture(root, services=['cloudwatch-logs'])
@@ -529,7 +624,7 @@ def comparison_repair_cases():
                 candidate.target['awsRegion'] = region
                 candidate.stack(candidate.templates()[0][1])
                 if partition is None:
-                    expect_error(lambda: candidate.evaluate(name, {'Ref': 'AWS::Partition'}), 'pseudo parameter')
+                    expect_error(lambda *, candidate=candidate: candidate.evaluate(name, {'Ref': 'AWS::Partition'}), 'pseudo parameter')
                 else:
                     assert candidate.evaluate(name, {'Ref': 'AWS::Partition'}) == partition
 
@@ -608,8 +703,12 @@ def comparison_repair_cases():
         assert len(records) == 1 and records[0]['category'] == 'difference' and 'CREATE未実装' in records[0]['reason'], records
 
 
+def _callback_local_reference_cases_candidate(root, /):
+    comparison, _ = compare(root, ['s3'])
+    return comparison
+
+
 def local_reference_cases():
-    from cloudformation_inputs import Blocked
     with tempfile.TemporaryDirectory(prefix='local-references-') as directory:
         root = Path(directory) / 'project'
         _, template = fixture(root, stacks=2, services=['s3'])
@@ -617,9 +716,7 @@ def local_reference_cases():
         template['Outputs'] = {'BucketArn': {'Value': {'Fn::GetAtt': ['Bucket', 'Arn']},
                                           'Export': {'Name': {'Fn::Sub': '${Name}-BucketArn'}}}}
         mutate_template(root, template)
-        def candidate():
-            comparison, _ = compare(root, ['s3'])
-            return comparison
+        candidate = _bind_framework_callback(_callback_local_reference_cases_candidate, root)
         with patch('socket.socket', side_effect=AssertionError('network forbidden')):
             comparison = candidate()
             assert comparison.evaluate(consumer, {'Fn::Sub': '${Bucket}/*'}) == 'bucket-app-dev-data1/*'
@@ -696,9 +793,38 @@ def local_reference_cases():
             expect_error(lambda: candidate().evaluate(consumer, imported), 'search incomplete')
 
 
+def _callback_symbolic_string_cases_category(comparison, name, prop, resource, root, template, /, actual, desired):
+    comparison.results = []
+    with patch.object(comparison, 'prepare_value', return_value=PreparedValue(desired, [])):
+        batch = comparison.compare_rows('cloudwatch-logs', '001', resource, name, 'Log',
+            root / 'infra/cloudformation/templates/shared.yaml',
+            {'Properties': {prop: actual}}, template)
+    assert batch.failure is None, batch.failure
+    records = [record for record in batch.records if record['property'].endswith('.' + prop)]
+    assert len(records) == 1, records
+    return records[0]['category']
+
+
+def _callback_symbolic_string_cases_publish(name, root, /, desired):
+    model = {'desired.service.iam.serviceId': 'iam',
+        'desired.resource.001.resourceType': 'IAM.ManagedPolicy',
+        'desired.resource.001.cfn-logicalId': name + '-Policy',
+        'desired.row.001-001.property': 'IAM.ManagedPolicy.PolicyDocument',
+        'desired.row.001-001.value': 'policy.json',
+        'desired.row.001-001.document': json.dumps(desired)}
+    model.update(allocate(model, ['001']))
+    write(root / 'model/dev/123456789012/iam.properties', '\n'.join(f'{key}={value}' for key, value in model.items()) + '\n')
+    _, records = compare(root, ['iam'])
+    assert len(records) == 1, records
+    return records[0]['category']
+
+
+def _callback_symbolic_string_cases_desired_policy(policy, /, expression):
+    return dict(policy, Statement=[dict(policy['Statement'][0], Resource=expression)])
+
+
 @patch('socket.socket', side_effect=AssertionError('network forbidden'))
 def symbolic_string_cases(_network):
-    from iac_values import Expression
     with tempfile.TemporaryDirectory(prefix='symbolic-strings-') as directory:
         root = Path(directory) / 'project'
         _, template = fixture(root, stacks=2, services=['cloudwatch-logs'])
@@ -724,17 +850,7 @@ def symbolic_string_cases(_network):
                 comparison.evaluate(name, value)
         resource = comparison.resources['cloudwatch-logs']['001']
         prop = 'LogGroupName'
-        def category(actual, desired):
-            comparison.results = []
-            from comparison.values import PreparedValue
-            with patch.object(comparison, 'prepare_value', return_value=PreparedValue(desired, [])):
-                batch = comparison.compare_rows('cloudwatch-logs', '001', resource, name, 'Log',
-                    root / 'infra/cloudformation/templates/shared.yaml',
-                    {'Properties': {prop: actual}}, template)
-            assert batch.failure is None, batch.failure
-            records = [record for record in batch.records if record['property'].endswith('.' + prop)]
-            assert len(records) == 1, records
-            return records[0]['category']
+        category = _bind_framework_callback(_callback_symbolic_string_cases_category, comparison, name, prop, resource, root, template)
         # Inject already bound desired expressions, never grant raw model intrinsics a binding.
         assert category(joined, comparison.evaluate(name, joined)) == 'matched'
         assert category(joined, comparison.evaluate(other, joined)) == 'uncompared'
@@ -770,22 +886,10 @@ def symbolic_string_cases(_network):
         policy = {'Version': '2012-10-17', 'Statement': [{'Effect': 'Allow', 'Action': 'logs:PutLogEvents', 'Resource': joined}]}
         template['Resources']['Policy'] = {'Type': 'AWS::IAM::ManagedPolicy', 'Properties': {'PolicyDocument': policy}}
         mutate_template(root, template)
-        def publish(desired):
-            model = {'desired.service.iam.serviceId': 'iam',
-                'desired.resource.001.resourceType': 'IAM.ManagedPolicy',
-                'desired.resource.001.cfn-logicalId': name + '-Policy',
-                'desired.row.001-001.property': 'IAM.ManagedPolicy.PolicyDocument',
-                'desired.row.001-001.value': 'policy.json',
-                'desired.row.001-001.document': json.dumps(desired)}
-            model.update(allocate(model, ['001']))
-            write(root / 'model/dev/123456789012/iam.properties', '\n'.join(f'{key}={value}' for key, value in model.items()) + '\n')
-            _, records = compare(root, ['iam'])
-            assert len(records) == 1, records
-            return records[0]['category']
+        publish = _bind_framework_callback(_callback_symbolic_string_cases_publish, name, root)
         link = '[Log](cloudwatch-logs.md#cloudwatch-logs-cwlogs-app-dev-data1)'
         model_join = {'Fn::Join': ['', [{'Fn::Select': [0, {'Fn::Split': [':*', link]}]}, ':log-stream:account_*']]}
-        def desired_policy(expression):
-            return dict(policy, Statement=[dict(policy['Statement'][0], Resource=expression)])
+        desired_policy = _bind_framework_callback(_callback_symbolic_string_cases_desired_policy, policy)
         assert publish(desired_policy(model_join)) == 'matched'
         model_sub = {'Fn::Sub': ['${Arn}:log-stream:account_*', {'Arn': {'Fn::Select': [0, {'Fn::Split': [':*', link]}]}}]}
         # Different equivalent syntaxes remain conservative until a rewrite is proven.
@@ -800,6 +904,18 @@ def symbolic_string_cases(_network):
         assert publish(desired_policy({'Fn::Sub': ['${Arn}:log-stream:account_*',
             {'Arn': {'Fn::Select': [0, {'Fn::Split': [':*', different_link]}]}}]})) == 'uncompared'
     print('Symbolic string evaluation: PASS (GetAtt/Split/Select/Join/Sub, typed equality and classifications)')
+
+
+def _callback_reference_property_contract_cases_publish(models, root, template, /):
+    for service, model in models.items():
+        write(root / f'model/dev/123456789012/{service}.properties', '\n'.join(f'{key}={value}' for key, value in model.items()) + '\n')
+    mutate_template(root, template)
+
+
+def _callback_reference_property_contract_cases_records(root, /):
+    comparison, results = compare(root, ['cloudtrail', 'codepipeline', 'quicksight'])
+    return comparison, {item['service']: item for item in results if item['property'] in {
+        'CloudTrail.Trail.EventSelectors', 'CodePipeline.Pipeline.Stages', 'QuickSight.DataSource.VpcConnectionProperties'}}
 
 
 def reference_property_contract_cases():
@@ -833,19 +949,13 @@ def reference_property_contract_cases():
         for service, identity, prop, value in selections:
             models[service].update({f'desired.row.{identity}-001.property': prop,
                                    f'desired.row.{identity}-001.value': value if isinstance(value, str) else '`' + json.dumps(value) + '`'})
-        def publish():
-            for service, model in models.items():
-                write(root / f'model/dev/123456789012/{service}.properties', '\n'.join(f'{key}={value}' for key, value in model.items()) + '\n')
-            mutate_template(root, template)
+        publish = _bind_framework_callback(_callback_reference_property_contract_cases_publish, models, root, template)
         template['Resources']['Trail']['Properties']['EventSelectors'] = [dict(DataResources=[dict(Type='AWS::Lambda::Function', Values=[{'Fn::GetAtt': ['Function', 'Arn']}])])]
         template['Resources']['Pipeline']['Properties']['Stages'] = json.loads(json.dumps(stages))
         template['Resources']['Pipeline']['Properties']['Stages'][0]['Actions'][0]['Configuration']['RepositoryName'] = {'Fn::GetAtt': ['Repository', 'Name']}
         template['Resources']['DataSource']['Properties']['VpcConnectionProperties'] = {'VpcConnectionArn': {'Fn::GetAtt': ['VpcConnection', 'Arn']}}
         publish()
-        def records():
-            comparison, results = compare(root, ['cloudtrail', 'codepipeline', 'quicksight'])
-            return comparison, {item['service']: item for item in results if item['property'] in {
-                'CloudTrail.Trail.EventSelectors', 'CodePipeline.Pipeline.Stages', 'QuickSight.DataSource.VpcConnectionProperties'}}
+        records = _bind_framework_callback(_callback_reference_property_contract_cases_records, root)
         with patch('socket.socket', side_effect=AssertionError('network forbidden')):
             comparison, results = records()
             assert len(results) == 3 and all(item['category'] == 'matched' for item in results.values()), results
@@ -886,10 +996,10 @@ def reference_property_contract_cases():
                 bad = json.loads(json.dumps(stages))
                 bad[0]['Actions'][0]['ActionTypeId'][field] = wrong
                 row = {'property': 'CodePipeline.Pipeline.Stages', 'value': '`' + json.dumps(bad) + '`'}
-                expect_error(lambda: comparison.prepare_value('codepipeline', row, 'CodePipeline.Pipeline').require_value(), 'ActionTypeId')
+                expect_error(lambda *, row=row: comparison.prepare_value('codepipeline', row, 'CodePipeline.Pipeline').require_value(), 'ActionTypeId')
                 del bad[0]['Actions'][0]['ActionTypeId'][field]
                 row['value'] = '`' + json.dumps(bad) + '`'
-                expect_error(lambda: comparison.prepare_value('codepipeline', row, 'CodePipeline.Pipeline').require_value(), 'ActionTypeId')
+                expect_error(lambda *, row=row: comparison.prepare_value('codepipeline', row, 'CodePipeline.Pipeline').require_value(), 'ActionTypeId')
             bad = json.loads(json.dumps(stages))
             bad[0]['Actions'][0]['Configuration']['RepositoryName'] = function
             expect_error(lambda: comparison.prepare_value('codepipeline', {'property': 'CodePipeline.Pipeline.Stages', 'value': '`' + json.dumps(bad) + '`'}, 'CodePipeline.Pipeline').require_value(), 'reference attribute not confirmed: Name')
@@ -916,8 +1026,17 @@ def reference_property_contract_cases():
     print('Reference property contracts: PASS (3 positive examples; wrong attributes/unknown Ref/conditions/target types/indexed siblings)')
 
 
+def _callback_reference_diagnostic_cases_publish(model, modelpath, root, template, /):
+    write(modelpath, '\n'.join(f'{k}={v}' for k, v in model.items()) + '\n')
+    mutate_template(root, template)
+
+
+def _callback_reference_diagnostic_cases_sensitive_compare_rows(original_compare_rows, /, instance, *args, **kwargs):
+    instance.sensitive_values.add('confidential')
+    return original_compare_rows(instance, *args, **kwargs)
+
+
 def reference_diagnostic_cases():
-    from iac_values import ResourceReference
     field = 'WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey'
     prop = 'Athena.WorkGroup.' + field
     with tempfile.TemporaryDirectory(prefix='reference-diagnostics-') as directory:
@@ -941,9 +1060,7 @@ def reference_diagnostic_cases():
         template['Resources']['WorkGroup'] = {'Type': 'AWS::Athena::WorkGroup', 'Properties': {
             'WorkGroupConfiguration': {'ResultConfiguration': {'EncryptionConfiguration': {'KmsKey': {'Ref': 'Alias'}}}}}}
         modelpath = root / 'model/dev/123456789012/athena.properties'
-        def publish():
-            write(modelpath, '\n'.join(f'{k}={v}' for k, v in model.items()) + '\n')
-            mutate_template(root, template)
+        publish = _bind_framework_callback(_callback_reference_diagnostic_cases_publish, model, modelpath, root, template)
         publish()
         with patch('socket.socket', side_effect=AssertionError('network forbidden')):
             comparison, records = compare(root, ['athena'])
@@ -999,9 +1116,7 @@ def reference_diagnostic_cases():
             model['desired.row.001-003.value'] = '[KMS_Key_998](kms.md#resource-KMS_Key_998)'
             publish()
             original_compare_rows = Comparison.compare_rows
-            def sensitive_compare_rows(instance, *args, **kwargs):
-                instance.sensitive_values.add('confidential')
-                return original_compare_rows(instance, *args, **kwargs)
+            sensitive_compare_rows = _bind_framework_callback(_callback_reference_diagnostic_cases_sensitive_compare_rows, original_compare_rows)
             with patch.object(Comparison, 'compare_rows', sensitive_compare_rows):
                 masked_records = compare(root, ['athena'])[1]
             masked_parent = next(item for item in masked_records if item['property'] == 'Athena.WorkGroup.WorkGroupConfiguration')
@@ -1055,10 +1170,16 @@ def reference_diagnostic_cases():
 check_reference_diagnostics = reference_diagnostic_cases
 
 
+def _callback_reference_identity_report_cases_kms_result(root, /):
+    comparison, records = compare(root, ['cloudwatch-logs'])
+    return comparison, next(i for i in records if i['resource'] == '001' and i['property'] == 'Logs.LogGroup.KmsKeyId')
+
+
+def _lambda_reference_identity_report_cases_callback_1197(comparison, /, left, r, path):
+    return comparison.reference_same(left, r, 'KMS.Alias', path)
+
+
 def reference_identity_report_cases():
-    from iac_values import Expression
-    from issues.records import iac_key
-    from issues.aggregate import iac_actions
     with tempfile.TemporaryDirectory(prefix='reference-identity-') as directory:
         root = Path(directory)
         _, template = fixture(root, stacks=2, services=['cloudwatch-logs', 's3'])
@@ -1080,16 +1201,14 @@ def reference_identity_report_cases():
         template['Outputs']['KeyId'] = {'Value': {'Ref': 'Key'}, 'Export': {'Name': {'Fn::Sub': '${Name}-KeyId'}}}
         template['Resources']['Log']['Properties']['KmsKeyId'] = {'Fn::ImportValue': {'Fn::Join': ['', ['app-dev-data2', '-KeyArn']]}}
         mutate_template(root, template)
-        def kms_result():
-            comparison, records = compare(root, ['cloudwatch-logs'])
-            return comparison, next(i for i in records if i['resource'] == '001' and i['property'] == 'Logs.LogGroup.KmsKeyId')
+        kms_result = _bind_framework_callback(_callback_reference_identity_report_cases_kms_result, root)
         with patch('socket.socket', side_effect=AssertionError('network forbidden')):
             comparison, record = kms_result()
             assert record['category'] == 'matched', record
             keyid = comparison.reference('cloudwatch-logs', link)
             arn = comparison.evaluate(producer, {'Fn::GetAtt': ['Key', 'Arn']})
             assert keyid['$attribute'] == 'KeyId' and arn['$attribute'] == 'Arn'
-            callback = lambda l, r, path: comparison.reference_same(l, r, 'KMS.Alias', path)
+            callback = _bind_framework_callback(_lambda_reference_identity_report_cases_callback_1197, comparison)
             assert same(keyid, arn, reference=callback, path='TargetKeyId') is True
             assert same(keyid, arn) is False  # Attributes are never globally collapsed.
             assert comparison.reference_same(keyid, arn, 'Logs.LogGroup', 'KmsKeyId') is False
@@ -1168,9 +1287,12 @@ def reference_identity_report_cases():
     print('Reference identity/report regressions: PASS (KMS forms/identity, isolated cached exports, current-run scope/membership)')
 
 
+def _callback_action_report_cases_fail_stack(_state_action_report_cases_1280, /, unit):
+    raise _state_action_report_cases_1280.missing_error if unit['name'].endswith('data1') else _state_action_report_cases_1280.second_error
+
+
 def action_report_cases():
-    from issues.records import iac_key
-    from issues.aggregate import iac_actions
+    _state_action_report_cases_1280 = _CallbackState()
     with tempfile.TemporaryDirectory(prefix='iac-actions-') as directory:
         root = Path(directory)
         path = root / 'issues/dev/cde/iac-issues.md'
@@ -1203,7 +1325,7 @@ def action_report_cases():
         traced_entries = [{'id': iac_key(item), 'record': item, 'retained': False} for item in traced]
         joined = [group for group in iac_actions(traced_entries, 'dev', '123456789012') if group['target'] == cascade_record['cause']['path']]
         assert len(joined) == 1 and len(joined[0]['members']) == 2
-        from cloudformation_inputs import Blocked
+        Blocked = _imports_cloudformation_inputs.Blocked
         legacy_comparison = Comparison(fixture_root, 'dev', '123456789012', ['s3'])
         legacy_comparison.resources['s3']['001'].pop('cfn-logicalId')
         # Missing CFn identity has no inferred template cause.
@@ -1212,15 +1334,14 @@ def action_report_cases():
         assert 'explicit cfn-logicalId is required' in legacy_record['reason']
         assert not legacy_record.get('cause')
         # A second unknown failure (or a different missing path) prevents a single-cause claim.
-        for second_error in (Blocked('unknown failure'), Blocked('another input missing')):
-            if str(second_error).startswith('another'):
-                second_error.iac_cause = {'kind': 'template-missing', 'path': 'another.yaml', 'relationship': 'stack-input'}
+        for _state_action_report_cases_1280.second_error in (Blocked('unknown failure'), Blocked('another input missing')):
+            if str(_state_action_report_cases_1280.second_error).startswith('another'):
+                _state_action_report_cases_1280.second_error.iac_cause = {'kind': 'template-missing', 'path': 'another.yaml', 'relationship': 'stack-input'}
             ambiguous = Comparison(fixture_root, 'dev', '123456789012', ['s3'])
             ambiguous.resources['s3']['001'].pop('cfn-logicalId')
-            missing_error = Blocked('stack input missing')
-            missing_error.iac_cause = dict(missing_record['cause'])
-            def fail_stack(unit):
-                raise missing_error if unit['name'].endswith('data1') else second_error
+            _state_action_report_cases_1280.missing_error = Blocked('stack input missing')
+            _state_action_report_cases_1280.missing_error.iac_cause = dict(missing_record['cause'])
+            fail_stack = _bind_framework_callback(_callback_action_report_cases_fail_stack, _state_action_report_cases_1280)
             with patch.object(ambiguous, 'stack', side_effect=fail_stack):
                 ambiguous_results = ambiguous.run()
             assert not next(item for item in ambiguous_results if item['resource'] == '001').get('cause')
@@ -1242,7 +1363,8 @@ def action_report_cases():
         assert [entry['id'] for entry in reversed_data['entries']] == [entry['id'] for entry in entries]
         assert groups[0]['id'] != iac_actions(entries, 'stg', 'cde')[0]['id']
         other = dict(cascade[0], resource='other', cause=dict(cascade[0]['cause'], path='other.yaml'))
-        unknown = dict(cascade[0], resource='unknown'); unknown.pop('cause')
+        unknown = dict(cascade[0], resource='unknown')
+        unknown.pop('cause')
         parameter = dict(cascade[1], resource='parameter', cause=dict(cascade[1]['cause'], kind='parameters-missing'))
         _, separated = render_iac(root, path, 'dev', 'cde', services, records + [other, unknown, parameter, dict(unknown, resource='unknown2')])
         assert len(separated['actions']) == 5
@@ -1298,7 +1420,27 @@ def mismatch_display_cases():
     print('IaC mismatch display: PASS (fields/types/arrays/Tags/masks/long values/IDs/data/annotations/pipeline)')
 
 
+def _callback_state_report_cases_snapshot(outputs, state, /):
+    return {file: file.read_bytes() if file.exists() else None for file in [*outputs, state]}
+
+
+def _callback_state_report_cases_guarded_read(path, read_text, state, /, file, *args, **kwargs):
+    assert file not in {path, state}, 'old IaC text/state read forbidden'
+    return read_text(file, *args, **kwargs)
+
+
+def _callback_state_report_cases_fail_replace(_state_state_report_cases_1418, /, source, destination):
+    pass
+    if Path(destination) == _state_state_report_cases_1418.failed_output and not _state_state_report_cases_1418.failed:
+        _state_state_report_cases_1418.failed = True
+        if _state_state_report_cases_1418.after:
+            _state_state_report_cases_1418.replace(source, destination)
+        raise _state_state_report_cases_1418.error_type('fixture publication failure')
+    return _state_state_report_cases_1418.replace(source, destination)
+
+
 def state_report_cases():
+    _state_state_report_cases_1418 = _CallbackState()
     with tempfile.TemporaryDirectory(prefix='iac-current-run-') as directory:
         root = Path(directory)
         path = root / 'issues/dev/123456789012/iac-issues.md'
@@ -1308,8 +1450,7 @@ def state_report_cases():
                       reason='value mismatch', stack='stack1', desired=1, actual=2, iac={'path': 'infra/shared.yaml'})
         display = {identifier(record): value_differences(1, 2, record['property'])}
         outputs = [ordinary, path]
-        def snapshot():
-            return {file: file.read_bytes() if file.exists() else None for file in [*outputs, state]}
+        snapshot = _bind_framework_callback(_callback_state_report_cases_snapshot, outputs, state)
         with task(root, ['s3', 'sqs']):
             save(root, 'dev', '123456789012', ['s3', 'sqs'],
                  additions=[{'service': 'sqs', 'message': 'human確認: unresolved queue issue'}], iac=[record, dict(record, service='sqs')])
@@ -1318,11 +1459,10 @@ def state_report_cases():
         # Opaque Markdown, embedded JSON, human notes and out-of-scope results are never restored.
         for old in ('legacy opaque sqs report', '<!-- iac-report-data: {bad} -->\nhuman確認: old note', path.read_text()):
             for stale in ('{bad', '{}', '{"annotations":["old note"],"digest":"inconsistent"}'):
-                write_report(path, old); write(state, stale)
+                write_report(path, old)
+                write(state, stale)
                 read_text = Path.read_text
-                def guarded_read(file, *args, **kwargs):
-                    assert file not in {path, state}, 'old IaC text/state read forbidden'
-                    return read_text(file, *args, **kwargs)
+                guarded_read = _bind_framework_callback(_callback_state_report_cases_guarded_read, path, read_text, state)
                 with task(root, ['s3']), patch.object(Path, 'read_text', guarded_read), \
                      patch.object(Comparison, 'run', side_effect=AssertionError('save comparison forbidden')), \
                      patch('comparison.inputs.load_model', side_effect=AssertionError('save parse forbidden')), \
@@ -1335,21 +1475,17 @@ def state_report_cases():
                 assert not issue_errors(root, {('dev', '123456789012', 's3')})
                 assert issue_errors(root, {('dev', '123456789012', 'sqs')})
         with task(root, ['s3']):
-            for error_type in (OSError, KeyboardInterrupt):
-                for failed_output in outputs:
-                    for after in (False, True):
-                        before = snapshot(); replace = os.replace; failed = False
-                        def fail_replace(source, destination):
-                            nonlocal failed
-                            if Path(destination) == failed_output and not failed:
-                                failed = True
-                                if after: replace(source, destination)
-                                raise error_type('fixture publication failure')
-                            return replace(source, destination)
+            for _state_state_report_cases_1418.error_type in (OSError, KeyboardInterrupt):
+                for _state_state_report_cases_1418.failed_output in outputs:
+                    for _state_state_report_cases_1418.after in (False, True):
+                        before = snapshot()
+                        _state_state_report_cases_1418.replace = os.replace
+                        _state_state_report_cases_1418.failed = False
+                        fail_replace = _bind_framework_callback(_callback_state_report_cases_fail_replace, _state_state_report_cases_1418)
                         with patch('utils.file_operations.os.replace', side_effect=fail_replace):
-                            with pytest.raises(error_type):
+                            with pytest.raises(_state_state_report_cases_1418.error_type):
                                 save(root, 'dev', '123456789012', ['s3'], iac=[record], display=display)
-                        assert failed and snapshot() == before
+                        assert _state_state_report_cases_1418.failed and snapshot() == before
                         assert set(path.parent.iterdir()) == {*outputs, state}
             before = snapshot()
             expect_error(lambda: save(root, 'dev', '123456789012', ['s3'], iac=[record],
@@ -1393,6 +1529,31 @@ def check_nested_membership(scan_project):
                       'OutputArtifacts': [{'Name': 'same'}]}], 'Name': 'first'},
         {'Name': 'last'}], stages
     assert any(item['category'] == 'difference' and item['property'] == kind + '.RestartExecutionOnUpdate' for item in batch.records), batch.records
+
+
+def _callback_check_cloudtrail_membership_records_1575(kind, root, template, _default_actual, _default_order, _default_invalid, /, actual=_CALLBACK_DEFAULT, order=_CALLBACK_DEFAULT, invalid=_CALLBACK_DEFAULT):
+    if actual is _CALLBACK_DEFAULT:
+        actual = _default_actual
+    if order is _CALLBACK_DEFAULT:
+        order = _default_order
+    if invalid is _CALLBACK_DEFAULT:
+        invalid = _default_invalid
+    template['Resources']['Trail']['Properties']['EventSelectors'] = actual
+    mutate_template(root, template)
+    with patch('socket.socket', side_effect=AssertionError('network forbidden')):
+        comparison = Comparison(root, 'dev', '123456789012', ['cloudtrail'])
+        rows = comparison.rows['cloudtrail']['001']
+        original = json.dumps(rows)
+        if invalid:
+            rows = [(rid, row) for rid, row in rows if rid != '001-005']
+        comparison.rows['cloudtrail']['001'] = order(rows)
+        result = comparison.run()
+        assert json.dumps(comparison.rows['cloudtrail']['001']) == json.dumps(order(rows)), 'comparison changed Model rows'
+        if not invalid:
+            assert json.dumps(rows) == original
+        event = [item for item in result if item['property'] == kind + '.EventSelectors']
+        assert len(event) == 1, result
+        return event[0], result
 
 
 def check_cloudtrail_membership(scan_project):
@@ -1445,23 +1606,7 @@ def check_cloudtrail_membership(scan_project):
                                      'Properties': {'IsLogging': True, 'EventSelectors': selectors}}
     mutate_template(root, template)
 
-    def records(actual=selectors, order=lambda rows: rows, invalid=False):
-        template['Resources']['Trail']['Properties']['EventSelectors'] = actual
-        mutate_template(root, template)
-        with patch('socket.socket', side_effect=AssertionError('network forbidden')):
-            comparison = Comparison(root, 'dev', '123456789012', ['cloudtrail'])
-            rows = comparison.rows['cloudtrail']['001']
-            original = json.dumps(rows)
-            if invalid:
-                rows = [(rid, row) for rid, row in rows if rid != '001-005']
-            comparison.rows['cloudtrail']['001'] = order(rows)
-            result = comparison.run()
-            assert json.dumps(comparison.rows['cloudtrail']['001']) == json.dumps(order(rows)), 'comparison changed Model rows'
-            if not invalid:
-                assert json.dumps(rows) == original
-            event = [item for item in result if item['property'] == kind + '.EventSelectors']
-            assert len(event) == 1, result
-            return event[0], result
+    records = _bind_framework_callback(_callback_check_cloudtrail_membership_records_1575, kind, root, template, selectors, lambda rows: rows, False)
 
     for order in (lambda rows: rows, lambda rows: rows[::-1], lambda rows: rows[::2] + rows[1::2]):
         event, result = records(order=order)
@@ -1484,6 +1629,40 @@ def check_cloudtrail_membership(scan_project):
     assert any(item['property'] == kind + '.IsLogging' and item['category'] == 'difference' for item in result), result
 
 
+
+
+def _check_condition_diagnostics_disabled(records):
+    assert len(records) == 1 and records[0]['category'] == 'difference', records
+    record = records[0]
+    cause = record['cause']
+    assert cause['kind'] == 'condition-disabled' and cause['result'] is False
+    assert cause['stack'] == record['stack'] == 'cfn-stack-app-dev-data1'
+    assert cause['logical'] == 'Bucket' and record['iac']['line'] > 0
+    assert record['iac']['key'] == 'Resources.Bucket.Condition'
+    assert cause['conditions'][cause['condition']]['result'] is False
+    summary = iac_summary(records, 'dev', '123456789012', ['s3'])
+    assert summary['issue_count'] == summary['proven_causes'] == 1
+    assert summary['categories']['要判断'] == 1 and summary['categories']['原因未確定'] == 0
+    report = iac_report('dev', '123456789012', ['s3'], records)
+    assert 'Condition' in report and 'false' in report and ('Bucket' in report)
+    assert '意図的な無効化か設計との不整合か' in report
+    entries, actions, _ = iac_dataset(records, 'dev', '123456789012', ['s3'])
+    assert actions[0]['classification'] == 'ConditionによるCREATE無効化'
+    artifact = dict(version=2, environment='dev', target='123456789012', services=['s3'], **aggregate(records, 'dev', '123456789012', ['s3']))
+    detail = detail_payload(artifact, 'iac', issue_id=actions[0]['id'])
+    assert detail['items'][0]['cause'] == cause
+    return (cause, report)
+
+
+def _callback_check_condition_diagnostics_candidate(name_input, parameters_path, root, template, /, parameters=(), condition='IsEnabled'):
+    template['Resources']['Bucket']['Condition'] = condition
+    mutate_template(root, template)
+    write(parameters_path, json.dumps([name_input, *parameters]))
+    with patch('socket.socket', side_effect=AssertionError('network forbidden')):
+        comparison, records = compare(root, ['s3'])
+    return records
+
+
 def check_condition_diagnostics():
     with tempfile.TemporaryDirectory(prefix='condition-diagnostics-') as directory:
         root = Path(directory)
@@ -1494,36 +1673,9 @@ def check_condition_diagnostics():
         parameters_path = root / 'infra/cloudformation/parameters/dev/123456789012/stack-1.json'
         name_input = {'ParameterKey': 'Name', 'ParameterValue': 'app-dev-data1'}
 
-        def candidate(parameters=(), condition='IsEnabled'):
-            template['Resources']['Bucket']['Condition'] = condition
-            mutate_template(root, template)
-            write(parameters_path, json.dumps([name_input, *parameters]))
-            with patch('socket.socket', side_effect=AssertionError('network forbidden')):
-                comparison, records = compare(root, ['s3'])
-            return records
+        candidate = _bind_framework_callback(_callback_check_condition_diagnostics_candidate, name_input, parameters_path, root, template)
 
-        def disabled(records):
-            assert len(records) == 1 and records[0]['category'] == 'difference', records
-            record = records[0]
-            cause = record['cause']
-            assert cause['kind'] == 'condition-disabled' and cause['result'] is False
-            assert cause['stack'] == record['stack'] == 'cfn-stack-app-dev-data1'
-            assert cause['logical'] == 'Bucket' and record['iac']['line'] > 0
-            assert record['iac']['key'] == 'Resources.Bucket.Condition'
-            assert cause['conditions'][cause['condition']]['result'] is False
-            summary = iac_summary(records, 'dev', '123456789012', ['s3'])
-            assert summary['issue_count'] == summary['proven_causes'] == 1
-            assert summary['categories']['要判断'] == 1 and summary['categories']['原因未確定'] == 0
-            report = iac_report('dev', '123456789012', ['s3'], records)
-            assert 'Condition' in report and 'false' in report and 'Bucket' in report
-            assert '意図的な無効化か設計との不整合か' in report
-            entries, actions, _ = iac_dataset(records, 'dev', '123456789012', ['s3'])
-            assert actions[0]['classification'] == 'ConditionによるCREATE無効化'
-            artifact = dict(version=2, environment='dev', target='123456789012', services=['s3'],
-                            **aggregate(records, 'dev', '123456789012', ['s3']))
-            detail = detail_payload(artifact, 'iac', issue_id=actions[0]['id'])
-            assert detail['items'][0]['cause'] == cause
-            return cause, report
+        disabled = _check_condition_diagnostics_disabled
 
         cause, report = disabled(candidate([{'ParameterKey': 'Enable', 'ParameterValue': 'false'}]))
         assert cause['condition'] == 'IsEnabled'
@@ -1605,7 +1757,16 @@ def check_condition_diagnostics():
     print('Condition diagnostics: PASS (false/true/default/composite/unresolved/cyclic/non-boolean/masking)')
 
 
+def _callback_check_scan_workflow_interrupted(_state_check_scan_workflow_1733, /, comparison):
+    comparison.sensitive_values.add('exception-secret')
+    for index in range(5):
+        comparison.record('difference', 's3', str(index), 'Setting', 'value mismatch', desired=1, actual=2)
+    _state_check_scan_workflow_1733.retained.extend(comparison.results)
+    raise _state_check_scan_workflow_1733.exception('interrupted exception-secret')
+
+
 def check_scan_workflow(scan_project):
+    _state_check_scan_workflow_1733 = _CallbackState()
     root, values, template = scan_project
     checks(root, values, template)
     naming_target_scope_cases()
@@ -1613,20 +1774,14 @@ def check_scan_workflow(scan_project):
     extended_cases(root, template)
     sequential_reports(root)
     # Exercise the real scan boundary after five findings, without rerunning comparison.
-    from model.core import ReferenceResolutionError
-    for exception in (ReferenceResolutionError, OSError, ValueError, KeyError, ImportError, TypeError):
-        retained = []
-        def interrupted(comparison):
-            comparison.sensitive_values.add('exception-secret')
-            for index in range(5):
-                comparison.record('difference', 's3', str(index), 'Setting', 'value mismatch', desired=1, actual=2)
-            retained.extend(comparison.results)
-            raise exception('interrupted exception-secret')
+    for _state_check_scan_workflow_1733.exception in (ReferenceResolutionError, OSError, ValueError, KeyError, ImportError, TypeError):
+        _state_check_scan_workflow_1733.retained = []
+        interrupted = _bind_framework_callback(_callback_check_scan_workflow_interrupted, _state_check_scan_workflow_1733)
         with patch.object(Comparison, 'run', autospec=True, side_effect=interrupted) as invoked:
             partial = scan(root, 'dev', '123456789012', ['s3'])
-        assert invoked.call_count == 1 and partial['iac'][:5] == retained
+        assert invoked.call_count == 1 and partial['iac'][:5] == _state_check_scan_workflow_1733.retained
         assert len(partial['iac']) == 6 and partial['iac'][-1]['comparison_incomplete']
-        category = 'uncompared' if exception is ReferenceResolutionError else 'error'
+        category = 'uncompared' if _state_check_scan_workflow_1733.exception is ReferenceResolutionError else 'error'
         assert partial['iac'][-1]['category'] == category
         status = summary(partial)
         assert status['iac_differences'] == 5 and status['comparison_incomplete']
@@ -1635,7 +1790,7 @@ def check_scan_workflow(scan_project):
         assert '比較途中終了' in report
         assert 'exception-secret' not in json.dumps(partial) + report + json.dumps(detail_payload(partial, 'iac'))
         assert sum(len(group['members']) for group in partial['iac_issues']) == 6
-        if exception is ReferenceResolutionError:
+        if _state_check_scan_workflow_1733.exception is ReferenceResolutionError:
             assert any(warning['code'] == 'reference.unresolved' for warning in partial['warnings'])
 
 
@@ -1652,7 +1807,8 @@ def check_summary_detail_cli():
     artifact = summary_fixture()
     pending = detail_payload(artifact, 'iac_issues', category='比較未完了')['items'][0]
     with tempfile.TemporaryDirectory(prefix='iac-detail-cli-') as temporary:
-        file = Path(temporary) / 'artifact.json'; write(file, json.dumps(artifact))
+        file = Path(temporary) / 'artifact.json'
+        write(file, json.dumps(artifact))
         result = subprocess.run([sys.executable, '-B', str(ROOT / 'framework/scripts/issues_scan.py'), 'detail',
             '--artifact', str(file), '--section', 'iac', '--issue-id', pending['id'], '--offset', '950', '--limit', '50'],
             capture_output=True, text=True, timeout=30)
@@ -1680,7 +1836,6 @@ check_symbolic_string = symbolic_string_cases
 
 @patch('socket.socket', side_effect=AssertionError('network forbidden'))
 def glue_secret_reference_cases(_network):
-    from cloudformation_inputs import Blocked
     with tempfile.TemporaryDirectory(prefix='glue-secret-references-') as directory:
         root = Path(directory) / 'project'
         _, template = fixture(root, services=['s3'])
@@ -1706,7 +1861,7 @@ def glue_secret_reference_cases(_network):
         }
         for service, resources in specifications.items():
             values = {f'desired.service.{service}.serviceId': service}
-            for number, (logical, kind, anchor, rows) in enumerate(resources, 1):
+            for number, (logical, kind, _anchor, rows) in enumerate(resources, 1):
                 identity = f'{number:03d}'
                 values.update({f'desired.resource.{identity}.resourceType': kind,
                     f'desired.resource.{identity}.cfn-logicalId': stack + '-' + logical})
@@ -1768,6 +1923,17 @@ def glue_secret_reference_cases(_network):
 check_glue_secret_reference = glue_secret_reference_cases
 
 
+def _callback_check_arn_array_reference_forms_publish(root, template, values, /):
+    write(root / 'model/dev/123456789012/iam.properties',
+          '\n'.join(f'{key}={value}' for key, value in values.items()) + '\n')
+    mutate_template(root, template)
+
+
+def _callback_check_arn_array_reference_forms_record(prop, root, /):
+    comparison, results = compare(root, ['iam'])
+    return comparison, next(item for item in results if item['property'] == prop)
+
+
 def check_arn_array_reference_forms():
     with tempfile.TemporaryDirectory(prefix='arn-array-reference-') as directory:
         root = Path(directory) / 'project'
@@ -1789,21 +1955,16 @@ def check_arn_array_reference_forms():
         values['desired.row.001-001.property'] = prop
         values['desired.row.001-001.value'] = '`' + json.dumps([link]) + '`'
 
-        def publish():
-            write(root / 'model/dev/123456789012/iam.properties',
-                  '\n'.join(f'{key}={value}' for key, value in values.items()) + '\n')
-            mutate_template(root, template)
+        publish = _bind_framework_callback(_callback_check_arn_array_reference_forms_publish, root, template, values)
 
-        def record():
-            comparison, results = compare(root, ['iam'])
-            return comparison, next(item for item in results if item['property'] == prop)
+        record = _bind_framework_callback(_callback_check_arn_array_reference_forms_record, prop, root)
 
         with patch('socket.socket', side_effect=AssertionError('network forbidden')):
             template['Resources']['Role']['Properties']['ManagedPolicyArns'] = [{'Ref': 'Policy'}]
             publish()
             comparison, result = record()
             assert result['category'] == 'matched', result
-            from iac_values import ResourceReference
+            ResourceReference = _imports_iac_values.ResourceReference
             policy = ResourceReference({'$resource': ['iam', '002'], '$attribute': 'PolicyArn'})
             other = ResourceReference({'$resource': ['iam', '003'], '$attribute': 'PolicyArn'})
             # The receiving ARN form uses the producer's formal PolicyArn attribute.
@@ -1828,11 +1989,14 @@ def check_arn_array_reference_forms():
             for unresolved, reason in (('[IAM_ManagedPolicy_999](iam.md#resource-IAM_ManagedPolicy_999)', 'Resource anchor is absent or ambiguous'),
                                        ('`PENDING_DEPLOY`', 'desired value is unresolved')):
                 row = {'property': prop, 'value': unresolved}
-                expect_error(lambda: comparison.prepare_value('iam', row, 'IAM.Role').require_value(), reason)
+                expect_error(lambda *, row=row: comparison.prepare_value('iam', row, 'IAM.Role').require_value(), reason)
+
+
+def _lambda_check_eventbridge_reference_literals_callback_1977(comparison, /, left, right, path):
+    return comparison.reference_same(left, right, 'Events.Rule', path)
 
 
 def check_eventbridge_reference_literals():
-    from iac_values import ResourceReference
     with tempfile.TemporaryDirectory(prefix='eventbridge-reference-') as directory:
         root = Path(directory)
         _, template = fixture(root, services=['s3'])
@@ -1849,7 +2013,7 @@ def check_eventbridge_reference_literals():
         comparison, _ = compare(root, ['s3', 'lambda'])
         bucket = comparison.evaluate(stack, {'Ref': 'Bucket'})
         name = comparison.reference_literal(bucket)
-        callback = lambda left, right, path: comparison.reference_same(left, right, 'Events.Rule', path)
+        callback = _bind_framework_callback(_lambda_check_eventbridge_reference_literals_callback_1977, comparison)
         assert same(name, bucket, reference=callback, path='EventPattern.detail.requestParameters.bucketName[]')
         assert same(bucket, name, reference=callback)
         assert same('wrong', bucket, reference=callback) is False
@@ -1890,7 +2054,6 @@ def check_eventbridge_reference_literals():
 
 @patch('socket.socket', side_effect=AssertionError('network forbidden'))
 def check_glue_connection_names(_network):
-    from cloudformation_inputs import Blocked
     with tempfile.TemporaryDirectory(prefix='glue-connection-names-') as directory:
         root = Path(directory)
         _, template = fixture(root, services=['s3'])
@@ -1953,10 +2116,34 @@ def check_glue_connection_names(_network):
         assert comparison.evaluate(stack, {'Fn::Sub': '${Project}'}) == 'project-app-dev-data1'
 
 
+def _lambda_check_added_reference_properties_callback_2180(comparison, /, a, b, p):
+    return comparison.reference_same(a, b, 'EC2.VPCEndpoint', p)
+
+
+def _callback_check_added_reference_properties_group_comparison_2243(actions, qs, qs_path, root, template, _default_principal, _default_actual_actions, _default_model, /, principal=_CALLBACK_DEFAULT, *, actual_actions=_CALLBACK_DEFAULT, model=_CALLBACK_DEFAULT):
+    if principal is _CALLBACK_DEFAULT:
+        principal = _default_principal
+    if actual_actions is _CALLBACK_DEFAULT:
+        actual_actions = _default_actual_actions
+    if model is _CALLBACK_DEFAULT:
+        model = _default_model
+    candidate = qs if model is None else model
+    write(qs_path, '\n'.join(f'{key}={value}' for key, value in candidate.items()) + '\n')
+    template['Resources']['DataSource']['Properties']['Permissions'] = [
+        {'Principal': principal, 'Actions': actions if actual_actions is None else actual_actions}]
+    mutate_template(root, template)
+    before = qs_path.read_bytes()
+    comparison, records = compare(root, ['quicksight'])
+    assert qs_path.read_bytes() == before
+    selected = [item for item in records if item['property'] == 'QuickSight.DataSource.Permissions'
+                or item['category'] == 'uncompared' and item['resource'] == '*']
+    assert len(selected) == 1, records
+    assert not [item for item in records if item['category'] == 'error'], records
+    return comparison, selected[0]
+
+
 @patch('socket.socket', side_effect=AssertionError('network forbidden'))
 def check_added_reference_properties(_network):
-    from cloudformation_inputs import Blocked
-    from iac_values import ResourceReference
     with tempfile.TemporaryDirectory(prefix='added-reference-properties-') as directory:
         root = Path(directory)
         _, template = fixture(root, services=['s3'])
@@ -2055,7 +2242,7 @@ def check_added_reference_properties(_network):
         assert alias_arn['$attribute'] == 'AliasArn'
         assert comparison.reference_same(symbols['Key'], comparison.evaluate(stack, {'Fn::GetAtt': ['Key', 'Arn']}),
                                          'CodePipeline.Pipeline', 'ArtifactStore.EncryptionKey.Id') is False
-        callback = lambda a, b, p: comparison.reference_same(a, b, 'EC2.VPCEndpoint', p)
+        callback = _bind_framework_callback(_lambda_check_added_reference_properties_callback_2180, comparison)
         assert same([symbols['Subnet'], symbols['Group']], [symbols['Group'], symbols['Subnet']], reference=callback) is False
         assert same([symbols['Subnet'], symbols['Subnet']], [symbols['Subnet']], reference=callback) is False
         # Missing/conditional VpcId cannot turn a group name into a group ID; cycles stop.
@@ -2093,20 +2280,7 @@ def check_added_reference_properties(_network):
                        f'desired.row.001-{number:03d}.value': value})
         template['Resources']['DataSource'] = {'Type': 'AWS::QuickSight::DataSource', 'Properties': {}}
 
-        def group_comparison(principal=arn, *, actual_actions=None, model=None):
-            candidate = qs if model is None else model
-            write(qs_path, '\n'.join(f'{key}={value}' for key, value in candidate.items()) + '\n')
-            template['Resources']['DataSource']['Properties']['Permissions'] = [
-                {'Principal': principal, 'Actions': actions if actual_actions is None else actual_actions}]
-            mutate_template(root, template)
-            before = qs_path.read_bytes()
-            comparison, records = compare(root, ['quicksight'])
-            assert qs_path.read_bytes() == before
-            selected = [item for item in records if item['property'] == 'QuickSight.DataSource.Permissions'
-                        or item['category'] == 'uncompared' and item['resource'] == '*']
-            assert len(selected) == 1, records
-            assert not [item for item in records if item['category'] == 'error'], records
-            return comparison, selected[0]
+        group_comparison = _bind_framework_callback(_callback_check_added_reference_properties_group_comparison_2243, actions, qs, qs_path, root, template, arn, None, None)
 
         group_comparator, result = group_comparison()
         assert result['category'] == 'matched', result
@@ -2210,10 +2384,22 @@ def check_added_reference_properties(_network):
                 comparison.desired_reference('s3', links['Role'], kind, path)
 
 
+def _callback_check_aws_standard_comparison_sub(comparison, stack, /, argument):
+    row = {'property': 'IAM.ManagedPolicy.PolicyDocument', 'value': '',
+           'document': json.dumps({'Statement': [{'Resource': {'Fn::Sub': argument}}]})}
+    return comparison.prepare_value('iam', row, 'IAM.ManagedPolicy', stack=stack).require_value()['Statement'][0]['Resource']
+
+
+def _lambda_check_aws_standard_comparison_callback_2448(comparison, /, a, b, p):
+    return comparison.reference_same(a, b, 'CodeBuild.Project', p)
+
+
+def _lambda_check_aws_standard_comparison_callback_2470(comparison, /, a, b, p):
+    return comparison.reference_same(a, b, 'IAM.Role', p)
+
+
 @patch('socket.socket', side_effect=AssertionError('network forbidden'))
 def check_aws_standard_comparison(_network):
-    from cloudformation_inputs import Blocked
-    from iac_values import ResourceReference, unordered_same
     with tempfile.TemporaryDirectory(prefix='aws-standard-comparison-') as directory:
         root = Path(directory)
         _, template = fixture(root, services=['s3'])
@@ -2249,7 +2435,7 @@ def check_aws_standard_comparison(_network):
         }
         for service, resources in specs.items():
             values = {f'desired.service.{service}.serviceId': service}
-            for logical, kind, anchor, rows in resources:
+            for logical, kind, _anchor, rows in resources:
                 values.update({f'desired.resource.{logical}.resourceType': kind,
                     f'desired.resource.{logical}.cfn-logicalId': stack + '-' + logical})
                 values.update(allocate(values, [logical]))
@@ -2300,8 +2486,8 @@ def check_aws_standard_comparison(_network):
         # Both attachment locations deduplicate one proven edge; disabled/missing edges cannot match.
         document = comparison.stack_inputs[stack][0]
         definition = document['Resources']['Role']
-        from comparison.services.iam import managed_policy_roles
-        from functools import partial
+
+        managed_policy_roles = _imports_comparison_services_iam.managed_policy_roles
         policy_roles = partial(managed_policy_roles, stack_inputs=comparison.stack_inputs,
             evaluate=comparison.evaluate, reference_same=comparison.reference_same, symbol=comparison.symbol)
         assert len(policy_roles('iam', 'Policy', stack, [{'Ref': 'Role'}])) == 1
@@ -2319,7 +2505,7 @@ def check_aws_standard_comparison(_network):
         # Secret name/ARN identities are contextual; selectors and wrong Type remain distinct.
         desired = {'Name': 'SECRET', 'Type': 'SECRETS_MANAGER', 'Value': comparison.reference('iam', secret)}
         path = 'Environment.EnvironmentVariables[]'
-        callback = lambda a, b, p: comparison.reference_same(a, b, 'CodeBuild.Project', p)
+        callback = _bind_framework_callback(_lambda_check_aws_standard_comparison_callback_2448, comparison)
         assert same(desired, dict(desired, Value='app/secret'), path=path, reference=callback)
         assert same(desired, dict(desired, Value='app/secret:key:AWSPREVIOUS'), path=path, reference=callback) is False
         assert same(desired, dict(desired, Type='PLAINTEXT'), path=path, reference=callback) is False
@@ -2331,10 +2517,7 @@ def check_aws_standard_comparison(_network):
             'EnvironmentVariables': [{'Name': 'SECRET', 'Type': 'SECRETS_MANAGER', 'Value': secret}]}) + '`'}
         assert comparison.prepare_value('codebuild', row, 'CodeBuild.Project', stack=stack).require_value()['EnvironmentVariables'][0]['Value'] == desired['Value']
         # Unproven Model Sub variables are warnings; confirmed stack bindings still resolve.
-        def sub(argument):
-            row = {'property': 'IAM.ManagedPolicy.PolicyDocument', 'value': '',
-                   'document': json.dumps({'Statement': [{'Resource': {'Fn::Sub': argument}}]})}
-            return comparison.prepare_value('iam', row, 'IAM.ManagedPolicy', stack=stack).require_value()['Statement'][0]['Resource']
+        sub = _bind_framework_callback(_callback_check_aws_standard_comparison_sub, comparison, stack)
         assert sub('arn:${AWS::Partition}:s3:::${Name}/${!aws:username}') == 'arn:aws:s3:::app-dev-data1/${aws:username}'
         assert sub('${AWS::Region}/${AWS::AccountId}') == 'ap-northeast-1/123456789012'
         assert sub(['${AWS::Region}', {'AWS::Region': 'explicit'}]) == 'explicit'
@@ -2344,7 +2527,7 @@ def check_aws_standard_comparison(_network):
         assert sub('${Role}') == 'role'
         assert isinstance(sub('${Role.Arn}'), (Expression, ResourceReference))
         # Unordered Statement comparison uses a bijection, not sorting or Sid-only matching.
-        callback = lambda a, b, p: comparison.reference_same(a, b, 'IAM.Role', p)
+        callback = _bind_framework_callback(_lambda_check_aws_standard_comparison_callback_2470, comparison)
         path = 'Policies[].PolicyDocument.Statement'
         first = {'Sid': 'One', 'Effect': 'Allow', 'Action': 's3:GetObject', 'Resource': '*'}
         second = dict(first, Sid='Two', Action='s3:PutObject')
@@ -2390,4 +2573,3 @@ def main():
 
 if __name__ == '__main__':
     raise SystemExit(main())
-

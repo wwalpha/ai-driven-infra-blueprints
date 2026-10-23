@@ -1,31 +1,43 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import aws_mapping_display as display
+import sync_views
+from support.aws_mapping_display_fixtures import (
+    Path,
+    patch,
+    sys,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.aws_mapping_display_fixtures import *
+
+def _callback_check_validation_projection_scope_projected(calls, /, values, root):
+    calls.append((tuple(values.items()), root))
+    if 'invalid' in values:
+        raise ValueError('projection failure')
+    return dict(values)
 
 
-
-
-
+def _callback_check_validation_projection_scope_fail(*args):
+    assert display._validation_projections.get() == {}
+    raise ValueError('validator failure')
 
 
 def check_validation_projection_scope(tmp_path):
-    import aws_mapping_display as display
-    import sync_views
     source = {'first': 'one', 'second': 'two'}
     provider = object()
     calls = []
 
-    def projected(values, root):
-        calls.append((tuple(values.items()), root))
-        if 'invalid' in values:
-            raise ValueError('projection failure')
-        return dict(values)
+    projected = _bind_framework_callback(_callback_check_validation_projection_scope_projected, calls)
 
     with patch.object(display, 'projection', side_effect=projected), patch.object(
             display, 'mappings_for', return_value=provider) as providers:
@@ -75,9 +87,7 @@ def check_validation_projection_scope(tmp_path):
         display._validation_projection(source, tmp_path)
         assert len(calls) == 15
 
-    def fail(*args):
-        assert display._validation_projections.get() == {}
-        raise ValueError('validator failure')
+    fail = _callback_check_validation_projection_scope_fail
 
     with patch.object(sync_views, 'view_validator', side_effect=fail):
         for _ in range(2):

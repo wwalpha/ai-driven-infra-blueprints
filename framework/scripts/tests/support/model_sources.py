@@ -1,8 +1,18 @@
 """Build explicit properties authorities from authored synthetic test values."""
+
 from contextlib import contextmanager
+from dataclasses import replace
+from functools import partial as _bind_framework_callback
+from unittest.mock import patch
+
+import aws_mapping_display as _imports_aws_mapping_display
+import design_layout as _imports_design_layout
+import model.identity as _imports_model_identity
+import model.projection as _imports_model_projection
+import validation_cache as _imports_validation_cache
 from model.core import properties
 from model.format import FORMAT, INDEX, split, strict_json
-from model.sources import scope_for, model_parts, load_model
+from model.sources import load_model, model_parts, scope_for
 from sync_files import save_files
 
 
@@ -26,7 +36,7 @@ def write_model(path, values):
                 key.replace('observed.', 'desired.', 1)) == value:
             del values[key]
         elif key.endswith('.artifactSha256'):
-            from model.projection import document_sha256
+            document_sha256 = _imports_model_projection.document_sha256
             document = values.get(key.removesuffix('artifactSha256') + 'document')
             try:
                 if document is not None and document_sha256(strict_json(document)) == value:
@@ -67,20 +77,21 @@ def snapshot_model(path):
     return {file: file.read_bytes() for file in load_model(path).files}
 
 
+def _callback_catalog_display_selectable(HIDDEN_PROPERTIES, original, /, root, kind):
+    return {key: replace(prop, include=True, show=key not in HIDDEN_PROPERTIES)
+            for key, prop in original(root, kind).items()}
+
+
 @contextmanager
 def catalog_display():
     """Legacy catalog fixtures select all fields, independent of consumer display sets."""
-    from dataclasses import replace
-    from unittest.mock import patch
-    import aws_mapping_display
-    from design_layout import HIDDEN_PROPERTIES
-    from validation_cache import memoized
+
+    aws_mapping_display = _imports_aws_mapping_display
+    HIDDEN_PROPERTIES = _imports_design_layout.HIDDEN_PROPERTIES
+    memoized = _imports_validation_cache.memoized
     original = aws_mapping_display.rules
 
-    @memoized
-    def selectable(root, kind):
-        return {key: replace(prop, include=True, show=key not in HIDDEN_PROPERTIES)
-                for key, prop in original(root, kind).items()}
+    selectable = (memoized)(_bind_framework_callback(_callback_catalog_display_selectable, HIDDEN_PROPERTIES, original))
 
     with patch.object(aws_mapping_display, 'rules', selectable):
         yield
@@ -88,7 +99,7 @@ def catalog_display():
 
 def allocate_fixture(values, resource_ids):
     """Author fixed anchors when explicitly allocating synthetic test resources."""
-    from model.identity import allocate
+    allocate = _imports_model_identity.allocate
     result = allocate(values, resource_ids)
     for number in resource_ids:
         key = f'desired.resource.{number}.'

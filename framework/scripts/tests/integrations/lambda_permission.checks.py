@@ -2,13 +2,33 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from support.it_case_receipt import it_case
+from support.lambda_permission_fixtures import (
+    HELPERS,
+    PERMISSION,
+    SYNC,
+    Path,
+    expanded_design,
+    fixture,
+    json,
+    markdown_for,
+    model_projection,
+    properties,
+    re,
+    read_model,
+    rejects,
+    sync_views,
+    sys,
+    tempfile,
+    write_model,
+)
 
-from support.lambda_permission_fixtures import *
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 @it_case
@@ -41,7 +61,7 @@ def main():
         for field in ("parentProperty", "parentReference"):
             bad = dict(values)
             del bad[f"desired.resource.002.{field}"]
-            rejects(lambda: markdown_for(path, bad, root), field)
+            rejects(lambda *, bad=bad: markdown_for(path, bad, root), field)
         bad = dict(values)
         bad["desired.row.002-004.value"] = "[Wrong](#lambda-wrong)"
         rejects(lambda: markdown_for(path, bad, root), "grouped formal row does not match parentReference")
@@ -61,7 +81,7 @@ def main():
             (output.replace("[app-dev-worker-1]\\u0028#lambda-app-dev-worker-1\\u0029", "[Wrong]\\u0028#lambda-wrong\\u0029", 1), "must reference enclosing"),
             (output.replace('"Lambda.Permission.Id"', '"Wrong.Id"', 1), "invalid Lambda Permission metadata"),
         ):
-            rejects(lambda: expanded_design(text.splitlines()), message)
+            rejects(lambda *, text=text: expanded_design(text.splitlines()), message)
         source = root / "model/dev/123456789012/lambda.properties"
         source.parent.mkdir(parents=True, exist_ok=True)
         write_model(source, HELPERS.text(values))
@@ -81,4 +101,3 @@ if __name__ == "__main__":
     from support.model_sources import catalog_display
     with catalog_display():
         main()
-

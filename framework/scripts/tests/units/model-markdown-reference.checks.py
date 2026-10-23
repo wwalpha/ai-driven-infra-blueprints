@@ -1,30 +1,54 @@
 """Offline saved-anchor and scoped Markdown reference regression."""
+
 import json
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import model.adapters.observed as _imports_model_adapters_observed
+import model.audit as _imports_model_audit
+import model.identity as _imports_model_identity
+import model.importing.references as _imports_model_importing_references
+import model.render as _imports_model_render
+import model.sources as _imports_model_sources
+import model.validation as _imports_model_validation
+from array_display import indexed_rows, restored_rows
+from design_document import DesignIndex
+from model.core import (
+    ReferenceResolutionError,
+    entries,
+    validate_model_keys,
+    validate_runtime_keys,
+)
+from model.format import parse, serialize
+from model.identity import (
+    COUNTERS,
+    Resolver,
+    allocate,
+    parse_reference,
+    preserve_allocation,
+)
+from model.importing.references import Resolver as ImportResolver
+from model.projection import execution_document, reference_display
+from model.references import diagnose, incoming, symbolic, usages
+from model.render import generate_markdown
+from model.sources import Scope, load_model
+from reference_contracts import contract
+from support.import_model_fixtures import resource_values, service_values
+from support.model_sources import write_model
+from utils.source_reads import FileReads
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-from model.core import entries, validate_model_keys, validate_runtime_keys, ReferenceResolutionError
-from model.format import serialize, parse
-from model.identity import Resolver, parse_reference, COUNTERS, preserve_allocation, allocate
-from model.sources import Scope, load_model
-from model.references import usages, incoming, symbolic, diagnose
-from model.projection import execution_document, reference_display
 
 
 def check_receiving_contracts(root):
-    from model.validation import check_model_inputs, validate_json_settings
-    from model.render import generate_markdown
-    from model.importing.references import Resolver as ImportResolver
-    from model.sources import FileReads
-    from reference_contracts import contract
-    from support.import_model_fixtures import resource_values, service_values
-    from support.model_sources import write_model
-    from design_document import DesignIndex
+    check_model_inputs = _imports_model_validation.check_model_inputs
+    validate_json_settings = _imports_model_validation.validate_json_settings
 
     definitions = Path(__file__).resolve().parents[4]
     scope = Scope(root, 'dev', 'cde', 'glue')
@@ -89,7 +113,7 @@ def check_receiving_contracts(root):
         errors = []
         diagnose(snapshot._replace(authoritative=candidate), errors=errors)
         assert not errors, errors
-    for link, physical in zip(links, ('physical-connection-001', 'physical-connection-002')):
+    for link, physical in zip(links, ('physical-connection-001', 'physical-connection-002'), strict=False):
         resolver = Resolver(root)
         assert resolver.operand(link, scope, field=prop)[3] == 'Name'
         assert execution_document([link], root, scope=scope, property_name=prop) == [physical]
@@ -110,7 +134,6 @@ def check_receiving_contracts(root):
     view.write_text(markdown, encoding='utf-8')
     expanded, _ = DesignIndex().get(view).view().expanded
     assert any(prop in line and values[key] in line for line in expanded), markdown
-    from array_display import indexed_rows, restored_rows
     row = ['009-004', prop, values[key], '合成配列']
     assert restored_rows(indexed_rows([row], 'Glue.Job', definitions), 'Glue.Job', definitions) == [row]
     assert parse(serialize(values)).values[key] == values[key]
@@ -149,7 +172,7 @@ def main():
         snapshot = load_model(scope)
         assert snapshot.authoritative == values and not snapshot.warnings
         resolver = Resolver(root)
-        import model.sources as sources
+        sources = _imports_model_sources
         with patch.object(sources, '_read_model', wraps=sources._read_model) as read:
             for text in [original, f'[other](#{anchor})', f'[other](./lambda.md#{anchor})']:
                 producer, number, resource = resolver.resolve(text, scope)
@@ -170,7 +193,7 @@ def main():
             pass
         else:
             raise AssertionError('retired internal syntax emitted as an AWS value')
-        from model.identity import display_anchor
+        display_anchor = _imports_model_identity.display_anchor
         try:
             display_anchor({'logicalId': 'Lambda_Function_002'})
         except ReferenceResolutionError:
@@ -190,13 +213,13 @@ def main():
             'desired.row.003-001.value': original, 'desired.row.003-001.comment': '合成'}
         other.path.write_text(serialize(other_values), encoding='utf-8')
         assert resolver.resolve(original, other)[1] == '017'
-        from model.adapters.observed import propagate_references
+        propagate_references = _imports_model_adapters_observed.propagate_references
         changes = {}
         key = ('dev', 'cde', 'lambda', 'Lambda_Function_002')
         propagate_references(root, {scope.path: values, other.path: other_values}, changes, {key: 'new-function'})
         assert changes[other.path]['observed.row.003-001.value'] == 'new-function'
         assert scope.path.read_bytes() == before
-        from model.importing.references import Resolver as ImportResolver
+        ImportResolver = _imports_model_importing_references.Resolver
         matching = ImportResolver(root, 'dev', 'cde')
         matching.consumer_scope = other
         candidate = {'scope': scope, 'anchor': anchor}
@@ -232,7 +255,8 @@ def main():
         assert new['desired.resource.021.logicalId'] == 'Lambda_Function_003'
         preserve_allocation(values, new)
         # Render actual Resource anchors, with catalog presentation isolated from naming fixtures.
-        from model.render import resource_details, render_markdown
+        render_markdown = _imports_model_render.render_markdown
+        resource_details = _imports_model_render.resource_details
         for service, model_values in [('lambda', values), ('consumer', other_values)]:
             resources = entries(model_values, 'desired.resource.')
             kind = resources[0][1]['resourceType']
@@ -245,11 +269,10 @@ def main():
                 markdown = render_markdown(root / 'docs/designs/dev/cde' / (service + '.md'), displayed, root, [kind], details, {})
             assert '<a id="' + resources[0][1]['anchor'] + '"></a>' in markdown
         # Generate the standalone engine and resolve under isolated Python without Framework imports.
-        from model.audit import generate
+        generate = _imports_model_audit.generate
         program, metadata, unsupported = generate(root, 'dev', 'cde', 'lambda')
         audit = root / 'audit.py'
         audit.write_text(program, encoding='utf-8')
-        import subprocess
         code = ('import runpy; n=runpy.run_path(' + repr(str(audit)) + '); '
             'm=n["engine"](n["SNAPSHOT"]); '
             'ctx=m.Context(m.ROOT, n["SNAPSHOT"]["target"], None); '

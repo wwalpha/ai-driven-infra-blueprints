@@ -3,35 +3,38 @@
 from __future__ import annotations
 
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-from support.model_sources import allocate_fixture as allocate
+from types import SimpleNamespace as _CallbackState
 
-from support.model_sources import snapshot_model
-from model.files import read_model
-
-if not __debug__:
-    raise SystemExit("Focused checks require assertions; run without -O")
-
-from support.model_sources import write_model
-import pytest
-from support.pytest_cli import run
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import importlib.util
-import sync_runtime
 import io
 import json
 import os
-import shutil
-import subprocess
 import threading
 from collections import Counter
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import model.sources as _imports_model_sources
+import pytest
+import sync_runtime
 from model.adapters import observed
-from model.render import markdown_for
 from model.core import properties
+from model.files import read_model
+from model.render import markdown_for
+from support.model_sources import allocate_fixture as allocate
+from support.model_sources import snapshot_model, write_model
+from support.pytest_cli import run
+from support.worktree_task_fixtures import fixture as repository
+from support.worktree_task_fixtures import git, start
+from task_contract_core import selected_task
+
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 ROOT = Path(__file__).resolve().parents[4]
 SPEC = importlib.util.spec_from_file_location("destroy", (Path(__file__).resolve().parents[2] / 'cloudformation-destroy.py'))
@@ -133,63 +136,71 @@ def execute(orders, limit=1, fake=None):
     return state, fake
 
 
+def _callback_check_order_and_safety_barrier(_state_check_order_and_safety_138, /, name):
+    if name == "D":
+        assert {"A", "B", "C"} <= _state_check_order_and_safety_138.fake.completed
+
+
 def check_order_and_safety():
-    state, fake = execute({"A": 10, "B": 20, "C": 30})
-    assert fake.deleted == ["C", "B", "A"] and state["status"] == "COMPLETE"
+    _state_check_order_and_safety_138 = _CallbackState()
+    state, _state_check_order_and_safety_138.fake = execute({"A": 10, "B": 20, "C": 30})
+    assert _state_check_order_and_safety_138.fake.deleted == ["C", "B", "A"] and state["status"] == "COMPLETE"
     print("D02: PASS reverse DeployOrder")
-    state, fake = execute({"A": 30, "B": 30, "C": 30, "D": 20}, limit=2)
-    assert fake.maximum == 2 and fake.deleted == ["A", "B", "C", "D"]
+    state, _state_check_order_and_safety_138.fake = execute({"A": 30, "B": 30, "C": 30, "D": 20}, limit=2)
+    assert _state_check_order_and_safety_138.fake.maximum == 2 and _state_check_order_and_safety_138.fake.deleted == ["A", "B", "C", "D"]
     # The fake keeps unfinished stacks in running; lower groups must start with no upper peers.
-    fake = Fake(["A", "B", "C", "D"])
-    def barrier(name):
-        if name == "D":
-            assert {"A", "B", "C"} <= fake.completed
-    fake.hook = barrier
-    execute({"A": 30, "B": 30, "C": 30, "D": 20}, 2, fake)
+    _state_check_order_and_safety_138.fake = Fake(["A", "B", "C", "D"])
+    barrier = _bind_framework_callback(_callback_check_order_and_safety_barrier, _state_check_order_and_safety_138)
+    _state_check_order_and_safety_138.fake.hook = barrier
+    execute({"A": 30, "B": 30, "C": 30, "D": 20}, 2, _state_check_order_and_safety_138.fake)
     print("D03: PASS bounded parallelism and group barrier")
-    _, fake = execute({"A": 30, "B": 30, "C": 30}, limit=1)
-    assert fake.maximum == 1
+    _, _state_check_order_and_safety_138.fake = execute({"A": 30, "B": 30, "C": 30}, limit=1)
+    assert _state_check_order_and_safety_138.fake.maximum == 1
     print("D04: PASS sequential")
-    state, fake = execute({"A": 10}, fake=Fake(["A"], exports={"Vpc": ("A", ["B"])}))
-    assert state["status"] == "BLOCKED" and not fake.deleted and "outside" in state["reason"]
+    state, _state_check_order_and_safety_138.fake = execute({"A": 10}, fake=Fake(["A"], exports={"Vpc": ("A", ["B"])}))
+    assert state["status"] == "BLOCKED" and not _state_check_order_and_safety_138.fake.deleted and "outside" in state["reason"]
     print("D05: PASS outside importer stops every delete")
-    state, fake = execute({"A": 10, "B": 20}, fake=Fake(["A", "B"], exports={"Vpc": ("A", ["B"])}))
-    assert state["status"] == "COMPLETE" and fake.deleted == ["B", "A"]
+    state, _state_check_order_and_safety_138.fake = execute({"A": 10, "B": 20}, fake=Fake(["A", "B"], exports={"Vpc": ("A", ["B"])}))
+    assert state["status"] == "COMPLETE" and _state_check_order_and_safety_138.fake.deleted == ["B", "A"]
     for orders in ({"A": 20, "B": 10}, {"A": 20, "B": 20}):
-        state, fake = execute(orders, fake=Fake(["A", "B"], exports={"Vpc": ("A", ["B"])}))
-        assert not fake.deleted and "actual import dependency conflicts with designed DeployOrder" in state["reason"]
+        state, _state_check_order_and_safety_138.fake = execute(orders, fake=Fake(["A", "B"], exports={"Vpc": ("A", ["B"])}))
+        assert not _state_check_order_and_safety_138.fake.deleted and "actual import dependency conflicts with designed DeployOrder" in state["reason"]
     print("D06: PASS consumer first; conflicting/equal designed orders block")
     cached = session({"A": 10, "B": 20})
-    fake = Fake(["A", "B"], exports={"Vpc": ("A", ["B"])})
-    M.preflight(cached, fake, 2, lambda: None)
-    M.dependencies(cached, fake, lambda: None)
-    fake.export_imports["Vpc"] = ("A", ["B", "Outside"])
-    M.preflight(cached, fake, 2, lambda: None)
-    rejects(lambda: M.dependencies(cached, fake, lambda: None), "outside live destroy scope")
-    assert sum(op == "list-exports" for op, _ in fake.calls) == 1 and not fake.deleted
+    _state_check_order_and_safety_138.fake = Fake(["A", "B"], exports={"Vpc": ("A", ["B"])})
+    M.preflight(cached, _state_check_order_and_safety_138.fake, 2, lambda: None)
+    M.dependencies(cached, _state_check_order_and_safety_138.fake, lambda: None)
+    _state_check_order_and_safety_138.fake.export_imports["Vpc"] = ("A", ["B", "Outside"])
+    M.preflight(cached, _state_check_order_and_safety_138.fake, 2, lambda: None)
+    rejects(lambda: M.dependencies(cached, _state_check_order_and_safety_138.fake, lambda: None), "outside live destroy scope")
+    assert sum(op == "list-exports" for op, _ in _state_check_order_and_safety_138.fake.calls) == 1 and not _state_check_order_and_safety_138.fake.deleted
     for operation in ("list-exports", "list-imports"):
-        fake = Fake(["A"], exports={"Vpc": ("A", [])})
-        state = session({"A": 10}); M.preflight(state, fake, 1, lambda: None)
-        aws = fake.aws
-        with patch.object(fake, "aws", side_effect=lambda op, *args: {} if op == operation else aws(op, *args)):
-            rejects(lambda: M.dependencies(state, fake, lambda: None), "cannot prove dependencies")
-        assert not fake.deleted
-    fake = Fake(["A"]); fake.overrides["A"] = {"EnableTerminationProtection": True}
-    state, fake = execute({"A": 10}, fake=fake)
-    assert state["status"] == "BLOCKED" and not fake.deleted
+        _state_check_order_and_safety_138.fake = Fake(["A"], exports={"Vpc": ("A", [])})
+        state = session({"A": 10})
+        M.preflight(state, _state_check_order_and_safety_138.fake, 1, lambda: None)
+        aws = _state_check_order_and_safety_138.fake.aws
+        with patch.object(_state_check_order_and_safety_138.fake, "aws", side_effect=lambda op, *args, aws=aws, operation=operation: {} if op == operation else aws(op, *args)):
+            rejects(lambda *, fake=_state_check_order_and_safety_138.fake, state=state: M.dependencies(state, fake, lambda: None), "cannot prove dependencies")
+        assert not _state_check_order_and_safety_138.fake.deleted
+    _state_check_order_and_safety_138.fake = Fake(["A"])
+    _state_check_order_and_safety_138.fake.overrides["A"] = {"EnableTerminationProtection": True}
+    state, _state_check_order_and_safety_138.fake = execute({"A": 10}, fake=_state_check_order_and_safety_138.fake)
+    assert state["status"] == "BLOCKED" and not _state_check_order_and_safety_138.fake.deleted
     print("D07: PASS termination protection")
-    fake = Fake(["A"]); fake.overrides["A"] = {"ParentId": stack_id("Parent"), "RootId": stack_id("Parent")}
-    state, fake = execute({"A": 10}, fake=fake)
-    assert state["status"] == "BLOCKED" and not fake.deleted
+    _state_check_order_and_safety_138.fake = Fake(["A"])
+    _state_check_order_and_safety_138.fake.overrides["A"] = {"ParentId": stack_id("Parent"), "RootId": stack_id("Parent")}
+    state, _state_check_order_and_safety_138.fake = execute({"A": 10}, fake=_state_check_order_and_safety_138.fake)
+    assert state["status"] == "BLOCKED" and not _state_check_order_and_safety_138.fake.deleted
     print("D08: PASS nested direct target")
-    fake = Fake(["A", "B", "C", "D"], {"A": ["DELETE_FAILED"], "B": ["DELETE_IN_PROGRESS"] * 3 + ["DELETE_COMPLETE"]})
-    state, fake = execute({"A": 30, "B": 30, "C": 30, "D": 20}, 2, fake)
-    assert fake.deleted == ["A", "B"] and not fake.running and state["status"] == "BLOCKED"
+    _state_check_order_and_safety_138.fake = Fake(["A", "B", "C", "D"], {"A": ["DELETE_FAILED"], "B": ["DELETE_IN_PROGRESS"] * 3 + ["DELETE_COMPLETE"]})
+    state, _state_check_order_and_safety_138.fake = execute({"A": 30, "B": 30, "C": 30, "D": 20}, 2, _state_check_order_and_safety_138.fake)
+    assert _state_check_order_and_safety_138.fake.deleted == ["A", "B"] and not _state_check_order_and_safety_138.fake.running and state["status"] == "BLOCKED"
     assert state["states"]["A"]["status"] == "DELETE_FAILED" and state["states"]["B"]["status"] == "DELETE_COMPLETE"
     assert all(state["states"][name]["status"] == "NOT_STARTED" for name in ("C", "D"))
-    assert not any("FORCE_DELETE_STACK" in args for _, args in fake.calls)
-    fake = Fake(["A"], {"A": ["DELETE_COMPLETE"]}); fake.retained.add("A")
-    retained, _ = execute({"A": 10}, fake=fake)
+    assert not any("FORCE_DELETE_STACK" in args for _, args in _state_check_order_and_safety_138.fake.calls)
+    _state_check_order_and_safety_138.fake = Fake(["A"], {"A": ["DELETE_COMPLETE"]})
+    _state_check_order_and_safety_138.fake.retained.add("A")
+    retained, _ = execute({"A": 10}, fake=_state_check_order_and_safety_138.fake)
     assert retained["states"]["A"]["retained"][0]["ResourceStatus"] == "DELETE_SKIPPED"
     backend = M.AwsBackend(ROOT, "dev", "123456789012", TARGET)
     pages = [{"StackEvents": [{"ResourceStatus": "DELETE_SKIPPED"}], "NextToken": "page2"},
@@ -202,9 +213,10 @@ def check_order_and_safety():
     for override in ({"StackId": stack_id("Other")}, {"StackName": "Other"},
                      {"StackId": stack_id("A").replace("123456789012", "999999999999")},
                      {"StackId": stack_id("A").replace("ap-northeast-1", "us-east-1")}):
-        fake = Fake(["A"]); fake.overrides["A"] = override
-        state, fake = execute({"A": 10}, fake=fake)
-        assert not fake.deleted and state["status"] == "BLOCKED"
+        _state_check_order_and_safety_138.fake = Fake(["A"])
+        _state_check_order_and_safety_138.fake.overrides["A"] = override
+        state, _state_check_order_and_safety_138.fake = execute({"A": 10}, fake=_state_check_order_and_safety_138.fake)
+        assert not _state_check_order_and_safety_138.fake.deleted and state["status"] == "BLOCKED"
 
 
 def check_unused_export():
@@ -244,7 +256,8 @@ def check_absence():
     M.preflight(state, fake, 1, lambda: None)
     assert state["states"]["A"]["status"] == "DELETE_COMPLETE"
     for evidence in ({}, {"StackId": stack_id("A"), "status": "DELETE_INTENT"}):
-        state = session({"A": 10}); state["states"]["A"].update(evidence)
+        state = session({"A": 10})
+        state["states"]["A"].update(evidence)
         M.preflight(state, fake, 1, lambda: None)
         assert state["states"]["A"]["status"] == "ALREADY_ABSENT"
         # A new same-name stack appearing later is outside the pinned session.
@@ -253,8 +266,10 @@ def check_absence():
         assert state["states"]["A"]["status"] == "ALREADY_ABSENT" and not replacement.calls
     print("D11: PASS fresh absence / intent alone do not prove deletion")
     # Resume never switches to a replacement stack with the same name.
-    fake = Fake(["A"]); fake.overrides["A"] = {"StackId": stack_id("A") + "-replacement"}
-    state = session({"A": 10}); state["states"]["A"]["StackId"] = stack_id("A")
+    fake = Fake(["A"])
+    fake.overrides["A"] = {"StackId": stack_id("A") + "-replacement"}
+    state = session({"A": 10})
+    state["states"]["A"]["StackId"] = stack_id("A")
     rejects(lambda: M.preflight(state, fake, 1, lambda: None), "mismatch")
 
 
@@ -320,115 +335,136 @@ def fixture(root, names, models=False):
     return contract
 
 
+def _callback_check_controller_checked_read(read_text, /, path, *args, **kwargs):
+    assert path.suffix not in {".yaml", ".yml"} and "parameters" not in path.parts, path
+    return read_text(path, *args, **kwargs)
+
+
+def _callback_check_controller_aws_run(_state_check_controller_338, /, command, **kwargs):
+    assert command[0] == "aws", command
+    service_index = command.index("sts") if "sts" in command else command.index("cloudformation")
+    response = _state_check_controller_338.fake.aws(command[service_index + 1], *command[service_index + 2:-3])
+    if response is None:
+        return SimpleNamespace(returncode=1, stdout="", stderr="An error occurred (ValidationError) when calling the DescribeStacks operation: Stack with id A does not exist")
+    return SimpleNamespace(returncode=0, stdout=json.dumps(response), stderr="")
+
+
+def _callback_check_controller_checked_glob(_state_check_controller_338, rglob, /, path, *args, **kwargs):
+    assert path not in {_state_check_controller_338.root / "infra", _state_check_controller_338.root / "framework"}, "full tree guard forbidden"
+    return rglob(path, *args, **kwargs)
+
+
+def _callback_check_controller_mutate(_state_check_controller_338, original, task, /, name):
+    if name == "A":
+        if _state_check_controller_338.drift == "task":
+            task.write_text(original + "\n")
+        else:
+            path = _state_check_controller_338.root / "issues/dev/123456789012/issues.md"
+            path.parent.mkdir(parents=True)
+            path.write_text("### cloudformation-stacks\n1. 未解決問題\n")
+
+
 def check_controller(tmp_path):
+    _state_check_controller_338 = _CallbackState()
     runner = M.run_session
     with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/destroy.md'}), patch.object(M, 'run_session', side_effect=lambda *args, **kwargs: runner(*args, **kwargs, sleep=lambda _: None)):
-        base = tmp_path; root = base / "repo"; root.mkdir()
-        fixture(root, {"A": 10})
-        fake = Fake(["A"])
+        base = tmp_path
+        _state_check_controller_338.root = base / "repo"
+        _state_check_controller_338.root.mkdir()
+        fixture(_state_check_controller_338.root, {"A": 10})
+        _state_check_controller_338.fake = Fake(["A"])
         # Use the real AWS backend/real context; subprocess is the sole fake boundary.
-        def aws_run(command, **kwargs):
-            assert command[0] == "aws", command
-            service_index = command.index("sts") if "sts" in command else command.index("cloudformation")
-            response = fake.aws(command[service_index + 1], *command[service_index + 2:-3])
-            if response is None:
-                return SimpleNamespace(returncode=1, stdout="", stderr="An error occurred (ValidationError) when calling the DescribeStacks operation: Stack with id A does not exist")
-            return SimpleNamespace(returncode=0, stdout=json.dumps(response), stderr="")
+        aws_run = _bind_framework_callback(_callback_check_controller_aws_run, _state_check_controller_338)
         read_text, rglob = Path.read_text, Path.rglob
-        def checked_read(path, *args, **kwargs):
-            assert path.suffix not in {".yaml", ".yml"} and "parameters" not in path.parts, path
-            return read_text(path, *args, **kwargs)
-        def checked_glob(path, *args, **kwargs):
-            assert path not in {root / "infra", root / "framework"}, "full tree guard forbidden"
-            return rglob(path, *args, **kwargs)
+        checked_read = _bind_framework_callback(_callback_check_controller_checked_read, read_text)
+        checked_glob = _bind_framework_callback(_callback_check_controller_checked_glob, _state_check_controller_338, rglob)
         argv = ["--environment", "dev", "--aws-account-id", "123456789012", "--stack", "A", "--state", str(base / "session.json")]
         with patch.object(M.subprocess, "run", side_effect=aws_run), patch("shutil.which", side_effect=lambda command: "aws" if command == "aws" else None), \
                 patch.object(M.tempfile, "gettempdir", return_value=str(base)), \
                 patch.object(M.time, "sleep", lambda _: None), patch.object(Path, "read_text", checked_read), patch.object(Path, "rglob", checked_glob), \
                 redirect_stdout(io.StringIO()) as output, redirect_stderr(io.StringIO()) as errors:
-            code = M.controller_main(argv, root)
+            code = M.controller_main(argv, _state_check_controller_338.root)
             assert code == 0, (output.getvalue(), errors.getvalue())
             state = json.loads((base / "session.json").read_text())
             assert state["states"]["A"]["observedSynced"]
-            counts = Counter(op for op, _ in fake.calls)
+            counts = Counter(op for op, _ in _state_check_controller_338.fake.calls)
             assert counts["get-caller-identity"] == counts["delete-stack"] == counts["list-exports"] == 1
             assert not any(counts[op] for op in ("validate-template", "create-change-set", "execute-change-set", "get-template"))
             # Resume same immutable session: one additional authentication, no redelete or relist exports.
-            assert M.controller_main(argv + ["--resume"], root) == 0
-            assert sum(op == "list-exports" for op, _ in fake.calls) == 1
-            assert fake.deleted == ["A"]
-            previous_calls = len(fake.calls)
+            assert M.controller_main(argv + ["--resume"], _state_check_controller_338.root) == 0
+            assert sum(op == "list-exports" for op, _ in _state_check_controller_338.fake.calls) == 1
+            assert _state_check_controller_338.fake.deleted == ["A"]
+            previous_calls = len(_state_check_controller_338.fake.calls)
             with patch.dict(os.environ, {"AWS_PROFILE": "different-resume-profile"}):
-                assert M.controller_main(argv + ["--resume"], root) == 1
-            assert len(fake.calls) == previous_calls
+                assert M.controller_main(argv + ["--resume"], _state_check_controller_338.root) == 1
+            assert len(_state_check_controller_338.fake.calls) == previous_calls
             state_path = base / "session.json"
             pristine = state_path.read_text()
-            state = json.loads(pristine); state["states"]["A"]["DeployOrder"] = 99
+            state = json.loads(pristine)
+            state["states"]["A"]["DeployOrder"] = 99
             state_path.write_text(json.dumps(state))
-            assert M.controller_main(argv + ["--resume"], root) == 1
-            assert len(fake.calls) == previous_calls
+            assert M.controller_main(argv + ["--resume"], _state_check_controller_338.root) == 1
+            assert len(_state_check_controller_338.fake.calls) == previous_calls
             state_path.write_text(pristine)
         print("D01: PASS real controller fake subprocess: STS=1, delete=1 by StackId, heavy AWS APIs=0")
         # --local-plan is genuinely offline, even before task creation.
         with patch.object(M.subprocess, "run", side_effect=AssertionError("local-plan used AWS")), redirect_stdout(io.StringIO()):
-            assert M.controller_main(argv + ["--local-plan"], root) == 0
+            assert M.controller_main(argv + ["--local-plan"], _state_check_controller_338.root) == 0
         # CLI sequential selects concurrency=1 without changing model limit.
         (base / "session.json").unlink()
-        fake.absent.clear(); fake.completed.clear(); fake.deleted.clear()
+        _state_check_controller_338.fake.absent.clear()
+        _state_check_controller_338.fake.completed.clear()
+        _state_check_controller_338.fake.deleted.clear()
         with patch.object(M.subprocess, "run", side_effect=aws_run), patch("shutil.which", return_value="aws"), \
                 patch.object(M.tempfile, "gettempdir", return_value=str(base)), \
                 patch.object(M.time, "sleep", lambda _: None), redirect_stdout(io.StringIO()):
-            assert M.controller_main(argv + ["--sequential"], root) == 0
+            assert M.controller_main(argv + ["--sequential"], _state_check_controller_338.root) == 0
         assert json.loads((base / "session.json").read_text())["identity"]["limit"] == 1
         # Profile mismatch blocks before any delete or STS.
         (base / "session.json").unlink()
-        project = json.loads((root / "project.json").read_text()); project["targets"][0]["awsProfile"] = "configured"
-        (root / "project.json").write_text(json.dumps(project)); fake.calls.clear()
+        project = json.loads((_state_check_controller_338.root / "project.json").read_text())
+        project["targets"][0]["awsProfile"] = "configured"
+        (_state_check_controller_338.root / "project.json").write_text(json.dumps(project))
+        _state_check_controller_338.fake.calls.clear()
         with patch.object(M.subprocess, "run", side_effect=aws_run), patch("shutil.which", return_value="aws"), \
                 patch.object(M.tempfile, "gettempdir", return_value=str(base)), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            assert M.controller_main(argv + ["--profile", "other"], root) == 1
-        assert not fake.calls
+            assert M.controller_main(argv + ["--profile", "other"], _state_check_controller_338.root) == 1
+        assert not _state_check_controller_338.fake.calls
         # Multiple deletes run the real lightweight guard; tree/body access remains trapped.
-        root = base / "multi"; root.mkdir()
-        fixture(root, {"A": 30, "B": 20, "C": 10})
-        fake = Fake(["A", "B", "C"])
+        _state_check_controller_338.root = base / "multi"
+        _state_check_controller_338.root.mkdir()
+        fixture(_state_check_controller_338.root, {"A": 30, "B": 20, "C": 10})
+        _state_check_controller_338.fake = Fake(["A", "B", "C"])
         argv = ["--environment", "dev", "--aws-account-id", "123456789012", "--stack", "A", "--stack", "B", "--stack", "C", "--state", str(base / "multi.json")]
         with patch.object(M.subprocess, "run", side_effect=aws_run), patch("shutil.which", side_effect=lambda command: "aws" if command == "aws" else None), \
                 patch.object(M.tempfile, "gettempdir", return_value=str(base)), patch.object(M.time, "sleep", lambda _: None), \
                 patch.object(Path, "read_text", checked_read), patch.object(Path, "rglob", checked_glob), \
                 patch.object(M, "require_target_no_issues", wraps=M.require_target_no_issues) as issue_check, redirect_stdout(io.StringIO()):
-            assert M.controller_main(argv, root) == 0
+            assert M.controller_main(argv, _state_check_controller_338.root) == 0
             assert issue_check.call_count == 1
-        counts = Counter(op for op, _ in fake.calls)
-        assert fake.deleted == ["A", "B", "C"]
+        counts = Counter(op for op, _ in _state_check_controller_338.fake.calls)
+        assert _state_check_controller_338.fake.deleted == ["A", "B", "C"]
         assert counts["get-caller-identity"] == counts["list-exports"] == 1 and counts["delete-stack"] == 3
         print("D14: PASS 3 real-guard deletes: STS=1, exports=1, issue check=1, full tree/body scans=0")
         # A relevant issue/task change after the first delete blocks subsequent starts.
-        task = root / "tasks/destroy.md"; original = task.read_text()
-        for drift in ("task", "issue"):
-            state_path = base / "multi.json"; state_path.unlink()
-            fake = Fake(["A", "B", "C"])
-            def mutate(name):
-                if name == "A":
-                    if drift == "task":
-                        task.write_text(original + "\n")
-                    else:
-                        path = root / "issues/dev/123456789012/issues.md"
-                        path.parent.mkdir(parents=True)
-                        path.write_text("### cloudformation-stacks\n1. 未解決問題\n")
-            fake.hook = mutate
+        task = _state_check_controller_338.root / "tasks/destroy.md"
+        original = task.read_text()
+        for _state_check_controller_338.drift in ("task", "issue"):
+            state_path = base / "multi.json"
+            state_path.unlink()
+            _state_check_controller_338.fake = Fake(["A", "B", "C"])
+            mutate = _bind_framework_callback(_callback_check_controller_mutate, _state_check_controller_338, original, task)
+            _state_check_controller_338.fake.hook = mutate
             with patch.object(M.subprocess, "run", side_effect=aws_run), patch("shutil.which", return_value="aws"), \
                     patch.object(M.tempfile, "gettempdir", return_value=str(base)), patch.object(M.time, "sleep", lambda _: None), redirect_stdout(io.StringIO()):
-                assert M.controller_main(argv, root) == 1
-            assert fake.deleted == ["A"] and not fake.running
+                assert M.controller_main(argv, _state_check_controller_338.root) == 1
+            assert _state_check_controller_338.fake.deleted == ["A"] and not _state_check_controller_338.fake.running
             task.write_text(original)
-            (root / "issues/dev/123456789012/issues.md").unlink(missing_ok=True)
+            (_state_check_controller_338.root / "issues/dev/123456789012/issues.md").unlink(missing_ok=True)
 
 
 @pytest.fixture
 def managed_destroy_root():
-    from support.worktree_task_fixtures import fixture as repository, git, start
-    from task_contract import selected_task
     with repository() as primary:
         fixture(primary, {"A": 30, "B": 20, "C": 10}, models=True)
         git(primary, 'add', 'project.json', 'model', 'docs')
@@ -438,9 +474,15 @@ def managed_destroy_root():
             yield root
 
 
+def _callback_check_observed_batch(calls, real_sync, /, *args, **kwargs):
+    calls.append(kwargs.get("services"))
+    return real_sync(*args, **kwargs)
+
+
 def check_observed(managed_destroy_root):
     with patch.dict(os.environ, {'BLUEPRINT_TASK_FILE': 'tasks/destroy.md'}):
-        root = managed_destroy_root; fixture(root, {"A": 30, "B": 20, "C": 10}, models=True)
+        root = managed_destroy_root
+        fixture(root, {"A": 30, "B": 20, "C": 10}, models=True)
         source = root / "model/dev/123456789012/ec2.properties"
         design = root / "docs/designs/dev/123456789012/ec2.md"
         # A planned resource's legacy ID is not a stack mapping (SnowCatConn case).
@@ -476,9 +518,7 @@ def check_observed(managed_destroy_root):
         states["B"]["status"] = "DELETE_FAILED"
         calls = []
         real_sync = sync_runtime.sync
-        def batch(*args, **kwargs):
-            calls.append(kwargs.get("services"))
-            return real_sync(*args, **kwargs)
+        batch = _bind_framework_callback(_callback_check_observed_batch, calls, real_sync)
         with patch.object(sync_runtime, "sync", side_effect=batch), redirect_stdout(io.StringIO()):
             observed.sync_destroyed(backend, states, plan["observed"])
         after = properties(read_model(source))
@@ -501,8 +541,10 @@ def check_observed(managed_destroy_root):
         assert calls == [["ec2"]] and all(batched[name]["observedSynced"] for name in ("A", "B"))
         assert properties(read_model(source))["observed.row.002-002.value"] == "`PENDING_DEPLOY`"
         # Fresh absence must not synchronize even with a valid planned owner.
-        absent = session({"A": 30})["states"]; absent["A"]["status"] = "ALREADY_ABSENT"
-        snapshot = snapshot_model(source); observed.sync_destroyed(backend, absent, plan["observed"])
+        absent = session({"A": 30})["states"]
+        absent["A"]["status"] = "ALREADY_ABSENT"
+        snapshot = snapshot_model(source)
+        observed.sync_destroyed(backend, absent, plan["observed"])
         assert snapshot_model(source) == snapshot
         print("D12: PASS identifiers/incoming refs pending, desired unchanged, actual generation once")
         print("D13: PASS only proven A changed; failed B/unexecuted C unchanged")
@@ -510,14 +552,16 @@ def check_observed(managed_destroy_root):
         project = json.loads((root / "project.json").read_text())
         project["targets"].append({"environment": "prod", **TARGET, "awsAccountId": "999999999999"})
         (root / "project.json").write_text(json.dumps(project) + "\n")
-        outside = root / "model/prod/999999999999/ec2.properties"; outside.parent.mkdir(parents=True)
+        outside = root / "model/prod/999999999999/ec2.properties"
+        outside.parent.mkdir(parents=True)
         write_model(outside, 'desired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_001\ndesired.resource.001.anchor=resource-EC2_Subnet_001\ndesired.service.identity.lastAllocated={"EC2.Subnet":1}\ndesired.row.001-001.property=EC2.Subnet.VpcId\ndesired.row.001-001.value=[EC2_VPC_001](../../dev/123456789012/ec2.md#resource-EC2_VPC_001)\ndesired.row.001-001.comment=参照\n')
         rejects(lambda: M.local_plan(root, "dev", "123456789012", ["A"]), "task scope violation")
-        from model.sources import model_parts
+        model_parts = _imports_model_sources.model_parts
         for file in model_parts(outside):
             file.unlink()
         outside.unlink(missing_ok=True)
-        original = read_model(source); write_model(source, original.replace("desired.resource.001.cfn-logicalId=A-Vpc\n", ""))
+        original = read_model(source)
+        write_model(source, original.replace("desired.resource.001.cfn-logicalId=A-Vpc\n", ""))
         # Pending/absent identifiers can stay unmapped, even with a legacy ID.
         pending = M.local_plan(root, "dev", "123456789012", ["A"])
         assert pending["observed"]["owners"]["A"] == []

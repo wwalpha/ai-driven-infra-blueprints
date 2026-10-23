@@ -2,20 +2,23 @@
 """Check or refresh the CloudFormation provider schemas used by this blueprint."""
 
 from __future__ import annotations
-from validation_cache import input_bytes, input_select, input_text
 
 import argparse
 import hashlib
 import io
 import json
 import re
-import sys
 import urllib.request
 import zipfile
+from copy import deepcopy
 from pathlib import Path
+from threading import Lock
 from typing import Any
-from utils.json_format import canonical_json
 
+import utils.aws_mappings as _imports_utils_aws_mappings
+import utils.aws_schemas as _imports_utils_aws_schemas
+from utils.input_cache import input_bytes, input_select, input_text
+from utils.json_format import canonical_json
 
 REGION = "ap-northeast-1"
 SOURCE_URL = f"https://schema.cloudformation.{REGION}.amazonaws.com/CloudformationSchema.zip"
@@ -61,7 +64,7 @@ def design_type(material: Path) -> str:
 
 
 def material_files(root: Path) -> list[Path]:
-    from utils.aws_mappings import definition_root
+    definition_root = _imports_utils_aws_mappings.definition_root
     root = definition_root(root)
     return sorted(input_select(root / "framework" / "materials" / "aws", "*.properties"))
 
@@ -75,8 +78,8 @@ def manifest_text(root: Path, files: list[Path]) -> str:
 
 class CloudFormationSchemaCatalog:
     def __init__(self, root: Path, *, definitions=None) -> None:
-        from threading import Lock
-        from utils.aws_schemas import schemas_for
+
+        schemas_for = _imports_utils_aws_schemas.schemas_for
         self.root = root
         self.definitions = definitions if definitions is not None else schemas_for(root)
         self.directory = self.definitions.directory
@@ -90,7 +93,6 @@ class CloudFormationSchemaCatalog:
 
     def schema(self, resource_type: str) -> dict[str, Any]:
         resource_type = self.canonical_type(resource_type)
-        from copy import deepcopy
         with self._schema_lock:
             if resource_type not in self.schemas:
                 # The public catalog permits local overrides; isolate each resource once.

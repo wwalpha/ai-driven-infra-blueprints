@@ -1,39 +1,75 @@
 #!/usr/bin/env python3
 """Offline acquire/edit/publish integration. Run through tests/run_it.py in CI."""
-import sys
-from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
 
-import copy
+import sys
+from collections import Counter
+from functools import partial as _bind_framework_callback
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import json
 import socket
 import subprocess
 from unittest.mock import patch
 
-import pytest
 import import_guard
+import model.importing.scope as _imports_model_importing_scope
+import model.sources
+import pytest
+import support.import_model_fixtures as _imports_support_import_model_fixtures
 import sync_files
 import sync_runtime
+from import_guard import digest
 from model.core import entries, properties
 from model.format import parse, serialize
+from model.identity import COUNTERS, allocate
+from model.importing import repository
+from model.importing.scope import read_context
 from model.operations import operation_values
 from model.sources import json_text, load_model
-from support.import_model_fixtures import (ACCOUNT, TARGET, SERVICES, SUBNETS, VPC_ID, AwsCli,
-    aws, correspondence, exclusions, fixture, logs_edit, m, publish_fixture, review_fixture, snapshot, resource_values, stage)
-from support.import_repository_fixtures import checkpoint
+from support.import_model_fixtures import (
+    ACCOUNT,
+    SERVICES,
+    SUBNETS,
+    TARGET,
+    VPC_ID,
+    AwsCli,
+    CloudControlCli,
+    aws,
+    correspondence,
+    exclusions,
+    fixture,
+    logs_edit,
+    m,
+    project_fixture,
+    publish_fixture,
+    resource_values,
+    review_fixture,
+    snapshot,
+    stage,
+)
+from support.import_repository_fixtures import checkpoint, repositories, state
+from support.model_sources import write_model
+from support.model_v2_fixtures import import_publication_case
+from task_contract_core import selected_task, start
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
+
+def _callback_offline_without_git(popen, /, command, *args, **kwargs):
+    assert Path(command[0]).stem != 'git', 'Import IT must not start Git'
+    return popen(command, *args, **kwargs)
 
 
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     monkeypatch.setattr(socket.socket, 'connect', lambda *a, **k: (_ for _ in ()).throw(AssertionError('live network forbidden')))
-    from support.import_repository_fixtures import repositories
     popen = subprocess.Popen
-    def without_git(command, *args, **kwargs):
-        assert Path(command[0]).stem != 'git', 'Import IT must not start Git'
-        return popen(command, *args, **kwargs)
+    without_git = _bind_framework_callback(_callback_offline_without_git, popen)
     monkeypatch.setattr(subprocess, 'Popen', without_git)
     with repositories(monkeypatch):
         yield
@@ -168,7 +204,6 @@ def check_managed_resource_addition(tmp_path, kind, unknown):
     for key, value in original.authoritative.items():
         if key.startswith((f'desired.resource.{source}.', f'display.resource.{source}.', f'desired.row.{source}-', f'observed.row.{source}-')):
             values[key.replace('.' + source, '.009', 1)] = value
-    from model.identity import allocate
     del values['desired.resource.009.logicalId']
     values = allocate(values, ['009'])
     values['desired.resource.009.anchor'] = 'vpc-managed-009'
@@ -370,7 +405,6 @@ def check_add_identity_boundary(tmp_path, service, scenario):
     original = dict(values)
     for key, value in operation_values(original, '001').items():
         values[key.replace('.001', '.009', 1)] = value
-    from model.identity import allocate
     del values['desired.resource.009.logicalId']
     values = allocate(values, ['009'])
     values['desired.resource.009.anchor'] = 'vpc-managed-009'
@@ -423,7 +457,6 @@ def check_repeat_without_reformat(tmp_path):
         m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli, resource_types=['Logs.LogGroup'])
     assert not cli.calls and source_files(root) == before
     import_guard.require_import_changes(root)
-    from task_contract import start, selected_task
     old_name, new_name = 'tasks/import-fixture.md', 'tasks/reimport.md'
     checkpoint(root, task=new_name)
     text = (root / old_name).read_text().replace(old_name, new_name)
@@ -506,6 +539,15 @@ def check_consumer_set_race(tmp_path):
     import_guard.discard_acquisition(root, acquired['evidence'])
 
 
+def _callback_check_source_transaction_rollback_fail_after_first(real_save, root, /, output):
+    selected = list(output.items())
+    if any(path.is_relative_to(root / 'model') for path, _ in selected):
+        path, text = selected[0]
+        path.write_text(text, encoding='utf-8')
+        raise OSError('synthetic interrupted source transaction')
+    return real_save(output)
+
+
 def check_source_transaction_rollback(tmp_path):
     root = tmp_path / 'case'
     fixture(root)
@@ -515,13 +557,7 @@ def check_source_transaction_rollback(tmp_path):
     promote_logs(root, acquired)
     original = source_files(root)
     real_save = sync_files.save_files
-    def fail_after_first(output):
-        selected = list(output.items())
-        if any(path.is_relative_to(root / 'model') for path, _ in selected):
-            path, text = selected[0]
-            path.write_text(text, encoding='utf-8')
-            raise OSError('synthetic interrupted source transaction')
-        return real_save(output)
+    fail_after_first = _bind_framework_callback(_callback_check_source_transaction_rollback_fail_after_first, real_save, root)
     with patch.object(sync_files, 'save_files', side_effect=fail_after_first), pytest.raises(OSError, match='synthetic'):
         publish_fixture(root, acquired)
     assert source_files(root) == original and not import_guard.proof_path(root).exists()
@@ -569,6 +605,12 @@ def check_dry_run_cleanup(tmp_path):
     assert Path(second['evidence']).is_file()
 
 
+def _callback_check_evidence_and_display_recovery_fail_display(actual, /, root, output, *args, **kwargs):
+    if any(p.is_relative_to(root / 'docs/designs') for p in output):
+        raise OSError('synthetic display I/O failure')
+    return actual(root, output, *args, **kwargs)
+
+
 def check_evidence_and_display_recovery(tmp_path):
     root, acquired, _ = prepare(tmp_path)
     logs_edit(root, acquired)
@@ -586,10 +628,7 @@ def check_evidence_and_display_recovery(tmp_path):
             publish_fixture(root, acquired)
     assert source_files(root) == before and evidence.is_file()
     actual = m._publish_transaction
-    def fail_display(root, output, *args, **kwargs):
-        if any(p.is_relative_to(root / 'docs/designs') for p in output):
-            raise OSError('synthetic display I/O failure')
-        return actual(root, output, *args, **kwargs)
+    fail_display = _bind_framework_callback(_callback_check_evidence_and_display_recovery_fail_display, actual)
     with patch.object(m, '_publish_transaction', side_effect=fail_display):
         result = publish_fixture(root, acquired)
     assert result['model'] == 'reflected' and result['markdown'] == 'failed' and result['status'] == 'display-failed'
@@ -601,15 +640,18 @@ def check_evidence_and_display_recovery(tmp_path):
     assert not (root / '.blueprint').exists()
 
 
+def _callback_check_partial_acquisition_cannot_complete_cli(original, /, command, **kwargs):
+    if command[1:3] == ['configservice', 'describe-delivery-channels']:
+        original.calls.append(('configservice', 'describe-delivery-channels', {}))
+        return subprocess.CompletedProcess(command, 1, '', 'An error occurred (AccessDeniedException) when calling fixture: denied')
+    return original(command, **kwargs)
+
+
 def check_partial_acquisition_cannot_complete(tmp_path):
     root = tmp_path / 'case'
     fixture(root, 'config')
     original = aws('config')
-    def cli(command, **kwargs):
-        if command[1:3] == ['configservice', 'describe-delivery-channels']:
-            original.calls.append(('configservice', 'describe-delivery-channels', {}))
-            return subprocess.CompletedProcess(command, 1, '', 'An error occurred (AccessDeniedException) when calling fixture: denied')
-        return original(command, **kwargs)
+    cli = _bind_framework_callback(_callback_check_partial_acquisition_cannot_complete_cli, original)
     before = source_files(root)
     acquired = m.acquire(root, 'dev', 'config', TARGET, cli_runner=cli)
     assert acquired['status'] == 'incomplete' and acquired['records']
@@ -625,8 +667,6 @@ def check_partial_acquisition_cannot_complete(tmp_path):
 
 
 def check_generic_acquisition_roundtrip(tmp_path):
-    from support.import_model_fixtures import project_fixture, CloudControlCli
-    from support.model_sources import write_model
     root = tmp_path / 'case'
     root.mkdir()
     project_fixture(root)
@@ -648,15 +688,27 @@ def check_generic_acquisition_roundtrip(tmp_path):
     assert result['status'] == 'dry-run' and source_files(root) == before and len(cli.calls) == count
 
 
+def _callback_check_reference_publication_counted(original_read, reads, root, /, scope, *args, **kwargs):
+    if scope.service == 's3':
+        reads[read_context(root), args[0]] += 1
+    return original_read(scope, *args, **kwargs)
+
+
+def _callback_check_reference_publication_finish(original_finish, producer, race, /, *args, **kwargs):
+    result = original_finish(*args, **kwargs)
+    if race and kwargs.get('model') == 'reflected':
+        producer.write_text(producer.read_text().replace('`audit-bucket`', '`audit-bucket-raced`'))
+    return result
+
+
 @pytest.mark.parametrize('present,race,diagnostic', [(False, False, None), (True, False, None), (True, True, None),
     (False, False, 'absent'), (True, False, 'mismatch'), (True, False, 'ambiguous'), (True, False, 'review-race')])
 def check_reference_publication(tmp_path, present, race, diagnostic):
-    from collections import Counter
-    from support.import_model_fixtures import CloudControlCli, project_fixture, service_values, reference_fields
-    from support.model_sources import write_model
-    from task_contract import start
-    from model.importing.scope import read_context
-    import model.sources
+
+    CloudControlCli = _imports_support_import_model_fixtures.CloudControlCli
+    project_fixture = _imports_support_import_model_fixtures.project_fixture
+    reference_fields = _imports_support_import_model_fixtures.reference_fields
+    service_values = _imports_support_import_model_fixtures.service_values
     root = tmp_path / 'reference-publication'
     root.mkdir()
     project_fixture(root)
@@ -670,7 +722,7 @@ def check_reference_publication(tmp_path, present, race, diagnostic):
     if diagnostic == 'mismatch':
         producer.write_text(producer.read_text().replace('`audit-bucket`', '`different-bucket`'))
     elif diagnostic == 'ambiguous':
-        from model.importing.scope import reference_reader
+        reference_reader = _imports_model_importing_scope.reference_reader
         with reference_reader(producer):
             fields = dict(load_model(producer).authoritative)
         fields.update(resource_values('002', 'S3.Bucket', 'another-bucket', 'CREATE', [('BucketName', '`audit-bucket`')]))
@@ -694,7 +746,6 @@ def check_reference_publication(tmp_path, present, race, diagnostic):
     values = dict(load_model(path).authoritative)
     values.update(resource_values('009', 'CloudTrail.Trail', 'cloudtrail-audit', 'IMPORT',
         [(prop.removeprefix('CloudTrail.Trail.'), m.model_literal(value)) for prop, value in captured.items()]))
-    from model.identity import allocate, COUNTERS
     values[COUNTERS] = load_model(path).authoritative.get(COUNTERS, '{}')
     del values['desired.resource.009.logicalId']
     values = allocate(values, ['009'])
@@ -734,15 +785,8 @@ def check_reference_publication(tmp_path, present, race, diagnostic):
     reads = Counter()
     original_read = model.sources._read_model
     original_finish = m.finish_import
-    def counted(scope, *args, **kwargs):
-        if scope.service == 's3':
-            reads[read_context(root), args[0]] += 1
-        return original_read(scope, *args, **kwargs)
-    def finish(*args, **kwargs):
-        result = original_finish(*args, **kwargs)
-        if race and kwargs.get('model') == 'reflected':
-            producer.write_text(producer.read_text().replace('`audit-bucket`', '`audit-bucket-raced`'))
-        return result
+    counted = _bind_framework_callback(_callback_check_reference_publication_counted, original_read, reads, root)
+    finish = _bind_framework_callback(_callback_check_reference_publication_finish, original_finish, producer, race)
     original_sources = source_files(root)
     with patch.object(model.sources, '_read_model', counted), patch.object(m, 'finish_import', finish):
         if race:
@@ -780,7 +824,6 @@ def check_reference_publication(tmp_path, present, race, diagnostic):
 @pytest.mark.parametrize('action', ['refresh', 'replace', 'bind'])
 @pytest.mark.parametrize('dry_run', [False, True])
 def check_user_selected_overwrite_publication(tmp_path, action, dry_run):
-    from import_guard import digest
     root = tmp_path / 'case'
     path = fixture(root, register=not dry_run)
     if action == 'bind':
@@ -818,6 +861,15 @@ def check_user_selected_overwrite_publication(tmp_path, action, dry_run):
         import_guard.require_import_changes(root)
 
 
+def _callback_check_mixed_add_refresh_single_publication_save(calls, fail, original_save, /, output):
+    calls.append(set(output))
+    if fail:
+        file, text = next(iter(output.items()))
+        file.write_text(text, encoding='utf-8')
+        raise OSError('injected source publication failure')
+    return original_save(output)
+
+
 @pytest.mark.parametrize('fail', [False, True])
 def check_mixed_add_refresh_single_publication(tmp_path, fail):
     root, acquired, cli = prepare(tmp_path)
@@ -832,13 +884,7 @@ def check_mixed_add_refresh_single_publication(tmp_path, fail):
     before = source_files(root)
     calls = []
     original_save = sync_files.save_files
-    def save(output):
-        calls.append(set(output))
-        if fail:
-            file, text = next(iter(output.items()))
-            file.write_text(text, encoding='utf-8')
-            raise OSError('injected source publication failure')
-        return original_save(output)
+    save = _bind_framework_callback(_callback_check_mixed_add_refresh_single_publication_save, calls, fail, original_save)
     with patch.object(sync_files, 'save_files', side_effect=save):
         if fail:
             with pytest.raises(OSError, match='injected'):
@@ -856,7 +902,6 @@ def check_mixed_add_refresh_single_publication(tmp_path, fail):
 
 
 def check_replace_warns_incoming_references(tmp_path):
-    from import_guard import digest
     root = tmp_path / 'case'
     path = fixture(root, 'vpc')
     before = load_model(path)
@@ -868,7 +913,7 @@ def check_replace_warns_incoming_references(tmp_path):
     selected[0]['before'] = {'identity': VPC_ID, 'model': digest(operation_values(before.authoritative, '001'))}
     stage(root, acquired, {path.relative_to(root).as_posix(): serialize(values)}, selected, exclusions(acquired, selected))
     original = snapshot(root)
-    result = publish_fixture(root, acquired, 'vpc')
+    _ = publish_fixture(root, acquired, 'vpc')
     reviewed = json.loads((Path(acquired['evidence']).parent / 'review.json').read_text())
     assert any(w['code'] == 'reference.replace_impact' for w in reviewed['referenceImpact']['warnings'])
     assert snapshot(root) != original
@@ -895,7 +940,6 @@ def check_first_resource_uses_existing_source_format(tmp_path, missing, shared_t
     cli = aws(changed=True)
     acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli, resource_types=['Logs.LogGroup'])
     service.update(operation_values(seed, '001'))
-    from model.identity import allocate
     del service['desired.resource.001.logicalId']
     if missing:
         service.pop('desired.service.identity.lastAllocated', None)
@@ -965,14 +1009,12 @@ def check_approval_bound_save_guard(tmp_path, tamper):
 
 @pytest.mark.parametrize('failure', ['none', 'source', 'task', 'review', 'candidate', 'source-set', 'model-io', 'receipt', 'display-io', 'bind', 'replace'])
 def check_properties_import_acquire_review_publish(monkeypatch, failure):
-    from support.model_v2_fixtures import import_publication_case
     import_publication_case(monkeypatch, failure)
 
 
 @pytest.mark.parametrize('failure', [None, 'review', 'draft', 'candidate', 'acquisition', 'baseline',
                                     'approval-expired', 'source-save', 'display-save', 'task-baseline'])
 def check_publication_transaction_without_host(monkeypatch, failure):
-    from support.model_v2_fixtures import import_publication_case
     action = {None: 'none', 'review': 'post-review', 'draft': 'post-draft', 'candidate': 'post-candidate',
               'acquisition': 'post-acquisition', 'baseline': 'post-baseline', 'approval-expired': 'post-expiry',
               'source-save': 'receipt', 'display-save': 'display-io', 'task-baseline': 'post-task'}[failure]
@@ -980,13 +1022,11 @@ def check_publication_transaction_without_host(monkeypatch, failure):
 
 
 def check_saved_display_recovery_needs_no_new_approval(monkeypatch):
-    from support.model_v2_fixtures import import_publication_case
     import_publication_case(monkeypatch, 'display-io')
 
 
 @pytest.mark.parametrize('change', ['property', 'destination', 'resource', 'selector'])
 def check_candidate_review_mismatch_rejected_without_host(monkeypatch, change):
-    from support.model_v2_fixtures import import_publication_case
     action = {'property': 'candidate', 'destination': 'selection-target', 'resource': 'candidate-resource',
               'selector': 'candidate-reference'}[change]
     import_publication_case(monkeypatch, action)
@@ -994,7 +1034,6 @@ def check_candidate_review_mismatch_rejected_without_host(monkeypatch, change):
 
 @pytest.mark.parametrize('boundary', ['head', 'base', 'owner', 'task', 'allowed', 'scope', 'target', 'unapproved-source'])
 def check_gitless_guard_boundaries(tmp_path, boundary):
-    from support.import_repository_fixtures import state
     root, acquired, _ = prepare(tmp_path)
     logs_edit(root, acquired)
     review_fixture(root, acquired)
@@ -1034,8 +1073,6 @@ def check_gitless_guard_boundaries(tmp_path, boundary):
 
 
 def check_repository_snapshot_detects_real_changes(tmp_path):
-    from model.importing import repository
-    from support.import_repository_fixtures import state
     root = tmp_path / 'case'
     path = fixture(root)
     baseline = state(root).baseline.copy()

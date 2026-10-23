@@ -2,14 +2,12 @@
 """Run the deterministic local blueprint validation on any supported OS."""
 
 from __future__ import annotations
-from utils.aws_mappings import definition_root
 
-import argparse
-from contextlib import contextmanager
-from datetime import datetime, timezone
+import argparse as argparse
+import cProfile as _imports_cProfile
 import json
 import os
-from pathlib import Path
+import pstats as _imports_pstats
 import shutil
 import signal
 import subprocess
@@ -17,10 +15,19 @@ import sys
 import tempfile
 import time
 import traceback
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from datetime import datetime, timezone
+from functools import partial as _bind_framework_callback
+from pathlib import Path
+from types import SimpleNamespace
 
-from validation_scope import active_scope
+import import_guard as _imports_import_guard
+import task_contract_core as _imports_task_contract
+import validation.runner as _imports_validation_runner
 from regression_guard import authorize_full_regression
-from task_contract import SELECTOR, task_path, suspend, contracts
+from task_contract_core import SELECTOR, contracts, suspend, task_path
+from utils.aws_mappings import definition_root
+from validation_scope import active_scope
 
 
 class StartupDiagnostics:
@@ -88,8 +95,31 @@ def changed_paths(root: Path) -> set[str]:
 
 def framework_changed(paths: set[str]) -> bool:
     # Shared distribution inputs; cover all framework dependencies without a resolver.
-    return any(path.startswith(("framework/", ".agents/")) or path in {"AGENTS.md", "README.md", ".github/workflows/framework-it.yml"}
+    return any(path.startswith(("framework/", ".agents/")) or path in {"AGENTS.md", "README.md", ".github/workflows/framework-it.yml", ".github/workflows/python-quality.yml", "pyproject.toml"}
                for path in paths)
+
+
+
+
+def _run_commands_regression(command):
+    return command[0] != 'git' and (command[1].endswith('.checks.py') or Path(command[1]).name.startswith('test_'))
+
+
+def _callback_run_commands_record(started, timing, /, event, **fields):
+    timing.write(json.dumps({"event": event,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "elapsed_seconds": round(time.perf_counter() - started, 6), **fields},
+        ensure_ascii=False) + "\n")
+
+
+def _callback_run_commands_finish(completed, record, /, index, item, returncode, error='', interrupted=False):
+    process, stream, step, output, began, _ = item
+    stream.close()
+    duration = time.perf_counter() - began
+    result = "interrupted" if interrupted else "error" if error else "pass" if returncode == 0 else "fail"
+    record("step_end", step=step, status=result, returncode=returncode,
+           duration_seconds=round(duration, 6), error=error, output=str(output))
+    completed[index] = (step, output, duration, result, error)
 
 
 def run_commands(root: Path, commands: list[list[str]], environment: dict[str, str],
@@ -108,24 +138,11 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
     with diagnostics.step("timing.open", "pathlib.Path.open", target_path=str(directory / "timing.jsonl")):
         timing = (directory / "timing.jsonl").open("w", encoding="utf-8", buffering=1)
     with timing:
-        def record(event, **fields):
-            timing.write(json.dumps({"event": event,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "elapsed_seconds": round(time.perf_counter() - started, 6), **fields},
-                ensure_ascii=False) + "\n")
+        record = _bind_framework_callback(_callback_run_commands_record, started, timing)
 
-        def regression(command):
-            return command[0] != "git" and (command[1].endswith(".checks.py") or
-                                           Path(command[1]).name.startswith("test_"))
+        regression = _run_commands_regression
 
-        def finish(index, item, returncode, error="", interrupted=False):
-            process, stream, step, output, began, _ = item
-            stream.close()
-            duration = time.perf_counter() - began
-            result = "interrupted" if interrupted else "error" if error else "pass" if returncode == 0 else "fail"
-            record("step_end", step=step, status=result, returncode=returncode,
-                   duration_seconds=round(duration, 6), error=error, output=str(output))
-            completed[index] = (step, output, duration, result, error)
+        finish = _bind_framework_callback(_callback_run_commands_finish, completed, record)
 
         record("loop_start", repository=str(root), pid=os.getpid(), python=sys.executable,
                step_count=len(commands), jobs=jobs, python_version=sys.version,
@@ -149,7 +166,6 @@ def run_commands(root: Path, commands: list[list[str]], environment: dict[str, s
                     running[index] = item
                     next_index += 1
                     if index == 0 and validation_call is not None:
-                        from contextlib import redirect_stdout, redirect_stderr
                         try:
                             record('step_running', step=step, pid=os.getpid())
                             with redirect_stdout(stream), redirect_stderr(stream):
@@ -361,6 +377,141 @@ def select_checks(root, paths, affected=False, *, integration_cases=None):
                  '.github/workflows/framework-it.yml'):
         mapping[path] = {'blueprint-loop-unit.checks.py'}
     mapping['README.md'] = set()
+    # Explicit dependencies for shared modules and their split responsibilities.
+    for path in ('framework/scripts/array_display.py',):
+        mapping[path] = {'array_display.checks.py'}
+    for path in ('framework/scripts/aws-compare-services/cloudformation-stacks.py', 'framework/scripts/aws-compare-services/data-firehose.py', 'framework/scripts/aws-compare-services/ec2.py', 'framework/scripts/aws-compare-services/guardduty.py', 'framework/scripts/aws-compare-services/kms.py', 'framework/scripts/aws-compare-services/lambda.py', 'framework/scripts/aws-compare-services/route53.py', 'framework/scripts/aws-compare-services/s3.py', 'framework/scripts/aws-compare-services/security-group.py', 'framework/scripts/aws-compare-services/sqs.py', 'framework/scripts/aws-compare-services/vpc-endpoint.py', 'framework/scripts/aws-compare-services/vpc.py', 'framework/scripts/aws_mapping.py', 'framework/scripts/aws_mapping_catalog.py', 'framework/scripts/aws_mapping_compare.py', 'framework/scripts/aws_mapping_display.py', 'framework/scripts/utils/aws_catalogs.py', 'framework/scripts/utils/aws_mappings.py', 'framework/scripts/utils/aws_schemas.py', 'framework/scripts/utils/aws_sdk.py', 'framework/scripts/utils/yaml_format.py', 'framework/scripts/utils/mapping_runtime.py', 'framework/scripts/utils/mapping_types.py'):
+        mapping[path] = {'check-model-aws.checks.py', 'model-test.checks.py', 'aws_mapping_catalog.checks.py', 'aws_mapping.checks.py', 'aws_mapping_compare.checks.py', 'aws_mapping-unit.checks.py'}
+    for path in ('framework/scripts/aws_context.py', 'framework/scripts/import_guard.py', 'framework/scripts/utils/source_reads.py'):
+        mapping[path] = {'import-model-unit.checks.py', 'import-model.checks.py', 'import-references-unit.checks.py', 'import-approval-unit.checks.py'}
+    for path in ('framework/scripts/check-design-naming.py',):
+        mapping[path] = {'cloudformation-naming.checks.py'}
+    for path in ('framework/scripts/cloudformation-destroy.py', 'framework/scripts/cloudformation_inputs.py'):
+        mapping[path] = {'deploy-runtime-unit.checks.py', 'cloudformation-deploy.checks.py', 'deploy-observed-resume-unit.checks.py', 'cloudformation-deploy-unit.checks.py', 'deploy_preparation-unit.checks.py'}
+    for path in ('framework/scripts/cloudformation_schema.py',):
+        mapping[path] = {'cloudformation_schema.checks.py'}
+    for path in ('framework/scripts/design_catalog.py', 'framework/scripts/design_document.py', 'framework/scripts/design_layout.py', 'framework/scripts/macie_bucket_tables.py', 'framework/scripts/utils/markdown_format.py', 'framework/scripts/utils/layout_schema.py'):
+        mapping[path] = {'design_layout.checks.py', 'design_document.checks.py', 'design_catalog-unit.checks.py', 'design_layout-unit.checks.py', 'model_design-unit.checks.py', 'policy_tables-unit.checks.py', 'model_design.checks.py', 'design_document-unit.checks.py'}
+    for path in ('framework/scripts/export-design-pdf.py',):
+        mapping[path] = {'export-design-pdf.checks.py'}
+    for path in ('framework/scripts/generation_inputs.py', 'framework/scripts/validation_cache.py', 'framework/scripts/utils/input_cache.py'):
+        mapping[path] = {'framework-input-isolation-unit.checks.py', 'model-validation-reuse.checks.py', 'kms-validation-reuse-unit.checks.py', 'validation_cache-unit.checks.py'}
+    for path in ('framework/scripts/issue_gate.py',):
+        mapping[path] = {'issue_gate-unit.checks.py'}
+    for path in ('framework/scripts/json_intrinsics.py',):
+        mapping[path] = {'json-resource-arn-unit.checks.py'}
+    for path in ('framework/scripts/llm_read_report.py', 'framework/scripts/tests/conftest.py', 'framework/scripts/tests/support/it_case_receipt.py', 'framework/scripts/tests/support/pytest_cli.py', 'framework/scripts/validate-blueprint.py', 'framework/scripts/validation/runner.py'):
+        mapping[path] = {'validate-blueprint.checks.py', 'blueprint-loop-unit.checks.py', 'validation-units.checks.py'}
+    for path in ('framework/scripts/policy_tables.py',):
+        mapping[path] = {'policy_tables-unit.checks.py'}
+    for path in ('framework/scripts/project_targets.py',):
+        mapping[path] = {'check-deploy-context.checks.py'}
+    for path in ('framework/scripts/reference_contracts.py', 'framework/scripts/utils/model_addresses.py'):
+        mapping[path] = {'import-references-unit.checks.py'}
+    for path in ('framework/scripts/regression_guard.py',):
+        mapping[path] = {'regression_guard-unit.checks.py'}
+    for path in ('framework/scripts/requirements.txt', 'framework/scripts/run-python.py', 'framework/scripts/worktree_python.py', 'framework/scripts/worktree_task.py', 'framework/scripts/worktree_state.py'):
+        mapping[path] = {'worktree-guard-unit.checks.py', 'worktree_task.checks.py', 'worktree_python-unit.checks.py'}
+    for path in ('framework/scripts/security_group_tables.py',):
+        mapping[path] = {'security_group_tables-unit.checks.py'}
+    for path in ('framework/scripts/sync-existing-files.py', 'framework/scripts/sync-model.py', 'framework/scripts/sync_progress.py'):
+        mapping[path] = {'sync-model.checks.py', 'model_files.checks.py', 'sync-model-unit.checks.py', 'model_files-unit.checks.py'}
+    for path in ('framework/scripts/task_contract.py', 'framework/scripts/task_contract_core.py'):
+        mapping[path] = {'task-contract-unit.checks.py', 'import-model-unit.checks.py', 'task_contract.checks.py', 'deploy-handoff-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/aws_mapping_compare_fixtures.py',):
+        mapping[path] = {'aws_mapping_compare.checks.py'}
+    for path in ('framework/scripts/tests/support/aws_mapping_display_fixtures.py',):
+        mapping[path] = {'aws_mapping_display-unit.checks.py', 'aws_mapping_display.checks.py'}
+    for path in ('framework/scripts/tests/support/aws_mapping_fixtures.py',):
+        mapping[path] = {'aws_mapping.checks.py', 'aws_mapping-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/blueprint_loop_fixtures.py',):
+        mapping[path] = {'blueprint-loop.checks.py', 'framework-input-isolation.checks.py', 'blueprint-loop-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/check_model_aws_fixtures.py',):
+        mapping[path] = {'check-model-aws.checks.py', 'check-model-aws-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/deploy_preparation_fixtures.py',):
+        mapping[path] = {'deploy_preparation.checks.py', 'deploy_preparation-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/design_catalog_fixtures.py',):
+        mapping[path] = {'design_catalog-unit.checks.py', 'design_catalog.checks.py'}
+    for path in ('framework/scripts/tests/support/design_document_fixtures.py',):
+        mapping[path] = {'design_document.checks.py', 'design_document-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/design_layout_fixtures.py',):
+        mapping[path] = {'design_layout.checks.py', 'design_layout-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/fixture_cases.py',):
+        mapping[path] = {'security_group_tables.checks.py', 'security_group_tables-unit.checks.py', 'issues_scan.checks.py', 'deploy-controller.checks.py'}
+    for path in ('framework/scripts/tests/support/framework_input_isolation_fixtures.py',):
+        mapping[path] = {'framework-input-isolation-unit.checks.py', 'framework-input-isolation.checks.py'}
+    for path in ('framework/scripts/tests/support/glue_datazone_catalog_fixtures.py',):
+        mapping[path] = {'glue_datazone_catalog-unit.checks.py', 'glue_datazone_catalog.checks.py'}
+    for path in ('framework/scripts/tests/support/import_model_fixtures.py', 'framework/scripts/tests/support/it_fixture_bundle.py', 'framework/scripts/tests/support/it_workspace.py', 'framework/scripts/tests/support/service_fixtures.py', 'framework/scripts/tests/support/sync_model_fixtures.py'):
+        mapping[path] = {'json-yaml-document-hash-unit.checks.py', 'model_impact.checks.py', 's3-bound-anchor.checks.py', 'attribute-reference-resolution.checks.py', 'eventbridge-producer-name-reference.checks.py', 'auxiliary-model-dependencies.checks.py', 'producer-identifier-reference-unit.checks.py', 'sync-model.checks.py', 'model-validation-reuse.checks.py', 'model_templates.checks.py', 'raw-bucket-name-reference.checks.py', 'group-03-input-references.checks.py', 'model-retarget-unit.checks.py', 'lambda-input-reference.checks.py', 'worktree_task.checks.py', 'model-markdown-reference.checks.py', 'raw-bucket-name-reference-unit.checks.py', 'import-model-unit.checks.py', 'import-model.checks.py', 'cloudtrail-input-reference.checks.py', 'import-references-unit.checks.py', 'blueprint-loop-unit.checks.py', 'model_parameter_inputs.checks.py', 'security-group-input-reference.checks.py', 'model-properties-v2.checks.py', 'human-inputs-group-05.checks.py', 'model-reference-warnings-unit.checks.py', 'resource-delete-unit.checks.py', 'used-definition-inputs.checks.py', 'model-operation-publication.checks.py', 'runtime-model.checks.py', 'model-input-context-digest.checks.py', 'task-contract-unit.checks.py', 'compact-model-sources.checks.py', 'producer-identifier-reference.checks.py', 'import-worktree-contract.checks.py', 'model_parameter_inputs-unit.checks.py', 'producer-name-reference.checks.py', 'json-yaml-document-hash.checks.py', 'validation_cache.checks.py', 'issue_gate-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/import_repository_fixtures.py',):
+        mapping[path] = {'json-yaml-document-hash-unit.checks.py', 'model_impact.checks.py', 's3-bound-anchor.checks.py', 'attribute-reference-resolution.checks.py', 'eventbridge-producer-name-reference.checks.py', 'auxiliary-model-dependencies.checks.py', 'import-approval-unit.checks.py', 'producer-identifier-reference-unit.checks.py', 'model-validation-reuse.checks.py', 'model_templates.checks.py', 'raw-bucket-name-reference.checks.py', 'sync-model.checks.py', 'group-03-input-references.checks.py', 'model-retarget-unit.checks.py', 'lambda-input-reference.checks.py', 'worktree_task.checks.py', 'model-markdown-reference.checks.py', 'raw-bucket-name-reference-unit.checks.py', 'import-model-unit.checks.py', 'import-model.checks.py', 'cloudtrail-input-reference.checks.py', 'import-references-unit.checks.py', 'blueprint-loop-unit.checks.py', 'model_parameter_inputs.checks.py', 'model-environment-reference-unit.checks.py', 'security-group-input-reference.checks.py', 'model-properties-v2.checks.py', 'human-inputs-group-05.checks.py', 'model-reference-warnings-unit.checks.py', 'resource-delete-unit.checks.py', 'used-definition-inputs.checks.py', 'model-operation-publication.checks.py', 'runtime-model.checks.py', 'model-input-context-digest.checks.py', 'task-contract-unit.checks.py', 'compact-model-sources.checks.py', 'producer-identifier-reference.checks.py', 'import-worktree-contract.checks.py', 'model_parameter_inputs-unit.checks.py', 'producer-name-reference.checks.py', 'model-format-v2.checks.py', 'json-yaml-document-hash.checks.py', 'validation_cache.checks.py', 'cloudformation-deploy.checks.py', 'issue_gate-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/issue_gate_fixtures.py',):
+        mapping[path] = {'issue_gate.checks.py', 'issue_gate-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/issues_api_only_fixtures.py',):
+        mapping[path] = {'issues_api_only.checks.py', 'issues_api_only-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/issues_scan_fixtures.py',):
+        mapping[path] = {'issues_scan.checks.py', 'issues-lint.checks.py', 'issues_scan-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/json_yaml_document_hash_fixtures.py',):
+        mapping[path] = {'json-yaml-document-hash-unit.checks.py', 'json-yaml-document-hash.checks.py'}
+    for path in ('framework/scripts/tests/support/lambda_permission_fixtures.py',):
+        mapping[path] = {'lambda_permission.checks.py', 'lambda_permission-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/model_design_fixtures.py',):
+        mapping[path] = {'bound-stack-name-change.checks.py', 'model_design-unit.checks.py', 'route53-import-expression.checks.py', 'model_design.checks.py', 'blueprint-loop-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/model_files_fixtures.py',):
+        mapping[path] = {'model_files.checks.py', 'model_files-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/model_parameter_inputs_fixtures.py',):
+        mapping[path] = {'model_parameter_inputs.checks.py'}
+    for path in ('framework/scripts/tests/support/model_sources.py',):
+        mapping[path] = {'design_catalog.checks.py', 'issues_scan-unit.checks.py', 'producer-identifier-reference-unit.checks.py', 'blueprint-loop.checks.py', 'model-validation-reuse.checks.py', 'model_design.checks.py', 'aws_mapping_compare.checks.py', 'security-group-input-reference.checks.py', 'model-properties-v2.checks.py', 'model-reference-warnings-unit.checks.py', 'model-operation-publication.checks.py', 'aws_mapping_display.checks.py', 'deploy-runtime-unit.checks.py', 'bound-stack-name-change.checks.py', 'model_design-unit.checks.py', 'lambda_permission-unit.checks.py', 'issues_api_only-unit.checks.py', 'import-worktree-contract.checks.py', 'validation_scope.checks.py', 'sync-model-unit.checks.py', 'route53-import-expression.checks.py', 'blueprint-loop-unit.checks.py', 'json-yaml-document-hash-unit.checks.py', 's3-bound-anchor.checks.py', 'design_layout-unit.checks.py', 'auxiliary-model-dependencies.checks.py', 'sync-model.checks.py', 'group-03-input-references.checks.py', 'validation_scope-unit.checks.py', 'worktree_task.checks.py', 'issues_failed_services.checks.py', 'policy_tables-unit.checks.py', 'used-definition-inputs.checks.py', 'aws_mapping.checks.py', 'runtime-model.checks.py', 'model-input-context-digest.checks.py', 'framework-input-isolation.checks.py', 'resource_mode.checks.py', 'quicksight-display.checks.py', 'issues_policy_equivalence.checks.py', 'model_files-unit.checks.py', 'model_parameter_inputs-unit.checks.py', 'cloudformation-naming.checks.py', 'framework-input-isolation-unit.checks.py', 'check-model-aws.checks.py', 'validation-units.checks.py', 'aws_mapping_display-unit.checks.py', 'security_group_tables-unit.checks.py', 'cloudformation-deploy-unit.checks.py', 's3-kms-reference-unit.checks.py', 'model_impact.checks.py', 'glue_datazone_catalog-unit.checks.py', 'model_templates.checks.py', 'raw-bucket-name-reference.checks.py', 'lambda-input-reference.checks.py', 'deploy_preparation-unit.checks.py', 'model-markdown-reference.checks.py', 'raw-bucket-name-reference-unit.checks.py', 'policy_tables.checks.py', 'cloudtrail-input-reference.checks.py', 'model_parameter_inputs.checks.py', 'human-inputs-group-05.checks.py', 'bound-anchor-name-change.checks.py', 'security_group_tables.checks.py', 'deploy-sdk.checks.py', 'model-test.checks.py', 'compact-model-sources.checks.py', 'task-contract-unit.checks.py', 'producer-identifier-reference.checks.py', 'lambda_permission.checks.py', 'resource_mode-unit.checks.py', 'design_document.checks.py', 'issues-lint.checks.py', 'json-yaml-document-hash.checks.py', 'validation_cache-unit.checks.py', 'model_files.checks.py', 'design_layout.checks.py', 'attribute-reference-resolution.checks.py', 'deploy-observed-unit.checks.py', 'cloudformation-destroy.checks.py', 'eventbridge-producer-name-reference.checks.py', 'glue_datazone_catalog.checks.py', 'model-retarget-unit.checks.py', 'import-model-unit.checks.py', 'import-model.checks.py', 'import-references-unit.checks.py', 'deploy-handoff-unit.checks.py', 'issue_gate.checks.py', 'resource-delete-unit.checks.py', 'check-model-aws-unit.checks.py', 'issues_ref_returns.checks.py', 'aws_mapping-unit.checks.py', 'validate-blueprint.checks.py', 'producer-name-reference.checks.py', 'issues_api_only.checks.py', 'validation_cache.checks.py', 'deploy-controller.checks.py', 'deploy_preparation.checks.py', 'cloudformation-deploy.checks.py', 'issues_scan.checks.py', 'rotation_schedule.checks.py', 'issue_gate-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/model_templates_fixtures.py',):
+        mapping[path] = {'sync-model.checks.py', 'model_templates.checks.py'}
+    for path in ('framework/scripts/tests/support/model_v2_fixtures.py',):
+        mapping[path] = {'model-format-v2.checks.py', 'import-model-unit.checks.py', 'import-model.checks.py', 'import-references-unit.checks.py', 'import-approval-unit.checks.py', 'model-environment-reference-unit.checks.py', 'model-properties-v2.checks.py', 'model-reference-warnings-unit.checks.py', 'cloudformation-deploy.checks.py', 'import-worktree-contract.checks.py'}
+    for path in ('framework/scripts/tests/support/policy_tables_fixtures.py',):
+        mapping[path] = {'policy_tables-unit.checks.py', 'policy_tables.checks.py'}
+    for path in ('framework/scripts/tests/support/producer_identifier_reference_fixtures.py',):
+        mapping[path] = {'json-yaml-document-hash-unit.checks.py', 'model_impact.checks.py', 's3-bound-anchor.checks.py', 'attribute-reference-resolution.checks.py', 'eventbridge-producer-name-reference.checks.py', 'auxiliary-model-dependencies.checks.py', 'producer-identifier-reference-unit.checks.py', 'model_templates.checks.py', 'raw-bucket-name-reference.checks.py', 'group-03-input-references.checks.py', 'lambda-input-reference.checks.py', 'raw-bucket-name-reference-unit.checks.py', 'cloudtrail-input-reference.checks.py', 'import-references-unit.checks.py', 'security-group-input-reference.checks.py', 'human-inputs-group-05.checks.py', 'used-definition-inputs.checks.py', 'runtime-model.checks.py', 'model-input-context-digest.checks.py', 'compact-model-sources.checks.py', 'producer-identifier-reference.checks.py', 'producer-name-reference.checks.py', 'json-yaml-document-hash.checks.py', 'validation_cache.checks.py'}
+    for path in ('framework/scripts/tests/support/quicksight_display_fixtures.py',):
+        mapping[path] = {'quicksight-display-unit.checks.py', 'quicksight-display.checks.py'}
+    for path in ('framework/scripts/tests/support/raw_bucket_name_reference_fixtures.py',):
+        mapping[path] = {'raw-bucket-name-reference.checks.py', 'raw-bucket-name-reference-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/regression_guard_fixtures.py',):
+        mapping[path] = {'regression_guard-unit.checks.py', 'regression_guard.checks.py'}
+    for path in ('framework/scripts/tests/support/resource_mode_fixtures.py',):
+        mapping[path] = {'resource_mode-unit.checks.py', 'resource_mode.checks.py'}
+    for path in ('framework/scripts/tests/support/rotation_schedule_fixtures.py',):
+        mapping[path] = {'rotation_schedule.checks.py'}
+    for path in ('framework/scripts/tests/support/security_group_tables_fixtures.py',):
+        mapping[path] = {'security_group_tables.checks.py', 'security_group_tables-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/validation_cache_fixtures.py',):
+        mapping[path] = {'validation_cache.checks.py', 'validation_cache-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/validation_scope_fixtures.py',):
+        mapping[path] = {'validation_scope.checks.py', 'validation_scope-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/worktree_python_fixtures.py',):
+        mapping[path] = {'worktree_python.checks.py', 'worktree_python-unit.checks.py'}
+    for path in ('framework/scripts/tests/support/worktree_task_fixtures.py',):
+        mapping[path] = {'worktree-guard-unit.checks.py', 'model_impact.checks.py', 'framework-input-isolation.checks.py', 'model-test.checks.py', 'task-contract-unit.checks.py', 'import-model-unit.checks.py', 'cloudformation-destroy.checks.py', 'json-yaml-document-hash.checks.py', 'human-inputs-group-05.checks.py', 'model-properties-v2.checks.py', 'deploy-controller.checks.py', 'sync-model-unit.checks.py', 'resource-delete-unit.checks.py', 'cloudformation-deploy.checks.py', 'import-worktree-contract.checks.py', 'worktree_task.checks.py', 'used-definition-inputs.checks.py'}
+    for path in ('framework/scripts/update-catalog-lock.py',):
+        mapping[path] = {'update-catalog-lock.checks.py'}
+    for path in ('framework/scripts/utils/file_operations.py',):
+        mapping[path] = {'file_operations-unit.checks.py'}
+    for path in ('framework/scripts/utils/json_format.py',):
+        mapping[path] = {'json-format.checks.py'}
+    for path in ('framework/scripts/validation_scope.py',):
+        mapping[path] = {'validation_scope-unit.checks.py'}
+    for path in ('framework/scripts/python_structure.py',):
+        mapping[path] = {'python_structure-unit.checks.py'}
+    for path in ('framework/scripts/utils/cfn_lint_worker.py',):
+        mapping[path] = {'test_issues_iac.py', 'issues-lint-unit.checks.py', 'issues_scan.checks.py'}
+    for path in ('framework/scripts/utils/function_wrapper.py',):
+        mapping[path] = {'framework-input-isolation-unit.checks.py', 'task-contract-unit.checks.py', 'import-model-unit.checks.py', 'model-validation-reuse.checks.py', 'kms-validation-reuse-unit.checks.py', 'task_contract.checks.py', 'deploy-handoff-unit.checks.py', 'function_wrapper-unit.checks.py', 'validation_cache-unit.checks.py'}
+    for path in ("pyproject.toml", ".github/workflows/python-quality.yml"):
+        mapping[path] = {"python_structure-unit.checks.py", "blueprint-loop-unit.checks.py"}
+    mapping['framework/scripts/aws_sdk_runtime.py'] = {'aws-client.checks.py', 'aws_mapping-unit.checks.py', 'comparison_core.checks.py', 'check-model-aws.checks.py', 'model-test.checks.py'}
+    mapping['framework/scripts/task_contract_runtime.py'] = {'task-contract-unit.checks.py', 'task_contract.checks.py', 'worktree_task.checks.py'}
+    mapping['framework/scripts/worktree_runtime.py'] = {'worktree-guard-unit.checks.py', 'worktree_task.checks.py', 'deploy-controller.checks.py'}
+    mapping['framework/scripts/utils/import_evidence.py'] = {'import-model-unit.checks.py', 'import-model.checks.py', 'import-worktree-contract.checks.py'}
     known = {check.name for check in checks}
     if integration_cases is not None:
         known.update(Path(path).name + '::' + name for path, name in integration_cases)
@@ -419,7 +570,7 @@ def staged_snapshot(root, args, directory, environment):
     import_task = '- Workflow: `import`' in contracts(snapshot).get(selected, '')
     try:
         if import_task:
-            from import_guard import copy_import_proof
+            copy_import_proof = _imports_import_guard.copy_import_proof
             copy_import_proof(root, snapshot)
         metadata = {"source": str(root), "base": base, "head": head, "tree": tree}
         (directory / "snapshot.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
@@ -466,7 +617,8 @@ def staged_snapshot(root, args, directory, environment):
         return result
     finally:
         if import_task:
-            from import_guard import discard_import_proof, evidence_store
+            discard_import_proof = _imports_import_guard.discard_import_proof
+            evidence_store = _imports_import_guard.evidence_store
             discard_import_proof(snapshot, selected)
             store = evidence_store(snapshot)
             # This freshly created snapshot owns its seal; source evidence is retained.
@@ -508,16 +660,40 @@ def run_loop(root: Path, options, *, final_candidate=None) -> int:
     Returns the ordinary loop exit code, retaining logs/timing/stop rules. Final
     candidates use committed latest-base differences and read-only validation.
     """
-    from task_contract import selected_task
+    selected_task = _imports_task_contract.selected_task
     if final_candidate is not None and (root.resolve() != final_candidate.root or options.write or options.staged):
         raise ValueError('final loop requires the actual read-only candidate')
     with selected_task(root, final_candidate.task_file if final_candidate is not None else options.task_file):
         return _run_loop(root, options, final_candidate)
 
 
+
+
+def __run_loop_fail(message):
+    raise ValueError(message)
+
+
+def _callback__run_loop_validation_call(args, directory, final_candidate, full_validation, regression, root, run_validation, scope, selected_name, /):
+    validation_options = SimpleNamespace(task_file=selected_name, write=args.write,
+        all=full_validation, fresh=args.fresh or args.mode == 'full' or args.all,
+        jobs=args.validation_jobs, repository_wide_iac=regression,
+        contract_scope=args.mode in {'task', 'full'} and scope is not None)
+    if args.profile:
+        cProfile = _imports_cProfile
+        pstats = _imports_pstats
+        profile = cProfile.Profile()
+        try:
+            result = profile.runcall(run_validation, root, validation_options, final_candidate=final_candidate)
+        finally:
+            profile.dump_stats(str(directory / 'validate-blueprint.prof'))
+            pstats.Stats(profile).strip_dirs().sort_stats('cumulative').print_stats(25)
+    else:
+        result = run_validation(root, validation_options, final_candidate=final_candidate)
+    return result.display_report()
+
+
 def _run_loop(root, args, final_candidate):
-    def fail(message):
-        raise ValueError(message)
+    fail = __run_loop_fail
     if args.staged and args.write or args.staged != bool(args.base):
         fail('invalid staged/write/base options')
     if args.affected and (args.mode == 'full' or args.all):
@@ -623,25 +799,9 @@ def _run_loop(root, args, final_candidate):
             return staged_snapshot(root, args, directory, environment)
         validation_call = None
         if not args.staged:
-            from validation.runner import run_validation
-            from types import SimpleNamespace
-            def validation_call():
-                validation_options = SimpleNamespace(task_file=selected_name, write=args.write,
-                    all=full_validation, fresh=args.fresh or args.mode == 'full' or args.all,
-                    jobs=args.validation_jobs, repository_wide_iac=regression,
-                    contract_scope=args.mode in {'task', 'full'} and scope is not None)
-                if args.profile:
-                    import cProfile
-                    import pstats
-                    profile = cProfile.Profile()
-                    try:
-                        result = profile.runcall(run_validation, root, validation_options, final_candidate=final_candidate)
-                    finally:
-                        profile.dump_stats(str(directory / 'validate-blueprint.prof'))
-                        pstats.Stats(profile).strip_dirs().sort_stats('cumulative').print_stats(25)
-                else:
-                    result = run_validation(root, validation_options, final_candidate=final_candidate)
-                return result.display_report()
+
+            run_validation = _imports_validation_runner.run_validation
+            validation_call = _bind_framework_callback(_callback__run_loop_validation_call, args, directory, final_candidate, full_validation, regression, root, run_validation, scope, selected_name)
         if final_candidate is not None:
             commands[-2:] = [[*diff_check, '--check', final_candidate.base_commit, final_candidate.candidate_head, '--']]
         result = run_commands(root, commands, environment, directory, jobs=args.jobs, diagnostics=diagnostics, stop_after_validator_failure=args.write, validation_call=validation_call)

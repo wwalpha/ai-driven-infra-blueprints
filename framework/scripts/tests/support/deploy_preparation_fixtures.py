@@ -1,45 +1,31 @@
 """Offline preparation, dependency and timing regressions; no consumer/AWS."""
 
 import sys
-
 from pathlib import Path
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-
-from model.files import read_model
-
-if not __debug__:
-    raise SystemExit("Focused checks require assertions; run without -O")
-
-from support.model_sources import write_model, write_fixture_files
-
-from contextlib import redirect_stdout, redirect_stderr
-
-import io
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import hashlib
-
-import zipfile
-
+import io
 import json
-
 import shutil
-
 import subprocess
-
 import tempfile
-
 import time
-
+import zipfile
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 from deploy import preparation as M
-
-from model.render import markdown_for
-
 from model.files import model_file_contents, model_parts, read_model
+from model.render import markdown_for
+from support import model_design_fixtures as examples
+from support.model_sources import write_fixture_files, write_model
+from task_contract_core import contracts, paths_in, start
 
-from task_contract import contracts, paths_in, start
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 ROOT = Path(__file__).resolve().parents[4]
 
@@ -73,7 +59,6 @@ def fixture(root):
     write_model(source, text)
     (design / "ec2.md").write_text("# EC2\n" + "読み取り対象\n" * 1500, encoding="utf-8")
     # A real JSON-owning model; the synthetic EC2 view above only measures I/O.
-    from support import model_design_fixtures as examples
     values = examples.model("iam", "IAM.Role", "app-dev-worker-role", [
         ("RoleName", "`app-dev-worker-role`", "ロール名"),
         ("AssumeRolePolicyDocument", "[Trust](iam/worker-role-trust-policy.json)", "信頼ポリシー"),
@@ -100,12 +85,17 @@ def arguments(root, base):
 
 REAL_RUN = subprocess.run
 
-def invoke(args):
-    def run_contract_cli(command, **kwargs):
-        if command == [sys.executable, "-m", "pip", "check"]:
-            return REAL_RUN(command, **kwargs)
-        assert command[:2] == [sys.executable, str(Path(command[1]).parents[2] / "framework/scripts/task_contract.py")], "preparation invoked AWS/controller"
+
+
+def _invoke_run_contract_cli(command, **kwargs):
+    if command == [sys.executable, '-m', 'pip', 'check']:
         return REAL_RUN(command, **kwargs)
+    assert command[:2] == [sys.executable, str(Path(command[1]).parents[2] / 'framework/scripts/task_contract.py')], 'preparation invoked AWS/controller'
+    return REAL_RUN(command, **kwargs)
+
+
+def invoke(args):
+    run_contract_cli = _invoke_run_contract_cli
     with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()), \
             patch.object(subprocess, "run", side_effect=run_contract_cli):
         return M.main(args)

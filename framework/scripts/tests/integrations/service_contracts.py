@@ -1,21 +1,26 @@
 """Service-value, native type and projection contracts over explicit properties."""
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
-import json
+
+import model.identity as _imports_model_identity
 import pytest
-from support.it_case_receipt import it_case
-from model.sources import FileReads, list_models, load_model
-from model.operations import CandidateReads
-from model.format import serialize
+import support.service_fixtures as _imports_support_service_fixtures
+from design_catalog import DesignSchemaCatalog
 from model.core import entries, literal, resource_row_index
-from model.projection import document_sha256
+from model.format import serialize
 from model.importing.cli import property_schema
 from model.importing.sources import typed_row
+from model.operations import CandidateReads
+from model.projection import document_sha256
 from model.references import declarations
-from service_rows import pipeline_rows, pipeline_display_rows
-from design_catalog import DesignSchemaCatalog
-from validation_cache import input_scope
+from model.sources import list_models, load_model
+from service_rows import pipeline_display_rows, pipeline_rows
+from support.it_case_receipt import it_case
+from utils.input_cache import input_scope
+from utils.source_reads import FileReads
+
 ROOT = Path(__file__).resolve().parents[4]
 
 
@@ -98,7 +103,7 @@ def check_security_group():
 def check_route53():
     for before in cases('route53'):
         values = before.authoritative
-        for rid, rows in resource_row_index(values).items():
+        for _rid, rows in resource_row_index(values).items():
             row, = [(row_id, spec) for row_id, spec in rows if spec['property'] == 'Route53.RecordSet.TTL']
             key = 'desired.row.' + row[0] + '.value'
             assert typed_row(row[1], row[1]['value'], property_schema('Route53.RecordSet.TTL')) == '60'
@@ -150,7 +155,7 @@ def check_glue():
         key = property_key(before, 'Glue.Job.SecurityConfiguration')
         name = property_key(before, 'Glue.SecurityConfiguration.Name')
         logical = before.authoritative['desired.resource.002.logicalId']
-        from model.identity import address
+        address = _imports_model_identity.address
         after = candidate(before, {key: address(before.scope, dict(entries(before.authoritative, 'desired.resource.'))['002'], consumer_scope=before.scope), name: '`glsc-a1b2c3`'})
         assert after.authoritative['desired.resource.002.logicalId'] == logical
         raw = after.authoritative[property_key(before, 'Glue.Job.DefaultArguments')]
@@ -271,7 +276,7 @@ def check_responsibilities():
 @it_case
 @input_scope
 def check():
-    from support.service_fixtures import typed_services
+    typed_services = _imports_support_service_fixtures.typed_services
     with TemporaryDirectory(prefix='typed-services-') as directory:
         root = Path(directory)
         typed_services(root)

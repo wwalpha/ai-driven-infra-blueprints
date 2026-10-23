@@ -1,70 +1,51 @@
 """Deterministic scheduler and AWS CLI adapter regression checks (no live AWS)."""
 
-import sys
 import subprocess
+import sys
 import tempfile
 from functools import partial
-
 from pathlib import Path
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from support.model_sources import snapshot_model
+import base64
+import copy
+import hashlib
+import importlib.util
+import io
+import json
+import shutil
+import time
+import zipfile
+from contextlib import redirect_stderr, redirect_stdout
+from threading import Barrier, get_ident
+from types import SimpleNamespace
+from unittest.mock import patch
 
+import model.format as _imports_model_format
+import model.projection as model_projection
+import pytest
+import sync_views
+import utils.aws.client as _imports_utils_aws_client
+from deploy import controller as M
+from deploy import scheduler
+from deploy.s3_delivery import ALGORITHM, KEY
+from design_layout import stack_delivery
+from model.core import deployment_settings, entries, properties, stack_model
 from model.files import read_model
+from model.format import JSON_LINK
+from model.projection import deployment_bucket
+from model.render import markdown_for
+from model.sources import model_parts
+from support.model_sources import snapshot_model, write_fixture_files, write_model
+from support.pytest_cli import run
+from support.validator import load
+from utils.aws.client import AwsError
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-from support.model_sources import write_model, write_fixture_files
-
-import pytest
-
-from support.pytest_cli import run
-
-import copy
-
-from deploy import scheduler
-
-import sync_views
-
-import model.projection as model_projection
-
-import importlib.util
-
-import json
-
-import hashlib
-
-import base64
-
-import zipfile
-
-import io
-
-import shutil
-
-import time
-
-from threading import Barrier, get_ident
-
-from contextlib import redirect_stdout, redirect_stderr
-
-from support.validator import load
-
-from unittest.mock import patch
-
-from types import SimpleNamespace
-
-from model.render import markdown_for
-
-from model.projection import deployment_bucket
-
-from model.core import stack_model, deployment_settings, properties
-
-from design_layout import stack_delivery
-
-from deploy import controller as M
 _production_runtime = M.create_runtime
 
 class Runtime:
@@ -142,8 +123,10 @@ class StubAws(Runtime):
         self.root = Path(self._temporary.name)
         for unit in units(10, 10, 10, 10):
             template, parameters = self.paths(unit)
-            template.parent.mkdir(parents=True, exist_ok=True); parameters.parent.mkdir(parents=True, exist_ok=True)
-            template.write_text('Resources: {}'); parameters.write_text('[]')
+            template.parent.mkdir(parents=True, exist_ok=True)
+            parameters.parent.mkdir(parents=True, exist_ok=True)
+            template.write_text('Resources: {}')
+            parameters.write_text('[]')
         self.change = {"Status": "CREATE_COMPLETE", "ExecutionStatus": "AVAILABLE", "Changes": [
             {"ResourceChange": {"LogicalResourceId": "App", "ResourceType": "AWS::S3::Bucket",
                                 "Action": "Remove" if destructive else "Add"}}]}
@@ -160,7 +143,7 @@ class StubAws(Runtime):
             return {'Exports': [{'Name': name, 'Value': 'export-value',
                                 'ExportingStackId': 'arn:aws:cloudformation:ap-northeast-1:123456789012:stack/External/id'} for name in self.exports]}
         if operation == 'describe_stacks':
-            from utils.aws.client import AwsError
+            AwsError = _imports_utils_aws_client.AwsError
             raise AwsError('cloudformation', operation, 'ValidationError', stack_absent=True)
         if operation == 'create_change_set':
             return {'Id': 'cs-' + arguments['StackName'], 'StackId': 'stackid-' + arguments['StackName']}
@@ -197,7 +180,6 @@ class DeliveryAws(StubAws):
         path = self.root / 'model/dev/123456789012/s3.properties'
         path.parent.mkdir(parents=True, exist_ok=True)
         existing = properties(read_model(path)) if path.is_file() else {}
-        from model.core import entries
         identities = {r['logicalId']: i for i, r in entries(existing, 'desired.resource.')}
         identity = next((i.split('-')[0] for i, row in entries(existing, 'desired.row.')
                          if row.get('property') == 'S3.Bucket.BucketName' and row.get('value', '').strip('`') == bucket),
@@ -209,7 +191,6 @@ class DeliveryAws(StubAws):
                        'desired.service.identity.lastAllocated': json.dumps({'S3.Bucket': max(int(identity), len(identities))})})
         if delegation:
             values[f'desired.resource.{identity}.deploymentEncryption'] = 'default'
-        from deploy.s3_delivery import ALGORITHM, KEY
         rows = [('BucketName', bucket), ('Region', self.region), (ALGORITHM, algorithm)]
         if key:
             rows.append((KEY, key))
@@ -220,7 +201,6 @@ class DeliveryAws(StubAws):
         write_model(path, '\n'.join(f'{k}={v}' for k, v in values.items()))
 
     def aws(self, operation, service='cloudformation', **arguments):
-        from utils.aws.client import AwsError
         if service == 'cloudformation':
             if operation == 'list_exports' and self.export_values:
                 self.calls.append((operation, dict(arguments)))
@@ -271,7 +251,6 @@ __all__ = ['Runtime', 'subprocess', 'Barrier', 'DeliveryAws', 'Fake', 'M', 'Path
 
 
 def remove_model(path):
-    from model.sources import model_parts
     for file in model_parts(path):
         file.unlink()
     path.unlink(missing_ok=True)
@@ -281,9 +260,6 @@ __all__.append('remove_model')
 
 def observation_contract(root, services):
     files = {'tasks/observation-fixture.md', 'project.json'}
-    from model.sources import model_parts
-    from model.core import entries
-    from model.projection import JSON_LINK
     for service in services:
         source = root / 'model/dev/123456789012' / (service + '.properties')
         files.add(source.relative_to(root).as_posix())
@@ -293,7 +269,7 @@ def observation_contract(root, services):
         files.add(view.relative_to(root).as_posix())
         if source.is_file():
             files.update(file.relative_to(root).as_posix() for file in model_parts(source))
-            from model.format import parse
+            parse = _imports_model_format.parse
             values = {key: value for part in model_parts(source) for key, value in parse(part.read_text()).values.items()}
             for _, row in entries(values, 'desired.row.'):
                 if match := JSON_LINK.fullmatch(row['value']):

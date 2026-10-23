@@ -1,18 +1,47 @@
 #!/usr/bin/env python3
 """Saved reference graph, explicit environment isolation and resource change boundaries."""
+
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
 import shutil
 import subprocess
 import tempfile
-from model.impact import affected, dependencies
-from model.sources import FileReads, load_model, design_source_digest
-from model.format import serialize
-from support.model_sources import write_model
-from support.producer_identifier_reference_fixtures import setup, resource, reference, dependency_hashes
+
+import import_guard as _imports_import_guard
+import issue_gate as _imports_issue_gate
+import model.adapters.task as _imports_model_adapters_task
+import model.format as _imports_model_format
+import model.impact_graph as _imports_model_impact_graph
+import model.operations as _imports_model_operations
+import model.references as _imports_model_references
+import model.sources as _imports_model_sources
+import support.validator as _imports_support_validator
+import sync_files as _imports_sync_files
+from import_guard import require_import_changes, snapshots
+from model.format import serialize, split
+from model.impact import affected, analyze, dependencies, task_impact
+from model.importing.scope import read_consumers, restrict
+from model.operations import validate_candidates
+from model.sources import design_source_digest, load_model
 from support.it_case_receipt import it_case
+from support.model_sources import write_model
+from support.producer_identifier_reference_fixtures import (
+    dependency_hashes,
+    reference,
+    resource,
+    setup,
+)
+from support.validator import MODULE
+from support.worktree_task_fixtures import cli
+from task_contract_core import selected_task
+from utils.input_cache import input_context
+from utils.source_reads import FileReads
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -64,9 +93,11 @@ def consumer(root, service, producer_service, kind, target='001', *, mode='name'
 
 
 def baseline(root):
-    git(root, 'init'); git(root, 'config', 'user.name', 'Fixture')
+    git(root, 'init')
+    git(root, 'config', 'user.name', 'Fixture')
     git(root, 'config', 'user.email', 'fixture@example.invalid')
-    git(root, 'add', 'project.json', 'model'); git(root, 'commit', '-m', 'Baseline')
+    git(root, 'add', 'project.json', 'model')
+    git(root, 'commit', '-m', 'Baseline')
     return git(root, 'rev-parse', 'HEAD')
 
 
@@ -103,7 +134,6 @@ def check_precision(root, service, kind, name_property):
     git(root, 'add', str(relative))
     change(source, '001', 'Setting', {'trust': ['other']})
     assert affected(root, {relative}) == expected
-    from support.validator import MODULE
     validator = MODULE.Validator(root, {entry(service)})
     validator.accounts = {('dev', 'team'): {}}
     validator.changed_paths = {relative.as_posix()}
@@ -112,7 +142,8 @@ def check_precision(root, service, kind, name_property):
     change(source, '001', 'Name', 'renamed')
     assert affected(root, {relative}) == expected
     assert path.read_bytes() == saved and load_model(path).warnings
-    git(root, 'add', 'model'); git(root, 'commit', '-m', 'Committed change')
+    git(root, 'add', 'model')
+    git(root, 'commit', '-m', 'Committed change')
     assert affected(root, {relative}) == expected
 
 
@@ -178,7 +209,8 @@ def check_identifiers(root):
     write_model(source, values)
     assert affected(root, {source.relative_to(root)}) == expected
     assert design_source_digest(source) == digest and dependency_hashes(paths[0]) != hashes
-    del values['observed.row.001-003.value']; write_model(source, values)
+    del values['observed.row.001-003.value']
+    write_model(source, values)
     assert any('unobserved' in warning['message'] for warning in load_model(paths[0]).warnings)
     assert [path.read_bytes() for path in paths] == saved
 
@@ -188,7 +220,8 @@ def check_type_and_unknown(root):
     source = producer(root, 'iam', 'IAM.Role', 'RoleName')
     target = consumer(root, 'build', 'iam', 'IAM.Role')
     baseline(root)
-    text = source.read_text(); source.write_text(text.replace('IAM.Role', 'IAM.User').replace('IAM_Role', 'IAM_User'))
+    text = source.read_text()
+    source.write_text(text.replace('IAM.Role', 'IAM.User').replace('IAM_Role', 'IAM_User'))
     assert affected(root, {source.relative_to(root)}) == {entry('iam'), entry('build')}
     assert any('absent' in warning['message'] for warning in load_model(target).warnings)
     source.write_text(text + 'desired.resource.001.resourceType=IAM.Role\n')
@@ -225,7 +258,6 @@ def check_selection(root):
     assert affected(root, {unused.relative_to(root)}) == {entry('unused')}
     change(source, '002', 'Name', 'selected-name')
     assert affected(root, {source.relative_to(root)}) == {entry('iam'), entry('build')}
-    from model.importing.scope import restrict, read_consumers
     with restrict(entry('iam')), read_consumers({entry('iam'), entry('build')}):
         assert set(dependencies(root)) == {entry('iam'), entry('build')}
     assert target.read_bytes() and len([key for key in load_model(target).authoritative if key.startswith('desired.resource.') and key.endswith('.resourceType')]) == 1
@@ -241,7 +273,6 @@ def check_cycles(root):
     assert affected(root, {left.relative_to(root)}) == {entry('alpha'), entry('beta')}
     assert right.read_bytes() == saved
 
-    from import_guard import snapshots
     with snapshots(root, revision, {}) as (before, _):
         assert affected(root, {left.relative_to(root)}, before=before) == {entry('alpha')}
         values = dict(load_model(left).authoritative)
@@ -253,7 +284,6 @@ def check_cycles(root):
 
 @it_case
 def check_resource_addition(root):
-    from import_guard import snapshots
     source = producer(root, 'iam', 'IAM.Role', 'RoleName')
     consumer(root, 'secretsmanager', 'iam', 'IAM.Role', '001')
     consumer(root, 's3', 'iam', 'IAM.Role', '002')
@@ -268,8 +298,8 @@ def check_resource_addition(root):
     consumer(root, 's3', 'iam', 'IAM.Role', '003')
     with snapshots(root, revision, {}) as (before, _):
         assert affected(root, {source.relative_to(root)}, before=before) == {entry('iam'), entry('s3')}
-        from model.format import split
-        from sync_files import save_files
+        split = _imports_model_format.split
+        save_files = _imports_sync_files.save_files
         parts = split(source, values, limit=12)
         save_files(parts)
         part = next(path for path in parts if path != source)
@@ -280,7 +310,6 @@ def check_resource_addition(root):
 
 @it_case
 def check_resource_changes(root):
-    from import_guard import snapshots
     source = producer(root, 'iam', 'IAM.Role', 'RoleName')
     consumer(root, 'secretsmanager', 'iam', 'IAM.Role', '001')
     consumer(root, 's3', 'iam', 'IAM.Role', '002')
@@ -311,7 +340,6 @@ def check_resource_changes(root):
 
 @it_case
 def check_semantic_boundaries(root):
-    from import_guard import snapshots
     source = producer(root, 'iam', 'IAM.Role', 'RoleName')
     target = consumer(root, 'build', 'iam', 'IAM.Role', '001')
     values = dict(load_model(source).authoritative)
@@ -331,7 +359,8 @@ def check_semantic_boundaries(root):
         write_model(source, changed)
         assert affected(root, {source.relative_to(root)}, before=before) == {entry('iam')}
         write_model(source, values)
-        changed = dict(values); changed['observed.row.002-001.value'] = '`second-new`'
+        changed = dict(values)
+        changed['observed.row.002-001.value'] = '`second-new`'
         write_model(source, changed)
         assert affected(root, {source.relative_to(root)}, before=before) == {entry('iam')}
         changed['observed.row.001-001.value'] = '`first-new`'
@@ -349,8 +378,6 @@ def check_semantic_boundaries(root):
 
 @it_case
 def check_stack_context_and_fallback(root):
-    from import_guard import snapshots
-    from model.impact import analyze
     source = producer(root, 'iam', 'IAM.Role', 'RoleName')
     target = consumer(root, 'build', 'iam', 'IAM.Role')
     values = dict(load_model(source).authoritative)
@@ -376,15 +403,18 @@ def check_stack_context_and_fallback(root):
     write_model(target, consumer_values)
     revision = baseline(root)
     with snapshots(root, revision, {}) as (before, _):
-        stack_values['desired.stack.other.name'] = 'other-new'; write_model(stack_source, stack_values)
+        stack_values['desired.stack.other.name'] = 'other-new'
+        write_model(stack_source, stack_values)
         assert affected(root, {stack_source.relative_to(root)}, before=before, raw=True) == {entry('stacks')}
-        stack_values['desired.stack.primary.name'] = 'primary-new'; write_model(stack_source, stack_values)
+        stack_values['desired.stack.primary.name'] = 'primary-new'
+        write_model(stack_source, stack_values)
         assert affected(root, {stack_source.relative_to(root)}, before=before, raw=True) == {entry('stacks'), entry('build')}
-        from model.references import usages
-        from model.sources import raw_model
+        usages = _imports_model_references.usages
+        raw_model = _imports_model_sources.raw_model
         assert any(u.producer_kind == 'context' for u in usages(raw_model(target)))
         assert affected(root, {'project.json'}, before=before, raw=True) == {entry('iam'), entry('build'), entry('stacks')}
-        stack_values['desired.stack.primary.name'] = 'primary'; stack_values['desired.stack.other.name'] = 'other'
+        stack_values['desired.stack.primary.name'] = 'primary'
+        stack_values['desired.stack.other.name'] = 'other'
         write_model(stack_source, {key: value for key, value in stack_values.items() if not key.startswith('desired.stack.primary.')})
         assert affected(root, {stack_source.relative_to(root)}, before=before, raw=True) == {entry('stacks'), entry('build')}
         write_model(stack_source, stack_values)
@@ -412,21 +442,14 @@ def check_stack_context_and_fallback(root):
 
 @it_case
 def check_task_snapshot_routes(root):
-    from unittest.mock import patch
-    from import_guard import require_import_changes
-    from model.impact import task_impact
-    from model.operations import validate_candidates
-    from model.format import split
-    from validation_cache import input_context
-    from task_contract import selected_task
-    from support.worktree_task_fixtures import cli
-    from support.validator import MODULE
+
     source = producer(root, 'iam', 'IAM.Role', 'RoleName')
     consumer(root, 'secretsmanager', 'iam', 'IAM.Role', '001')
     consumer(root, 's3', 'iam', 'IAM.Role', '002')
     write(root / '.gitignore', '/.worktrees/\ntasks/**\nissues/**\n')
     baseline(root)
-    git(root, 'add', '.gitignore'); git(root, 'commit', '-m', 'Fixture lifecycle ignores')
+    git(root, 'add', '.gitignore')
+    git(root, 'commit', '-m', 'Fixture lifecycle ignores')
     state = cli(root, 'create', 'precision-routes')
     target = Path(state['worktree'])
     source = target / source.relative_to(root)
@@ -449,10 +472,11 @@ def check_task_snapshot_routes(root):
             assert not validate_candidates(target, paths, output, {entry('iam')})
             require_import_changes(target, output=output)
         # Real ordinary save uses a one-use managed capability and its publication transaction.
-        from model.adapters.task import edit_write_context
-        from model.operations import prepare_edit, publish_edit
+        edit_write_context = _imports_model_adapters_task.edit_write_context
+        prepare_edit = _imports_model_operations.prepare_edit
+        publish_edit = _imports_model_operations.publish_edit
         with edit_write_context(target, {entry('iam')}, name) as context:
-            from model.sources import edit_base
+            edit_base = _imports_model_sources.edit_base
             snapshot = edit_base(source, context.snapshot)
             publish_edit(prepare_edit(snapshot, output, context), context)
         saved_bytes = source.read_bytes()
@@ -473,8 +497,8 @@ def check_task_snapshot_routes(root):
             elif stage == 'committed':
                 git(target, 'commit', '-m', 'Task addition')
             with input_context():
-                from model.impact_graph import Graph
-                from import_guard import archive_sources
+                archive_sources = _imports_import_guard.archive_sources
+                Graph = _imports_model_impact_graph.Graph
                 with patch.object(Graph, 'include', autospec=True, side_effect=Graph.include) as include, patch(
                         'import_guard.archive_sources', wraps=archive_sources) as archive:
                     saved = task_impact(target)
@@ -485,14 +509,14 @@ def check_task_snapshot_routes(root):
                     validator.check_validation_scope()
                     assert saved.services == candidate.services == validator.task.impact == validator.task.design_impact
                     assert not validator.errors, validator.errors
-                    from support.validator import load
+                    load = _imports_support_validator.load
                     sync_main = load('sync-model')
                     with patch.object(sync_main, 'run_generation', return_value=0) as generation:
                         assert sync_main.main(['--repository-root', str(target), '--write',
                             '--scope', 'dev/team/iam', '--jobs', '1']) == 0
                     assert generation.call_args.args[:2] == (target, {entry('iam')})
                     assert include.call_count == 2 and archive.call_count == 1
-            from issue_gate import require_no_issues
+            require_no_issues = _imports_issue_gate.require_no_issues
             require_no_issues(target, {entry('iam')})
             try:
                 require_no_issues(target, {entry('iam'), entry('secretsmanager')})
@@ -508,7 +532,6 @@ def check_task_snapshot_routes(root):
             assert 'issue' in str(error).lower()
         write(target / 'issues/dev/team/issues.md', '未解決issueなし\n')
         # Final-candidate base is explicit and agrees with the registered Task baseline.
-        from types import SimpleNamespace
         final = SimpleNamespace(base_commit=state['start'], changed_paths=frozenset(paths), scope=frozenset({entry('iam')}))
         with input_context():
             require_import_changes(target, final_candidate=final)

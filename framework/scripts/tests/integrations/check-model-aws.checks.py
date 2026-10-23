@@ -1,14 +1,59 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import aws_mapping_compare as _imports_aws_mapping_compare
+import support.check_model_aws_fixtures as _retained_fixture_offline_network
+from aws_mapping import Identity
+from support.check_model_aws_fixtures import (
+    ACCOUNT,
+    PATCHES,
+    REPRESENTATIVES,
+    STACK_MODEL,
+    TARGET,
+    ExitStack,
+    FakeResource,
+    Offline,
+    Path,
+    SimpleNamespace,
+    Stubber,
+    acquired,
+    boto3,
+    check,
+    copy,
+    expect,
+    io,
+    json,
+    m,
+    model_text,
+    os,
+    patch,
+    pytest,
+    redirect_stderr,
+    redirect_stdout,
+    remove_tokens,
+    run,
+    set_path,
+    shape_value,
+    sys,
+    write_model,
+)
+from support.it_case_receipt import it_case
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import it_case
+offline_network = _retained_fixture_offline_network.offline_network
 
-from support.check_model_aws_fixtures import *
+_CALLBACK_DEFAULT = object()
+
+
 
 @it_case
 def service_checks(root):
@@ -20,7 +65,7 @@ def service_checks(root):
         module = m.service_module(service)
         if service == 'cloudformation-stacks':
             continue
-        from aws_mapping_compare import comparison
+        comparison = _imports_aws_mapping_compare.comparison
         mapping, definitions = comparison(m.ROOT, service)
         for kind in sorted(mapping.adapter_resource_types):
             relevant = {prop: item.field for prop, item in definitions.items()
@@ -54,7 +99,7 @@ def service_checks(root):
                     elif (path := arn_path if mode == 'arn' else id_path):
                         expected = m.select(ctx.fetch(resource, getter), path)
                     else:
-                        expect(m.Unresolved, lambda: m.Resource.identity(resource, mode))
+                        expect(m.Unresolved, lambda *, mode=mode, resource=resource: m.Resource.identity(resource, mode))
                         continue
                     expected_trace = ctx.trace[start:]
                     start = len(ctx.trace)
@@ -77,6 +122,21 @@ def service_checks(root):
     print(f'Service acquisition/field extraction: {type_count} resource types, {field_count} supported mappings, 27 × 4 comparison cases')
 
 
+def _callback_cli_checks_execute(responses, /, command, **kwargs):
+    check(command[0] == 'aws' and isinstance(command, list), 'CLI uses argument list without a shell')
+    check(command[command.index('--region') + 1] == TARGET['awsRegion'], 'configured CLI region')
+    check(command[command.index('--profile') + 1] == 'configured', 'configured CLI profile')
+    check('--output' in command and command[command.index('--output') + 1] == 'json' and '--query' not in command,
+          'complete JSON response without output filtering')
+    check('--no-cli-pager' in command and kwargs['env']['AWS_CLI_AUTO_PROMPT'] == 'off', 'no interactive CLI prompt or pager')
+    check(kwargs['encoding'] == 'utf-8', 'CLI JSON decoded as UTF-8')
+    inputs = json.loads(command[command.index('--cli-input-json') + 1])
+    if command[2] in {'get-bucket-location', 'get-bucket-versioning'}:
+        check(inputs == {'Bucket': 'fixture', 'ExpectedBucketOwner': ACCOUNT}, 'structured CLI inputs preserve owner safeguard')
+    check(('--no-paginate' not in command) == (command[2] == 'list-buckets'), 'collections use CLI automatic pagination')
+    return SimpleNamespace(returncode=0, stdout=json.dumps(responses[tuple(command[1:3])]), stderr='')
+
+
 @it_case
 def cli_checks(root):
     directory = root / 'model/dev' / ACCOUNT
@@ -92,19 +152,7 @@ def cli_checks(root):
         ('s3api', 'get-bucket-location'): {'LocationConstraint': TARGET['awsRegion']},
     }
 
-    def execute(command, **kwargs):
-        check(command[0] == 'aws' and isinstance(command, list), 'CLI uses argument list without a shell')
-        check(command[command.index('--region') + 1] == TARGET['awsRegion'], 'configured CLI region')
-        check(command[command.index('--profile') + 1] == 'configured', 'configured CLI profile')
-        check('--output' in command and command[command.index('--output') + 1] == 'json' and '--query' not in command,
-              'complete JSON response without output filtering')
-        check('--no-cli-pager' in command and kwargs['env']['AWS_CLI_AUTO_PROMPT'] == 'off', 'no interactive CLI prompt or pager')
-        check(kwargs['encoding'] == 'utf-8', 'CLI JSON decoded as UTF-8')
-        inputs = json.loads(command[command.index('--cli-input-json') + 1])
-        if command[2] in {'get-bucket-location', 'get-bucket-versioning'}:
-            check(inputs == {'Bucket': 'fixture', 'ExpectedBucketOwner': ACCOUNT}, 'structured CLI inputs preserve owner safeguard')
-        check(('--no-paginate' not in command) == (command[2] == 'list-buckets'), 'collections use CLI automatic pagination')
-        return SimpleNamespace(returncode=0, stdout=json.dumps(responses[tuple(command[1:3])]), stderr='')
+    execute = _bind_framework_callback(_callback_cli_checks_execute, responses)
 
     with patch.object(m.subprocess, 'run', side_effect=execute) as process, \
             patch.object(boto3, 'Session', side_effect=AssertionError('default comparison must use CLI')):
@@ -182,6 +230,80 @@ def check_cli_service_names(tmp_path, service, operation, cli_service, paginate)
     assert ('--no-paginate' not in command) == paginate
 
 
+
+
+def _batch_checks_cli(arguments):
+    stdout, stderr = (io.StringIO(), io.StringIO())
+    with patch.object(sys, 'argv', ['check-model-aws.py', *arguments]), redirect_stdout(stdout), redirect_stderr(stderr):
+        try:
+            code = m.main()
+        except SystemExit as error:
+            code = error.code
+    return (code, json.loads(stdout.getvalue()) if stdout.getvalue() else None, stderr.getvalue())
+
+
+def _callback_batch_checks_compare_session_factory_client(api_calls, fault, real_client, requests, stack, stubbers, /, service, **client_kwargs):
+    result = real_client(service, **client_kwargs)
+    stub = stack.enter_context(Stubber(result))
+    stubbers.append(stub)
+    api_calls.append((service, stack.enter_context(patch.object(result, '_make_api_call', wraps=result._make_api_call))))
+    for operation, inputs in requests[service]:
+        if service == 'kms' and fault:
+            stub.add_client_error(operation, 'NotFoundException' if fault == 'missing' else 'AccessDeniedException', expected_params=inputs)
+            continue
+        response = remove_tokens(shape_value(result.meta.service_model.operation_model(result.meta.method_to_api_mapping[operation]).output_shape))
+        for path, value in PATCHES.get((service, operation), {}).items():
+            set_path(response, path, copy.deepcopy(value))
+        if service == 's3' and operation == 'get_bucket_location':
+            response['LocationConstraint'] = TARGET['awsRegion']
+        if service == 's3' and operation == 'get_bucket_versioning':
+            response['Status'] = 'Enabled'
+        stub.add_response(operation, response, expected_params=inputs)
+    return result
+
+
+def _callback_batch_checks_compare_session_factory(api_calls, fault, requests, session_class, stack, stubbers, /, **kwargs):
+    session = session_class(aws_access_key_id='offline', aws_secret_access_key='offline', region_name=kwargs['region_name'])
+    real_client = session.client
+
+    client = _bind_framework_callback(_callback_batch_checks_compare_session_factory_client, api_calls, fault, real_client, requests, stack, stubbers)
+
+    stack.enter_context(patch.object(session, 'client', side_effect=client))
+    return session
+
+
+def _callback_batch_checks_compare_294(base_args, cli, requests, root, selected, session_class, _default_fault, _default_direct, _default_items, /, services, fault=_CALLBACK_DEFAULT, direct=_CALLBACK_DEFAULT, items=_CALLBACK_DEFAULT):
+    if fault is _CALLBACK_DEFAULT:
+        fault = _default_fault
+    if direct is _CALLBACK_DEFAULT:
+        direct = _default_direct
+    if items is _CALLBACK_DEFAULT:
+        items = _default_items
+    with ExitStack() as stack:
+        api_calls, stubbers = [], []
+
+        session_factory = _bind_framework_callback(_callback_batch_checks_compare_session_factory, api_calls, fault, requests, session_class, stack, stubbers)
+
+        factory = stack.enter_context(patch.object(boto3, 'Session', side_effect=session_factory))
+        contexts = stack.enter_context(patch.object(m, 'Context', wraps=m.Context))
+        if direct:
+            report = m.run(root, items if items is not None else m.inventory(root, selected, services), session_factory=factory)
+            code = report['exitCode']
+        else:
+            actual_run = m.run
+            with patch.object(m, 'run', side_effect=lambda root, items, profile: actual_run(root, items, profile, session_factory=factory)):
+                code, report, _ = cli([*base_args, *(arg for service in services for arg in ('--service', service))])
+        for stub in stubbers:
+            stub.assert_no_pending_responses()
+        target_count = len({(target['environment'], target['directory']) for target, _ in items}) if items is not None else 1
+        check(factory.call_count == contexts.call_count == target_count, 'Session factory and real Context initialized once per target')
+        check(sum(call.call_count for service, call in api_calls if service == 'sts') == target_count, 'STS get_caller_identity called once per target')
+        expected_apis = {service: len(requests[service]) * target_count for service in {'sts', *services}}
+        actual_apis = {service: sum(call.call_count for name, call in api_calls if name == service) for service, _ in api_calls}
+        check(actual_apis == expected_apis, 'only selected service API requests, no extra or repeated SDK calls')
+        return code, report
+
+
 @it_case
 def batch_checks(root):
     directory = root / 'model/dev' / ACCOUNT
@@ -196,14 +318,7 @@ def batch_checks(root):
     selected = m.targets(root, 'dev', ACCOUNT)
     base_args = ['--root', str(root), '--environment', 'dev', '--target', ACCOUNT]
 
-    def cli(arguments):
-        stdout, stderr = io.StringIO(), io.StringIO()
-        with patch.object(sys, 'argv', ['check-model-aws.py', *arguments]), redirect_stdout(stdout), redirect_stderr(stderr):
-            try:
-                code = m.main()
-            except SystemExit as error:
-                code = error.code
-        return code, json.loads(stdout.getvalue()) if stdout.getvalue() else None, stderr.getvalue()
+    cli = _batch_checks_cli
 
     session_class = boto3.Session
     requests = {
@@ -214,54 +329,7 @@ def batch_checks(root):
         'kms': [('describe_key', {'KeyId': 'fixture'})],
     }
 
-    def compare(services, fault=None, direct=False, items=None):
-        with ExitStack() as stack:
-            api_calls, stubbers = [], []
-
-            def session_factory(**kwargs):
-                session = session_class(aws_access_key_id='offline', aws_secret_access_key='offline', region_name=kwargs['region_name'])
-                real_client = session.client
-
-                def client(service, **client_kwargs):
-                    result = real_client(service, **client_kwargs)
-                    stub = stack.enter_context(Stubber(result))
-                    stubbers.append(stub)
-                    api_calls.append((service, stack.enter_context(patch.object(result, '_make_api_call', wraps=result._make_api_call))))
-                    for operation, inputs in requests[service]:
-                        if service == 'kms' and fault:
-                            stub.add_client_error(operation, 'NotFoundException' if fault == 'missing' else 'AccessDeniedException', expected_params=inputs)
-                            continue
-                        response = remove_tokens(shape_value(result.meta.service_model.operation_model(result.meta.method_to_api_mapping[operation]).output_shape))
-                        for path, value in PATCHES.get((service, operation), {}).items():
-                            set_path(response, path, copy.deepcopy(value))
-                        if service == 's3' and operation == 'get_bucket_location':
-                            response['LocationConstraint'] = TARGET['awsRegion']
-                        if service == 's3' and operation == 'get_bucket_versioning':
-                            response['Status'] = 'Enabled'
-                        stub.add_response(operation, response, expected_params=inputs)
-                    return result
-
-                stack.enter_context(patch.object(session, 'client', side_effect=client))
-                return session
-
-            factory = stack.enter_context(patch.object(boto3, 'Session', side_effect=session_factory))
-            contexts = stack.enter_context(patch.object(m, 'Context', wraps=m.Context))
-            if direct:
-                report = m.run(root, items if items is not None else m.inventory(root, selected, services), session_factory=factory)
-                code = report['exitCode']
-            else:
-                actual_run = m.run
-                with patch.object(m, 'run', side_effect=lambda root, items, profile: actual_run(root, items, profile, session_factory=factory)):
-                    code, report, _ = cli([*base_args, *(arg for service in services for arg in ('--service', service))])
-            for stub in stubbers:
-                stub.assert_no_pending_responses()
-            target_count = len({(target['environment'], target['directory']) for target, _ in items}) if items is not None else 1
-            check(factory.call_count == contexts.call_count == target_count, 'Session factory and real Context initialized once per target')
-            check(sum(call.call_count for service, call in api_calls if service == 'sts') == target_count, 'STS get_caller_identity called once per target')
-            expected_apis = {service: len(requests[service]) * target_count for service in {'sts', *services}}
-            actual_apis = {service: sum(call.call_count for name, call in api_calls if name == service) for service, _ in api_calls}
-            check(actual_apis == expected_apis, 'only selected service API requests, no extra or repeated SDK calls')
-            return code, report
+    compare = _bind_framework_callback(_callback_batch_checks_compare_294, base_args, cli, requests, root, selected, session_class, None, False, None)
 
     single = compare(['s3'])
     check(single == compare(['s3'], direct=True), 'single-service CLI preserves existing run result exactly')
@@ -320,6 +388,11 @@ def batch_checks(root):
         check(code == wanted_code and ('s3', 'difference') in statuses and ('iam', 'match') in statuses and ('kms', wanted_status) in statuses,
               'batch exit precedence retains successful comparisons and S3 differences: ' + str(fault))
         check(set(report) == {'status', 'exitCode', 'counts', 'results'}, 'batch does not add a JSON wrapper')
+
+
+def _callback_common_checks_bad_factory(calls, /, **kw):
+    calls.append(kw)
+    raise RuntimeError('secret credential failure')
 
 
 @it_case
@@ -399,9 +472,7 @@ def common_checks(root):
     calls = []
     expect(ValueError, lambda: m.run(root, [(dict(TARGET, awsProfile='confirmed'), path)], profile='wrong', session_factory=lambda **kw: calls.append(kw)))
     check(not calls, 'profile conflict rejected before session creation')
-    def bad_factory(**kw):
-        calls.append(kw)
-        raise RuntimeError('secret credential failure')
+    bad_factory = _bind_framework_callback(_callback_common_checks_bad_factory, calls)
     m.run(root, [(dict(TARGET, awsProfile='confirmed'), path)], session_factory=bad_factory)
     check(len(calls) == 1 and calls[0]['profile_name'] == 'confirmed', 'no profile fallback')
     # Real paginator and two STS-free, credential-free pages, including a later-page failure.
@@ -414,7 +485,7 @@ def common_checks(root):
             stub.add_response('describe_log_groups', {'logGroups': [{'logGroupName': 'first'}], 'nextToken': 'page-2'}, {})
             if fail:
                 stub.add_client_error('describe_log_groups', 'AccessDeniedException', expected_params={'nextToken': 'page-2'})
-                expect(m.AcquisitionError, lambda: page_ctx.pages('logs', 'describe_log_groups'))
+                expect(m.AcquisitionError, lambda *, page_ctx=page_ctx: page_ctx.pages('logs', 'describe_log_groups'))
             else:
                 stub.add_response('describe_log_groups', {'logGroups': [{'logGroupName': 'second'}]}, {'nextToken': 'page-2'})
                 check(len(page_ctx.pages('logs', 'describe_log_groups')['logGroups']) == 2, 'all paginator pages')
@@ -595,15 +666,20 @@ def cfn_identity_checks(root):
         for index, resource in enumerate(resources):
             department = ('ism', 'ced', 'sd')[index]
             check(resource.resolve_json({'Ref': 'DepartmentVpc'}) == 'vpc-' + department, 'CFn JSON Ref respects originating stack instance')
-            expect(m.Unresolved, lambda: resource.resolve_json({'Ref': 'Missing'}))
+            expect(m.Unresolved, lambda *, resource=resource: resource.resolve_json({'Ref': 'Missing'}))
         resources[1].spec['cfn-logicalId'] = resources[0].spec['cfn-logicalId']
         expect(m.Unresolved, lambda: resources[0].resolve_json({'Ref': 'DepartmentVpc'}))
     ctx.finish()
 
 
+
+
+def _identity_registry_checks_forbidden(context, selected, getter):
+    return context.call('ec2', 'terminate_instances', InstanceIds=['unconfirmed'])
+
+
 @it_case
 def identity_registry_checks(root):
-    from aws_mapping import Identity
     ctx = Offline(root)
     ctx.verified = True
     resource = FakeResource(ctx, 's3', 'S3.Bucket')
@@ -621,8 +697,7 @@ def identity_registry_checks(root):
         expect(m.Unresolved, lambda: m.Resource.identity(resource))
     allowed = set(ctx.allowed)
     definition.identities = {'S3.Bucket': Identity('new-getter', 'Name', None, None)}
-    def forbidden(context, selected, getter):
-        return context.call('ec2', 'terminate_instances', InstanceIds=['unconfirmed'])
+    forbidden = _identity_registry_checks_forbidden
     with patch.object(ctx, 'comparison', return_value=(definition, {})), patch.object(resource.module, 'fetch', side_effect=forbidden):
         expect(ValueError, lambda: m.Resource.identity(resource))
     check(ctx.allowed == allowed and not ctx.trace, 'new Mapping getter cannot grant or call an API')
@@ -636,11 +711,11 @@ def fixture_coverage(root):
     directory.mkdir(parents=True)
     (root / 'project.json').write_text(json.dumps({'targets': [TARGET]}))
     for service in m.SERVICES:
-        module = m.service_module(service)
+        _ = m.service_module(service)
         if service == 'cloudformation-stacks':
             text = 'desired.stack.001.name=cfn-stack-app-dev-fixture\ndesired.stack.001.template=fixture.yaml\ndesired.stack.001.parameters=fixture.json\ndesired.stack.001.deployOrder=10\n'
         else:
-            from aws_mapping_compare import comparison
+            comparison = _imports_aws_mapping_compare.comparison
             mapping, definitions = comparison(m.ROOT, service)
             text = ''
             allocation = {}
@@ -683,7 +758,7 @@ def check_consumer_coverage():
         print(f"Read-only model coverage: {report['modelCount']} models / {report['resourceTypeCount']} types / {report['keyCount']} keys")
     elif 'AWS_COMPARE_COVERAGE_ROOT' in os.environ:
         raise AssertionError('explicit coverage root is missing')
-    print(f'AWS model comparison checks: PASS ({check.__globals__['COUNT']} assertions; no AWS connection)')
+    print(f"AWS model comparison checks: PASS ({check.__globals__['COUNT']} assertions; no AWS connection)")
 
 
 def main():
@@ -692,4 +767,3 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

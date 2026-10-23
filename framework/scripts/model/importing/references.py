@@ -1,13 +1,33 @@
 """Exact local reference matching; no acquisition, source edits or publication."""
+
 import json
-from pathlib import Path
 import re
+from functools import partial as _bind_framework_callback
+from pathlib import Path
 
-from model.core import LINK, entries, literal, ReferenceResolutionError
-from model.identity import resource_link, address, parse_reference
-from reference_contracts import (ARN_FORMS, VALUE_IDENTITIES, CONFIGURATION_PROPERTIES, CONTEXT_PROPERTIES,
-                                 attributes_for, contract)
+import aws_mapping as _imports_aws_mapping
+import cloudformation_inputs as _imports_cloudformation_inputs
+import reference_contracts as _imports_reference_contracts
+import utils.aws_mappings as _imports_utils_aws_mappings
+from reference_contracts import (
+    ARN_FORMS,
+    CONFIGURATION_PROPERTIES,
+    CONTEXT_PROPERTIES,
+    VALUE_IDENTITIES,
+    attributes_for,
+    contract,
+)
+from utils.aws_mappings import mappings_for, owners
+from utils.aws_sdk import aws_runtime
 
+import model.core as _imports_model_core
+import model.identity as _dependency_model_identity
+import model.importing.scope as _imports_model_importing_scope
+import model.importing.sources as _imports_model_importing_sources
+import model.projection as _imports_model_projection
+import model.references as _imports_model_references
+import model.sources as _imports_model_sources
+from model.core import LINK, ReferenceResolutionError, entries, literal
 
 _UNOBSERVED = object()
 
@@ -15,12 +35,12 @@ _UNOBSERVED = object()
 def known(value):
     return (isinstance(value, str) and bool(value) and value not in
             {'UNSET', 'PENDING_DEPLOY', 'Pending', 'TBD', 'TODO', '未確定'} and
-            not resource_link(value) and not any(text in value for text in ('${', '{{resolve:')))
+            not _dependency_model_identity.resource_link(value) and not any(text in value for text in ('${', '{{resolve:')))
 
 
 def elements(raw):
     value = literal(raw)
-    if value.startswith('[') and not resource_link(value):
+    if value.startswith('[') and not _dependency_model_identity.resource_link(value):
         try:
             result = json.loads(value)
         except ValueError:
@@ -30,10 +50,32 @@ def elements(raw):
     return [raw]
 
 
+def _recursive_verify_resource_verify_config(choices, context, location, prop, require_links, self, /, desired, actual, provider, pointer=''):
+    if isinstance(desired, list):
+        if actual is not _UNOBSERVED and (not isinstance(actual, list) or len(desired) != len(actual)):
+            raise ValueError('IMPORT Configuration array dimensions differ')
+        for i, left in enumerate(desired):
+            _recursive_verify_resource_verify_config(choices, context, location, prop, require_links, self, left, _UNOBSERVED if actual is _UNOBSERVED else actual[i],
+                          provider[i] if isinstance(provider, list) and i < len(provider) else provider, pointer + '/' + str(i))
+    else:
+        if not isinstance(desired, dict) or (actual is not _UNOBSERVED and
+                (not isinstance(actual, dict) or desired.keys() != actual.keys())):
+            raise ValueError('IMPORT Configuration requires matching objects')
+        for key, value in desired.items():
+            target = choices.get((provider, key)) if isinstance(provider, str) else None
+            contracts = {target[0]: (target[1],)} if target else {}
+            self.verify(prop + '.' + key, value, _UNOBSERVED if actual is _UNOBSERVED else actual[key],
+                        context, contracts=contracts, require_links=require_links,
+                        location={**location, 'pointer': pointer + '/' + key.replace('~', '~0').replace('/', '~1')})
+
+
 class Resolver:
     def __init__(self, root, environment, target, *, definitions_root=None, local=None, read_context=None):
+        definition_root = _imports_utils_aws_mappings.definition_root
+
+        FileReads = _imports_model_sources.FileReads
+        Scope = _imports_model_sources.Scope
         self.root, self.environment, self.target = Path(root), environment, target
-        from utils.aws_mappings import definition_root
         self.definitions_root = definitions_root or definition_root(root)
         self.local = local or {}
         self.files, self.indexes, self.targets = {}, {}, {}
@@ -42,17 +84,18 @@ class Resolver:
         self.partition = None
         self.model_paths = set()
         self.warnings = []
-        from model.sources import Scope
         self.consumer_scope = Scope(self.root, environment, target, '')
-        from model.sources import FileReads
         self.reads, self.models = read_context or FileReads(), {}
 
     def index(self, kind):
+        mapping_path = _imports_aws_mapping.mapping_path
+
+        reference_reader = _imports_model_importing_scope.reference_reader
+        load_model = _imports_model_sources.load_model
+        safe = _imports_model_sources.safe
         if kind in self.indexes:
             return self.indexes[kind]
-        from model.importing.scope import reference_reader
-        from model.sources import load_model, safe
-        from utils.aws_mappings import owners, mappings_for
+
         self.reads.read(Path(self.definitions_root) / 'framework/mappings/aws/owners.json')
         service = owners(self.definitions_root).get(kind)
         result = {}
@@ -61,7 +104,6 @@ class Resolver:
         if service is None:
             return result
         properties = attributes_for(kind)
-        from aws_mapping import mapping_path
         self.reads.read(mapping_path(self.definitions_root, service))
         mapping = mappings_for(self.definitions_root).get(service)
         aliases = {prop: {prop} | {key for key, item in mapping.properties.items()
@@ -99,7 +141,7 @@ class Resolver:
         for model in models:
             self.files.update(model.files)
             values = model.values
-            from model.core import resource_row_index
+            resource_row_index = _imports_model_core.resource_row_index
             rows = resource_row_index(values)
             for rid, resource in entries(values, 'desired.resource.'):
                 if resource.get('resourceType') != kind:
@@ -115,7 +157,7 @@ class Resolver:
                         for prop, group in aliases.items():
                             if row['property'] in group:
                                 physical.setdefault(prop.removeprefix(kind + '.'), set()).add(value)
-                candidate = {'service': service, 'id': rid, 'logicalId': resource['logicalId'], 'uri': address(model.scope, resource), 'anchor': resource.get('anchor'), 'scope': model.scope, 'kind': kind}
+                candidate = {'service': service, 'id': rid, 'logicalId': resource['logicalId'], 'uri': _dependency_model_identity.address(model.scope, resource), 'anchor': resource.get('anchor'), 'scope': model.scope, 'kind': kind}
                 self.targets[kind][service, rid] = candidate
                 for form, candidates in physical.items():
                     if len(candidates) != 1:
@@ -133,10 +175,10 @@ class Resolver:
             return None
         parts = match.groupdict()
         if self.context is None:
-            from cloudformation_inputs import load_target
+            load_target = _imports_cloudformation_inputs.load_target
             self.context = load_target(self.root, self.environment, self.target)
             self.files[self.root / 'project.json'] = (self.root / 'project.json').read_bytes().decode('utf-8')
-            from botocore.session import get_session
+            get_session = aws_runtime().sdk_session
             self.partition = get_session().get_partition_for_region(self.context['awsRegion'])
         if parts['partition'] != self.partition:
             return None
@@ -182,13 +224,13 @@ class Resolver:
 
     def candidate_matches(self, candidate, text):
         scope = getattr(self, 'consumer_scope', None)
-        environment, target, service, anchor = parse_reference(text, scope)
+        environment, target, service, anchor = _dependency_model_identity.parse_reference(text, scope)
         producer = candidate['scope']
         return (environment, target, service, anchor) == (producer.environment, producer.target, producer.service, candidate['anchor'])
 
     def _verify(self, prop, raw, physical, context=None, *, contracts=None, require_links=True):
         declared = contract(prop, context) if contracts is None else contracts
-        reference = resource_link(raw) if declared or contracts is not None or physical is _UNOBSERVED else None
+        reference = _dependency_model_identity.resource_link(raw) if declared or contracts is not None or physical is _UNOBSERVED else None
         if not require_links and reference is None:
             return
         if physical is _UNOBSERVED:
@@ -201,7 +243,7 @@ class Resolver:
                     raise ReferenceResolutionError('IMPORT reference has no unique producer: ' + prop)
             return
         if reference is None:
-            from model.importing.sources import typed_equal
+            typed_equal = _imports_model_importing_sources.typed_equal
             if not typed_equal(literal(raw) if isinstance(raw, str) else raw, physical):
                 raise ValueError('IMPORT literal differs from acquired physical value: ' + prop)
         expected = self.match(prop, physical, context, contracts=contracts)
@@ -219,7 +261,7 @@ class Resolver:
 
     def verify_tree(self, prop, desired, actual, context, *, require_links=True, location=None):
         if isinstance(desired, dict) and '$resource' in desired:
-            if set(desired) - {'$resource', '$attribute'} or not resource_link(desired['$resource']):
+            if set(desired) - {'$resource', '$attribute'} or not _dependency_model_identity.resource_link(desired['$resource']):
                 raise ValueError('invalid structured Resource reference')
             declared = contract(prop, context)
             if attribute := desired.get('$attribute'):
@@ -240,18 +282,18 @@ class Resolver:
             self.verify(prop, desired, actual, context, require_links=require_links, location=location)
 
     def verify_resource(self, values, rid, *, scope=None, require_links=True, identity_properties=None, properties=None, observed_only=False):
-        from model.sources import Scope
+        resource_row_index = _imports_model_core.resource_row_index
+        catalog_outputs = _imports_model_projection.catalog_outputs
+        declarations = _imports_model_references.declarations
+        Scope = _imports_model_sources.Scope
         services = [fields['serviceId'] for _, fields in entries(values, 'desired.service.') if 'serviceId' in fields]
         self.consumer_scope = scope or Scope(self.root, self.environment, self.target, services[0] if len(services) == 1 else '')
-        from model.references import declarations
         self.literal_references = {
             ((spec['consumerKey'], spec['pointer']), spec['text'])
             for spec in declarations(values).values()
             if spec['consumerKey'].startswith('desired.row.' + rid + '-')
             and 'pointer' in spec and spec['format'] in {'identifier', 'name'}
         }
-        from model.core import resource_row_index
-        from model.projection import catalog_outputs
         if identity_properties is None:
             identity_properties = catalog_outputs(self.definitions_root, values[f'desired.resource.{rid}.resourceType'])
         rows = resource_row_index(values).get(rid, [])
@@ -269,10 +311,10 @@ class Resolver:
                     context[prop] = literal(raw)
             if properties is not None and prop not in properties:
                 continue
-            from model.projection import scalar_reference
+            scalar_reference = _imports_model_projection.scalar_reference
             selector = scalar_reference(row)
             if selector is not None:
-                from reference_contracts import SCALAR_REFERENCE_PROPERTIES
+                SCALAR_REFERENCE_PROPERTIES = _imports_reference_contracts.SCALAR_REFERENCE_PROPERTIES
                 kind, attribute = SCALAR_REFERENCE_PROPERTIES[re.sub(r'\[\d+\]', '[]', prop)]
                 self.verify(prop, selector['$resource'], _UNOBSERVED if observed is None else literal(observed),
                             context, contracts={kind: (attribute,)}, require_links=require_links, location=location)
@@ -281,26 +323,10 @@ class Resolver:
                 selector, choices = CONFIGURATION_PROPERTIES[prop]
                 desired = json.loads(row.get('document', literal(raw)))
                 actual = json.loads(literal(observed)) if observed is not None else _UNOBSERVED if observed_only else desired
-                def verify_config(desired, actual, provider, pointer=''):
-                    if isinstance(desired, list):
-                        if actual is not _UNOBSERVED and (not isinstance(actual, list) or len(desired) != len(actual)):
-                            raise ValueError('IMPORT Configuration array dimensions differ')
-                        for i, left in enumerate(desired):
-                            verify_config(left, _UNOBSERVED if actual is _UNOBSERVED else actual[i],
-                                          provider[i] if isinstance(provider, list) and i < len(provider) else provider, pointer + '/' + str(i))
-                    else:
-                        if not isinstance(desired, dict) or (actual is not _UNOBSERVED and
-                                (not isinstance(actual, dict) or desired.keys() != actual.keys())):
-                            raise ValueError('IMPORT Configuration requires matching objects')
-                        for key, value in desired.items():
-                            target = choices.get((provider, key)) if isinstance(provider, str) else None
-                            contracts = {target[0]: (target[1],)} if target else {}
-                            self.verify(prop + '.' + key, value, _UNOBSERVED if actual is _UNOBSERVED else actual[key],
-                                        context, contracts=contracts, require_links=require_links,
-                                        location={**location, 'pointer': pointer + '/' + key.replace('~', '~0').replace('/', '~1')})
+                verify_config = _bind_framework_callback(_recursive_verify_resource_verify_config, choices, context, location, prop, require_links, self)
                 verify_config(desired, actual, context.get(selector))
                 continue
-            from model.importing.sources import has_reference
+            has_reference = _imports_model_importing_sources.has_reference
             if (not LINK.fullmatch(raw) and literal(raw).startswith(('[', '{')) and
                     (has_reference(row.get('document', raw)) or contract(prop, context) or prop in CONTEXT_PROPERTIES)):
                 desired = json.loads(row.get('document', literal(raw)))
@@ -313,10 +339,10 @@ class Resolver:
                         elements(observed if observed is not None else raw))
             if len(links) != len(physical):
                 raise ValueError('IMPORT reference/observation element count differs: ' + prop)
-            if not contract(prop, context) and not any(isinstance(value, str) and resource_link(value) for value in links):
+            if not contract(prop, context) and not any(isinstance(value, str) and _dependency_model_identity.resource_link(value) for value in links):
                 continue
-            for value, actual in zip(links, physical):
-                link = resource_link(value)
-                if link and prop in identity_properties and parse_reference(value, self.consumer_scope) == (self.environment, self.target, self.consumer_scope.service, values.get(f'desired.resource.{rid}.anchor')):
+            for value, actual in zip(links, physical, strict=False):
+                link = _dependency_model_identity.resource_link(value)
+                if link and prop in identity_properties and _dependency_model_identity.parse_reference(value, self.consumer_scope) == (self.environment, self.target, self.consumer_scope.service, values.get(f'desired.resource.{rid}.anchor')):
                     continue
                 self.verify(prop, value, _UNOBSERVED if actual is _UNOBSERVED else literal(actual), context, require_links=require_links, location=location)

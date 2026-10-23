@@ -2,19 +2,24 @@
 """Explicit group-05 properties, native JSON, identity and managed save boundaries."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
-from support.it_case_receipt import it_case
-from support.producer_identifier_reference_fixtures import setup, resource, rejected
-from support.model_sources import write_model
-from support.worktree_task_fixtures import fixture, git, start
-from model.sources import load_model, design_source_digest
+
+from model.adapters.task import edit_write_context
 from model.files import trace_model
 from model.format import serialize
+from model.sources import design_source_digest, load_model
+from support.it_case_receipt import it_case
+from support.model_sources import write_model
+from support.producer_identifier_reference_fixtures import rejected, resource, setup
+from support.worktree_task_fixtures import fixture, git, start
+
 from model import prepare_edit, publish_edit
-from model.adapters.task import edit_write_context
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 SERVICES = {'cloudtrail': ('CloudTrail.Trail', [('TrailName', '`ctrail-fixture-preview`'), ('IsMultiRegionTrail', '`false`')]),
             'secrets-manager': ('SecretsManager.Secret', [('Name', '`fixture/secret`'), ('Description', ' 001 \\ " ')]),
@@ -41,7 +46,8 @@ def check_declared_inputs(service='cloudtrail'):
             path = primary / 'model' / environment / 'team' / (service + '.properties')
             write_model(path, values)
             paths[environment] = path.relative_to(primary).as_posix()
-        git(primary, 'add', 'project.json', 'model'); git(primary, 'commit', '-qm', 'explicit group05 fixture')
+        git(primary, 'add', 'project.json', 'model')
+        git(primary, 'commit', '-qm', 'explicit group05 fixture')
         target, state = start(primary, files=tuple(paths.values()))
         name = state['task_file']
         listed = ''.join('- `' + path + '`\n' for path in (name, *paths.values()))
@@ -75,9 +81,10 @@ def check_declared_inputs(service='cloudtrail'):
             ({'desired.row.017-002.value': '`[NaN]`'}, 'invalid JSON constant')]:
             with edit_write_context(target, {('preview', 'team', service)}, name) as context:
                 snapshot = load_model(path, context.snapshot)
-                rejected(lambda: prepare_edit(snapshot, {path: serialize({**changed, **update})}, context), phrase)
+                rejected(lambda *, snapshot=snapshot, update=update: prepare_edit(snapshot, {path: serialize({**changed, **update})}, context), phrase)
             assert path.read_bytes() == raw and other.read_bytes() == saved
-        candidate = dict(changed); del candidate['desired.row.017-002.comment']
+        candidate = dict(changed)
+        del candidate['desired.row.017-002.comment']
         with edit_write_context(target, {('preview', 'team', service)}, name) as context:
             rejected(lambda: prepare_edit(load_model(path, context.snapshot), {path: serialize(candidate)}, context), 'requires property, value and comment')
         assert path.read_bytes() == raw

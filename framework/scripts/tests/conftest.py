@@ -2,11 +2,16 @@
 
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[1]), str(Path(__file__).resolve().parent)]
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 import tempfile
+
 import pytest
+import support.model_sources as _imports_support_model_sources
+import utils.aws_mappings as _imports_utils_aws_mappings
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -24,23 +29,13 @@ def shared_framework():
 
 @pytest.fixture
 def project_workspace(tmp_path, shared_framework):
-    from utils.aws_mappings import mapping_alias
+    mapping_alias = _imports_utils_aws_mappings.mapping_alias
     with mapping_alias(shared_framework.parent, tmp_path):
         yield tmp_path
 
 
 @pytest.fixture
 def catalog_display_fixture():
-    from support.model_sources import catalog_display
+    catalog_display = _imports_support_model_sources.catalog_display
     with catalog_display():
         yield
-
-
-@pytest.fixture
-def managed_project_workspace(request):
-    from support.worktree_task_fixtures import fixture, start
-    from task_contract import selected_task
-    with fixture() as primary:
-        target, state = start(primary, task_id=getattr(request, 'param', 'observation-fixture'), files=('file.txt',))
-        with selected_task(target, state['task_file']):
-            yield target

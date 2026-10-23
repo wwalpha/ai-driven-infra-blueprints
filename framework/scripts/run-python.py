@@ -2,9 +2,10 @@
 """Run Python arguments, or --command <CLI> arguments, with this worktree's registered Python."""
 
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
+
 import worktree_python
 
 

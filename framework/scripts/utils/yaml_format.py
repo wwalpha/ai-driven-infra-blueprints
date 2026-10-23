@@ -1,9 +1,23 @@
 """Strict shared YAML reader for mappings and IaC inputs."""
+
 import re
 
-def yaml_read(text):
-    import yaml
+import yaml as _imports_yaml
 
+
+def _yaml_read_mapping(loader, node):
+    result = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node)
+        if not isinstance(key, str) or key in result:
+            raise ValueError(f'non-string/duplicate YAML key: {key}')
+        result[key] = loader.construct_object(value_node)
+    return result
+
+
+def yaml_read(text):
+
+    yaml = _imports_yaml
     class Loader(yaml.SafeLoader):
         pass
 
@@ -15,18 +29,10 @@ def yaml_read(text):
     Loader.add_implicit_resolver('tag:yaml.org,2002:bool', re.compile(r'^(?:true|false)$'), list('tf'))
     Loader.add_implicit_resolver('tag:yaml.org,2002:int', re.compile(r'^[-+]?(?:0|[1-9][0-9]*)$'), list('-+0123456789'))
 
-    def mapping(loader, node):
-        result = {}
-        for key_node, value_node in node.value:
-            key = loader.construct_object(key_node)
-            if not isinstance(key, str) or key in result:
-                raise ValueError(f'non-string/duplicate YAML key: {key}')
-            result[key] = loader.construct_object(value_node)
-        return result
+    mapping = _yaml_read_mapping
 
     Loader.add_constructor('tag:yaml.org,2002:map', mapping)
     try:
         return yaml.load(text, Loader=Loader)
     except yaml.YAMLError as error:
         raise ValueError(f'invalid parameters YAML: {error}') from error
-

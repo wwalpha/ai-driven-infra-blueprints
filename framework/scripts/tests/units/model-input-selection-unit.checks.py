@@ -1,13 +1,39 @@
 """Resource selection retains owner order, failure timing and isolated dictionaries."""
-from pathlib import Path
+
 import sys
+from functools import partial as _bind_framework_callback
+from pathlib import Path
 from unittest.mock import patch
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import pytest
+from model.core import ReferenceResolutionError
+
+from model import format, operations, validation
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-import pytest
-from model import validation, format, operations
-from model.core import ReferenceResolutionError
+
+_CALLBACK_DEFAULT = object()
+
+
+
+def _callback_selection_required(selected, /, v, *a, warnings):
+    selected.append(v)
+    warnings.append({'code': 'fixture', 'message': 'warning'})
+    raise ReferenceResolutionError('unresolved fixture')
+
+
+def _callback_selection_mapping(mapped, /, v, *a):
+    mapped.append(v)
+    raise ValueError('mapping failure')
+
+
+def _callback_selection_run_60(tmp_path, _default_v, /, v=_CALLBACK_DEFAULT):
+    if v is _CALLBACK_DEFAULT:
+        v = _default_v
+    return validation.check_model_inputs(tmp_path / 'model/dev/target/sample.properties', v, tmp_path)
 
 
 @pytest.fixture
@@ -36,17 +62,11 @@ def selection(tmp_path, monkeypatch):
     monkeypatch.setattr(validation, 'catalog_outputs', lambda *a: set())
     monkeypatch.setattr(validation, 'is_import_expression', lambda *a: False)
     selected, mapped = [], []
-    def required(v, *a, warnings):
-        selected.append(v)
-        warnings.append({'code': 'fixture', 'message': 'warning'})
-        raise ReferenceResolutionError('unresolved fixture')
-    def mapping(v, *a):
-        mapped.append(v)
-        raise ValueError('mapping failure')
+    required = _bind_framework_callback(_callback_selection_required, selected)
+    mapping = _bind_framework_callback(_callback_selection_mapping, mapped)
     monkeypatch.setattr(validation, 'validate_required_properties', required)
     monkeypatch.setattr('aws_mapping_display.validate_mappings', mapping)
-    def run(v=values):
-        return validation.check_model_inputs(tmp_path / 'model/dev/target/sample.properties', v, tmp_path)
+    run = _bind_framework_callback(_callback_selection_run_60, tmp_path, values)
     return values, selected, mapped, run
 
 
@@ -65,7 +85,7 @@ def check_selection_order_findings_and_fresh_calls(selection):
     assert top == expected
     numbers = [n for n, _ in validation.entries(values, 'desired.resource.')]
     assert [list(v.items()) for v in selected] == [list(operations.operation_values(values, n).items()) for n in numbers]
-    assert all(a is b for a, b in zip(selected, mapped))
+    assert all(a is b for a, b in zip(selected, mapped, strict=False))
     assert len({id(v) for v in selected}) == len(numbers)
     assert values == before
     assert findings.errors == ['mapping failure', 'provider schema violation: Logs.LogGroup.RetentionInDays: literal failure'] * 2
@@ -80,14 +100,26 @@ def check_selection_order_findings_and_fresh_calls(selection):
     assert next(v for v in selected[2:] if 'desired.row.001-001.value' in v)['desired.row.001-001.value'] == '`60`'
 
 
+
+
+def _check_catalog_failure_precedes_owner_fail(*a):
+    raise ValueError('catalog first')
+
+
 def check_catalog_failure_precedes_owner(selection, monkeypatch):
     _, selected, _, run = selection
-    def fail(*a):
-        raise ValueError('catalog first')
+    fail = _check_catalog_failure_precedes_owner_fail
     monkeypatch.setattr(validation, 'DesignSchemaCatalog', fail)
     with patch.object(format, 'owner', side_effect=AssertionError('too early')):
         assert run().errors == ['catalog first']
     assert not selected
+
+
+def _callback_check_first_owner_exception_precedes_resource_checks_owner(failing, original, trace, /, key, source):
+    trace.append(key)
+    if key == failing:
+        raise ValueError('first owner failure')
+    return original(key, source)
 
 
 def check_first_owner_exception_precedes_resource_checks(selection):
@@ -95,11 +127,7 @@ def check_first_owner_exception_precedes_resource_checks(selection):
     trace = []
     original = format.owner
     failing = list(values)[2]
-    def owner(key, source):
-        trace.append(key)
-        if key == failing:
-            raise ValueError('first owner failure')
-        return original(key, source)
+    owner = _bind_framework_callback(_callback_check_first_owner_exception_precedes_resource_checks_owner, failing, original, trace)
     with patch.object(format, 'owner', owner), pytest.raises(ValueError, match='^first owner failure$'):
         run()
     assert trace == list(values)[:3] and not selected
@@ -112,12 +140,17 @@ def check_zero_resources_never_classified(selection):
     assert not selected
 
 
+
+
+def _check_selected_mutation_is_isolated_mutate(selected, *a, **kw):
+    selected['display.resource.marker.comment'] = 'local mutation'
+    selected.pop('desired.row.001-001.value', None)
+
+
 def check_selected_mutation_is_isolated(selection, monkeypatch):
     values, _, mapped, run = selection
     before = dict(values)
-    def mutate(selected, *a, **kw):
-        selected['display.resource.marker.comment'] = 'local mutation'
-        selected.pop('desired.row.001-001.value', None)
+    mutate = _check_selected_mutation_is_isolated_mutate
     monkeypatch.setattr(validation, 'validate_required_properties', mutate)
     run()
     assert values == before

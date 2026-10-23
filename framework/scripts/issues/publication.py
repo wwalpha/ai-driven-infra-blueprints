@@ -1,14 +1,18 @@
 """Ordinary issue merge, current-run IaC display and atomic scoped publication."""
 from __future__ import annotations
 
-
+import model.sources as _imports_model_sources
+from task_contract_core import issues_save_only, paths_in, safe_path, status, task_path
 from utils.file_operations import atomic_files
-from task_contract import task_path, paths_in, safe_path, status, issues_save_only
+from utils.input_cache import input_scope
 from validation_scope import active_scope
-from validation_cache import input_scope
 
+import issues.artifact as _imports_issues_artifact
+import issues.reports as _imports_issues_reports
 
-from .reports import normal_merge, iac_report
+from .integrity import verify_inputs
+from .reports import iac_report, normal_merge
+
 
 def save_authority(root, environment, directory, services, filenames):
     prompt = task_path(root)
@@ -28,12 +32,12 @@ def save_authority(root, environment, directory, services, filenames):
 
 @input_scope
 def save(root, environment, directory, services, candidates=(), additions=(), resolutions=(), iac=None, guard=None, display=None, stamp=None, warnings=(), artifact=None):
-    from model.sources import publication_lock
+    publication_lock = _imports_model_sources.publication_lock
     with publication_lock(root, read_only=True):
         names = ['issues.md'] + (['iac-issues.md'] if iac is not None else [])
         paths = save_authority(root, environment, directory, services, names)
         contents = {paths[0]: normal_merge(root, paths[0], environment, directory, services, candidates, additions, resolutions)}
-        from .reports import notice_report
+        notice_report = _imports_issues_reports.notice_report
         channels = {name: artifact.get(name, []) for name in ('warnings','information','unverified','processing_errors')} if artifact else {'warnings': list(warnings)}
         if artifact is not None or warnings:
             contents[paths[0]] = notice_report(contents[paths[0]], environment, directory, services, channels, preserve_prior=bool(artifact and (artifact.get('unverified') or artifact.get('processing_errors') or any(c['status']!='completed' for c in artifact.get('cfn_lint',{}).get('coverage',[])))))
@@ -45,12 +49,12 @@ def save(root, environment, directory, services, candidates=(), additions=(), re
         return paths
 
 
-from .integrity import verify_inputs
+
 
 def save_scan(root, artifact, review):
     if artifact.get('version') != 2 or artifact.get('root') != str(root):
         raise ValueError('invalid scan artifact/root')
-    from .artifact import validate_artifact
+    validate_artifact = _imports_issues_artifact.validate_artifact
     validate_artifact(artifact)
     required = {'scan_id','reviewed_naming_context_id','reviewed_names','reviewed_judgments','diagnostic_assignments','issues','resolved'}
     if not required <= review.keys() or review['scan_id'] != artifact['scan_id'] or review['reviewed_naming_context_id'] != artifact['naming_context_id']:
@@ -72,5 +76,3 @@ def save_scan(root, artifact, review):
     paths = save(root, artifact['environment'], artifact['target'], artifact['services'], artifact['ordinary'], additions,
                  review.get('resolved', []), artifact['iac'], guard=lambda: verify_inputs(root, artifact), display=artifact.get('iac_display'), stamp=artifact.get('executed_at'), warnings=artifact.get('warnings', []), artifact=artifact)
     return paths
-
-

@@ -25,7 +25,8 @@ def fetch(ctx, r, getter):
             return result
         return dict(result['HostedZone'],Id=result['HostedZone']['Id'].removeprefix('/hostedzone/'))
     zone=r.value('HostedZoneId','id').removeprefix('/hostedzone/')
-    name=r.value('Name').rstrip('.').lower();kind=r.value('Type')
+    name=r.value('Name').rstrip('.').lower()
+    kind=r.value('Type')
     records=ctx.pages('route53','list_resource_record_sets',HostedZoneId=zone).get('ResourceRecordSets',[])
     record=one([v for v in records if v['Name'].rstrip('.').lower()==name and v['Type']==kind], 'route53.list_resource_record_sets')
     return dict(record,HostedZoneId=zone)

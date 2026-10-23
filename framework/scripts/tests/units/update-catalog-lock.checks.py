@@ -5,16 +5,18 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
-if not __debug__:
-    raise SystemExit("Focused checks require assertions; run without -O")
 
 import importlib.util
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from unittest.mock import patch
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 SCRIPT = (Path(__file__).resolve().parents[2] / 'update-catalog-lock.py')
 SPEC = importlib.util.spec_from_file_location("update_catalog_lock", SCRIPT)

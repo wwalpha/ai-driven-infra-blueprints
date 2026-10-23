@@ -1,8 +1,9 @@
 """Connect the shared evaluator to tracked comparison lookups."""
-from iac_evaluation import Evaluation
 from cloudformation_inputs import Blocked
+from iac_evaluation import Evaluation
 from iac_values import Expression
 from json_intrinsics import project_document
+
 from .values import PreparedValue
 
 

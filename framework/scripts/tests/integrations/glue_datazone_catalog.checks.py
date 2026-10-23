@@ -2,18 +2,28 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import sync_runtime as model
+from support.glue_datazone_catalog_fixtures import (
+    Path,
+    io,
+    redirect_stdout,
+    sys,
+    tempfile,
+    write_designs,
+    write_model,
+)
 from support.it_case_receipt import it_case
 
-from support.glue_datazone_catalog_fixtures import *
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 @it_case
 def main() -> None:
-    import sync_runtime as model
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         (root / "project.json").write_text(__import__("json").dumps({"projectName": "synthetic", "targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
@@ -168,4 +178,3 @@ if __name__ == "__main__":
     from support.model_sources import catalog_display
     with catalog_display():
         main()
-

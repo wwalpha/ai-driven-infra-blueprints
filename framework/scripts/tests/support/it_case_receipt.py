@@ -1,6 +1,14 @@
 """Explicit successful IT completion; no tracing or per-call path inspection."""
-from functools import wraps
+
 import sys
+
+from utils.function_wrapper import FunctionWrapper
+
+
+def _invoke_it_case(function, name, source, /, *args, **kwargs):
+    result = function(*args, **kwargs)
+    sys.audit('blueprint.it_case.completed', source, name)
+    return result
 
 
 def it_case(function):
@@ -8,11 +16,7 @@ def it_case(function):
     source = sys._getframe(1).f_globals['__file__']
     name = function.__name__
 
-    @wraps(function)
-    def completed(*args, **kwargs):
-        result = function(*args, **kwargs)
-        sys.audit('blueprint.it_case.completed', source, name)
-        return result
+    completed = FunctionWrapper(function, _invoke_it_case, name, source)
 
     return completed
 

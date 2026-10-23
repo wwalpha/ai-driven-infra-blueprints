@@ -1,19 +1,74 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from support.aws_mapping_fixtures import (
+    BASELINE,
+    CHANNEL,
+    RECORDER,
+    ROOT,
+    Path,
+    SimpleNamespace,
+    TemporaryDirectory,
+    aws_mapping,
+    copy,
+    json,
+    load_model,
+    m,
+    module,
+    patch,
+    resource_rows,
+    resource_table_lines,
+    socket,
+    sys,
+    write_model,
+)
+from support.it_case_receipt import it_case
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import it_case
 
-from support.aws_mapping_fixtures import *
+def _callback_check_config_compare(context, path, /, bucket):
+    ctx, calls = context(bucket)
+    model = ctx.model(path)
+    results = [item for resource in model.resources for item in m.compare_resource(ctx, resource)]
+    for resource in model.resources:
+        for _ in range(2):
+            ctx.fetch(resource, 'recorder' if resource.kind == RECORDER else 'channel')
+    assert sorted(api for api, _ in calls) == ['channel', 'recorder', 'role']
+    return results
+
+
+def _callback_check_config_context_call(calls, /, api, result, **inputs):
+    calls.append((api, inputs))
+    return result
+
+
+def _callback_check_config_context(channel, recorder, role, root, target, /, bucket='fixture-bucket'):
+    calls = []
+    call = _bind_framework_callback(_callback_check_config_context_call, calls)
+    clients = {
+        'config': SimpleNamespace(
+            describe_configuration_recorders=lambda **inputs: call('recorder', {'ConfigurationRecorders': [recorder]}, **inputs),
+            describe_delivery_channels=lambda **inputs: call('channel', {'DeliveryChannels': [dict(channel, s3BucketName=bucket)]}, **inputs)),
+        'iam': SimpleNamespace(get_role=lambda **inputs: call('role', {'Role': {'Arn': role}}, **inputs)),
+    }
+    ctx = m.Context(root, target, session=SimpleNamespace(client=lambda service, **kwargs: clients[service]), services=['config'])
+    ctx.verified = True
+    return ctx, calls
+
 
 @it_case
 def check_config():
     mapping = aws_mapping.registry(ROOT, 'config')
-    original_fields = mapping.fields
+    _ = mapping.fields
     role = 'arn:aws:iam::123456789012:role/aws-service-role/config.amazonaws.com/AWSServiceRoleForConfig'
     recorder = {
         'name': 'recorder-fixture', 'roleARN': role,
@@ -42,10 +97,10 @@ def check_config():
                   'display.service.title': '# Config 詳細設計',
                   'desired.service.identity.lastAllocated': json.dumps({RECORDER: 1, CHANNEL: 1})}
         for number, kind, payload in [('001', RECORDER, recorder), ('002', CHANNEL, channel)]:
-            anchor = 'config-fixture-' + number
+            _ = 'config-fixture-' + number
             values.update({f'desired.resource.{number}.{key}': value for key, value in {
                 'resourceType': kind, 'resourceMode': 'IMPORT', 'logicalId': kind.replace('.', '_') + '_001'}.items()})
-            for index, (prop, (path, norm, default)) in enumerate(BASELINE[kind].items(), 1):
+            for index, (prop, (path, _norm, default)) in enumerate(BASELINE[kind].items(), 1):
                 value = m.select(payload, path)
                 value = default if value == m.MISSING else value
                 raw = '`' + (value if isinstance(value, str) else json.dumps(value)) + '`'
@@ -61,30 +116,9 @@ def check_config():
         path = root / 'model/dev/fixture/config.properties'
         write_model(path, values)
 
-        def context(bucket='fixture-bucket'):
-            calls = []
-            def call(api, result, **inputs):
-                calls.append((api, inputs))
-                return result
-            clients = {
-                'config': SimpleNamespace(
-                    describe_configuration_recorders=lambda **inputs: call('recorder', {'ConfigurationRecorders': [recorder]}, **inputs),
-                    describe_delivery_channels=lambda **inputs: call('channel', {'DeliveryChannels': [dict(channel, s3BucketName=bucket)]}, **inputs)),
-                'iam': SimpleNamespace(get_role=lambda **inputs: call('role', {'Role': {'Arn': role}}, **inputs)),
-            }
-            ctx = m.Context(root, target, session=SimpleNamespace(client=lambda service, **kwargs: clients[service]), services=['config'])
-            ctx.verified = True
-            return ctx, calls
+        context = _bind_framework_callback(_callback_check_config_context, channel, recorder, role, root, target)
 
-        def compare(bucket):
-            ctx, calls = context(bucket)
-            model = ctx.model(path)
-            results = [item for resource in model.resources for item in m.compare_resource(ctx, resource)]
-            for resource in model.resources:
-                for _ in range(2):
-                    ctx.fetch(resource, 'recorder' if resource.kind == RECORDER else 'channel')
-            assert sorted(api for api, _ in calls) == ['channel', 'recorder', 'role']
-            return results
+        compare = _bind_framework_callback(_callback_check_config_compare, context, path)
 
         match, difference = compare('fixture-bucket'), compare('different-bucket')
         assert len(match) == 11 and sum(item['status'] == 'match' for item in match) == 10
@@ -123,4 +157,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

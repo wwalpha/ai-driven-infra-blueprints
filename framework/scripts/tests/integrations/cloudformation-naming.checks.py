@@ -2,33 +2,38 @@
 
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import json
 from functools import cache
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
-from support.model_sources import write_model
-from utils.cloudformation_format import decode_file as decode
-from cloudformation_inputs import checked_parameters, resolve_value, load_target
+
+from cloudformation_inputs import checked_parameters, load_target, resolve_value
 from model.core import entries, literal
 from model.files import load_model
 from model.sources import model_paths
-from validation_cache import input_scope
+from support.it_case_receipt import it_case
+from support.model_sources import write_model
+from utils.cloudformation_format import decode_file as decode
+from utils.input_cache import input_scope
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import it_case
 ROOT = Path(__file__).resolve().parents[4]
 
 
 def walk(value):
     if isinstance(value, dict):
         yield value
-        for child in value.values(): yield from walk(child)
+        for child in value.values():
+            yield from walk(child)
     elif isinstance(value, list):
-        for child in value: yield from walk(child)
+        for child in value:
+            yield from walk(child)
 
 
 @cache
@@ -44,7 +49,8 @@ def units(path):
     # Check implemented IaC templates; designed stacks can intentionally await implementation.
     available = {p.name for p in (ROOT/'infra/cloudformation/templates'/alias).glob('*.yaml')}
     for _, stack in entries(load_model(path).values, 'desired.stack.'):
-        if stack['template'] not in available: continue
+        if stack['template'] not in available:
+            continue
         template = ROOT/'infra/cloudformation/templates'/alias/stack['template']
         parameters = ROOT/'infra/cloudformation/parameters'/env/alias/stack['parameters']
         doc = document(template)
@@ -56,9 +62,12 @@ def units(path):
 
 def parameters(doc, original, case):
     values = dict(original)
-    if case == 'omitted': values['Suffix'] = doc['Parameters']['Suffix']['Default']
-    elif case == 'empty': values['Suffix'] = ''
-    elif case == 'alternate': values['Suffix'] = '-check'
+    if case == 'omitted':
+        values['Suffix'] = doc['Parameters']['Suffix']['Default']
+    elif case == 'empty':
+        values['Suffix'] = ''
+    elif case == 'alternate':
+        values['Suffix'] = '-check'
     return values
 
 
@@ -67,7 +76,8 @@ def check_imports(collection, producer_name, pseudo):
     producers = [item for (name, _), item in collection.items() if name == producer_name]
     assert producers, 'no export producer: '+producer_name
     producer, supplied = producers[0]
-    if producer_name == 'vpc.yaml': assert producer['Outputs']['VpcId']['Value'] == {'Ref':'Vpc01'}
+    if producer_name == 'vpc.yaml':
+        assert producer['Outputs']['VpcId']['Value'] == {'Ref':'Vpc01'}
     else:
         for key, output in producer['Outputs'].items():
             if key.endswith('Name'):
@@ -76,17 +86,20 @@ def check_imports(collection, producer_name, pseudo):
             elif key.endswith('Arn'):
                 resource = key.removesuffix('Arn')
                 assert output['Value'] == {'Fn::GetAtt':[resource,'Arn']}, key
-            else: raise AssertionError('unknown bucket output: '+key)
+            else:
+                raise AssertionError('unknown bucket output: '+key)
             assert producer['Resources'][resource]['Type'] == 'AWS::S3::Bucket'
     exports = {key: output['Export']['Name'] for key,output in producer['Outputs'].items() if 'Export' in output}
     assert exports
     count = 0
     for (name, _), (consumer, configured) in collection.items():
         for node in walk(consumer):
-            if 'Fn::ImportValue' not in node: continue
+            if 'Fn::ImportValue' not in node:
+                continue
             expression = node['Fn::ImportValue']
             base = next((base for base in exports if base in str(expression)), None)
-            if base is None: continue
+            if base is None:
+                continue
             assert isinstance(expression, dict), (name, expression)
             assert consumer['Parameters']['Suffix']['Default'] == ''
             # Sub and Join are both permitted by the formal YAML validator.
@@ -112,10 +125,13 @@ def check_names(collection, path, pseudo):
         for resource in doc.get('Resources',{}).values():
             if resource['Type'] in {'AWS::IAM::Role','AWS::IAM::Policy','AWS::IAM::ManagedPolicy'}:
                 for item in walk(resource):
-                    if 'Resource' in item: assert ':alias/' not in json.dumps(item['Resource']), (name,item)
-            if resource['Type'] != 'AWS::IAM::Role': continue
+                    if 'Resource' in item:
+                        assert ':alias/' not in json.dumps(item['Resource']), (name,item)
+            if resource['Type'] != 'AWS::IAM::Role':
+                continue
             expression = resource.get('Properties',{}).get('RoleName')
-            if expression is None or 'VulnerabilityScan02Role' not in str(expression): continue
+            if expression is None or 'VulnerabilityScan02Role' not in str(expression):
+                continue
             actual = resolve_value(expression, supplied, pseudo, conditions=doc.get('Conditions',{}))
             assert actual in names, (env,alias,name,actual)
             assert 'RoleNameSuffix' not in doc['Parameters']
@@ -124,13 +140,15 @@ def check_names(collection, path, pseudo):
                 actual = resolve_value(expression, values, pseudo, conditions=doc.get('Conditions',{}))
                 assert actual == f'venusinf-{env}-VulnerabilityScan02Role'+values['Suffix']
             count += 1
-    if alias == 'non-cde': assert count, 'no vulnerability role cases'
+    if alias == 'non-cde':
+        assert count, 'no vulnerability role cases'
 
 
 @it_case
 def check_flow_logs(collection, pseudo):
     named = {name:item for (name,_),item in collection.items()}
-    vpc,vpc_parameters = named['vpc.yaml']; kms,kms_parameters = named['kms.yaml']
+    vpc,vpc_parameters = named['vpc.yaml']
+    kms,kms_parameters = named['kms.yaml']
     for suffix in ('', '/example'):
         group = resolve_value(vpc['Resources']['VpcFlowLogGroup01']['Properties']['LogGroupName'],dict(vpc_parameters,FlowLogSuffix=suffix),pseudo)
         policy = kms['Resources']['LogKey']['Properties']['KeyPolicy']['Statement'][1]['Condition']['ArnLike']['kms:EncryptionContext:aws:logs:arn'][0]
@@ -139,12 +157,17 @@ def check_flow_logs(collection, pseudo):
         assert arn == f"arn:aws:logs:{pseudo['AWS::Region']}:{pseudo['AWS::AccountId']}:log-group:{group}"
 
 
+
+
+def _fixture_export(resource, attribute, key):
+    return {'Value': {'Ref': resource} if attribute == 'Name' else {'Fn::GetAtt': [resource, attribute]}, 'Export': {'Name': {'Fn::Sub': key + '${Suffix}'}}}
+
+
 def fixture(root):
     target = {'environment':'dev','awsRegion':'ap-northeast-1','awsAccountId':'123456789012','iacEngine':'cloudformation'}
     (root/'project.json').write_text(json.dumps({'projectName':'fixture','targets':[target]}),encoding='utf-8')
     parameters = {'Suffix':{'Type':'String','Default':''},'FlowLogSuffix':{'Type':'String','Default':''}}
-    def export(resource, attribute, key):
-        return {'Value':{'Ref':resource} if attribute=='Name' else {'Fn::GetAtt':[resource,attribute]},'Export':{'Name':{'Fn::Sub':key+'${Suffix}'}}}
+    export = _fixture_export
     templates = {
         's3.yaml':{'Parameters':parameters,'Resources':{'Bucket':{'Type':'AWS::S3::Bucket'}},'Outputs':{
             'BucketName':export('Bucket','Name','BucketName'),'BucketArn':export('Bucket','Arn','BucketArn')}},
@@ -163,7 +186,8 @@ def fixture(root):
     for number,(name,document) in enumerate(templates.items(),1):
         source=root/'infra/cloudformation/templates/123456789012'/name
         params=root/'infra/cloudformation/parameters/dev/123456789012'/name.replace('.yaml','.json')
-        source.parent.mkdir(parents=True,exist_ok=True);params.parent.mkdir(parents=True,exist_ok=True)
+        source.parent.mkdir(parents=True,exist_ok=True)
+        params.parent.mkdir(parents=True,exist_ok=True)
         source.write_text(json.dumps(document),encoding='utf-8')
         params.write_text(json.dumps([{'ParameterKey':'Suffix','ParameterValue':'-fixture'}, {'ParameterKey':'FlowLogSuffix','ParameterValue':''}]),encoding='utf-8')
         stacks.update({f'desired.stack.{number}.name': 'fixture-' + str(number),
@@ -205,4 +229,5 @@ def check_fixtures():
     print(f'CloudFormation naming: PASS ({len(paths)} targets, {count} imports; omitted/empty/configured/alternate suffix, Model role names, FlowLog/KMS ARN)')
 
 
-if __name__ == '__main__': check()
+if __name__ == '__main__':
+    check()

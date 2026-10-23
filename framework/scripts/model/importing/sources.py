@@ -1,9 +1,21 @@
 """Check explicit acquired correspondences and preserve every unselected canonical field."""
+
 import json
-from model.core import LINK, entries, literal, resource_row_index
-from model.format import owner
-from model.identity import resource_link, parse_reference
+import re
+from functools import partial as _bind_framework_callback
+
+import import_guard as _imports_import_guard
 from utils.json_format import strict_json as json_read
+
+import model.core as _imports_model_core
+import model.identity as _dependency_model_identity
+import model.identity as _imports_model_identity
+import model.operations as _imports_model_operations
+import model.projection as _imports_model_projection
+from model.core import entries as entries
+from model.core import literal, resource_row_index
+from model.format import owner
+
 
 def typed_equal(left, right):
     return json.dumps(left, sort_keys=True, allow_nan=False) == json.dumps(right, sort_keys=True, allow_nan=False)
@@ -40,7 +52,7 @@ def property_values(values, rid, prop, schema, *, observed=False, rows=None):
             continue
         if observed:
             row = {key: value for key, value in row.items() if key != 'document'}
-        elif resource_link(raw) or (
+        elif _dependency_model_identity.resource_link(raw) or (
                 has_reference(row.get('document', raw)) and 'observed.row.' + row_id + '.value' in values):
             raw = values.get('observed.row.' + row_id + '.value')
             if raw is None:
@@ -54,9 +66,15 @@ def property_values(values, rid, prop, schema, *, observed=False, rows=None):
     return result[0] if result else None
 
 
+def _recursive_has_reference_linked(resource_link, /, value):
+    return (bool(resource_link(value)) if isinstance(value, str) else
+            any(_recursive_has_reference_linked(resource_link, item) for item in value.values()) if isinstance(value, dict) else
+            any(_recursive_has_reference_linked(resource_link, item) for item in value) if isinstance(value, list) else False)
+
+
 def has_reference(raw):
     """Only internal Resource references, including structured leaves, consume observations."""
-    from model.identity import resource_link
+    resource_link = _imports_model_identity.resource_link
     if not isinstance(raw, str):
         return False
     if resource_link(raw):
@@ -65,10 +83,7 @@ def has_reference(raw):
         value = json_read(literal(raw))
     except ValueError:
         return False
-    def linked(value):
-        return (bool(resource_link(value)) if isinstance(value, str) else
-                any(linked(item) for item in value.values()) if isinstance(value, dict) else
-                any(linked(item) for item in value) if isinstance(value, list) else False)
+    linked = _bind_framework_callback(_recursive_has_reference_linked, resource_link)
     return linked(value)
 
 
@@ -114,10 +129,10 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
             if prop not in identity_properties.get(resource['resourceType'], set()):
                 continue
             for raw in (row['value'], old.get('observed.row.' + row_id + '.value')):
-                if raw is None or resource_link(raw):
+                if raw is None or _dependency_model_identity.resource_link(raw):
                     continue
                 value = typed_row(row, raw, property_schema(prop))
-                if isinstance(value, str) and value.strip() and value not in {'PENDING_DEPLOY', 'UNSET'} and not resource_link(value):
+                if isinstance(value, str) and value.strip() and value not in {'PENDING_DEPLOY', 'UNSET'} and not _dependency_model_identity.resource_link(value):
                     known = True
                     owners.setdefault((resource['resourceType'], value), set()).add(rid)
         if not known:
@@ -159,12 +174,13 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
                 raise ValueError('IMPORT acquired primary identity is unknown')
         if (not isinstance(record['identity'], str) or not record['identity'].strip()
                 or record['identity'] in {'PENDING_DEPLOY', 'UNSET'}
-                or resource_link(record['identity'])):
+                or _dependency_model_identity.resource_link(record['identity'])):
             raise ValueError('IMPORT acquired physical identity is invalid')
         identity_key, collisions = correspondences[record['record']]
         if action == 'bind':
-            from import_guard import digest
-            from model.operations import operation_values
+            digest = _imports_import_guard.digest
+
+            operation_values = _imports_model_operations.operation_values
             if rid not in unknown.get(record['kind'], []):
                 raise ValueError('IMPORT bind requires an unobserved/unknown existing physical identity')
             if not typed_equal(item['before'], {'identity': None, 'model': digest(operation_values(old, rid))}):
@@ -176,8 +192,9 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
         if action == 'refresh' and collisions != {rid}:
             raise ValueError('IMPORT refresh requires one matching physical identity')
         if action == 'replace':
-            from import_guard import digest
-            from model.operations import operation_values
+            digest = _imports_import_guard.digest
+
+            operation_values = _imports_model_operations.operation_values
             prior = [value for (kind, value), ids in owners.items() if kind == record['kind'] and rid in ids]
             if len(prior) != 1 or owners.get((record['kind'], prior[0])) != {rid}:
                 raise ValueError('IMPORT replace requires an unambiguous previous physical identity')
@@ -235,6 +252,17 @@ def pending_items(selection, selected, values, property_schema):
     return pending
 
 
+def _callback_reference_value_equal_matches(reference_tokens, /, expression, value):
+    pieces, start = [], 0
+    for match in reference_tokens(expression):
+        pieces.extend((re.escape(expression[start:match.start()]), '.*?'))
+        start = match.end()
+    if not pieces:
+        return False
+    pieces.append(re.escape(expression[start:]))
+    return re.fullmatch(''.join(pieces), value, re.DOTALL) is not None
+
+
 def reference_value_equal(left, right):
     """Only reference expression spans may differ; structure and other literals stay exact."""
     if isinstance(left, dict) and '$resource' in left and not set(left) - {'$resource', '$attribute'}:
@@ -242,19 +270,11 @@ def reference_value_equal(left, right):
     if isinstance(left, dict) and isinstance(right, dict):
         return left.keys() == right.keys() and all(reference_value_equal(v, right[k]) for k, v in left.items())
     if isinstance(left, list) and isinstance(right, list):
-        return len(left) == len(right) and all(reference_value_equal(a, b) for a, b in zip(left, right))
+        return len(left) == len(right) and all(reference_value_equal(a, b) for a, b in zip(left, right, strict=False))
     if isinstance(left, str) and isinstance(right, str):
-        import re
-        from model.identity import reference_tokens
-        def matches(expression, value):
-            pieces, start = [], 0
-            for match in reference_tokens(expression):
-                pieces.extend((re.escape(expression[start:match.start()]), '.*?'))
-                start = match.end()
-            if not pieces:
-                return False
-            pieces.append(re.escape(expression[start:]))
-            return re.fullmatch(''.join(pieces), value, re.DOTALL) is not None
+
+        reference_tokens = _imports_model_identity.reference_tokens
+        matches = _bind_framework_callback(_callback_reference_value_equal_matches, reference_tokens)
         return left == right or matches(left, right) or matches(right, left)
     return typed_equal(left, right)
 
@@ -262,17 +282,16 @@ def reference_value_equal(left, right):
 
 def verify_values(before, after, selected, property_schema, references=None, *, warnings=None):
     """Verify acquired values without changing selections or broadening their authority."""
-    from model.core import validate_authority
+    validate_authority = _imports_model_core.validate_authority
+    observed_value = _imports_model_projection.observed_value
     old, new = before.authoritative, after.authoritative
     validate_authority(new)
-    from model.identity import preserve_allocation, COUNTERS
-    preserve_allocation(old, new)
+    _dependency_model_identity.preserve_allocation(old, new)
     old_resources, new_resources = dict(entries(old, 'desired.resource.')), dict(entries(new, 'desired.resource.'))
     old_rows, new_rows = dict(entries(old, 'desired.row.')), dict(entries(new, 'desired.row.'))
     updated = {rid for rid, record in selected.items() if record.get('_action') in {'refresh', 'replace', 'bind'}}
     if any(old_resources.get(rid, {}).get('resourceMode') != 'IMPORT' for rid in updated):
         raise ValueError('IMPORT updates require existing IMPORT resources; CREATE is protected')
-    from model.projection import observed_value
     for key, value in new.items():
         if key.startswith('observed.row.') and old.get(key) != value:
             row_id = key.split('.')[2]
@@ -289,7 +308,7 @@ def verify_values(before, after, selected, property_schema, references=None, *, 
     for key in old.keys() | new.keys():
         if old.get(key) == new.get(key) and (key in old) == (key in new):
             continue
-        if key == COUNTERS:
+        if key == _dependency_model_identity.COUNTERS:
             continue  # The shared allocation guard above proved this exact addition.
         owners = {owner(key, values) for values in (old, new) if key in values}
         if any(kind != 'resource' or rid not in selected for kind, rid in owners):
@@ -356,8 +375,8 @@ def verify_values(before, after, selected, property_schema, references=None, *, 
                 raise ValueError('IMPORT candidate must retain its acquired physical identity')
             if warnings is not None:
                 for _, row in new_index[rid]:
-                    link = resource_link(row['value'])
-                    if row['property'] == prop and link and parse_reference(link[0], after.scope) != (after.scope.environment, after.scope.target, after.scope.service, new_resources[rid].get('anchor')):
+                    link = _dependency_model_identity.resource_link(row['value'])
+                    if row['property'] == prop and link and _dependency_model_identity.parse_reference(link[0], after.scope) != (after.scope.environment, after.scope.target, after.scope.service, new_resources[rid].get('anchor')):
                         warnings.append({'code': 'reference.import_identity', 'message': 'identity reference does not refer to its own Resource',
                                          'resource': rid, 'property': prop, 'reference': row['value']})
     return changes

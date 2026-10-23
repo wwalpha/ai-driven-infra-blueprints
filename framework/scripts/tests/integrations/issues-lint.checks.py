@@ -1,24 +1,47 @@
 #!/usr/bin/env python3
 """Real pinned lint/config/worker integration on temporary inputs and HOME only."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
-import os
 import subprocess
 from unittest.mock import patch
+
 import pytest
-from utils.cfn_lint import lint_session, validate_template, verify_dependencies, Worker, scope
+from cfnlint.helpers import get_cache_dir
+from issues.publication import save_scan
+from issues.runner import scan
+from issues.runner import verify_inputs as original_guard
+from support.issues_scan_fixtures import fixture, review_for, task
 from support.pytest_cli import run
+from utils.cfn_lint import (
+    Worker,
+    lint_session,
+    scope,
+    validate_template,
+    verify_dependencies,
+)
+from utils.cfn_lint import validate_template as real_lint
+from validation.runner import Validator
+from validation_cache import PassCache
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 
 def isolated(tmp_path, monkeypatch):
-    home=tmp_path/'home';home.mkdir()
-    cwd=tmp_path/'project';cwd.mkdir()
-    monkeypatch.setenv('HOME',str(home));monkeypatch.setenv('USERPROFILE',str(home))
+    home=tmp_path/'home'
+    home.mkdir()
+    cwd=tmp_path/'project'
+    cwd.mkdir()
+    monkeypatch.setenv('HOME',str(home))
+    monkeypatch.setenv('USERPROFILE',str(home))
     monkeypatch.setenv('XDG_CACHE_HOME',str(home/'.cache'))
     monkeypatch.setenv('LOCALAPPDATA',str(home/'AppData/Local'))
     monkeypatch.chdir(cwd)
@@ -47,7 +70,8 @@ def signature(matches, decoded=True):
 def check_cli_equivalence(tmp_path,monkeypatch,body):
     home,cwd=isolated(tmp_path,monkeypatch)
     (home/'.cfnlintrc.yml').write_text('include_checks: [I]\n')
-    template=cwd/'app.yaml';template.write_text(body)
+    template=cwd/'app.yaml'
+    template.write_text(body)
     previous=baseline(template)
     with lint_session(cwd) as session:
         execution=validate_template(session,template,'ap-northeast-1')
@@ -60,8 +84,10 @@ def check_cli_equivalence(tmp_path,monkeypatch,body):
 
 def check_config_exclusion_and_outputs(tmp_path,monkeypatch):
     home,cwd=isolated(tmp_path,monkeypatch)
-    template=cwd/'app.yaml';template.write_text('Resources: [broken')
-    output=cwd/'forbidden.json';config=cwd/'.cfnlintrc'
+    template=cwd/'app.yaml'
+    template.write_text('Resources: [broken')
+    output=cwd/'forbidden.json'
+    config=cwd/'.cfnlintrc'
     config.write_text(json.dumps({'ignore_templates':[str(template)],'output_file':str(output)}))
     with lint_session(cwd) as session:
         result=validate_template(session,template,'ap-northeast-1')
@@ -80,7 +106,8 @@ def check_config_exclusion_and_outputs(tmp_path,monkeypatch):
 
 def check_noecho_and_dependencies(tmp_path,monkeypatch):
     home,cwd=isolated(tmp_path,monkeypatch)
-    template=cwd/'app.yaml';config=cwd/'.cfnlintrc'
+    template=cwd/'app.yaml'
+    config=cwd/'.cfnlintrc'
     secret='fixture-super-private'
     template.write_text('Parameters:\n  Input:\n    Type: String\n    NoEcho: true\n    Default: '+secret+'\n    AllowedValues: [other]\nResources:\n  B:\n    Type: AWS::S3::Bucket\n')
     config.write_text(json.dumps({'parameters':[{'Input':secret}]}))
@@ -88,17 +115,25 @@ def check_noecho_and_dependencies(tmp_path,monkeypatch):
         result=validate_template(session,template,'ap-northeast-1')
     result.pop('sensitive_values',None)  # This in-memory channel feeds the caller's existing redactor.
     assert secret not in json.dumps(result)
-    dependencies=result['dependencies'];verify_dependencies(dependencies)
-    candidate=home/'.cfnlintrc.yaml';candidate.write_text('{}')
-    with pytest.raises(ValueError,match='stale scan'): verify_dependencies(dependencies)
-    candidate.unlink();config.write_text('{}')
-    with pytest.raises(ValueError,match='stale scan'): verify_dependencies(dependencies)
+    dependencies=result['dependencies']
+    verify_dependencies(dependencies)
+    candidate=home/'.cfnlintrc.yaml'
+    candidate.write_text('{}')
+    with pytest.raises(ValueError,match='stale scan'):
+        verify_dependencies(dependencies)
+    candidate.unlink()
+    config.write_text('{}')
+    with pytest.raises(ValueError,match='stale scan'):
+        verify_dependencies(dependencies)
 
 
 def check_rule_schema_state_and_reaping(tmp_path,monkeypatch):
     home,cwd=isolated(tmp_path,monkeypatch)
-    template=cwd/'app.yaml';template.write_text('Resources:\n  B:\n    Type: AWS::S3::Bucket\n')
-    rules=cwd/'rules';rules.mkdir();rule=rules/'Stateful.py'
+    template=cwd/'app.yaml'
+    template.write_text('Resources:\n  B:\n    Type: AWS::S3::Bucket\n')
+    rules=cwd/'rules'
+    rules.mkdir()
+    rule=rules/'Stateful.py'
     rule.write_text("""from cfnlint.rules import CloudFormationLintRule, RuleMatch
 calls=0
 class Stateful(CloudFormationLintRule):
@@ -111,12 +146,15 @@ class Stateful(CloudFormationLintRule):
         calls+=1
         return [RuleMatch(['Resources'],'invocation '+str(calls))]
 """)
-    registry=cwd/'registry';registry.mkdir()
-    schema=registry/'bucket.json';schema.write_text(json.dumps({'typeName':'AWS::S3::Bucket','description':'fixture',
+    registry=cwd/'registry'
+    registry.mkdir()
+    schema=registry/'bucket.json'
+    schema.write_text(json.dumps({'typeName':'AWS::S3::Bucket','description':'fixture',
         'properties':{'RequiredFixture':{'type':'string'}},'required':['RequiredFixture'],
         'primaryIdentifier':['/properties/RequiredFixture'],'additionalProperties':False}))
     config=cwd/'.cfnlintrc'
-    override=cwd/'override.json';override.write_text(json.dumps({'IncludeResourceTypes':['AWS::S3::Bucket']}))
+    override=cwd/'override.json'
+    override.write_text(json.dumps({'IncludeResourceTypes':['AWS::S3::Bucket']}))
     with lint_session(cwd) as session:
         for settings in ({'append_rules':[str(rules)]},{'registry_schemas':[str(registry)]},{'override_spec':str(override)},{},{'append_rules':[str(rules)]}):
             config.write_text(json.dumps(settings))
@@ -127,7 +165,8 @@ class Stateful(CloudFormationLintRule):
             assert any('RequiredFixture' in message for message in messages)==bool(settings.get('registry_schemas'))
         process=session.worker.process
     assert process.poll() is not None
-    config.write_text(json.dumps({'append_rules':[str(rules)]}));rule.write_text('import os; os._exit(7)')
+    config.write_text(json.dumps({'append_rules':[str(rules)]}))
+    rule.write_text('import os; os._exit(7)')
     with lint_session(cwd) as session:
         assert validate_template(session,template,'ap-northeast-1')['processing_errors']
         rule.write_text('# no custom rules')
@@ -138,11 +177,13 @@ class Stateful(CloudFormationLintRule):
 
 def check_legacy_worker_scope(tmp_path,monkeypatch):
     _,cwd=isolated(tmp_path,monkeypatch)
-    template=cwd/'app.yaml';template.write_text('Resources:\n  B:\n    Type: AWS::S3::Bucket\n')
+    template=cwd/'app.yaml'
+    template.write_text('Resources:\n  B:\n    Type: AWS::S3::Bucket\n')
     backend=type('Backend',(),{})()
     with pytest.raises(RuntimeError,match='injected'),scope(backend,[1,2]):
         worker=backend.lint.__self__
-        expected=baseline(template);actual=worker.run(args(template))
+        expected=baseline(template)
+        actual=worker.run(args(template))
         assert (actual.returncode,actual.stdout,actual.stderr)==(expected.returncode,expected.stdout,expected.stderr)
         process=worker.process
         raise RuntimeError('injected')
@@ -152,13 +193,14 @@ def check_legacy_worker_scope(tmp_path,monkeypatch):
 @pytest.mark.parametrize('mapping_missing',[False,True])
 def check_offline_schema(tmp_path,monkeypatch,mapping_missing):
     home,cwd=isolated(tmp_path,monkeypatch)
-    from cfnlint.helpers import get_cache_dir
-    cache=Path(get_cache_dir());(cache/'providers').mkdir(parents=True)
+    cache=Path(get_cache_dir())
+    (cache/'providers').mkdir(parents=True)
     (cache/'resources').mkdir()
     (cache/'version.json').write_text('{"schema_date":"9999-12-31"}')
     (cache/'providers'/('sam.json' if mapping_missing else 'us-east-1.json')).write_text(
         json.dumps({'AWS::S3::Bucket':'missing-fixture-schema'}))
-    template=cwd/'app.yaml';template.write_text('Resources:\n  B:\n    Type: AWS::S3::Bucket\n')
+    template=cwd/'app.yaml'
+    template.write_text('Resources:\n  B:\n    Type: AWS::S3::Bucket\n')
     with lint_session(cwd) as session:
         result=validate_template(session,template,'ap-northeast-1')
         assert any(error['code']=='schema_unavailable' for error in result['processing_errors']),result
@@ -169,8 +211,11 @@ def check_offline_schema(tmp_path,monkeypatch,mapping_missing):
 
 def check_timeout(tmp_path,monkeypatch):
     _,cwd=isolated(tmp_path,monkeypatch)
-    template=cwd/'app.yaml';template.write_text('Resources: {}')
-    rules=cwd/'rules';rules.mkdir();(rules/'Slow.py').write_text('import time; time.sleep(30)')
+    template=cwd/'app.yaml'
+    template.write_text('Resources: {}')
+    rules=cwd/'rules'
+    rules.mkdir()
+    (rules/'Slow.py').write_text('import time; time.sleep(30)')
     (cwd/'.cfnlintrc').write_text(json.dumps({'append_rules':[str(rules)]}))
     worker=Worker()
     try:
@@ -181,28 +226,26 @@ def check_timeout(tmp_path,monkeypatch):
         worker.close()
 
 
+def _callback_check_scan_publication_and_missing_view_cache_save(events, save_cache, /, cache, *args):
+    events.append('cache')
+    return save_cache(cache,*args)
+
+
+def _callback_check_scan_publication_and_missing_view_guard(events, /, *args, **kwargs):
+    result=original_guard(*args,**kwargs)
+    events.append('guard')
+    return result
+
+
 @pytest.mark.parametrize("view_failure", ["missing", "utf8"])
 def check_scan_publication_and_missing_view(tmp_path,monkeypatch,view_failure):
-    from support.issues_scan_fixtures import fixture,task,review_for,write
-    from issues.runner import scan
-    from issues.publication import save_scan
-    from issues.artifact import summary
-    from issues.integrity import verify_inputs
-    from validation_cache import PassCache
-    from issues.aggregate import iac_dataset
     _,cwd=isolated(tmp_path,monkeypatch)
     root=cwd/'fixture'
     fixture(root,stacks=3,services=['s3','sqs'])
     events=[]
     save_cache=PassCache.save
-    def cache_save(cache,*args):
-        events.append('cache')
-        return save_cache(cache,*args)
-    from issues.runner import verify_inputs as original_guard
-    def guard(*args,**kwargs):
-        result=original_guard(*args,**kwargs)
-        events.append('guard')
-        return result
+    cache_save = _bind_framework_callback(_callback_check_scan_publication_and_missing_view_cache_save, events, save_cache)
+    guard = _bind_framework_callback(_callback_check_scan_publication_and_missing_view_guard, events)
     with patch('issues.runner.verify_inputs',side_effect=guard),patch.object(PassCache,'save',cache_save):
         artifact=scan(root,'dev','123456789012',['s3','sqs'],fresh=True,jobs=1)
     assert artifact['version']==2 and len(artifact['cfn_lint']['jobs'])==1
@@ -218,15 +261,18 @@ def check_scan_publication_and_missing_view(tmp_path,monkeypatch,view_failure):
         with pytest.raises(ValueError,match='scan_id'):
             save_scan(root,artifact,dict(review,scan_id='wrong'))
         template=root/'infra/cloudformation/templates/shared.yaml'
-        previous=template.read_bytes();template.write_bytes(previous+b'\n')
-        with pytest.raises(ValueError,match='stale scan'): save_scan(root,artifact,review)
+        previous=template.read_bytes()
+        template.write_bytes(previous+b'\n')
+        with pytest.raises(ValueError,match='stale scan'):
+            save_scan(root,artifact,review)
         template.write_bytes(previous)
     bad = root/'docs/designs/dev/123456789012/s3.md'
     if view_failure == 'missing':
         bad.unlink()
     else:
         bad.write_bytes(b'\xff private fixture body')
-    doc=root/'docs/designs/dev/123456789012/sqs.md';doc.write_text(doc.read_text()+'\nfixture drift\n')
+    doc=root/'docs/designs/dev/123456789012/sqs.md'
+    doc.write_text(doc.read_text()+'\nfixture drift\n')
     result=scan(root,'dev','123456789012',['s3','sqs'],fresh=True,jobs=1)
     code = 'mechanical.view_missing' if view_failure == 'missing' else 'mechanical.view_unverified'
     assert any(n['code'] == code and n.get('service') == 's3' for n in result['unverified'])
@@ -238,7 +284,8 @@ def check_scan_publication_and_missing_view(tmp_path,monkeypatch,view_failure):
             files = save_scan(root, result, review_for(result))
             assert all(p.is_file() for p in files)
             assert '処理エラー' in files[0].read_text()
-            original = bad.read_bytes(); bad.write_bytes(b'repaired')
+            original = bad.read_bytes()
+            bad.write_bytes(b'repaired')
             with pytest.raises(ValueError, match='stale scan'):
                 save_scan(root, result, review_for(result))
             bad.write_bytes(original)
@@ -248,7 +295,6 @@ def check_scan_publication_and_missing_view(tmp_path,monkeypatch,view_failure):
 @pytest.mark.parametrize('broken', ['{ broken json', '{}'])
 def check_corrupt_provider_schema(tmp_path, monkeypatch, broken):
     home, cwd = isolated(tmp_path, monkeypatch)
-    from cfnlint.helpers import get_cache_dir
     cache = Path(get_cache_dir())
     (cache / 'providers').mkdir(parents=True)
     (cache / 'resources').mkdir()
@@ -295,14 +341,14 @@ def check_corrupt_provider_schema(tmp_path, monkeypatch, broken):
     assert schema.read_text() == broken
 
 
+def _callback_check_scan_dependency_view_failure_read(bad, read_bytes, /, path):
+    if path == bad:
+        raise PermissionError('private permission body')
+    return read_bytes(path)
+
+
 @pytest.mark.parametrize('failure', ['utf8', 'missing', 'permission'])
 def check_scan_dependency_view_failure(tmp_path, monkeypatch, failure):
-    from support.issues_scan_fixtures import fixture, task, review_for
-    from issues.runner import scan
-    from issues.publication import save_scan
-    from validation_cache import PassCache
-    from validation.runner import Validator
-    from utils.cfn_lint import validate_template as real_lint
     _, cwd = isolated(tmp_path, monkeypatch)
     root = cwd / 'fixture'
     fixture(root)
@@ -315,10 +361,7 @@ def check_scan_dependency_view_failure(tmp_path, monkeypatch, failure):
         bad.unlink()
     else:
         read_bytes = Path.read_bytes
-        def read(path):
-            if path == bad:
-                raise PermissionError('private permission body')
-            return read_bytes(path)
+        read = _bind_framework_callback(_callback_check_scan_dependency_view_failure_read, bad, read_bytes)
         monkeypatch.setattr(Path, 'read_bytes', read)
     template = root / 'infra/cloudformation/templates/shared.yaml'
     data = json.loads(template.read_text())

@@ -1,5 +1,7 @@
 """guardduty: selected properties -> read-only SDK responses; inputs in fetch()."""
 
+import copy
+
 from model.adapters.aws import one
 
 APIS = {('guardduty', 'get_malware_protection_plan'), ('guardduty', 'get_detector'), ('guardduty', 'list_malware_protection_plans'), ('guardduty', 'list_detectors')}
@@ -21,7 +23,6 @@ def fetch(ctx, r, getter):
             record=dict(record,DataSources=dict(record.get('DataSources',{})))
             record['DataSources']['MalwareProtection']={'ScanEc2InstanceWithFindings':{'EbsVolumes':malware['EbsVolumes'].get('Status')=='ENABLED'}}
         # Legacy DataSources report Status, while desired catalog uses Enable.
-        import copy
         record=copy.deepcopy(record)
         for path in [('S3Logs',),('Kubernetes','AuditLogs')]:
             node=record.get('DataSources',{})

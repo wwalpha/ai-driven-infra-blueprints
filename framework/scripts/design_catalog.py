@@ -1,16 +1,19 @@
 """Design catalogs: retain CFn schemas and add pinned API design contracts."""
 
 from __future__ import annotations
-from validation_cache import input_select, input_text
 
 import argparse
 import json
 import re
 from pathlib import Path
 
-from cloudformation_schema import CloudFormationSchemaCatalog, manifest_text, material_files
-from validation_cache import memoized
-
+import cloudformation_schema as _dependency_cloudformation_schema
+import json_intrinsics as _imports_json_intrinsics
+import utils.aws_catalogs as _imports_utils_aws_catalogs
+import utils.aws_mappings as _imports_utils_aws_mappings
+import utils.aws_schemas as _imports_utils_aws_schemas
+from cloudformation_schema import CloudFormationSchemaCatalog
+from utils.input_cache import input_select, input_text, memoized
 
 MACIE_JOB = "Macie.ClassificationJob"
 QUICKSIGHT_GROUP = "QuickSight.Group"
@@ -18,9 +21,9 @@ QUICKSIGHT_GROUP = "QuickSight.Group"
 
 @memoized
 def design_material_files(root: Path) -> list[Path]:
-    from utils.aws_mappings import definition_root
+    definition_root = _imports_utils_aws_mappings.definition_root
     root = definition_root(root)
-    return sorted([*material_files(root), *input_select(root / "framework/materials/api", "*.properties")])
+    return sorted([*_dependency_cloudformation_schema.material_files(root), *input_select(root / "framework/materials/api", "*.properties")])
 
 
 def property_paths_with_parents(paths: set[str]) -> set[str]:
@@ -35,7 +38,7 @@ def property_paths_with_parents(paths: set[str]) -> set[str]:
 
 class DesignSchemaCatalog(CloudFormationSchemaCatalog):
     def __init__(self, root: Path, *, definitions=None) -> None:
-        from utils.aws_schemas import ApiSchemas
+        ApiSchemas = _imports_utils_aws_schemas.ApiSchemas
         super().__init__(root, definitions=definitions)
         self.api_schemas = ApiSchemas(self.definitions)
 
@@ -64,7 +67,8 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
 
     def api_value_errors(self, resource_type: str, node: dict, value, path: str) -> list[str]:
         """Validate the JSON Schema subset used by the pinned API snapshot."""
-        from json_intrinsics import intrinsic, project_document
+        intrinsic = _imports_json_intrinsics.intrinsic
+        project_document = _imports_json_intrinsics.project_document
         if intrinsic(value):
             value = project_document(value)
             if intrinsic(value):
@@ -145,12 +149,12 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
 
 @memoized
 def selected_properties(root: Path, resource_type: str) -> set[str]:
-    from utils.aws_catalogs import catalogs_for
+    catalogs_for = _imports_utils_aws_catalogs.catalogs_for
     return set(catalogs_for(root).selected(resource_type))
 
 
 def api_snapshot_errors(root: Path) -> list[str]:
-    from utils.aws_mappings import definition_root
+    definition_root = _imports_utils_aws_mappings.definition_root
     root = definition_root(root)
     directory = root / "framework/materials/api"
     files = sorted(input_select(directory, "*"))
@@ -162,7 +166,7 @@ def api_snapshot_errors(root: Path) -> list[str]:
         }
         if {path.name for path in files} != expected_files:
             return ["API design catalog files differ from the registered API snapshots"]
-        if input_text(root / "framework/materials/api-catalog.sha256", encoding="utf-8") != manifest_text(root, files):
+        if input_text(root / "framework/materials/api-catalog.sha256", encoding="utf-8") != _dependency_cloudformation_schema.manifest_text(root, files):
             return ["API design catalog checksum mismatch"]
 
         schema = catalog.schema(MACIE_JOB)
@@ -237,7 +241,7 @@ def main() -> int:
     args = parser.parse_args()
     if args.write_lock:
         files = sorted(input_select(args.repository_root / "framework/materials/api", "*"))
-        (args.repository_root / "framework/materials/api-catalog.sha256").write_text(manifest_text(args.repository_root, files), encoding="utf-8")
+        (args.repository_root / "framework/materials/api-catalog.sha256").write_text(_dependency_cloudformation_schema.manifest_text(args.repository_root, files), encoding="utf-8")
     errors = api_snapshot_errors(args.repository_root)
     if not errors and args.cloudformation_type:
         try:

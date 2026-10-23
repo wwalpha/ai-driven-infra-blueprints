@@ -1,5 +1,9 @@
 """Pure topology target selection shared by Model reads and AWS context checks."""
+
+import json
 import re
+
+import utils.input_cache as _imports_validation_cache
 
 
 class DeployContextError(RuntimeError):
@@ -75,8 +79,8 @@ def load_target(
     account_id: str | None = None,
     alias: str | None = None,
 ) -> dict[str, str]:
-    import json
-    from validation_cache import input_text
+
+    input_text = _imports_validation_cache.input_text
     path = root / "project.json"
     try:
         topology = json.loads(input_text(path, encoding="utf-8"))
@@ -86,3 +90,6 @@ def load_target(
         raise DeployContextError(f"project.json is invalid: {error}") from error
 
     return select_target(topology, environment, account_id, alias)
+
+
+LOWER_KEBAB_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")

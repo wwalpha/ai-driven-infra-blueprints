@@ -3,27 +3,23 @@
 from __future__ import annotations
 
 import sys
-
 from pathlib import Path
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+
+import io
+import shutil
+import tempfile
+from contextlib import redirect_stdout
+
+import model.projection as model_projection
+from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
+from support.model_sources import write_model
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
-
-from support.model_sources import write_model
-
-import model.projection as model_projection
-
-import io
-
-import shutil
-
-import tempfile
-
-from contextlib import redirect_stdout
-
-from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
 
 ROOT = Path(__file__).resolve().parents[4]
 

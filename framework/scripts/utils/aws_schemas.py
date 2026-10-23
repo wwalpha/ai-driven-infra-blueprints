@@ -1,10 +1,12 @@
 """Lazy CFn/API JSON definitions, shared read-only by contract per source root."""
-from validation_cache import input_select, input_text
-from collections.abc import Mapping
+
 import json
-from pathlib import Path
+from collections.abc import Mapping
+from copy import deepcopy
 from threading import Lock
 
+import utils.aws_mappings as _imports_utils_aws_mappings
+from utils.input_cache import input_select, input_text
 from utils.lazy_definitions import load_once
 
 _lock = Lock()
@@ -13,7 +15,7 @@ _instances = {}
 
 class Schemas:
     def __init__(self, root):
-        from utils.aws_mappings import definition_root
+        definition_root = _imports_utils_aws_mappings.definition_root
         self.root = definition_root(root)
         self.directory = self.root / 'framework/materials/cloudformation-schema/ap-northeast-1'
         self._lock = Lock()
@@ -56,12 +58,11 @@ class ApiSchemas(Mapping):
         return key in self.definitions.api_paths
 
     def __getitem__(self, key):
-        from copy import deepcopy
         return load_once(self._lock, self._values, key,
                          lambda: deepcopy(self.definitions.api(key)))
 
 
 def schemas_for(root):
-    from utils.aws_mappings import definition_root
+    definition_root = _imports_utils_aws_mappings.definition_root
     root = definition_root(root)
     return load_once(_lock, _instances, root, lambda: Schemas(root))

@@ -3,13 +3,12 @@
 
 from __future__ import annotations
 
-
 import re
-
-
 import shlex
+from pathlib import Path
 
-
+import pytest as _imports_pytest
+import utils.markdown_format as _imports_utils_markdown_format
 from support.validator import MODULE, SCRIPT, load
 
 
@@ -71,84 +70,97 @@ def check_implementation_preflight_prompt() -> None:
         assert required in finish and required not in preflight, required
 
 
+
+
+
+
+def _check_update_flow_prompt_validate_engine(body, heading):
+    return body.split(f'### {heading}\n', 1)[1].split('\n### ', 1)[0]
+
+
+def _check_update_flow_prompt_validate_commands(body):
+    return [[token.strip('[]') for token in shlex.split(line)] for line in re.findall('(?:^|`)(python\\s+framework/scripts/[^`\\n]+)', body, re.M)]
+
+
+# Check instruction/engine boundaries and executable examples, not a full prose snapshot.
+def _callback_check_update_flow_prompt_validate(prompt):
+    # Check instruction/engine boundaries and executable examples, not a full prose snapshot.
+    sections = dict(re.findall(r"^## ([^\n]+)\n(.*?)(?=^## |\Z)", prompt, re.M | re.S))
+
+    engine = _check_update_flow_prompt_validate_engine
+
+    commands = _check_update_flow_prompt_validate_commands
+
+    reading = sections["Read before changing files"]
+    for token in ("authoritative model properties", "desired.row.*.document", "Do not read generated Markdown bodies or generated JSON artifacts as input",
+                  "model/cli.py resource", "parentReference", "saved Markdown Resource links", "required parts"):
+        assert token in reading, token
+    instructions = [line for line in reading.splitlines() if re.match(r"\d+\. ", line)]
+    assert instructions and not any(re.search(
+        r"docs/designs/|cloudformation-stacks\.md|0[34]_(?:implement|deploy)\.md", line
+    ) for line in instructions), "generated artifacts/full prompts returned to the input list"
+    scope = sections["Resolve target and scope from repository state"]
+    assert "only from authoritative `cloudformation-stacks.properties`" in scope
+    assert "cloudformation-stacks.md" not in scope, "duplicate stack scope input"
+    for token in ("desired.stack.*.name", ".template", ".parameters", ".deployOrder",
+                  "desired.deployment.maxConcurrentStacks", "workspace", "backend", "variable input"):
+        assert token in scope, token
+    issue = commands(sections["Unresolved issue gate"])
+    assert len(issue) == 1 and issue[0][1].endswith("/issue_gate.py")
+    assert issue[0].count("--service") == 2, "repeatable services must share one process example"
+    assert "--task" in sections["Unresolved issue gate"]
+
+    deploy = sections["Preflight and deploy"]
+    dependency = engine(deploy, "CloudFormation read-only dependency check")
+    for token in ("--read-only", "describe-stacks", "list-exports", "ExportingStackId",
+                  "NOT_STARTED", "--pause-after-group", "do not run it in ordinary CloudFormation update"):
+        assert token in dependency, token
+    cfn = engine(deploy, "CloudFormation controller")
+    cfn_commands = commands(cfn)
+    assert len(cfn_commands) == 1 and cfn_commands[0][1].endswith("/cloudformation-deploy.py")
+    for option in ("--environment", "--alias", "--stack", "--state", "--profile"):
+        assert option in cfn_commands[0], option
+    for token in ("responsible for final preflight", "account", "region", "issue gate", "immutable input",
+                  "SDK", "validate-template", "MaxConcurrentStacks", "COMPLETE", "--resume"):
+        assert token in cfn, token
+    terraform = engine(deploy, "Terraform preflight and apply")
+    tf_commands = commands(terraform)
+    assert len(tf_commands) == 2 and all(c[1].endswith("/check-deploy-context.py") for c in tf_commands)
+    assert "--alias" in tf_commands[0] and "--aws-account-id" in tf_commands[1]
+    assert commands(deploy) == cfn_commands + tf_commands, "standalone normal CFn preflight was added"
+    for token in ("terraform fmt -check", "terraform validate", "terraform plan -out=",
+                  "terraform apply", "saved plan binary", "partial apply", "AWS_PROFILE"):
+        assert token in terraform, token
+
+    post = sections["Post-deployment model sync"]
+    cfn_post = engine(post, "CloudFormation")
+    assert not commands(cfn_post), "Agent must not run a second CFn observed/sync process"
+    for token in ("owned by the controller", "model.adapters.observed", "IDENTIFIER_OUTPUT",
+                  "PhysicalResourceId", "all references", "must not rerun", "AMBIGUOUS_OBSERVED_MAPPING"):
+        assert token in cfn_post, token
+    assert all("must not rerun" in line for line in cfn_post.splitlines() if "--write" in line)
+    tf_post = engine(post, "Terraform")
+    for token in ("Terraform output", "state", "non-sensitive", "IDENTIFIER_OUTPUT", "all references",
+                  "PENDING_DEPLOY", "sync-model.py --write"):
+        assert token in tf_post, token
+    approval = sections["Confirm unapproved delete/replacement"]
+    for token in ("unexecuted", "wait for human confirmation", "--approve-change-set", "CREATE_COMPLETE/AVAILABLE",
+                  "fingerprint", "Do not execute with only partial approval", "Do not reuse prior approval"):
+        assert token in approval, token
+    finish = sections["Verify and finish"]
+    loop = commands(finish)
+    assert len(loop) == 1 and loop[0][1].endswith("/blueprint-loop.py")
+    assert loop[0][loop[0].index("--mode") + 1] == "task"
+    assert "--task-file" in loop[0] and "--all" not in loop[0]
+    for token in ("Validation scope", "Acceptance checks", "read-only", "mismatches are FAIL",
+                  "validation cache", "service parallelism", "do not add all framework regression"):
+        assert token in finish, token
+
+
 def check_update_flow_prompt() -> None:
     text = (SCRIPT.parents[2] / "framework/prompts/codex/05_update.md").read_text(encoding="utf-8")
 
-    def validate(prompt):
-        # Check instruction/engine boundaries and executable examples, not a full prose snapshot.
-        sections = dict(re.findall(r"^## ([^\n]+)\n(.*?)(?=^## |\Z)", prompt, re.M | re.S))
-
-        def engine(body, heading):
-            return body.split(f"### {heading}\n", 1)[1].split("\n### ", 1)[0]
-
-        def commands(body):
-            return [[token.strip("[]") for token in shlex.split(line)] for line in re.findall(
-                r"(?:^|`)(python\s+framework/scripts/[^`\n]+)", body, re.M)]
-
-        reading = sections["Read before changing files"]
-        for token in ("authoritative model properties", "desired.row.*.document", "Do not read generated Markdown bodies or generated JSON artifacts as input",
-                      "model/cli.py resource", "parentReference", "saved Markdown Resource links", "required parts"):
-            assert token in reading, token
-        instructions = [line for line in reading.splitlines() if re.match(r"\d+\. ", line)]
-        assert instructions and not any(re.search(
-            r"docs/designs/|cloudformation-stacks\.md|0[34]_(?:implement|deploy)\.md", line
-        ) for line in instructions), "generated artifacts/full prompts returned to the input list"
-        scope = sections["Resolve target and scope from repository state"]
-        assert "only from authoritative `cloudformation-stacks.properties`" in scope
-        assert "cloudformation-stacks.md" not in scope, "duplicate stack scope input"
-        for token in ("desired.stack.*.name", ".template", ".parameters", ".deployOrder",
-                      "desired.deployment.maxConcurrentStacks", "workspace", "backend", "variable input"):
-            assert token in scope, token
-        issue = commands(sections["Unresolved issue gate"])
-        assert len(issue) == 1 and issue[0][1].endswith("/issue_gate.py")
-        assert issue[0].count("--service") == 2, "repeatable services must share one process example"
-        assert "--task" in sections["Unresolved issue gate"]
-
-        deploy = sections["Preflight and deploy"]
-        dependency = engine(deploy, "CloudFormation read-only dependency check")
-        for token in ("--read-only", "describe-stacks", "list-exports", "ExportingStackId",
-                      "NOT_STARTED", "--pause-after-group", "do not run it in ordinary CloudFormation update"):
-            assert token in dependency, token
-        cfn = engine(deploy, "CloudFormation controller")
-        cfn_commands = commands(cfn)
-        assert len(cfn_commands) == 1 and cfn_commands[0][1].endswith("/cloudformation-deploy.py")
-        for option in ("--environment", "--alias", "--stack", "--state", "--profile"):
-            assert option in cfn_commands[0], option
-        for token in ("responsible for final preflight", "account", "region", "issue gate", "immutable input",
-                      "SDK", "validate-template", "MaxConcurrentStacks", "COMPLETE", "--resume"):
-            assert token in cfn, token
-        terraform = engine(deploy, "Terraform preflight and apply")
-        tf_commands = commands(terraform)
-        assert len(tf_commands) == 2 and all(c[1].endswith("/check-deploy-context.py") for c in tf_commands)
-        assert "--alias" in tf_commands[0] and "--aws-account-id" in tf_commands[1]
-        assert commands(deploy) == cfn_commands + tf_commands, "standalone normal CFn preflight was added"
-        for token in ("terraform fmt -check", "terraform validate", "terraform plan -out=",
-                      "terraform apply", "saved plan binary", "partial apply", "AWS_PROFILE"):
-            assert token in terraform, token
-
-        post = sections["Post-deployment model sync"]
-        cfn_post = engine(post, "CloudFormation")
-        assert not commands(cfn_post), "Agent must not run a second CFn observed/sync process"
-        for token in ("owned by the controller", "model.adapters.observed", "IDENTIFIER_OUTPUT",
-                      "PhysicalResourceId", "all references", "must not rerun", "AMBIGUOUS_OBSERVED_MAPPING"):
-            assert token in cfn_post, token
-        assert all("must not rerun" in line for line in cfn_post.splitlines() if "--write" in line)
-        tf_post = engine(post, "Terraform")
-        for token in ("Terraform output", "state", "non-sensitive", "IDENTIFIER_OUTPUT", "all references",
-                      "PENDING_DEPLOY", "sync-model.py --write"):
-            assert token in tf_post, token
-        approval = sections["Confirm unapproved delete/replacement"]
-        for token in ("unexecuted", "wait for human confirmation", "--approve-change-set", "CREATE_COMPLETE/AVAILABLE",
-                      "fingerprint", "Do not execute with only partial approval", "Do not reuse prior approval"):
-            assert token in approval, token
-        finish = sections["Verify and finish"]
-        loop = commands(finish)
-        assert len(loop) == 1 and loop[0][1].endswith("/blueprint-loop.py")
-        assert loop[0][loop[0].index("--mode") + 1] == "task"
-        assert "--task-file" in loop[0] and "--all" not in loop[0]
-        for token in ("Validation scope", "Acceptance checks", "read-only", "mismatches are FAIL",
-                      "validation cache", "service parallelism", "do not add all framework regression"):
-            assert token in finish, token
+    validate = _callback_check_update_flow_prompt_validate
 
     validate(text)
     # Prohibitions alone must not hide contradictory executable/read instructions.
@@ -182,13 +194,14 @@ def check_design_handoff_prompt() -> None:
 
 
 def check_rule_reading_contract() -> None:
-    import pytest
+    pytest = _imports_pytest
     validator = MODULE.Validator(SCRIPT.parents[2])
     validator.check_framework_rule_readings()
     assert not validator.errors, validator.errors
     # Required routes are checked in their execution section, including child rules.
-    from utils.markdown_format import markdown_sections, rule_readings, markdown_prose
-    from pathlib import Path
+
+    markdown_prose = _imports_utils_markdown_format.markdown_prose
+    markdown_sections = _imports_utils_markdown_format.markdown_sections
     repository = SCRIPT.parents[2]
     sources = [repository / "AGENTS.md", repository / "README.md",
                *sorted((repository / "framework/prompts").rglob("*.md")),
@@ -213,11 +226,10 @@ def check_rule_reading_contract() -> None:
     for path in ("framework/scripts/deploy_preparation.py", "framework/scripts/validation_cache.py",
                  "framework/scripts/validation/framework_contracts.py", "README.md",
                  ".agents/skills/worktree/SKILL.md", "framework/rules/loop-engineering.md"):
-        if path in {'framework/scripts/deploy_preparation.py', 'framework/scripts/validation_cache.py', '.agents/skills/worktree/SKILL.md'}:
+        if path in {'framework/scripts/deploy_preparation.py', '.agents/skills/worktree/SKILL.md'}:
             with pytest.raises(ValueError, match='dependency not tracked'):
                 loop.select_checks(repository, {path}, True)
         else:
             selected, reason = loop.select_checks(repository, {path}, True)
-            expected = [] if path == 'README.md' else [SCRIPT.parent / 'tests/units/blueprint-loop-unit.checks.py'] if path.endswith('loop-engineering.md') else all_checks
+            expected = sorted((SCRIPT.parent / 'tests/units' / name for name in ('validation_cache-unit.checks.py', 'framework-input-isolation-unit.checks.py', 'kms-validation-reuse-unit.checks.py')), key=lambda path: path.name) if path == 'framework/scripts/validation_cache.py' else [] if path == 'README.md' else [SCRIPT.parent / 'tests/units/blueprint-loop-unit.checks.py'] if path.endswith('loop-engineering.md') else all_checks
             assert selected == expected, (path, selected, reason)
-

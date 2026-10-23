@@ -1,12 +1,62 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
+import inspect
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import model.render as model_design
+import support.model_design_fixtures as _exports_support_model_design_fixtures
+import support.model_design_fixtures as _retained_fixture_project
+import support.model_design_fixtures as _retained_fixture_root
+import sync_runtime
+from design_catalog import DesignSchemaCatalog
+from design_layout import is_import_role_arn
+from model.core import validate_model_keys
+from model.format import parse, serialize
+from model.validation import validate_required_properties
+from support.model_design_fixtures import (
+    ALIGNMENT,
+    CODEBUILD_VPC_PROPERTIES,
+    HEADER,
+    ROOT,
+    SUBNET_LIST_PROPERTIES,
+    Diagnostics,
+    Path,
+    SimpleNamespace,
+    design_naming_errors,
+    display_rows,
+    expanded_display_rows,
+    json,
+    load,
+    main,
+    naming_errors,
+    naming_rule_files,
+    naming_target_matches,
+    naming_targets,
+    patch,
+    properties,
+    pytest,
+    row_table,
+    run,
+    sys,
+)
+from support.model_design_fixtures import pytestmark as pytestmark
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.model_design_fixtures import *
+root = _retained_fixture_root.root
+project = _retained_fixture_project.project
+
+# Preserve shared fixtures and compatibility exports under their historical names.
+text = _exports_support_model_design_fixtures.text
+
+
 
 def check_design_naming_rules():
     for kind in ("S3.Bucket", "EC2.Instance", "EC2.VPCEndpoint", "EC2.VPC", "IAM.Role",
@@ -72,7 +122,6 @@ def check_subnet_list_display():
 
 
 def check_security_naming():
-    from design_catalog import DesignSchemaCatalog
     schema = DesignSchemaCatalog(ROOT)
     text = "\n".join(path.read_text(encoding="utf-8") for path in naming_rule_files(ROOT))
     patterns = {}
@@ -105,6 +154,12 @@ def check_security_naming():
     print("Security naming: PASS (15 patterns, catalog/schema, formal/short properties, TGW and optional names)")
 
 
+def _callback_check_service_scoped_naming_scoped_read(read_text, /, path, *args, **kwargs):
+    if path.parent.name == "aws-resource-naming":
+        assert path.name == "S3.md", f"unselected naming rule read: {path}"
+    return read_text(path, *args, **kwargs)
+
+
 def check_service_scoped_naming(tmp_path):
     datazone_targets = naming_targets(ROOT, "DataZone")
     for kind in ("DataZone.Domain", "DataZone.Project", "DataZone.DataSource"):
@@ -114,10 +169,7 @@ def check_service_scoped_naming(tmp_path):
     assert [path.name for path in selected] == ["aws-resource-naming.md", "S3.md"]
     read_text = Path.read_text
 
-    def scoped_read(path, *args, **kwargs):
-        if path.parent.name == "aws-resource-naming":
-            assert path.name == "S3.md", f"unselected naming rule read: {path}"
-        return read_text(path, *args, **kwargs)
+    scoped_read = _bind_framework_callback(_callback_check_service_scoped_naming_scoped_read, read_text)
 
     with patch.object(Path, "read_text", scoped_read):
         assert not naming_errors(ROOT, "S3.Bucket", [["1", "BucketName", "`app-dev-data-123456789012`", "名前"]])
@@ -219,12 +271,7 @@ def check_cli_result(result, monkeypatch, capsys):
 
 
 def check_one_way_model_contract():
-    from model.core import validate_model_keys
-    from model.validation import validate_required_properties
-    from design_layout import is_import_role_arn
-    from types import SimpleNamespace
-    import sync_runtime
-    import inspect
+
 
     prop = 'Config.ConfigurationRecorder.RoleARN'
     arn = 'arn:aws:iam::123456789012:role/service-role/path/ConfigRecorderRole'
@@ -254,7 +301,6 @@ def check_one_way_model_contract():
                                 'display.resource.001.label': '表示名',
                                 'desired.resource.001.cfn-logicalId': 'stack-Recorder'})
     assert 'design.projection' not in inspect.getsource(sync_runtime.validate_generation)
-    from model.format import parse, serialize
     for value in ('value', '`value`', '010', '  quoted \"text\" '):
         assert parse(serialize({'desired.row.001-001.value': value})).values['desired.row.001-001.value'] == value
 
@@ -262,7 +308,6 @@ def check_one_way_model_contract():
 
 
 def check_pending_reference_is_required_input():
-    from model.validation import validate_required_properties
     values = {
         'desired.resource.001.resourceType': 'EC2.Subnet',
         'desired.resource.001.logicalId': 'EC2_Subnet_001',
@@ -285,8 +330,14 @@ def check_pending_reference_is_required_input():
             validate_required_properties({**values, 'desired.row.001-001.value': missing}, ROOT)
 
 
+
+
+def _check_selected_model_row_consumption_duplicated(*args, **kwargs):
+    kwargs['consumed'].extend(['001-001', '001-001'])
+    return [['001-001', 'RoleName', '`AWSServiceRoleForConfig`', '記録用IAM Role']]
+
+
 def check_selected_model_row_consumption(monkeypatch):
-    import model.render as model_design
     resource = {'resourceType': 'Config.ConfigurationRecorder', 'resourceMode': 'IMPORT'}
     rows = [['001-001', 'Config.ConfigurationRecorder.RoleARN', '`AWSServiceRoleForConfig`', '記録用IAM Role']]
     output = model_design.resource_table_lines(resource, 'default', rows, [], ROOT)
@@ -296,9 +347,7 @@ def check_selected_model_row_consumption(monkeypatch):
     monkeypatch.setattr(model_design, 'display_rows', lambda *args, **kwargs: [])
     with pytest.raises(ValueError, match='omitted or consumed more than once'):
         model_design.resource_table_lines(resource, 'default', rows, [], ROOT)
-    def duplicated(*args, **kwargs):
-        kwargs['consumed'].extend(['001-001', '001-001'])
-        return [['001-001', 'RoleName', '`AWSServiceRoleForConfig`', '記録用IAM Role']]
+    duplicated = _check_selected_model_row_consumption_duplicated
     monkeypatch.setattr(model_design, 'display_rows', duplicated)
     with pytest.raises(ValueError, match='omitted or consumed more than once'):
         model_design.resource_table_lines(resource, 'default', rows, [], ROOT)

@@ -1,5 +1,5 @@
 """Common engine selection and environment/target placement checks."""
-from validation_cache import input_exists, input_is_dir, input_is_file, input_select
+from utils.input_cache import input_exists, input_is_dir, input_is_file, input_select
 
 from . import terraform
 
@@ -41,4 +41,3 @@ def check_iac_selection(root, scope, accounts, template_mode, findings) -> None:
                 check(target in accounts, f"{label} target is not defined: {findings.relative(path)}")
                 if target in accounts:
                     check(accounts[target]["engine"] == engine, f"{label} is not selected: {findings.relative(path)}")
-

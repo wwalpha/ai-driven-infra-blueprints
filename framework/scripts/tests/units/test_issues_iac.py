@@ -1,20 +1,26 @@
 
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 
-import unittest
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import json
-from unittest.mock import Mock, patch
-from types import SimpleNamespace
 import tempfile
+import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import comparison as issues_iac
-from comparison import registry
-from design_catalog import DesignSchemaCatalog
+import comparison.references as _imports_comparison_references
+import issues.aggregate as _imports_issues_aggregate
+import utils.json_format as _imports_utils_json_format
 from cloudformation_inputs import Blocked
-from iac_values import ResourceReference, Expression
+from comparison import registry
 from comparison.values import PreparedValue
+from design_catalog import DesignSchemaCatalog
+from iac_values import Expression, ResourceReference
 
 
 def legacy_comparison(root, count=3, services=1, stacks=2):
@@ -53,8 +59,9 @@ def legacy_comparison(root, count=3, services=1, stacks=2):
 
 class IntrinsicWarningTests(unittest.TestCase):
   def test_unresolved_leaves_keep_other_comparisons_and_report_counts(self):
-    from issues.aggregate import iac_summary, comparison_status
-    from utils.json_format import validate_aws_document
+    comparison_status = _imports_issues_aggregate.comparison_status
+    iac_summary = _imports_issues_aggregate.iac_summary
+    validate_aws_document = _imports_utils_json_format.validate_aws_document
     expressions = [
         {'Fn::Sub': '${Missing}'}, {'Fn::GetAtt': ['Missing', 'Arn']},
         {'Fn::ImportValue': 'External'}, {'Ref': 'Missing'},
@@ -158,6 +165,36 @@ class ExplicitIdentityTests(unittest.TestCase):
       self.assertIn('formal resource type mismatch', comparison.run()[1]['reason'])
 
 
+def _callback_ImportValueResolutionTests_test_formal_pipeline_membership_and_configuration_context_desired_value(contexts, /, service, row, kind, **kwargs):
+  value = row['value'].strip('`')
+  if row['property'].endswith('.Configuration'):
+    contexts.append(kwargs['context'])
+    return json.loads(value)
+  return value
+
+
+def _callback_ImportValueResolutionTests_test_formal_pipeline_membership_and_configuration_context_selected_value(prepare, self, /, service, row, kind, **kwargs):
+  self.assertNotEqual(row['property'], 'CodePipeline.Pipeline.Name')
+  return prepare(service, row, kind, **kwargs)
+
+
+def _callback_ImportValueResolutionTests_test_codecommit_name_uses_only_explicit_repository_name_equal(comparison, desired, path, /, actual):
+  return comparison.reference_same(desired, actual, 'CodePipeline.Pipeline', path)
+
+
+def _callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_equal(comparison, prop, /, left, right):
+  return comparison.reference_same(left, right, 'CodeBuild.Project', prop)
+
+
+def _callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_desired(comparison, /, logical, attribute=None, name='VALUE', variable_type='PLAINTEXT'):
+  service = {'Bucket': 's3', 'Vpc': 'vpc', 'Secret': 'secrets-manager'}.get(logical, 'kms')
+  link = f'[resource]({service}.md#existing-{logical})'
+  value = {'$resource': link, '$attribute': attribute} if attribute else link
+  return comparison.prepare_value('codebuild', {
+      'property': 'CodeBuild.Project.Environment.EnvironmentVariables', 'value': '',
+      'document': json.dumps([{'Name': name, 'Type': variable_type, 'Value': value}])}, 'CodeBuild.Project').require_value()[0]['Value']
+
+
 class ImportValueResolutionTests(unittest.TestCase):
   def test_codecommit_name_uses_only_explicit_repository_name(self):
     with tempfile.TemporaryDirectory() as directory, patch('socket.socket', side_effect=AssertionError('network forbidden')):
@@ -175,8 +212,7 @@ class ImportValueResolutionTests(unittest.TestCase):
         desired = comparison.desired_reference('service-0', '[repository](service-0.md#repository)',
             'CodePipeline.Pipeline', path,
             context={'ActionTypeId': dict(Category='Source', Owner='AWS', Provider='CodeCommit', Version='1')})
-      def equal(actual):
-        return comparison.reference_same(desired, actual, 'CodePipeline.Pipeline', path)
+      equal = _bind_framework_callback(_callback_ImportValueResolutionTests_test_codecommit_name_uses_only_explicit_repository_name_equal, comparison, desired, path)
       self.assertEqual(registry.ref_attribute('CodeCommit.Repository'), 'RepositoryId')
       self.assertTrue(equal(comparison.evaluate('stack0', {'Fn::GetAtt': ['Repository', 'Name']})))
       self.assertFalse(equal(comparison.evaluate('stack0', {'Ref': 'Repository'})))
@@ -255,15 +291,8 @@ class ImportValueResolutionTests(unittest.TestCase):
                             'alias-export': [('producer', alias_value)]}
       comparison.export_failures = []
       prop = 'Environment.EnvironmentVariables[].Value'
-      def desired(logical, attribute=None, name='VALUE', variable_type='PLAINTEXT'):
-        service = {'Bucket': 's3', 'Vpc': 'vpc', 'Secret': 'secrets-manager'}.get(logical, 'kms')
-        link = f'[resource]({service}.md#existing-{logical})'
-        value = {'$resource': link, '$attribute': attribute} if attribute else link
-        return comparison.prepare_value('codebuild', {
-            'property': 'CodeBuild.Project.Environment.EnvironmentVariables', 'value': '',
-            'document': json.dumps([{'Name': name, 'Type': variable_type, 'Value': value}])}, 'CodeBuild.Project').require_value()[0]['Value']
-      def equal(left, right):
-        return comparison.reference_same(left, right, 'CodeBuild.Project', prop)
+      desired = _bind_framework_callback(_callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_desired, comparison)
+      equal = _bind_framework_callback(_callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_equal, comparison, prop)
       with patch('comparison.inputs.catalog_outputs', return_value=set()):
         key, alias = desired('Key', 'Arn'), desired('Alias', 'AliasArn')
         for selector in [{'$resource': '[key](kms.md#existing-Key)'},
@@ -363,15 +392,10 @@ class ImportValueResolutionTests(unittest.TestCase):
             for i, (prop, value) in enumerate(fields)]
     comparison.rows = {'codepipeline': {'001': rows}}
     contexts = []
-    def desired_value(service, row, kind, **kwargs):
-      value = row['value'].strip('`')
-      if row['property'].endswith('.Configuration'):
-        contexts.append(kwargs['context'])
-        return json.loads(value)
-      return value
+    desired_value = _bind_framework_callback(_callback_ImportValueResolutionTests_test_formal_pipeline_membership_and_configuration_context_desired_value, contexts)
     comparison.prepare_value = lambda *args, **kwargs: PreparedValue(desired_value(*args, **kwargs), [])
     comparison.evaluate.side_effect = lambda stack, value: value
-    from comparison.references import ReferenceDecision
+    ReferenceDecision = _imports_comparison_references.ReferenceDecision
     comparison.reference_decision.return_value = ReferenceDecision(True)
     stages = [
         {'Name': 'BuildAndApprove', 'Actions': [
@@ -393,9 +417,7 @@ class ImportValueResolutionTests(unittest.TestCase):
     # Selecting Stages still uses its sibling action context and never prepares Name.
     rows.append(('other', {'property': 'CodePipeline.Pipeline.Name', 'value': '`unrelated`'}))
     prepare = comparison.prepare_value
-    def selected_value(service, row, kind, **kwargs):
-      self.assertNotEqual(row['property'], 'CodePipeline.Pipeline.Name')
-      return prepare(service, row, kind, **kwargs)
+    selected_value = _bind_framework_callback(_callback_ImportValueResolutionTests_test_formal_pipeline_membership_and_configuration_context_selected_value, prepare, self)
     comparison.prepare_value = selected_value
     selected = comparison.compare_rows('codepipeline', '001', {'resourceType': 'CodePipeline.Pipeline'},
         'stack', 'Pipeline', template, definition, {}, properties={'Stages'})

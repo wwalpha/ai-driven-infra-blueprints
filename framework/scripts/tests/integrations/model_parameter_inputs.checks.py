@@ -2,23 +2,39 @@
 """Environment properties, fixed references and derived fields over synthetic sources."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import io
 import json
 from contextlib import redirect_stdout
+
 import pytest
-from support.model_parameter_inputs_fixtures import fixture, root
-from support.model_sources import write_model
-from support.import_model_fixtures import service_values, resource_values, reference_fields
-from model.sources import FileReads, load_model, list_models, design_source_digest
-from model.operations import CandidateReads
-from model.format import serialize
-from model.references import usages, incoming
-from model.files import trace_model
-from model.projection import document_sha256
+import support.model_parameter_inputs_fixtures as _exports_support_model_parameter_inputs_fixtures
 import sync_runtime
+from integrations.service_contracts import check
+from model.files import trace_model
+from model.format import serialize
+from model.operations import CandidateReads
+from model.projection import document_sha256 as document_sha256
+from model.references import incoming
+from model.references import usages as usages
+from model.sources import design_source_digest, list_models, load_model
+from support.import_model_fixtures import (
+    reference_fields,
+    resource_values,
+    service_values,
+)
+from support.model_parameter_inputs_fixtures import fixture as fixture
+from support.model_sources import write_model
+from utils.source_reads import FileReads
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
+# Preserve shared fixtures and compatibility exports under their historical names.
+root = _exports_support_model_parameter_inputs_fixtures.root
+
 
 
 def check_human(root):
@@ -155,7 +171,6 @@ def check_external_instances(root):
 
 
 def check_service_contracts():
-    from integrations.service_contracts import check
     check()
 
 

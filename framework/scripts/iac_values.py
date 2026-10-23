@@ -1,7 +1,16 @@
 """Symbolic IaC values, strict/selected comparison and display masking. No I/O."""
-from utils.json_format import unique_object, invalid_constant, policy_json as strict_json, fingerprint
+
 import re
 from dataclasses import dataclass
+from functools import partial as _bind_framework_callback
+
+from utils.json_format import fingerprint as fingerprint
+from utils.json_format import invalid_constant as invalid_constant
+from utils.json_format import policy_json
+from utils.json_format import unique_object as unique_object
+
+strict_json = policy_json
+
 
 def cfn_resource_identity(value):
     """A hyphen cannot occur in a template resource ID, so the final one is unambiguous."""
@@ -69,8 +78,25 @@ def same(left, right, *, reference=None, path=''):
             same(left[key], right[key], reference=reference, path=f'{path}.{key}' if path else key) for key in left)
     if isinstance(left, list):
         return len(left) == len(right) and comparison_result(
-            same(a, b, reference=reference, path=path + '[]') for a, b in zip(left, right))
+            same(a, b, reference=reference, path=path + '[]') for a, b in zip(left, right, strict=False))
     return left == right
+
+
+def _recursive_unordered_same_matching_assign(allow_unknown, matrix, owners, /, row, seen):
+    for column, result in enumerate(matrix[row]):
+        if column in seen or not (result is True or allow_unknown and result is None):
+            continue
+        seen.add(column)
+        if column not in owners or _recursive_unordered_same_matching_assign(allow_unknown, matrix, owners, owners[column], seen):
+            owners[column] = row
+            return True
+    return False
+
+
+def _callback_unordered_same_matching(left, matrix, /, allow_unknown):
+    owners = {}
+    assign = _bind_framework_callback(_recursive_unordered_same_matching_assign, allow_unknown, matrix, owners)
+    return all(assign(row, set()) for row in range(len(left)))
 
 
 def unordered_same(left, right, *, reference=None, path=''):
@@ -79,18 +105,7 @@ def unordered_same(left, right, *, reference=None, path=''):
         return False
     matrix = [[same(a, b, reference=reference, path=path + '[]') for b in right] for a in left]
 
-    def matching(allow_unknown):
-        owners = {}
-        def assign(row, seen):
-            for column, result in enumerate(matrix[row]):
-                if column in seen or not (result is True or allow_unknown and result is None):
-                    continue
-                seen.add(column)
-                if column not in owners or assign(owners[column], seen):
-                    owners[column] = row
-                    return True
-            return False
-        return all(assign(row, set()) for row in range(len(left)))
+    matching = _bind_framework_callback(_callback_unordered_same_matching, left, matrix)
 
     if matching(False):
         return True
@@ -119,5 +134,5 @@ def selected_same(desired, actual, property_name='', *, reference=None, path='')
                 (selected_same(item, candidate, reference=reference, path=path + '[]') for candidate in selected), any_match=True)
                 for item in desired)
         return len(desired) == len(actual) and comparison_result(
-            selected_same(a, b, reference=reference, path=path + '[]') for a, b in zip(desired, actual))
+            selected_same(a, b, reference=reference, path=path + '[]') for a, b in zip(desired, actual, strict=False))
     return desired == actual

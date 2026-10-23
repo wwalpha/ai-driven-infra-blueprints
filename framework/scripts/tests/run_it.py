@@ -1,18 +1,27 @@
 #!/usr/bin/env python3
 """Official offline IT entrypoint: isolated suites, one seed bundle, runtime receipts."""
+
 import argparse
 import ast
-from collections import Counter
-from contextlib import nullcontext
 import json
 import os
-from pathlib import Path
 import re
 import runpy
 import subprocess
 import sys
 import tempfile
 import time
+from collections import Counter
+from contextlib import nullcontext
+from functools import partial as _bind_framework_callback
+from pathlib import Path
+from types import SimpleNamespace as _CallbackState
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import pytest as _imports_pytest
+import support.it_fixture_bundle as _imports_support_it_fixture_bundle
+import validation.loop as _imports_validation_loop
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -74,6 +83,13 @@ def inventory(tests):
     return cases, errors
 
 
+def path_setup(node):
+    return (isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+            and ast.unparse(node.value.func) == 'sys.path.insert'
+            and len(node.value.args) == 2 and not node.value.keywords
+            and isinstance(node.value.args[0], ast.Constant) and node.value.args[0].value == 0)
+
+
 def check_assertion_guards(tests):
     """Prove each entry rejects -O before definitions/calls, without launching every suite."""
     for path in sorted(tests.rglob('*.checks.py')):
@@ -92,7 +108,7 @@ def check_assertion_guards(tests):
                 else:
                     raise ValueError(f'assertion guard did not exit: {path}')
                 break
-            allowed = (isinstance(node, (ast.Import, ast.ImportFrom)) or
+            allowed = (path_setup(node) or isinstance(node, (ast.Import, ast.ImportFrom)) or
                        isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str) or
                        isinstance(node, ast.Assign) and all(ast.unparse(t).startswith('sys.path[') for t in node.targets))
             if not allowed:
@@ -122,27 +138,33 @@ class PytestReceipt:
             self.passed.append(self.key(report.nodeid))
 
 
+def _callback_run_child_audit(completed, metrics, tests, /, event, args):
+    if event in ('shutil.copytree', 'shutil.copyfile', 'subprocess.Popen'):
+        metrics[event] += 1
+        if event == 'subprocess.Popen' and Path(args[0]).stem == 'git':
+            metrics['subprocess.git'] += 1
+    elif event == 'blueprint.it_fixture.generated':
+        metrics['generated:' + args[0]] += 1
+    elif event == 'blueprint.it_case.completed':
+        source = Path(args[0]).resolve().relative_to(tests.resolve()).as_posix()
+        completed[source + '::' + args[1]] += 1
+
+
+def _callback_run_child_measured_pytest(plugin, pytest_main, /, args=None, plugins=None):
+    return pytest_main(args, plugins=[*(plugins or []), plugin])
+
+
 def run_child(suite, tests, receipt, baseline=False, cases=()):
     """Execute existing entrypoints, including pytest_cli.run and top-level scripts."""
     sys.path[:0] = [str(tests.parent), str(tests)]
-    import pytest
+    pytest = _imports_pytest
     plugin = PytestReceipt(tests)
     pytest_main = pytest.main
-    def measured_pytest(args=None, plugins=None):
-        return pytest_main(args, plugins=[*(plugins or []), plugin])
+    measured_pytest = _bind_framework_callback(_callback_run_child_measured_pytest, plugin, pytest_main)
     pytest.main = measured_pytest
     completed, metrics = Counter(), Counter()
     suite_key = suite.resolve().relative_to(tests.resolve()).as_posix()
-    def audit(event, args):
-        if event in ('shutil.copytree', 'shutil.copyfile', 'subprocess.Popen'):
-            metrics[event] += 1
-            if event == 'subprocess.Popen' and Path(args[0]).stem == 'git':
-                metrics['subprocess.git'] += 1
-        elif event == 'blueprint.it_fixture.generated':
-            metrics['generated:' + args[0]] += 1
-        elif event == 'blueprint.it_case.completed':
-            source = Path(args[0]).resolve().relative_to(tests.resolve()).as_posix()
-            completed[source + '::' + args[1]] += 1
+    audit = _bind_framework_callback(_callback_run_child_audit, completed, metrics, tests)
     sys.addaudithook(audit)
     sys.argv = [str(suite)]
     try:
@@ -260,10 +282,20 @@ def execute_suites(tests, output, summary, baseline=False, selected=None):
     return rows, receipts
 
 
+def _callback_run_all_audit(_state_run_all_284, metrics, /, event, args):
+    if _state_run_all_284.measuring:
+        if event in ('shutil.copytree', 'shutil.copyfile', 'subprocess.Popen', 'blueprint.it_bundle.initialized'):
+            metrics[event] += 1
+        elif event == 'blueprint.it_fixture.generated':
+            metrics['generated:' + args[0]] += 1
+
+
 def run_all(tests, summary, baseline=False, selected=None):
     # Only the official runner owns the shared bundle's lifetime and cleanup.
+    _state_run_all_284 = _CallbackState()
     if not baseline:
-        from support.it_fixture_bundle import bundle, ENV
+        ENV = _imports_support_it_fixture_bundle.ENV
+        bundle = _imports_support_it_fixture_bundle.bundle
     else:
         ENV = 'BLUEPRINT_IT_FIXTURES'
     cases, errors = ({}, []) if baseline else inventory(tests)
@@ -276,13 +308,8 @@ def run_all(tests, summary, baseline=False, selected=None):
         check_assertion_guards(tests)
     started = time.monotonic()
     metrics = Counter()
-    measuring = True
-    def audit(event, args):
-        if measuring:
-            if event in ('shutil.copytree', 'shutil.copyfile', 'subprocess.Popen', 'blueprint.it_bundle.initialized'):
-                metrics[event] += 1
-            elif event == 'blueprint.it_fixture.generated':
-                metrics['generated:' + args[0]] += 1
+    _state_run_all_284.measuring = True
+    audit = _bind_framework_callback(_callback_run_all_audit, _state_run_all_284, metrics)
     sys.addaudithook(audit)
     previous = os.environ.pop(ENV, None)
     previous_cache = os.environ.get('BLUEPRINT_VALIDATION_CACHE_DIR')
@@ -299,7 +326,7 @@ def run_all(tests, summary, baseline=False, selected=None):
     except RuntimeError as error:
         errors.append(str(error))
     finally:
-        measuring = False
+        _state_run_all_284.measuring = False
         os.environ.pop(ENV, None)
         if previous is not None:
             os.environ[ENV] = previous
@@ -316,7 +343,7 @@ def run_all(tests, summary, baseline=False, selected=None):
               'reachability': 'not verified (baseline)' if baseline else 'not required (no affected IT)' if selected == {} else 'verified' if not errors else 'failed',
               'metrics': dict(metrics), 'suites': rows, 'reachability_errors': errors}
     if not baseline and selected is None:
-        from support.it_fixture_bundle import NAMES
+        NAMES = _imports_support_it_fixture_bundle.NAMES
         if result['bundle_initializations'] != 1 or result['seed_generations'] != dict.fromkeys(NAMES, 1):
             errors.append('common fixtures must be initialized exactly once')
     print(json.dumps(result, ensure_ascii=False), flush=True)
@@ -351,7 +378,9 @@ def main():
     if args.affected:
         if args.baseline_root:
             parser.error('--affected cannot narrow an explicit baseline/full measurement')
-        from validation.loop import select_checks, run_commands, utf8_environment
+        run_commands = _imports_validation_loop.run_commands
+        select_checks = _imports_validation_loop.select_checks
+        utf8_environment = _imports_validation_loop.utf8_environment
         root = TESTS.parents[2]
         paths = subprocess.run(['git', 'diff', '--no-renames', '--name-only', '-z', args.affected, 'HEAD', '--'],
                                cwd=root, capture_output=True, text=True, check=True).stdout

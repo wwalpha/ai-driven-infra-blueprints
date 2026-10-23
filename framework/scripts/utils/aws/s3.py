@@ -1,5 +1,6 @@
 """s3 SDK operations with structured AWS arguments."""
-from .client import request, pages
+from .client import pages as pages
+from .client import request as request
 
 
 def head_bucket(context, **arguments):
@@ -24,5 +25,3 @@ def head_object(context, **arguments):
 
 def put_object(context, **arguments):
     return request(context, 's3', 'put_object', arguments)
-
-

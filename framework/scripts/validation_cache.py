@@ -1,145 +1,41 @@
-"""Invocation-local input reuse and content-addressed successful validation results."""
+"""Compatibility input-cache exports and content-addressed validation results."""
 
-from contextlib import contextmanager
-from contextvars import ContextVar
-from functools import wraps
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import sys
 import tempfile
+from pathlib import Path
 
-
-_inputs = ContextVar("blueprint_inputs", default=None)
-
-
-_generation_inputs = ContextVar("generation_inputs", default=None)
-
-
-@contextmanager
-def recording_inputs(inputs):
-    token = _generation_inputs.set(inputs)
-    try:
-        yield
-    finally:
-        _generation_inputs.reset(token)
-
-
-def input_recorder(path):
-    inputs = _generation_inputs.get()
-    return inputs if inputs is not None and inputs.tracks(Path(path)) else None
-
-
-def input_bytes(path):
-    path = Path(path)
-    inputs = input_recorder(path)
-    if inputs is None:
-        return path.read_bytes()
-    data = inputs.read(path)
-    if data is None:
-        raise FileNotFoundError(2, "No such file or directory", str(path))
-    return data
-
-
-def input_text(path, encoding="utf-8", errors=None):
-    if input_recorder(path) is None:
-        return Path(path).read_text(encoding=encoding, errors=errors)
-    return input_bytes(path).decode(encoding, errors or "strict").replace("\r\n", "\n").replace("\r", "\n")
-
-
-def input_kind(path):
-    path = Path(path)
-    inputs = input_recorder(path)
-    if inputs is not None:
-        return inputs.kind(path)
-    return ("symlink" if path.is_symlink() else "file" if path.is_file() else
-            "dir" if path.is_dir() else "missing")
-
-
-def input_is_file(path):
-    return input_kind(path) == "file"
-
-
-def input_is_dir(path):
-    return input_kind(path) == "dir"
-
-
-def input_exists(path):
-    return input_kind(path) != "missing"
-
-
-def input_is_symlink(path):
-    return input_kind(path) == "symlink"
-
-
-def input_select(base, pattern="*", *, recursive=False, kinds=None):
-    base = Path(base)
-    inputs = input_recorder(base)
-    if inputs is not None:
-        return inputs.select(base, pattern, recursive, kinds)
-    paths = base.rglob(pattern) if recursive else base.glob(pattern)
-    return tuple(sorted(p for p in paths if kinds is None or input_kind(p) in kinds))
-
-
-@contextmanager
-def input_context():
-    if _inputs.get() is not None:
-        yield
-        return
-    token = _inputs.set({})
-    try:
-        from import_guard import baseline_scope
-        with baseline_scope():
-            yield
-    finally:
-        _inputs.reset(token)
-
-
-def input_scope(function):
-    @wraps(function)
-    def wrapped(*args, **kwargs):
-        with input_context():
-            return function(*args, **kwargs)
-    return wrapped
-
-
-def memo_table():
-    return _inputs.get()
-
-
-def memoized(function):
-    @wraps(function)
-    def wrapped(*args):
-        memo = _inputs.get()
-        if memo is None:
-            return function(*args)
-        key = (function, args)
-        if key not in memo:
-            memo[key] = function(*args)
-        return memo[key]
-    return wrapped
-
-
-def digest_files(root, paths, contents=None):
-    digest = hashlib.sha256()
-    for path in sorted(set(paths)):
-        relative = path.relative_to(root)
-        if any((root.joinpath(*relative.parts[:number])).is_symlink()
-               for number in range(1, len(relative.parts) + 1)):
-            raise ValueError("symlink inputs cannot reuse validation results")
-        content = contents[path] if contents is not None else path.read_bytes() if path.is_file() else None
-        # Length-delimited names and byte hashes distinguish missing/empty/new files.
-        digest.update(json.dumps([relative.as_posix(), None if content is None else
-                                  hashlib.sha256(content).hexdigest()]).encode("utf-8"))
-    return digest.hexdigest()
+import model.files as _imports_model_files
+import model.sources as _imports_model_sources
+import utils.aws_mappings as _imports_utils_aws_mappings
+from utils.input_cache import _baselines as _baselines
+from utils.input_cache import _generation_inputs as _generation_inputs
+from utils.input_cache import _inputs as _inputs
+from utils.input_cache import baseline_scope as baseline_scope
+from utils.input_cache import digest_files as digest_files
+from utils.input_cache import input_bytes as input_bytes
+from utils.input_cache import input_context as input_context
+from utils.input_cache import input_exists as input_exists
+from utils.input_cache import input_is_dir as input_is_dir
+from utils.input_cache import input_is_file as input_is_file
+from utils.input_cache import input_is_symlink as input_is_symlink
+from utils.input_cache import input_kind as input_kind
+from utils.input_cache import input_recorder as input_recorder
+from utils.input_cache import input_scope as input_scope
+from utils.input_cache import input_select as input_select
+from utils.input_cache import input_text as input_text
+from utils.input_cache import memo_table as memo_table
+from utils.input_cache import memoized as memoized
+from utils.input_cache import recording_inputs as recording_inputs
 
 
 class PassCache:
     def __init__(self, root, fresh=False, directory=None, *, include_project=True, definitions_root=None):
         self.root = root
-        from utils.aws_mappings import definition_root
+        definition_root = _imports_utils_aws_mappings.definition_root
         self.definitions_root = definitions_root or definition_root(root)
         self.fresh = fresh
         self.common = None
@@ -185,7 +81,8 @@ class PassCache:
                                          self.common, inputs]).encode("utf-8")).hexdigest()
 
     def service_key(self, entry):
-        from model.sources import source_inputs, model_exists
+        model_exists = _imports_model_sources.model_exists
+        source_inputs = _imports_model_sources.source_inputs
         environment, target, service = entry
         docs = self.root / "docs/designs"
         models = self.root / "model"
@@ -211,7 +108,7 @@ class PassCache:
                          if file.is_file() or file.is_symlink())
             texts = [path.read_text(encoding="utf-8")]
             if model_exists(model):
-                from model.files import read_model
+                read_model = _imports_model_files.read_model
                 texts.append(read_model(model))
             for text in texts:
                 for raw in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text):

@@ -2,11 +2,23 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from support.regression_guard_fixtures import (
+    Path,
+    guard,
+    io,
+    patch,
+    redirect_stderr,
+    rejected,
+    sys,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.regression_guard_fixtures import *
 
 def check_password_input_diagnostics():
     with patch.object(guard.sys, "argv", ["regression_guard.py", "--verify"]), \

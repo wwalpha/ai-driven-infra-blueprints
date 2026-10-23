@@ -1,23 +1,49 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import integrations.validation_checks.task as _imports_integrations_validation_checks_task
+from support.blueprint_loop_fixtures import make_project_fixture
+from support.framework_input_isolation_fixtures import (
+    MODULE,
+    ROOT,
+    ExitStack,
+    Path,
+    io,
+    patch,
+    redirect_stdout,
+    sys,
+)
+from support.it_case_receipt import it_case
+from support.worktree_task_fixtures import contract, fixture, git
+from task_contract_core import selected_task
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import it_case
+_CALLBACK_DEFAULT = object()
 
-from support.framework_input_isolation_fixtures import *
+
+
+def _callback_check_guarded_45(root, _default_original, /, path, *args, original=_CALLBACK_DEFAULT, **kwargs):
+    if original is _CALLBACK_DEFAULT:
+        original = _default_original
+    assert all(path != base/'project.json' and not path.is_relative_to(base/'model')
+               for base in (root, ROOT)), path
+    return original(path, *args, **kwargs)
+
 
 @it_case
 def check():
-    from integrations.validation_checks.task import check_task_type_dispatch
+    check_task_type_dispatch = _imports_integrations_validation_checks_task.check_task_type_dispatch
     if not __debug__:
         raise SystemExit('Focused checks require assertions; run without -O')
-    from support.worktree_task_fixtures import fixture, git, contract
-    from support.blueprint_loop_fixtures import make_project_fixture
-    from task_contract import selected_task
     with fixture() as root:
         make_project_fixture(ROOT, root)
         git(root, 'add', '.')
@@ -29,10 +55,7 @@ def check():
         with selected_task(root, name), ExitStack() as stack, redirect_stdout(io.StringIO()) as output:
             for method in ('stat', 'open', 'glob', 'rglob', 'iterdir'):
                 original = getattr(Path, method)
-                def guarded(path, *args, original=original, **kwargs):
-                    assert all(path != base/'project.json' and not path.is_relative_to(base/'model')
-                               for base in (root, ROOT)), path
-                    return original(path, *args, **kwargs)
+                guarded = _bind_framework_callback(_callback_check_guarded_45, root, original)
                 stack.enter_context(patch.object(Path, method, guarded))
             assert validator.run() == 0, (validator.errors, output.getvalue())
             check_task_type_dispatch()
@@ -41,4 +64,3 @@ def check():
 
 if __name__ == '__main__':
     check()
-

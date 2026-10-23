@@ -1,28 +1,28 @@
 """Terraform placement, composition, lexical safety and scoped regression fixtures."""
 
-
 import json
-
-
-import os
-
-
-from pathlib import Path
-
-
 import shutil
-
-
-import subprocess
-
-
-import tempfile
-
+from functools import partial as _bind_framework_callback
 
 from support.validator import MODULE, SCRIPT, project, write
+from validation.terraform import blocks, module_directory, root_directory
 
 
-from validation.terraform import blocks, root_directory, module_directory
+def _callback_check_configuration_expect(cases, /, name, validator, fails=False):
+    assert bool(validator.errors) == fails, (name, validator.errors)
+    cases.append(name)
+
+
+def _callback_check_configuration_validate(accounts, root, /, scope=None, changed=(), task='infrastructure', initialized=False):
+    validator = MODULE.Validator(root, scope)
+    validator.accounts = accounts
+    validator.template_mode = False
+    validator.task_type = task
+    validator.changed_paths = set(changed)
+    if initialized:
+        validator.check_initialized_paths()
+    validator.check_iac_selection()
+    return validator
 
 
 def check_configuration():
@@ -49,32 +49,20 @@ def check_configuration():
         unrelated = root / 'infra/cde/terraform/stg/main.tf'
         scope = {('dev', 'cde', 'ec2')}
 
-        def validate(scope=None, changed=(), task='infrastructure', initialized=False):
-            validator = MODULE.Validator(root, scope)
-            validator.accounts = accounts
-            validator.template_mode = False
-            validator.task_type = task
-            validator.changed_paths = set(changed)
-            if initialized:
-                validator.check_initialized_paths()
-            validator.check_iac_selection()
-            return validator
 
-        def expect(name, validator, fails=False):
-            assert bool(validator.errors) == fails, (name, validator.errors)
-            cases.append(name)
+        expect = _bind_framework_callback(_callback_check_configuration_expect, cases)
 
-        expect('T01', validate(initialized=True))
+        expect('T01', _callback_check_configuration_validate(accounts, root, initialized=True))
         shutil.rmtree(path.parent)
-        expect('T02', validate(initialized=True), True)
+        expect('T02', _callback_check_configuration_validate(accounts, root, initialized=True), True)
         legacy = root / 'infra/terraform/environments/dev/cde/main.tf'
         legacy.parent.mkdir(parents=True)
         write(legacy, original)
-        expect('T03', validate(initialized=True), True)
+        expect('T03', _callback_check_configuration_validate(accounts, root, initialized=True), True)
         path.parent.mkdir()
         write(path.parent / "terraform.tfvars", 'value = "dev-cde"\n')
         write(path, 'resource "aws_iam_role" "bad" {}\n')
-        bad = validate()
+        bad = _callback_check_configuration_validate(accounts, root)
         assert any('not Root' in error for error in bad.errors), bad.errors
         expect('T04', bad, True)
         shutil.rmtree(root / 'infra/terraform')
@@ -83,59 +71,59 @@ def check_configuration():
         unknown = root / 'infra/unknown/terraform/dev/main.tf'
         unknown.parent.mkdir(parents=True)
         write(unknown, original)
-        expect('T05', validate(), True)
-        assert not validate(scope).errors
+        expect('T05', _callback_check_configuration_validate(accounts, root), True)
+        assert not _callback_check_configuration_validate(accounts, root, scope).errors
         shutil.rmtree(root / 'infra/unknown')
         accounts[('dev', 'cde')]['engine'] = 'cloudformation'
         (root / 'infra/cloudformation/parameters/dev/cde').mkdir(parents=True)
-        expect('T06', validate(), True)
+        expect('T06', _callback_check_configuration_validate(accounts, root), True)
         accounts[('dev', 'cde')]['engine'] = 'terraform'
         shutil.rmtree(root / 'infra/cloudformation')
         write(path, 'resource "aws_iam_role" "bad" {}\n')
-        expect('T07', validate(), True)
+        expect('T07', _callback_check_configuration_validate(accounts, root), True)
         write(path, original)
-        expect('T08', validate())
+        expect('T08', _callback_check_configuration_validate(accounts, root))
         write(path, original.replace('../modules/iam', '../modules/missing'))
-        expect('T09', validate(), True)
+        expect('T09', _callback_check_configuration_validate(accounts, root), True)
         write(path, original)
-        expect('T10', validate())
+        expect('T10', _callback_check_configuration_validate(accounts, root))
         alternate = root / 'infra/cde/terraform/modules/alternate'
         alternate.mkdir()
         write(unrelated, original.replace('../modules/iam', '../modules/alternate'))
-        assert any('same source across environments' in error for error in validate().errors)
-        assert validate(scope).errors  # The same logical Module has a conflicting peer Root.
-        assert validate(set(),
+        assert any('same source across environments' in error for error in _callback_check_configuration_validate(accounts, root).errors)
+        assert _callback_check_configuration_validate(accounts, root, scope).errors  # The same logical Module has a conflicting peer Root.
+        assert _callback_check_configuration_validate(accounts, root, set(),
                         changed={shared.relative_to(root).as_posix()}, task='governance').errors
-        assert not validate({('dev', 'non-cde', 'ec2')}).errors
+        assert not _callback_check_configuration_validate(accounts, root, {('dev', 'non-cde', 'ec2')}).errors
         write(unrelated, original)
         alternate.rmdir()
         assert (path.parent / 'terraform.tfvars').read_text() != (unrelated.parent / 'terraform.tfvars').read_text()
-        expect('T11', validate({('sandbox', '123456789012', 'ec2')}, initialized=True))
+        expect('T11', _callback_check_configuration_validate(accounts, root, {('sandbox', '123456789012', 'ec2')}, initialized=True))
         accounts[('preview', 'ops')] = {'alias': 'ops', 'engine': 'cloudformation'}
         for directory in ('infra/cloudformation/parameters/preview/ops', 'docs/designs/preview/ops', 'model/preview/ops'):
             (root / directory).mkdir(parents=True)
         write(root / 'infra/cloudformation/parameters/preview/ops/example.json', '[]\n')
-        expect('T12', validate(initialized=True))
+        expect('T12', _callback_check_configuration_validate(accounts, root, initialized=True))
 
         module_changes = {shared.relative_to(root).as_posix()}
         # Deleting a shared Module must check every Root referencing it, even in framework scope.
         saved_module = {p.name: p.read_text() for p in shared.parent.iterdir()}
         shutil.rmtree(shared.parent)
-        expect('T13', validate(set(), changed=module_changes, task='governance'), True)
-        assert any('stg/main.tf' in error for error in validate(set(), changed=module_changes, task='governance').errors)
-        assert not validate(set(), task='governance').errors
+        expect('T13', _callback_check_configuration_validate(accounts, root, set(), changed=module_changes, task='governance'), True)
+        assert any('stg/main.tf' in error for error in _callback_check_configuration_validate(accounts, root, set(), changed=module_changes, task='governance').errors)
+        assert not _callback_check_configuration_validate(accounts, root, set(), task='governance').errors
         shared.parent.mkdir()
         for name, text in saved_module.items():
             write(shared.parent / name, text)
         write(unrelated, original.replace('../modules/iam', '../modules/missing'))
         # Changed shared Modules retain validation of the target Root configurations.
         assert any("source does not exist" in error for error in
-                   validate(set(), changed=module_changes, task='governance').errors)
-        expect('T14', validate(scope))
-        assert validate(scope | {('stg', 'cde', 'ec2')}).errors
+                   _callback_check_configuration_validate(accounts, root, set(), changed=module_changes, task='governance').errors)
+        expect('T14', _callback_check_configuration_validate(accounts, root, scope))
+        assert _callback_check_configuration_validate(accounts, root, scope | {('stg', 'cde', 'ec2')}).errors
         write(unrelated, original)
         write(shared, 'module "child" { source = "../missing" }\n')
-        assert validate(set(), changed=module_changes, task='governance').errors
+        assert _callback_check_configuration_validate(accounts, root, set(), changed=module_changes, task='governance').errors
         write(shared, 'resource "aws_iam_role" "example" {}\n')
 
         # Initialization/add-target are agent prompts, not executable scaffold commands.
@@ -155,35 +143,35 @@ def check_configuration():
             else:
                 assert 'The target-directory alias or AWS account ID does not exist in the same environment' in prompt
                 assert 'Stop without changes for missing, invalid, duplicate, or contradictory values.' in prompt
-        expect('T15', validate(initialized=True))
+        expect('T15', _callback_check_configuration_validate(accounts, root, initialized=True))
         legacy.parent.mkdir(parents=True)
         write(legacy, original)
-        expect('T16', validate(), True)
+        expect('T16', _callback_check_configuration_validate(accounts, root), True)
         shutil.rmtree(root / 'infra/terraform')
         write(path, original.replace('../modules/iam', '../../../non-cde/terraform/modules/iam'))
-        expect('T17', validate(), True)
+        expect('T17', _callback_check_configuration_validate(accounts, root), True)
         write(path, original)
 
         # Normalized containment, not string prefix: .. and symlinks cannot cross targets.
         for source in ('../modules/iam/../iam', '../modules/./iam'):
             write(path, original.replace('../modules/iam', source))
-            assert not validate().errors, validate().errors
+            assert not _callback_check_configuration_validate(accounts, root).errors, _callback_check_configuration_validate(accounts, root).errors
         for source in ('../modules', '../modules/iam/../../stg', './copied',
                        '../modules/iam/../../../non-cde/terraform/modules/iam',
                        'registry.example/module', '${var.source}', '../modules/iam${var.suffix}'):
             write(path, original.replace('../modules/iam', source))
-            assert validate().errors, source
+            assert _callback_check_configuration_validate(accounts, root).errors, source
         write(path, original)
         link = root / 'infra/cde/terraform/modules/other'
         link.symlink_to(root / 'infra/non-cde/terraform/modules/iam', target_is_directory=True)
         write(path, original.replace('../modules/iam', '../modules/other'))
-        assert validate().errors
+        assert _callback_check_configuration_validate(accounts, root).errors
         link.unlink()
         write(path, original)
         module = shared.parent
         shutil.rmtree(module)
         module.symlink_to(root / 'infra/non-cde/terraform/modules/iam', target_is_directory=True)
-        assert validate().errors
+        assert _callback_check_configuration_validate(accounts, root).errors
         module.unlink()
         module.mkdir()
         write(shared, 'resource "aws_iam_role" "example" {}\n')
@@ -196,10 +184,10 @@ def check_configuration():
             extra = root / relative
             extra.parent.mkdir(parents=True, exist_ok=True)
             write(extra, 'resource "aws_iam_role" "bad" {}\n')
-            assert validate().errors, relative
+            assert _callback_check_configuration_validate(accounts, root).errors, relative
             extra.unlink()
         accounts[('dev', 'cde')]['engine'] = ''
-        assert validate().errors
+        assert _callback_check_configuration_validate(accounts, root).errors
         accounts[('dev', 'cde')]['engine'] = 'terraform'
         write(path, original + '''# resource "aws_fake" "comment" {}
 /* module "fake" { source = "./missing" } */
@@ -215,16 +203,16 @@ data "aws_region" "current" {}
 output "value" { value = var.value }
 resource "terraform_data" "valid" { input = var.value }
 ''')
-        assert not validate().errors, validate().errors
+        assert not _callback_check_configuration_validate(accounts, root).errors, _callback_check_configuration_validate(accounts, root).errors
         assert [kind for kind, _, _ in blocks(path)] == ['module', 'variable', 'locals', 'data', 'output', 'resource']
         write(path, original.replace('module "application"', 'module application') + 'resource terraform_data valid { input = var.value }\n')
-        assert not validate().errors
+        assert not _callback_check_configuration_validate(accounts, root).errors
         write(path, 'resource aws_iam_role bad {}\n')
-        assert any('not Root' in error for error in validate().errors)
+        assert any('not Root' in error for error in _callback_check_configuration_validate(accounts, root).errors)
         for invalid in ('/* unterminated', 'locals { text = <<EOF\nunterminated\n',
                         'locals { text = "unfinished', 'module "application" { source = "../modules/iam"'):
             write(path, invalid)
-            assert any('cannot be read' in error for error in validate().errors)
+            assert any('cannot be read' in error for error in _callback_check_configuration_validate(accounts, root).errors)
         write(path, original)
         json_path = path.with_name('extra.tf.json')
         for body, fails in (({'resource': {'aws_iam_role': {'bad': {}}}}, True),
@@ -232,45 +220,45 @@ resource "terraform_data" "valid" { input = var.value }
                             ({'module': {'extra': {'source': '../modules/missing'}}}, True),
                             ({'module': {'extra': {'source': '../modules/iam'}}}, False)):
             write(json_path, json.dumps(body))
-            assert bool(validate().errors) == fails, body
+            assert bool(_callback_check_configuration_validate(accounts, root).errors) == fails, body
         json_path.unlink()
         write(path, 'resource "awscc_iam_role" "bad" {}\n')
-        assert validate().errors
+        assert _callback_check_configuration_validate(accounts, root).errors
         write(path, original)
         # Assets are not child Root configurations and remain valid in subdirectories.
         asset = path.parent / 'templates/user-data.sh'
         asset.parent.mkdir()
         write(asset, '#!/bin/sh\n')
-        assert not validate().errors
+        assert not _callback_check_configuration_validate(accounts, root).errors
         # Nested local Modules and remote child Modules retain Terraform functionality.
         child = module.parent / 'child'
         child.mkdir()
         write(child / 'main.tf', 'resource "aws_iam_role" "child" {}\n')
         write(shared, 'module "child" { source = "../child" }\nmodule "remote" { source = "hashicorp/consul/aws" }\n')
-        assert not validate().errors
+        assert not _callback_check_configuration_validate(accounts, root).errors
         write(shared, 'module "child" { source = "' + str(root / 'infra/non-cde/terraform/modules/iam') + '" }\n')
-        assert validate().errors
+        assert _callback_check_configuration_validate(accounts, root).errors
         write(shared, 'module "child" { source = "../../stg" }\n')
-        assert validate().errors
+        assert _callback_check_configuration_validate(accounts, root).errors
         write(shared, 'resource "aws_iam_role" "example" {}\n')
         cache = path.parent / '.terraform/modules/foreign/main.tf'
         cache.parent.mkdir(parents=True)
         write(cache, 'resource "aws_iam_role" "cached" {}\n')
-        assert not validate().errors
+        assert not _callback_check_configuration_validate(accounts, root).errors
         empty = root / 'infra/cde/terraform/preview'
         empty.mkdir()
         accounts[('preview', 'cde')] = {'alias': 'cde', 'engine': 'terraform'}
-        assert not validate({('preview', 'cde', 'ec2')}).errors
+        assert not _callback_check_configuration_validate(accounts, root, {('preview', 'cde', 'ec2')}).errors
         # Terraform is optional before implementation and in CloudFormation-only consumers.
         for directory in ('cde', 'non-cde', '123456789012'):
             shutil.rmtree(root / 'infra' / directory)
         for values in accounts.values():
             values['engine'] = 'cloudformation'
-        assert not validate().errors
+        assert not _callback_check_configuration_validate(accounts, root).errors
         for values in accounts.values():
             values['engine'] = 'terraform'
         shutil.rmtree(root / 'infra/cloudformation')
-        assert not validate().errors
+        assert not _callback_check_configuration_validate(accounts, root).errors
     for alias in ('cloudformation', 'terraform'):
         with project() as root:
             directory = root / f'infra/{alias}/terraform/custom-environment'

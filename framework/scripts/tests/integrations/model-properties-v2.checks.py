@@ -1,20 +1,70 @@
 """Model reader, publisher, CLI and Review integration over synthetic properties."""
+
+import os
+import shutil
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from unittest.mock import patch as mock_patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import json
+import subprocess
+import tempfile
+
+import model.core as _imports_model_core
+import model.identity as _imports_model_identity
+import model.importing.approval as _imports_model_importing_approval
+import model.observed as _imports_model_observed
+import model.operations as _imports_model_operations
+import model.sources as _imports_model_sources
+import pytest
+import support.worktree_task_fixtures as _imports_support_worktree_task_fixtures
+import sync_files as _imports_sync_files
+from generation_inputs import GenerationInputs
+from model.adapters.task import (
+    edit_write_context,
+    observed_write_context,
+    source_write_context,
+)
+from model.audit import generate
+from model.cli import main
+from model.core import validate_authority, validate_runtime_keys
+from model.format import FORMAT, INDEX, owner, parse, patch, serialize
+from model.format import split as split
+from model.importing.approval import (
+    build_review,
+    require_format,
+    review_binding,
+    verify_review,
+)
+from model.operations import verify_model_operation
+from model.references import declarations, diagnose, incoming, usages
+from model.sources import Scope, list_models, load_model, runtime_values, source_scope
+from support.model_sources import catalog_display
+from support.model_v2_fixtures import (
+    FRAMEWORK,
+    acquisition_fixture,
+    logs_fixture,
+    properties_fixture,
+    retarget_fixture,
+    role_operation_fixture,
+    source_context,
+)
+from support.model_v2_fixtures import format_fixture as fixture
+from support.sync_model_fixtures import build_generated_policy
+from sync_runtime import generate_views, stage_inputs
+from task_contract_core import MergePair, ModelOperation, ReferenceChange, selected_task
+from utils.aws_mappings import mapping_alias
+from utils.input_cache import input_context, recording_inputs
+
+import model as _imports_model
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-import subprocess
-import json
-import tempfile
-import pytest
-from model.format import FORMAT, INDEX, parse, patch, serialize, split
-from model.sources import Scope, load_model, list_models
-from model.references import declarations, diagnose
-from support.model_v2_fixtures import FRAMEWORK, properties_fixture
-from support.model_v2_fixtures import format_fixture as fixture, source_context, acquisition_fixture
 
 def check_discovery_alias_and_account():
     with tempfile.TemporaryDirectory() as directory:
@@ -28,7 +78,6 @@ def check_discovery_alias_and_account():
         assert load_model(first).scope.path != load_model(second).scope.path
         assert all('999999999999' not in str(scope.path) for scope in list_models(root))
         assert load_model(third).scope.target == '222222222222'
-    from model.sources import source_scope
     for environment in ('templates', 'parameters'):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -40,7 +89,6 @@ def check_discovery_alias_and_account():
             assert source_scope(root, part) == scope
             assert load_model(scope).authoritative == values
             assert [item.environment for item in list_models(root)] == [environment]
-            from unittest.mock import patch as mock_patch
             project = root / 'project.json'
             retained = root / 'project-original.json'
             project.rename(retained)
@@ -66,7 +114,6 @@ def check_runtime_metadata_is_not_authority():
 
 
 def check_parts_and_large_resource():
-    from model.format import owner
     assert owner('desired.service.network.serviceId', {}) == owner('display.service.title', {})
     assert owner('desired.deployment.templateBucket', {}) == owner('desired.deployment.templateKeyPrefix', {})
     with tempfile.TemporaryDirectory() as directory:
@@ -145,8 +192,6 @@ def check_reference_schema_and_pointer():
 
 
 def check_cli_subprocess_and_canonical_imports():
-    import os
-    import subprocess
     with tempfile.TemporaryDirectory() as directory:
         scope, values = fixture(Path(directory))
         cli = Path(__file__).resolve().parents[2] / 'model/cli.py'
@@ -159,8 +204,9 @@ def check_cli_subprocess_and_canonical_imports():
                                 capture_output=True, text=True, env=environment, cwd=directory)
         assert result.returncode == 0, result.stderr
         assert json.loads(result.stdout)['value'] == 'EC2_VPC_001'
-        from model import load_model as public_load
-        from model.sources import load_model as source_load
+        source_load = _imports_model_sources.load_model
+
+        public_load = _imports_model.load_model
         assert public_load is source_load
         assert source_load(scope).__class__ is load_model(scope).__class__
 
@@ -178,11 +224,11 @@ def check_stack_metadata_is_not_runtime_input():
         model = load_model(stack)
         assert model.authoritative['desired.stack.009.placementName'] == 'OriginalPlacement'
         assert 'desired.stack.009.placementName' not in model.values
-        from model.core import stack_model
+        stack_model = _imports_model_core.stack_model
         assert stack_model(model.values)[1][0][1]['name'] == 'NewStackName'
         assert 'placementName' not in stack_model(model.authoritative)[1][0][1]
         assert model.authoritative['desired.note.001.text'] == model.values['desired.note.001.text']
-        from model.core import validate_authority
+        validate_authority = _imports_model_core.validate_authority
         for placement in ('', 'invalid_name', None):
             bad = {**values, 'desired.stack.009.placementName': placement}
             if placement is None:
@@ -194,7 +240,8 @@ def check_stack_metadata_is_not_runtime_input():
 
 
 def check_observed_byte_preservation_and_one_use():
-    from model import prepare_observed, publish_edit
+    prepare_observed = _imports_model.prepare_observed
+    publish_edit = _imports_model.publish_edit
     with tempfile.TemporaryDirectory() as directory:
         scope, _ = fixture(Path(directory))
         snapshot, context = source_context(scope)
@@ -210,9 +257,17 @@ def check_observed_byte_preservation_and_one_use():
             context.close()
 
 
+def _callback_check_source_save_conflict_and_rollback_fail(scope, write, /, path, *args, **kwargs):
+    if path == scope.path:
+        write(path, 'partial write', encoding='utf-8')
+        raise OSError('injected I/O failure')
+    return write(path, *args, **kwargs)
+
+
 @pytest.mark.parametrize('failure', ['source', 'task', 'io'])
 def check_source_save_conflict_and_rollback(failure, monkeypatch):
-    from model import prepare_observed, publish_edit
+    prepare_observed = _imports_model.prepare_observed
+    publish_edit = _imports_model.publish_edit
     with tempfile.TemporaryDirectory() as directory:
         scope, _ = fixture(Path(directory))
         snapshot, context = source_context(scope)
@@ -226,11 +281,7 @@ def check_source_save_conflict_and_rollback(failure, monkeypatch):
             task.write_text('changed', encoding='utf-8')
         else:
             write = Path.write_text
-            def fail(path, *args, **kwargs):
-                if path == scope.path:
-                    write(path, 'partial write', encoding='utf-8')
-                    raise OSError('injected I/O failure')
-                return write(path, *args, **kwargs)
+            fail = _bind_framework_callback(_callback_check_source_save_conflict_and_rollback_fail, scope, write)
             monkeypatch.setattr(Path, 'write_text', fail)
         with pytest.raises((ValueError, OSError)):
             publish_edit(plan, context)
@@ -239,7 +290,8 @@ def check_source_save_conflict_and_rollback(failure, monkeypatch):
 
 
 def check_observed_cannot_bypass_import_or_change_authority():
-    from model import prepare_observed, prepare_edit
+    prepare_edit = _imports_model.prepare_edit
+    prepare_observed = _imports_model.prepare_observed
     with tempfile.TemporaryDirectory() as directory:
         scope, _ = fixture(Path(directory))
         snapshot, context = source_context(scope, imported=True)
@@ -257,7 +309,6 @@ def check_observed_cannot_bypass_import_or_change_authority():
 
 
 def check_declared_and_direct_links_coalesce_or_retain_conflicts():
-    from model.references import usages, incoming
     with tempfile.TemporaryDirectory() as directory:
         scope, values = fixture(Path(directory))
         key = 'desired.row.007-001.value'
@@ -286,7 +337,6 @@ def check_declared_and_direct_links_coalesce_or_retain_conflicts():
 
 
 def check_reference_occurrence_identifies_overlapping_text():
-    from model.references import usages
     with tempfile.TemporaryDirectory() as directory:
         scope, values = fixture(Path(directory))
         key = 'desired.row.007-002.value'
@@ -304,7 +354,6 @@ def check_reference_occurrence_identifies_overlapping_text():
 
 @pytest.mark.parametrize('action', ['add', 'refresh', 'bind', 'replace'])
 def check_properties_import_review_operations(action):
-    from model.importing.approval import build_review, verify_review, review_binding
     with tempfile.TemporaryDirectory() as directory:
         scope, values = fixture(Path(directory))
         values['observed.row.007-001.value'] = 'vpc-original' if action != 'bind' else 'PENDING_DEPLOY'
@@ -317,7 +366,7 @@ def check_properties_import_review_operations(action):
         if action == 'add':
             after.update({key.replace('.007.', '.008.').replace('.007-', '.008-'): value.replace('#network', '#added')
                           for key, value in values.items()})
-            from model.identity import allocate
+            allocate = _imports_model_identity.allocate
             del after['desired.resource.008.logicalId']
             after = allocate(after, ['008'])
             after['desired.row.008-001.value'] = '[EC2_VPC_002](network.md#resource-EC2_VPC_002)'
@@ -333,7 +382,9 @@ def check_properties_import_review_operations(action):
 
 @pytest.mark.parametrize('change', ['delete-selected', 'delete-unselected', 'move-unselected', 'meaning'])
 def check_properties_reference_review_after_map_and_ownership(change):
-    from model.importing.approval import build_review, reference_provenance, verify_review
+    build_review = _imports_model_importing_approval.build_review
+    reference_provenance = _imports_model_importing_approval.reference_provenance
+    verify_review = _imports_model_importing_approval.verify_review
     with tempfile.TemporaryDirectory() as directory:
         scope, values = fixture(Path(directory))
         values.update({'desired.resource.008.resourceType': 'EC2.VPC', 'desired.resource.008.logicalId': 'EC2_VPC_002', 'desired.resource.008.anchor': 'resource-EC2_VPC_002', 'desired.service.identity.lastAllocated': '{"EC2.VPC":2}',
@@ -371,15 +422,12 @@ def check_properties_reference_review_after_map_and_ownership(change):
 
 @pytest.mark.parametrize('kind', ['acquisition', 'review', 'binding', 'checkpoint'])
 def check_properties_import_rejects_legacy_evidence(kind):
-    from model.importing.approval import require_format
     with pytest.raises(ValueError, match='format is incompatible'):
         require_format({'version': {'acquisition': 2, 'review': 3, 'binding': 1, 'checkpoint': 1}[kind]},
                        {'acquisition': 3, 'review': 4, 'binding': 2, 'checkpoint': 2}[kind], kind)
 
 
 def check_runtime_projection_validation_and_metadata_separation():
-    from model.core import validate_authority, validate_runtime_keys
-    from model.sources import runtime_values
     with tempfile.TemporaryDirectory() as directory:
         scope, values = fixture(Path(directory))
         projected = runtime_values(values)
@@ -392,7 +440,6 @@ def check_runtime_projection_validation_and_metadata_separation():
 
 
 def check_stack_render_cli_uses_only_canonical_modules():
-    import subprocess
     with tempfile.TemporaryDirectory() as directory:
         scope, _ = fixture(Path(directory))
         stack = Scope(scope.root, scope.environment, scope.target, 'cloudformation-stacks')
@@ -428,7 +475,6 @@ print(json.dumps({'rendered':len(rendered)}))
 
 
 def check_incoming_missing_producer_does_not_match_unrelated_metadata(tmp_path):
-    from model.references import incoming
     scope, values = fixture(tmp_path)
     key = 'desired.row.007-002.value'
     values[key] = 'original missing'
@@ -445,18 +491,12 @@ def check_incoming_missing_producer_does_not_match_unrelated_metadata(tmp_path):
 
 
 def check_properties_normal_generation_uses_new_authority(tmp_path, monkeypatch):
-    from support.sync_model_fixtures import build_generated_policy
-    from support.model_sources import catalog_display
-    from generation_inputs import GenerationInputs
-    from validation_cache import recording_inputs
-    from sync_runtime import stage_inputs, generate_views
-    from utils.aws_mappings import mapping_alias
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     root = tmp_path / 'synthetic'
     root.mkdir()
     framework = Path(__file__).resolve().parents[4]
     with catalog_display(), mapping_alias(framework, root):
-        values = build_generated_policy(root, definitions_root=framework)
+        _ = build_generated_policy(root, definitions_root=framework)
         model = root / 'model/dev/123456789012/iam.properties'
         design = root / 'docs/designs/dev/123456789012/iam.md'
         artifact = design.with_suffix('') / 'iam-role-001-trust-policy.json'
@@ -484,13 +524,40 @@ def check_properties_normal_generation_uses_new_authority(tmp_path, monkeypatch)
 
 
 
+def _callback_check_managed_properties_save_fail_callback(path, proposed, /):
+    assert path.read_text(encoding='utf-8') == proposed
+    assert load_model(path).authoritative['desired.row.007-001.comment'] == '中間保存'
+    raise ValueError('injected source completion callback failure')
+
+
+def _callback_check_managed_properties_save_fail(path, /, files):
+    path.write_bytes(b'partial')
+    raise OSError('injected publication failure')
+
+
+def _callback_check_managed_properties_save_concurrent(contract, failure, git, name, path, save, target, /, files):
+    save(files)
+    if failure == 'post-dependency':
+        project = target / 'project.json'
+        project.write_bytes(project.read_bytes() + b'\n')
+    elif failure == 'post-task':
+        (target / name).write_text(contract + '\n# changed\n', encoding='utf-8')
+    elif failure == 'post-head':
+        git(target, 'commit', '--allow-empty', '-qm', 'changed HEAD during save')
+    else:
+        extra = path.with_suffix('') / 'part-099.properties'
+        extra.parent.mkdir(exist_ok=True)
+        extra.write_text('# competing file\n', encoding='utf-8')
+
+
 @pytest.mark.parametrize('failure', ['none', 'task', 'source', 'unregistered', 'reuse', 'io', 'head', 'post-dependency', 'post-task', 'post-head', 'post-file-set', 'callback', 'process-death'])
 def check_managed_properties_save(monkeypatch, failure):
-    from model import prepare_edit, publish_edit
-    from model.adapters.task import source_write_context
-    from model.format import patch
-    from validation_cache import input_context
-    from support.worktree_task_fixtures import fixture, git, start
+    fixture = _imports_support_worktree_task_fixtures.fixture
+    git = _imports_support_worktree_task_fixtures.git
+    start = _imports_support_worktree_task_fixtures.start
+
+    prepare_edit = _imports_model.prepare_edit
+    publish_edit = _imports_model.publish_edit
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     with fixture() as root, input_context():
         scope = properties_fixture(root)
@@ -527,7 +594,7 @@ def check_managed_properties_save(monkeypatch, failure):
                 context.operation = type('Policy', (), {'action': 'import'})()
             with pytest.raises(AttributeError):
                 context.closed = False
-            from model.operations import EditPlan
+            EditPlan = _imports_model_operations.EditPlan
             with pytest.raises(TypeError, match='constructor grants no save authority'):
                 EditPlan(approved=True)
             snapshot = load_model(path, context.snapshot)
@@ -555,35 +622,18 @@ def check_managed_properties_save(monkeypatch, failure):
                 assert path.read_bytes() == original
                 return
             elif failure == 'callback':
-                def fail_callback():
-                    assert path.read_text(encoding='utf-8') == proposed
-                    assert load_model(path).authoritative['desired.row.007-001.comment'] == '中間保存'
-                    raise ValueError('injected source completion callback failure')
+                fail_callback = _bind_framework_callback(_callback_check_managed_properties_save_fail_callback, path, proposed)
                 context._finish = fail_callback
             elif failure == 'io':
-                import sync_files
-                def fail(files):
-                    path.write_bytes(b'partial')
-                    raise OSError('injected publication failure')
+                sync_files = _imports_sync_files
+                fail = _bind_framework_callback(_callback_check_managed_properties_save_fail, path)
                 monkeypatch.setattr(sync_files, 'save_files', fail)
             elif failure == 'head':
                 git(target, 'commit', '--allow-empty', '-qm', 'changed HEAD')
             elif failure.startswith('post-'):
-                import sync_files
+                sync_files = _imports_sync_files
                 save = sync_files.save_files
-                def concurrent(files):
-                    save(files)
-                    if failure == 'post-dependency':
-                        project = target / 'project.json'
-                        project.write_bytes(project.read_bytes() + b'\n')
-                    elif failure == 'post-task':
-                        (target / name).write_text(contract + '\n# changed\n', encoding='utf-8')
-                    elif failure == 'post-head':
-                        git(target, 'commit', '--allow-empty', '-qm', 'changed HEAD during save')
-                    else:
-                        extra = path.with_suffix('') / 'part-099.properties'
-                        extra.parent.mkdir(exist_ok=True)
-                        extra.write_text('# competing file\n', encoding='utf-8')
+                concurrent = _bind_framework_callback(_callback_check_managed_properties_save_concurrent, contract, failure, git, name, path, save, target)
                 monkeypatch.setattr(sync_files, 'save_files', concurrent)
             if failure in {'none', 'reuse'}:
                 assert publish_edit(plan, context) == (path,)
@@ -603,7 +653,6 @@ def check_managed_properties_save(monkeypatch, failure):
 
 
 def check_properties_context_requires_managed_running_task(tmp_path, monkeypatch):
-    from model.adapters.task import source_write_context
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     properties_fixture(tmp_path)
     with pytest.raises(ValueError, match='selected task contract missing'):
@@ -613,8 +662,6 @@ def check_properties_context_requires_managed_running_task(tmp_path, monkeypatch
 
 
 def check_properties_standalone_audit_has_no_framework_runtime(tmp_path, monkeypatch):
-    from support.model_v2_fixtures import logs_fixture
-    from model.audit import generate
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     model = logs_fixture(tmp_path)
     original = model.read_bytes()
@@ -642,11 +689,7 @@ print('standalone audit engine: PASS')
 
 @pytest.mark.parametrize('change', ['delete', 'merge', 'identity', 'observation', 'native', 'unselected'])
 def check_properties_model_operation_preservation(tmp_path, monkeypatch, change):
-    import shutil
-    from support.model_v2_fixtures import role_operation_fixture
-    from model.format import owner, serialize
-    from model.operations import verify_model_operation
-    from task_contract import ModelOperation, MergePair
+
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     before, after = tmp_path / 'before', tmp_path / 'after'
     scope, values = role_operation_fixture(before)
@@ -682,11 +725,7 @@ def check_properties_model_operation_preservation(tmp_path, monkeypatch, change)
 
 @pytest.mark.parametrize('change', ['retarget', 'prefix', 'context-scope', 'context-text', 'format', 'rename-id'])
 def check_properties_retarget_keeps_other_fragments_and_reference_ids(tmp_path, monkeypatch, change):
-    import shutil
-    from support.model_v2_fixtures import retarget_fixture
-    from model.format import serialize
-    from model.operations import verify_model_operation
-    from task_contract import ModelOperation, ReferenceChange
+
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     before, after = tmp_path / 'before', tmp_path / 'after'
     scope, values = retarget_fixture(before)
@@ -718,14 +757,19 @@ def check_properties_retarget_keeps_other_fragments_and_reference_ids(tmp_path, 
 
 
 
+def _callback_check_managed_observation_preserves_exact_authority_fail(path, /, files):
+    path.write_bytes(b'partial')
+    raise OSError('injected observed I/O failure')
+
+
 @pytest.mark.parametrize('change', ['none', 'desired', 'reference', 'row', 'import', 'io', 'task', 'concurrent'])
 def check_managed_observation_preserves_exact_authority(monkeypatch, change):
-    from model.adapters.task import observed_write_context
-    from model.observed import prepare_observed
-    from model.operations import prepare_edit, publish_edit
-    from model.format import parse, patch, serialize
-    from support.worktree_task_fixtures import fixture, git, start
-    from task_contract import selected_task
+    prepare_observed = _imports_model_observed.prepare_observed
+    prepare_edit = _imports_model_operations.prepare_edit
+    publish_edit = _imports_model_operations.publish_edit
+    fixture = _imports_support_worktree_task_fixtures.fixture
+    git = _imports_support_worktree_task_fixtures.git
+    start = _imports_support_worktree_task_fixtures.start
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     with fixture() as root:
         scope = properties_fixture(root)
@@ -785,10 +829,8 @@ def check_managed_observation_preserves_exact_authority(monkeypatch, change):
                 return
             plan = prepare_observed(snapshot, {key: '`vpc-updated`'}, context)
             if change == 'io':
-                import sync_files
-                def fail(files):
-                    path.write_bytes(b'partial')
-                    raise OSError('injected observed I/O failure')
+                sync_files = _imports_sync_files
+                fail = _bind_framework_callback(_callback_check_managed_observation_preserves_exact_authority_fail, path)
                 monkeypatch.setattr(sync_files, 'save_files', fail)
             elif change == 'task':
                 (target / name).write_text(contract + '\n# changed\n', encoding='utf-8')
@@ -808,15 +850,13 @@ def check_managed_observation_preserves_exact_authority(monkeypatch, change):
 
 @pytest.mark.parametrize('change', ['display', 'create', 'import-config', 'fixed-id', 'missing-task', 'cli'])
 def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, change):
-    from model.adapters.task import edit_write_context
-    from model.operations import prepare_edit, publish_edit
-    from model.format import patch, serialize
-    from model.cli import main
-    from support.worktree_task_fixtures import fixture, git, start
-    from task_contract import selected_task
+    prepare_edit = _imports_model_operations.prepare_edit
+    publish_edit = _imports_model_operations.publish_edit
+    fixture = _imports_support_worktree_task_fixtures.fixture
+    git = _imports_support_worktree_task_fixtures.git
+    start = _imports_support_worktree_task_fixtures.start
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     with fixture() as root:
-        import shutil
         scope = properties_fixture(root)
         if change == 'create':
             values = dict(load_model(scope).authoritative)

@@ -2,10 +2,12 @@
 
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import time
+from pathlib import Path
+
+import worktree_state as wt
 
 REQUIREMENTS = "framework/scripts/requirements.txt"
 # WeasyPrint loads native PDF libraries; check them only during PDF export.
@@ -61,7 +63,6 @@ def verify(root, directory):
 
 
 def shared_directory(root):
-    import worktree_task as wt
     _, _, primary = wt.repository(root)
     return wt.metadata_directory(primary) / "python-env"
 
@@ -88,16 +89,18 @@ def shared_ready(directory):
     return True
 
 
+def setup_result(directory, installed):
+    return {"status": "ready", "kind": "shared", "interpreter": str(python_path(directory)),
+            "bin": str(python_path(directory).parent), "installed": installed}
+
+
 def setup(root, previous):
     directory = shared_directory(root)
-    def result(installed):
-        return {"status": "ready", "kind": "shared", "interpreter": str(python_path(directory)),
-                "bin": str(python_path(directory).parent), "installed": installed}
     lock = directory.with_name("python-env.setup-lock")
     # A competing builder may be between mkdir and its ownership record.
     if (directory / ".blueprint-ready").exists() or not lock.exists():
         if shared_ready(directory):
-            return result(False)
+            return setup_result(directory, False)
     deadline = time.monotonic() + 300
     while True:
         if lock.is_symlink():
@@ -113,7 +116,7 @@ def setup(root, previous):
             raise PermissionError(f"shared Python directory write denied: {lock}: {error}") from error
     try:
         if shared_ready(directory):
-            return result(False)
+            return setup_result(directory, False)
         if not directory.exists():
             try:
                 directory.mkdir()
@@ -134,14 +137,13 @@ def setup(root, previous):
         probe(root, directory)
         verify(root, directory)
         (directory / ".blueprint-ready").write_text(str(directory), encoding="utf-8")
-        return result(True)
+        return setup_result(directory, True)
     finally:
         lock.rmdir()
 
 
 def runtime(root):
     """Resolve ready lifecycle metadata afresh; no shell activation or saved PATH needed."""
-    import worktree_task as wt
     _, _, primary = wt.repository(root)
     path = wt.metadata_directory(primary) / "tasks" / f"{root.name}.json"
     if not path.is_file():

@@ -1,33 +1,16 @@
 """Responsibility boundaries: dispatch, mutable gates, callbacks and import safety."""
 
-from support.it_case_receipt import it_case
-
-
-from contextlib import ExitStack, redirect_stdout
-
-
-import io
-
-
 import os
-
-
-from pathlib import Path
-
-
 import subprocess
-
-
 import sys
+from contextlib import ExitStack as ExitStack
+from unittest.mock import patch as patch
 
-
-from unittest.mock import patch
-
-
-from support.validator import MODULE, SCRIPT, project, write, load
-
-
-from validation_cache import PassCache
+from support.it_case_receipt import it_case
+from support.validator import SCRIPT
+from support.validator import load as load
+from support.validator import project as project
+from support.validator import write as write
 
 
 @it_case
@@ -47,4 +30,3 @@ with patch.object(Path, 'rglob', side_effect=AssertionError('repository scan')),
     completed = subprocess.run([sys.executable, '-B', '-c', command], cwd=SCRIPT.parent,
                                env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1'}, capture_output=True, text=True)
     assert completed.returncode == 0 and not completed.stdout and not completed.stderr, completed.stderr
-

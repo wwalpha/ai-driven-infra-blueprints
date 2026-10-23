@@ -3,13 +3,15 @@
 import importlib.util
 from contextlib import contextmanager
 from contextvars import ContextVar
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-from design_document import DesignIndex
-from design_layout import STACK_DESIGN
-from validation_cache import input_scope
-from utils.aws_mappings import definition_root
-from aws_mapping_display import _validation_projection_scope
 
+import validation_scope as _imports_validation_scope
+from aws_mapping_display import _validation_projection_scope
+from design_document import DesignIndex
+from utils.aws_mappings import definition_root
+from utils.input_cache import input_scope
+from utils.layout_schema import STACK_DESIGN
 
 _saved_design_validation = ContextVar("saved_design_validation", default=None)
 
@@ -54,8 +56,13 @@ def broken_design_links(stage: Path, root: Path, paths: list[Path], *, definitio
     return broken
 
 
+def _lambda_validation_context_evaluate_70(validator, /, name, handler):
+    return validator.findings.evaluate(name, validator.scope, handler)
+
+
 def validation_context(stage, root, generated, sources, accounts=None, definitions_root=None):
     """Whole-candidate scope metadata/ownership/stack checks, once per fixed state."""
+    scoped_files = _imports_validation_scope.scoped_files
     validator = view_validator(stage, root, definitions_root)
     paths = [stage / p.relative_to(root) for p in generated]
     validator.scope = {(*p.relative_to(stage / 'docs/designs').parts[:2], p.stem) for p in paths}
@@ -65,8 +72,7 @@ def validation_context(stage, root, generated, sources, accounts=None, definitio
     else:
         validator.accounts = accounts
     services = [p for p in paths if p.name != STACK_DESIGN]
-    from validation_scope import scoped_files
-    evaluate = lambda name, handler: validator.findings.evaluate(name, validator.scope, handler)
+    evaluate = _bind_framework_callback(_lambda_validation_context_evaluate_70, validator)
     evaluate('design.collections', lambda: validator.check(
         set(services) == set(validator.design_files()) and
         {p.with_suffix('').relative_to(stage / 'docs/designs') for p in services} ==
@@ -77,6 +83,10 @@ def validation_context(stage, root, generated, sources, accounts=None, definitio
     evaluate('design.stacks', lambda: {'stack_definitions': validator.check_stack_designs([p for p in paths if p.name == STACK_DESIGN])})
     validator.check_policy_tables()
     return validator
+
+
+def _lambda_validate_views_evaluate_102(validator, /, name, handler):
+    return validator.findings.evaluate(name, validator.scope, handler)
 
 
 @input_scope
@@ -98,7 +108,7 @@ def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Pat
         validator.accounts = context.accounts
     else:
         validator.check_project_topology()
-    evaluate = lambda name, handler: validator.findings.evaluate(name, validator.scope, handler)
+    evaluate = _bind_framework_callback(_lambda_validate_views_evaluate_102, validator)
     for path in paths:
         validator.check_target_file(path, stage / "docs/designs")
         validator.check_target_file((stage / "model" / path.relative_to(stage / "docs/designs")).with_suffix(".properties"), stage / "model")

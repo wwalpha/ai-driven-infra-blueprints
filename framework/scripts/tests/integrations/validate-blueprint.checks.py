@@ -2,13 +2,24 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from integrations.validation_checks import (
+    cloudformation,
+    design,
+    references,
+    runner,
+    scenario,
+    scope,
+    task,
+    terraform,
+)
 from support.it_case_receipt import it_case
 
-from integrations.validation_checks import cloudformation, design, references, runner, scenario, scope, task, terraform
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 @it_case

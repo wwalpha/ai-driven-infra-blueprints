@@ -3,11 +3,11 @@
 
 from __future__ import annotations
 
-
+from functools import partial as _bind_framework_callback
 from unittest.mock import patch
 
-
-from support.validator import MODULE, SCRIPT, project, write, schema_validator
+import validation.design_tables as _imports_validation_design_tables
+from support.validator import MODULE, SCRIPT, project, schema_validator, write
 
 
 def check_catalog_inputs() -> None:
@@ -118,6 +118,15 @@ def check_name_tag_and_identifier_order_contract() -> None:
             assert any(expected in error for error in validator.errors), (case, validator.errors)
 
 
+def _callback_check_cidr_pending_deploy_errors(catalog, path, repository, root, schema, /, text):
+    write(path, text)
+    validator = MODULE.Validator(root, definitions_root=repository)
+    validator.schema_catalog = schema
+    validator.check_design_tables({path: ("vpc", ("EC2.VPC",))}, *catalog)
+    validator.check_design_overviews()
+    return validator.errors
+
+
 def check_cidr_pending_deploy() -> None:
     repository = SCRIPT.parents[2]
     catalog = MODULE.Validator(repository).catalog_design_properties()
@@ -151,16 +160,10 @@ def check_cidr_pending_deploy() -> None:
 | 3 | CidrBlock | `10.0.0.0/16` | VPCのIPv4アドレス範囲 |
 """
 
-        def errors(text):
-            write(path, text)
-            validator = MODULE.Validator(root, definitions_root=repository)
-            validator.schema_catalog = schema
-            validator.check_design_tables({path: ("vpc", ("EC2.VPC",))}, *catalog)
-            validator.check_design_overviews()
-            return validator.errors
+        errors = _bind_framework_callback(_callback_check_cidr_pending_deploy_errors, catalog, path, repository, root, schema)
 
         assert not errors(valid), errors(valid)
-        from validation import design_tables
+        design_tables = _imports_validation_design_tables
 
         without_name = valid.replace("| 1 | Name | `vpc-app-stg` | VPCの名前 |\n", "").replace(
             "| 2 | VpcId", "| 1 | VpcId").replace("| 3 | CidrBlock", "| 2 | CidrBlock")
@@ -199,7 +202,7 @@ def check_cidr_pending_deploy() -> None:
                      patch.object(design_tables, "expanded_design", wraps=design_tables.expanded_design) as expand, \
                      patch.object(design_tables, "expanded_display_rows", wraps=design_tables.expanded_display_rows) as display, \
                      patch.object(design_tables, "check_required_name_tag", wraps=design_tables.check_required_name_tag) as names:
-                    result = validator.findings.evaluate("design.tables", None, lambda:
+                    result = validator.findings.evaluate("design.tables", None, lambda *, paths=paths, validator=validator:
                         validator.check_design_tables({path: ("vpc", ("EC2.VPC",))}, *catalog, paths=paths))
                 diagnostic = f"invalid resource identity: {failed.relative_to(root).as_posix()}: {failure}"
                 assert validator.errors == [diagnostic], validator.errors
@@ -219,6 +222,17 @@ def check_cidr_pending_deploy() -> None:
             validator = MODULE.Validator(root)
             validator.check_cidr_value(path, prop, "10.0.0.0/16")
             assert not validator.errors, prop
+
+
+def _callback_check_event_rule_row_order_errors(catalog, design, header, repository, root, schema, /, selected):
+    write(design, header + "".join(
+        f"| {number} | {prop} | `{value}` | ルールの設定 |\n"
+        for number, (prop, value) in enumerate(selected, 1)
+    ))
+    validator = MODULE.Validator(root, definitions_root=repository)
+    validator.schema_catalog = schema
+    validator.check_design_tables({design: ("eventbridge", ("Events.Rule",))}, *catalog)
+    return validator.errors
 
 
 def check_event_rule_row_order() -> None:
@@ -248,15 +262,7 @@ def check_event_rule_row_order() -> None:
             ("EventBusName", "default"),
         ]
 
-        def errors(selected):
-            write(design, header + "".join(
-                f"| {number} | {prop} | `{value}` | ルールの設定 |\n"
-                for number, (prop, value) in enumerate(selected, 1)
-            ))
-            validator = MODULE.Validator(root, definitions_root=repository)
-            validator.schema_catalog = schema
-            validator.check_design_tables({design: ("eventbridge", ("Events.Rule",))}, *catalog)
-            return validator.errors
+        errors = _bind_framework_callback(_callback_check_event_rule_row_order_errors, catalog, design, header, repository, root, schema)
 
         assert not errors(rows), errors(rows)
         for selected in (rows[2:3] + rows[:2] + rows[3:], [rows[1], rows[0], *rows[2:]]):
@@ -269,4 +275,3 @@ def check_event_rule_row_order() -> None:
                 selected[index] = (rows[index][0], value)
                 assert any("must have a confirmed value" in error for error in errors(selected))
         assert not errors([rows[0], ("State", "ENABLED"), *rows[2:]])
-

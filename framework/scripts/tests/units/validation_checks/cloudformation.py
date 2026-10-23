@@ -3,11 +3,20 @@
 
 from __future__ import annotations
 
-
 import json
+from functools import partial as _bind_framework_callback
+from types import SimpleNamespace as _CallbackState
+
+from support.validator import MODULE
+from support.validator import project as project
+from support.validator import write as write
 
 
-from support.validator import MODULE, SCRIPT, project, write
+def _callback_check_cloudformation_yaml_rules_errors(root, template, /, yaml: str):
+    write(template, yaml)
+    validator = MODULE.Validator(root)
+    validator.check_cloudformation_yaml_rules()
+    return validator.errors
 
 
 def check_cloudformation_yaml_rules() -> None:
@@ -22,11 +31,7 @@ def check_cloudformation_yaml_rules() -> None:
         template = root / "infra/cloudformation/templates/iam.yaml"
         template.parent.mkdir(parents=True)
 
-        def errors(yaml: str) -> list[str]:
-            write(template, yaml)
-            validator = MODULE.Validator(root)
-            validator.check_cloudformation_yaml_rules()
-            return validator.errors
+        errors = _bind_framework_callback(_callback_check_cloudformation_yaml_rules_errors, root, template)
 
         valid = (
             "Resources:\n"
@@ -169,11 +174,20 @@ def check_cloudformation_yaml_rules() -> None:
         assert not errors("Resources:\n  Group:\n    Type: AWS::EC2::SecurityGroup\n" + consumer)
 
 
+def _callback_check_cloudformation_environment_parameters_errors(_state_check_cloudformation_environment_parameters_176, parameter, root, /, yaml: str, values: list[dict[str, str]]):
+    write(_state_check_cloudformation_environment_parameters_176.template, yaml)
+    write(parameter, json.dumps(values))
+    validator = MODULE.Validator(root)
+    validator.check_cloudformation_environment_parameters()
+    return validator.errors
+
+
 def check_cloudformation_environment_parameters() -> None:
+    _state_check_cloudformation_environment_parameters_176 = _CallbackState()
     with project() as root:
-        template = root / "infra/cloudformation/templates/role.yaml"
+        _state_check_cloudformation_environment_parameters_176.template = root / "infra/cloudformation/templates/role.yaml"
         parameter = root / "infra/cloudformation/parameters/dev/123456789012/role.json"
-        template.parent.mkdir(parents=True)
+        _state_check_cloudformation_environment_parameters_176.template.parent.mkdir(parents=True)
         parameter.parent.mkdir(parents=True)
         valid_template = """Parameters:
   Environment:
@@ -187,12 +201,7 @@ Resources:
       RoleName: !Sub '${NamePrefix}-${Environment}-${AWS::AccountId}-role'
 """
 
-        def errors(yaml: str, values: list[dict[str, str]]) -> list[str]:
-            write(template, yaml)
-            write(parameter, json.dumps(values))
-            validator = MODULE.Validator(root)
-            validator.check_cloudformation_environment_parameters()
-            return validator.errors
+        errors = _bind_framework_callback(_callback_check_cloudformation_environment_parameters_errors, _state_check_cloudformation_environment_parameters_176, parameter, root)
 
         valid_values = [
             {"ParameterKey": "Environment", "ParameterValue": "dev"},
@@ -286,8 +295,8 @@ Resources:
             assert not errors(yaml, valid_values), (yaml, errors(yaml, valid_values))
 
         # JSON templates and long-form intrinsics use the same AST.
-        template.unlink()
-        template = template.with_suffix(".json")
+        _state_check_cloudformation_environment_parameters_176.template.unlink()
+        _state_check_cloudformation_environment_parameters_176.template = _state_check_cloudformation_environment_parameters_176.template.with_suffix(".json")
         document = {"Parameters": {"Environment": {"Type": "String"}},
                     "Resources": {"Bucket": {"Type": "AWS::S3::Bucket", "Properties": {
                         "BucketName": {"Fn::Sub": "app-${Environment}-bucket"}}}}}
@@ -300,4 +309,3 @@ Resources:
         assert any("must not branch" in failure for failure in validator.errors)
         assert any("invalid CloudFormation template" in failure for failure in errors("Resources: [", valid_values))
     print("CloudFormation Environment checks: PASS (AST control-flow/selectors, naming/composition, JSON)")
-

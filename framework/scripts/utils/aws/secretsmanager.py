@@ -1,5 +1,5 @@
 """secretsmanager SDK operations with structured AWS arguments."""
-from .client import request, pages
+from .client import pages, request
 
 
 def describe_secret(context, **arguments):
@@ -25,5 +25,3 @@ def put_secret_value(context, **arguments):
 def update_secret_version_stage(context, **arguments):
     response = request(context, 'secretsmanager', 'update_secret_version_stage', arguments)
     return {key: response[key] for key in ("ARN", "Name", "VersionId", "VersionStages") if key in response}
-
-

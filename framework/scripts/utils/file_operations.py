@@ -1,6 +1,9 @@
 """Generic file publication and best-effort rollback."""
 
+import hashlib
+import json
 import os
+import stat
 import tempfile
 from pathlib import Path
 
@@ -56,3 +59,28 @@ def atomic_files(contents, staging_directory=None):
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
 
+
+
+def digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
+
+
+def evidence_store(root, *, create=True):
+    """Private local seal, outside Git; not AWS credentials or a response snapshot."""
+    base = Path(tempfile.gettempdir()).resolve() / ('blueprint-import-' + digest(str(Path.home()))[:16])
+    directory = base / digest(str(root.resolve()))
+    for path in (base, directory):
+        if not create and not path.exists() and not path.is_symlink():
+            return directory
+        path.mkdir(mode=0o700, exist_ok=True)
+        info = path.lstat()
+        if not stat.S_ISDIR(info.st_mode) or path.is_symlink():
+            raise ValueError('IMPORT unsafe temporary evidence directory')
+        if os.name != 'nt' and (info.st_uid != os.getuid() or info.st_mode & 0o077):
+            raise ValueError('IMPORT evidence directory must be private to the current user')
+    return directory
+
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()

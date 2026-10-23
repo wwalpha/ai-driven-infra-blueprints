@@ -1,13 +1,39 @@
 #!/usr/bin/env python3
 """Saved attribute references, reciprocal dependencies and immutable read snapshots."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace as _CallbackState
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import model.sources
+from support.it_case_receipt import it_case
+from support.producer_identifier_reference_fixtures import (
+    FileReads,
+    Path,
+    affected,
+    declarations,
+    dependency_hashes,
+    design_source_digest,
+    json,
+    load_model,
+    reference,
+    rejected,
+    resource,
+    serialize,
+    setup,
+    tempfile,
+    trace_model,
+    warning,
+    write_model,
+)
+from utils.input_cache import input_scope
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-from support.it_case_receipt import it_case
-from support.producer_identifier_reference_fixtures import *
-from validation_cache import input_scope
 
 KINDS = {'s3': ('S3.Bucket', 'BucketName'), 'cloudtrail': ('CloudTrail.Trail', 'TrailName'),
          'lambda': ('Lambda.Function', 'FunctionName'), 'eventbridge': ('Events.Rule', 'Name')}
@@ -48,56 +74,59 @@ def rejected_read(root, action, phrase):
     assert before == {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
 
 
+def _callback_check_pair_snapshot(_state_check_pair_77, changed, original, root, /):
+    pinned = load_model(_state_check_pair_77.consumer)
+    write_model(_state_check_pair_77.producer, changed)
+    assert load_model(_state_check_pair_77.consumer) is pinned
+    assert pinned.dependencies[_state_check_pair_77.producer] == serialize(original).encode()
+    reads = FileReads()
+    reads.read(_state_check_pair_77.producer)
+    _state_check_pair_77.producer.write_bytes(_state_check_pair_77.producer.read_bytes() + b'# concurrent source\n')
+    rejected_read(root, reads.verify, 'input changed')
+
+
 @it_case
 def check_pair(root, first, second):
+    _state_check_pair_77 = _CallbackState()
     prepare(root)
-    consumer, values = fixture(root, first, second)
-    producer, original = fixture(root, second, first)
-    loaded = load_model(consumer)
+    _state_check_pair_77.consumer, values = fixture(root, first, second)
+    _state_check_pair_77.producer, original = fixture(root, second, first)
+    loaded = load_model(_state_check_pair_77.consumer)
     assert not loaded.warnings, loaded.warnings
     assert loaded.authoritative['desired.note.link.text'] == f'[{second}-original]({second}.md#{second}-original)'
     key = 'desired.row.001-002.document'
     config = json.loads(loaded.authoritative[key])
     assert config == {'name': second + '-original', 'count': 2, 'enabled': False, 'items': ['a', 'b']}
     assert type(config['count']) is int and type(config['enabled']) is bool
-    assert load_model(producer).authoritative['desired.row.001-001.value'] == '`' + second + '-original`'
-    assert producer in loaded.dependencies
-    digest, dependencies = design_source_digest(consumer), dependency_hashes(consumer)
+    assert load_model(_state_check_pair_77.producer).authoritative['desired.row.001-001.value'] == '`' + second + '-original`'
+    assert _state_check_pair_77.producer in loaded.dependencies
+    digest, dependencies = design_source_digest(_state_check_pair_77.consumer), dependency_hashes(_state_check_pair_77.consumer)
     changed = {**original, 'desired.row.001-001.value': '`' + second + '-changed`'}
-    write_model(producer, changed)
-    assert warning(consumer, 'differs').authoritative == loaded.authoritative
-    assert design_source_digest(consumer) == digest and dependency_hashes(consumer) != dependencies
-    assert ('preview', 'team', first) in affected(root, [producer.relative_to(root)])
-    assert trace_model(consumer, key)['references']['OtherName']['producerScope'] == 'preview/team/' + second
-    write_model(producer, original)
-    assert dependency_hashes(consumer) == dependencies and load_model(consumer).authoritative == loaded.authoritative
-    @input_scope
-    def snapshot():
-        pinned = load_model(consumer)
-        write_model(producer, changed)
-        assert load_model(consumer) is pinned
-        assert pinned.dependencies[producer] == serialize(original).encode()
-        reads = FileReads()
-        reads.read(producer)
-        producer.write_bytes(producer.read_bytes() + b'# concurrent source\n')
-        rejected_read(root, reads.verify, 'input changed')
+    write_model(_state_check_pair_77.producer, changed)
+    assert warning(_state_check_pair_77.consumer, 'differs').authoritative == loaded.authoritative
+    assert design_source_digest(_state_check_pair_77.consumer) == digest and dependency_hashes(_state_check_pair_77.consumer) != dependencies
+    assert ('preview', 'team', first) in affected(root, [_state_check_pair_77.producer.relative_to(root)])
+    assert trace_model(_state_check_pair_77.consumer, key)['references']['OtherName']['producerScope'] == 'preview/team/' + second
+    write_model(_state_check_pair_77.producer, original)
+    assert dependency_hashes(_state_check_pair_77.consumer) == dependencies and load_model(_state_check_pair_77.consumer).authoritative == loaded.authoritative
+    snapshot = (input_scope)(_bind_framework_callback(_callback_check_pair_snapshot, _state_check_pair_77, changed, original, root))
     snapshot()
-    write_model(producer, original)
-    raw = producer.read_bytes()
-    producer.write_bytes(raw + b'desired.row.001-001.value=duplicate\n')
-    rejected_read(root, lambda: load_model(consumer), 'duplicate')
-    producer.write_bytes(raw)
+    write_model(_state_check_pair_77.producer, original)
+    raw = _state_check_pair_77.producer.read_bytes()
+    _state_check_pair_77.producer.write_bytes(raw + b'desired.row.001-001.value=duplicate\n')
+    rejected_read(root, lambda: load_model(_state_check_pair_77.consumer), 'duplicate')
+    _state_check_pair_77.producer.write_bytes(raw)
     rejected_read(root, lambda: serialize({**original, 'desired.row.001-001.value': 17}), 'strings')
-    producer.write_text('# model-format: 99\n')
-    rejected_read(root, lambda: load_model(consumer), 'unsupported Model format')
-    producer.write_bytes(raw)
+    _state_check_pair_77.producer.write_text('# model-format: 99\n')
+    rejected_read(root, lambda: load_model(_state_check_pair_77.consumer), 'unsupported Model format')
+    _state_check_pair_77.producer.write_bytes(raw)
     # Reciprocal saved names have no evaluator and never recurse or rewrite either side.
-    consumer, reciprocal = fixture(root, first, second, derived=True)
-    producer, reverse = fixture(root, second, first, derived=True)
-    before = {p: p.read_bytes() for p in (consumer, producer)}
-    assert load_model(consumer).authoritative == reciprocal
-    assert load_model(producer).authoritative == reverse
-    assert before == {p: p.read_bytes() for p in (consumer, producer)}
+    _state_check_pair_77.consumer, reciprocal = fixture(root, first, second, derived=True)
+    _state_check_pair_77.producer, reverse = fixture(root, second, first, derived=True)
+    before = {p: p.read_bytes() for p in (_state_check_pair_77.consumer, _state_check_pair_77.producer)}
+    assert load_model(_state_check_pair_77.consumer).authoritative == reciprocal
+    assert load_model(_state_check_pair_77.producer).authoritative == reverse
+    assert before == {p: p.read_bytes() for p in (_state_check_pair_77.consumer, _state_check_pair_77.producer)}
 
 
 @it_case
@@ -172,7 +201,7 @@ def check_stack(root):
     write_model(consumer, {**values, 'desired.reference.StackName.producerId': '999'})
     warning(consumer, 'Stack is absent')
     for fields in ({'resourceType': 'IAM.Role'}, {'format': 'link'}, {'property': 'template'}):
-        rejected_read(root, lambda: declarations({**values, **{'desired.reference.StackName.' + field: value for field, value in fields.items()}}), 'reference' if 'resourceType' not in fields else 'forbidden')
+        rejected_read(root, lambda *, fields=fields: declarations({**values, **{'desired.reference.StackName.' + field: value for field, value in fields.items()}}), 'reference' if 'resourceType' not in fields else 'forbidden')
     write_model(consumer, values)
     producer.write_text(serialize({key: value for key, value in original.items() if key != 'desired.stack.001.placementName'}))
     rejected_read(root, lambda: load_model(consumer), 'placementName')
@@ -187,11 +216,20 @@ def check_stack(root):
     warning(consumer, 'Model is absent')
 
 
+def _callback_check_preparation_cache_snapshot(original, path, /):
+    with patch.object(model.sources, '_read_model', wraps=model.sources._read_model) as parsed:
+        first = load_model(path)
+        assert first.authoritative['desired.row.001-001.value'] == '`first`'
+        path.write_bytes(original.replace(b'`second`', b'`changed`'))
+        second = load_model(path)
+        assert second.authoritative['desired.row.002-001.value'] == '`second`'
+        assert parsed.call_count == 1 and second.dependencies[path] == original
+
+
 @it_case
 def check_preparation_cache(root):
     prepare(root)
-    from unittest.mock import patch
-    import model.sources
+
     path = root / 'model/preview/team/iam.properties'
     values = {}
     for identity, rid in [('first', '001'), ('second', '002')]:
@@ -199,15 +237,7 @@ def check_preparation_cache(root):
     write_model(path, values)
     original = path.read_bytes()
     before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
-    @input_scope
-    def snapshot():
-        with patch.object(model.sources, '_read_model', wraps=model.sources._read_model) as parsed:
-            first = load_model(path)
-            assert first.authoritative['desired.row.001-001.value'] == '`first`'
-            path.write_bytes(original.replace(b'`second`', b'`changed`'))
-            second = load_model(path)
-            assert second.authoritative['desired.row.002-001.value'] == '`second`'
-            assert parsed.call_count == 1 and second.dependencies[path] == original
+    snapshot = (input_scope)(_bind_framework_callback(_callback_check_preparation_cache_snapshot, original, path))
     try:
         snapshot()
         assert load_model(path).authoritative['desired.row.002-001.value'] == '`changed`'

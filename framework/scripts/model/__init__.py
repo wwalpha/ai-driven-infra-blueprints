@@ -1,28 +1,32 @@
 """Public Model API. The caller supplies read and authorized publication contexts."""
-from model.sources import load_model, list_models
+
+from script_loader import module
+
+from model.sources import list_models as list_models
+from model.sources import load_model as load_model
 
 
 def prepare_edit(snapshot, candidate, policy):
-    from model.operations import prepare_edit as prepare
+    prepare = module('model/operations.py', 'model.operations').prepare_edit
     return prepare(snapshot, candidate, policy)
 
 
 def prepare_observed(snapshot, changes, policy):
-    from model.observed import prepare_observed as prepare
+    prepare = module('model/observed.py', 'model.observed').prepare_observed
     return prepare(snapshot, changes, policy)
 
 
 def publish_edit(plan, context):
-    from model.operations import publish_edit as publish
+    publish = module('model/operations.py', 'model.operations').publish_edit
     return publish(plan, context)
 
 
 def render_model(snapshot, context):
-    from model.render import render_model as render
+    render = module('model/render.py', 'model.render').render_model
     return render(snapshot, context)
 
 
 def publish_edits(plans, context):
     """Publish prepared services as one guarded transaction."""
-    from model.operations import _publish_plans
+    _publish_plans = module('model/operations.py', 'model.operations')._publish_plans
     return _publish_plans(tuple(plans), context)

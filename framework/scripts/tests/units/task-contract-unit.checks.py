@@ -1,16 +1,29 @@
 #!/usr/bin/env python3
 """Task selection, declaration checks and publication consistency with synthetic inputs."""
+
+import json
 import sys
+from dataclasses import FrozenInstanceError
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import os
 from unittest.mock import patch
+
+import model.sources as _imports_model_sources
 import pytest
+import task_contract_core as tasks
+import validation_cache as _imports_validation_cache
+from generation_inputs import GenerationInputs
+from model.importing import scope as import_scope
+from support.import_model_fixtures import dependency_contract
 from support.pytest_cli import run
 from support.worktree_task_fixtures import contract
-import task_contract as tasks
-from model.importing import scope as import_scope
-from validation_cache import input_scope
+from sync_runtime import publish_generation
+from utils.input_cache import input_scope
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -44,6 +57,50 @@ def check_allowed_paths(tmp_path, allowed, accepted):
 
 
 
+def _callback_check_live_selection_exercise(one, original, other, tmp_path, two, /):
+    with patch.dict(os.environ, {tasks.SELECTOR: one}):
+        assert import_scope.selected(tmp_path) is None
+        assert import_scope.selected(tmp_path) is None  # cached negative parsing result
+        memo_table = _imports_validation_cache.memo_table
+        assert (import_scope._selection.__wrapped__, (tmp_path, one, original)) in memo_table()
+        empty = tmp_path / 'stage-without-contracts'
+        empty.mkdir()
+        assert import_scope.selected(empty) is None
+        assert import_scope.selected(other) == ('dev', 'team', 'iam')
+        stat = (tmp_path / one).stat()
+        (tmp_path / one).write_text(selection_contract(one, workflow='- Workflow: `import`\n'))
+        os.utime(tmp_path / one, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        assert import_scope.selected(tmp_path) == ('dev', 'team', 'iam')
+        (tmp_path / one).write_text(original)
+        assert import_scope.selected(tmp_path) is None
+        (tmp_path / two).write_text(selection_contract(two, workflow='- Workflow: `import`\n- IMPORT target: `stg/team/config`\n'))
+        with patch.dict(os.environ, {tasks.SELECTOR: two}):
+            assert import_scope.selected(tmp_path) == ('stg', 'team', 'config')
+        assert import_scope.selected(tmp_path) is None
+        with import_scope.restrict(('dev', 'team', 'vpc')):
+            assert import_scope.selected(tmp_path) == ('dev', 'team', 'vpc')
+            FileReads = _imports_model_sources.FileReads
+            edit_base = _imports_model_sources.edit_base
+            with pytest.raises(ValueError, match='outside selected'):
+                edit_base(tmp_path / 'model/dev/team/config.properties', FileReads())
+        assert import_scope.selected(tmp_path) is None
+        (tmp_path / two).unlink()
+        (tmp_path / one).write_text(selection_contract(one, 'denied'))
+        with pytest.raises(ValueError, match='outside Allowed paths'):
+            import_scope.selected(tmp_path)
+        (tmp_path / one).write_text(original)
+        (tmp_path / 'external').write_text('safe')
+        (tmp_path / 'output.txt').symlink_to(tmp_path / 'external')
+        assert import_scope.selected(tmp_path) is None
+        with pytest.raises(ValueError, match='symlinks'):
+            tasks.safe_path(tmp_path, 'output.txt')
+        (tmp_path / 'output.txt').unlink()
+        (tmp_path / one).write_text(original.replace('`running`', '`suspend`')+'## Suspension reason\nExplicit test stop\n')
+        assert import_scope.selected(tmp_path) is None  # Scope reads do not resume execution.
+        with pytest.raises(ValueError, match='suspend task'):
+            tasks.task_path(tmp_path)
+
+
 def check_live_selection(tmp_path):
     (tmp_path / 'tasks').mkdir()
     one, two = 'tasks/one.md', 'tasks/two.md'
@@ -54,56 +111,14 @@ def check_live_selection(tmp_path):
     (other / 'tasks').mkdir()
     (other / one).write_text(selection_contract(one, workflow='- Workflow: `import`\n'))
 
-    @input_scope
-    def exercise():
-        with patch.dict(os.environ, {tasks.SELECTOR: one}):
-            assert import_scope.selected(tmp_path) is None
-            assert import_scope.selected(tmp_path) is None  # cached negative parsing result
-            from validation_cache import memo_table
-            assert (import_scope._selection.__wrapped__, (tmp_path, one, original)) in memo_table()
-            empty = tmp_path / 'stage-without-contracts'
-            empty.mkdir()
-            assert import_scope.selected(empty) is None
-            assert import_scope.selected(other) == ('dev', 'team', 'iam')
-            stat = (tmp_path / one).stat()
-            (tmp_path / one).write_text(selection_contract(one, workflow='- Workflow: `import`\n'))
-            os.utime(tmp_path / one, ns=(stat.st_atime_ns, stat.st_mtime_ns))
-            assert import_scope.selected(tmp_path) == ('dev', 'team', 'iam')
-            (tmp_path / one).write_text(original)
-            assert import_scope.selected(tmp_path) is None
-            (tmp_path / two).write_text(selection_contract(two, workflow='- Workflow: `import`\n- IMPORT target: `stg/team/config`\n'))
-            with patch.dict(os.environ, {tasks.SELECTOR: two}):
-                assert import_scope.selected(tmp_path) == ('stg', 'team', 'config')
-            assert import_scope.selected(tmp_path) is None
-            with import_scope.restrict(('dev', 'team', 'vpc')):
-                assert import_scope.selected(tmp_path) == ('dev', 'team', 'vpc')
-                from model.sources import edit_base, FileReads
-                with pytest.raises(ValueError, match='outside selected'):
-                    edit_base(tmp_path / 'model/dev/team/config.properties', FileReads())
-            assert import_scope.selected(tmp_path) is None
-            (tmp_path / two).unlink()
-            (tmp_path / one).write_text(selection_contract(one, 'denied'))
-            with pytest.raises(ValueError, match='outside Allowed paths'):
-                import_scope.selected(tmp_path)
-            (tmp_path / one).write_text(original)
-            (tmp_path / 'external').write_text('safe')
-            (tmp_path / 'output.txt').symlink_to(tmp_path / 'external')
-            assert import_scope.selected(tmp_path) is None
-            with pytest.raises(ValueError, match='symlinks'):
-                tasks.safe_path(tmp_path, 'output.txt')
-            (tmp_path / 'output.txt').unlink()
-            (tmp_path / one).write_text(original.replace('`running`', '`suspend`')+'## Suspension reason\nExplicit test stop\n')
-            assert import_scope.selected(tmp_path) is None  # Scope reads do not resume execution.
-            with pytest.raises(ValueError, match='suspend task'):
-                tasks.task_path(tmp_path)
+    exercise = (input_scope)(_bind_framework_callback(_callback_check_live_selection_exercise, one, original, other, tmp_path, two))
     exercise()
 
 
 
 def generation_plan(root, output):
     """Unit candidate fixture; real Model/view preparation is exercised by IT."""
-    from types import SimpleNamespace
-    from generation_inputs import GenerationInputs
+
     snapshot = GenerationInputs(root)
     for path in output:
         snapshot.read(path)
@@ -113,7 +128,6 @@ def generation_plan(root, output):
 
 @pytest.mark.parametrize('change', ['scope', 'completed', 'suspend'])
 def check_task_change_rolls_back_publication(tmp_path, monkeypatch, change):
-    from sync_runtime import publish_generation
     name = 'tasks/owner.md'
     file = tmp_path / 'file.txt'
     file.write_text('original')
@@ -135,7 +149,6 @@ def check_task_change_rolls_back_publication(tmp_path, monkeypatch, change):
 
 @pytest.mark.parametrize('state', ['running', 'completed', 'suspend'])
 def check_publication_preserves_contract(tmp_path, monkeypatch, state):
-    from sync_runtime import publish_generation
     name = 'tasks/example.md'
     text = contract('example', ['file.txt'])
     if state is None:
@@ -175,7 +188,6 @@ def check_publication_preserves_contract(tmp_path, monkeypatch, state):
 
 
 def check_source_guard_keeps_plan_consistency(tmp_path, monkeypatch):
-    from sync_runtime import publish_generation
     name = 'tasks/owner.md'
     source = tmp_path / 'model/dev/team/iam.properties'
     tasks.start(tmp_path, name, contract('owner', [source.relative_to(tmp_path).as_posix()]))
@@ -191,7 +203,6 @@ def check_source_guard_keeps_plan_consistency(tmp_path, monkeypatch):
 
 
 def check_scope_change_during_planning(tmp_path, monkeypatch):
-    from sync_runtime import publish_generation
     name = 'tasks/example.md'
     tasks.start(tmp_path, name, contract('example', ['file.txt']))
     monkeypatch.setenv(tasks.SELECTOR, name)
@@ -212,8 +223,6 @@ def check_scope_change_during_planning(tmp_path, monkeypatch):
 
 
 def check_batch_operation_contract():
-    import json
-    from dataclasses import FrozenInstanceError
     base = ('## Task contract\n- Task type: `design`\n- Workflow: `update`\n'
             '- Model operation: `import-merge`\n- AWS API execution: `forbidden`\n- deploy/apply: `forbidden`\n')
     pairs = [{'source': 'test/primary/network/' + left, 'destination': 'test/primary/network/' + right}
@@ -253,7 +262,6 @@ def check_batch_operation_contract():
 
 
 def check_dependency_detach_contract():
-    from support.import_model_fixtures import dependency_contract
     text = dependency_contract()
     parsed = tasks.model_refactor(text)
     assert len(parsed) == 1 and parsed[0].key == 'desired.row.002-001.value'

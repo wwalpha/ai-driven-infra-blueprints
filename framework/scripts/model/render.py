@@ -1,48 +1,69 @@
 """Render detailed designs from authoritative service properties."""
 
 from __future__ import annotations
-from utils.json_format import policy_json
-
-from model.core import ReferenceResolutionError
 
 import json
-import re
 from collections import Counter
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-import iac_values
-from array_display import indexed_rows
-from model.projection import bound_resource_anchors, deployment_bucket, catalog_outputs, resource_rows, design_target, resource_display_rows, is_import_expression
-from model.display import display_rows, catalog_display_rows, row_table, sg_tables
-from aws_mapping_display import selected_rows
-from validation_cache import input_is_file, input_bytes, input_select
-from model.core import properties, entries, stack_model, deployment_settings, LINK, ARTIFACT_FIELDS
+from types import SimpleNamespace as _CallbackState
 
-from design_layout import (
+import array_display as _dependency_array_display
+import aws_mapping_display as _dependency_aws_mapping_display
+import aws_mapping_display as _imports_aws_mapping_display
+import design_layout as _dependency_design_layout
+import policy_tables as _dependency_policy_tables
+import policy_tables as _imports_policy_tables
+from design_catalog import (
+    DesignSchemaCatalog as DesignSchemaCatalog,
+)
+from sync_files import changed_files
+from utils.aws_catalogs import catalog_outputs as catalog_outputs
+from utils.input_cache import (
+    input_bytes,
+    input_is_file,
+    input_recorder,
+    input_scope,
+    input_select,
+    recording_inputs,
+)
+from utils.json_format import policy_json
+from utils.layout_schema import (
     GROUPED,
     HIDDEN_PROPERTIES,
-    resource_display_name,
-    resource_name_fields,
-    resource_anchor,
-    resource_display_selection,
-    resource_mode,
-    is_import_pending_reference,
-    GROUPED_RESOURCE_TYPES,
-    IMPLICIT_GROUPED_PROPERTIES,
-    ROTATION_SCHEDULE,
     LAMBDA_PERMISSION,
+    ROTATION_SCHEDULE,
     SUBNET_LIST_SOURCE,
 )
-from policy_tables import literal, table
-from design_catalog import DesignSchemaCatalog, property_paths_with_parents, selected_properties
-from validation_cache import input_scope, memoized
+from utils.layout_schema import resource_anchor as resource_anchor
 
+import model.display as _dependency_model_display
+import model.files as _imports_model_files
+import model.identity as _imports_model_identity
+import model.projection as _dependency_model_projection
+import model.projection as _imports_model_projection
+import model.sources as _dependency_model_sources
+import model.sources as _imports_model_sources
+import model.validation as _dependency_model_validation
+import model.validation as _imports_model_validation
+from model.core import (
+    ARTIFACT_FIELDS,
+    LINK,
+    ReferenceResolutionError,
+    deployment_settings,
+    entries,
+    stack_model,
+)
+from model.core import (
+    properties as properties,
+)
+from model.format import JSON_LINK
 
-from model.validation import validate_required_properties, validate_resource_identities
 
 def stack_markdown(path, values, root, *, definitions_root=None):
+    reference_display = _imports_model_projection.reference_display
     limit, stacks = stack_model(values)
     settings, artifacts = deployment_settings(values)
-    from model.projection import reference_display
     displayed = reference_display(values, path, root, definitions_root=definitions_root)
     display_artifacts = dict(entries(displayed, 'desired.artifact.'))
     delivery = []
@@ -53,9 +74,9 @@ def stack_markdown(path, values, root, *, definitions_root=None):
         delivery += ["| " + " | ".join([str(number)] + [display_artifacts[identity][field] for field in ARTIFACT_FIELDS]) + " |"
                      for number, (identity, artifact) in enumerate(artifacts, 1)]
     if settings:
-        deployment_bucket(settings["templateBucket"], path, root)
+        _dependency_model_projection.deployment_bucket(settings["templateBucket"], path, root)
     for _, artifact in artifacts:
-        deployment_bucket(artifact["bucket"], path, root)
+        _dependency_model_projection.deployment_bucket(artifact["bucket"], path, root)
     return "\n".join(["# CloudFormation stack 詳細設計", "",
         f"<!-- max-concurrent-stacks: {limit} -->", "",
         *[f"<!-- {field}: {value} -->" for field, value in settings.items()],
@@ -72,7 +93,7 @@ def display_name(values, identity, resource, rows, root):
     label = values.get(f'display.resource.{identity}.label')
     if GROUPED.get(kind, {}).get('display') == 'rule-table':
         return label or resource['logicalId'], None
-    mode = resource_mode(resource)
+    mode = _dependency_design_layout.resource_mode(resource)
     if mode == 'IMPORT' and kind not in {'IAM.Role', 'CodeBuild.Project'}:
         # Resolve a saved self-reference from its observation, never from its link label.
         local = {''} | {value + '.md' for key, value in values.items()
@@ -81,7 +102,7 @@ def display_name(values, identity, resource, rows, root):
         for row in rows:
             field = row[1].removeprefix(kind + '.')
             link = LINK.fullmatch(row[2])
-            if field in resource_name_fields(kind) and link and link[2] in local and link[3] == resource['anchor']:
+            if field in _dependency_design_layout.resource_name_fields(kind) and link and link[2] in local and link[3] == resource['anchor']:
                 matches = [rid for rid, item in entries(values, 'desired.row.') if rid.startswith(identity + '-')
                            and item.get('property') == kind + '.' + field
                            and (source_link := LINK.fullmatch(item.get('value', '')))
@@ -89,46 +110,50 @@ def display_name(values, identity, resource, rows, root):
                 if len(matches) == 1:
                     row[2] = values.get(f'observed.row.{matches[0]}.value', row[2])
     count = sum(item['resourceType'] == kind for _, item in entries(values, 'desired.resource.'))
-    return resource_display_selection(root, kind, rows, label, mode, count)
+    return _dependency_design_layout.resource_display_selection(root, kind, rows, label, mode, count)
 
 
 def resource_presentation(values, identity, resource, root, *, scope=None):
     kind = resource['resourceType']
-    rows = catalog_display_rows(resource_rows(values, identity, kind, root), kind, root)
+    rows = _dependency_model_display.catalog_display_rows(_dependency_model_projection.resource_rows(values, identity, kind, root), kind, root)
     name, configured = display_name(values, identity, resource,
-                                    resource_display_rows(values, identity, resource, root, scope=scope), root)
+                                    _dependency_model_projection.resource_display_rows(values, identity, resource, root, scope=scope), root)
     return name, configured, rows
 
 
+def _callback_resource_details_inspect(_state_resource_details_122, by_anchor, details, names, owned, root, scope, values, /):
+    display_anchor = _imports_model_identity.display_anchor
+    pass
+    kind = _state_resource_details_122.resource["resourceType"]
+    if kind not in owned:
+        raise ValueError(f"resource is outside service ownership: {kind}")
+    name, configured_name, rows = resource_presentation(values, _state_resource_details_122.identity, _state_resource_details_122.resource, root, scope=scope)
+    if configured_name is None and name is None:
+        raise ValueError(f"resource type display requires a single nameless independent resource: {kind}")
+    if not name or name in {"UNSET", "PENDING_DEPLOY"}:
+        raise ValueError(f"confirmed resource display label is missing: {kind}: {_state_resource_details_122.identity}")
+    anchor = display_anchor(_state_resource_details_122.resource)
+    _state_resource_details_122.resource = {**_state_resource_details_122.resource, 'anchor': anchor}
+    derived = anchor
+    if anchor in by_anchor:
+        raise ReferenceResolutionError('duplicate Resource display anchor: ' + anchor)
+    names.add(derived)
+    item = (_state_resource_details_122.identity, _state_resource_details_122.resource, name, rows)
+    by_anchor[anchor] = item
+    details.append(item)
+
+
 def resource_details(values, root, service, owned, resources, bound_anchors, *, findings=None, scope=None):
+    _state_resource_details_122 = _CallbackState()
     by_anchor = {}
     names = set()
     details = []
-    for identity, resource in resources:
-        def inspect():
-            nonlocal resource
-            kind = resource["resourceType"]
-            if kind not in owned:
-                raise ValueError(f"resource is outside service ownership: {kind}")
-            name, configured_name, rows = resource_presentation(values, identity, resource, root, scope=scope)
-            if configured_name is None and name is None:
-                raise ValueError(f"resource type display requires a single nameless independent resource: {kind}")
-            if not name or name in {"UNSET", "PENDING_DEPLOY"}:
-                raise ValueError(f"confirmed resource display label is missing: {kind}: {identity}")
-            from model.identity import display_anchor
-            anchor = display_anchor(resource)
-            resource = {**resource, 'anchor': anchor}
-            derived = anchor
-            if anchor in by_anchor:
-                raise ReferenceResolutionError('duplicate Resource display anchor: ' + anchor)
-            names.add(derived)
-            item = (identity, resource, name, rows)
-            by_anchor[anchor] = item
-            details.append(item)
+    for _state_resource_details_122.identity, _state_resource_details_122.resource in resources:
+        inspect = _bind_framework_callback(_callback_resource_details_inspect, _state_resource_details_122, by_anchor, details, names, owned, root, scope, values)
         if findings is None:
             inspect()
         else:
-            findings.evaluate('model.resource.' + identity, None, inspect)
+            findings.evaluate('model.resource.' + _state_resource_details_122.identity, None, inspect)
     return details, by_anchor
 
 
@@ -144,7 +169,7 @@ def grouped_resources(values, details, by_anchor, *, scope=None):
             if not resource.get(field):
                 raise ValueError(f"{kind}: {resource['logicalId']}: required metadata missing: desired.resource.{identity}.{field} ({kind}.{rule['parentProperty']})")
         link = LINK.fullmatch(resource["parentReference"])
-        from model.identity import parse_reference
+        parse_reference = _imports_model_identity.parse_reference
         local = link and (not link[2] or scope is not None and parse_reference(link[0], scope)[:3] == (scope.environment, scope.target, scope.service))
         parent = by_anchor.get(link[3]) if local else None
         if resource['parentProperty'] != kind + '.' + rule['parentProperty']:
@@ -171,27 +196,27 @@ def grouped_resources(values, details, by_anchor, *, scope=None):
 
 
 def resource_table_lines(resource, name, rows, children, root):
-    expected = Counter(row[0] for row in selected_rows(rows, root))
+    expected = Counter(row[0] for row in _dependency_aws_mapping_display.selected_rows(rows, root))
     for _, _, _, child_rows in children:
-        expected.update(row[0] for row in selected_rows(child_rows, root))
+        expected.update(row[0] for row in _dependency_aws_mapping_display.selected_rows(child_rows, root))
     if any(count != 1 for count in expected.values()):
         raise ValueError("duplicate selected Model row IDs")
     consumed = []
     output = []
     kind = resource["resourceType"]
     if kind == "EC2.SecurityGroup":
-        rules = [(child, selected_rows(child_rows, root)) for _, child, _, child_rows in children]
-        output += sg_tables(selected_rows(rows, root), [(child, rows) for child, rows in rules if rows], root, consumed=consumed)
+        rules = [(child, _dependency_aws_mapping_display.selected_rows(child_rows, root)) for _, child, _, child_rows in children]
+        output += _dependency_model_display.sg_tables(_dependency_aws_mapping_display.selected_rows(rows, root), [(child, rows) for child, rows in rules if rows], root, consumed=consumed)
     else:
-        display = display_rows(kind, rows, root, mode=resource_mode(resource), consumed=consumed)
+        display = display_rows(kind, rows, root, mode=_dependency_design_layout.resource_mode(resource), consumed=consumed)
         for _, child, child_name, child_rows in children:
-            child_rows = selected_rows(child_rows, root)
+            child_rows = _dependency_aws_mapping_display.selected_rows(child_rows, root)
             if not child_rows:
                 continue
             if child["resourceType"] == ROTATION_SCHEDULE:
                 child_rows = [[rid, prop, f'[{name}](#{resource["anchor"]})' if prop == child["parentProperty"] else value, comment]
                               for rid, prop, value, comment in child_rows]
-            child_display = display_rows(kind if child["resourceType"] == ROTATION_SCHEDULE else child["resourceType"], child_rows, root, mode=resource_mode(child), consumed=consumed)
+            child_display = display_rows(kind if child["resourceType"] == ROTATION_SCHEDULE else child["resourceType"], child_rows, root, mode=_dependency_design_layout.resource_mode(child), consumed=consumed)
             if child["resourceType"] != ROTATION_SCHEDULE:
                 for row in child_display:
                     row[1] = child["resourceType"] + "." + row[1]
@@ -211,8 +236,8 @@ def resource_table_lines(resource, name, rows, children, root):
             source = SUBNET_LIST_SOURCE.match(comment)
             child_display[0][3] = (source.group(0) if source else "") + prefix + (comment[source.end():] if source else comment)
             display += child_display
-        display = indexed_rows(display, kind, root)
-        output += row_table(display)
+        display = _dependency_array_display.indexed_rows(display, kind, root)
+        output += _dependency_model_display.row_table(display)
     if Counter(consumed) != expected:
         raise ValueError("selected display rows were omitted or consumed more than once")
     return output
@@ -221,20 +246,21 @@ def resource_table_lines(resource, name, rows, children, root):
 @input_scope
 def markdown_for(path: Path, values: dict[str, str], root: Path, *, definitions_root: Path | None = None) -> str:
     """Validated generation used by ordinary design and explicit validation."""
-    from aws_mapping_display import validate_mappings
+    validate_mappings = _imports_aws_mapping_display.validate_mappings
     validate_mappings(values, definitions_root or root)
-    validate_required_properties(values, definitions_root or root)
+    _dependency_model_validation.validate_required_properties(values, definitions_root or root)
     return render_validated_model(path, values, root, definitions_root=definitions_root)
 
 
 def render_validated_model(path: Path, values: dict[str, str], root: Path, *, definitions_root: Path | None = None) -> str:
     """Internal renderer after mapping/required-property preflight, before artifacts."""
-    from model.validation import validate_json_settings
+    reference_display = _imports_model_projection.reference_display
+    scope_for = _imports_model_sources.scope_for
+    validate_json_settings = _imports_model_validation.validate_json_settings
     model_path = (root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties')
     validate_json_settings(values, model_path)
     if path.stem == "cloudformation-stacks":
         return stack_markdown(path, values, root, definitions_root=definitions_root)
-    from model.projection import reference_display
     values = reference_display(values, path, root, definitions_root=definitions_root)
     service = path.stem
     if values.get(f"desired.service.{service}.serviceId") != service:
@@ -243,34 +269,33 @@ def render_validated_model(path: Path, values: dict[str, str], root: Path, *, de
     resources = entries(values, "desired.resource.")
     if not resources:
         raise ValueError(f"service model has no resources: {path.name}")
-    validate_resource_identities(path, values, root, resources, definitions_root=definitions_root)
-    from model.sources import scope_for
+    _dependency_model_validation.validate_resource_identities(path, values, root, resources, definitions_root=definitions_root)
     scope = scope_for((root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties'))
-    details, by_anchor = resource_details(values, definitions_root or root, service, owned, resources, bound_resource_anchors(path), scope=scope)
+    details, by_anchor = resource_details(values, definitions_root or root, service, owned, resources, _dependency_model_projection.bound_resource_anchors(path), scope=scope)
     return render_markdown(path, values, definitions_root or root, owned, details, grouped_resources(values, details, by_anchor, scope=scope))
 
 
 @input_scope
 def generate_markdown(path: Path, values: dict[str, str], root: Path) -> str:
     """Render the selected service without deciding whether its design is correct."""
-    from model.validation import validate_json_settings
+    reference_display = _imports_model_projection.reference_display
+    scope_for = _imports_model_sources.scope_for
+    validate_json_settings = _imports_model_validation.validate_json_settings
     validate_json_settings(values, (path.parents[4] / 'model' / path.relative_to(path.parents[4] / 'docs/designs')).with_suffix('.properties'))
-    from model.projection import reference_display
     values = reference_display(values, path, path.parents[4], definitions_root=root)
     service = path.stem
     owned = values.get(f"desired.service.{service}.ownedCatalogResourceTypes", "").split(",")
     details = []
     for identity, resource in entries(values, "desired.resource."):
         kind = resource["resourceType"]
-        from model.sources import Scope
+        Scope = _imports_model_sources.Scope
         scope = Scope(path.parents[4], path.parent.parent.name, path.parent.name, path.stem)
         name, _, rows = resource_presentation(values, identity, resource, root, scope=scope)
         name = name or kind
-        from model.identity import display_anchor
+        display_anchor = _imports_model_identity.display_anchor
         resource = {**resource, 'anchor': display_anchor(resource)}
         details.append((identity, resource, name, rows))
     by_anchor = {item[1]["anchor"]: item for item in details}
-    from model.sources import scope_for
     scope = scope_for((path.parents[4] / 'model' / path.relative_to(path.parents[4] / 'docs/designs')).with_suffix('.properties'))
     grouped = grouped_resources(values, details, by_anchor, scope=scope)
     return render_markdown(path, values, root, owned, details, grouped, model_policy_views(values))
@@ -285,13 +310,13 @@ def render_markdown(path, values, root, owned, details, grouped, policy_views=No
     output += ["", "## リソース一覧"]
     for kind in dict.fromkeys(item[1]["resourceType"] for item in independent):
         items = [item for item in independent if item[1]["resourceType"] == kind]
-        output += ["", "### " + kind, "", *table(["No.", "ResourceName", "Comment"], [
+        output += ["", "### " + kind, "", *_dependency_policy_tables.table(["No.", "ResourceName", "Comment"], [
             [str(number), f'[{name}](#{resource["anchor"]})', values[f"display.resource.{identity}.comment"]]
             for number, (identity, resource, name, _) in enumerate(items, 1)], numbered=True)]
     output += ["", "## リソース詳細"]
     for identity, resource, name, rows in independent:
         kind = resource["resourceType"]
-        heading = f"### {kind}" if name == kind and resource_display_name(kind, rows, mode=resource_mode(resource), root=root) is None else f"### {kind}: {name}"
+        heading = f"### {kind}" if name == kind and _dependency_design_layout.resource_display_name(kind, rows, mode=_dependency_design_layout.resource_mode(resource), root=root) is None else f"### {kind}: {name}"
         output += ["", f'<!-- resource-logical-id: {resource["logicalId"]} -->', f'<a id="{resource["anchor"]}"></a>', "", heading, ""]
         children = grouped.get(identity, [])
         output += resource_table_lines(resource, name, rows, children, root)
@@ -301,20 +326,30 @@ def render_markdown(path, values, root, owned, details, grouped, policy_views=No
             if definitions:
                 row_id = definitions[0][0]
                 raw = (values[f"desired.row.{row_id}.document"] if JSON_LINK.fullmatch(definitions[0][2])
-                       else literal(values[f"desired.row.{row_id}.value"]))
+                       else _dependency_policy_tables.literal(values[f"desired.row.{row_id}.value"]))
                 document = policy_json(raw)
                 if "bucketDefinitions" in document:
                     mappings = [[f'[{name}](#{resource["anchor"]})', f'`{group["accountId"]}`', f"`{bucket}`"] for group in document["bucketDefinitions"] for bucket in group["buckets"]]
-                    output += ["", "#### 対象S3 bucket", "", *table(["Job", "AWS account ID", "Bucket"], mappings)]
+                    output += ["", "#### 対象S3 bucket", "", *_dependency_policy_tables.table(["Job", "AWS account ID", "Bucket"], mappings)]
     for _, note in entries(values, "desired.note."):
         output += ["", note["text"]]
     return "\n".join(output) + "\n"
 
 
 def model_policy_views(values):
-    from policy_tables import (Policy, POLICY_FORMATS, INLINE_POLICY_DOCUMENTS, JSON_LINK,
-                               artifact_id, policy_document_lines, START, END, IAM_START, IAM_END)
-    from model.files import resource_row_index
+    END = _imports_policy_tables.END
+    IAM_END = _imports_policy_tables.IAM_END
+    IAM_START = _imports_policy_tables.IAM_START
+    INLINE_POLICY_DOCUMENTS = _imports_policy_tables.INLINE_POLICY_DOCUMENTS
+    JSON_LINK = _imports_policy_tables.JSON_LINK
+    POLICY_FORMATS = _imports_policy_tables.POLICY_FORMATS
+    START = _imports_policy_tables.START
+    Policy = _imports_policy_tables.Policy
+    artifact_id = _imports_policy_tables.artifact_id
+    policy_document_lines = _imports_policy_tables.policy_document_lines
+
+    resource_row_index = _imports_model_files.resource_row_index
+
     result = {}
     rows_by_resource = resource_row_index(values)
     for identity, resource in entries(values, 'desired.resource.'):
@@ -329,7 +364,7 @@ def model_policy_views(values):
             trust = prop == 'IAM.Role.AssumeRolePolicyDocument'
             inline = prop in INLINE_POLICY_DOCUMENTS
             if inline and position and rows[position - 1][1]['property'] == prop.removesuffix('PolicyDocument') + 'PolicyName':
-                label = literal(rows[position - 1][1]['value'])
+                label = _dependency_policy_tables.literal(rows[position - 1][1]['value'])
             suffix = 'trust' if trust else 'inline-' + artifact_id(label) if inline else 'policy-' + artifact_id(Path(target).stem)
             kind = '信頼ポリシー' if trust else 'インラインポリシー' if inline else 'ポリシー設定' if POLICY_FORMATS[prop] == 'settings' else 'ポリシー'
             policy = Policy(label, target, resource['anchor'] + '-' + suffix, kind, prop)
@@ -340,14 +375,15 @@ def model_policy_views(values):
     return result
 
 
-from model.projection import JSON_LINK
+
 
 def generate_files(path, values, root, *, warnings=None):
     """Generate one service in memory, without validation or dependency publication."""
-    from model.validation import validate_json_settings
+    Resolver = _imports_model_identity.Resolver
+    safe = _imports_model_sources.safe
+    scope_for = _imports_model_sources.scope_for
+    validate_json_settings = _imports_model_validation.validate_json_settings
     validate_json_settings(values, (root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties'), warnings=warnings)
-    from model.sources import safe, scope_for
-    from model.identity import Resolver
     resolver = Resolver(root)
     artifacts = {}
     for identity, row in entries(values, 'desired.row.'):
@@ -361,7 +397,7 @@ def generate_files(path, values, root, *, warnings=None):
         safe(root, artifact)
         if artifact.parent != path.with_suffix('').resolve():
             raise ValueError('JSON artifact must belong to owning service')
-        from model.projection import execution_document
+        execution_document = _imports_model_projection.execution_document
         document = execution_document(policy_json(row['document']), root, property_name=row['property'], resolver=resolver,
             scope=scope_for((root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties')),
             logical_id=values.get(f'desired.resource.{identity.rpartition("-")[0]}.logicalId'), warnings=warnings)
@@ -378,14 +414,13 @@ def render_model(snapshot, context):
     root = snapshot.scope.root
     if context is not None and context.root != root:
         raise ValueError('render context belongs to another Model root')
-    from validation_cache import recording_inputs, input_recorder
     context = context if context is not None else input_recorder(root)
     document = root / 'docs/designs' / snapshot.scope.environment / snapshot.scope.target / (snapshot.scope.service + '.md')
     with recording_inputs(context):
         return generate_files(document, snapshot.values, root)
 
-from model.sources import safe
-from sync_files import changed_files
+
+
 
 def owned_artifacts(path, values):
     return {(path.parent / link[1]).resolve() for _, row in entries(values, 'desired.row.')
@@ -398,7 +433,7 @@ def view_plan(path, values, root, managed):
     inputs = {p: input_bytes(p) for p in input_select(path.with_suffix(''), '*.json', recursive=True, kinds=('file', 'symlink'))}
     inputs[path] = input_bytes(path) if input_is_file(path) else None
     for file in inputs.keys() | managed:
-        safe(root, file)
+        _dependency_model_sources.safe(root, file)
         if file != path and file.parent != path.with_suffix('').resolve():
             raise ValueError('JSON artifact must belong to owning service')
     files = generate_files(path, values, root)
@@ -408,3 +443,10 @@ def view_plan(path, values, root, managed):
     inputs.update({file: input_bytes(file) if input_is_file(file) else None for file in files if file not in inputs})
     return {**changed_files(files), **{file: None for file in managed - files.keys() if file.is_file()}}, inputs
 
+
+
+_COMPAT_ROOT = Path(__file__).resolve().parents[3]
+
+
+def display_rows(kind: str, rows: list[list[str]], root: Path=_COMPAT_ROOT, *, mode='CREATE', _counts=None, consumed: list[str] | None=None):
+    return _dependency_model_display.display_rows(kind, rows, root, mode=mode, _counts=_counts, consumed=consumed)

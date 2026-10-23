@@ -1,10 +1,14 @@
 """In-process repository state for Import IT; CLI processes always use real Git."""
+
+import shutil
+import tempfile
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
-import shutil
-import tempfile
+
+import import_guard as _imports_import_guard
+import model.importing.repository as _imports_model_importing_repository
 
 _cases = ContextVar('import_it_repositories', default=None)
 
@@ -45,17 +49,25 @@ def state(root):
     return _cases.get()[root.resolve()]
 
 
+
+
+def _repositories_task_state(root, name):
+    current = state(root)
+    return {'task_file': current.task, 'worktree': str(current.owner), 'merged': None, 'start': current.base}
+
+
+def _callback_repositories_changed(root, *, task_file=None):
+    before, after = state(root).baseline, contents(root)
+    return {name for name in before.keys() | after.keys() if before.get(name) != after.get(name)}
+
+
 @contextmanager
 def repositories(monkeypatch):
-    from model.importing import repository
+    repository = _imports_model_importing_repository
     cases = {}
     token = _cases.set(cases)
-    def changed(root, *, task_file=None):
-        before, after = state(root).baseline, contents(root)
-        return {name for name in before.keys() | after.keys() if before.get(name) != after.get(name)}
-    def task_state(root, name):
-        current = state(root)
-        return {'task_file': current.task, 'worktree': str(current.owner), 'merged': None, 'start': current.base}
+    changed = _callback_repositories_changed
+    task_state = _repositories_task_state
     with monkeypatch.context() as patch:
         patch.setattr(repository, 'has_baseline', lambda root: root.resolve() in cases)
         patch.setattr(repository, 'working_revision', lambda root: state(root).head)
@@ -68,7 +80,7 @@ def repositories(monkeypatch):
             yield cases
         finally:
             _cases.reset(token)
-            from import_guard import evidence_store
+            evidence_store = _imports_import_guard.evidence_store
             for root in cases:
                 directory = evidence_store(root, create=False)
                 if directory.exists():
@@ -94,11 +106,21 @@ def start(root):
     return target, {'task_file': 'tasks/example.md', 'start': state(target).base}
 
 
+
+
+
+
+def _publication_workspace_begin(root, relative):
+    return start(root)
+
+
+def _publication_workspace_advance(target):
+    state(target).head = 'changed-head'
+
+
 @contextmanager
 def publication_workspace():
     with fixture() as root:
-        def begin(root, relative):
-            return start(root)
-        def advance(target):
-            state(target).head = 'changed-head'
+        begin = _publication_workspace_begin
+        advance = _publication_workspace_advance
         yield root, begin, advance

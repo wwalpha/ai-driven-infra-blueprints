@@ -1,12 +1,44 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace as _CallbackState
+from unittest.mock import Mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import run_it
+import support.model_design_fixtures as _imports_support_model_design_fixtures
+import utils.aws_mappings as _imports_utils_aws_mappings
+from support import it_fixture_bundle as fixtures
+from support.blueprint_loop_fixtures import (
+    CLI,
+    MODULE,
+    SCRIPT,
+    Path,
+    SimpleNamespace,
+    events,
+    io,
+    json,
+    make_project_fixture,
+    os,
+    patch,
+    pytest,
+    redirect_stdout,
+    run,
+    subprocess,
+    sys,
+)
+from support.it_workspace import populate
+from support.validator import MODULE as validator
+from support.validator import project, schema_validator, write
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.blueprint_loop_fixtures import *
 
 def check_utf8_restart():
     entrypoint = SCRIPT.read_text(encoding="utf-8").split('if __name__ == "__main__":', 1)[1]
@@ -59,7 +91,6 @@ def check_parallel_interruption(tmp_path):
     logs.mkdir()
     commands = [[sys.executable, 'a.checks.py'], [sys.executable, 'test_b.py']]
     with patch.object(MODULE.subprocess, "Popen") as popen, redirect_stdout(io.StringIO()):
-        from unittest.mock import Mock
         first, second = Mock(pid=1, returncode=-9), Mock(pid=2, returncode=-9)
         first.wait.side_effect = [KeyboardInterrupt(), subprocess.TimeoutExpired([], 5), -9]
         second.wait.return_value = -9
@@ -93,10 +124,17 @@ def check_leaf_selection(tmp_path):
 
 
 
+def _callback_check_dependency_selection_integrations(ledger, root, /, *paths):
+    return MODULE.select_checks(root, set(paths), True, integration_cases=ledger)[0]
+
+
+def _callback_check_dependency_selection_selected(root, /, *paths, affected=True):
+    return {p.name for p in MODULE.select_checks(root, set(paths), affected)[0]}
+
+
 def check_dependency_selection():
     root = SCRIPT.parents[2]
-    def selected(*paths, affected=True):
-        return {p.name for p in MODULE.select_checks(root, set(paths), affected)[0]}
+    selected = _bind_framework_callback(_callback_check_dependency_selection_selected, root)
     validator = {'validation-units.checks.py'}
     shared = validator | {'blueprint-loop-unit.checks.py'}
     for category, name in (("integrations", "task"), ("units", "design"), ("units", "references"),
@@ -154,11 +192,9 @@ def check_dependency_selection():
     assert selected(leaf, affected=False) == all_checks
     assert selected("framework/scripts/tests/integrations/design_layout.checks.py") == {'design_layout-unit.checks.py', 'design_document-unit.checks.py', 'validation-units.checks.py', 'sync-model-unit.checks.py', 'policy_tables-unit.checks.py'}
 
-    import run_it
     ledger, errors = run_it.inventory(root / 'framework/scripts/tests')
     assert not errors, errors
-    def integrations(*paths):
-        return MODULE.select_checks(root, set(paths), True, integration_cases=ledger)[0]
+    integrations = _bind_framework_callback(_callback_check_dependency_selection_integrations, ledger, root)
     resource = 'framework/scripts/comparison/resource.py'
     service = 'framework/scripts/comparison/services/cloudtrail.py'
     cases = integrations(resource)
@@ -182,7 +218,6 @@ def check_dependency_selection():
 
 
 def check_fixture_independence(tmp_path):
-    from support.validator import MODULE as validator, project, schema_validator, write
     before = dict(os.environ), Path.cwd()
     with project() as first, project() as second:
         assert first != second
@@ -214,7 +249,7 @@ def check_regression_discovery(tmp_path):
     assert "service-parameter-inputs.checks.py" not in all_checks
     assert all(p.is_relative_to(root / "framework/scripts/tests/units") for p in MODULE.select_checks(root, set())[0])
     assert not any("parameter-migration" in name for name in all_checks)
-    for helper, expected in (("parameter_cases", "service-parameter-inputs.checks.py"),
+    for helper, _expected in (("parameter_cases", "service-parameter-inputs.checks.py"),
                              ("service_contracts", "model_parameter_inputs.checks.py")):
         selected, reason = MODULE.select_checks(root, {f"framework/scripts/tests/integrations/{helper}.py"}, True)
         assert {p.name for p in selected} == ({"model_parameter_inputs-unit.checks.py"} if helper == "service_contracts" else set()), reason
@@ -268,22 +303,36 @@ def check_unit_dispatch(tmp_path):
         authorize.assert_not_called()  # The pinned snapshot performs its own authorization.
 
 
+
+
+def _check_ci_workflow_invalid_receipts(command, **kwargs):
+    path = Path(command[-1])
+    if path.name.startswith('a.'):
+        path.write_text('{broken')
+    elif path.name.startswith('b.'):
+        path.write_text('{}')
+    return subprocess.CompletedProcess(command, 0)
+
+
+def _callback_check_ci_workflow_execute(_state_check_ci_workflow_316, /, command, **kwargs):
+    code = _state_check_ci_workflow_316.codes.pop(0)
+    if isinstance(code, OSError):
+        raise code
+    Path(command[-1]).write_text(json.dumps({'version': 1, 'suite': 'integrations/' + Path(command[command.index('--suite') + 1]).name,
+                                           'completed': {}, 'collected': [], 'passed': [], 'metrics': {}}))
+    return subprocess.CompletedProcess(command, code)
+
+
 def check_ci_workflow(tmp_path):
-    import run_it
+    _state_check_ci_workflow_316 = _CallbackState()
     tests = tmp_path / 'framework/scripts/tests'
     (tests / 'integrations').mkdir(parents=True)
     for name in ('a', 'b', 'c'):
         (tests / 'integrations' / (name + '.checks.py')).write_text('assert True\n')
     output = tmp_path / 'receipts'
     output.mkdir()
-    for codes in ([0, 0, 0], [1, OSError('injected spawn failure'), 0]):
-        def execute(command, **kwargs):
-            code = codes.pop(0)
-            if isinstance(code, OSError):
-                raise code
-            Path(command[-1]).write_text(json.dumps({'version': 1, 'suite': 'integrations/' + Path(command[command.index('--suite') + 1]).name,
-                                                   'completed': {}, 'collected': [], 'passed': [], 'metrics': {}}))
-            return subprocess.CompletedProcess(command, code)
+    for _state_check_ci_workflow_316.codes in ([0, 0, 0], [1, OSError('injected spawn failure'), 0]):
+        execute = _bind_framework_callback(_callback_check_ci_workflow_execute, _state_check_ci_workflow_316)
         summary = io.StringIO()
         with patch.object(run_it.subprocess, 'run', side_effect=execute) as launch:
             rows, _ = run_it.execute_suites(tests, output, summary)
@@ -295,13 +344,7 @@ def check_ci_workflow(tmp_path):
             path.unlink()
     assert [row['code'] for row in rows] == [1, 1, 0]
 
-    def invalid_receipts(command, **kwargs):
-        path = Path(command[-1])
-        if path.name.startswith('a.'):
-            path.write_text('{broken')
-        elif path.name.startswith('b.'):
-            path.write_text('{}')
-        return subprocess.CompletedProcess(command, 0)
+    invalid_receipts = _check_ci_workflow_invalid_receipts
     with patch.object(run_it.subprocess, 'run', side_effect=invalid_receipts):
         rows, receipts = run_it.execute_suites(tests, output, io.StringIO())
     assert all(row['code'] != 0 for row in rows) and not receipts
@@ -317,7 +360,6 @@ def check_ci_workflow(tmp_path):
 
 
 def check_it_reachability(tmp_path):
-    import run_it
     tests = tmp_path / 'framework/scripts/tests'
     (tests / 'integrations').mkdir(parents=True)
     suite = tests / 'integrations/receipt.checks.py'
@@ -408,8 +450,18 @@ module_complete(__file__)
 
 
 def check_it_assertion_guards(tmp_path):
-    import run_it
     run_it.check_assertion_guards(Path(run_it.__file__).parent)
+    guard = "if not __debug__:\n raise SystemExit('Focused checks require assertions; run without -O')\n"
+    source = tmp_path / 'bootstrap.checks.py'
+    source.write_text("import sys\nsys.path.insert(0, 'tests')\n" + guard, encoding='utf-8')
+    run_it.check_assertion_guards(tmp_path)
+    source.write_text("import sys\nsys.path.insert(1, 'tests')\n" + guard, encoding='utf-8')
+    with pytest.raises(ValueError, match='code before assertion guard'):
+        run_it.check_assertion_guards(tmp_path)
+    source.write_text("print('unsafe')\n" + guard, encoding='utf-8')
+    with pytest.raises(ValueError, match='code before assertion guard'):
+        run_it.check_assertion_guards(tmp_path)
+    source.unlink()
     source = Path(run_it.__file__).read_text()
     assert 'setprofile' not in source and 'settrace' not in source
     path = tmp_path / 'sample.checks.py'
@@ -424,14 +476,15 @@ def check_it_assertion_guards(tmp_path):
     assert result.returncode != 0 and 'Focused checks require assertions' in result.stderr
 
 
+def _callback_check_it_fixture_isolation_build(generations, /, root, name):
+    generations.append(name)
+    (root / name).mkdir()
+    (root / name / 'value.txt').write_text(name)
+
+
 def check_it_fixture_isolation(tmp_path):
-    from support import it_fixture_bundle as fixtures
-    from support.it_workspace import populate
     generations = []
-    def build(root, name):
-        generations.append(name)
-        (root / name).mkdir()
-        (root / name / 'value.txt').write_text(name)
+    build = _bind_framework_callback(_callback_check_it_fixture_isolation_build, generations)
     with patch.object(fixtures, 'build', side_effect=build):
         with fixtures.bundle() as root, patch.dict(os.environ, {fixtures.ENV: str(root)}):
             before = fixtures.fingerprint(root)
@@ -446,7 +499,7 @@ def check_it_fixture_isolation(tmp_path):
                     (first / 'new.txt').write_text('local')
                     assert (second / 'value.txt').read_text() == name
                     assert set(p.name for p in second.iterdir()) == {'value.txt'}
-            from support.model_design_fixtures import root as model_design_root
+            model_design_root = _imports_support_model_design_fixtures.root
             shared = fixtures.REPOSITORY / 'framework'
             with patch('support.it_workspace.populate', side_effect=AssertionError('case copy')), \
                  patch('shutil.copytree', side_effect=AssertionError('framework copy')):
@@ -457,7 +510,7 @@ def check_it_fixture_isolation(tmp_path):
                         directory.mkdir(parents=True)
                         case = model_design_root.__wrapped__(directory)
                         assert case == directory.resolve()
-                        from utils.aws_mappings import definition_root
+                        definition_root = _imports_utils_aws_mappings.definition_root
                         assert not (case / 'framework').exists()
                         assert definition_root(case) / 'framework' == shared
                         assert not (case / 'model').exists()
@@ -486,7 +539,6 @@ def check_it_fixture_isolation(tmp_path):
 
 
 def check_it_inventory(tmp_path):
-    import run_it
     cases, errors = run_it.inventory(Path(run_it.__file__).parent)
     assert not errors, errors
     assert cases[('integrations/design_layout.checks.py', 'check_quicksight_group_principal_reference')] == ('pytest', 1)
@@ -518,20 +570,26 @@ def check_it_inventory(tmp_path):
     assert any('terminal module' in error for error in run_it.inventory(tmp_path)[1])
 
 
+
+
+def _check_it_run_lifecycle_build(root, name):
+    (root / name).mkdir()
+    (root / name / 'seed').write_text(name)
+    sys.audit('blueprint.it_fixture.generated', name)
+
+
+def _callback_check_it_run_lifecycle_execute(*args):
+    assert os.environ[fixtures.ENV]
+    assert os.environ['BLUEPRINT_VALIDATION_CACHE_DIR'] != 'previous-cache'
+    return [{'suite': 'example', 'code': 0}], [{'version': 1, 'suite': 'integrations/example.checks.py', 'completed': {'integrations/example.checks.py::check_one': 1}, 'collected': [], 'passed': [], 'metrics': {}}]
+
+
 def check_it_run_lifecycle(tmp_path):
-    import run_it
-    from support import it_fixture_bundle as fixtures
     (tmp_path / 'integrations').mkdir()
     (tmp_path / 'integrations/example.checks.py').write_text("if not __debug__:\n    raise SystemExit('Focused checks require assertions; run without -O')\nfrom support.it_case_receipt import it_case\n@it_case\ndef check_one():\n    assert True\n")
     (tmp_path / 'CASES.md').write_text('| `origin` | `check_one` | IT | [case](integrations/example.checks.py) | direct / 1 |\n')
-    def build(root, name):
-        (root / name).mkdir()
-        (root / name / 'seed').write_text(name)
-        sys.audit('blueprint.it_fixture.generated', name)
-    def execute(*args):
-        assert os.environ[fixtures.ENV]
-        assert os.environ['BLUEPRINT_VALIDATION_CACHE_DIR'] != 'previous-cache'
-        return [{'suite': 'example', 'code': 0}], [{'version': 1, 'suite': 'integrations/example.checks.py', 'completed': {'integrations/example.checks.py::check_one': 1}, 'collected': [], 'passed': [], 'metrics': {}}]
+    build = _check_it_run_lifecycle_build
+    execute = _callback_check_it_run_lifecycle_execute
     with patch.dict(os.environ, {fixtures.ENV: 'previous-bundle', 'BLUEPRINT_VALIDATION_CACHE_DIR': 'previous-cache'}), \
          patch.object(fixtures, 'build', side_effect=build), patch.object(run_it, 'execute_suites', side_effect=execute):
         result = run_it.run_all(tmp_path, io.StringIO())

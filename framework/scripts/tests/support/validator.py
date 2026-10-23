@@ -1,12 +1,15 @@
 """Shared validator instance and isolated filesystem/Git setup for checks."""
 
-from contextlib import contextmanager
 import importlib.util
-from pathlib import Path
 import subprocess
 import sys
-from threading import RLock
 import tempfile
+from contextlib import contextmanager
+from pathlib import Path
+from threading import RLock
+
+import support.model_sources as _imports_support_model_sources
+from validation import runner as MODULE
 
 SCRIPT = Path(__file__).resolve().parents[2] / "validate-blueprint.py"
 
@@ -37,7 +40,6 @@ def load(name, module_name=None):
         return module
 
 
-from validation import runner as MODULE
 
 
 @contextmanager
@@ -60,7 +62,7 @@ def commit(root, paths, message):
 
 
 def write(path, text):
-    from support.model_sources import write_fixture_files
+    write_fixture_files = _imports_support_model_sources.write_fixture_files
     write_fixture_files({path: text})
 
 

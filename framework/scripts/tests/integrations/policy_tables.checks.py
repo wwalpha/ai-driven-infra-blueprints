@@ -1,15 +1,59 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import policy_tables as _imports_policy_tables
+from cloudformation_schema import CloudFormationSchemaCatalog
+from design_layout import expanded_design
+from support import design_layout_fixtures as layout_fixture
+from support.policy_tables_fixtures import (
+    ALIGNMENT,
+    END,
+    HEADER,
+    SCRIPTS,
+    START,
+    VALIDATOR,
+    Path,
+    indexed_rows,
+    json,
+    mapping_cache_checks,
+    model_projection,
+    policy_cli,
+    policy_lines,
+    pytest,
+    rendered_design,
+    resources_in,
+    run,
+    subprocess,
+    sys,
+    tempfile,
+    without_policy_tables,
+)
+from support.policy_tables_fixtures import policy_mapping_cache as policy_mapping_cache
+from support.policy_tables_fixtures import pytestmark as pytestmark
 from support.validator import diagnostics
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.policy_tables_fixtures import *
-from design_layout import expanded_design
+
+def _callback_check_iam_errors(path, root, /, content):
+    path.write_text(content, encoding="utf-8")
+    validator = VALIDATOR.Validator(root)
+    validator.accounts = {("dev", "123456789012"): {}}
+    validator.check_policy_tables()
+    validator.check_design_overviews()
+    validator.check_design_links({})
+    catalog_types, owners, outputs = VALIDATOR.Validator(SCRIPTS.parents[1]).catalog_design_properties()
+    validator.check_design_tables({path: ("iam", ("IAM.Role", "IAM.InstanceProfile"))}, catalog_types, owners, outputs)
+    validator.check_design_artifacts()
+    return diagnostics(validator)
+
 
 @pytest.mark.usefixtures("policy_mapping_cache")
 def check_iam(tmp_path):
@@ -97,17 +141,7 @@ def check_iam(tmp_path):
     condition_row = next(line for line in rendered.splitlines() if line.startswith("| 1 | Allow |"))
     assert "aws:SourceAccount" in condition_row and "aws:SourceArn" in condition_row
 
-    def errors(content):
-        path.write_text(content, encoding="utf-8")
-        validator = VALIDATOR.Validator(root)
-        validator.accounts = {("dev", "123456789012"): {}}
-        validator.check_policy_tables()
-        validator.check_design_overviews()
-        validator.check_design_links({})
-        catalog_types, owners, outputs = VALIDATOR.Validator(SCRIPTS.parents[1]).catalog_design_properties()
-        validator.check_design_tables({path: ("iam", ("IAM.Role", "IAM.InstanceProfile"))}, catalog_types, owners, outputs)
-        validator.check_design_artifacts()
-        return diagnostics(validator)
+    errors = _bind_framework_callback(_callback_check_iam_errors, path, root)
 
     assert not errors(rendered), errors(rendered)
     assert errors(rendered.replace("| No. | Sid |", "| Statement | Sid |", 1)), "legacy policy column must fail"
@@ -222,10 +256,20 @@ def check_iam(tmp_path):
     print("IAM policy tables checks: PASS (generation, validation, model, CLI)")
 
 
+def _callback_service_policy_checks_errors(path, root, /, content):
+    path.write_text(content, encoding="utf-8")
+    validator = VALIDATOR.Validator(root)
+    validator.check_policy_tables()
+    validator.check_design_overviews()
+    validator.check_design_links({})
+    return diagnostics(validator)
+
+
 @pytest.mark.usefixtures("policy_mapping_cache")
 def service_policy_checks():
-    from cloudformation_schema import CloudFormationSchemaCatalog
-    from policy_tables import POLICY_FORMATS, START, END
+    END = _imports_policy_tables.END
+    POLICY_FORMATS = _imports_policy_tables.POLICY_FORMATS
+    START = _imports_policy_tables.START
 
     repository = SCRIPTS.parents[1]
     schema = CloudFormationSchemaCatalog(repository)
@@ -316,13 +360,7 @@ def service_policy_checks():
                 if prop == "IAM.User.Policies[].PolicyDocument":
                     assert "#### インラインポリシー：Access" in rendered
 
-            def errors(content):
-                path.write_text(content, encoding="utf-8")
-                validator = VALIDATOR.Validator(root)
-                validator.check_policy_tables()
-                validator.check_design_overviews()
-                validator.check_design_links({})
-                return diagnostics(validator)
+            errors = _bind_framework_callback(_callback_service_policy_checks_errors, path, root)
 
             assert not errors(rendered), (prop, errors(rendered))
             if style != "settings":
@@ -360,9 +398,7 @@ def service_policy_checks():
 @pytest.mark.usefixtures("policy_mapping_cache")
 def grouping_and_settings_checks():
     mapping_cache_checks()
-    from policy_tables import START, END
-
-    from support import design_layout_fixtures as layout_fixture
+    START = _imports_policy_tables.START
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         path = root / "docs/designs/dev/123456789012/kms.md"
@@ -456,4 +492,3 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

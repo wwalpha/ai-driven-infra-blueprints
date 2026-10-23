@@ -1,24 +1,38 @@
 #!/usr/bin/env python3
 """Generate one standalone audit test from authoritative Model sources, offline."""
+
 import argparse
 import ast
-from dataclasses import asdict, replace
 import hashlib
 import json
-import os
-from pathlib import Path
 import re
-import tempfile
+from dataclasses import asdict, replace
+from functools import partial as _bind_framework_callback
+from pathlib import Path
 
+import aws_mapping as _imports_aws_mapping
+import generation_inputs as _imports_generation_inputs
+import iac_values as _imports_iac_values
+import issue_gate as _imports_issue_gate
+import task_contract_core as _imports_task_contract
+import utils.aws_mappings as _imports_utils_aws_mappings
+import utils.file_operations as _imports_utils_file_operations
+import validation_cache as _imports_validation_cache
+import validation_scope as _imports_validation_scope
 from aws_mapping_compare import comparison
 from design_catalog import DesignSchemaCatalog
-from model.core import entries
-from model.sources import load_model
-from model.projection import catalog_outputs
-from model.sources import model_paths, publication_lock
 from script_loader import module
-from task_contract import task_revision, status, SELECTOR
-from validation_cache import input_scope, input_text
+from task_contract_core import SELECTOR as SELECTOR
+from task_contract_core import status as status
+from task_contract_core import task_revision as task_revision
+from utils.aws_catalogs import catalog_outputs
+from utils.aws_sdk import aws_runtime
+from utils.input_cache import input_scope, input_text
+
+import model.identity as _imports_model_identity
+import model.sources as _imports_model_sources
+from model.core import entries
+from model.sources import load_model, model_paths, publication_lock
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -33,46 +47,62 @@ def definitions(path, names):
     missing = set(names) - found.keys()
     if missing:
         raise ValueError(f'missing runtime definitions in {path.name}: {sorted(missing)}')
-    return '\n\n'.join(found[name] for name in names) + '\n'
+    nodes = {node.name: node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
+    selected = list(names)
+    for name in selected:
+        dependencies = sorted({node.id for node in ast.walk(nodes[name]) if isinstance(node, ast.Name)
+                               and node.id.startswith(('_recursive_', '_callback_')) and node.id in found})
+        selected.extend(dependency for dependency in dependencies if dependency not in selected)
+    return '\n\n'.join(found[name] for name in selected) + '\n'
+
+
+def _callback_dependencies_model_identity(root, /, path):
+    return path.relative_to(root / 'model').with_suffix('').as_posix()
+
+
+def _callback_dependencies_read(cache, model_identity, reads, /, path):
+    key = model_identity(path)
+    if key not in cache:
+        cache[key] = None if reads.kind(path) == 'missing' else load_model(path, reads)
+    return cache[key]
+
+
+def _recursive_dependencies_logical_names(value):
+    if isinstance(value, list):
+        return set().union(*(_recursive_dependencies_logical_names(v) for v in value)) if value else set()
+    if not isinstance(value, dict):
+        return set()
+    names = set()
+    if 'Ref' in value:
+        names.add(value['Ref'])
+    if 'Fn::GetAtt' in value:
+        item = value['Fn::GetAtt']
+        names.add(item[0] if isinstance(item, list) else item.split('.')[0])
+    if 'Fn::Sub' in value:
+        sub = value['Fn::Sub']
+        text, local = sub if isinstance(sub, list) else (sub, {})
+        names.update(key.split('.')[0] for key in re.findall(r'\$\{([^}]+)\}', text)
+                     if key not in local and not key.startswith('!'))
+    for child in value.values():
+        names.update(_recursive_dependencies_logical_names(child))
+    return {name for name in names if not name.startswith('AWS::')}
 
 
 def dependencies(root, target, selected):
     """Embed only selected resources and explicitly referenced producer resources."""
-    from iac_values import cfn_resource_identity
-    from model.sources import FileReads
+    cfn_resource_identity = _imports_iac_values.cfn_resource_identity
+
+    FileReads = _imports_model_sources.FileReads
     reads = FileReads()
-    from model.identity import Resolver
+    Resolver = _imports_model_identity.Resolver
     identity_resolver = Resolver(root, reads)
     cache, included, pending = {}, {}, [(selected, None)]
 
-    def model_identity(path):
-        return path.relative_to(root / 'model').with_suffix('').as_posix()
+    model_identity = _bind_framework_callback(_callback_dependencies_model_identity, root)
 
-    def read(path):
-        key = model_identity(path)
-        if key not in cache:
-            cache[key] = None if reads.kind(path) == 'missing' else load_model(path, reads)
-        return cache[key]
+    read = _bind_framework_callback(_callback_dependencies_read, cache, model_identity, reads)
 
-    def logical_names(value):
-        if isinstance(value, list):
-            return set().union(*(logical_names(v) for v in value)) if value else set()
-        if not isinstance(value, dict):
-            return set()
-        names = set()
-        if 'Ref' in value:
-            names.add(value['Ref'])
-        if 'Fn::GetAtt' in value:
-            item = value['Fn::GetAtt']
-            names.add(item[0] if isinstance(item, list) else item.split('.')[0])
-        if 'Fn::Sub' in value:
-            sub = value['Fn::Sub']
-            text, local = sub if isinstance(sub, list) else (sub, {})
-            names.update(key.split('.')[0] for key in re.findall(r'\$\{([^}]+)\}', text)
-                         if key not in local and not key.startswith('!'))
-        for child in value.values():
-            names.update(logical_names(child))
-        return {name for name in names if not name.startswith('AWS::')}
+    logical_names = _recursive_dependencies_logical_names
 
     while pending:
         path, numbers = pending.pop()
@@ -89,7 +119,7 @@ def dependencies(root, target, selected):
             values = [value for key, value in data.values.items() if
                       key.startswith('desired.row.' + number + '-') or key == 'desired.resource.' + number + '.parentReference']
             for value in values:
-                from model.identity import reference_tokens
+                reference_tokens = _imports_model_identity.reference_tokens
                 resolver = identity_resolver
                 for uri in reference_tokens(value):
                     source, rid, _ = resolver.resolve(uri[0], data.scope)
@@ -139,8 +169,8 @@ def generate(root, environment, selector, service):
         props = dict(props)
         if name == 'iam':
             # Audit-only projection: existing Compare keeps its CloudControl classification.
-            from aws_mapping import response_shape
-            from botocore.session import get_session
+            response_shape = _imports_aws_mapping.response_shape
+            get_session = aws_runtime().sdk_session
             sdk = get_session().get_service_model('iam')
             for kind, operation, result in [('IAM.Role', 'GetRole', 'Role'), ('IAM.User', 'GetUser', 'User')]:
                 response_shape(sdk.operation_model(operation).output_shape, result + '.PermissionsBoundary.PermissionsBoundaryArn')
@@ -148,7 +178,7 @@ def generate(root, environment, selector, service):
                 prop = props[key]
                 props[key] = replace(prop, field=replace(prop.field, getter='base', path='PermissionsBoundary.PermissionsBoundaryArn',
                                                        norm='arn', classification='supported', reason=''))
-        from aws_mapping import Property
+        Property = _imports_aws_mapping.Property
         for row in selected_rows:
             key = row['property']
             if key not in props:
@@ -171,22 +201,23 @@ def generate(root, environment, selector, service):
              for data in models.values() for file, content in data.dependencies.items()}
     files['project.json'] = project_source
     model_hash = hashlib.sha256(m.stable({'sources': files, 'target': target}).encode('utf-8')).hexdigest()
-    from utils.aws_mappings import definition_root
+    definition_root = _imports_utils_aws_mappings.definition_root
     scripts = definition_root(ROOT) / 'framework/scripts'
     engine = ('from __future__ import annotations\n'
-              'import argparse, hashlib, json, os, re, subprocess, sys\n'
-              'from collections import Counter, defaultdict\n'
+              'import argparse, hashlib, json, os, posixpath, re, subprocess, sys\n'
+              'from collections import Counter, defaultdict\nfrom collections.abc import Mapping\n'
               'from copy import deepcopy\nfrom threading import RLock\nfrom concurrent.futures import Future\n'
+              'from functools import partial as _bind_framework_callback\n'
               'from dataclasses import dataclass\nfrom pathlib import Path, PurePosixPath\nfrom types import SimpleNamespace\nfrom urllib.parse import unquote\n'
               'ROOT = Path("/model-test-snapshot")\n'
               'LINK = re.compile(r"^\\[([^\\]]+)\\]\\(([^)]*?)#([^)]+)\\)$")\n'
               'def memo_table(): return None\n')
-    engine += definitions(scripts / 'model/identity.py', ['resource_link', 'parse_reference', 'anchor_index', 'select_anchor']).replace('    from model.references import link_scope\n', '')
-    engine += definitions(scripts / 'model/references.py', ['link_scope'])
+    engine += definitions(scripts / 'model/identity.py', ['parse_reference', 'anchor_index', 'select_anchor']).replace('    from model.references import link_scope\n', '')
+    engine += definitions(scripts / 'model/format.py', ['link_scope'])
     engine += definitions(scripts / 'utils/lazy_definitions.py', ['load_once'])
     engine += definitions(scripts / 'utils/json_format.py', ['unique_object', 'invalid_constant', 'policy_json'])
     engine += definitions(scripts / 'iac_values.py', ['cfn_resource_identity'])
-    engine += definitions(scripts / 'model/core.py', ['ReferenceResolutionError', 'entries', 'literal'])
+    engine += definitions(scripts / 'model/core.py', ['ReferenceResolutionError', 'resource_link', 'entries', 'literal'])
     engine += definitions(scripts / 'comparison_rows.py', ['Unresolved', 'select', 'put_row'])
     engine += 'MISSING = {"absent": True}\n'
     # Preserve the exact collection semantics maintained by the existing comparator.
@@ -195,7 +226,7 @@ def generate(root, environment, selector, service):
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in {'MAP_ARRAYS', 'SET_ARRAYS'} for t in node.targets):
             engine += ast.get_source_segment(original, node) + '\n'
-    engine += definitions(scripts / 'model/adapters/aws.py', ['Field', 'AcquisitionError', 'sdk_error', 'one', 'project',
+    engine += definitions(scripts / 'model/adapters/aws.py', ['copy_default', 'Field', 'AcquisitionError', 'sdk_error', 'one', 'project',
                           'canonical', 'stable', 'policy', 'redacted', 'Context', 'Model', 'Resource',
                           'normalize', 'source', 'compare_resource'])
     projection = definitions(scripts / 'aws_mapping_catalog.py', ['project'])
@@ -225,10 +256,13 @@ def generate(root, environment, selector, service):
 
 
 def main(argv=None):
-    from generation_inputs import GenerationInputs
-    from validation_cache import recording_inputs
-    from task_contract import selected_task, validate_contract, paths_in, matches
-    from utils.file_operations import atomic_files
+    GenerationInputs = _imports_generation_inputs.GenerationInputs
+    matches = _imports_task_contract.matches
+    paths_in = _imports_task_contract.paths_in
+    selected_task = _imports_task_contract.selected_task
+    validate_contract = _imports_task_contract.validate_contract
+    atomic_files = _imports_utils_file_operations.atomic_files
+    recording_inputs = _imports_validation_cache.recording_inputs
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repository-root', type=Path, default=Path.cwd())
     parser.add_argument('--environment', required=True)
@@ -240,8 +274,8 @@ def main(argv=None):
     inputs = None
     try:
         with selected_task(root, args.task_file):
-            from issue_gate import require_no_issues
-            from validation_scope import active_scope
+            require_no_issues = _imports_issue_gate.require_no_issues
+            active_scope = _imports_validation_scope.active_scope
             require_no_issues(root, active_scope(root))
             expected_task = task_revision(root, args.task_file)
             name, text = expected_task
@@ -249,7 +283,7 @@ def main(argv=None):
                 raise ValueError('audit generation requires a running Task')
             validate_contract(root, name, text)
             output = root / 'tests' / args.environment / args.target / (args.service + '.py')
-            from model.sources import safe
+            safe = _imports_model_sources.safe
             safe(root, output)
             relative = output.relative_to(root).as_posix()
             if relative not in paths_in(text, '## Modified files') or not any(matches(relative, p) for p in paths_in(text, '## Allowed paths')):

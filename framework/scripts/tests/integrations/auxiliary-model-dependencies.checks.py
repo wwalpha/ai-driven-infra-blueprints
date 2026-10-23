@@ -2,13 +2,27 @@
 """Scoped staging retains complete auxiliary properties and transitive producer inputs."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from model.sources import model_paths as model_paths
+from model.sources import source_inputs as source_inputs
+from support.it_case_receipt import it_case
+from support.producer_identifier_reference_fixtures import (
+    Path,
+    json,
+    load_model,
+    reference,
+    resource,
+    serialize,
+    setup,
+    tempfile,
+    write_model,
+)
+from sync_runtime import stage_inputs
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-from support.it_case_receipt import it_case
-from support.producer_identifier_reference_fixtures import *
-from model.sources import source_inputs, model_paths
-from sync_runtime import stage_inputs
 
 
 def staged(root, model, values, expected):

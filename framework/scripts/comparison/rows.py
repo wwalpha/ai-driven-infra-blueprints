@@ -1,5 +1,8 @@
 """Prepare meaningful grouped settings without changing child/array membership."""
+
 import re
+
+import policy_tables as _imports_policy_tables
 from comparison_rows import Unresolved, put_row
 
 
@@ -29,7 +32,7 @@ def validated_rows(kind, rows):
 
 def name_tag(kind, short, raw, name_tag_kinds):
     if short == 'Name' and kind in name_tag_kinds:
-        from policy_tables import literal
+        literal = _imports_policy_tables.literal
         return 'Tags[]', {'Key': 'Name', 'Value': literal(raw)}
     return None
 

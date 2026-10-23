@@ -1,20 +1,89 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from datetime import datetime as real_datetime
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace
+from types import SimpleNamespace as _CallbackState
+from unittest.mock import Mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import issues.integrity as issues_scan
+import model.sources as sources
+import support.issues_scan_fixtures as _exports_support_issues_scan_fixtures
+import support.issues_scan_fixtures as _retained_fixture_protected_sources
+import support.issues_scan_fixtures as _retained_fixture_scan_project
+import sync_runtime
+from comparison.inputs import Inputs
+from issue_gate import issue_errors, unresolved_services
+from issues.aggregate import MAX_GROUPS, iac_actions
+from issues.inputs import view_text
+from issues.integrity import fingerprint
+from issues.materials import existing_materials
+from issues.records import iac_key
+from issues.reports import attach_notices, normal_merge, notice_report, split_notices
+from model.format import FORMAT, INDEX, PART
+from model.sources import load_model as real_load
+from support.issues_scan_fixtures import (
+    Comparison,
+    Counter,
+    Path,
+    aggregate,
+    detail_payload,
+    expect_error,
+    hashlib,
+    iac_dataset,
+    iac_report,
+    iac_summary,
+    identifier,
+    json,
+    patch,
+    pytest,
+    re,
+    render_iac,
+    review_payload,
+    run,
+    save,
+    summary,
+    summary_fixture,
+    sys,
+    tempfile,
+    value_differences,
+    verify_inputs,
+    write,
+    write_model,
+)
+from support.issues_scan_fixtures import pytestmark as pytestmark
+from utils.input_cache import digest_files
+from utils.source_reads import FileReads
+from validation.runner import Validator
+from validation_cache import PassCache
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.issues_scan_fixtures import *
+protected_sources = _retained_fixture_protected_sources.protected_sources
+scan_project = _retained_fixture_scan_project.scan_project
+
+_CALLBACK_DEFAULT = object()
+
+
+# Preserve shared fixtures and compatibility exports under their historical names.
+entries = _exports_support_issues_scan_fixtures.entries
+
+
+
+def _callback_check_mismatch_rendering_fields(left, right, name='Setting', exact=False):
+    return value_differences(left, right, name, exact=exact)
+
 
 def check_mismatch_rendering():
-    from iac_values import safe_value
-    from issues.aggregate import iac_actions
-    from issues.records import iac_key
 
-    def fields(left, right, name='Setting', exact=False):
-        return value_differences(left, right, name, exact=exact)
+    fields = _callback_check_mismatch_rendering_fields
 
     role = {'$resource': ['iam', '089'], '$attribute': 'RoleName'}
     arn_role = dict(role, **{'$attribute': 'Arn'})
@@ -95,12 +164,17 @@ def check_mismatch_rendering():
 
 
 
+def _callback_summary_scale_cases_with_records_161(artifact, _default_services, _default_display, /, records, services=_CALLBACK_DEFAULT, display=_CALLBACK_DEFAULT):
+    if services is _CALLBACK_DEFAULT:
+        services = _default_services
+    if display is _CALLBACK_DEFAULT:
+        display = _default_display
+    return dict(artifact, services=services, **aggregate(records, 'dev', 'cde', services, display))
+
+
 def summary_scale_cases():
-    from issues.records import iac_key
-    from issues.aggregate import MAX_GROUPS
     artifact = summary_fixture()
-    def with_records(records, services=artifact['services'], display=None):
-        return dict(artifact, services=services, **aggregate(records, 'dev', 'cde', services, display))
+    with_records = _bind_framework_callback(_callback_summary_scale_cases_with_records_161, artifact, artifact['services'], None)
 
     records = artifact['iac']
     original = json.dumps(artifact, sort_keys=True)
@@ -156,7 +230,8 @@ def summary_scale_cases():
     assert iac_summary(records + extra, 'dev', 'cde', artifact['services'])['issue_count'] == 1194
     # Full fields stay masked in artifact, even when summary truncates compound values.
     secret = dict(records[2000], property='Glue.Job.Settings', desired={'Password': 'first', 'Role': 'arn:aws:iam::123456789012:role/a', 'Value': 'prefix-confidential-A'}, actual={'Password': 'second', 'Role': 'arn:aws:iam::123456789012:role/b', 'Value': 'prefix-confidential-B'})
-    safe = Comparison.__new__(Comparison); safe.sensitive_values = {'confidential'}
+    safe = Comparison.__new__(Comparison)
+    safe.sensitive_values = {'confidential'}
     hidden = dict(secret, desired=safe.redacted(secret['desired']), actual=safe.redacted(secret['actual']))
     hidden_fields = {identifier(hidden): value_differences(secret['desired'], secret['actual'], secret['property'], redact=safe.redacted)}
     secret_artifact = with_records([hidden], display=hidden_fields)
@@ -205,20 +280,45 @@ def summary_scale_cases():
 check_summary_scale = summary_scale_cases
 
 
+
+
+def _check_operation_pass_cache_outcome(call):
+    try:
+        return call()
+    except (ValueError, OSError) as error:
+        return (type(error), str(error))
+
+
+def _callback_check_operation_pass_cache_baseline(root, artifact):
+    for entry, key in artifact.get('service_keys', {}).items():
+        if key is not None and PassCache(root).service_key(tuple(entry.split('/'))) != key:
+            raise ValueError('stale scan: validation/reference dependency changed')
+
+
+def _callback_check_operation_pass_cache_artifact(entries, root, /):
+    return {'service_keys': {'/'.join(entry): PassCache(root).service_key(entry) for entry in entries},
+            'fingerprint': {'paths': [], 'digest': digest_files(root, []),
+                            'file_sets': {}, 'framework': PassCache(root).common_key()}}
+
+
+def _callback_check_operation_pass_cache_counted(calls, original_common, /, cache, *args, **kwargs):
+    calls.append(cache)
+    return original_common(cache, *args, **kwargs)
+
+
+def _callback_check_operation_pass_cache_mutate(common, project, seen, service_key, /, cache, entry):
+    key = service_key(cache, entry)
+    seen.append(entry)
+    if len(seen) == 1:
+        write(common, project + '\n')
+    return key
+
+
 def check_operation_pass_cache():
-    import issues.integrity as issues_scan
-    from validation_cache import PassCache, digest_files
 
-    def baseline(root, artifact):
-        for entry, key in artifact.get('service_keys', {}).items():
-            if key is not None and PassCache(root).service_key(tuple(entry.split('/'))) != key:
-                raise ValueError('stale scan: validation/reference dependency changed')
+    baseline = _callback_check_operation_pass_cache_baseline
 
-    def outcome(call):
-        try:
-            return call()
-        except (ValueError, OSError) as error:
-            return type(error), str(error)
+    outcome = _check_operation_pass_cache_outcome
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
@@ -239,18 +339,13 @@ def check_operation_pass_cache():
         write(orphan, '{}\n')
         entries = [('dev', 'team', service) for service in ('first', 'second')]
 
-        def artifact():
-            return {'service_keys': {'/'.join(entry): PassCache(root).service_key(entry) for entry in entries},
-                    'fingerprint': {'paths': [], 'digest': digest_files(root, []),
-                                    'file_sets': {}, 'framework': PassCache(root).common_key()}}
+        artifact = _bind_framework_callback(_callback_check_operation_pass_cache_artifact, entries, root)
 
         saved = artifact()
         calls = []
         original_common = PassCache.common_key
 
-        def counted(cache, *args, **kwargs):
-            calls.append(cache)
-            return original_common(cache, *args, **kwargs)
+        counted = _bind_framework_callback(_callback_check_operation_pass_cache_counted, calls, original_common)
 
         with patch.object(PassCache, 'common_key', counted):
             assert baseline(root, saved) is None
@@ -304,12 +399,7 @@ def check_operation_pass_cache():
         service_key = PassCache.service_key
         seen = []
 
-        def mutate(cache, entry):
-            key = service_key(cache, entry)
-            seen.append(entry)
-            if len(seen) == 1:
-                write(common, project + '\n')
-            return key
+        mutate = _bind_framework_callback(_callback_check_operation_pass_cache_mutate, common, project, seen, service_key)
 
         first = next(iter(saved['service_keys']))
         single = {'service_keys': {first: saved['service_keys'][first]}}
@@ -338,15 +428,24 @@ def check_operation_pass_cache():
         with patch.object(issues_scan, 'verify_service_keys', side_effect=lambda *_, **kwargs: write(common, '{}\n')):
             assert outcome(lambda: issues_scan.verify_inputs(root, refreshed)) == (ValueError, 'stale scan: framework/project input changed')
 
+def _callback_check_failed_model_input_guards_read_reference(dependency, /, path, reads):
+    reads.read(path)
+    reads.kind(dependency)
+    reads.read(dependency)
+    raise ValueError('reference unavailable')
+
+
+def _callback_check_failed_model_input_guards_denied(_state_check_failed_model_input_guards_423, entrance, /, path):
+    if path == entrance:
+        raise PermissionError('input body must not escape')
+    return _state_check_failed_model_input_guards_423.original_read(path)
+
+
 @pytest.mark.parametrize('failure', ['entrance', 'part', 'reference', 'decode', 'permission'])
 def check_failed_model_input_guards(tmp_path, failure):
-    from types import SimpleNamespace
-    from model.sources import FileReads, load_model as real_load
-    from model.format import FORMAT, INDEX, PART
-    from comparison.inputs import Inputs
+
+    _state_check_failed_model_input_guards_423 = _CallbackState()
     model, templates = Inputs.model, Inputs.templates
-    from issues.integrity import fingerprint
-    from validation_cache import digest_files
     root = tmp_path
     (root / 'project.json').write_text(json.dumps({'projectName': 'fixture', 'targets': [
         dict(environment='dev', awsAccountId='123456789012', awsRegion='ap-northeast-1', iacEngine='cloudformation')]}))
@@ -366,18 +465,11 @@ def check_failed_model_input_guards(tmp_path, failure):
         warnings=[], resources={}, rows={}, symbols={}, metrics={'model_loads': 0, 'model_parses': 0}, sensitive_values=set())
     comparison.retain_reads = lambda: Inputs.retain_reads(comparison)
     comparison.retain_hash = lambda path, value: Inputs.retain_hash(comparison, path, value)
-    def read_reference(path, reads):
-        reads.read(path)
-        reads.kind(dependency)
-        reads.read(dependency)
-        raise ValueError('reference unavailable')
-    def denied(path):
-        if path == entrance:
-            raise PermissionError('input body must not escape')
-        return original_read(path)
-    original_read = Path.read_bytes
+    read_reference = _bind_framework_callback(_callback_check_failed_model_input_guards_read_reference, dependency)
+    denied = _bind_framework_callback(_callback_check_failed_model_input_guards_denied, _state_check_failed_model_input_guards_423, entrance)
+    _state_check_failed_model_input_guards_423.original_read = Path.read_bytes
     with patch('comparison.inputs.load_model', side_effect=read_reference if failure == 'reference' else real_load), \
-         patch.object(Path, 'read_bytes', denied if failure == 'permission' else original_read):
+         patch.object(Path, 'read_bytes', denied if failure == 'permission' else _state_check_failed_model_input_guards_423.original_read):
         with pytest.raises((OSError, ValueError)):
             model(comparison, 'cloudformation-stacks')
     artifact = dict(fingerprint=fingerprint(comparison, common_key='common'))
@@ -402,12 +494,18 @@ def check_failed_model_input_guards(tmp_path, failure):
             verify_inputs(root, artifact, cache=cache)
 
 
+
+
+def _check_first_model_observation_is_not_replaced_interrupted(entrance, reads):
+    reads.read(entrance)
+    (entrance.with_suffix('') / 'part-001.properties').parent.mkdir()
+    (entrance.with_suffix('') / 'part-001.properties').write_text('added during read')
+    raise ValueError('parse interrupted')
+
+
 def check_first_model_observation_is_not_replaced(tmp_path):
-    from types import SimpleNamespace
-    from model.sources import FileReads
-    from comparison.inputs import Inputs
+
     model, retain_hash = Inputs.model, Inputs.retain_hash
-    from issues.integrity import fingerprint
     root = tmp_path
     path = root / 'model/dev/team/s3.properties'
     path.parent.mkdir(parents=True)
@@ -416,11 +514,7 @@ def check_first_model_observation_is_not_replaced(tmp_path):
         model_reads=FileReads(), inputs=set(), read_hashes={}, unreadable_inputs=False)
     comparison.retain_reads = lambda: Inputs.retain_reads(comparison)
     comparison.retain_hash = lambda path, value: Inputs.retain_hash(comparison, path, value)
-    def interrupted(entrance, reads):
-        reads.read(entrance)
-        (entrance.with_suffix('') / 'part-001.properties').parent.mkdir()
-        (entrance.with_suffix('') / 'part-001.properties').write_text('added during read')
-        raise ValueError('parse interrupted')
+    interrupted = _check_first_model_observation_is_not_replaced_interrupted
     with patch('comparison.inputs.load_model', side_effect=interrupted), pytest.raises(ValueError):
         model(comparison, 's3')
     artifact = dict(fingerprint=fingerprint(comparison, common_key='common'))
@@ -433,10 +527,7 @@ def check_first_model_observation_is_not_replaced(tmp_path):
 
 
 def check_notice_resolution_and_update_series(tmp_path):
-    from issues.materials import existing_materials
-    from issues.reports import normal_merge, notice_report, split_notices
-    from datetime import datetime as real_datetime
-    from unittest.mock import Mock
+
     root = tmp_path
     path = root / 'issues/dev/team/issues.md'
     path.parent.mkdir(parents=True)
@@ -482,9 +573,6 @@ def check_notice_resolution_and_update_series(tmp_path):
 
 @pytest.mark.parametrize('fence', ['```', '~~~~'])
 def check_notice_fenced_roundtrip(tmp_path, fence):
-    from issues.reports import normal_merge, notice_report, split_notices
-    from issues.materials import existing_materials
-    from issue_gate import unresolved_services, issue_errors
     root = tmp_path
     path = root / 'issues/dev/team/issues.md'
     path.parent.mkdir(parents=True)
@@ -528,7 +616,6 @@ def check_notice_fenced_roundtrip(tmp_path, fence):
 
 
 def check_notice_marker_boundaries():
-    from issues.reports import split_notices, attach_notices
     human = ('<!-- ordinary comment -->\n<!-- issues-notices:one:start -->\n'
              '- incomplete\n<!-- issues-notices:two:end -->\n'
              '<!-- reference-warnings:start -->\n- unfinished\n')
@@ -541,17 +628,29 @@ def check_notice_marker_boundaries():
     assert split_notices(longer) == (longer, [])
 
 
+
+
+def _check_view_read_failure_policy_service(instance):
+    assert instance.scope == {('dev', 'team', 'sqs')}
+    instance.check(False, 'independent sqs diagnostic')
+    instance.check_design_links({})
+
+
+def _callback_check_view_read_failure_policy_ownership(bad, /, instance, paths):
+    if bad in paths:
+        raise UnicodeDecodeError('utf-8', b'\xff', 0, 1, 'bad input')
+    return {}, set(), {}, {}
+
+
+def _callback_check_view_read_failure_policy_generation(generated, /, instance):
+    generated.append(instance.scope)
+    instance.findings.result('framework.generated-service-model', instance.scope).status = 'PASS'
+
+
 def check_view_read_failure_policy(tmp_path):
-    import sync_runtime
-    import model.sources as sources
     real_load_model = sources.load_model
     assert sync_runtime.load_model is real_load_model
-    from types import SimpleNamespace
-    from unittest.mock import Mock
-    from issues.inputs import view_text
-    from issues.integrity import fingerprint
-    from validation.runner import Validator
-    from validation_cache import PassCache
+
     root = tmp_path
     docs = root / 'docs/designs/dev/team'
     docs.mkdir(parents=True)
@@ -569,17 +668,9 @@ def check_view_read_failure_policy(tmp_path):
     validator.cache = cache
     generated = []
     source_checks = Mock(return_value=SimpleNamespace(errors=[], warnings=[], checks=7))
-    def ownership(instance, paths):
-        if bad in paths:
-            raise UnicodeDecodeError('utf-8', b'\xff', 0, 1, 'bad input')
-        return {}, set(), {}, {}
-    def generation(instance):
-        generated.append(instance.scope)
-        instance.findings.result('framework.generated-service-model', instance.scope).status = 'PASS'
-    def service(instance):
-        assert instance.scope == {('dev', 'team', 'sqs')}
-        instance.check(False, 'independent sqs diagnostic')
-        instance.check_design_links({})
+    ownership = _bind_framework_callback(_callback_check_view_read_failure_policy_ownership, bad)
+    generation = _bind_framework_callback(_callback_check_view_read_failure_policy_generation, generated)
+    service = _check_view_read_failure_policy_service
     with patch.object(Validator, 'check_design_service_ownership', ownership), \
          patch.object(Validator, 'check_stack_designs', return_value={}), \
          patch.object(Validator, 'check_generated_service_models', generation), \

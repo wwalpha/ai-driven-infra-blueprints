@@ -1,13 +1,27 @@
+
 import json
 
-from design_layout import resource_mode, resource_name_fields, resource_has_name_property, REQUIRED_NAME_TAG_TYPES
+import issue_gate as _imports_issue_gate
 from design_catalog import selected_properties
-from model.validation import naming_rule_files, naming_targets, naming_target_matches, NAMING_EXEMPT_PROPERTIES
-from model.projection import catalog_outputs
+from design_layout import (
+    resource_has_name_property,
+    resource_mode,
+    resource_name_fields,
+)
+from model.validation import (
+    NAMING_EXEMPT_PROPERTIES,
+    naming_rule_files,
+    naming_target_matches,
+    naming_targets,
+)
 from policy_tables import literal
+from utils.aws_catalogs import catalog_outputs
 from utils.aws_mappings import definition_root
+from utils.layout_schema import REQUIRED_NAME_TAG_TYPES
+
 from .records import identifier, safe_text
-from .reports import owned_blocks, numbered, inventories, without_notices
+from .reports import inventories, numbered, owned_blocks, without_notices
+
 
 def rule_section(text, heading):
     lines = text.splitlines()
@@ -128,7 +142,7 @@ def naming_materials(comparison):
 
 
 def existing_materials(root, environment, directory, services, warnings=None):
-    from issue_gate import reference_issue_parts
+    reference_issue_parts = _imports_issue_gate.reference_issue_parts
     warnings = warnings if warnings is not None else []
     path = root / 'issues' / environment / directory / 'issues.md'
     inventories(root, path)
@@ -150,5 +164,3 @@ def existing_materials(root, environment, directory, services, warnings=None):
                               'kind': 'existing-unresolved; preserve unless explicitly revalidated'})
     human = [line for line in human_prefix.splitlines() if line.strip() and not line.startswith(('#', '更新日時:', '今回確認した範囲:'))]
     return items, human
-
-

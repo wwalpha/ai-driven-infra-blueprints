@@ -3,45 +3,31 @@
 from __future__ import annotations
 
 import sys
-
 from pathlib import Path
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import io
+import json
+import shutil
+import subprocess
+import tempfile
+import threading
+from contextlib import redirect_stdout
+from unittest.mock import patch
+
+import model.projection as model_projection
+from design_catalog import DesignSchemaCatalog
 from model.files import read_model
+from support.model_sources import write_model
+from support.validator import load
+from utils.layout_schema import resource_anchor
+from validation_cache import PassCache
+from validation_scope import active_scope, scoped_files
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
-
-from support.model_sources import write_model
-
-import model.projection as model_projection
-
-from contextlib import redirect_stdout
-
-import io
-
-import json
-
-from support.validator import load
-
-import shutil
-
-import subprocess
-
-import tempfile
-
-import threading
-
-from unittest.mock import patch
-
-from validation_scope import active_scope, scoped_files
-
-from design_catalog import DesignSchemaCatalog
-
-from validation_cache import PassCache
-
-from design_layout import resource_anchor
 
 ROOT = Path(__file__).resolve().parents[4]
 

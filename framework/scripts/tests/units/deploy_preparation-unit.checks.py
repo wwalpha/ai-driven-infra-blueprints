@@ -2,11 +2,24 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import pytest
+from support.deploy_preparation_fixtures import (
+    ROOT,
+    M,
+    Path,
+    json,
+    patch,
+    subprocess,
+    sys,
+    tempfile,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.deploy_preparation_fixtures import *
 
 def check_workflow_contract():
     prompt = ROOT / 'framework/prompts/codex/04_deploy.md'
@@ -80,7 +93,7 @@ def check_rule_section_boundaries():
     assert M.markdown_sections(nested)["required"] == "## Required\nrule\n### Exception\nstop on missing input\n"
 
 
-import pytest
+
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 if __name__ == '__main__':

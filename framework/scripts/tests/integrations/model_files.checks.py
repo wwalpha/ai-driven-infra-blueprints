@@ -1,18 +1,69 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import json
+from contextlib import redirect_stderr
+
+import model.files as model_files
+from model.cli import main as cli_main
+from model.format import FORMAT, serialize, split
+from model.importing.scope import reference_reader, restrict
+from support.it_case_receipt import it_case
+from support.model_files_fixtures import (
+    DEPLOY,
+    ROOT,
+    Path,
+    io,
+    load_model,
+    markdown_for,
+    model_parts,
+    os,
+    patch,
+    properties,
+    redirect_stdout,
+    resource_keys,
+    subprocess,
+    sync_files,
+    sys,
+    tempfile,
+    write_model,
+)
+from utils.input_cache import input_context, memo_table
+
+from model import sources
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import it_case
 
-from support.model_files_fixtures import *
 
-from contextlib import redirect_stderr
-import json
-import model.files as model_files
+
+def _check_resource_reading_assert_inputs(inputs):
+    for file, raw in inputs.items():
+        if (file.read_bytes() if file.is_file() else None) != raw:
+            raise ValueError('input changed after validation')
+
+
+def _callback_check_resource_reading_cli(source, /, command, selector, *extra):
+    return subprocess.run([sys.executable, "-B", str(ROOT / "framework/scripts/model/cli.py"),
+                           command, str(source), selector, *extra],
+                          capture_output=True, text=True, encoding="utf-8")
+
+
+def _callback_check_resource_reading_invoke(path, command, selector):
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with patch.object(sources, '_read_model', wraps=sources._read_model) as body, \
+         redirect_stdout(stdout), redirect_stderr(stderr):
+        code = cli_main([command, str(path), selector])
+    return (code, stdout.getvalue(), stderr.getvalue()), body.call_count
+
 
 @it_case
 def check_resource_reading(root):
@@ -51,23 +102,11 @@ def check_resource_reading(root):
                 "desired.row.001-003.value": "[Policy](kms/key-policy.json)",
                 "desired.row.001-003.document": '{"Statement": [{"Sid": "保持=値", "Resource": "[Recorder](config.md#config-recorder)"}]}',
             })
-    from model.cli import main as cli_main
-    from model.format import serialize, split
-    from model import sources
-    from model.importing.scope import restrict, reference_reader
-    from validation_cache import input_context, memo_table
 
-    def cli(command, selector, *extra):
-        return subprocess.run([sys.executable, "-B", str(ROOT / "framework/scripts/model/cli.py"),
-                               command, str(source), selector, *extra],
-                              capture_output=True, text=True, encoding="utf-8")
 
-    def invoke(path, command, selector):
-        stdout, stderr = io.StringIO(), io.StringIO()
-        with patch.object(sources, '_read_model', wraps=sources._read_model) as body, \
-             redirect_stdout(stdout), redirect_stderr(stderr):
-            code = cli_main([command, str(path), selector])
-        return (code, stdout.getvalue(), stderr.getvalue()), body.call_count
+    cli = _bind_framework_callback(_callback_check_resource_reading_cli, source)
+
+    invoke = _callback_check_resource_reading_invoke
 
     write_model(source, values)
     authority = dict(load_model(source).authoritative)
@@ -223,10 +262,7 @@ def check_resource_reading(root):
             file.write_bytes(saved)
         assert invoke(source, 'resource', '001')[0][0] == 0
 
-    def assert_inputs(inputs):
-        for file, raw in inputs.items():
-            if (file.read_bytes() if file.is_file() else None) != raw:
-                raise ValueError('input changed after validation')
+    assert_inputs = _check_resource_reading_assert_inputs
 
     # Publication invalidates the invocation cache; stale raw-input snapshots still fail closed.
     with input_context():
@@ -275,7 +311,6 @@ def main():
                     "import sys, model.core, model.files; "
                     "assert not {'model.render', 'design_layout', 'sync_runtime', 'model_core', 'model_files'} & sys.modules.keys()"],
                    cwd=ROOT / 'framework/scripts', check=True)
-    from model.format import FORMAT, split
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
         (root / 'project.json').write_text(json.dumps({'projectName': 'test', 'targets': [{

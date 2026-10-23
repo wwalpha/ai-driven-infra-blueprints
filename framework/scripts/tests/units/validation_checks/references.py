@@ -3,11 +3,10 @@
 
 from __future__ import annotations
 
-
-import model.projection as model_projection
-
-
-from support.validator import MODULE, SCRIPT, project, write, schema_validator, load
+from support.validator import MODULE, SCRIPT
+from support.validator import load as load
+from support.validator import project as project
+from support.validator import write as write
 
 
 def errors_for(rows: list[list[str]]) -> list[str]:
@@ -32,4 +31,3 @@ def check_artifact_naming() -> None:
     assert not errors_for([inline_name, inline])
     assert errors_for([inline_name, old_inline])
     assert MODULE.artifact_id("VPCFlowLogsToCloudWatchLogs") == "vpc-flow-logs-to-cloud-watch-logs"
-

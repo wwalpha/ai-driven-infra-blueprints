@@ -1,15 +1,21 @@
 """Selected ownership and incoming discovery, without validating unrelated Models."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import json
+
 import pytest
-from model.adapters.observed import resolve_resources, propagate_references
-from support.model_sources import write_model, allocate_fixture
+from model.adapters.observed import propagate_references, resolve_resources
 from support.cloudformation_deploy_fixtures import TARGET
+from support.model_sources import allocate_fixture, write_model
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 def seed(root, kind, child_kind, setting):
@@ -36,6 +42,12 @@ def seed(root, kind, child_kind, setting):
     return source
 
 
+def _callback_check_selected_parent_resolve(document, root, /):
+    return resolve_resources(root, 'dev', '123456789012', {'Stack': (document, {'Flag': 'yes'})},
+        [{'name': 'Stack'}], {'Stack': {'Child', 'InactiveChild'}},
+        target=TARGET | {'awsExecutionAccountId': '999999999999'})
+
+
 @pytest.mark.parametrize('kind,child_kind,parent_property,setting', [
     ('S3.Bucket', 'S3.BucketPolicy', 'Bucket', 'PolicyDocument'),
     ('EC2.Subnet', 'EC2.SubnetRouteTableAssociation', 'SubnetId', 'RouteTableId')])
@@ -58,10 +70,7 @@ def check_selected_parent(project_workspace, kind, child_kind, parent_property, 
             'InactiveChild': {'Condition': 'Disabled', 'Type': 'AWS::' + child_kind.replace('.', '::'),
                               'Properties': {parent_property: {'Ref': 'Missing'}}}}}
     document['Conditions']['Disabled'] = False
-    def resolve():
-        return resolve_resources(root, 'dev', '123456789012', {'Stack': (document, {'Flag': 'yes'})},
-            [{'name': 'Stack'}], {'Stack': {'Child', 'InactiveChild'}},
-            target=TARGET | {'awsExecutionAccountId': '999999999999'})
+    resolve = _bind_framework_callback(_callback_check_selected_parent_resolve, document, root)
     if expected is None:
         with pytest.raises(ValueError, match='parent'):
             resolve()

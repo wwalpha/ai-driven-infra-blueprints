@@ -7,7 +7,6 @@ import argparse
 import hashlib
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 CATALOG_DIR = ROOT / "framework" / "materials" / "aws"
 METADATA = ROOT / "framework" / "materials" / "catalog.properties"

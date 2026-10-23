@@ -1,6 +1,42 @@
 #!/usr/bin/env python3
 """Compatibility CLI for the importable local-loop runner."""
-from validation.loop import *
+from validation.loop import SELECTOR as SELECTOR
+from validation.loop import Path as Path
+from validation.loop import StartupDiagnostics as StartupDiagnostics
+from validation.loop import active_scope as active_scope
+from validation.loop import annotations as annotations
+from validation.loop import argparse as argparse
+from validation.loop import authorize_full_regression as authorize_full_regression
+from validation.loop import changed_paths as changed_paths
+from validation.loop import contextmanager as contextmanager
+from validation.loop import contracts as contracts
+from validation.loop import datetime as datetime
+from validation.loop import definition_root as definition_root
+from validation.loop import failure_reason as failure_reason
+from validation.loop import framework_changed as framework_changed
+from validation.loop import git as git
+from validation.loop import index_tree as index_tree
+from validation.loop import interrupt as interrupt
+from validation.loop import json as json
+from validation.loop import os as os
+from validation.loop import run_commands as run_commands
+from validation.loop import run_loop as run_loop
+from validation.loop import select_checks as select_checks
+from validation.loop import shutil as shutil
+from validation.loop import signal as signal
+from validation.loop import staged_snapshot as staged_snapshot
+from validation.loop import subprocess as subprocess
+from validation.loop import suspend as suspend
+from validation.loop import suspend_selected as suspend_selected
+from validation.loop import sys as sys
+from validation.loop import task_path as task_path
+from validation.loop import tempfile as tempfile
+from validation.loop import time as time
+from validation.loop import timezone as timezone
+from validation.loop import traceback as traceback
+from validation.loop import utf8_environment as utf8_environment
+from validation.loop import utf8_preflight as utf8_preflight
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()

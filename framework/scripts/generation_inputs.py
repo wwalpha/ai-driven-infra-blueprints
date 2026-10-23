@@ -1,13 +1,18 @@
 """Shared invocation input recorder for byte, existence, kind and file-set guards."""
+
+import tempfile
 from contextlib import ExitStack
 from pathlib import Path
-import tempfile
-from task_contract import task_path
+
+import task_contract_core as _imports_task_contract
+from task_contract_core import task_path
 from utils.aws_mappings import definition_root, mapping_alias
+
 
 class GenerationInputs:
     """Invocation-owned record of consumed raw bytes, kinds and selections."""
     def __init__(self, root, definitions_root=None, *, task_file=None):
+        status = _imports_task_contract.status
         self.root = root
         self.runtime_root = Path(__file__).resolve().parents[2]
         self.definitions_root = definitions_root or definition_root(root)
@@ -22,7 +27,6 @@ class GenerationInputs:
         raw_task = self.read(selected_task) if selected_task is not None else None
         self.expected_task = (None if selected_task is None else selected_task.relative_to(root).as_posix(),
                               None if raw_task is None else raw_task.decode('utf-8').replace('\r\n', '\n').replace('\r', '\n'))
-        from task_contract import status
         name, text = self.expected_task
         if text is not None and status(text) != 'running':
             raise ValueError('completed task cannot write')

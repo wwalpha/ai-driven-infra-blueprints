@@ -1,34 +1,55 @@
 """SDK initialization, context separation, pagination and secret redaction contracts."""
+
 import sys
+from functools import partial as _bind_framework_callback
+from functools import partialmethod as _bind_framework_method
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import time
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from types import SimpleNamespace
+
+import boto3
+import deploy.controller as _imports_deploy_controller
+import pytest
+from botocore.exceptions import ClientError
+from botocore.stub import Stubber
+from utils.aws import client as sdk
+from utils.aws import cloudformation, secretsmanager
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-import time
-import pytest
-from botocore.exceptions import ClientError
-from utils.aws import client as sdk, cloudformation, secretsmanager
+_CALLBACK_DEFAULT = object()
+
+
+
+def _callback_check_client_concurrency_Session___init__(self, calls, /, **kwargs):
+    calls.append(('session', kwargs))
+
+
+def _callback_check_client_concurrency_Session_client(self, busy, calls, gate, /, service, **kwargs):
+    assert gate.acquire(blocking=False), 'shared Session clients constructed concurrently'
+    try:
+        busy.append(service)
+        time.sleep(.005)
+        calls.append(('client', service))
+        return object()
+    finally:
+        gate.release()
 
 
 def check_client_concurrency(monkeypatch):
-    sdk._sessions.clear(); sdk._clients.clear()
+    sdk._sessions.clear()
+    sdk._clients.clear()
     calls, busy = [], []
     gate = Lock()
     class Session:
-        def __init__(self, **kwargs):
-            calls.append(('session', kwargs))
-        def client(self, service, **kwargs):
-            assert gate.acquire(blocking=False), 'shared Session clients constructed concurrently'
-            try:
-                busy.append(service); time.sleep(.005)
-                calls.append(('client', service))
-                return object()
-            finally:
-                gate.release()
+        __init__ = _bind_framework_method(_callback_check_client_concurrency_Session___init__, calls)
+        client = _bind_framework_method(_callback_check_client_concurrency_Session_client, busy, calls, gate)
     monkeypatch.setattr('boto3.Session', Session)
     a = sdk.connection_context('a', 'ap-northeast-1', '123456789012', 'profile')
     b = sdk.connection_context('b', 'ap-northeast-1', '123456789012', 'profile')
@@ -42,32 +63,42 @@ def check_client_concurrency(monkeypatch):
     for changed in (('a', 'us-east-1', '123456789012', 'profile'), ('a', 'ap-northeast-1', '999999999999', 'profile'),
                     ('a', 'ap-northeast-1', '123456789012', 'web-identity')):
         assert sdk.client(changed, 's3') is not clients[0]
-    sdk._sessions.clear(); sdk._clients.clear()
+    sdk._sessions.clear()
+    sdk._clients.clear()
+
+
+def _callback_check_initialization_failure_create(calls, /, service, **kwargs):
+    calls.append(service)
+    if len(calls) == 1:
+        raise RuntimeError('initialization failed')
+    return object()
 
 
 def check_initialization_failure(monkeypatch):
-    sdk._sessions.clear(); sdk._clients.clear()
+    sdk._sessions.clear()
+    sdk._clients.clear()
     calls = []
-    def create(service, **kwargs):
-        calls.append(service)
-        if len(calls) == 1:
-            raise RuntimeError('initialization failed')
-        return object()
+    create = _bind_framework_callback(_callback_check_initialization_failure_create, calls)
     monkeypatch.setattr('boto3.Session', lambda **kwargs: SimpleNamespace(client=create))
     context = ('a', 'ap-northeast-1', '123456789012', 'profile')
-    with pytest.raises(RuntimeError): sdk.client(context, 's3')
+    with pytest.raises(RuntimeError):
+        sdk.client(context, 's3')
     assert (context, 's3') not in sdk._clients
     assert sdk.client(context, 's3') is sdk.client(context, 's3') and len(calls) == 2
-    sdk._sessions.clear(); sdk._clients.clear()
+    sdk._sessions.clear()
+    sdk._clients.clear()
+
+
+def _callback_check_complete_pages_request(field, requests, /, context, service, op, arguments, **kwargs):
+    requests.append(dict(arguments))
+    return {field: [{'page': len(requests)}]} | ({'NextToken': 'next'} if len(requests) == 1 else {})
 
 
 @pytest.mark.parametrize('operation,field', [('list_exports', 'Exports'), ('list_stack_resources', 'StackResourceSummaries'),
     ('describe_stack_events', 'StackEvents'), ('describe_change_set', 'Changes'), ('list_secret_version_ids', 'Versions')])
 def check_complete_pages(monkeypatch, operation, field):
     requests = []
-    def request(context, service, op, arguments, **kwargs):
-        requests.append(dict(arguments))
-        return {field: [{'page': len(requests)}]} | ({'NextToken': 'next'} if len(requests) == 1 else {})
+    request = _bind_framework_callback(_callback_check_complete_pages_request, field, requests)
     monkeypatch.setattr(sdk, 'request', request)
     service = secretsmanager if field == 'Versions' else cloudformation
     response = getattr(service, operation)(('context',), StackName='stack')
@@ -77,18 +108,28 @@ def check_complete_pages(monkeypatch, operation, field):
         getattr(service, operation)(('context',))
 
 
+def _callback_check_structured_errors_and_secrets_error_request(code, message, status, /, **kwargs):
+    raise ClientError({'Error': {'Code': code, 'Message': message}, 'ResponseMetadata': {'HTTPStatusCode': status}}, 'test')
+
+
+def _callback_check_structured_errors_and_secrets_error_114(_default_status, /, code, message, status=_CALLBACK_DEFAULT):
+    if status is _CALLBACK_DEFAULT:
+        status = _default_status
+    request = _bind_framework_callback(_callback_check_structured_errors_and_secrets_error_request, code, message, status)
+    return request
+
+
 def check_structured_errors_and_secrets(monkeypatch):
     context = ('a', 'ap-northeast-1', '123456789012', 'profile')
-    def error(code, message, status=400):
-        def request(**kwargs):
-            raise ClientError({'Error': {'Code': code, 'Message': message}, 'ResponseMetadata': {'HTTPStatusCode': status}}, 'test')
-        return request
+    error = _bind_framework_callback(_callback_check_structured_errors_and_secrets_error_114, 400)
     for code, status in [('AccessDenied', 403), ('ExpiredToken', 403), ('ValidationError', 400)]:
-        monkeypatch.setattr(sdk, 'client', lambda *a: SimpleNamespace(describe_stacks=error(code, 'private data', status)))
-        with pytest.raises(sdk.AwsError) as caught: sdk.request(context, 'cloudformation', 'describe_stacks', {})
+        monkeypatch.setattr(sdk, 'client', lambda *a, code=code, status=status: SimpleNamespace(describe_stacks=error(code, 'private data', status)))
+        with pytest.raises(sdk.AwsError) as caught:
+            sdk.request(context, 'cloudformation', 'describe_stacks', {})
         assert caught.value.code == code and not caught.value.stack_absent and 'private data' not in str(caught.value)
     monkeypatch.setattr(sdk, 'client', lambda *a: SimpleNamespace(describe_stacks=error('ValidationError', 'Stack with id x does not exist')))
-    with pytest.raises(sdk.AwsError) as caught: sdk.request(context, 'cloudformation', 'describe_stacks', {})
+    with pytest.raises(sdk.AwsError) as caught:
+        sdk.request(context, 'cloudformation', 'describe_stacks', {})
     assert caught.value.stack_absent
     monkeypatch.setattr(secretsmanager, 'request', lambda *a, **k: {'ARN': 'arn', 'VersionId': 'v', 'VersionStages': ['AWSCURRENT'], 'SecretString': 'DO_NOT_RETURN', 'SecretBinary': b'secret'})
     response = secretsmanager.get_secret_value(context, SecretId='arn')
@@ -98,13 +139,16 @@ def check_structured_errors_and_secrets(monkeypatch):
 
 
 
+def _callback_check_failed_continuation_returns_no_inventory_request(replies, /, *args, **kwargs):
+    result = replies.pop(0)
+    if isinstance(result, Exception):
+        raise result
+    return result
+
+
 def check_failed_continuation_returns_no_inventory(monkeypatch):
     replies = [{'Changes':[{'Action':'Add'}],'NextToken':'second'}, RuntimeError('second page failed')]
-    def request(*args, **kwargs):
-        result = replies.pop(0)
-        if isinstance(result, Exception):
-            raise result
-        return result
+    request = _bind_framework_callback(_callback_check_failed_continuation_returns_no_inventory_request, replies)
     monkeypatch.setattr(sdk,'request',request)
     with pytest.raises(RuntimeError,match='second page failed'):
         cloudformation.describe_change_set(('context',),ChangeSetName='change')
@@ -129,7 +173,8 @@ def check_effective_default_profile(tmp_path, monkeypatch):
     monkeypatch.setenv('AWS_EC2_METADATA_DISABLED', 'true')
     monkeypatch.setattr('socket.socket.connect', lambda *a, **k: pytest.fail('network forbidden'))
     monkeypatch.setattr('socket.socket.connect_ex', lambda *a, **k: pytest.fail('network forbidden'))
-    sdk._sessions.clear(); sdk._clients.clear()
+    sdk._sessions.clear()
+    sdk._clients.clear()
     try:
         monkeypatch.setenv('AWS_DEFAULT_PROFILE', 'one')
         first = sdk.connection_context(None, 'us-east-1', '123456789012')
@@ -146,18 +191,17 @@ def check_effective_default_profile(tmp_path, monkeypatch):
         # An explicit profile overrides both environment profile selectors.
         explicit = sdk.connection_context('one', 'us-east-1', '123456789012')
         assert sdk.client(explicit, 'sts')._request_signer._credentials.access_key == 'synthetic-one'
-        from deploy.controller import create_runtime
+        create_runtime = _imports_deploy_controller.create_runtime
         target = {'awsProfile': 'one', 'awsRegion': 'us-east-1', 'awsAccountId': '123456789012'}
         assert create_runtime(tmp_path, 'dev', 'test', target).profile == 'one'
         with pytest.raises(RuntimeError, match='profile does not match'):
             create_runtime(tmp_path, 'dev', 'test', target, 'two')
     finally:
-        sdk._clients.clear(); sdk._sessions.clear()
+        sdk._clients.clear()
+        sdk._sessions.clear()
 
 
 def check_sdk_arguments_and_pages(tmp_path, monkeypatch):
-    import boto3
-    from botocore.stub import Stubber
     session = boto3.Session(aws_access_key_id='synthetic', aws_secret_access_key='synthetic', region_name='us-east-1')
     cfn = session.client('cloudformation')
     monkeypatch.setattr(sdk, 'client', lambda context, service: cfn)

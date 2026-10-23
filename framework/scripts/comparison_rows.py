@@ -61,5 +61,3 @@ def put_row(tree, path, value):
         tree[part] = (old if isinstance(old, list) else [old]) + (value if isinstance(value, list) else [value])
     else:
         tree[part] = value
-
-

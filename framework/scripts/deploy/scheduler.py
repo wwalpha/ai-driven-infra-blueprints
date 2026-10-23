@@ -1,10 +1,13 @@
 """Ordered group control through an injected backend, without AWS transport."""
+
 import copy
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial as _bind_framework_callback
 
 from cloudformation_inputs import Blocked
+
 from deploy import failures
 
 SUCCESS = {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
@@ -13,14 +16,17 @@ FAILED = {"CREATE_FAILED", "ROLLBACK_COMPLETE", "ROLLBACK_FAILED", "DELETE_COMPL
           "IMPORT_ROLLBACK_COMPLETE", "IMPORT_ROLLBACK_FAILED"}
 
 
+def _callback_read_parallel_read(method, states, /, unit):
+    state = copy.deepcopy(states[unit["name"]])
+    try:
+        return unit, state, method(unit, state), None
+    except Exception as error:
+        return unit, state, None, error
+
+
 def read_parallel(units, states, method, limit):
     """Workers own copies only; all decisions and persistence remain on the controller."""
-    def read(unit):
-        state = copy.deepcopy(states[unit["name"]])
-        try:
-            return unit, state, method(unit, state), None
-        except Exception as error:
-            return unit, state, None, error
+    read = _bind_framework_callback(_callback_read_parallel_read, method, states)
     if len(units) <= 1:
         return [read(unit) for unit in units]
     with ThreadPoolExecutor(max_workers=limit) as pool:
@@ -139,5 +145,3 @@ def run_group(units, limit, states, backend, save=lambda: None, sleep=time.sleep
             if all(states[unit["name"]]["status"] == "SUCCESS" for unit in group):
                 return "GROUP_COMPLETE"
         sleep(5)
-
-

@@ -2,8 +2,8 @@
 """Read-only naming rule preflight; no model or confirmed name is required."""
 
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from model.validation import design_naming_errors
 

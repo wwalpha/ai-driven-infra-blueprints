@@ -1,36 +1,44 @@
 #!/usr/bin/env python3
 """Offline static-definition lifetimes; synthetic roots, no consumer Models."""
-import sys
-from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
 
+import sys
+from functools import partial as _bind_framework_callback
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import os
+import shutil
+import socket
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from tempfile import TemporaryDirectory
 from threading import Barrier
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
-import os
-import shutil
-import socket
 
 import aws_mapping
 import aws_mapping_catalog
 from utils.aws_catalogs import Catalogs
 from utils.aws_mappings import Mappings, mapping_alias
-ROOT = Path(__file__).resolve().parents[4]
 from utils.aws_schemas import Schemas
 from utils.aws_sdk import Sdk, sdk_for
-from validation_cache import input_scope
+from utils.input_cache import input_scope
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
+ROOT = Path(__file__).resolve().parents[4]
+
+
+def _callback_parallel_run(barrier, obtain, /, _):
+    barrier.wait(timeout=10)
+    return obtain()
 
 
 def parallel(obtain):
     barrier = Barrier(8)
-    def run(_):
-        barrier.wait(timeout=10)
-        return obtain()
+    run = _bind_framework_callback(_callback_parallel_run, barrier, obtain)
     with ThreadPoolExecutor(max_workers=8) as pool:
         return list(pool.map(run, range(8)))
 
@@ -58,6 +66,27 @@ def check_sdk_lifetime():
         assert first is sdk_for(Path(directory) / 'second')
 
 
+def _callback_check_failure_waiters_read(error, original, reads, /, path, *args, **kwargs):
+    reads[path.name] += 1
+    if path.name in {'aws-config-configurationrecorder.json', 'Config_ConfigurationRecorder.properties'}:
+        raise error
+    return original(path, *args, **kwargs)
+
+
+def _callback_check_failure_waiters_fails_request(obtain, /):
+    try:
+        obtain()
+    except BaseException as caught:
+        return caught
+    raise AssertionError('failure was suppressed')
+
+
+def _callback_check_failure_waiters_fails(error, /, obtain):
+    request = _bind_framework_callback(_callback_check_failure_waiters_fails_request, obtain)
+    assert all(value is error for value in parallel(request))
+    assert request() is error
+
+
 def check_failure_waiters():
     class Interrupted(BaseException):
         pass
@@ -69,20 +98,8 @@ def check_failure_waiters():
         sdk = Sdk(factory)
         original = Path.read_text
         reads = Counter()
-        def read(path, *args, **kwargs):
-            reads[path.name] += 1
-            if path.name in {'aws-config-configurationrecorder.json', 'Config_ConfigurationRecorder.properties'}:
-                raise error
-            return original(path, *args, **kwargs)
-        def fails(obtain):
-            def request():
-                try:
-                    obtain()
-                except BaseException as caught:
-                    return caught
-                raise AssertionError('failure was suppressed')
-            assert all(value is error for value in parallel(request))
-            assert request() is error
+        read = _bind_framework_callback(_callback_check_failure_waiters_read, error, original, reads)
+        fails = _bind_framework_callback(_callback_check_failure_waiters_fails, error)
         with patch.object(Path, 'read_text', read):
             fails(lambda: schemas.cloudformation('AWS::Config::ConfigurationRecorder'))
             fails(lambda: catalogs.selected('Config.ConfigurationRecorder'))
@@ -92,6 +109,18 @@ def check_failure_waiters():
         # New instances can retry independent read failures; no error-cache invalidation scans.
         assert Schemas(root).cloudformation('AWS::Config::ConfigurationRecorder')['typeName'] == 'AWS::Config::ConfigurationRecorder'
         assert 'Name' in Catalogs(root).selected('Config.ConfigurationRecorder')
+
+
+def _callback_check_full_validation_dependencies_failed(catalogs, invalid, provider, schemas, sdk, /):
+    try:
+        provider.validated('sns', sdk, schemas, catalogs, invalid)
+    except ValueError as caught:
+        return caught
+    raise AssertionError('full validation failure accepted')
+
+
+def _callback_check_full_validation_dependencies_obtain(catalogs, provider, schemas, sdk, validate, /):
+    return provider.validated('sns', sdk, schemas, catalogs, validate)
 
 
 def check_full_validation_dependencies():
@@ -104,8 +133,7 @@ def check_full_validation_dependencies():
              patch('utils.aws_catalogs.catalogs_for', side_effect=AssertionError('runtime initialized catalogs')):
             assert provider.get('config').service == 'config'
         with patch.object(aws_mapping_catalog, 'catalog_properties', wraps=aws_mapping_catalog.catalog_properties) as validate:
-            def obtain():
-                return provider.validated('sns', sdk, schemas, catalogs, validate)
+            obtain = _bind_framework_callback(_callback_check_full_validation_dependencies_obtain, catalogs, provider, schemas, sdk, validate)
             results = parallel(obtain)
             assert all(value is results[0] for value in results)
             assert validate.call_count == 1
@@ -124,12 +152,7 @@ def check_full_validation_dependencies():
             assert replacement.call_count == 1
         failure = ValueError('invalid static mapping')
         invalid = Mock(side_effect=failure)
-        def failed():
-            try:
-                provider.validated('sns', sdk, schemas, catalogs, invalid)
-            except ValueError as caught:
-                return caught
-            raise AssertionError('full validation failure accepted')
+        failed = _bind_framework_callback(_callback_check_full_validation_dependencies_failed, catalogs, invalid, provider, schemas, sdk)
         assert all(value is failure for value in parallel(failed))
         assert invalid.call_count == 1
         assert provider.get('sns').service == 'sns'

@@ -2,29 +2,38 @@
 """Standalone audit generation and execution checks; no AWS/network access."""
 
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace as _CallbackState
 
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from support.it_case_receipt import it_case
 
 import ast
-from contextlib import redirect_stdout
 import copy
-from datetime import datetime, timezone
 import io
 import json
 import os
 import socket
 import subprocess
 import tempfile
+from contextlib import redirect_stdout
+from datetime import datetime, timezone
 from unittest.mock import patch
 
+import support.worktree_task_fixtures as _imports_support_worktree_task_fixtures
+import task_contract_core as _imports_task_contract
+import validation.scenario as _imports_validation_scenario
+import validation_cache as _imports_validation_cache
 from script_loader import module
+from support.it_case_receipt import it_case
 from support.model_sources import write_model
-from validation_cache import input_scope
+from utils.input_cache import input_scope
+from validation.findings import Findings
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 ROOT = Path(__file__).resolve().parents[4]
 generator = module('model/audit.py', 'model.audit')
@@ -88,14 +97,23 @@ class CLI:
         return subprocess.CompletedProcess(command, 0, json.dumps(value), '')
 
 
+def _callback_check_offline_run(real_run, /, command, **kwargs):
+    assert command[0] == 'git', 'generation launched an external process: ' + command[0]
+    return real_run(command, **kwargs)
+
+
+def _callback_check_change(_state_check_106, prompt, /, *args):
+    prompt.write_text(_state_check_106.text.replace('`running`', '`completed`'))
+    return 'changed source', {}, []
+
+
 @it_case
 @input_scope
 def check():
     # Generation uses authored authorities; the framework checkout has no consumer data.
+    _state_check_106 = _CallbackState()
     real_run = subprocess.run
-    def offline_run(command, **kwargs):
-        assert command[0] == 'git', 'generation launched an external process: ' + command[0]
-        return real_run(command, **kwargs)
+    offline_run = _bind_framework_callback(_callback_check_offline_run, real_run)
     with tempfile.TemporaryDirectory(prefix='audit-generation-') as directory, \
          patch.object(socket, 'create_connection', side_effect=AssertionError('network forbidden')), \
          patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')), \
@@ -140,7 +158,7 @@ def check():
             'desired.row.002-005.value': '`["[Gateway](../other/ec2.md#gateway)","[Gateway](../../prod/cde/ec2.md#gateway)"]`',
             'desired.row.002-005.comment': 'Cloud Control references'})
         write_model(crossroot / 'model/dev/cde/vpc.properties', cross_values)
-        from validation_cache import input_context
+        input_context = _imports_validation_cache.input_context
         with input_context():
             cross = snapshot(generator.generate(crossroot, 'dev', 'cde', 'vpc')[0])
         assert {'dev/cde/vpc', 'dev/other/vpc', 'prod/cde/vpc'} <= cross['models'].keys()
@@ -158,8 +176,8 @@ def check():
                 for selected in (producer, gateway):
                     key = (selected.model.path, selected.number, 'base')
                     ctx.fetch_cache[key], ctx.fetch_trace[key] = {'id': 'cached'}, []
-                    for acquire in (lambda: selected.identity(), lambda: ctx.fetch(selected, 'base'),
-                                    lambda: ctx._fetch(selected, 'base')):
+                    for acquire in (lambda *, selected=selected: selected.identity(), lambda *, selected=selected: ctx.fetch(selected, 'base'),
+                                    lambda *, selected=selected: ctx._fetch(selected, 'base')):
                         try:
                             acquire()
                         except m.Unresolved as error:
@@ -178,13 +196,14 @@ def check():
                 assert 'invalid Markdown Resource reference' in str(error)
             else:
                 raise AssertionError('Model tree escape accepted')
-        from task_contract import SELECTOR, task_revision
-        from support.worktree_task_fixtures import contract
+        contract = _imports_support_worktree_task_fixtures.contract
+        SELECTOR = _imports_task_contract.SELECTOR
+        task_revision = _imports_task_contract.task_revision
         name = 'tasks/audit.md'
         prompt = root / name
         prompt.parent.mkdir()
-        text = contract('audit', ['tests/dev/cde/vpc.py']).replace('`governance`', '`migration`').replace('`framework`', '`dev/cde/vpc`')
-        prompt.write_text(text)
+        _state_check_106.text = contract('audit', ['tests/dev/cde/vpc.py']).replace('`governance`', '`migration`').replace('`framework`', '`dev/cde/vpc`')
+        prompt.write_text(_state_check_106.text)
         output = root / 'tests/dev/cde/vpc.py'
         arguments = ['model/cli.py', '--repository-root', str(root), '--environment', 'dev', '--target', 'cde', '--service', 'vpc', '--task-file', name]
         with patch.object(generator, 'ROOT', root), patch.dict(os.environ, {SELECTOR: name}), \
@@ -193,7 +212,7 @@ def check():
             before = output.read_bytes()
             assert before.decode() == sources['vpc']
             for state in ('completed', 'suspend'):
-                prompt.write_text(text.replace('`running`', f'`{state}`') +
+                prompt.write_text(_state_check_106.text.replace('`running`', f'`{state}`') +
                                   ('\n## Suspension reason\nExplicit test stop\n' if state == 'suspend' else ''))
                 if state == 'completed':
                     assert task_revision(root, name)[1] == prompt.read_text()
@@ -201,10 +220,8 @@ def check():
                 output.unlink()
                 assert generator.main() == 2 and not output.exists()
                 output.write_bytes(before)
-            prompt.write_text(text)
-            def change(*args):
-                prompt.write_text(text.replace('`running`', '`completed`'))
-                return 'changed source', {}, []
+            prompt.write_text(_state_check_106.text)
+            change = _bind_framework_callback(_callback_check_change, _state_check_106, prompt)
             with patch.object(generator, 'generate', side_effect=change):
                 assert generator.main() == 2 and output.read_bytes() == before
             prompt.unlink()
@@ -227,10 +244,10 @@ def check():
     assert status['EC2.VPC.EnableDnsSupport'] == 'difference', records
     assert status['EC2.VPC.VpcId'] == 'identifier', records
     stamp = datetime(2026, 10, 15, tzinfo=timezone.utc)
-    text, code = rt['report'](vpc, 'dev-profile', account, records, stamp)
-    assert code == 2 and '[ERROR] EC2_VPC_001.EC2.VPC.VpcId' in text
-    assert 'aws ec2 describe-vpc-attribute' in text and 'Diff paths: $' in text
-    assert 'Model SHA256:' in text and 'Executed:' in text
+    _state_check_106.text, code = rt['report'](vpc, 'dev-profile', account, records, stamp)
+    assert code == 2 and '[ERROR] EC2_VPC_001.EC2.VPC.VpcId' in _state_check_106.text
+    assert 'aws ec2 describe-vpc-attribute' in _state_check_106.text and 'Diff paths: $' in _state_check_106.text
+    assert 'Model SHA256:' in _state_check_106.text and 'Executed:' in _state_check_106.text
     # No lookup-only property can produce an overall configuration PASS.
     ordinary = [r for r in records if r['status'] != 'identifier']
     assert rt['report'](vpc, None, account, ordinary, stamp)[1] == 1
@@ -358,8 +375,7 @@ def check():
         assert process.returncode == 2 and '[OK] EC2_VPC_001.EC2.VPC.CidrBlock' in process.stdout, (process.stdout, process.stderr)
         assert any(path.read_text(encoding='utf-8') == process.stdout for path in logs[0].parent.glob('vpc-*.log'))
 
-    from validation.scenario import check_results
-    from validation.findings import Findings
+    check_results = _imports_validation_scenario.check_results
     with tempfile.TemporaryDirectory(prefix='audit-log-layout-') as temporary:
         folder = Path(temporary)
         log = folder / 'tests/results/dev/cde/vpc-20261015-214500.log'

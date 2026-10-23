@@ -2,26 +2,30 @@
 """Stack name edits keep fixed placements and their Resource mappings."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
-from support.it_case_receipt import it_case
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import io
 import json
 import tempfile
 from contextlib import redirect_stdout
+
 import pytest
-from support.model_sources import write_model
-from support.model_design_fixtures import model
+import sync_runtime
+from model.adapters.observed import destroy_plan, mappings, validate_mapping_targets
 from model.core import stack_model
-from model.sources import load_model, design_source_digest
 from model.format import serialize
 from model.operations import CandidateReads
-from model.sources import FileReads
 from model.projection import bound_stack_names
 from model.render import markdown_for
-from model.adapters.observed import validate_mapping_targets, mappings, destroy_plan
-import sync_runtime
+from model.sources import design_source_digest, load_model
+from support.it_case_receipt import it_case
+from support.model_design_fixtures import model
+from support.model_sources import write_model
+from utils.source_reads import FileReads
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 @it_case
@@ -71,8 +75,8 @@ def check(root):
         assert sync_runtime.sync(root, True, 'preview', 'team', services=['vpc', 'cloudformation-stacks']) == 0
         assert load_model(vpc_path).authoritative == expected_vpc and all(p.read_bytes() == raw for p, raw in vpc_bytes.items())
         changed_unit = dict(dict(stack_model(current.values)[1])['017'])
-        for analyze in (lambda: mappings(root, 'preview', 'team', {changed_unit['name']: (document, {})}, [changed_unit]),
-                        lambda: destroy_plan(root, 'preview', 'team', [changed_unit['name']], False)):
+        for analyze in (lambda *, changed_unit=changed_unit: mappings(root, 'preview', 'team', {changed_unit['name']: (document, {})}, [changed_unit]),
+                        lambda *, changed_unit=changed_unit: destroy_plan(root, 'preview', 'team', [changed_unit['name']], False)):
             with pytest.raises(ValueError, match='explicit placement reconciliation'):
                 analyze()
         assert destroy_plan(root, 'preview', 'team', [fixed], False)['owners'][fixed][0]['resource'] == '027'

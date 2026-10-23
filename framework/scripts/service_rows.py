@@ -1,23 +1,62 @@
 """Paired Glue, CodeBuild and CodePipeline row display/restoration."""
-from utils.json_format import policy_json
 
 import html
 import json
 import re
-from model.core import LINK, literal, ReferenceResolutionError
+from functools import partial as _bind_framework_callback
+
+import policy_tables as _imports_policy_tables
+from model.core import LINK, ReferenceResolutionError, literal
+from utils.json_format import policy_json
+from utils.layout_schema import CODEBUILD_FORMAL_VARIABLE as CODEBUILD_FORMAL_VARIABLE
+from utils.layout_schema import CODEBUILD_VARIABLE as CODEBUILD_VARIABLE
+from utils.layout_schema import CODEBUILD_VARIABLE_TYPE as CODEBUILD_VARIABLE_TYPE
+from utils.layout_schema import CODEPIPELINE_CONFIGURATION as CODEPIPELINE_CONFIGURATION
+from utils.layout_schema import CODEPIPELINE_STAGE as CODEPIPELINE_STAGE
+from utils.layout_schema import COMPACT_FIELDS as COMPACT_FIELDS
+from utils.layout_schema import COMPACT_SOURCE as COMPACT_SOURCE
+from utils.layout_schema import PACKED_ARRAY_PREFIXES as PACKED_ARRAY_PREFIXES
 
 
-CODEBUILD_VARIABLE = "CodeBuild.Project.Environment.Variables."
-CODEBUILD_FORMAL_VARIABLE = "CodeBuild.Project.Environment.EnvironmentVariables[]."
-CODEBUILD_VARIABLE_TYPE = re.compile(r"^<!-- codebuild-variable-type: (PLAINTEXT|PARAMETER_STORE|SECRETS_MANAGER) -->\s*")
-CODEPIPELINE_STAGE = re.compile(r"^Stages\[([1-9]\d*)\]\.(?:Actions(?:\[([1-9]\d*)\])?\.)?(.+)$")
-CODEPIPELINE_CONFIGURATION = "CodePipeline.Pipeline.Stages[].Actions[].Configuration"
-COMPACT_SOURCE = re.compile(r'^<!-- compact-source: (.+?) --> ')
-COMPACT_FIELDS = {
-    CODEBUILD_FORMAL_VARIABLE + 'Name': (('Name', 'Type', 'Value'), None),
-    'CloudTrail.Trail.EventSelectors[].DataResources[].Type': (('Type', 'Values'), 'Values'),
-}
-PACKED_ARRAY_PREFIXES = ('CodePipeline.Pipeline.Stages[]',)
+def _recursive_packed_compact_rows_expand(block, values, prefix):
+    if any(not isinstance(value, list) or len(value) != len(values[0]) for value in values):
+        raise ValueError('packed array dimensions differ')
+    result = []
+    for children in zip(*values, strict=False):
+        cursor = 0
+        while cursor < len(block):
+            row, value = block[cursor], children[cursor]
+            end = row[1].find('[]', len(prefix))
+            if end == -1:
+                raw = value if isinstance(value, str) and LINK.fullmatch(value) else '`' + (value if isinstance(value, str) else json.dumps(value, separators=(',', ':'))) + '`'
+                result.append([row[0], row[1], raw, row[3]])
+                cursor += 1
+                continue
+            child_prefix = row[1][:end + 2]
+            stop = cursor + 1
+            while stop < len(block) and block[stop][1].startswith(child_prefix):
+                stop += 1
+            result.extend(_recursive_packed_compact_rows_expand(block[cursor:stop], children[cursor:stop], child_prefix))
+            cursor = stop
+    return result
+
+
+def _recursive_packed_compact_rows_unpack(block, fields, result, vector, /, values):
+    if isinstance(values[0], list):
+        if any(not isinstance(value, list) or len(value) != len(values[0]) for value in values):
+            raise ValueError('packed compact array dimensions differ')
+        for children in zip(*values, strict=False):
+            _recursive_packed_compact_rows_unpack(block, fields, result, vector, children)
+        return
+    groups = [values]
+    if vector and isinstance(values[fields.index(vector)], list):
+        groups = [[value if field != vector else item for field, value in zip(fields, values, strict=False)]
+                  for item in values[fields.index(vector)]]
+    for group in groups:
+        if any(not isinstance(value, str) for value in group):
+            raise ValueError('compact fields require string leaves')
+        result.extend([[row[0], row[1], value if LINK.fullmatch(value) else '`' + value + '`', row[3]]
+                       for row, value in zip(block, group, strict=False)])
 
 
 def packed_compact_rows(rows, index):
@@ -35,27 +74,7 @@ def packed_compact_rows(rows, index):
                 stop += 1
             block = rows[index:stop]
             values = [json.loads(literal(row[2])) for row in block]
-            def expand(block, values, prefix):
-                if any(not isinstance(value, list) or len(value) != len(values[0]) for value in values):
-                    raise ValueError('packed array dimensions differ')
-                result = []
-                for children in zip(*values):
-                    cursor = 0
-                    while cursor < len(block):
-                        row, value = block[cursor], children[cursor]
-                        end = row[1].find('[]', len(prefix))
-                        if end == -1:
-                            raw = value if isinstance(value, str) and LINK.fullmatch(value) else '`' + (value if isinstance(value, str) else json.dumps(value, separators=(',', ':'))) + '`'
-                            result.append([row[0], row[1], raw, row[3]])
-                            cursor += 1
-                            continue
-                        child_prefix = row[1][:end + 2]
-                        stop = cursor + 1
-                        while stop < len(block) and block[stop][1].startswith(child_prefix):
-                            stop += 1
-                        result.extend(expand(block[cursor:stop], children[cursor:stop], child_prefix))
-                        cursor = stop
-                return result
+            expand = _recursive_packed_compact_rows_expand
             expanded = expand(block, values, prefix)
             if not expanded:
                 raise ValueError('empty packed array display group')
@@ -75,22 +94,7 @@ def packed_compact_rows(rows, index):
         raise ValueError('packed compact fields must be contiguous')
     values = [json.loads(literal(row[2])) for row in block]
     result = []
-    def unpack(values):
-        if isinstance(values[0], list):
-            if any(not isinstance(value, list) or len(value) != len(values[0]) for value in values):
-                raise ValueError('packed compact array dimensions differ')
-            for children in zip(*values):
-                unpack(children)
-            return
-        groups = [values]
-        if vector and isinstance(values[fields.index(vector)], list):
-            groups = [[value if field != vector else item for field, value in zip(fields, values)]
-                      for item in values[fields.index(vector)]]
-        for group in groups:
-            if any(not isinstance(value, str) for value in group):
-                raise ValueError('compact fields require string leaves')
-            result.extend([[row[0], row[1], value if LINK.fullmatch(value) else '`' + value + '`', row[3]]
-                           for row, value in zip(block, group)])
+    unpack = _bind_framework_callback(_recursive_packed_compact_rows_unpack, block, fields, result, vector)
     unpack(values)
     if not result:
         raise ValueError('empty packed compact display group')
@@ -280,7 +284,8 @@ GLUE_ARGUMENT_SOURCE = re.compile(r"^<!-- glue-arguments-source: (.+?) --> ")
 
 
 def glue_argument_rows(rows: list[list[str]], kind: str) -> list[list[str]]:
-    from policy_tables import code, literal
+    code = _imports_policy_tables.code
+    literal = _imports_policy_tables.literal
 
     result = []
     for identity, prop, value, comment in rows:

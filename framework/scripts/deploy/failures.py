@@ -1,7 +1,9 @@
 """Safe structured failure evidence; cause diagnosis belongs to the supervising LLM."""
 import copy
 import re
+
 from utils.json_format import fingerprint
+
 from deploy.guards import secret_value_missing
 
 # A transport failure, approval wait or guard failure never becomes an IaC failure.

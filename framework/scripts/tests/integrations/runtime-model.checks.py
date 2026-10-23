@@ -2,14 +2,30 @@
 """Explicit properties authority, runtime derivation and raw input safety."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from unittest.mock import patch
+
+from model.format import parse as parse
+from model.sources import _publish_transaction as _publish_transaction
+from model.sources import model_paths as model_paths
+from model.sources import publication_lock as publication_lock
+from support.it_case_receipt import module_complete
+from support.producer_identifier_reference_fixtures import (
+    Path,
+    affected,
+    dependency_hashes,
+    design_source_digest,
+    load_model,
+    rejected,
+    setup,
+    tempfile,
+    write_model,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-from unittest.mock import patch
-from support.it_case_receipt import module_complete
-from support.producer_identifier_reference_fixtures import *
-from model.sources import model_paths, publication_lock, _publish_transaction
-from model.format import parse, patch as patch_properties
 
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory).resolve()

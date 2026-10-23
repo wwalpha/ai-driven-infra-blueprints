@@ -1,15 +1,23 @@
 """Stop unrelated work on services with unresolved target-local issues."""
-from validation_cache import input_is_file, input_select, input_text
 
 import argparse
-from pathlib import Path
+import json
 import re
 import sys
+from pathlib import Path
 
-from validation_scope import active_scope
-from model.files import service_model_path
-from task_contract import task_path, contract_path, model_operation, validate_contract, status
-
+import model.core as _imports_model_core
+import model.files as _dependency_model_files
+import validation_scope as _dependency_validation_scope
+import worktree_state as _imports_worktree_state
+from task_contract_core import (
+    contract_path,
+    model_operation,
+    status,
+    task_path,
+    validate_contract,
+)
+from utils.input_cache import input_is_file, input_select, input_text
 
 SERVICE = r"[a-z0-9]+(?:[-_][a-z0-9]+)*"
 
@@ -32,7 +40,7 @@ def remediation_scope(root: Path, *, task_file=None, contract_file=None) -> set[
                 raise ValueError("duplicate Issue remediation entry")
             result.add(entry)
     if result:
-        scope = active_scope(root, task_file=task_file, contract_file=contract_file)
+        scope = _dependency_validation_scope.active_scope(root, task_file=task_file, contract_file=contract_file)
         if scope is None or not result <= scope:
             raise ValueError("Issue remediation must be within explicit service Validation scope")
     return result
@@ -40,7 +48,6 @@ def remediation_scope(root: Path, *, task_file=None, contract_file=None) -> set[
 
 def reference_issue_parts(text):
     """Separate only recognized machine diagnostics, keeping mixed real errors blocking."""
-    import json
     text = re.sub(r'<!-- issue-(?:id|service): [^>]+ -->', '', text).strip()
     text = re.sub(r'^\d+[.)] +', '', text)
     text = re.sub(r' 根拠: \[[^\]]+\]\([^)]+\)。$', '', text).strip()
@@ -87,6 +94,30 @@ def reference_issue(text):
     return bool(references) and not errors
 
 
+def _callback_unresolved_services_flush(block, environment, heading, number, path, result, root, target, with_text, /):
+    if not number:
+        return
+    text = "\n".join(block)
+    markers = re.findall(rf"<!-- issue-service: ({SERVICE}) -->", heading + "\n" + text)
+    services = set(markers)
+    if not services and re.fullmatch(SERVICE, heading):
+        services.add(heading)
+    if not services:
+        for link in re.findall(r"\[[^\]]+\]\(([^)#]+)(?:#[^)]*)?\)", text):
+            link = re.sub(r":\d+$", "", link)
+            linked = (path.parent / link).resolve()
+            for base, suffix in (("model", ".properties"), ("docs/designs", ".md")):
+                try:
+                    base_path = (root / base).resolve()
+                    source = _dependency_model_files.service_model_path(linked, base_path) if base == "model" else linked
+                    parts = source.relative_to(base_path).parts
+                except ValueError:
+                    continue
+                if len(parts) == 3 and parts[:2] == (environment, target) and linked.suffix == suffix:
+                    services.add(source.stem)
+    result.append((number, services, text) if with_text else (number, services))
+
+
 def unresolved_services(root: Path, path: Path, *, with_text=False) -> list[tuple[str, set[str]]]:
     """Existing inventories use numbered issues and model/design evidence links."""
     environment, target = path.parent.relative_to(root / "issues").parts
@@ -97,28 +128,6 @@ def unresolved_services(root: Path, path: Path, *, with_text=False) -> list[tupl
     fence = ""
     contents = input_text(path, encoding="utf-8")
 
-    def flush():
-        if not number:
-            return
-        text = "\n".join(block)
-        markers = re.findall(rf"<!-- issue-service: ({SERVICE}) -->", heading + "\n" + text)
-        services = set(markers)
-        if not services and re.fullmatch(SERVICE, heading):
-            services.add(heading)
-        if not services:
-            for link in re.findall(r"\[[^\]]+\]\(([^)#]+)(?:#[^)]*)?\)", text):
-                link = re.sub(r":\d+$", "", link)
-                linked = (path.parent / link).resolve()
-                for base, suffix in (("model", ".properties"), ("docs/designs", ".md")):
-                    try:
-                        base_path = (root / base).resolve()
-                        source = service_model_path(linked, base_path) if base == "model" else linked
-                        parts = source.relative_to(base_path).parts
-                    except ValueError:
-                        continue
-                    if len(parts) == 3 and parts[:2] == (environment, target) and linked.suffix == suffix:
-                        services.add(source.stem)
-        result.append((number, services, text) if with_text else (number, services))
 
     for line in contents.splitlines():
         if match := re.match(r"^\s*(`{3,}|~{3,})", line):
@@ -130,17 +139,17 @@ def unresolved_services(root: Path, path: Path, *, with_text=False) -> list[tupl
         if fence:
             continue
         if re.match(r"^#{1,3} ", line):
-            flush()
+            _callback_unresolved_services_flush(block, environment, heading, number, path, result, root, target, with_text)
             number, block = "", []
             heading = line.removeprefix("### ") if line.startswith("### ") else ""
         elif not number and re.fullmatch(rf"<!-- issue-service: {SERVICE} -->", line):
             heading += "\n" + line
         elif match := re.match(r"^ {0,3}(\d+)[.)] +", line):
-            flush()
+            _callback_unresolved_services_flush(block, environment, heading, number, path, result, root, target, with_text)
             number, block = match[1], [line]
         else:
             block.append(line)
-    flush()
+    _callback_unresolved_services_flush(block, environment, heading, number, path, result, root, target, with_text)
     if not result and contents.strip() and "未解決issueなし" not in contents:
         result.append(("unknown", set(), contents) if with_text else ("unknown", set()))
     return result
@@ -192,12 +201,12 @@ def task_issue_errors(root: Path, scope, *, target=None, task_file=None, contrac
         if operation is not None and operation.action == 'import-delete':
             name = path.relative_to(root).as_posix()
             validate_contract(root, name, text)
-            declared = active_scope(root, task_file=task_file, contract_file=contract_file)
+            declared = _dependency_validation_scope.active_scope(root, task_file=task_file, contract_file=contract_file)
             if (scope is None or declared is None or not operation.scopes <= declared or
                     not scope <= declared or target is not None and not any(entry[:2] == target for entry in scope)):
                 raise ValueError('IMPORT deletion issue exception requires explicit matching service Validation scope')
             if (root / '.git').exists():
-                from worktree_task import task_start_commit
+                task_start_commit = _imports_worktree_state.task_start_commit
                 task_start_commit(root, name)
             if status(text) != 'completed':
                 remaining = scope - operation.source_scopes
@@ -211,7 +220,7 @@ def require_no_issues(root: Path, scope, *, target=None, task_file=None, contrac
     diagnostics = [] if warnings is None else warnings
     errors = task_issue_errors(root, scope, target=target, task_file=task_file, contract_file=contract_file, warnings=diagnostics)
     if warnings is None:
-        from model.core import report_reference_warnings
+        report_reference_warnings = _imports_model_core.report_reference_warnings
         report_reference_warnings(diagnostics)
     if errors:
         raise ValueError("\n- ".join(errors))
@@ -220,7 +229,7 @@ def require_no_issues(root: Path, scope, *, target=None, task_file=None, contrac
 def require_target_no_issues(root: Path, target: tuple[str, str]) -> None:
     if not input_is_file(root / "issues" / target[0] / target[1] / "issues.md"):
         return
-    scope = active_scope(root) if task_path(root, required=False) is not None else None
+    scope = _dependency_validation_scope.active_scope(root) if task_path(root, required=False) is not None else None
     if scope is not None and not any(entry[:2] == target for entry in scope):
         scope = None  # An unrelated contract cannot bypass a target's issues.
     require_no_issues(root, scope, target=target)
@@ -240,12 +249,12 @@ def main() -> int:
     root = args.repository_root.resolve()
     try:
         if args.task:
-            contract = active_scope(root)
+            contract = _dependency_validation_scope.active_scope(root)
             if contract is not None and not scope <= contract:
                 raise ValueError("requested services are outside active task validation scope")
         warnings = []
         errors = task_issue_errors(root, scope, warnings=warnings) if args.task else issue_errors(root, scope, warnings=warnings)
-        from model.core import report_reference_warnings
+        report_reference_warnings = _imports_model_core.report_reference_warnings
         report_reference_warnings(warnings)
     except (OSError, ValueError) as error:
         errors = [str(error)]

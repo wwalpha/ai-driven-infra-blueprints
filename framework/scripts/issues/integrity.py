@@ -1,6 +1,13 @@
 """Content guards shared by scan and publication; no comparison execution."""
+
 import re
-from validation_cache import digest_files, PassCache, recording_inputs
+
+import comparison.inputs as _imports_comparison_inputs
+import generation_inputs as _imports_generation_inputs
+import utils.cfn_lint as _imports_utils_cfn_lint
+from utils.input_cache import digest_files, recording_inputs
+from validation_cache import PassCache
+
 
 def live_common_key(cache):
     # A surrounding generation recorder must never turn the final guard into a memo read.
@@ -27,7 +34,7 @@ def fingerprint(comparison, *, common_key):
         raise ValueError('stale scan: contradictory input observations')
     reads = getattr(comparison, 'model_reads', None)
     if reads is not None:
-        from comparison.inputs import Inputs
+        Inputs = _imports_comparison_inputs.Inputs
         Inputs.retain_reads(comparison)
     paths = sorted(path.relative_to(comparison.root).as_posix() for path in comparison.inputs)
     return {'paths': paths, 'digest': digest_files(comparison.root, comparison.inputs),
@@ -43,10 +50,10 @@ def fingerprint(comparison, *, common_key):
 
 
 def verify_inputs(root, artifact, *, cache=None, common=True, allow_unreadable=False):
+    GenerationInputs = _imports_generation_inputs.GenerationInputs
     expected = artifact['fingerprint']
     if expected.get('unreadable') and not allow_unreadable:
         raise ValueError('scan input freshness unprovable: input bytes could not be read')
-    from generation_inputs import GenerationInputs
     for path, kind in expected.get('model_kinds', {}).items():
         if GenerationInputs.live_kind(root / path) != kind:
             raise ValueError('stale scan: Model input kind changed: ' + path)
@@ -68,7 +75,7 @@ def verify_inputs(root, artifact, *, cache=None, common=True, allow_unreadable=F
             raise ValueError('stale scan: framework/project input changed')
     verify_service_keys(root, artifact, cache=cache)
     if artifact.get("lint_dependencies"):
-        from utils.cfn_lint import verify_dependencies
+        verify_dependencies = _imports_utils_cfn_lint.verify_dependencies
         verify_dependencies(artifact["lint_dependencies"], cwd=root)
     if common and live_common_key(cache or PassCache(root)) != expected['framework']:
         raise ValueError('stale scan: framework/project input changed')
@@ -85,5 +92,3 @@ def verify_service_keys(root, artifact, *, cache=None):
             raise ValueError('stale scan: validation/reference dependency changed')
     if not supplied and cache is not None and live_common_key(cache) != cache.common:
         raise ValueError('stale scan: validation/reference dependency changed')
-
-

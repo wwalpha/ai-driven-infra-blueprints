@@ -1,14 +1,18 @@
 """Common CFn parsing, source locations and source-span repair."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import datetime
+
 import pytest
 import yaml
 from utils.cloudformation_format import decode, decode_file
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 def check_scalars_and_intrinsics(tmp_path):
@@ -41,7 +45,8 @@ def check_scalars_and_intrinsics(tmp_path):
     assert values[True] is True and values['Number'] == 83 and values['Decimal'] == '08'
     assert values['Date'] == datetime.date(2026, 10, 22) and values['Quoted'] == 'true'
     assert values['Text'] == 'hello\nworld\n'
-    path = tmp_path / 'input.yaml'; path.write_text(source)
+    path = tmp_path / 'input.yaml'
+    path.write_text(source)
     assert decode_file(path) == (document, [])
     assert decode('{"a":[true,1,null,"x"]}')[0] == {'a': [True, 1, None, 'x']}
     assert yaml.safe_load('a: yes')['a'] is True

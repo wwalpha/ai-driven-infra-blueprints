@@ -1,8 +1,18 @@
 """Exact Import read and write scopes; producer reads never confer publication rights."""
+
+import re
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
-from functools import wraps
-from validation_cache import memoized
+
+import task_contract_core as _imports_task_contract
+import task_contract_core as _imports_validation_scope
+from task_contract_core import _selected_contract, contracts
+from utils.function_wrapper import FunctionWrapper
+from utils.input_cache import memoized
+
+import model.core as _imports_model_core
+import model.importing.repository as _imports_model_importing_repository
+import model.sources as _imports_model_sources
 
 _scope = ContextVar('model_import_scope', default=None)
 _consumers = ContextVar('model_import_read_consumers', default=None)
@@ -26,7 +36,6 @@ def reference_reader(path):
 def selected(root, *, contract_file=None):
     if _scope.get() is not None:
         return _scope.get()
-    from task_contract import contracts, _selected_contract
     if not contracts(root):
         return None
     # Reading scope grants no execution/write rights; those boundaries check paths/status.
@@ -42,10 +51,10 @@ def selected(root, *, contract_file=None):
 
 @memoized
 def _selection(root, name, text, contract_file=None):
-    from task_contract import section
+    section = _imports_task_contract.section
+    active_scope = _imports_validation_scope.active_scope
     if '- Workflow: `import`' not in section(text, '## Task contract'):
         return None
-    import re
     targets = re.findall(r'^- IMPORT target: `([^`]+)`$', '\n'.join(section(text, '## Task contract')), re.M)
     if len(targets) > 1:
         raise ValueError('duplicate fixed IMPORT target')
@@ -54,7 +63,6 @@ def _selection(root, name, text, contract_file=None):
         if len(parts) != 3 or any(not re.fullmatch(r'[a-z0-9]+(?:[-_][a-z0-9]+)*', part) for part in parts):
             raise ValueError('invalid fixed IMPORT target')
         return parts
-    from validation_scope import active_scope
     scope = active_scope(root, contract_file=contract_file)
     if scope is None or len(scope) != 1:
         raise ValueError('IMPORT requires exactly one environment/target/service in Validation scope')
@@ -81,14 +89,16 @@ def read_consumers(identities):
 
 
 def readable(root):
+    contracts = _imports_task_contract.contracts
+    active_scope = _imports_validation_scope.active_scope
+
+    has_baseline = _imports_model_importing_repository.has_baseline
     if _consumers.get() is not None:
         return _consumers.get()
     identity = selected(root)
     if identity is None:
         return None
-    from validation_scope import active_scope
-    from task_contract import contracts
-    from model.importing.repository import has_baseline
+
     scope = active_scope(root) if has_baseline(root) and contracts(root) else None
     return (scope or set()) | {identity}
 
@@ -116,12 +126,14 @@ def model_path(root, identity):
     return root / 'model' / environment / target / (service + '.properties')
 
 
+def _invoke_scoped(function, /, root, *args, **kwargs):
+    identity = selected(root)
+    with restrict(identity), read_consumers(readable(root)) if identity is not None else nullcontext():
+        return function(root, *args, **kwargs)
+
+
 def scoped(function):
-    @wraps(function)
-    def wrapped(root, *args, **kwargs):
-        identity = selected(root)
-        with restrict(identity), read_consumers(readable(root)) if identity is not None else nullcontext():
-            return function(root, *args, **kwargs)
+    wrapped = FunctionWrapper(function, _invoke_scoped)
     return wrapped
 
 
@@ -145,13 +157,13 @@ def reference_input(path):
 
 
 def input_paths(root, identity):
-    from model.sources import load_model
+    load_model = _imports_model_sources.load_model
     inputs = load_model(model_path(root, identity)).dependencies
     return tuple(sorted(inputs)), dict(inputs)
 
 
 def allowed_source(root, file, identity):
-    from model.sources import source_scope
+    source_scope = _imports_model_sources.source_scope
     try:
         scope = source_scope(root, file)
     except ValueError:
@@ -160,13 +172,13 @@ def allowed_source(root, file, identity):
 
 
 def placement_names(path, required=None):
-    from model.core import entries
-    from model.sources import load_model
+    entries = _imports_model_core.entries
+    load_model = _imports_model_sources.load_model
     with reference_reader(path):
         model = load_model(path)
     names = {stack['placementName']: stack['name'] for _, stack in entries(model.authoritative, 'desired.stack.')}
     if required is not None and not set(required) <= names.keys():
-        from model.core import ReferenceResolutionError
+        ReferenceResolutionError = _imports_model_core.ReferenceResolutionError
         raise ReferenceResolutionError('cfn-logicalId references an undeclared fixed Stack placement')
     return set(names), dict(model.files)
 

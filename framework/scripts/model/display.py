@@ -4,22 +4,26 @@ import json
 import re
 from collections import Counter
 from pathlib import Path
-from model.core import LINK, literal, ReferenceResolutionError
+
+import aws_mapping_display as _display_aws_mapping_display
+import design_layout as _display_design_layout
+import design_layout as _imports_design_layout
+import policy_tables as _dependency_policy_tables
+import service_rows as _dependency_service_rows
 from ec2_display import ec2_display_rows
-from service_rows import codebuild_display_row, pipeline_rows, glue_argument_rows, CODEBUILD_FORMAL_VARIABLE, packed_compact_rows
-from design_layout import (HEADER, ALIGNMENT, GROUPED, REQUIRED_NAME_TAG_TYPES,
-    GUARDDUTY_FORMAL_FEATURE, CLOUDTRAIL_FORMAL_DATA_RESOURCE, CLOUDTRAIL_RESOURCE_TYPES,
-    LINKED_LIST_PROPERTIES, CODEBUILD_VPC_PROPERTIES, subnet_list_items, catalog_property_order)
-from policy_tables import table
-from aws_mapping_display import ROOT, rule, selected_rows, compact_group, display_name
-from validation_cache import input_scope
+from utils.input_cache import input_scope
+from utils.layout_schema import CODEBUILD_FORMAL_VARIABLE
+
+from model.core import LINK, ReferenceResolutionError, literal
+
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def catalog_display_rows(rows: list[list[str]], kind: str, root: Path) -> list[list[str]]:
     """Sort property blocks without separating contiguous array elements."""
-    if kind == "EC2.SecurityGroup" or GROUPED.get(kind, {}).get("display") == "rule-table":
+    if kind == "EC2.SecurityGroup" or _display_design_layout.GROUPED.get(kind, {}).get("display") == "rule-table":
         return rows  # Horizontal rule tables have their own generation and restoration.
-    order = dict(catalog_property_order(root, kind) or {})
+    order = dict(_display_design_layout.catalog_property_order(root, kind) or {})
     if kind == "CodeBuild.Project":
         subnets, groups = kind + ".VpcConfig.Subnets", kind + ".VpcConfig.SecurityGroupIds"
         order[subnets], order[groups] = order[groups], order[subnets]
@@ -48,7 +52,7 @@ def catalog_display_rows(rows: list[list[str]], kind: str, root: Path) -> list[l
 @input_scope
 def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="CREATE", _counts=None, consumed: list[str] | None = None) -> list[list[str]]:
     """Apply the existing service displays without changing formal model values."""
-    rows = selected_rows(rows, root)
+    rows = _display_aws_mapping_display.selected_rows(rows, root)
     processed = []
     formal_properties = {row[1] for row in rows}
     result = []
@@ -57,7 +61,7 @@ def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="C
     while index < len(rows):
         start = index
         identity, prop, value, comment = rows[index]
-        packed = packed_compact_rows(rows, index) if mode == 'IMPORT' else None
+        packed = _dependency_service_rows.packed_compact_rows(rows, index) if mode == 'IMPORT' else None
         if packed is not None:
             block, expanded = packed
             rendered = display_rows(kind, expanded, root, mode=mode, _counts=counts)
@@ -70,15 +74,15 @@ def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="C
             index += len(block)
             continue
         if prop == CODEBUILD_FORMAL_VARIABLE + "Name":
-            _, prop, value, comment = codebuild_display_row(rows, index, comment, mode=mode)
+            _, prop, value, comment = _dependency_service_rows.codebuild_display_row(rows, index, comment, mode=mode)
             index += 2
-        elif prop in LINKED_LIST_PROPERTIES:
+        elif prop in _display_design_layout.LINKED_LIST_PROPERTIES:
             linked = LINK.fullmatch(value)
-            if prop in CODEBUILD_VPC_PROPERTIES and not linked and mode != "IMPORT":
+            if prop in _display_design_layout.CODEBUILD_VPC_PROPERTIES and not linked and mode != "IMPORT":
                 if literal(value).lstrip().startswith(('[', '{')):
-                    subnet_list_items(prop, value)
+                    _display_design_layout.subnet_list_items(prop, value)
                 raise ReferenceResolutionError("CodeBuild VpcConfig value must be a resource link", property=prop, reference=value)
-            items = [value] if linked else subnet_list_items(prop, value)
+            items = [value] if linked else _display_design_layout.subnet_list_items(prop, value)
             source = ""
             if not linked:
                 encoded = json.dumps(value, ensure_ascii=True)
@@ -92,16 +96,16 @@ def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="C
             processed.extend(row[0] for row in rows[start:index + 1])
             index += 1
             continue
-        elif prop == GUARDDUTY_FORMAL_FEATURE + "Name":
-            if index + 1 >= len(rows) or rows[index + 1][1] != GUARDDUTY_FORMAL_FEATURE + "Status":
+        elif prop == _display_design_layout.GUARDDUTY_FORMAL_FEATURE + "Name":
+            if index + 1 >= len(rows) or rows[index + 1][1] != _display_design_layout.GUARDDUTY_FORMAL_FEATURE + "Status":
                 raise ValueError("GuardDuty features require contiguous Name/Status rows")
             prop = "GuardDuty.Detector.Features." + literal(value)
             value = rows[index + 1][2]
             index += 1
-        elif prop == CLOUDTRAIL_FORMAL_DATA_RESOURCE + "Type":
-            if index + 1 >= len(rows) or rows[index + 1][1] != CLOUDTRAIL_FORMAL_DATA_RESOURCE + "Values":
+        elif prop == _display_design_layout.CLOUDTRAIL_FORMAL_DATA_RESOURCE + "Type":
+            if index + 1 >= len(rows) or rows[index + 1][1] != _display_design_layout.CLOUDTRAIL_FORMAL_DATA_RESOURCE + "Values":
                 raise ValueError("CloudTrail data resources require contiguous Type/Values rows")
-            types = {value: key for key, value in CLOUDTRAIL_RESOURCE_TYPES.items()}
+            types = {value: key for key, value in _display_design_layout.CLOUDTRAIL_RESOURCE_TYPES.items()}
             if literal(value) not in types:
                 raise ValueError("unsupported CloudTrail data resource type")
             counts["data"] = counts.get("data", 0) + 1
@@ -110,30 +114,30 @@ def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="C
             if literal(value) == '["arn:aws:s3"]' or mode == 'IMPORT' and literal(value) == 'arn:aws:s3':
                 value = "`All current and future S3 buckets`"
             index += 1
-        elif prop.startswith((CODEBUILD_FORMAL_VARIABLE, GUARDDUTY_FORMAL_FEATURE, CLOUDTRAIL_FORMAL_DATA_RESOURCE)) and not prop.startswith(GUARDDUTY_FORMAL_FEATURE + "AdditionalConfiguration"):
+        elif prop.startswith((CODEBUILD_FORMAL_VARIABLE, _display_design_layout.GUARDDUTY_FORMAL_FEATURE, _display_design_layout.CLOUDTRAIL_FORMAL_DATA_RESOURCE)) and not prop.startswith(_display_design_layout.GUARDDUTY_FORMAL_FEATURE + "AdditionalConfiguration"):
             raise ValueError(f"incomplete compact display group: {prop}")
         # Compact producers own their dynamic names; ordinary rows use Mapping names.
-        item = rule(prop, root) if not compact_group(prop) and prop in formal_properties else None
-        from design_layout import is_import_role_arn
-        prop = "RoleARN" if is_import_role_arn(prop, value, mode) else display_name(prop, kind, root) if item else prop.removeprefix(kind + ".")
+        item = _display_aws_mapping_display.rule(prop, root) if not _display_aws_mapping_display.compact_group(prop) and prop in formal_properties else None
+        is_import_role_arn = _imports_design_layout.is_import_role_arn
+        prop = "RoleARN" if is_import_role_arn(prop, value, mode) else _display_aws_mapping_display.display_name(prop, kind, root) if item else prop.removeprefix(kind + ".")
         result.append([identity, prop, value, comment])
         processed.extend(row[0] for row in rows[start:index + 1])
         index += 1
     if Counter(processed) != Counter(row[0] for row in rows):
         raise ValueError("selected display rows were omitted or consumed more than once")
     if kind == "CodePipeline.Pipeline":
-        result = pipeline_rows(result)
-    elif kind in REQUIRED_NAME_TAG_TYPES:
+        result = _dependency_service_rows.pipeline_rows(result)
+    elif kind in _display_design_layout.REQUIRED_NAME_TAG_TYPES:
         result = ec2_display_rows(result)
     elif kind == "Glue.Job":
-        result = glue_argument_rows(result, kind)
+        result = _dependency_service_rows.glue_argument_rows(result, kind)
     if consumed is not None:
         consumed.extend(processed)
     return result
 
 
 def row_table(rows: list[list[str]]) -> list[str]:
-    return [HEADER, ALIGNMENT, *("| " + " | ".join([str(number), *row[1:]]) + " |" for number, row in enumerate(rows, 1))]
+    return [_display_design_layout.HEADER, _display_design_layout.ALIGNMENT, *("| " + " | ".join([str(number), *row[1:]]) + " |" for number, row in enumerate(rows, 1))]
 
 
 @input_scope
@@ -158,7 +162,7 @@ def sg_tables(rows: list[list[str]], children: list[tuple[dict, list[list[str]]]
             else:
                 raise ValueError("SG tags require contiguous Key/Value pairs")
         else:
-            basic.append([row[0], display_name(row[1], "EC2.SecurityGroup", root), *row[2:]])
+            basic.append([row[0], _display_aws_mapping_display.display_name(row[1], "EC2.SecurityGroup", root), *row[2:]])
     output = row_table(basic)
     if tags:
         if any(set(tag) != {"Key", "Value"} for tag in tags):
@@ -190,10 +194,8 @@ def sg_tables(rows: list[list[str]], children: list[tuple[dict, list[list[str]]]
         if unknown:
             raise ValueError(f"unsupported SG rule fields: {sorted(unknown)}")
         fields = [field for field in fields if field in {"Direction", "Port"} or any(field in rule for rule in rules)]
-        output += ["", *table(fields, [[rule.get(field, "—") for field in fields] for rule in rules])]
+        output += ["", *_dependency_policy_tables.table(fields, [[rule.get(field, "—") for field in fields] for rule in rules])]
     if consumed is not None:
         consumed.extend(row[0] for row in rows)
         consumed.extend(row[0] for _, child_rows in children for row in child_rows)
     return output
-
-

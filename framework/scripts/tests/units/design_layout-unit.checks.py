@@ -2,14 +2,38 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import design_layout as _imports_design_layout
+import pytest as _imports_pytest
+import support.design_layout_fixtures as _exports_support_design_layout_fixtures
+from design_layout import resource_display_selection, resource_has_name_property
+from support.design_layout_fixtures import (
+    REPOSITORY,
+    Path,
+    expanded_display_rows,
+    model_projection,
+    pipeline_rows,
+    pytest,
+    resource_anchor,
+    resource_display_name,
+    run,
+    sys,
+)
+from support.design_layout_fixtures import pytestmark as pytestmark
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.design_layout_fixtures import *
+# Preserve shared fixtures and compatibility exports under their historical names.
+catalog = _exports_support_design_layout_fixtures.catalog
+resource_logical_ids = _exports_support_design_layout_fixtures.resource_logical_ids
+
+
 
 def check_resource_display_names():
-    from design_layout import resource_display_selection, resource_has_name_property
     kind = 'Config.ConfigurationRecorder'
     assert resource_has_name_property(REPOSITORY, kind, 'IMPORT')
     assert resource_display_selection(REPOSITORY, kind, [], 'Config recorder', 'IMPORT', 1) == ('Config recorder', None)
@@ -67,15 +91,18 @@ def check_cloudtrail_expansion():
 
 
 
+def _callback_check_pipeline_expansion_design(service: str, resource_type: str, logical_id: str, rows: list[tuple[str, str]]):
+    return "\n".join([
+        f"# {service} 詳細設計", f"- Design service ID: `{service}`",
+        f"- Owned catalog resource types: `{resource_type}`", "## リソース詳細",
+        f'<a id="{service}-{logical_id.lower()}"></a>', f"### {resource_type}: {logical_id}",
+        "| No. | Property | Value | Source / Comment |", "| ---: | --- | --- | --- |",
+        *(f"| {n} | {prop} | {value} | 設定する属性 |" for n, (prop, value) in enumerate(rows, 1)),
+    ]) + "\n"
+
+
 def check_pipeline_expansion(catalog):
-    def design(service: str, resource_type: str, logical_id: str, rows: list[tuple[str, str]]) -> str:
-        return "\n".join([
-            f"# {service} 詳細設計", f"- Design service ID: `{service}`",
-            f"- Owned catalog resource types: `{resource_type}`", "## リソース詳細",
-            f'<a id="{service}-{logical_id.lower()}"></a>', f"### {resource_type}: {logical_id}",
-            "| No. | Property | Value | Source / Comment |", "| ---: | --- | --- | --- |",
-            *(f"| {n} | {prop} | {value} | 設定する属性 |" for n, (prop, value) in enumerate(rows, 1)),
-        ]) + "\n"
+    design = _callback_check_pipeline_expansion_design
 
     rows = [
         ("Name", "`pipeline`"),
@@ -95,7 +122,7 @@ def check_pipeline_expansion(catalog):
         ("Stages[2].Name", "`BuildAndTest`"),
     ]
     pipeline = design("codepipeline", "CodePipeline.Pipeline", "Pipeline", rows)
-    repository = design("codecommit", "CodeCommit.Repository", "Repo", [("RepositoryName", "`repo`")])
+    _ = design("codecommit", "CodeCommit.Repository", "Repo", [("RepositoryName", "`repo`")])
 
     assert not catalog[2].get("CodeCommit.Repository")
     assert not model_projection.identifier_outputs(REPOSITORY).get("CodeCommit.Repository")
@@ -113,8 +140,8 @@ def check_pipeline_expansion(catalog):
 
 
 def check_fixed_identity_anchors():
-    from design_layout import resource_logical_ids
-    import pytest
+    pytest = _imports_pytest
+    resource_logical_ids = _imports_design_layout.resource_logical_ids
     lines = []
     for logical in ('EC2_Subnet_001', 'EC2_Subnet_002'):
         lines += ['<!-- resource-logical-id: ' + logical + ' -->', '<a id="resource-' + logical + '"></a>', '### EC2.Subnet: same-name']

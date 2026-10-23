@@ -1,13 +1,21 @@
 """Exact, session-owned observation plans around the existing Model transaction."""
+
 import base64
 import copy
 import hashlib
+from functools import partial as _bind_framework_callback
 
+import generation_inputs as _imports_generation_inputs
+import import_guard as _imports_import_guard
+import model.adapters.observed as _imports_model_adapters_observed
+import sync_runtime as _imports_sync_runtime
 from cloudformation_inputs import Blocked
-from deploy.contracts import task_digest
-from model.sources import authority_snapshot, publication_lock, safe
 from model.observed import verify_observed_outputs
-from task_contract import task_path, validate_contract, paths_in, matches
+from model.sources import authority_snapshot, publication_lock, safe
+from task_contract_core import matches, paths_in, task_path, validate_contract
+from task_contract_core import task_digest as task_digest
+
+import deploy.observed as _imports_deploy_observed
 
 
 def manifest(snapshot):
@@ -50,7 +58,7 @@ def classify(current, before, after, *, mixed=False):
 
 def generated_plan(root, views):
     """Pin observed_destinations before any Model save or fallible generation."""
-    from generation_inputs import GenerationInputs
+    GenerationInputs = _imports_generation_inputs.GenerationInputs
     snapshot = GenerationInputs(root)
     try:
         files = set(views)
@@ -135,7 +143,7 @@ def verify_generated_journal(root, plan, record):
 
 
 def _identity(root, session, target, environment, directory):
-    from import_guard import managed_task_state
+    managed_task_state = _imports_import_guard.managed_task_state
     task = task_path(root)
     text = task.read_text(encoding='utf-8')
     validate_contract(root, task.relative_to(root).as_posix(), text)
@@ -233,19 +241,23 @@ def verify_journal(plan, record, current):
         raise Blocked('journal cannot restore the complete observed input state')
 
 
+# Never let an unrelated transaction or third-party bytes be rolled back.
+def _callback_reconcile_recovery(directory, environment, root, session, target, /, record):
+    # Never let an unrelated transaction or third-party bytes be rolled back.
+    plan = validate_plan(root, session, target, environment, directory)
+    current = {relative: (root / relative).read_bytes() if (root / relative).is_file() else None
+               for relative in plan['beforeManifest']}
+    if record['originals'] and all(p.startswith('docs/designs/') for p in record['originals']):
+        classify(manifest(current), plan['beforeManifest'], plan['afterManifest'])
+        verify_generated_journal(root, plan, record)
+    else:
+        check_generated(root, plan)
+        verify_journal(plan, record, manifest(current))
+
+
 def reconcile(root, session, target, environment, directory):
     """Validate recovery before any read-only Model load can encounter a journal."""
-    def recovery(record):
-        # Never let an unrelated transaction or third-party bytes be rolled back.
-        plan = validate_plan(root, session, target, environment, directory)
-        current = {relative: (root / relative).read_bytes() if (root / relative).is_file() else None
-                   for relative in plan['beforeManifest']}
-        if record['originals'] and all(p.startswith('docs/designs/') for p in record['originals']):
-            classify(manifest(current), plan['beforeManifest'], plan['afterManifest'])
-            verify_generated_journal(root, plan, record)
-        else:
-            check_generated(root, plan)
-            verify_journal(plan, record, manifest(current))
+    recovery = _bind_framework_callback(_callback_reconcile_recovery, directory, environment, root, session, target)
 
     with publication_lock(root, recovery_check=recovery):
         plan = validate_plan(root, session, target, environment, directory)
@@ -259,9 +271,11 @@ def reconcile(root, session, target, environment, directory):
 
 
 def finish(backend, units):
-    from model.adapters.observed import publish_observed
-    from deploy.observed import collect_successful
-    import sync_runtime
+
+    sync_runtime = _imports_sync_runtime
+    publish_observed = _imports_model_adapters_observed.publish_observed
+
+    collect_successful = _imports_deploy_observed.collect_successful
     root, session = backend.root, backend.session
     plan = session['pendingObserved']
     stage = reconcile(root, session, backend.target, backend.environment, backend.directory)

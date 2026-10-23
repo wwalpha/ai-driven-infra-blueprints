@@ -1,38 +1,47 @@
 """Explicit service properties, fixed identities, scope and transaction fixtures."""
 
 import sys
-
 from pathlib import Path
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import copy
+import io
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from contextlib import redirect_stdout
+from unittest.mock import patch
 
-from model.files import read_model
+import model.sources as _exports_model_sources
+import pytest
+import sync_runtime
+from cloudformation_inputs import Blocked
+from model.core import entries, properties
+from model.files import model_file_contents, read_model, trace_model
+from model.format import parse, serialize, split
+from model.impact import affected, dependencies
+from model.sources import (
+    _publish_transaction,
+    json_read,
+    json_text,
+    publication_lock,
+    source_scope,
+)
+from support.model_sources import write_fixture_files as save_files
+from support.model_sources import write_model
+from support.pytest_cli import run
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-import copy, io, json, os, shutil, subprocess, sys, tempfile
+# Preserve shared fixtures and compatibility exports under their historical names.
+load_model = _exports_model_sources.load_model
+model_parts = _exports_model_sources.model_parts
 
-from contextlib import redirect_stdout
-
-from unittest.mock import patch
-
-from model.sources import json_text, json_read, load_model, publication_lock, _publish_transaction, source_scope, model_parts
-from model.format import serialize, split, parse
-from model.files import trace_model
-from model.impact import affected, dependencies
-
-from model.core import properties, entries
-
-from cloudformation_inputs import Blocked
-
-from model.files import load_model, read_model, model_parts, model_file_contents
-
-from support.model_sources import write_fixture_files as save_files
-
-from support.model_sources import write_model
-
-import sync_runtime
 
 ROOT=Path(__file__).resolve().parents[4]
 
@@ -58,7 +67,8 @@ def role_model(env,count):
     result={'desired.service.iam.serviceId':'iam','desired.service.iam.ownedCatalogResourceTypes':'IAM.Role','display.service.title':'# IAM 詳細設計'}
     result['desired.service.identity.lastAllocated'] = json_text({'IAM.Role': count})
     for number in range(count):
-        identity=f'{11+number*7:03d}';name=f'app-{env}-role-{number+1}'
+        identity=f'{11+number*7:03d}'
+        name=f'app-{env}-role-{number+1}'
         result.update({f'desired.resource.{identity}.resourceType':'IAM.Role',f'desired.resource.{identity}.logicalId':f'IAM_Role_{number + 1:03d}', f'desired.resource.{identity}.anchor': 'resource-' + (f'IAM_Role_{number + 1:03d}'),
                        f'desired.resource.{identity}.resourceMode':'IMPORT',f'display.resource.{identity}.comment':'共通の処理権限',
                        f'desired.row.{identity}-004.property':'IAM.Role.RoleName',f'desired.row.{identity}-004.value':'`'+name+'`',
@@ -90,9 +100,7 @@ def install_candidate(root, models):
     return root / 'model' / next(iter(models)) / 'team/iam.properties'
 
 
-import pytest
 
-from support.pytest_cli import run
 
 @pytest.fixture
 def root(project_workspace):

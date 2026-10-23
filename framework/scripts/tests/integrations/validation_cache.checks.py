@@ -2,14 +2,23 @@
 """Raw Model/dependency bytes invalidate validation without changing saved values."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from model.format import FORMAT, INDEX
+from model.sources import design_source_digest, load_model, source_inputs
+from support.it_case_receipt import it_case
+from support.producer_identifier_reference_fixtures import reference, resource, setup
+from support.validation_cache_fixtures import (
+    PassCache,
+    Path,
+    sys,
+    tempfile,
+    write_model,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-from support.it_case_receipt import it_case
-from support.validation_cache_fixtures import *
-from support.producer_identifier_reference_fixtures import setup, resource, reference
-from model.sources import load_model, design_source_digest, source_inputs
-from model.format import FORMAT, INDEX, serialize
 
 
 @it_case

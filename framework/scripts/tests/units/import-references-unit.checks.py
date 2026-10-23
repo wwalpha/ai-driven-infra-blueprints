@@ -1,30 +1,66 @@
 #!/usr/bin/env python3
 """Exact IMPORT references use synthetic Models and immutable Framework definitions."""
+
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import json
+from contextlib import closing, contextmanager
+from unittest.mock import patch
+
+import model.sources
+import pytest
+import service_rows as _imports_service_rows
+from design_document import DesignIndex
+from design_layout import expanded_display_rows
+from generation_inputs import GenerationInputs
+from import_guard import digest, require_import_changes, resource_config
+from model.core import entries as entries
+from model.core import literal, resource_row_index
+from model.display import display_rows
+from model.format import serialize
+from model.identity import resource_link
+from model.importing.approval import build_review
+from model.importing.cli import replacement_inputs
+from model.importing.references import Resolver
+from model.importing.scope import read_consumers, reference_reader, restrict
+from model.importing.sources import property_values, verify_values
+from model.operations import (
+    CandidateReads,
+    ConfigurationIndex,
+    _observed_index,
+    preserve_fixed_fields,
+    resource_configuration,
+)
+from model.projection import identifier_outputs
+from model.references import declarations, incoming
+from model.render import generate_markdown
+from model.sources import Scope, candidate_sources, json_text
+from model.sources import load_model as load_for_edit
+from reference_contracts import contract
+from service_rows import CODEBUILD_FORMAL_VARIABLE
+from support.model_sources import write_model
+from support.model_v2_fixtures import value_snapshot as Expansion
+from support.producer_identifier_reference_fixtures import reference
+from task_contract_core import start
+from utils.aws_mappings import owners
+from utils.input_cache import input_context
+from utils.layout_schema import ALIGNMENT, HEADER
+from utils.source_reads import FileReads
+from validation.design_links import check_design_links as _check_design_links
+from validation.findings import Findings
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-
-import json
-from unittest.mock import patch
-import pytest
-
-from model.importing.references import Resolver
-from model.importing.sources import verify_values, property_values
-from model.importing.scope import restrict, read_consumers
-from model.sources import load_model as load_for_edit, json_text
-from support.model_v2_fixtures import value_snapshot as Expansion
-from model.core import entries, literal
-from model.identity import resource_link
-from reference_contracts import contract
-from support.model_sources import write_model
-from validation_cache import input_context
 
 ROOT = Path(__file__).resolve().parents[4]
 
 
-from contextlib import contextmanager, closing
+
 
 @contextmanager
 def warned(resolver, match):
@@ -53,14 +89,12 @@ def values(kind, attributes, rid='001', mode='IMPORT', anchor='producer'):
 
 
 def local_snapshot(source, root, service):
-    from model.sources import Scope
     snapshot = Expansion(source, {}, {})
     snapshot.scope = Scope(root, 'dev', 'cde', service)
     return snapshot
 
 
 def producer(root, kind, attributes, mode='IMPORT', env='dev', rid='001', anchor='producer', previous=None):
-    from utils.aws_mappings import owners
     service = owners(ROOT)[kind]
     path = root / 'model' / env / 'cde' / (service + '.properties')
     fields = {**(previous or {}), **values(kind, attributes, rid, mode, anchor)}
@@ -178,7 +212,6 @@ def check_publication_mixed_array_and_physical_value(tmp_path):
 
 
 def check_observed_and_reused_index(tmp_path):
-    import model.sources
     observed = values('EC2.VPC', {'VpcId': 'PENDING_DEPLOY'})
     observed['desired.row.001-001.value'] = '[target](vpc.md#producer)'
     observed['observed.row.001-001.value'] = 'vpc-confirmed'
@@ -220,7 +253,7 @@ def check_pending_explicit_reference_after_destroy(tmp_path, physical, local):
 
 
 def check_append_only_and_later_import(tmp_path):
-    prop = 'CloudTrail.Trail.S3BucketName'
+    _ = 'CloudTrail.Trail.S3BucketName'
     old = values('CloudTrail.Trail', {'S3BucketName': 'audit-bucket'})
     expansion = Expansion(old, {}, {})
     producer(tmp_path, 'S3.Bucket', {'BucketName': 'audit-bucket'})
@@ -235,9 +268,6 @@ def check_append_only_and_later_import(tmp_path):
 
 
 def check_selected_new_import_can_resolve_only_its_declared_producer(tmp_path):
-    from model.format import serialize
-    from model.sources import FileReads, candidate_sources
-    from model.operations import CandidateReads
     _, producer_path = producer(tmp_path, 'EC2.Subnet', {'SubnetId': 'subnet-confirmed', 'Name': 'private-subnet'})
     producer_before = producer_path.read_bytes()
     path = tmp_path / 'model/dev/cde/codebuild.properties'
@@ -285,9 +315,9 @@ def check_declared_identifier_forms(tmp_path, prop, kind, attrs, raw, context):
 
 
 def check_import_compact_display_and_create_guards():
-    from model.display import display_rows
-    from design_layout import expanded_display_rows, HEADER, ALIGNMENT
-    from service_rows import codebuild_display_row, codebuild_formal_rows, CODEBUILD_FORMAL_VARIABLE
+    CODEBUILD_FORMAL_VARIABLE = _imports_service_rows.CODEBUILD_FORMAL_VARIABLE
+    codebuild_display_row = _imports_service_rows.codebuild_display_row
+    codebuild_formal_rows = _imports_service_rows.codebuild_formal_rows
     prop = 'CodeBuild.Project.VpcConfig.Subnets'
     raw = '`["[private](vpc.md#resource-EC2_Subnet_001)","subnet-external"]`'
     rows = [['001-001', prop, raw, '合成入力']]
@@ -315,8 +345,6 @@ def check_import_compact_display_and_create_guards():
     ('CodeBuild.Project', 'Name', 'VpcConfig.Subnets', '`["subnet-confirmed","subnet-external"]`', '["subnet-confirmed","subnet-external"]'),
 ])
 def check_markdown_roundtrip_keeps_physical_values(tmp_path, kind, name, prop, desired, observed):
-    from model.render import generate_markdown
-    from utils.aws_mappings import owners
     service = owners(ROOT)[kind]
     source = values(kind, {name: 'audit', prop: 'unused'}, rid='009', anchor=service + '-audit')
     source.update({'desired.service.' + service + '.serviceId': service,
@@ -329,7 +357,6 @@ def check_markdown_roundtrip_keeps_physical_values(tmp_path, kind, name, prop, d
     path.parent.mkdir(parents=True)
     first = generate_markdown(path, source, ROOT)
     path.write_text(first)
-    from design_layout import expanded_display_rows
     normalized = expanded_display_rows(first.splitlines(), ROOT, modes={service + '-audit': 'IMPORT'})
     if resource_link(desired):
         expected = '[' + literal(observed) + '](s3.md#producer)'
@@ -394,8 +421,6 @@ def check_guardduty_role_acquired_value_consistency(tmp_path):
 
 
 def check_import_reference_observation_sync_remains_guarded(tmp_path):
-    from import_guard import resource_config, digest, require_import_changes
-    from task_contract import start
     producer(tmp_path, 'EC2.VPC', {'VpcId': 'vpc-confirmed'})
     source = values('EC2.TransitGatewayVpcAttachment', {'VpcId': 'unused'})
     source['desired.row.001-001.value'] = '[target](vpc.md#producer)'
@@ -423,11 +448,7 @@ def check_import_reference_observation_sync_remains_guarded(tmp_path):
 @pytest.mark.parametrize('wrong', [False, True])
 @pytest.mark.parametrize('observed', [False, True])
 def check_design_link_validation_uses_physical_identity(tmp_path, wrong, observed):
-    from types import SimpleNamespace
-    from model.render import generate_markdown
-    from model.projection import identifier_outputs
-    from design_document import DesignIndex
-    from validation.design_links import check_design_links
+
     source = values('KinesisFirehose.DeliveryStream', {'DeliveryStreamName': 'audit', 'S3DestinationConfiguration.BucketARN': 'unused'}, rid='009', anchor='data-firehose-audit')
     source.update({'desired.service.data-firehose.serviceId': 'data-firehose',
         'desired.service.data-firehose.ownedCatalogResourceTypes': 'KinesisFirehose.DeliveryStream',
@@ -445,9 +466,8 @@ def check_design_link_validation_uses_physical_identity(tmp_path, wrong, observe
     document.parent.mkdir(parents=True)
     document.write_text(generate_markdown(document, source, ROOT))
     (document.parent / 's3.md').write_text(generate_markdown(document.parent / 's3.md', bucket, ROOT))
-    from validation.findings import Findings
     findings = Findings(tmp_path)
-    check_design_links(identifier_outputs(ROOT), [document], design_index=DesignIndex(ROOT), design_sources={document: source},
+    _check_design_links(identifier_outputs(ROOT), [document], design_index=DesignIndex(ROOT), design_sources={document: source},
                        findings=findings, root=tmp_path, scope=None, definitions_root=ROOT)
     physical_warnings = [warning for warning in findings.warnings if 'physical reference' in warning['message']]
     assert bool(physical_warnings) == (wrong and observed), findings.warnings
@@ -464,9 +484,6 @@ def check_unknown_link_like_aws_data_is_not_inferred(tmp_path):
 
 
 def check_packed_variable_roundtrip_and_tamper():
-    from model.display import display_rows
-    from design_layout import expanded_display_rows, HEADER, ALIGNMENT
-    from service_rows import CODEBUILD_FORMAL_VARIABLE
     rows = [['009-' + str(i), CODEBUILD_FORMAL_VARIABLE + prop, '`' + json.dumps(value) + '`', '合成変数']
             for i, (prop, value) in enumerate([('Name', ['SECRET', 'PLAIN']), ('Type', ['SECRETS_MANAGER', 'PLAINTEXT']), ('Value', ['audit-secret:key', 'text'])])]
     rendered = display_rows('CodeBuild.Project', rows, ROOT, mode='IMPORT')
@@ -484,7 +501,6 @@ def check_packed_variable_roundtrip_and_tamper():
 
 
 def check_packed_pipeline_configuration_roundtrip(tmp_path):
-    from model.render import generate_markdown
     kind = 'CodePipeline.Pipeline'
     producer(tmp_path, 'CodeBuild.Project', {'Name': 'audit-build'})
     config = [[{'ProjectName': 'audit-build', 'EnvironmentVariables': 'literal-json'}]]
@@ -497,7 +513,6 @@ def check_packed_pipeline_configuration_roundtrip(tmp_path):
         'desired.service.codepipeline.ownedCatalogResourceTypes': kind, 'display.service.title': '# Pipeline',
         'display.resource.009.comment': '合成Pipeline', 'observed.row.009-003.value': json.dumps(actual),
         'desired.row.009-003.comment': 'ProjectName: 合成Build / EnvironmentVariables: 合成変数'})
-    from support.producer_identifier_reference_fixtures import reference
     source.update(reference('build', 'desired.row.009-003.value', 'audit-build', 'codebuild', '001',
         'CodeBuild.Project', mode='name', prop='CodeBuild.Project.Name', pointer='/0/0/ProjectName', environment='dev'))
     # This fixture uses cde rather than the shared helper's team alias.
@@ -515,7 +530,6 @@ def check_packed_pipeline_configuration_roundtrip(tmp_path):
     first = generate_markdown(path, source, ROOT)
     path.write_text(first)
     assert 'audit-build' in first and '[audit-build](codebuild.md#producer)' not in first
-    from design_layout import expanded_display_rows
     normalized = expanded_display_rows(first.splitlines(), ROOT, modes={'codepipeline-audit': 'IMPORT'})
     assert any('literal-json' in line and 'audit-build' in line for line in normalized)
     assert json.loads(source['desired.row.009-003.value'].strip('`')) == actual
@@ -529,8 +543,6 @@ def check_packed_pipeline_configuration_roundtrip(tmp_path):
 
 
 def check_native_cloudtrail_all_bucket_display():
-    from model.display import display_rows
-    from design_layout import expanded_display_rows, HEADER, ALIGNMENT
     prefix = 'CloudTrail.Trail.EventSelectors[].DataResources[].'
     rows = [['009-001', prefix + 'Type', '`[["AWS::S3::Object"]]`', '合成対象'],
             ['009-002', prefix + 'Values', '`[[["arn:aws:s3"]]]`', '合成対象']]
@@ -691,8 +703,6 @@ def impact_fixture(root):
 
 @pytest.mark.parametrize('action', ['bind', 'replace'])
 def check_saved_import_impact_analysis(tmp_path, action):
-    from model.importing.cli import replacement_inputs
-    from generation_inputs import GenerationInputs
     path = impact_fixture(tmp_path)
     snapshot = {p: p.read_bytes() for p in (tmp_path / 'model').rglob('*') if p.is_file()}
     with input_context(), restrict(('dev', 'cde', 'codebuild')), read_consumers({('dev', 'cde', 'codebuild')}):
@@ -710,7 +720,6 @@ def check_saved_import_impact_analysis(tmp_path, action):
 
 @pytest.mark.parametrize('permission_first', [False, True])
 def check_preserved_analysis_cache_boundary(tmp_path, permission_first):
-    from model.importing.scope import reference_reader
     path = impact_fixture(tmp_path)
     producer_path = path.with_name('vpc.properties')
     with input_context(), restrict(('dev', 'cde', 'codebuild')), read_consumers({('dev', 'cde', 'codebuild')}):
@@ -730,9 +739,6 @@ def check_preserved_analysis_cache_boundary(tmp_path, permission_first):
 
 @pytest.mark.parametrize('invalid', ['999', 'bad-id', 'wrong-type', 'undeclared'])
 def check_impact_keeps_invalid_reference_diagnostics(tmp_path, invalid):
-    from model.importing.cli import replacement_inputs
-    from generation_inputs import GenerationInputs
-    from model.format import serialize
     path = impact_fixture(tmp_path)
     fields = dict(load_for_edit(path).authoritative)
     field, value = ('consumerKey', 'desired.row.absent.value') if invalid == 'undeclared' else (
@@ -751,7 +757,6 @@ def check_impact_keeps_invalid_reference_diagnostics(tmp_path, invalid):
 
 
 def check_analysis_permission_restores_after_exception_and_foreign_scope(tmp_path):
-    from model.importing.scope import reference_reader
     path = impact_fixture(tmp_path)
     producer_path = path.with_name('vpc.properties')
     with input_context(), restrict(('dev', 'cde', 'codebuild')), read_consumers({('dev', 'cde', 'codebuild')}):
@@ -769,10 +774,7 @@ def check_analysis_permission_restores_after_exception_and_foreign_scope(tmp_pat
 
 @pytest.mark.parametrize('action', ['bind', 'replace'])
 def check_review_runs_saved_reference_impact(tmp_path, action):
-    from datetime import datetime, timezone
-    from generation_inputs import GenerationInputs
-    from model.importing.cli import replacement_inputs
-    from model.importing.approval import build_review
+
     path = impact_fixture(tmp_path)
     with input_context(), closing(GenerationInputs(tmp_path)) as reads:
         before = load_for_edit(path, reads)
@@ -788,7 +790,6 @@ def check_review_runs_saved_reference_impact(tmp_path, action):
         assert review['referenceImpact']['inputs'] == impact['inputs']
 
 def check_preserved_read_does_not_authorize_writes(tmp_path):
-    from model.references import incoming
     path = impact_fixture(tmp_path)
     with restrict(('dev', 'cde', 'codebuild')):
         before = load_for_edit(path)
@@ -799,9 +800,6 @@ def check_preserved_read_does_not_authorize_writes(tmp_path):
 
 
 def check_configuration_index_reuses_scans_and_keeps_raw_fields():
-    from model.operations import ConfigurationIndex, resource_configuration
-    from model.core import resource_row_index
-    from model.references import declarations
     source = {**values('Logs.LogGroup', {'LogGroupName': 'first'}, rid='001'),
               **values('Logs.LogGroup', {'LogGroupName': 'second'}, rid='002')}
     del source['desired.resource.001.logicalId']
@@ -817,7 +815,7 @@ def check_configuration_index_reuses_scans_and_keeps_raw_fields():
             source[f'desired.reference.{identity}.{field}'] = value
     index = ConfigurationIndex(source)
     with patch('model.core.resource_row_index', wraps=resource_row_index) as rows, \
-         patch('model.operations.declarations', wraps=declarations) as refs:
+         patch('model.configuration.declarations', wraps=declarations) as refs:
         actual = [resource_configuration(source, rid, index=index) for rid in ('001', '002')]
         assert rows.call_count == refs.call_count == 1
     assert list(actual[0]['references']) == ['a-first', 'z-last']
@@ -833,7 +831,6 @@ def check_configuration_index_reuses_scans_and_keeps_raw_fields():
 
 
 def check_configuration_index_preserves_exception_priority():
-    from model.operations import ConfigurationIndex, resource_configuration
     source = values('Logs.LogGroup', {'LogGroupName': 'first'})
     source['desired.reference.bad.consumerKey'] = 'missing'
     for indexed in (False, True):
@@ -849,8 +846,7 @@ def check_configuration_index_preserves_exception_priority():
 
 
 def check_observation_index_keeps_every_legacy_prefix():
-    from model.operations import _observed_index, preserve_fixed_fields
-    from types import SimpleNamespace
+
     source = {**values('Logs.LogGroup', {}, rid='legacy'),
               **values('Logs.LogGroup', {}, rid='legacy-child'),
               'observed.row.legacy-child-001.value': 'old',

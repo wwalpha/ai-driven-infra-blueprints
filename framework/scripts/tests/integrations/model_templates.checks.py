@@ -1,61 +1,239 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace
+from types import SimpleNamespace as _CallbackState
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import model.sources
+import support.model_sources as _imports_support_model_sources
+import support.model_templates_fixtures as _exports_support_model_templates_fixtures
+from generation_inputs import GenerationInputs
+from model.files import service_model_path
+from model.importing.scope import read_consumers, restrict
+from model.operations import CandidateReads, _verify_published_inputs
+from model.sources import list_models
+from support.model_templates_fixtures import (
+    ROOT,
+    Path,
+    _publish_transaction,
+    affected,
+    config_model,
+    dependencies,
+    entries,
+    fixture,
+    install_candidate,
+    io,
+    json,
+    load_model,
+    patch,
+    publication_lock,
+    pytest,
+    read_model,
+    redirect_stdout,
+    rejected,
+    role_model,
+    run,
+    serialize,
+    shutil,
+    source_scope,
+    split,
+    subprocess,
+    sync_runtime,
+    sys,
+    trace_model,
+    write_fixture,
+    write_model,
+)
+from support.producer_identifier_reference_fixtures import reference, resource
+from support.validator import MODULE
+from sync_files import changed_files
+from utils.input_cache import input_scope
+from utils.source_reads import FileReads
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.model_templates_fixtures import *
+_CALLBACK_DEFAULT = object()
+
+
+# Preserve shared fixtures and compatibility exports under their historical names.
+root = _exports_support_model_templates_fixtures.root
+save_files = _exports_support_model_templates_fixtures.save_files
+
+
+
+def _callback_check_transactions_verify(new, original, /):
+    assert original.read_text() == 'a=new\n' and new.is_file()
+
+
+def _callback_check_transactions_concurrent(dependency, /):
+    dependency.write_text('{"changed":true}\n')
+
+
+def _callback_check_transactions_file_rollback_fail_restore(restores, /, path, content):
+    restores.append(path)
+    raise OSError('injected restoration failure')
+
+
+def _callback_check_transactions_fail(new, write, /, path, *args, **kwargs):
+    if path==new:
+        raise OSError('injected partial-write failure')
+    return write(path,*args,**kwargs)
+
+
+def _callback_check_transactions_callback_finish_import(called, path, /):
+    called.append(path.read_bytes())
+    raise ValueError('injected completion callback failure')
+
+
+def _callback_check_transactions_recovery_interrupted(created, write, /, path, *args, **kwargs):
+    result = write(path, *args, **kwargs)
+    if path == created:
+        raise KeyboardInterrupt()
+    return result
+
+
+def _callback_check_transactions_file_rollback_fail_write(_state_file_rollback_196, write_text, /, path, *args, **kwargs):
+    _state_file_rollback_196.calls.append(path)
+    if path == _state_file_rollback_196.failed:
+        write_text(path, 'partially written', encoding='utf-8')
+        raise OSError('injected publication failure')
+    return write_text(path, *args, **kwargs)
+
+
+def _callback_check_transactions_callback(root, transaction, /):
+    path = root/'view.md'
+    path.write_bytes(b'original\r\n')
+    called = []
+    finish_import = _bind_framework_callback(_callback_check_transactions_callback_finish_import, called, path)
+    with pytest.raises(ValueError, match='completion callback'):
+        transaction(root, {path: 'changed\n'}, verify=finish_import)
+    assert called == [b'changed\r\n']
+    assert path.read_bytes() == b'original\r\n'
+    with publication_lock(root) as journal:
+        assert not journal.exists()
+
+
+def _callback_check_transactions_recovery(root, /):
+    first, created = root/'view.md', root/'artifact.json'
+    first.write_bytes(b'original\r\n')
+    originals = {first: first.read_bytes(), created: None}
+    write = Path.write_text
+    interrupted = _bind_framework_callback(_callback_check_transactions_recovery_interrupted, created, write)
+    with publication_lock(root) as journal:
+        with patch.object(Path, 'write_text', interrupted), pytest.raises(KeyboardInterrupt):
+            _publish_transaction(root, {first: 'changed\n', created: '{}\n'}, (), journal,
+                                           originals=originals)
+        assert journal.is_file()
+    # Recovery precedes the next generation snapshot and its originals/output differences.
+    with publication_lock(root) as journal:
+        assert first.read_bytes() == originals[first] and not created.exists()
+        assert not journal.exists()
+    with publication_lock(root) as journal:
+        with patch.object(Path, 'write_text', side_effect=OSError('injected I/O')), pytest.raises(OSError):
+            _publish_transaction(root, {first: 'changed\n'}, (), journal,
+                                           originals={first: originals[first]})
+        assert first.read_bytes() == originals[first] and not journal.exists()
+
+
+def _callback_check_transactions_file_rollback(root, /):
+    _state_file_rollback_196 = _CallbackState()
+    save_files = _imports_support_model_sources.write_fixture_files
+    first, created, last = [root / name for name in ('first.md', 'new.json', 'last.md')]
+    originals = {first: b'first\r\n', last: b'last\r\n'}
+    write_text, write_bytes = Path.write_text, Path.write_bytes
+    for _state_file_rollback_196.failed in (first, created, last):
+        for path, content in originals.items():
+            path.write_bytes(content)
+        _state_file_rollback_196.calls = []
+        fail_write = _bind_framework_callback(_callback_check_transactions_file_rollback_fail_write, _state_file_rollback_196, write_text)
+        with patch.object(Path, 'write_text', fail_write):
+            with pytest.raises(OSError) as error:
+                save_files({first: 'changed\n', created: '{}\n', last: 'changed\n'})
+            assert str(error.value) == 'injected publication failure'
+        assert _state_file_rollback_196.failed in _state_file_rollback_196.calls
+        assert {path: path.read_bytes() for path in originals} == originals
+    restores = []
+    fail_restore = _bind_framework_callback(_callback_check_transactions_file_rollback_fail_restore, restores)
+    with patch.object(Path, 'write_text', fail_write), patch.object(Path, 'write_bytes', fail_restore):
+        with pytest.raises(OSError) as error:
+            save_files({first: 'changed\n', created: '{}\n', last: 'changed\n'})
+        assert 'generated-file rollback failed:' in str(error.value)
+        assert all(f'{path}: injected restoration failure' in str(error.value) for path in (last, first))
+    assert last in _state_file_rollback_196.calls and restores == [last, first]
+    for path, content in originals.items():
+        write_bytes(path, content)
+    with patch.object(Path, 'write_text', side_effect=AssertionError('unchanged file rewritten')):
+        save_files({path: content.decode('utf-8') for path, content in originals.items()})
+    print('File rollback: PASS (first/middle/last partial write, restoration error, no-op)')
+
+
+def _callback_check_transactions_transaction_finish(changes, root, snapshot, verify, /):
+    if verify is not None:
+        verify()
+    _verify_published_inputs(SimpleNamespace(root=root, snapshot=snapshot), changes)
+
+
+def _callback_check_transactions_transaction_185(_default_obsolete, _default_read_paths, _default_verify, /, root, output, obsolete=_CALLBACK_DEFAULT, *, read_paths=_CALLBACK_DEFAULT, verify=_CALLBACK_DEFAULT):
+    if obsolete is _CALLBACK_DEFAULT:
+        obsolete = _default_obsolete
+    if read_paths is _CALLBACK_DEFAULT:
+        read_paths = _default_read_paths
+    if verify is _CALLBACK_DEFAULT:
+        verify = _default_verify
+    snapshot = GenerationInputs(root)
+    for path in set(output) | set(obsolete) | set(read_paths):
+        snapshot.read(path)
+    changes = {**changed_files(output), **{path: None for path in obsolete}}
+    finish = _bind_framework_callback(_callback_check_transactions_transaction_finish, changes, root, snapshot, verify)
+    try:
+        with publication_lock(root) as journal:
+            snapshot.verify()
+            _publish_transaction(root, output, obsolete, journal, finish=finish)
+    finally:
+        snapshot.close()
+
 
 def check_transactions(root):
-    from types import SimpleNamespace
-    from generation_inputs import GenerationInputs
-    from model.operations import _verify_published_inputs
-    from sync_files import changed_files
+
     task = root / 'tasks/example.md'
     task.parent.mkdir()
     task.write_text('## Task contract\n- Task type: `migration`\n- Task status: `running`\n## Validation scope\n- `framework`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `**`\n')
-    def transaction(root, output, obsolete=(), *, read_paths=(), verify=None):
-        snapshot = GenerationInputs(root)
-        for path in set(output) | set(obsolete) | set(read_paths):
-            snapshot.read(path)
-        changes = {**changed_files(output), **{path: None for path in obsolete}}
-        def finish():
-            if verify is not None:
-                verify()
-            _verify_published_inputs(SimpleNamespace(root=root, snapshot=snapshot), changes)
-        try:
-            with publication_lock(root) as journal:
-                snapshot.verify()
-                _publish_transaction(root, output, obsolete, journal, finish=finish)
-        finally:
-            snapshot.close()
-    original=root/'original.properties';original.write_text('a=old\n')
-    new=root/'new.json';output={original:'a=new\n',new:'{}\n'}
+    transaction = _bind_framework_callback(_callback_check_transactions_transaction_185, (), (), None)
+    original=root/'original.properties'
+    original.write_text('a=old\n')
+    new=root/'new.json'
+    output={original:'a=new\n',new:'{}\n'}
     write=Path.write_text
-    def fail(path,*args,**kwargs):
-        if path==new:raise OSError('injected partial-write failure')
-        return write(path,*args,**kwargs)
-    with patch.object(Path,'write_text',fail):rejected(lambda:transaction(root,output),'injected')
+    fail = _bind_framework_callback(_callback_check_transactions_fail, new, write)
+    with patch.object(Path,'write_text',fail):
+        rejected(lambda:transaction(root,output),'injected')
     assert original.read_text()=='a=old\n'
-    stale = GenerationInputs(root); stale.read(original)
+    stale = GenerationInputs(root)
+    stale.read(original)
     original.write_text('a=other\n')
     rejected(stale.verify, 'inputs changed')
     assert original.read_text() == 'a=other\n'
     original.write_text('a=old\n')
     # Written inputs are checked against published bytes; untouched inputs retain their snapshot.
-    dependency = root/'dependency.json'; dependency.write_text('{}\n', encoding='utf-8')
-    obsolete = root/'obsolete.json'; obsolete.write_text('{"old":true}\n', encoding='utf-8')
+    dependency = root/'dependency.json'
+    dependency.write_text('{}\n', encoding='utf-8')
+    obsolete = root/'obsolete.json'
+    obsolete.write_text('{"old":true}\n', encoding='utf-8')
     snapshots = {original: original.read_bytes(), dependency: dependency.read_bytes(), obsolete: obsolete.read_bytes()}
-    def verify():
-        assert original.read_text() == 'a=new\n' and new.is_file()
+    verify = _bind_framework_callback(_callback_check_transactions_verify, new, original)
     transaction(root, output, [obsolete], read_paths=snapshots, verify=verify)
     assert original.read_text() == 'a=new\n'
-    original.write_text('a=old\n'); new.unlink()
+    original.write_text('a=old\n')
+    new.unlink()
     obsolete.write_bytes(snapshots[obsolete])
-    def concurrent():
-        dependency.write_text('{"changed":true}\n')
+    concurrent = _bind_framework_callback(_callback_check_transactions_concurrent, dependency)
     rejected(lambda: transaction(root, output, [obsolete], read_paths=snapshots, verify=concurrent), 'inputs changed during publication')
     assert original.read_text() == 'a=old\n' and obsolete.read_bytes() == snapshots[obsolete]
     dependency.write_bytes(snapshots[dependency])
@@ -74,88 +252,19 @@ with publication_lock(root) as journal:
 '''
     result=subprocess.run([sys.executable,'-c',program,str(ROOT/'framework/scripts'),str(root)])
     assert result.returncode==17 and original.read_text()=='a=crash\n'
-    with publication_lock(root):pass
+    with publication_lock(root):
+        pass
     assert original.read_text()=='a=old\n'
 
-    def callback():
-        path = root/'view.md'
-        path.write_bytes(b'original\r\n')
-        called = []
-        def finish_import():
-            called.append(path.read_bytes())
-            raise ValueError('injected completion callback failure')
-        with pytest.raises(ValueError, match='completion callback'):
-            transaction(root, {path: 'changed\n'}, verify=finish_import)
-        assert called == [b'changed\r\n']
-        assert path.read_bytes() == b'original\r\n'
-        with publication_lock(root) as journal:
-            assert not journal.exists()
+    callback = _bind_framework_callback(_callback_check_transactions_callback, root, transaction)
 
     callback()
 
-    def recovery():
-        first, created = root/'view.md', root/'artifact.json'
-        first.write_bytes(b'original\r\n')
-        originals = {first: first.read_bytes(), created: None}
-        write = Path.write_text
-        def interrupted(path, *args, **kwargs):
-            result = write(path, *args, **kwargs)
-            if path == created:
-                raise KeyboardInterrupt()
-            return result
-        with publication_lock(root) as journal:
-            with patch.object(Path, 'write_text', interrupted), pytest.raises(KeyboardInterrupt):
-                _publish_transaction(root, {first: 'changed\n', created: '{}\n'}, (), journal,
-                                               originals=originals)
-            assert journal.is_file()
-        # Recovery precedes the next generation snapshot and its originals/output differences.
-        with publication_lock(root) as journal:
-            assert first.read_bytes() == originals[first] and not created.exists()
-            assert not journal.exists()
-        with publication_lock(root) as journal:
-            with patch.object(Path, 'write_text', side_effect=OSError('injected I/O')), pytest.raises(OSError):
-                _publish_transaction(root, {first: 'changed\n'}, (), journal,
-                                               originals={first: originals[first]})
-            assert first.read_bytes() == originals[first] and not journal.exists()
+    recovery = _bind_framework_callback(_callback_check_transactions_recovery, root)
 
     recovery()
 
-    def file_rollback():
-        from support.model_sources import write_fixture_files as save_files
-        first, created, last = [root / name for name in ('first.md', 'new.json', 'last.md')]
-        originals = {first: b'first\r\n', last: b'last\r\n'}
-        write_text, write_bytes = Path.write_text, Path.write_bytes
-        for failed in (first, created, last):
-            for path, content in originals.items():
-                path.write_bytes(content)
-            calls = []
-            def fail_write(path, *args, **kwargs):
-                calls.append(path)
-                if path == failed:
-                    write_text(path, 'partially written', encoding='utf-8')
-                    raise OSError('injected publication failure')
-                return write_text(path, *args, **kwargs)
-            with patch.object(Path, 'write_text', fail_write):
-                with pytest.raises(OSError) as error:
-                    save_files({first: 'changed\n', created: '{}\n', last: 'changed\n'})
-                assert str(error.value) == 'injected publication failure'
-            assert failed in calls
-            assert {path: path.read_bytes() for path in originals} == originals
-        restores = []
-        def fail_restore(path, content):
-            restores.append(path)
-            raise OSError('injected restoration failure')
-        with patch.object(Path, 'write_text', fail_write), patch.object(Path, 'write_bytes', fail_restore):
-            with pytest.raises(OSError) as error:
-                save_files({first: 'changed\n', created: '{}\n', last: 'changed\n'})
-            assert 'generated-file rollback failed:' in str(error.value)
-            assert all(f'{path}: injected restoration failure' in str(error.value) for path in (last, first))
-        assert last in calls and restores == [last, first]
-        for path, content in originals.items():
-            write_bytes(path, content)
-        with patch.object(Path, 'write_text', side_effect=AssertionError('unchanged file rewritten')):
-            save_files({path: content.decode('utf-8') for path, content in originals.items()})
-        print('File rollback: PASS (first/middle/last partial write, restoration error, no-op)')
+    file_rollback = _bind_framework_callback(_callback_check_transactions_file_rollback, root)
 
     file_rollback()
 
@@ -185,7 +294,8 @@ def check_expansion(root):
         assert all(p.read_bytes() == data for p, data in outputs.items()) and 'FAIL' not in diagnostics.getvalue()
         path.write_bytes(original[env])
     path = root / 'model/dev/team/iam.properties'
-    current = dict(models['dev']); current['desired.row.011-004.value'] = '`changed`'
+    current = dict(models['dev'])
+    current['desired.row.011-004.value'] = '`changed`'
     write_model(path, current)
     assert load_model(path).authoritative['desired.row.011-004.value'] == '`changed`'
     assert load_model(root / 'model/prod/team/iam.properties').authoritative == models['prod']
@@ -199,24 +309,23 @@ def check_layout(root):
     fixture(root, ('dev', 'stg'))
     install_candidate(root, {env: role_model(env, 2) for env in ('dev', 'stg')})
     logical = root / 'model/dev/team/iam.properties'
-    from model.files import service_model_path
     scope = source_scope(root, logical)
     assert (scope.environment, scope.target, scope.service) == ('dev', 'team', 'iam')
     for relative in ('model/templates/team/iam.properties', 'model/parameters/team/iam.properties',
                      'model/parameters/dev/team/iam/parameters.yaml', 'model/dev/team/iam.json',
                      'model/dev/team/iam.properties/part-001.properties'):
-        rejected(lambda: load_model(source_scope(root, root / relative)))
+        rejected(lambda *, relative=relative: load_model(source_scope(root, root / relative)))
     values = dict(load_model(logical).authoritative)
     output = split(logical, values, limit=20)
     assert len(output) > 1
     for path, text in output.items():
-        path.parent.mkdir(parents=True, exist_ok=True); path.write_text(text)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
     part = next(path for path in output if path != logical)
     assert service_model_path(part, root / 'model') == logical
     assert affected(root, {part.relative_to(root)}) == {('dev', 'team', 'iam')}
     assert load_model(logical).authoritative == values
     assert load_model(root / 'model/stg/team/iam.properties').authoritative == role_model('stg', 2)
-    from support.validator import MODULE
     for env in ('dev', 'stg'):
         view = root / 'docs/designs' / env / 'team/iam.md'
         view.parent.mkdir(parents=True, exist_ok=True)
@@ -234,9 +343,6 @@ def check_layout(root):
 
 def check_reference_impact(root):
     fixture(root)
-    from support.producer_identifier_reference_fixtures import reference, resource
-    from model.sources import design_source_digest, FileReads
-    from model.importing.scope import restrict, read_consumers
     paths = {}
     for service, kind, producer, producer_kind in [('codebuild', 'CodeBuild.Project', None, None),
             ('codepipeline', 'CodePipeline.Pipeline', 'codebuild', 'CodeBuild.Project'),
@@ -247,12 +353,15 @@ def check_reference_impact(root):
         if producer:
             values.update(reference('producer', 'desired.row.005-001.value', 'app-dev-build', producer, '005', producer_kind,
                                     prop=producer_kind + '.Name', environment='dev'))
-        write_model(path, values); paths[service] = path
+        write_model(path, values)
+        paths[service] = path
     own = {('dev', 'team', 'codebuild')}
     chain = own | {('dev', 'team', service) for service in ('codepipeline', 'lambda')}
-    source = paths['codebuild']; relative = source.relative_to(root)
+    source = paths['codebuild']
+    relative = source.relative_to(root)
     assert affected(root, {relative}) == chain
-    previous = root / 'previous'; shutil.copytree(root / 'model', previous / 'model')
+    previous = root / 'previous'
+    shutil.copytree(root / 'model', previous / 'model')
     shutil.copyfile(root / 'project.json', previous / 'project.json')
     original = source.read_bytes()
     for raw in (original + b'# annotation\n', original.replace(b'app-dev-build', b'renamed')):
@@ -282,25 +391,25 @@ def check_reference_impact(root):
 
 
 
+def _callback_check_template_snapshot_reuse(original, path, root, /):
+    with patch.object(model.sources, '_read_model', wraps=model.sources._read_model) as parsed:
+        first, second = load_model(path), load_model(path)
+        assert first is second and parsed.call_count == 1
+        with pytest.raises(TypeError):
+            first.files[root / 'foreign'] = 'unrelated'
+        with pytest.raises(TypeError):
+            first.authoritative['desired.row.007-001.value'] = 'changed'
+    path.write_text('invalid')
+    assert load_model(path) is first
+    path.write_bytes(original)
+    assert load_model(path) is first
+
+
 def check_template_snapshot(root):
-    from validation_cache import input_scope
-    import model.sources
     fixture(root, ('dev',))
     path = write_model(root / 'model/dev/team/config.properties', config_model())
     original = path.read_bytes()
-    @input_scope
-    def reuse():
-        with patch.object(model.sources, '_read_model', wraps=model.sources._read_model) as parsed:
-            first, second = load_model(path), load_model(path)
-            assert first is second and parsed.call_count == 1
-            with pytest.raises(TypeError):
-                first.files[root / 'foreign'] = 'unrelated'
-            with pytest.raises(TypeError):
-                first.authoritative['desired.row.007-001.value'] = 'changed'
-        path.write_text('invalid')
-        assert load_model(path) is first
-        path.write_bytes(original)
-        assert load_model(path) is first
+    reuse = (input_scope)(_bind_framework_callback(_callback_check_template_snapshot_reuse, original, path, root))
     reuse()
     path.write_text('invalid')
     rejected(lambda: load_model(path), 'unsupported Model format')
@@ -310,7 +419,6 @@ def check_template_snapshot(root):
 
 def check_creation(root):
     fixture(root)
-    from model.sources import list_models
     path = root / 'model/dev/team/config.properties'
     assert list_models(root) == [] and not path.exists()
     write_model(path, config_model())
@@ -334,7 +442,8 @@ def check_invalid(root):
                 {key: value for key, value in values.items() if key != 'desired.row.011-004.value'},
                 {**values, 'desired.row.099-004.property': 'IAM.Role.RoleName', 'desired.row.099-004.value': 'x', 'desired.row.099-004.comment': 'orphan'},
                 {**values, 'observed.row.999-001.value': 'x'}):
-        path.write_text(serialize(bad)); rejected(lambda: load_model(path))
+        path.write_text(serialize(bad))
+        rejected(lambda: load_model(path))
     path.write_bytes(original)
     for value in ('a"b\\日本語=終', '', '<<not-reparsed>>', '${AWS::Region} {{resolve:ssm:literal}}',
                   '<<Missing>>', '<<#Name>>x<</Name>>', '<<^Name>>x<</Name>>', '<<>partial>>',
@@ -343,15 +452,23 @@ def check_invalid(root):
         assert load_model(path).authoritative['desired.row.011-004.value'] == value
     rejected(lambda: serialize({**values, 'desired.row.011-004.value': 'x\ninjected.key=bad'}))
     path.write_bytes(original)
-    path.unlink(); rejected(lambda: read_model(path)); path.write_bytes(original)
+    path.unlink()
+    rejected(lambda: read_model(path))
+    path.write_bytes(original)
     path.write_text('desired.service.legacy.serviceId=legacy\n')
     rejected(lambda: read_model(path), 'unsupported Model format')
 
 
 
+def _callback_check_sync_drift(path, real, saved, /, *args, **kwargs):
+    real(*args, **kwargs)
+    path.write_bytes(saved + b'# changed\n')
+
+
 def check_sync(root):
     with patch.object(sync_runtime, 'sync', wraps=sync_runtime.sync) as calls:
-        fixture(root, ('dev',)); path = write_fixture(root, 'dev', 'config', config_model())
+        fixture(root, ('dev',))
+        path = write_fixture(root, 'dev', 'config', config_model())
         view = root / 'docs/designs/dev/team/config.md'
         before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file() and p.suffix != '.pyc'}
         with redirect_stdout(io.StringIO()):
@@ -366,14 +483,15 @@ def check_sync(root):
             assert sync_runtime.sync(root, True, 'dev', 'team', services=['config']) == 0
         assert load_model(path).authoritative['observed.row.007-009.value'] == '`new-id`'
         for newline, final in (('\n', True), ('\n', False), ('\r\n', True), ('\r\n', False)):
-            original = view.read_text(); content = original.rstrip('\n').replace('\n', newline) + (newline if final else '')
+            original = view.read_text()
+            content = original.rstrip('\n').replace('\n', newline) + (newline if final else '')
             view.write_bytes(content.encode())
             with redirect_stdout(io.StringIO()):
                 assert sync_runtime.sync(root, True, 'dev', 'team', services=['config']) == 0
             assert view.read_bytes() == content.encode()
-        saved = path.read_bytes(); real = sync_runtime.validate_candidates
-        def drift(*args, **kwargs):
-            real(*args, **kwargs); path.write_bytes(saved + b'# changed\n')
+        saved = path.read_bytes()
+        real = sync_runtime.validate_candidates
+        drift = _bind_framework_callback(_callback_check_sync_drift, path, real, saved)
         with patch.object(sync_runtime, 'validate_candidates', drift), redirect_stdout(io.StringIO()):
             rejected(lambda: sync_runtime.sync(root, True, 'dev', 'team', services=['config']), 'inputs changed')
         assert path.read_bytes() == saved + b'# changed\n'
@@ -392,8 +510,6 @@ def check_common_shape(root):
         'desired.row.017-025.comment': '明示した配列と型', 'desired.note.bucket.text': '[S3_Bucket_001](shared.md#resource-S3_Bucket_001)'}
     write_model(path, minimal)
     assert load_model(path).authoritative == minimal
-    from model.sources import FileReads
-    from model.operations import CandidateReads
     missing = {key: value for key, value in minimal.items() if key != 'desired.resource.017.logicalId'}
     with pytest.raises(ValueError):
         load_model(path, CandidateReads(FileReads(), {path: serialize(missing)}))
@@ -417,7 +533,9 @@ def check_common_shape(root):
                 {key: value for key, value in full.items() if key != 'desired.row.017-024.property'},
                 {**full, 'desired.row.017-024.artifactSha256': 'stale'}):
         try:
-            raw = serialize(bad); path.write_text(raw); load_model(path)
+            raw = serialize(bad)
+            path.write_text(raw)
+            load_model(path)
         except ValueError:
             pass
         else:

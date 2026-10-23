@@ -1,13 +1,16 @@
 """cloudtrail comparison contracts and projections."""
 
 import re
-from comparison_rows import Unresolved, put_row
+
+import model.display as _imports_model_display
 from cloudformation_inputs import Blocked
+from comparison_rows import Unresolved, put_row
 from policy_tables import literal
+
 
 def cloudtrail_rows(rows, *, index_rows):
     """Project fixed Model row identities through the lossless indexed display."""
-    from model.display import display_rows
+    display_rows = _imports_model_display.display_rows
 
     kind = 'CloudTrail.Trail'
     prefix = kind + '.EventSelectors[]'

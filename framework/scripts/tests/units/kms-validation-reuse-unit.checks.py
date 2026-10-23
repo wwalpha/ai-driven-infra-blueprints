@@ -1,12 +1,17 @@
 """Successful KMS checks are private to one ordered service validation."""
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-import pytest
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import aws_mapping_display
 import model.validation as validation
+import pytest
+import validation.design as design
+
+import model as _imports_model
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -76,13 +81,11 @@ def check_no_kms_still_parses_malformed_rows():
 
 
 def check_service_reuse_and_direct_call_diagnostics(tmp_path, monkeypatch):
-    import model.core
-    import model.sources
-    import model.files
-    import model.render
-    import model.projection
-    import aws_mapping_display
-    import validation.design as design
+    model = _imports_model
+    model = _imports_model
+    model = _imports_model
+    model = _imports_model
+    model = _imports_model
 
     values, target = inputs()
     values['desired.resource.002.resourceType'] = 'KMS.Key'

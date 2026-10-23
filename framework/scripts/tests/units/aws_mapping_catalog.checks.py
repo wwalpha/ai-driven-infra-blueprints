@@ -1,27 +1,36 @@
 #!/usr/bin/env python3
 """Offline coverage, provenance and projection checks; no consumer fixture copies."""
 
+import os
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace as _CallbackState
 
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+
+import copy
+import socket
 from collections import Counter
 from dataclasses import replace
 from unittest.mock import patch
-import copy
-import socket
-import yaml
 
+import aws_mapping_catalog as catalog
+import yaml
 from aws_mapping import registry as mapping_registry
-from utils.aws_mappings import owners
-from aws_mapping_catalog import project, catalog_properties
-from validation_cache import input_scope
+from aws_mapping_catalog import catalog_properties, project
 from aws_mapping_display import MODEL_ONLY, display_name, formal_name
+from botocore.session import get_session
 from design_catalog import design_material_files
 from script_loader import module
+from utils.aws_mappings import owners
+from utils.aws_sdk import Sdk
+from utils.input_cache import input_scope
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 ROOT = Path(__file__).resolve().parents[4]
 m = module('model/adapters/aws.py', 'model.adapters.aws')
@@ -73,47 +82,49 @@ def coverage():
         print('Service:', *summary)
 
 
+def _callback_initialization_checks_next_scope(document, sdk, /):
+    catalog.catalog_properties(ROOT, 'sns', document, sdk=sdk)
+
+
+def _callback_initialization_checks_reuse(_state_initialization_checks_88, document, sdk, /):
+    catalog.catalog_properties(ROOT, 'sns', document, sdk=sdk)
+    catalog.catalog_properties(ROOT / '.', 'sns', document, sdk=sdk)
+    assert _state_initialization_checks_88.sessions.call_count == 1
+    session = sdk.session()
+    with patch.object(session, 'get_service_model', wraps=session.get_service_model) as models:
+        sdk.service_model('sqs')
+        sdk.service_model('sqs')
+        assert models.call_count == 1
+    # A new instance explicitly captures replacement factory/settings.
+    with patch('botocore.session.get_session', wraps=get_session) as replacement:
+        catalog.catalog_properties(ROOT, 'sns', document, sdk=Sdk(replacement))
+        assert replacement.call_count == 1
+    with patch.dict(os.environ, {'AWS_DATA_PATH': '/nonexistent-offline-sdk-data'}):
+        separate = Sdk(_state_initialization_checks_88.sessions)
+        catalog.catalog_properties(ROOT, 'sns', document, sdk=separate)
+        assert separate.data_path == '/nonexistent-offline-sdk-data'
+        assert sdk.session().get_config_variable('data_path') == sdk.data_path
+        assert _state_initialization_checks_88.sessions.call_count == 2
+
+
 def initialization_checks():
-    import os
-    import aws_mapping_catalog as catalog
-    from botocore.session import get_session
-    from utils.aws_sdk import Sdk
+
+    _state_initialization_checks_88 = _CallbackState()
     adapter = yaml.safe_load((ROOT / 'framework/mappings/aws/config.yaml').read_text(encoding='utf-8'))
     document = yaml.safe_load((ROOT / 'framework/mappings/aws/sns.yaml').read_text(encoding='utf-8'))
-    with patch('botocore.session.get_session', wraps=get_session) as sessions:
-        sdk = Sdk(sessions)
+    with patch('botocore.session.get_session', wraps=get_session) as _state_initialization_checks_88.sessions:
+        sdk = Sdk(_state_initialization_checks_88.sessions)
         catalog.catalog_properties(ROOT, 'config', adapter, sdk=sdk)
-        assert sessions.call_count == 0, 'adapter-only Mapping needs no SDK session'
+        assert _state_initialization_checks_88.sessions.call_count == 0, 'adapter-only Mapping needs no SDK session'
 
-        @input_scope
-        def reuse():
-            catalog.catalog_properties(ROOT, 'sns', document, sdk=sdk)
-            catalog.catalog_properties(ROOT / '.', 'sns', document, sdk=sdk)
-            assert sessions.call_count == 1
-            session = sdk.session()
-            with patch.object(session, 'get_service_model', wraps=session.get_service_model) as models:
-                sdk.service_model('sqs')
-                sdk.service_model('sqs')
-                assert models.call_count == 1
-            # A new instance explicitly captures replacement factory/settings.
-            with patch('botocore.session.get_session', wraps=get_session) as replacement:
-                catalog.catalog_properties(ROOT, 'sns', document, sdk=Sdk(replacement))
-                assert replacement.call_count == 1
-            with patch.dict(os.environ, {'AWS_DATA_PATH': '/nonexistent-offline-sdk-data'}):
-                separate = Sdk(sessions)
-                catalog.catalog_properties(ROOT, 'sns', document, sdk=separate)
-                assert separate.data_path == '/nonexistent-offline-sdk-data'
-                assert sdk.session().get_config_variable('data_path') == sdk.data_path
-                assert sessions.call_count == 2
+        reuse = (input_scope)(_bind_framework_callback(_callback_initialization_checks_reuse, _state_initialization_checks_88, document, sdk))
         reuse()
-        @input_scope
-        def next_scope():
-            catalog.catalog_properties(ROOT, 'sns', document, sdk=sdk)
+        next_scope = (input_scope)(_bind_framework_callback(_callback_initialization_checks_next_scope, document, sdk))
         next_scope()
-        assert sessions.call_count == 2, 'new input scopes reuse the same SDK definitions'
-    with patch('botocore.session.get_session', wraps=get_session) as sessions:
-        assert Sdk(sessions).session() is not Sdk(sessions).session()
-        assert sessions.call_count == 2
+        assert _state_initialization_checks_88.sessions.call_count == 2, 'new input scopes reuse the same SDK definitions'
+    with patch('botocore.session.get_session', wraps=get_session) as _state_initialization_checks_88.sessions:
+        assert Sdk(_state_initialization_checks_88.sessions).session() is not Sdk(_state_initialization_checks_88.sessions).session()
+        assert _state_initialization_checks_88.sessions.call_count == 2
     print('Mapping initialization: PASS (adapter 0; cross-scope reuse; explicit factory/data/instance isolation)')
 
 

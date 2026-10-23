@@ -2,11 +2,14 @@
 
 
 from __future__ import annotations
-from validation_cache import input_is_dir, input_is_file, input_select, input_text
+
 import re
-from utils.aws_mappings import definition_root
+
+import utils.markdown_format as _imports_utils_markdown_format
 from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
-from .task import TASK_TYPES
+from task_contract_core import TASK_TYPES
+from utils.aws_mappings import definition_root
+from utils.input_cache import input_is_dir, input_is_file, input_select, input_text
 
 REQUIRED_RULES = {
     "task-contract.md",
@@ -101,8 +104,9 @@ def check_framework_active_task_transition(findings, root):
 
 
 def check_framework_rule_readings(findings, root):
-    from utils.markdown_format import markdown_sections, rule_readings
     # These entry sections must direct execution to the existing authorities.
+    markdown_sections = _imports_utils_markdown_format.markdown_sections
+    rule_readings = _imports_utils_markdown_format.rule_readings
     routes = {
         ("README.md", "task-transition"): {
             "task-contract.md": {"task-transition"}},
@@ -155,6 +159,9 @@ def check_framework_rule_readings(findings, root):
 
 
 def check_framework_design_handoff(findings, root):
+    markdown_prose = _imports_utils_markdown_format.markdown_prose
+    markdown_sections = _imports_utils_markdown_format.markdown_sections
+    rule_readings = _imports_utils_markdown_format.rule_readings
     path = root / "framework" / "prompts" / "chatbot" / "service-design.md"
     findings.check(input_is_file(path), "service design prompt is missing")
     if not input_is_file(path):
@@ -162,7 +169,6 @@ def check_framework_design_handoff(findings, root):
     prompt = input_text(path, encoding="utf-8")
     findings.check("Task type is `design`" in prompt, "service design prompt lacks design task contract")
     findings.check("blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md" in prompt, "service design prompt lacks integrated Model generation/validation")
-    from utils.markdown_format import markdown_prose, markdown_sections, rule_readings
     try:
         completion = markdown_sections(prompt).get("completion", "")
         validation = next((line for _, line in markdown_prose(completion) if re.match(
@@ -210,11 +216,11 @@ def check_framework_design_handoff(findings, root):
 
 
 def check_framework_task_completion_contract(findings, root):
+    markdown_sections = _imports_utils_markdown_format.markdown_sections
     contract = input_text(root / "framework/rules/task-contract.md", encoding="utf-8")
     rules = input_text(root / "framework" / "rules" / "loop-engineering.md", encoding="utf-8")
     findings.check("Requirement ID" in contract and "Acceptance checks" in contract, "task rules lack completion contract")
     findings.check("task-contract.md#acceptance-contract" in rules, "loop lacks canonical completion contract reference")
-    from utils.markdown_format import markdown_sections
     transition = markdown_sections(contract).get("task-transition", "")
     for boundary in ("Suspension reason", "--resume", "--complete", "running"):
         findings.check(boundary in transition, f"Task transition safety boundary missing: {boundary}")

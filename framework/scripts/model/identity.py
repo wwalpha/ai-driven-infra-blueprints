@@ -1,62 +1,26 @@
 """Fixed service-local Resource identities and internal, scope-checked addresses."""
+
+import json
+import posixpath as _imports_posixpath
 import re
-from model.core import LINK, entries, ReferenceResolutionError
 
-COUNTERS = 'desired.service.identity.lastAllocated'
+import reference_contracts as _imports_reference_contracts
+import utils.aws_catalogs as _imports_utils_aws_catalogs
 
-
-
-def prefix(kind):
-    if not isinstance(kind, str) or re.fullmatch(r'[A-Za-z0-9_]+\.[A-Za-z0-9_]+', kind) is None:
-        raise ValueError('invalid ResourceType for logicalId: ' + str(kind))
-    return kind.replace('.', '_')
-
-
-def sequence(kind, logical):
-    head = prefix(kind) + '_'
-    suffix = logical.removeprefix(head) if isinstance(logical, str) else ''
-    if not isinstance(logical, str) or not logical.startswith(head) or not re.fullmatch(r'[0-9]{3,}', suffix) or int(suffix) < 1 or suffix != f'{int(suffix):03d}':
-        raise ValueError('logicalId requires ResourceType prefix and fixed sequence: ' + str(logical))
-    return int(suffix)
-
-
-def counters(values):
-    from utils.json_format import strict_json
-    state = strict_json(values.get(COUNTERS, '{}'))
-    if not isinstance(state, dict):
-        raise ValueError('lastAllocated must be a ResourceType to integer object')
-    prefixes = {}
-    for kind, number in state.items():
-        if type(number) is not int or number < 0:
-            raise ValueError('lastAllocated must contain nonnegative integers')
-        head = prefix(kind)
-        if head in prefixes and prefixes[head] != kind:
-            raise ValueError('ResourceType logicalId prefix collision: ' + head)
-        prefixes[head] = kind
-    return state
-
-
-def resource_index(values):
-    state, result = counters(values), {}
-    prefixes = {prefix(kind): kind for kind in state}
-    for number, resource in entries(values, 'desired.resource.'):
-        kind, logical = resource['resourceType'], resource.get('logicalId')
-        head = prefix(kind)
-        if head in prefixes and prefixes[head] != kind:
-            raise ValueError('ResourceType logicalId prefix collision: ' + head)
-        prefixes[head] = kind
-        serial = sequence(kind, logical)
-        if logical in result:
-            raise ValueError('duplicate logicalId: ' + logical)
-        if state.get(kind, -1) < serial:
-            raise ValueError('lastAllocated is missing or behind logicalId: ' + logical)
-        result[logical] = (number, resource)
-    return result
+import model.importing.scope as _imports_model_importing_scope
+import model.sources as _imports_model_sources
+from model.core import COUNTERS as COUNTERS
+from model.core import ReferenceResolutionError, entries
+from model.core import counters as counters
+from model.core import prefix as prefix
+from model.core import resource_index as resource_index
+from model.core import resource_link as resource_link
+from model.core import sequence as sequence
+from model.format import LINKS, link_scope
 
 
 def allocate(values, resource_ids):
     """Prepare explicit additions in caller-selected order; publish the returned map once."""
-    import json
     result, state = dict(values), counters(values)
     resources = dict(entries(values, 'desired.resource.'))
     selected = tuple(resource_ids)
@@ -101,7 +65,7 @@ def preserve_allocation(before, after):
 
 def address(scope, resource, *, consumer_scope=None, label=None):
     """Build only explicitly requested new links, using the saved Resource anchor."""
-    import posixpath
+    posixpath = _imports_posixpath
     destination = '/'.join((scope.environment, scope.target, scope.service + '.md'))
     filename = scope.service + '.md'
     if consumer_scope is not None:
@@ -110,15 +74,9 @@ def address(scope, resource, *, consumer_scope=None, label=None):
     return f"[{label or resource['logicalId']}]({filename}#{resource['anchor']})"
 
 
-def resource_link(value):
-    match = LINK.fullmatch(value) if isinstance(value, str) else None
-    if match and ':' not in match[2] and (not match[2] or match[2].endswith('.md')):
-        return match
-    return None
 
 
 def parse_reference(value, scope):
-    from model.references import link_scope
     match = resource_link(value)
     if not match:
         raise ValueError('invalid Markdown Resource reference: ' + str(value))
@@ -127,7 +85,6 @@ def parse_reference(value, scope):
 
 
 def reference_tokens(text):
-    from model.references import LINKS
     for match in LINKS.finditer(text):
         if resource_link(match[0]):
             yield match
@@ -162,16 +119,18 @@ def select_anchor(index, anchor, reference):
 class Resolver:
     """One anchor index per immutable service snapshot, shared across references."""
     def __init__(self, root, reads=None):
-        from model.sources import FileReads
+        FileReads = _imports_model_sources.FileReads
         self.root, self.reads, self.models, self.indexes = root, reads or FileReads(), {}, {}
 
     def resolve(self, value, scope):
-        from model.sources import Scope, _source_snapshot, target_for
+        Scope = _imports_model_sources.Scope
+        _source_snapshot = _imports_model_sources._source_snapshot
+        target_for = _imports_model_sources.target_for
         environment, target, service, anchor = parse_reference(value, scope)
         producer = Scope(self.root, environment, target, service)
         if producer.path not in self.models:
             target_for(producer, self.reads)
-            from model.importing.scope import reference_reader
+            reference_reader = _imports_model_importing_scope.reference_reader
             if self.reads.kind(producer.path) == 'missing':
                 self.reads.read(producer.path)
                 raise ReferenceResolutionError('producer Model is absent', reference=value)
@@ -184,7 +143,9 @@ class Resolver:
 
     def operand(self, value, scope, *, attribute=None, field=None):
         """Validate a JSON reference without requiring its physical identifier."""
-        from reference_contracts import ARN_FORMS, attributes_for, contract
+        ARN_FORMS = _imports_reference_contracts.ARN_FORMS
+        attributes_for = _imports_reference_contracts.attributes_for
+        contract = _imports_reference_contracts.contract
         snapshot, number, resource = self.resolve(value, scope)
         kind = resource['resourceType']
         declared = contract(field) if field else {}
@@ -197,7 +158,7 @@ class Resolver:
             attribute, = forms
         if not isinstance(attribute, str) or not attribute:
             raise ValueError('JSON Resource attribute must be a nonempty string')
-        from utils.aws_catalogs import catalogs_for
+        catalogs_for = _imports_utils_aws_catalogs.catalogs_for
         if (declared and attribute not in declared[kind] or
                 (kind, attribute) not in ARN_FORMS and kind + '.' + attribute not in attributes_for(kind)
                 and attribute not in catalogs_for(self.root).selected(kind)):

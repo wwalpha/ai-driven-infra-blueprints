@@ -1,13 +1,15 @@
 """Compile all Mapping properties for Compare without changing acquisition permissions."""
+
 from dataclasses import replace
 from types import MappingProxyType
 
+import aws_mapping as _imports_aws_mapping
+import model.importing.inventory as _imports_model_importing_inventory
 from aws_mapping import Property, registry
 from aws_mapping_catalog import project
 from comparison_rows import select
 from script_loader import module
-from validation_cache import memoized
-
+from utils.input_cache import memoized
 
 # These five design-only keys deliberately have no Catalog entry.
 MODEL_ONLY = frozenset({'EC2.VPC.Name', 'EC2.Subnet.Name', 'EC2.RouteTable.Name',
@@ -20,7 +22,7 @@ def comparison(root, service):
 
 
 def import_comparison(root, service):
-    from aws_mapping import runtime_registry
+    runtime_registry = _imports_aws_mapping.runtime_registry
     return compile_comparison(root, service, runtime_registry(root, service), importing=True)
 
 
@@ -58,7 +60,7 @@ def value(ctx, resource, mapping, prop, key):
     field = prop.field
     getter = mapping.getters.get(field.getter, {})
     if getter.get('kind') == 'cloudcontrol':
-        from model.importing.inventory import cloudcontrol_value
+        cloudcontrol_value = _imports_model_importing_inventory.cloudcontrol_value
         cache_key = (resource.model.path, resource.number, field.getter)
         response = (ctx.fetch(resource, field.getter) if cache_key in ctx.fetch_cache
                     else cloudcontrol_value(ctx, resource, getter))

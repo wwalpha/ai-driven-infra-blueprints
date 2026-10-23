@@ -1,12 +1,33 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import pytest
+from support.design_document_fixtures import (
+    DesignIndex,
+    Path,
+    ThreadPoolExecutor,
+    documents,
+    patch,
+    reference_fixture,
+    sys,
+    tempfile,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.design_document_fixtures import *
+
+def _callback_check_snapshots_request(first, index, path, /, _):
+    document = index.get(path.parent / ".." / path.parent.name / path.name)
+    assert document is first
+    return document.view(frozenset({"kms-aliastwo"})).expanded
+
 
 def check_snapshots():
     with tempfile.TemporaryDirectory() as directory:
@@ -18,10 +39,7 @@ def check_snapshots():
              patch.object(documents, "resource_logical_ids", wraps=documents.resource_logical_ids) as identities:
             index = DesignIndex()
             first = index.get(path)
-            def request(_):
-                document = index.get(path.parent / ".." / path.parent.name / path.name)
-                assert document is first
-                return document.view(frozenset({"kms-aliastwo"})).expanded
+            request = _bind_framework_callback(_callback_check_snapshots_request, first, index, path)
             with ThreadPoolExecutor(max_workers=4) as executor:
                 results = list(executor.map(request, range(12)))
             assert all(result is results[0] for result in results)
@@ -46,14 +64,14 @@ def check_snapshots():
             else:
                 raise AssertionError("invalidated missing target was reused")
         try:
-            first.headings.expanded
+            _ = first.headings.expanded
         except ValueError as error:
             assert str(error) == "resource logical ID metadata must precede its anchor and heading"
         else:
             raise AssertionError("unrelated invalid metadata was not retained in the full snapshot")
 
 
-import pytest
+
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 if __name__ == '__main__':

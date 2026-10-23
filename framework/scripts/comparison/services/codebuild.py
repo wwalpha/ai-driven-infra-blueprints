@@ -1,14 +1,18 @@
 """codebuild comparison contracts and projections."""
 
-REF_ATTRIBUTES = {'CodeBuild.Project': 'Name'}
-
 import re
+from functools import partial as _bind_framework_callback
+
 from cloudformation_inputs import Blocked
 from comparison_rows import put_row
-from iac_values import ResourceReference, Expression, same
-from policy_tables import literal
+from iac_values import Expression, ResourceReference, same
 from model.identity import resource_link
+from policy_tables import literal
 from utils.json_format import policy_json as strict_json
+
+REF_ATTRIBUTES = {'CodeBuild.Project': 'Name'}
+
+
 
 
 def contexts(rows):
@@ -67,6 +71,20 @@ def decode_selector(value, path):
     return value, path
 
 
+def _callback_reference_compare_secret_value(path, reference, resolve_literal, resource_type, /, a, b, p):
+    if p == path:
+        return NotImplemented
+    if p.endswith('.Value') and isinstance(a, ResourceReference) != isinstance(b, ResourceReference):
+        symbol, text = (a, b) if isinstance(a, ResourceReference) else (b, a)
+        if resource_type(symbol) == 'SecretsManager.Secret' and isinstance(text, str) and not text.startswith('arn:'):
+            try:
+                name = resolve_literal(ResourceReference(dict(symbol, **{'$attribute': 'Name'})))
+            except (Blocked, ValueError, KeyError, TypeError, OSError):
+                return None
+            return same(name, text)
+    return reference(a, b, p)
+
+
 def reference_compare(left, right, path, resolve_literal, kms_format, resource_type, reference):
     if path == 'Environment.EnvironmentVariables[].Value':
         if isinstance(left, Expression) or isinstance(right, Expression):
@@ -89,18 +107,7 @@ def reference_compare(left, right, path, resolve_literal, kms_format, resource_t
                     return None
     if (path.endswith('EnvironmentVariables[]') and isinstance(left, dict) and isinstance(right, dict)
             and left.get('Type') == right.get('Type') == 'SECRETS_MANAGER'):
-        def secret_value(a, b, p):
-            if p == path:
-                return NotImplemented
-            if p.endswith('.Value') and isinstance(a, ResourceReference) != isinstance(b, ResourceReference):
-                symbol, text = (a, b) if isinstance(a, ResourceReference) else (b, a)
-                if resource_type(symbol) == 'SecretsManager.Secret' and isinstance(text, str) and not text.startswith('arn:'):
-                    try:
-                        name = resolve_literal(ResourceReference(dict(symbol, **{'$attribute': 'Name'})))
-                    except (Blocked, ValueError, KeyError, TypeError, OSError):
-                        return None
-                    return same(name, text)
-            return reference(a, b, p)
+        secret_value = _bind_framework_callback(_callback_reference_compare_secret_value, path, reference, resolve_literal, resource_type)
         return same(left, right, reference=secret_value, path=path)
     return NotImplemented
 

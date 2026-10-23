@@ -1,12 +1,7 @@
 """Scenario/Result metadata and state handoff without running scenarios."""
 
 from support.it_case_receipt import it_case
-
-
 from support.validator import MODULE, project, write
-
-
-from validation.scenario import is_rfc3339
 
 
 @it_case
@@ -56,4 +51,3 @@ def check_records():
         assert validator.errors[:3] == ['orphan result without scenario: tests/results/fixture',
             'result target is not defined in project.json: tests/results/fixture/dev/123456789012',
             'template mode cannot contain scenario results: tests/results/fixture/dev/123456789012']
-

@@ -1,23 +1,46 @@
 """Properties discovery, immutable raw snapshots and journalled publication."""
 from __future__ import annotations
-from utils.json_format import json_text, strict_json
+
 import base64
-from contextlib import contextmanager
-from dataclasses import dataclass, field
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import tempfile
 import threading
-from typing import Mapping
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
+from pathlib import Path
 from types import MappingProxyType
-from validation_cache import (input_bytes, input_exists, input_is_dir, input_is_file,
-    input_is_symlink, input_select, memo_table, memoized)
-from sync_progress import phase, thread_lock
+from typing import Callable, Mapping
+
+import generation_inputs
 import sync_files
+import task_contract_core as _imports_task_contract
+import task_contract_core as task_contract
+import utils.json_format as _imports_utils_json_format
+from project_targets import DeployContextError, select_target
+from sync_progress import phase, thread_lock
+from utils.file_operations import evidence_store
+from utils.input_cache import (
+    input_is_symlink,
+    memo_table,
+    memoized,
+)
+from utils.json_format import exact as exact
+from utils.json_format import json_text, strict_json
+from utils.source_reads import CandidateReads as CandidateReads
+from utils.source_reads import FileReads as FileReads
+
+import model.core as _imports_model_core
+import model.importing.scope as _imports_model_importing_scope
+import model.references as _imports_model_references
 from model.format import FORMAT, INDEX, PART, parse, validate_blocks
+
+if os.name == 'nt':
+    import msvcrt
+else:
+    import fcntl
 
 _locks = {}
 _guard = threading.Lock()
@@ -27,9 +50,6 @@ _local = threading.local()
 json_read = strict_json
 
 
-def exact(value, keys, label):
-    if not isinstance(value, dict) or set(value) != set(keys):
-        raise ValueError(label + ' requires exactly ' + str(sorted(keys)))
 
 
 def safe(root, path):
@@ -40,8 +60,7 @@ def safe(root, path):
 
 def _receipt_original(root, record):
     """The only external rollback target is this root's named Import receipt."""
-    from import_guard import evidence_store
-    from task_contract import TASK_NAME
+    TASK_NAME = _imports_task_contract.TASK_NAME
     exact(record, {'task', 'original'}, 'Import receipt journal')
     if not isinstance(record['task'], str) or not TASK_NAME.fullmatch(record['task']):
         raise ValueError('invalid Import receipt journal Task')
@@ -70,15 +89,16 @@ def publication_lock(root, *, read_only=False, recovery_check=None):
         journal = directory / (name + '.json')
         with (directory / (name + '.lock')).open('a+b') as stream:
             if os.name == 'nt':
-                import msvcrt
-                stream.seek(0); stream.write(b'0'); stream.flush(); stream.seek(0)
+                stream.seek(0)
+                stream.write(b'0')
+                stream.flush()
+                stream.seek(0)
                 try:
                     msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
                 except OSError:
                     with phase("publication-lock", status="lock-wait"):
                         msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
             else:
-                import fcntl
                 try:
                     fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError:
@@ -112,7 +132,8 @@ def publication_lock(root, *, read_only=False, recovery_check=None):
             finally:
                 del depths[key]
                 if os.name == 'nt':
-                    stream.seek(0); msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                    stream.seek(0)
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
                 else:
                     fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
@@ -135,7 +156,9 @@ def _publish_transaction(root, output, obsolete, journal, *, originals=None, sta
         originals = {**originals, **_receipt_original(root, record['importReceipt'])}
     temporary = journal.with_suffix('.pending')
     with temporary.open('w', encoding='utf-8') as stream:
-        stream.write(json_text(record)); stream.flush(); os.fsync(stream.fileno())
+        stream.write(json_text(record))
+        stream.flush()
+        os.fsync(stream.fileno())
     os.replace(temporary, journal)
     if memo_table() is not None:
         memo_table().clear()
@@ -231,48 +254,9 @@ def authority_snapshot(root, environment, directory, read_context=None):
             for file, data in load_model(path, reads).dependencies.items()}
 
 
-class FileReads:
-    """Use the existing invocation recorder/cache for file and discovery dependencies."""
-    def __init__(self):
-        self.contents = {}
-        self.models = {}
-        self.selections = {}
-        self.kinds = {}
-        self.read_failures = {}
 
-    def read(self, path):
-        if path not in self.contents:
-            try:
-                self.contents[path] = input_bytes(path) if input_exists(path) else None
-            except OSError as error:
-                self.read_failures.setdefault(path, type(error).__name__)
-                raise
-        return self.contents[path]
 
-    def kind(self, path):
-        if path not in self.kinds:
-            self.kinds[path] = ('symlink' if input_is_symlink(path) else 'file' if input_is_file(path)
-                                else 'dir' if input_is_dir(path) else 'missing')
-        return self.kinds[path]
 
-    def select(self, base, pattern='*', recursive=False, kinds=None):
-        key = base, pattern, recursive, None if kinds is None else tuple(kinds)
-        if key not in self.selections:
-            self.selections[key] = tuple(input_select(base, pattern, recursive=recursive, kinds=kinds))
-        return self.selections[key]
-
-    def verify(self):
-        """Fresh raw bytes, absence, file kind and discovery sets; bypass invocation caches."""
-        from generation_inputs import GenerationInputs
-        for path, raw in self.contents.items():
-            if (path.read_bytes() if path.is_file() else None) != raw:
-                raise ValueError('Model input changed during read: ' + str(path))
-        for path, kind in self.kinds.items():
-            if GenerationInputs.live_kind(path) != kind:
-                raise ValueError('Model input kind changed during read: ' + str(path))
-        for selector, paths in self.selections.items():
-            if tuple(GenerationInputs.live_select(*selector)) != paths:
-                raise ValueError('Model file set changed during read: ' + str(selector[0]))
 
 
 def _safe(root, path, reads):
@@ -295,7 +279,6 @@ def target_for(scope, reads):
     raw = reads.read(project)
     if raw is None:
         raise ValueError('Model requires project.json')
-    from project_targets import select_target, DeployContextError
     account = re.fullmatch(r'[0-9]{12}', scope.target) is not None
     try:
         target = select_target(_topology(raw), scope.environment,
@@ -363,13 +346,12 @@ class ModelSnapshot:
         return ''.join(key + '=' + value + '\n' for key, value in self.values.items())
 
     def _replace(self, **changes):
-        from dataclasses import replace
         return replace(self, **changes)
 
 
 def runtime_values(authoritative):
     """Derived metadata is never a serializer input."""
-    from model.core import validate_authority
+    validate_authority = _imports_model_core.validate_authority
     validate_authority(authoritative)
     values = {key: value for key, value in authoritative.items()
               if not key.startswith('desired.reference.') and not key.endswith('.placementName')}
@@ -382,14 +364,14 @@ def runtime_values(authoritative):
                 if prefix + field in authoritative:
                     values[key.removesuffix('value') + field] = authoritative[prefix + field]
         elif key.startswith('desired.row.') and key.endswith('.document'):
-            from utils.json_format import document_sha256
+            document_sha256 = _imports_utils_json_format.document_sha256
             values[key.removesuffix('document') + 'artifactSha256'] = document_sha256(strict_json(value))
     return values
 
 
 def _read_model(scope, read_context=None):
     scope = scope if isinstance(scope, Scope) else scope_for(scope)
-    from model.importing.scope import require_readable
+    require_readable = _imports_model_importing_scope.require_readable
     require_readable(scope.root, scope.path)
     reads = read_context or _invocation_reads(scope.root)
     with publication_lock(scope.root, read_only=True):
@@ -400,7 +382,7 @@ def _read_model(scope, read_context=None):
         files = {part: reads.read(part).decode('utf-8') for part in dict.fromkeys((path, *parts))}
         documents = {part: parse(files[part]) for part in parts}
         authoritative, locations = validate_blocks(documents)
-        from model.references import declarations
+        declarations = _imports_model_references.declarations
         declarations(authoritative)
         values = runtime_values(authoritative)
         return ModelSnapshot(scope, MappingProxyType(authoritative), MappingProxyType(values),
@@ -417,7 +399,8 @@ def _model_snapshots(reads):
 
 
 def _source_snapshot(scope, reads):
-    from model.importing.scope import require_readable, read_context
+    read_context = _imports_model_importing_scope.read_context
+    require_readable = _imports_model_importing_scope.require_readable
     require_readable(scope.root, scope.path)
     models = _model_snapshots(reads)
     key = 'source', scope, read_context(scope.root)
@@ -428,7 +411,8 @@ def _source_snapshot(scope, reads):
 
 def load_model(scope, read_context=None):
     scope = scope if isinstance(scope, Scope) else scope_for(scope)
-    from model.importing.scope import read_context as permission_context, require_readable
+    permission_context = _imports_model_importing_scope.read_context
+    require_readable = _imports_model_importing_scope.require_readable
     require_readable(scope.root, scope.path)
     reads = read_context or _invocation_reads(scope.root)
     key = scope, permission_context(scope.root)
@@ -436,7 +420,7 @@ def load_model(scope, read_context=None):
     if key in models:
         return models[key]
     snapshot = _source_snapshot(scope, reads)
-    from model.references import diagnose
+    diagnose = _imports_model_references.diagnose
     warnings, dependencies = diagnose(snapshot, reads)
     result = snapshot._replace(warnings=warnings, dependencies=MappingProxyType(dependencies))
     models[key] = result
@@ -447,7 +431,7 @@ def _invocation_reads(root):
     memo = memo_table()
     if memo is None:
         return FileReads()
-    from model.importing.scope import read_context
+    read_context = _imports_model_importing_scope.read_context
     return memo.setdefault((FileReads, root, read_context(root)), FileReads())
 
 
@@ -487,7 +471,7 @@ class SourceWriteContext:
         raise TypeError('use model.adapters.task.source_write_context')
 
     @classmethod
-    def _authorized(cls, root: Path, snapshot: GenerationInputs, operation: ModelOperation,
+    def _authorized(cls, root: Path, snapshot: generation_inputs.GenerationInputs, operation: task_contract.ModelOperation,
                     require_current: Callable, paths: frozenset[Path], *, start=None, finish=None, receipt=None):
         context = object.__new__(cls)
         context._root, context._snapshot, context._operation = root, snapshot, operation
@@ -504,7 +488,6 @@ class SourceWriteContext:
 
 def candidate_sources(root, directory, before):
     """A complete selected-service properties candidate never grants producer write access."""
-    from model.operations import CandidateReads
     directory = Path(directory).absolute()
     if directory.is_relative_to(root) or not directory.is_dir():
         raise ValueError('Model properties candidate must be outside the repository')
@@ -529,7 +512,7 @@ def candidate_sources(root, directory, before):
 def edit_base(path, reads):
     """Record repair inputs as bytes; their old syntax and meaning grant no authority."""
     scope = scope_for(path)
-    from model.importing.scope import require_readable
+    require_readable = _imports_model_importing_scope.require_readable
     require_readable(scope.root, scope.path)
     _, project = target_for(scope, reads)
     files = {}

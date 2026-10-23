@@ -2,26 +2,22 @@
 
 
 from __future__ import annotations
-from validation_cache import input_is_file, input_text
+
 import re
 import subprocess
 from pathlib import Path
-from model.core import properties
-from model.files import service_model_path
-from model.impact import task_impact
-from validation_scope import active_scope
-from issue_gate import require_no_issues
-from task_contract import task_path, TASK_NAME, matches, issues_save_only
 
-TASK_TYPES = {
-    "initialization",
-    "design",
-    "infrastructure",
-    "scenario-test",
-    "governance",
-    "catalog-maintenance",
-    "migration",
-}
+import deploy.contracts as _imports_deploy_contracts
+import import_guard as _imports_import_guard
+import model.observed as _imports_model_observed
+import worktree_state
+from issue_gate import require_no_issues
+from model.core import properties as properties
+from model.impact import task_impact
+from task_contract_core import TASK_NAME, issues_save_only, matches, task_path
+from task_contract_core import TASK_TYPES as TASK_TYPES
+from utils.input_cache import input_text
+from validation_scope import active_scope
 
 
 class TaskValidation:
@@ -70,17 +66,16 @@ class TaskValidation:
         if self.issues_only:
             self.baseline_fixed = True
             return
-        from worktree_task import task_start_commit, git, output
         prompt = task_path(self.root, required=False)
-        start = task_start_commit(self.root, prompt.relative_to(self.root).as_posix()) if prompt is not None else None
+        start = worktree_state.task_start_commit(self.root, prompt.relative_to(self.root).as_posix()) if prompt is not None else None
         if start is None:
-            head = git(self.root, 'rev-parse', '--verify', 'HEAD^{commit}', check=False)
+            head = worktree_state.git(self.root, 'rev-parse', '--verify', 'HEAD^{commit}', check=False)
             if head.returncode == 0:
                 start = head.stdout.strip()
             else:
                 # A missing branch ref is unborn; detached/broken HEAD and non-Git fail.
-                ref = output(self.root, 'symbolic-ref', 'HEAD')
-                missing = git(self.root, 'show-ref', '--verify', '--quiet', ref, check=False)
+                ref = worktree_state.output(self.root, 'symbolic-ref', 'HEAD')
+                missing = worktree_state.git(self.root, 'show-ref', '--verify', '--quiet', ref, check=False)
                 if missing.returncode != 1:
                     raise ValueError('cannot determine Git baseline: invalid HEAD')
         self.baseline = start  # None explicitly means the empty unborn baseline.
@@ -102,6 +97,7 @@ class TaskValidation:
         return (tracked | untracked) - {'.lock'}
 
     def check_task_scope(self, contract_text=None) -> None:
+        require_import_changes = _imports_import_guard.require_import_changes
         self.fix_baseline()
         prompt = task_path(self.root, required=False)
         self.changed_paths = self.final_paths()
@@ -191,7 +187,7 @@ class TaskValidation:
         delegated = set()
         if self.infrastructure_phase == 'deploy':
             try:
-                from deploy.contracts import accepted_changes
+                accepted_changes = _imports_deploy_contracts.accepted_changes
                 delegated = accepted_changes(self.root, self.contract_text, self.permission_paths)
             except (OSError, ValueError, KeyError, TypeError) as error:
                 self.check(False, f'invalid child IaC attribution: {error}')
@@ -199,7 +195,6 @@ class TaskValidation:
             permitted = any(self.matches(changed, pattern) for pattern in allowed)
             self.check(permitted, f"changed path is outside task scope: {changed}")
         self.check_task_boundary(prompt, self.scope_paths)
-        from import_guard import require_import_changes
         try:
             # Normal Task validation also covers generation=True, with stricter IMPORT completion.
             for warning in require_import_changes(self.root, self.scope_paths, final_candidate=self.final_candidate) or ():
@@ -281,7 +276,7 @@ class TaskValidation:
             design_sources = set(model_files)
             text = self.contract_text or input_text(task_path(self.root), encoding='utf-8')
             if '- Workflow: `import`' in self.section(text.splitlines(), '## Task contract'):
-                from import_guard import require_import_changes
+                require_import_changes = _imports_import_guard.require_import_changes
                 try:
                     if not self.import_checked:
                         require_import_changes(self.root, self.scope_paths, final_candidate=self.final_candidate)
@@ -303,7 +298,7 @@ class TaskValidation:
                 self.check(iac_changed, "infrastructure implement phase must change selected IaC")
             elif self.infrastructure_phase == "deploy":
                 if iac_changed:
-                    from deploy.contracts import accepted_changes
+                    accepted_changes = _imports_deploy_contracts.accepted_changes
                     try:
                         attributed = accepted_changes(self.root, input_text(task_path(self.root), encoding="utf-8"),
                                        {path for path in changed if self.under(path, "infra")})
@@ -326,11 +321,10 @@ class TaskValidation:
                 for relative in sorted(changed):
                     if relative.startswith('model/'):
                         try:
-                            from worktree_task import git
-                            from model.observed import verify_observed_outputs
+                            verify_observed_outputs = _imports_model_observed.verify_observed_outputs
                             if self.baseline is None:
                                 raise ValueError('destroy requires a versioned Model baseline')
-                            previous = git(self.root, 'show', self.baseline + ':' + relative, check=False)
+                            previous = worktree_state.git(self.root, 'show', self.baseline + ':' + relative, check=False)
                             if previous.returncode:
                                 raise ValueError('destroy cannot add or remove Model files')
                             path = self.root / relative

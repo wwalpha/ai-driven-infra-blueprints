@@ -2,12 +2,30 @@
 """Explicit saved references: fixed identity, dependencies and semantic warnings."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import pytest
+from support.it_case_receipt import it_case
+from support.producer_identifier_reference_fixtures import (
+    Path,
+    affected,
+    dependency_hashes,
+    design_source_digest,
+    json,
+    load_model,
+    reference,
+    resource,
+    setup,
+    source_inputs,
+    tempfile,
+    warning,
+    write_model,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-import pytest
-from support.it_case_receipt import it_case, module_complete
-from support.producer_identifier_reference_fixtures import *
+
 
 @it_case
 def check(root):

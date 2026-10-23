@@ -1,42 +1,55 @@
 """Explicit selected-Model lint plan, ownership, diagnostic channels and coverage."""
+
+from functools import partial as _bind_framework_callback
 from pathlib import Path
+from types import SimpleNamespace as _CallbackState
+
+import model.sources as _imports_model_sources
 from design_layout import resource_mode
 from iac_values import cfn_resource_identity
-from .records import identifier, safe_text
 from model.core import entries
-from utils.cfn_lint import POLICY, lint_session, validate_template, runtime, file_state
+from utils.cfn_lint import POLICY, file_state, lint_session, runtime, validate_template
+
+from .records import identifier, safe_text
+
+
+def _callback_plan_add(comparison, coverage, jobs, /, unit, origin):
+    filename = unit.get('template')
+    if not isinstance(filename,str) or Path(filename).name != filename or Path(filename).suffix not in {'.yaml','.yml'} or '\\' in filename:
+        coverage.append(dict(status='unverified', reason='explicit template filename invalid', **origin))
+        return
+    raw = comparison.root/'infra/cloudformation/templates'/comparison.target.get('alias','')/unit['template']
+    if not raw.resolve().is_relative_to(comparison.root.resolve()):
+        coverage.append(dict(status='unverified', reason='unsafe explicit template', **origin))
+        return
+    comparison.track(raw)
+    path = raw.resolve()
+    key = identifier([str(path), comparison.target['awsRegion'], POLICY])
+    job = jobs.setdefault(key,dict(id=key, template=str(path), region=comparison.target['awsRegion'],
+        policy=POLICY, origins=[], status='planned' if path.is_file() else 'input_missing'))
+    job['origins'].append(origin)
+
+
+def _callback_plan_declared_stacks(_state_plan_32, comparison, /):
+    pass
+    if _state_plan_32.stacks is None:
+        _state_plan_32.stacks = {}
+        try:
+            for _, unit in entries(comparison.model('cloudformation-stacks').values, 'desired.stack.'):
+                _state_plan_32.stacks.setdefault(unit['name'], []).append(unit)
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            _state_plan_32.stack_error = type(error).__name__
+    return _state_plan_32.stacks
 
 
 def plan(comparison):
+    _state_plan_32 = _CallbackState()
     jobs, coverage = {}, []
     if comparison.target['iacEngine'] != 'cloudformation':
         return [], [dict(status='not_applicable', reason='Terraform scope')]
-    stacks, stack_error = None, None
-    def declared_stacks():
-        nonlocal stacks, stack_error
-        if stacks is None:
-            stacks = {}
-            try:
-                for _, unit in entries(comparison.model('cloudformation-stacks').values, 'desired.stack.'):
-                    stacks.setdefault(unit['name'], []).append(unit)
-            except (OSError, ValueError, KeyError, TypeError) as error:
-                stack_error = type(error).__name__
-        return stacks
-    def add(unit, origin):
-        filename = unit.get('template')
-        if not isinstance(filename,str) or Path(filename).name != filename or Path(filename).suffix not in {'.yaml','.yml'} or '\\' in filename:
-            coverage.append(dict(status='unverified', reason='explicit template filename invalid', **origin))
-            return
-        raw = comparison.root/'infra/cloudformation/templates'/comparison.target.get('alias','')/unit['template']
-        if not raw.resolve().is_relative_to(comparison.root.resolve()):
-            coverage.append(dict(status='unverified', reason='unsafe explicit template', **origin))
-            return
-        comparison.track(raw)
-        path = raw.resolve()
-        key = identifier([str(path), comparison.target['awsRegion'], POLICY])
-        job = jobs.setdefault(key,dict(id=key, template=str(path), region=comparison.target['awsRegion'],
-            policy=POLICY, origins=[], status='planned' if path.is_file() else 'input_missing'))
-        job['origins'].append(origin)
+    _state_plan_32.stacks, _state_plan_32.stack_error = None, None
+    declared_stacks = _bind_framework_callback(_callback_plan_declared_stacks, _state_plan_32, comparison)
+    add = _bind_framework_callback(_callback_plan_add, comparison, coverage, jobs)
     for service in comparison.services:
         if service not in comparison.models:
             coverage.append(dict(status='unverified', service=service, reason='selected Model unavailable'))
@@ -45,8 +58,8 @@ def plan(comparison):
             for units in declared_stacks().values():
                 for unit in units:
                     add(unit,dict(service=service,stack=unit['name'],logical=None,resource=None))
-            if stack_error:
-                coverage.append(dict(status='unverified', service=service, reason='declared Stack Model unavailable', exception=stack_error))
+            if _state_plan_32.stack_error:
+                coverage.append(dict(status='unverified', service=service, reason='declared Stack Model unavailable', exception=_state_plan_32.stack_error))
         for identity, resource in comparison.resources[service].items():
             origin = dict(service=service, resource=identity)
             try:
@@ -58,8 +71,8 @@ def plan(comparison):
                     raise ValueError('explicit cfn-logicalId unavailable')
                 name, logical = cfn_resource_identity(resource['cfn-logicalId'])
                 units = declared_stacks().get(name, [])
-                if stack_error:
-                    coverage.append(dict(status='unverified', reason='declared Stack Model unavailable', exception=stack_error, **origin))
+                if _state_plan_32.stack_error:
+                    coverage.append(dict(status='unverified', reason='declared Stack Model unavailable', exception=_state_plan_32.stack_error, **origin))
                     continue
                 if len(units)!=1:
                     raise ValueError('Stack correspondence is not unique/declared')
@@ -81,6 +94,7 @@ def classify(match, execution):
 
 
 def owner(comparison, job, match):
+    model_paths = _imports_model_sources.model_paths
     path = match.get('Location',{}).get('Path')
     logical = path[1] if isinstance(path,list) and len(path)>1 and path[0]=='Resources' else None
     if logical is None:
@@ -91,7 +105,6 @@ def owner(comparison, job, match):
     if owners:
         return None, False
     # Only proven explicit out-of-scope correspondence can make a finding scope-external.
-    from model.sources import model_paths
     for source in model_paths(comparison.root,comparison.environment,comparison.directory):
         if source.stem in comparison.services or source.stem=='cloudformation-stacks':
             continue

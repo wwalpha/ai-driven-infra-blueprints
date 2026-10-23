@@ -1,16 +1,30 @@
 """Problem policy/evidence checks, without AWS, real consumer inputs or Git mutation."""
+
 import copy
 import json
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import pytest
+from cloudformation_inputs import Blocked
+from deploy import failures, handoff
+from deploy import retry_policy as policy
+from deploy.controller import create_runtime
+from deploy.recovery import cleanup_unexecuted
+from deploy_handoff import main
+from support.model_sources import allocate_fixture, write_model
+from task_contract_core import selected_task, set_status, task_digest
+from utils.aws.client import AwsError
+from utils.aws_mappings import definition_root
+from utils.file_operations import sha
+from utils.json_format import fingerprint as fingerprint
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-import pytest
-from deploy import retry_policy as policy, failures, handoff
-from cloudformation_inputs import Blocked
-from deploy.contracts import task_digest, sha
-from utils.json_format import fingerprint
 
 
 def workflow(*problems, budget=20):
@@ -106,13 +120,17 @@ def check_failure_classes(stage, code, service, operation, expected):
     assert failures.repairable({'awsState': state}) == (expected == 'IAC_CANDIDATE')
 
 
+def _lambda_check_effective_inputs_and_safe_events_effective_129(artifact, parameters, template, tmp_path, units, /):
+    return handoff.effective(tmp_path, units, lambda u: (template, parameters), lambda us: [template, parameters, artifact])
+
+
 def check_effective_inputs_and_safe_events(tmp_path):
     template, parameters, artifact = [tmp_path / p for p in ('template.yaml', 'parameters.json', 'script.py')]
     template.write_text('Resources: {R: {Type: AWS::EC2::VPC, Properties: {CidrBlock: 10.0.0.0/16}}}\n')
     parameters.write_text('[]')
     artifact.write_text('approved')
     units = [{'name': 'Stack'}]
-    effective = lambda: handoff.effective(tmp_path, units, lambda u: (template, parameters), lambda us: [template, parameters, artifact])
+    effective = _bind_framework_callback(_lambda_check_effective_inputs_and_safe_events_effective_129, artifact, parameters, template, tmp_path, units)
     first = effective()
     template.write_text(template.read_text() + '# formatting only\n')
     assert effective() == first
@@ -133,7 +151,6 @@ def check_effective_inputs_and_safe_events(tmp_path):
 
 
 def check_status_helpers_preserve_task_identity():
-    from task_contract import set_status
     text = '## Task contract\n- Task type: `infrastructure`\n- Task status: `running`\n- Authorized delete/replacement: `none`\n'
     suspended = set_status(text, 'suspend') + '\n## Suspension reason\n\n    awaiting child\n'
     assert task_digest(text) == task_digest(suspended) == task_digest(set_status(suspended, 'running'))
@@ -141,8 +158,14 @@ def check_status_helpers_preserve_task_identity():
     assert task_digest(text) != task_digest(text + '\n## Other\nchanged\n')
 
 
+def _callback_check_signed_ledger_rejects_rollback_and_recovers_interrupted(actual_replace, path, /, source, target):
+    result = actual_replace(source, target)
+    if Path(target) == path:
+        raise OSError('injected after real session replacement')
+    return result
+
+
 def check_signed_ledger_rejects_rollback_and_recovers(tmp_path):
-    from unittest.mock import patch
     root = tmp_path / 'repo'
     root.mkdir()
     path = tmp_path / 'state.json'
@@ -152,11 +175,7 @@ def check_signed_ledger_rejects_rollback_and_recovers(tmp_path):
     old = path.read_bytes()
     session['workflow']['reserved'] = 1
     actual_replace = Path.replace
-    def interrupted(source, target):
-        result = actual_replace(source, target)
-        if Path(target) == path:
-            raise OSError('injected after real session replacement')
-        return result
+    interrupted = _bind_framework_callback(_callback_check_signed_ledger_rejects_rollback_and_recovers_interrupted, actual_replace, path)
     with patch.object(Path, 'replace', interrupted), pytest.raises(OSError):
         handoff.save(path, session)
     recovered = json.loads(path.read_text())
@@ -185,7 +204,6 @@ def check_total_budget_is_not_three_global_failures():
 
 
 def diagnosis_fixture(tmp_path, peer=False):
-    from support.model_sources import write_model, allocate_fixture
     root = tmp_path
     (root / 'project.json').write_text(json.dumps({'projectName':'fixture','targets':[{'environment':'dev','awsAccountId':'123456789012','awsRegion':'ap-northeast-1','iacEngine':'cloudformation'}]}))
     template = root / 'infra/template.yaml'
@@ -280,35 +298,48 @@ def check_unexecuted_diagnosis_preserves_aws_state(tmp_path, classification, all
     assert state['status'] == 'BLOCKED' and 'stackStatus' not in state
 
 
+def _callback_check_unexecuted_shell_recovery_aws(calls, change, defect, stack, /, operation, **arguments):
+    calls.append((operation,arguments))
+    assert arguments['StackName'] == 'original'
+    if operation == 'describe_stacks':
+        if defect == 'interrupted':
+            raise AwsError('cloudformation',operation,'ValidationError',stack_absent=True)
+        return {'Stacks':[stack]}
+    if operation == 'describe_change_set':
+        return change
+    if operation == 'list_stack_resources':
+        if defect == 'read':
+            raise AwsError('cloudformation',operation,'AccessDenied')
+        return {'StackResourceSummaries':[{}] if defect == 'resources' else []}
+    assert operation == 'delete_stack'
+
+
 @pytest.mark.parametrize('defect', ['none','origin','identity','protected','parent','status','change-stack','executed','change-status','resources','read','interrupted'])
 def check_unexecuted_shell_recovery(defect):
-    from deploy.recovery import cleanup_unexecuted
-    from utils.aws.client import AwsError
     proof = {'stackId':'original','changeSetId':'change','operationType':'CREATE','absentBeforeCreate':True}
     state = {'status':'NOT_STARTED','stackId':'original','preExecutionRecovery':proof}
     stack = {'StackId':'original','StackStatus':'REVIEW_IN_PROGRESS'}
     change = {'StackId':'original','ChangeSetId':'change','Status':'FAILED','ExecutionStatus':'UNAVAILABLE'}
-    if defect == 'origin': proof['absentBeforeCreate'] = False
-    if defect == 'identity': stack['StackId'] = 'reused'
-    if defect == 'protected': stack['EnableTerminationProtection'] = True
-    if defect == 'parent': stack['ParentId'] = 'parent'
-    if defect == 'status': stack['StackStatus'] = 'CREATE_COMPLETE'
-    if defect == 'change-stack': change['StackId'] = 'other'
-    if defect == 'executed': change['ExecutionStatus'] = 'EXECUTE_COMPLETE'
-    if defect == 'change-status': change['Status'] = 'CREATE_COMPLETE'
-    if defect == 'interrupted': state.update(cleanupStatus='DELETE_INTENT',cleanupStackId='original')
+    if defect == 'origin':
+        proof['absentBeforeCreate'] = False
+    if defect == 'identity':
+        stack['StackId'] = 'reused'
+    if defect == 'protected':
+        stack['EnableTerminationProtection'] = True
+    if defect == 'parent':
+        stack['ParentId'] = 'parent'
+    if defect == 'status':
+        stack['StackStatus'] = 'CREATE_COMPLETE'
+    if defect == 'change-stack':
+        change['StackId'] = 'other'
+    if defect == 'executed':
+        change['ExecutionStatus'] = 'EXECUTE_COMPLETE'
+    if defect == 'change-status':
+        change['Status'] = 'CREATE_COMPLETE'
+    if defect == 'interrupted':
+        state.update(cleanupStatus='DELETE_INTENT',cleanupStackId='original')
     calls, saves, waits = [], [], []
-    def aws(operation, **arguments):
-        calls.append((operation,arguments))
-        assert arguments['StackName'] == 'original'
-        if operation == 'describe_stacks':
-            if defect == 'interrupted': raise AwsError('cloudformation',operation,'ValidationError',stack_absent=True)
-            return {'Stacks':[stack]}
-        if operation == 'describe_change_set': return change
-        if operation == 'list_stack_resources':
-            if defect == 'read': raise AwsError('cloudformation',operation,'AccessDenied')
-            return {'StackResourceSummaries':[{}] if defect == 'resources' else []}
-        assert operation == 'delete_stack'
+    aws = _bind_framework_callback(_callback_check_unexecuted_shell_recovery_aws, calls, change, defect, stack)
     if defect in {'none','interrupted'}:
         cleanup_unexecuted(aws,lambda:saves.append(copy.deepcopy(state)),lambda s:waits.append(s['stackId']),state)
         assert state['status'] == 'NOT_STARTED' and 'stackStatus' not in state
@@ -323,24 +354,33 @@ def check_unexecuted_shell_recovery(defect):
 
 @pytest.mark.parametrize('defect', ['order','metadata','missing-previous'])
 def check_constraint_identity_ignores_reference_order(tmp_path, defect):
-    from utils.aws_mappings import definition_root
     session, problem = diagnosis_fixture(tmp_path)
     relative = 'framework/materials/cloudformation-schema/ap-northeast-1/aws-ec2-vpc.json'
     digest = sha(definition_root(tmp_path) / relative)
     refs = [{'path':relative,'sha256':digest,'pointer':'/properties/CidrBlock' + suffix} for suffix in ('','/type')]
-    if defect != 'missing-previous': problem['constraintRefs'] = copy.deepcopy(refs)
+    if defect != 'missing-previous':
+        problem['constraintRefs'] = copy.deepcopy(refs)
     handoff.diagnose(tmp_path,session,{'revision':0,'problems':[problem]})
     original = session['workflow']['currentProblemIds'][0]
     entry = copy.deepcopy(problem)
     entry.update(constraint='same-proofs-new-name',relatedProblemIds=[original],constraintRefs=list(reversed(refs)))
-    if defect == 'metadata': entry['constraintRefs'][0]['note'] = 'not a new constraint'
+    if defect == 'metadata':
+        entry['constraintRefs'][0]['note'] = 'not a new constraint'
     assert handoff.diagnose(tmp_path,session,{'revision':0,'problems':[entry]}) == 'NEEDS_DIAGNOSIS'
     assert list(session['workflow']['problems']) == [original]
 
 
+def _callback_check_bootstrap_history_preserves_distinct_safe_failure_aws(identifier, /, operation, **arguments):
+    if operation == 'describe_stacks':
+        return {'Stacks':[{'StackStatus':'ROLLBACK_COMPLETE'}]}
+    assert operation == 'describe_stack_events', 'non-secret failure must not PUT or clean a shell'
+    return {'StackEvents':[
+        {'StackId':'original','ResourceType':'AWS::CloudFormation::Stack','ClientRequestToken':'one','ResourceStatus':'ROLLBACK_COMPLETE'},
+        {'LogicalResourceId':'Item','ResourceType':'AWS::EC2::VPC','ClientRequestToken':'one','ResourceStatus':'CREATE_FAILED',
+         'EventId':identifier[0], 'ResourceStatusReason':'invalid CidrBlock DUMMY_PRIVATE (HandlerErrorCode: InvalidRequest)'}]}
+
+
 def check_bootstrap_history_preserves_distinct_safe_failure(tmp_path):
-    from deploy.controller import create_runtime
-    from task_contract import selected_task
     session, problem = diagnosis_fixture(tmp_path)
     task = tmp_path / 'tasks/deploy.md'
     task.parent.mkdir()
@@ -356,13 +396,7 @@ def check_bootstrap_history_preserves_distinct_safe_failure(tmp_path):
     state = session['states']['Stack']
     state.update(clientToken='one', stackId='original', repairs=[{'classification':'RUNTIME_BOOTSTRAP','stage':'RETRY_READY'}])
     identifier = ['request-one']
-    def aws(operation, **arguments):
-        if operation == 'describe_stacks': return {'Stacks':[{'StackStatus':'ROLLBACK_COMPLETE'}]}
-        assert operation == 'describe_stack_events', 'non-secret failure must not PUT or clean a shell'
-        return {'StackEvents':[
-            {'StackId':'original','ResourceType':'AWS::CloudFormation::Stack','ClientRequestToken':'one','ResourceStatus':'ROLLBACK_COMPLETE'},
-            {'LogicalResourceId':'Item','ResourceType':'AWS::EC2::VPC','ClientRequestToken':'one','ResourceStatus':'CREATE_FAILED',
-             'EventId':identifier[0], 'ResourceStatusReason':'invalid CidrBlock DUMMY_PRIVATE (HandlerErrorCode: InvalidRequest)'}]}
+    aws = _bind_framework_callback(_callback_check_bootstrap_history_preserves_distinct_safe_failure_aws, identifier)
     backend.aws = aws
     with selected_task(tmp_path,'tasks/deploy.md'):
         assert backend.poll(unit,state) == 'ROLLBACK_COMPLETE'
@@ -402,7 +436,6 @@ def next_diagnosis(session, entry, *, relation='SAME', related=None, properties=
 
 @pytest.mark.parametrize('difference', ['schema-pointer', 'label', 'request-and-prose', 'invalid-value'])
 def check_v5_relabel_does_not_buy_new_attempt(tmp_path, difference):
-    from utils.aws_mappings import definition_root
     session, entry = diagnosis_fixture(tmp_path)
     schema = 'framework/materials/cloudformation-schema/ap-northeast-1/aws-ec2-vpc.json'
     entry['constraintRefs'] = [{'path':schema, 'sha256':sha(definition_root(tmp_path) / schema), 'pointer':'/properties/CidrBlock/type'}]
@@ -545,7 +578,6 @@ def check_v5_signed_history_migrates_without_reset(tmp_path, history):
 
 
 def check_budget_text_is_not_human_authority(tmp_path):
-    from deploy_handoff import main
     root = tmp_path / 'repository'
     root.mkdir()
     task = root / 'tasks/deploy.md'

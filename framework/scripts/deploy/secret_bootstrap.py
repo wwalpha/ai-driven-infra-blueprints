@@ -1,21 +1,67 @@
 """Proven CREATE Secret initialization with metadata-only reads and stable intent/token."""
+
 import json
 import re
 import uuid
+from functools import partial as _bind_framework_callback
 
-from cloudformation_inputs import Blocked, resolve_value, condition_active, output_value
-from task_contract import task_path
+import model.adapters.observed as _imports_model_adapters_observed
+import utils.cloudformation_format as _imports_utils_cloudformation_format
+from cloudformation_inputs import Blocked, condition_active, output_value, resolve_value
+from task_contract_core import task_path
 from validation_scope import active_scope as validation_scope
-from deploy.guards import secret_value_missing
+
 from deploy.change_sets import import_names
+from deploy.guards import secret_value_missing
 from deploy.scheduler import SUCCESS
 
+_CALLBACK_DEFAULT = object()
+
+
 BOOTSTRAP_STAGES = {'BOOTSTRAP_INTENT', 'VALUE_CHECKED_MISSING', 'PUT_SUBMITTED', 'BOOTSTRAP_CONFIRMED'}
+
+
+def _callback_bootstrap_plan_visit_70(document, exports, local_secrets, parameters, pseudo, references, scalar_slots, _default_path, _default_used_exports, /, value, logical, kind, path=_CALLBACK_DEFAULT, used_exports=_CALLBACK_DEFAULT):
+    if path is _CALLBACK_DEFAULT:
+        path = _default_path
+    if used_exports is _CALLBACK_DEFAULT:
+        used_exports = _default_used_exports
+    value = output_value(document, parameters, pseudo, value)
+    if isinstance(value, dict) and len(value) == 1 and next(iter(value)) in {'Ref', 'Fn::Sub', 'Fn::Join', 'Fn::ImportValue', 'Fn::GetAtt'}:
+        marked = 'resolve:secretsmanager:' in json.dumps(value)
+        used_exports |= import_names({'Conditions': document.get('Conditions', {}),
+                                      'Resources': {'Value': {'Properties': value}}}, parameters, pseudo)
+        try:
+            if 'Fn::GetAtt' in value:
+                argument = value['Fn::GetAtt']
+                logical_id, attribute = argument.split('.', 1) if isinstance(argument, str) else argument
+                if attribute != 'Id' or logical_id not in local_secrets:
+                    raise Blocked('unsupported Secret attribute')
+                value = pseudo[logical_id]
+            else:
+                value = resolve_value(value, parameters, pseudo, exports, document.get('Conditions', {}))
+        except Blocked:
+            if marked:
+                raise Blocked('consumer Secret expression cannot be uniquely resolved') from None
+            return
+    if isinstance(value, dict):
+        for key, child in value.items():
+            _callback_bootstrap_plan_visit_70(document, exports, local_secrets, parameters, pseudo, references, scalar_slots, _default_path, _default_used_exports, child, logical, kind, path + (key,), used_exports)
+    elif isinstance(value, list):
+        for child in value:
+            _callback_bootstrap_plan_visit_70(document, exports, local_secrets, parameters, pseudo, references, scalar_slots, _default_path, _default_used_exports, child, logical, kind, path + ('[]',), used_exports)
+    elif isinstance(value, str) and 'resolve:secretsmanager:' in value:
+        match = re.fullmatch(r'\{\{resolve:secretsmanager:(.+?):SecretString(?::([^:]*))?(?::([^:]*))?(?::([^:]*))?\}\}', value)
+        if (not match or match[3] not in (None, '', 'AWSCURRENT') or match[4] not in (None, '')
+                or path not in scalar_slots.get(kind, set())):
+            raise Blocked('consumer Secret schema/version selector unsupported or ambiguous')
+        references.append((logical, match[1], match[2] or '', used_exports))
 
 
 def bootstrap_plan(root, environment, directory, target, templates, states, mapping_units, aws,
         check_secret_arn, unit, state):
     """Resolve consumer references and CREATE ownership through existing mappings."""
+    resolve_resources = _imports_model_adapters_observed.resolve_resources
     scope = validation_scope(root)
     document, parameters = templates[unit['name']]
     pseudo = {'AWS::AccountId': target.get('awsExecutionAccountId', target['awsAccountId']),
@@ -26,7 +72,6 @@ def bootstrap_plan(root, environment, directory, target, templates, states, mapp
               and 'cancel' not in (event.get('ResourceStatusReason') or '').lower()]
     if not failed or not all(secret_value_missing(e.get('ResourceStatusReason')) for e in failed):
         raise Blocked('runtime bootstrap requires only confirmed missing-current-value failures')
-    from model.adapters.observed import resolve_resources
     _, owned = resolve_resources(root, environment, directory, templates, [unit],
         {unit['name']: {e['LogicalResourceId'] for e in failed}}, target=target, identifiers=False)
     for event in failed:
@@ -63,37 +108,7 @@ def bootstrap_plan(root, environment, directory, target, templates, states, mapp
                     'AWS::Glue::Connection': {('ConnectionInput', 'ConnectionProperties', 'USERNAME'),
                                               ('ConnectionInput', 'ConnectionProperties', 'PASSWORD')}}
 
-    def visit(value, logical, kind, path=(), used_exports=frozenset()):
-        value = output_value(document, parameters, pseudo, value)
-        if isinstance(value, dict) and len(value) == 1 and next(iter(value)) in {'Ref', 'Fn::Sub', 'Fn::Join', 'Fn::ImportValue', 'Fn::GetAtt'}:
-            marked = 'resolve:secretsmanager:' in json.dumps(value)
-            used_exports |= import_names({'Conditions': document.get('Conditions', {}),
-                                          'Resources': {'Value': {'Properties': value}}}, parameters, pseudo)
-            try:
-                if 'Fn::GetAtt' in value:
-                    argument = value['Fn::GetAtt']
-                    logical_id, attribute = argument.split('.', 1) if isinstance(argument, str) else argument
-                    if attribute != 'Id' or logical_id not in local_secrets:
-                        raise Blocked('unsupported Secret attribute')
-                    value = pseudo[logical_id]
-                else:
-                    value = resolve_value(value, parameters, pseudo, exports, document.get('Conditions', {}))
-            except Blocked:
-                if marked:
-                    raise Blocked('consumer Secret expression cannot be uniquely resolved') from None
-                return
-        if isinstance(value, dict):
-            for key, child in value.items():
-                visit(child, logical, kind, path + (key,), used_exports)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child, logical, kind, path + ('[]',), used_exports)
-        elif isinstance(value, str) and 'resolve:secretsmanager:' in value:
-            match = re.fullmatch(r'\{\{resolve:secretsmanager:(.+?):SecretString(?::([^:]*))?(?::([^:]*))?(?::([^:]*))?\}\}', value)
-            if (not match or match[3] not in (None, '', 'AWSCURRENT') or match[4] not in (None, '')
-                    or path not in scalar_slots.get(kind, set())):
-                raise Blocked('consumer Secret schema/version selector unsupported or ambiguous')
-            references.append((logical, match[1], match[2] or '', used_exports))
+    visit = _bind_framework_callback(_callback_bootstrap_plan_visit_70, document, exports, local_secrets, parameters, pseudo, references, scalar_slots, (), frozenset())
     for logical in {event['LogicalResourceId'] for event in failed}:
         definition = document['Resources'][logical]
         if condition_active(document, parameters, pseudo, definition):
@@ -148,7 +163,7 @@ def bootstrap_plan(root, environment, directory, target, templates, states, mapp
         raise Blocked('Secret owner StackId/account/region/state unconfirmed')
     actual = aws('get_template', StackName=stack_id)['TemplateBody']
     if isinstance(actual, str):
-        from utils.cloudformation_format import decode as decode_str
+        decode_str = _imports_utils_cloudformation_format.decode
         actual, errors = decode_str(actual)
         if errors:
             raise Blocked('Secret owner template unreadable')
@@ -222,10 +237,10 @@ def bootstrap_current(aws, entry):
         if not getattr(error, 'current_missing', False) or any('AWSCURRENT' in v for v in stages.values()):
             raise Blocked('Secret current-value check denied/failed/ambiguous') from None
         if set(stages) - {token}:
-            raise Blocked('Secret has existing noncurrent versions; initial bootstrap unsafe')
+            raise Blocked('Secret has existing noncurrent versions; initial bootstrap unsafe') from error
         if token in stages and (entry['stage'] != 'PUT_SUBMITTED'
                 or stages[token] != ['BLUEPRINT_BOOTSTRAP_' + token]):
-            raise Blocked('Secret bootstrap version no longer in submitted initial state')
+            raise Blocked('Secret bootstrap version no longer in submitted initial state') from error
         return False, token in stages
     labels = current.get('VersionStages')
     if (current.get('ARN') != arn or current.get('HasValue') is not True or not isinstance(labels, list)
@@ -285,5 +300,3 @@ def bootstrap(root, states, guard, save, aws, bootstrap_plan, bootstrap_current,
     save()
     finish_repair(unit, state, entry)
     return True
-
-

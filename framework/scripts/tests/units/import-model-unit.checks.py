@@ -1,25 +1,100 @@
 #!/usr/bin/env python3
 """Acquisition/source validation units; all Models and AWS facts below are synthetic."""
-import sys
-from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
 
-import copy
+import hashlib
+import shutil
+import sys
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
+from datetime import datetime, timedelta, timezone
+from functools import partial as _bind_framework_callback
+from pathlib import Path
+from unittest.mock import Mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import pytest
 import import_guard
-from model.sources import candidate_sources
-from model.importing.sources import property_values, selection_records, verify_values, typed_equal
-from support.model_v2_fixtures import value_snapshot as Expansion
-from utils.yaml_format import yaml_read
-from script_loader import module
-
+import issue_gate as _imports_issue_gate
+import model.format as _imports_model_format
+import model.sources as _imports_model_sources
+import pytest
+import support.import_model_fixtures as _imports_support_import_model_fixtures
+import support.model_sources as _imports_support_model_sources
+import support.worktree_task_fixtures as _imports_support_worktree_task_fixtures
+import task_contract_core as _imports_task_contract
+import worktree_state
+from aws_mapping import readonly
+from aws_mapping_compare import comparison
+from aws_mapping_compare import value as mapped_value
+from generation_inputs import GenerationInputs
+from import_guard import digest
+from issue_gate import require_no_issues
+from model.adapters.task import edit_write_context, source_write_context
+from model.cli import main
+from model.format import owner, serialize
+from model.identity import COUNTERS
 from model.importing import cli as m
+from model.importing.evidence import FORMAT_FIELDS
+from model.importing.inventory import (
+    ImportInventory,
+    import_comparison,
+    inventory_for,
+    properties_json,
+)
+from model.importing.sources import (
+    property_values,
+    selection_records,
+    typed_equal,
+    typed_row,
+    verify_values,
+)
+from model.operations import (
+    CandidateReads,
+    operation_rows,
+    operation_values,
+    prepare_edit,
+    publish_edit,
+    validate_candidates,
+    verify_model_operation,
+    verify_model_refactor,
+)
+from model.references import Reference, incoming, symbolic, usages
+from model.sources import Scope, candidate_sources, load_model
+from script_loader import module as module
+from support.import_model_fixtures import (
+    ACCOUNT,
+    SERVICES,
+    CloudControlCli,
+    aws,
+    batch_operation_fixture,
+    build_seed,
+    dependency_contract,
+    dependency_fixture,
+    dependency_refactor,
+    operation_candidate,
+    operation_contract,
+    operation_fixture,
+    reference_fields,
+    resource_values,
+    review_proof_fixture,
+)
+from support.model_sources import write_model
+from support.model_v2_fixtures import value_snapshot as Expansion
+from task_contract import complete
+from task_contract_core import model_operation, model_refactor, selected_task
+from utils.input_cache import input_context
+from utils.source_reads import FileReads
+from utils.yaml_format import yaml_read as yaml_read
+
+from model import sources
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 def schema_for(prop):
@@ -53,7 +128,6 @@ def selection(record_id='record-1', rid='001', action='add', basis=()):
 
 
 def expansion(values):
-    from model.sources import Scope
     result = Expansion(values, {}, {})
     result.scope = Scope(Path('/fixture'), 'dev', 'cde', 'vpc')
     return result
@@ -62,14 +136,15 @@ def expansion(values):
 
 
 def check_null_parameter():
-    from model.importing.sources import typed_row
     assert typed_row({'property': 'Example.Resource.Value'}, '`null`', {'type': 'null'}) is None
     assert m.model_literal(None) == '`null`'
 
 
 @pytest.mark.parametrize('value', [False, 0, 'false', '001', None, ['one', 'two'], {'Enabled': False, 'Count': 2}])
 def check_yaml_edits(value):
-    from model.format import FORMAT, parse, patch
+    FORMAT = _imports_model_format.FORMAT
+    parse = _imports_model_format.parse
+    patch = _imports_model_format.patch
     original = FORMAT + '\n# keep header\ndesired.row.001-001.value="10.10.0.0/23" # keep CIDR\n# keep comment\ndesired.row.001-002.value=old\n'
     raw = m.model_literal(value)
     edited = patch(parse(original), {'desired.row.001-002.value': raw, 'desired.row.009-001.value': 'new-subnet'})
@@ -80,7 +155,9 @@ def check_yaml_edits(value):
 
 
 def check_yaml_empty_and_order():
-    from model.format import FORMAT, parse, patch
+    FORMAT = _imports_model_format.FORMAT
+    parse = _imports_model_format.parse
+    patch = _imports_model_format.patch
     assert patch(parse(FORMAT + '\n'), {'desired.row.001-001.value': '`true`'}) == FORMAT + '\ndesired.row.001-001.value=`true`\n'
     original = FORMAT + '\n# unchanged\ndesired.row.001-002.value=2\ndesired.row.001-001.value=1\n'
     assert patch(parse(original), dict(parse(original).values)) == original
@@ -245,9 +322,6 @@ def check_shared_property_typed_preservation():
 
 
 def check_shared_reference_is_symbolic(tmp_path):
-    from model.references import Reference, symbolic
-    from model.sources import Scope, load_model
-    from model.format import serialize
     root = tmp_path
     (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', 'alias': 'cde',
         'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}), encoding='utf-8')
@@ -271,8 +345,6 @@ def check_typed_property_values():
 
 
 def check_candidate_scope_and_changed_files(tmp_path):
-    from model.sources import Scope, load_model, candidate_sources
-    from support.model_sources import write_model
     root, stage = tmp_path / 'repository', tmp_path / 'candidate'
     root.mkdir()
     (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', 'alias': 'cde',
@@ -342,7 +414,6 @@ def check_native_equality_and_singleton():
 
 
 def check_adapter_inventory_normalization(tmp_path):
-    from support.import_model_fixtures import SERVICES, ACCOUNT, aws
     target = {'environment': 'dev', 'directory': 'cde', 'awsAccountId': ACCOUNT,
               'awsRegion': 'ap-northeast-1', 'awsProfile': 'confirmed'}
     for service in SERVICES:
@@ -362,10 +433,6 @@ def check_adapter_inventory_normalization(tmp_path):
 
 
 def check_shared_source_preservation_boundary(tmp_path):
-    from support.import_model_fixtures import build_seed, SERVICES
-    from model.sources import FileReads, load_model
-    from model.operations import CandidateReads
-    from model.format import serialize
     build_seed(tmp_path)
     for service in SERVICES:
         assert load_model(tmp_path / 'model/dev/cde' / (service + '.properties')).authoritative
@@ -415,13 +482,12 @@ def check_new_anchor_and_reference_preservation():
         verify_values(expansion(old), expansion(new), {}, schema_for)
 
 
+def _lambda_check_authored_vpc_append_candidate_captured_schema_507(prop):
+    return {'type': 'boolean' if '.EnableDns' in prop else 'string'}
+
+
 @pytest.mark.parametrize('unknown', [False, True])
 def check_authored_vpc_append_candidate(tmp_path, unknown):
-    from support.import_model_fixtures import build_seed
-    from support.model_sources import write_model
-    from model.sources import FileReads, load_model
-    from model.operations import CandidateReads
-    from model.format import serialize
     build_seed(tmp_path)
     path = tmp_path / 'model/dev/cde/vpc.properties'
     if unknown:
@@ -431,7 +497,6 @@ def check_authored_vpc_append_candidate(tmp_path, unknown):
     before = load_model(path)
     original_bytes = {p: p.read_bytes() for p in (tmp_path / 'model').rglob('*') if p.is_file()}
     addition = resource('009', identity='vpc-new', cidr='10.11.0.0/23')
-    from model.identity import COUNTERS
     state = json.loads(before.authoritative[COUNTERS])
     state['EC2.VPC'] += 1
     addition[COUNTERS] = json.dumps(state)
@@ -444,7 +509,7 @@ def check_authored_vpc_append_candidate(tmp_path, unknown):
     acquired = record('vpc-new')
     for prop in ('EC2.VPC.EnableDnsHostnames', 'EC2.VPC.EnableDnsSupport'):
         acquired['properties'][prop] = {'status': 'captured', 'value': True}
-    captured_schema = lambda prop: {'type': 'boolean' if '.EnableDns' in prop else 'string'}
+    captured_schema = _lambda_check_authored_vpc_append_candidate_captured_schema_507
     warnings = []
     selected = selection_records(selection(rid='009'), [acquired], before.values, after.values, captured_schema, warnings)
     assert len(verify_values(before, after, selected, captured_schema)) == 5
@@ -459,8 +524,6 @@ def check_authored_vpc_append_candidate(tmp_path, unknown):
 @pytest.mark.parametrize('relative', ['model/stg/cde/vpc.properties', 'model/stg/cde/vpc/part-001.properties',
     'model/stg/another/vpc.properties', 'model/dev/cde/config.properties', 'model/dev/another/vpc.properties'])
 def check_foreign_candidate_scope(tmp_path, relative):
-    from support.import_model_fixtures import operation_fixture
-    from model.sources import load_model
     root, directory = tmp_path / 'repository', tmp_path / 'candidate'
     operation_fixture(root)
     before = load_model(root / 'model/dev/cde/vpc.properties')
@@ -471,20 +534,18 @@ def check_foreign_candidate_scope(tmp_path, relative):
         candidate_sources(root, directory, before)
 
 
-from support.import_model_fixtures import operation_fixture, operation_candidate, operation_contract
 
 
 @pytest.mark.parametrize('action', ['import-merge', 'import-delete'])
 def check_model_operation_preserves_consumers(tmp_path, action):
-    from model.operations import verify_model_operation
-    from task_contract import model_operation
-    from model.sources import load_model
     before, after = tmp_path / 'before', tmp_path / 'after'
     operation_fixture(before)
     sources = operation_candidate(before, after, action)
     if action == 'import-delete':
-        from issue_gate import require_no_issues, issue_errors
-        from task_contract import start, selected_task
+        issue_errors = _imports_issue_gate.issue_errors
+        require_no_issues = _imports_issue_gate.require_no_issues
+        selected_task = _imports_task_contract.selected_task
+        start = _imports_task_contract.start
         name = 'tasks/deletion.md'
         text = (operation_contract(action) + '## Validation scope\n- `stg/cde/vpc`\n' +
                 f'## Modified files\n- `{name}`\n## Allowed paths\n- `{name}`\n')
@@ -507,13 +568,9 @@ def check_model_operation_preserves_consumers(tmp_path, action):
 
 @pytest.mark.parametrize('change', ['cidr', 'observation', 'mode', 'row-id', 'dev', 'binding', 'missing-row', 'extra-delete', 'reference'])
 def check_model_operation_rejects_unproved_changes(tmp_path, change):
-    from model.operations import verify_model_operation
-    from task_contract import model_operation
     before, after = tmp_path / 'before', tmp_path / 'after'
     operation_fixture(before)
     sources = operation_candidate(before, after)
-    from support.model_sources import write_model
-    from model.sources import load_model
     file = after / ('model/dev/cde/vpc.properties' if change == 'dev' else 'model/stg/cde/vpc.properties')
     values = dict(load_model(file).authoritative)
     if change == 'cidr':
@@ -544,8 +601,6 @@ def check_model_operation_rejects_unproved_changes(tmp_path, change):
 
 @pytest.mark.parametrize('change', ['cross-env', 'same-id', 'missing-target', 'normal-task', 'aws', 'create-source', 'create-destination', 'wrong-source'])
 def check_model_operation_contract_scope(tmp_path, change):
-    from task_contract import model_operation
-    from model.operations import verify_model_operation
     text = operation_contract()
     if change == 'cross-env':
         text = text.replace('stg/cde/vpc/001', 'dev/cde/vpc/001')
@@ -561,8 +616,8 @@ def check_model_operation_contract_scope(tmp_path, change):
         before, after = tmp_path / 'before', tmp_path / 'after'
         operation_fixture(before)
         if change in {'create-source', 'create-destination'}:
-            from model.sources import load_model
-            from support.model_sources import write_model
+            load_model = _imports_model_sources.load_model
+            write_model = _imports_support_model_sources.write_model
             file = before / 'model/stg/cde/vpc.properties'
             values = dict(load_model(file).authoritative)
             values['desired.resource.' + ('001' if change == 'create-destination' else '009') + '.resourceMode'] = 'CREATE'
@@ -577,7 +632,6 @@ def check_model_operation_contract_scope(tmp_path, change):
 
 
 def check_model_operation_row_correspondence():
-    from model.operations import operation_rows
     values = resource()
     values.update({'desired.row.001-010.property': 'EC2.VPC.Tags[].Key', 'desired.row.001-010.value': '`A`',
                    'desired.row.001-011.property': 'EC2.VPC.Tags[].Value', 'desired.row.001-011.value': '`one`',
@@ -602,9 +656,8 @@ def check_model_operation_row_correspondence():
     (['IAM.Role.ManagedPolicyArns[1]'] * 2, None),
 ])
 def check_model_operation_catalog_arrays(tmp_path, properties, expected):
-    from model.operations import operation_rows
     values = {'desired.resource.001.resourceType': 'IAM.Role'}
-    for rid, prop, value in zip(('001-004', '001-007'), properties, ('[first](#first)', '[second](#second)')):
+    for rid, prop, value in zip(('001-004', '001-007'), properties, ('[first](#first)', '[second](#second)'), strict=False):
         values.update({f'desired.row.{rid}.property': prop, f'desired.row.{rid}.value': value})
     fixture = tmp_path / 'rows.json'
     fixture.write_text(json.dumps(values))
@@ -622,10 +675,6 @@ def check_model_operation_catalog_arrays(tmp_path, properties, expected):
 
 @pytest.mark.parametrize('shape', ['optional', 'choice', 'optional-json', 'document', 'untransferred'])
 def check_model_operation_shape_preservation(tmp_path, shape):
-    from model.operations import verify_model_operation
-    from model.sources import load_model
-    from support.model_sources import write_model
-    from task_contract import model_operation
     before, after = tmp_path / 'before', tmp_path / 'after'
     operation_fixture(before)
     path = before / 'model/stg/cde/vpc.properties'
@@ -659,7 +708,6 @@ def check_model_operation_shape_preservation(tmp_path, shape):
 
 @pytest.mark.parametrize('failure', ['none', 'tamper', 'missing', 'expired', 'task', 'base', 'scope'])
 def check_external_completion_proof(tmp_path, monkeypatch, failure):
-    from datetime import datetime, timedelta, timezone
     root = tmp_path / 'repository'
     root.mkdir()
     monkeypatch.setattr(import_guard.tempfile, 'gettempdir', lambda: str(tmp_path))
@@ -671,7 +719,6 @@ def check_external_completion_proof(tmp_path, monkeypatch, failure):
              'acquisition': 'receipt', 'sources': {}, 'plan': 'verified', 'complete': True,
              'model': 'unchanged', 'markdown': 'unchanged', 'ownedArtifacts': [],
              'acquiredAt': datetime.now(timezone.utc).isoformat()}
-    from support.import_model_fixtures import review_proof_fixture
     review_proof_fixture(root, proof)
     if failure == 'expired':
         proof['acquiredAt'] = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
@@ -699,9 +746,9 @@ def check_external_completion_proof(tmp_path, monkeypatch, failure):
 
 
 def check_snapshot_proof_resigning_and_cleanup(tmp_path, monkeypatch):
-    from datetime import datetime, timezone
     root, snapshot = tmp_path / 'repository', tmp_path / 'snapshot'
-    root.mkdir(); snapshot.mkdir()
+    root.mkdir()
+    snapshot.mkdir()
     monkeypatch.setattr(import_guard.tempfile, 'gettempdir', lambda: str(tmp_path))
     monkeypatch.setattr(import_guard, 'task_path', lambda root: root / 'tasks/example.md')
     monkeypatch.setattr(import_guard, 'workflow', lambda root: 'tasks/example.md')
@@ -712,7 +759,6 @@ def check_snapshot_proof_resigning_and_cleanup(tmp_path, monkeypatch):
              'acquisition': 'receipt', 'sources': {}, 'plan': 'verified', 'complete': True,
              'model': 'unchanged', 'markdown': 'unchanged', 'ownedArtifacts': [],
              'acquiredAt': datetime.now(timezone.utc).isoformat()}
-    from support.import_model_fixtures import review_proof_fixture
     review_proof_fixture(root, proof)
     import_guard.write_sealed(root, import_guard.proof_path(root), proof)
     import_guard.copy_import_proof(root, snapshot)
@@ -727,7 +773,6 @@ def check_snapshot_proof_resigning_and_cleanup(tmp_path, monkeypatch):
 
 
 def generic_context(service='datazone', resources=None, **kwargs):
-    from support.import_model_fixtures import CloudControlCli, ACCOUNT
     cli = CloudControlCli(resources or {}, **kwargs)
     target = {'environment': 'dev', 'directory': 'synthetic', 'awsAccountId': ACCOUNT, 'awsRegion': 'ap-northeast-1'}
     ctx = m.import_context(m.ROOT, target, cli, service)
@@ -739,18 +784,18 @@ def domain(identifier='dzd-one'):
     return {'identifier': identifier, 'properties': {'Id': identifier, 'Name': 'fixture', 'DomainVersion': 'V2', 'SingleSignOn': {'Type': 'DISABLED'}}}
 
 
+def _callback_check_inventory_singleflight_and_isolation_acquire(ctx, /, _):
+    assert inventory_for(ctx) is ImportInventory(ctx)
+    return m.normalize_records(ctx, 'datazone', m.inventory(ctx, 'datazone', ['DataZone.Domain']))
+
+
 def check_inventory_singleflight_and_isolation():
-    from concurrent.futures import ThreadPoolExecutor
-    from model.importing.inventory import ImportInventory, inventory_for
-    from collections import Counter
+
     resources = {'DataZone.Domain': [domain(), domain('dzd-two')]}
     ctx, cli = generic_context(resources=resources)
     original = m._normalize_records
-    from model.importing.inventory import import_comparison
     with patch('model.importing.inventory.import_comparison', wraps=import_comparison) as mapping, patch.object(m, '_normalize_records', wraps=original) as normalize:
-        def acquire(_):
-            assert inventory_for(ctx) is ImportInventory(ctx)
-            return m.normalize_records(ctx, 'datazone', m.inventory(ctx, 'datazone', ['DataZone.Domain']))
+        acquire = _bind_framework_callback(_callback_check_inventory_singleflight_and_isolation_acquire, ctx)
         with ThreadPoolExecutor(max_workers=8) as executor:
             results = list(executor.map(acquire, range(16)))
         assert all(result == results[0] for result in results)
@@ -769,22 +814,26 @@ def check_inventory_singleflight_and_isolation():
     assert results[1][0]['identityComponents'] == [{'property': 'DataZone.Domain.Id', 'value': 'dzd-one'}]
 
 
+def _callback_check_context_api_singleflight_and_failures_call(ctx, /, _):
+    return ctx.call('cloudcontrol', 'get_resource', TypeName='AWS::DataZone::Domain', Identifier='dzd-one')
+
+
+def _callback_check_context_api_singleflight_and_failures_denied(failed, /, _):
+    with pytest.raises(m.comparator().AcquisitionError, match='AccessDeniedException'):
+        failed.call('cloudcontrol', 'get_resource', TypeName='AWS::DataZone::Domain', Identifier='dzd-one')
+
+
 def check_context_api_singleflight_and_failures():
-    from concurrent.futures import ThreadPoolExecutor
-    from collections import Counter
     resources = {'DataZone.Domain': [domain()]}
     ctx, cli = generic_context(resources=resources)
-    def call(_):
-        return ctx.call('cloudcontrol', 'get_resource', TypeName='AWS::DataZone::Domain', Identifier='dzd-one')
+    call = _bind_framework_callback(_callback_check_context_api_singleflight_and_failures_call, ctx)
     with ThreadPoolExecutor(max_workers=8) as executor:
         results = list(executor.map(call, range(32)))
     assert len(cli.calls) == 2
     results[0]['ResourceDescription']['Identifier'] = 'changed'
     assert call(0)['ResourceDescription']['Identifier'] == 'dzd-one'
     failed, failed_cli = generic_context(resources=resources, fail={('cloudcontrol', 'get-resource', 'dzd-one'): 'AccessDeniedException'})
-    def denied(_):
-        with pytest.raises(m.comparator().AcquisitionError, match='AccessDeniedException'):
-            failed.call('cloudcontrol', 'get_resource', TypeName='AWS::DataZone::Domain', Identifier='dzd-one')
+    denied = _bind_framework_callback(_callback_check_context_api_singleflight_and_failures_denied, failed)
     with ThreadPoolExecutor(max_workers=8) as executor:
         list(executor.map(denied, range(16)))
     assert len(failed_cli.calls) == 2
@@ -792,7 +841,6 @@ def check_context_api_singleflight_and_failures():
 
 
 def check_cloudtrail_all_model_properties():
-    from model.importing.inventory import inventory_for
     ctx, cli = generic_context('cloudtrail', {'CloudTrail.Trail': [{'identifier': 'audit', 'list': {'TrailName': 'audit'}, 'properties': {'TrailName': 'audit'}}]})
     result = m.normalize_records(ctx, 'cloudtrail', m.inventory(ctx, 'cloudtrail'))
     assert len(result) == 1 and len(result[0]['properties']) == 13
@@ -806,7 +854,6 @@ def check_cloudtrail_all_model_properties():
 
 
 def check_tgw_provider_and_composite_identity():
-    from model.importing.inventory import inventory_for
     resources = {
         'EC2.TransitGateway': [{'identifier': 'tgw-one', 'properties': {'Id': 'tgw-one', 'AmazonSideAsn': 64512, 'Description': 'fixture',
             'DnsSupport': 'enable', 'DefaultRouteTableAssociation': 'enable', 'DefaultRouteTablePropagation': 'enable',
@@ -827,13 +874,11 @@ def check_tgw_provider_and_composite_identity():
     lists = [inputs for _, op, inputs in cli.calls if op == 'list-resources']
     assert len(lists) == 5 and sum('ResourceModel' in inputs for inputs in lists) == 3
     assert len(cli.calls) == 11
-    from aws_mapping_compare import comparison
     _, compare = comparison(m.ROOT, 'ec2')
     assert all(compare[prop].field.classification == 'supported' for record in result for prop in record['properties'])
 
 
 def check_inventory_status_and_partial_retention():
-    from model.importing.inventory import inventory_for
     ctx, cli = generic_context(resources={'DataZone.Domain': [domain(), domain('dzd-two')]},
                                fail={('cloudcontrol', 'get-resource', 'dzd-two'): 'AccessDeniedException'})
     records = m.normalize_records(ctx, 'datazone', m.inventory(ctx, 'datazone', ['DataZone.Domain']))
@@ -854,11 +899,9 @@ def check_inventory_status_and_partial_retention():
 
 
 def check_cloudcontrol_json_and_readonly_boundary():
-    from model.importing.inventory import properties_json, inventory_for
     for value in ('null', '[]', '{"Id":1,"Id":2}', '{"Id":NaN}', '{invalid', {}, None):
         with pytest.raises((ValueError, TypeError)):
             properties_json(value)
-    from support.import_model_fixtures import CloudControlCli, ACCOUNT
     target = {'environment': 'dev', 'directory': 'synthetic', 'awsAccountId': ACCOUNT, 'awsRegion': 'ap-northeast-1'}
     ctx = m.import_context(m.ROOT, target, CloudControlCli({}), 'datazone')
     with pytest.raises(ValueError, match='verified'):
@@ -875,20 +918,23 @@ def check_cloudcontrol_json_and_readonly_boundary():
         m.comparator().Context(m.ROOT, target, services=('datazone',))
 
 
+def _callback_check_composite_identity_same_resource_only_values(kind, props, /, rid, table, attachment):
+    result = {f'desired.resource.{rid}.logicalId': kind.replace('.', '_') + '_' + rid, f'desired.resource.{rid}.resourceType': kind, f'desired.resource.{rid}.resourceMode': 'IMPORT', 'desired.service.identity.lastAllocated': json.dumps({kind: int(rid)})}
+    for n, (prop, value) in enumerate(zip(props, (table, attachment), strict=False), 1):
+        if value is not None:
+            result[f'desired.row.{rid}-{n:03d}.property'] = prop
+            result[f'desired.row.{rid}-{n:03d}.value'] = '`' + value + '`'
+            result[f'desired.row.{rid}-{n:03d}.comment'] = '合成関連付け'
+    return result
+
+
 def check_composite_identity_same_resource_only():
     kind = 'EC2.TransitGatewayRouteTableAssociation'
     props = [kind + '.TransitGatewayRouteTableId', kind + '.TransitGatewayAttachmentId']
-    def values(rid, table, attachment):
-        result = {f'desired.resource.{rid}.logicalId': kind.replace('.', '_') + '_' + rid, f'desired.resource.{rid}.resourceType': kind, f'desired.resource.{rid}.resourceMode': 'IMPORT', 'desired.service.identity.lastAllocated': json.dumps({kind: int(rid)})}
-        for n, (prop, value) in enumerate(zip(props, (table, attachment)), 1):
-            if value is not None:
-                result[f'desired.row.{rid}-{n:03d}.property'] = prop
-                result[f'desired.row.{rid}-{n:03d}.value'] = '`' + value + '`'
-                result[f'desired.row.{rid}-{n:03d}.comment'] = '合成関連付け'
-        return result
+    values = _bind_framework_callback(_callback_check_composite_identity_same_resource_only_values, kind, props)
     captured = {'record': 'assoc', 'kind': kind, 'identity': 'opaque', 'identityProperty': None, 'identityProperties': props,
-                'identityStatus': 'known', 'identityComponents': [{'property': p, 'value': v} for p, v in zip(props, ('table-a', 'attachment-b'))],
-                'properties': {p: {'status': 'captured', 'value': v} for p, v in zip(props, ('table-a', 'attachment-b'))}}
+                'identityStatus': 'known', 'identityComponents': [{'property': p, 'value': v} for p, v in zip(props, ('table-a', 'attachment-b'), strict=False)],
+                'properties': {p: {'status': 'captured', 'value': v} for p, v in zip(props, ('table-a', 'attachment-b'), strict=False)}}
     old = {**values('001', 'table-a', 'attachment-a'), **values('002', 'table-b', 'attachment-b')}
     new = {**old, **values('009', 'table-a', 'attachment-b')}
     new['desired.resource.009.logicalId'] = kind.replace('.', '_') + '_003'
@@ -908,25 +954,27 @@ def check_composite_identity_same_resource_only():
 
 
 
+# Plain copies of the fixture schema; no static singleton mutation.
+def _callback_check_inventory_capability_outcomes_schema(case, /, kind):
+    # Plain copies of the fixture schema; no static singleton mutation.
+    data = {'handlers': {'list': {}, 'read': {}}, 'primaryIdentifier': ['/properties/Id'], 'required': ['Name']}
+    if case == 'no-list':
+        del data['handlers']['list']
+    elif case == 'no-read':
+        del data['handlers']['read']
+    elif case == 'filter':
+        data['handlers']['list']['handlerSchema'] = {'required': ['UnboundScope']}
+    return readonly(data)
+
+
 @pytest.mark.parametrize('case,expected', [('no-list', 'unsupported'), ('no-read', 'unsupported'), ('filter', 'requires_filter'), ('missing', 'failed')])
 def check_inventory_capability_outcomes(case, expected):
-    from model.importing.inventory import inventory_for
     item = domain()
     if case == 'missing':
         del item['properties']['Name']
     ctx, cli = generic_context(resources={'DataZone.Domain': [item]})
     inv = inventory_for(ctx)
-    def schema(kind):
-        # Plain copies of the fixture schema; no static singleton mutation.
-        from aws_mapping import readonly
-        data = {'handlers': {'list': {}, 'read': {}}, 'primaryIdentifier': ['/properties/Id'], 'required': ['Name']}
-        if case == 'no-list':
-            del data['handlers']['list']
-        elif case == 'no-read':
-            del data['handlers']['read']
-        elif case == 'filter':
-            data['handlers']['list']['handlerSchema'] = {'required': ['UnboundScope']}
-        return readonly(data)
+    schema = _bind_framework_callback(_callback_check_inventory_capability_outcomes_schema, case)
     with patch.object(inv, 'schema', side_effect=schema):
         records = m.normalize_records(ctx, 'datazone', m.inventory(ctx, 'datazone', ['DataZone.Domain']))
     assert inv.statuses['DataZone.Domain']['status'] == expected
@@ -936,12 +984,16 @@ def check_inventory_capability_outcomes(case, expected):
     assert len(cli.calls) == count
 
 
+
+
+def _check_fetch_singleflight_and_trace_get(context, resource, getter):
+    return context.call('cloudcontrol', 'get_resource', TypeName='AWS::DataZone::Domain', Identifier='dzd-one')
+
+
 def check_fetch_singleflight_and_trace():
-    from concurrent.futures import ThreadPoolExecutor
-    from model.importing.inventory import inventory_for
+
     ctx, cli = generic_context(resources={'DataZone.Domain': [domain()]})
-    def get(context, resource, getter):
-        return context.call('cloudcontrol', 'get_resource', TypeName='AWS::DataZone::Domain', Identifier='dzd-one')
+    get = _check_fetch_singleflight_and_trace_get
     path = ctx.root / 'model' / ctx.target['environment'] / ctx.target['directory'] / 'datazone.properties'
     resource = SimpleNamespace(model=SimpleNamespace(path=path), number='one', module=SimpleNamespace(fetch=get))
     with patch.object(resource.module, 'fetch', wraps=get) as fetch:
@@ -951,12 +1003,15 @@ def check_fetch_singleflight_and_trace():
     assert results[0] == results[-1]
     assert ctx.fetch_trace[resource.model.path, 'one', 'provider'] == [{'api': 'cloudcontrol.get_resource', 'inputs': {'TypeName': 'AWS::DataZone::Domain', 'Identifier': 'dzd-one'}}]
     inv = inventory_for(ctx)
-    inv.mapping('datazone'); inv.mapping('datazone')
+    inv.mapping('datazone')
+    inv.mapping('datazone')
     assert ctx.metrics['inventory_mapping_runs'] == 1
     record = {'kind': 'DataZone.Domain', 'identity': 'one', 'cloudProperties': {'Id': 'one'}}
-    inv.identity('DataZone.Domain', record); inv.identity('DataZone.Domain', record)
+    inv.identity('DataZone.Domain', record)
+    inv.identity('DataZone.Domain', record)
     assert ctx.metrics['inventory_identity_runs'] == 1
-    inv.property_schema('DataZone.Domain.Name'); inv.property_schema('DataZone.Domain.Name')
+    inv.property_schema('DataZone.Domain.Name')
+    inv.property_schema('DataZone.Domain.Name')
     assert ctx.metrics['inventory_property_schema_runs'] == 1
     ctx.target['awsRegion'] = 'us-east-1'
     with pytest.raises(ValueError, match='connection changed'):
@@ -964,7 +1019,6 @@ def check_fetch_singleflight_and_trace():
 
 
 def check_tgw_compare_provider_evaluation():
-    from aws_mapping_compare import comparison, value
     kind = 'EC2.TransitGatewayRouteTableAssociation'
     identifier = 'table-one|attachment-one'
     payload = {'TransitGatewayRouteTableId': 'table-one', 'TransitGatewayAttachmentId': 'attachment-one'}
@@ -976,7 +1030,7 @@ def check_tgw_compare_provider_evaluation():
     mapping, mapped = comparison(m.ROOT, 'ec2')
     for prop, expected in payload.items():
         key = kind + '.' + prop
-        assert value(ctx, resource, mapping, mapped[key], key)[1] == expected
+        assert mapped_value(ctx, resource, mapping, mapped[key], key)[1] == expected
     assert resource.identity() == identifier
     assert len(cli.calls) == 2 and cli.calls[-1][2]['Identifier'] == identifier
     gateway, gateway_cli = generic_context('ec2', {'EC2.TransitGateway': [{'identifier': 'tgw-one', 'properties': {'Id': 'tgw-one'}}]})
@@ -990,7 +1044,6 @@ def check_tgw_compare_provider_evaluation():
 
 
 def check_legacy_adapter_api_counts():
-    from support.import_model_fixtures import SERVICES, ACCOUNT, aws
     # Baseline counts are physical mock transport invocations on the identical fixture.
     expected = {'vpc': 7, 'config': 3, 'cloudwatch-logs': 2, 'data-firehose': 3, 'quicksight': 7, 'security-hub': 2, 'transit-gateway': 2}
     measured = {}
@@ -1011,8 +1064,6 @@ def check_legacy_adapter_api_counts():
 
 @pytest.mark.parametrize('account,region', [('999999999999', 'ap-northeast-1'), ('123456789012', 'us-east-1')])
 def check_acquisition_account_region_isolation(account, region):
-    from support.import_model_fixtures import CloudControlCli
-    from model.importing.inventory import inventory_for
     first, _ = generic_context(resources={'DataZone.Domain': [domain()]})
     first_records = m.inventory(first, 'datazone', ['DataZone.Domain'])
     cli = CloudControlCli({'DataZone.Domain': [domain('dzd-other')]}, account=account)
@@ -1039,7 +1090,6 @@ def check_unknown_acquired_identity_rejected():
     captured.update(identityStatus='unknown', identityComponents=[{'property': 'EC2.VPC.VpcId', 'value': None}])
     with pytest.raises(ValueError, match='identity is unknown'):
         selection_records(selection(), [captured], {}, resource(), schema_for)
-    from model.importing.evidence import FORMAT_FIELDS
     with pytest.raises(ValueError, match='inventory status'):
         import_guard.acquisition_complete({'version': 3, **FORMAT_FIELDS, 'inventory': {}})
     for version in (1, 2, 99):
@@ -1048,15 +1098,10 @@ def check_unknown_acquired_identity_rejected():
 
 
 def check_batch_model_operation(tmp_path):
-    import json
-    from model.operations import verify_model_operation
-    from task_contract import model_operation
-    from support.import_model_fixtures import batch_operation_fixture
+
     before, after = tmp_path / 'before', tmp_path / 'after'
     contract, sources = batch_operation_fixture(before, after)
     verify_model_operation(before, after, model_operation(contract), sources)
-    from model.sources import load_model
-    from support.model_sources import write_model
     observed_file = after / 'model/stg/cde/vpc.properties'
     observed = dict(load_model(observed_file).authoritative)
     observed['observed.row.013-001.value'] = 'not-transferred'
@@ -1067,13 +1112,7 @@ def check_batch_model_operation(tmp_path):
 
 @pytest.mark.parametrize('action', ['import-merge', 'import-delete'])
 def check_intermediate_source_context(tmp_path, monkeypatch, action):
-    import worktree_task
-    from model.adapters.task import source_write_context
-    from model.operations import prepare_edit, publish_edit
-    from model.sources import load_model
-    from model.format import serialize
-    from generation_inputs import GenerationInputs
-    from task_contract import start
+    start = _imports_task_contract.start
     operation_fixture(tmp_path)
     path = tmp_path / 'model/stg/cde/vpc.properties'
     raw = dict(load_model(path).authoritative)
@@ -1089,7 +1128,7 @@ def check_intermediate_source_context(tmp_path, monkeypatch, action):
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/wrong.md')
     candidate = serialize(raw) + '# intermediate save\n'
     with patch('import_guard.managed_task_state', return_value=state), \
-         patch.object(worktree_task, 'output', return_value='synthetic-head'), \
+         patch.object(worktree_state, 'output', return_value='synthetic-head'), \
          patch.object(GenerationInputs, 'open_stage', side_effect=AssertionError('intermediate save cannot stage')), \
          patch('model.operations.verify_model_operation', side_effect=AssertionError('intermediate save cannot run final whole-design proof')):
         with source_write_context(tmp_path, name) as first:
@@ -1116,12 +1155,6 @@ def check_intermediate_source_context(tmp_path, monkeypatch, action):
 
 @pytest.mark.parametrize('field', ['value', 'document', 'parentReference', 'name', 'identifier', 'reevaluation'])
 def check_explicit_reference_operation(tmp_path, field):
-    from support.import_model_fixtures import resource_values, reference_fields
-    from support.model_sources import write_model
-    from model.sources import load_model
-    from model.references import usages
-    from model.operations import verify_model_operation
-    from task_contract import model_operation
     before, after = tmp_path / 'before', tmp_path / 'after'
     operation_fixture(before)
     file = before / 'model/stg/cde/vpc.properties'
@@ -1189,11 +1222,7 @@ def check_explicit_reference_operation(tmp_path, field):
 
 @pytest.mark.parametrize('selection', ['fixed', 'instance'])
 def check_effective_reference_identity(tmp_path, selection, monkeypatch):
-    from support.import_model_fixtures import dependency_fixture
-    from model.sources import load_model
-    from model import sources
-    from model.references import incoming, usages
-    from validation_cache import input_context
+
     dependency_fixture(tmp_path)
     before = {p: p.read_bytes() for p in (tmp_path / 'model').rglob('*') if p.is_file()}
     # Legacy instance selection is converted to an explicit fixed producer identity.
@@ -1209,9 +1238,6 @@ def check_effective_reference_identity(tmp_path, selection, monkeypatch):
         assert load_model(consumer.scope) is consumer
         assert body.call_count == count
     assert all(p.read_bytes() == raw for p, raw in before.items())
-    from support.import_model_fixtures import dependency_refactor, dependency_contract
-    from model.operations import verify_model_refactor
-    from task_contract import model_refactor
     after = tmp_path / 'after'
     changed = dependency_refactor(tmp_path, after)
     verify_model_refactor(tmp_path, after, model_refactor(dependency_contract()), changed,
@@ -1219,10 +1245,6 @@ def check_effective_reference_identity(tmp_path, selection, monkeypatch):
 
 
 def check_local_reference_effective_identity(tmp_path):
-    from support.import_model_fixtures import dependency_fixture
-    from support.model_sources import write_model
-    from model.sources import load_model
-    from model.references import usages
     dependency_fixture(tmp_path)
     file = tmp_path / 'model/stg/cde/service-a.properties'
     values = dict(load_model(file).authoritative)
@@ -1235,10 +1257,6 @@ def check_local_reference_effective_identity(tmp_path):
 
 
 def check_stack_reference_usage_identity(tmp_path):
-    from support.import_model_fixtures import dependency_fixture
-    from support.model_sources import write_model
-    from model.sources import load_model
-    from model.references import usages, incoming
     dependency_fixture(tmp_path)
     write_model(tmp_path / 'model/stg/cde/cloudformation-stacks.properties', {
         'desired.stack.001.name': 'ExampleStack', 'desired.stack.001.template': 'example.yaml',
@@ -1260,11 +1278,6 @@ def check_stack_reference_usage_identity(tmp_path):
 
 @pytest.mark.parametrize('failure', ['missing-id', 'type'])
 def check_reference_target_diagnostics(tmp_path, failure, capsys, monkeypatch):
-    from support.import_model_fixtures import dependency_fixture
-    from support.model_sources import write_model
-    from model.sources import load_model
-    from model.references import incoming
-    from model.cli import main
     dependency_fixture(tmp_path)
     file = tmp_path / 'model/stg/cde/service-b.properties'
     values = dict(load_model(file).authoritative)
@@ -1285,14 +1298,7 @@ def check_reference_target_diagnostics(tmp_path, failure, capsys, monkeypatch):
 
 @pytest.mark.parametrize('broken', [None, 'collision', 'missing', 'type', 'format', 'name', 'shape'])
 def check_stack_reference_usage(tmp_path, broken):
-    import shutil
-    from support.import_model_fixtures import dependency_fixture, resource_values
-    from support.model_sources import write_model
-    from model.sources import load_model
-    from model.references import usages, incoming
-    from model.operations import verify_model_operation
-    from model.format import owner
-    from task_contract import model_operation
+
     before, after = tmp_path / 'before', tmp_path / 'after'
     dependency_fixture(before)
     stack = before / 'model/stg/cde/cloudformation-stacks.properties'
@@ -1351,9 +1357,6 @@ def check_stack_reference_usage(tmp_path, broken):
 
 
 def check_generic_reference_usage(tmp_path):
-    from support.import_model_fixtures import dependency_fixture
-    from model.sources import load_model
-    from model.references import usages, incoming
     dependency_fixture(tmp_path)
     before = {p: p.read_bytes() for p in (tmp_path / 'model').rglob('*') if p.is_file()}
     producer = load_model(tmp_path / 'model/stg/cde/service-a.properties')
@@ -1374,10 +1377,6 @@ def check_generic_reference_usage(tmp_path):
 
 @pytest.mark.parametrize('selected', [False, True])
 def check_reference_active_shapes_and_documents(tmp_path, selected):
-    from support.import_model_fixtures import dependency_fixture, reference_fields
-    from support.model_sources import write_model
-    from model.sources import load_model
-    from model.references import usages
     dependency_fixture(tmp_path)
     file = tmp_path / 'model/stg/cde/service-b.properties'
     values = dict(load_model(file).authoritative)
@@ -1402,10 +1401,6 @@ def check_reference_active_shapes_and_documents(tmp_path, selected):
 
 @pytest.mark.parametrize('broken', ['unknown', 'cycle', 'link', 'missing-input'])
 def check_reference_fail_closed(tmp_path, broken):
-    from support.import_model_fixtures import dependency_fixture, reference_fields
-    from support.model_sources import write_model
-    from model.sources import load_model
-    from model.references import incoming
     dependency_fixture(tmp_path)
     file = tmp_path / 'model/stg/cde/service-b.properties'
     values = dict(load_model(file).authoritative)
@@ -1435,14 +1430,10 @@ def check_reference_fail_closed(tmp_path, broken):
 
 
 def check_value_preserving_detach_and_single_deletions(tmp_path):
-    import shutil
-    from support.import_model_fixtures import dependency_fixture, dependency_refactor, dependency_contract
-    from support.model_sources import write_model
-    from task_contract import model_refactor, model_operation
-    from model.operations import verify_model_refactor, verify_model_operation
-    from model.sources import load_model
-    from model.references import incoming
-    from model.format import owner
+
+    dependency_contract = _imports_support_import_model_fixtures.dependency_contract
+    dependency_fixture = _imports_support_import_model_fixtures.dependency_fixture
+    dependency_refactor = _imports_support_import_model_fixtures.dependency_refactor
     before, after = tmp_path / 'before', tmp_path / 'after'
     dependency_fixture(before)
     sources = dependency_refactor(before, after)
@@ -1463,11 +1454,9 @@ def check_value_preserving_detach_and_single_deletions(tmp_path):
 
 @pytest.mark.parametrize('corrupt', ['property', 'mode', 'anchor', 'observed', 'foreign', 'identity-reference', 'scope', 'retained', 'create', 'undeclared'])
 def check_refactor_rejects_changes(tmp_path, corrupt):
-    from support.import_model_fixtures import dependency_fixture, dependency_refactor, dependency_contract
-    from support.model_sources import write_model
-    from model.sources import load_model
-    from task_contract import model_refactor
-    from model.operations import verify_model_refactor
+    dependency_contract = _imports_support_import_model_fixtures.dependency_contract
+    dependency_fixture = _imports_support_import_model_fixtures.dependency_fixture
+    dependency_refactor = _imports_support_import_model_fixtures.dependency_refactor
     before, after = tmp_path / 'before', tmp_path / 'after'
     dependency_fixture(before)
     sources = dependency_refactor(before, after)
@@ -1506,12 +1495,8 @@ def check_refactor_rejects_changes(tmp_path, corrupt):
 
 
 def check_reference_readonly_and_bounded_expansion(tmp_path, monkeypatch):
-    import hashlib
-    from support.import_model_fixtures import dependency_fixture
-    from model import sources
-    from model.sources import load_model
-    from model.references import incoming, usages
-    from validation_cache import input_context
+
+
     dependency_fixture(tmp_path)
     broken = tmp_path / 'model/dev/cde/service-b.properties'
     original = broken.read_bytes()
@@ -1545,12 +1530,8 @@ def check_reference_readonly_and_bounded_expansion(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('broken_type', [False, True])
 def check_issues_never_waive_delete_reference_safety(tmp_path, broken_type):
-    from support.import_model_fixtures import dependency_fixture
-    from support.model_sources import write_model
-    from model.sources import load_model
-    from model.references import incoming
-    from issue_gate import require_no_issues
-    from task_contract import start, selected_task
+    selected_task = _imports_task_contract.selected_task
+    start = _imports_task_contract.start
     dependency_fixture(tmp_path)
     name = 'tasks/deletion.md'
     text = operation_contract('import-delete', source='stg/cde/service-a/001') + '## Validation scope\n- `stg/cde/service-a`\n'
@@ -1573,14 +1554,7 @@ def check_issues_never_waive_delete_reference_safety(tmp_path, broken_type):
 
 
 def check_reference_structural_and_remaining_delete(tmp_path):
-    import shutil
-    from support.import_model_fixtures import dependency_fixture, dependency_contract
-    from support.model_sources import write_model
-    from model.sources import load_model
-    from model.references import usages
-    from model.operations import verify_model_refactor, verify_model_operation
-    from model.format import owner
-    from task_contract import model_refactor, model_operation
+
     before, after = tmp_path / 'before', tmp_path / 'after'
     dependency_fixture(before)
     file = before / 'model/stg/cde/service-a.properties'
@@ -1605,13 +1579,10 @@ def check_reference_structural_and_remaining_delete(tmp_path):
 
 
 def check_dependency_json_types_and_exact_detach(tmp_path):
-    import shutil
-    from support.import_model_fixtures import dependency_fixture, dependency_contract, reference_fields
-    from support.model_sources import write_model
-    from model.sources import load_model
-    from model.references import usages
-    from model.operations import verify_model_refactor
-    from task_contract import model_refactor
+
+    dependency_contract = _imports_support_import_model_fixtures.dependency_contract
+    dependency_fixture = _imports_support_import_model_fixtures.dependency_fixture
+    reference_fields = _imports_support_import_model_fixtures.reference_fields
     before, after = tmp_path / 'before', tmp_path / 'after'
     dependency_fixture(before)
     file = before / 'model/stg/cde/service-b.properties'
@@ -1643,10 +1614,6 @@ def check_dependency_json_types_and_exact_detach(tmp_path):
 
 
 def check_reference_embedded_link_label(tmp_path):
-    from support.import_model_fixtures import dependency_fixture, reference_fields
-    from support.model_sources import write_model
-    from model.sources import load_model
-    from model.references import usages
     dependency_fixture(tmp_path)
     file = tmp_path / 'model/stg/cde/service-b.properties'
     values = dict(load_model(file).authoritative)
@@ -1661,7 +1628,6 @@ def check_reference_embedded_link_label(tmp_path):
 
 
 def check_publication_verifies_only_acquisition_selected_additions():
-    from unittest.mock import Mock
     before = expansion(resource())
     after = expansion({**before.authoritative, **resource('009', identity='vpc-new')})
     references = Mock()
@@ -1681,8 +1647,6 @@ def check_existing_hyphenated_fixed_id_cannot_receive_rows():
 
 @pytest.mark.parametrize('action', ['refresh', 'replace'])
 def check_selected_overwrite(action):
-    from import_guard import digest
-    from model.operations import operation_values
     old = {**resource(), **resource('002', identity='vpc-other')}
     physical = 'vpc-confirmed' if action == 'refresh' else 'vpc-replacement'
     captured = record(physical)
@@ -1753,8 +1717,6 @@ def check_refresh_new_rows_and_missing_properties():
 
 
 def check_overwrite_duplicate_selection_and_destination_identity():
-    from import_guard import digest
-    from model.operations import operation_values
     old = {**resource(), **resource('002', identity='vpc-other')}
     picked = selection(action='refresh')
     picked['resources'] *= 2
@@ -1808,6 +1770,11 @@ def check_import_llm_choice_contract():
     assert 'sequentially' in prompt and 'independent Task/acquisition/publication' in prompt
 
 
+def _callback_check_refactor_json_value_structure_encoded(field, /, value):
+    raw = json.dumps(value, separators=(',', ':'))
+    return '`' + raw + '`' if field == 'value' else raw
+
+
 @pytest.mark.parametrize('field', ['value', 'document'])
 @pytest.mark.parametrize('document,allowed', [
     ({'target': 'prefix-<<Name>>-suffix', 'timeout': 30, 'items': ['keep']}, True),
@@ -1823,20 +1790,16 @@ def check_import_llm_choice_contract():
     ({'target': 'prefix-<<Name>>-suffix', 'timeout': 30, 'items': {'0': 'keep'}}, False),
 ])
 def check_refactor_json_value_structure(tmp_path, field, document, allowed):
-    from support.import_model_fixtures import dependency_fixture, dependency_refactor, dependency_contract
-    from support.model_sources import write_model
-    from model.sources import load_model
-    from task_contract import model_refactor
-    from model.operations import verify_model_refactor
+    dependency_contract = _imports_support_import_model_fixtures.dependency_contract
+    dependency_fixture = _imports_support_import_model_fixtures.dependency_fixture
+    dependency_refactor = _imports_support_import_model_fixtures.dependency_refactor
     before, after = tmp_path / 'before', tmp_path / 'after'
     dependency_fixture(before)
     file = before / 'model/stg/cde/service-b.properties'
     values = dict(load_model(file).authoritative)
     original = {'target': 'prefix-same-name-stg-suffix', 'timeout': 30, 'items': ['keep']}
     key = 'desired.row.002-001.' + field
-    def encoded(value):
-        raw = json.dumps(value, separators=(',', ':'))
-        return '`' + raw + '`' if field == 'value' else raw
+    encoded = _bind_framework_callback(_callback_check_refactor_json_value_structure_encoded, field)
     values[key] = encoded(original)
     values['desired.reference.origin.consumerKey'] = key
     values['desired.reference.origin.pointer'] = '/target'
@@ -1858,12 +1821,7 @@ def check_refactor_json_value_structure(tmp_path, field, document, allowed):
 @pytest.mark.parametrize('outer', [False, True])
 @pytest.mark.parametrize('change', ['comment', 'value', 'reference', 'mode', 'warning', 'invalid'])
 def check_guard_cache_equivalence(tmp_path, outer, change):
-    from contextlib import nullcontext
-    from support.import_model_fixtures import dependency_fixture
-    from validation_cache import input_context
-    from model.operations import validate_candidates
-    from model.sources import load_model
-    from model.format import serialize
+
     dependency_fixture(tmp_path)
     path = tmp_path / ('model/stg/cde/service-a.properties' if change in ('comment', 'value', 'invalid') else 'model/stg/cde/service-b.properties')
     original = path.read_text()
@@ -1900,16 +1858,29 @@ def check_guard_cache_equivalence(tmp_path, outer, change):
     assert path.read_text() == original
 
 
+def _callback_check_repair_invalid_model_save(broken, candidate, failure, name, path, target, /):
+    with edit_write_context(target, {('stg', 'cde', 'service-b')}, name) as context:
+        plan = prepare_edit(path, {path: candidate}, context)
+        if failure == 'race':
+            path.write_bytes((broken + '# external edit\n').encode('utf-8', errors='surrogateescape'))
+        if failure == 'rollback':
+            with patch('sync_files.save_files', side_effect=OSError('injected save failure')):
+                return publish_edit(plan, context)
+        return publish_edit(plan, context)
+
+
+def _callback_check_repair_invalid_model_final_only(calls, saved_load, /, scope, reads=None):
+    calls.append(scope)
+    assert reads is not None, 'candidate must use its overlay, never old source bytes'
+    return saved_load(scope, reads)
+
+
 @pytest.mark.parametrize('old_error', ['reference', 'syntax', 'identity', 'duplicate', 'encoding'])
 @pytest.mark.parametrize('failure', ['none', 'reference', 'duplicate', 'allowed', 'scope', 'race', 'rollback', 'anchor'])
 def check_repair_invalid_model(tmp_path, old_error, failure):
-    from support.import_model_fixtures import dependency_fixture
-    from support.worktree_task_fixtures import fixture, git, start
-    from model.sources import load_model
-    from model.adapters.task import edit_write_context
-    from model.operations import prepare_edit, publish_edit
-    from model.format import serialize
-    from task_contract import selected_task, complete
+    fixture = _imports_support_worktree_task_fixtures.fixture
+    git = _imports_support_worktree_task_fixtures.git
+    start = _imports_support_worktree_task_fixtures.start
     with fixture() as root:
         dependency_fixture(root)
         relative = 'model/stg/cde/service-b.properties'
@@ -1927,7 +1898,8 @@ def check_repair_invalid_model(tmp_path, old_error, failure):
         if old_error == 'encoding':
             broken = '\udcff invalid old UTF-8\n'
         path.write_bytes(broken.encode('utf-8', errors='surrogateescape'))
-        git(root, 'add', 'model', 'project.json'); git(root, 'commit', '-qm', 'broken baseline')
+        git(root, 'add', 'model', 'project.json')
+        git(root, 'commit', '-qm', 'broken baseline')
         target, state = start(root, files=(relative,))
         path = target / relative
         name = state['task_file']
@@ -1951,21 +1923,10 @@ def check_repair_invalid_model(tmp_path, old_error, failure):
             candidate = candidate.replace('anchor=consumer', 'anchor=unsafe"anchor')
         saved_load = load_model
         calls = []
-        def final_only(scope, reads=None):
-            calls.append(scope)
-            assert reads is not None, 'candidate must use its overlay, never old source bytes'
-            return saved_load(scope, reads)
+        final_only = _bind_framework_callback(_callback_check_repair_invalid_model_final_only, calls, saved_load)
         with selected_task(target, name), \
                 patch('model.operations.load_model', side_effect=final_only):
-            def save():
-                with edit_write_context(target, {('stg', 'cde', 'service-b')}, name) as context:
-                    plan = prepare_edit(path, {path: candidate}, context)
-                    if failure == 'race':
-                        path.write_bytes((broken + '# external edit\n').encode('utf-8', errors='surrogateescape'))
-                    if failure == 'rollback':
-                        with patch('sync_files.save_files', side_effect=OSError('injected save failure')):
-                            return publish_edit(plan, context)
-                    return publish_edit(plan, context)
+            save = _bind_framework_callback(_callback_check_repair_invalid_model_save, broken, candidate, failure, name, path, target)
             if failure == 'none':
                 assert save() == (path,)
                 assert path.read_text() == candidate and calls

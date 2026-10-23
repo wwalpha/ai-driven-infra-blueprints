@@ -85,3 +85,23 @@ issuesの正規APIは `issues/`、Model ↔ IaC比較の入口は `comparison.Co
 `integrations/deploy-controller.checks.py` は実controllerからtarget/Task/CFN loader、guard、SDK service wrapper、scheduler、session保存/再読込とobserved公開を通す。AWSだけをSDK client取得境界で置換し、未定義operationは失敗する。static seedは `fixtures/deploy_controller.yaml` と既存 `fixture_cases` を使い、各ケースが独立Project/cwd/実Git/sessionを持つ。別プロセスresumeはfake AWS JSONとsessionファイルだけを共有する。finallyを通らない終了後のlockは、その子を終了確認したテストだけが明示的に回収する。productionには回収分岐を追加しない。
 
 関連UTは各ファイルの既存直接入口または明示pytestで実行できる。既定収集は `python3 -B framework/scripts/run-python.py -m pytest --collect-only -q framework/scripts/tests`。正式ITは既存のGitHub Actions `Framework IT` jobが `framework/scripts/tests/run_it.py` を実行する。新しいFull IT runnerは追加していない。
+
+## Python品質チェック
+
+`requirements.txt`の固定版Ruffと標準ライブラリだけの構造チェッカーを使用する。
+
+```console
+python3 -B framework/scripts/run-python.py -m ruff check framework/scripts
+python3 -B framework/scripts/python_structure.py
+python3 -B framework/scripts/tests/units/python_structure-unit.checks.py
+python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/function_wrapper-unit.checks.py
+```
+
+関数・メソッド内のImportとネスト関数は禁止する。Callbackの状態は明示引数や既存の共有実装で渡す。
+`Python quality` WorkflowはPython 3.12でRuffだけを導入し、上記の静的チェックを独立実行する。
+共有Python環境の更新は自動実行せず、[明示的メンテナンス手順](../../../.agents/skills/worktree/SKILL.md#explicit-shared-python-maintenance)に従う。
+Formatterの全件適用はこのチェックに含めない。
+
+AWS SDKのセッション・接続・設定生成は `aws_sdk_runtime.py` に分離する。SDKを必要とする機能だけが既存の `script_loader` を通してこの実装を起動し、オフライン比較のImport時にはSDKを読み込まない。Taskの検証付き状態遷移とWorktreeのModel検証・修復実装も、標準ライブラリだけの起動処理から分離する。
+
+Modelの公開編集・描画APIとCLIコマンド実装も機能モジュールに分離し、読取APIとヘルプ表示では編集・描画実装を初期化しない。Resource構成比較は公開処理に依存しない `model/configuration.py` が共通所有する。

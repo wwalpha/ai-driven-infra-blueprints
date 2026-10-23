@@ -1,25 +1,31 @@
 """Assemble deployment state and functions; AWS clients live in utils.aws.client."""
 from __future__ import annotations
+
 import argparse
-import hashlib
-import json
 import sys
 import time
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
-from functools import partial
 
-from deploy import delivery, change_sets, recovery as repair_ops, secret_bootstrap, session as session_ops, inputs
-from deploy.secret_bootstrap import BOOTSTRAP_STAGES
-from deploy.guards import secret_value_missing, call
-from deploy.inputs import load_units
-from deploy.timing import Timing
-from issue_gate import require_target_no_issues
+import utils.aws.client as _imports_utils_aws_client
 from cloudformation_inputs import Blocked, load_template_inputs
+from issue_gate import require_target_no_issues
 from model.core import ARTIFACT_PROPERTIES
 from utils.json_format import fingerprint
 
+import deploy.failures as _imports_deploy_failures
+from deploy import change_sets, delivery, inputs, secret_bootstrap
+from deploy import recovery as repair_ops
+from deploy import session as session_ops
+from deploy.guards import call, secret_value_missing
+from deploy.inputs import load_units
+from deploy.secret_bootstrap import BOOTSTRAP_STAGES
+from deploy.timing import Timing
+
+
 def create_runtime(root, environment, directory, target, profile=None, approvals=()):
+    connection_context = _imports_utils_aws_client.connection_context
     configured = target.get("awsProfile")
     if configured and profile is not None and profile != configured:
         raise Blocked("explicit AWS profile does not match target awsProfile")
@@ -58,7 +64,6 @@ def create_runtime(root, environment, directory, target, profile=None, approvals
     runtime.finish_repair = partial(finish_repair, runtime)
     runtime.repair = partial(repair, runtime)
     runtime.poll = partial(poll, runtime)
-    from utils.aws.client import connection_context
     runtime.connection = connection_context(runtime.profile, target["awsRegion"], target.get("awsExecutionAccountId", target["awsAccountId"]))
     return runtime
 
@@ -194,7 +199,7 @@ def execute(runtime, unit, state):
         if state.get('executionEvidence') not in (None, evidence):
             raise Blocked('persisted execution evidence changed')
         state['executionEvidence'] = evidence
-        from deploy.failures import template_safety
+        template_safety = _imports_deploy_failures.template_safety
         state['failureTemplateSafety'] = template_safety(runtime.templates[unit['name']][0])
         runtime.save()
     except Exception:
@@ -268,6 +273,7 @@ def repair(runtime, unit, state):
 
 
 def poll(runtime, unit, state):
+    failures = _imports_deploy_failures
     state["pollCount"] = state.get("pollCount", 0) + 1
     # An old *_COMPLETE is not evidence that the new execution completed.
     state["pollApiCount"] = state.get("pollApiCount", 0) + 1
@@ -282,7 +288,6 @@ def poll(runtime, unit, state):
             raise Blocked("execution not submitted; saved change set remains unexecuted")
         return "UPDATE_IN_PROGRESS"  # Submission may be pending; never re-execute or release its slot.
     state["operationStackId"] = operation[0].get("StackId")
-    from deploy import failures
     document, _ = runtime.templates.get(unit['name'], ({}, {}))
     state['failureEvents'] = []
     state['successEvents'] = []
@@ -350,5 +355,3 @@ def main(argv=None, root=None):
     except (OSError, ValueError, Blocked) as error:
         print(f"CloudFormation controller: BLOCKED ({error})", file=sys.stderr)
         return 2
-
-

@@ -1,23 +1,39 @@
 """Offline ARN projection from the identifiers actually saved by the catalogs."""
+
 import copy
 import json
 import os
-from pathlib import Path
 import shutil
 import sys
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import model.render as renderer
 import pytest
+from cloudformation_inputs import resolve_value
+from design_catalog import DesignSchemaCatalog
+from generation_inputs import GenerationInputs
+from json_intrinsics import project_document
 from model.core import ReferenceResolutionError
 from model.format import serialize
 from model.identity import COUNTERS, Resolver
-from model.projection import execution_document, reference_display
-from model.sources import Scope, load_model, runtime_values
-from utils.json_format import document_sha256
+from model.operations import prepare_edit, publish_edit, validate_candidates
+from model.projection import execution_document, json_sha256, reference_display
+from model.render import generate_files
+from model.sources import Scope, SourceWriteContext, load_model, runtime_values
+from model.validation import validate_json_settings
+from policy_tables import Policy, validate_policy_document
+from sync_runtime import generate_views
+from utils.aws_mappings import mapping_alias
+from utils.cloudformation_format import decode_file as decode
+from utils.json_format import document_sha256, validate_aws_document
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 FRAMEWORK = Path(__file__).resolve().parents[4]
 KEY = '12345678-1234-1234-1234-123456789abc'
@@ -128,10 +144,6 @@ def check_generation_and_snapshot_boundary(tmp_path):
         save(Scope(root, 'prod', 'producer', service), models[service])
     originals = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
     expected = execution_document(document, root, scope=scope)
-    from model.render import generate_files
-    import model.render as renderer
-    from utils.aws_mappings import mapping_alias
-    from sync_runtime import generate_views
     design = root / 'docs/designs/dev/consumer/iam.md'
     original_markdown = renderer.generate_markdown
     shutil.copytree(root / 'model', stage / 'model')
@@ -286,15 +298,11 @@ def check_unsupported_references(tmp_path, case):
     'Fn::Sub: literal-looking-expression',
 ])
 def check_standalone_expressions(tmp_path, expression):
-    from model.projection import json_sha256
-    from utils.json_format import validate_aws_document
     scope, _, policy, _ = fixture(tmp_path)
     document = {'Statement': [{'Effect': 'Allow', 'Action': '*', 'Resource': [expression]}]}
     key = 'desired.row.009-002.document'
     policy[key] = json.dumps(document)
     original = copy.deepcopy(document)
-    from json_intrinsics import project_document
-    from model.validation import validate_json_settings
     warnings = []
     pending = isinstance(expression, dict) and 'Fn::Select' not in expression or isinstance(expression, str) and expression.startswith('{"')
     if pending or isinstance(expression, dict):
@@ -330,9 +338,6 @@ def check_standalone_expressions(tmp_path, expression):
 
 
 def check_standalone_generation(tmp_path):
-    from model.render import generate_files
-    from sync_runtime import generate_views
-    from utils.aws_mappings import mapping_alias
     root, stage = tmp_path / 'root', tmp_path / 'stage'
     root.mkdir()
     stage.mkdir()
@@ -377,8 +382,6 @@ def check_standalone_generation(tmp_path):
 
 
 def check_standalone_and_cfn_boundaries(tmp_path):
-    from utils.cloudformation_format import decode_file as decode
-    from cloudformation_inputs import resolve_value
     document = {'Nested': [{'Enabled': True, 'Count': 2, 'Nothing': None}],
                 'PolicyVariable': '${aws:username}', 'Url': 'https://example.com',
                 'EncodedSettings': '{"rules":[{"name":"keep"}]}'}
@@ -413,16 +416,10 @@ def check_standalone_and_cfn_boundaries(tmp_path):
     {'Fn::ForEach::Loop': ['Item', ['a'], {'Key': {'Ref': 'Item'}}], 'Other': 'retained'},
 ])
 def check_pending_intrinsic_generation(tmp_path, expression):
-    from model.render import generate_files
-    from model.operations import prepare_edit, publish_edit, validate_candidates
-    from model.sources import SourceWriteContext
-    from generation_inputs import GenerationInputs
-    from types import SimpleNamespace
-    from sync_runtime import generate_views
-    from utils.aws_mappings import mapping_alias
-    from utils.json_format import validate_aws_document
+
     root, stage = tmp_path / 'root', tmp_path / 'stage'
-    root.mkdir(); stage.mkdir()
+    root.mkdir()
+    stage.mkdir()
     scope, _, policy, _ = fixture(root)
     key = 'desired.row.009-002.document'
     policy[key] = json.dumps({'Statement': [{'Effect': 'Allow', 'Action': '*', 'Resource': [expression]}]})
@@ -462,7 +459,6 @@ def check_pending_intrinsic_generation(tmp_path, expression):
     {'Fn::Join': ['', [{'Fn::GetAtt': [1, 'Arn']}]]},
 ])
 def check_invalid_intrinsic_structure(tmp_path, expression):
-    from model.validation import validate_json_settings
     scope, _, policy, _ = fixture(tmp_path)
     key = 'desired.row.009-002.document'
     policy[key] = json.dumps({'a/b~': [expression]})
@@ -476,7 +472,6 @@ def check_invalid_intrinsic_structure(tmp_path, expression):
 
 
 def check_api_json_intrinsics():
-    from design_catalog import DesignSchemaCatalog
     catalog = DesignSchemaCatalog(FRAMEWORK)
     for document in ({'Ref': 'Missing'}, {'bucketDefinitions': {'Ref': 'Missing'}},
                      {'bucketDefinitions': [{'accountId': '111111111111', 'buckets': {'Ref': 'Missing'}}]}):
@@ -488,7 +483,6 @@ def check_api_json_intrinsics():
 
 
 def check_pending_policy_siblings(tmp_path):
-    from policy_tables import Policy, validate_policy_document
     document = {'Statement': [{'Sid': {'Fn::Sub': '${Missing}'}, 'Effect': 'Allow',
         'Action': '*', 'Resource': [{'Ref': 'Missing'}, '*']}]}
     policy = Policy('test', 'test.json', 'test', 'policy', 'IAM.Role.Policies[].PolicyDocument')

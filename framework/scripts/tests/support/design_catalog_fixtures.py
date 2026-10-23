@@ -1,22 +1,28 @@
 """Current API schema inputs and Macie/QuickSight Markdown fixtures."""
 
 import sys
-
 from pathlib import Path
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
 
 import json
 import os
 import tempfile
 
 from array_display import indexed_rows
-from model.display import row_table
 from cloudformation_schema import CloudFormationSchemaCatalog
-from design_catalog import MACIE_JOB, QUICKSIGHT_GROUP, DesignSchemaCatalog, api_snapshot_errors
+from design_catalog import (
+    MACIE_JOB,
+    QUICKSIGHT_GROUP,
+    DesignSchemaCatalog,
+    api_snapshot_errors,
+)
+from model.display import row_table
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 ROOT = Path(__file__).resolve().parents[4]
 

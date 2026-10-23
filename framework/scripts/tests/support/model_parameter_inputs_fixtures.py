@@ -1,18 +1,21 @@
 """Explicit environment Models and generic YAML rejection fixtures."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-from contextlib import redirect_stdout
-import io
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
-import tempfile
+from unittest.mock import patch as patch
+
 import pytest
-from unittest.mock import patch
-from utils.yaml_format import yaml_read
-from model.sources import load_model
-from model.format import parse, serialize
+from model.format import parse as parse
+from model.sources import load_model as load_model
+from support.import_model_fixtures import (
+    resource_values,
+    service_values,
+)
 from support.model_sources import write_model
-from support.import_model_fixtures import service_values, resource_values, reference_fields
+from utils.yaml_format import yaml_read as yaml_read
 
 ROOT = Path(__file__).resolve().parents[4]
 

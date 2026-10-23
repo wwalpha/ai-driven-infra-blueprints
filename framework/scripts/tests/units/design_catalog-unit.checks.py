@@ -2,11 +2,24 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import pytest
+from support.design_catalog_fixtures import (
+    MACIE_JOB,
+    QUICKSIGHT_GROUP,
+    ROOT,
+    CloudFormationSchemaCatalog,
+    DesignSchemaCatalog,
+    Path,
+    api_snapshot_errors,
+    sys,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.design_catalog_fixtures import *
 
 def check_api_schema():
     assert not api_snapshot_errors(ROOT)
@@ -35,7 +48,7 @@ def check_api_schema():
 
 
 
-import pytest
+
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 if __name__ == '__main__':

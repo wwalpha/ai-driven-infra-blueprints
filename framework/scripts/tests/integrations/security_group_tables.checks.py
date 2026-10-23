@@ -1,21 +1,50 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import json
+
+from model.render import markdown_for
+from model.sources import load_model
+from security_group_tables import cells
+from support.fixture_cases import load_case, load_suite
+from support.it_case_receipt import it_case
+from support.security_group_tables_fixtures import (
+    DESIGN,
+    REPOSITORY,
+    VALIDATOR,
+    VPC_DESIGN,
+    Path,
+    expanded_design,
+    model_projection,
+    port_properties,
+    security_group_table_lines,
+    sys,
+    tempfile,
+    write_model,
+)
 from support.validator import diagnostics
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import it_case
 
-from support.security_group_tables_fixtures import *
-from support.fixture_cases import load_case, load_suite
-from model.sources import load_model
-from model.render import markdown_for
-from security_group_tables import cells
-import json
+def _callback_main_errors(catalog, metadata, path, root, /, text):
+    path.write_text(text, encoding="utf-8")
+    validator = VALIDATOR.Validator(root)
+    validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
+    validator.markdown_service_metadata(path, catalog[0])
+    validator.check_design_tables(metadata, *catalog)
+    validator.check_design_overviews()
+    validator.check_design_links(catalog[2])
+    validator.check_policy_tables()
+    return diagnostics(validator)
+
 
 @it_case
 def main():
@@ -29,16 +58,7 @@ def main():
         vpc.write_text(VPC_DESIGN, encoding="utf-8")
         metadata = {vpc: ("vpc", ("EC2.VPC",)), path: ("security-group", ("EC2.SecurityGroup", "EC2.SecurityGroupIngress", "EC2.SecurityGroupEgress"))}
 
-        def errors(text):
-            path.write_text(text, encoding="utf-8")
-            validator = VALIDATOR.Validator(root)
-            validator.schema_catalog = VALIDATOR.DesignSchemaCatalog(REPOSITORY)
-            validator.markdown_service_metadata(path, catalog[0])
-            validator.check_design_tables(metadata, *catalog)
-            validator.check_design_overviews()
-            validator.check_design_links(catalog[2])
-            validator.check_policy_tables()
-            return diagnostics(validator)
+        errors = _bind_framework_callback(_callback_main_errors, catalog, metadata, path, root)
 
         assert not errors(DESIGN.replace("resource-EC2_SecurityGroup_001", "security-group-groupone").replace("resource-EC2_SecurityGroup_002", "security-group-grouptwo")), errors(path.read_text())
         original = path.read_bytes()
@@ -279,13 +299,13 @@ desired.row.006-007.comment=付与するタグの値
             values.update(case["data"]["presentation"])
             for identity in range(1, 7):
                 values[f"desired.resource.{identity:03}.cfn-logicalId"] = f"fixture-Resource{identity}"
-            for number, scalar in zip((4, 5), case["data"]["scalars"]):
+            for number, scalar in zip((4, 5), case["data"]["scalars"], strict=False):
                 values[f"desired.row.006-{number:03}.value"] = scalar
             write_model(model_path, values)
             source = {file: file.read_bytes() for file in load_model(model_path).files}
             rendered = markdown_for(path, load_model(model_path).values, root, definitions_root=REPOSITORY)
             marker = next(line for line in rendered.splitlines() if line.startswith("<!-- security-group-tags:"))
-            expected = [dict(zip(("Key", "Value"), case["expected"])), {"Key": "Environment", "Value": "dev"}]
+            expected = [dict(zip(("Key", "Value"), case["expected"], strict=False)), {"Key": "Environment", "Value": "dev"}]
             assert json.loads(marker.removeprefix("<!-- security-group-tags: ").removesuffix(" -->")) == expected
             restored = security_group_table_lines(rendered.splitlines(), REPOSITORY)
             assert [cells(line)[1:3] for line in restored if line.startswith("|") and "EC2.SecurityGroup.Tags[]." in line] == [
@@ -432,4 +452,3 @@ if __name__ == "__main__":
     from support.model_sources import catalog_display
     with catalog_display():
         main()
-

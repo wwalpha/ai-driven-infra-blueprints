@@ -1,6 +1,8 @@
 """Saved View review diagnostics; comparison inputs own only their byte observations."""
 import hashlib
+
 from comparison.inputs import Inputs
+
 
 def view_text(self, path, *, phase, consumer=None):
     try:

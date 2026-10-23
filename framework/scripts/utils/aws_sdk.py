@@ -1,17 +1,35 @@
 """Lazy offline SDK definitions; configuration is fixed per Sdk instance."""
+
 import os
+from functools import partial as _bind_framework_callback
 from threading import Lock
 
+from script_loader import module
+
+import utils.aws_mappings as _imports_utils_aws_mappings
 from utils.lazy_definitions import load_once
 
 _lock = Lock()
 _instances = {}
 
 
+def _callback_Sdk_session_load(self, /):
+    session = self._factory()
+    # Botocore reads this lazily, so bind it before the first loader request.
+    session.set_config_variable('data_path', self.data_path)
+    return session
+
+
+def _callback_Sdk_service_model_load(self, service, /):
+    session = self.session()
+    with self._models_lock:
+        return session.get_service_model(service)
+
+
 class Sdk:
     def __init__(self, factory=None):
         if factory is None:
-            from botocore.session import get_session
+            get_session = aws_runtime().sdk_session
             factory = get_session
         self._factory = factory
         self.data_path = os.environ.get('AWS_DATA_PATH', '')
@@ -20,22 +38,20 @@ class Sdk:
         self._models_lock = Lock()
 
     def session(self):
-        def load():
-            session = self._factory()
-            # Botocore reads this lazily, so bind it before the first loader request.
-            session.set_config_variable('data_path', self.data_path)
-            return session
+        load = _bind_framework_callback(_callback_Sdk_session_load, self)
         return load_once(self._lock, self._cache, ('session',), load)
 
     def service_model(self, service):
-        def load():
-            session = self.session()
-            with self._models_lock:
-                return session.get_service_model(service)
+        load = _bind_framework_callback(_callback_Sdk_service_model_load, self, service)
         return load_once(self._lock, self._cache, ('service', service), load)
 
 
 def sdk_for(root):
-    from utils.aws_mappings import definition_root
+    definition_root = _imports_utils_aws_mappings.definition_root
     root = definition_root(root)
     return load_once(_lock, _instances, root, Sdk)
+
+
+def aws_runtime():
+    """Activate the optional SDK integration at the capability boundary."""
+    return module("aws_sdk_runtime.py", "aws_sdk_runtime")

@@ -1,31 +1,26 @@
 """Real temporary Git repositories exercise worktree lifecycle and failure retention."""
 
 import sys
-
 from pathlib import Path
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+
+import importlib.util
+import json
+import os
+import subprocess
+import tempfile
+from contextlib import contextmanager
+from unittest.mock import patch
+
+import pytest
+import task_contract as tasks
+import worktree_task as wt
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
-
-from contextlib import contextmanager
-
-import importlib.util
-
-import json
-
-import os
-
-import subprocess
-
-import tempfile
-
-from unittest.mock import patch
-
-import task_contract as tasks
-
-import worktree_task as wt
 
 SCRIPT = (Path(__file__).resolve().parents[2] / 'worktree_task.py')
 
@@ -99,3 +94,12 @@ def retained(root, target, state, base_head):
 
 
 __all__ = ['Path', 'SCRIPT', 'cli', 'contextmanager', 'contract', 'finish_contract', 'fixture', 'git', 'importlib', 'json', 'os', 'patch', 'retained', 'start', 'subprocess', 'sys', 'tasks', 'tempfile', 'wt']
+
+
+@pytest.fixture
+def managed_project_workspace(request):
+    selected_task = tasks.selected_task
+    with fixture() as primary:
+        target, state = start(primary, task_id=getattr(request, 'param', 'observation-fixture'), files=('file.txt',))
+        with selected_task(target, state['task_file']):
+            yield target

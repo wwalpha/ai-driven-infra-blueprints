@@ -1,35 +1,43 @@
 """Check service policy views, IAM regression and the unchanged model contract."""
 
 import sys
-
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import json
+import subprocess
+import tempfile
+
+import aws_mapping
+import aws_mapping_display
+import model.projection as model_projection
+import pytest
+import utils.aws_mappings as _imports_utils_aws_mappings
+from array_display import indexed_rows
+from policy_tables import IAM_END as END
+from policy_tables import IAM_START as START
+from policy_tables import (
+    iam_role_policy_artifact_filename,
+    main,
+    policy_lines,
+    rendered_design,
+    resources_in,
+    without_policy_tables,
+)
+from support.pytest_cli import run
+from support.validator import load
+from utils.input_cache import input_scope
+from utils.layout_schema import ALIGNMENT, HEADER
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-import pytest
-
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
-from support.pytest_cli import run
 
-import model.projection as model_projection
-
-import json
-
-from support.validator import load
-
-import subprocess
-
-import tempfile
-
-from array_display import indexed_rows
-
-from design_layout import HEADER, ALIGNMENT
-
-from policy_tables import IAM_END as END, IAM_START as START, iam_role_policy_artifact_filename, policy_lines, rendered_design, resources_in, without_policy_tables
 
 SCRIPTS = Path(__file__).resolve().parents[2]
 
@@ -40,9 +48,7 @@ __all__ = ['ALIGNMENT', 'END', 'HEADER', 'Path', 'SCRIPTS', 'START', 'VALIDATOR'
 
 
 def policy_cli(argv):
-    from contextlib import redirect_stdout, redirect_stderr
-    from io import StringIO
-    from policy_tables import main
+
     stdout, stderr = StringIO(), StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):
         code = main(argv)
@@ -58,20 +64,19 @@ def policy_mapping_cache(catalog_display_fixture):
 __all__ += ['policy_cli', 'policy_mapping_cache']
 
 
-def mapping_cache_checks():
-    import aws_mapping
-    import aws_mapping_display
-    from validation_cache import input_scope
+def _callback_mapping_cache_checks_read(root):
+    return (aws_mapping_display.owners(root), aws_mapping_display.rules(root, 'IAM.Role'),
+            aws_mapping.runtime_registry(root, 'iam'))
 
-    @input_scope
-    def read(root):
-        return (aws_mapping_display.owners(root), aws_mapping_display.rules(root, 'IAM.Role'),
-                aws_mapping.runtime_registry(root, 'iam'))
+
+def mapping_cache_checks():
+
+    read = (input_scope)(_callback_mapping_cache_checks_read)
 
     with tempfile.TemporaryDirectory() as directory:
         roots = [Path(directory) / name for name in ('first', 'second')]
         first, second = (read(root) for root in roots[:2])
-        from utils.aws_mappings import definition_root
+        definition_root = _imports_utils_aws_mappings.definition_root
         assert first[2].root == definition_root(roots[0]) and second[2].root == definition_root(roots[1])
         assert read(roots[0])[2] is first[2]
         assert read(roots[1])[2] is second[2]

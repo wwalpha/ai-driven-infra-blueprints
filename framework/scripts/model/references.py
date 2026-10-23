@@ -1,13 +1,24 @@
 """Reference metadata describes saved text; reads never regenerate consumer values."""
-from dataclasses import dataclass
-from pathlib import PurePosixPath
-import re
-from model.core import entries, literal
-from model.format import owner, json_field
-from utils.json_format import strict_json
-from model.sources import Scope, load_model, _source_snapshot, list_models, target_for, FileReads, _invocation_reads
 
-LINKS = re.compile(r'\[([^\]]+)\]\(([^)]*?)#([^)]+)\)')
+import re
+from dataclasses import dataclass
+from functools import partial as _bind_framework_callback
+from pathlib import PurePosixPath
+
+import reference_contracts as _imports_reference_contracts
+from utils.json_format import strict_json
+from utils.model_addresses import resource_address as resource_address
+
+import model.core as _imports_model_core
+import model.format as _imports_model_projection
+import model.identity as _imports_model_identity
+import model.importing.scope as _imports_model_importing_scope
+import model.sources as source_models
+from model.core import entries, literal
+from model.format import LINKS as LINKS
+from model.format import json_field, owner
+from model.format import link_scope as link_scope
+
 FIELDS = {'consumerKey', 'pointer', 'text', 'occurrence', 'producerKind', 'producerScope',
           'producerId', 'producerLogicalId', 'resourceType', 'format', 'property', 'labelPolicy', 'contextProperty'}
 BASE = {'consumerKey', 'text', 'occurrence', 'producerKind', 'producerScope', 'format', 'labelPolicy'}
@@ -132,26 +143,15 @@ class Usage:
 
 def _producer(snapshot, address, reads, cache):
     env, target, service = address.split('/')
-    scope = Scope(snapshot.scope.root, env, target, service)
+    scope = source_models.Scope(snapshot.scope.root, env, target, service)
     if scope.path not in cache:
-        target_for(scope, reads)
-        from model.importing.scope import reference_reader
+        source_models.target_for(scope, reads)
+        reference_reader = _imports_model_importing_scope.reference_reader
         with reference_reader(scope.path):
-            cache[scope.path] = None if reads.kind(scope.path) == 'missing' else _source_snapshot(scope, reads)
+            cache[scope.path] = None if reads.kind(scope.path) == 'missing' else source_models._source_snapshot(scope, reads)
     return cache[scope.path]
 
 
-def link_scope(environment, target, service, filename):
-    """Resolve a saved Markdown address lexically inside the registered Model tree."""
-    import posixpath
-    if not filename:
-        return '/'.join((environment, target, service))
-    if filename.startswith('/') or '\\' in filename:
-        raise ValueError('direct Model reference is outside the Model tree: ' + filename)
-    relative = PurePosixPath(posixpath.normpath('/'.join((environment, target, filename))))
-    if len(relative.parts) != 3 or '..' in relative.parts or relative.suffix != '.md':
-        raise ValueError('direct Model reference is outside the Model tree: ' + filename)
-    return '/'.join((*relative.parts[:2], relative.stem))
 
 
 def _link_scope(snapshot, filename):
@@ -159,30 +159,39 @@ def _link_scope(snapshot, filename):
     return link_scope(scope.environment, scope.target, scope.service, filename)
 
 
+def _callback_usages_producer_for(cache, producers, reads, snapshot, /, scope):
+    if scope not in producers:
+        producers[scope] = _producer(snapshot, scope, reads, cache)
+    return producers[scope]
+
+
+def _callback_usages_fixed(indexes, producer_for, resource_index, /, scope, logical):
+    if scope in indexes:
+        match = indexes[scope].get(logical)
+        return match[0] if match else None
+    producer = producer_for(scope)
+    if producer is None:
+        return None
+    if scope not in indexes:
+        indexes[scope] = resource_index(producer.authoritative)
+    match = indexes[scope].get(logical)
+    return match[0] if match else None
+
+
 def usages(snapshot, read_context=None, *, _cache=None, _producer_scope=None, _coalesce=True):
     """Extract saved Resource links and declared literal dependencies."""
-    from model.identity import resource_link, resource_index, anchor_index, reference_tokens, parse_reference
+    anchor_index = _imports_model_identity.anchor_index
+    parse_reference = _imports_model_identity.parse_reference
+    reference_tokens = _imports_model_identity.reference_tokens
+    resource_index = _imports_model_identity.resource_index
     values, result = snapshot.authoritative, []
-    reads = read_context or _invocation_reads(snapshot.scope.root)
+    reads = read_context or source_models._invocation_reads(snapshot.scope.root)
     cache = {snapshot.scope.path: snapshot} if _cache is None else _cache
     indexes, anchors, producers = {}, {}, {}
 
-    def producer_for(scope):
-        if scope not in producers:
-            producers[scope] = _producer(snapshot, scope, reads, cache)
-        return producers[scope]
+    producer_for = _bind_framework_callback(_callback_usages_producer_for, cache, producers, reads, snapshot)
 
-    def fixed(scope, logical):
-        if scope in indexes:
-            match = indexes[scope].get(logical)
-            return match[0] if match else None
-        producer = producer_for(scope)
-        if producer is None:
-            return None
-        if scope not in indexes:
-            indexes[scope] = resource_index(producer.authoritative)
-        match = indexes[scope].get(logical)
-        return match[0] if match else None
+    fixed = _bind_framework_callback(_callback_usages_fixed, indexes, producer_for, resource_index)
 
     specs = declarations(values)
     for identity, spec in specs.items():
@@ -226,86 +235,93 @@ def usages(snapshot, read_context=None, *, _cache=None, _producer_scope=None, _c
     return tuple(result)
 
 
+def _callback_diagnose_producer_entries(parsed, /, producer, prefix):
+    key = (id(producer), prefix)
+    if key not in parsed:
+        result = entries(producer.authoritative, prefix)
+        parsed[key] = dict(result) if prefix == 'desired.resource.' else result
+    return parsed[key]
+
+
+def _callback_diagnose_warn(usage, warnings, /, message):
+    warnings.append({'code': 'reference.mismatch', 'message': message,
+                     'consumerKey': usage.consumer_key, 'pointer': usage.pointer,
+                     'reference': usage.metadata_id, 'text': usage.text})
+
+
 def diagnose(snapshot, read_context=None, *, _producer_scope=None, errors=None):
     """Retain producer warnings; validation may collect proven receiving-type errors."""
-    reads = read_context or FileReads()
+    reads = read_context or source_models.FileReads()
     warnings, dependencies, cache = [], dict(snapshot.dependencies), {snapshot.scope.path: snapshot}
     # The producer cache retains snapshots, so their IDs stay unique for this diagnosis.
     parsed = {}
 
-    def producer_entries(producer, prefix):
-        key = (id(producer), prefix)
-        if key not in parsed:
-            result = entries(producer.authoritative, prefix)
-            parsed[key] = dict(result) if prefix == 'desired.resource.' else result
-        return parsed[key]
+    producer_entries = _bind_framework_callback(_callback_diagnose_producer_entries, parsed)
 
     specs = declarations(snapshot.authoritative)
     for usage in usages(snapshot, reads, _cache=cache, _producer_scope=_producer_scope):
         spec = specs.get(usage.metadata_id, {})
-        def warn(message):
-            warnings.append({'code': 'reference.mismatch', 'message': message,
-                             'consumerKey': usage.consumer_key, 'pointer': usage.pointer,
-                             'reference': usage.metadata_id, 'text': usage.text})
         if usage.producer_kind == 'context':
             env, target = usage.producer_scope.split('/')
-            selected = Scope(snapshot.scope.root, env, target, snapshot.scope.service)
-            context, project = target_for(selected, reads)
+            selected = source_models.Scope(snapshot.scope.root, env, target, snapshot.scope.service)
+            context, project = source_models.target_for(selected, reads)
             expected = context.get('awsExecutionAccountId', context['awsAccountId'])
             if usage.text != expected:
-                warn('context value differs from saved text')
+                _callback_diagnose_warn(usage, warnings, 'context value differs from saved text')
             continue
         producer = _producer(snapshot, usage.producer_scope, reads, cache)
         if producer is None:
-            warn('producer Model is absent')
+            _callback_diagnose_warn(usage, warnings, 'producer Model is absent')
             continue
         dependencies.update(producer.dependencies)
         values = producer.authoritative
         if usage.producer_kind == 'stack':
             expected = values.get(f'desired.stack.{usage.producer_id}.name')
             if expected is None:
-                warn('producer Stack is absent')
+                _callback_diagnose_warn(usage, warnings, 'producer Stack is absent')
             elif literal(usage.text) != literal(expected):
-                warn('Stack name differs from saved text')
+                _callback_diagnose_warn(usage, warnings, 'Stack name differs from saved text')
             continue
         resources = producer_entries(producer, 'desired.resource.')
         matches = [usage.producer_id] if usage.producer_id in resources else []
         if len(matches) != 1:
-            warn('producer Resource is absent or ambiguous')
+            _callback_diagnose_warn(usage, warnings, 'producer Resource is absent or ambiguous')
             continue
         identity = matches[0]
         resource = resources[identity]
         if spec and resource['resourceType'] != spec['resourceType']:
-            warn('producer Resource Type differs')
+            _callback_diagnose_warn(usage, warnings, 'producer Resource Type differs')
         if spec.get('format') in {'name', 'identifier'}:
-            from model.projection import REFERENCE_NAME_SUFFIXES
+            REFERENCE_NAME_SUFFIXES = _imports_model_projection.REFERENCE_NAME_SUFFIXES
             prop = spec['property']
             if prop.rsplit('.', 1)[0] != spec['resourceType']:
-                warn('producer Property does not belong to the expected Resource Type')
+                _callback_diagnose_warn(usage, warnings, 'producer Property does not belong to the expected Resource Type')
                 continue
             if spec['format'] == 'name' and not prop.endswith(REFERENCE_NAME_SUFFIXES):
-                warn('producer Property is not a raw name Property')
+                _callback_diagnose_warn(usage, warnings, 'producer Property is not a raw name Property')
                 continue
             rows = [(rid, row) for rid, row in producer_entries(producer, 'desired.row.')
                     if rid.rpartition('-')[0] == identity and row.get('property') == spec['property']]
             if len(rows) != 1:
-                warn('producer Property is absent or ambiguous')
+                _callback_diagnose_warn(usage, warnings, 'producer Property is absent or ambiguous')
                 continue
             rid, row = rows[0]
             expected = row.get('value') if spec['format'] == 'name' else values.get(f'observed.row.{rid}.value')
             if expected is None or literal(expected) == 'PENDING_DEPLOY':
-                warn('producer Property is unobserved or pending')
+                _callback_diagnose_warn(usage, warnings, 'producer Property is unobserved or pending')
             elif spec['format'] == 'identifier' and (not literal(expected) or literal(expected).startswith('arn:')):
-                warn('producer identifier is not a nonempty non-ARN string')
+                _callback_diagnose_warn(usage, warnings, 'producer identifier is not a nonempty non-ARN string')
             elif literal(usage.text) != literal(expected):
-                warn('producer name/identifier differs from saved text')
+                _callback_diagnose_warn(usage, warnings, 'producer name/identifier differs from saved text')
         elif spec:
-            from model.identity import parse_reference, anchor_index, select_anchor
-            from model.core import ReferenceResolutionError
+            ReferenceResolutionError = _imports_model_core.ReferenceResolutionError
+            anchor_index = _imports_model_identity.anchor_index
+            parse_reference = _imports_model_identity.parse_reference
+            select_anchor = _imports_model_identity.select_anchor
             address = parse_reference(usage.text, snapshot.scope)
             expected = (producer.scope.environment, producer.scope.target, producer.scope.service)
             if address[:3] != expected:
-                warn('declared producer differs from the saved link; both meanings are retained')
+                _callback_diagnose_warn(usage, warnings, 'declared producer differs from the saved link; both meanings are retained')
                 continue
             else:
                 key = (id(producer), 'anchors')
@@ -314,16 +330,16 @@ def diagnose(snapshot, read_context=None, *, _producer_scope=None, errors=None):
                 try:
                     number, _ = select_anchor(parsed[key], address[3], usage.text)
                     if number != identity:
-                        warn('declared producer differs from the saved link; both meanings are retained')
+                        _callback_diagnose_warn(usage, warnings, 'declared producer differs from the saved link; both meanings are retained')
                         continue
                 except ReferenceResolutionError as error:
-                    warn(str(error))
+                    _callback_diagnose_warn(usage, warnings, str(error))
                     continue
         if (errors is not None and usage.consumer_key.startswith('desired.row.')
                 and usage.consumer_key.endswith('.value') and spec.get('format', 'link') == 'link'):
             row = usage.consumer_key.rsplit('.', 1)[0]
             if row + '.document' not in snapshot.authoritative:
-                from reference_contracts import contract
+                contract = _imports_reference_contracts.contract
                 prop = snapshot.authoritative[row + '.property']
                 expected = contract(prop)
                 if expected and resource['resourceType'] not in expected:
@@ -344,12 +360,12 @@ def incoming(snapshot, producer_id, read_context=None, *, warnings=None):
     """Read-only discovery has no dependency on a mutation/CREATE save guard."""
     result = []
     address = '/'.join((snapshot.scope.environment, snapshot.scope.target, snapshot.scope.service))
-    from model.importing.scope import read_consumers
-    reads = read_context or _invocation_reads(snapshot.scope.root)
-    scopes = list_models(snapshot.scope.root, reads)
+    read_consumers = _imports_model_importing_scope.read_consumers
+    reads = read_context or source_models._invocation_reads(snapshot.scope.root)
+    scopes = source_models.list_models(snapshot.scope.root, reads)
     with read_consumers({(scope.environment, scope.target, scope.service) for scope in scopes}):
         for scope in scopes:
-            consumer = _source_snapshot(scope, reads)
+            consumer = source_models._source_snapshot(scope, reads)
             relevant_warnings, _ = diagnose(consumer, reads, _producer_scope=address)
             if warnings is not None:
                 warnings.extend({'scope': '/'.join((scope.environment, scope.target, scope.service)), **warning}
@@ -373,11 +389,36 @@ class Reference:
     selector: str | None = None
 
 
-def resource_address(value):
-    parts = tuple(value.split('/')) if isinstance(value, str) else ()
-    if len(parts) != 4 or any(not part or part in {'.', '..'} or '\\' in part for part in parts):
-        raise ValueError('resource address requires environment/target/service/fixed-ID')
-    return parts
+
+
+def _recursive_symbolic_tree(leaf, /, key, value, pointer=''):
+    if isinstance(value, str):
+        return leaf(key, pointer, value)
+    if isinstance(value, dict):
+        return {name: _recursive_symbolic_tree(leaf, key, child, pointer + '/' + name.replace('~', '~0').replace('/', '~1')) for name, child in value.items()}
+    if isinstance(value, list):
+        return [_recursive_symbolic_tree(leaf, key, child, pointer + '/' + str(index)) for index, child in enumerate(value)]
+    return value
+
+
+def _callback_symbolic_leaf(grouped, /, key, pointer, value):
+    spans = sorted(grouped.get((key, pointer), []), key=lambda item: (item[0], item[1]))
+    if not spans:
+        return value
+    merged = []
+    for start, end, record in spans:
+        if merged and start < merged[-1][1]:
+            previous = merged[-1]
+            merged[-1] = previous[0], max(previous[1], end), (*previous[2], record)
+        else:
+            merged.append((start, end, (record,)))
+    result, cursor = [], 0
+    for start, end, records in merged:
+        result.append(value[cursor:start])
+        result.append(records[0] if len(records) == 1 else Reference(None, 'ambiguous', selector=repr(records)))
+        cursor = end
+    result.append(value[cursor:])
+    return tuple(result)
 
 
 def symbolic(snapshot, read_context=None):
@@ -385,7 +426,7 @@ def symbolic(snapshot, read_context=None):
     values = snapshot.authoritative
     specs = declarations(values)
     grouped = {}
-    reads = read_context or _invocation_reads(snapshot.scope.root)
+    reads = read_context or source_models._invocation_reads(snapshot.scope.root)
     cache = {snapshot.scope.path: snapshot}
     for usage in usages(snapshot, reads, _cache=cache):
         spec = specs.get(usage.metadata_id, {})
@@ -399,33 +440,9 @@ def symbolic(snapshot, read_context=None):
             spec.get('contextProperty') if usage.producer_kind == 'context' else usage.logical_id if producer_id is None else None)
         grouped.setdefault((usage.consumer_key, usage.pointer), []).append((usage.start, usage.end, record))
 
-    def leaf(key, pointer, value):
-        spans = sorted(grouped.get((key, pointer), []), key=lambda item: (item[0], item[1]))
-        if not spans:
-            return value
-        merged = []
-        for start, end, record in spans:
-            if merged and start < merged[-1][1]:
-                previous = merged[-1]
-                merged[-1] = previous[0], max(previous[1], end), (*previous[2], record)
-            else:
-                merged.append((start, end, (record,)))
-        result, cursor = [], 0
-        for start, end, records in merged:
-            result.append(value[cursor:start])
-            result.append(records[0] if len(records) == 1 else Reference(None, 'ambiguous', selector=repr(records)))
-            cursor = end
-        result.append(value[cursor:])
-        return tuple(result)
+    leaf = _bind_framework_callback(_callback_symbolic_leaf, grouped)
 
-    def tree(key, value, pointer=''):
-        if isinstance(value, str):
-            return leaf(key, pointer, value)
-        if isinstance(value, dict):
-            return {name: tree(key, child, pointer + '/' + name.replace('~', '~0').replace('/', '~1')) for name, child in value.items()}
-        if isinstance(value, list):
-            return [tree(key, child, pointer + '/' + str(index)) for index, child in enumerate(value)]
-        return value
+    tree = _bind_framework_callback(_recursive_symbolic_tree, leaf)
 
     result = {}
     for key, raw in values.items():

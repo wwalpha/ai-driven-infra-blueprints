@@ -9,24 +9,31 @@ def sensitive(prop):
     return False
 
 
+
+
+def _fetch_permissions(items, egress):
+    result = []
+    for item in items:
+        base = {k: item[k] for k in ('IpProtocol', 'FromPort', 'ToPort') if k in item}
+        for entry in item.get('IpRanges', []):
+            result.append(dict(base, **entry))
+        for entry in item.get('UserIdGroupPairs', []):
+            result.append(dict(base, **{'DestinationSecurityGroupId' if egress else 'SourceSecurityGroupId': entry['GroupId']}, **{'Description': entry['Description']} if 'Description' in entry else {}))
+    return result
+
+
 def fetch(ctx, r, getter):
     if getter=='group':
         current=r.current('Id')
         inputs={'GroupIds':[current]} if current else {'Filters':[{'Name':'group-name','Values':[r.value('GroupName')]},{'Name':'vpc-id','Values':[r.value('VpcId','id')]}]}
         record=dict(one(ctx.pages('ec2','describe_security_groups',**inputs).get('SecurityGroups',[]),'ec2.describe_security_groups'))
-        def permissions(items,egress):
-            result=[]
-            for item in items:
-                base={k:item[k] for k in ('IpProtocol','FromPort','ToPort') if k in item}
-                for entry in item.get('IpRanges',[]):
-                    result.append(dict(base,**entry))
-                for entry in item.get('UserIdGroupPairs',[]):
-                    result.append(dict(base,**{'DestinationSecurityGroupId' if egress else 'SourceSecurityGroupId':entry['GroupId']},**({'Description':entry['Description']} if 'Description' in entry else {})))
-            return result
+        permissions = _fetch_permissions
         record['SecurityGroupIngress']=permissions(record.get('IpPermissions',[]),False)
         record['SecurityGroupEgress']=permissions(record.get('IpPermissionsEgress',[]),True)
         return record
-    parent=r.parent();group=parent.identity();current=r.current('Id')
+    parent=r.parent()
+    group=parent.identity()
+    current=r.current('Id')
     inputs={'SecurityGroupRuleIds':[current]} if current else {'Filters':[{'Name':'group-id','Values':[group]}]}
     records=ctx.pages('ec2','describe_security_group_rules',**inputs).get('SecurityGroupRules',[])
     egress=r.kind.endswith('Egress')

@@ -11,7 +11,6 @@ import tempfile
 from itertools import chain
 from pathlib import Path
 
-
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = FRAMEWORK_ROOT.parent
 

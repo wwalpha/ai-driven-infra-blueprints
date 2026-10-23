@@ -2,18 +2,36 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from issues.aggregate import aggregate
+from support import issues_scan_fixtures as fixtures
+from support.issues_api_only_fixtures import (
+    ROOT,
+    Comparison,
+    Counter,
+    DesignSchemaCatalog,
+    Path,
+    cli_exit,
+    iac_report,
+    iac_summary,
+    json,
+    patch,
+    subprocess,
+    summary,
+    sys,
+    tempfile,
+)
+from support.it_case_receipt import it_case
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import it_case
-
-from support.issues_api_only_fixtures import *
-from issues.aggregate import aggregate
 
 @it_case
 def main_checks():
-    from support import issues_scan_fixtures as fixtures
     with tempfile.TemporaryDirectory(prefix='issues-api-only-') as temporary:
         root = Path(temporary) / 'project'
         fixtures.fixture(root, services=('s3',))
@@ -102,4 +120,3 @@ if __name__ == '__main__':
     from support.model_sources import catalog_display
     with catalog_display():
         main_checks()
-

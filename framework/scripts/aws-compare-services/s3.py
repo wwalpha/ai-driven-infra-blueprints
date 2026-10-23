@@ -1,6 +1,6 @@
 """s3: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model.adapters.aws import Field, one, MISSING, AcquisitionError
+from model.adapters.aws import MISSING, AcquisitionError, Field, one
 
 APIS = {('s3', 'get_bucket_policy'), ('s3', 'get_bucket_lifecycle_configuration'), ('s3', 'get_bucket_encryption'), ('s3', 'get_public_access_block'), ('s3', 'list_buckets'), ('s3', 'get_bucket_versioning'), ('s3', 'get_object_lock_configuration'), ('s3', 'get_bucket_ownership_controls'), ('s3', 'get_bucket_location')}
 

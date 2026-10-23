@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
 """Task selection, ordinary transitions and atomic contract publication."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import os
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from unittest.mock import patch
+
 import pytest
-from support.pytest_cli import run
 import task_contract as tasks
+from issues.publication import save
+from support.pytest_cli import run
+from utils.file_operations import atomic_files
 from validation_scope import active_scope
 
 if not __debug__:
@@ -52,7 +59,7 @@ def check_completed_legacy_and_paths(tmp_path):
         (root / old).write_text(contract(old, ["README.md", "old.md"], state="completed"))
         tasks.start(root, new, contract(new, ["README.md"]))
         assert tasks.task_path(root) == root / new
-        changed = {old, new, "README.md", "old.md", "tasks/removed.md"}
+        _ = {old, new, "README.md", "old.md", "tasks/removed.md"}
         for name in (old, new):
             (root / name).unlink()
         assert tasks.task_path(root, required=False) is None
@@ -122,6 +129,24 @@ def check_suspend_and_resume(tmp_path):
         assert tasks.paths_in((root / first).read_text(), "## Modified files") == {first, "shared.md", "own.md"}
 
 
+def _callback_check_atomic_contract_reads_pause(paused, release, /):
+    paused.set()
+    assert release.wait(10), "reader did not release publication"
+
+
+def _callback_check_atomic_contract_reads_replacing(destination, original_replace, pause, /, source, target):
+    if Path(target) == destination:
+        pause()  # Atomic publication must still expose only the previous contract.
+    return original_replace(source, target)
+
+
+def _callback_check_atomic_contract_reads_opening(destination, original_open, pause, /, path, mode='r', *args, **kwargs):
+    stream = original_open(path, mode, *args, **kwargs)
+    if path == destination and mode in {"w", "x"}:
+        pause()  # The old implementation has already truncated/created the file.
+    return stream
+
+
 @pytest.mark.parametrize("transition", ["start", "complete", "suspend", "resume"])
 def check_atomic_contract_reads(tmp_path, transition):
     root = tmp_path
@@ -140,18 +165,9 @@ def check_atomic_contract_reads(tmp_path, transition):
         destination = root / name
         paused, release = Event(), Event()
         original_open, original_replace = Path.open, os.replace
-        def pause():
-            paused.set()
-            assert release.wait(10), "reader did not release publication"
-        def opening(path, mode="r", *args, **kwargs):
-            stream = original_open(path, mode, *args, **kwargs)
-            if path == destination and mode in {"w", "x"}:
-                pause()  # The old implementation has already truncated/created the file.
-            return stream
-        def replacing(source, target):
-            if Path(target) == destination:
-                pause()  # Atomic publication must still expose only the previous contract.
-            return original_replace(source, target)
+        pause = _bind_framework_callback(_callback_check_atomic_contract_reads_pause, paused, release)
+        opening = _bind_framework_callback(_callback_check_atomic_contract_reads_opening, destination, original_open, pause)
+        replacing = _bind_framework_callback(_callback_check_atomic_contract_reads_replacing, destination, original_replace, pause)
         operations = {
             "start": lambda: tasks.start(root, name, contract(name, ["shared.md"])),
             "refresh": lambda: tasks.refresh(root, name),
@@ -194,7 +210,6 @@ def check_admission_selection(tmp_path, monkeypatch):
 
 
 def check_shared_issue_files(tmp_path, monkeypatch):
-    from issues.publication import save
     first, second = 'tasks/first.md', 'tasks/second.md'
     report = 'issues/dev/cde/issues.md'
     tasks.start(tmp_path, first, contract(first, [report], kind='migration', scope='dev/cde/ec2'))
@@ -207,16 +222,18 @@ def check_shared_issue_files(tmp_path, monkeypatch):
     blocked(lambda: tasks.safe_path(tmp_path, 'issues/../escape.md'), 'exact repository-relative path')
 
 
+def _callback_check_atomic_output_rollback_fail_second(replace, tmp_path, /, source, destination):
+    if Path(destination) == tmp_path / 'two.txt':
+        raise OSError('injected publication failure')
+    return replace(source, destination)
+
+
 def check_atomic_output_rollback(tmp_path):
-    from utils.file_operations import atomic_files
     files = {tmp_path / 'one.txt': 'first', tmp_path / 'two.txt': 'second'}
     for path, value in files.items():
         path.write_text(value)
     replace = os.replace
-    def fail_second(source, destination):
-        if Path(destination) == tmp_path / 'two.txt':
-            raise OSError('injected publication failure')
-        return replace(source, destination)
+    fail_second = _bind_framework_callback(_callback_check_atomic_output_rollback_fail_second, replace, tmp_path)
     with patch('os.replace', side_effect=fail_second), pytest.raises(OSError):
         atomic_files({path: 'new' for path in files}, staging_directory=tmp_path)
     assert all(path.read_text() == value for path, value in files.items())

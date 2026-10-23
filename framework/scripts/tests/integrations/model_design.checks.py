@@ -1,14 +1,95 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace
+from types import SimpleNamespace as _CallbackState
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import model.core as _imports_model_core
+import model.projection as _imports_model_projection
+import model.render as _imports_model_render
+import support.model_design_fixtures as _exports_support_model_design_fixtures
+import validation.design as _imports_validation_design
+import validation.design_tables as _imports_validation_design_tables
+from design_catalog import DesignSchemaCatalog
+from design_layout import formal_property, resource_logical_ids
+from iac_values import cfn_resource_identity
+from model.format import FORMAT
+from model.format import INDEX as INDEX_HEADER
+from model.format import PART as PART_PREFIX
+from model.identity import resource_index
+from model.validation import validate_required_properties
+from support.model_design_fixtures import (
+    COMMENTS,
+    GROUP_COMMENTS,
+    ROOT,
+    SYNC,
+    Path,
+    catalog_display_rows,
+    catalog_order_errors,
+    display_rows,
+    expanded_display_rows,
+    io,
+    json,
+    load,
+    load_model,
+    main,
+    markdown_for,
+    model,
+    model_projection,
+    naming_errors,
+    naming_rule_files,
+    naming_targets,
+    os,
+    patch,
+    properties,
+    pytest,
+    read_model,
+    redirect_stderr,
+    resource_anchor,
+    resource_display_name,
+    resource_has_name_property,
+    resource_rows,
+    roundtrip,
+    snapshot_model,
+    stack_deployment_policy,
+    stack_design,
+    stack_model,
+    subprocess,
+    sync_runtime,
+    sync_views,
+    sys,
+    text,
+    validate_kms_policy_accounts,
+    write_fixture_files,
+    write_model,
+)
+from support.model_design_fixtures import pytestmark as pytestmark
 from support.validator import diagnostics
+from validation.findings import Findings
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.model_design_fixtures import *
+_CALLBACK_DEFAULT = object()
+
+
+# Preserve shared fixtures and compatibility exports under their historical names.
+project = _exports_support_model_design_fixtures.project
+root = _exports_support_model_design_fixtures.root
+
+
+
+def _callback_check_route53_endpoint_dns_roundtrip_errors(outputs, path, root, validator_module, /, content):
+    path.write_text(content, encoding="utf-8")
+    validator = validator_module.Validator(root)
+    validator.check_design_links(outputs)
+    return diagnostics(validator)
+
 
 def check_route53_endpoint_dns_roundtrip(root, project):
     directory = root / "docs/designs/dev/123456789012"
@@ -35,11 +116,7 @@ def check_route53_endpoint_dns_roundtrip(root, project):
     valid = roundtrip(path, route, root)
     validator_module = load("validate-blueprint")
     outputs = validator_module.Validator(ROOT).catalog_design_properties()[2]
-    def errors(content):
-        path.write_text(content, encoding="utf-8")
-        validator = validator_module.Validator(root)
-        validator.check_design_links(outputs)
-        return diagnostics(validator)
+    errors = _bind_framework_callback(_callback_check_route53_endpoint_dns_roundtrip_errors, outputs, path, root, validator_module)
     assert not errors(valid), errors(valid)
     for bad in (valid.replace(dns, dns.replace("014d2843ef114f19d", "014d2843ef114f190")),
                 valid.replace("vpce-svc-04feb508c997b211e", "vpce-svc-04feb508c997b2110"),
@@ -58,6 +135,16 @@ def check_route53_endpoint_dns_roundtrip(root, project):
     endpoint_path.write_text(original_endpoint, encoding="utf-8")
 
 
+def _callback_check_firehose_import_pending_roundtrip_errors(catalog, path, root, validator_module, /, content):
+    path.write_text(content, encoding="utf-8")
+    validator = validator_module.Validator(root)
+    validator.schema_catalog = validator_module.DesignSchemaCatalog(ROOT)
+    validator.check_design_tables({}, *catalog)
+    validator.check_design_links(catalog[2])
+    validator.check_generated_service_models()
+    return diagnostics(validator)
+
+
 def check_firehose_import_pending_roundtrip(root, project):
     values = model("data-firehose", "KinesisFirehose.DeliveryStream", "dummy", [
         ("DeliveryStreamName", "`dummy`", "配信ストリーム名"),
@@ -74,14 +161,7 @@ def check_firehose_import_pending_roundtrip(root, project):
     write_model(model_path, text(values))
     validator_module = load("validate-blueprint")
     catalog = validator_module.Validator(ROOT).catalog_design_properties()
-    def errors(content):
-        path.write_text(content, encoding="utf-8")
-        validator = validator_module.Validator(root)
-        validator.schema_catalog = validator_module.DesignSchemaCatalog(ROOT)
-        validator.check_design_tables({}, *catalog)
-        validator.check_design_links(catalog[2])
-        validator.check_generated_service_models()
-        return diagnostics(validator)
+    errors = _bind_framework_callback(_callback_check_firehose_import_pending_roundtrip_errors, catalog, path, root, validator_module)
     assert not errors(valid), errors(valid)
     values["desired.resource.001.resourceMode"] = "CREATE"
     write_model(model_path, text(values))
@@ -91,6 +171,16 @@ def check_firehose_import_pending_roundtrip(root, project):
     write_model(model_path, text(values))
     assert errors(valid.replace("Pending", "`arn:aws:s3:::dummy`"))
     assert errors(valid.replace("Pending", "[dummy](data-firehose.md#data-firehose-dummy)"))
+
+
+def _callback_check_config_import_pending_roundtrip_errors(catalog, path, root, validator_module, /, content):
+    path.write_text(content, encoding="utf-8")
+    validator = validator_module.Validator(root)
+    validator.schema_catalog = validator_module.DesignSchemaCatalog(ROOT)
+    validator.check_design_tables({}, *catalog)
+    validator.check_design_links(catalog[2])
+    validator.check_generated_service_models()
+    return diagnostics(validator)
 
 
 def check_config_import_pending_roundtrip(root, project):
@@ -110,14 +200,7 @@ def check_config_import_pending_roundtrip(root, project):
     write_model(model_path, text(values))
     validator_module = load("validate-blueprint")
     catalog = validator_module.Validator(ROOT).catalog_design_properties()
-    def errors(content):
-        path.write_text(content, encoding="utf-8")
-        validator = validator_module.Validator(root)
-        validator.schema_catalog = validator_module.DesignSchemaCatalog(ROOT)
-        validator.check_design_tables({}, *catalog)
-        validator.check_design_links(catalog[2])
-        validator.check_generated_service_models()
-        return diagnostics(validator)
+    errors = _bind_framework_callback(_callback_check_config_import_pending_roundtrip_errors, catalog, path, root, validator_module)
     assert not errors(valid), errors(valid)
     values["desired.resource.001.resourceMode"] = "CREATE"
     write_model(model_path, text(values))
@@ -127,6 +210,15 @@ def check_config_import_pending_roundtrip(root, project):
     write_model(model_path, text(values))
     assert errors(valid.replace("Pending", "`arn:aws:s3:::dummy`"))
     assert errors(valid.replace("Pending", "[dummy](config.md#config-dummy)"))
+
+
+def _callback_check_import_optional_name_label_failures(before, kind, path, root, source, validator_module, /, content):
+    path.write_text(content, encoding='utf-8')
+    validator = validator_module.Validator(root)
+    validator.check_resource_names({path: ('config', (kind,))}, [path])
+    assert path.read_text(encoding='utf-8') == content
+    assert snapshot_model(source) == before
+    return validator.errors
 
 
 def check_import_optional_name_label(root, project):
@@ -156,13 +248,7 @@ def check_import_optional_name_label(root, project):
     assert model_projection.linked_resource(path, f'[{label}](#{anchor})') == (kind, logical_id)
 
     validator_module = load('validate-blueprint')
-    def failures(content):
-        path.write_text(content, encoding='utf-8')
-        validator = validator_module.Validator(root)
-        validator.check_resource_names({path: ('config', (kind,))}, [path])
-        assert path.read_text(encoding='utf-8') == content
-        assert snapshot_model(source) == before
-        return validator.errors
+    failures = _bind_framework_callback(_callback_check_import_optional_name_label_failures, before, kind, path, root, source, validator_module)
 
     for content, message in (
         (valid.replace(f'<!-- resource-logical-id: {logical_id} -->', ''), 'hidden logical ID'),
@@ -209,13 +295,13 @@ def check_import_optional_name_label(root, project):
     with pytest.raises(ValueError, match='required Name is not selected'):
         markdown_for(path, create, root)
     required = {key: value for key, value in values.items() if '.row.001-002.' not in key}
-    from model.validation import validate_required_properties
     with pytest.raises(ValueError, match='required provider schema property missing.*RoleARN'):
         validate_required_properties(required, root)
 
 
 def check_desired_only_identifier_reference(root, project):
-    base=root/'docs/designs/dev/123456789012';base.mkdir(parents=True, exist_ok=True)
+    base=root/'docs/designs/dev/123456789012'
+    base.mkdir(parents=True, exist_ok=True)
     group=model('quicksight','QuickSight.Group','gr-dev-finance',[
         ('GroupName','`gr-dev-finance`','分析グループ名'),
         ('AwsAccountId','`123456789012`','所有するアカウント'),
@@ -241,7 +327,7 @@ def check_desired_only_identifier_reference(root, project):
             'desired.row.007-009.property':'QuickSight.DataSource.Permissions[].Principal',
             'desired.row.007-009.value':'[gr-dev-finance](quicksight.md#quicksight-gr-dev-finance)',
             'desired.row.007-009.comment':'分析グループへの権限'}
-    from model.projection import resource_rows
+    resource_rows = _imports_model_projection.resource_rows
     rows = resource_rows(source, '007', 'QuickSight.DataSource', ROOT)
     assert rows[0][2] == source['desired.row.007-009.value']
     assert not any(k.startswith('observed.') for k in source)
@@ -280,7 +366,6 @@ def check_catalog_display_order(tmp_path):
     shown = catalog_display_rows(resource_rows(values, "001", "EC2.VPC", ROOT), "EC2.VPC", ROOT)
     assert [row[0] for row in shown] == ["001-002", "001-008", "001-007", "001-009", "001-001", "001-003", "001-004", "001-005", "001-006"]
     assert not catalog_order_errors("EC2.VPC", shown, ROOT)
-    from types import SimpleNamespace
     for old, new in (("10.0.0.0/16", "10.1.0.0/16"), ("アドレス範囲", "変更された説明"),
                      ("vpc-123", "vpc-456"), ('"first"', '"changed"')):
         path.write_text(output.replace(old, new), encoding="utf-8")
@@ -581,12 +666,11 @@ def check_athena_configuration_display(root):
               (ROOT / 'framework/materials/aws/Athena_WorkGroup.properties').read_text(encoding="utf-8").splitlines()]
     rows = [[str(index), field, "値", "設定の説明"] for index, field in enumerate(fields, 1)]
     displayed = display_rows(kind, rows)
-    from design_layout import formal_property
     encryption_labels = {
         prefix + "ResultConfiguration.EncryptionConfiguration.EncryptionOption": "ResultConfiguration.Encryption.Option",
         prefix + "ResultConfiguration.EncryptionConfiguration.KmsKey": "ResultConfiguration.Encryption.KmsKey",
     }
-    for original, shown in zip(rows, displayed):
+    for original, shown in zip(rows, displayed, strict=False):
         expected = encryption_labels.get(original[1], original[1].removeprefix(prefix if original[1].startswith(prefix) else kind + "."))
         assert shown == [original[0], expected, *original[2:]], (original, shown)
         restored = formal_property(shown[1], kind)
@@ -607,6 +691,16 @@ def check_athena_configuration_display(root):
     assert "ResultConfiguration.EncryptionConfiguration.KmsKey" not in output
     assert "WorkGroupConfiguration." not in output
     print("Athena configuration display checks: PASS (catalog aliases and model roundtrip)")
+
+
+def _callback_check_config_typed_anchors_failures(catalog, metadata, path, root, /, markdown):
+    path.write_text(markdown, encoding="utf-8")
+    validator = sync_views.view_validator(root, root)
+    validator.check_resource_names(metadata, [path])
+    validator.check_design_tables(metadata, *catalog, [path])
+    validator.check_design_overviews([path])
+    validator.check_design_links(catalog[2], [path])
+    return diagnostics(validator)
 
 
 def check_config_typed_anchors(root):
@@ -654,14 +748,7 @@ def check_config_typed_anchors(root):
     metadata = {path: ("config", (recorder, channel))}
     catalog = sync_views.view_validator(root, root).catalog_design_properties()
 
-    def failures(markdown):
-        path.write_text(markdown, encoding="utf-8")
-        validator = sync_views.view_validator(root, root)
-        validator.check_resource_names(metadata, [path])
-        validator.check_design_tables(metadata, *catalog, [path])
-        validator.check_design_overviews([path])
-        validator.check_design_links(catalog[2], [path])
-        return diagnostics(validator)
+    failures = _bind_framework_callback(_callback_check_config_typed_anchors_failures, catalog, metadata, path, root)
 
     assert not failures(output), failures(output)
     for key, wrong in (("001", "config-default"), ("001", channel_anchor),
@@ -676,7 +763,6 @@ def check_config_typed_anchors(root):
         if key.startswith(("desired.resource.001.", "desired.row.001-", "observed.row.001-")):
             collision[key.replace("001", "002", 1)] = value
     collision["desired.row.002-001.value"] = "`DEFAULT`"
-    from model.identity import resource_index
     with pytest.raises(ValueError, match="duplicate logicalId"):
         resource_index(collision)
     with pytest.raises(ValueError):
@@ -702,6 +788,18 @@ def check_config_typed_anchors(root):
     print("Config anchors: PASS (same-name resources, typed links, roundtrip, namespaces and collision rejection)")
 
 
+def _callback_check_kms_alias_display_add_alias(anchor, logical_id, values, /, identity, alias):
+    values.update({f"desired.resource.{identity}.resourceType": "KMS.Alias",
+                   f"desired.resource.{identity}.logicalId": "KMS_Alias_" + identity, f'desired.resource.{identity}.anchor': 'resource-' + ('KMS_Alias_' + identity),
+                   "desired.service.identity.lastAllocated": json.dumps({"KMS.Key": 1, "KMS.Alias": int(identity)}),
+                   f"desired.resource.{identity}.cfn-logicalId": "fixture-Alias" + identity,
+                   f"desired.resource.{identity}.parentProperty": "KMS.Alias.TargetKeyId",
+                   f"desired.resource.{identity}.parentReference": f"[{logical_id}](#{anchor})",
+                   f"desired.row.{identity}-001.property": "KMS.Alias.AliasName",
+                   f"desired.row.{identity}-001.value": f"`{alias}`",
+                   f"desired.row.{identity}-001.comment": "keyを識別するalias"})
+
+
 def check_kms_alias_display(root):
     path = root / "docs/designs/dev/123456789012/kms.md"
     name, logical_id = "venus-dev-log-cde", "KMS_Key_001"
@@ -712,16 +810,7 @@ def check_kms_alias_display(root):
                    "observed.row.001-001.value": "`PENDING_DEPLOY`",
                    "observed.row.001-001.comment": "一意に識別するID"})
 
-    def add_alias(identity, alias):
-        values.update({f"desired.resource.{identity}.resourceType": "KMS.Alias",
-                       f"desired.resource.{identity}.logicalId": "KMS_Alias_" + identity, f'desired.resource.{identity}.anchor': 'resource-' + ('KMS_Alias_' + identity),
-                       "desired.service.identity.lastAllocated": json.dumps({"KMS.Key": 1, "KMS.Alias": int(identity)}),
-                       f"desired.resource.{identity}.cfn-logicalId": "fixture-Alias" + identity,
-                       f"desired.resource.{identity}.parentProperty": "KMS.Alias.TargetKeyId",
-                       f"desired.resource.{identity}.parentReference": f"[{logical_id}](#{anchor})",
-                       f"desired.row.{identity}-001.property": "KMS.Alias.AliasName",
-                       f"desired.row.{identity}-001.value": f"`{alias}`",
-                       f"desired.row.{identity}-001.comment": "keyを識別するalias"})
+    add_alias = _bind_framework_callback(_callback_check_kms_alias_display_add_alias, anchor, logical_id, values)
 
     add_alias("002", "alias/" + name)
     output = roundtrip(path, values, root)
@@ -758,6 +847,16 @@ def check_kms_alias_display(root):
             resource_display_name("KMS.Key", [["1", "KMS.Alias.AliasName", alias, "alias"]])
 
 
+def _callback_check_nameless_type_display_failures(catalog, metadata, path, root, validator_module, /, markdown):
+    path.write_text(markdown, encoding="utf-8")
+    validator = validator_module.Validator(root)
+    validator.check_resource_names(metadata, [path])
+    validator.check_design_tables(metadata, *catalog, [path])
+    validator.check_design_overviews([path])
+    validator.check_design_links(catalog[2], [path])
+    return diagnostics(validator)
+
+
 def check_nameless_type_display(root, project):
     validator_module = load('validate-blueprint')
     docs = root / "docs/designs/dev/123456789012"
@@ -778,14 +877,7 @@ def check_nameless_type_display(root, project):
     metadata = {path: ("guardduty", (kind,))}
     catalog = validator_module.Validator(root).catalog_design_properties()
 
-    def failures(markdown):
-        path.write_text(markdown, encoding="utf-8")
-        validator = validator_module.Validator(root)
-        validator.check_resource_names(metadata, [path])
-        validator.check_design_tables(metadata, *catalog, [path])
-        validator.check_design_overviews([path])
-        validator.check_design_links(catalog[2], [path])
-        return diagnostics(validator)
+    failures = _bind_framework_callback(_callback_check_nameless_type_display_failures, catalog, metadata, path, root, validator_module)
 
     assert not failures(output), failures(output)
     for invalid, message in (
@@ -851,6 +943,16 @@ def check_nameless_type_display(root, project):
     print("Nameless type display: PASS (generation, import, identity, references, single/multiple and named types)")
 
 
+def _callback_check_nameless_logical_id_label_failures_968(metadata, path, root, source, validator_module, _default_markdown, /, model_values, markdown=_CALLBACK_DEFAULT):
+    if markdown is _CALLBACK_DEFAULT:
+        markdown = _default_markdown
+    write_model(source, text(model_values))
+    path.write_text(markdown, encoding="utf-8")
+    validator = validator_module.Validator(root)
+    validator.check_resource_names(metadata, [path])
+    return diagnostics(validator)
+
+
 def check_nameless_logical_id_label(root, project):
     validator_module = load('validate-blueprint')
     path = root / "docs/designs/dev/123456789012/guardduty.md"
@@ -876,12 +978,7 @@ def check_nameless_logical_id_label(root, project):
     output = roundtrip(path, values, root)
     metadata = {path: ("guardduty", (kind,))}
 
-    def failures(model_values, markdown=output):
-        write_model(source, text(model_values))
-        path.write_text(markdown, encoding="utf-8")
-        validator = validator_module.Validator(root)
-        validator.check_resource_names(metadata, [path])
-        return diagnostics(validator)
+    failures = _bind_framework_callback(_callback_check_nameless_logical_id_label_failures_968, metadata, path, root, source, validator_module, output)
 
     assert not failures(values), failures(values)
     sync_views.validate_views(root, root, [path], {path: values})
@@ -926,7 +1023,6 @@ def check_nameless_logical_id_label(root, project):
 
 
 def check_optional_naming_suffix(tmp_path):
-    from design_catalog import DesignSchemaCatalog
     patterns = (
         ("CloudFormation.Stack", "StackName", "cfn-stack-{{application}}-{{environment}}-{{purpose}}[-{{number}}][-{{suffix}}]"),
         ("CodeCommit.Repository", "RepositoryName", "ccmt-{{application}}[-{{environment}}]-{{purpose}}[-{{suffix}}]"),
@@ -1014,8 +1110,6 @@ def check_stack_policy(root, project):
 
 
 def check_stack_mapping_roundtrip(root):
-    from model.core import entries
-    from iac_values import cfn_resource_identity
     path = root / "docs/designs/dev/123456789012/ec2.md"
     values = model("ec2", "EC2.VPC", "vpc-app-dev-data", [
         ("Name", "`vpc-app-dev-data`", "ネットワークの名称"),
@@ -1061,7 +1155,6 @@ def check_stack_mapping_roundtrip(root):
         else:
             # Hyphens are valid inside StackName; only its final segment is the resource ID.
             assert invalid == "stack-Resource-With-Hyphens"
-    from types import SimpleNamespace
     for candidate in (rendered.replace('id="' + values['desired.resource.001.anchor'] + '"', 'id="ec2-missing"'),
                       rendered.replace("`10.0.0.0/16`", "`10.1.0.0/16`")):
         path.write_text(candidate)
@@ -1084,7 +1177,7 @@ def check_stack_mapping_roundtrip(root):
         assert message in str(error.value), error.value
     # Independent numbering survives grouped display order; Key and Alias each have a CFn ID.
     kms_path = path.with_name("kms.md")
-    anchor = "kms-app-dev-data"
+    _ = "kms-app-dev-data"
     kms = model("kms", "KMS.Key", "app-dev-data", [("KeyId", "[KMS_Key_001](kms.md#kms-app-dev-data)", "一意に識別するID")], label="app-dev-data")
     kms = {key.replace(".001", ".007"): value for key, value in kms.items()}
     kms.update({"desired.service.kms.ownedCatalogResourceTypes": "KMS.Key,KMS.Alias",
@@ -1100,7 +1193,6 @@ def check_stack_mapping_roundtrip(root):
     assert "cfn-logical-id:" not in grouped
     sync_views.validate_views(root, root, [kms_path], {kms_path: kms})
     # The normal parser reads indexed models without renumbering grouped children.
-    from model.format import FORMAT, INDEX as INDEX_HEADER, PART as PART_PREFIX
     kms_source = stack_source.with_name("kms.properties")
     part = kms_source.with_suffix("") / "part-001.properties"
     part.parent.mkdir()
@@ -1122,7 +1214,6 @@ def check_stack_mapping_roundtrip(root):
 
 
 def check_secret_naming_values(tmp_path):
-    from design_catalog import DesignSchemaCatalog
     secret_rules = naming_rule_files(ROOT, "SecretsManager")
     assert [path.name for path in secret_rules] == ["aws-resource-naming.md", "SecretsManager.md"]
     rules = secret_rules[1].read_text(encoding="utf-8")
@@ -1209,8 +1300,8 @@ def check_naming_exclusions(root):
         validator.check_resource_names(metadata, [path])
         assert not validator.errors, validator.errors
         if kind == 'Glue.Connection':
-            from model.core import entries
-            from model.render import display_name
+            entries = _imports_model_core.entries
+            display_name = _imports_model_render.display_name
             desired = {key: value for key, value in values.items() if key.startswith('desired.')}
             resource = next(iter(entries(values, 'desired.resource.')))[1]
             for observed in ('PENDING_DEPLOY', 'generated-connection'):
@@ -1301,6 +1392,15 @@ def check_codebuild_required_name(root, project):
     print(f"CodeBuild required Name checks: PASS ({len(invalid)} rejected cases; design, generation and saved view)")
 
 
+def _callback_check_iam_role_name_failures(metadata, outputs, path, root, validator_module, /, markdown):
+    path.write_text(markdown, encoding="utf-8")
+    validator = validator_module.Validator(root)
+    validator.check_resource_names(metadata, [path])
+    validator.check_design_overviews([path])
+    validator.check_design_links(outputs)
+    return diagnostics(validator)
+
+
 def check_iam_role_name(root, project):
     validator_module = load('validate-blueprint')
     kind, name, logical_id = "IAM.Role", "app-dev-worker-role", "WorkerRole"
@@ -1323,20 +1423,13 @@ def check_iam_role_name(root, project):
     assert f"| 1 | [{name}](#{values['desired.resource.001.anchor']}) |" in output
     assert f"### IAM.Role: {name}" in output and "fallback-label" not in output
     assert f"<!-- resource-logical-id: {logical_id} -->" in output
-    from design_layout import resource_logical_ids
     assert resource_logical_ids(output.splitlines())[values["desired.resource.001.anchor"]] == logical_id
     assert f'| RoleName | `{name}` |' in output
     assert properties(read_model(source)) == properties(text(values))
     metadata = {path: ("iam", (kind,))}
     outputs = validator_module.Validator(root).catalog_design_properties()[2]
 
-    def failures(markdown):
-        path.write_text(markdown, encoding="utf-8")
-        validator = validator_module.Validator(root)
-        validator.check_resource_names(metadata, [path])
-        validator.check_design_overviews([path])
-        validator.check_design_links(outputs)
-        return diagnostics(validator)
+    failures = _bind_framework_callback(_callback_check_iam_role_name_failures, metadata, outputs, path, root, validator_module)
 
     assert not failures(output), failures(output)
     reference = path.with_name("reference.md")
@@ -1446,7 +1539,7 @@ def check_required_name_tag(kind, root, project):
         validator = validator_module.Validator(root)
         validator.check_required_name_tag(path, kind, name, formal_rows)
         assert validator.errors, bad_tags
-        for generate in (lambda: resource_display_name(kind, formal_rows), lambda: markdown_for(path, bad, root)):
+        for generate in (lambda *, formal_rows=formal_rows: resource_display_name(kind, formal_rows), lambda *, bad=bad: markdown_for(path, bad, root)):
             with pytest.raises(ValueError) as error:
                 generate()
             if "display Mapping property missing" in str(error.value):
@@ -1472,7 +1565,44 @@ def check_required_name_tag(kind, root, project):
     print(f"{kind} Name tag checks: PASS ({len(invalid_tags)} rejected cases; design, generation, IDs and references)")
 
 
+def _callback_check_service_failure_protection_change_input(publish, source, source_before, /, *args, **kwargs):
+    source.write_bytes(source_before + b"# concurrent input\n")
+    return publish(*args, **kwargs)
+
+
+def _callback_check_service_failure_protection_fail_last(last, original_write, /, path, *args, **kwargs):
+    if path == last:
+        raise OSError("test write failure")
+    return original_write(path, *args, **kwargs)
+
+
+def _callback_check_service_failure_protection_fails_with(root, /, message, write=True):
+    with pytest.raises(ValueError) as error:
+        SYNC.sync(root, write, "dev", "123456789012")
+    assert message in str(error.value), error.value
+    return str(error.value)
+
+
+def _callback_check_service_failure_protection_fail_source(_state_check_service_failure_protection_1577, docs, /, path, *args, **kwargs):
+    if path == docs / "vpc.md":
+        raise OSError("test source write failure")
+    return _state_check_service_failure_protection_1577.original_write(path, *args, **kwargs)
+
+
+def _callback_check_service_failure_protection_fail_iam(_state_check_service_failure_protection_1577, docs, /, path, *args, **kwargs):
+    if path == docs / "iam.md":
+        raise OSError("test IAM write failure")
+    return _state_check_service_failure_protection_1577.original_write(path, *args, **kwargs)
+
+
+def _callback_check_service_failure_protection_fail_logs(_state_check_service_failure_protection_1577, docs, /, path, *args, **kwargs):
+    if path == docs / "logs.md":
+        raise OSError("test target write failure")
+    return _state_check_service_failure_protection_1577.original_write(path, *args, **kwargs)
+
+
 def check_service_failure_protection(root, project):
+    _state_check_service_failure_protection_1577 = _CallbackState()
     base = root / "model/dev/123456789012"
     base.mkdir(parents=True, exist_ok=True)
     vpc = model("vpc", "EC2.VPC", "vpc-net-dev", [("Name", "`vpc-net-dev`", "識別するNameタグ"), ("VpcId", "[Vpc](#vpc-vpc-net-dev)", "一意に識別するID"), ("CidrBlock", "`10.1.0.0/16`", "IPv4のアドレス範囲")], "Vpc")
@@ -1514,11 +1644,7 @@ def check_service_failure_protection(root, project):
         SYNC.sync(root, True, "dev", "123456789012")
     assert "provider schema violation" in str(error.value)
     assert old_docs == {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
-    def fails_with(message, write=True):
-        with pytest.raises(ValueError) as error:
-            SYNC.sync(root, write, "dev", "123456789012")
-        assert message in str(error.value), error.value
-        return str(error.value)
+    fails_with = _bind_framework_callback(_callback_check_service_failure_protection_fails_with, root)
 
     # Loop IT delegates detailed LogGroup failures here; retain exact inputs and non-writing behavior.
     for property_key, value, diagnostic in (
@@ -1618,11 +1744,8 @@ def check_service_failure_protection(root, project):
     # A source write failure retains its old link without rolling back the target.
     (docs / "logs.md").write_bytes(old_docs[docs / "logs.md"])
     snapshot = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
-    original_write = Path.write_text
-    def fail_source(path, *args, **kwargs):
-        if path == docs / "vpc.md":
-            raise OSError("test source write failure")
-        return original_write(path, *args, **kwargs)
+    _state_check_service_failure_protection_1577.original_write = Path.write_text
+    fail_source = _bind_framework_callback(_callback_check_service_failure_protection_fail_source, _state_check_service_failure_protection_1577, docs)
     warnings = io.StringIO()
     with patch.object(Path, "write_text", fail_source), redirect_stderr(warnings):
         error = fails_with("test source write failure")
@@ -1676,11 +1799,8 @@ def check_service_failure_protection(root, project):
     logs["desired.row.001-002.value"] = "`7`"
     write_model(base / "logs.properties", text(logs))
     saved_sources = {file: file.read_bytes() for model in sources for file in load_model(model).files}
-    original_write = Path.write_text
-    def fail_iam(path, *args, **kwargs):
-        if path == docs / "iam.md":
-            raise OSError("test IAM write failure")
-        return original_write(path, *args, **kwargs)
+    _state_check_service_failure_protection_1577.original_write = Path.write_text
+    fail_iam = _bind_framework_callback(_callback_check_service_failure_protection_fail_iam, _state_check_service_failure_protection_1577, docs)
     with patch.object(Path, "write_text", fail_iam):
         fails_with("test IAM write failure")
     assert (docs / "iam.md").read_bytes() == snapshot[docs / "iam.md"]
@@ -1696,10 +1816,7 @@ def check_service_failure_protection(root, project):
     write_model(base / "vpc.properties", text(vpc))
     iam["desired.row.001-002.comment"] = "引受元に許可する権限と条件を定義する設定"
     write_model(base / "iam.properties", text(iam))
-    def fail_logs(path, *args, **kwargs):
-        if path == docs / "logs.md":
-            raise OSError("test target write failure")
-        return original_write(path, *args, **kwargs)
+    fail_logs = _bind_framework_callback(_callback_check_service_failure_protection_fail_logs, _state_check_service_failure_protection_1577, docs)
     with patch.object(Path, "write_text", fail_logs):
         fails_with("test target write failure")
     assert (docs / "logs.md").read_bytes() == snapshot[docs / "logs.md"]
@@ -1726,9 +1843,7 @@ def check_service_failure_protection(root, project):
     write_model(source, text(iam))
     source_before = source.read_bytes()
     publish = sync_runtime.publish_generation
-    def change_input(*args, **kwargs):
-        source.write_bytes(source_before + b"# concurrent input\n")
-        return publish(*args, **kwargs)
+    change_input = _bind_framework_callback(_callback_check_service_failure_protection_change_input, publish, source, source_before)
     errors = io.StringIO()
     with patch.object(sync_runtime, "publish_generation", side_effect=change_input), patch.object(sys, "argv", ["sync-model.py", "--repository-root", str(root), "--write", "--environment", "dev", "--aws-account-id", "123456789012"]), redirect_stderr(errors):
         assert SYNC.main() == 1
@@ -1749,11 +1864,8 @@ def check_service_failure_protection(root, project):
     old_docs = {path: path.read_bytes() for path in docs.rglob("*") if path.is_file()}
     # A late filesystem failure restores every previously changed generated file.
     first, last = docs / "logs.md", docs / "vpc.md"
-    original_write = Path.write_text
-    def fail_last(path, *args, **kwargs):
-        if path == last:
-            raise OSError("test write failure")
-        return original_write(path, *args, **kwargs)
+    _state_check_service_failure_protection_1577.original_write = Path.write_text
+    fail_last = _bind_framework_callback(_callback_check_service_failure_protection_fail_last, last, _state_check_service_failure_protection_1577.original_write)
     with patch.object(Path, "write_text", fail_last):
         with pytest.raises(OSError):
             write_fixture_files({first: "changed\n", last: "changed\n"})
@@ -1854,9 +1966,8 @@ def check_service_displays(tmp_path):
 
 
 def check_observed_arn_authority(tmp_path):
-    from validation.design import check_observed_values
-    from validation.design_tables import check_generated_identifier
-    from validation.findings import Findings
+    check_observed_values = _imports_validation_design.check_observed_values
+    check_generated_identifier = _imports_validation_design_tables.check_generated_identifier
     (tmp_path / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}))
     path = tmp_path / 'model/dev/123456789012/secrets-manager.properties'
     document = tmp_path / 'docs/designs/dev/123456789012/secrets-manager.md'

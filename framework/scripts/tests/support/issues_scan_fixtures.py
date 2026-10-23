@@ -1,85 +1,65 @@
 """Isolated local-issues regressions and optional A/B/C fixture benchmark."""
 
+import importlib.util
+import io
 import sys
-
+from contextlib import redirect_stdout
+from functools import partial as _bind_framework_callback
 from pathlib import Path
+from types import SimpleNamespace as _CallbackState
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import statistics
+import subprocess
+import tempfile
+import time
+from collections import Counter
+from contextlib import contextmanager
+from unittest.mock import patch
 
-from support.model_sources import snapshot_model
-
-from support.model_sources import write_model
-
-from model.files import read_model
+import issues.records as _imports_issues_records
+import model.format as _imports_model_format
+import model.format as model_format
+import model.sources as model_sources
+import pytest
+import sync_files as _imports_sync_files
+from comparison import Comparison
+from comparison.result import identifier, value_differences
+from design_layout import resource_name_fields
+from iac_values import same, selected_same, strict_json
+from issue_gate import issue_errors
+from issues.aggregate import aggregate, iac_dataset, iac_summary
+from issues.artifact import detail_payload, review_payload, summary
+from issues.integrity import verify_inputs
+from issues.materials import naming_materials, rule_section
+from issues.publication import save, save_scan
+from issues.reports import blocks, iac_report, numbered
+from issues.runner import mechanical, scan
+from model.core import entries, properties
+from model.files import load_model, model_file_contents, read_model, resource_row_index
+from model.render import markdown_for
+from model.sources import model_parts
+from model.validation import naming_rule_files, naming_target_matches, naming_targets
+from script_loader import module
+from support.model_sources import snapshot_model, write_fixture_files, write_model
+from support.pytest_cli import run
+from task_contract import refresh
+from task_contract_core import SELECTOR, status
+from utils.input_cache import input_scope
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-import pytest
-
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
-from support.pytest_cli import run
 
-import argparse
-
-from collections import Counter
-
-from contextlib import contextmanager
-
-import hashlib
-
-import json
-
-import os
-
-import re
-
-from support.model_sources import write_fixture_files
-
-import shutil
-
-import statistics
-
-import subprocess
-
-import tempfile
-
-import time
-
-from unittest.mock import patch
-
-from comparison import Comparison
-
-from script_loader import module
-
-from iac_values import same, selected_same, strict_json
-
-from issues.runner import scan, mechanical
-from issues.materials import naming_materials
-from issues.publication import save_scan
-from issues.artifact import summary, review_payload, detail_payload
-from issues.integrity import verify_inputs
-
-from issues.publication import save
-from issues.reports import blocks, numbered, iac_report
-from comparison.result import identifier, value_differences
-from issues.aggregate import aggregate, iac_dataset, iac_summary
-
-from model.render import markdown_for
-from model.validation import naming_targets, naming_target_matches
-
-from model.core import properties, entries
-
-from design_layout import resource_name_fields
-
-from model.files import load_model, read_model, model_file_contents, resource_row_index
-
-from validation_cache import input_scope
-
-from task_contract import SELECTOR
-
-from issue_gate import issue_errors
 
 ROOT = Path(__file__).resolve().parents[4]
 
@@ -158,12 +138,12 @@ def fixture(root, stacks=1, services=('s3', 'cloudwatch-logs', 'sqs'), parts=Fal
                     values[service].update({f'observed.row.{rid}.property': kind + '.' + prop, f'observed.row.{rid}.value': '`PENDING_DEPLOY`', f'observed.row.{rid}.comment': 'fixtureの設定値'})
     write(root / 'model/dev/123456789012/cloudformation-stacks.properties', '\n'.join(f'{key}={value}' for key, value in stackvalues.items()) + '\n')
     for service, modelvalues in values.items():
-        text = '\n'.join(f'{key}={value}' for key, value in modelvalues.items()) + '\n'
+        _ = '\n'.join(f'{key}={value}' for key, value in modelvalues.items()) + '\n'
         path = root / f'model/dev/123456789012/{service}.properties'
         write_model(path, modelvalues)
         if parts:
-            from model.format import split
-            from sync_files import save_files
+            split = _imports_model_format.split
+            save_files = _imports_sync_files.save_files
             save_files(split(path, load_model(path).authoritative, limit=25))
         write(root / f'docs/designs/dev/123456789012/{service}.md', markdown_for(root / f'docs/designs/dev/123456789012/{service}.md', modelvalues, root))
     write(root / 'docs/designs/dev/123456789012/cloudformation-stacks.md', markdown_for(root / 'docs/designs/dev/123456789012/cloudformation-stacks.md', stackvalues, root))
@@ -189,11 +169,13 @@ def task(root, services, name='save', allowed=None):
             os.environ[SELECTOR] = previous
         (root / f'tasks/{name}.md').unlink(missing_ok=True)
 
+def _callback_compare_run(root, services, /):
+    comparison = Comparison(root, 'dev', '123456789012', services)
+    return comparison, comparison.run()
+
+
 def compare(root, services):
-    @input_scope
-    def run():
-        comparison = Comparison(root, 'dev', '123456789012', services)
-        return comparison, comparison.run()
+    run = (input_scope)(_bind_framework_callback(_callback_compare_run, root, services))
     return run()
 
 def mutate_template(root, template):
@@ -206,7 +188,6 @@ def expect_error(function, phrase=None):
 
 def sequential_reports(root):
     # Successive report writes merge the latest contents.
-    from task_contract import refresh, status
     commands = []
     contexts = []
     names = []
@@ -236,13 +217,10 @@ def sequential_reports(root):
 
 def legacy_mechanical(root, services):
     # Benchmark-only 1005v1-equivalent service path: existing subprocess generator.
-    import importlib.util
     spec = importlib.util.spec_from_file_location('benchmark_validator', ROOT / 'framework/scripts/validate-blueprint.py')
     legacy_validator = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(legacy_validator)
     validator = legacy_validator.Validator(root, {('dev', '123456789012', service) for service in services}, cache=True, fresh=True, workers=1)
-    import io
-    from contextlib import redirect_stdout
     with redirect_stdout(io.StringIO()):
         validator.check_project_topology()
         validator.check_validation_scope()
@@ -252,12 +230,10 @@ def legacy_mechanical(root, services):
     return validator.errors
 
 def required_context(root, services):
-    from model.validation import naming_rule_files
     files = set()
     for service in services:
         kind = {'s3': 'S3', 'sqs': 'SQS', 'cloudwatch-logs': 'Logs'}[service]
         files.update(naming_rule_files(root, kind))
-    from issues.materials import rule_section
     shared = []
     for file, headings in [('model-information.md', ('## Model authority', '## Properties format')),
                            ('detailed-design.md', ('## Markdown structure', '## Links and anchors'))]:
@@ -270,7 +246,6 @@ def baseline_input(root, services):
     texts = [required_context(root, services)]
     for service in services:
         path = root / f'model/dev/123456789012/{service}.properties'
-        from model.files import model_parts
         texts.extend(file.read_text() for file in __import__('model.sources', fromlist=['source_inputs']).source_inputs(path))
         texts.append((root / f'docs/designs/dev/123456789012/{service}.md').read_text())
     report = root / 'issues/dev/123456789012/issues.md'
@@ -278,35 +253,32 @@ def baseline_input(root, services):
         texts.append(report.read_text())
     return '\n'.join(texts)
 
-def worker(root, variant, services):
-    counts = Counter()
-    timings = {}
-    process_count = 1
-    original_read, original_bytes = Path.read_text, Path.read_bytes
-    import model.format as model_format
-    import model.sources as model_sources
-    original_parse = model_format.parse
-    original_run = subprocess.run
-    def read(path, *args, **kwargs):
-        if path.suffix == '.properties' and 'model' in path.parts:
-            counts['model_reads'] += 1
-            counts['model_text_reads'] += 1
-        return original_read(path, *args, **kwargs)
-    def read_bytes(path):
-        if path.suffix == '.properties' and 'model' in path.parts:
-            counts['model_reads'] += 1
-            counts['model_byte_reads'] += 1
-        return original_bytes(path)
-    def parse(*args, **kwargs):
-        counts['model_parses'] += 1
-        return original_parse(*args, **kwargs)
-    def run(*args, **kwargs):
-        nonlocal process_count
-        process_count += 1
-        command = args[0] if args else kwargs.get('args')
-        if isinstance(command, list) and len(command) > 1 and command[1].endswith('/sync-model.py'):
-            countfile = root.parent / ('child-counts-' + str(process_count) + '.json')
-            code = """import sys,json,importlib.util
+def _callback_worker_read(counts, original_read, /, path, *args, **kwargs):
+    if path.suffix == '.properties' and 'model' in path.parts:
+        counts['model_reads'] += 1
+        counts['model_text_reads'] += 1
+    return original_read(path, *args, **kwargs)
+
+
+def _callback_worker_read_bytes(counts, original_bytes, /, path):
+    if path.suffix == '.properties' and 'model' in path.parts:
+        counts['model_reads'] += 1
+        counts['model_byte_reads'] += 1
+    return original_bytes(path)
+
+
+def _callback_worker_parse(counts, original_parse, /, *args, **kwargs):
+    counts['model_parses'] += 1
+    return original_parse(*args, **kwargs)
+
+
+def _callback_worker_run(_state_worker_274, counts, original_run, root, /, *args, **kwargs):
+    pass
+    _state_worker_274.process_count += 1
+    command = args[0] if args else kwargs.get('args')
+    if isinstance(command, list) and len(command) > 1 and command[1].endswith('/sync-model.py'):
+        countfile = root.parent / ('child-counts-' + str(_state_worker_274.process_count) + '.json')
+        code = """import sys,json,importlib.util
 from pathlib import Path
 from collections import Counter
 sys.dont_write_bytecode=True
@@ -331,13 +303,27 @@ try: status=loaded.main()
 finally: destination.write_text(json.dumps(dict(counts)))
 raise SystemExit(status)
 """
-            command = [command[0], '-B', '-c', code, command[1], str(countfile), *command[2:]]
-            result = original_run(command, *args[1:], **kwargs)
-            if countfile.exists():
-                counts.update(json.loads(countfile.read_text()))
-                countfile.unlink()
-            return result
-        return original_run(*args, **kwargs)
+        command = [command[0], '-B', '-c', code, command[1], str(countfile), *command[2:]]
+        result = original_run(command, *args[1:], **kwargs)
+        if countfile.exists():
+            counts.update(json.loads(countfile.read_text()))
+            countfile.unlink()
+        return result
+    return original_run(*args, **kwargs)
+
+
+def worker(root, variant, services):
+    _state_worker_274 = _CallbackState()
+    counts = Counter()
+    timings = {}
+    _state_worker_274.process_count = 1
+    original_read, original_bytes = Path.read_text, Path.read_bytes
+    original_parse = model_format.parse
+    original_run = subprocess.run
+    read = _bind_framework_callback(_callback_worker_read, counts, original_read)
+    read_bytes = _bind_framework_callback(_callback_worker_read_bytes, counts, original_bytes)
+    parse = _bind_framework_callback(_callback_worker_parse, counts, original_parse)
+    run = _bind_framework_callback(_callback_worker_run, _state_worker_274, counts, original_run, root)
     started = time.perf_counter()
     with patch.object(Path, 'read_text', read), patch.object(Path, 'read_bytes', read_bytes), patch.object(model_format, 'parse', parse), patch.object(model_sources, 'parse', parse), patch.object(subprocess, 'run', run):
         if variant == 'C':
@@ -375,7 +361,7 @@ raise SystemExit(status)
                 # Old skill's already-authored report write; LLM time is unmeasured.
                 write(root / 'issues/dev/123456789012/issues.md', llm_output)
             timings['save_seconds'] = time.perf_counter() - save_started
-    return {'wall_seconds': time.perf_counter() - started, **timings, 'processes': process_count, 'counts_all_processes': dict(counts),
+    return {'wall_seconds': time.perf_counter() - started, **timings, 'processes': _state_worker_274.process_count, 'counts_all_processes': dict(counts),
             'llm_input_bytes': len(llm.encode('utf-8')), 'llm_input_chars': len(llm), 'llm_output_bytes': len(llm_output.encode('utf-8')),
             'ordinary': sorted(errors), 'coverage': sorted((item['category'], item['service'], item['resource'], item['property'], item.get('stack')) for item in records),
             'iac_counts': dict(Counter(item['category'] for item in records))}
@@ -413,7 +399,7 @@ def benchmark(logdir, repeats=5):
                     measured['wall_seconds'] = time.perf_counter() - launch_started
                     measurements[variant].append(measured)
                     write(logdir / f'{label}-{variant}-{repeat + 1}.json', json.dumps(measured, ensure_ascii=False, indent=2) + '\n')
-            for b, c in zip(measurements['B'], measurements['C']):
+            for b, c in zip(measurements['B'], measurements['C'], strict=False):
                 assert b['coverage'] == c['coverage'], (b['coverage'], c['coverage'])
                 assert b['ordinary'] == c['ordinary'], (b['ordinary'], c['ordinary'])
             medians = {variant: {key: statistics.median(item[key] for item in runs) for key in ('wall_seconds', 'mechanical_seconds', 'iac_seconds', 'save_seconds', 'processes', 'llm_input_bytes', 'llm_input_chars', 'llm_output_bytes')}
@@ -427,7 +413,7 @@ def benchmark(logdir, repeats=5):
     print(json.dumps({'benchmark': str(logdir / 'benchmark.json'), 'fixtures': {key: value['medians'] for key, value in output['fixtures'].items()}}, ensure_ascii=False))
 
 def summary_fixture():
-    from issues.records import identifier
+    identifier = _imports_issues_records.identifier
     unknown = [dict(category='difference', service=['s3', 'iam', 'glue'][i % 3], resource=f'u{i:04d}',
                     property='Setting', reason='cause and repair target unknown', stack=None, desired=None, actual=None) for i in range(1000)]
     incomplete = [dict(category='uncompared', service='s3', resource=f'c{i:04d}', property='Role',
@@ -470,7 +456,6 @@ __all__ = ['aggregate', 'review_for', 'Comparison', 'Counter', 'Path', 'ROOT', '
 
 
 def remove_model(path):
-    from model.sources import model_parts
     for source in model_parts(path):
         source.unlink()
     path.unlink(missing_ok=True)

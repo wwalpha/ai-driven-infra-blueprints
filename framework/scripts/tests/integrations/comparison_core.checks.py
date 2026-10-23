@@ -2,14 +2,18 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import module_complete
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 # Fresh processes forbid acquisition/CLI/file-read paths, rather than merely observing no network.
 import subprocess
+
+from support.it_case_receipt import module_complete
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
 code = r'''
 import argparse, importlib.abc, importlib.util, socket, subprocess, sys
 from pathlib import Path

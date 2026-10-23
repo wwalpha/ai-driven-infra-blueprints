@@ -1,228 +1,309 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace as _CallbackState
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import deploy.handoff as _imports_deploy_handoff
+import deploy.s3_delivery as _imports_deploy_s3_delivery
+from deploy.timing import Timing
+from model.adapters.observed import mappings
+from model.core import entries
+from support.cloudformation_deploy_fixtures import (
+    ROOT,
+    TARGET,
+    Barrier,
+    DeliveryAws,
+    Fake,
+    M,
+    Path,
+    Runtime,
+    SimpleNamespace,
+    StubAws,
+    deployment_bucket,
+    deployment_settings,
+    finish,
+    get_ident,
+    importlib,
+    io,
+    json,
+    markdown_for,
+    patch,
+    properties,
+    pytest,
+    read_model,
+    redirect_stderr,
+    redirect_stdout,
+    rejects,
+    remove_model,
+    run,
+    scheduler,
+    snapshot_model,
+    stack_delivery,
+    starts,
+    states,
+    subprocess,
+    sys,
+    units,
+    write_model,
+    zipfile,
+)
 from support.model_sources import allocate_fixture as allocate
+from task_contract_core import selected_task
+from utils.aws import cloudformation as cfn
+from utils.aws import secretsmanager as secrets
+from utils.aws.client import AwsError
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.cloudformation_deploy_fixtures import *
+_CALLBACK_DEFAULT = object()
 
-from support.model_v2_fixtures import deploy_properties_fixture
+
+
+def _callback_check_sdk_execution_execute(_state_check_sdk_execution_65, /, unit, entry):
+    _state_check_sdk_execution_65.backend.calls.append(("executed", unit["name"]))
+
+
+def _callback_check_sdk_execution_poll(_state_check_sdk_execution_65, /, unit, entry):
+    if unit["name"] == "A":
+        _state_check_sdk_execution_65.backend.exports = ["NetworkVpcId"]
+    _state_check_sdk_execution_65.backend.calls.append(("terminal", unit["name"]))
+    return "CREATE_COMPLETE"
+
 
 def check_sdk_execution():
     # Case 3: distinct AWS requests with the shared template and separate inputs.
-    backend = StubAws()
+    _state_check_sdk_execution_65 = _CallbackState()
+    _state_check_sdk_execution_65.backend = StubAws()
     scoped = units(10, 10)
     for unit in scoped:
-        backend.templates[unit["name"]] = ({}, {})
+        _state_check_sdk_execution_65.backend.templates[unit["name"]] = ({}, {})
         state = {"status": "NOT_STARTED", "clientToken": "token-" + unit["name"]}
-        assert backend.prepare(unit, state) == "READY"
-        backend.execute(unit, state)
-    creates = [args for operation, args in backend.calls if operation == "create_change_set"]
+        assert _state_check_sdk_execution_65.backend.prepare(unit, state) == "READY"
+        _state_check_sdk_execution_65.backend.execute(unit, state)
+    creates = [args for operation, args in _state_check_sdk_execution_65.backend.calls if operation == "create_change_set"]
     assert len(creates) == 2 and creates[0]["StackName"] == "A" and creates[1]["StackName"] == "B"
     assert creates[0]["TemplateBody"] == creates[1]["TemplateBody"]
     assert creates[0]["Parameters"] == []
     assert creates[1]["Parameters"] == []
-    executes = [args for operation, args in backend.calls if operation == "execute_change_set"]
+    executes = [args for operation, args in _state_check_sdk_execution_65.backend.calls if operation == "execute_change_set"]
     assert executes[0]["ChangeSetName"] == "cs-A" and executes[1]["ChangeSetName"] == "cs-B"
     # Cases 6/7: producer succeeds before real list-exports and consumer change set.
-    backend = StubAws()
+    _state_check_sdk_execution_65.backend = StubAws()
     scoped = units(10, 20)
     state = states(scoped)
-    backend.templates = {"A": ({}, {}), "B": ({"Resources": {"Imported": {"Fn::ImportValue": "NetworkVpcId"}}}, {})}
-    def execute(unit, entry):
-        backend.calls.append(("executed", unit["name"]))
-    backend.execute = execute
-    def poll(unit, entry):
-        if unit["name"] == "A":
-            backend.exports = ["NetworkVpcId"]
-        backend.calls.append(("terminal", unit["name"]))
-        return "CREATE_COMPLETE"
-    backend.poll = poll
-    assert finish(scoped, 3, state, backend) == "COMPLETE"
-    consumer_cs = next(i for i, (op, args) in enumerate(backend.calls) if op == "create_change_set" and args["StackName"] == "B")
-    assert backend.calls.index(("terminal", "A")) < next(i for i, (op, _) in enumerate(backend.calls) if op == "list_exports") < consumer_cs
+    _state_check_sdk_execution_65.backend.templates = {"A": ({}, {}), "B": ({"Resources": {"Imported": {"Fn::ImportValue": "NetworkVpcId"}}}, {})}
+    execute = _bind_framework_callback(_callback_check_sdk_execution_execute, _state_check_sdk_execution_65)
+    _state_check_sdk_execution_65.backend.execute = execute
+    poll = _bind_framework_callback(_callback_check_sdk_execution_poll, _state_check_sdk_execution_65)
+    _state_check_sdk_execution_65.backend.poll = poll
+    assert finish(scoped, 3, state, _state_check_sdk_execution_65.backend) == "COMPLETE"
+    consumer_cs = next(i for i, (op, args) in enumerate(_state_check_sdk_execution_65.backend.calls) if op == "create_change_set" and args["StackName"] == "B")
+    assert _state_check_sdk_execution_65.backend.calls.index(("terminal", "A")) < next(i for i, (op, _) in enumerate(_state_check_sdk_execution_65.backend.calls) if op == "list_exports") < consumer_cs
     for exports, expected in ((["NetworkVpcId"], "COMPLETE"), ([], "STOPPED")):
-        backend = StubAws(exports)
-        backend.templates["B"] = ({"Fn::ImportValue": "NetworkVpcId"}, {})
-        backend.execute, backend.poll = lambda *args: None, lambda *args: "CREATE_COMPLETE"
+        _state_check_sdk_execution_65.backend = StubAws(exports)
+        _state_check_sdk_execution_65.backend.templates["B"] = ({"Fn::ImportValue": "NetworkVpcId"}, {})
+        _state_check_sdk_execution_65.backend.execute, _state_check_sdk_execution_65.backend.poll = lambda *args: None, lambda *args: "CREATE_COMPLETE"
         partial = [scoped[1]]
         state = states(partial)
-        assert finish(partial, 2, state, backend) == expected
-        creates = [args["StackName"] for op, args in backend.calls if op == "create_change_set"]
+        assert finish(partial, 2, state, _state_check_sdk_execution_65.backend) == expected
+        creates = [args["StackName"] for op, args in _state_check_sdk_execution_65.backend.calls if op == "create_change_set"]
         assert creates == (["B"] if exports else []) and "A" not in state
     # Missing export after a successful producer still blocks consumer.
-    backend = StubAws()
-    backend.templates["B"] = ({"Fn::ImportValue": "NetworkVpcId"}, {})
+    _state_check_sdk_execution_65.backend = StubAws()
+    _state_check_sdk_execution_65.backend.templates["B"] = ({"Fn::ImportValue": "NetworkVpcId"}, {})
     state = states([scoped[1]])
-    assert finish([scoped[1]], 2, state, backend) == "STOPPED"
+    assert finish([scoped[1]], 2, state, _state_check_sdk_execution_65.backend) == "STOPPED"
     assert state["B"]["status"] == "BLOCKED"
     assert "DeployOrder conflicts" in state["B"]["reason"]
-    assert not any(op == "create_change_set" for op, _ in backend.calls)
-    backend = StubAws()
-    backend.templates = {"A": ({}, {}), "B": ({"Fn::ImportValue": "NetworkVpcId"}, {})}
-    backend.execute, backend.poll = lambda *args: None, lambda *args: "CREATE_COMPLETE"
+    assert not any(op == "create_change_set" for op, _ in _state_check_sdk_execution_65.backend.calls)
+    _state_check_sdk_execution_65.backend = StubAws()
+    _state_check_sdk_execution_65.backend.templates = {"A": ({}, {}), "B": ({"Fn::ImportValue": "NetworkVpcId"}, {})}
+    _state_check_sdk_execution_65.backend.execute, _state_check_sdk_execution_65.backend.poll = lambda *args: None, lambda *args: "CREATE_COMPLETE"
     state = states(scoped)
-    assert finish(scoped, 2, state, backend) == "STOPPED"
+    assert finish(scoped, 2, state, _state_check_sdk_execution_65.backend) == "STOPPED"
     assert [entry["status"] for entry in state.values()] == ["SUCCESS", "BLOCKED"]
-    assert [args["StackName"] for op, args in backend.calls if op == "create_change_set"] == ["A"]
+    assert [args["StackName"] for op, args in _state_check_sdk_execution_65.backend.calls if op == "create_change_set"] == ["A"]
     # Existing Export cannot bypass an unfinished in-scope producer in the same group.
-    backend = StubAws()
-    backend.templates["B"] = ({"Fn::ImportValue": "NetworkVpcId"}, {})
-    backend.states = {"A": {"status": "RUNNING"}}
-    backend.aws = lambda *args: {"Exports": [{"Name": "NetworkVpcId", "Value": "vpc-fixture", "ExportingStackId": "arn:aws:cloudformation:region:account:stack/A/id"}]}
-    rejects(lambda: backend.check_imports(scoped[1]), "producer A has not succeeded")
+    _state_check_sdk_execution_65.backend = StubAws()
+    _state_check_sdk_execution_65.backend.templates["B"] = ({"Fn::ImportValue": "NetworkVpcId"}, {})
+    _state_check_sdk_execution_65.backend.states = {"A": {"status": "RUNNING"}}
+    _state_check_sdk_execution_65.backend.aws = lambda *args: {"Exports": [{"Name": "NetworkVpcId", "Value": "vpc-fixture", "ExportingStackId": "arn:aws:cloudformation:region:account:stack/A/id"}]}
+    rejects(lambda: _state_check_sdk_execution_65.backend.check_imports(scoped[1]), "producer A has not succeeded")
     # Destructive change blocks. Human approval reuses and re-fetches exact ID/content.
-    backend = StubAws(destructive=True)
+    _state_check_sdk_execution_65.backend = StubAws(destructive=True)
     unit, state = scoped[0], {"status": "NOT_STARTED", "clientToken": "approved"}
-    backend.templates["A"] = ({}, {})
-    assert backend.prepare(unit, state) == "BLOCKED"
-    assert not any(op == "execute_change_set" for op, _ in backend.calls)
-    backend.approvals = {state["changeSetId"]}
-    assert backend.prepare(unit, state) == "READY"
+    _state_check_sdk_execution_65.backend.templates["A"] = ({}, {})
+    assert _state_check_sdk_execution_65.backend.prepare(unit, state) == "BLOCKED"
+    assert not any(op == "execute_change_set" for op, _ in _state_check_sdk_execution_65.backend.calls)
+    _state_check_sdk_execution_65.backend.approvals = {state["changeSetId"]}
+    assert _state_check_sdk_execution_65.backend.prepare(unit, state) == "READY"
     with patch("model.adapters.observed.mappings", side_effect=AssertionError("Execute mapping forbidden")) as mapping_check:
-        backend.execute(unit, state)
+        _state_check_sdk_execution_65.backend.execute(unit, state)
     assert mapping_check.call_count == 0
-    assert sum(op == "create_change_set" for op, _ in backend.calls) == 1
-    backend.change["Changes"][0]["ResourceChange"]["PolicyAction"] = "Retain"
-    rejects(lambda: backend.prepare(unit, state), "approval invalid")
-    rejects(lambda: backend.execute(unit, state), "approval invalid")
-    backend.change["ExecutionStatus"] = "OBSOLETE"
-    rejects(lambda: backend.prepare(unit, state), "AVAILABLE")
+    assert sum(op == "create_change_set" for op, _ in _state_check_sdk_execution_65.backend.calls) == 1
+    _state_check_sdk_execution_65.backend.change["Changes"][0]["ResourceChange"]["PolicyAction"] = "Retain"
+    rejects(lambda: _state_check_sdk_execution_65.backend.prepare(unit, state), "approval invalid")
+    rejects(lambda: _state_check_sdk_execution_65.backend.execute(unit, state), "approval invalid")
+    _state_check_sdk_execution_65.backend.change["ExecutionStatus"] = "OBSOLETE"
+    rejects(lambda: _state_check_sdk_execution_65.backend.prepare(unit, state), "AVAILABLE")
     for replacement in ("True", "Conditional"):
-        backend = StubAws()
-        backend.change["Changes"][0]["ResourceChange"].update(Action="Modify", Replacement=replacement)
-        backend.templates["A"] = ({}, {})
-        assert backend.prepare(unit, {"status": "NOT_STARTED"}) == "BLOCKED"
-    backend.change["Changes"][0]["ResourceChange"]["Replacement"] = "Unknown"
-    rejects(lambda: backend.prepare(unit, {"status": "NOT_STARTED"}), "unknown change set replacement")
+        _state_check_sdk_execution_65.backend = StubAws()
+        _state_check_sdk_execution_65.backend.change["Changes"][0]["ResourceChange"].update(Action="Modify", Replacement=replacement)
+        _state_check_sdk_execution_65.backend.templates["A"] = ({}, {})
+        assert _state_check_sdk_execution_65.backend.prepare(unit, {"status": "NOT_STARTED"}) == "BLOCKED"
+    _state_check_sdk_execution_65.backend.change["Changes"][0]["ResourceChange"]["Replacement"] = "Unknown"
+    rejects(lambda: _state_check_sdk_execution_65.backend.prepare(unit, {"status": "NOT_STARTED"}), "unknown change set replacement")
     # A matching operation token and actual terminal stack status are both required.
-    backend = Runtime(ROOT, "dev", "123456789012", TARGET)
+    _state_check_sdk_execution_65.backend = Runtime(ROOT, "dev", "123456789012", TARGET)
     event = {"ResourceType": "AWS::CloudFormation::Stack", "ClientRequestToken": "current", "ResourceStatus": "CREATE_FAILED"}
     actual = ["ROLLBACK_IN_PROGRESS"]
-    backend.aws = lambda operation, **args: ({"StackEvents": [event]} if operation == "describe_stack_events" else {"Stacks": [{"StackStatus": actual[0]}]})
+    _state_check_sdk_execution_65.backend.aws = lambda operation, **args: ({"StackEvents": [event]} if operation == "describe_stack_events" else {"Stacks": [{"StackStatus": actual[0]}]})
     state = {"status": "RUNNING", "clientToken": "current", "changeSetId": "cs-A"}
-    assert backend.poll(unit, state) == "ROLLBACK_IN_PROGRESS" and state["failureDetected"]
+    assert _state_check_sdk_execution_65.backend.poll(unit, state) == "ROLLBACK_IN_PROGRESS" and state["failureDetected"]
     actual[0], event["ResourceStatus"] = "ROLLBACK_COMPLETE", "ROLLBACK_COMPLETE"
-    assert backend.poll(unit, state) == "ROLLBACK_COMPLETE"
+    assert _state_check_sdk_execution_65.backend.poll(unit, state) == "ROLLBACK_COMPLETE"
     actual[0], event["ResourceStatus"] = "UPDATE_COMPLETE", "UPDATE_IN_PROGRESS"
-    assert backend.poll(unit, state) == "UPDATE_IN_PROGRESS"  # Do not mistake old success for new success.
-    backend.aws = lambda operation, **args: ({"StackEvents": []} if operation == "describe_stack_events" else {"ExecutionStatus": "EXECUTE_IN_PROGRESS"})
-    assert backend.poll(unit, state) == "UPDATE_IN_PROGRESS"
+    assert _state_check_sdk_execution_65.backend.poll(unit, state) == "UPDATE_IN_PROGRESS"  # Do not mistake old success for new success.
+    _state_check_sdk_execution_65.backend.aws = lambda operation, **args: ({"StackEvents": []} if operation == "describe_stack_events" else {"ExecutionStatus": "EXECUTE_IN_PROGRESS"})
+    assert _state_check_sdk_execution_65.backend.poll(unit, state) == "UPDATE_IN_PROGRESS"
+
+
+
+
+
+
+def _check_empty_rollback_recreation_synced(_backend, items, entries):
+    for unit in items:
+        entries[unit['name']]['observedSynced'] = True
+
+
+def _check_empty_rollback_recreation_poll(self, unit, state):
+    return 'CREATE_COMPLETE'
+
+
+def _callback_check_empty_rollback_recreation_completed(_state_check_empty_rollback_recreation_180, /, entry):
+    _state_check_empty_rollback_recreation_180.backend.current['A'] = None
+    entry['cleanupStatus'] = 'DELETE_COMPLETE'
+
+
+class EmptyRollbackAws(StubAws):
+    def __init__(self, root):
+        super().__init__()
+        self.root = root
+        for unit in units(10, 10):
+            template, parameters = self.paths(unit)
+            template.parent.mkdir(parents=True, exist_ok=True)
+            parameters.parent.mkdir(parents=True, exist_ok=True)
+            template.write_text('Resources: {}')
+            parameters.write_text('[]')
+        self.current = {'A': 'ROLLBACK_COMPLETE', 'B': 'ROLLBACK_COMPLETE'}
+        self.actuals = [{'ResourceStatus': 'DELETE_COMPLETE', 'LogicalResourceId': 'Old',
+                        'ResourceType': 'AWS::S3::Bucket', 'PhysicalResourceId': 'deleted-bucket'}]
+        self.extra, self.deletes = {}, []
+        self.templates = {name: ({'Resources': {'Item': {'Type': 'AWS::S3::Bucket',
+                               'DeletionPolicy': 'Retain'}}}, {}) for name in self.current}
+
+    def aws(self, operation, **args):
+        if operation in {'describe_stacks', 'list_stack_resources', 'delete_stack'}:
+            self.calls.append((operation, args))
+            target = args['StackName']
+            name = target.removeprefix('old-')
+            if operation == 'describe_stacks':
+                if self.current[name] is None:
+                    raise M.Blocked('stack does not exist')
+                return {'Stacks': [{'StackId': 'old-' + name, 'StackStatus': self.current[name], **self.extra}]}
+            if operation == 'list_stack_resources':
+                assert target == 'old-' + name
+                return {'StackResourceSummaries': self.actuals}
+            assert target == 'old-' + name
+            self.deletes.append(target)
+            self.current[name] = None
+            return {}
+        return super().aws(operation, **args)
+
+    poll = _check_empty_rollback_recreation_poll
+
 
 
 def check_empty_rollback_recreation(tmp_path):
-    class EmptyRollbackAws(StubAws):
-        def __init__(self, root):
-            super().__init__()
-            self.root = root
-            for unit in units(10, 10):
-                template, parameters = self.paths(unit)
-                template.parent.mkdir(parents=True, exist_ok=True); parameters.parent.mkdir(parents=True, exist_ok=True)
-                template.write_text('Resources: {}'); parameters.write_text('[]')
-            self.current = {'A': 'ROLLBACK_COMPLETE', 'B': 'ROLLBACK_COMPLETE'}
-            self.actuals = [{'ResourceStatus': 'DELETE_COMPLETE', 'LogicalResourceId': 'Old',
-                            'ResourceType': 'AWS::S3::Bucket', 'PhysicalResourceId': 'deleted-bucket'}]
-            self.extra, self.deletes = {}, []
-            self.templates = {name: ({'Resources': {'Item': {'Type': 'AWS::S3::Bucket',
-                                   'DeletionPolicy': 'Retain'}}}, {}) for name in self.current}
-
-        def aws(self, operation, **args):
-            if operation in {'describe_stacks', 'list_stack_resources', 'delete_stack'}:
-                self.calls.append((operation, args))
-                target = args['StackName']
-                name = target.removeprefix('old-')
-                if operation == 'describe_stacks':
-                    if self.current[name] is None:
-                        raise M.Blocked('stack does not exist')
-                    return {'Stacks': [{'StackId': 'old-' + name, 'StackStatus': self.current[name], **self.extra}]}
-                if operation == 'list_stack_resources':
-                    assert target == 'old-' + name
-                    return {'StackResourceSummaries': self.actuals}
-                assert target == 'old-' + name
-                self.deletes.append(target)
-                self.current[name] = None
-                return {}
-            return super().aws(operation, **args)
-
-        def poll(self, unit, state):
-            return 'CREATE_COMPLETE'
+    _state_check_empty_rollback_recreation_180 = _CallbackState()
 
     scoped = units(10, 10)
     root = tmp_path
     (root / 'tasks').mkdir()
     (root / 'tasks/example.md').write_text('## Task contract\n- Task type: `infrastructure`\n- Task status: `running`\n- Infrastructure phase: `deploy`\n- Runtime recovery: `allowed`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n', encoding='utf-8')
     # Both existing shells are deleted by ID before CREATE, without approval or IaC repair.
-    backend = EmptyRollbackAws(root)
+    _state_check_empty_rollback_recreation_180.backend = EmptyRollbackAws(root)
     saved = states(scoped)
-    assert finish(scoped, 2, saved, backend) == 'COMPLETE', saved
-    assert backend.deletes == ['old-A', 'old-B']
+    assert finish(scoped, 2, saved, _state_check_empty_rollback_recreation_180.backend) == 'COMPLETE', saved
+    assert _state_check_empty_rollback_recreation_180.backend.deletes == ['old-A', 'old-B']
     for name in ('A', 'B'):
-        deletion = next(i for i, (op, args) in enumerate(backend.calls) if op == 'delete_stack' and args["StackName"] == 'old-' + name)
-        creation = next(i for i, (op, args) in enumerate(backend.calls) if op == 'create_change_set' and args["StackName"] == name)
+        deletion = next(i for i, (op, args) in enumerate(_state_check_empty_rollback_recreation_180.backend.calls) if op == 'delete_stack' and args["StackName"] == 'old-' + name)
+        creation = next(i for i, (op, args) in enumerate(_state_check_empty_rollback_recreation_180.backend.calls) if op == 'create_change_set' and args["StackName"] == name)
         assert deletion < creation and saved[name]['operationType'] == 'CREATE'
         assert saved[name]['absentBeforeCreate'] and saved[name]['emptyStackRecreated']
     # Resumed FAILED states also recover when no authoritative IaC correction exists.
-    backend = EmptyRollbackAws(root)
+    _state_check_empty_rollback_recreation_180.backend = EmptyRollbackAws(root)
     saved = {name: {'status': 'FAILED', 'stackStatus': 'ROLLBACK_COMPLETE', 'stackId': 'old-' + name,
                    'changeSetId': 'stale', 'clientToken': 'stale', 'delivery': {'stale': True}}
              for name in ('A', 'B')}
     session = {'states': saved, 'metrics': {'observedSyncSeconds': 0}}
-    def synced(_backend, items, entries):
-        for unit in items:
-            entries[unit['name']]['observedSynced'] = True
+    synced = _check_empty_rollback_recreation_synced
     with patch.object(M.session_ops, 'sync_successful', side_effect=synced):
-        assert M.session_ops.run_session(scoped, 2, session, backend, lambda: None, sleep=lambda _: None) == 'COMPLETE'
-    assert backend.deletes == ['old-A', 'old-B']
+        assert M.session_ops.run_session(scoped, 2, session, _state_check_empty_rollback_recreation_180.backend, lambda: None, sleep=lambda _: None) == 'COMPLETE'
+    assert _state_check_empty_rollback_recreation_180.backend.deletes == ['old-A', 'old-B']
     assert all(entry['changeSetId'] != 'stale' and 'delivery' not in entry for entry in saved.values())
     # The same failure cannot trigger an unbounded recreation loop.
     saved['A'].update(status='FAILED', stackStatus='ROLLBACK_COMPLETE', stackId='old-A')
-    backend.current['A'] = 'ROLLBACK_COMPLETE'
-    assert not backend.repair(scoped[0], saved['A']) and backend.deletes == ['old-A', 'old-B']
+    _state_check_empty_rollback_recreation_180.backend.current['A'] = 'ROLLBACK_COMPLETE'
+    assert not _state_check_empty_rollback_recreation_180.backend.repair(scoped[0], saved['A']) and _state_check_empty_rollback_recreation_180.backend.deletes == ['old-A', 'old-B']
     assert saved['A']['failureClassification'] == 'HUMAN_REQUIRED'
     for actuals in ([], [{'ResourceStatus': 'DELETE_COMPLETE'}]):
-        backend = EmptyRollbackAws(root)
-        backend.actuals = actuals
-        assert backend.begin_prepare(scoped[0], {}) == 'CHANGESET_CREATING'
-        assert backend.deletes == ['old-A']
+        _state_check_empty_rollback_recreation_180.backend = EmptyRollbackAws(root)
+        _state_check_empty_rollback_recreation_180.backend.actuals = actuals
+        assert _state_check_empty_rollback_recreation_180.backend.begin_prepare(scoped[0], {}) == 'CHANGESET_CREATING'
+        assert _state_check_empty_rollback_recreation_180.backend.deletes == ['old-A']
     for status in ('CREATE_COMPLETE', 'DELETE_SKIPPED', 'CREATE_FAILED', 'DELETE_FAILED', None):
-        backend = EmptyRollbackAws(root)
-        backend.actuals = [{'ResourceStatus': status}]
-        rejects(lambda: backend.begin_prepare(scoped[0], {}), 'not all deleted')
-        assert not backend.deletes
+        _state_check_empty_rollback_recreation_180.backend = EmptyRollbackAws(root)
+        _state_check_empty_rollback_recreation_180.backend.actuals = [{'ResourceStatus': status}]
+        rejects(lambda *, backend=_state_check_empty_rollback_recreation_180.backend: backend.begin_prepare(scoped[0], {}), 'not all deleted')
+        assert not _state_check_empty_rollback_recreation_180.backend.deletes
     for extra in ({'EnableTerminationProtection': True}, {'ParentId': 'parent'}, {'StackId': 'other'}):
-        backend = EmptyRollbackAws(root)
-        backend.extra = extra
-        rejects(lambda: backend.cleanup_failed_create(scoped[0], {'stackStatus': 'ROLLBACK_COMPLETE', 'stackId': 'old-A'}, empty_only=True), 'protected')
-        assert not backend.deletes
-    backend = EmptyRollbackAws(root)
-    read = backend.aws
-    backend.aws = lambda op, **args: {} if op == 'list_stack_resources' else read(op, **args)
+        _state_check_empty_rollback_recreation_180.backend = EmptyRollbackAws(root)
+        _state_check_empty_rollback_recreation_180.backend.extra = extra
+        rejects(lambda *, backend=_state_check_empty_rollback_recreation_180.backend: backend.cleanup_failed_create(scoped[0], {'stackStatus': 'ROLLBACK_COMPLETE', 'stackId': 'old-A'}, empty_only=True), 'protected')
+        assert not _state_check_empty_rollback_recreation_180.backend.deletes
+    _state_check_empty_rollback_recreation_180.backend = EmptyRollbackAws(root)
+    read = _state_check_empty_rollback_recreation_180.backend.aws
+    _state_check_empty_rollback_recreation_180.backend.aws = lambda op, **args: {} if op == 'list_stack_resources' else read(op, **args)
     try:
-        backend.begin_prepare(scoped[0], {})
+        _state_check_empty_rollback_recreation_180.backend.begin_prepare(scoped[0], {})
         raise AssertionError('missing resource response accepted')
     except KeyError:
         pass
-    assert not backend.deletes
+    assert not _state_check_empty_rollback_recreation_180.backend.deletes
     # Interrupted deletion resumes the pinned ID, without a second deletion.
     for interrupted_status in ('DELETE_IN_PROGRESS', 'DELETE_COMPLETE', None):
-        backend = EmptyRollbackAws(root)
-        backend.current['A'] = interrupted_status
+        _state_check_empty_rollback_recreation_180.backend = EmptyRollbackAws(root)
+        _state_check_empty_rollback_recreation_180.backend.current['A'] = interrupted_status
         state = {'stackStatus': 'ROLLBACK_COMPLETE', 'stackId': 'old-A', 'cleanupStackId': 'old-A', 'cleanupStatus': 'DELETE_INTENT'}
-        def completed(entry):
-            backend.current['A'] = None
-            entry['cleanupStatus'] = 'DELETE_COMPLETE'
-        backend.wait_cleanup = completed
-        assert backend.begin_prepare(scoped[0], state) == 'CHANGESET_CREATING' and not backend.deletes
+        completed = _bind_framework_callback(_callback_check_empty_rollback_recreation_completed, _state_check_empty_rollback_recreation_180)
+        _state_check_empty_rollback_recreation_180.backend.wait_cleanup = completed
+        assert _state_check_empty_rollback_recreation_180.backend.begin_prepare(scoped[0], state) == 'CHANGESET_CREATING' and not _state_check_empty_rollback_recreation_180.backend.deletes
     # A previous cleanup marker must not suppress deletion of a later failed StackId.
-    backend = EmptyRollbackAws(root)
+    _state_check_empty_rollback_recreation_180.backend = EmptyRollbackAws(root)
     state = {'stackStatus': 'ROLLBACK_COMPLETE', 'stackId': 'old-A', 'cleanupStackId': 'previous-id', 'cleanupStatus': 'DELETE_COMPLETE'}
-    assert backend.cleanup_failed_create(scoped[0], state, empty_only=True) and backend.deletes == ['old-A']
-    backend = EmptyRollbackAws(root)
-    rejects(lambda: backend.begin_prepare(scoped[0], {'cleanupStatus': 'DELETE_COMPLETE', 'cleanupStackId': 'old-A'}), 'name was reused')
-    assert not backend.deletes
+    assert _state_check_empty_rollback_recreation_180.backend.cleanup_failed_create(scoped[0], state, empty_only=True) and _state_check_empty_rollback_recreation_180.backend.deletes == ['old-A']
+    _state_check_empty_rollback_recreation_180.backend = EmptyRollbackAws(root)
+    rejects(lambda: _state_check_empty_rollback_recreation_180.backend.begin_prepare(scoped[0], {'cleanupStatus': 'DELETE_COMPLETE', 'cleanupStackId': 'old-A'}), 'name was reused')
+    assert not _state_check_empty_rollback_recreation_180.backend.deletes
     print('Empty ROLLBACK_COMPLETE recreation: PASS (two stacks, resume, pinned deletion, residual/protection/read guards, bounded retry)')
 
 
@@ -230,7 +311,8 @@ def check_template_validation(tmp_path):
     backend = Runtime(tmp_path, 'dev', '123456789012', TARGET)
     unit = units(10)[0]
     template, parameters = backend.paths(unit)
-    template.parent.mkdir(parents=True); parameters.parent.mkdir(parents=True)
+    template.parent.mkdir(parents=True)
+    parameters.parent.mkdir(parents=True)
     template.write_text('Parameters: {Prefix: {Type: String, Default: Default}}\nResources: {}\n')
     parameters.write_text('[{"ParameterKey":"Prefix","ParameterValue":"Network"}]')
     with patch('socket.socket', side_effect=AssertionError('network forbidden')), patch.object(subprocess, 'run', side_effect=AssertionError('CLI forbidden')):
@@ -238,6 +320,23 @@ def check_template_validation(tmp_path):
     assert backend.templates['A'][1] == {'Prefix': 'Network'}
     template.write_text('Transform: AWS::Serverless-2016-10-31\nResources: {}')
     rejects(lambda: backend.load_inputs(unit), 'transform template')
+
+
+def _callback_check_delivery_ordered_aws(bucket_created, original_aws, /, operation, **kwargs):
+    if kwargs.get("service") == "s3":
+        assert bucket_created[0], "bucket used before producer completed"
+    return original_aws(operation, **kwargs)
+
+
+def _callback_check_delivery_complete(bucket_created, /, entry, state):
+    if entry["name"] == "A":
+        bucket_created[0] = True
+    return "CREATE_COMPLETE"
+
+
+def _callback_check_delivery_artifact(name, bucket='app-dev-assets', prop='Code', filename='function-a.zip'):
+    return {"stack": "A", "resource": name, "property": prop,
+            "source": "infra/cloudformation/artifacts/" + filename, "bucket": bucket, "keyPrefix": "lambda/"}
 
 
 def check_delivery(tmp_path):
@@ -279,9 +378,7 @@ def check_delivery(tmp_path):
     source.parent.mkdir(parents=True)
     with zipfile.ZipFile(source, "w") as archive:
         archive.writestr("index.py", "def handler(event, context): return event\n")
-    def artifact(name, bucket="app-dev-assets", prop="Code", filename="function-a.zip"):
-        return {"stack": "A", "resource": name, "property": prop,
-                "source": "infra/cloudformation/artifacts/" + filename, "bucket": bucket, "keyPrefix": "lambda/"}
+    artifact = _callback_check_delivery_artifact
     resources = {name: {"Type": "AWS::Lambda::Function", "Properties": {"Handler": "index.handler",
                  "Code": {"S3Bucket": bucket, "S3Key": "lambda/current.zip"}}}
                  for name, bucket in (("First", "app-dev-assets"), ("Second", "app-dev-assets"), ("Third", "app-dev-other"))}
@@ -326,7 +423,7 @@ def check_delivery(tmp_path):
     for changed in ({"bucket": "wrong-bucket"}, {"keyPrefix": "wrong/"}):
         resumed.calls.clear()
         bad = unit | {"artifacts": [artifact("First") | changed]}
-        rejects(lambda: resumed.prepare(bad, {}), "differs from the approved template")
+        rejects(lambda *, bad=bad: resumed.prepare(bad, {}), "differs from the approved template")
         assert not any(op in {"put_object", "create_change_set"} for op, _ in resumed.calls)
     fresh = DeliveryAws(root, base / "fresh.files")
     fresh.templates = backend.templates
@@ -402,7 +499,7 @@ def check_delivery(tmp_path):
     del missing["desired.deployment.templateKeyPrefix"]
     rejects(lambda: deployment_settings(missing), "specified together")
     for field, invalid in (("source", "../secret"), ("keyPrefix", "../"), ("stack", "unknown"), ("property", "Other")):
-        rejects(lambda: deployment_settings(values | {"desired.artifact.007." + field: invalid}), "artifact" if field not in {"keyPrefix"} else "keyPrefix")
+        rejects(lambda *, field=field, invalid=invalid: deployment_settings(values | {"desired.artifact.007." + field: invalid}), "artifact" if field not in {"keyPrefix"} else "keyPrefix")
     duplicate = values | {key.replace(".007.", ".008."): value for key, value in values.items() if key.startswith("desired.artifact.")}
     rejects(lambda: deployment_settings(duplicate), "duplicate artifact destination")
     # Exercise the actual scoped staging/generation path, including a referenced S3 model.
@@ -443,12 +540,11 @@ def check_delivery(tmp_path):
                      'desired.service.s3.ownedCatalogResourceTypes': 'S3.Bucket',
                      'display.service.title': '# S3 詳細設計',
                      'desired.resource.001.deploymentEncryption': 'default'})
-    from model.core import entries
     for identity, resource in entries(approved, 'desired.resource.'):
         approved[f'desired.resource.{identity}.resourceMode'] = 'IMPORT'
         approved[f'desired.resource.{identity}.anchor'] = 'resource-' + resource['logicalId']
         approved[f'display.resource.{identity}.comment'] = '配置先bucket'
-    for identity, row in entries(approved, 'desired.row.'):
+    for identity, _row in entries(approved, 'desired.row.'):
         approved[f'desired.row.{identity}.comment'] = '承認済み設定'
     bucket_view = design.with_name('s3.md')
     bucket_view.write_text(markdown_for(bucket_view, approved, root))
@@ -473,7 +569,7 @@ def check_delivery(tmp_path):
     scoped = units(10, 20)
     scoped[0]["template"], scoped[1]["template"] = "bucket.yaml", "large.yaml"
     scoped[1].update(settings | {"templateBucket": "app-dev-assets"})
-    for entry, size in zip(scoped, (20, 51201)):
+    for entry, size in zip(scoped, (20, 51201), strict=False):
         file, inputs = bootstrap.paths(entry)
         file.write_bytes(b" " * size)
         inputs.write_text("[]")
@@ -483,15 +579,9 @@ def check_delivery(tmp_path):
             bootstrap.load_inputs(entry)
     assert not bootstrap.calls
     original_aws, bucket_created = bootstrap.aws, [False]
-    def ordered_aws(operation, **kwargs):
-        if kwargs.get("service") == "s3":
-            assert bucket_created[0], "bucket used before producer completed"
-        return original_aws(operation, **kwargs)
+    ordered_aws = _bind_framework_callback(_callback_check_delivery_ordered_aws, bucket_created, original_aws)
     bootstrap.aws = ordered_aws
-    def complete(entry, state):
-        if entry["name"] == "A":
-            bucket_created[0] = True
-        return "CREATE_COMPLETE"
+    complete = _bind_framework_callback(_callback_check_delivery_complete, bucket_created)
     bootstrap.poll = complete
     session = states(scoped)
     assert scheduler.run_group(scoped, 1, session, bootstrap, sleep=lambda _: None) == "GROUP_COMPLETE"
@@ -500,19 +590,59 @@ def check_delivery(tmp_path):
     assert any(op == "put_object" for op, _ in bootstrap.calls)
 
 
+def _callback_check_delivery_encryption_fresh(base, /):
+    backend = DeliveryAws(base / 'repo', base / 'session.files')
+    source = base / 'template.yaml'
+    source.write_bytes(b' ' * 51201)
+    return backend, source
+
+
+def _callback_check_delivery_encryption_refuse_second(aws, count, /, operation, **args):
+    if operation == 'put_object':
+        count[0] += 1
+        if count[0] == 2:
+            raise __import__('utils.aws.client', fromlist=['AwsError']).AwsError('s3', operation, 'AccessDenied', 403)
+    return aws(operation, **args)
+
+
+def _callback_check_delivery_encryption_policy(bucket, header, operator, value, prefix='templates/'):
+    return {'Statement': [{'Effect': 'Deny', 'Principal': '*', 'Action': 's3:PutObject',
+            'Resource': f'arn:aws:s3:::{bucket}/{prefix}*', 'Condition': {operator: {header: value}}}]}
+
+
+def _callback_check_delivery_encryption_unreadable(_state_check_delivery_encryption_595, /, operation, **args):
+    if operation == 'get_bucket_policy':
+        raise TimeoutError('read timed out')
+    return _state_check_delivery_encryption_595.aws(operation, **args)
+
+
+def _callback_check_delivery_encryption_malformed(_state_check_delivery_encryption_595, /, operation, **args):
+    if operation == 'get_bucket_encryption':
+        return {'ServerSideEncryptionConfiguration': {'Rules': [{}]}}
+    return _state_check_delivery_encryption_595.aws(operation, **args)
+
+
+def _callback_check_delivery_encryption_missing_policy(_state_check_delivery_encryption_595, /, operation, **args):
+    if operation == 'get_bucket_policy':
+        return {}
+    return _state_check_delivery_encryption_595.aws(operation, **args)
+
+
+def _callback_check_delivery_encryption_denied(_state_check_delivery_encryption_595, /, op, **args):
+    if op == _state_check_delivery_encryption_595.operation:
+        raise __import__('utils.aws.client', fromlist=['AwsError']).AwsError('s3', _state_check_delivery_encryption_595.operation, 'AccessDenied', 403)
+    return _state_check_delivery_encryption_595.aws(op, **args)
+
+
 def check_delivery_encryption(tmp_path):
-    from deploy.s3_delivery import preflight, model_conditions, policy_conditions, ALGORITHM
-    def policy(bucket, header, operator, value, prefix='templates/'):
-        return {'Statement': [{'Effect': 'Deny', 'Principal': '*', 'Action': 's3:PutObject',
-                'Resource': f'arn:aws:s3:::{bucket}/{prefix}*', 'Condition': {operator: {header: value}}}]}
+    _state_check_delivery_encryption_595 = _CallbackState()
+    model_conditions = _imports_deploy_s3_delivery.model_conditions
+    policy_conditions = _imports_deploy_s3_delivery.policy_conditions
+    policy = _callback_check_delivery_encryption_policy
     algorithm_header = 's3:x-amz-server-side-encryption'
     key_header = algorithm_header + '-aws-kms-key-id'
     base, bucket, prefix = tmp_path, 'app-dev-assets', 'templates/'
-    def fresh():
-        backend = DeliveryAws(base / 'repo', base / 'session.files')
-        source = base / 'template.yaml'
-        source.write_bytes(b' ' * 51201)
-        return backend, source
+    fresh = _bind_framework_callback(_callback_check_delivery_encryption_fresh, base)
     # Inactive resources never create S3 placement destinations.
     backend, source = fresh()
     document = {'Conditions': {'Skip': {'Fn::Equals': ['one', 'two']}}, 'Resources': {
@@ -596,30 +726,21 @@ def check_delivery_encryption(tmp_path):
     for modification in ({'Principal': {'AWS': TARGET['awsAccountId']}}, {'NotResource': '*'}):
         item = policy(bucket, algorithm_header, 'StringNotEquals', 'aws:kms')
         item['Statement'][0].update(modification)
-        rejects(lambda: policy_conditions(item, bucket, 'templates/key', explicit), 'INDETERMINATE')
+        rejects(lambda *, item=item: policy_conditions(item, bucket, 'templates/key', explicit), 'INDETERMINATE')
     item = policy(bucket, algorithm_header, 'StringEquals', '${aws:PrincipalTag/encryption}')
     rejects(lambda: policy_conditions(item, bucket, 'templates/key', explicit), 'INDETERMINATE')
     item = policy(bucket, algorithm_header + '-context', 'StringEquals', 'context')
     rejects(lambda: policy_conditions(item, bucket, 'templates/key', explicit), 'INDETERMINATE')
     # Unknown read failures and malformed responses remain distinct from design mismatches.
     backend, source = fresh()
-    aws = backend.aws
-    def unreadable(operation, **args):
-        if operation == 'get_bucket_policy':
-            raise TimeoutError('read timed out')
-        return aws(operation, **args)
+    _state_check_delivery_encryption_595.aws = backend.aws
+    unreadable = _bind_framework_callback(_callback_check_delivery_encryption_unreadable, _state_check_delivery_encryption_595)
     backend.aws = unreadable
     rejects(lambda: backend.upload(source, bucket, prefix), 'READ_UNCONFIRMED')
-    def malformed(operation, **args):
-        if operation == 'get_bucket_encryption':
-            return {'ServerSideEncryptionConfiguration': {'Rules': [{}]}}
-        return aws(operation, **args)
+    malformed = _bind_framework_callback(_callback_check_delivery_encryption_malformed, _state_check_delivery_encryption_595)
     backend.aws = malformed
     rejects(lambda: backend.upload(source, bucket, prefix), 'INDETERMINATE')
-    def missing_policy(operation, **args):
-        if operation == 'get_bucket_policy':
-            return {}
-        return aws(operation, **args)
+    missing_policy = _bind_framework_callback(_callback_check_delivery_encryption_missing_policy, _state_check_delivery_encryption_595)
     backend.aws = missing_policy
     rejects(lambda: backend.upload(source, bucket, prefix), 'INDETERMINATE')
     rejects(lambda: policy_conditions({}, bucket, 'templates/key', explicit), 'INDETERMINATE')
@@ -628,19 +749,16 @@ def check_delivery_encryption(tmp_path):
                              (lambda b: setattr(b, 'region', 'us-east-1'), 'MISMATCH')):
         backend, source = fresh()
         change(backend)
-        rejects(lambda: backend.upload(source, bucket, prefix), expected)
+        rejects(lambda *, backend=backend, source=source: backend.upload(source, bucket, prefix), expected)
         assert not any(op == 'put_object' for op, _ in backend.calls)
-    for operation in ('head_bucket', 'get_bucket_location', 'get_bucket_encryption', 'get_bucket_policy', 'describe_key'):
+    for _state_check_delivery_encryption_595.operation in ('head_bucket', 'get_bucket_location', 'get_bucket_encryption', 'get_bucket_policy', 'describe_key'):
         backend, source = fresh()
         backend.add_bucket(bucket, 'aws:kms', 'test-key')
         backend.default_algorithm, backend.default_key = 'aws:kms', 'test-key'
-        aws = backend.aws
-        def denied(op, **args):
-            if op == operation:
-                raise __import__('utils.aws.client', fromlist=['AwsError']).AwsError('s3', operation, 'AccessDenied', 403)
-            return aws(op, **args)
+        _state_check_delivery_encryption_595.aws = backend.aws
+        denied = _bind_framework_callback(_callback_check_delivery_encryption_denied, _state_check_delivery_encryption_595)
         backend.aws = denied
-        rejects(lambda: backend.upload(source, bucket, prefix), 'READ_DENIED')
+        rejects(lambda *, backend=backend, source=source: backend.upload(source, bucket, prefix), 'READ_DENIED')
         assert not any(op == 'put_object' for op, _ in backend.calls)
     backend, source = fresh()
     backend.add_bucket(bucket, 'aws:kms', 'test-key')
@@ -701,25 +819,85 @@ def check_delivery_encryption(tmp_path):
     backend.calls.clear()
     backend.uploaded, backend.objects = {}, {}
     state = states(scoped)
-    aws, count = backend.aws, [0]
-    def refuse_second(operation, **args):
-        if operation == 'put_object':
-            count[0] += 1
-            if count[0] == 2:
-                raise __import__('utils.aws.client', fromlist=['AwsError']).AwsError('s3', operation, 'AccessDenied', 403)
-        return aws(operation, **args)
+    _state_check_delivery_encryption_595.aws, count = backend.aws, [0]
+    refuse_second = _bind_framework_callback(_callback_check_delivery_encryption_refuse_second, _state_check_delivery_encryption_595.aws, count)
     backend.aws = refuse_second
     assert finish(scoped, 1, state, backend) == 'STOPPED'
     assert 'AccessDenied' in state['A']['reason']
     assert state['B']['status'] == 'NOT_STARTED'
     assert not any(op in {'create_change_set', 'execute_change_set'} for op, _ in backend.calls)
-    backend.aws, backend.fail = aws, 'put_object'
+    backend.aws, backend.fail = _state_check_delivery_encryption_595.aws, 'put_object'
     state = states(scoped)
     state['A']['status'] = 'RUNNING'
     assert finish(scoped, 1, state, backend) == 'STOPPED'
     assert state['A']['status'] == 'SUCCESS' and state['B']['status'] == 'BLOCKED'
     assert not any(op == 'execute_change_set' for op, _ in backend.calls)
     print('S3 delivery encryption/preflight checks: PASS (SSE-S3/KMS/default, model/key/policy/read/write/object/resume guards, group barrier/drain)')
+
+
+
+
+def _check_session_cli_invoke_subprocess_result(command, **kwargs):
+    return SimpleNamespace(returncode=0, stdout='{"Account":"123456789012"}' if 'get-caller-identity' in command else '', stderr='')
+
+
+def _callback_check_session_cli_run_session(execution_limits, mutation, session_runner, /, *args):
+    execution_limits.append(args[1])
+    if mutation[0]:
+        mutation[0]()
+    args[3].guard()
+    return session_runner(*args, sleep=lambda _: None)
+
+
+def _callback_check_session_cli_backend_factory_validate(backend, validation_calls, /, unit):
+    validation_calls.append(unit["name"])
+    backend.templates.update({unit["name"]: ({}, {})})
+
+
+def _callback_check_session_cli_backend_factory_repair(recovered, /, unit, state):
+    recovered.append((unit['name'], state['repairs'][-1]['clientRequestToken']))
+    state['repairs'][-1]['stage'] = 'RETRY_READY'
+    return True
+
+
+def _callback_check_session_cli_backend_factory(backends, destructive, recovered, runtime_resume, validation_calls, /, root, environment, tmp_path, target, profile, approvals):
+    assert target["awsProfile"] == "dev-profile"
+    backend = StubAws(destructive=destructive[0])
+    if destructive[0]:
+        # This scheduler/session fixture has no model; approval uses replacement.
+        backend.change["Changes"][0]["ResourceChange"].update(Action="Modify", Replacement="True")
+    backend.root, backend.approvals = root, set(approvals)
+    backend.target, backend.profile = target, target.get("awsProfile") or profile
+    validate = _bind_framework_callback(_callback_check_session_cli_backend_factory_validate, backend, validation_calls)
+    backend.validate = validate
+    backend.load_inputs = lambda unit: backend.templates.update({unit["name"]: ({}, {})})
+    backend.poll = lambda *args: "CREATE_COMPLETE"
+    if runtime_resume[0]:
+        repair = _bind_framework_callback(_callback_check_session_cli_backend_factory_repair, recovered)
+        backend.repair = repair
+    backends.append(backend)
+    return backend
+
+
+# Independent fixture scenarios use independent Tasks; one Task cannot reset its workflow.
+def _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, /, options=()):
+    # Independent fixture scenarios use independent Tasks; one Task cannot reset its workflow.
+    task_file = 'tasks/example.md' if state_file.name == 'session.json' else 'tasks/' + state_file.stem + '.md'
+    if task_file != 'tasks/example.md' and not (root / task_file).exists():
+        (root / task_file).write_text(contract.read_text().replace('tasks/example.md', task_file))
+    subprocess_result = _check_session_cli_invoke_subprocess_result
+    with selected_task(root, task_file), redirect_stdout(io.StringIO()) as output, redirect_stderr(io.StringIO()) as errors_output, \
+            patch.object(M, "create_runtime", side_effect=backend_factory), \
+            patch("deploy.context.get_caller_identity", return_value={"Account": "123456789012"}) as sts, \
+            patch.object(subprocess, "run", side_effect=subprocess_result) as _, \
+            patch.object(M.session_ops, "run_session", side_effect=run_session), \
+            patch.object(Path, "cwd", return_value=base if options else root):
+        result = M.main(argv + list(options), **({"root": root} if options else {}))
+        if not state_file.exists() and "other" not in options:
+            raise AssertionError(output.getvalue() + errors_output.getvalue())
+        assert sts.call_count == 0 if 'other' in options else sts.call_count <= 1
+        last_output.append(output.getvalue() + errors_output.getvalue())
+        return result
 
 
 def check_session_cli(tmp_path, monkeypatch):
@@ -768,86 +946,40 @@ def check_session_cli(tmp_path, monkeypatch):
     backends, validation_calls = [], []
     destructive = [True]
     runtime_resume, recovered = [False], []
-    def backend_factory(root, environment, tmp_path, target, profile, approvals):
-        assert target["awsProfile"] == "dev-profile"
-        backend = StubAws(destructive=destructive[0])
-        if destructive[0]:
-            # This scheduler/session fixture has no model; approval uses replacement.
-            backend.change["Changes"][0]["ResourceChange"].update(Action="Modify", Replacement="True")
-        backend.root, backend.approvals = root, set(approvals)
-        backend.target, backend.profile = target, target.get("awsProfile") or profile
-        def validate(unit):
-            validation_calls.append(unit["name"])
-            backend.templates.update({unit["name"]: ({}, {})})
-        backend.validate = validate
-        backend.load_inputs = lambda unit: backend.templates.update({unit["name"]: ({}, {})})
-        backend.poll = lambda *args: "CREATE_COMPLETE"
-        if runtime_resume[0]:
-            def repair(unit, state):
-                recovered.append((unit['name'], state['repairs'][-1]['clientRequestToken']))
-                state['repairs'][-1]['stage'] = 'RETRY_READY'
-                return True
-            backend.repair = repair
-        backends.append(backend)
-        return backend
+    backend_factory = _bind_framework_callback(_callback_check_session_cli_backend_factory, backends, destructive, recovered, runtime_resume, validation_calls)
     session_runner = M.session_ops.run_session
     execution_limits = []
     mutation = [None]
-    def run_session(*args):
-        execution_limits.append(args[1])
-        if mutation[0]:
-            mutation[0]()
-        args[3].guard()
-        return session_runner(*args, sleep=lambda _: None)
+    run_session = _bind_framework_callback(_callback_check_session_cli_run_session, execution_limits, mutation, session_runner)
     last_output = []
-    def invoke(options=()):
-        # Independent fixture scenarios use independent Tasks; one Task cannot reset its workflow.
-        from task_contract import selected_task
-        task_file = 'tasks/example.md' if state_file.name == 'session.json' else 'tasks/' + state_file.stem + '.md'
-        if task_file != 'tasks/example.md' and not (root / task_file).exists():
-            (root / task_file).write_text(contract.read_text().replace('tasks/example.md', task_file))
-        def subprocess_result(command, **kwargs):
-            return SimpleNamespace(returncode=0, stdout='{"Account":"123456789012"}' if "get-caller-identity" in command else "", stderr="")
-        with selected_task(root, task_file), redirect_stdout(io.StringIO()) as output, redirect_stderr(io.StringIO()) as errors_output, \
-                patch.object(M, "create_runtime", side_effect=backend_factory), \
-                patch("deploy.context.get_caller_identity", return_value={"Account": "123456789012"}) as sts, \
-                patch.object(subprocess, "run", side_effect=subprocess_result) as run, \
-                patch.object(M.session_ops, "run_session", side_effect=run_session), \
-                patch.object(Path, "cwd", return_value=base if options else root):
-            result = M.main(argv + list(options), **({"root": root} if options else {}))
-            if not state_file.exists() and "other" not in options:
-                assert False, output.getvalue() + errors_output.getvalue()
-            assert sts.call_count == 0 if 'other' in options else sts.call_count <= 1
-            last_output.append(output.getvalue() + errors_output.getvalue())
-            return result
-    assert invoke(["--profile", "other"]) == 2
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--profile", "other"]) == 2
     assert not backends
     timing = [json.loads(line) for line in (base / "timing.jsonl").read_text().splitlines()]
     assert any(event["phase"] == "authenticationContext" and event["result"] == "FAIL" for event in timing)
     assert timing[-1]["phase"] == "controller" and timing[-1]["result"] == "FAIL"
     # Ordinary startup has no whole-scope mapping or static validation permission.
     with patch('model.adapters.observed.mappings', side_effect=AssertionError('startup mapping forbidden')):
-        assert invoke() == 2
+        assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file) == 2
     session = json.loads(state_file.read_text())
     assert 'lintSeconds' not in session['metrics'] and 'validationStatus' not in session
     assert session["states"]["A"]["status"] == "BLOCKED", (session, last_output[-1])
     assert session["states"]["B"]["status"] == "NOT_STARTED"
-    assert invoke(["--resume", "--approve-change-set", "cs-A"]) == 2
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume", "--approve-change-set", "cs-A"]) == 2
     session = json.loads(state_file.read_text())
     assert session["result"] == "STOPPED" and session["states"]["A"]["status"] == "SUCCESS"
     assert [args["StackName"] for op, args in backends[-1].calls if op == "create_change_set"] == ["B"], last_output[-1]
-    assert invoke(["--resume"]) == 2
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 2
     session = json.loads(state_file.read_text())
     assert session["states"]["B"]["status"] == "BLOCKED", session
-    assert invoke(["--resume", "--approve-change-set", "cs-B"]) == 0, last_output[-1]
-    assert invoke(["--resume"]) == 0
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume", "--approve-change-set", "cs-B"]) == 0, last_output[-1]
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 0
     assert "validationCount" not in session["metrics"] and not validation_calls
     assert not backends[-1].calls  # Completed run never redeploys successful stacks.
     # A/B: unrelated environment bytes (even invalid JSON) are absent from guards/resume.
     unrelated = root / "infra/cloudformation/parameters/stg/123456789012/other.json"
     unrelated.parent.mkdir(parents=True)
     unrelated.write_text("invalid JSON\n")
-    assert invoke(["--resume"]) == 0
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 0
     assert set(json.loads(state_file.read_text())["infraManifest"]) == {
         p.relative_to(root).as_posix() for p in backends[-1].deployment_input_paths(units(10, 20))}
     # A stale/unrecorded v4 manifest cannot replace the signed accepted input authority.
@@ -855,11 +987,11 @@ def check_session_cli(tmp_path, monkeypatch):
     legacy = json.loads(state_file.read_text())
     legacy["infraManifest"][unrelated.relative_to(root).as_posix()] = "old unrelated digest"
     state_file.write_text(json.dumps(legacy))
-    assert invoke(["--resume"]) == 2
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 2
     state_file.write_bytes(saved_manifest_session)
-    assert invoke(["--resume"]) == 0
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 0
     mutation[0] = lambda: unrelated.write_text("other invalid JSON\n")
-    assert invoke(["--resume"]) == 0
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 0
     mutation[0] = None
     # C/D/E/H/I and model/contract guards run after validation, immediately before mutation.
     assert M.load_units(root, "stg", "123456789012", ["A"])[1][0]["template"] == "app.yaml"
@@ -874,10 +1006,10 @@ def check_session_cli(tmp_path, monkeypatch):
         if canonical:
             text = before.decode()+"# canonical input changed\n"
         mutation[0] = lambda path=path, text=text: path.write_text(text)
-        assert invoke(["--resume"]) == 2, path
+        assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 2, path
         path.write_bytes(before)
         mutation[0] = None
-        assert invoke(["--resume"]) == 0
+        assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 0
     project = root / "project.json"
     before = project.read_bytes()
     for key, value in (("awsAccountId", "999999999999"), ("awsRegion", "us-east-1"),
@@ -885,10 +1017,10 @@ def check_session_cli(tmp_path, monkeypatch):
         changed = json.loads(before)
         changed["targets"][0][key] = value
         mutation[0] = lambda changed=changed: project.write_text(json.dumps(changed))
-        assert invoke(["--resume"]) == 2, key
+        assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 2, key
         mutation[0] = None
         project.write_bytes(before)
-    assert invoke(["--resume"]) == 0
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 0
     # Declared artifact bytes join the same controller manifest and mutation guard.
     saved_source, saved_design = snapshot_model(source), design.read_bytes()
     saved_state, saved_argv = state_file, argv[:]
@@ -904,23 +1036,24 @@ def check_session_cli(tmp_path, monkeypatch):
     design.write_text(markdown_for(design, with_artifact, root))
     state_file = base / "artifact.json"
     argv[argv.index("--state") + 1] = str(state_file)
-    assert invoke() == 2  # Exact replacement approval still blocks the stub change set.
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file) == 2  # Exact replacement approval still blocks the stub change set.
     assert artifact_source.relative_to(root).as_posix() in json.loads(state_file.read_text())["infraManifest"]
     mutation[0] = lambda: artifact_source.write_text("print('changed')\n")
-    assert invoke(["--resume"]) == 2
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 2
     mutation[0] = None
-    assert invoke(["--resume"]) == 2  # Resume also rejects changed target artifact bytes.
-    for file,data in saved_source.items():file.write_bytes(data)
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 2  # Resume also rejects changed target artifact bytes.
+    for file,data in saved_source.items():
+        file.write_bytes(data)
     design.write_bytes(saved_design)
     remove_model(bucket_model)
     state_file, argv = saved_state, saved_argv
     print("Deployment input isolation: PASS (A/B unrelated invalid stg guard/resume; C/D/E target/shared; artifact guard/resume; H framework; I target account/region/profile/engine; target/reference model/contract guards)")
-    assert invoke(["--resume", "--approve-change-set", "cs-A"]) == 2
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume", "--approve-change-set", "cs-A"]) == 2
     template.write_text("Resources: {Changed: {}}\n")
-    assert invoke(["--resume"]) == 2
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 2
     template.write_text("Resources: {}\n")
     contract.write_text(contract.read_text().replace("`infrastructure`", "`governance`"))
-    assert invoke(["--resume"]) == 2
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 2
 
     # Cases 1/2/3: one invocation, one whole-scope validation, all barriers inside it.
     contract.write_text(contract.read_text().replace("`governance`", "`infrastructure`"))
@@ -934,31 +1067,31 @@ def check_session_cli(tmp_path, monkeypatch):
             (params / unit["parameters"]).write_text("[]\n")
         write_model(source, "\n".join(f"{key}={value}" for key, value in values.items()))
         design.write_text(markdown_for(design, values, root))
-        contract.write_text(contract.read_text().replace(next(l for l in contract.read_text().splitlines() if l.startswith("- Deployment scope:")),
+        contract.write_text(contract.read_text().replace(next(line for line in contract.read_text().splitlines() if line.startswith("- Deployment scope:")),
                                                        "- Deployment scope: " + ", ".join("`" + u["name"] + "`" for u in selected)))
         state_file = base / f"success-{len(orders)}.json"
         argv = ["--environment", "dev", "--aws-account-id", "123456789012", "--state", str(state_file)]
         for unit in selected:
             argv += ["--stack", unit["name"]]
-        assert invoke() == 0
+        assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file) == 0
         session = json.loads(state_file.read_text())
         assert session["result"] == "COMPLETE", session
         assert session["metrics"]["controllerInvocationCount"] == 1 and "validationCount" not in session["metrics"]
         assert session["metrics"]["deployOrderCount"] == len(set(orders))
         assert all(s["status"] == "SUCCESS" and s["observedSynced"] for s in session["states"].values())
         assert not any(op == "list-stacks" for op, _ in backends[-1].calls)
-        assert invoke(["--resume"]) == 0 and not backends[-1].calls
+        assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 0 and not backends[-1].calls
         assert "validationCount" not in json.loads(state_file.read_text())["metrics"]
         # CLI resume dispatches the persisted bootstrap intent with the same token.
         session = json.loads(state_file.read_text())
-        from deploy import handoff
+        handoff = _imports_deploy_handoff
         handoff.restore(root, state_file, session)
         session['states']['A']['repairs'] = [{'classification': 'RUNTIME_BOOTSTRAP',
             'stage': 'BOOTSTRAP_INTENT', 'clientRequestToken': 'stable-bootstrap-token'}]
         handoff.save(state_file, session)
         runtime_resume[0] = True
         before = len(recovered)
-        assert invoke(['--resume']) == 0 and recovered[before:] == [('A', 'stable-bootstrap-token')]
+        assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ['--resume']) == 0 and recovered[before:] == [('A', 'stable-bootstrap-token')]
         assert not backends[-1].calls
         runtime_resume[0] = False
         # Project instructions remain part of the validation input boundary.
@@ -966,7 +1099,7 @@ def check_session_cli(tmp_path, monkeypatch):
         original_instructions = instructions.read_bytes() if instructions.exists() else None
         instructions.write_text("validation input " + str(len(orders)))
         prior = json.loads(state_file.read_text())["executionDigest"]
-        assert invoke(["--resume"]) == 2 and not backends[-1].calls
+        assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 2 and not backends[-1].calls
         assert json.loads(state_file.read_text())["executionDigest"] == prior
         if original_instructions is None:
             instructions.unlink()
@@ -977,30 +1110,64 @@ def check_session_cli(tmp_path, monkeypatch):
             state_file = base / f"sequential-{len(orders)}.json"
             argv[argv.index("--state") + 1] = str(state_file)
             before = snapshot_model(source)
-            assert invoke(["--sequential"]) == 0 and execution_limits[-1] == 1
+            assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--sequential"]) == 0 and execution_limits[-1] == 1
             assert snapshot_model(source) == before
             assert json.loads(state_file.read_text())["result"] == "COMPLETE"
-            assert invoke(["--resume", "--sequential"]) == 0 and not backends[-1].calls
-            assert invoke(["--resume"]) == 2  # Resume cannot expand the saved cap.
+            assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume", "--sequential"]) == 0 and not backends[-1].calls
+            assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 2  # Resume cannot expand the saved cap.
     # Explicit update handoff retains the older producer/consumer editing contract.
     contract.write_text(contract.read_text().replace("Infrastructure phase: `deploy`", "Infrastructure phase: `update`"))
     state_file = base / "update-handoff.json"
     argv[argv.index("--state") + 1] = str(state_file)
-    assert invoke(["--pause-after-group"]) == 0
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--pause-after-group"]) == 0
     session = json.loads(state_file.read_text())
     assert session["result"] == "GROUP_COMPLETE"
     assert all(session["states"][u["name"]]["observedSynced"] for u in selected[:4])
     pending = params / selected[4]["parameters"]
     pending.write_text('[{"ParameterKey":"Environment","ParameterValue":"dev"}]')
-    assert invoke(["--resume", "--pause-after-group"]) == 0
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume", "--pause-after-group"]) == 0
     session = json.loads(state_file.read_text())
     assert session["result"] == "COMPLETE" and "validationCount" not in session["metrics"]
     prepared = params / selected[0]["parameters"]
     prepared.write_text('[{"ParameterKey":"Changed","ParameterValue":"value"}]')
-    assert invoke(["--resume"]) == 2
+    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 2
+
+
+def _callback_check_parallel_and_restart_parallel_poll(barrier, poll, /, unit, snapshot):
+    barrier.wait()
+    return poll(unit, snapshot)
+
+
+def _callback_check_parallel_and_restart_sync(synced, /, backend, selected, saved):
+    synced.append([u["name"] for u in selected])
+    for unit in selected:
+        saved[unit["name"]]["observedSynced"] = True
+
+
+def _callback_check_parallel_and_restart_stack_poll(poll_barrier, /, unit, snapshot):
+    poll_barrier.wait()
+    return "CREATE_COMPLETE"
+
+
+def _callback_check_parallel_and_restart_interrupted(execute, /, unit, snapshot):
+    execute(unit, snapshot)
+    raise KeyboardInterrupt()
+
+
+def _callback_check_parallel_and_restart_controller_review(classify, controller_thread, /, unit, snapshot, change_set=None):
+    assert get_ident() == controller_thread, "approval decision escaped controller thread"
+    return classify(unit, snapshot, change_set)
+
+
+def _callback_check_parallel_and_restart_parallel_review(_state_check_parallel_and_restart_1131, review, review_barrier, /, unit, snapshot):
+    assert sum(op == "create_change_set" for op, _ in _state_check_parallel_and_restart_1131.backend.calls) == 4
+    if snapshot["status"] == "CHANGESET_CREATING":
+        review_barrier.wait()
+    return review(unit, snapshot)
 
 
 def check_parallel_and_restart():
+    _state_check_parallel_and_restart_1131 = _CallbackState()
     scoped = units(10, 10, 10, 10, 20, 20, 20, 20)
     sequential = Fake({"B": ["CREATE_FAILED"]})
     saved = {"states": states(scoped), "metrics": {"observedSyncSeconds": 0}}
@@ -1009,94 +1176,110 @@ def check_parallel_and_restart():
     assert sequential.peak == 1 and starts(sequential) == ["A", "B"]
     assert all(saved["states"][u["name"]]["status"] == "NOT_STARTED" for u in scoped[2:])
     state = states(scoped)
-    backend = Fake()
+    _state_check_parallel_and_restart_1131.backend = Fake()
     # Polls actually overlap. A barrier fails deterministically if they become serial.
     barrier = Barrier(4, timeout=3)
-    poll = backend.poll
-    def parallel_poll(unit, snapshot):
-        barrier.wait()
-        return poll(unit, snapshot)
-    backend.poll = parallel_poll
+    poll = _state_check_parallel_and_restart_1131.backend.poll
+    parallel_poll = _bind_framework_callback(_callback_check_parallel_and_restart_parallel_poll, barrier, poll)
+    _state_check_parallel_and_restart_1131.backend.poll = parallel_poll
     synced = []
-    def sync(backend, selected, saved):
-        synced.append([u["name"] for u in selected])
-        for unit in selected:
-            saved[unit["name"]]["observedSynced"] = True
+    sync = _bind_framework_callback(_callback_check_parallel_and_restart_sync, synced)
     session = {"states": state, "metrics": {"observedSyncSeconds": 0}}
     with patch.object(M.session_ops, "sync_successful", side_effect=sync):
-        assert M.session_ops.run_session(scoped, 4, session, backend, lambda: None, sleep=lambda _: None) == "COMPLETE"
-    assert backend.peak == 4 and synced == [["A", "B", "C", "D"], ["E", "F", "G", "H"]]
+        assert M.session_ops.run_session(scoped, 4, session, _state_check_parallel_and_restart_1131.backend, lambda: None, sleep=lambda _: None) == "COMPLETE"
+    assert _state_check_parallel_and_restart_1131.backend.peak == 4 and synced == [["A", "B", "C", "D"], ["E", "F", "G", "H"]]
     assert session["metrics"]["deployOrderCount"] == 2
-    assert starts(backend) == [u["name"] for u in scoped]
-    first_poll = next(i for i, e in enumerate(backend.events) if e[0] == "poll")
-    assert sum(e[0] == "start" for e in backend.events[:first_poll]) == 4
+    assert starts(_state_check_parallel_and_restart_1131.backend) == [u["name"] for u in scoped]
+    first_poll = next(i for i, e in enumerate(_state_check_parallel_and_restart_1131.backend.events) if e[0] == "poll")
+    assert sum(e[0] == "start" for e in _state_check_parallel_and_restart_1131.backend.events[:first_poll]) == 4
 
     # Nonblocking production preparation creates all change sets before the first wait.
-    backend = StubAws()
+    _state_check_parallel_and_restart_1131.backend = StubAws()
     selected = scoped[:4]
-    backend.templates = {u["name"]: ({}, {}) for u in selected}
+    _state_check_parallel_and_restart_1131.backend.templates = {u["name"]: ({}, {}) for u in selected}
     state = states(selected)
     poll_barrier, review_barrier = Barrier(4, timeout=3), Barrier(4, timeout=3)
-    review = backend.describe_change_set
-    def parallel_review(unit, snapshot):
-        assert sum(op == "create_change_set" for op, _ in backend.calls) == 4
-        if snapshot["status"] == "CHANGESET_CREATING":
-            review_barrier.wait()
-        return review(unit, snapshot)
-    backend.describe_change_set = parallel_review
-    controller_thread, classify = get_ident(), backend.review_prepared
-    def controller_review(unit, snapshot, change_set=None):
-        assert get_ident() == controller_thread, "approval decision escaped controller thread"
-        return classify(unit, snapshot, change_set)
-    backend.review_prepared = controller_review
-    def stack_poll(unit, snapshot):
-        poll_barrier.wait()
-        return "CREATE_COMPLETE"
-    backend.poll = stack_poll
-    assert scheduler.run_group(selected, 4, state, backend, sleep=lambda _: None) == "GROUP_COMPLETE"
-    assert sum(op == "execute_change_set" for op, _ in backend.calls) == 4
+    review = _state_check_parallel_and_restart_1131.backend.describe_change_set
+    parallel_review = _bind_framework_callback(_callback_check_parallel_and_restart_parallel_review, _state_check_parallel_and_restart_1131, review, review_barrier)
+    _state_check_parallel_and_restart_1131.backend.describe_change_set = parallel_review
+    controller_thread, classify = get_ident(), _state_check_parallel_and_restart_1131.backend.review_prepared
+    controller_review = _bind_framework_callback(_callback_check_parallel_and_restart_controller_review, classify, controller_thread)
+    _state_check_parallel_and_restart_1131.backend.review_prepared = controller_review
+    stack_poll = _bind_framework_callback(_callback_check_parallel_and_restart_stack_poll, poll_barrier)
+    _state_check_parallel_and_restart_1131.backend.poll = stack_poll
+    assert scheduler.run_group(selected, 4, state, _state_check_parallel_and_restart_1131.backend, sleep=lambda _: None) == "GROUP_COMPLETE"
+    assert sum(op == "execute_change_set" for op, _ in _state_check_parallel_and_restart_1131.backend.calls) == 4
 
     # Interruption after submitting one stack, while its peer is prepared but unexecuted.
     selected = units(10, 10)
-    state, backend = states(selected), Fake()
-    execute = backend.execute
-    def interrupted(unit, snapshot):
-        execute(unit, snapshot)
-        raise KeyboardInterrupt()
-    backend.execute = interrupted
+    state, _state_check_parallel_and_restart_1131.backend = states(selected), Fake()
+    execute = _state_check_parallel_and_restart_1131.backend.execute
+    interrupted = _bind_framework_callback(_callback_check_parallel_and_restart_interrupted, execute)
+    _state_check_parallel_and_restart_1131.backend.execute = interrupted
     with pytest.raises(KeyboardInterrupt):
-        scheduler.run_group(selected, 2, state, backend, sleep=lambda _: None)
+        scheduler.run_group(selected, 2, state, _state_check_parallel_and_restart_1131.backend, sleep=lambda _: None)
     assert state["A"]["status"] == "RUNNING" and state["B"]["status"] == "READY"
-    backend.execute = execute
-    assert finish(selected, 2, state, backend) == "COMPLETE"
-    assert starts(backend) == ["A", "B"]  # A was polled, never redeployed.
+    _state_check_parallel_and_restart_1131.backend.execute = execute
+    assert finish(selected, 2, state, _state_check_parallel_and_restart_1131.backend) == "COMPLETE"
+    assert starts(_state_check_parallel_and_restart_1131.backend) == ["A", "B"]  # A was polled, never redeployed.
 
     # Observed failure during restart also drains peers; it never leaves a RUNNING stack unobserved.
     state = {"A": {"status": "SUCCESS"}, "B": {"status": "RUNNING"}}
-    backend = Fake({"B": ["CREATE_IN_PROGRESS", "CREATE_COMPLETE"]})
-    backend.running = {"B"}
+    _state_check_parallel_and_restart_1131.backend = Fake({"B": ["CREATE_IN_PROGRESS", "CREATE_COMPLETE"]})
+    _state_check_parallel_and_restart_1131.backend.running = {"B"}
     session = {"states": state, "metrics": {"observedSyncSeconds": 0}}
     with patch.object(M.session_ops, "sync_successful", side_effect=ValueError("AMBIGUOUS_OBSERVED_MAPPING")):
-        assert M.session_ops.run_session(selected, 2, session, backend, lambda: None, sleep=lambda _: None) == "STOPPED"
-    assert state["B"]["status"] == "SUCCESS" and not backend.running and not starts(backend)
+        assert M.session_ops.run_session(selected, 2, session, _state_check_parallel_and_restart_1131.backend, lambda: None, sleep=lambda _: None) == "STOPPED"
+    assert state["B"]["status"] == "SUCCESS" and not _state_check_parallel_and_restart_1131.backend.running and not starts(_state_check_parallel_and_restart_1131.backend)
     assert session["observedError"] == "AMBIGUOUS_OBSERVED_MAPPING"
 
 
 def check_api_timing(tmp_path):
-    from deploy.timing import Timing
-    from utils.aws import cloudformation as cfn
-    from utils.aws.client import AwsError
     path = tmp_path / 'timing.jsonl'
     backend = Runtime(ROOT, 'dev', '123456789012', TARGET)
     backend.timing = Timing(ROOT, path)
     with patch.object(cfn, 'describe_stacks', return_value={'Stacks': []}):
         assert backend.aws('describe_stacks', StackName='private-stack') == {'Stacks': []}
     with patch.object(cfn, 'describe_stacks', side_effect=AwsError('cloudformation', 'describe_stacks', 'ReadTimeoutError')):
-        with pytest.raises(M.Blocked): backend.aws('describe_stacks', StackName='private-stack')
+        with pytest.raises(M.Blocked):
+            backend.aws('describe_stacks', StackName='private-stack')
     events = [json.loads(line) for line in path.read_text().splitlines()]
     assert [e['result'] for e in events] == ['PASS', 'FAIL']
     assert all(e['phase'] == 'awsApi' and e['seconds'] >= 0 for e in events)
     assert 'private-stack' not in path.read_text() and 'Stacks' not in path.read_text()
+
+
+
+
+
+
+
+
+
+
+def _check_controlled_repair_rejects(call, message):
+    try:
+        call()
+    except M.Blocked as error:
+        assert message in str(error)
+    else:
+        raise AssertionError(message)
+
+
+def _check_controlled_repair_failed_without_id(operation, **args):
+    if operation == 'describe_stacks':
+        return {'Stacks': [{'StackId': 'id', 'StackStatus': 'ROLLBACK_COMPLETE'}]}
+    return {'StackResourceSummaries': [{'LogicalResourceId': 'Item', 'ResourceType': 'AWS::EC2::VPC', 'ResourceStatus': 'CREATE_FAILED'}]}
+
+
+def _check_controlled_repair_protected(operation, **args):
+    return {'Stacks': [{'StackId': 'id', 'StackStatus': 'ROLLBACK_COMPLETE', 'EnableTerminationProtection': True}]}
+
+
+def _check_controlled_repair_partial_asset(operation, **args):
+    if operation == 'describe_stacks':
+        return {'Stacks': [{'StackId': 'id', 'StackStatus': 'ROLLBACK_COMPLETE'}]}
+    return {'StackResourceSummaries': [{'LogicalResourceId': 'Item', 'ResourceType': 'AWS::EC2::VPC', 'ResourceStatus': 'CREATE_FAILED', 'PhysicalResourceId': 'vpc-existing'}]}
 
 
 def check_controlled_repair(tmp_path):
@@ -1116,35 +1299,20 @@ def check_controlled_repair(tmp_path):
     assert state['failureClassification'] == 'NEEDS_DIAGNOSIS'
     for removed in ('repair_plan', 'apply_candidate', 'resume_candidate', 'repair_template'):
         assert not hasattr(M.repair_ops, removed)
-    def rejects(call, message):
-        try:
-            call()
-        except M.Blocked as error:
-            assert message in str(error)
-        else:
-            raise AssertionError(message)
+    rejects = _check_controlled_repair_rejects
     # Unknown provenance and retained resource conditions are checked before delete.
     state.update(stackStatus='ROLLBACK_COMPLETE', operationType='CREATE', absentBeforeCreate=True, stackId='id', operationStackId='other')
-    def failed_without_id(operation, **args):
-        if operation == 'describe_stacks':
-            return {'Stacks': [{'StackId': 'id', 'StackStatus': 'ROLLBACK_COMPLETE'}]}
-        return {'StackResourceSummaries': [{'LogicalResourceId': 'Item', 'ResourceType': 'AWS::EC2::VPC',
-                                            'ResourceStatus': 'CREATE_FAILED'}]}
+    failed_without_id = _check_controlled_repair_failed_without_id
     backend.aws = failed_without_id
     rejects(lambda: backend.cleanup_failed_create(unit, state), 'provenance')
     state['operationStackId'] = 'id'
     backend.templates['A'][0]['Resources']['Item']['DeletionPolicy'] = 'Retain'
     rejects(lambda: backend.cleanup_failed_create(unit, state), 'retained')
     backend.templates['A'][0]['Resources']['Item'].pop('DeletionPolicy')
-    def protected(operation, **args):
-        return {'Stacks': [{'StackId': 'id', 'StackStatus': 'ROLLBACK_COMPLETE', 'EnableTerminationProtection': True}]}
+    protected = _check_controlled_repair_protected
     backend.aws = protected
     rejects(lambda: backend.cleanup_failed_create(unit, state), 'protected')
-    def partial_asset(operation, **args):
-        if operation == 'describe_stacks':
-            return {'Stacks': [{'StackId': 'id', 'StackStatus': 'ROLLBACK_COMPLETE'}]}
-        return {'StackResourceSummaries': [{'LogicalResourceId': 'Item', 'ResourceType': 'AWS::EC2::VPC',
-                                            'ResourceStatus': 'CREATE_FAILED', 'PhysicalResourceId': 'vpc-existing'}]}
+    partial_asset = _check_controlled_repair_partial_asset
     backend.aws = partial_asset
     rejects(lambda: backend.cleanup_failed_create(unit, state), 'still owns resources')
     # Cleanup authorization uses the failed input, even after a child removes Retain.
@@ -1155,9 +1323,243 @@ def check_controlled_repair(tmp_path):
     rejects(lambda: backend.cleanup_failed_create(unit, state), 'retained')
 
 
+
+
+
+
+def _check_secret_runtime_bootstrap_consumer_reference(key):
+    return {'Fn::Sub': ['{{resolve:secretsmanager:${Secret}:SecretString:' + key + '}}', {'Secret': {'Fn::ImportValue': 'SecretExport'}}]}
+
+
+def _check_secret_runtime_bootstrap_puts(f):
+    return [args for op, args in f.calls if op == 'put_secret_value']
+
+
+def _callback_check_secret_runtime_bootstrap_configure_save(session, session_path, /):
+    session_path.write_text(json.dumps(session), encoding='utf-8')
+
+
+def _callback_check_secret_runtime_bootstrap_configure_guard(before, /):
+    assert all(p.read_bytes() == data for p, data in before.items()), 'runtime bootstrap changed repository inputs'
+
+
+def _callback_check_secret_runtime_bootstrap_configure_synced(syncs, /, _backend, items, saved):
+    for item in items:
+        syncs.append(item['name'])
+        saved[item['name']]['observedSynced'] = True
+
+
+def _callback_check_secret_runtime_bootstrap_staging_only(f, original, /, operation, **args):
+    result = original(operation, **args)
+    if operation == 'put_secret_value':
+        for v in f.versions.values():
+            if 'AWSCURRENT' in v:
+                v.remove('AWSCURRENT')
+    return result
+
+
+def _callback_check_secret_runtime_bootstrap_configure_aws(arn, calls, create, docs, executed, guard, knobs, repeated, session, session_path, stack_ids, statuses, tokens, versions, /, operation, service='cloudformation', **args):
+    calls.append((operation, args))
+    if service == 'secretsmanager':
+        if operation == 'describe_secret':
+            if knobs['describeError']:
+                raise M.Blocked('ResourceNotFoundException')
+            return {'ARN': knobs['canonicalArn'], 'Name': 'app-dev-secret', 'RotationEnabled': knobs['rotation'],
+                    'VersionIdsToStages': {k: list(v) for k, v in versions.items() if v}}
+        if operation == 'list_secret_version_ids':
+            if knobs['listError']:
+                raise M.Blocked('AccessDeniedException')
+            if knobs['invalidVersionResponse']:
+                return {}
+            return {'ARN': arn, 'Versions': [{'VersionId': k, 'VersionStages': v} for k, v in versions.items()]}
+        if operation == 'get_secret_value':
+            assert 'SecretString' not in args and 'Query' not in args
+            if knobs['getError']:
+                raise M.Blocked(knobs['getError'])
+            current = [k for k, v in versions.items() if 'AWSCURRENT' in v]
+            if not current:
+                error = M.Blocked('current version missing')
+                error.current_missing = True
+                raise error
+            return {'ARN': arn, 'VersionId': current[0], 'VersionStages': versions[current[0]], 'HasValue': True}
+        if operation == 'put_secret_value':
+            guard()
+            saved = json.loads(session_path.read_text())['states']['B']['repairs'][-1]
+            assert saved['classification'] == 'RUNTIME_BOOTSTRAP' and saved['stage'] == 'PUT_SUBMITTED'
+            token = args['ClientRequestToken']
+            assert saved['clientRequestToken'] == token
+            assert session['states']['A']['observedSynced'], 'successful peers must sync before PUT'
+            if knobs['race']:
+                versions['external-version'] = ['AWSCURRENT']
+            stages = list(args['VersionStages'])
+            if not versions:
+                stages.append('AWSCURRENT')
+            versions.setdefault(token, stages)
+            if knobs['interruptPut']:
+                raise KeyboardInterrupt()
+            return {'ARN': arn, 'VersionId': token, 'VersionStages': versions[token]}
+        if operation == 'update_secret_version_stage':
+            guard()
+            assert '--remove-from-version-id' not in args
+            if knobs['promotionRace']:
+                versions['external-version'] = ['AWSCURRENT']
+            if any('AWSCURRENT' in v for v in versions.values()):
+                raise M.Blocked('stage already exists')
+            versions[args['MoveToVersionId']].append('AWSCURRENT')
+            return {'ARN': arn, 'Name': 'app-dev-secret'}
+        raise AssertionError(operation)
+    name = args['StackName'] if 'StackName' in args else 'B'
+    name = name.split(':stack/')[-1].split('/')[0]
+    if operation == 'list_exports':
+        return {'Exports': [{'Name': 'SecretExport', 'Value': arn, 'ExportingStackId': stack_ids['SecretOwner']}]}
+    if operation == 'list_stack_resources':
+        if name == 'FutureSecretOwner' and statuses[name] is None:
+            raise M.Blocked('stack does not exist')
+        return {'StackResourceSummaries': ([{'LogicalResourceId': 'Secret', 'ResourceType': 'AWS::SecretsManager::Secret',
+            'ResourceStatus': 'CREATE_COMPLETE', 'PhysicalResourceId': knobs['ownerArn']}] if name == 'SecretOwner' else
+            [{'LogicalResourceId': 'Consumer', 'ResourceType': 'AWS::QuickSight::DataSource', 'ResourceStatus': 'DELETE_SKIPPED'}]
+            if knobs['unsafeCleanup'] else [])}
+    if operation == 'get_template':
+        return {'TemplateBody': docs[name]}
+    if operation == 'describe_stacks':
+        if statuses[name] is None:
+            raise M.Blocked('stack does not exist')
+        return {'Stacks': [{'StackId': stack_ids[name], 'StackStatus': statuses[name], 'Parameters': []}]}
+    if operation == 'create_change_set':
+        return {'Id': args['ChangeSetName'], 'StackId': stack_ids[name]}
+    if operation == 'describe_change_set':
+        return {'Status': 'CREATE_COMPLETE', 'ExecutionStatus': 'AVAILABLE', 'Changes': [], 'ChangeSetId': args['ChangeSetName'], 'StackId': stack_ids[name]}
+    if operation == 'execute_change_set':
+        executed.append(name)
+        tokens[name] = args['ClientRequestToken']
+        failing = name == 'B' and (executed.count('B') == 1 or repeated)
+        statuses[name] = ('ROLLBACK_COMPLETE' if create else 'UPDATE_ROLLBACK_COMPLETE') if failing else 'CREATE_COMPLETE'
+        return {}
+    if operation == 'describe_stack_events':
+        events = [{'ResourceType': 'AWS::CloudFormation::Stack', 'ClientRequestToken': tokens[name],
+                   'ResourceStatus': statuses[name], 'StackId': stack_ids[name]}]
+        if 'ROLLBACK' in statuses[name]:
+            events.append({'LogicalResourceId': 'Consumer', 'ResourceType': 'AWS::QuickSight::DataSource',
+                'ResourceStatus': 'CREATE_FAILED', 'ClientRequestToken': tokens[name],
+                'ResourceStatusReason': "Secrets Manager can't find the specified secret value for staging label: AWSCURRENT"})
+        return {'StackEvents': events}
+    if operation == 'delete_stack':
+        assert args == {'StackName': stack_ids['B']}
+        statuses[name] = None
+        return {}
+    if operation == 'validate_template':
+        return {}
+    raise AssertionError(operation)
+
+
+def _callback_check_secret_runtime_bootstrap_concurrent_value(_state_check_secret_runtime_bootstrap_1420, /):
+    _state_check_secret_runtime_bootstrap_1420.save()
+    if _state_check_secret_runtime_bootstrap_1420.state.get('repairs') and _state_check_secret_runtime_bootstrap_1420.state['repairs'][-1]['stage'] == 'VALUE_CHECKED_MISSING':
+        _state_check_secret_runtime_bootstrap_1420.f.versions['external-version'] = ['AWSCURRENT']
+
+
+def _callback_check_secret_runtime_bootstrap_interrupted(_state_check_secret_runtime_bootstrap_1420, /):
+    _state_check_secret_runtime_bootstrap_1420.save()
+    records = _state_check_secret_runtime_bootstrap_1420.state.get('repairs', [])
+    if records and records[-1]['stage'] == _state_check_secret_runtime_bootstrap_1420.boundary:
+        raise KeyboardInterrupt()
+
+
+def _callback_check_secret_runtime_bootstrap_configure_validate(active, backend, root, validations, /, unit):
+    validations.append(unit['name'])
+    backend.load_inputs(unit)
+    backend.mapping_plan = mappings(root, 'dev', '123456789012', backend.templates, active, target=TARGET)
+
+
+def _callback_check_secret_runtime_bootstrap_configure_run(active, backend, session, synced, /):
+    with patch.object(M.session_ops, 'sync_successful', side_effect=synced):
+        return M.session_ops.run_session(active, 2, session, backend, backend.save, sleep=lambda _: None)
+
+
+def _callback_check_secret_runtime_bootstrap_configure_failed(backend, create, session, stack_ids, statuses, /):
+    state = session['states']['B']
+    statuses['B'] = 'ROLLBACK_COMPLETE' if create else 'UPDATE_ROLLBACK_COMPLETE'
+    state.update(status='FAILED', stackStatus=statuses['B'], stackId=stack_ids['B'],
+        failureEvents=[{'LogicalResourceId': 'Consumer', 'ResourceType': 'AWS::QuickSight::DataSource',
+                        'ResourceStatus': 'CREATE_FAILED', 'ResourceStatusReason': 'SECRET_CURRENT_VALUE_MISSING'}])
+    session['states']['A'].update(status='SUCCESS', observedSynced=True)
+    backend.save()
+    return state
+
+
+def _callback_check_secret_runtime_bootstrap_configure_1518(arn, base, consumer_reference, modeldir, parameter_dir, root, secret_model, secret_model_text, selected, source, stack_ids, template_dir, _default_keys, _default_create, _default_repeated, _default_future, /, *, keys=_CALLBACK_DEFAULT, create=_CALLBACK_DEFAULT, repeated=_CALLBACK_DEFAULT, future=_CALLBACK_DEFAULT):
+    if keys is _CALLBACK_DEFAULT:
+        keys = _default_keys
+    if create is _CALLBACK_DEFAULT:
+        create = _default_create
+    if repeated is _CALLBACK_DEFAULT:
+        repeated = _default_repeated
+    if future is _CALLBACK_DEFAULT:
+        future = _default_future
+    active = selected + ([dict(name='FutureSecretOwner', template='future.yaml', parameters='future.json', deployOrder='4')] if future else [])
+    future_values = properties(secret_model_text)
+    if future:
+        future_values.update({'desired.resource.002.resourceType': 'SecretsManager.Secret',
+                              'desired.resource.002.cfn-logicalId': 'FutureSecretOwner-OtherSecret',
+                              'display.resource.002.label': 'other'})
+        future_values = allocate(future_values, ['002'])
+    write_model(secret_model, future_values)
+    write_model(modeldir / 'cloudformation-stacks.properties', '\n'.join(
+        f'desired.stack.{i:03d}.{key}={value}' for i, u in enumerate(active, 1) for key, value in u.items()))
+    consumer = {'Resources': {'Consumer': {'Type': 'AWS::QuickSight::DataSource', 'Properties': {
+        'AwsAccountId': '123456789012', 'DataSourceId': 'app-dev-source', 'Name': 'app-dev-source', 'Type': 'POSTGRESQL',
+        'DataSourceParameters': {'PostgreSqlParameters': {'Host': 'db.example', 'Port': 5432, 'Database': 'app'}},
+        'Credentials': {'CredentialPair': {'Username': consumer_reference(keys[0]), 'Password': consumer_reference(keys[-1])}}}}}}
+    docs = {'SecretOwner': json.loads(json.dumps(source)), 'A': {'Resources': {}}, 'B': consumer, 'C': {'Resources': {}}}
+    if future:
+        docs['FutureSecretOwner'] = {'Resources': {'OtherSecret': {'Type': 'AWS::SecretsManager::Secret'}}}
+    for name, doc in docs.items():
+        u = next(u for u in active if u['name'] == name)
+        (template_dir / u['template']).write_text(json.dumps(doc), encoding='utf-8')
+        (parameter_dir / u['parameters']).write_text('[]\n', encoding='utf-8')
+    backend = Runtime(root, 'dev', '123456789012', TARGET)
+    backend.units = active
+    for unit in active:
+        backend.load_inputs(unit)
+    backend.mapping_plan = mappings(root, 'dev', '123456789012', backend.templates, active, target=TARGET)
+    session = {'states': states(active), 'metrics': {'observedSyncSeconds': 0},
+               'unitDigests': {u['name']: backend.input_digest(u) for u in active}}
+    session['states']['SecretOwner'].update(status='SUCCESS', stackId=stack_ids['SecretOwner'], observedSynced=True)
+    backend.states = session['states']
+    backend.session = session
+    backend.expected_digests = session['unitDigests']
+    backend.validated_digests = dict(session['unitDigests'])
+    calls, executed, validations, syncs = [], [], [], []
+    versions = {}
+    knobs = {'getError': None, 'describeError': False, 'listError': False,
+             'canonicalArn': arn, 'ownerArn': arn, 'rotation': False, 'race': False, 'promotionRace': False,
+             'interruptPut': False, 'invalidVersionResponse': False, 'unsafeCleanup': False}
+    statuses = {'SecretOwner': 'CREATE_COMPLETE', 'A': None, 'B': None if create else 'UPDATE_COMPLETE', 'C': None}
+    if future:
+        statuses['FutureSecretOwner'] = None
+        stack_ids['FutureSecretOwner'] = 'arn:aws:cloudformation:ap-northeast-1:123456789012:stack/FutureSecretOwner/session-id'
+    tokens = {}
+    session_path = base / 'session.json'
+    save = _bind_framework_callback(_callback_check_secret_runtime_bootstrap_configure_save, session, session_path)
+    backend.save = save
+    before = {p: p.read_bytes() for parent in (root / 'infra', modeldir) for p in parent.rglob('*') if p.is_file()}
+    guard = _bind_framework_callback(_callback_check_secret_runtime_bootstrap_configure_guard, before)
+    backend.guard = guard
+    aws = _bind_framework_callback(_callback_check_secret_runtime_bootstrap_configure_aws, arn, calls, create, docs, executed, guard, knobs, repeated, session, session_path, stack_ids, statuses, tokens, versions)
+    backend.aws = aws
+    validate = _bind_framework_callback(_callback_check_secret_runtime_bootstrap_configure_validate, active, backend, root, validations)
+    backend.refresh_validation = validate
+    synced = _bind_framework_callback(_callback_check_secret_runtime_bootstrap_configure_synced, syncs)
+    run = _bind_framework_callback(_callback_check_secret_runtime_bootstrap_configure_run, active, backend, session, synced)
+    failed = _bind_framework_callback(_callback_check_secret_runtime_bootstrap_configure_failed, backend, create, session, stack_ids, statuses)
+    save()
+    return SimpleNamespace(backend=backend, session=session, calls=calls, executed=executed, validations=validations,
+        syncs=syncs, versions=versions, knobs=knobs, docs=docs, run=run, failed=failed, saved=session_path, before=before)
+
+
 def check_secret_runtime_bootstrap(tmp_path):
     """Requested Cases 1-13 exercise the controller, ownership mappings and durable resumes."""
-    from model.adapters.observed import mappings
+    _state_check_secret_runtime_bootstrap_1420 = _CallbackState()
     base = tmp_path
     root = base / 'repo'
     root.mkdir()
@@ -1168,8 +1570,10 @@ def check_secret_runtime_bootstrap(tmp_path):
                 for name, order in [('SecretOwner', 1), ('A', 2), ('B', 2), ('C', 3)]]
     template_dir = root / 'infra/cloudformation/templates'
     parameter_dir = root / 'infra/cloudformation/parameters/dev/123456789012'
-    template_dir.mkdir(parents=True); parameter_dir.mkdir(parents=True)
-    task = root / 'tasks/example.md'; task.parent.mkdir()
+    template_dir.mkdir(parents=True)
+    parameter_dir.mkdir(parents=True)
+    task = root / 'tasks/example.md'
+    task.parent.mkdir()
     task.write_text('\n'.join(['## Task contract', '- Task type: `infrastructure`', '- Task status: `running`', '- Infrastructure phase: `deploy`', '- Runtime recovery: `allowed`', '- AWS API execution: `allowed`', '- Deploy/apply: `allowed`',
         '## Validation scope', '- `dev/123456789012/secretsmanager`', '- `dev/123456789012/quicksight`',
         '## Modified files', '- `tasks/example.md`', '## Allowed paths', '- `tasks/example.md`']), encoding='utf-8')
@@ -1184,326 +1588,189 @@ def check_secret_runtime_bootstrap(tmp_path):
     stack_ids = {u['name']: f"arn:aws:cloudformation:ap-northeast-1:123456789012:stack/{u['name']}/session-id" for u in selected}
     source = {'Resources': {'Secret': {'Type': 'AWS::SecretsManager::Secret', 'Properties': {'Name': 'app-dev-secret'}}},
               'Outputs': {'SecretId': {'Value': {'Ref': 'Secret'}, 'Export': {'Name': 'SecretExport'}}}}
-    def consumer_reference(key):
-        return {'Fn::Sub': ['{{resolve:secretsmanager:${Secret}:SecretString:' + key + '}}',
-                           {'Secret': {'Fn::ImportValue': 'SecretExport'}}]}
+    consumer_reference = _check_secret_runtime_bootstrap_consumer_reference
     secret_model = modeldir / 'secretsmanager.properties'
     secret_model_text = read_model(secret_model)
-    def configure(*, keys=('username', 'password'), create=True, repeated=False, future=False):
-        active = selected + ([dict(name='FutureSecretOwner', template='future.yaml', parameters='future.json', deployOrder='4')] if future else [])
-        future_values = properties(secret_model_text)
-        if future:
-            future_values.update({'desired.resource.002.resourceType': 'SecretsManager.Secret',
-                                  'desired.resource.002.cfn-logicalId': 'FutureSecretOwner-OtherSecret',
-                                  'display.resource.002.label': 'other'})
-            future_values = allocate(future_values, ['002'])
-        write_model(secret_model, future_values)
-        write_model(modeldir / 'cloudformation-stacks.properties', '\n'.join(
-            f'desired.stack.{i:03d}.{key}={value}' for i, u in enumerate(active, 1) for key, value in u.items()))
-        consumer = {'Resources': {'Consumer': {'Type': 'AWS::QuickSight::DataSource', 'Properties': {
-            'AwsAccountId': '123456789012', 'DataSourceId': 'app-dev-source', 'Name': 'app-dev-source', 'Type': 'POSTGRESQL',
-            'DataSourceParameters': {'PostgreSqlParameters': {'Host': 'db.example', 'Port': 5432, 'Database': 'app'}},
-            'Credentials': {'CredentialPair': {'Username': consumer_reference(keys[0]), 'Password': consumer_reference(keys[-1])}}}}}}
-        docs = {'SecretOwner': json.loads(json.dumps(source)), 'A': {'Resources': {}}, 'B': consumer, 'C': {'Resources': {}}}
-        if future:
-            docs['FutureSecretOwner'] = {'Resources': {'OtherSecret': {'Type': 'AWS::SecretsManager::Secret'}}}
-        for name, doc in docs.items():
-            u = next(u for u in active if u['name'] == name)
-            (template_dir / u['template']).write_text(json.dumps(doc), encoding='utf-8')
-            (parameter_dir / u['parameters']).write_text('[]\n', encoding='utf-8')
-        backend = Runtime(root, 'dev', '123456789012', TARGET)
-        backend.units = active
-        for unit in active:
-            backend.load_inputs(unit)
-        backend.mapping_plan = mappings(root, 'dev', '123456789012', backend.templates, active, target=TARGET)
-        session = {'states': states(active), 'metrics': {'observedSyncSeconds': 0},
-                   'unitDigests': {u['name']: backend.input_digest(u) for u in active}}
-        session['states']['SecretOwner'].update(status='SUCCESS', stackId=stack_ids['SecretOwner'], observedSynced=True)
-        backend.states = session['states']; backend.session = session
-        backend.expected_digests = session['unitDigests']; backend.validated_digests = dict(session['unitDigests'])
-        calls, executed, validations, syncs = [], [], [], []
-        versions = {}
-        knobs = {'getError': None, 'describeError': False, 'listError': False,
-                 'canonicalArn': arn, 'ownerArn': arn, 'rotation': False, 'race': False, 'promotionRace': False,
-                 'interruptPut': False, 'invalidVersionResponse': False, 'unsafeCleanup': False}
-        statuses = {'SecretOwner': 'CREATE_COMPLETE', 'A': None, 'B': None if create else 'UPDATE_COMPLETE', 'C': None}
-        if future:
-            statuses['FutureSecretOwner'] = None
-            stack_ids['FutureSecretOwner'] = 'arn:aws:cloudformation:ap-northeast-1:123456789012:stack/FutureSecretOwner/session-id'
-        tokens = {}
-        session_path = base / 'session.json'
-        def save():
-            session_path.write_text(json.dumps(session), encoding='utf-8')
-        backend.save = save
-        before = {p: p.read_bytes() for parent in (root / 'infra', modeldir) for p in parent.rglob('*') if p.is_file()}
-        def guard():
-            assert all(p.read_bytes() == data for p, data in before.items()), 'runtime bootstrap changed repository inputs'
-        backend.guard = guard
-        def aws(operation, service='cloudformation', **args):
-            calls.append((operation, args))
-            if service == 'secretsmanager':
-                if operation == 'describe_secret':
-                    if knobs['describeError']:
-                        raise M.Blocked('ResourceNotFoundException')
-                    return {'ARN': knobs['canonicalArn'], 'Name': 'app-dev-secret', 'RotationEnabled': knobs['rotation'],
-                            'VersionIdsToStages': {k: list(v) for k, v in versions.items() if v}}
-                if operation == 'list_secret_version_ids':
-                    if knobs['listError']:
-                        raise M.Blocked('AccessDeniedException')
-                    if knobs['invalidVersionResponse']:
-                        return {}
-                    return {'ARN': arn, 'Versions': [{'VersionId': k, 'VersionStages': v} for k, v in versions.items()]}
-                if operation == 'get_secret_value':
-                    assert 'SecretString' not in args and 'Query' not in args
-                    if knobs['getError']:
-                        raise M.Blocked(knobs['getError'])
-                    current = [k for k, v in versions.items() if 'AWSCURRENT' in v]
-                    if not current:
-                        error = M.Blocked('current version missing'); error.current_missing = True
-                        raise error
-                    return {'ARN': arn, 'VersionId': current[0], 'VersionStages': versions[current[0]], 'HasValue': True}
-                if operation == 'put_secret_value':
-                    guard()
-                    saved = json.loads(session_path.read_text())['states']['B']['repairs'][-1]
-                    assert saved['classification'] == 'RUNTIME_BOOTSTRAP' and saved['stage'] == 'PUT_SUBMITTED'
-                    token = args['ClientRequestToken']
-                    assert saved['clientRequestToken'] == token
-                    assert session['states']['A']['observedSynced'], 'successful peers must sync before PUT'
-                    if knobs['race']:
-                        versions['external-version'] = ['AWSCURRENT']
-                    stages = list(args['VersionStages'])
-                    if not versions:
-                        stages.append('AWSCURRENT')
-                    versions.setdefault(token, stages)
-                    if knobs['interruptPut']:
-                        raise KeyboardInterrupt()
-                    return {'ARN': arn, 'VersionId': token, 'VersionStages': versions[token]}
-                if operation == 'update_secret_version_stage':
-                    guard()
-                    assert '--remove-from-version-id' not in args
-                    if knobs['promotionRace']:
-                        versions['external-version'] = ['AWSCURRENT']
-                    if any('AWSCURRENT' in v for v in versions.values()):
-                        raise M.Blocked('stage already exists')
-                    versions[args['MoveToVersionId']].append('AWSCURRENT')
-                    return {'ARN': arn, 'Name': 'app-dev-secret'}
-                raise AssertionError(operation)
-            name = args['StackName'] if 'StackName' in args else 'B'
-            name = name.split(':stack/')[-1].split('/')[0]
-            if operation == 'list_exports':
-                return {'Exports': [{'Name': 'SecretExport', 'Value': arn, 'ExportingStackId': stack_ids['SecretOwner']}]}
-            if operation == 'list_stack_resources':
-                if name == 'FutureSecretOwner' and statuses[name] is None:
-                    raise M.Blocked('stack does not exist')
-                return {'StackResourceSummaries': ([{'LogicalResourceId': 'Secret', 'ResourceType': 'AWS::SecretsManager::Secret',
-                    'ResourceStatus': 'CREATE_COMPLETE', 'PhysicalResourceId': knobs['ownerArn']}] if name == 'SecretOwner' else
-                    [{'LogicalResourceId': 'Consumer', 'ResourceType': 'AWS::QuickSight::DataSource', 'ResourceStatus': 'DELETE_SKIPPED'}]
-                    if knobs['unsafeCleanup'] else [])}
-            if operation == 'get_template':
-                return {'TemplateBody': docs[name]}
-            if operation == 'describe_stacks':
-                if statuses[name] is None:
-                    raise M.Blocked('stack does not exist')
-                return {'Stacks': [{'StackId': stack_ids[name], 'StackStatus': statuses[name], 'Parameters': []}]}
-            if operation == 'create_change_set':
-                return {'Id': args['ChangeSetName'], 'StackId': stack_ids[name]}
-            if operation == 'describe_change_set':
-                return {'Status': 'CREATE_COMPLETE', 'ExecutionStatus': 'AVAILABLE', 'Changes': [], 'ChangeSetId': args['ChangeSetName'], 'StackId': stack_ids[name]}
-            if operation == 'execute_change_set':
-                executed.append(name); tokens[name] = args['ClientRequestToken']
-                failing = name == 'B' and (executed.count('B') == 1 or repeated)
-                statuses[name] = ('ROLLBACK_COMPLETE' if create else 'UPDATE_ROLLBACK_COMPLETE') if failing else 'CREATE_COMPLETE'
-                return {}
-            if operation == 'describe_stack_events':
-                events = [{'ResourceType': 'AWS::CloudFormation::Stack', 'ClientRequestToken': tokens[name],
-                           'ResourceStatus': statuses[name], 'StackId': stack_ids[name]}]
-                if 'ROLLBACK' in statuses[name]:
-                    events.append({'LogicalResourceId': 'Consumer', 'ResourceType': 'AWS::QuickSight::DataSource',
-                        'ResourceStatus': 'CREATE_FAILED', 'ClientRequestToken': tokens[name],
-                        'ResourceStatusReason': "Secrets Manager can't find the specified secret value for staging label: AWSCURRENT"})
-                return {'StackEvents': events}
-            if operation == 'delete_stack':
-                assert args == {'StackName': stack_ids['B']}
-                statuses[name] = None; return {}
-            if operation == 'validate_template':
-                return {}
-            raise AssertionError(operation)
-        backend.aws = aws
-        def validate(unit):
-            validations.append(unit['name'])
-            backend.load_inputs(unit)
-            backend.mapping_plan = mappings(root, 'dev', '123456789012', backend.templates, active, target=TARGET)
-        backend.refresh_validation = validate
-        def synced(_backend, items, saved):
-            for item in items:
-                syncs.append(item['name']); saved[item['name']]['observedSynced'] = True
-        def run():
-            with patch.object(M.session_ops, 'sync_successful', side_effect=synced):
-                return M.session_ops.run_session(active, 2, session, backend, backend.save, sleep=lambda _: None)
-        def failed():
-            state = session['states']['B']
-            statuses['B'] = 'ROLLBACK_COMPLETE' if create else 'UPDATE_ROLLBACK_COMPLETE'
-            state.update(status='FAILED', stackStatus=statuses['B'], stackId=stack_ids['B'],
-                failureEvents=[{'LogicalResourceId': 'Consumer', 'ResourceType': 'AWS::QuickSight::DataSource',
-                                'ResourceStatus': 'CREATE_FAILED', 'ResourceStatusReason': 'SECRET_CURRENT_VALUE_MISSING'}])
-            session['states']['A'].update(status='SUCCESS', observedSynced=True)
-            backend.save()
-            return state
-        save()
-        return SimpleNamespace(backend=backend, session=session, calls=calls, executed=executed, validations=validations,
-            syncs=syncs, versions=versions, knobs=knobs, docs=docs, run=run, failed=failed, saved=session_path, before=before)
+    configure = _bind_framework_callback(_callback_check_secret_runtime_bootstrap_configure_1518, arn, base, consumer_reference, modeldir, parameter_dir, root, secret_model, secret_model_text, selected, source, stack_ids, template_dir, ('username', 'password'), True, False, False)
 
-    def puts(f):
-        return [args for op, args in f.calls if op == 'put_secret_value']
+    puts = _check_secret_runtime_bootstrap_puts
     # Cases 1, 8, 13: one JSON PUT, failed CREATE cleanup/retry, peer sync and original remaining order.
-    f = configure()
-    assert f.run() == 'COMPLETE', f.session
-    assert f.executed == ['A', 'B', 'B', 'C'] and f.validations == ['B'] and f.syncs.count('A') == 1
-    assert len(puts(f)) == 1
-    assert json.loads(puts(f)[0]['SecretString']) == {'username': 'DUMMY_DEPLOY_ONLY', 'password': 'DUMMY_DEPLOY_ONLY'}
-    entry = f.session['states']['B']['repairs'][0]
+    _state_check_secret_runtime_bootstrap_1420.f = configure()
+    assert _state_check_secret_runtime_bootstrap_1420.f.run() == 'COMPLETE', _state_check_secret_runtime_bootstrap_1420.f.session
+    assert _state_check_secret_runtime_bootstrap_1420.f.executed == ['A', 'B', 'B', 'C'] and _state_check_secret_runtime_bootstrap_1420.f.validations == ['B'] and _state_check_secret_runtime_bootstrap_1420.f.syncs.count('A') == 1
+    assert len(puts(_state_check_secret_runtime_bootstrap_1420.f)) == 1
+    assert json.loads(puts(_state_check_secret_runtime_bootstrap_1420.f)[0]['SecretString']) == {'username': 'DUMMY_DEPLOY_ONLY', 'password': 'DUMMY_DEPLOY_ONLY'}
+    entry = _state_check_secret_runtime_bootstrap_1420.f.session['states']['B']['repairs'][0]
     assert entry['classification'] == 'RUNTIME_BOOTSTRAP' and entry['stage'] == 'RETRY_READY'
     assert entry['requiredJsonKeys'] == ['password', 'username']
-    assert all(p.read_bytes() == data for p, data in f.before.items()) and 'DUMMY_DEPLOY_ONLY' not in f.saved.read_text()
-    assert 'SecretString' not in f.saved.read_text() and 'SecretBinary' not in f.saved.read_text()
+    assert all(p.read_bytes() == data for p, data in _state_check_secret_runtime_bootstrap_1420.f.before.items()) and 'DUMMY_DEPLOY_ONLY' not in _state_check_secret_runtime_bootstrap_1420.f.saved.read_text()
+    assert 'SecretString' not in _state_check_secret_runtime_bootstrap_1420.f.saved.read_text() and 'SecretBinary' not in _state_check_secret_runtime_bootstrap_1420.f.saved.read_text()
     # Later uncreated Secret producers do not block the proven current Secret's bootstrap.
-    f = configure(future=True)
-    assert f.run() == 'COMPLETE' and f.executed == ['A', 'B', 'B', 'C', 'FutureSecretOwner'], f.session
-    assert len(puts(f)) == 1 and not any(op == 'list_stack_resources' and args == ('--stack-name', 'FutureSecretOwner')
-                                        for op, args in f.calls)
+    _state_check_secret_runtime_bootstrap_1420.f = configure(future=True)
+    assert _state_check_secret_runtime_bootstrap_1420.f.run() == 'COMPLETE' and _state_check_secret_runtime_bootstrap_1420.f.executed == ['A', 'B', 'B', 'C', 'FutureSecretOwner'], _state_check_secret_runtime_bootstrap_1420.f.session
+    assert len(puts(_state_check_secret_runtime_bootstrap_1420.f)) == 1 and not any(op == 'list_stack_resources' and args == ('--stack-name', 'FutureSecretOwner')
+                                        for op, args in _state_check_secret_runtime_bootstrap_1420.f.calls)
     # Cases 2-7: existing value, denied reads/KMS, absent resource, IMPORT, foreign/unknown owner never PUT/cleanup.
     for mode in ('current', 'denied', 'kms', 'absent', 'import', 'crossAccount', 'crossRegion', 'unknownOwner', 'unknownVersions', 'invalidResponse', 'rotation', 'listDenied'):
-        f = configure(); state = f.failed()
-        if mode == 'current': f.versions['existing-version'] = ['AWSCURRENT']
-        if mode == 'denied': f.knobs['getError'] = 'AccessDeniedException'
-        if mode == 'kms': f.knobs['getError'] = 'DecryptionFailure'
-        if mode == 'absent': f.knobs['describeError'] = True
+        _state_check_secret_runtime_bootstrap_1420.f = configure()
+        _state_check_secret_runtime_bootstrap_1420.state = _state_check_secret_runtime_bootstrap_1420.f.failed()
+        if mode == 'current':
+            _state_check_secret_runtime_bootstrap_1420.f.versions['existing-version'] = ['AWSCURRENT']
+        if mode == 'denied':
+            _state_check_secret_runtime_bootstrap_1420.f.knobs['getError'] = 'AccessDeniedException'
+        if mode == 'kms':
+            _state_check_secret_runtime_bootstrap_1420.f.knobs['getError'] = 'DecryptionFailure'
+        if mode == 'absent':
+            _state_check_secret_runtime_bootstrap_1420.f.knobs['describeError'] = True
         if mode == 'import':
-            owner_path = f.backend.mapping_plan[1]['SecretOwner']['Secret'][0]
-            identity = f.backend.mapping_plan[1]['SecretOwner']['Secret'][1]
+            owner_path = _state_check_secret_runtime_bootstrap_1420.f.backend.mapping_plan[1]['SecretOwner']['Secret'][0]
+            identity = _state_check_secret_runtime_bootstrap_1420.f.backend.mapping_plan[1]['SecretOwner']['Secret'][1]
             write_model(owner_path, read_model(owner_path) + f'desired.resource.{identity}.resourceMode=IMPORT\n')
-            f.backend.guard = lambda: None
-        if mode == 'crossAccount': f.knobs['canonicalArn'] = arn.replace('123456789012', '999999999999')
-        if mode == 'crossRegion': f.knobs['canonicalArn'] = arn.replace('ap-northeast-1', 'us-east-1')
-        if mode == 'unknownOwner': f.knobs['ownerArn'] = 'external'
-        if mode == 'unknownVersions': f.versions['previous-version'] = ['AWSPREVIOUS']
-        if mode == 'invalidResponse': f.knobs['invalidVersionResponse'] = True
-        if mode == 'rotation': f.knobs['rotation'] = True
-        if mode == 'listDenied': f.knobs['listError'] = True
-        assert not f.backend.repair(selected[2], state), mode
-        assert state['failureClassification'] == 'HUMAN_REQUIRED' and not puts(f), (mode, state)
-        assert not any(op == 'delete_stack' for op, _ in f.calls), mode
+            _state_check_secret_runtime_bootstrap_1420.f.backend.guard = lambda: None
+        if mode == 'crossAccount':
+            _state_check_secret_runtime_bootstrap_1420.f.knobs['canonicalArn'] = arn.replace('123456789012', '999999999999')
+        if mode == 'crossRegion':
+            _state_check_secret_runtime_bootstrap_1420.f.knobs['canonicalArn'] = arn.replace('ap-northeast-1', 'us-east-1')
+        if mode == 'unknownOwner':
+            _state_check_secret_runtime_bootstrap_1420.f.knobs['ownerArn'] = 'external'
+        if mode == 'unknownVersions':
+            _state_check_secret_runtime_bootstrap_1420.f.versions['previous-version'] = ['AWSPREVIOUS']
+        if mode == 'invalidResponse':
+            _state_check_secret_runtime_bootstrap_1420.f.knobs['invalidVersionResponse'] = True
+        if mode == 'rotation':
+            _state_check_secret_runtime_bootstrap_1420.f.knobs['rotation'] = True
+        if mode == 'listDenied':
+            _state_check_secret_runtime_bootstrap_1420.f.knobs['listError'] = True
+        assert not _state_check_secret_runtime_bootstrap_1420.f.backend.repair(selected[2], _state_check_secret_runtime_bootstrap_1420.state), mode
+        assert _state_check_secret_runtime_bootstrap_1420.state['failureClassification'] == 'HUMAN_REQUIRED' and not puts(_state_check_secret_runtime_bootstrap_1420.f), (mode, _state_check_secret_runtime_bootstrap_1420.state)
+        assert not any(op == 'delete_stack' for op, _ in _state_check_secret_runtime_bootstrap_1420.f.calls), mode
     # Case 9: whole credential JSON/unknown special schema and mixed string/key consumers stop.
     for mode in ('opaque', 'mixed', 'pinned', 'multiple', 'unresolved', 'badExport', 'inactive'):
-        f = configure(); state = f.failed(); credential = f.docs['B']['Resources']['Consumer']['Properties']['Credentials']['CredentialPair']
+        _state_check_secret_runtime_bootstrap_1420.f = configure()
+        _state_check_secret_runtime_bootstrap_1420.state = _state_check_secret_runtime_bootstrap_1420.f.failed()
+        credential = _state_check_secret_runtime_bootstrap_1420.f.docs['B']['Resources']['Consumer']['Properties']['Credentials']['CredentialPair']
         if mode == 'opaque':
-            f.docs['B']['Resources']['Consumer']['Properties']['Credentials'] = consumer_reference('')
-        if mode == 'mixed': credential['Username'] = consumer_reference('')
-        if mode == 'pinned': credential['Username'] = consumer_reference('username:AWSPREVIOUS')
-        if mode == 'multiple': credential['Username'] = '{{resolve:secretsmanager:other:SecretString:username}}'
-        if mode == 'unresolved': credential['Username']['Fn::Sub'][1]['Secret'] = {'Ref': 'Unknown'}
-        if mode == 'badExport': f.docs['SecretOwner']['Outputs']['SecretId']['Value'] = 'unproven'
+            _state_check_secret_runtime_bootstrap_1420.f.docs['B']['Resources']['Consumer']['Properties']['Credentials'] = consumer_reference('')
+        if mode == 'mixed':
+            credential['Username'] = consumer_reference('')
+        if mode == 'pinned':
+            credential['Username'] = consumer_reference('username:AWSPREVIOUS')
+        if mode == 'multiple':
+            credential['Username'] = '{{resolve:secretsmanager:other:SecretString:username}}'
+        if mode == 'unresolved':
+            credential['Username']['Fn::Sub'][1]['Secret'] = {'Ref': 'Unknown'}
+        if mode == 'badExport':
+            _state_check_secret_runtime_bootstrap_1420.f.docs['SecretOwner']['Outputs']['SecretId']['Value'] = 'unproven'
         if mode == 'inactive':
-            f.docs['B']['Conditions'] = {'Off': {'Fn::Equals': ['yes', 'no']}}
-            f.docs['B']['Resources']['Consumer']['Condition'] = 'Off'
-        f.backend.templates['B'] = (f.docs['B'], {})
-        assert not f.backend.repair(selected[2], state) and not puts(f), (mode, state)
+            _state_check_secret_runtime_bootstrap_1420.f.docs['B']['Conditions'] = {'Off': {'Fn::Equals': ['yes', 'no']}}
+            _state_check_secret_runtime_bootstrap_1420.f.docs['B']['Resources']['Consumer']['Condition'] = 'Off'
+        _state_check_secret_runtime_bootstrap_1420.f.backend.templates['B'] = (_state_check_secret_runtime_bootstrap_1420.f.docs['B'], {})
+        assert not _state_check_secret_runtime_bootstrap_1420.f.backend.repair(selected[2], _state_check_secret_runtime_bootstrap_1420.state) and not puts(_state_check_secret_runtime_bootstrap_1420.f), (mode, _state_check_secret_runtime_bootstrap_1420.state)
     # A proven scalar slot consumes the whole string; no JSON keys are invented.
-    f = configure(keys=('', '')); assert f.run() == 'COMPLETE'
-    assert puts(f)[0]['SecretString'] == 'DUMMY_DEPLOY_ONLY'
+    _state_check_secret_runtime_bootstrap_1420.f = configure(keys=('', ''))
+    assert _state_check_secret_runtime_bootstrap_1420.f.run() == 'COMPLETE'
+    assert puts(_state_check_secret_runtime_bootstrap_1420.f)[0]['SecretString'] == 'DUMMY_DEPLOY_ONLY'
     # Explicit parameter files/defaults and Ref resolve the same owner, without failure-text IDs.
     for explicit in (True, False):
-        f = configure(); state = f.failed()
-        f.docs['B']['Parameters'] = {'SecretInput': {'Type': 'String', 'Default': arn}}
-        pair = f.docs['B']['Resources']['Consumer']['Properties']['Credentials']['CredentialPair']
+        _state_check_secret_runtime_bootstrap_1420.f = configure()
+        _state_check_secret_runtime_bootstrap_1420.state = _state_check_secret_runtime_bootstrap_1420.f.failed()
+        _state_check_secret_runtime_bootstrap_1420.f.docs['B']['Parameters'] = {'SecretInput': {'Type': 'String', 'Default': arn}}
+        pair = _state_check_secret_runtime_bootstrap_1420.f.docs['B']['Resources']['Consumer']['Properties']['Credentials']['CredentialPair']
         for slot, key in (('Username', 'username'), ('Password', 'password')):
             pair[slot] = {'Fn::Sub': ['{{resolve:secretsmanager:${Secret}:SecretString:' + key + '}}', {'Secret': {'Ref': 'SecretInput'}}]}
         path = parameter_dir / 'b.json'
-        (template_dir / 'b.yaml').write_text(json.dumps(f.docs['B']), encoding='utf-8')
+        (template_dir / 'b.yaml').write_text(json.dumps(_state_check_secret_runtime_bootstrap_1420.f.docs['B']), encoding='utf-8')
         path.write_text(json.dumps([{'ParameterKey': 'SecretInput', 'ParameterValue': arn}] if explicit else []), encoding='utf-8')
-        f.before[template_dir / 'b.yaml'] = (template_dir / 'b.yaml').read_bytes(); f.before[path] = path.read_bytes()
-        f.session['unitDigests']['B'] = f.backend.input_digest(selected[2], fresh=True)
-        f.backend.load_inputs(selected[2]); f.backend.save()
-        assert f.backend.repair(selected[2], state) and len(puts(f)) == 1, state
+        _state_check_secret_runtime_bootstrap_1420.f.before[template_dir / 'b.yaml'] = (template_dir / 'b.yaml').read_bytes()
+        _state_check_secret_runtime_bootstrap_1420.f.before[path] = path.read_bytes()
+        _state_check_secret_runtime_bootstrap_1420.f.session['unitDigests']['B'] = _state_check_secret_runtime_bootstrap_1420.f.backend.input_digest(selected[2], fresh=True)
+        _state_check_secret_runtime_bootstrap_1420.f.backend.load_inputs(selected[2])
+        _state_check_secret_runtime_bootstrap_1420.f.backend.save()
+        assert _state_check_secret_runtime_bootstrap_1420.f.backend.repair(selected[2], _state_check_secret_runtime_bootstrap_1420.state) and len(puts(_state_check_secret_runtime_bootstrap_1420.f)) == 1, _state_check_secret_runtime_bootstrap_1420.state
     # Conditional imports inside Sub maps use only the active branch.
-    f = configure(); state = f.failed()
-    f.docs['B']['Parameters'] = {'Switch': {'Type': 'String', 'Default': 'yes'}}
-    f.docs['B']['Conditions'] = {'Enabled': {'Fn::Equals': [{'Ref': 'Switch'}, 'yes']}}
-    pair = f.docs['B']['Resources']['Consumer']['Properties']['Credentials']['CredentialPair']
+    _state_check_secret_runtime_bootstrap_1420.f = configure()
+    _state_check_secret_runtime_bootstrap_1420.state = _state_check_secret_runtime_bootstrap_1420.f.failed()
+    _state_check_secret_runtime_bootstrap_1420.f.docs['B']['Parameters'] = {'Switch': {'Type': 'String', 'Default': 'yes'}}
+    _state_check_secret_runtime_bootstrap_1420.f.docs['B']['Conditions'] = {'Enabled': {'Fn::Equals': [{'Ref': 'Switch'}, 'yes']}}
+    pair = _state_check_secret_runtime_bootstrap_1420.f.docs['B']['Resources']['Consumer']['Properties']['Credentials']['CredentialPair']
     for value in pair.values():
         value['Fn::Sub'][1]['Secret'] = {'Fn::If': ['Enabled', {'Fn::ImportValue': 'SecretExport'}, {'Fn::ImportValue': 'MissingInactiveExport'}]}
-    path = template_dir / 'b.yaml'; path.write_text(json.dumps(f.docs['B']), encoding='utf-8')
-    f.before[path] = path.read_bytes(); f.session['unitDigests']['B'] = f.backend.input_digest(selected[2], fresh=True)
-    f.backend.load_inputs(selected[2]); f.backend.save()
-    assert f.backend.repair(selected[2], state) and len(puts(f)) == 1, state
+    path = template_dir / 'b.yaml'
+    path.write_text(json.dumps(_state_check_secret_runtime_bootstrap_1420.f.docs['B']), encoding='utf-8')
+    _state_check_secret_runtime_bootstrap_1420.f.before[path] = path.read_bytes()
+    _state_check_secret_runtime_bootstrap_1420.f.session['unitDigests']['B'] = _state_check_secret_runtime_bootstrap_1420.f.backend.input_digest(selected[2], fresh=True)
+    _state_check_secret_runtime_bootstrap_1420.f.backend.load_inputs(selected[2])
+    _state_check_secret_runtime_bootstrap_1420.f.backend.save()
+    assert _state_check_secret_runtime_bootstrap_1420.f.backend.repair(selected[2], _state_check_secret_runtime_bootstrap_1420.state) and len(puts(_state_check_secret_runtime_bootstrap_1420.f)) == 1, _state_check_secret_runtime_bootstrap_1420.state
     # A value appearing after durable missing-check persistence prevents even the initial PUT.
-    f = configure(); state = f.failed(); save = f.backend.save
-    def concurrent_value():
-        save()
-        if state.get('repairs') and state['repairs'][-1]['stage'] == 'VALUE_CHECKED_MISSING':
-            f.versions['external-version'] = ['AWSCURRENT']
-    f.backend.save = concurrent_value
-    assert not f.backend.repair(selected[2], state) and not puts(f)
-    assert f.versions == {'external-version': ['AWSCURRENT']}
+    _state_check_secret_runtime_bootstrap_1420.f = configure()
+    _state_check_secret_runtime_bootstrap_1420.state = _state_check_secret_runtime_bootstrap_1420.f.failed()
+    _state_check_secret_runtime_bootstrap_1420.save = _state_check_secret_runtime_bootstrap_1420.f.backend.save
+    concurrent_value = _bind_framework_callback(_callback_check_secret_runtime_bootstrap_concurrent_value, _state_check_secret_runtime_bootstrap_1420)
+    _state_check_secret_runtime_bootstrap_1420.f.backend.save = concurrent_value
+    assert not _state_check_secret_runtime_bootstrap_1420.f.backend.repair(selected[2], _state_check_secret_runtime_bootstrap_1420.state) and not puts(_state_check_secret_runtime_bootstrap_1420.f)
+    assert _state_check_secret_runtime_bootstrap_1420.f.versions == {'external-version': ['AWSCURRENT']}
     # Cases 10/11: process interruption before PUT, after accepted PUT, and before cleanup.
-    for boundary in ('BOOTSTRAP_INTENT', 'VALUE_CHECKED_MISSING', 'PUT_SUBMITTED', 'afterPut', 'BOOTSTRAP_CONFIRMED', 'RETRY_READY'):
-        f = configure(); state = f.failed(); save = f.backend.save
-        def interrupted():
-            save()
-            records = state.get('repairs', [])
-            if records and records[-1]['stage'] == boundary:
-                raise KeyboardInterrupt()
-        f.backend.save = interrupted
-        f.knobs['interruptPut'] = boundary == 'afterPut'
+    for _state_check_secret_runtime_bootstrap_1420.boundary in ('BOOTSTRAP_INTENT', 'VALUE_CHECKED_MISSING', 'PUT_SUBMITTED', 'afterPut', 'BOOTSTRAP_CONFIRMED', 'RETRY_READY'):
+        _state_check_secret_runtime_bootstrap_1420.f = configure()
+        _state_check_secret_runtime_bootstrap_1420.state = _state_check_secret_runtime_bootstrap_1420.f.failed()
+        _state_check_secret_runtime_bootstrap_1420.save = _state_check_secret_runtime_bootstrap_1420.f.backend.save
+        interrupted = _bind_framework_callback(_callback_check_secret_runtime_bootstrap_interrupted, _state_check_secret_runtime_bootstrap_1420)
+        _state_check_secret_runtime_bootstrap_1420.f.backend.save = interrupted
+        _state_check_secret_runtime_bootstrap_1420.f.knobs['interruptPut'] = _state_check_secret_runtime_bootstrap_1420.boundary == 'afterPut'
         with pytest.raises(KeyboardInterrupt):
-            f.backend.repair(selected[2], state)
-        persisted = json.loads(f.saved.read_text())
+            _state_check_secret_runtime_bootstrap_1420.f.backend.repair(selected[2], _state_check_secret_runtime_bootstrap_1420.state)
+        persisted = json.loads(_state_check_secret_runtime_bootstrap_1420.f.saved.read_text())
         token = persisted['states']['B']['repairs'][0]['clientRequestToken']
         # Reload all persisted state, as a new process would; the AWS versions survive.
-        f.session.clear(); f.session.update(persisted)
-        previous = f.backend
-        f.backend = Runtime(root, 'dev', '123456789012', TARGET)
-        f.backend.session = f.session; f.backend.states = f.session['states']
-        f.backend.units = selected; f.backend.mapping_plan = previous.mapping_plan
-        f.backend.templates = previous.templates; f.backend.aws = previous.aws; f.backend.guard = previous.guard
-        f.backend.expected_digests = f.session['unitDigests']
-        f.backend.refresh_validation = lambda unit: f.backend.load_inputs(unit)
-        state = f.backend.states['B']; f.backend.save = save; f.knobs['interruptPut'] = False
-        if boundary != 'RETRY_READY':
-            assert f.backend.repair(selected[2], state), (boundary, state)
-        assert f.session['states']['B']['repairs'][0]['clientRequestToken'] == token
-        assert len(puts(f)) == 1 and len(f.versions) == 1
-        assert f.session['states']['B']['status'] == 'NOT_STARTED'
+        _state_check_secret_runtime_bootstrap_1420.f.session.clear()
+        _state_check_secret_runtime_bootstrap_1420.f.session.update(persisted)
+        previous = _state_check_secret_runtime_bootstrap_1420.f.backend
+        _state_check_secret_runtime_bootstrap_1420.f.backend = Runtime(root, 'dev', '123456789012', TARGET)
+        _state_check_secret_runtime_bootstrap_1420.f.backend.session = _state_check_secret_runtime_bootstrap_1420.f.session
+        _state_check_secret_runtime_bootstrap_1420.f.backend.states = _state_check_secret_runtime_bootstrap_1420.f.session['states']
+        _state_check_secret_runtime_bootstrap_1420.f.backend.units = selected
+        _state_check_secret_runtime_bootstrap_1420.f.backend.mapping_plan = previous.mapping_plan
+        _state_check_secret_runtime_bootstrap_1420.f.backend.templates = previous.templates
+        _state_check_secret_runtime_bootstrap_1420.f.backend.aws = previous.aws
+        _state_check_secret_runtime_bootstrap_1420.f.backend.guard = previous.guard
+        _state_check_secret_runtime_bootstrap_1420.f.backend.expected_digests = _state_check_secret_runtime_bootstrap_1420.f.session['unitDigests']
+        _state_check_secret_runtime_bootstrap_1420.f.backend.refresh_validation = lambda unit, *, f=_state_check_secret_runtime_bootstrap_1420.f: f.backend.load_inputs(unit)
+        _state_check_secret_runtime_bootstrap_1420.state = _state_check_secret_runtime_bootstrap_1420.f.backend.states['B']
+        _state_check_secret_runtime_bootstrap_1420.f.backend.save = _state_check_secret_runtime_bootstrap_1420.save
+        _state_check_secret_runtime_bootstrap_1420.f.knobs['interruptPut'] = False
+        if _state_check_secret_runtime_bootstrap_1420.boundary != 'RETRY_READY':
+            assert _state_check_secret_runtime_bootstrap_1420.f.backend.repair(selected[2], _state_check_secret_runtime_bootstrap_1420.state), (_state_check_secret_runtime_bootstrap_1420.boundary, _state_check_secret_runtime_bootstrap_1420.state)
+        assert _state_check_secret_runtime_bootstrap_1420.f.session['states']['B']['repairs'][0]['clientRequestToken'] == token
+        assert len(puts(_state_check_secret_runtime_bootstrap_1420.f)) == 1 and len(_state_check_secret_runtime_bootstrap_1420.f.versions) == 1
+        assert _state_check_secret_runtime_bootstrap_1420.f.session['states']['B']['status'] == 'NOT_STARTED'
     # Case 12: the same failure after retry cannot trigger a second PUT or empty-shell recreation.
-    f = configure(repeated=True)
-    assert f.run() == 'STOPPED' and f.executed == ['A', 'B', 'B'] and len(puts(f)) == 1
-    assert f.session['states']['B']['failureClassification'] == 'HUMAN_REQUIRED'
-    assert f.session['states']['C']['status'] == 'NOT_STARTED'
-    assert sum(op == 'delete_stack' for op, _ in f.calls) == 1
+    _state_check_secret_runtime_bootstrap_1420.f = configure(repeated=True)
+    assert _state_check_secret_runtime_bootstrap_1420.f.run() == 'STOPPED' and _state_check_secret_runtime_bootstrap_1420.f.executed == ['A', 'B', 'B'] and len(puts(_state_check_secret_runtime_bootstrap_1420.f)) == 1
+    assert _state_check_secret_runtime_bootstrap_1420.f.session['states']['B']['failureClassification'] == 'HUMAN_REQUIRED'
+    assert _state_check_secret_runtime_bootstrap_1420.f.session['states']['C']['status'] == 'NOT_STARTED'
+    assert sum(op == 'delete_stack' for op, _ in _state_check_secret_runtime_bootstrap_1420.f.calls) == 1
     # Existing UPDATE_ROLLBACK_COMPLETE handling does not delete/redeploy the successful peer.
-    f = configure(create=False); assert f.run() == 'COMPLETE' and not any(op == 'delete_stack' for op, _ in f.calls)
+    _state_check_secret_runtime_bootstrap_1420.f = configure(create=False)
+    assert _state_check_secret_runtime_bootstrap_1420.f.run() == 'COMPLETE' and not any(op == 'delete_stack' for op, _ in _state_check_secret_runtime_bootstrap_1420.f.calls)
     # Ownership, current-state, guard and cleanup uncertainty fail closed.
-    f = configure(); state = f.failed(); f.knobs['unsafeCleanup'] = True
-    assert not f.backend.repair(selected[2], state) and not any(op == 'delete_stack' for op, _ in f.calls)
+    _state_check_secret_runtime_bootstrap_1420.f = configure()
+    _state_check_secret_runtime_bootstrap_1420.state = _state_check_secret_runtime_bootstrap_1420.f.failed()
+    _state_check_secret_runtime_bootstrap_1420.f.knobs['unsafeCleanup'] = True
+    assert not _state_check_secret_runtime_bootstrap_1420.f.backend.repair(selected[2], _state_check_secret_runtime_bootstrap_1420.state) and not any(op == 'delete_stack' for op, _ in _state_check_secret_runtime_bootstrap_1420.f.calls)
     for race in ('race', 'promotionRace'):
-        f = configure(); state = f.failed(); f.knobs[race] = True
+        _state_check_secret_runtime_bootstrap_1420.f = configure()
+        _state_check_secret_runtime_bootstrap_1420.state = _state_check_secret_runtime_bootstrap_1420.f.failed()
+        _state_check_secret_runtime_bootstrap_1420.f.knobs[race] = True
         if race == 'promotionRace':
-            f.versions.clear()
-            original = f.backend.aws
-            def staging_only(operation, **args):
-                result = original(operation, **args)
-                if operation == 'put_secret_value':
-                    for v in f.versions.values():
-                        if 'AWSCURRENT' in v: v.remove('AWSCURRENT')
-                return result
-            f.backend.aws = staging_only
-        assert not f.backend.repair(selected[2], state) and f.versions['external-version'] == ['AWSCURRENT']
-        assert len(puts(f)) == 1
+            _state_check_secret_runtime_bootstrap_1420.f.versions.clear()
+            original = _state_check_secret_runtime_bootstrap_1420.f.backend.aws
+            staging_only = _bind_framework_callback(_callback_check_secret_runtime_bootstrap_staging_only, _state_check_secret_runtime_bootstrap_1420.f, original)
+            _state_check_secret_runtime_bootstrap_1420.f.backend.aws = staging_only
+        assert not _state_check_secret_runtime_bootstrap_1420.f.backend.repair(selected[2], _state_check_secret_runtime_bootstrap_1420.state) and _state_check_secret_runtime_bootstrap_1420.f.versions['external-version'] == ['AWSCURRENT']
+        assert len(puts(_state_check_secret_runtime_bootstrap_1420.f)) == 1
     # The SDK service projects only metadata; structured transport errors never contain values.
-    from utils.aws import secretsmanager as secrets
-    from utils.aws.client import AwsError
     backend = Runtime(root, 'dev', '123456789012', TARGET)
-    from deploy.timing import Timing
     backend.timing = Timing(root, base / 'timing.jsonl')
     with patch.object(secrets, 'request', return_value={'ARN': arn, 'VersionId': 'v', 'VersionStages': ['AWSCURRENT'], 'SecretString': 'DUMMY_DEPLOY_ONLY'}):
         assert 'DUMMY_DEPLOY_ONLY' not in str(backend.aws('get_secret_value', SecretId=arn, service='secretsmanager'))

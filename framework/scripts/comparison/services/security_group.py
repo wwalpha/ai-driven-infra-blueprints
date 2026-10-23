@@ -1,8 +1,9 @@
 """security group comparison contracts and projections."""
 
 import re
-from iac_values import ResourceReference
+
 from cloudformation_inputs import Blocked
+from iac_values import ResourceReference
 
 
 def ref_attribute(vpc, resource_type):

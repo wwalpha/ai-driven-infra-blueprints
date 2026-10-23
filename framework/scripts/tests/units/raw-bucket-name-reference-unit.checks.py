@@ -2,11 +2,21 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from support.raw_bucket_name_reference_fixtures import (
+    Path,
+    declarations,
+    reference,
+    rejected,
+    resource,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.raw_bucket_name_reference_fixtures import *
 
 def check_reference_schema():
     key = 'desired.row.008-001.value'
@@ -19,7 +29,7 @@ def check_reference_schema():
                            ({'producerScope': '../team/vpc'}, 'unsafe'),
                            ({'selector': 'first'}, 'fields')]:
         bad = {**values, **{'desired.reference.fixed.' + field: value for field, value in fields.items()}}
-        rejected(lambda: declarations(bad), phrase)
+        rejected(lambda *, bad=bad: declarations(bad), phrase)
     bad = {key: value for key, value in values.items() if key != 'desired.reference.fixed.property'}
     rejected(lambda: declarations(bad), 'missing or forbidden')
 

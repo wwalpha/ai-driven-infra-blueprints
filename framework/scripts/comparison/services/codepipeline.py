@@ -1,12 +1,15 @@
 """codepipeline comparison contracts and projections."""
 
+import re
+
+from cloudformation_inputs import Blocked
+from comparison_rows import put_row
+from policy_tables import literal
+from service_rows import pipeline_rows
+
 KMS_FORMS = {'CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id': {'AliasArn'}}
 
-import re
-from comparison_rows import put_row
-from service_rows import pipeline_rows
-from policy_tables import literal
-from cloudformation_inputs import Blocked
+
 
 
 def prepare_rows(rows, *, index_rows):

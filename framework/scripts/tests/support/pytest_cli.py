@@ -1,7 +1,8 @@
 """Pilot CLI diagnostics shared by pytest checks; framework dispatch stays unchanged."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
+
 import pytest
 
 

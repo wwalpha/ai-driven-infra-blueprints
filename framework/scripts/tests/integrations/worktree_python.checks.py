@@ -1,14 +1,38 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
+import subprocess
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
+from functools import partial as _bind_framework_callback
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from threading import Event
+from types import SimpleNamespace as _CallbackState
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from support.it_case_receipt import it_case
+from support.worktree_python_fixtures import (
+    Path,
+    blocked,
+    checks,
+    json,
+    patch,
+    py,
+    sys,
+    wt,
+)
+from support.worktree_python_fixtures import (
+    spec as spec,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import it_case
-
-from support.worktree_python_fixtures import *
 
 @it_case
 def check_output_decoding():
@@ -50,8 +74,21 @@ def fake_run(command, root, env=None):
     return ""
 
 
+def _callback_check_setup_failing(_state_check_setup_77, /, command, where, env=None):
+    if _state_check_setup_77.stage in command:
+        raise ValueError("fixture " + _state_check_setup_77.stage + " failed")
+    return fake_run(command, where, env)
+
+
+def _callback_check_setup_mkdir(_state_check_setup_77, /, path, *args, **kwargs):
+    if path.name == "python-env.setup-lock":
+        raise PermissionError("fixture permission denied")
+    return _state_check_setup_77.original_mkdir(path, *args, **kwargs)
+
+
 @it_case
 def check_setup():
+    _state_check_setup_77 = _CallbackState()
     with checks.fixture() as root:
         requirements(root)
         with patch.object(py, "probe"), patch.object(py, "verify") as verify, \
@@ -100,23 +137,16 @@ def check_setup():
             blocked(lambda: wt.setup(root, "one"), "executable missing")
             assert directory.is_dir() and target.is_dir()
     # All initial failure stages retain Task/branch and resume only through setup.
-    for stage in ("venv", "install", "verify", "permission"):
+    for _state_check_setup_77.stage in ("venv", "install", "verify", "permission"):
         with checks.fixture() as root:
             requirements(root)
-            def failing(command, where, env=None):
-                if stage in command:
-                    raise ValueError("fixture " + stage + " failed")
-                return fake_run(command, where, env)
-            def mkdir(path, *args, **kwargs):
-                if path.name == "python-env.setup-lock":
-                    raise PermissionError("fixture permission denied")
-                return original_mkdir(path, *args, **kwargs)
-            original_mkdir = Path.mkdir
-            from contextlib import nullcontext
-            permission = patch.object(Path, "mkdir", mkdir) if stage == "permission" else nullcontext()
+            failing = _bind_framework_callback(_callback_check_setup_failing, _state_check_setup_77)
+            mkdir = _bind_framework_callback(_callback_check_setup_mkdir, _state_check_setup_77)
+            _state_check_setup_77.original_mkdir = Path.mkdir
+            permission = patch.object(Path, "mkdir", mkdir) if _state_check_setup_77.stage == "permission" else nullcontext()
             with patch.object(py, "run", side_effect=failing), patch.object(py, "probe"), \
-                    patch.object(py, "verify", side_effect=ValueError("fixture verify failed") if stage == "verify" else None), permission:
-                blocked(lambda: wt.create(root, "failed"), "write denied" if stage == "permission" else "failed")
+                    patch.object(py, "verify", side_effect=ValueError("fixture verify failed") if _state_check_setup_77.stage == "verify" else None), permission:
+                blocked(lambda: wt.create(root, "failed"), "write denied" if _state_check_setup_77.stage == "permission" else "failed")
             _, _, _, retained = wt.load(root, "failed")
             assert retained["python_setup"]["status"] == "failed"
             assert Path(retained["worktree"]).is_dir() and wt.branch_exists(root, retained["branch"])
@@ -132,7 +162,6 @@ def check_real_global():
     # Ordinary checkouts keep their existing wrapper behavior.
     with checks.fixture() as root:
         assert py.runtime(root) is None
-        from importlib.util import spec_from_file_location, module_from_spec
         spec = spec_from_file_location("python_wrapper", Path(py.__file__).with_name("run-python.py"))
         wrapper = module_from_spec(spec)
         spec.loader.exec_module(wrapper)
@@ -144,11 +173,15 @@ def check_real_global():
     print("Ordinary checkout wrapper retains launcher behavior: PASS")
 
 
+def _callback_check_venv_fallback_timed_setup(actual_setup, setup_times, /, *args):
+    begin = time.monotonic()
+    result = actual_setup(*args)
+    setup_times.append(time.monotonic() - begin)
+    return result
+
+
 @it_case
 def check_venv_fallback():
-    import shutil
-    import subprocess
-    import time
     with checks.fixture() as root:
         requirements(root)
         with patch.object(py, "IMPORTS", []), patch.dict(py.os.environ, {"PIP_NO_INDEX": "1"}), \
@@ -156,11 +189,7 @@ def check_venv_fallback():
             times = []
             setup_times = []
             actual_setup = py.setup
-            def timed_setup(*args):
-                begin = time.monotonic()
-                result = actual_setup(*args)
-                setup_times.append(time.monotonic() - begin)
-                return result
+            timed_setup = _bind_framework_callback(_callback_check_venv_fallback_timed_setup, actual_setup, setup_times)
             states = []
             with patch.object(py, "setup", side_effect=timed_setup):
                 for name in ("first", "second", "third"):
@@ -189,62 +218,61 @@ def check_venv_fallback():
             assert directory.is_dir() and py.shared_ready(directory)
             assert py.runtime(Path(states[1]["worktree"]))[0] == py.python_path(directory)
             print("Offline empty-requirements Create timings (total/setup/git+state seconds): " +
-                  str([(round(t, 3), round(s, 3), round(t-s, 3)) for t, s in zip(times, setup_times)]))
+                  str([(round(t, 3), round(s, 3), round(t-s, 3)) for t, s in zip(times, setup_times, strict=False)]))
     print("Real fixed-path venv, one install, wrapper/CLI, shared survival after cleanup: PASS")
+
+
+def _callback_check_parallel_fallback_run(_state_check_parallel_fallback_218, installing, /, command, target, env=None):
+    assert not (_state_check_parallel_fallback_218.root / ".worktrees/.blueprint/lifecycle.lock").exists()
+    if "install" in command:
+        installing.set()
+        assert _state_check_parallel_fallback_218.release.wait(timeout=10)
+    return fake_run(command, target, env)
 
 
 @it_case
 def check_parallel_fallback():
-    from concurrent.futures import ThreadPoolExecutor
-    from threading import Event
-    with checks.fixture() as root:
-        requirements(root)
-        installing, release = Event(), Event()
-        def run(command, target, env=None):
-            assert not (root / ".worktrees/.blueprint/lifecycle.lock").exists()
-            if "install" in command:
-                installing.set()
-                assert release.wait(timeout=10)
-            return fake_run(command, target, env)
+    _state_check_parallel_fallback_218 = _CallbackState()
+    with checks.fixture() as _state_check_parallel_fallback_218.root:
+        requirements(_state_check_parallel_fallback_218.root)
+        installing, _state_check_parallel_fallback_218.release = Event(), Event()
+        run = _bind_framework_callback(_callback_check_parallel_fallback_run, _state_check_parallel_fallback_218, installing)
         with patch.object(py, "probe"), patch.object(py, "verify"), patch.object(py, "run", side_effect=run) as commands:
             with ThreadPoolExecutor(max_workers=2) as pool:
-                first = pool.submit(wt.create, root, "parallel-a")
+                first = pool.submit(wt.create, _state_check_parallel_fallback_218.root, "parallel-a")
                 assert installing.wait(timeout=10)
-                second = pool.submit(wt.create, root, "parallel-b")
+                second = pool.submit(wt.create, _state_check_parallel_fallback_218.root, "parallel-b")
                 try:
                     # The other Create can finish Git/state while installation is blocked.
-                    import time
                     deadline = time.monotonic() + 10
-                    state_path = root / ".worktrees/.blueprint/tasks/parallel-b.json"
+                    state_path = _state_check_parallel_fallback_218.root / ".worktrees/.blueprint/tasks/parallel-b.json"
                     while not state_path.exists() and time.monotonic() < deadline:
                         time.sleep(0.01)
                     assert state_path.exists()
                     assert not second.done()
                 finally:
-                    release.set()
+                    _state_check_parallel_fallback_218.release.set()
                 states = [first.result(), second.result()]
             assert states[0]["python_setup"]["interpreter"] == states[1]["python_setup"]["interpreter"]
             assert [s["python_setup"]["installed"] for s in states] == [True, False]
             assert sum("install" in call.args[0] for call in commands.call_args_list) == 1
-            lock = wt.load(root, "parallel-a")[2].with_suffix(".setup-lock")
+            lock = wt.load(_state_check_parallel_fallback_218.root, "parallel-a")[2].with_suffix(".setup-lock")
             lock.mkdir()
-            blocked(lambda: wt.setup(root, "parallel-a"), "Python setup busy")
+            blocked(lambda: wt.setup(_state_check_parallel_fallback_218.root, "parallel-a"), "Python setup busy")
             assert lock.is_dir()
             lock.rmdir()  # Fixture-owned simulated lock.
-            directory = py.shared_directory(root)
+            directory = py.shared_directory(_state_check_parallel_fallback_218.root)
             (directory / ".blueprint-ready").unlink()
             lock = directory.with_name("python-env.setup-lock")
             lock.mkdir()
             with patch.object(py.time, "monotonic", side_effect=[0, 301]):
-                blocked(lambda: wt.setup(root, "parallel-a"), "shared Python setup lock busy")
+                blocked(lambda: wt.setup(_state_check_parallel_fallback_218.root, "parallel-a"), "shared Python setup lock busy")
             assert lock.is_dir()
             lock.rmdir()  # Fixture-owned simulated lock.
     # Exercise the same filesystem mutex in independent Python processes.
-    import subprocess
-    import time
-    with checks.fixture() as root:
-        requirements(root)
-        waiting, release = root.parent / "installing", root.parent / "release"
+    with checks.fixture() as _state_check_parallel_fallback_218.root:
+        requirements(_state_check_parallel_fallback_218.root)
+        waiting, _state_check_parallel_fallback_218.release = _state_check_parallel_fallback_218.root.parent / "installing", _state_check_parallel_fallback_218.root.parent / "release"
         child = """import sys,time
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
@@ -267,7 +295,7 @@ print(json.dumps(state))
 """
         env = {**py.os.environ, "PIP_NO_INDEX": "1", "PYTHONDONTWRITEBYTECODE": "1"}
         args = [sys.executable, "-B", "-c", child, str(Path(py.__file__).parent)]
-        first = subprocess.Popen([*args, "process-a", str(waiting), str(release)], cwd=root, env=env,
+        first = subprocess.Popen([*args, "process-a", str(waiting), str(_state_check_parallel_fallback_218.release)], cwd=_state_check_parallel_fallback_218.root, env=env,
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         second = None
         try:
@@ -275,14 +303,14 @@ print(json.dumps(state))
             while not waiting.exists() and time.monotonic() < deadline and first.poll() is None:
                 time.sleep(0.01)
             assert waiting.exists()
-            second = subprocess.Popen([*args, "process-b", str(waiting), str(release)], cwd=root, env=env,
+            second = subprocess.Popen([*args, "process-b", str(waiting), str(_state_check_parallel_fallback_218.release)], cwd=_state_check_parallel_fallback_218.root, env=env,
                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             deadline = time.monotonic() + 10
-            path = root / ".worktrees/.blueprint/tasks/process-b.json"
+            path = _state_check_parallel_fallback_218.root / ".worktrees/.blueprint/tasks/process-b.json"
             while not path.exists() and time.monotonic() < deadline and second.poll() is None:
                 time.sleep(0.01)
             assert path.exists() and second.poll() is None
-            release.touch()
+            _state_check_parallel_fallback_218.release.touch()
             out_a, err_a = first.communicate(timeout=30)
             out_b, err_b = second.communicate(timeout=30)
             assert first.returncode == second.returncode == 0, err_a + err_b
@@ -290,7 +318,7 @@ print(json.dumps(state))
             assert [state["python_setup"]["installed"] for state in states] == [True, False]
             assert states[0]["python_setup"]["interpreter"] == states[1]["python_setup"]["interpreter"]
         finally:
-            release.touch()
+            _state_check_parallel_fallback_218.release.touch()
             for process in (first, second):
                 if process is not None and process.poll() is None:
                     process.terminate()

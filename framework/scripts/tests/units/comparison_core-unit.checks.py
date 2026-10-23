@@ -2,16 +2,28 @@
 
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from functools import partial
+
+from array_display import indexed_rows
+from cloudformation_inputs import Blocked
+from comparison.services.cloudtrail import cloudtrail_rows
+from comparison_rows import Unresolved, put_row
+from iac_evaluation import Evaluation
+from iac_values import (
+    Expression,
+    ResourceReference,
+    comparison_result,
+    safe_value,
+    same,
+    selected_same,
+)
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from comparison_rows import Unresolved, put_row
-
-from comparison.services.cloudtrail import cloudtrail_rows
-from array_display import indexed_rows
-from functools import partial
 index_rows = partial(indexed_rows, root=Path(__file__).resolve().parents[4])
 
 trail_kind = 'CloudTrail.Trail.'
@@ -36,11 +48,11 @@ trail_paths = [
     'EventSelectors[2].DataResources[2].Type', 'EventSelectors[2].DataResources[2].Values',
 ]
 trail_expected = {rid: dict(row, property=trail_kind + prop)
-                  for (rid, row), prop in zip(trail_rows, trail_paths)}
+                  for (rid, row), prop in zip(trail_rows, trail_paths, strict=False)}
 for ordered in (trail_rows, trail_rows[::-1], trail_rows[::2] + trail_rows[1::2]):
     projected = dict(cloudtrail_rows(ordered, index_rows=index_rows))
     assert projected == trail_expected, projected
-    assert all(row['property'] == trail_kind + prop for (_, row), (prop, _) in zip(trail_rows, trail_fields))
+    assert all(row['property'] == trail_kind + prop for (_, row), (prop, _) in zip(trail_rows, trail_fields, strict=False))
 for invalid in (trail_rows[:3], trail_rows + [(trail_rows[0][0], dict(trail_rows[0][1], value='`false`'))],
                 [('unknown', trail_rows[0][1]), *trail_rows[1:]],
                 [(trail_rows[0][0], dict(trail_rows[0][1], property=trail_kind + 'EventSelectors[1].IncludeManagementEvents')), *trail_rows[1:]]):
@@ -96,7 +108,6 @@ for path in ('A[].B[].K', 'A[].B[1].K', 'A[1].B[].K', 'A[].B[]', 'A[0].K'):
     else:
         raise AssertionError('ambiguous membership accepted: ' + path)
 
-from iac_values import Expression, ResourceReference, comparison_result, same, selected_same, safe_value
 
 for left, right in [(True, 1), (1, 1.0), ('1', 1), (None, ''), ({}, []), ([1, 2], [2, 1]), ([1, 1], [1])]:
     assert same(left, right) is False
@@ -110,8 +121,6 @@ expression = Expression('Join', ['', [ref, '/*']])
 assert same(expression, safe_value(expression)) is False
 assert safe_value({'Password': 'one', 'Arn': 'arn:aws:s3:::private'}) == {'Password': '<masked>', 'Arn': '<masked ARN/secret>'}
 
-from iac_evaluation import Evaluation
-from cloudformation_inputs import Blocked
 
 # Schemas prove types/bounds, never DNS values or array elements.
 schemas = {
@@ -184,4 +193,3 @@ assert evaluate(select(1, {'Fn::Split': [':', 'zone:dns']})) == 'dns'
 rejects(first, ValueError, 'invalid Select operands')
 rejects({'Fn::Split': [':', getatt('Name')]}, ValueError, 'invalid Split operands')
 print('Symbolic array evaluation: PASS (schema types/bounds, chains, concrete inputs, errors, deploy isolation)')
-

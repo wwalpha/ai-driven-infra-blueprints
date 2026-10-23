@@ -1,6 +1,7 @@
 """events comparison contracts and projections."""
 
 from cloudformation_inputs import Blocked
+
 SUB_ARN_KINDS = {'Events.Rule'}
 NAMED_ARN = ('Name', r'[.\-_A-Za-z0-9]{1,64}', 'events', 'rule/', '')
 

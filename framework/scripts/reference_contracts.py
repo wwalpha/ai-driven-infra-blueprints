@@ -1,7 +1,31 @@
 """Explicit AWS receiving-property contracts shared by comparison and IMPORT."""
 import re
 from functools import lru_cache
-from design_layout import LINKED_LIST_PROPERTIES
+
+SUBNET_LIST_PROPERTIES = {
+    "ApiGatewayV2.VpcLink.SubnetIds[]",
+    "CodeBuild.Project.VpcConfig.Subnets",
+    "EC2.TransitGatewayVpcAttachment.SubnetIds",
+    "EC2.VPCEndpoint.SubnetIds",
+    "ECS.CapacityProvider.ManagedInstancesProvider.InstanceLaunchTemplate.NetworkConfiguration.Subnets[]",
+    "ECS.Service.NetworkConfiguration.AwsvpcConfiguration.Subnets[]",
+    "ElasticLoadBalancingV2.LoadBalancer.Subnets[]",
+    "Lambda.Function.VpcConfig.SubnetIds",
+    "MWAA.Environment.NetworkConfiguration.SubnetIds",
+    "QuickSight.VPCConnection.SubnetIds",
+    "RDS.DBProxy.VpcSubnetIds[]",
+    "RDS.DBProxyEndpoint.VpcSubnetIds[]",
+    "RDS.DBSubnetGroup.SubnetIds[]",
+    "SageMaker.Domain.SubnetIds[]",
+    "Scheduler.Schedule.Target.EcsParameters.NetworkConfiguration.AwsvpcConfiguration.Subnets[]",
+    "SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds",
+}
+
+
+LINKED_LIST_PROPERTIES = dict.fromkeys(SUBNET_LIST_PROPERTIES, "EC2.Subnet") | {
+    "CodeBuild.Project.VpcConfig.SecurityGroupIds": "EC2.SecurityGroup",
+}
+
 
 S3_KMS_MASTER_KEY_ID = ('S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[]'
                         '.ServerSideEncryptionByDefault.KMSMasterKeyID')

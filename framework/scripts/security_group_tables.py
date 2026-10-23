@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import re
-from validation_cache import input_scope
 
+import aws_mapping_display as mapping_display
+from utils.input_cache import input_scope
 
 SECURITY_GROUP = "EC2.SecurityGroup"
 DIRECTIONS = {"Inbound": "Ingress", "Outbound": "Egress"}
@@ -129,8 +130,7 @@ def overview_groups(lines: list[str]) -> dict[str, str]:
 @input_scope
 def security_group_table_lines(lines: list[str], root=None) -> list[str]:
     """Expand SG detail tables while preserving rule identities and ownership."""
-    from aws_mapping_display import ROOT, formal_name, display_name, show
-    root = root or ROOT
+    root = root or mapping_display.ROOT
     groups = overview_groups(lines)
     seen = set()
     result: list[str] = []
@@ -191,18 +191,18 @@ def security_group_table_lines(lines: list[str], root=None) -> list[str]:
             raise ValueError("Security Group requires a basic property table before rules")
         basic_rows = [row[1:] for row in basic]
         for prop, *_ in basic_rows:
-            formal = formal_name(prop, SECURITY_GROUP, root) or (prop if prop.startswith(SECURITY_GROUP + '.') else SECURITY_GROUP + '.' + prop)
+            formal = mapping_display.formal_name(prop, SECURITY_GROUP, root) or (prop if prop.startswith(SECURITY_GROUP + '.') else SECURITY_GROUP + '.' + prop)
             canonical = formal.removeprefix(SECURITY_GROUP + '.')
-            if display_name(formal, SECURITY_GROUP, root) != canonical and prop in {formal, canonical}:
+            if mapping_display.display_name(formal, SECURITY_GROUP, root) != canonical and prop in {formal, canonical}:
                 raise ValueError('Security Group property must use its Mapping display name: ' + formal)
         basic_rows = [
-            [formal_name(prop, SECURITY_GROUP, root) or (prop if prop.startswith(SECURITY_GROUP + ".") else f"{SECURITY_GROUP}.{prop}"), value, comment]
+            [mapping_display.formal_name(prop, SECURITY_GROUP, root) or (prop if prop.startswith(SECURITY_GROUP + ".") else f"{SECURITY_GROUP}.{prop}"), value, comment]
             for prop, value, comment in basic_rows
         ]
         if [row[0] for row in basic] != [str(number) for number in range(1, len(basic) + 1)]:
             raise ValueError("Security Group basic property numbering error")
         expected = [f"{SECURITY_GROUP}.{prop}" for prop in ("Id", "GroupDescription", "GroupName", "VpcId")]
-        expected = [prop for prop in expected if show(prop, root)]
+        expected = [prop for prop in expected if mapping_display.show(prop, root)]
         names = [row[0] for row in basic_rows]
         if names not in ([prop for prop in expected if prop != SECURITY_GROUP + ".GroupName"], expected) or any(
             row[1].strip("`").strip() in {"", "—"} or not row[2] for row in basic_rows
@@ -248,7 +248,7 @@ def security_group_table_lines(lines: list[str], root=None) -> list[str]:
                 raise ValueError("Security Group Direction must be Inbound or Outbound")
             direction = DIRECTIONS[direction_label]
             inline = marker is None
-            values = {prop: value for prop, value in zip(headers[1:], row[1:]) if value != "—"}
+            values = {prop: value for prop, value in zip(headers[1:], row[1:], strict=False) if value != "—"}
             if "IpProtocol" not in values:
                 raise ValueError("Security Group rule requires IpProtocol")
             values.update(port_properties(values.pop("Port", "—"), values["IpProtocol"]))

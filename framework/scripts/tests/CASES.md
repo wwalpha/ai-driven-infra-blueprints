@@ -1,5 +1,18 @@
 # UT / IT 全ケース台帳
 
+## Python structure and callback compatibility
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `python-structure::module` | `test_module_imports_and_methods` | UT | [units/python_structure-unit.checks.py](units/python_structure-unit.checks.py) | unittest / 1 | モジュールImportと通常メソッドを許可 | Python品質 |
+| `python-structure::nested` | `test_function_import_and_nested_definition` | UT | [units/python_structure-unit.checks.py](units/python_structure-unit.checks.py) | unittest / 1 | 関数内Importとネスト関数の位置を検出 | Python品質 |
+| `python-structure::async` | `test_async_and_method_bodies` | UT | [units/python_structure-unit.checks.py](units/python_structure-unit.checks.py) | unittest / 1 | asyncとメソッド内違反を検出 | Python品質 |
+| `python-structure::cli` | `test_cli_reports_location_and_failure` | UT | [units/python_structure-unit.checks.py](units/python_structure-unit.checks.py) | unittest / 1 | パス・行番号・終了コードと正常終了 | Python品質 |
+| `function-wrapper::metadata` | `check_wrapper` | UT | [units/function_wrapper-unit.checks.py](units/function_wrapper-unit.checks.py) | pytest / 1 | 呼出結果・署名・メタデータ保持 | Python品質 |
+| `function-wrapper::method` | `check_method_binding` | UT | [units/function_wrapper-unit.checks.py](units/function_wrapper-unit.checks.py) | pytest / 1 | instance/class経由のメソッド束縛 | Python品質 |
+
+| `model-cli::entrypoints` | `check_cli_entrypoints` | UT | [units/model_files-unit.checks.py](units/model_files-unit.checks.py) | pytest / 1 | 直接起動と公開mainのhelp一致・既存Module起動結果保持 | Python品質 |
+
 ## Issues package, artifact v2 and isolated cfn-lint
 
 既存deploy lint廃止は復元しない。旧workerの設定/schema/custom rule状態隔離とscope回収契約をutils入口で検証する。Framework定義は読取専用、一時HOME/config/rule/schemaは独立fixtureとする。

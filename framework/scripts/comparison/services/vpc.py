@@ -1,10 +1,11 @@
 """vpc comparison contracts and projections."""
 
-REF_ATTRIBUTES = {'EC2.Subnet': 'SubnetId', 'EC2.VPC': 'VpcId', 'EC2.RouteTable': 'RouteTableId'}
-
-import re
 from cloudformation_inputs import Blocked
 from policy_tables import literal
+
+REF_ATTRIBUTES = {'EC2.Subnet': 'SubnetId', 'EC2.VPC': 'VpcId', 'EC2.RouteTable': 'RouteTableId'}
+
+
 
 NAME_TAG_KINDS = {'EC2.VPC', 'EC2.Subnet', 'EC2.RouteTable', 'EC2.FlowLog'}
 

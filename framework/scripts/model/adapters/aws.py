@@ -5,35 +5,49 @@ Exit 0: complete match; 1: differences; 2: incomplete (possibly with differences
 --coverage is offline. No AI, CloudFormation template comparison, or model writes.
 """
 from __future__ import annotations
-from utils.json_format import policy_json
 
 import argparse
-from collections import Counter, defaultdict
-from dataclasses import dataclass
 import hashlib
 import importlib.util
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import sys
-from urllib.parse import unquote
-from threading import RLock
+from collections import Counter, defaultdict
+from collections.abc import Mapping
 from copy import deepcopy
-from utils.lazy_definitions import load_once
+from dataclasses import dataclass
+from functools import partial as _bind_framework_callback
+from pathlib import Path
+from threading import RLock
+from types import SimpleNamespace
+from urllib.parse import unquote
 
-
-
+import aws_mapping_compare as _imports_aws_mapping_compare
+import iac_values as _imports_iac_values
+import project_targets as _imports_project_targets
 from comparison_rows import MISSING, Unresolved, put_row, select
 from design_catalog import DesignSchemaCatalog, selected_properties
-from model.projection import catalog_outputs
-from model.identity import resource_link, parse_reference, resource_index, anchor_index, select_anchor
-from model.core import LINK, entries, properties, ReferenceResolutionError
-from model.sources import model_paths
-from model.files import load_model, read_model
 from policy_tables import literal
-from validation_cache import input_scope
+from utils.aws_catalogs import catalog_outputs
+from utils.aws_sdk import aws_runtime
+from utils.input_cache import input_scope
+from utils.json_format import policy_json
+from utils.lazy_definitions import load_once
+
+import model.importing.inventory as _imports_model_importing_inventory
+from model.core import ReferenceResolutionError
+from model.core import entries as entries
+from model.core import properties as properties
+from model.files import load_model, read_model
+from model.identity import (
+    anchor_index,
+    parse_reference,
+    resource_link,
+    select_anchor,
+)
+from model.sources import model_paths
 
 SERVICES = tuple("athena cloudformation-stacks cloudtrail cloudwatch-logs codebuild codecommit "
                  "codepipeline config data-firehose ec2 eventbridge glue guardduty iam kms lambda "
@@ -60,6 +74,14 @@ def service_module(service):
     return MODULES[service]
 
 
+def copy_default(value):
+    if isinstance(value, Mapping):
+        return {key: copy_default(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [copy_default(item) for item in value]
+    return value
+
+
 @dataclass(frozen=True)
 class Field:
     getter: str = ""
@@ -70,14 +92,7 @@ class Field:
     reason: str = ""
 
     def copy_default(self):
-        from collections.abc import Mapping
-        def copy(value):
-            if isinstance(value, Mapping):
-                return {key: copy(item) for key, item in value.items()}
-            if isinstance(value, (list, tuple)):
-                return [copy(item) for item in value]
-            return value
-        return copy(self.default)
+        return copy_default(self.default)
 
 
 class AcquisitionError(Exception):
@@ -126,7 +141,7 @@ def project(tree, path, value):
                 array.append({})
             if len(array) != len(value):
                 raise Unresolved("inconsistent SDK array lengths")
-            for item, child in zip(array, value):
+            for item, child in zip(array, value, strict=False):
                 project(item, rest, child)
     elif rest:
         project(tree.setdefault(part, {}), rest, value)
@@ -163,6 +178,17 @@ def stable(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
 
 
+def _recursive_policy_walk(item, name=''):
+    if name in {"Statement", "Action", "NotAction", "Resource", "NotResource", "AWS", "Service", "Federated"}:
+        values = item if isinstance(item, list) else [item]
+        return sorted([_recursive_policy_walk(v) for v in values], key=stable)
+    if isinstance(item, dict):
+        return {k: _recursive_policy_walk(v, k) for k, v in item.items()}
+    if isinstance(item, list):
+        return sorted([_recursive_policy_walk(v) for v in item], key=stable)  # Condition value arrays are sets.
+    return item
+
+
 def policy(value):
     """IAM policy sets may reorder; paired statement fields remain one object."""
     if isinstance(value, str):
@@ -172,15 +198,7 @@ def policy(value):
             value = policy_json(unquote(value))
     if not isinstance(value, dict):
         raise Unresolved("policy must be a JSON object")
-    def walk(item, name=""):
-        if name in {"Statement", "Action", "NotAction", "Resource", "NotResource", "AWS", "Service", "Federated"}:
-            values = item if isinstance(item, list) else [item]
-            return sorted([walk(v) for v in values], key=stable)
-        if isinstance(item, dict):
-            return {k: walk(v, k) for k, v in item.items()}
-        if isinstance(item, list):
-            return sorted([walk(v) for v in item], key=stable)  # Condition value arrays are sets.
-        return item
+    walk = _recursive_policy_walk
     return walk(value)
 
 
@@ -192,6 +210,13 @@ def redacted(value):
     if isinstance(value, list):
         return [redacted(item) for item in value]
     return value
+
+
+def _callback_Context_client_create(self, service, /):
+    Config = aws_runtime().sdk_config
+    options = {'config': Config(retries={'total_max_attempts': 1})} if self.import_mode else {}
+    self.clients[service] = self.session.client(service, region_name=self.target['awsRegion'], **options)
+    return self.clients[service]
 
 
 class Context:
@@ -218,11 +243,7 @@ class Context:
         self._connection = (stable(self.target), id(self.session), id(self.cli_runner))
 
     def client(self, service):
-        def create():
-            from botocore.config import Config
-            options = {'config': Config(retries={'total_max_attempts': 1})} if self.import_mode else {}
-            self.clients[service] = self.session.client(service, region_name=self.target['awsRegion'], **options)
-            return self.clients[service]
+        create = _bind_framework_callback(_callback_Context_client_create, self, service)
         return self.once(('client', service), create)
 
     def cli(self, service, operation, inputs, paginate=False):
@@ -345,7 +366,7 @@ class Context:
         return self.models[path]
 
     def comparison(self, service):
-        from aws_mapping_compare import comparison
+        comparison = _imports_aws_mapping_compare.comparison
         if service not in self.comparisons:
             self.comparisons[service] = comparison(ROOT, service)
         return self.comparisons[service]
@@ -396,12 +417,20 @@ class Model:
                           for number, spec in entries(self.values, "desired.resource.")]
 
 
+def _callback_Resource_resolve_json_replace(norm, self, substitutions, /, match):
+    key = match.group(1)
+    if key.startswith("!"):
+        return "${" + key[1:] + "}"
+    if key in substitutions:
+        return str(substitutions[key])
+    return str(self.resolve_json({"Fn::GetAtt": key} if "." in key else {"Ref": key}, norm))
+
+
 class Resource:
     def __init__(self, model, number, spec, rows):
         self.model, self.ctx, self.number, self.spec, self.rows = model, model.ctx, number, spec, rows
         self.kind = spec["resourceType"]
         if getattr(self.ctx, 'import_mode', False) and model.service not in SERVICES:
-            from types import SimpleNamespace
             self.module = SimpleNamespace(APIS=frozenset(), sensitive=lambda prop: False)
         else:
             self.module = service_module(model.service)
@@ -442,7 +471,6 @@ class Resource:
         return self.reference(reference)
 
     def reference(self, value):
-        from types import SimpleNamespace
         scope = SimpleNamespace(environment=self.model.path.parent.parent.name, target=self.model.path.parent.name, service=self.model.service)
         environment, target, service, anchor = parse_reference(value, scope)
         path = self.ctx.root / 'model' / environment / target / (service + '.properties')
@@ -467,7 +495,9 @@ class Resource:
         if not descriptor and self.kind in getattr(self.module, 'CLOUDCONTROL_RESOURCE_TYPES', ()):
             if mode == 'arn':
                 raise Unresolved('provider primary identifier cannot supply arn')
-            from model.importing.inventory import inventory_for, cloudcontrol_value, pointer_value
+            cloudcontrol_value = _imports_model_importing_inventory.cloudcontrol_value
+            inventory_for = _imports_model_importing_inventory.inventory_for
+            pointer_value = _imports_model_importing_inventory.pointer_value
             schema = inventory_for(self.ctx).schema(self.kind)
             getters = [definition for definition in mapping.getters.values()
                        if definition.get('kind') == 'cloudcontrol' and definition.get('resourceType') == self.kind]
@@ -560,7 +590,7 @@ class Resource:
         if "Fn::GetAtt" in value or "Ref" in value:
             item = value.get("Fn::GetAtt", value.get("Ref"))
             logical = item[0] if isinstance(item, list) else item.split(".")[0]
-            from iac_values import cfn_resource_identity
+            cfn_resource_identity = _imports_iac_values.cfn_resource_identity
             stack = cfn_resource_identity(self.spec["cfn-logicalId"])[0] if "cfn-logicalId" in self.spec else None
             matches = []
             for path in model_paths(self.ctx.root, self.model.path.parent.parent.name, self.model.path.parent.name):
@@ -586,13 +616,7 @@ class Resource:
             substitutions.update({"AWS::AccountId": caller["Account"],
                                   "AWS::Region": self.ctx.target["awsRegion"],
                                   "AWS::Partition": caller["Arn"].split(":")[1]})
-            def replace(match):
-                key = match.group(1)
-                if key.startswith("!"):
-                    return "${" + key[1:] + "}"
-                if key in substitutions:
-                    return str(substitutions[key])
-                return str(self.resolve_json({"Fn::GetAtt": key} if "." in key else {"Ref": key}, norm))
+            replace = _bind_framework_callback(_callback_Resource_resolve_json_replace, norm, self, substitutions)
             return re.sub(r"\$\{([^}]+)\}", replace, expression)
         if "Fn::ImportValue" in value:
             name = self.resolve_json(value["Fn::ImportValue"], norm)
@@ -659,7 +683,7 @@ def compare_resource(ctx, resource):
         grouped[row["property"]].append((rid, row))
     expected, actual, pending = {}, {}, {}
     parsed = []
-    from aws_mapping_compare import value as mapped_value
+    mapped_value = _imports_aws_mapping_compare.value
     mapping, property_map = ctx.comparison(resource.model.path.stem)
     outputs = set().union(*(catalog_outputs(ROOT, ".".join(prop.split(".")[:2])) for prop in grouped)) if grouped else set()
     for prop, rows in grouped.items():
@@ -696,7 +720,7 @@ def compare_resource(ctx, resource):
                                 "reason": "resource identifier; not a desired configuration value"})
                 continue
             values = [normalize(ctx, resource.parse(row, field.norm), field.norm) for _, row in rows]
-            parsed.extend((rid, prop, val, row.get("comment", "")) for (rid, row), val in zip(rows, values))
+            parsed.extend((rid, prop, val, row.get("comment", "")) for (rid, row), val in zip(rows, values, strict=False))
             project(actual, prop, normalize(ctx, value, field.norm))
             pending[prop] = {**item, "apis": ctx.trace[start:], "normalization": field.norm}
         except AcquisitionError as error:
@@ -716,7 +740,7 @@ def compare_resource(ctx, resource):
     # Restore catalog row order; grouping by property above must never reorder arrays.
     parsed.sort(key=lambda row: row[0])
     unresolved = {}
-    for rid, prop, value, _ in parsed:
+    for _rid, prop, value, _ in parsed:
         setting = re.sub(r"\[(?:\d*)\]", "", prop.removeprefix(resource.kind + ".").split(".", 1)[0])
         try:
             put_row(expected, prop, value)
@@ -738,7 +762,7 @@ def compare_resource(ctx, resource):
 
 
 def targets(root, environment=None, selector=None, all_targets=False):
-    import project_targets as resolver
+    resolver = _imports_project_targets
     topology = json.loads((root / "project.json").read_text(encoding="utf-8"))
     found = []
     seen = set()
@@ -763,7 +787,7 @@ def inventory(root, selected_targets, services=None):
     requested = set(services or ())
     found = []
     for target in selected_targets:
-        directory = root / "model" / target["environment"] / target["directory"]
+        _ = root / "model" / target["environment"] / target["directory"]
         paths = model_paths(root, target["environment"], target["directory"])
         if requested:
             paths = [path for path in paths if path.stem in requested]
@@ -789,7 +813,7 @@ def coverage(root, items):
             if service == 'cloudformation-stacks':
                 property_map, resource_types = {}, (module.STACK_TYPE,)
             else:
-                from aws_mapping_compare import comparison
+                comparison = _imports_aws_mapping_compare.comparison
                 mapping, property_map = comparison(ROOT, service)
                 adapter_types[service] = sorted(mapping.adapter_resource_types)
                 resource_types = {'.'.join(key.split('.')[:2]) for key in property_map}
@@ -862,7 +886,7 @@ def run(root, items, profile=None, session_factory=None):
     for target, _ in items:
         if target.get("awsProfile") and profile is not None and profile != target["awsProfile"]:
             raise ValueError("explicit profile conflicts with target awsProfile")
-    from aws_mapping_compare import comparison
+    comparison = _imports_aws_mapping_compare.comparison
     for service in sorted({path.stem for _, path in items} - {'cloudformation-stacks'}):
         comparison(ROOT, service)  # Validate all Mapping inputs before AWS retrieval.
     for _, path in items:

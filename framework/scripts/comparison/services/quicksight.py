@@ -1,13 +1,13 @@
 """quicksight comparison contracts and projections."""
 
+import model.importing.references as _imports_model_importing_references
 from cloudformation_inputs import Blocked
 from policy_tables import literal
-from design_layout import resource_mode
 
 IMPORT_CONSUMER = ('QuickSight.DataSource.Permissions[].Principal', 'QuickSight.Group', 'Arn')
 
 def imported_group_arn(all_rows, catalog, partition, target, stack_inputs):
-    from model.importing.references import known
+    known = _imports_model_importing_references.known
     fields = {}
     for field in catalog.schema('QuickSight.Group')['identityProperties']:
         rows = [row for _, row in all_rows

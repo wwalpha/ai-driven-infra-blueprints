@@ -1,4 +1,5 @@
 """Durable, sealed offline handoff records. This module never launches an LLM or Git."""
+
 import copy
 import hashlib
 import json
@@ -6,15 +7,26 @@ import re
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from cloudformation_inputs import Blocked
-from deploy import failures, retry_policy
-from deploy.contracts import task_digest, sha
-from import_guard import evidence_store, read_sealed, write_sealed
-from task_contract import task_path, safe_path
-from utils.file_operations import atomic_files
-from utils.json_format import fingerprint
-from utils.cloudformation_format import decode
 
+import cloudformation_inputs as _imports_cloudformation_inputs
+import model.sources as _imports_model_sources
+import project_targets as _imports_project_targets
+import task_contract_core as _imports_task_contract
+import utils.aws_mappings as _imports_utils_aws_mappings
+import worktree_task as _imports_worktree_task
+from cloudformation_inputs import Blocked
+from import_guard import evidence_store, read_sealed, write_sealed
+from task_contract_core import safe_path, task_path
+from task_contract_core import task_digest as task_digest
+from utils.cloudformation_format import decode
+from utils.file_operations import atomic_files as atomic_files
+from utils.file_operations import sha as sha
+from utils.json_format import fingerprint
+
+import deploy.change_sets as _imports_deploy_change_sets
+import deploy.inputs as _imports_deploy_inputs
+import deploy.session as _imports_deploy_session
+from deploy import failures, retry_policy
 
 # Timing and obsolete measurement metadata are historical, never execution authority.
 HISTORICAL = {'metrics', 'skillStartedAt', 'firstExecuteAcceptedAt', 'within120Seconds',
@@ -144,6 +156,7 @@ def workflow(session):
 
 def bind(root, path, session):
     """One unfinished workflow per Task; replacing/deleting its session is not a reset."""
+    bind_deploy_workflow = _imports_worktree_task.bind_deploy_workflow
     current = workflow(session)
     if not current['attempts'] and not current.get('reserved') and not current.get('budgetExtensions'):
         current['budget'] = session.get('repairBudget', retry_policy.DEFAULT_BUDGET)
@@ -160,7 +173,6 @@ def bind(root, path, session):
         write_sealed(root, record_path, record)
         _verified[id(session)] = (str(path), 0)
     session['workflowBinding'] = str(record_path)
-    from worktree_task import bind_deploy_workflow
     contract = (root / session['taskFile']).read_text(encoding='utf-8') if (root / session['taskFile']).is_file() else ''
     bind_deploy_workflow(root, path, session, record_path,
         activate='- External IaC repair: `allowed`' in contract.splitlines() or bool(current['attempts']) or current['reserved'] > 0)
@@ -221,7 +233,7 @@ def _reference(root, manifest, reference):
         except (KeyError, IndexError, ValueError, TypeError):
             raise Blocked('diagnosis input location does not exist') from None
     elif path.suffix == '.properties':
-        from model.sources import load_model
+        load_model = _imports_model_sources.load_model
         if reference.get('key') not in load_model(path).authoritative:
             raise Blocked('diagnosis Model key does not exist')
     else:
@@ -268,6 +280,10 @@ def _relation(current, observations, entry):
     if not needed <= cited:
         raise Blocked('diagnosis must compare cited current and related historical failures')
     return relation, related
+
+
+def _lambda__diagnose_target_389(value):
+    return tuple((value[k] for k in ('target', 'stack', 'resourcePath', 'resourceType', 'operation')))
 
 
 def _diagnose(root, session, diagnosis):
@@ -330,7 +346,7 @@ def _diagnose(root, session, diagnosis):
         model_properties = set()
         for ref in models:
             _reference(root, session['modelInputManifest'], ref)
-            from model.sources import load_model
+            load_model = _imports_model_sources.load_model
             authority = load_model(root / ref['path']).authoritative
             owners = [key.split('.')[2] for key, value in authority.items() if key.startswith('desired.resource.') and
                       key.endswith('.cfn-logicalId') and value == observation['stack'] + '-' + identity['resourcePath'].split('/')[0]]
@@ -347,7 +363,7 @@ def _diagnose(root, session, diagnosis):
                     ref.get('pointer', '').startswith(property_pointer + '/') for ref in refs):
                 raise Blocked('claimed Property differs from referenced input/Model property')
         constraint_refs = entry.get('constraintRefs', [])
-        from utils.aws_mappings import definition_root
+        definition_root = _imports_utils_aws_mappings.definition_root
         for ref in constraint_refs:
             path = safe_path(definition_root(root), ref['path'])
             if not ref['path'].startswith('framework/materials/cloudformation-schema/'):
@@ -374,7 +390,7 @@ def _diagnose(root, session, diagnosis):
             if known_causes - {cause_id}:
                 uncertain = True
                 continue
-            target = lambda value: tuple(value[k] for k in ('target', 'stack', 'resourcePath', 'resourceType', 'operation'))
+            target = _lambda__diagnose_target_389
             problem_id = next((key for key, p in current['problems'].items()
                                if p.get('causeId', key) == cause_id and target(p['identity']) == target(identity)), None)
             problem_id = problem_id or uuid.uuid4().hex
@@ -474,10 +490,15 @@ def issue_request(root, path, session, problem_ids, allowed_paths, expectation):
 
 
 def verify_inputs(root, session, child_paths=(), contract_file=None):
-    from deploy.session import design_digest, model_input_manifest, execution_digest
-    from deploy.inputs import deployment_input_paths, load_units
-    from project_targets import load_target
-    from task_contract import selected_task
+
+    load_target = _imports_project_targets.load_target
+    selected_task = _imports_task_contract.selected_task
+
+    deployment_input_paths = _imports_deploy_inputs.deployment_input_paths
+    load_units = _imports_deploy_inputs.load_units
+    design_digest = _imports_deploy_session.design_digest
+    execution_digest = _imports_deploy_session.execution_digest
+    model_input_manifest = _imports_deploy_session.model_input_manifest
     environment, directory, target = session['environment'], session['directory'], session['target']
     current = load_target(root, environment, target['awsAccountId'], target.get('alias'))
     if current != target:
@@ -496,8 +517,11 @@ def verify_inputs(root, session, child_paths=(), contract_file=None):
 
 
 def dependencies(backend, units):
-    from deploy.change_sets import import_names
-    from cloudformation_inputs import condition_active, resolve_value
+
+    condition_active = _imports_cloudformation_inputs.condition_active
+    resolve_value = _imports_cloudformation_inputs.resolve_value
+
+    import_names = _imports_deploy_change_sets.import_names
     producers, imports = {}, {}
     for unit in units:
         document, parameters = backend.templates[unit['name']]

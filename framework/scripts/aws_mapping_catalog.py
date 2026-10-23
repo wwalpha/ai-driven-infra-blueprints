@@ -3,13 +3,19 @@
 Acquisition remains in service adapters. Provider paths are checked against the
 pinned CFn schema without AWS calls.
 """
-from pathlib import Path
-import re
-from botocore import xform_name
-from design_catalog import DesignSchemaCatalog
-from model.sources import exact
-from script_loader import module
 
+import re
+from pathlib import Path
+
+import aws_mapping as _imports_aws_mapping
+import utils.aws_catalogs as _imports_utils_aws_catalogs
+import utils.aws_schemas as _imports_utils_aws_schemas
+import utils.aws_sdk as _imports_utils_aws_sdk
+import utils.mapping_runtime as _mapping_runtime
+from design_catalog import DesignSchemaCatalog as DesignSchemaCatalog
+from script_loader import module
+from utils.aws_sdk import aws_runtime
+from utils.json_format import exact
 
 # Existing fetch code explicitly copies these inputs into its projected response.
 INPUT_SOURCES = {
@@ -54,12 +60,13 @@ def access(schema, path):
 
 
 def sdk_shape(sdk, definition):
-    from aws_mapping import response_shape, text
+    response_shape = _imports_aws_mapping.response_shape
+    text = _imports_aws_mapping.text
     api = tuple(text(definition[key], key) for key in ('service', 'operation'))
     if not api[1].startswith(('get_', 'describe_', 'list_', 'batch_get_')):
         raise ValueError('Mapping API must be read-only')
     sdk = sdk.service_model(api[0])
-    operation = next((name for name in sdk.operation_names if xform_name(name) == api[1]), None)
+    operation = aws_runtime().operation_name(sdk, api[1])
     if operation is None:
         raise ValueError(f'unknown SDK operation: {api}')
     shape = sdk.operation_model(operation).output_shape
@@ -67,7 +74,10 @@ def sdk_shape(sdk, definition):
 
 
 def catalog_properties(root: Path, service, document, *, sdk=None, schemas=None, catalogs=None):
-    from aws_mapping import Property, NORMALIZATIONS, text, response_shape
+    NORMALIZATIONS = _imports_aws_mapping.NORMALIZATIONS
+    Property = _imports_aws_mapping.Property
+    response_shape = _imports_aws_mapping.response_shape
+    text = _imports_aws_mapping.text
     comparator = module('model/adapters/aws.py', 'model.adapters.aws')
     exact(document, {'version', 'service', 'getters', 'resourceTypes'}, 'Mapping v3')
     if type(document['version']) is not int or document['version'] != 3:
@@ -78,9 +88,9 @@ def catalog_properties(root: Path, service, document, *, sdk=None, schemas=None,
         raise ValueError('Mapping getters must be an object')
     if any(not isinstance(d, dict) or d.get('kind') not in {'adapter', 'sdk', 'cloudcontrol'} for d in document['getters'].values()):
         raise ValueError('unknown getter kind')
-    from utils.aws_sdk import sdk_for
-    from utils.aws_schemas import schemas_for
-    from utils.aws_catalogs import catalogs_for
+    catalogs_for = _imports_utils_aws_catalogs.catalogs_for
+    schemas_for = _imports_utils_aws_schemas.schemas_for
+    sdk_for = _imports_utils_aws_sdk.sdk_for
     sdk = sdk if sdk is not None else sdk_for(root)
     schemas = schemas if schemas is not None else schemas_for(root)
     catalogs = catalogs if catalogs is not None else catalogs_for(root)
@@ -257,32 +267,7 @@ def catalog_properties(root: Path, service, document, *, sdk=None, schemas=None,
     return result
 
 
+
+
 def runtime_properties(root, service, document):
-    """Parse executable mappings; catalog coverage and display quality stay in catalog_properties."""
-    from aws_mapping import Property, NORMALIZATIONS
-    comparator = module('model/adapters/aws.py', 'model.adapters.aws')
-    if document.get('version') != 3 or document.get('service') != service:
-        raise ValueError('Mapping service/version mismatch')
-    result = {}
-    for resource, item in document['resourceTypes'].items():
-        for path, definition in item['properties'].items():
-            key = resource + '.' + path
-            include = definition['model']['include']
-            if type(include) is not bool:
-                raise ValueError('Mapping model.include must be boolean: ' + key)
-            source = definition.get('source', {})
-            extraction = definition.get('aws', source.get('extraction'))
-            if extraction is not None:
-                getter = extraction['getter']
-                if getter not in document['getters'] or extraction['normalize'] not in NORMALIZATIONS or not isinstance(extraction['path'], str):
-                    raise ValueError('unusable Mapping extraction: ' + key)
-                field = comparator.Field(getter, extraction['path'], extraction['normalize'], extraction.get('default', comparator.MISSING))
-            else:
-                field = comparator.Field(classification=source['classification'], reason=source.get('constraint', ''))
-            transform = definition.get('aws', {}).get('transform', 'identity')
-            if transform not in {'identity', 'present', 'unique'}:
-                raise ValueError('unusable Mapping transform: ' + key)
-            display = definition.get('display', {})
-            result[key] = Property(field, include, display.get('show', True), display.get('name', path),
-                                   source.get('kind', 'aws'), source.get('constraint', ''), transform)
-    return result
+    return _mapping_runtime.runtime_properties(root, service, document)

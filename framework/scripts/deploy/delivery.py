@@ -9,8 +9,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote, urlencode
 
-from cloudformation_inputs import Blocked, resolve_value, condition_active
+from cloudformation_inputs import Blocked, condition_active, resolve_value
 from model.core import ARTIFACT_PROPERTIES
+
 from deploy.s3_delivery import preflight, upload_options, verify_encryption
 
 
@@ -104,7 +105,7 @@ def upload(placement, file_digest, path, bucket, prefix, boundary, *, consume_ve
                 if not put_error or getattr(error, 'code', None) not in {'404', 'NoSuchKey', 'NotFound'} or getattr(error, 'http_status', None) not in {None, 404}:
                     raise
                 if getattr(put_error, 'http_status', None) == 412 or getattr(put_error, 'code', None) == 'PreconditionFailed' or attempt == 2:
-                    raise put_error
+                    raise put_error from error
                 time.sleep(0.1 * (attempt + 1))
     if current.get('VersionId') not in {None, 'null'}:
         obj['version'] = current['VersionId']

@@ -1,26 +1,30 @@
 """Task identity and exact verified-child evidence shared by execution and validation."""
-import re
-import json
+
 import hashlib
+import json
+import re
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
 
-def sha(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+import cloudformation_inputs as _imports_cloudformation_inputs
+import import_guard as _imports_import_guard
+import model.core as _imports_model_core
+import task_contract_core as _imports_task_contract
+import utils.json_format as _imports_utils_json_format
+from task_contract_core import task_digest as task_digest
+from utils.file_operations import sha as sha
+from worktree_state import output, paths, task_start_commit
+from worktree_state import subprocess_bytes as subprocess_bytes
 
-
-def task_digest(text):
-    # Human approval updates the existing contract, not deployment inputs/scope.
-    from task_contract import set_status
-    text = set_status(text, 'running').rstrip()
-    text = '\n'.join(line for line in text.splitlines() if not line.startswith(('- Authorized delete/replacement:', '- Task status:')))
-    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+import deploy.delivery as _imports_deploy_delivery
+import deploy.handoff as _imports_deploy_handoff
 
 
 def accepted_changes(root, contract, changed):
     """Attribute exact child commit transitions; never grant the parent IaC write scope."""
-    from import_guard import read_sealed
-    from task_contract import task_path
-    from worktree_task import output, paths, git, task_start_commit
+    read_sealed = _imports_import_guard.read_sealed
+    task_path = _imports_task_contract.task_path
+    fingerprint = _imports_utils_json_format.fingerprint
     if not any(path.startswith('infra/') for path in changed):
         return set()
     entries = re.findall(r"^- Deploy repair session: `([^`]+)`$", contract, re.M)
@@ -34,8 +38,9 @@ def accepted_changes(root, contract, changed):
     if (session.get('repository') != str(root.resolve()) or session.get('taskFile') != selected.relative_to(root).as_posix()
             or session.get('taskDigest') != task_digest(contract)):
         raise ValueError('deploy repair session task identity changed')
-    from deploy.handoff import binding_path, protected
-    from utils.json_format import fingerprint
+
+    binding_path = _imports_deploy_handoff.binding_path
+    protected = _imports_deploy_handoff.protected
     proof = binding_path(root, session['taskFile'])
     ledger = read_sealed(root, proof)
     if (proof.with_name(proof.name + '.intent').exists() or ledger['session'] != str(path) or
@@ -74,20 +79,17 @@ def accepted_changes(root, contract, changed):
     return delegated
 
 
-def subprocess_bytes(root, revision, relative):
-    import subprocess
-    result = subprocess.run(['git', 'show', revision + ':' + relative], cwd=root, capture_output=True)
-    if result.returncode:
-        raise ValueError('recorded IaC blob missing')
-    return result.stdout
 
 
 def migrate_delivery(root, target, unit, state, template_data, file_digest):
     """Explicit migration of old delivery arguments; preserve execution identity/evidence."""
-    from cloudformation_inputs import Blocked, condition_active
-    from model.core import ARTIFACT_PROPERTIES
-    from deploy.delivery import source_path
-    from urllib.parse import urlparse, parse_qs, unquote
+    Blocked = _imports_cloudformation_inputs.Blocked
+    condition_active = _imports_cloudformation_inputs.condition_active
+    ARTIFACT_PROPERTIES = _imports_model_core.ARTIFACT_PROPERTIES
+
+    source_path = _imports_deploy_delivery.source_path
+
+
     record = state.get('delivery')
     if not record or not isinstance(record.get('arguments'), list):
         return False
@@ -121,7 +123,7 @@ def migrate_delivery(root, target, unit, state, template_data, file_digest):
     if len(pending) != len(active):
         raise Blocked('legacy artifact object/consumer identity is incomplete')
     updates = []
-    for artifact, obj in zip(active, pending):
+    for artifact, obj in zip(active, pending, strict=False):
         path = source_path(root, artifact)
         expected_key = artifact['keyPrefix'] + file_digest(path) + path.suffix
         if obj['bucket'] != artifact['bucket'] or obj['key'] != expected_key:

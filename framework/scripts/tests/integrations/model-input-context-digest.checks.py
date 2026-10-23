@@ -3,13 +3,33 @@
 
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from model.projection import document_sha256, json_sha256
+from support.it_case_receipt import it_case
+from support.producer_identifier_reference_fixtures import (
+    Path,
+    affected,
+    declarations,
+    dependency_hashes,
+    design_source_digest,
+    json,
+    load_model,
+    rejected,
+    resource,
+    serialize,
+    setup,
+    source_inputs,
+    tempfile,
+    trace_model,
+    warning,
+    write_model,
+)
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-from support.it_case_receipt import it_case
-from support.producer_identifier_reference_fixtures import *
-from model.projection import document_sha256, json_sha256
 
 
 @it_case
@@ -64,7 +84,7 @@ def check(root):
     project.write_text(json.dumps(topology))
     for fields in ({'producerId': '007'}, {'property': 'Account'}, {'contextProperty': 'awsAccountId'}):
         bad = {**values, **{'desired.reference.account.' + field: value for field, value in fields.items()}}
-        rejected(lambda: declarations(bad), 'reference' if 'contextProperty' in fields else 'forbidden')
+        rejected(lambda *, bad=bad: declarations(bad), 'reference' if 'contextProperty' in fields else 'forbidden')
     # Values and reference text change only in an explicit candidate; hashes remain derived.
     hashes = []
     for account in ('222222222222', '333333333333'):

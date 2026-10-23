@@ -1,15 +1,32 @@
 """JSON contracts use fixed pre-refactor bytes, messages and digests."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import math
 import subprocess
+
+import cloudformation_schema
+import iac_values
+import policy_tables
 import pytest
-from utils.json_format import (strict_json, policy_json, unique_object, invalid_constant,
-                               json_text, canonical_json, document_sha256, fingerprint)
+from utils.json_format import (
+    canonical_json,
+    document_sha256,
+    fingerprint,
+    invalid_constant,
+    json_text,
+    policy_json,
+    strict_json,
+    unique_object,
+)
+
+from model import format, projection, sources
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 @pytest.mark.parametrize('reader', [strict_json, policy_json])
@@ -64,10 +81,7 @@ def check_output_bytes_and_hashes():
 
 
 def check_compatibility_exports():
-    import iac_values
-    import policy_tables
-    import cloudformation_schema
-    from model import format, sources, projection
+
     assert format.strict_json is sources.json_read is strict_json
     assert iac_values.strict_json is policy_json
     assert iac_values.unique_object is policy_tables.unique_object is unique_object

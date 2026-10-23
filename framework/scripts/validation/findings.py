@@ -1,9 +1,10 @@
 """Ordered validation findings and check counts."""
 
-
-from pathlib import Path
-from model.core import ReferenceResolutionError
+import json
 from dataclasses import dataclass, field, replace
+from pathlib import Path
+
+from model.core import ReferenceResolutionError
 
 
 @dataclass
@@ -119,6 +120,5 @@ class Findings:
         print(f"Checks: {self.checks}")
         print(f"Blocking errors: {len(self.errors)}")
         print(f"Warnings: {len(self.warnings)}")
-        import json
         for warning in self.warnings:
             print('WARNING [' + warning['code'] + '] ' + json.dumps(warning, ensure_ascii=False))

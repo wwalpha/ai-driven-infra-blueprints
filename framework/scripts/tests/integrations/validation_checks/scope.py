@@ -3,37 +3,26 @@
 
 from __future__ import annotations
 
-from support.it_case_receipt import it_case
-
-
 import json
-import shutil
-
-
-import io
-
-
 import os
-
-
-from pathlib import Path
-
-
-from contextlib import ExitStack, redirect_stdout
-
-
+from contextlib import ExitStack as ExitStack
 from unittest.mock import patch
 
-
-from support.validator import MODULE, SCRIPT, project, git_project, commit, write
+import deploy.inputs as _imports_deploy_inputs
+import model.render as _imports_model_render
+import task_contract_core as _imports_task_contract
+from support.it_case_receipt import it_case
+from support.validator import MODULE, commit, git_project
+from support.validator import project as project
+from support.validator import write as write
 
 
 @it_case
 def check_deployment_iac_scope():
-    from deploy.inputs import task_deployment_input_paths
-    from model.render import markdown_for
-    import task_contract as tasks
-    import os
+
+    tasks = _imports_task_contract
+    task_deployment_input_paths = _imports_deploy_inputs.task_deployment_input_paths
+    markdown_for = _imports_model_render.markdown_for
     with git_project() as root, patch.dict(os.environ, {}, clear=True):
         target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "alias": "shared", "iacEngine": "cloudformation"}
         write(root / "project.json", json.dumps({"projectName": "app", "targets": [

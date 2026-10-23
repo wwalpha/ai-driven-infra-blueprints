@@ -1,10 +1,14 @@
 """Pinned AWS runtime recovery; never writes authoritative IaC."""
+
+import copy
 import time
+
+import task_contract_core as _imports_task_contract
 from cloudformation_inputs import Blocked
 
 
 def require_authorized(root, session):
-    from task_contract import task_path
+    task_path = _imports_task_contract.task_path
     contract = task_path(root).read_text(encoding='utf-8')
     if '- Runtime recovery: `allowed`' not in contract.splitlines() and not (
             session.get('runtimeRecoveryAuthorization') == 'explicitly-migrated-legacy-runtime' and session.get('migrations')):
@@ -149,7 +153,6 @@ def finish_repair(refresh_validation, save, cleanup_failed_create, reset_after_c
 def archive_failure(state):
     keys = ('failureEvents', 'failureTemplateSafety', 'executionEvidence', 'clientToken', 'stackId',
             'operationStackId', 'stackStatus', 'operationType', 'absentBeforeCreate', 'changeSetId', 'changeSetFailure', 'preExecutionRecovery', 'failure', 'successEvents')
-    import copy
     record = {key: copy.deepcopy(state[key]) for key in keys if key in state}
     if record and record not in state.setdefault('failureArchive', []):
         state['failureArchive'].append(record)

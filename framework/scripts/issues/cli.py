@@ -1,10 +1,18 @@
 """Compatibility CLI with subcommand-specific runtime imports."""
+
 import argparse
 import json
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import issues.artifact as _imports_issues_artifact
+import issues.integrity as _imports_issues_integrity
+import issues.publication as _imports_issues_publication
+import issues.runner as _imports_issues_runner
+
 from .records import safe_text
+
 SELECTOR = "BLUEPRINT_TASK_FILE"
 
 def outside(root, path):
@@ -47,8 +55,9 @@ def main():
         os.environ[SELECTOR] = args.task_file
     try:
         if args.command == 'scan':
-            from .runner import scan
-            from .artifact import review_payload, scan_exit_code
+            review_payload = _imports_issues_artifact.review_payload
+            scan_exit_code = _imports_issues_artifact.scan_exit_code
+            scan = _imports_issues_runner.scan
             artifact_path = outside(root, args.artifact)
             artifact = scan(root, args.environment, args.target_directory, args.service, fresh=args.fresh, jobs=args.jobs)
             artifact_path.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
@@ -56,19 +65,20 @@ def main():
             print(json.dumps(output, ensure_ascii=False))
             return scan_exit_code(artifact)
         if args.command == 'detail':
-            from .artifact import detail_payload
+            detail_payload = _imports_issues_artifact.detail_payload
             artifact = json.loads(outside(root, args.artifact).read_text(encoding='utf-8'))
             print(json.dumps(detail_payload(artifact, args.section, args.offset, args.limit, args.category, args.issue_id), ensure_ascii=False))
             return 0
         if args.command == 'save':
-            from .publication import save_scan
-            from .artifact import summary, has_processing_errors
+            has_processing_errors = _imports_issues_artifact.has_processing_errors
+            summary = _imports_issues_artifact.summary
+            save_scan = _imports_issues_publication.save_scan
             artifact = json.loads(outside(root, args.artifact).read_text(encoding='utf-8'))
             review = json.loads(outside(root, args.review).read_text(encoding='utf-8'))
             paths = save_scan(root, artifact, review)
         else:
-            from .integrity import selected_scope
-            from .publication import save
+            selected_scope = _imports_issues_integrity.selected_scope
+            save = _imports_issues_publication.save
             selected_scope(args.environment, args.target_directory, args.service)
             results = json.loads(outside(root, args.results).read_text(encoding='utf-8'))
             if set(results) - {'issues', 'resolved'}:
@@ -80,5 +90,3 @@ def main():
     except (OSError, ValueError, KeyError, TypeError) as error:
         print('Local issues: ERROR: ' + safe_text(str(error)), file=sys.stderr)
         return 2
-
-

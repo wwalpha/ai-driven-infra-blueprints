@@ -1,42 +1,56 @@
 """Explicit design validation over canonical metadata and runtime fields."""
 
 from __future__ import annotations
-from utils.json_format import policy_json
-from utils.aws_mappings import definition_root
-
-from model.core import ReferenceResolutionError
 
 import re
-from collections import Counter
+from functools import partial as _bind_framework_callback
 from pathlib import Path
+from types import SimpleNamespace
+from types import SimpleNamespace as _CallbackState
+
+import aws_mapping_display as _imports_aws_mapping_display
+import design_layout as _dependency_design_layout
+import design_layout as _imports_design_layout
 import iac_values
-from array_display import indexed_rows
-from model.projection import bound_resource_anchors, deployment_bucket, catalog_outputs, resource_rows, design_target, resource_display_rows, is_import_expression
-from model.display import display_rows, catalog_display_rows, row_table, sg_tables
-from aws_mapping_display import selected_rows
-from validation_cache import input_is_file
-from model.identity import resource_link
-from model.core import properties, entries, stack_model, deployment_settings, LINK, ARTIFACT_FIELDS
-
-from design_layout import (
-    GROUPED,
-    HIDDEN_PROPERTIES,
-    resource_display_name,
-    resource_name_fields,
-    resource_anchor,
-    resource_has_name_property,
-    resource_mode,
-    is_import_pending_reference,
-    GROUPED_RESOURCE_TYPES,
-    IMPLICIT_GROUPED_PROPERTIES,
-    ROTATION_SCHEDULE,
-    LAMBDA_PERMISSION,
-    SUBNET_LIST_SOURCE,
+import json_intrinsics as _imports_json_intrinsics
+import policy_tables as _dependency_policy_tables
+import utils.aws_catalogs as _compat_utils_aws_catalogs
+import validation.design as _imports_validation_design
+import validation.findings as _imports_validation_findings
+from design_catalog import (
+    DesignSchemaCatalog,
+    property_paths_with_parents,
+    selected_properties,
 )
-from policy_tables import literal, table
-from design_catalog import DesignSchemaCatalog, property_paths_with_parents, selected_properties
-from validation_cache import input_scope, memoized
+from utils.aws_mappings import definition_root
+from utils.input_cache import input_is_file, memoized
+from utils.input_cache import input_scope as input_scope
+from utils.json_format import policy_json
+from utils.layout_schema import (
+    GROUPED_RESOURCE_TYPES,
+    HIDDEN_PROPERTIES,
+    IMPLICIT_GROUPED_PROPERTIES,
+)
+from utils.layout_schema import resource_anchor as resource_anchor
 
+import model.core as _imports_model_core
+import model.files as _imports_model_files
+import model.format as _imports_model_format
+import model.identity as _dependency_model_identity
+import model.identity as _imports_model_identity
+import model.importing.scope as _imports_model_importing_scope
+import model.projection as _dependency_model_projection
+import model.projection as _imports_model_projection
+import model.references as _imports_model_references
+import model.render as _imports_model_render
+import model.sources as _imports_model_sources
+from model.core import (
+    LINK,
+    ReferenceResolutionError,
+    entries,
+    properties,
+    stack_model,
+)
 
 NAMING_EXEMPT_PROPERTIES = {
     "Config.ConfigurationRecorder.Name",
@@ -55,8 +69,9 @@ NAMING_EXEMPT_PROPERTIES = {
 
 def validate_json_settings(values, model_path, *, warnings=None):
     """Validate JSON links and intrinsic structure without rewriting Model authority."""
-    from model.references import _json, string_leaves
-    from model.identity import reference_tokens
+    reference_tokens = _imports_model_identity.reference_tokens
+    _json = _imports_model_references._json
+    string_leaves = _imports_model_references.string_leaves
     for row_id, row in entries(values, 'desired.row.'):
         for field in ('value', 'document'):
             if field not in row:
@@ -72,7 +87,7 @@ def validate_json_settings(values, model_path, *, warnings=None):
                         f'JSON setting contains a Markdown Resource link: Model={model_path}, '
                         f'Resource={resource} ({number}), Property={row["property"]}, '
                         f'JSON Pointer={pointer!r}; use confirmed AWS values and external desired.reference metadata')
-            from json_intrinsics import project_document
+            project_document = _imports_json_intrinsics.project_document
             project_document(value, warnings=warnings, model_path=model_path,
                              logical_id=resource, property_name=row['property'])
 
@@ -120,7 +135,7 @@ def naming_coverage_errors(root: Path, kind: str, selected: set[str], name_tag: 
     if mode == "IMPORT":
         return []
     targets = naming_targets(root, kind.partition(".")[0])
-    expected = selected & set(resource_name_fields(kind))
+    expected = selected & set(_dependency_design_layout.resource_name_fields(kind))
     expected.update(field for field in selected if naming_target_matches(field, targets.get(kind, set()), kind))
     if name_tag:
         expected.add("Name tag")
@@ -159,13 +174,13 @@ def naming_errors(root: Path, kind: str, rows: list[list[str]], mode: str = "CRE
     outputs = catalog_outputs(root, kind)
     selected = {row[1].removeprefix(kind + ".") for row in rows if kind + "." + row[1].removeprefix(kind + ".") not in outputs}
     tag_rows = [row for row in rows if row[1].removeprefix(kind + ".").startswith(("Tags", "HostedZoneTags"))]
-    return naming_coverage_errors(root, kind, selected, resource_display_name(kind, tag_rows, root=root) is not None, mode)
+    return naming_coverage_errors(root, kind, selected, _dependency_design_layout.resource_display_name(kind, tag_rows, root=root) is not None, mode)
 
 
 def validate_required_properties(values: dict[str, str], root: Path, *, warnings=None) -> list[dict]:
     """Reject missing required model inputs before producing any view or artifact."""
-    from model.core import validate_runtime_keys as validate_model_keys
-    from model.files import resource_row_index
+    validate_model_keys = _imports_model_core.validate_runtime_keys
+    resource_row_index = _imports_model_files.resource_row_index
     validate_model_keys(values)
     resource_row_index(values)
     if entries(values, "desired.stack."):
@@ -178,28 +193,30 @@ def validate_required_properties(values: dict[str, str], root: Path, *, warnings
     errors = []
     warnings = [] if warnings is None else warnings
     for identity, resource in entries(values, "desired.resource."):
-        resource_mode(resource)
+        _dependency_design_layout.resource_mode(resource)
         kind = resource["resourceType"]
         rows = resource_rows(values, identity, kind, root)
-        from aws_mapping_display import rule
-        from design_layout import RESOURCE_REFERENCE_PROPERTIES, is_service_role_reference, is_import_role_arn
+        rule = _imports_aws_mapping_display.rule
+        RESOURCE_REFERENCE_PROPERTIES = _imports_design_layout.RESOURCE_REFERENCE_PROPERTIES
+        is_import_role_arn = _imports_design_layout.is_import_role_arn
+        is_service_role_reference = _imports_design_layout.is_service_role_reference
         references = {rid for rid, _, _, _ in rows
-                      if resource_link(values[f'desired.row.{rid}.value'])}
+                      if _dependency_model_identity.resource_link(values[f'desired.row.{rid}.value'])}
         for rid, prop, value, _ in rows:
             rule(prop, root)
             owner = '.'.join(prop.split('.')[:2])
             if owner not in {kind, *GROUPED_RESOURCE_TYPES.get(kind, set())}:
                 raise ValueError(f"property does not belong to resource: {identity}: {prop}")
             if prop in RESOURCE_REFERENCE_PROPERTIES and not (
-                rid in references or (LINK.fullmatch(value) or resource_link(value)) or is_service_role_reference(prop, value) or
-                resource_mode(resource) == 'IMPORT' and (prop != 'Config.ConfigurationRecorder.RoleARN' or is_import_pending_reference(prop, value)) or
-                is_import_role_arn(prop, value, resource_mode(resource))
+                rid in references or (LINK.fullmatch(value) or _dependency_model_identity.resource_link(value)) or is_service_role_reference(prop, value) or
+                _dependency_design_layout.resource_mode(resource) == 'IMPORT' and (prop != 'Config.ConfigurationRecorder.RoleARN' or _dependency_design_layout.is_import_pending_reference(prop, value)) or
+                is_import_role_arn(prop, value, _dependency_design_layout.resource_mode(resource))
             ):
                 warnings.append({'code': 'reference.expected_link', 'message': f'{prop} must be a resource link or an allowed IMPORT reference',
                                  'resource': identity, 'property': prop, 'reference': value})
         properties = {row[1] for row in rows
-                      if row[0] in references or (resource_mode(resource) == "IMPORT" and is_import_pending_reference(row[1], row[2]))
-                      or literal(row[2]).strip().strip('"').strip().lower()
+                      if row[0] in references or (_dependency_design_layout.resource_mode(resource) == "IMPORT" and _dependency_design_layout.is_import_pending_reference(row[1], row[2]))
+                      or _dependency_policy_tables.literal(row[2]).strip().strip('"').strip().lower()
                       not in {"", "unset", "pending", "pending_deploy", "tbd", "未確定"}}
         if "parentProperty" in resource:
             properties.add(resource["parentProperty"])
@@ -224,7 +241,7 @@ def validate_kms_policy_accounts(values: dict[str, str], target: dict) -> None:
         return
     execution = target.get("awsExecutionAccountId", target["awsAccountId"])
     keys = {identity for identity, resource in entries(values, "desired.resource.")
-            if resource["resourceType"] == "KMS.Key" and resource_mode(resource) == "CREATE"}
+            if resource["resourceType"] == "KMS.Key" and _dependency_design_layout.resource_mode(resource) == "CREATE"}
     for identity, row in entries(values, "desired.row."):
         if not any(identity.startswith(key + "-") for key in keys) or row.get("property") != "KMS.Key.KeyPolicy" or "document" not in row:
             continue
@@ -248,16 +265,20 @@ def validate_kms_policy_accounts(values: dict[str, str], target: dict) -> None:
                                      f"cross-account:{arn} in the policy row comment")
 
 
+def _callback__kms_policy_account_check_check(_state__kms_policy_account_check_266, /, values, target):
+    pass
+    inputs = (tuple(values.items()), tuple(target.items()))
+    if inputs != _state__kms_policy_account_check_266.successful:
+        validate_kms_policy_accounts(values, target)
+        _state__kms_policy_account_check_266.successful = inputs
+
+
 def _kms_policy_account_check():
     """Reuse only the last successful ordered inputs within one service check."""
-    successful = None
+    _state__kms_policy_account_check_266 = _CallbackState()
+    _state__kms_policy_account_check_266.successful = None
 
-    def check(values, target):
-        nonlocal successful
-        inputs = (tuple(values.items()), tuple(target.items()))
-        if inputs != successful:
-            validate_kms_policy_accounts(values, target)
-            successful = inputs
+    check = _bind_framework_callback(_callback__kms_policy_account_check_check, _state__kms_policy_account_check_266)
 
     return check
 
@@ -272,7 +293,7 @@ def validate_resource_identities(path, values, root, resources, *, definitions_r
     identity_catalog = DesignSchemaCatalog(definitions_root or definition_root(root))
     for identity, resource in resources:
         if "cfn-logicalId" not in resource:
-            if target.get("iacEngine") == "cloudformation" and resource_mode(resource) == "CREATE":
+            if target.get("iacEngine") == "cloudformation" and _dependency_design_layout.resource_mode(resource) == "CREATE":
                 try:
                     cfn_type = identity_catalog.cloudformation_type(resource["resourceType"])
                 except ValueError:
@@ -282,10 +303,11 @@ def validate_resource_identities(path, values, root, resources, *, definitions_r
             continue
         if target.get("iacEngine") == "terraform":
             raise ValueError(f"{identity}: cfn-logicalId is forbidden for Terraform")
-        if resource_mode(resource) != "CREATE":
+        if _dependency_design_layout.resource_mode(resource) != "CREATE":
             raise ValueError(f"{identity}: cfn-logicalId requires CREATE with a formal CFn type")
         identity_catalog.cloudformation_type(resource["resourceType"])
-        from model.importing.scope import selected as import_selection, placement_names
+        placement_names = _imports_model_importing_scope.placement_names
+        import_selection = _imports_model_importing_scope.selected
         if import_selection(root) is not None and stack_source is not None:
             if stack_names is None:
                 stack_names = placement_names(stack_source, {iac_values.cfn_resource_identity(spec['cfn-logicalId'])[0]
@@ -297,47 +319,101 @@ def validate_resource_identities(path, values, root, resources, *, definitions_r
             raise ValueError(f"{identity}: cfn-logicalId requires authoritative cloudformation-stacks.properties")
         if stack_source is not None and input_is_file(stack_source):
             if stack_names is None:
-                from model.files import read_model
+                read_model = _imports_model_files.read_model
                 _, stacks = stack_model(properties(read_model(stack_source)))
-                from model.projection import bound_stack_names
+                bound_stack_names = _imports_model_projection.bound_stack_names
                 stack_names = set(bound_stack_names(stack_source)) or {stack["name"] for _, stack in stacks}
             if iac_values.cfn_resource_identity(resource["cfn-logicalId"])[0] not in stack_names:
                 raise ReferenceResolutionError(f"{identity}: cfn-logicalId references an undeclared stack")
 
 
+def _callback_check_model_inputs_structure(findings, path, resource_row_index, validate_model_keys, values, /):
+    validate_model_keys(values)
+    resource_row_index(values)
+    validate_json_settings(values, path, warnings=findings.warnings)
+
+
+def _callback_check_model_inputs_presentation(definitions, findings, owned, path, resource_details, resources, root, service, values, /):
+    scope_for = _imports_model_sources.scope_for
+    view = (root / 'docs/designs' / path.relative_to(root / 'model')).with_suffix('.md') if path.is_relative_to(root / 'model') else path
+    scope = scope_for((root / "model" / view.relative_to(root / "docs/designs")).with_suffix(".properties"))
+    resource_details(values, definitions, service, owned, resources, bound_resource_anchors(view), findings=findings, scope=scope)
+
+
+def _callback_check_model_inputs_references(_state_check_model_inputs_337, findings, root, values, /):
+
+    diagnose = _imports_model_references.diagnose
+    scope_for = _imports_model_sources.scope_for
+    model_path = (root / 'model' / _state_check_model_inputs_337.view.relative_to(root / 'docs/designs')).with_suffix('.properties')
+    candidate = SimpleNamespace(scope=scope_for(model_path), authoritative=values, dependencies={})
+    warnings, _ = diagnose(candidate, errors=findings.errors)
+    findings.warnings.extend(warnings)
+
+
+def _callback_check_model_inputs_names(_state_check_model_inputs_337, definitions, findings, values, /):
+    rows = resource_rows(values, _state_check_model_inputs_337.identity, _state_check_model_inputs_337.resource['resourceType'], definitions)
+    for error in naming_errors(definitions, _state_check_model_inputs_337.resource['resourceType'], rows, _dependency_design_layout.resource_mode(_state_check_model_inputs_337.resource)):
+        findings.check(False, error)
+
+
+def _callback_check_model_inputs_literal_check(_state_check_model_inputs_337, catalog, definitions, findings, root, /):
+    config_role_arn = _imports_design_layout.config_role_arn
+    is_service_role_reference = _imports_design_layout.is_service_role_reference
+    DESIGN_ONLY_PROPERTIES = _imports_validation_design.DESIGN_ONLY_PROPERTIES
+
+    scalar_reference = _imports_model_projection.scalar_reference
+    scalar_reference_operand = _imports_model_projection.scalar_reference_operand
+    prop, value = _state_check_model_inputs_337.row['property'], _state_check_model_inputs_337.row.get('document', _dependency_policy_tables.literal(_state_check_model_inputs_337.row['value']))
+    if scalar_reference(_state_check_model_inputs_337.row) is not None:
+        scope_for = _imports_model_sources.scope_for
+        model_path = (root / 'model' / _state_check_model_inputs_337.view.relative_to(root / 'docs/designs')).with_suffix('.properties')
+        scalar_reference_operand(_state_check_model_inputs_337.row, root, scope_for(model_path))
+        return
+    if 'document' not in _state_check_model_inputs_337.row and is_import_expression(prop, _state_check_model_inputs_337.row['value'], _state_check_model_inputs_337.view):
+        return
+    if 'document' not in _state_check_model_inputs_337.row and _dependency_model_identity.resource_link(_state_check_model_inputs_337.row['value']):
+        return
+    kind = '.'.join(prop.split('.')[:2])
+    if (prop in catalog_outputs(definitions, kind) or prop in NAMING_EXEMPT_PROPERTIES
+            or prop in HIDDEN_PROPERTIES or prop in DESIGN_ONLY_PROPERTIES
+            or is_service_role_reference(prop, _state_check_model_inputs_337.row.get('value', ''))
+            or _dependency_design_layout.resource_mode(_state_check_model_inputs_337.resource) == 'IMPORT' and (_dependency_design_layout.is_import_pending_reference(prop, _state_check_model_inputs_337.row.get('value', ''))
+                                                       or config_role_arn(prop, _state_check_model_inputs_337.row.get('value', '')))):
+        return
+    field = prop.removeprefix(kind + '.')
+    if field == 'Name' and kind in {'EC2.VPC', 'EC2.Subnet', 'EC2.RouteTable', 'EC2.FlowLog'}:
+        return
+    for error in catalog.literal_errors(kind, field, value):
+        findings.check(False, f'provider schema violation: {prop}: {error}')
+
+
 def check_model_inputs(path, values, root, *, definitions_root=None):
     """Validate authoritative inputs even when their View cannot be rendered."""
-    from validation.findings import Findings
-    from model.render import resource_details
-    from model.core import validate_authority
-    from model.sources import runtime_values
+    _state_check_model_inputs_337 = _CallbackState()
+    validate_mappings = _imports_aws_mapping_display.validate_mappings
+    check_observed_values = _imports_validation_design.check_observed_values
+    Findings = _imports_validation_findings.Findings
+
+    validate_authority = _imports_model_core.validate_authority
+    validate_model_keys = _imports_model_core.validate_runtime_keys
+    resource_row_index = _imports_model_files.resource_row_index
+    owner = _imports_model_format.owner
+    resource_details = _imports_model_render.resource_details
+    runtime_values = _imports_model_sources.runtime_values
     validate_authority(values)
     values = runtime_values(values)
-    from model.core import validate_runtime_keys as validate_model_keys
-    from model.files import resource_row_index
-    from model.format import owner
-    from aws_mapping_display import validate_mappings
+
     findings = Findings(root)
     definitions = definitions_root or definition_root(root)
-    view = (root / 'docs/designs' / path.relative_to(root / 'model')).with_suffix('.md') if path.is_relative_to(root / 'model') else path
-    def structure():
-        validate_model_keys(values)
-        resource_row_index(values)
-        validate_json_settings(values, path, warnings=findings.warnings)
+    _state_check_model_inputs_337.view = (root / 'docs/designs' / path.relative_to(root / 'model')).with_suffix('.md') if path.is_relative_to(root / 'model') else path
+    structure = _bind_framework_callback(_callback_check_model_inputs_structure, findings, path, resource_row_index, validate_model_keys, values)
     if findings.evaluate('model.structure', None, structure).errors:
         return findings
     if entries(values, 'desired.stack.'):
         findings.evaluate('model.stacks', None, lambda: validate_required_properties(values, definitions))
         return findings
     resources = entries(values, 'desired.resource.')
-    def references():
-        from types import SimpleNamespace
-        from model.sources import scope_for
-        from model.references import diagnose
-        model_path = (root / 'model' / view.relative_to(root / 'docs/designs')).with_suffix('.properties')
-        candidate = SimpleNamespace(scope=scope_for(model_path), authoritative=values, dependencies={})
-        warnings, _ = diagnose(candidate, errors=findings.errors)
-        findings.warnings.extend(warnings)
+    references = _bind_framework_callback(_callback_check_model_inputs_references, _state_check_model_inputs_337, findings, root, values)
     findings.evaluate('model.references', None, references)
     try:
         catalog = DesignSchemaCatalog(definitions) if resources else None
@@ -345,66 +421,33 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
         findings.check(False, str(error))
         return findings
     resource_values = None
-    for identity, resource in resources:
+    for _state_check_model_inputs_337.identity, _state_check_model_inputs_337.resource in resources:
         if resource_values is None:
             resource_values = {}
             for key, value in values.items():
                 kind, number = owner(key, values)
                 if kind == 'resource':
                     resource_values.setdefault(number, {})[key] = value
-        selected = dict(resource_values.get(identity, {}))
-        findings.evaluate('model.required.' + identity, None,
-                          lambda: validate_required_properties(selected, definitions, warnings=findings.warnings))
-        findings.evaluate('model.mapping.' + identity, None, lambda: validate_mappings(selected, definitions))
-        def names():
-            rows = resource_rows(values, identity, resource['resourceType'], definitions)
-            for error in naming_errors(definitions, resource['resourceType'], rows, resource_mode(resource)):
-                findings.check(False, error)
-        findings.evaluate('model.naming.' + identity, None, names)
-        for row_id, row in entries(selected, 'desired.row.'):
-            def literal_check():
-                prop, value = row['property'], row.get('document', literal(row['value']))
-                from model.projection import scalar_reference, scalar_reference_operand
-                if scalar_reference(row) is not None:
-                    from model.sources import scope_for
-                    model_path = (root / 'model' / view.relative_to(root / 'docs/designs')).with_suffix('.properties')
-                    scalar_reference_operand(row, root, scope_for(model_path))
-                    return
-                if 'document' not in row and is_import_expression(prop, row['value'], view):
-                    return
-                if 'document' not in row and resource_link(row['value']):
-                    return
-                kind = '.'.join(prop.split('.')[:2])
-                from validation.design import DESIGN_ONLY_PROPERTIES
-                from design_layout import config_role_arn, is_service_role_reference
-                if (prop in catalog_outputs(definitions, kind) or prop in NAMING_EXEMPT_PROPERTIES
-                        or prop in HIDDEN_PROPERTIES or prop in DESIGN_ONLY_PROPERTIES
-                        or is_service_role_reference(prop, row.get('value', ''))
-                        or resource_mode(resource) == 'IMPORT' and (is_import_pending_reference(prop, row.get('value', ''))
-                                                                   or config_role_arn(prop, row.get('value', '')))):
-                    return
-                field = prop.removeprefix(kind + '.')
-                if field == 'Name' and kind in {'EC2.VPC', 'EC2.Subnet', 'EC2.RouteTable', 'EC2.FlowLog'}:
-                    return
-                for error in catalog.literal_errors(kind, field, value):
-                    findings.check(False, f'provider schema violation: {prop}: {error}')
+        selected = dict(resource_values.get(_state_check_model_inputs_337.identity, {}))
+        findings.evaluate('model.required.' + _state_check_model_inputs_337.identity, None,
+                          lambda *, selected=selected: validate_required_properties(selected, definitions, warnings=findings.warnings))
+        findings.evaluate('model.mapping.' + _state_check_model_inputs_337.identity, None, lambda *, selected=selected: validate_mappings(selected, definitions))
+        names = _bind_framework_callback(_callback_check_model_inputs_names, _state_check_model_inputs_337, definitions, findings, values)
+        findings.evaluate('model.naming.' + _state_check_model_inputs_337.identity, None, names)
+        for row_id, _state_check_model_inputs_337.row in entries(selected, 'desired.row.'):
+            literal_check = _bind_framework_callback(_callback_check_model_inputs_literal_check, _state_check_model_inputs_337, catalog, definitions, findings, root)
             findings.evaluate('model.literal.' + row_id, None, literal_check)
-    from validation.design import check_observed_values
     model = (root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties') if path.is_relative_to(root / 'docs/designs') else path
-    view = (root / 'docs/designs' / model.relative_to(root / 'model')).with_suffix('.md')
+    _state_check_model_inputs_337.view = (root / 'docs/designs' / model.relative_to(root / 'model')).with_suffix('.md')
     findings.evaluate('model.observed', None, lambda: check_observed_values(
-        [model], findings=findings, root=root, scope=None, design_sources={view: values}))
+        [model], findings=findings, root=root, scope=None, design_sources={_state_check_model_inputs_337.view: values}))
     service = path.stem
     owned = values.get(f'desired.service.{service}.ownedCatalogResourceTypes', '').split(',')
-    def presentation():
-        view = (root / 'docs/designs' / path.relative_to(root / 'model')).with_suffix('.md') if path.is_relative_to(root / 'model') else path
-        from model.sources import scope_for
-        scope = scope_for((root / "model" / view.relative_to(root / "docs/designs")).with_suffix(".properties"))
-        resource_details(values, definitions, service, owned, resources, bound_resource_anchors(view), findings=findings, scope=scope)
+    presentation = _bind_framework_callback(_callback_check_model_inputs_presentation, definitions, findings, owned, path, resource_details, resources, root, service, values)
     kms_policy_check = _kms_policy_account_check()
-    for identity, resource in resources:
-        findings.evaluate('model.identity.' + identity, None, lambda: validate_resource_identities(
-            view, values, root, [(identity, resource)], definitions_root=definitions,
+    for _state_check_model_inputs_337.identity, _state_check_model_inputs_337.resource in resources:
+        findings.evaluate('model.identity.' + _state_check_model_inputs_337.identity, None, lambda *, identity=_state_check_model_inputs_337.identity, resource=_state_check_model_inputs_337.resource: validate_resource_identities(
+            _state_check_model_inputs_337.view, values, root, [(identity, resource)], definitions_root=definitions,
             _kms_policy_check=kms_policy_check))
     findings.evaluate('model.presentation', None, presentation)
     for warning in findings.warnings:
@@ -412,3 +455,30 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
         warning.setdefault('source', str(model.relative_to(root)))
     return findings
 
+
+
+_DEFAULT_ROOT = Path(__file__).resolve().parents[3]
+
+def selected_rows(rows, root=_DEFAULT_ROOT):
+    return _imports_aws_mapping_display.selected_rows(rows, root)
+
+
+
+def resource_rows(values: dict[str, str], identity: str, kind: str, root: Path):
+    return _dependency_model_projection.resource_rows(values, identity, kind, root)
+
+
+def is_import_expression(prop: str, raw_value: str, design: Path):
+    return _dependency_model_projection.is_import_expression(prop, raw_value, design)
+
+
+def bound_resource_anchors(path):
+    return _dependency_model_projection.bound_resource_anchors(path)
+
+
+def design_target(path: Path, root: Path):
+    return _dependency_model_projection.design_target(path, root)
+
+
+def catalog_outputs(root: Path, kind: str):
+    return _compat_utils_aws_catalogs.catalog_outputs(root, kind)

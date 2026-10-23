@@ -1,13 +1,17 @@
 """Process-local static Mapping definitions, shared by exact source/stage roots."""
-from utils.json_format import policy_json
-from validation_cache import input_text
+
+import re
 from concurrent.futures import Future
 from contextlib import contextmanager
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-import re
 from threading import Lock
 from types import MappingProxyType
 
+import utils.mapping_runtime as _imports_aws_mapping_catalog
+import utils.mapping_types as _imports_aws_mapping
+from utils.input_cache import input_text
+from utils.json_format import policy_json
 
 _lock = Lock()
 _instances = {}
@@ -34,6 +38,31 @@ def _once(table, key, load):
     return future.result()
 
 
+def _callback_Mappings__document_load(self, service, /):
+    aws_mapping = _imports_aws_mapping
+    document = aws_mapping.yaml_read(input_text(aws_mapping.mapping_path(self._root, service), encoding='utf-8'))
+    expected = {kind for kind, owner in self._owners.items() if owner == service}
+    if (not isinstance(document, dict) or document.get('service') != service
+            or not isinstance(document.get('resourceTypes'), dict)
+            or document['resourceTypes'].keys() != expected):
+        raise ValueError('Mapping ownership index mismatch: ' + service)
+    return document
+
+
+def _callback_Mappings_get_build(self, service, /):
+    Registry = _imports_aws_mapping.Registry
+    runtime_properties = _imports_aws_mapping_catalog.runtime_properties
+    document = self._document(service)
+    return Registry(self._root, service, document, runtime_properties(self._root, service, document))
+
+
+def _callback_Mappings_validated_build(catalogs, schemas, sdk, self, service, validator, /):
+    Registry = _imports_aws_mapping.Registry
+    document = self._document(service)
+    properties = validator(self._root, service, document, sdk=sdk, schemas=schemas, catalogs=catalogs)
+    return Registry(self._root, service, document, properties)
+
+
 class Mappings:
     def __init__(self, root):
         self._root = definition_root(root)
@@ -55,24 +84,12 @@ class Mappings:
 
     def _document(self, service):
         self._require_service(service)
-        def load():
-            import aws_mapping
-            document = aws_mapping.yaml_read(input_text(aws_mapping.mapping_path(self._root, service), encoding='utf-8'))
-            expected = {kind for kind, owner in self._owners.items() if owner == service}
-            if (not isinstance(document, dict) or document.get('service') != service
-                    or not isinstance(document.get('resourceTypes'), dict)
-                    or document['resourceTypes'].keys() != expected):
-                raise ValueError('Mapping ownership index mismatch: ' + service)
-            return document
+        load = _bind_framework_callback(_callback_Mappings__document_load, self, service)
         return _once(self._documents, service, load)
 
     def get(self, service):
         self._require_service(service)
-        def build():
-            from aws_mapping import Registry
-            from aws_mapping_catalog import runtime_properties
-            document = self._document(service)
-            return Registry(self._root, service, document, runtime_properties(self._root, service, document))
+        build = _bind_framework_callback(_callback_Mappings_get_build, self, service)
         return _once(self._runtime, service, build)
 
     def validated(self, service, sdk, schemas, catalogs, validator):
@@ -82,11 +99,7 @@ class Mappings:
         (or a new process), never extending input/diagnostic cache lifetimes.
         """
         self._require_service(service)
-        def build():
-            from aws_mapping import Registry
-            document = self._document(service)
-            properties = validator(self._root, service, document, sdk=sdk, schemas=schemas, catalogs=catalogs)
-            return Registry(self._root, service, document, properties)
+        build = _bind_framework_callback(_callback_Mappings_validated_build, catalogs, schemas, sdk, self, service, validator)
         return _once(self._validated, (service, sdk, schemas, catalogs, validator), build)
 
 

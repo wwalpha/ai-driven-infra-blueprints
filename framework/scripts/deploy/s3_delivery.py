@@ -1,14 +1,17 @@
 """Model-approved S3 delivery conditions; read checks do not prove write permission."""
-import re
+
 import json
+import re
+from functools import partial as _bind_framework_callback
 from types import SimpleNamespace
 
 from cloudformation_inputs import Blocked
-from script_loader import module
-from utils.json_format import policy_json as strict_json, fingerprint
 from model.core import LINK
 from model.identity import resource_link
 from policy_tables import literal
+from script_loader import module
+from utils.json_format import fingerprint
+from utils.json_format import policy_json as strict_json
 
 ALGORITHM = 'BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm'
 KEY = 'BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID'
@@ -88,18 +91,21 @@ def referenced_key(backend, resource, boundary):
     return keys.pop()
 
 
+def _callback_model_conditions_model(backend, ctx, models, /, path):
+    path = path.resolve()
+    if path.parent != ctx.root / 'model' / backend.environment / backend.directory:
+        fail('INDETERMINATE', 'producer target context is outside authorized S3 placement retrieval scope: ' + str(path))
+    if path not in models:
+        models[path] = module('model/adapters/aws.py', 'model.adapters.aws').Model(ctx, path)
+    return models[path]
+
+
 def model_conditions(backend, bucket, boundary=None):
     boundary = {} if boundary is None else boundary
     # Reuse the comparator's resource/current/parent/reference resolution, without an SDK client.
     models = {}
     ctx = SimpleNamespace(root=backend.root.resolve())
-    def model(path):
-        path = path.resolve()
-        if path.parent != ctx.root / 'model' / backend.environment / backend.directory:
-            fail('INDETERMINATE', 'producer target context is outside authorized S3 placement retrieval scope: ' + str(path))
-        if path not in models:
-            models[path] = module('model/adapters/aws.py', 'model.adapters.aws').Model(ctx, path)
-        return models[path]
+    model = _bind_framework_callback(_callback_model_conditions_model, backend, ctx, models)
     ctx.model = model
     path = backend.root / 'model' / backend.environment / backend.directory / 's3.properties'
     try:

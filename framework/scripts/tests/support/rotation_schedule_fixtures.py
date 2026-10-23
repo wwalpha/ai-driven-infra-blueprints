@@ -1,6 +1,8 @@
 """Synthetic Secret and RotationSchedule data shared by integration cases."""
 import json
+
 from support import model_design_fixtures as HELPERS
+
 ROTATION = "SecretsManager.RotationSchedule"
 SECRET = "SecretsManager.Secret"
 
@@ -38,4 +40,3 @@ def fixture(count=1):
                                        f"{namespace}.row.{key}.value": rendered,
                                        f"{namespace}.row.{key}.comment": "属性の設定値"})
     return values
-

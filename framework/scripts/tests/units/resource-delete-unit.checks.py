@@ -1,28 +1,45 @@
 #!/usr/bin/env python3
 """Parent deletion transactions use synthetic sources; no consumer checkout or AWS."""
-import sys
-from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
 
-import copy
+import sys
+from functools import partial as _bind_framework_callback
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import json
 import shutil
 from contextlib import nullcontext
 from unittest.mock import patch
+
 import pytest
-import yaml
-import task_contract as tasks
+import task_contract_core as tasks
+import worktree_state as ws
 import worktree_task as wt
-from model.operations import verify_model_operation, prepare_edit, publish_edit
-from model.sources import load_model, scope_for
-from model.core import entries
-from model.format import serialize, owner
-from support.model_sources import write_model
+from import_guard import require_import_changes
+from issue_gate import task_issue_errors
 from model.adapters.task import source_write_context
-from support.import_model_fixtures import (service_values, resource_values, reference_fields,
-    operation_contract, dependency_fixture, dependency_refactor, dependency_contract)
+from model.core import entries
+from model.format import owner, serialize
+from model.operations import prepare_edit, publish_edit, verify_model_operation
+from model.sources import load_model, scope_for
+from support.import_model_fixtures import (
+    dependency_contract,
+    dependency_fixture,
+    dependency_refactor,
+    operation_contract,
+    reference_fields,
+    resource_values,
+    service_values,
+)
+from support.model_sources import write_model
+from support.worktree_task_fixtures import fixture as git_fixture
+from support.worktree_task_fixtures import git
+from utils.aws_mappings import mapping_alias
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 def contract(sources, references=(), detaches=()):
@@ -182,6 +199,12 @@ def check_remaining_reference_is_warning(tmp_path):
     assert any(item['code'] == 'reference.mismatch' and 'absent' in item['message'] for item in warnings)
 
 
+def _callback_check_fifth_save_failure_retains_first_four_fail_partial_write(original_write, path, /, destination, content, *args, **kwargs):
+    if destination == path:
+        raise OSError('injected fifth leaf write failure')
+    return original_write(destination, content, *args, **kwargs)
+
+
 @pytest.mark.parametrize('failure', ['syntax', 'io'])
 def check_fifth_save_failure_retains_first_four(tmp_path, failure):
     sources = fixture(tmp_path, True)
@@ -191,10 +214,10 @@ def check_fifth_save_failure_retains_first_four(tmp_path, failure):
     text = contract(sources) + '## Validation scope\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n## Modified files\n' + listed + '\n## Allowed paths\n' + listed + '\n'
     tasks.start(tmp_path, name, text)
     state = {'task_file': name, 'worktree': str(tmp_path), 'merged': None}
-    with patch.object(wt, 'load', return_value=(tmp_path, None, None, state)), patch.object(wt, 'task_worktree', return_value=tmp_path), \
+    with patch.object(ws, 'load', return_value=(tmp_path, None, None, state)), patch.object(ws, 'task_worktree', return_value=tmp_path), \
          patch.object(wt, 'finalize', side_effect=AssertionError('leaf cannot finalize')), \
          patch('model.operations.verify_model_operation', side_effect=AssertionError('leaf must not run final validation')), \
-         patch.object(wt, 'output', return_value='synthetic-head'):
+         patch.object(ws, 'output', return_value='synthetic-head'):
         for source in sources[:4]:
             with source_write_context(tmp_path, name) as context:
                 write_candidate(context, deletion(tmp_path, source))
@@ -208,10 +231,7 @@ def check_fifth_save_failure_retains_first_four(tmp_path, failure):
                     write_candidate(context, edits)
             else:
                 original_write = Path.write_text
-                def fail_partial_write(destination, content, *args, **kwargs):
-                    if destination == path:
-                        raise OSError('injected fifth leaf write failure')
-                    return original_write(destination, content, *args, **kwargs)
+                fail_partial_write = _bind_framework_callback(_callback_check_fifth_save_failure_retains_first_four_fail_partial_write, original_write, path)
                 with patch.object(Path, 'write_text', fail_partial_write), pytest.raises(OSError, match='fifth leaf'):
                     write_candidate(context, edits)
         assert all(path.read_bytes() == content for path, content in saved.items())
@@ -254,7 +274,6 @@ def check_related_retarget(tmp_path):
 
 
 def check_delete_issue_exception_is_service_scoped(tmp_path):
-    from issue_gate import task_issue_errors
     sources = fixture(tmp_path, True)
     name = 'tasks/parent.md'
     text = contract(sources) + ('## Validation scope\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n- `stg/cde/service-c`\n'
@@ -269,11 +288,17 @@ def check_delete_issue_exception_is_service_scoped(tmp_path):
     assert len(errors) == 1 and 'service-c' in errors[0]
 
 
+def _callback_check_one_parent_merge_and_failed_candidate_repair_final_check(name, /, repository, options, *, final_candidate):
+    try:
+        with tasks.selected_task(repository, name):
+            require_import_changes(repository, final_candidate=final_candidate)
+    except ValueError:
+        return 1
+    return 0
+
+
 @pytest.mark.parametrize('repair', [False, True])
 def check_one_parent_merge_and_failed_candidate_repair(repair):
-    from support.worktree_task_fixtures import fixture as git_fixture, git
-    from import_guard import require_import_changes
-    from utils.aws_mappings import mapping_alias
     with git_fixture() as root:
         sources = fixture(root, True)
         git(root, 'add', 'model', 'project.json')
@@ -290,13 +315,7 @@ def check_one_parent_merge_and_failed_candidate_repair(repair):
         for source in sources:
             with source_write_context(target, name) as context:
                 write_candidate(context, deletion(target, source))
-        def final_check(repository, options, *, final_candidate):
-            try:
-                with tasks.selected_task(repository, name):
-                    require_import_changes(repository, final_candidate=final_candidate)
-            except ValueError:
-                return 1
-            return 0
+        final_check = _bind_framework_callback(_callback_check_one_parent_merge_and_failed_candidate_repair_final_check, name)
         original_git = wt.git
         with mapping_alias(Path(__file__).resolve().parents[4], target), patch.object(wt, 'git', wraps=original_git) as calls, patch('validation.loop.run_loop', side_effect=final_check) as validation:
             first_head = None

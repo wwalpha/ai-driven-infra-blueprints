@@ -2,13 +2,28 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from support.aws_mapping_display_fixtures import (
+    Path,
+    TemporaryDirectory,
+    fixture,
+    json,
+    markdown_for,
+    patch,
+    shutil,
+    snapshot_model,
+    socket,
+    sys,
+    validate_views,
+    write_model,
+)
 from support.it_case_receipt import it_case
 
-from support.aws_mapping_display_fixtures import *
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 @it_case
@@ -54,4 +69,3 @@ if __name__ == '__main__':
     with patch.object(socket, 'socket', side_effect=AssertionError('network forbidden')):
         with TemporaryDirectory(prefix='mapping-display-') as directory:
             check(Path(directory))
-

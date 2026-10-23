@@ -1,47 +1,33 @@
 """Offline Mapping and Config regressions with synthetic Config data."""
 
 import sys
-
 from pathlib import Path
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+
+import copy
+import hashlib
+import json
+import socket
+from dataclasses import FrozenInstanceError, astuple
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import aws_mapping
+from model.core import entries
+from model.display import display_rows
+from model.files import load_model
+from model.projection import resource_rows
+from model.render import resource_table_lines
+from script_loader import module
+from support.model_sources import write_model
+from utils.input_cache import input_scope
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-
-from dataclasses import FrozenInstanceError, astuple
-
-import hashlib
-
-from tempfile import TemporaryDirectory
-
-from types import SimpleNamespace
-
-from unittest.mock import patch
-
-import copy
-
-import json
-
-import socket
-
-import aws_mapping
-
-from model.display import display_rows
-
-from model.core import entries
-
-from model.files import load_model
-
-from model.render import resource_table_lines
-
-from model.projection import resource_rows
-
-from script_loader import module
-
-from support.model_sources import write_model
-
-from validation_cache import input_scope
 
 ROOT = Path(__file__).resolve().parents[4]
 

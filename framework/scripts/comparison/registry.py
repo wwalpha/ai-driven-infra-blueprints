@@ -1,5 +1,29 @@
 """Explicit comparison rule ownership; no dynamic discovery or service cross-imports."""
-from .services import athena, cloudtrail, cloudwatch_logs, codebuild, codecommit, codepipeline, events, glue, iam, kms, lambda_function, quicksight, route53, s3, secrets_manager, security_group, sqs, vpc
+
+import re
+
+import cloudformation_inputs as _imports_cloudformation_inputs
+
+from .services import (
+    athena,
+    cloudtrail,
+    cloudwatch_logs,
+    codebuild,
+    codecommit,
+    codepipeline,
+    events,
+    glue,
+    iam,
+    kms,
+    lambda_function,
+    quicksight,
+    route53,
+    s3,
+    secrets_manager,
+    security_group,
+    sqs,
+    vpc,
+)
 
 SERVICES = {
     'S3.Bucket': s3,
@@ -83,8 +107,8 @@ def literal_arn(kind, mode, properties, pseudo, *, resolve_attribute, substitute
 
 
 def named_arn(kind, properties, pseudo, *, evaluate):
-    import re
-    from cloudformation_inputs import Blocked
+
+    Blocked = _imports_cloudformation_inputs.Blocked
     field, pattern, service, prefix, suffix = hook(kind, 'NAMED_ARN')
     explicit = evaluate(properties.get(field))
     if not isinstance(explicit, str) or not re.fullmatch(pattern, explicit):

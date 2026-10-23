@@ -1,14 +1,21 @@
-from validation_cache import input_is_file, input_select, input_text
-from model.sources import model_exists
 """CloudFormation syntax, Environment and stack design checks."""
-
 
 import json
 import re
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-from design_layout import stack_design, stack_deployment_policy
+
+import design_layout as _imports_design_layout
+import model.adapters.observed as _imports_model_adapters_observed
+import model.core as _imports_model_core
+import model.projection as _imports_model_projection
+import utils.cloudformation_format as _imports_utils_cloudformation_format
+from design_layout import stack_deployment_policy, stack_design
 from model.core import properties
 from model.files import read_model
+from model.sources import model_exists
+from utils.input_cache import input_is_file, input_select, input_text
+
 from .design import JAPANESE_TEXT_PATTERN, stack_design_files
 from .project import check_target_file
 
@@ -53,6 +60,10 @@ def unquoted_yaml(line: str) -> str:
             code.append(char)
         index += 1
     return "".join(code)
+
+
+def _lambda_check_cloudformation_yaml_rules_is_security_group_168(kind):
+    return kind.startswith('AWS::EC2::SecurityGroup')
 
 
 def check_cloudformation_yaml_rules(root, iac_paths, findings) -> None:
@@ -158,7 +169,7 @@ def check_cloudformation_yaml_rules(root, iac_paths, findings) -> None:
             "AWS::IAM::Role", "AWS::IAM::Policy", "AWS::IAM::ManagedPolicy",
             "AWS::IAM::InstanceProfile",
         }
-        is_security_group = lambda kind: kind.startswith("AWS::EC2::SecurityGroup")
+        is_security_group = _lambda_check_cloudformation_yaml_rules_is_security_group_168
         requires_consumer = (
             "AWS::IAM::Role" in resource_types
             or any(kind.startswith("AWS::Logs::") for kind in resource_types)
@@ -187,46 +198,52 @@ def check_cloudformation_yaml_rules(root, iac_paths, findings) -> None:
             )
 
 
-def check_cloudformation_environment_parameters(root, iac_paths, accounts, stack_design_files, findings, *, stack_definitions=None) -> None:
-    def uses_environment(value) -> bool:
-        if isinstance(value, list):
-            return any(uses_environment(item) for item in value)
-        if not isinstance(value, dict):
-            return False
-        if value.get("Ref") == "Environment":
-            return True
-        if "Fn::Sub" in value:
-            argument = value["Fn::Sub"]
-            text, variables = (argument, {}) if isinstance(argument, str) else (
-                argument if isinstance(argument, list) and len(argument) == 2 else ("", {}))
-            if isinstance(text, str) and isinstance(variables, dict):
-                return any(uses_environment(variables[name]) if name in variables else name == "Environment"
-                           for name in re.findall(r"\$\{([^}]+)\}", text) if not name.startswith("!"))
-        return any(uses_environment(item) for item in value.values())
+def _recursive_check_cloudformation_environment_parameters_selection_paths(uses_environment, /, value, location=''):
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from _recursive_check_cloudformation_environment_parameters_selection_paths(uses_environment, item, f"{location}[{index}]")
+    elif isinstance(value, dict):
+        for key, argument in value.items():
+            child = f"{location}.{key}" if location else key
+            if key == "Conditions" and not location and isinstance(argument, dict):
+                for name, expression in argument.items():
+                    if uses_environment(expression):
+                        yield f"{child}.{name}"
+                continue
+            selectors = []
+            if isinstance(argument, list):
+                if key == "Fn::FindInMap":
+                    selectors = argument[:3]
+                elif key == "Fn::If" or key == "Fn::Select":
+                    selectors = argument[:1]
+                elif isinstance(key, str) and key.startswith("Fn::ForEach::"):
+                    selectors = argument[1:2]
+            if any(uses_environment(selector) for selector in selectors):
+                yield child
+            yield from _recursive_check_cloudformation_environment_parameters_selection_paths(uses_environment, argument, child)
 
-    def selection_paths(value, location=""):
-        if isinstance(value, list):
-            for index, item in enumerate(value):
-                yield from selection_paths(item, f"{location}[{index}]")
-        elif isinstance(value, dict):
-            for key, argument in value.items():
-                child = f"{location}.{key}" if location else key
-                if key == "Conditions" and not location and isinstance(argument, dict):
-                    for name, expression in argument.items():
-                        if uses_environment(expression):
-                            yield f"{child}.{name}"
-                    continue
-                selectors = []
-                if isinstance(argument, list):
-                    if key == "Fn::FindInMap":
-                        selectors = argument[:3]
-                    elif key == "Fn::If" or key == "Fn::Select":
-                        selectors = argument[:1]
-                    elif isinstance(key, str) and key.startswith("Fn::ForEach::"):
-                        selectors = argument[1:2]
-                if any(uses_environment(selector) for selector in selectors):
-                    yield child
-                yield from selection_paths(argument, child)
+
+def _recursive_check_cloudformation_environment_parameters_uses_environment(value) -> bool:
+    if isinstance(value, list):
+        return any(_recursive_check_cloudformation_environment_parameters_uses_environment(item) for item in value)
+    if not isinstance(value, dict):
+        return False
+    if value.get("Ref") == "Environment":
+        return True
+    if "Fn::Sub" in value:
+        argument = value["Fn::Sub"]
+        text, variables = (argument, {}) if isinstance(argument, str) else (
+            argument if isinstance(argument, list) and len(argument) == 2 else ("", {}))
+        if isinstance(text, str) and isinstance(variables, dict):
+            return any(_recursive_check_cloudformation_environment_parameters_uses_environment(variables[name]) if name in variables else name == "Environment"
+                       for name in re.findall(r"\$\{([^}]+)\}", text) if not name.startswith("!"))
+    return any(_recursive_check_cloudformation_environment_parameters_uses_environment(item) for item in value.values())
+
+
+def check_cloudformation_environment_parameters(root, iac_paths, accounts, stack_design_files, findings, *, stack_definitions=None) -> None:
+    uses_environment = _recursive_check_cloudformation_environment_parameters_uses_environment
+
+    selection_paths = _bind_framework_callback(_recursive_check_cloudformation_environment_parameters_selection_paths, uses_environment)
 
     templates = root / "infra" / "cloudformation" / "templates"
     parameters = root / "infra" / "cloudformation" / "parameters"
@@ -256,7 +273,7 @@ def check_cloudformation_environment_parameters(root, iac_paths, accounts, stack
             continue
         if not input_is_file(path) or path.suffix.lower() not in {".yaml", ".yml", ".json"}:
             continue
-        from utils.cloudformation_format import decode_file
+        decode_file = _imports_utils_cloudformation_format.decode_file
         document, decode_errors = decode_file(path)
         if decode_errors or not isinstance(document, dict):
             detail = decode_errors[0] if decode_errors else "expected a template object"
@@ -330,19 +347,19 @@ def check_stack_designs(paths: list[Path] | None = None, *, accounts, findings, 
             f"stack design requires CloudFormation target: {findings.relative(path)}",
         )
         try:
-            from design_layout import stack_delivery
-            from model.core import deployment_settings
-            from model.projection import deployment_bucket
+            stack_delivery = _imports_design_layout.stack_delivery
+            deployment_settings = _imports_model_core.deployment_settings
+            deployment_bucket = _imports_model_projection.deployment_bucket
             stack_deployment_policy(path)
             stacks = stack_design(path)
             definitions[path] = stacks
-            from model.adapters.observed import validate_mapping_targets
+            validate_mapping_targets = _imports_model_adapters_observed.validate_mapping_targets
             source = (root / "model" / path.relative_to(root / "docs" / "designs")).with_suffix(".properties")
             if model_exists(source):
                 mapping_values = (design_sources or {}).get(path)
                 if mapping_values is None:
                     mapping_values = properties(read_model(source))
-                from model.core import stack_model
+                stack_model = _imports_model_core.stack_model
                 stack_model(mapping_values)
                 validate_mapping_targets(root, target[0], target[1], mapping_values, definitions_root=definitions_root)
             values = stack_delivery(path) | {f"desired.stack.{number:03d}.name": stack["name"]

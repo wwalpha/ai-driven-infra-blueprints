@@ -1,6 +1,11 @@
 """Artifact review, bounded summaries and page-first detail; no source reads."""
+
+import re
 from collections import Counter
-from .records import identifier, brief
+
+import issues.aggregate as _imports_issues_aggregate
+
+from .records import brief, identifier
 
 CHANNELS = ('warnings', 'information', 'unverified', 'processing_errors')
 
@@ -31,7 +36,7 @@ def channel_summary(values, section):
 
 
 def summary(artifact):
-    from .aggregate import comparison_status
+    comparison_status = _imports_issues_aggregate.comparison_status
     view = artifact['overview']
     counts = view['records']
     return dict(ordinary_candidates=len(artifact.get('ordinary', [])), judgment_items=len(artifact.get('judgments', [])),
@@ -105,7 +110,6 @@ def validate_artifact(artifact):
     """Validate saved indexes without normalization, hashing records or regrouping them."""
     if artifact.get('version') != 2:
         raise ValueError('unsupported scan artifact version')
-    import re
     if not re.fullmatch(r'[0-9a-f]{32}', artifact.get('scan_id','')):
         raise ValueError('invalid scan_id')
     if identifier(artifact['naming_context']) != artifact['naming_context_id']:

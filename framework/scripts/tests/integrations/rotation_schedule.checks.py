@@ -2,35 +2,37 @@
 """RotationSchedule identity, parent references and transactional service generation."""
 
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 
-from model.files import read_model
-from support.model_sources import write_model
-import sync_views
-import model.projection as model_projection
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
-import shutil
 import tempfile
-from support.validator import load
 
-from design_layout import expanded_design, resource_anchor
-from model.render import markdown_for
+import model.projection as model_projection
+import sync_views
+from design_layout import expanded_design as expanded_design
 from model.core import properties
+from model.files import read_model
+from model.render import markdown_for
+from support import model_design_fixtures as HELPERS
+from support.it_case_receipt import it_case
+from support.model_sources import write_model
+from support.rotation_schedule_fixtures import fixture
+from support.validator import load as load
+from utils.layout_schema import resource_anchor as resource_anchor
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-from support.it_case_receipt import it_case
-
 ROOT = Path(__file__).resolve().parents[4]
-from support import model_design_fixtures as HELPERS
+
 SYNC = HELPERS.SYNC
 ROTATION = "SecretsManager.RotationSchedule"
 SECRET = "SecretsManager.Secret"
 
 
-from support.rotation_schedule_fixtures import fixture
 
 
 def rejects(action, *messages):
@@ -40,6 +42,11 @@ def rejects(action, *messages):
         assert all(message in str(error) for message in messages), str(error)
         return str(error)
     raise AssertionError(f"invalid input accepted: {messages}")
+
+
+def _callback_main_save(key, models, values, /):
+    write_model(models / "kms.properties", HELPERS.text(key))
+    write_model(models / "secretsmanager.properties", HELPERS.text(values))
 
 
 @it_case
@@ -88,18 +95,18 @@ def main():
         for field in ("parentReference", "parentProperty"):
             bad = dict(values)
             del bad[f"desired.resource.002.{field}"]
-            rejects(lambda: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_001", field, ROTATION + ".SecretId")
+            rejects(lambda *, bad=bad: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_001", field, ROTATION + ".SecretId")
         for reference in ("[Missing](#missing)", "[Secret1](elsewhere.md#secretsmanager-app-dev-secret-1)",
                           "[SecretsManager_RotationSchedule_001](#resource-SecretsManager_RotationSchedule_001)"):
             bad = {**values, "desired.resource.002.parentReference": reference}
-            rejects(lambda: markdown_for(path, bad, root), "parentReference")
+            rejects(lambda *, bad=bad: markdown_for(path, bad, root), "parentReference")
         for key, value in (("desired.resource.002.parentProperty", ROTATION + ".Id"),
                            ("desired.row.002-003.value", "[Secret2](#secretsmanager-app-dev-secret-2)")):
             bad = {**values, key: value}
-            rejects(lambda: markdown_for(path, bad, root), "invalid grouped parentProperty" if key.endswith("parentProperty") else "grouped formal row does not match parentReference")
+            rejects(lambda *, bad=bad: markdown_for(path, bad, root), "invalid grouped parentProperty" if key.endswith("parentProperty") else "grouped formal row does not match parentReference")
         for row in ("002-003",):
             bad = {key: value for key, value in values.items() if not key.startswith((f"desired.row.{row}.", f"observed.row.{row}."))}
-            rejects(lambda: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_001", ".SecretId")
+            rejects(lambda *, bad=bad: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_001", ".SecretId")
         bad = dict(values)
         for key, value in list(values.items()):
             if key.startswith("desired.row.002-003."):
@@ -120,7 +127,7 @@ def main():
             (output.replace("<!-- logical-id: SecretsManager_RotationSchedule_002 -->", "<!-- logical-id: SecretsManager_RotationSchedule_001 -->"), "duplicate grouped logical ID"),
         ]
         for invalid, message in invalid_views:
-            rejects(lambda: expanded_design(invalid.splitlines()), message)
+            rejects(lambda *, invalid=invalid: expanded_design(invalid.splitlines()), message)
         lines = output.splitlines()
         child_rows = [line for line in lines if ROTATION + "." in line][:3]
         second_child = [line.replace("secret-1_rotate", "secret-3_rotate").replace("SecretsManager_RotationSchedule_001", "SecretsManager_RotationSchedule_003") for line in child_rows]
@@ -150,9 +157,7 @@ def main():
                                f"{namespace}.row.{identity}-002.value": value,
                                f"{namespace}.row.{identity}-002.comment": "暗号化する鍵"})
 
-        def save():
-            write_model(models / "kms.properties", HELPERS.text(key))
-            write_model(models / "secretsmanager.properties", HELPERS.text(values))
+        save = _bind_framework_callback(_callback_main_save, key, models, values)
 
         save()
         SYNC.sync(root, True, "dev", "123456789012")

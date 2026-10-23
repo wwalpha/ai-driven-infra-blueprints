@@ -1,11 +1,19 @@
 """Mapping-owned Markdown names and visibility; formal Model rows stay intact."""
-from pathlib import Path
+
+from collections import defaultdict, deque
 from contextlib import contextmanager
 from contextvars import ContextVar
+from pathlib import Path
+from types import SimpleNamespace
 
-from utils.aws_mappings import owners, mappings_for
+import aws_mapping as _imports_aws_mapping
+import design_layout as _imports_design_layout
+import model.display as _imports_model_display
+import model.identity as _imports_model_identity
+import model.projection as _imports_model_projection
 from model.core import entries
-from validation_cache import input_scope, memoized
+from utils.aws_mappings import mappings_for, owners
+from utils.input_cache import input_scope, memoized
 
 ROOT = Path(__file__).resolve().parents[2]
 MODEL_ONLY = frozenset({'EC2.VPC.Name', 'EC2.Subnet.Name', 'EC2.RouteTable.Name',
@@ -40,7 +48,7 @@ def _validation_projection(source, root):
 
 @memoized
 def rules(root, kind):
-    from aws_mapping import runtime_registry
+    runtime_registry = _imports_aws_mapping.runtime_registry
     if kind == 'CloudFormation.Stack':
         return {}
     service = owners(root).get(kind)
@@ -66,7 +74,8 @@ def show(prop, root=ROOT):
 
 
 def display_name(prop, heading, root=ROOT):
-    from design_layout import GROUPED, RESOURCE_PROPERTY_PREFIXES
+    GROUPED = _imports_design_layout.GROUPED
+    RESOURCE_PROPERTY_PREFIXES = _imports_design_layout.RESOURCE_PROPERTY_PREFIXES
     item = rule(prop, root)
     name = item.name if item else prop.removeprefix(heading + '.')
     owner = '.'.join(prop.split('.')[:2])
@@ -81,7 +90,7 @@ def display_name(prop, heading, root=ROOT):
 
 @memoized
 def reverse_names(root, heading):
-    from design_layout import GROUPED_RESOURCE_TYPES
+    GROUPED_RESOURCE_TYPES = _imports_design_layout.GROUPED_RESOURCE_TYPES
     result = {}
     visibility = {}
     for owner in [heading, *sorted(GROUPED_RESOURCE_TYPES.get(heading, set()))]:
@@ -104,7 +113,8 @@ def formal_name(display, heading, root=ROOT):
 
 def structural(prop):
     """These rows supply existing hidden/grouped identity metadata, not ordinary rows."""
-    from design_layout import GROUPED, LAMBDA_PERMISSION
+    GROUPED = _imports_design_layout.GROUPED
+    LAMBDA_PERMISSION = _imports_design_layout.LAMBDA_PERMISSION
     owner = '.'.join(prop.split('.')[:2])
     group = GROUPED.get(owner, {})
     return prop in {LAMBDA_PERMISSION + '.Id', LAMBDA_PERMISSION + '.FunctionName'} or (
@@ -132,7 +142,8 @@ def compact_group(prop):
 
 @input_scope
 def selected_rows(rows, root=ROOT):
-    from design_layout import GROUPED, LAMBDA_PERMISSION
+    GROUPED = _imports_design_layout.GROUPED
+    LAMBDA_PERMISSION = _imports_design_layout.LAMBDA_PERMISSION
     hidden_groups = {compact_group(row[1]) for row in rows if not show(row[1], root)} - {None}
     blocked = set()
     for identity, prop, *_ in rows:
@@ -155,7 +166,7 @@ def selected_rows(rows, root=ROOT):
 def projection(source, root=ROOT):
     rows = [[identity, row['property'], row['value'], row.get('comment', '')]
             for identity, row in entries(source, 'desired.row.')]
-    from design_layout import GROUPED
+    GROUPED = _imports_design_layout.GROUPED
     retained = {row[0] for row in selected_rows(rows, root)}
     hidden_resources = {identity for identity, resource in entries(source, 'desired.resource.')
                         if resource['resourceType'] in GROUPED and not any(row.startswith(identity + '-') for row in retained)}
@@ -165,7 +176,7 @@ def projection(source, root=ROOT):
 
 
 def validate_mappings(source, root=ROOT):
-    from aws_mapping import registry
+    registry = _imports_aws_mapping.registry
     services = {owners(root).get(resource['resourceType']) for _, resource in entries(source, 'desired.resource.')
                 if resource['resourceType'] != 'CloudFormation.Stack'}
     for service in services:
@@ -177,23 +188,24 @@ def validate_mappings(source, root=ROOT):
 @input_scope
 def validation_rows(rows, source, kind, logical_id, root=ROOT, *, scope=None):
     """Reinsert only hidden source rows for existing semantic validators."""
+    parse_reference = _imports_model_identity.parse_reference
+    resource_link = _imports_model_identity.resource_link
     if not source:
         return rows
     validate_mappings(source, root)
     projected = _validation_projection(source, root)
     if projected == source:
         return rows
-    from collections import defaultdict, deque
-    from model.projection import resource_rows
-    from model.display import catalog_display_rows
+
+    catalog_display_rows = _imports_model_display.catalog_display_rows
+    resource_rows = _imports_model_projection.resource_rows
     resources = dict(entries(source, 'desired.resource.'))
     targets = [(identity, resource) for identity, resource in resources.items()
                if resource['resourceType'] == kind and resource['logicalId'] == logical_id]
     if not targets:
         return rows
     identity, resource = targets[0]
-    from model.identity import parse_reference, resource_link
-    from types import SimpleNamespace
+
     consumer = SimpleNamespace(environment=scope[0], target=scope[1], service=scope[2]) if scope else None
     targets += [(rid, child) for rid, child in resources.items()
                 if consumer is not None and resource_link(child.get('parentReference', '')) and
@@ -221,7 +233,10 @@ def validation_lines(lines, source, root=ROOT):
     validate_mappings(source, root)
     if _validation_projection(source, root) == source:
         return lines
-    from design_layout import ANCHOR, RESOURCE, HEADER, ALIGNMENT
+    ALIGNMENT = _imports_design_layout.ALIGNMENT
+    ANCHOR = _imports_design_layout.ANCHOR
+    HEADER = _imports_design_layout.HEADER
+    RESOURCE = _imports_design_layout.RESOURCE
     resources = {resource['anchor']: resource for _, resource in entries(source, 'desired.resource.')}
     result = []
     resource = None

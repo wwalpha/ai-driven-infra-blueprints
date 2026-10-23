@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 """Generate detailed-design Markdown from authoritative service properties."""
 
-from concurrent.futures import ThreadPoolExecutor
-from contextvars import Context, copy_context
-from sync_progress import reported_main, phase, consumers, diagnostics, output_file
 import argparse
 import hashlib
 import io
 import os
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import Context, copy_context
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-from sync_runtime import sync, run_generation, generation_context
+
+import import_guard as _imports_import_guard
+import issue_gate as _imports_issue_gate
+import model.impact as _imports_model_impact
+import model.importing.scope as _imports_model_importing_scope
+from sync_progress import consumers, diagnostics, output_file, phase, reported_main
+from sync_runtime import generation_context, run_generation, sync
 from validation_scope import active_scope
 
 
@@ -20,17 +26,30 @@ class ArgumentParser(argparse.ArgumentParser):
         super()._print_message(message, output_file(error=file is not sys.stdout))
 
 
+def _callback_run_invoke(argv, definitions_root, repository_root, /):
+    output = io.StringIO()
+    with diagnostics(output):
+        try:
+            code = main([*argv, '--repository-root', str(repository_root)], definitions_root=definitions_root)
+        except SystemExit as error:
+            code = error.code
+    return code, output.getvalue()
+
+
 def run(argv, *, repository_root, definitions_root=None):
     """Run the CLI logic with fresh invocation state and return code/diagnostics."""
-    def invoke():
-        output = io.StringIO()
-        with diagnostics(output):
-            try:
-                code = main([*argv, '--repository-root', str(repository_root)], definitions_root=definitions_root)
-            except SystemExit as error:
-                code = error.code
-        return code, output.getvalue()
+    invoke = _bind_framework_callback(_callback_run_invoke, argv, definitions_root, repository_root)
     return Context().run(invoke)
+
+
+def _callback_main_generate(args, definitions_root, groups, root, /, item):
+    (environment, target), services = item
+    try:
+        sync(root, args.write, environment, target, services,
+             jobs=args.jobs if len(groups) == 1 else 1, definitions_root=definitions_root)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return str(error)
+    return None
 
 
 @reported_main
@@ -85,32 +104,26 @@ def main(argv=None, *, definitions_root=None) -> int:
                 if not scope:
                     raise ValueError("no service validation scope; specify environment/target/service")
             consumers(scope)
-            from model.impact import task_impact, scope_diagnostic
-            from import_guard import changed_sources
+            changed_sources = _imports_import_guard.changed_sources
+            scope_diagnostic = _imports_model_impact.scope_diagnostic
+            task_impact = _imports_model_impact.task_impact
             changed = changed_sources(root) if (root / '.git').exists() else set()
             with phase("impact-scope"):
                 impact = set(task_impact(root, changed).services)
-            from model.importing.scope import selected as import_selection
+            import_selection = _imports_model_importing_scope.selected
             impact_scope = contract_scope if import_selection(root) is not None else scope
             if impact_scope is None or not impact <= impact_scope:
                 raise ValueError('include all affected Model services in generation/Validation scope: ' + scope_diagnostic(impact, scope))
             if args.write and import_selection(root) is None:
-                from import_guard import require_import_changes
-                from issue_gate import require_no_issues
+                require_import_changes = _imports_import_guard.require_import_changes
+                require_no_issues = _imports_issue_gate.require_no_issues
                 require_import_changes(root, changed, generation=True)
                 require_no_issues(root, scope)
                 return run_generation(root, scope, write=True, jobs=args.jobs, definitions_root=definitions_root)
             groups = {}
             for environment, target, service in sorted(scope):
                 groups.setdefault((environment, target), []).append(service)
-            def generate(item):
-                (environment, target), services = item
-                try:
-                    sync(root, args.write, environment, target, services,
-                         jobs=args.jobs if len(groups) == 1 else 1, definitions_root=definitions_root)
-                except (OSError, ValueError, KeyError, TypeError) as error:
-                    return str(error)
-                return None
+            generate = _bind_framework_callback(_callback_main_generate, args, definitions_root, groups, root)
             with phase("consumer-generation"):
                 if len(scope) == 1:
                     failures = [error for item in groups.items() if (error := generate(item))]

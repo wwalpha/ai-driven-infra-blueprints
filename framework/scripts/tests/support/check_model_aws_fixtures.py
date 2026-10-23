@@ -4,49 +4,36 @@ Synthetic SDK responses and test-created Models are the only regression inputs. 
 """
 
 import sys
-
+from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import copy
+import importlib.util
+import io
+import json
+import os
+import socket
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import pytest
 from model.files import read_model
+from support.model_sources import write_model
+from support.pytest_cli import run
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.model_sources import write_model
-
-import pytest
-
-from support.pytest_cli import run
-
-import copy
-
-from contextlib import ExitStack, redirect_stderr, redirect_stdout
-
-import importlib.util
-
-import io
-
-import json
-
-import os
-
-import socket
-
-from types import SimpleNamespace
-
-from unittest.mock import patch
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import boto3
-
 from botocore.stub import Stubber
-
-from model.files import model_file_contents
-
 from model.adapters import aws as m
+from model.files import model_file_contents
 
 COUNT = 0
 
@@ -86,7 +73,6 @@ def shape_value(shape, depth=0, seen=()):
     if kind in {'float', 'double'}:
         return max(1.0, shape.metadata.get('min', 1.0))
     if kind == 'timestamp':
-        from datetime import datetime, timezone
         return datetime(2026, 1, 1, tzinfo=timezone.utc)
     if kind == 'blob':
         return b'fixture'
@@ -138,8 +124,8 @@ PATCHES = {
     ('ec2', 'describe_security_group_rules'): {'SecurityGroupRules.GroupId': 'fixture', 'SecurityGroupRules.IsEgress': False},
     ('sqs', 'get_queue_attributes'): {'Attributes': {'QueueArn': 'arn:aws:sqs:ap-northeast-1:' + ACCOUNT + ':fixture', 'FifoQueue': 'false', 'MessageRetentionPeriod': '604800', 'Policy': '{"Version":"2012-10-17","Statement":[]}' }},
     ('s3', 'get_bucket_policy'): {'Policy': '{"Version":"2012-10-17","Statement":[]}'},
-    ('ec2', 'describe_flow_logs'): {'FlowLogs.ResourceId': 'vpc-fixture'},
-    ('ec2', 'describe_route_tables'): {'RouteTables.Associations.SubnetId': 'fixture', 'RouteTables.Associations.AssociationState.State': 'associated'},
+
+
     ('ec2', 'describe_volumes'): {'Volumes.VolumeId': 'fixture'},
     ('ec2', 'describe_vpcs'): {'Vpcs.Tags.Key': 'Name'},
     ('ec2', 'describe_subnets'): {'Subnets.Tags.Key': 'Name'},

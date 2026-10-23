@@ -2,14 +2,29 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import design_layout as _imports_design_layout
+from macie_bucket_tables import job_bucket_tables, write_job_bucket_definitions
+from support.design_catalog_fixtures import (
+    MACIE_JOB,
+    ROOT,
+    VALUES,
+    DesignSchemaCatalog,
+    Path,
+    json,
+    markdown,
+    os,
+    quicksight_group_markdown,
+    sys,
+    tempfile,
+)
 from support.it_case_receipt import it_case
 
-from support.design_catalog_fixtures import *
-from macie_bucket_tables import job_bucket_tables, write_job_bucket_definitions
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 @it_case
@@ -17,7 +32,7 @@ def main():
     with tempfile.TemporaryDirectory() as directory:
         group_path = Path(directory) / "quicksight.md"
         group_path.write_text(quicksight_group_markdown(), encoding="utf-8")
-        from design_layout import expanded_display_rows
+        expanded_display_rows = _imports_design_layout.expanded_display_rows
         group_model = "\n".join(expanded_display_rows(group_path.read_text().splitlines()))
         assert '### QuickSight.Group: reader-group' in group_model
         assert '| QuickSight.Group.PrincipalId | `PENDING_DEPLOY` |' in group_model
@@ -128,4 +143,3 @@ if __name__ == "__main__":
                 pstats.Stats(profile).strip_dirs().sort_stats("cumulative").print_stats(25)
         else:
             main()
-

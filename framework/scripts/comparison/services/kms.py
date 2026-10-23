@@ -1,10 +1,14 @@
 """kms comparison contracts and projections."""
 
+import re
+
+from cloudformation_inputs import Blocked
+from iac_values import Expression, ResourceReference, same
+
 REF_ATTRIBUTES = {'KMS.Key': 'KeyId', 'KMS.Alias': 'AliasName'}
 
-import re
-from iac_values import ResourceReference, Expression, same
-from cloudformation_inputs import Blocked
+
+
 
 def kms_format(value, resources):
     if isinstance(value, ResourceReference):

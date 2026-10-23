@@ -1,12 +1,20 @@
 """Pure Stack inputs and immutable file fingerprints; no AWS clients."""
+
 import hashlib
 import re
+from functools import partial as _bind_framework_callback
+
+import cloudformation_inputs as _imports_cloudformation_inputs
 from cloudformation_inputs import Blocked
-from model.core import properties, stack_model, deployment_settings
+from model.core import deployment_settings, properties, stack_model
 from model.files import read_model
-from model.render import markdown_for
 from model.projection import deployment_bucket
-from utils.json_format import fingerprint
+from model.render import markdown_for
+from task_contract_core import section, task_path
+from utils.json_format import fingerprint as fingerprint
+
+import deploy.delivery as _imports_deploy_delivery
+
 
 def load_units(root, environment, directory, scope):
     source = root / "model" / environment / directory / "cloudformation-stacks.properties"
@@ -37,7 +45,7 @@ def paths(root, environment, directory, target, unit):
             root / "infra/cloudformation/parameters" / environment / directory / unit["parameters"])
 
 def deployment_input_paths(root, environment, directory, target, units):
-    from deploy.delivery import source_path
+    source_path = _imports_deploy_delivery.source_path
     return [path for unit in units for path in [*paths(root, environment, directory, target, unit),
         *[source_path(root, a) for a in unit.get("artifacts", [])]]]
 
@@ -53,10 +61,19 @@ def file_digest(hashes, path, fresh=False):
         hashes[path] = (*identity, digest)
     return hashes[path][4]
 
+def _callback_task_deployment_input_paths_value(lines, /, name, optional=False):
+    entries = [line for line in lines if line.startswith(f"- {name}:")]
+    if optional and not entries:
+        return None
+    if len(entries) != 1 or not (match := re.fullmatch(rf"- {re.escape(name)}: `([^`]+)`", entries[0])):
+        raise ValueError(f"task must specify exactly one {name}")
+    return match.group(1)
+
+
 def task_deployment_input_paths(root):
     """Resolve deploy/update IaC offline through the controller's authoritative readers."""
-    from task_contract import task_path, section
-    from cloudformation_inputs import Blocked, load_target
+    Blocked = _imports_cloudformation_inputs.Blocked
+    load_target = _imports_cloudformation_inputs.load_target
     path = task_path(root, required=False)
     if path is None:
         return None
@@ -66,13 +83,7 @@ def task_deployment_input_paths(root):
             f"- Infrastructure phase: `{phase}`" in lines for phase in ("deploy", "update")):
         return None
 
-    def value(name, optional=False):
-        entries = [line for line in lines if line.startswith(f"- {name}:")]
-        if optional and not entries:
-            return None
-        if len(entries) != 1 or not (match := re.fullmatch(rf"- {re.escape(name)}: `([^`]+)`", entries[0])):
-            raise ValueError(f"task must specify exactly one {name}")
-        return match.group(1)
+    value = _bind_framework_callback(_callback_task_deployment_input_paths_value, lines)
 
     environment = value("Target environment")
     account, alias = value("Target AWS account"), value("Target alias", optional=True)
@@ -90,5 +101,3 @@ def task_deployment_input_paths(root):
         return set(deployment_input_paths(root, environment, alias or account, target, units))
     except Blocked as error:
         raise ValueError(str(error)) from error
-
-

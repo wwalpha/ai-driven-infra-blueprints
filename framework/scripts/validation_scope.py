@@ -1,59 +1,17 @@
 """Explicit active-task validation scope; never infer a repository-wide fallback."""
-from validation_cache import input_is_file, input_select, input_text
 
 from pathlib import Path
-import re
-from task_contract import task_path, contract_path, contracts
 
-
-def active_scope(root: Path, full: bool = False, *, task_file=None, contract_file=None) -> set[tuple[str, str, str]] | None:
-    if full:
-        return None
-    path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, selected=task_file, required=False)
-    if path is None:
-        if contracts(root):
-            return set()  # All registered tasks are completed; retain shared idle checks.
-        raise ValueError("validation scope missing: selected task contract; specify scope or --all")
-    lines = input_text(path, encoding="utf-8").splitlines()
-    selected = []
-    inside = False
-    found = False
-    for line in lines:
-        if line == "## Validation scope":
-            if found:
-                raise ValueError("duplicate Validation scope section")
-            inside = True
-            found = True
-        elif line.startswith("## "):
-            inside = False
-        elif inside and line.strip():
-            match = re.fullmatch(r"- `([^`]+)`", line)
-            if not match:
-                raise ValueError(f"invalid validation scope: {line}")
-            selected.append(match.group(1))
-    if not selected:
-        raise ValueError("validation scope missing: specify environment/target-directory/service; no automatic full validation")
-    if selected == ["all"]:
-        return None
-    if selected == ["framework"]:
-        if not any(line in {"- Task type: `governance`", "- Task type: `catalog-maintenance`", "- Task type: `migration`"} for line in lines):
-            raise ValueError("framework scope requires a framework task")
-        return set()
-    scope = set()
-    for value in selected:
-        parts = value.split("/")
-        if len(parts) != 3 or any(not re.fullmatch(r"[a-z0-9]+(?:[-_][a-z0-9]+)*", part) for part in parts):
-            raise ValueError(f"invalid validation scope: {value}; expected environment/target-directory/service")
-        scope.add(tuple(parts))
-    if len(scope) != len(selected):
-        raise ValueError("duplicate validation scope entry")
-    return scope
+import design_layout
+import model.sources as _imports_model_sources
+from task_contract_core import active_scope as active_scope
+from utils.input_cache import input_is_file, input_select, input_text
 
 
 def scoped_files(root: Path, base: str, suffix: str, scope) -> list[Path]:
     directory = root / base
     if base == 'model':
-        from model.sources import model_paths
+        model_paths = _imports_model_sources.model_paths
         return model_paths(root) if scope is None else sorted(directory/env/target/(service+suffix) for env,target,service in scope)
     if scope is None:
         return sorted(input_select(directory, f"*{suffix}", recursive=True))
@@ -63,7 +21,8 @@ def scoped_files(root: Path, base: str, suffix: str, scope) -> list[Path]:
 
 def reference_lines(path: Path, fragments: set[str], *, lines: list[str] | None = None) -> list[str]:
     """Read only referenced resource blocks, including their enclosing grouped parent."""
-    from design_layout import RESOURCE, ANCHOR, resource_heading_lines
+    ANCHOR, RESOURCE = design_layout.ANCHOR, design_layout.RESOURCE
+    resource_heading_lines = design_layout.resource_heading_lines
     if lines is None:
         lines = resource_heading_lines(input_text(path, encoding="utf-8").splitlines())
     starts = []
@@ -77,7 +36,7 @@ def reference_lines(path: Path, fragments: set[str], *, lines: list[str] | None 
     metadata = [line for line in lines[:starts[0] if starts else 0] if line.startswith("- Design service ID:")]
     blocks = []
     groups = set()
-    for start, end in zip(starts, [*starts[1:], len(lines)]):
+    for start, end in zip(starts, [*starts[1:], len(lines)], strict=False):
         block = lines[start:end]
         anchors = set(ANCHOR.findall("\n".join(block)))
         if not fragments & anchors:

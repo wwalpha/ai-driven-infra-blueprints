@@ -1,6 +1,8 @@
 """lambda: selected properties -> read-only SDK responses; inputs in fetch()."""
 
-from model.adapters.aws import one, MISSING, Unresolved
+import json
+
+from model.adapters.aws import MISSING, Unresolved, one
 
 APIS = {('lambda', 'get_function_recursion_config'), ('lambda', 'get_policy'), ('lambda', 'get_function')}
 
@@ -19,13 +21,15 @@ def fetch(ctx, r, getter):
     name=parent.value('FunctionName')
     if r.value('FunctionName','name')!=name:
         raise Unresolved('permission FunctionName does not identify its parent')
-    import json
     statements=json.loads(ctx.call('lambda','get_policy',FunctionName=name)['Policy']).get('Statement',[])
     current=r.current('Id')
     if current:
         statement=one([v for v in statements if v.get('Sid')==current], 'lambda.get_policy')
     else:
-        action=r.value('Action'); principal=r.value('Principal'); source=r.optional('SourceArn',norm='arn'); account=r.optional('SourceAccount')
+        action=r.value('Action')
+        principal=r.value('Principal')
+        source=r.optional('SourceArn',norm='arn')
+        account=r.optional('SourceAccount')
         candidates=[]
         for v in statements:
             principals=v.get('Principal',{})

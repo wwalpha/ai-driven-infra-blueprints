@@ -1,16 +1,20 @@
 """Assemble lazy inputs and atomic comparison steps; run() retains its full-scan contract."""
-from dataclasses import dataclass, field
 import re
+from dataclasses import dataclass, field
+
 from cloudformation_inputs import Blocked, condition_active
-from design_layout import GROUPED, HIDDEN_PROPERTIES, resource_mode
-from model.core import ReferenceResolutionError
-from model.projection import catalog_outputs
 from comparison_rows import Unresolved, put_row, select
-from iac_values import Expression
+from design_layout import resource_mode
+from model.core import ReferenceResolutionError
+from utils.aws_catalogs import catalog_outputs
+from utils.layout_schema import GROUPED, HIDDEN_PROPERTIES
+
+from . import evaluation, registry
+from . import resource as resource_rules
+from . import rows as row_rules
 from .inputs import Inputs
-from . import registry, rows as row_rules, resource as resource_rules, evaluation
-from .values import compare_values
 from .result import RowResult, record, setting_result
+from .values import compare_values
 
 
 @dataclass

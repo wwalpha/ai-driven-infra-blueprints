@@ -1,10 +1,18 @@
 """Reference contracts and identity decisions over supplied values and tracked lookups."""
+
 import re
 from dataclasses import dataclass
+from functools import partial as _bind_framework_callback
+
 from cloudformation_inputs import Blocked
-from iac_values import ResourceReference, Expression, same
+from iac_values import Expression, ResourceReference, same
 from model.projection import reference_attribute
-from reference_contracts import REFERENCE_FORMS, REFERENCE_PROPERTIES, SCALAR_REFERENCE_PROPERTIES
+from reference_contracts import (
+    REFERENCE_FORMS,
+    REFERENCE_PROPERTIES,
+    SCALAR_REFERENCE_PROPERTIES,
+)
+
 from . import registry
 
 
@@ -31,38 +39,51 @@ def reference_forms(kind, path, *, local_comparison, property_schema):
     return ({'Arn'} if node.get('pattern', '').startswith('^arn:') or
             node.get('type') == 'string' and path.removesuffix('[]').lower().endswith(('arn', 'arns')) else forms)
 
+def _callback_reference_diagnostic_format_status(explicit, forms, kind, kms_format, local_comparison, path, resource_type, /, value):
+    if explicit or local_comparison and registry.kms_forms(kind, path) is not None:
+        form = kms_format(value)
+        return 'unproven' if form is None else 'allowed' if form in forms else 'outside allowed forms'
+    if forms is None or not isinstance(value, ResourceReference):
+        return 'unproven'
+    service, identity = value['$resource']
+    refkind = resource_type(value)
+    return 'allowed' if value['$attribute'] in {reference_attribute(refkind, form) for form in forms} else 'outside allowed forms'
+
+
 def reference_diagnostic(left, right, kind, path, reason, *, local_comparison, forms_for, kms_format, resource_type, redact):
     explicit = getattr(left, 'explicit_attribute', False) and kind + '.' + path in SCALAR_REFERENCE_PROPERTIES
     forms = {'KeyArn'} if explicit else forms_for(kind, path)
     symbols = all(isinstance(value, ResourceReference) for value in (left, right))
     identity = ('same' if left['$resource'] == right['$resource'] else 'different') if symbols else 'unproven'
-    def format_status(value):
-        if explicit or local_comparison and registry.kms_forms(kind, path) is not None:
-            form = kms_format(value)
-            return 'unproven' if form is None else 'allowed' if form in forms else 'outside allowed forms'
-        if forms is None or not isinstance(value, ResourceReference):
-            return 'unproven'
-        service, identity = value['$resource']
-        refkind = resource_type(value)
-        return 'allowed' if value['$attribute'] in {reference_attribute(refkind, form) for form in forms} else 'outside allowed forms'
+    format_status = _bind_framework_callback(_callback_reference_diagnostic_format_status, explicit, forms, kind, kms_format, local_comparison, path, resource_type)
     return redact(dict(path=kind + '.' + path, model=redact(left, path),
                               iac=redact(right, path), identity=identity,
                               allowed_forms=sorted(forms) if forms is not None else None,
                               format=dict(model=format_status(left), iac=format_status(right)), reason=reason))
 
+def _callback_reference_same_reference(diagnostic, forms_for, kind, kms_format, local_comparison, nested, resolve_literal, resource_type, /, a, b, p):
+    outcome = reference_same(a, b, kind, p, local_comparison=local_comparison,
+        forms_for=forms_for, resolve_literal=resolve_literal, resource_type=resource_type,
+        kms_format=kms_format, diagnostic=diagnostic)
+    nested.append(outcome)
+    return outcome.equal
+
+
+def _callback_reference_same_unproven(decision, diagnostic, kind, left, path, right, /, reason):
+    return decision(None, [diagnostic(left, right, kind, path, reason)])
+
+
+def _callback_reference_same_decision(nested, /, equal, diagnostics=(), equivalent=False):
+    return ReferenceDecision(equal, tuple(diagnostics) + tuple(d for result in nested for d in result.diagnostics),
+                             equivalent or any(result.equivalent for result in nested))
+
+
 def reference_same(left, right, kind, path, *, local_comparison, forms_for, resolve_literal, resource_type, kms_format, diagnostic):
     if any(isinstance(value, Expression) and value.operation == 'Unverified' for value in (left, right)):
         return ReferenceDecision(None)
     nested = []
-    def reference(a, b, p):
-        outcome = reference_same(a, b, kind, p, local_comparison=local_comparison,
-            forms_for=forms_for, resolve_literal=resolve_literal, resource_type=resource_type,
-            kms_format=kms_format, diagnostic=diagnostic)
-        nested.append(outcome)
-        return outcome.equal
-    def decision(equal, diagnostics=(), equivalent=False):
-        return ReferenceDecision(equal, tuple(diagnostics) + tuple(d for result in nested for d in result.diagnostics),
-                                 equivalent or any(result.equivalent for result in nested))
+    reference = _bind_framework_callback(_callback_reference_same_reference, diagnostic, forms_for, kind, kms_format, local_comparison, nested, resolve_literal, resource_type)
+    decision = _bind_framework_callback(_callback_reference_same_decision, nested)
     hook = registry.hook(kind, 'reference_compare')
     if hook is not None:
         if registry.hook(kind, 'INVERSE_ROLES') is not None:
@@ -80,8 +101,7 @@ def reference_same(left, right, kind, path, *, local_comparison, forms_for, reso
         result, reason = registry.compare_kms_forms(left, right, allowed, resolve_literal=resolve_literal,
                                                     format_of=kms_format)
         return decision(result, [diagnostic(left, right, kind, path, reason)] if reason else ())
-    def unproven(reason):
-        return decision(None, [diagnostic(left, right, kind, path, reason)])
+    unproven = _bind_framework_callback(_callback_reference_same_unproven, decision, diagnostic, kind, left, path, right)
 
     if isinstance(left, Expression) or isinstance(right, Expression):
         if same(left, right):
@@ -127,6 +147,24 @@ def reference_same(left, right, kind, path, *, local_comparison, forms_for, reso
     return decision(equal, [diagnostic(left, right, kind, path, reason)] if reason else (), equivalent)
 
 
+def _callback_literal_expression_replace(resolve_literal, resource_type, variables, /, match):
+    key = match.group(1)
+    if key.startswith('!'):
+        return '${' + key[1:] + '}'
+    child = variables[key]
+    if isinstance(child, str):
+        return child
+    if isinstance(child, ResourceReference):
+        service, identity = child['$resource']
+        if registry.sub_arn(resource_type(child)) and child['$attribute'] == 'Arn':
+            return resolve_literal(child)
+    if isinstance(child, Expression):
+        resolved = resolve_literal(child)
+        if isinstance(resolved, str):
+            return resolved
+    raise Blocked('Sub variable requires a proven S3 ARN or string')
+
+
 def literal_expression(value, *, resolve_literal, resource_type):
     if value.operation in {'Split', 'Select'}:
         first, source = value.operands
@@ -140,20 +178,5 @@ def literal_expression(value, *, resolve_literal, resource_type):
     if value.operation != 'Sub':
         raise Blocked('expression has no local literal comparison contract')
     text, variables = value.operands
-    def replace(match):
-        key = match.group(1)
-        if key.startswith('!'):
-            return '${' + key[1:] + '}'
-        child = variables[key]
-        if isinstance(child, str):
-            return child
-        if isinstance(child, ResourceReference):
-            service, identity = child['$resource']
-            if registry.sub_arn(resource_type(child)) and child['$attribute'] == 'Arn':
-                return resolve_literal(child)
-        if isinstance(child, Expression):
-            resolved = resolve_literal(child)
-            if isinstance(resolved, str):
-                return resolved
-        raise Blocked('Sub variable requires a proven S3 ARN or string')
+    replace = _bind_framework_callback(_callback_literal_expression_replace, resolve_literal, resource_type, variables)
     return re.sub(r'\$\{([^}]+)\}', replace, text)

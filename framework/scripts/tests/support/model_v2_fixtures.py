@@ -1,8 +1,30 @@
 """Explicit properties authorities and offline AWS transport; no executing project inputs."""
+
+import datetime as _imports_datetime
 import json
-from pathlib import Path
+import os
 import subprocess
-from model.format import serialize
+import sys
+from datetime import datetime, timezone
+from functools import partial as _bind_framework_callback
+from pathlib import Path
+from types import SimpleNamespace
+from types import SimpleNamespace as _CallbackState
+from unittest.mock import patch as mock_patch
+
+import generation_inputs as _imports_generation_inputs
+import import_guard as _imports_import_guard
+import model.format as _imports_model_format
+import model.importing.approval as _imports_model_importing_approval
+import model.importing.cli as _imports_model_importing_cli
+import model.operations as _imports_model_operations
+import model.sources as _imports_model_sources
+import pytest as _imports_pytest
+import support.import_repository_fixtures as _imports_support_import_repository_fixtures
+import support.model_v2_fixtures as _imports_support_model_v2_fixtures
+import sync_files as _imports_sync_files
+from model.format import parse, serialize
+from model.sources import Scope, load_model
 
 FRAMEWORK = Path(__file__).resolve().parents[4]
 
@@ -70,8 +92,8 @@ class LogsCli:
             raise AssertionError('unmocked AWS transport: ' + service + '/' + operation)
         return subprocess.CompletedProcess(command, 0, json.dumps(value), '')
 
-from model.sources import Scope, load_model
-from model.format import parse
+
+
 
 def format_fixture(root, *, target='one', environment='qa-custom', service='network'):
     project = {'targets': [
@@ -100,9 +122,9 @@ def format_fixture(root, *, target='one', environment='qa-custom', service='netw
 
 def source_context(scope, *, imported=False):
     # Unit-only capability fixture: factory/worktree authorization is tested separately.
-    from types import SimpleNamespace
-    from generation_inputs import GenerationInputs
-    from model.sources import SourceWriteContext
+
+    GenerationInputs = _imports_generation_inputs.GenerationInputs
+    SourceWriteContext = _imports_model_sources.SourceWriteContext
     values = parse(scope.path.read_text(encoding='utf-8')).values
     values['desired.resource.007.resourceMode'] = 'IMPORT' if imported else 'CREATE'
     scope.path.write_text(serialize(values), encoding='utf-8')
@@ -119,9 +141,9 @@ def source_context(scope, *, imported=False):
 
 
 def acquisition_fixture(snapshot, *, action='refresh', resource='007'):
-    from datetime import datetime, timezone
-    from model.operations import operation_values
-    from import_guard import digest
+
+    digest = _imports_import_guard.digest
+    operation_values = _imports_model_operations.operation_values
     identity = 'vpc-original' if action == 'refresh' else 'vpc-acquired'
     record = {'record': 'record-one', 'kind': 'EC2.VPC', 'identity': identity,
               'identityProperty': 'EC2.VPC.VpcId', 'properties': {
@@ -142,7 +164,7 @@ def acquisition_fixture(snapshot, *, action='refresh', resource='007'):
 
 
 def role_operation_fixture(root):
-    from model.sources import Scope
+    Scope = _imports_model_sources.Scope
     root.mkdir(parents=True)
     (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'qa-synthetic', 'alias': 'team-a',
         'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}), encoding='utf-8')
@@ -167,7 +189,7 @@ def role_operation_fixture(root):
 
 
 def retarget_fixture(root):
-    from model.sources import Scope
+    Scope = _imports_model_sources.Scope
     root.mkdir(parents=True)
     (root / 'project.json').write_text(json.dumps({'targets': [
         {'environment': 'qa-synthetic', 'alias': alias, 'awsAccountId': '123456789012',
@@ -201,21 +223,77 @@ def retarget_fixture(root):
 
 def value_snapshot(values, provenance=None, files=None):
     """Minimal reader result for pure value-verifier tests; source guards use real snapshots."""
-    from types import SimpleNamespace
-    from model.sources import runtime_values
+
+    runtime_values = _imports_model_sources.runtime_values
     if provenance:
         raise ValueError('test fixture requires explicit reference metadata, not template provenance')
     return SimpleNamespace(authoritative=dict(values), values=runtime_values(values), files=files or {}, warnings=())
 
 
+def _callback_import_publication_case_fail(failure, path, save, /, output):
+    selected = {file: text for file, text in output.items() if
+                (file == path if failure == 'model-io' else file.suffix == '.md')}
+    if selected:
+        file = next(iter(selected))
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text('partial output', encoding='utf-8')
+        raise OSError('injected write failure')
+    return save(output)
+
+
+def _callback_import_publication_case_fail_407(finish, /, root, model=None, markdown=None):
+    if model is not None:
+        finish(root, model, markdown)
+        raise ValueError('injected receipt failure')
+    return finish(root, model, markdown)
+
+
+class ExpiredClock(_imports_datetime.datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return _imports_datetime.datetime.now(tz) + _imports_datetime.timedelta(days=8)
+
+
+
+def _callback_import_publication_case_race(_state_import_publication_case_250, candidate, evidence, failure, injection, original, original_outputs, path, state, target, /, *args, **kwargs):
+    pass
+    result = original_outputs(*args, **kwargs)
+    if _state_import_publication_case_250.injected:
+        return result
+    _state_import_publication_case_250.injected = True
+    if failure in {'post-review', 'post-draft'}:
+        file = evidence.parent / ('review.json' if failure == 'post-review' else 'review-input.json')
+        file.write_bytes(file.read_bytes() + b' ')
+    elif failure == 'post-candidate':
+        candidate.write_bytes(candidate.read_bytes() + b'# changed candidate\n')
+    elif failure == 'post-acquisition':
+        envelope = json.loads(evidence.read_text(encoding='utf-8'))
+        envelope['payload']['status'] = 'changed acquisition'
+        evidence.write_text(json.dumps(envelope), encoding='utf-8')
+    elif failure == 'post-baseline':
+        path.write_bytes(original + b'# external source edit\n')
+    elif failure == 'post-task':
+        task = target / state['task_file']
+        task.write_bytes(task.read_bytes() + b'\n## Notes\nexternal Task edit\n')
+    else:
+
+        approval = _imports_model_importing_approval
+        injection.setattr(approval, 'datetime', ExpiredClock)
+    return result
+
+
 def import_publication_case(monkeypatch, failure, *, workspace=None):
-    import sys
-    import pytest
-    from model.sources import load_model
-    from model.importing import cli
-    from model.format import parse, patch
-    from support.model_v2_fixtures import logs_fixture, LogsCli, import_contract
-    from support.import_repository_fixtures import publication_workspace
+
+    _state_import_publication_case_250 = _CallbackState()
+    pytest = _imports_pytest
+    parse = _imports_model_format.parse
+    patch = _imports_model_format.patch
+    cli = _imports_model_importing_cli
+    load_model = _imports_model_sources.load_model
+    publication_workspace = _imports_support_import_repository_fixtures.publication_workspace
+    LogsCli = _imports_support_model_v2_fixtures.LogsCli
+    import_contract = _imports_support_model_v2_fixtures.import_contract
+    logs_fixture = _imports_support_model_v2_fixtures.logs_fixture
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     with (workspace or publication_workspace)() as (root, begin, advance):
         model = logs_fixture(root)
@@ -223,7 +301,7 @@ def import_publication_case(monkeypatch, failure, *, workspace=None):
             model.write_text(patch(parse(model.read_text(encoding='utf-8')), {'observed.row.001-001.value': None}), encoding='utf-8')
         incoming_source = None
         if failure in {'bind', 'replace'}:
-            from model.format import serialize
+            serialize = _imports_model_format.serialize
             incoming_source = model.with_name('codebuild.properties')
             fields = {'desired.resource.002.resourceType': 'CodeBuild.Project', 'desired.resource.002.resourceMode': 'IMPORT',
                 'desired.resource.002.logicalId': 'CodeBuild_Project_002', 'desired.service.identity.lastAllocated': '{"CodeBuild.Project":2}', 'desired.row.002-001.property': 'CodeBuild.Project.LogsConfig.CloudWatchLogs.GroupName',
@@ -255,8 +333,8 @@ def import_publication_case(monkeypatch, failure, *, workspace=None):
         chosen = {'record': record['record'], 'resource': '001', 'action': action,
             'reason': '合成の明示的な対応選択', 'basis': ['Logs.LogGroup.LogGroupName']}
         if failure in {'bind', 'replace'}:
-            from import_guard import digest
-            from model.operations import operation_values
+            digest = _imports_import_guard.digest
+            operation_values = _imports_model_operations.operation_values
             chosen['before'] = {'identity': None if failure == 'bind' else 'fixture-001',
                 'model': digest(operation_values(load_model(path).authoritative, '001'))}
             changes['observed.row.001-001.value'] = '`' + record['identity'] + '`'
@@ -300,13 +378,13 @@ def import_publication_case(monkeypatch, failure, *, workspace=None):
                     'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/cloudwatch-logs', 'producerLogicalId': 'Logs_LogGroup_001',
                     'resourceType': 'Logs.LogGroup', 'format': 'link', 'labelPolicy': 'fixed'}.items():
                 extra['desired.reference.unreviewed.' + field] = value
-            from model.format import serialize
+            serialize = _imports_model_format.serialize
             candidate.write_text(serialize(extra), encoding='utf-8')
         if failure in {'source', 'task', 'head', 'review', 'candidate', 'source-set', 'selection-target', 'candidate-resource', 'candidate-reference'}:
             with pytest.raises(ValueError, match='changed|differs|unregistered|stale|candidate|selected Resource|reference map|correspondence|reference occurrence|allocation|lifecycle|ancestor|worktree'):
                 cli.publish_acquisition(target, 'qa-synthetic', 'cloudwatch-logs', evidence, 'team-a')
             assert path.read_bytes() == original + (b'# concurrent edit\n' if failure == 'source' else b'')
-            from import_guard import proof_path
+            proof_path = _imports_import_guard.proof_path
             assert not proof_path(target).exists()
             assert aws.calls == calls
             return
@@ -315,7 +393,7 @@ def import_publication_case(monkeypatch, failure, *, workspace=None):
             crashed = subprocess.run([sys.executable, '-I', '-B', '-c', program, str(FRAMEWORK / 'framework/scripts'),
                 str(target), state['task_file'], str(path), str(evidence), failure], capture_output=True, text=True, encoding='utf-8')
             assert crashed.returncode == 17, crashed.stdout + crashed.stderr
-            from import_guard import proof_path
+            proof_path = _imports_import_guard.proof_path
             assert proof_path(target).is_file()
             with pytest.raises(ValueError, match='pending Model publication'):
                 load_model(path)
@@ -332,68 +410,27 @@ def import_publication_case(monkeypatch, failure, *, workspace=None):
         with monkeypatch.context() as injection:
             if failure.startswith('post-'):
                 original_outputs = cli.record_outputs
-                injected = False
-                def race(*args, **kwargs):
-                    nonlocal injected
-                    result = original_outputs(*args, **kwargs)
-                    if injected:
-                        return result
-                    injected = True
-                    if failure in {'post-review', 'post-draft'}:
-                        file = evidence.parent / ('review.json' if failure == 'post-review' else 'review-input.json')
-                        file.write_bytes(file.read_bytes() + b' ')
-                    elif failure == 'post-candidate':
-                        candidate.write_bytes(candidate.read_bytes() + b'# changed candidate\n')
-                    elif failure == 'post-acquisition':
-                        envelope = json.loads(evidence.read_text(encoding='utf-8'))
-                        envelope['payload']['status'] = 'changed acquisition'
-                        evidence.write_text(json.dumps(envelope), encoding='utf-8')
-                    elif failure == 'post-baseline':
-                        path.write_bytes(original + b'# external source edit\n')
-                    elif failure == 'post-task':
-                        task = target / state['task_file']
-                        task.write_bytes(task.read_bytes() + b'\n## Notes\nexternal Task edit\n')
-                    else:
-                        from datetime import datetime, timedelta
-                        from model.importing import approval
-                        class ExpiredClock(datetime):
-                            @classmethod
-                            def now(cls, tz=None):
-                                return datetime.now(tz) + timedelta(days=8)
-                        injection.setattr(approval, 'datetime', ExpiredClock)
-                    return result
+                _state_import_publication_case_250.injected = False
+                race = _bind_framework_callback(_callback_import_publication_case_race, _state_import_publication_case_250, candidate, evidence, failure, injection, original, original_outputs, path, state, target)
                 injection.setattr(cli, 'record_outputs', race)
             if failure in {'model-io', 'display-io'}:
-                import sync_files
+                sync_files = _imports_sync_files
                 save = sync_files.save_files
-                def fail(output):
-                    selected = {file: text for file, text in output.items() if
-                                (file == path if failure == 'model-io' else file.suffix == '.md')}
-                    if selected:
-                        file = next(iter(selected))
-                        file.parent.mkdir(parents=True, exist_ok=True)
-                        file.write_text('partial output', encoding='utf-8')
-                        raise OSError('injected write failure')
-                    return save(output)
+                fail = _bind_framework_callback(_callback_import_publication_case_fail, failure, path, save)
                 injection.setattr(sync_files, 'save_files', fail)
             elif failure == 'receipt':
                 finish = cli.finish_import
-                def fail(root, model=None, markdown=None):
-                    if model is not None:
-                        finish(root, model, markdown)
-                        raise ValueError('injected receipt failure')
-                    return finish(root, model, markdown)
+                fail = _bind_framework_callback(_callback_import_publication_case_fail_407, finish)
                 injection.setattr(cli, 'finish_import', fail)
             if failure in {'model-io', 'receipt'} or failure.startswith('post-'):
                 with pytest.raises((OSError, ValueError)):
                     cli.publish_acquisition(target, 'qa-synthetic', 'cloudwatch-logs', evidence, 'team-a')
                 assert path.read_bytes() == original + (b'# external source edit\n' if failure == 'post-baseline' else b'')
-                from import_guard import proof_path
+                proof_path = _imports_import_guard.proof_path
                 assert not proof_path(target).exists()
                 assert aws.calls == calls
                 return
             if failure == 'subprocess':
-                import os
                 command = [sys.executable, '-I', '-B', str(FRAMEWORK / 'framework/scripts/model/cli.py'), 'import', 'publish',
                     '--repository-root', str(target), '--environment', 'qa-synthetic', '--target', 'team-a',
                     '--service', 'cloudwatch-logs', '--evidence', str(evidence), '--task-file', state['task_file']]
@@ -407,7 +444,6 @@ def import_publication_case(monkeypatch, failure, *, workspace=None):
         if failure == 'display-io':
             assert published['status'] == 'display-failed', published
             assert path.read_bytes() == candidate.read_bytes()
-            from unittest.mock import patch as mock_patch
             with mock_patch.object(cli, 'read_acquisition', side_effect=AssertionError('display recovery must not reacquire or read acquisition')):
                 assert cli.recover_display(target, 'qa-synthetic', 'cloudwatch-logs', 'team-a')['status'] == 'complete'
         else:
@@ -422,7 +458,7 @@ def import_publication_case(monkeypatch, failure, *, workspace=None):
 
 
 def properties_fixture(root):
-    from model.sources import Scope
+    Scope = _imports_model_sources.Scope
     scope = Scope(root, 'qa-synthetic', 'team-a', 'network')
     (root / 'project.json').write_text(json.dumps({'targets': [
         {'environment': scope.environment, 'alias': scope.target, 'awsAccountId': '123456789012',
@@ -441,7 +477,7 @@ def properties_fixture(root):
 
 
 def deploy_properties_fixture(root):
-    from model.format import serialize
+    serialize = _imports_model_format.serialize
     scope = properties_fixture(root)
     stacks = scope.path.with_name('cloudformation-stacks.properties')
     stacks.write_text(serialize({'desired.stack.009.name': 'CurrentName',
@@ -461,4 +497,3 @@ def deploy_properties_fixture(root):
 - `tasks/active.md`
 ''', encoding='utf-8')
     return scope, stacks
-

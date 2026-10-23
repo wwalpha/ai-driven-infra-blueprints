@@ -1,18 +1,28 @@
 """Authored import seeds and Mock CLI only; never read an executing project's Model."""
-import copy
+
 import json
-from model.core import entries
-import os
-from pathlib import Path
 import shutil
 import subprocess
-import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+from threading import Lock
 
-from model.sources import json_text, load_model
-from utils.yaml_format import yaml_read
-from support.model_sources import write_model
-
+import model.format as _imports_model_format
+import support.it_workspace as workspace
+from import_guard import digest
+from model.core import entries
+from model.format import owner, serialize
 from model.importing import cli as m
+from model.importing.approval import reference_provenance
+from model.importing.evidence import FORMAT_FIELDS
+from model.operations import operation_rows
+from model.sources import candidate_sources, json_text, load_model
+from support.import_repository_fixtures import checkpoint
+from support.model_sources import write_model
+from task_contract_core import start
+from utils.source_reads import FileReads
+from utils.yaml_format import yaml_read as yaml_read
+
 ACCOUNT = '123456789012'
 TARGET = 'cde'
 SERVICES = ('vpc', 'config', 'cloudwatch-logs', 'data-firehose', 'quicksight', 'security-hub', 'transit-gateway')
@@ -156,10 +166,7 @@ def build_seed(root):
 
 
 def fixture(root, service='cloudwatch-logs', register=True):
-    from support.it_workspace import populate
-    from task_contract import start
-    populate('import_sources', root)
-    from support.import_repository_fixtures import checkpoint
+    workspace.populate('import_sources', root)
     checkpoint(root)
     path = root / 'model/dev' / TARGET / (service + '.properties')
     if register:
@@ -210,7 +217,7 @@ def stage(root, acquisition, files, resources=(), excluded=(), pending=()):
         if entry.is_file():
             files = {**{file.relative_to(root).as_posix(): text for file, text in load_model(entry).files.items()}, **files}
         else:
-            from model.format import serialize
+            serialize = _imports_model_format.serialize
             files[entry.relative_to(root).as_posix()] = serialize({})
     for relative, text in files.items():
         path = destination / relative
@@ -231,7 +238,6 @@ def exclusions(acquisition, selected):
 
 
 def logs_edit(root, acquisition, days=90):
-    from model.format import serialize
     path = root / 'model/dev' / TARGET / 'cloudwatch-logs.properties'
     values = dict(load_model(path).authoritative)
     values.update(resource_values('003', 'Logs.LogGroup', 'cloudwatch-logs-managed', 'IMPORT', [
@@ -245,12 +251,10 @@ def logs_edit(root, acquisition, days=90):
 
 def review_proof_fixture(root, proof):
     """Authored integrity proof for guard-only tests, never Human authentication."""
-    from datetime import datetime, timedelta
-    from import_guard import digest
+
     proof['acquisition'] = digest(proof['acquisition'])
     binding = {name: digest(name) for name in ('sourceBaselineDigest', 'reviewDigest', 'recordsDigest',
                'selectionDigest', 'referencesDigest', 'proposedValuesDigest', 'impactDigest')}
-    from model.importing.evidence import FORMAT_FIELDS
     binding.update(version=2, **FORMAT_FIELDS, task=proof['task'], worktree=str(root.resolve()), scope=proof['scope'],
                    acquisitionDigest=proof['acquisition'], acquiredAt=proof['acquiredAt'],
                    expiresAt=(datetime.fromisoformat(proof['acquiredAt']) + timedelta(days=7)).isoformat())
@@ -258,8 +262,6 @@ def review_proof_fixture(root, proof):
 
 
 def review_fixture(root, acquisition, service='cloudwatch-logs', dry_run=False):
-    from model.importing.approval import reference_provenance
-    from model.sources import candidate_sources, FileReads
     evidence = Path(acquisition['evidence'])
     env, target, actual_service = acquisition['scope']
     path = root / 'model' / env / target / (actual_service + '.properties')
@@ -300,8 +302,6 @@ def operation_fixture(root):
 
 
 def operation_candidate(before, after, action='import-merge'):
-    from model.format import owner
-    from model.operations import operation_rows
     shutil.copytree(before, after)
     path = after / 'model/stg/cde/vpc.properties'
     values = dict(load_model(path).authoritative)
@@ -335,7 +335,6 @@ def operation_contract(action='import-merge', source='stg/cde/vpc/009', destinat
 class CloudControlCli:
     """Synthetic paginated provider with separately counted physical CLI requests."""
     def __init__(self, resources, *, account=ACCOUNT, fail=None):
-        from threading import Lock
         self.resources, self.account, self.fail = resources, account, fail or {}
         self.calls, self.lock = [], Lock()
 
@@ -384,7 +383,6 @@ class CloudControlCli:
 
 def batch_operation_fixture(before, after):
     """Five independent fixed pairs, with Row IDs transferred by formal Property."""
-    from model.format import owner
     operation_fixture(before)
     pairs = [('022', '009'), ('023', '010'), ('024', '011'), ('025', '012'), ('028', '013')]
     path = before / 'model/stg/cde/vpc.properties'
@@ -408,7 +406,6 @@ def batch_operation_fixture(before, after):
     write_model(path, expanded)
     shutil.copytree(before, after)
     changed = dict(expanded)
-    from model.operations import operation_rows
     for source, destination in pairs:
         target_rows = operation_rows(expanded, destination)
         for prop, (row_id, row) in operation_rows(expanded, source).items():

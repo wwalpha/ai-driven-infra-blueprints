@@ -1,12 +1,17 @@
 """lambda function comparison contracts and projections."""
 
-REF_ATTRIBUTES = {'Lambda.Function': 'FunctionName'}
-
 import re
+
+import iac_values as _imports_iac_values
 from cloudformation_inputs import Blocked
 
+REF_ATTRIBUTES = {'Lambda.Function': 'FunctionName'}
+
+
+
+
 def literal_arn(properties, pseudo, substitute, reference):
-    from iac_values import ResourceReference
+    ResourceReference = _imports_iac_values.ResourceReference
     if 'FunctionName' not in properties:
         raise Blocked('Lambda ARN requires explicit FunctionName')
     function = substitute(ResourceReference(dict(reference, **{'$attribute': 'FunctionName'})))

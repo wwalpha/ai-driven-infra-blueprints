@@ -2,15 +2,26 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from support.framework_input_isolation_fixtures import (
+    MODULE,
+    Findings,
+    PassCache,
+    TemporaryDirectory,
+)
+from support.framework_input_isolation_fixtures import (
+    check_structure as _check_structure,
+)
+from support.framework_input_isolation_fixtures import (
+    check_validation_scope as _check_validation_scope,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.framework_input_isolation_fixtures import (
-    Findings, MODULE, PassCache, TemporaryDirectory,
-    check_structure as _check_structure,
-    check_validation_scope as _check_validation_scope,
-)
 
 def check_framework_input_guards():
     with TemporaryDirectory() as directory:

@@ -5,19 +5,21 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
-if not __debug__:
-    raise SystemExit("Focused checks require assertions; run without -O")
+
+import importlib.util
+import subprocess
+import tempfile
+from unittest.mock import patch
 
 from support.it_case_receipt import it_case
 
-import importlib.util
-import tempfile
-from unittest.mock import patch
-import subprocess
-
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 SCRIPT = (Path(__file__).resolve().parents[2] / 'export-design-pdf.py')
 SPEC = importlib.util.spec_from_file_location("export_design_pdf", SCRIPT)

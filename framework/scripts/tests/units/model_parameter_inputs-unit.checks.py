@@ -2,18 +2,26 @@
 """Native YAML remains generic; Model references use fixed saved identities."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import json
+
+import pytest
+from model.core import entries
+from model.format import FORMAT, parse
+from model.references import usages
+from model.sources import load_model
+from support.import_model_fixtures import (
+    reference_fields,
+    resource_values,
+    service_values,
+)
+from support.model_sources import write_model
+from utils.yaml_format import yaml_read
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-import pytest
-import json
-from utils.yaml_format import yaml_read
-from model.format import parse, FORMAT
-from model.sources import load_model
-from model.core import entries
-from model.references import usages
-from support.model_sources import write_model
-from support.import_model_fixtures import service_values, resource_values, reference_fields
 
 
 def check_yaml_schema():

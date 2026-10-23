@@ -2,11 +2,24 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import support.check_model_aws_fixtures as _retained_fixture_offline_network
+from support.check_model_aws_fixtures import (
+    Path,
+    check,
+    m,
+    run,
+    sys,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.check_model_aws_fixtures import *
+offline_network = _retained_fixture_offline_network.offline_network
+
 
 def check_summary_exit_codes():
     check(m.summarize([{'status': 'match'}])['exitCode'] == 0, 'match exit')

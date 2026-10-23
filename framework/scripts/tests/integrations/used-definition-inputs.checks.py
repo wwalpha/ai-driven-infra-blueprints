@@ -2,17 +2,34 @@
 """Explicit per-Resource values and guarded source saves; no input expansion."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from unittest.mock import patch
+
+import support.producer_identifier_reference_fixtures as _exports_support_producer_identifier_reference_fixtures
+from model.adapters.task import edit_write_context
+from support.it_case_receipt import it_case
+from support.producer_identifier_reference_fixtures import (
+    Path,
+    load_model,
+    rejected,
+    resource,
+    serialize,
+    setup,
+    write_model,
+)
+from support.worktree_task_fixtures import fixture as worktree_fixture
+from support.worktree_task_fixtures import git, start
+
+from model import prepare_edit, publish_edit
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-from unittest.mock import patch
-import tempfile
-from support.it_case_receipt import it_case
-from support.producer_identifier_reference_fixtures import *
-from support.worktree_task_fixtures import fixture as worktree_fixture, git, start
-from model import prepare_edit, publish_edit
-from model.adapters.task import edit_write_context
-from model.format import patch as patch_properties
+
+# Preserve shared fixtures and compatibility exports under their historical names.
+tempfile = _exports_support_producer_identifier_reference_fixtures.tempfile
+
 
 
 @it_case
@@ -26,7 +43,8 @@ def check(root):
             item[f'desired.resource.{rid}.resourceMode'] = 'CREATE'
             values.update(item)
         write_model(path, values)
-        git(primary, 'add', 'model', 'project.json'); git(primary, 'commit', '-qm', 'explicit synthetic values')
+        git(primary, 'add', 'model', 'project.json')
+        git(primary, 'commit', '-qm', 'explicit synthetic values')
         relative = path.relative_to(primary).as_posix()
         target, state = start(primary, files=(relative,))
         name = state['task_file']
@@ -62,7 +80,7 @@ def check(root):
             ({**candidate, 'desired.row.2-001.value': '`{bad}`'}, 'property name')]:
             with edit_write_context(target, {('preview', 'team', 'security-group')}, name) as context:
                 before = load_model(model, context.snapshot)
-                rejected(lambda: prepare_edit(before, {model: serialize(changed)}, context), phrase)
+                rejected(lambda *, before=before, changed=changed: prepare_edit(before, {model: serialize(changed)}, context), phrase)
             assert model.read_bytes() == raw
         rejected(lambda: serialize({**candidate, 'desired.row.2-001.value': 3}), 'strings')
         assert (primary / relative).read_bytes() == baseline

@@ -1,34 +1,81 @@
 """Select, stage, validate and publish model views; independent of the CLI."""
-from utils.json_format import policy_json
 
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack, contextmanager, nullcontext
-from dataclasses import dataclass, field
 import json
 import re
 import shutil
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack, contextmanager, nullcontext
+from dataclasses import dataclass, field
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-from design_document import DesignIndex
-from design_layout import STACK_DESIGN
-from model.core import entries, ReferenceResolutionError
-from model.render import render_validated_model as markdown_for
-from model.validation import validate_required_properties, validate_kms_policy_accounts
-from aws_mapping_display import validate_mappings
-from model.projection import design_target, resource_row_scope
-from model.projection import JSON_LINK
-from model.sources import load_model
-from model.sources import _publish_transaction, publication_lock, safe, model_exists, model_paths as registered_models
-from policy_tables import rendered_design
-from task_contract import task_path, task_revision
-from issue_gate import require_no_issues
-from validation_scope import scoped_files
-from validation_cache import input_scope, memo_table, recording_inputs, input_context, input_recorder, input_bytes, input_is_file, input_select
-from utils.aws_mappings import mapping_alias, definition_root
-from sync_files import changed_files, save_files, restore_files, markdown_newlines
+from types import SimpleNamespace as _CallbackState
+
+import import_guard as _imports_import_guard
+import model.identity as _imports_model_identity
+import model.importing.cli as _imports_model_importing_cli
+import model.importing.scope as _imports_model_importing_scope
+import model.projection as _imports_model_projection
+import model.sources as _imports_model_sources
+import model.validation as _imports_model_validation
 import sync_views
-from sync_progress import stage as progress_stage, phase, advance, consumers, completed, tracked_sync, total, output_file
-from model.importing.scope import selected as import_selection, scoped as import_scoped
+import task_contract_core as _imports_task_contract
+import validation_cache as _imports_validation_cache
+from aws_mapping_display import validate_mappings as validate_mappings
+from design_document import DesignIndex
+from generation_inputs import GenerationInputs
+from issue_gate import require_no_issues
+from model.core import ReferenceResolutionError, entries
+from model.format import JSON_LINK
+from model.importing.scope import scoped as import_scoped
+from model.importing.scope import selected as import_selection
+from model.projection import design_target, resource_row_scope
+from model.render import generate_files as generate_files
+from model.render import render_validated_model as markdown_for
+from model.sources import (
+    _publish_transaction,
+    load_model,
+    model_exists,
+    publication_lock,
+    safe,
+)
+from model.sources import model_paths as registered_models
+from model.validation import (
+    validate_kms_policy_accounts as validate_kms_policy_accounts,
+)
+from model.validation import (
+    validate_required_properties as validate_required_properties,
+)
+from policy_tables import rendered_design
+from sync_files import markdown_newlines
+from sync_files import restore_files as restore_files
+from sync_files import save_files as save_files
+from sync_progress import (
+    advance,
+    completed,
+    consumers,
+    output_file,
+    phase,
+    total,
+    tracked_sync,
+)
+from sync_progress import stage as progress_stage
+from task_contract_core import task_path as task_path
+from task_contract_core import task_revision as task_revision
+from utils.aws_mappings import definition_root, mapping_alias
+from utils.input_cache import (
+    input_bytes,
+    input_context,
+    input_is_file,
+    input_recorder,
+    input_scope,
+    input_select,
+    recording_inputs,
+)
+from utils.input_cache import memo_table as memo_table
+from utils.json_format import policy_json
+from utils.layout_schema import STACK_DESIGN
+from validation_scope import scoped_files
 
 
 def local_design_links(root, path, texts):
@@ -46,15 +93,35 @@ def local_design_links(root, path, texts):
     return result
 
 
+def _callback_stage_inputs_links(root, /, path, texts):
+    return {linked for linked in local_design_links(root, path, texts) if linked.suffix == '.md'}
+
+
+def _callback_stage_inputs_add_model(inputs, models, reads, root, source_scope, visited, /, model):
+    pending = [model]
+    while pending:
+        current = pending.pop()
+        if current in visited:
+            continue
+        visited.add(current)
+        if not model_exists(current, reads):
+            continue
+        dependencies = load_model(current, reads).dependencies
+        inputs.update(dependencies)
+        # Auxiliary Models are independently validated in the stage, including their producers.
+        pending.extend(source_scope(root, path).path for path in dependencies if path.is_relative_to(models))
+
+
 @progress_stage("stage-placement/dependency-models")
 def stage_inputs(stage, root, destinations, model_paths, markdown_paths, services, write, snapshot=None, definitions_root=None):
     """Copy the consumed project dependencies; definitions always stay at their source."""
+    FileReads = _imports_model_sources.FileReads
+    source_scope = _imports_model_sources.source_scope
     docs, models = root / 'docs/designs', root / 'model'
     views = set(markdown_paths)
     targets = {p.parent.relative_to(docs) for p in destinations}
     index = DesignIndex(root)
-    def links(path, texts):
-        return {linked for linked in local_design_links(root, path, texts) if linked.suffix == '.md'}
+    links = _bind_framework_callback(_callback_stage_inputs_links, root)
     for path, values in destinations.items():
         views.update(links(path, values.values()))
     # Discover incoming links without copying every scanned Markdown file.
@@ -64,22 +131,9 @@ def stage_inputs(stage, root, destinations, model_paths, markdown_paths, service
                 if path not in destinations and links(path, [index.get(path).text]) & destinations.keys():
                     views.add(path)
     inputs, visited = set(), set()
-    from model.sources import FileReads, source_scope
     reads = snapshot or FileReads()
     registered_models(root)  # Record the reverse-dependency discovery set, without copying its models.
-    def add_model(model):
-        pending = [model]
-        while pending:
-            current = pending.pop()
-            if current in visited:
-                continue
-            visited.add(current)
-            if not model_exists(current, reads):
-                continue
-            dependencies = load_model(current, reads).dependencies
-            inputs.update(dependencies)
-            # Auxiliary Models are independently validated in the stage, including their producers.
-            pending.extend(source_scope(root, path).path for path in dependencies if path.is_relative_to(models))
+    add_model = _bind_framework_callback(_callback_stage_inputs_add_model, inputs, models, reads, root, source_scope, visited)
     for path in model_paths:
         if (docs / path.relative_to(models)).with_suffix('.md') in destinations:
             add_model(path)
@@ -129,19 +183,19 @@ def stage_inputs(stage, root, destinations, model_paths, markdown_paths, service
 @progress_stage("candidate-generation")
 @resource_row_scope()
 def generate_views(stage, root, destinations, failures, definitions_root=None, *, warnings=None, unavailable=None):
+    Resolver = _imports_model_identity.Resolver
     warnings = warnings if warnings is not None else []
     unavailable = unavailable if unavailable is not None else {}
     definitions_root = definitions_root or definition_root(root)
     total(len(destinations))
     generated = {}
-    from model.identity import Resolver
     resolver = Resolver(root)
     # Render all valid base views before resolving cross-service links.
     for path, values in destinations.items():
         staged = stage / path.relative_to(root)
         artifacts = {}
         try:
-            from model.validation import check_model_inputs
+            check_model_inputs = _imports_model_validation.check_model_inputs
             model = load_model((root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties'))
             independent = check_model_inputs(path, model.authoritative, root, definitions_root=definitions_root)
             warnings.extend(warning for warning in (*model.warnings, *independent.warnings) if warning not in warnings)
@@ -159,7 +213,7 @@ def generate_views(stage, root, destinations, failures, definitions_root=None, *
                     continue
                 if "document" not in row:
                     raise ValueError(f"authoritative JSON document missing: {path.name}: {identity}")
-                from model.projection import execution_document
+                execution_document = _imports_model_projection.execution_document
                 document = execution_document(policy_json(row["document"]), root, property_name=row["property"], resolver=resolver,
                     scope=model.scope, logical_id=values.get(f'desired.resource.{identity.rpartition("-")[0]}.logicalId'), warnings=warnings)
                 if not isinstance(document, dict):
@@ -203,39 +257,42 @@ def generate_views(stage, root, destinations, failures, definitions_root=None, *
     return generated
 
 
+def _callback_validate_candidates_validate(_state_validate_candidates_260, definitions_root, destinations, root, stage, validation, /, path):
+    try:
+        view_scope = _imports_model_importing_scope.view_scope
+        identities = {(*file.relative_to(root / 'docs/designs').parts[:2], file.stem) for file in destinations}
+        if import_selection(root) is not None:
+            identities.add(import_selection(root))
+        with view_scope(identities):
+            return_value = sync_views.validate_views(stage, root, [stage / path.relative_to(root)], destinations, design_index=_state_validate_candidates_260.design_index, definitions_root=definitions_root, **({"context": _state_validate_candidates_260.context} if validation is not None else {}))
+            if validation is not None:
+                validation[path] = return_value
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return path, f"{path.relative_to(root)}: {error}"
+    return path, None
+
+
 @progress_stage("candidate-validation")
 def validate_candidates(stage, root, generated, destinations, failures, jobs, write, validation=None, accounts=None, definitions_root=None):
     # A rejected view falls back to its saved state; recheck dependent services.
-    from task_contract import selected_task
+    _state_validate_candidates_260 = _CallbackState()
+    selected_task = _imports_task_contract.selected_task
     name, text = task_revision(root)
-    @selected_task(root, name if text is not None else None)
-    def validate(path):
-        try:
-            from model.importing.scope import view_scope
-            identities = {(*file.relative_to(root / 'docs/designs').parts[:2], file.stem) for file in destinations}
-            if import_selection(root) is not None:
-                identities.add(import_selection(root))
-            with view_scope(identities):
-                return_value = sync_views.validate_views(stage, root, [stage / path.relative_to(root)], destinations, design_index=design_index, definitions_root=definitions_root, **({"context": context} if validation is not None else {}))
-                if validation is not None:
-                    validation[path] = return_value
-        except (OSError, ValueError, KeyError, TypeError) as error:
-            return path, f"{path.relative_to(root)}: {error}"
-        return path, None
+    validate = (selected_task(root, name if text is not None else None))(_bind_framework_callback(_callback_validate_candidates_validate, _state_validate_candidates_260, definitions_root, destinations, root, stage, validation))
 
     while generated:
         total(len(generated))
-        design_index = DesignIndex(root)  # A new snapshot after each restore_view phase.
+        _state_validate_candidates_260.design_index = DesignIndex(root)  # A new snapshot after each restore_view phase.
         rejected = []
-        context = None
+        _state_validate_candidates_260.context = None
         if validation is not None:
-            context = sync_views.validation_context(stage, root, generated, destinations, accounts, definitions_root=definitions_root)
-            validation[None] = context.findings
-            if context.errors:
+            _state_validate_candidates_260.context = sync_views.validation_context(stage, root, generated, destinations, accounts, definitions_root=definitions_root)
+            validation[None] = _state_validate_candidates_260.context.findings
+            if _state_validate_candidates_260.context.errors:
                 # Ownership/stack checks concern the fixed whole scope, not repeated services.
-                for error in context.errors:
+                for error in _state_validate_candidates_260.context.errors:
                     failures.append(error)
-                rejected = [p for p in generated if any(p.relative_to(root).as_posix() in e for e in context.errors)]
+                rejected = [p for p in generated if any(p.relative_to(root).as_posix() in e for e in _state_validate_candidates_260.context.errors)]
                 if not rejected:
                     rejected = list(generated)
                 for path in rejected:
@@ -309,23 +366,23 @@ def _sync(
     definitions_root: Path | None = None,
     snapshot=None,
 ) -> int:
+    require_import_changes = _imports_import_guard.require_import_changes
     root = root.resolve()
     deferred = sync_views._saved_design_validation.get()
     if deferred is not None and (write or deferred != (root, (environment, target_directory, (services or [None])[0]))
                                  or services != [deferred[1][2]]):
         raise ValueError('saved design validation requires read-only generation of the selected single service')
-    expected_task = task_revision(root) if write else None
-    from import_guard import require_import_changes
+    _ = task_revision(root) if write else None
     with phase("import-guard"):
         require_import_changes(root, generation=True)
     if import_selection(root) is not None:
-        from model.importing.scope import readable
+        readable = _imports_model_importing_scope.readable
         expected = {import_selection(root)} if write else readable(root)
         requested = {(environment, target_directory, service) for service in services or []}
         if not requested or not requested <= expected:
             raise ValueError('IMPORT generation is outside selected environment/target/service')
         if write:
-            from model.importing.cli import recover_display
+            recover_display = _imports_model_importing_cli.recover_display
             identity = import_selection(root)
             recover_display(root, identity[0], identity[2], identity[1])
             consumers({identity})
@@ -355,7 +412,7 @@ def generation_context(root, write, definitions_root=None):
                 snapshot = GenerationInputs(root, definitions_root)
             lifetime.callback(snapshot.close)
             lifetime.enter_context(recording_inputs(snapshot))
-            from validation_cache import PassCache
+            PassCache = _imports_validation_cache.PassCache
             PassCache(root, definitions_root=definitions_root).common_inputs(snapshot)
         yield snapshot
 
@@ -369,7 +426,6 @@ def sync(root, write, environment=None, target_directory=None, services=None, jo
         return _sync(root, write, environment, target_directory, services, jobs, definitions_root, snapshot)
 
 
-from generation_inputs import GenerationInputs
 
 
 @dataclass
@@ -421,7 +477,7 @@ def prepare_generation(root, scope, *, write=True, environment=None, target_dire
             lifetime.callback(snapshot.close)
             lifetime.enter_context(recording_inputs(snapshot))
             # Common fingerprints are guarded even when the standalone writer has no cache.
-            from validation_cache import PassCache
+            PassCache = _imports_validation_cache.PassCache
             PassCache(root, definitions_root=definitions_root).common_inputs(snapshot)
         if definitions_root != root and definition_root(root) != definitions_root:
             lifetime.enter_context(mapping_alias(definitions_root, root))
@@ -609,11 +665,6 @@ def run_generation(root, scope, *, write=True, environment=None, target_director
 
 
 
-from model.render import generate_files
-
-
-
-
 
 
 def _compare_generation(plan):
@@ -633,7 +684,7 @@ def _compare_generation(plan):
 def compare_generation(root: Path, scope, *, jobs=4, definitions_root=None, findings=None) -> tuple[str, ...]:
     """Read-only source/view comparison using the existing generation candidates."""
     if import_selection(root) is not None:
-        from import_guard import require_import_changes
+        require_import_changes = _imports_import_guard.require_import_changes
         require_import_changes(root, generation=True)
     plan = prepare_generation(root, scope, write=False, definitions_root=definitions_root)
     try:
@@ -646,5 +697,3 @@ def compare_generation(root: Path, scope, *, jobs=4, definitions_root=None, find
         return tuple(plan.failures)
     finally:
         plan.close()
-
-from model.render import owned_artifacts, view_plan

@@ -2,11 +2,23 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import pytest
+from support.lambda_permission_fixtures import (
+    FUNCTION,
+    PERMISSION,
+    ROOT,
+    Path,
+    formal_property,
+    layout_errors,
+    sys,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.lambda_permission_fixtures import *
 
 def check_permission_catalog():
     assert not layout_errors(ROOT)
@@ -14,7 +26,7 @@ def check_permission_catalog():
 
 
 
-import pytest
+
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 if __name__ == '__main__':

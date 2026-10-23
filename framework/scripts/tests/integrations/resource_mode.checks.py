@@ -1,14 +1,49 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from model.sources import model_parts
+from support.it_case_receipt import it_case
+from support.resource_mode_fixtures import (
+    SYNC,
+    Path,
+    json,
+    markdown_for,
+    model,
+    read_model,
+    snapshot_model,
+    sync_views,
+    sys,
+    tempfile,
+    write_model,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import it_case
 
-from support.resource_mode_fixtures import *
+def _callback_main_check(path, root, source, /, values):
+    values = {key: value for key, value in values.items() if not (key.startswith("observed.row.") and key.endswith((".property", ".comment")))}
+    original = "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
+    write_model(source, original)
+    original = {file: file.read_bytes() for file in (source, *model_parts(source))}
+    try:
+        read_model(source)
+        path.write_text(markdown_for(path, values, root), encoding="utf-8")
+        sync_views.validate_views(root, root, [path], {path: values})
+    except (ValueError, KeyError) as error:
+        return str(error)
+    assert snapshot_model(source) == original
+    assert path.read_text(encoding="utf-8") == markdown_for(path, values, root)
+    assert "resource-mode:" not in path.read_text(encoding="utf-8")
+    assert "resource-entry:" not in path.read_text(encoding="utf-8")
+    return ""
 
 
 @it_case
@@ -27,23 +62,7 @@ def main():
             'desired.stack.001.name': 'fixture', 'desired.stack.001.placementName': 'fixture',
             'desired.stack.001.template': 'fixture.yaml', 'desired.stack.001.parameters': 'fixture.json',
             'desired.stack.001.deployOrder': '1', 'display.stack.001.comment': '合成Stack'})
-        def check(values):
-            values = {key: value for key, value in values.items() if not (key.startswith("observed.row.") and key.endswith((".property", ".comment")))}
-            original = "\n".join(f"{key}={value}" for key, value in values.items()) + "\n"
-            write_model(source, original)
-            from model.sources import model_parts
-            original = {file: file.read_bytes() for file in (source, *model_parts(source))}
-            try:
-                read_model(source)
-                path.write_text(markdown_for(path, values, root), encoding="utf-8")
-                sync_views.validate_views(root, root, [path], {path: values})
-            except (ValueError, KeyError) as error:
-                return str(error)
-            assert snapshot_model(source) == original
-            assert path.read_text(encoding="utf-8") == markdown_for(path, values, root)
-            assert "resource-mode:" not in path.read_text(encoding="utf-8")
-            assert "resource-entry:" not in path.read_text(encoding="utf-8")
-            return ""
+        check = _bind_framework_callback(_callback_main_check, path, root, source)
 
         # Required cases exercise the generator, schema/catalog validator and projection.
         assert not (error := check(model())), error
@@ -151,4 +170,3 @@ if __name__ == "__main__":
     from support.model_sources import catalog_display
     with catalog_display():
         main()
-

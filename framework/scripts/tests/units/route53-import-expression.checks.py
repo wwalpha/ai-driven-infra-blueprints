@@ -2,13 +2,16 @@
 """Limited Model expression syntax, links and unchanged literal constraints."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from model.projection import is_import_expression
 from cloudformation_schema import CloudFormationSchemaCatalog
+from model.projection import is_import_expression
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 def check_limited_import_expression(tmp_path):

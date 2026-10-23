@@ -1,12 +1,18 @@
 """One immutable collection of authored IT seeds, owned by the suite runner."""
-from contextlib import contextmanager
-from pathlib import Path
+
 import atexit
 import hashlib
 import json
 import os
-import tempfile
 import sys
+import tempfile
+from contextlib import contextmanager
+from pathlib import Path
+
+import support.import_model_fixtures as _imports_support_import_model_fixtures
+import support.model_sources as _imports_support_model_sources
+import support.service_fixtures as _imports_support_service_fixtures
+import support.sync_model_fixtures as _imports_support_sync_model_fixtures
 
 ENV = 'BLUEPRINT_IT_FIXTURES'
 REPOSITORY = Path(__file__).resolve().parents[4]
@@ -34,14 +40,14 @@ def build(root, name):
     destination = root / name
     destination.mkdir()
     if name in ('input_templates', 'typed_services'):
-        from support import service_fixtures
+        service_fixtures = _imports_support_service_fixtures
         getattr(service_fixtures, 'build_' + name)(destination)
     elif name == 'import_sources':
-        from support.import_model_fixtures import build_seed
+        build_seed = _imports_support_import_model_fixtures.build_seed
         build_seed(destination)
     elif name == 'generated_policy':
-        from support.sync_model_fixtures import build_generated_policy
-        from support.model_sources import catalog_display
+        catalog_display = _imports_support_model_sources.catalog_display
+        build_generated_policy = _imports_support_sync_model_fixtures.build_generated_policy
         with catalog_display():
             values = build_generated_policy(destination, definitions_root=REPOSITORY)
         (destination / 'fixture-values.json').write_text(json.dumps(values), encoding='utf-8')
@@ -69,6 +75,13 @@ def bundle():
             protect(root, False)
 
 
+
+
+def _source_cleanup():
+    protect(Path(_local.name), False)
+    _local.cleanup()
+
+
 def source(name):
     """Standalone UT/IT callers get a process-local seed; official runs never regenerate."""
     global _local
@@ -78,9 +91,7 @@ def source(name):
         return Path(os.environ[ENV]) / name
     if _local is None:
         _local = tempfile.TemporaryDirectory(prefix='framework-test-fixtures-')
-        def cleanup():
-            protect(Path(_local.name), False)
-            _local.cleanup()
+        cleanup = _source_cleanup
         atexit.register(cleanup)
     root = Path(_local.name)
     if not (root / name).is_dir():

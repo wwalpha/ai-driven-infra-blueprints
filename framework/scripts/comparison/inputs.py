@@ -4,26 +4,34 @@ from __future__ import annotations
 import hashlib
 import re
 
-from cloudformation_inputs import Blocked, load_template_inputs
-from model.adapters.observed import resource_index, mapped_resource
-from model.core import entries, stack_model
-from model.sources import model_exists
-from model.files import load_model, resource_row_index
-from policy_tables import literal
-
-
-from cloudformation_inputs import load_target, condition_active
+import array_display as _imports_array_display
+import model.identity as _imports_model_identity
+import model.sources as _imports_model_sources
+import utils.cloudformation_format as _imports_utils_cloudformation_format
+from cloudformation_inputs import (
+    Blocked,
+    condition_active,
+    load_target,
+    load_template_inputs,
+)
 from design_catalog import DesignSchemaCatalog
 from design_layout import resource_mode
-from iac_values import ResourceReference, Expression, cfn_resource_identity, same
-from model.projection import catalog_outputs, reference_attribute
-from model.sources import _invocation_reads, model_paths
-from model.core import ReferenceResolutionError
-from utils.json_format import policy_json as strict_json
-from . import registry, evaluation, references, design_link, values
-from .result import redacted
 from iac_evaluation import RETURN_ATTRIBUTE_PROPERTIES
+from iac_values import Expression, ResourceReference, cfn_resource_identity, same
+from model.adapters.observed import mapped_resource, resource_index
+from model.core import ReferenceResolutionError, entries, stack_model
+from model.files import load_model, resource_row_index
+from model.identity import anchor_index, parse_reference, select_anchor
+from model.projection import reference_attribute
+from model.sources import _invocation_reads, model_exists, model_paths
+from policy_tables import literal
 from reference_contracts import REFERENCE_PROPERTIES
+from utils.aws_catalogs import catalog_outputs
+from utils.aws_sdk import aws_runtime
+from utils.json_format import policy_json as strict_json
+
+from . import design_link, evaluation, references, registry, values
+from .result import redacted
 
 
 class Inputs:
@@ -54,7 +62,7 @@ class Inputs:
             except ReferenceResolutionError as error:
                 self.warnings.append({**error.diagnostic, 'service': service})
                 self.reference_unavailable[service] = str(error)
-                from model.sources import load_model as load_source
+                load_source = _imports_model_sources.load_model
                 try:
                     analysis = load_source(root / 'model' / environment / directory / (service + '.properties'), self.model_reads)
                     self.inputs.update(analysis.files)
@@ -179,7 +187,7 @@ class Inputs:
                                      'relationship': 'stack-input'}
                 raise blocked
         if template not in self.documents:
-            from utils.cloudformation_format import decode_file
+            decode_file = _imports_utils_cloudformation_format.decode_file
             document, errors = decode_file(template, locations=self.template_locations)
             self.metrics['template_decodes'] += 1
             if errors or not isinstance(document, dict):
@@ -195,7 +203,7 @@ class Inputs:
         pseudo = {'AWS::StackName': name, 'AWS::AccountId': self.target.get('awsExecutionAccountId', self.target['awsAccountId']),
                   'AWS::Region': self.target['awsRegion'], 'AWS::NoValue': {'$noValue': True}}
         if not hasattr(self, 'partition'):
-            from botocore.loaders import Loader
+            Loader = aws_runtime().sdk_loader
             self.partition = next((part['partition'] for part in Loader().load_data('endpoints')['partitions']
                                    if self.target['awsRegion'] in part['regions']), None)
         if self.partition is not None:
@@ -205,12 +213,11 @@ class Inputs:
         return template, self.stack_inputs[name]
 
     def reference(self, service, value, expected_attribute=None, *, consumer_property=None):
-        from model.identity import parse_reference, anchor_index, select_anchor
-        from model.sources import Scope
+        Scope = _imports_model_sources.Scope
         consumer = Scope(self.root, self.environment, self.directory, service)
         environment, directory, refservice, anchor = parse_reference(value, consumer)
         if (environment, directory) != (self.environment, self.directory):
-            from model.identity import Resolver
+            Resolver = _imports_model_identity.Resolver
             Resolver(self.root).resolve(value, consumer)
             raise Blocked('cross-target IaC reference requires a proven handoff')
         model = self.model(refservice)
@@ -464,8 +471,8 @@ class Inputs:
 
 
     def project_rows(self, kind, rows):
+        indexed_rows = _imports_array_display.indexed_rows
         prepare = registry.hook(kind, 'prepare_rows')
         if prepare is None:
             return rows
-        from array_display import indexed_rows
         return prepare(rows, index_rows=lambda rows, kind: indexed_rows(rows, kind, self.root))

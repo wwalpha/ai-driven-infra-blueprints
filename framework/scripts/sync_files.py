@@ -1,9 +1,9 @@
 """Service file publication and best-effort rollback; no selection or validation."""
 
-from validation_cache import input_bytes, input_is_file
+from pathlib import Path
 
 from utils.file_operations import restore_files
-from pathlib import Path
+from utils.input_cache import input_bytes, input_is_file
 
 
 def changed_files(expected: dict[Path, str]) -> dict[Path, str]:

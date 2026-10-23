@@ -1,70 +1,99 @@
 """Shared local CloudFormation input decoding and intrinsic evaluation (no AWS calls)."""
-from utils.json_format import policy_json
+
 import json
 import math
 import re
 from decimal import Decimal, InvalidOperation
+from functools import partial as _bind_framework_callback
+
+import utils.cloudformation_format as _imports_utils_cloudformation_format
+from project_targets import DeployContextError
+from project_targets import load_target as select
+from utils.json_format import policy_json
 
 
 class Blocked(RuntimeError):
     pass
 
 
+def _callback_resolve_value_resolve_replace(substitutions, /, match):
+    key = match.group(1)
+    if key.startswith("!"):
+        return "${" + key[1:] + "}"
+    if key not in substitutions:
+        raise Blocked(f"unresolved ImportValue variable: {key}")
+    return substitutions[key]
+
+
+def _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, /, value, seen=frozenset()):
+    if isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, list):
+        return [_recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, part, seen) for part in value]
+    if not isinstance(value, dict) or len(value) != 1:
+        raise Blocked("cannot resolve ImportValue expression")
+    key, argument = next(iter(value.items()))
+    if key == "Condition":
+        if not isinstance(argument, str) or argument in seen or argument not in (conditions or {}):
+            raise Blocked(f"unresolved or cyclic Condition: {argument}")
+        result = _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, conditions[argument], seen | {argument})
+        if type(result) is not bool:
+            raise Blocked(f"non-boolean Condition: {argument}")
+        return result
+    if key == "Fn::If" and isinstance(argument, list) and len(argument) == 3:
+        active = _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, {"Condition": argument[0]}, seen)
+        return _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, argument[1 if active else 2], seen)
+    if key == "Fn::Equals" and isinstance(argument, list) and len(argument) == 2:
+        left, right = _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, argument, seen)
+        return any(isinstance(left, kind) and isinstance(right, kind) and left == right
+                   for kind in (str, bool, int, float)) and isinstance(left, bool) == isinstance(right, bool)
+    if key in {"Fn::And", "Fn::Or", "Fn::Not"} and isinstance(argument, list):
+        operands = _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, argument, seen)
+        if (all(type(part) is bool for part in operands) and
+                (len(operands) == 1 if key == "Fn::Not" else 2 <= len(operands) <= 10)):
+            return not operands[0] if key == "Fn::Not" else all(operands) if key == "Fn::And" else any(operands)
+        raise Blocked(f"invalid condition operands: {key}")
+    if key == "Fn::ImportValue" and exports is not None:
+        name = _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, argument, seen)
+        if name in exports:
+            return exports[name]
+        raise Blocked(f"unresolved artifact bucket export: {name}")
+    if key == "Ref" and argument in parameters | pseudo:
+        return (parameters | pseudo)[argument]
+    if key == "Fn::Join" and isinstance(argument, list) and len(argument) == 2:
+        delimiter, parts = _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, argument, seen)
+        if isinstance(delimiter, str) and isinstance(parts, list) and all(isinstance(part, str) for part in parts):
+            return delimiter.join(parts)
+        raise Blocked("invalid Join operands")
+    if key == "Fn::Sub":
+        text, variables = (argument, {}) if isinstance(argument, str) else argument
+        substitutions = parameters | pseudo | {key: _recursive_resolve_value_resolve(conditions, exports, parameters, pseudo, val, seen) for key, val in variables.items()}
+        replace = _bind_framework_callback(_callback_resolve_value_resolve_replace, substitutions)
+        return re.sub(r"\$\{([^}]+)\}", replace, text)
+    raise Blocked(f"unsupported ImportValue expression: {key}")
+
+
 def resolve_value(value, parameters, pseudo, exports=None, conditions=None):
     """Resolve the same explicit inputs for imports and artifact destinations."""
-    def resolve(value, seen=frozenset()):
-        if isinstance(value, (str, bool, int, float)):
-            return value
-        if isinstance(value, list):
-            return [resolve(part, seen) for part in value]
-        if not isinstance(value, dict) or len(value) != 1:
-            raise Blocked("cannot resolve ImportValue expression")
-        key, argument = next(iter(value.items()))
-        if key == "Condition":
-            if not isinstance(argument, str) or argument in seen or argument not in (conditions or {}):
-                raise Blocked(f"unresolved or cyclic Condition: {argument}")
-            result = resolve(conditions[argument], seen | {argument})
-            if type(result) is not bool:
-                raise Blocked(f"non-boolean Condition: {argument}")
-            return result
-        if key == "Fn::If" and isinstance(argument, list) and len(argument) == 3:
-            active = resolve({"Condition": argument[0]}, seen)
-            return resolve(argument[1 if active else 2], seen)
-        if key == "Fn::Equals" and isinstance(argument, list) and len(argument) == 2:
-            left, right = resolve(argument, seen)
-            return any(isinstance(left, kind) and isinstance(right, kind) and left == right
-                       for kind in (str, bool, int, float)) and isinstance(left, bool) == isinstance(right, bool)
-        if key in {"Fn::And", "Fn::Or", "Fn::Not"} and isinstance(argument, list):
-            operands = resolve(argument, seen)
-            if (all(type(part) is bool for part in operands) and
-                    (len(operands) == 1 if key == "Fn::Not" else 2 <= len(operands) <= 10)):
-                return not operands[0] if key == "Fn::Not" else all(operands) if key == "Fn::And" else any(operands)
-            raise Blocked(f"invalid condition operands: {key}")
-        if key == "Fn::ImportValue" and exports is not None:
-            name = resolve(argument, seen)
-            if name in exports:
-                return exports[name]
-            raise Blocked(f"unresolved artifact bucket export: {name}")
-        if key == "Ref" and argument in parameters | pseudo:
-            return (parameters | pseudo)[argument]
-        if key == "Fn::Join" and isinstance(argument, list) and len(argument) == 2:
-            delimiter, parts = resolve(argument, seen)
-            if isinstance(delimiter, str) and isinstance(parts, list) and all(isinstance(part, str) for part in parts):
-                return delimiter.join(parts)
-            raise Blocked("invalid Join operands")
-        if key == "Fn::Sub":
-            text, variables = (argument, {}) if isinstance(argument, str) else argument
-            substitutions = parameters | pseudo | {key: resolve(val, seen) for key, val in variables.items()}
-            def replace(match):
-                key = match.group(1)
-                if key.startswith("!"):
-                    return "${" + key[1:] + "}"
-                if key not in substitutions:
-                    raise Blocked(f"unresolved ImportValue variable: {key}")
-                return substitutions[key]
-            return re.sub(r"\$\{([^}]+)\}", replace, text)
-        raise Blocked(f"unsupported ImportValue expression: {key}")
+    resolve = _bind_framework_callback(_recursive_resolve_value_resolve, conditions, exports, parameters, pseudo)
     return resolve(value)
+
+
+
+
+def _checked_parameters_number(raw, key):
+    if isinstance(raw, bool) or not isinstance(raw, (str, int, float)):
+        raise ValueError(f'invalid Number parameter: {key}')
+    try:
+        value = Decimal(str(raw))
+    except InvalidOperation as error:
+        raise ValueError(f'invalid Number parameter: {key}') from error
+    if not value.is_finite():
+        raise ValueError(f'invalid Number parameter: {key}')
+    result = int(value) if value == value.to_integral_value() else float(value)
+    if isinstance(result, float) and (not math.isfinite(result)):
+        raise ValueError(f'invalid Number parameter: {key}')
+    return result
 
 
 def checked_parameters(document, inputs):
@@ -78,19 +107,7 @@ def checked_parameters(document, inputs):
     if supplied.keys() - definitions.keys():
         raise ValueError("undeclared stack parameter")
     values = {}
-    def number(raw, key):
-        if isinstance(raw, bool) or not isinstance(raw, (str, int, float)):
-            raise ValueError(f"invalid Number parameter: {key}")
-        try:
-            value = Decimal(str(raw))
-        except InvalidOperation as error:
-            raise ValueError(f"invalid Number parameter: {key}") from error
-        if not value.is_finite():
-            raise ValueError(f"invalid Number parameter: {key}")
-        result = int(value) if value == value.to_integral_value() else float(value)
-        if isinstance(result, float) and not math.isfinite(result):
-            raise ValueError(f"invalid Number parameter: {key}")
-        return result
+    number = _checked_parameters_number
     for key, definition in definitions.items():
         if not isinstance(definition, dict) or not isinstance(definition.get("Type"), str):
             raise ValueError(f"invalid parameter declaration: {key}")
@@ -144,7 +161,7 @@ def checked_parameters(document, inputs):
 
 def load_template_inputs(template, parameter_file, *, strict_parameters=False, document=None):
     if document is None:
-        from utils.cloudformation_format import decode_file
+        decode_file = _imports_utils_cloudformation_format.decode_file
         document, errors = decode_file(template)
         if errors or not isinstance(document, dict) or document.get("Transform"):
             raise Blocked("invalid/transform template; inputs must be resolvable locally: " + "; ".join(errors))
@@ -181,7 +198,6 @@ def output_value(document, parameters, pseudo, value):
 
 def load_target(root, environment, directory):
     """Reuse topology validation without invoking credential checks or any AWS operation."""
-    from project_targets import load_target as select, DeployContextError
     try:
         return select(root, environment, directory if directory.isdigit() else None,
                       None if directory.isdigit() else directory)

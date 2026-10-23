@@ -3,14 +3,21 @@
 
 from __future__ import annotations
 
+from functools import partial as _bind_framework_callback
+
+import model.render as _imports_model_render
 from support.it_case_receipt import it_case
-
-
-import json
-
-
 from support.validator import MODULE, SCRIPT, project, write
 
+
+def _callback_check_cloudformation_stack_design_errors(root, /):
+    validator = MODULE.Validator(root)
+    validator.accounts[("dev", "123456789012")] = {
+        "account": "123456789012", "region": "ap-northeast-1", "alias": "", "engine": "cloudformation"
+    }
+    validator.check_stack_designs()
+    validator.check_cloudformation_environment_parameters()
+    return validator.errors
 
 
 @it_case
@@ -46,14 +53,7 @@ def check_cloudformation_stack_design() -> None:
                 '[{"ParameterKey":"Environment","ParameterValue":"dev"}]\n'
             )
 
-        def errors() -> list[str]:
-            validator = MODULE.Validator(root)
-            validator.accounts[("dev", "123456789012")] = {
-                "account": "123456789012", "region": "ap-northeast-1", "alias": "", "engine": "cloudformation"
-            }
-            validator.check_stack_designs()
-            validator.check_cloudformation_environment_parameters()
-            return validator.errors
+        errors = _bind_framework_callback(_callback_check_cloudformation_stack_design_errors, root)
 
         assert not errors(), errors()
         original = stack_file.read_text(encoding="utf-8")
@@ -83,10 +83,17 @@ def check_cloudformation_stack_design() -> None:
         )
 
 
+def _callback_check_stack_mapping_targets_errors(root, /):
+    validator = MODULE.Validator(root)
+    validator.accounts[("dev", "123456789012")] = {"account": "123456789012", "region": "ap-northeast-1", "alias": "", "engine": "cloudformation"}
+    validator.check_stack_designs()
+    return validator.errors
+
+
 @it_case
 def check_stack_mapping_targets():
-    from model.render import markdown_for
-    import shutil
+
+    markdown_for = _imports_model_render.markdown_for
     with project() as root:
         write(root / 'project.json', __import__('json').dumps({'targets': [{'environment': 'dev', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n')
         model_dir = root / "model/dev/123456789012"
@@ -102,16 +109,11 @@ def check_stack_mapping_targets():
         write(path, markdown_for(path, values, root))
         model = model_dir / "ec2.properties"
         write(model, "desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.logicalId=EC2_VPC_001\ndesired.service.identity.lastAllocated={\"EC2.VPC\":1}\ndesired.resource.001.cfn-logicalId=cfn-stack-app-dev-ism-DepartmentVpc\n")
-        def errors():
-            validator = MODULE.Validator(root)
-            validator.accounts[("dev", "123456789012")] = {"account": "123456789012", "region": "ap-northeast-1", "alias": "", "engine": "cloudformation"}
-            validator.check_stack_designs()
-            return validator.errors
-        assert not errors(), errors()
+        assert not _callback_check_stack_mapping_targets_errors(root), _callback_check_stack_mapping_targets_errors(root)
         write(model, __import__("model.files", fromlist=["read_model"]).read_model(model) + "desired.resource.001.resourceMode=IMPORT\n")
-        assert any("CREATE" in error for error in errors()), errors()
+        assert any("CREATE" in error for error in _callback_check_stack_mapping_targets_errors(root)), _callback_check_stack_mapping_targets_errors(root)
         write(model, __import__("model.files", fromlist=["read_model"]).read_model(model).replace("cfn-stack-app-dev-ism-DepartmentVpc", "absent-DepartmentVpc").replace("desired.resource.001.resourceMode=IMPORT\n", ""))
-        assert any("undeclared stack" in error for error in errors()), errors()
+        assert any("undeclared stack" in error for error in _callback_check_stack_mapping_targets_errors(root)), _callback_check_stack_mapping_targets_errors(root)
     with project() as root:
         write(root / "project.json", __import__("json").dumps({"targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
         path = root / "docs/designs/dev/123456789012/iam.md"
@@ -126,4 +128,3 @@ def check_stack_mapping_targets():
     prompt = (SCRIPT.parents[2] / "framework/prompts/codex/03_implement.md").read_text(encoding="utf-8")
     assert "framework/scripts/model/cli.py observed --environment" in prompt
     assert "After generation/changes as well" in prompt and "Do not automatically fill missing identifier rows" in prompt
-

@@ -1,10 +1,14 @@
 """Pure semantic diff and traversal checks; no Git, saved Model or AWS access."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from types import SimpleNamespace
-from model.impact_changes import configurations, changed_nodes, node
+
+from model.impact_changes import changed_nodes, configurations, node
 from model.impact_graph import Graph
+from validation.task import TaskValidation
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -51,7 +55,8 @@ def check_minimal_fallback_and_cycles():
     graph = Graph()
     first, second = node(SCOPE, 'resource', 'Role1'), node(SCOPE, 'resource', 'Role2')
     target = node(('dev', 'team', 'consumer'), 'resource', 'Consumer1')
-    graph.add(first, target); graph.add(target, first)
+    graph.add(first, target)
+    graph.add(target, first)
     assert graph.traverse({second}) == {second}
     assert graph.traverse({first}) == {first, target}
     graph.add(node(SCOPE), target)
@@ -72,7 +77,6 @@ def check_invalid_baseline_and_counter():
 
 
 def check_design_requires_changed_authority():
-    from validation.task import TaskValidation
     failures = []
     findings = SimpleNamespace(check=lambda passed, message: failures.append(message) if not passed else None,
                                relative=lambda path: str(path))

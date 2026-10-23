@@ -2,11 +2,20 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import pytest
+from support.issues_api_only_fixtures import (
+    ROOT,
+    DesignSchemaCatalog,
+    Path,
+    sys,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.issues_api_only_fixtures import *
 
 def check_api_type_rejection():
     catalog = DesignSchemaCatalog(ROOT)
@@ -20,7 +29,7 @@ def check_api_type_rejection():
 
 
 
-import pytest
+
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 if __name__ == '__main__':

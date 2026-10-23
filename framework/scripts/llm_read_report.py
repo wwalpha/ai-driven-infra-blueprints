@@ -1,9 +1,14 @@
 """Debug-only aggregation of agent-recorded source lines; never opens source files."""
 
 import argparse
+import io
 import json
-from pathlib import PurePosixPath
+import subprocess
 import sys
+import tempfile
+from contextlib import redirect_stdout
+from pathlib import Path, PurePosixPath
+from unittest.mock import patch
 
 
 def report(events):
@@ -38,22 +43,20 @@ def report(events):
     return "\n".join(output)
 
 
+
+
+def _self_test_event(file, lines):
+    return {'file': file, 'lines': list(lines)}
+
+
 def self_test():
     # ponytail: capture depends on agent records; runtime tool hooks if available later.
-    import io
-    import json
-    import subprocess
-    import tempfile
-    from contextlib import redirect_stdout
-    from pathlib import Path
-    from unittest.mock import patch
 
     if not __debug__:
         raise ValueError("self-test requires assertions; run without -O")
     with patch("sys.stdin", None), redirect_stdout(io.StringIO()) as output:
         assert main([]) == 0 and output.getvalue() == ""  # Case 1: no stdin/read/report.
-    def event(file, lines):
-        return {"file": file, "lines": list(lines)}
+    event = _self_test_event
     assert "| full | 1 | 100 | 100 |" in report([event("full", range(1, 101))])
     assert "| partial | 1 | 50 | 50 |" in report([event("partial", range(100, 150))])
     assert "| overlap | 2 | 60 | 70 |" in report([
@@ -88,7 +91,7 @@ def self_test():
             result = subprocess.run([sys.executable, "-B", str(script), command, str(model), selector],
                                     capture_output=True, text=True, encoding="utf-8", check=True)
             grouped = {}
-            for key, location in json.loads(result.stdout).items():
+            for _key, location in json.loads(result.stdout).items():
                 filename, number = location[:2]
                 grouped.setdefault(Path(filename).relative_to(model.parent).as_posix(), []).append(number)
             events.extend(event(name, lines) for name, lines in grouped.items())
@@ -129,4 +132,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except (ValueError, TypeError) as error:
         print(f"LLM read report: FAIL: {error}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from None

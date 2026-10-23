@@ -1,8 +1,10 @@
 """One current-run classification and bounded IaC overview."""
-from pathlib import Path
 import json
+from pathlib import Path
+
 from iac_values import safe_value
-from .records import identifier, safe_text, iac_key, condition_disabled, brief
+
+from .records import brief, condition_disabled, iac_key, identifier, safe_text
 
 IAC_CATEGORIES = {'difference', 'uncompared', 'error'}
 IAC_CLASSES = ('要対応', '要判断', '比較未完了', 'CFn非対応・比較対象外', '処理エラー', '原因未確定')
@@ -248,4 +250,3 @@ def aggregate(records, environment, directory, services, display=None, *, redact
         meta[i] = dict(record_id=entry['record_id'], issue_id=membership.get(i), category=entry['record']['category'])
     issues = [dict(group, members=[entries[i]['record_index'] for i in group['members']], compact=compact[group['id']]) for group in actions]
     return dict(iac=normalized, iac_display=shown, iac_issues=issues, record_meta=meta, overview=overview)
-

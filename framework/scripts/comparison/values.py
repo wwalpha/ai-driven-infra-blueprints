@@ -1,14 +1,27 @@
 """Desired value preparation and typed equivalence; no file/CLI/AWS acquisition."""
+
 import re
 from dataclasses import dataclass
+from functools import partial as _bind_framework_callback
+
+import json_intrinsics as _imports_json_intrinsics
 from cloudformation_inputs import Blocked
-from iac_values import ResourceReference, Expression, same, selected_same, unordered_same
-from model.projection import scalar_reference
+from iac_values import (
+    Expression,
+    same,
+    selected_same,
+    unordered_same,
+)
 from model.identity import resource_link
-from reference_contracts import SCALAR_REFERENCE_PROPERTIES
+from model.projection import scalar_reference
 from policy_tables import literal
+from reference_contracts import SCALAR_REFERENCE_PROPERTIES
 from utils.json_format import policy_json as strict_json
+
 from . import registry
+
+_CALLBACK_DEFAULT = object()
+
 
 
 @dataclass(frozen=True)
@@ -39,6 +52,57 @@ def desired_value(service, row, kind, *, local_comparison, desired_reference, re
     except (Blocked, KeyError, ValueError, TypeError) as error:
         return PreparedValue(None, warnings, error)
     return PreparedValue(value, warnings)
+
+
+def _callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, property_schema, resource_type, row, service, stack, warnings, _default_field, _default_operands, _default_path, _default_context, _default_pointer, /, item, field=_CALLBACK_DEFAULT, operands=_CALLBACK_DEFAULT, path=_CALLBACK_DEFAULT, context=_CALLBACK_DEFAULT, pointer=_CALLBACK_DEFAULT):
+    if field is _CALLBACK_DEFAULT:
+        field = _default_field
+    if operands is _CALLBACK_DEFAULT:
+        operands = _default_operands
+    if path is _CALLBACK_DEFAULT:
+        path = _default_path
+    if context is _CALLBACK_DEFAULT:
+        context = _default_context
+    if pointer is _CALLBACK_DEFAULT:
+        pointer = _default_pointer
+    if isinstance(item, str) and resource_link(item):
+        attribute = 'Arn' if policy and field in {'Resource', 'NotResource', 'AWS'} else None
+        return desired_reference(service, item, kind, path, attribute, context)
+    if isinstance(item, list):
+        return [_callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, property_schema, resource_type, row, service, stack, warnings, _default_field, _default_operands, _default_path, _default_context, _default_pointer, child, field, operands, path + '[]', context, pointer + '/' + str(index))
+                for index, child in enumerate(item)]
+    if isinstance(item, dict):
+        if '$resource' in item and not (local_comparison and registry.structured_path(kind, path)):
+            if (set(item) - {'$resource', '$attribute'} or not isinstance(item['$resource'], str)
+                    or not resource_link(item['$resource'])
+                    or ('$attribute' in item and (not isinstance(item['$attribute'], str) or not item['$attribute']))):
+                raise Blocked('invalid structured Model resource reference')
+            attribute = item.get('$attribute', 'Arn' if policy and field in {'Resource', 'NotResource', 'AWS'} else None)
+            return desired_reference(service, item['$resource'], kind, path, attribute, context)
+        if local_comparison:
+            if (registry.structured_path(kind, path) and {'$resource', '$attribute'} & item.keys()):
+                link, attribute = registry.hook(kind, 'structured_reference')(item, context)
+                symbol = desired_reference(service, link, kind, path, attribute, context)
+                target_service, identity = symbol['$resource']
+                target_kind = resource_type(symbol)
+                if (target_kind, symbol['$attribute']) not in getattr(registry.rules(target_kind), 'SPECIAL_ATTRIBUTES', set()):
+                    registry.hook(kind, 'validate_attribute')(symbol, property_schema(target_kind, symbol['$attribute']))
+                return symbol
+            intrinsic = _imports_json_intrinsics.intrinsic
+            project_document = _imports_json_intrinsics.project_document
+            if intrinsic(item) and not operands:
+                expression = {key: _callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, property_schema, resource_type, row, service, stack, warnings, _default_field, _default_operands, _default_path, _default_context, _default_pointer, child, field, True, path, context, pointer + '/' + key)
+                              for key, child in item.items()}
+                return project_document(expression,
+                    evaluate=(lambda value: evaluate(stack, value)) if stack is not None else None,
+                    unresolved=lambda value: Expression('Unverified', [value]),
+                    warnings=warnings, property_name=row['property'],
+                    model_path=model_path, pointer=pointer)
+        if path.endswith(('.Actions[]', '.DataResources[]', '.EnvironmentVariables[]')):
+            context = item
+        return {key: _callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, property_schema, resource_type, row, service, stack, warnings, _default_field, _default_operands, _default_path, _default_context, _default_pointer, child, field if operands else key, operands, path + '.' + key, context,
+                                pointer + '/' + key.replace('~', '~0').replace('/', '~1')) for key, child in item.items()}
+    return item
 
 
 def _desired_value(service, row, kind, *, local_comparison, desired_reference, resource_type, property_schema, evaluate, model_path, stack=None, context=None, warnings):
@@ -73,56 +137,22 @@ def _desired_value(service, row, kind, *, local_comparison, desired_reference, r
                 raise Blocked('property type is not uniquely determined')
             value = strict_json(value)
     policy = row['property'].rsplit('.', 1)[-1] in {'PolicyDocument', 'AssumeRolePolicyDocument', 'KeyPolicy', 'Policy'}
-    def references(item, field='', operands=False, path='', context=context, pointer=''):
-        if isinstance(item, str) and resource_link(item):
-            attribute = 'Arn' if policy and field in {'Resource', 'NotResource', 'AWS'} else None
-            return desired_reference(service, item, kind, path, attribute, context)
-        if isinstance(item, list):
-            return [references(child, field, operands, path + '[]', context, pointer + '/' + str(index))
-                    for index, child in enumerate(item)]
-        if isinstance(item, dict):
-            if '$resource' in item and not (local_comparison and registry.structured_path(kind, path)):
-                if (set(item) - {'$resource', '$attribute'} or not isinstance(item['$resource'], str)
-                        or not resource_link(item['$resource'])
-                        or ('$attribute' in item and (not isinstance(item['$attribute'], str) or not item['$attribute']))):
-                    raise Blocked('invalid structured Model resource reference')
-                attribute = item.get('$attribute', 'Arn' if policy and field in {'Resource', 'NotResource', 'AWS'} else None)
-                return desired_reference(service, item['$resource'], kind, path, attribute, context)
-            if local_comparison:
-                if (registry.structured_path(kind, path) and {'$resource', '$attribute'} & item.keys()):
-                    link, attribute = registry.hook(kind, 'structured_reference')(item, context)
-                    symbol = desired_reference(service, link, kind, path, attribute, context)
-                    target_service, identity = symbol['$resource']
-                    target_kind = resource_type(symbol)
-                    if (target_kind, symbol['$attribute']) not in getattr(registry.rules(target_kind), 'SPECIAL_ATTRIBUTES', set()):
-                        registry.hook(kind, 'validate_attribute')(symbol, property_schema(target_kind, symbol['$attribute']))
-                    return symbol
-                from json_intrinsics import intrinsic, project_document
-                if intrinsic(item) and not operands:
-                    expression = {key: references(child, field, True, path, context, pointer + '/' + key)
-                                  for key, child in item.items()}
-                    return project_document(expression,
-                        evaluate=(lambda value: evaluate(stack, value)) if stack is not None else None,
-                        unresolved=lambda value: Expression('Unverified', [value]),
-                        warnings=warnings, property_name=row['property'],
-                        model_path=model_path, pointer=pointer)
-            if path.endswith(('.Actions[]', '.DataResources[]', '.EnvironmentVariables[]')):
-                context = item
-            return {key: references(child, field if operands else key, operands, path + '.' + key, context,
-                                    pointer + '/' + key.replace('~', '~0').replace('/', '~1')) for key, child in item.items()}
-        return item
+    references = _bind_framework_callback(_callback__desired_value_references_86, desired_reference, evaluate, kind, local_comparison, model_path, policy, property_schema, resource_type, row, service, stack, warnings, '', False, '', context, '')
     path = row['property'].removeprefix(kind + '.')
     decoder = registry.hook(kind, 'decode_selector')
     if local_comparison and decoder:
         value, path = decoder(value, path)
     return references(value, path=path)
 
+def _callback_compare_values_compare(outcomes, reference, /, left, right, path):
+    outcome = reference(left, right, path)
+    outcomes.append(outcome)
+    return outcome.equal
+
+
 def compare_values(desired, actual, key, *, exact=False, unordered=False, reference=None):
     outcomes = []
-    def compare(left, right, path):
-        outcome = reference(left, right, path)
-        outcomes.append(outcome)
-        return outcome.equal
+    compare = _bind_framework_callback(_callback_compare_values_compare, outcomes, reference)
     callback = compare if reference else None
     equal = (unordered_same(desired, actual, reference=callback, path=key) if unordered else
              same(desired, actual, reference=callback, path=key) if exact else

@@ -6,12 +6,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import tempfile
+from functools import partial as _bind_framework_callback
+from pathlib import Path
 
+import pypdf as _imports_pypdf
 
 ANCHOR = re.compile(r'<a\s+id="([^"]+)"\s*></a>')
 LINK = re.compile(r'(?<!!)\[([^\]]+)\]\(([^)]+)\)')
@@ -72,6 +74,39 @@ def number_overviews(lines: list[str]) -> list[str]:
     return numbered_lines
 
 
+def _callback_bundle_rewrite_link(anchors, artifacts, base, expected_links, file_set, service_ids, used_ids, /, source: Path, match: re.Match[str]):
+    label, raw = match.groups()
+    if raw.startswith(("http://", "https://", "mailto:")):
+        return match.group(0)
+    target_text, separator, fragment = raw.partition("#")
+    destination = (source.parent / target_text).resolve() if target_text else source
+    if destination in file_set:
+        if separator:
+            key = (destination, fragment)
+            if key not in anchors:
+                raise ValueError(f"missing PDF link target: {source}: {raw}")
+            pdf_id = anchors[key]
+        else:
+            pdf_id = service_ids[destination]
+    elif destination.suffix == ".json" and destination.is_file():
+        if separator:
+            raise ValueError(f"JSON fragment cannot be included in PDF: {source}: {raw}")
+        relative = destination.relative_to(base) if destination.is_relative_to(base) else None
+        if relative is None or len(relative.parts) != 4:
+            raise ValueError(f"JSON artifact is outside service designs: {source}: {raw}")
+        if destination not in artifacts:
+            appendix_id = "appendix-" + "-".join(relative.with_suffix("").parts)
+            if appendix_id in used_ids:
+                raise ValueError(f"duplicate PDF anchor: {appendix_id}")
+            artifacts[destination] = appendix_id
+            used_ids.add(appendix_id)
+        pdf_id = artifacts[destination]
+    else:
+        raise ValueError(f"link target is not included in PDF: {source}: {raw}")
+    expected_links[pdf_id] = expected_links.get(pdf_id, 0) + 1
+    return f"[{label}](#{pdf_id})"
+
+
 def bundle(root: Path) -> tuple[str, dict[str, int]]:
     root = root.resolve()
     base = root / "docs" / "designs"
@@ -101,37 +136,7 @@ def bundle(root: Path) -> tuple[str, dict[str, int]]:
     artifacts: dict[Path, str] = {}
     expected_links: dict[str, int] = {}
 
-    def rewrite_link(source: Path, match: re.Match[str]) -> str:
-        label, raw = match.groups()
-        if raw.startswith(("http://", "https://", "mailto:")):
-            return match.group(0)
-        target_text, separator, fragment = raw.partition("#")
-        destination = (source.parent / target_text).resolve() if target_text else source
-        if destination in file_set:
-            if separator:
-                key = (destination, fragment)
-                if key not in anchors:
-                    raise ValueError(f"missing PDF link target: {source}: {raw}")
-                pdf_id = anchors[key]
-            else:
-                pdf_id = service_ids[destination]
-        elif destination.suffix == ".json" and destination.is_file():
-            if separator:
-                raise ValueError(f"JSON fragment cannot be included in PDF: {source}: {raw}")
-            relative = destination.relative_to(base) if destination.is_relative_to(base) else None
-            if relative is None or len(relative.parts) != 4:
-                raise ValueError(f"JSON artifact is outside service designs: {source}: {raw}")
-            if destination not in artifacts:
-                appendix_id = "appendix-" + "-".join(relative.with_suffix("").parts)
-                if appendix_id in used_ids:
-                    raise ValueError(f"duplicate PDF anchor: {appendix_id}")
-                artifacts[destination] = appendix_id
-                used_ids.add(appendix_id)
-            pdf_id = artifacts[destination]
-        else:
-            raise ValueError(f"link target is not included in PDF: {source}: {raw}")
-        expected_links[pdf_id] = expected_links.get(pdf_id, 0) + 1
-        return f"[{label}](#{pdf_id})"
+    rewrite_link = _bind_framework_callback(_callback_bundle_rewrite_link, anchors, artifacts, base, expected_links, file_set, service_ids, used_ids)
 
     parts = []
     previous_target = None
@@ -145,8 +150,8 @@ def bundle(root: Path) -> tuple[str, dict[str, int]]:
             first_service = True
         for line, prose in prose_lines(number_overviews(source_lines(path))):
             if prose:
-                line = ANCHOR.sub(lambda match: f'<a id="{anchors[path, match.group(1)]}"></a>', line)
-                line = LINK.sub(lambda match: rewrite_link(path, match), line)
+                line = ANCHOR.sub(lambda match, *, path=path: f'<a id="{anchors[path, match.group(1)]}"></a>', line)
+                line = LINK.sub(lambda match, *, path=path: rewrite_link(path, match), line)
                 heading = HEADING.fullmatch(line)
                 if heading:
                     level, text = heading.groups()
@@ -177,7 +182,7 @@ def bundle(root: Path) -> tuple[str, dict[str, int]]:
 
 def verify_pdf(path: Path, expected_links: dict[str, int]) -> None:
     try:
-        from pypdf import PdfReader
+        PdfReader = _imports_pypdf.PdfReader
     except ImportError as error:
         raise RuntimeError("pypdf is required to check PDF links") from error
 

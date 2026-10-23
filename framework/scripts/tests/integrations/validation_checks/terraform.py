@@ -1,30 +1,15 @@
 """Terraform placement, composition, lexical safety and scoped regression fixtures."""
 
-from support.it_case_receipt import it_case
-
-
-import json
-
-
 import os
-
-
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
-
-import shutil
-
-
-import subprocess
-
-
-import tempfile
-
-
-from support.validator import MODULE, SCRIPT, project, write
-
-
-from validation.terraform import blocks, root_directory, module_directory
+from support.it_case_receipt import it_case
+from support.validator import project as project
+from support.validator import write as write
+from validation.terraform import module_directory as module_directory
 
 
 @it_case
@@ -48,4 +33,3 @@ def check_cli():
                     assert result.returncode == 0, result.stdout + result.stderr
             result = subprocess.run([terraform, 'fmt', '-check', '-recursive', str(root)], capture_output=True, text=True)
             assert result.returncode == 0, result.stdout + result.stderr
-

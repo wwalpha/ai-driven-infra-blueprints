@@ -6,7 +6,6 @@ import json
 import re
 from pathlib import Path
 
-
 JOB = re.compile(r"^### Macie\.ClassificationJob: ([A-Za-z0-9][A-Za-z0-9_.-]*)$")
 SCOPE = re.compile(r"^\|\s*\d+\s*\|\s*s3JobDefinition\s*\|\s*\[[^\]]+\]\(([^)#]+\.json)\)\s*\|")
 BUCKET_LINK = re.compile(r"^\[([^\]]+)\]\(([^)#]+#[^)]+)\)$")

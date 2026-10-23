@@ -1,14 +1,42 @@
 """Observed mappings preserves ownership and narrowly permits static Export scaffolds."""
+
 import sys
+from copy import deepcopy
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import pytest
+from deploy import observed as deploy_observed
+from model.adapters import observed
+from model.core import entries as entries
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-import pytest
-from model.adapters import observed
-from deploy import observed as deploy_observed
-from model.core import entries
+
+
+
+
+
+def _mapping_inputs___init__(self, root):
+    pass
+
+
+def _mapping_inputs_cloudformation_type(self, kind):
+    return 'AWS::EC2::VPC'
+
+
+def _callback_mapping_inputs_invoke(tmp_path, /, resources, *, document=None, parameters=None, removed=None, implementation=False):
+    return observed.mappings(tmp_path, 'dev', 'test',
+                             {'Stack': (document if document is not None else {'Resources': resources},
+                                        parameters or {'NetworkId': 'vpc-fixture'})},
+                             [{'name': 'Stack'}], removed=removed,
+                             target={'awsRegion': 'ap-northeast-1', 'awsAccountId': '123456789012'}, implementation=implementation)
 
 
 @pytest.fixture
@@ -21,19 +49,12 @@ def mapping_inputs(tmp_path, monkeypatch):
     monkeypatch.setattr(observed, 'GROUPED', {})
     monkeypatch.setattr(observed, 'catalog_outputs', lambda *args: set())
     class Catalog:
-        def __init__(self, root):
-            pass
-        def cloudformation_type(self, kind):
-            return 'AWS::EC2::VPC'
+        __init__ = _mapping_inputs___init__
+        cloudformation_type = _mapping_inputs_cloudformation_type
     monkeypatch.setattr(observed, 'DesignSchemaCatalog', Catalog)
     monkeypatch.setattr(deploy_observed, 'DesignSchemaCatalog', Catalog)
     monkeypatch.setattr(deploy_observed, 'resolve_resources', lambda root, env, directory, templates, units, selected, removed=None, **kwargs: observed._mappings(root, env, directory, templates, units, removed, kwargs.get('target'), loaded=loaded, selection=selected))
-    def invoke(resources, *, document=None, parameters=None, removed=None, implementation=False):
-        return observed.mappings(tmp_path, 'dev', 'test',
-                                 {'Stack': (document if document is not None else {'Resources': resources},
-                                            parameters or {'NetworkId': 'vpc-fixture'})},
-                                 [{'name': 'Stack'}], removed=removed,
-                                 target={'awsRegion': 'ap-northeast-1', 'awsAccountId': '123456789012'}, implementation=implementation)
+    invoke = _bind_framework_callback(_callback_mapping_inputs_invoke, tmp_path)
     return tmp_path, loaded, invoke
 
 
@@ -70,7 +91,6 @@ def check_lazy_whole_model_parse_and_error_order(mapping_inputs):
     resource(values, '001', 'First')
     resource(values, '002', 'Second')
     assert invoke({})[1] == {'Stack': {}}
-    from unittest.mock import patch
     with patch.object(observed, 'condition_active', return_value=False):
         assert invoke({'First': definition()})[1] == {'Stack': {}}
     with pytest.raises(observed.MappingError) as caught:
@@ -114,12 +134,16 @@ def static_template(logical='StaticExportHandle'):
             'Outputs': {'NetworkId': {'Value': {'Ref': 'NetworkId'}, 'Export': {'Name': 'NetworkId'}}}}
 
 
+
+
+def _check_static_exports_share_mapping_and_skip_observed_unexpected(*args, **kwargs):
+    pytest.fail('static Export scaffold must not map, read AWS, or publish observations')
+
+
 def check_static_exports_share_mapping_and_skip_observed(mapping_inputs, monkeypatch):
-    from types import SimpleNamespace
     root, loaded, invoke = mapping_inputs
     monkeypatch.setattr(deploy_observed, 'require_target_no_issues', lambda *args: None)
-    def unexpected(*args, **kwargs):
-        pytest.fail('static Export scaffold must not map, read AWS, or publish observations')
+    unexpected = _check_static_exports_share_mapping_and_skip_observed_unexpected
     monkeypatch.setattr(observed, 'mapped_resource', unexpected)
     monkeypatch.setattr(observed, 'publish_observed', unexpected)
     for logical in ('StaticExportHandle', 'DifferentHandle'):
@@ -183,7 +207,6 @@ def check_static_export_rejects_resource_configuration(mapping_inputs):
 
 
 def check_static_export_requires_direct_parameter_exports(mapping_inputs):
-    from copy import deepcopy
     _, _, invoke = mapping_inputs
     invalid = [
         {'Outputs': {}}, {'Parameters': {}}, {'Parameters': None},
@@ -281,7 +304,6 @@ def check_static_export_preserves_explicit_mapping_checks(mapping_inputs, monkey
 
 
 def check_static_export_preserves_removal_guards(mapping_inputs, monkeypatch):
-    from types import SimpleNamespace
     root, _, invoke = mapping_inputs
     document = static_template()
     units = [{'name': 'Stack'}]

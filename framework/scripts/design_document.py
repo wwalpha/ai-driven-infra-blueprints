@@ -4,19 +4,21 @@ Reference views retain validation_scope's selective parsing, including grouped
 parents. An index must be discarded or explicitly invalidated after writes;
 it never stores validation results or survives an invocation.
 """
-from validation_cache import input_text
-from utils.aws_mappings import definition_root
 
+import re
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
-import re
 from threading import RLock
 
-from design_layout import (ANCHOR, expanded_design, expanded_display_rows, resource_heading_lines,
-                           resource_logical_ids, resource_modes)
-from security_group_tables import security_group_table_lines
-from validation_scope import reference_lines
+import design_layout as _dependency_design_layout
+import model.projection as _imports_model_projection
+import model.sources as _imports_model_sources
+import security_group_tables as _dependency_security_group_tables
+import validation_scope as _dependency_validation_scope
+from utils.aws_mappings import definition_root
+from utils.input_cache import input_text
+from utils.layout_schema import ANCHOR
 
 
 @dataclass(frozen=True)
@@ -50,7 +52,7 @@ class DesignView:
 
     @cached_property
     def _display_lines(self) -> tuple[str, ...]:
-        return tuple(expanded_display_rows(security_group_table_lines(list(self.lines), self.root), self.root, modes=self.modes))
+        return tuple(_dependency_design_layout.expanded_display_rows(_dependency_security_group_tables.security_group_table_lines(list(self.lines), self.root), self.root, modes=self.modes))
 
     @property
     def display_lines(self) -> tuple[str, ...]:
@@ -83,7 +85,7 @@ class DesignDocument:
         lines = tuple(lines)
         with self._lock:
             if lines not in self._parses:
-                from model.projection import bound_resource_anchors
+                bound_resource_anchors = _imports_model_projection.bound_resource_anchors
                 self._parses[lines] = DesignView(lines, self.root, bound_resource_anchors(self.path)
                                                if any(line.startswith('### ') for line in lines) else {}, self.modes)
             return self._parses[lines]
@@ -93,11 +95,12 @@ class DesignDocument:
         model_root = self.path.parents[4] if len(self.path.parents) >= 5 and self.path.parents[2].name == 'designs' and self.path.parents[3].name == 'docs' else None
         values = None
         if model_root is not None:
-            from model.sources import load_model, model_exists
+            load_model = _imports_model_sources.load_model
+            model_exists = _imports_model_sources.model_exists
             model = (model_root / 'model' / self.path.relative_to(model_root / 'docs/designs')).with_suffix('.properties')
             if model_exists(model):
                 values = load_model(model).values
-        return resource_modes(self.lines, values)
+        return _dependency_design_layout.resource_modes(self.lines, values)
 
     @property
     def raw(self) -> DesignView:
@@ -109,9 +112,9 @@ class DesignDocument:
             key = fragments
             if key not in self._views:
                 if fragments is not None:
-                    lines = reference_lines(self.path, fragments, lines=list(self.headings.lines))
+                    lines = _dependency_validation_scope.reference_lines(self.path, fragments, lines=list(self.headings.lines))
                 else:
-                    lines = resource_heading_lines(list(self.lines))
+                    lines = _dependency_design_layout.resource_heading_lines(list(self.lines))
                 self._views[key] = self._view(lines)
             return self._views[key]
 
@@ -134,7 +137,7 @@ class DesignIndex:
             if path not in self._documents:
                 document = DesignDocument(path, input_text(path, encoding="utf-8") if text is None else text, self.root or definition_root(path.parent))
                 # Construct these cheap text views once before sharing across workers.
-                document.lines, document.anchors, document.visible_text
+                _ = document.lines, document.anchors, document.visible_text
                 self._documents[path] = document
             return self._documents[path]
 
@@ -142,3 +145,11 @@ class DesignIndex:
         """Drop every view of a changed file; existing snapshots remain immutable."""
         with self._lock:
             self._documents.pop(path.resolve(), None)
+
+
+def expanded_design(lines: list[str], *, normalized: bool=False, logical_ids: dict[tuple[str, str], str] | None=None, bound_anchors: dict[tuple[str, str], str] | None=None, root: Path | None=None, modes=None):
+    return _dependency_design_layout.expanded_design(lines, normalized=normalized, logical_ids=logical_ids, bound_anchors=bound_anchors, root=root, modes=modes)
+
+
+def resource_logical_ids(lines: list[str]):
+    return _dependency_design_layout.resource_logical_ids(lines)

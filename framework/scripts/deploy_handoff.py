@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Explicit supervising-LLM offline commands; never starts another Task or calls AWS."""
+
 import argparse
 import json
 from pathlib import Path
-from deploy import handoff
+
+import deploy.resume as _imports_deploy_resume
 from cloudformation_inputs import Blocked
-from deploy.contracts import task_digest
-from task_contract import selected_task, task_path
+from deploy import handoff
+from task_contract_core import selected_task, task_digest, task_path
 
 
 def main(argv=None):
@@ -40,7 +42,7 @@ def main(argv=None):
             with selected_task(root, session['taskFile']):
                 contract = task_path(root, required=True).read_text(encoding='utf-8')
                 if args.command == 'migrate':
-                    from deploy.resume import migrate
+                    migrate = _imports_deploy_resume.migrate
                     migrate(root, session, args)
                     handoff.bind(root, path, session)
                     value = {'result': 'MIGRATED', 'version': session['version']}

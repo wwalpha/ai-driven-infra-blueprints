@@ -2,45 +2,78 @@
 """Scoped KMS forms and deterministic ARN/GetAtt comparison without AWS."""
 
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
 
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
-
-from support.it_case_receipt import it_case
-
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
 import tempfile
 from unittest.mock import patch
 
-from iac_values import Expression, same
 from comparison.registry import SERVICES
-KMS_COMPARISON_FORMS = {key: forms for rules in set(SERVICES.values()) for key, forms in getattr(rules, "KMS_FORMS", {}).items()}
+from iac_values import Expression, same
 from issues.aggregate import iac_actions
 from issues.records import identifier
-from support.validator import load
+from support import issues_scan_fixtures as fixture
+from support.it_case_receipt import it_case
+from support.model_sources import allocate_fixture as allocate
+from support.validator import load as load
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
+KMS_COMPARISON_FORMS = {key: forms for rules in set(SERVICES.values()) for key, forms in getattr(rules, "KMS_FORMS", {}).items()}
+
+
+def _callback_main_checks_publish(models, root, template, /):
+    for service, values in models.items():
+        fixture.write(root / f'model/dev/123456789012/{service}.properties', '\n'.join(f'{key}={value}' for key, value in values.items()) + '\n')
+    fixture.mutate_template(root, template)
+
+
+def _callback_main_checks_athena(kms, models, publish, root, row, /, model, iac, category):
+    models['athena'][row] = model
+    kms['KmsKey'] = iac
+    publish()
+    current, rows = fixture.compare(root, ['athena'])
+    # WorkGroupConfiguration is compared as one structured property.
+    record = next(r for r in rows if r.get('property') == 'Athena.WorkGroup.WorkGroupConfiguration')
+    assert record['category'] == category, record
+    assert next(r for r in rows if r.get('property') == 'Athena.WorkGroup.State')['category'] == 'matched'
+    if category == 'uncompared' and record.get('reference_diagnostics'):
+        assert record['reference_diagnostics'][0]['reason'], record
+    return current, record
+
+
+def _callback_main_checks_resource(models, stack, template, /, service, logical, kind, props, rows=()):
+    values = models.setdefault(service, {f'desired.service.{service}.serviceId': service})
+    values.update({f'desired.resource.{logical}.resourceType': kind,
+                   f'desired.resource.{logical}.cfn-logicalId': stack + '-' + logical})
+    values.update(allocate(values, [logical]))
+    for index, (prop, value) in enumerate(rows, 1):
+        values[f'desired.row.{logical}-{index:03d}.property'] = kind + '.' + prop
+        values[f'desired.row.{logical}-{index:03d}.value'] = value
+    template['Resources'][logical] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': props}
+
+
+def _lambda_main_checks_callback_156(comparison, /, a, b, p, *, kind):
+    return comparison.reference_same(a, b, kind, p)
+
+
+def _lambda_main_checks_callback_192(comparison, /, a, b, p):
+    return comparison.reference_same(a, b, 'IAM.Role', p)
 
 
 @it_case
 def main_checks():
-    from support import issues_scan_fixtures as fixture
     with tempfile.TemporaryDirectory(prefix='failed-service-comparison-') as temporary:
         root = Path(temporary)
         _, template = fixture.fixture(root, services=('s3', 'sqs'))
         stack = 'cfn-stack-app-dev-data1'
         models = {}
 
-        def resource(service, logical, kind, props, rows=()):
-            values = models.setdefault(service, {f'desired.service.{service}.serviceId': service})
-            values.update({f'desired.resource.{logical}.resourceType': kind,
-                           f'desired.resource.{logical}.cfn-logicalId': stack + '-' + logical})
-            from support.model_sources import allocate_fixture as allocate
-            values.update(allocate(values, [logical]))
-            for index, (prop, value) in enumerate(rows, 1):
-                values[f'desired.row.{logical}-{index:03d}.property'] = kind + '.' + prop
-                values[f'desired.row.{logical}-{index:03d}.value'] = value
-            template['Resources'][logical] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': props}
+        resource = _bind_framework_callback(_callback_main_checks_resource, models, stack, template)
 
         resource('kms', 'Key', 'KMS.Key', {})
         resource('kms', 'Alias', 'KMS.Alias', {'AliasName': 'alias/fixture', 'TargetKeyId': {'Ref': 'Key'}})
@@ -68,10 +101,7 @@ def main_checks():
         resource('sqs', 'QueuePolicy', 'SQS.QueuePolicy', {'PolicyDocument': policy}, [('PolicyDocument', 'policy.json')])
         models['sqs']['desired.row.QueuePolicy-001.document'] = json.dumps(policy)
 
-        def publish():
-            for service, values in models.items():
-                fixture.write(root / f'model/dev/123456789012/{service}.properties', '\n'.join(f'{key}={value}' for key, value in values.items()) + '\n')
-            fixture.mutate_template(root, template)
+        publish = _bind_framework_callback(_callback_main_checks_publish, models, root, template)
 
         publish()
         with patch('socket.socket', side_effect=AssertionError('network forbidden')):
@@ -87,18 +117,7 @@ def main_checks():
             models['athena'].update({'desired.row.Workgroup-002.property': 'Athena.WorkGroup.State',
                                      'desired.row.Workgroup-002.value': '`ENABLED`'})
 
-            def athena(model, iac, category):
-                models['athena'][row] = model
-                kms['KmsKey'] = iac
-                publish()
-                current, rows = fixture.compare(root, ['athena'])
-                # WorkGroupConfiguration is compared as one structured property.
-                record = next(r for r in rows if r.get('property') == 'Athena.WorkGroup.WorkGroupConfiguration')
-                assert record['category'] == category, record
-                assert next(r for r in rows if r.get('property') == 'Athena.WorkGroup.State')['category'] == 'matched'
-                if category == 'uncompared' and record.get('reference_diagnostics'):
-                    assert record['reference_diagnostics'][0]['reason'], record
-                return current, record
+            athena = _bind_framework_callback(_callback_main_checks_athena, kms, models, publish, root, row)
 
             current, _ = athena('[KMS_Key_001](kms.md#resource-KMS_Key_001)', {'Fn::GetAtt': ['Key', 'Arn']}, 'matched')
             assert current.desired_reference('athena', '[KMS_Key_001](kms.md#resource-KMS_Key_001)', 'Athena.WorkGroup', path)['$attribute'] == 'Arn'
@@ -142,7 +161,7 @@ def main_checks():
             alias = comparison.reference('kms', '[KMS_Alias_001](kms.md#resource-KMS_Alias_001)')
             for prop, allowed in KMS_COMPARISON_FORMS.items():
                 kind, path = '.'.join(prop.split('.')[:2]), '.'.join(prop.split('.')[2:])
-                callback = lambda a, b, p: comparison.reference_same(a, b, kind, p)
+                callback = _bind_framework_callback(_lambda_main_checks_callback_156, comparison, kind=kind)
                 for form, literal in [('KeyId', key_id), ('KeyArn', key_arn), ('AliasName', 'alias/fixture'), ('AliasArn', alias_arn)]:
                     assert same(literal, literal, reference=callback, path=path) is (form in allowed), (prop, form)
                 assert same(key, arn, reference=callback, path=path) is False
@@ -178,7 +197,7 @@ def main_checks():
                                       ('Build', 'arn:aws:codebuild:ap-northeast-1:123456789012:project/fixture-build'),
                                       ('Rule', 'arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule')]:
                 symbol = comparison.evaluate(stack, {'Fn::GetAtt': [logical, 'Arn']})
-                callback = lambda a, b, p: comparison.reference_same(a, b, 'IAM.Role', p)
+                callback = _bind_framework_callback(_lambda_main_checks_callback_192, comparison)
                 assert same(symbol, expected, reference=callback)
                 assert same(expected, symbol, reference=callback)
                 assert same(symbol, expected + '-wrong', reference=callback) is False

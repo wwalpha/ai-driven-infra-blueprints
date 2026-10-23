@@ -1,6 +1,10 @@
 """Git/Worktree state acquisition. Import decisions remain in their guarded callers."""
-from pathlib import Path
+
 import subprocess
+from pathlib import Path
+
+import worktree_state as _imports_worktree_state
+from task_contract_core import contract_path, contracts, task_path
 
 
 def has_baseline(root):
@@ -18,13 +22,13 @@ def working_revision(root):
 
 
 def task_start_commit(root, name):
-    from worktree_task import task_start_commit as start
+    start = _imports_worktree_state.task_start_commit
     return start(root, name)
 
 
 def changed_paths(root, *, task_file=None):
-    from task_contract import contracts, contract_path, task_path
-    from worktree_task import changed_paths, committed_task_paths
+    changed_paths = _imports_worktree_state.changed_paths
+    committed_task_paths = _imports_worktree_state.committed_task_paths
     changed = changed_paths(root)
     if contracts(root):
         path = contract_path(root, selected=task_file) if task_file is not None else task_path(root, required=False)
@@ -34,15 +38,15 @@ def changed_paths(root, *, task_file=None):
 
 
 def task_state(root, name):
-    from worktree_task import load
+    load = _imports_worktree_state.load
     return load(root, Path(name).stem)[3]
 
 
 def task_worktree(root, state):
-    from worktree_task import task_worktree
+    task_worktree = _imports_worktree_state.task_worktree
     return task_worktree(root, state)
 
 
 def task_head(root):
-    from worktree_task import output
+    output = _imports_worktree_state.output
     return output(root, 'rev-parse', 'HEAD')

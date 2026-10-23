@@ -1,16 +1,25 @@
 """Pure classification/authorization checks for durable observed publication plans."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import base64
 from types import SimpleNamespace
 from unittest.mock import patch
+
 import pytest
 from cloudformation_inputs import Blocked
+from deploy import observed
 from deploy import observed_resume as M
+from deploy import session as controller
+from task_contract_core import selected_task
+
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 @pytest.mark.parametrize('current,mixed,expected', [
@@ -51,16 +60,23 @@ def check_journal_ownership(problem):
     plan = {'beforeManifest': {'a': 'old', 'b': 'old'}, 'afterManifest': {'a': 'new', 'b': 'new'},
             'originals': {'a': 'raw-a', 'b': 'raw-b'}}
     record, current = {'originals': dict(plan['originals'])}, {'a': 'new', 'b': 'old'}
-    if problem == 'foreign': record['originals']['other'] = 'raw'
-    if problem == 'original': record['originals']['a'] = 'foreign'
-    if problem == 'third': current['a'] = 'external'
-    if problem == 'missing': current.pop('b')
-    if problem == 'incomplete': record['originals'].pop('a')
-    if problem == 'receipt': record['importReceipt'] = {}
+    if problem == 'foreign':
+        record['originals']['other'] = 'raw'
+    if problem == 'original':
+        record['originals']['a'] = 'foreign'
+    if problem == 'third':
+        current['a'] = 'external'
+    if problem == 'missing':
+        current.pop('b')
+    if problem == 'incomplete':
+        record['originals'].pop('a')
+    if problem == 'receipt':
+        record['importReceipt'] = {}
     if problem == 'none':
         M.verify_journal(plan, record, current)
     else:
-        with pytest.raises(Blocked): M.verify_journal(plan, record, current)
+        with pytest.raises(Blocked):
+            M.verify_journal(plan, record, current)
 
 
 @pytest.fixture
@@ -81,7 +97,6 @@ def proposal(tmp_path):
         'beforeManifest': before, 'afterManifest': after, 'outputs': {relative: new},
         'originals': {relative: base64.b64encode(old.encode()).decode()}, 'directories': ['model/dev/team'],
         'inventory': [relative], 'stage': 'PREPARED'}}
-    from task_contract import selected_task
     with selected_task(tmp_path, 'tasks/deploy.md'):
         yield tmp_path, session, source, old, new
 
@@ -91,17 +106,28 @@ def check_plan_validation(proposal, problem):
     root, session, source, old, new = proposal
     plan = session['pendingObserved']
     relative = source.relative_to(root).as_posix()
-    if problem == 'task': plan['identity'] = {'target': 'changed'}
-    if problem == 'evidence': session['states']['A']['stackId'] = 'other'
-    if problem == 'manifest': session['modelInputManifest'] = {}
-    if problem == 'candidate': plan['outputs'][relative] = new.replace('`new`', '`other`')
-    if problem == 'desired': plan['outputs'][relative] = new.replace('`desired`', '`other`')
-    if problem == 'bytes': plan['outputs'][relative] = '# unrelated\n' + new
-    if problem == 'file-set': source.with_name('extra.properties').write_text(old)
-    if problem == 'allowed': (root / 'tasks/deploy.md').write_text('## Modified files\n## Allowed paths\n')
-    if problem == 'stage': plan['stage'] = 'UNKNOWN'
-    if problem == 'original-set': plan['originals']['project.json'] = base64.b64encode(b'foreign').decode()
-    if problem == 'manifest-set': plan['afterManifest']['extra'] = None
+    if problem == 'task':
+        plan['identity'] = {'target': 'changed'}
+    if problem == 'evidence':
+        session['states']['A']['stackId'] = 'other'
+    if problem == 'manifest':
+        session['modelInputManifest'] = {}
+    if problem == 'candidate':
+        plan['outputs'][relative] = new.replace('`new`', '`other`')
+    if problem == 'desired':
+        plan['outputs'][relative] = new.replace('`desired`', '`other`')
+    if problem == 'bytes':
+        plan['outputs'][relative] = '# unrelated\n' + new
+    if problem == 'file-set':
+        source.with_name('extra.properties').write_text(old)
+    if problem == 'allowed':
+        (root / 'tasks/deploy.md').write_text('## Modified files\n## Allowed paths\n')
+    if problem == 'stage':
+        plan['stage'] = 'UNKNOWN'
+    if problem == 'original-set':
+        plan['originals']['project.json'] = base64.b64encode(b'foreign').decode()
+    if problem == 'manifest-set':
+        plan['afterManifest']['extra'] = None
     with patch.object(M, '_identity', return_value={'target': 'pinned'}):
         if problem == 'none':
             assert M.validate_plan(root, session, {}, 'dev', 'team') is plan
@@ -123,7 +149,6 @@ def check_intent_save_failure(proposal):
 
 
 def check_direct_writer_keeps_noop_source_snapshot(tmp_path):
-    from deploy import observed
     source = tmp_path / 'model/dev/team/changed.properties'
     noop = source.with_name('unchanged.properties')
     backend = SimpleNamespace(root=tmp_path, environment='dev', directory='team')
@@ -152,26 +177,31 @@ def check_exact_task_bytes_bound(proposal):
     assert original['taskBytes'] != changed['taskBytes']
 
 
+def _callback_check_pending_plan_drained_peer_barrier_sync(calls, session, /, backend, units, states):
+    pending = session.get('pendingObserved')
+    names = list(pending['evidence']) if pending else [u['name'] for u in units]
+    calls.append(names)
+    for name in names:
+        states[name]['observedSynced'] = True
+
+
+def _callback_check_pending_plan_drained_peer_barrier_save(saves, session, /):
+    saves.append([name for name, state in session['states'].items() if state.get('observedSynced')])
+
+
 def check_pending_plan_drained_peer_barrier():
-    from deploy import session as controller
     units = [{'name': name, 'deployOrder': 10} for name in ('A', 'B')]
     session = {'states': {name: {'status': 'SUCCESS'} for name in ('A', 'B')},
                'pendingObserved': {'evidence': {'A': {}}}, 'metrics': {'observedSyncSeconds': 0}}
     calls, saves = [], []
-    def sync(backend, units, states):
-        pending = session.get('pendingObserved')
-        names = list(pending['evidence']) if pending else [u['name'] for u in units]
-        calls.append(names)
-        for name in names: states[name]['observedSynced'] = True
-    def save():
-        saves.append([name for name, state in session['states'].items() if state.get('observedSynced')])
+    sync = _bind_framework_callback(_callback_check_pending_plan_drained_peer_barrier_sync, calls, session)
+    save = _bind_framework_callback(_callback_check_pending_plan_drained_peer_barrier_save, saves, session)
     with patch.object(controller, 'sync_successful', sync), patch.object(controller, 'run_group', return_value='COMPLETE'):
         assert controller.run_session(units, 2, session, SimpleNamespace(), save) == 'COMPLETE'
     assert calls == [['A'], ['B']] and saves == [['A'], ['A', 'B']]
 
 
 def check_original_failure_retained():
-    from deploy import session as controller
     units = [{'name': 'A', 'deployOrder': 10}]
     session = {'states': {'A': {'status': 'SUCCESS'}}, 'metrics': {'observedSyncSeconds': 0},
                'observedError': 'original design I/O failure',
@@ -185,7 +215,6 @@ def check_original_failure_retained():
 
 @pytest.mark.parametrize('state', ['before', 'after', 'append', 'value', 'empty', 'missing', 'add', 'partial', 'no-proof', 'candidate'])
 def check_generated_classification(tmp_path, state):
-    from task_contract import selected_task
     view = 'docs/designs/dev/team/service.md'
     artifact = 'docs/designs/dev/team/service/policy.json'
     paths = [view, artifact]
@@ -196,32 +225,41 @@ def check_generated_classification(tmp_path, state):
     for p, raw in (before if state == 'before' else {p: s.encode() for p, s in after.items()}).items():
         file = tmp_path / p
         file.parent.mkdir(parents=True, exist_ok=True)
-        if raw is not None: file.write_bytes(raw)
+        if raw is not None:
+            file.write_bytes(raw)
     task = tmp_path / 'tasks/deploy.md'
     task.parent.mkdir()
     listed = ''.join('- `' + p + '`\n' for p in ['tasks/deploy.md', *paths])
     task.write_text('## Task contract\n- Task status: `running`\n## Modified files\n' + listed + '## Allowed paths\n' + listed)
-    if state == 'append': (tmp_path / view).write_bytes(b'new\nexternal\n')
-    if state == 'value': (tmp_path / artifact).write_bytes(b'{"external":true}')
-    if state == 'empty': (tmp_path / artifact).write_bytes(b'')
-    if state == 'missing': (tmp_path / view).unlink()
-    if state == 'add': (tmp_path / artifact).with_name('extra.json').write_bytes(b'{}')
-    if state == 'partial': (tmp_path / view).write_bytes(before[view])
-    if state == 'no-proof': plan.clear()
-    if state == 'candidate': generated['outputs'][artifact] = '{"other":true}'
+    if state == 'append':
+        (tmp_path / view).write_bytes(b'new\nexternal\n')
+    if state == 'value':
+        (tmp_path / artifact).write_bytes(b'{"external":true}')
+    if state == 'empty':
+        (tmp_path / artifact).write_bytes(b'')
+    if state == 'missing':
+        (tmp_path / view).unlink()
+    if state == 'add':
+        (tmp_path / artifact).with_name('extra.json').write_bytes(b'{}')
+    if state == 'partial':
+        (tmp_path / view).write_bytes(before[view])
+    if state == 'no-proof':
+        plan.clear()
+    if state == 'candidate':
+        generated['outputs'][artifact] = '{"other":true}'
     retained = {p: p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
     with selected_task(tmp_path, 'tasks/deploy.md'):
         if state in {'before', 'after'}:
             current = M.check_generated(tmp_path, plan)
             assert current == M.generated_manifests(tmp_path, plan)[state == 'after']
         else:
-            with pytest.raises(Blocked): M.check_generated(tmp_path, plan)
+            with pytest.raises(Blocked):
+                M.check_generated(tmp_path, plan)
     assert {p: p.read_bytes() for p in retained} == retained
 
 
 @pytest.mark.parametrize('problem', ['none', 'third', 'foreign', 'incomplete', 'empty-original', 'receipt'])
 def check_generated_journal(tmp_path, problem):
-    from task_contract import selected_task
     view, artifact = 'docs/designs/dev/team/service.md', 'docs/designs/dev/team/service/policy.json'
     files = {view: b'old', artifact: None}
     generated = {'groups': {view: list(files)}, 'originals': {p: None if raw is None else base64.b64encode(raw).decode()
@@ -230,19 +268,26 @@ def check_generated_journal(tmp_path, problem):
     (tmp_path / view).parent.mkdir(parents=True)
     (tmp_path / view).write_bytes(b'new')
     record = {'originals': dict(generated['originals'])}
-    if problem == 'third': (tmp_path / view).write_bytes(b'external')
-    if problem == 'foreign': record['originals']['other'] = None
-    if problem == 'incomplete': record['originals'].pop(view)
-    if problem == 'empty-original': record['originals'][artifact] = ''
-    if problem == 'receipt': record['importReceipt'] = {}
+    if problem == 'third':
+        (tmp_path / view).write_bytes(b'external')
+    if problem == 'foreign':
+        record['originals']['other'] = None
+    if problem == 'incomplete':
+        record['originals'].pop(view)
+    if problem == 'empty-original':
+        record['originals'][artifact] = ''
+    if problem == 'receipt':
+        record['importReceipt'] = {}
     task = tmp_path / 'tasks/deploy.md'
     task.parent.mkdir()
     listed = ''.join('- `' + p + '`\n' for p in ['tasks/deploy.md', *files])
     task.write_text('## Task contract\n- Task status: `running`\n## Modified files\n' + listed + '## Allowed paths\n' + listed)
     with selected_task(tmp_path, 'tasks/deploy.md'):
-        if problem == 'none': M.verify_generated_journal(tmp_path, plan, record)
+        if problem == 'none':
+            M.verify_generated_journal(tmp_path, plan, record)
         else:
-            with pytest.raises(Blocked): M.verify_generated_journal(tmp_path, plan, record)
+            with pytest.raises(Blocked):
+                M.verify_generated_journal(tmp_path, plan, record)
 
 
 def check_generated_plan_snapshot(proposal):

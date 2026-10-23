@@ -1,10 +1,13 @@
 """Connection-context Session/client reuse, configuration, and structured API failures."""
+
 import hashlib
 import os
 import threading
 import time
 
 from cloudformation_inputs import Blocked
+
+from utils.aws_sdk import aws_runtime
 
 _lock = threading.RLock()
 _sessions = {}
@@ -32,10 +35,9 @@ def client(context, service):
             raise Blocked('AWS authentication context changed; recreate the connection context')
         key = (context, service)
         if key not in _clients:
-            import boto3
-            from botocore.config import Config
+            Config = aws_runtime().sdk_config
             if context not in _sessions:
-                _sessions[context] = boto3.Session(profile_name=context[0], region_name=context[1])
+                _sessions[context] = aws_runtime().connection_session(context[0], context[1])
             # Session client construction is not thread-safe even across different services.
             created = _sessions[context].client(service, config=Config(
                 retries={'mode': 'standard', 'total_max_attempts': 2},
@@ -53,7 +55,8 @@ class AwsError(Blocked):
 
 def request(context, service, operation, arguments, *, deadline=None):
     """One request, with no application guards and no secret-bearing error text."""
-    from botocore.exceptions import BotoCoreError, ClientError
+    BotoCoreError = aws_runtime().BotoCoreError
+    ClientError = aws_runtime().ClientError
     deadline = time.monotonic() + API_BUDGET_SECONDS if deadline is None else deadline
     if time.monotonic() >= deadline:
         raise AwsError(service, operation, 'OperationDeadlineExceeded')

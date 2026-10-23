@@ -1,14 +1,60 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from datetime import datetime, timezone
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace as _CallbackState
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import pstats
+
+import import_guard
+import run_it as _imports_run_it
+from model.importing import evidence
+from model.importing.evidence import FORMAT_FIELDS
+from model.render import markdown_for
+from support.blueprint_loop_fixtures import (
+    CLI,
+    MODULE,
+    SCRIPT,
+    Path,
+    SimpleNamespace,
+    events,
+    importlib,
+    io,
+    json,
+    make_loop_fixture,
+    make_project_fixture,
+    os,
+    patch,
+    pytest,
+    read_model,
+    redirect_stdout,
+    run,
+    subprocess,
+    sys,
+    tasks,
+    write_model,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.blueprint_loop_fixtures import *
+
+def _callback_check_running_and_interruption_fail_first_start(_state_check_running_and_interruption_47, real_popen, /, *args, **kwargs):
+    pass
+    _state_check_running_and_interruption_47.calls += 1
+    if _state_check_running_and_interruption_47.calls == 1:
+        raise OSError("cannot start")
+    return real_popen(*args, **kwargs)
+
 
 def check_running_and_interruption(tmp_path):
+    _state_check_running_and_interruption_47 = _CallbackState()
     root = tmp_path
     script = root / "slow.py"
     script.write_text("import time\nprint('before wait', flush=True)\ntime.sleep(0.15)\n", encoding="utf-8")
@@ -32,14 +78,9 @@ def check_running_and_interruption(tmp_path):
 
 
     real_popen = MODULE.subprocess.Popen
-    calls = 0
+    _state_check_running_and_interruption_47.calls = 0
 
-    def fail_first_start(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise OSError("cannot start")
-        return real_popen(*args, **kwargs)
+    fail_first_start = _bind_framework_callback(_callback_check_running_and_interruption_fail_first_start, _state_check_running_and_interruption_47, real_popen)
 
     with patch.object(MODULE.subprocess, "Popen", side_effect=fail_first_start), redirect_stdout(io.StringIO()):
         assert MODULE.run_commands(root, [command, command], environment, logs) == 1
@@ -49,12 +90,20 @@ def check_running_and_interruption(tmp_path):
     assert events(logs)[-1]["status"] == "fail"
 
 
+def _callback_check_deploy_scope_isolation_run(child, environment, root, tmp_path, /, env='dev', mode='task', options=()):
+    name = f"tasks/{env}.md"
+    if tasks.status((root / name).read_text()) == "suspend":
+        tasks.resume(root, name)
+    return subprocess.run([sys.executable, "-c", child, "--mode", mode,
+                           "--task-file", name, "--log-dir", str(tmp_path / "logs"), *options],
+                          cwd=root, env=environment, capture_output=True, encoding="utf-8")
+
+
 def check_deploy_scope_isolation(tmp_path):
     """Exercise the real task loop and validation scopes with two environments."""
-    from model.render import markdown_for
     root = tmp_path / "repository"
     make_project_fixture(SCRIPT.parents[2], root)
-    scripts = SCRIPT.parent
+    _ = SCRIPT.parent
     target = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
     (root / "project.json").write_text(json.dumps({"projectName": "app", "targets": [
         {"environment": env, **target} for env in ("dev", "stg")]}) + "\n")
@@ -115,13 +164,7 @@ def check_deploy_scope_isolation(tmp_path):
              f"loop.select_checks = lambda *a, **k: ([__import__('pathlib').Path({str(scope_check)!r})], 'scope fixture'); "
              "cli = module('blueprint-loop.py', 'scope_loop_cli'); raise SystemExit(cli.main())")
 
-    def run(env="dev", mode="task", options=()):
-        name = f"tasks/{env}.md"
-        if tasks.status((root / name).read_text()) == "suspend":
-            tasks.resume(root, name)
-        return subprocess.run([sys.executable, "-c", child, "--mode", mode,
-                               "--task-file", name, "--log-dir", str(tmp_path / "logs"), *options],
-                              cwd=root, env=environment, capture_output=True, encoding="utf-8")
+    run = _bind_framework_callback(_callback_check_deploy_scope_isolation_run, child, environment, root, tmp_path)
 
     parameters["stg"].write_text("invalid JSON\n")
     result = run()
@@ -142,6 +185,18 @@ def check_deploy_scope_isolation(tmp_path):
         assert result.returncode != 0 and "FAIL git-diff-check" in result.stdout, result.stdout + result.stderr
     result = run(options=("--all",))
     assert result.returncode != 0 and "FAIL git-diff-check" in result.stdout, result.stdout + result.stderr
+
+
+def _callback_check_task_service_validation_run(active, command, environment, root, /):
+    if tasks.status(active.read_text(encoding="utf-8")) == "suspend":
+        tasks.resume(root, "tasks/example.md")
+    result = subprocess.run(command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
+    assert "START validate-blueprint.py" in result.stdout
+    assert "validation scope: dev/123456789012/logs" in result.stdout or result.returncode != 0
+    assert "START git-diff-check" in result.stdout
+    assert "framework regression: skipped" in result.stdout
+    assert "START blueprint-loop-unit.checks.py" not in result.stdout
+    return result
 
 
 def check_task_service_validation(tmp_path):
@@ -213,16 +268,7 @@ display.resource.001.comment=通信ログを保存するLog Group
     good_model, good_design = read_model(model), design.read_text(encoding="utf-8")
     command = [sys.executable, str(scripts / SCRIPT.name), "--mode", "task", "--log-dir", str(tmp_path / "logs")]
 
-    def run():
-        if tasks.status(active.read_text(encoding="utf-8")) == "suspend":
-            tasks.resume(root, "tasks/example.md")
-        result = subprocess.run(command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
-        assert "START validate-blueprint.py" in result.stdout
-        assert "validation scope: dev/123456789012/logs" in result.stdout or result.returncode != 0
-        assert "START git-diff-check" in result.stdout
-        assert "framework regression: skipped" in result.stdout
-        assert "START blueprint-loop-unit.checks.py" not in result.stdout
-        return result
+    run = _bind_framework_callback(_callback_check_task_service_validation_run, active, command, environment, root)
 
     result = run()
     assert result.returncode == 0 and "PASS (0 framework regression scripts)" in result.stdout, result.stdout + result.stderr
@@ -234,7 +280,6 @@ display.resource.001.comment=通信ログを保存するLog Group
                            cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert fresh.returncode == 0 and "1 executed, 0 reused; workers: 1" in fresh.stdout, fresh.stdout + fresh.stderr
     assert list((tmp_path / "logs").glob("*/validate-blueprint.prof"))
-    import pstats
     profile = next((tmp_path / "logs").glob("*/validate-blueprint.prof"))
     assert any(Path(file).name == "sync_runtime.py" for file, _, _ in pstats.Stats(str(profile)).stats)
     issue = root / "issues/dev/123456789012/issues.md"
@@ -317,6 +362,11 @@ def check_parallel_and_selection(tmp_path):
     MODULE.utf8_preflight(logs, MODULE.utf8_environment())
 
 
+def _callback_check_staged_snapshot_git_only(real_popen, /, command, *arguments, **options):
+    assert command[0] == "git", "old staged guard launched a validation child"
+    return real_popen(command, *arguments, **options)
+
+
 def check_staged_snapshot(tmp_path):
     root = tmp_path / "source"
     scripts = root / "checks"
@@ -381,9 +431,7 @@ def check_staged_snapshot(tmp_path):
                            fresh=False, all=False, affected=False, profile=False)
     real_popen = MODULE.subprocess.Popen
 
-    def git_only(command, *arguments, **options):
-        assert command[0] == "git", "old staged guard launched a validation child"
-        return real_popen(command, *arguments, **options)
+    git_only = _bind_framework_callback(_callback_check_staged_snapshot_git_only, real_popen)
 
     try:
         with patch.object(MODULE, "os", SimpleNamespace(name="nt", environ=os.environ)), \
@@ -468,6 +516,17 @@ def check_regression_authorization(tmp_path):
         authorize.assert_not_called()
 
 
+
+
+def _check_failure_suspension_contract(name, file):
+    return f'## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Validation scope\n- `framework`\n## Modified files\n- `{name}`\n- `{file}`\n## Allowed paths\n- `{name}`\n- `{file}`\n'
+
+
+def _callback_check_failure_suspension_save_inputs(root, /):
+    MODULE.git(root, "add", ".")
+    MODULE.git(root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture")
+
+
 def check_failure_suspension(tmp_path):
     root = tmp_path / "repository"
     scripts = root / "checks"
@@ -481,19 +540,14 @@ def check_failure_suspension(tmp_path):
         check.write_text("print('own check passed')\n", encoding="utf-8")
         first, other = "tasks/first.md", "tasks/other.md"
 
-        def contract(name, file):
-            return (f"## Task contract\n- Task type: `governance`\n- Task status: `running`\n"
-                    f"## Validation scope\n- `framework`\n## Modified files\n- `{name}`\n- `{file}`\n"
-                    f"## Allowed paths\n- `{name}`\n- `{file}`\n")
+        contract = _check_failure_suspension_contract
 
         tasks.start(root, first, contract(first, "first.md"))
         tasks.start(root, other, contract(other, "other.md"))
         untouched = (root / other).read_bytes()
         MODULE.git(root, "init", "-q")
 
-        def save_inputs():
-            MODULE.git(root, "add", ".")
-            MODULE.git(root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture")
+        save_inputs = _bind_framework_callback(_callback_check_failure_suspension_save_inputs, root)
 
         save_inputs()
         command = [sys.executable, str(scripts / SCRIPT.name), "--mode", "full", "--task-file", first,
@@ -526,9 +580,66 @@ def check_failure_suspension(tmp_path):
         assert (root / other).read_bytes() == untouched
 
 
+def _callback_check_startup_diagnostics_run(fail, phase, real_run, /, command, *args, **kwargs):
+    if command[:3] == ["git", "config", "--get"]:
+        if phase in {"git", "unexpected"}:
+            fail()
+        if phase == "git-exit":
+            return subprocess.CompletedProcess(command, 7, "", "fixture git error")
+    if phase == "utf8" and "-c" in command:
+        fail()
+    return real_run(command, *args, **kwargs)
+
+
+def _callback_check_startup_diagnostics_fail(_state_check_startup_diagnostics_591, phase, /):
+    pass
+    _state_check_startup_diagnostics_591.injected = True
+    if phase == "unexpected":
+        raise RuntimeError("unexpected fixture failure")
+    error = OSError(22, "Invalid argument", "日本語-input")
+    error.winerror = 87
+    raise error
+
+
+def _callback_check_startup_diagnostics_read(_state_check_startup_diagnostics_591, fail, logs, phase, real_read, root, selected, /, path, *args, **kwargs):
+    if phase == "contract" and path == root / selected and logs.exists() and not _state_check_startup_diagnostics_591.injected:
+        fail()
+    return real_read(path, *args, **kwargs)
+
+
+def _callback_check_startup_diagnostics_open_file(_state_check_startup_diagnostics_591, fail, phase, real_open, /, path, *args, **kwargs):
+    if (not _state_check_startup_diagnostics_591.injected and phase == "timing" and path.name == "timing.jsonl" or
+            phase == "diagnostic-open" and path.name == "startup.jsonl"):
+        fail()
+    return real_open(path, *args, **kwargs)
+
+
+class Console(io.StringIO):
+    banner = False
+
+    def __init__(self, phase, fail):
+        super().__init__()
+        self.phase = phase
+        self.fail = fail
+
+    def write(self, text):
+        if "Local loop logs:" in text:
+            self.banner = True
+        if self.phase == "print" or self.phase == "banner-print" and self.banner:
+            self.fail()
+        return super().write(text)
+
+    def flush(self):
+        if self.phase == "flush" or self.phase == "banner-flush" and self.banner:
+            self.fail()
+        return super().flush()
+
+
+
 @pytest.mark.parametrize("phase", ["contract", "git", "git-exit", "utf8", "print", "flush",
                                   "banner-print", "banner-flush", "timing", "diagnostic-open", "unexpected"])
 def check_startup_diagnostics(tmp_path, phase):
+    _state_check_startup_diagnostics_591 = _CallbackState()
     root = tmp_path / "repository"
     scripts = root / "framework/scripts"
     scripts.mkdir(parents=True)
@@ -544,52 +655,16 @@ def check_startup_diagnostics(tmp_path, phase):
     untouched = (root / other).read_bytes()
     logs = tmp_path / "日本語 logs"
     real_read, real_open, real_run = Path.read_text, Path.open, subprocess.run
-    injected = False
+    _state_check_startup_diagnostics_591.injected = False
 
-    def fail():
-        nonlocal injected
-        injected = True
-        if phase == "unexpected":
-            raise RuntimeError("unexpected fixture failure")
-        error = OSError(22, "Invalid argument", "日本語-input")
-        error.winerror = 87
-        raise error
+    fail = _bind_framework_callback(_callback_check_startup_diagnostics_fail, _state_check_startup_diagnostics_591, phase)
 
-    def read(path, *args, **kwargs):
-        if phase == "contract" and path == root / selected and logs.exists() and not injected:
-            fail()
-        return real_read(path, *args, **kwargs)
+    read = _bind_framework_callback(_callback_check_startup_diagnostics_read, _state_check_startup_diagnostics_591, fail, logs, phase, real_read, root, selected)
 
-    def open_file(path, *args, **kwargs):
-        if (not injected and phase == "timing" and path.name == "timing.jsonl" or
-                phase == "diagnostic-open" and path.name == "startup.jsonl"):
-            fail()
-        return real_open(path, *args, **kwargs)
+    open_file = _bind_framework_callback(_callback_check_startup_diagnostics_open_file, _state_check_startup_diagnostics_591, fail, phase, real_open)
 
-    def run(command, *args, **kwargs):
-        if command[:3] == ["git", "config", "--get"]:
-            if phase in {"git", "unexpected"}:
-                fail()
-            if phase == "git-exit":
-                return subprocess.CompletedProcess(command, 7, "", "fixture git error")
-        if phase == "utf8" and "-c" in command:
-            fail()
-        return real_run(command, *args, **kwargs)
+    run = _bind_framework_callback(_callback_check_startup_diagnostics_run, fail, phase, real_run)
 
-    class Console(io.StringIO):
-        banner = False
-
-        def write(self, text):
-            if "Local loop logs:" in text:
-                self.banner = True
-            if phase == "print" or phase == "banner-print" and self.banner:
-                fail()
-            return super().write(text)
-
-        def flush(self):
-            if phase == "flush" or phase == "banner-flush" and self.banner:
-                fail()
-            return super().flush()
 
     expected = {"contract": ("task.contract.read", "pathlib.Path.read_text"),
                 "git": ("git.config", "subprocess.run"), "git-exit": ("git.config", "subprocess.run"),
@@ -604,7 +679,7 @@ def check_startup_diagnostics(tmp_path, phase):
          patch.object(MODULE, "changed_paths", return_value=set()), \
          patch.object(Path, "read_text", read), patch.object(Path, "open", open_file), \
          patch.object(MODULE.subprocess, "run", side_effect=run), \
-         patch.object(sys, "stdout", Console()), patch.object(sys, "stderr", Console()), \
+         patch.object(sys, "stdout", Console(phase, fail)), patch.object(sys, "stderr", Console(phase, fail)), \
          patch.object(sys, "argv", [str(runner), "--mode", "task", "--task-file", selected,
                                     "--log-dir", str(logs)]), \
          patch.dict(os.environ, {tasks.SELECTOR: selected}):
@@ -646,7 +721,7 @@ def check_windows_exit_propagation(tmp_path):
 
 
 def check_workflow(tmp_path) -> None:
-    from run_it import check_assertion_guards
+    check_assertion_guards = _imports_run_it.check_assertion_guards
     check_assertion_guards(SCRIPT.parent / "tests")
     # AST coverage is not execution coverage: sample both real entrypoint classes.
     for relative in ("units/blueprint-loop-unit.checks.py", "integrations/service-parameter-inputs.checks.py"):
@@ -783,8 +858,7 @@ def main():
 
 @pytest.mark.parametrize('result', [0, 1])
 def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
-    from datetime import datetime, timezone
-    import import_guard
+
     root = tmp_path / 'source'
     scripts = root / 'framework/scripts'
     scripts.mkdir(parents=True)
@@ -794,14 +868,12 @@ def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', selected)
     monkeypatch.setattr(import_guard.tempfile, 'gettempdir', lambda: str(tmp_path))
     monkeypatch.setattr(import_guard, 'require_import_changes', lambda root: None)
-    from model.importing import evidence
     monkeypatch.setattr(evidence, 'read_proof', lambda root: import_guard.read_sealed(root, import_guard.proof_path(root)))
     # Authorization is covered by Import IT; this fixture runs the real staged copy/finally boundary.
     (scripts / 'blueprint-loop.py').write_text('raise SystemExit(' + str(result) + ')\n')
     MODULE.git(root, 'init', '-q')
     MODULE.git(root, 'add', '.')
     MODULE.git(root, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'base')
-    from model.importing.evidence import FORMAT_FIELDS
     proof = {'version': 6, **FORMAT_FIELDS, 'task': selected, 'acquiredAt': datetime.now(timezone.utc).isoformat()}
     import_guard.write_sealed(root, import_guard.proof_path(root), proof)
     saved = import_guard.proof_path(root).read_bytes()

@@ -1,9 +1,15 @@
 """Model string parsing and structural/deployment contracts, without file I/O."""
 
+import json
 import re
+import sys
 from pathlib import Path
+
 from iac_values import cfn_resource_identity
-from validation_cache import memo_table
+from utils.input_cache import memo_table
+from utils.json_format import document_sha256, strict_json
+
+from model.format import parse
 
 
 class ReferenceResolutionError(ValueError):
@@ -18,8 +24,6 @@ def reference_warning(error, **details):
 
 
 def report_reference_warnings(warnings):
-    import json
-    import sys
     for warning in warnings:
         print('WARNING [' + warning['code'] + '] ' + json.dumps(warning, ensure_ascii=False), file=sys.stderr)
 
@@ -33,13 +37,11 @@ def positive_integer(value: str, label: str) -> int:
 
 
 def properties(text: str) -> dict[str, str]:
-    from model.format import parse
     return parse(text, require_header=False).values
 
 
 def validate_runtime_keys(values):
     """Validate a projection while keeping derived fields out of canonical schema."""
-    import re
     derived = {}
     authority = {}
     for key, value in values.items():
@@ -48,8 +50,6 @@ def validate_runtime_keys(values):
     validate_model_keys(authority)
     for key, value in derived.items():
         if key.endswith('.artifactSha256'):
-            from utils.json_format import document_sha256
-            from utils.json_format import strict_json
             document = authority.get(key.removesuffix('artifactSha256') + 'document')
             if document is None or document_sha256(strict_json(document)) != value:
                 raise ValueError('invalid derived artifactSha256: ' + key)
@@ -72,7 +72,7 @@ def entries(values: dict[str, str], prefix: str) -> list[tuple[str, dict[str, st
                 raise ValueError(f"invalid model entry: {key}")
             groups.setdefault(identity, {})[field] = value
     if prefix == "desired.resource.":
-        for identity, fields in groups.items():
+        for _identity, fields in groups.items():
             if 'deploymentEncryption' in fields and (fields.get('resourceType') != 'S3.Bucket' or fields['deploymentEncryption'] != 'default'):
                 raise ValueError('deploymentEncryption is only default on an S3.Bucket')
             if "cfn-logicalId" in fields:
@@ -187,7 +187,6 @@ def deployment_settings(values: dict[str, str]) -> tuple[dict[str, str], list[tu
 
 
 def validate_bucket_reference(value: str) -> None:
-    from model.identity import resource_link
     if not resource_link(value):
         raise ValueError('deployment bucket requires a Markdown Resource reference')
 
@@ -224,7 +223,6 @@ def validate_authority(values):
             raise ValueError('Resource requires a valid resourceType: ' + identity)
         if resource.get('resourceMode', 'CREATE') not in {'CREATE', 'IMPORT'}:
             raise ValueError('resourceMode must be CREATE or IMPORT: ' + identity)
-    from model.identity import resource_index
     resource_index(values)
     for identity, row in entries(values, 'desired.row.'):
         if not {'property', 'value', 'comment'} <= row.keys():
@@ -244,3 +242,60 @@ def resource_row_index(values: dict[str, str]) -> dict[str, list[tuple[str, dict
             raise ValueError(f"orphan desired row: {rid}")
         index[owner].append((rid, row))
     return index
+
+
+COUNTERS = 'desired.service.identity.lastAllocated'
+
+
+def prefix(kind):
+    if not isinstance(kind, str) or re.fullmatch(r'[A-Za-z0-9_]+\.[A-Za-z0-9_]+', kind) is None:
+        raise ValueError('invalid ResourceType for logicalId: ' + str(kind))
+    return kind.replace('.', '_')
+
+
+def sequence(kind, logical):
+    head = prefix(kind) + '_'
+    suffix = logical.removeprefix(head) if isinstance(logical, str) else ''
+    if not isinstance(logical, str) or not logical.startswith(head) or not re.fullmatch(r'[0-9]{3,}', suffix) or int(suffix) < 1 or suffix != f'{int(suffix):03d}':
+        raise ValueError('logicalId requires ResourceType prefix and fixed sequence: ' + str(logical))
+    return int(suffix)
+
+
+def counters(values):
+    state = strict_json(values.get(COUNTERS, '{}'))
+    if not isinstance(state, dict):
+        raise ValueError('lastAllocated must be a ResourceType to integer object')
+    prefixes = {}
+    for kind, number in state.items():
+        if type(number) is not int or number < 0:
+            raise ValueError('lastAllocated must contain nonnegative integers')
+        head = prefix(kind)
+        if head in prefixes and prefixes[head] != kind:
+            raise ValueError('ResourceType logicalId prefix collision: ' + head)
+        prefixes[head] = kind
+    return state
+
+
+def resource_index(values):
+    state, result = counters(values), {}
+    prefixes = {prefix(kind): kind for kind in state}
+    for number, resource in entries(values, 'desired.resource.'):
+        kind, logical = resource['resourceType'], resource.get('logicalId')
+        head = prefix(kind)
+        if head in prefixes and prefixes[head] != kind:
+            raise ValueError('ResourceType logicalId prefix collision: ' + head)
+        prefixes[head] = kind
+        serial = sequence(kind, logical)
+        if logical in result:
+            raise ValueError('duplicate logicalId: ' + logical)
+        if state.get(kind, -1) < serial:
+            raise ValueError('lastAllocated is missing or behind logicalId: ' + logical)
+        result[logical] = (number, resource)
+    return result
+
+
+def resource_link(value):
+    match = LINK.fullmatch(value) if isinstance(value, str) else None
+    if match and ':' not in match[2] and (not match[2] or match[2].endswith('.md')):
+        return match
+    return None

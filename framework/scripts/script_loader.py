@@ -1,10 +1,9 @@
 """Load named sibling scripts once, preserving existing patch/module identity."""
-import importlib.util
 import importlib
-from pathlib import Path
+import importlib.util
 import sys
+from pathlib import Path
 from threading import RLock
-
 
 _lock = RLock()
 

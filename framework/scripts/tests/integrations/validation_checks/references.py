@@ -3,14 +3,20 @@
 
 from __future__ import annotations
 
+from functools import partial as _bind_framework_callback
+
+import array_display as _imports_array_display
+import design_document as _imports_design_document
 from support.it_case_receipt import it_case
-from support.validator import diagnostics
-
-
-import model.projection as model_projection
-
-
-from support.validator import MODULE, SCRIPT, project, write, schema_validator, load
+from support.validator import (
+    MODULE,
+    SCRIPT,
+    diagnostics,
+    load,
+    project,
+    schema_validator,
+    write,
+)
 
 
 @it_case
@@ -83,9 +89,24 @@ def check_identifier_propagation() -> None:
         assert any("identifier reference does not match observed target" in error for error in diagnostics(validator))
 
 
+def _callback_check_array_source_role_links_errors(indexed_rows, path, role, root, /, label):
+    rows = indexed_rows([
+        ["1", "InstanceProfileName", "`app-profile`", "Profile name"],
+        ["2", "Roles", f"[{label}](#iam-role)", "Selected role"],
+    ], "IAM.InstanceProfile")
+    content = role + "\n".join("| " + " | ".join(row) + " |" for row in rows) + "\n"
+    # Hidden links must not enter reference discovery or broken-link checks.
+    content += "<!--\n[hidden](missing.md#missing)\n-->\n"
+    assert "<!-- array-source:" in content
+    write(path, content)
+    validator = MODULE.Validator(root)
+    validator.check_design_links({}, paths=[path])
+    return diagnostics(validator)
+
+
 @it_case
 def check_array_source_role_links() -> None:
-    from array_display import indexed_rows
+    indexed_rows = _imports_array_display.indexed_rows
 
     with project() as root:
         path = root / "docs/designs/dev/123456789012/iam.md"
@@ -103,22 +124,20 @@ def check_array_source_role_links() -> None:
 | No. | Property | Value | Source / Comment |
 | ---: | --- | --- | --- |
 """
-        def errors(label):
-            rows = indexed_rows([
-                ["1", "InstanceProfileName", "`app-profile`", "Profile name"],
-                ["2", "Roles", f"[{label}](#iam-role)", "Selected role"],
-            ], "IAM.InstanceProfile")
-            content = role + "\n".join("| " + " | ".join(row) + " |" for row in rows) + "\n"
-            # Hidden links must not enter reference discovery or broken-link checks.
-            content += "<!--\n[hidden](missing.md#missing)\n-->\n"
-            assert "<!-- array-source:" in content
-            write(path, content)
-            validator = MODULE.Validator(root)
-            validator.check_design_links({}, paths=[path])
-            return diagnostics(validator)
+        errors = _bind_framework_callback(_callback_check_array_source_role_links_errors, indexed_rows, path, role, root)
 
         assert not errors("app-role"), errors("app-role")
         assert any("IAM Role link must display RoleName" in error for error in errors("wrong-role")), errors("wrong-role")
+
+
+def _callback_check_s3_bucket_policy_grouping_errors(catalog_types, design, identifier_outputs, metadata, property_owners, root, /, markdown: str):
+    write(design, markdown)
+    validator = schema_validator(root)
+    validator.check_design_tables(
+        metadata, catalog_types, property_owners, identifier_outputs
+    )
+    validator.check_design_links(identifier_outputs)
+    return diagnostics(validator)
 
 
 @it_case
@@ -176,14 +195,7 @@ def check_s3_bucket_policy_grouping() -> None:
             kms_design: ("kms", ("KMS.Key", "KMS.Alias")),
         }
 
-        def errors(markdown: str) -> list[str]:
-            write(design, markdown)
-            validator = schema_validator(root)
-            validator.check_design_tables(
-                metadata, catalog_types, property_owners, identifier_outputs
-            )
-            validator.check_design_links(identifier_outputs)
-            return diagnostics(validator)
+        errors = _bind_framework_callback(_callback_check_s3_bucket_policy_grouping_errors, catalog_types, design, identifier_outputs, metadata, property_owners, root)
 
         assert not (failures := errors(valid)), failures
         wrong_order = valid.replace(
@@ -225,9 +237,16 @@ def check_s3_bucket_policy_grouping() -> None:
         assert any("must not have an independent heading" in error for error in errors(separate_heading))
 
 
+def _callback_check_subnet_association_overview_errors(design, root, /, markdown):
+    write(design, markdown)
+    validator = MODULE.Validator(root)
+    validator.check_design_overviews()
+    return diagnostics(validator)
+
+
 @it_case
 def check_subnet_association_overview() -> None:
-    model = load("sync-model")
+    _ = load("sync-model")
     association_type = "EC2.SubnetRouteTableAssociation"
     metadata = (
         "# VPC 詳細設計\n\n- Design service ID: `vpc`\n"
@@ -244,7 +263,7 @@ def check_subnet_association_overview() -> None:
     details = "## リソース詳細\n\n"
     for number in range(1, 4):
         route_table = (
-            f"| 3 | EC2.RouteTableId | [rtb-00000001](#vpc-route) | 関連付けるRoute Table |\n"
+            "| 3 | EC2.RouteTableId | [rtb-00000001](#vpc-route) | 関連付けるRoute Table |\n"
             if number < 3 else ""
         )
         details += (
@@ -276,14 +295,10 @@ def check_subnet_association_overview() -> None:
         design = root / "docs/designs/dev/123456789012/vpc.md"
         design.parent.mkdir(parents=True)
 
-        def errors(markdown):
-            write(design, markdown)
-            validator = MODULE.Validator(root)
-            validator.check_design_overviews()
-            return diagnostics(validator)
+        errors = _bind_framework_callback(_callback_check_subnet_association_overview_errors, design, root)
 
         assert not errors(valid), errors(valid)
-        from design_document import DesignDocument
+        DesignDocument = _imports_design_document.DesignDocument
         original = DesignDocument(design, design.read_text()).raw.expanded[0]
         # Overview edits leave detail rows and links unchanged.
         write(design, metadata + legacy_overview + details)
@@ -331,6 +346,13 @@ def check_subnet_association_overview() -> None:
             assert any(message in failure for failure in failures), (message, failures)
 
 
+def _callback_check_resource_overview_errors(design, root, /, markdown: str):
+    write(design, markdown)
+    validator = MODULE.Validator(root)
+    validator.check_design_overviews()
+    return diagnostics(validator)
+
+
 @it_case
 def check_resource_overview() -> None:
     with project() as root:
@@ -360,11 +382,7 @@ def check_resource_overview() -> None:
 | 1 | BucketName | `app-dev-data-123456789012` | application dataを格納するbucketの名前 |
 """
 
-        def errors(markdown: str) -> list[str]:
-            write(design, markdown)
-            validator = MODULE.Validator(root)
-            validator.check_design_overviews()
-            return diagnostics(validator)
+        errors = _bind_framework_callback(_callback_check_resource_overview_errors, design, root)
 
         assert not (failures := errors(valid)), failures
         assert any("resource overview numbering error" in error for error in errors(valid.replace("| 1 | [app-dev-data", "| 2 | [app-dev-data", 1)))
@@ -397,4 +415,3 @@ def check_resource_overview() -> None:
             "",
         )
         assert any("must list every detail resource exactly once" in error for error in errors(missing_row))
-

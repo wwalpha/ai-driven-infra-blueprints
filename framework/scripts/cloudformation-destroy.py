@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import os
 import re
@@ -12,22 +11,23 @@ import sys
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-from utils.json_format import fingerprint
+from types import SimpleNamespace as _CallbackState
 
+import aws_context as _imports_aws_context
 from cloudformation_inputs import Blocked
-from model.adapters.observed import destroy_plan, sync_destroyed
 from issue_gate import require_target_no_issues
+from model.adapters.observed import destroy_plan, sync_destroyed
 from model.core import stack_model
 from model.files import load_model
-from task_contract import task_path, status, paths_in, matches
+from task_contract_core import matches, paths_in, status, task_path
+from utils.json_format import fingerprint
 from validation_scope import active_scope
 
 
-
-
 def context_module():
-    import aws_context
+    aws_context = _imports_aws_context
     return aws_context
 
 
@@ -167,7 +167,7 @@ def preflight(session, backend, limit, save):
     with ThreadPoolExecutor(max_workers=limit) as pool:
         results = list(pool.map(lambda name: backend.describe(states[name].get("StackId") or name), names))
     errors = []
-    for name, stack in zip(names, results):
+    for name, stack in zip(names, results, strict=False):
         state = states[name]
         try:
             evidence = state.get("deleteObserved") or state["status"] == "DELETE_IN_PROGRESS"
@@ -254,6 +254,13 @@ def poll(name, state, backend):
     return stack["StackStatus"], stack.get("StackStatusReason")
 
 
+def _callback_run_session_read(backend, states, /, name):
+    try:
+        return name, poll(name, states[name], backend), None
+    except Exception as error:
+        return name, None, str(error)
+
+
 def run_session(session, backend, limit, save, guard, sleep=time.sleep, drain_only=False):
     """Poll all active peers before freeing slots; never advance a failed group."""
     states = session["states"]
@@ -262,11 +269,7 @@ def run_session(session, backend, limit, save, guard, sleep=time.sleep, drain_on
         group = [name for name in sorted(states) if states[name]["DeployOrder"] == order]
         while True:
             active = [name for name in group if states[name]["status"] == "DELETE_IN_PROGRESS"]
-            def read(name):
-                try:
-                    return name, poll(name, states[name], backend), None
-                except Exception as error:
-                    return name, None, str(error)
+            read = _bind_framework_callback(_callback_run_session_read, backend, states)
             with ThreadPoolExecutor(max_workers=limit) as pool:
                 results = list(pool.map(read, active))
             unavailable = False
@@ -344,7 +347,30 @@ def run_session(session, backend, limit, save, guard, sleep=time.sleep, drain_on
     return "BLOCKED" if stopped else "COMPLETE"
 
 
+def _callback_controller_main_persist(session, state_path, /):
+    temporary = state_path.with_suffix(state_path.suffix + ".tmp")
+    temporary.write_text(json.dumps(session, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(state_path)
+
+
+# Only cheap invariants: no templates, infra manifests or validation tree digests.
+def _callback_controller_main_guard(_state_controller_main_355, args, context, contract, contract_path, directory, identity, immutable, issue_digest, root, session, target, /, name, state):
+    # Only cheap invariants: no templates, infra manifests or validation tree digests.
+    if contract_path.read_text(encoding="utf-8") != contract or status(contract) != "running":
+        raise Blocked("selected active task changed before mutation")
+    if context.load_target(root, args.environment, args.aws_account_id, args.alias) != target:
+        raise Blocked("project target/account/region/profile changed before mutation")
+    if issue_snapshot(root, args.environment, directory) != issue_digest:
+        raise Blocked("issue gate snapshot changed before mutation")
+    if fingerprint(session["identity"]) != immutable or name not in identity["scope"]:
+        raise Blocked("session scope changed before mutation")
+    if state["StackId"] != _state_controller_main_355.pinned.get(name):
+        raise Blocked("pinned StackId changed before mutation")
+    validate_identity({"StackName": name, "StackId": state["StackId"], "StackStatus": state["StackStatus"]}, name, target)
+
+
 def controller_main(argv=None, root=None):
+    _state_controller_main_355 = _CallbackState()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--environment", required=True)
     selector = parser.add_mutually_exclusive_group(required=True)
@@ -405,10 +431,7 @@ def controller_main(argv=None, root=None):
         lock_target = {key: value for key, value in target.items() if key != "awsProfile"}
         lock_path = Path(tempfile.gettempdir()) / ("blueprint-cfn-" + fingerprint([args.environment, lock_target]) + ".lock")
         lock = lock_path.open("x")
-        def persist():
-            temporary = state_path.with_suffix(state_path.suffix + ".tmp")
-            temporary.write_text(json.dumps(session, indent=2) + "\n", encoding="utf-8")
-            temporary.replace(state_path)
+        persist = _bind_framework_callback(_callback_controller_main_persist, session, state_path)
         save = persist
         save()
         started = time.perf_counter()
@@ -423,23 +446,11 @@ def controller_main(argv=None, root=None):
         session["context"] = {"account": target.get("awsExecutionAccountId", target["awsAccountId"]),
                               "region": target["awsRegion"], "profile": backend.profile}
         issue_digest = issue_snapshot(root, args.environment, directory)
-        pinned = {}
-        def guard(name, state):
-            # Only cheap invariants: no templates, infra manifests or validation tree digests.
-            if contract_path.read_text(encoding="utf-8") != contract or status(contract) != "running":
-                raise Blocked("selected active task changed before mutation")
-            if context.load_target(root, args.environment, args.aws_account_id, args.alias) != target:
-                raise Blocked("project target/account/region/profile changed before mutation")
-            if issue_snapshot(root, args.environment, directory) != issue_digest:
-                raise Blocked("issue gate snapshot changed before mutation")
-            if fingerprint(session["identity"]) != immutable or name not in identity["scope"]:
-                raise Blocked("session scope changed before mutation")
-            if state["StackId"] != pinned.get(name):
-                raise Blocked("pinned StackId changed before mutation")
-            validate_identity({"StackName": name, "StackId": state["StackId"], "StackStatus": state["StackStatus"]}, name, target)
+        _state_controller_main_355.pinned = {}
+        guard = _bind_framework_callback(_callback_controller_main_guard, _state_controller_main_355, args, context, contract, contract_path, directory, identity, immutable, issue_digest, root, session, target)
         try:
             preflight(session, backend, limit, save)
-            pinned = {name: state.get("StackId") for name, state in session["states"].items()}
+            _state_controller_main_355.pinned = {name: state.get("StackId") for name, state in session["states"].items()}
             dependencies(session, backend, save)
             require_target_no_issues(root, (args.environment, directory))  # Once before the first mutation.
             if issue_snapshot(root, args.environment, directory) != issue_digest:

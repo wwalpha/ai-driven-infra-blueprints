@@ -1,31 +1,83 @@
 """Single-service Import primitives; the LLM supplies selections, Review and consent."""
-from pathlib import Path
-from types import SimpleNamespace, MappingProxyType
-from contextlib import contextmanager
+
 import argparse
-import difflib
 import hashlib
 import re
-import task_contract
-from task_contract import task_path, section, selected_task
-from validation_scope import active_scope
-from validation_cache import input_scope, memoized, input_context, recording_inputs
+from dataclasses import asdict
+from functools import partial as _bind_framework_callback
+from pathlib import Path, PurePosixPath
+from types import SimpleNamespace
+
+import import_guard as _imports_import_guard
+import project_targets as _imports_project_targets
+import task_contract_core as task_contract
+from aws_mapping_compare import MODEL_ONLY
+from aws_mapping_compare import value as mapping_value
 from generation_inputs import GenerationInputs
+from import_guard import (
+    file_hash,
+    proof_path,
+    require_import_changes,
+    workflow,
+)
+from import_guard import (
+    write_sealed as write_sealed,
+)
 from script_loader import module as load_script
+from task_contract_core import section, selected_task, task_path
 from utils.file_operations import atomic_files
-from model.core import ReferenceResolutionError, entries, resource_row_index
-from model.sources import Scope, ModelSnapshot, FileReads, SourceWriteContext, load_model, runtime_values, candidate_sources, safe, publication_lock, _publish_transaction, json_read
+from utils.input_cache import input_context, input_scope, memoized, recording_inputs
 from utils.json_format import json_text
-from model.operations import CandidateReads, prepare_edit, publish_edit
-from model.render import view_plan, owned_artifacts
+from utils.source_reads import FileReads as FileReads
+from validation_scope import active_scope
+
+import model.importing.references as _imports_model_importing_references
+import model.importing.scope as _exports_model_importing_scope
+import model.importing.scope as _imports_model_importing_scope
+import model.references as _imports_model_references
+import model.sources as _imports_model_sources
+from model.core import ReferenceResolutionError
+from model.core import entries as entries
 from model.importing import approval as import_approval
-from model.importing.evidence import (acquired, read_acquisition, read_proof, record_import, finish_import,
-                                     acquisition_complete, discard_acquisition)
+from model.importing.evidence import (
+    acquired,
+    acquisition_complete,
+    finish_import,
+    read_acquisition,
+    read_proof,
+    record_import,
+)
+from model.importing.evidence import (
+    discard_acquisition as discard_acquisition,
+)
 from model.importing.inventory import inventory_for
-from model.importing.scope import (restrict, read_consumers, selected, allowed_source, model_path)
-from model.importing.sources import selection_records, verify_values, typed_equal, pending_items
-from import_guard import (workflow, require_import_changes, proof_path, file_hash, text_hash, write_sealed)
-from aws_mapping_compare import MODEL_ONLY, value as mapping_value
+from model.importing.scope import (
+    model_path,
+    read_consumers,
+    restrict,
+)
+from model.importing.sources import (
+    pending_items,
+    selection_records,
+    verify_values,
+)
+from model.operations import prepare_edit, publish_edit
+from model.render import owned_artifacts, view_plan
+from model.sources import (
+    SourceWriteContext,
+    _publish_transaction,
+    candidate_sources,
+    json_read,
+    load_model,
+    publication_lock,
+    safe,
+)
+from model.sources import candidate_base as before_model
+
+# Preserve shared fixtures and compatibility exports under their historical names.
+selected = _exports_model_importing_scope.selected
+
+
 
 ROOT = Path(__file__).resolve().parents[4]
 
@@ -44,6 +96,7 @@ def import_context(root, target, runner=None, service=None):
 
 
 def target_for(root, environment, service, selector=None):
+    select_target = _imports_project_targets.select_target
     if not environment or not service or any(not re.fullmatch(r'[a-z0-9]+(?:[-_][a-z0-9]+)*', x) for x in (environment, service)):
         raise ValueError('environment and service are required exact identifiers')
     topology = json_read((root / 'project.json').read_text(encoding='utf-8'))
@@ -61,7 +114,6 @@ def target_for(root, environment, service, selector=None):
     if len(choices) != 1:
         raise ValueError('target must resolve exactly once')
     entry = choices[0]
-    from project_targets import select_target
     target = select_target(topology, environment, alias=entry.get('alias'), account_id=None if 'alias' in entry else selector)
     target.update(environment=environment, directory=selector)
     return target
@@ -72,6 +124,7 @@ def inventory(ctx, service, resource_types=None):
 
 
 def contract_scope(root, scope):
+    selected = _imports_model_importing_scope.selected
     workflow(root)
     text = task_path(root).read_text(encoding='utf-8')
     if '- Task type: `design`' not in section(text, '## Task contract'):
@@ -84,7 +137,6 @@ def contract_scope(root, scope):
             raise ValueError('IMPORT acquisition must match the fixed Task target')
     elif declared != scope:
         raise ValueError('IMPORT initially requires exactly one acquisition target in Validation scope')
-    from model.importing.scope import selected
     if len(scope) != 1 or selected(root) not in scope or declared is None or not scope <= declared:
         raise ValueError('IMPORT requires one fixed environment/target/service within Validation scope')
     if task_contract.status(text) != 'running':
@@ -93,7 +145,7 @@ def contract_scope(root, scope):
 
 def record_outputs(root, identity, sources, views, consumers=None):
     """Check the predeclared plan without changing an approved Task/acquisition."""
-    from model.importing.scope import allowed_source
+    allowed_source = _imports_model_importing_scope.allowed_source
     consumers = set(consumers or {identity})
     environment, target, service = identity
     document = root / 'docs/designs' / environment / target / (service + '.md')
@@ -243,7 +295,7 @@ def _normalize_records(ctx, service, records):
 
 
 def unchanged(root, checksums):
-    from model.sources import safe
+    safe = _imports_model_sources.safe
     for relative, expected in checksums.items():
         file = root / relative
         safe(root, file)
@@ -254,7 +306,7 @@ def unchanged(root, checksums):
 @input_scope
 def resume_acquisition(root, environment, service, evidence, selector=None, dry_run=False):
     """Read the LLM's checkpoint after verifying the original session and live baseline."""
-    from model.sources import safe
+    safe = _imports_model_sources.safe
     root = root.resolve()
     target = target_for(root, environment, service, selector)
     identity = (environment, target['directory'], service)
@@ -271,7 +323,6 @@ def resume_acquisition(root, environment, service, evidence, selector=None, dry_
 
 
 
-from model.sources import candidate_base as before_model
 
 
 def source_state(root, inputs):
@@ -284,7 +335,6 @@ def source_state(root, inputs):
 
 
 def unchanged_sets(root, sets):
-    from pathlib import PurePosixPath
     for record in sets:
         if not isinstance(record, dict) or set(record) != {'base', 'pattern', 'recursive', 'kinds', 'paths'}:
             raise ValueError('IMPORT invalid input file-set snapshot')
@@ -305,8 +355,8 @@ def unchanged_sets(root, sets):
 
 
 def replacement_inputs(before, selected_records, reads):
-    from dataclasses import asdict
-    from model.references import incoming
+
+    incoming = _imports_model_references.incoming
     warnings = [{**warning, 'phase': 'before'} for warning in before.warnings]
     for rid, record in selected_records.items():
         if record.get('_action') not in {'replace', 'bind'}:
@@ -356,6 +406,7 @@ def acquire(root, environment, service, selector=None, dry_run=False, cli_runner
 
 
 def review_inputs(root, identity, evidence, acquisition, inputs):
+    Resolver = _imports_model_importing_references.Resolver
     unchanged(root, acquisition['sources'])
     unchanged_sets(root, acquisition['sourceSets'])
     before = before_model(model_path(root, identity), inputs)
@@ -373,7 +424,6 @@ def review_inputs(root, identity, evidence, acquisition, inputs):
     proposed_references = draft.get('referenceProvenance', import_approval.reference_provenance(before))
     if proposed_references != import_approval.reference_provenance(after):
         raise ValueError('IMPORT candidate reference map differs from the complete Review after map')
-    from model.importing.references import Resolver
     references = Resolver(root, identity[0], identity[1], local={identity[2]: after}, read_context=inputs)
     changes = verify_values(before, after, selected_records, property_schema, references)
     impact = replacement_inputs(before, selected_records, inputs)
@@ -430,6 +480,34 @@ def review_acquisition(root, environment, service, evidence, selector=None, dry_
             inputs.close()
 
 
+def _callback_publish_acquisition_current(acquisition, before, evidence, expected_task, external, identity, output, review_file, review_raw, root, /, changes):
+    if task_contract.task_revision(root, selected=expected_task[0]) != expected_task:
+        raise ValueError('IMPORT Task changed before publication')
+    unchanged(root, acquisition['sources'])
+    unchanged_sets(root, acquisition['sourceSets'])
+    if (candidate_sources(root, evidence.parent / 'candidates', before)[0] != output
+            or any(file.read_bytes() != raw for file, raw in external.items())
+            or review_file.read_bytes() != review_raw
+            or read_acquisition(root, evidence, identity, False) != acquisition):
+        raise ValueError('IMPORT candidate, selection, acquisition or Review changed before publication')
+    record_outputs(root, identity, set(changes), set())
+
+
+def _callback_publish_acquisition_begin_receipt(after, binding, changes, evidence, managed, output, root, selected_records, selection, /):
+    record_import(root, output, evidence, {'sources': {p.relative_to(root).as_posix(): text for p, text in output.items()},
+        'selection': selection, 'changes': changes, 'ownedArtifacts': [p.relative_to(root).as_posix() for p in managed]},
+        complete=not pending_items(selection, selected_records, after.values, property_schema), review_binding=binding)
+
+
+def _callback_publish_acquisition_finish_model(acquisition, after, before, evidence, external, identity, output, review_file, review_raw, root, /):
+    if (read_acquisition(root, evidence, identity, False) != acquisition
+            or any(file.read_bytes() != raw for file, raw in external.items())
+            or review_file.read_bytes() != review_raw
+            or candidate_sources(root, evidence.parent / 'candidates', before)[1].files != after.files):
+        raise ValueError('IMPORT candidate, selection, acquisition or Review changed during publication')
+    finish_import(root, model='reflected' if output else 'unchanged')
+
+
 @input_scope
 def publish_acquisition(root, environment, service, evidence, selector=None, dry_run=False):
     root, evidence = root.resolve(), Path(evidence).absolute()
@@ -464,31 +542,12 @@ def publish_acquisition(root, environment, service, evidence, selector=None, dry
             binding = import_approval.review_binding(expected, acquisition)
             record_outputs(root, identity, set(output), set(views))
             expected_task = inputs.expected_task
-            def current(changes):
-                if task_contract.task_revision(root, selected=expected_task[0]) != expected_task:
-                    raise ValueError('IMPORT Task changed before publication')
-                unchanged(root, acquisition['sources'])
-                unchanged_sets(root, acquisition['sourceSets'])
-                if (candidate_sources(root, evidence.parent / 'candidates', before)[0] != output
-                        or any(file.read_bytes() != raw for file, raw in external.items())
-                        or review_file.read_bytes() != review_raw
-                        or read_acquisition(root, evidence, identity, False) != acquisition):
-                    raise ValueError('IMPORT candidate, selection, acquisition or Review changed before publication')
-                record_outputs(root, identity, set(changes), set())
+            current = _bind_framework_callback(_callback_publish_acquisition_current, acquisition, before, evidence, expected_task, external, identity, output, review_file, review_raw, root)
             proof = proof_path(root)
             previous = proof.read_bytes() if proof.is_file() else None
             selected_records = selection_records(selection, acquisition['records'], before.authoritative, after.authoritative, property_schema)
-            def begin_receipt():
-                record_import(root, output, evidence, {'sources': {p.relative_to(root).as_posix(): text for p, text in output.items()},
-                    'selection': selection, 'changes': changes, 'ownedArtifacts': [p.relative_to(root).as_posix() for p in managed]},
-                    complete=not pending_items(selection, selected_records, after.values, property_schema), review_binding=binding)
-            def finish_model():
-                if (read_acquisition(root, evidence, identity, False) != acquisition
-                        or any(file.read_bytes() != raw for file, raw in external.items())
-                        or review_file.read_bytes() != review_raw
-                        or candidate_sources(root, evidence.parent / 'candidates', before)[1].files != after.files):
-                    raise ValueError('IMPORT candidate, selection, acquisition or Review changed during publication')
-                finish_import(root, model='reflected' if output else 'unchanged')
+            begin_receipt = _bind_framework_callback(_callback_publish_acquisition_begin_receipt, after, binding, changes, evidence, managed, output, root, selected_records, selection)
+            finish_model = _bind_framework_callback(_callback_publish_acquisition_finish_model, acquisition, after, before, evidence, external, identity, output, review_file, review_raw, root)
             context = SourceWriteContext._authorized(root, inputs, SimpleNamespace(action='import'), current,
                 frozenset(output), start=begin_receipt, receipt=(expected_task[0], previous),
                 finish=finish_model)
@@ -516,12 +575,23 @@ def publish_acquisition(root, environment, service, evidence, selector=None, dry
                 inputs.close()
 
 
+def _callback_recover_transaction_authorize(acquisition, evidence, expected_task, identity, managed_task_state, name, root, state, /, record):
+    if record.get('importReceipt', {}).get('task') != name:
+        raise ValueError('pending transaction belongs to a different Task or is not an Import transaction')
+    if (task_contract.task_revision(root, selected=name) != expected_task or managed_task_state(root, name) != state
+            or read_acquisition(root, evidence, identity, False) != acquisition):
+        raise ValueError('Import recovery Task/Worktree/acquisition changed')
+    paths = {root / relative for relative in record['originals']}
+    sources = {path for path in paths if path.is_relative_to(root / 'model')}
+    record_outputs(root, identity, sources, paths - sources)
+
+
 @input_scope
 def recover_transaction(root, environment, service, evidence, selector=None, dry_run=False):
     """Restore only this Task's interrupted source/display transaction, with no AWS calls."""
+    managed_task_state = _imports_import_guard.managed_task_state
     if dry_run:
         raise ValueError('a dry-run acquisition cannot authorize transaction recovery')
-    from import_guard import managed_task_state
     root, evidence = root.resolve(), Path(evidence).absolute()
     target = target_for(root, environment, service, selector)
     identity = environment, target['directory'], service
@@ -531,15 +601,7 @@ def recover_transaction(root, environment, service, evidence, selector=None, dry
         name = workflow(root)
         state = managed_task_state(root, name)
         expected_task = task_contract.task_revision(root, selected=name)
-        def authorize(record):
-            if record.get('importReceipt', {}).get('task') != name:
-                raise ValueError('pending transaction belongs to a different Task or is not an Import transaction')
-            if (task_contract.task_revision(root, selected=name) != expected_task or managed_task_state(root, name) != state
-                    or read_acquisition(root, evidence, identity, False) != acquisition):
-                raise ValueError('Import recovery Task/Worktree/acquisition changed')
-            paths = {root / relative for relative in record['originals']}
-            sources = {path for path in paths if path.is_relative_to(root / 'model')}
-            record_outputs(root, identity, sources, paths - sources)
+        authorize = _bind_framework_callback(_callback_recover_transaction_authorize, acquisition, evidence, expected_task, identity, managed_task_state, name, root, state)
         with publication_lock(root, recovery_check=authorize):
             pass
         return {'status': 'recovered', 'aws': 'not-contacted', 'scope': list(identity)}

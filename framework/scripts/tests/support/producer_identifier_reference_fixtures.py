@@ -1,20 +1,26 @@
 """Explicit reference authorities and immutable definition inputs for offline tests."""
-import copy
+import copy as copy
 import hashlib
 import json
-from pathlib import Path
-import shutil
-import tempfile
-from model.sources import load_model, source_inputs, design_source_digest, FileReads
-from model.references import declarations, usages
-from model.impact import affected
-from model.files import read_model, trace_model
-from model.format import serialize
-from support.model_sources import write_model
+import shutil as shutil
+import tempfile as tempfile
+from pathlib import Path as Path
+
+from model.files import read_model as read_model
+from model.files import trace_model as trace_model
+from model.format import serialize as serialize
+from model.impact import affected as affected
+from model.references import declarations as declarations
+from model.references import usages as usages
+from model.sources import design_source_digest as design_source_digest
+from model.sources import load_model as load_model
+from model.sources import source_inputs as source_inputs
+from support.import_model_fixtures import project_fixture, resource_values
+from support.model_sources import write_model as write_model
+from utils.source_reads import FileReads as FileReads
 
 
 def setup(root, services, kinds, environments=('preview',)):
-    from support.import_model_fixtures import project_fixture
     root.mkdir(exist_ok=True)
     project_fixture(root)
     (root / 'project.json').write_text(json.dumps({'targets': [
@@ -35,7 +41,6 @@ def reference(identity, key, text, service, rid, kind, *, mode='name', prop=None
 
 
 def resource(rid, kind, anchor, rows):
-    from support.import_model_fixtures import resource_values
     return resource_values(rid, kind, anchor, 'IMPORT', rows)
 
 

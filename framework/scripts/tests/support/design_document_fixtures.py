@@ -1,35 +1,28 @@
 """Plain Python snapshot checks and shared reference-heavy regression fixture."""
 
 import sys
-
 from pathlib import Path
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+
+import hashlib
+import importlib.util
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
+
+import aws_mapping_display
+import design_document as documents
+import model.core as model_core
+import model.projection as model_projection
+import model.render as model_design
+from design_document import DesignIndex
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-import model.render as model_design
-
-import model.core as model_core
-
-import model.projection as model_projection
-
-import aws_mapping_display
-
-import hashlib
-
-import tempfile
-
-from concurrent.futures import ThreadPoolExecutor
-
-from unittest.mock import patch
-
-import design_document as documents
-
-from design_document import DesignIndex
-
-import importlib.util
 
 def reference_fixture(root, count=80):
     scripts = Path(__file__).resolve().parents[2]

@@ -1,15 +1,37 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+from types import SimpleNamespace
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from unittest.mock import patch
+
+import pytest
+from model.operations import prepare_edit, validate_candidates
+from model.render import generate_files, generate_markdown, render_validated_model
+from model.sources import SourceWriteContext
+from model.validation import check_model_inputs as model_findings
+from model.validation import validate_json_settings
+from support.producer_identifier_reference_fixtures import (
+    FileReads,
+    Path,
+    declarations,
+    json,
+    load_model,
+    reference,
+    rejected,
+    resource,
+    serialize,
+    setup,
+    write_model,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
-
-from support.producer_identifier_reference_fixtures import *
-from model.validation import validate_json_settings, check_model_inputs as model_findings
-from unittest.mock import patch
-import pytest
 
 
 def check_json_settings():
@@ -46,10 +68,7 @@ def check_json_settings():
 
 
 def check_json_boundaries(tmp_path):
-    from model.operations import validate_candidates, prepare_edit
-    from model.sources import SourceWriteContext
-    from types import SimpleNamespace
-    from model.render import generate_files, generate_markdown, render_validated_model
+
     setup(tmp_path, ['vpc-endpoint'], ['EC2.VPCEndpoint'])
     path = tmp_path / 'model/preview/team/vpc-endpoint.properties'
     view = tmp_path / 'docs/designs/preview/team/vpc-endpoint.md'
@@ -84,7 +103,7 @@ def check_identifier_schema():
                            ({'producerScope': '../team/vpc'}, 'unsafe'),
                            ({'selector': 'first'}, 'fields')]:
         bad = {**values, **{'desired.reference.fixed.' + field: value for field, value in fields.items()}}
-        rejected(lambda: declarations(bad), phrase)
+        rejected(lambda *, bad=bad: declarations(bad), phrase)
     bad = {key: value for key, value in values.items() if key != 'desired.reference.fixed.property'}
     rejected(lambda: declarations(bad), 'missing or forbidden')
 

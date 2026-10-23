@@ -3,23 +3,14 @@
 
 from __future__ import annotations
 
-
 import json
+from contextlib import ExitStack as ExitStack
+from unittest.mock import patch as patch
 
-
-import io
-
-
-import os
-
-
-from contextlib import ExitStack, redirect_stdout
-
-
-from unittest.mock import patch
-
-
-from support.validator import MODULE, SCRIPT, project, git_project, commit, write
+import model.importing.scope as _imports_model_importing_scope
+from support.validator import MODULE, SCRIPT
+from support.validator import project as project
+from support.validator import write as write
 
 
 def check_optional_alias_targets() -> None:
@@ -76,7 +67,7 @@ def check_optional_alias_targets() -> None:
         assert validator.accounts[("dev", "non-cde")]["account"] == "123456789012"
         assert validator.accounts[("sandbox", "210987654321")]["account"] == "210987654321"
 
-        from model.importing.scope import restrict
+        restrict = _imports_model_importing_scope.restrict
         cross_environment = [*topology["targets"],
                              *[{**target, "environment": "stg"} for target in topology["targets"][:2]]]
         write(root / "project.json", json.dumps({**topology, "targets": cross_environment}) + "\n")
@@ -98,7 +89,7 @@ def check_optional_alias_targets() -> None:
 
         # Each environment/alias may have its own suffix; paths and account identity stay intact.
         suffix_targets = [{**target, "suffix": suffix} for target, suffix in
-                          zip(topology["targets"], ("blue", "green-01", "sandbox-token"))]
+                          zip(topology["targets"], ("blue", "green-01", "sandbox-token"), strict=False)]
         for targets in (suffix_targets, [suffix_targets[0], *topology["targets"][1:]]):
             write(root / "project.json", json.dumps({**topology, "targets": targets}) + "\n")
             validator = MODULE.Validator(root)

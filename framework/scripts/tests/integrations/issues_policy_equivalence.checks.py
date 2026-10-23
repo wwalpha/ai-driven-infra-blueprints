@@ -2,27 +2,42 @@
 """IAM Action forms and proven local S3 ARN/Sub equality without weakening JSON."""
 
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+
+import json
+import tempfile
+from copy import deepcopy
+from unittest.mock import patch
+
+from iac_values import Expression, same, selected_same
+from issues.records import identifier
+from support import issues_scan_fixtures as fixtures
+from support.it_case_receipt import it_case
+from support.validator import load as load
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.it_case_receipt import it_case
 
-from copy import deepcopy
-import json
-import tempfile
-from unittest.mock import patch
+def _callback_main_checks_record(root, /, candidate):
+    fixtures.mutate_template(root, candidate)
+    comparison, records = fixtures.compare(root, ['iam'])
+    selected = [r for r in records if r['property'] == 'IAM.Role.Policies']
+    assert len(selected) == 1, records
+    return comparison, selected[0]
 
-from iac_values import Expression, ResourceReference, same, selected_same
-from issues.records import identifier
-from support.validator import load
+
+def _lambda_main_checks_callback_76(comparison, /, a, b, path):
+    return comparison.reference_same(a, b, 'IAM.Role', path)
 
 
 @it_case
 def main_checks():
-    from support import issues_scan_fixtures as fixtures
     with tempfile.TemporaryDirectory(prefix='policy-equivalence-') as temporary:
         root = Path(temporary) / 'project'
         _, template = fixtures.fixture(root, stacks=2, services=('s3',))
@@ -57,17 +72,12 @@ def main_checks():
                                          'Properties': {'Policies': [{'PolicyName': 'ReadResults', 'PolicyDocument': actual}]}}
         original = deepcopy(template)
 
-        def record(candidate):
-            fixtures.mutate_template(root, candidate)
-            comparison, records = fixtures.compare(root, ['iam'])
-            selected = [r for r in records if r['property'] == 'IAM.Role.Policies']
-            assert len(selected) == 1, records
-            return comparison, selected[0]
+        record = _bind_framework_callback(_callback_main_checks_record, root)
 
         with patch('socket.socket', side_effect=AssertionError('network forbidden')):
             comparison, result = record(original)
             assert result['category'] == 'matched', result
-            callback = lambda a, b, path: comparison.reference_same(a, b, 'IAM.Role', path)
+            callback = _bind_framework_callback(_lambda_main_checks_callback_76, comparison)
             action_path = 'Policies[].PolicyDocument.Statement[].Action'
             for predicate in (same, selected_same):
                 assert predicate('s3:GetObject', ['s3:GetObject'], reference=callback, path=action_path)

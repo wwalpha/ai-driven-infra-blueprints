@@ -1,19 +1,36 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+
 import sys
+from functools import partial as _bind_framework_callback
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import pytest
+import sync_runtime
+from support.validation_scope_fixtures import (
+    VALIDATOR,
+    Path,
+    active_scope,
+    patch,
+    subprocess,
+    sys,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.validation_scope_fixtures import *
-import pytest
+
+def _callback_check_internal_generation_dispatch_hook(selections, /, selected):
+    selections.append(selected)
+    return []
 
 
 @pytest.mark.parametrize('scope', [None, {('stg', 'team', 'config'), ('dev', 'team', 'config')}])
 @pytest.mark.parametrize('workers', [1, 4])
 def check_internal_generation_dispatch(tmp_path, scope, workers):
-    import sync_runtime
     with patch.object(sync_runtime, 'compare_generation', return_value=('consumer missing: stg/team/config',)) as compare, \
          patch.object(subprocess, 'run', side_effect=AssertionError('Python subprocess')):
         validator = VALIDATOR.Validator(tmp_path, scope, workers=workers, definitions_root=tmp_path/'external-definitions')
@@ -26,9 +43,7 @@ def check_internal_generation_dispatch(tmp_path, scope, workers):
         empty.check_generated_service_models()
         assert not empty.errors
         selections = []
-        def hook(selected):
-            selections.append(selected)
-            return []
+        hook = _bind_framework_callback(_callback_check_internal_generation_dispatch_hook, selections)
         hooked = VALIDATOR.Validator(tmp_path, scope, model_check=hook)
         hooked.check_generated_service_models()
         assert selections == [scope] and not hooked.errors

@@ -1,25 +1,28 @@
 """Check horizontal SG rules, catalog validation, model ownership and references."""
 
 import sys
-
 from pathlib import Path
 
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-if not __debug__:
-    raise SystemExit("Focused checks require assertions; run without -O")
-
-from support.model_sources import write_model
-
-import model.projection as model_projection
 
 import tempfile
 
+import model.projection as model_projection
+from design_layout import expanded_design, layout_errors
+from security_group_tables import (
+    COMMENTS,
+    DIRECTIONS,
+    port_properties,
+    security_group_table_lines,
+)
+from support.model_sources import write_model
 from support.validator import load
+from utils.layout_schema import LAYOUTS
 
-from design_layout import LAYOUTS, expanded_design, layout_errors
-
-from security_group_tables import COMMENTS, DIRECTIONS, port_properties, security_group_table_lines
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
 
 REPOSITORY = Path(__file__).resolve().parents[4]
 

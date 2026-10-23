@@ -2,18 +2,53 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 import sys
 from pathlib import Path
-sys.path[:0] = [str(Path(__file__).resolve().parents[2]), str(Path(__file__).resolve().parents[1])]
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from support.worktree_python_fixtures import (
+    Path,
+    blocked,
+    importlib,
+    patch,
+    py,
+    sys,
+    tempfile,
+)
+
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-from support.worktree_python_fixtures import *
 
 def check_environment():
+    scripts = Path(__file__).resolve().parents[2]
+    for first, second in (('worktree_python', 'worktree_task'), ('worktree_task', 'worktree_python')):
+        code = (f"import sys; sys.path.insert(0, {str(scripts)!r}); "
+                f"import {first}; import {second}; import worktree_python, worktree_state; "
+                "assert worktree_python.wt is worktree_state")
+        result = py.subprocess.run([sys.executable, '-I', '-B', '-c', code],
+                                   capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
     with patch.dict(py.os.environ, {"VIRTUAL_ENV": "foreign", "PYTHONHOME": "foreign", "PYTHONPATH": "foreign"}):
         env = py.environment()
         assert not any(name in env for name in ("VIRTUAL_ENV", "PYTHONHOME", "PYTHONPATH"))
         assert env["PATH"].split(py.os.pathsep)[0] == str(py.python_path().parent)
 
+
+
+
+
+
+
+def _check_pdf_native_optional_import_module(name):
+    if name == 'weasyprint':
+        raise OSError("cannot load library 'libgobject-2.0-0': error 0x7e")
+
+
+def _check_pdf_native_optional_run(command, root, env):
+    if '-c' in command:
+        exec(command[-1], {})
+    return ''
 
 
 def check_pdf_native_optional():
@@ -22,13 +57,8 @@ def check_pdf_native_optional():
         requirements = root / py.REQUIREMENTS
         requirements.parent.mkdir(parents=True)
         requirements.write_text("PyYAML==6.0.3\nweasyprint==70.0\n", encoding="utf-8")
-        def import_module(name):
-            if name == "weasyprint":
-                raise OSError("cannot load library 'libgobject-2.0-0': error 0x7e")
-        def run(command, root, env):
-            if "-c" in command:
-                exec(command[-1], {})
-            return ""
+        import_module = _check_pdf_native_optional_import_module
+        run = _check_pdf_native_optional_run
         with patch.object(py, "run", side_effect=run) as commands, \
                 patch.object(importlib, "import_module", side_effect=import_module) as imports, \
                 patch.object(importlib.metadata, "version", side_effect={"PyYAML": "6.0.3", "weasyprint": "70.0"}.__getitem__) as versions:

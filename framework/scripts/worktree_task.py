@@ -2,60 +2,66 @@
 """Create and integrate isolated task worktrees; preserve work on every failure."""
 
 import argparse
-from dataclasses import dataclass
-from contextlib import contextmanager, nullcontext
+import hashlib
 import json
-import os
-from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
+from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
+from dataclasses import dataclass
+from pathlib import Path
 
 import task_contract as tasks
 import worktree_python as python_env
-
-
-class Blocked(ValueError):
-    pass
-
-
-def git(root, *args, check=True):
-    # Never route commands through an inherited worktree/private index or prompt.
-    environment = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    environment.update(GIT_TERMINAL_PROMPT="0", GIT_EDITOR="true", GIT_SEQUENCE_EDITOR="true")
-    result = subprocess.run(["git", *map(str, args)], cwd=root, env=environment,
-                            capture_output=True, encoding="utf-8")
-    if check and result.returncode:
-        raise Blocked(f"git {args[0]} failed: {result.stderr.strip() or result.stdout.strip()}")
-    return result
-
-
-def output(root, *args):
-    return git(root, *args).stdout.strip()
+import worktree_state
+from script_loader import module
+from utils.file_operations import sha
+from utils.import_evidence import discard_import_proof
+from worktree_state import (
+    Blocked as Blocked,
+)
+from worktree_state import changed_paths as changed_paths
+from worktree_state import committed_task_paths as committed_task_paths
+from worktree_state import (
+    git as git,
+)
+from worktree_state import (
+    load as load,
+)
+from worktree_state import (
+    metadata_directory as metadata_directory,
+)
+from worktree_state import (
+    repository as repository,
+)
+from worktree_state import (
+    state_path as state_path,
+)
+from worktree_state import subprocess_bytes
+from worktree_state import task_start_commit as task_start_commit
+from worktree_state import task_worktree as task_worktree
+from worktree_state import (
+    worktrees as worktrees,
+)
 
 
 def paths(root, *args):
-    return set(git(root, *args).stdout.rstrip("\0").split("\0")) - {""}
+    return worktree_state.paths(root, *args, runner=git)
 
 
-def worktrees(root):
-    records = []
-    for block in git(root, "worktree", "list", "--porcelain", "-z").stdout.split("\0\0"):
-        if block:
-            records.append(dict(line.partition(" ")[::2] for line in block.split("\0") if line))
-    return records
+def idle_git(root):
+    return worktree_state.idle_git(root, runner=git)
 
 
-def repository(where):
-    root = Path(output(where, "rev-parse", "--show-toplevel")).resolve()
-    if output(root, "rev-parse", "--is-bare-repository") != "false":
-        raise Blocked("a non-bare Git repository is required")
-    common = Path(output(root, "rev-parse", "--path-format=absolute", "--git-common-dir"))
-    records = worktrees(root)
-    primary = Path(records[0]["worktree"]).resolve()
-    if not primary.is_dir() or "prunable" in records[0]:
-        raise Blocked("primary worktree is missing or stale")
-    return root, common, primary
+def output(root, *args):
+    return worktree_state.output(root, *args, runner=git)
+
+
+
+
+
+
 
 
 def branch_exists(root, branch):
@@ -77,18 +83,8 @@ def base_branch(root):
     raise Blocked("no configured base, main or master branch exists")
 
 
-def metadata_directory(primary):
-    directory = primary / ".worktrees" / ".blueprint"
-    for path in (directory.parent, directory, directory / "tasks"):
-        if path.is_symlink():
-            raise Blocked(f"worktree metadata must not use symlinks: {path}")
-    return directory
 
 
-def state_path(primary, task_id):
-    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", task_id):
-        raise Blocked("task-id must use the existing lower-kebab-case task naming rule")
-    return metadata_directory(primary) / "tasks" / f"{task_id}.json"
 
 
 def save(path, state):
@@ -132,7 +128,7 @@ def create(where, task_id, repair_request=None):
             raise Blocked('attempt already owns another child; no static retry Task reset')
     repair_lock = nullcontext()
     if request:
-        from deploy.handoff import locked
+        locked = _worktree_runtime().deploy_handoff.locked
         repair_lock = locked(Path(request['session']))
     with lifecycle_lock(primary), repair_lock:
         base = request['parentBranch'] if request else base_branch(root)
@@ -152,7 +148,7 @@ def create(where, task_id, repair_request=None):
         if request:
             state['deployRepair'] = request['requestPath']
             attempt['childTask'] = task_id
-            from deploy.handoff import save as save_session
+            save_session = _worktree_runtime().deploy_handoff.save
             save_session(Path(request['session']), session)
         state_file.parent.mkdir(exist_ok=True)
         save(state_file, state)
@@ -188,78 +184,16 @@ def setup(where, task_id):
         lock.rmdir()
 
 
-def load(where, task_id):
-    root, common, primary = repository(where)
-    path = state_path(primary, task_id)
-    state = json.loads(path.read_text(encoding="utf-8"))
-    if (state["task_id"] != task_id or state["branch"] != f"codex/worktree/{task_id}"
-            or state["task_file"] != f"tasks/{task_id}.md" or state["primary"] != str(primary)
-            or Path(state["worktree"]) != primary / ".worktrees" / task_id):
-        raise Blocked("task lifecycle state does not match this repository")
-    # Cleanup can remove the caller's checkout; control Git from a surviving root.
-    return primary, common, path, state
 
 
-def task_start_commit(root, task_file):
-    """Return the existing managed baseline, failing closed on invalid lifecycle state."""
-    _, _, primary = repository(root)
-    path = state_path(primary, Path(task_file).stem)
-    managed = root.resolve().parent == primary / '.worktrees'
-    if not path.exists():
-        if managed:
-            raise Blocked('managed worktree task lifecycle state missing')
-        return None
-    _, _, _, state = load(root, Path(task_file).stem)
-    if Path(state['worktree']).resolve() != root.resolve():
-        if managed:
-            raise Blocked('selected task lifecycle belongs to another worktree')
-        return None
-    if state['task_file'] != task_file:
-        raise Blocked('selected task does not match managed task_file')
-    task_worktree(root, state)
-    start = output(root, 'rev-parse', '--verify', state.get('validation_base', state['start']) + '^{commit}')
-    if git(root, 'merge-base', '--is-ancestor', start, 'HEAD', check=False).returncode:
-        raise Blocked('task lifecycle start is not an ancestor of HEAD')
-    return start
 
 
-def committed_task_paths(root, task_file):
-    """Committed changes since Task start; retain IMPORT/finalize caller semantics."""
-    start = task_start_commit(root, task_file)
-    return None if start is None else paths(root, 'diff', '--no-renames', '--name-only', '-z', start, 'HEAD')
 
 
-def idle_git(root):
-    names = ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply", "sequencer")
-    arguments = [argument for name in names for argument in ("--git-path", name)]
-    resolved = output(root, "rev-parse", "--path-format=absolute", *arguments).splitlines()
-    # Newlines in a Git directory make the batched output ambiguous.
-    if len(resolved) != len(names):
-        resolved = [output(root, "rev-parse", "--path-format=absolute", "--git-path", name)
-                    for name in names]
-    for name, value in zip(names, resolved):
-        path = Path(value)
-        if path.exists():
-            raise Blocked(f"unfinished Git operation: {name}; worktree retained")
-    if paths(root, "diff", "--name-only", "--diff-filter=U", "-z"):
-        raise Blocked("unresolved index conflicts; worktree retained")
 
 
-def changed_paths(root):
-    return (paths(root, "diff", "--no-renames", "--name-only", "-z")
-            | paths(root, "diff", "--cached", "--no-renames", "--name-only", "-z")
-            | paths(root, "ls-files", "--others", "--exclude-standard", "-z"))
 
 
-def task_worktree(root, state):
-    target = Path(state["worktree"])
-    entries = [entry for entry in worktrees(root) if Path(entry["worktree"]).resolve() == target]
-    if (len(entries) != 1 or "locked" in entries[0] or "prunable" in entries[0]
-            or entries[0].get("branch") != f"refs/heads/{state['branch']}"
-            or not target.is_dir()):
-        raise Blocked("task worktree missing, locked, stale or switched; retain it for review")
-    idle_git(target)
-    return target
 
 
 def integration_task(target, state, approval=None):
@@ -319,7 +253,6 @@ def cleanup_state(root, path, state):
             raise Blocked("temporary branch changed or is unmerged; cleanup refused")
         # -d checks against HEAD when no upstream exists. Use the verified base worktree.
         git(base_worktree(root, state), "branch", "-d", state["branch"])
-    from import_guard import discard_import_proof
     discard_import_proof(target, state['task_file'])
     path.unlink()
     return {**state, "cleaned": True}
@@ -615,49 +548,11 @@ class _ValidatedCandidate:
 
 
 def prepare_integration(where: Path, task_id: str) -> FinalCandidate:
-    """Commit/rebase a private Model-only candidate; never validate, complete or merge."""
-    root, _, path, state = load(where, task_id)
-    with lifecycle_lock(root):
-        if path.with_suffix('.setup-lock').exists() or state.get('python_setup', {}).get('status') != 'ready' or state['merged']:
-            raise Blocked('Model integration requires ready unmerged lifecycle state')
-        target = task_worktree(root, state)
-        text = (target / state['task_file']).read_text(encoding='utf-8')
-        if not tasks.final_model_task(text) or tasks.status(text) not in {'running', 'completed'}:
-            raise Blocked('Model integration requires a running/completed Model-only task')
-        if tasks.section(text, '## Suspension reason'):
-            raise Blocked('running/completed task has an unexpected suspension reason')
-        operation = tasks.model_operation(text)
-        if operation is not None and operation.action == 'import-delete':
-            from model.sources import Scope, load_model
-            from model.core import entries
-            for scope in sorted(operation.source_scopes):
-                remaining = set(dict(entries(load_model(Scope(target, *scope)).authoritative, 'desired.resource.')))
-                requested = {source.rsplit('/', 1)[1] for source in operation.delete_sources
-                             if tuple(source.split('/')[:3]) == scope}
-                if remaining & requested:
-                    raise Blocked('deletion leaves incomplete: ' + '/'.join(scope) + ': ' + ', '.join(sorted(remaining & requested)))
-        latest = _prepare_commit(root, path, state, target, None)
-        from validation_scope import active_scope
-        scope = active_scope(target, task_file=state['task_file'])
-        if scope is None:
-            raise Blocked('Model final candidate requires explicit service scope')
-        head = output(target, 'rev-parse', 'HEAD')
-        return FinalCandidate(target, target, state['task_file'], text, latest, head,
-                              frozenset(paths(target, 'diff', '--no-renames', '--name-only', '-z', latest, head)), frozenset(scope))
+    return _worktree_runtime().prepare_integration(where, task_id)
 
 
 def validate_final_candidate(candidate: FinalCandidate) -> _ValidatedCandidate:
-    """Run the existing read-only final loop once, without holding the lifecycle lock."""
-    from validation.loop import run_loop
-    from types import SimpleNamespace
-    options = SimpleNamespace(mode='task', all=False, task_file=candidate.task_file,
-        log_dir=None, profile=False, jobs=2, validation_jobs=4, fresh=True, write=False,
-        staged=False, base=None, affected=False)
-    if (changed_paths(candidate.root) or output(candidate.root, 'rev-parse', 'HEAD') != candidate.candidate_head or
-            (candidate.root / candidate.task_file).read_text(encoding='utf-8') != candidate.task_text):
-        raise Blocked('final candidate changed before validation')
-    code = run_loop(candidate.root, options, final_candidate=candidate)
-    return _ValidatedCandidate(candidate, code)
+    return _worktree_runtime().validate_final_candidate(candidate)
 
 
 def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
@@ -698,8 +593,6 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
 
 def _integrate_model(where, task_id):
     """Internal registered-runtime composition; diagnostics remain outside CLI JSON."""
-    import tempfile
-    from contextlib import redirect_stdout, redirect_stderr
     with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', prefix='blueprint-model-integration-', suffix='.log', delete=False) as log:
         try:
             with redirect_stdout(log), redirect_stderr(log):
@@ -712,170 +605,18 @@ def _integrate_model(where, task_id):
             raise Blocked(str(error) + '; integration log: ' + log.name) from error
 
 def bind_deploy_workflow(where, session_path, session, ledger, *, activate=False):
-    """Prevent a new Task from resetting an overlapping unfinished deploy workflow."""
-    # Pure session units have no Git; production deploy already requires clean Git inputs.
-    if not (where / '.git').exists():
-        return
-    from import_guard import managed_task_state, read_sealed, write_sealed
-    from utils.json_format import fingerprint
-    root, _, primary = repository(where)
-    directory = metadata_directory(primary) / 'deploy-workflows'
-    target = session['target']
-    key = fingerprint([target.get('awsExecutionAccountId', target['awsAccountId']), target['awsRegion']])
-    file = directory / (key + '.json')
-    if directory.is_symlink() or file.is_symlink():
-        raise Blocked('deploy workflow registry must not use symlinks')
-    if not activate and not file.exists():
-        return
-    managed_task_state(root, session['taskFile'])
-    directory.mkdir(parents=True, exist_ok=True)
-    lock = directory / 'registry.lock'
-    try:
-        lock.mkdir()
-    except FileExistsError:
-        raise Blocked('deploy workflow registry busy/interrupted; retain for review') from None
-    try:
-        owners = read_sealed(primary, file) if file.exists() else []
-        current = {'workflowId':session['workflow']['workflowId'], 'repository':str(root),
-                   'taskFile':session['taskFile'], 'session':str(session_path), 'ledger':str(ledger),
-                   'scope':sorted(session['states'])}
-        existing = False
-        for owner in owners:
-            if owner['workflowId'] == current['workflowId']:
-                if owner != current:
-                    raise Blocked('deploy workflow ownership/Stack scope changed')
-                existing = True
-                continue
-            if not set(owner['scope']) & set(current['scope']):
-                continue
-            previous_ledger = Path(owner['ledger'])
-            if previous_ledger.with_name(previous_ledger.name + '.intent').exists():
-                raise Blocked('recover original workflow save intent before another Task')
-            previous = read_sealed(Path(owner['repository']), previous_ledger)
-            if previous['workflowId'] != owner['workflowId'] or previous['session'] != owner['session']:
-                raise Blocked('previous deploy workflow identity cannot be verified')
-            state = previous['state']
-            finished = state['workflow'].get('status') == 'COMPLETE' and not state.get('pendingRequest')
-            if (not finished or any(s['status'] == 'RUNNING' or s.get('pollError') or s.get('cleanupStatus') == 'DELETE_INTENT' or
-                    s['status'] == 'SUCCESS' and not s.get('observedSynced') for s in state['states'].values())):
-                raise Blocked('unfinished deploy workflow owns overlapping Stacks; resume/inherit its retained history: ' + owner['session'])
-        if activate and not existing:
-            owners.append(current)
-            write_sealed(primary, file, owners)
-    finally:
-        lock.rmdir()
+    return _worktree_runtime().bind_deploy_workflow(where, session_path, session, ledger, activate=activate)
 
 
 def deploy_request(where, request_path):
-    """Read the sealed handoff through the parent seal and verify its live checkpoint."""
-    from deploy.handoff import external
-    from deploy.contracts import task_digest
-    from import_guard import read_sealed
-    request_path = external(Path(where), request_path)
-    envelope = json.loads(request_path.read_text(encoding='utf-8'))
-    parent = Path(envelope['payload']['repository'])
-    request = read_sealed(parent, request_path)
-    root, _, path, state = load(parent, Path(request['taskFile']).stem)
-    if task_worktree(root, state) != parent or request.get('parentBranch') != state['branch']:
-        raise Blocked('repair request parent ownership mismatch')
-    session = json.loads(Path(request['session']).read_text(encoding='utf-8'))
-    from deploy.handoff import restore, locked
-    with locked(Path(request['session'])):
-        restore(parent, Path(request['session']), session)
-    if (session.get('pendingRequest') != request or session['inputRevision'] != request['revision'] or
-            session['workflow']['workflowId'] != request['workflowId']):
-        raise Blocked('stale/consumed repair request')
-    text = (parent / request['taskFile']).read_text(encoding='utf-8')
-    normalized = tasks.set_status(text, 'running')
-    if task_digest(normalized) != request['taskDigest']:
-        raise Blocked('parent contract changed outside suspension/resume')
-    if changed_paths(parent) or output(parent, 'rev-parse', 'HEAD') != request['parentTip']:
-        # An interrupted child merge is checked separately against its exact integration intent.
-        if not state.get('deployIntegrationIntent'):
-            raise Blocked('parent checkpoint changed')
-    return root, path, state, session, request
+    return _worktree_runtime().deploy_request(where, request_path)
 
 
 def deploy_checkpoint(where, task_id, session_path):
-    """Checkpoint only proven parent changes, without completing an unfinished deploy."""
-    import hashlib
-    from deploy import handoff
-    from deploy.contracts import task_digest
-    from import_guard import write_sealed
-    root, _, path, state = load(where, task_id)
-    target = task_worktree(root, state)
-    session_path = handoff.external(target, session_path)
-    with lifecycle_lock(root), handoff.locked(session_path):
-        session = json.loads(session_path.read_text(encoding='utf-8'))
-        handoff.restore(target, session_path, session)
-        request = session.get('pendingRequest')
-        if not request or request['repository'] != str(target) or request['taskFile'] != state['task_file']:
-            raise Blocked('checkpoint needs this parent pending request')
-        text = (target / state['task_file']).read_text(encoding='utf-8')
-        if tasks.status(text) != 'running' or task_digest(text) != session['taskDigest']:
-            raise Blocked('checkpoint requires unchanged running parent Task')
-        if session.get('observedError') or any(s['status'] == 'RUNNING' or s.get('pollError') or
-                s['status'] == 'SUCCESS' and not s.get('observedSynced') for s in session['states'].values()):
-            raise Blocked('drain and synchronize peers before checkpoint')
-        handoff.verify_inputs(target, session)
-        from validation.task import TaskValidation
-        from validation.findings import Findings
-        with tasks.selected_task(target, state['task_file']):
-            findings = Findings(target)
-            check = TaskValidation(target, findings)
-            check.check_task_scope()
-            check.check_task_type_requirements()
-            check.check_issue_gate()
-            if findings.errors:
-                raise Blocked('parent change authority: ' + '; '.join(findings.errors))
-        changed = changed_paths(target)
-        head = output(target, 'rev-parse', 'HEAD')
-        intent = state.get('repairCheckpointIntent')
-        if intent:
-            if intent['requestId'] != request['requestId']:
-                raise Blocked('checkpoint intent belongs to another request')
-            if head != intent['head']:
-                if (changed or output(target, 'rev-parse', 'HEAD^') != intent['head'] or
-                        output(target, 'rev-parse', 'HEAD^{tree}') != intent['tree'] or
-                        output(target, 'log', '-1', '--format=%s') != intent['message']):
-                    raise Blocked('checkpoint commit is not the saved intent')
-        else:
-            if head != state['tip']:
-                raise Blocked('unexpected parent commits before checkpoint')
-            git(target, 'diff', '--check')
-            git(target, 'diff', '--cached', '--check')
-            if changed:
-                git(target, 'add', '--', *[f':(top,literal){p}' for p in sorted(changed)])
-            intent = {'requestId': request['requestId'], 'head': head, 'tree': output(target, 'write-tree'),
-                      'message': f'task({task_id}): deploy repair checkpoint {request["requestId"]}'}
-            state['repairCheckpointIntent'] = intent
-            save(path, state)
-        if head == intent['head'] and changed:
-            git(target, 'commit', '-m', intent['message'])
-        tip = output(target, 'rev-parse', 'HEAD')
-        if output(target, 'rev-parse', 'HEAD^{tree}') != intent['tree'] or changed_paths(target):
-            raise Blocked('checkpoint changed during commit')
-        integration = state.get('deployIntegrationIntent')
-        if integration:
-            if integration.get('result') not in session['workflow']['accepted']:
-                raise Blocked('previous child integration has not been accepted')
-            state.setdefault('deployIntegrations', []).append(state.pop('deployIntegrationIntent'))
-        state['tip'] = tip
-        state.setdefault('deployCheckpoints', []).append(intent)
-        state.pop('repairCheckpointIntent', None)
-        request.update(parentTip=tip, parentBranch=state['branch'], parentStart=state['start'])
-        directory = session_path.with_name(session_path.name + '.files') / ('repair-' + request['requestId'])
-        directory.mkdir(parents=True, exist_ok=True)
-        request['requestPath'] = str(directory / 'request.json')
-        # Both files are recoverable from the persisted checkpoint/intent on retry.
-        save(path, state)
-        handoff.save(session_path, session)
-        write_sealed(target, Path(request['requestPath']), request)
-        return request
+    return _worktree_runtime().deploy_checkpoint(where, task_id, session_path)
 
 
 def deploy_child_contract(target, state, request):
-    from deploy.contracts import task_digest
     text = (target / state['task_file']).read_text(encoding='utf-8')
     tasks.validate_contract(target, state['task_file'], text)
     lines = tasks.section(text, '## Task contract')
@@ -899,156 +640,15 @@ def deploy_child_contract(target, state, request):
 
 
 def deploy_snapshot(target):
-    """Hash tracked validation dependencies and actual untracked inputs, never their values."""
-    from deploy.contracts import sha
-    result = {}
-    for relative in sorted(paths(target, 'ls-files', '-z') | paths(target, 'ls-files', '--others', '--exclude-standard', '-z')):
-        path = tasks.safe_path(target, relative)
-        result[relative] = sha(path) if path.is_file() else None
-    return result
+    return _worktree_runtime().deploy_snapshot(target)
 
 
 def deploy_validate(where, task_id, request_path):
-    from deploy import handoff
-    from deploy.contracts import task_digest
-    from import_guard import write_sealed
-    root, _, path, state = load(where, task_id)
-    target = task_worktree(root, state)
-    _, _, parent_state, session, request = deploy_request(target, request_path)
-    if state.get('deployRepair') != request['requestPath'] or state['start'] != request['parentTip']:
-        raise Blocked('child lifecycle does not belong to this request')
-    with lifecycle_lock(root), handoff.locked(Path(request['session'])):
-        text = deploy_child_contract(target, state, request)
-        if tasks.status(text) != 'running' or output(target, 'rev-parse', 'HEAD') != state['tip']:
-            raise Blocked('child must be running at its lifecycle tip for validation')
-        handoff.verify_inputs(target, session, child_paths=request['allowedPaths'], contract_file=state['task_file'])
-        before = deploy_snapshot(target)
-        attempt = session['workflow']['attempts'][request['attemptId']]
-        if attempt.get('staticRuns', 0) >= 3:
-            raise Blocked('implement static repair limit reached; WAITING_HUMAN')
-        attempt['staticRuns'] = attempt.get('staticRuns', 0) + 1
-        attempt['stage'] = 'STATIC_VALIDATING'
-        handoff.save(Path(request['session']), session)
-        # Provisioned interpreter, same fixed validator as ordinary implement. No shell/LLM/AWS.
-        interpreter, environment = python_env.runtime(target)
-        from utils.aws_mappings import definition_root
-        command = [str(interpreter), '-B', str(definition_root(target) / 'framework/scripts/blueprint-loop.py'),
-                   '--mode', 'task', '--task-file', state['task_file'], '--fresh']
-        environment[tasks.SELECTOR] = state['task_file']
-        outcome = subprocess.run(command, cwd=target, env=environment, capture_output=True, text=True)
-        log = Path(request['requestPath']).with_name(f'static-{attempt["staticRuns"]}.log')
-        # Validator output belongs to the same private external evidence boundary.
-        from utils.json_format import fingerprint
-        log.write_text(json.dumps({'command': command, 'exitCode': outcome.returncode, 'outputDigest': fingerprint([outcome.stdout, outcome.stderr])}) + '\n', encoding='utf-8')
-        after = deploy_snapshot(target)
-        candidate_error = None
-        if not outcome.returncode and before == after:
-            from deploy.inputs import load_units, paths as unit_paths, deployment_input_paths
-            with tasks.selected_task(target, state['task_file']):
-                _, candidate_units = load_units(target, session['environment'], session['directory'], list(session['states']))
-            candidate_effective = handoff.effective(target, candidate_units,
-                lambda u: unit_paths(target, session['environment'], session['directory'], session['target'], u),
-                lambda us: deployment_input_paths(target, session['environment'], session['directory'], session['target'], us))
-            changed_inputs = changed_paths(target)
-            direct = {name for name, inputs in session['unitInputPaths'].items() if set(inputs) & changed_inputs}
-            previous_ids = {o['observationId'] for p in attempt['problemIds'] for o in session['workflow']['problems'][p]['observations']}
-            if not direct or any(candidate_effective[name] == session['effectiveDigests'][name] or
-                    candidate_effective[name] in {o.get('effectiveDigest') for o in session.get('failureObservations', []) if o['stack'] == name and o['observationId'] in previous_ids} for name in direct):
-                candidate_error = 'unchanged or known failed effective inputs for this problem'
-        if outcome.returncode or before != after or candidate_error or (target / state['task_file']).read_text(encoding='utf-8') != text:
-            attempt['staticFailures'] += 1
-            attempt['stage'] = 'STATIC_FAILED'
-            if attempt['staticRuns'] >= 3:
-                session['workflow']['status'] = 'WAITING_HUMAN'
-            handoff.save(Path(request['session']), session)
-            tasks.suspend(target, state['task_file'], 'repair static validation failed/inputs changed; ' + str(log))
-            raise Blocked((candidate_error or 'repair static validation failed or inputs changed') + '; ' + str(log))
-        receipt = dict(requestId=request['requestId'], attemptId=request['attemptId'], childTask=state['task_file'],
-                       contract=text, snapshot=after, command=command, log=str(log), result='PASS',
-                       parentTip=request['parentTip'], childRoot=str(target))
-        validation_path = Path(request['requestPath']).with_name('validation.json')
-        write_sealed(Path(request['repository']), validation_path, receipt)
-        state['deployValidation'] = str(validation_path)
-        attempt['stage'] = 'STATIC_PASSED'
-        save(path, state)
-        handoff.save(Path(request['session']), session)
-        return receipt
+    return _worktree_runtime().deploy_validate(where, task_id, request_path)
 
 
 def deploy_finalize(where, task_id):
-    """FF-only delivery to the pinned suspended parent, with durable merge intent/result."""
-    from deploy import handoff
-    from deploy.contracts import sha, task_digest, subprocess_bytes
-    from import_guard import read_sealed, write_sealed
-    root, _, path, state = load(where, task_id)
-    target = task_worktree(root, state)
-    _, parent_path, parent_state, session, request = deploy_request(target, state['deployRepair'])
-    parent = Path(request['repository'])
-    with lifecycle_lock(root), handoff.locked(Path(request['session'])):
-        parent_text = (parent / request['taskFile']).read_text(encoding='utf-8')
-        if tasks.status(parent_text) != 'suspend':
-            raise Blocked('repair integration requires suspended parent')
-        integration_task(target, state)
-        text = deploy_child_contract(target, state, request)
-        validation = read_sealed(parent, Path(state['deployValidation']))
-        if (validation['requestId'] != request['requestId'] or validation['contract'] != tasks.set_status(text, 'running') or
-                validation['snapshot'] != deploy_snapshot(target)):
-            raise Blocked('validated child contract/inputs changed')
-        handoff.verify_inputs(parent, session, child_paths=request['allowedPaths'] if parent_state.get('deployIntegrationIntent') else ())
-        if not state.get('deployCommitIntent'):
-            if output(target, 'rev-parse', 'HEAD') != request['parentTip']:
-                raise Blocked('unexpected child commits')
-            changed = changed_paths(target)
-            if not changed or changed - set(request['allowedPaths']):
-                raise Blocked('repair changes empty or outside request')
-            git(target, 'diff', '--check')
-            git(target, 'diff', '--cached', '--check')
-            git(target, 'add', '--', *[f':(top,literal){p}' for p in sorted(changed)])
-            state['deployCommitIntent'] = {'parent': request['parentTip'], 'tree': output(target, 'write-tree'),
-                                           'message': f'task({task_id}): verified deploy repair {request["requestId"]}'}
-            save(path, state)
-        intent = state['deployCommitIntent']
-        if output(target, 'rev-parse', 'HEAD') == intent['parent']:
-            git(target, 'commit', '-m', intent['message'])
-        commit = output(target, 'rev-parse', 'HEAD')
-        if (output(target, 'rev-parse', 'HEAD^') != intent['parent'] or output(target, 'rev-parse', 'HEAD^{tree}') != intent['tree'] or
-                output(target, 'log', '-1', '--format=%s') != intent['message'] or changed_paths(target)):
-            raise Blocked('repair commit differs from recorded intent')
-        changed = paths(target, 'diff', '--name-only', '--no-renames', '-z', intent['parent'], commit)
-        if changed - set(request['allowedPaths']):
-            raise Blocked('repair commit includes other changes')
-        state.update(tip=commit, commit=commit, verified=True)
-        save(path, state)
-        plan = {'requestId': request['requestId'], 'parentTip': request['parentTip'], 'commit': commit}
-        if parent_state.get('deployIntegrationIntent') and any(parent_state['deployIntegrationIntent'].get(key) != value for key, value in plan.items()):
-            raise Blocked('another integration intent is pending')
-        parent_state['deployIntegrationIntent'] = plan
-        save(parent_path, parent_state)
-        if changed_paths(parent) or output(parent, 'rev-parse', 'HEAD') not in {request['parentTip'], commit}:
-            raise Blocked('parent changed during child integration')
-        git(parent, 'merge', '--ff-only', '--no-autostash', commit)
-        if output(parent, 'rev-parse', 'HEAD') != commit:
-            raise Blocked('repair merge differs from intended commit')
-        changes = {p: {'before': __import__('hashlib').sha256(subprocess_bytes(target, request['parentTip'], p)).hexdigest(),
-                       'after': sha(target / p), 'beforeBlob': output(target, 'rev-parse', request['parentTip'] + ':' + p),
-                       'afterBlob': output(target, 'rev-parse', commit + ':' + p)} for p in sorted(changed)}
-        from deploy.inputs import load_units, paths as input_paths, deployment_input_paths
-        with tasks.selected_task(target, state['task_file']):
-            _, units = load_units(target, session['environment'], session['directory'], list(session['states']))
-        effective_after = handoff.effective(target, units,
-            lambda unit: input_paths(target, session['environment'], session['directory'], session['target'], unit),
-            lambda selected: deployment_input_paths(target, session['environment'], session['directory'], session['target'], selected))
-        result = {**request, 'effectiveInputs': {'before': session['effectiveDigests'], 'after': effective_after}, 'commit': commit, 'changes': changes, 'childTask': state['task_file'], 'childContract': text,
-                  'validation': validation, 'expected': session['workflow']['attempts'][request['attemptId']].get('expectation'),
-                  'result': 'VALIDATED_CANDIDATE'}
-        result_path = Path(request['requestPath']).with_name('result.json')
-        write_sealed(parent, result_path, result)
-        parent_state['tip'] = commit
-        parent_state['deployIntegrationIntent']['result'] = str(result_path)
-        save(parent_path, parent_state)
-        state['merged'] = commit
-        save(path, state)
-        return {**state, 'repair_result': str(result_path)}
+    return _worktree_runtime().deploy_finalize(where, task_id)
 
 
 def sync_base(where, task_id, expected_base):
@@ -1058,9 +658,7 @@ def sync_base(where, task_id, expected_base):
     candidates must already contain the reviewed upstream changes; their bytes are
     preserved exactly. This is a base update, never a validation/completion receipt.
     """
-    import hashlib
-    import tempfile
-    from deploy.contracts import sha, subprocess_bytes
+
     root, _, path, state = load(where, task_id)
     with lifecycle_lock(root):
         target = task_worktree(root, state)
@@ -1133,6 +731,10 @@ def sync_base(where, task_id, expected_base):
         state.setdefault('baseSyncs', []).append(state.pop('baseSyncIntent'))
         save(path, state)
         return state
+
+
+def _worktree_runtime():
+    return module("worktree_runtime.py", "worktree_runtime")
 
 
 def main():

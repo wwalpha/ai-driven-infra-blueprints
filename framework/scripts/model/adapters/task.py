@@ -1,10 +1,21 @@
 """One-use Model save authority issued by the existing managed Task boundary."""
-from contextlib import contextmanager
-from pathlib import Path
-from dataclasses import dataclass, replace
 
-from model.sources import (SourceWriteContext, list_models, load_model,
-                           publication_lock, source_scope, _safe)
+from contextlib import contextmanager
+from dataclasses import dataclass
+from dataclasses import replace as replace
+from functools import partial as _bind_framework_callback
+from pathlib import Path
+
+import generation_inputs as _imports_generation_inputs
+import import_guard as _imports_import_guard
+import issue_gate as _imports_issue_gate
+import task_contract_core as _imports_task_contract
+import utils.input_cache as _imports_validation_cache
+import validation_scope as _imports_validation_scope
+
+import model.importing.repository as _imports_model_importing_repository
+import model.sources as _dependency_model_sources
+import model.sources as _imports_model_sources
 
 
 @dataclass(frozen=True)
@@ -36,8 +47,10 @@ def source_write_context(root, task_file):
 
 @contextmanager
 def observed_write_context(root, changes, task_file=None):
-    from task_contract import task_path
-    from model.sources import scope_for
+
+    task_path = _imports_task_contract.task_path
+
+    scope_for = _imports_model_sources.scope_for
     root = Path(root).resolve()
     name = task_file or task_path(root).relative_to(root).as_posix()
     scopes, keys = set(), set()
@@ -53,16 +66,35 @@ def observed_write_context(root, changes, task_file=None):
         yield context
 
 
+def _callback__write_context_require_current(allowed, declared, head, managed_task_state, matches, name, root, safe_path, state, task_head, task_revision, text, writable, /, changes):
+    if task_revision(root, selected=name) != (name, text):
+        raise ValueError('parent task changed before source publication')
+    if managed_task_state(root, name) != state or task_head(root) != head:
+        raise ValueError('managed worktree revision changed before source publication')
+    for file in changes:
+        relative = file.relative_to(root).as_posix()
+        safe_path(root, relative)
+        if file not in writable or relative not in declared or not any(matches(relative, p) for p in allowed):
+            raise ValueError('source write is outside Modified files/Allowed paths: ' + relative)
+
+
 @contextmanager
 def _write_context(root, task_file, *, requested=None):
     """Authorize one Model-only intermediate save, without running final validation."""
-    from import_guard import managed_task_state
-    from issue_gate import require_no_issues
-    from generation_inputs import GenerationInputs
-    from task_contract import (matches, model_operation, paths_in, safe_path,
-                               status, task_revision, validate_contract, selected_task)
-    from validation_cache import input_context, recording_inputs
-    from validation_scope import active_scope
+    GenerationInputs = _imports_generation_inputs.GenerationInputs
+    managed_task_state = _imports_import_guard.managed_task_state
+    require_no_issues = _imports_issue_gate.require_no_issues
+    matches = _imports_task_contract.matches
+    model_operation = _imports_task_contract.model_operation
+    paths_in = _imports_task_contract.paths_in
+    safe_path = _imports_task_contract.safe_path
+    selected_task = _imports_task_contract.selected_task
+    status = _imports_task_contract.status
+    task_revision = _imports_task_contract.task_revision
+    validate_contract = _imports_task_contract.validate_contract
+    input_context = _imports_validation_cache.input_context
+    recording_inputs = _imports_validation_cache.recording_inputs
+    active_scope = _imports_validation_scope.active_scope
     root = Path(root).resolve()
     with selected_task(root, task_file):
         name, text = task_revision(root, selected=task_file)
@@ -73,7 +105,8 @@ def _write_context(root, task_file, *, requested=None):
         if operation is None:
             raise ValueError('source write requires a Model-only update operation')
         if operation.action == 'observed':
-            from task_contract import section, model_refactor
+            model_refactor = _imports_task_contract.model_refactor
+            section = _imports_task_contract.section
             lines = set(section(text, '## Task contract'))
             design = {'- Task type: `design`', '- Workflow: `update`'} <= lines
             infrastructure = '- Task type: `infrastructure`' in lines and any(
@@ -81,16 +114,16 @@ def _write_context(root, task_file, *, requested=None):
             if not (design or infrastructure) or model_operation(text) is not None or model_refactor(text) is not None:
                 raise ValueError('observation publication requires its ordinary design/update or infrastructure observation Task')
         if operation.action == 'edit':
-            from task_contract import section
+            section = _imports_task_contract.section
             lines = section(text, '## Task contract')
             if '- Task type: `design`' not in lines or '- Workflow: `import`' in lines:
                 raise ValueError('ordinary Model editing requires a design Task; infrastructure design inputs remain immutable')
             if model_operation(text) is not None:
                 raise ValueError('Model-only operations require their limited source write context')
         state = managed_task_state(root, name)
-        from model.importing.repository import task_head
+        task_head = _imports_model_importing_repository.task_head
         head = task_head(root)
-        with input_context(), publication_lock(root):
+        with input_context(), _dependency_model_sources.publication_lock(root):
             snapshot = GenerationInputs(root, task_file=name)
             context = None
             try:
@@ -110,37 +143,28 @@ def _write_context(root, task_file, *, requested=None):
                         file = root / relative
                         if not relative.startswith('model/'):
                             continue
-                        selected = source_scope(root, file)
+                        selected = _dependency_model_sources.source_scope(root, file)
                         if (selected.environment, selected.target, selected.service) not in operation.scopes:
                             continue
-                        _safe(root, file, snapshot)
+                        _dependency_model_sources._safe(root, file, snapshot)
                         snapshot.read(file)
                         writable.add(file)
                     # Freeze real Models and producer dependencies; discovery grants no write rights.
                     targets = {identity[:2] for identity in required}
-                    for selected in list_models(root, snapshot):
+                    for selected in _dependency_model_sources.list_models(root, snapshot):
                         if (selected.environment, selected.target) in targets:
                             if operation.action == 'observed':
-                                load_model(selected, snapshot)
+                                _dependency_model_sources.load_model(selected, snapshot)
                             else:
-                                from model.sources import edit_base
+                                edit_base = _imports_model_sources.edit_base
                                 edit_base(selected.path, snapshot)
                     for identity in operation.scopes:
                         file = root / 'model' / identity[0] / identity[1] / (identity[2] + '.properties')
                         snapshot.read(file)
 
-                def require_current(changes):
-                    if task_revision(root, selected=name) != (name, text):
-                        raise ValueError('parent task changed before source publication')
-                    if managed_task_state(root, name) != state or task_head(root) != head:
-                        raise ValueError('managed worktree revision changed before source publication')
-                    for file in changes:
-                        relative = file.relative_to(root).as_posix()
-                        safe_path(root, relative)
-                        if file not in writable or relative not in declared or not any(matches(relative, p) for p in allowed):
-                            raise ValueError('source write is outside Modified files/Allowed paths: ' + relative)
+                require_current = _bind_framework_callback(_callback__write_context_require_current, allowed, declared, head, managed_task_state, matches, name, root, safe_path, state, task_head, task_revision, text, writable)
 
-                context = SourceWriteContext._authorized(root, snapshot, operation, require_current, frozenset(writable),
+                context = _dependency_model_sources.SourceWriteContext._authorized(root, snapshot, operation, require_current, frozenset(writable),
                                                          finish=lambda: require_current({}))
             except BaseException:
                 snapshot.close()
