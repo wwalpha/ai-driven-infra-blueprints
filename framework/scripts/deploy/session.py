@@ -261,10 +261,6 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                 raise Blocked("new session requires unused state path and no approvals")
             session = {"inputDigest": digest, "unitDigests": unit_digests,
                        "states": {unit["name"]: {"status": "NOT_STARTED"} for unit in units}}
-        if not args.resume and getattr(args, "skill_started_at", None) is not None:
-            if args.skill_started_at > time.time():
-                raise Blocked("Skill start time is in the future")
-            session["skillStartedAt"] = args.skill_started_at
         session.update(version=3, modelFormat=2, snapshotVersion=2, referenceMeaningVersion=1,
                        designDigest=current_design, profile=backend.profile,
                        modelInputManifest=model_input_manifest(root, args.environment, directory))

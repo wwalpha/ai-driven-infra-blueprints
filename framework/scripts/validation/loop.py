@@ -283,16 +283,18 @@ def select_checks(root, paths, affected=False):
                   "cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
     mapping["framework/scripts/comparison_rows.py"] = comparison
     mapping["framework/scripts/model/adapters/aws.py"] = comparison
-    mapping["framework/scripts/cloudformation-deploy.py"] = {"cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
-    for name in ("__init__", "preparation", "controller", "inputs", "contracts", "context", "guards", "session", "scheduler", "change_sets", "delivery", "s3_delivery", "repair", "secret_bootstrap", "observed", "timing"):
-        mapping[f"framework/scripts/deploy/{name}.py"] = mapping["framework/scripts/cloudformation-deploy.py"]
+    deploy_tests = {'cloudformation-deploy.checks.py', 'deploy_preparation.checks.py', 'model_files.checks.py',
+                    'deploy-sdk.checks.py', 'deploy-runtime-unit.checks.py', 'deploy-observed-unit.checks.py'}
+    mapping['framework/scripts/cloudformation-deploy.py'] = deploy_tests
+    for name in ('__init__', 'preparation', 'controller', 'inputs', 'contracts', 'context', 'guards', 'session',
+                 'scheduler', 'change_sets', 'delivery', 's3_delivery', 'repair', 'secret_bootstrap', 'observed', 'timing'):
+        mapping[f'framework/scripts/deploy/{name}.py'] = deploy_tests
     for name in ('__init__', 'client', 'sts', 'cloudformation', 's3', 'kms', 'secretsmanager'):
-        mapping[f'framework/scripts/utils/aws/{name}.py'] = mapping['framework/scripts/cloudformation-deploy.py'] | {'aws-client.checks.py', 'deploy-sdk.checks.py'}
+        mapping[f'framework/scripts/utils/aws/{name}.py'] = deploy_tests | {'aws-client.checks.py'}
     mapping['framework/scripts/utils/cloudformation_format.py'] = comparison | {'cloudformation-format.checks.py', 'json-resource-arn-unit.checks.py'}
     # JSON/identity helpers are also used by shared design/catalog processing.
     mapping["framework/scripts/iac_values.py"] = {check.name for check in checks}
     mapping["framework/scripts/issues_scan.py"] = {"issues_scan.checks.py"}
-    mapping["framework/scripts/deploy/s3_delivery.py"] = {"cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
     mapping["framework/scripts/iac_evaluation.py"] = comparison - {"check-model-aws.checks.py"}
     mapping["framework/scripts/script_loader.py"] = comparison - {"check-model-aws.checks.py"}
     mapping.update({f"framework/scripts/validation/{name}.py": {check.name for check in checks}
@@ -318,6 +320,8 @@ def select_checks(root, paths, affected=False):
         mapping[f'framework/scripts/issues/{name}.py'].add('issue_gate-unit.checks.py')
     for name in ('comparison', 'references'):
         mapping[f'framework/scripts/issues/{name}.py'].update({'s3-kms-reference-unit.checks.py', 'security_group_tables-unit.checks.py'})
+    for support in ('cloudformation_deploy_fixtures', 'deploy_controller_fixtures'):
+        mapping[f'framework/scripts/tests/support/{support}.py'] = set(deploy_tests)
     selected = set()
     for path in sorted(paths):
         if not framework_changed({path}):

@@ -190,17 +190,6 @@ def execute(runtime, unit, state):
         raise
     runtime.aws('execute_change_set', StackName=state['stackId'], ChangeSetName=state['changeSetId'],
                 ClientRequestToken=state['clientToken'])
-    if not runtime.session.get('firstExecuteAcceptedAt'):
-        from datetime import datetime, timezone
-        now = time.time()
-        runtime.session['firstExecuteAcceptedAt'] = datetime.now(timezone.utc).isoformat()
-        if runtime.session.get('skillStartedAt') is not None:
-            elapsed = now - runtime.session['skillStartedAt']
-            runtime.session['skillToFirstExecuteSeconds'] = elapsed
-            runtime.session['within120Seconds'] = 0 <= elapsed <= 120
-        with runtime.timing.phase('firstExecuteAccepted', skillStartedAt=runtime.session.get('skillStartedAt'),
-                skillToFirstExecuteSeconds=runtime.session.get('skillToFirstExecuteSeconds')):
-            pass
     runtime.save()
 
 
@@ -230,8 +219,8 @@ def cleanup_failed_create(runtime, unit, state, *, empty_only=False):
 def wait_cleanup(runtime, state):
     return repair_ops.wait_cleanup(runtime.aws, runtime.save, state)
 
-def reset_after_cleanup(runtime, state):
-    return repair_ops.reset_after_cleanup(runtime.save, state)
+def reset_after_cleanup(runtime, state, *, retain_delivery=False):
+    return repair_ops.reset_after_cleanup(runtime.save, state, retain_delivery=retain_delivery)
 
 def finish_repair(runtime, unit, state, entry):
     return repair_ops.finish_repair(runtime.refresh_validation, runtime.save, runtime.cleanup_failed_create,
@@ -327,7 +316,7 @@ def controller_main(argv=None, root=None, timing=None):
     parser.add_argument("--stack", action="append", required=True, help="exact StackName; repeat for scope")
     parser.add_argument("--state", type=Path, required=True, help="persistent session path outside repository")
     parser.add_argument("--timing-log", type=Path, help="external JSONL phase durations, including authentication and AWS calls")
-    parser.add_argument("--skill-started-at", type=float, help="UTC epoch at Skill invocation, retained through preparation/resume")
+    parser.add_argument("--skill-started-at", type=float, help=argparse.SUPPRESS)
     parser.add_argument("--profile")
     parser.add_argument("--approve-change-set", action="append", default=[])
     parser.add_argument("--resume", action="store_true")

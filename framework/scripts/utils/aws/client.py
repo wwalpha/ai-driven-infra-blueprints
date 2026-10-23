@@ -15,7 +15,7 @@ API_BUDGET_SECONDS = 60
 def connection_context(profile, region, account, authentication=None):
     if authentication is None:
         routes = tuple((name, os.environ.get(name)) for name in (
-            'AWS_CONFIG_FILE', 'AWS_SHARED_CREDENTIALS_FILE', 'AWS_PROFILE', 'AWS_ROLE_ARN',
+            'AWS_CONFIG_FILE', 'AWS_SHARED_CREDENTIALS_FILE', 'AWS_DEFAULT_PROFILE', 'AWS_PROFILE', 'AWS_ROLE_ARN',
             'AWS_WEB_IDENTITY_TOKEN_FILE', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI',
             'AWS_CONTAINER_CREDENTIALS_FULL_URI'))
         # Distinguish rotating explicit credentials without retaining their material in a key.
@@ -27,6 +27,9 @@ def connection_context(profile, region, account, authentication=None):
 
 def client(context, service):
     with _lock:
+        if (isinstance(context[3], tuple) and context[3][:1] in (('profile',), ('default-chain',))
+                and connection_context(*context[:3]) != context):
+            raise Blocked('AWS authentication context changed; recreate the connection context')
         key = (context, service)
         if key not in _clients:
             import boto3

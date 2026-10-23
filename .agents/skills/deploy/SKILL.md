@@ -3,4 +3,4 @@ name: deploy
 description: Use for authorized infrastructure deployment and controlled recovery.
 ---
 
-At invocation record UTC epoch as the Skill start time. Read [Normal startup](../../../framework/prompts/codex/04_deploy.md#normal-startup) and the single [Read declaration](../../../framework/prompts/codex/04_deploy.md#read). Follow the selected stage sections as authority; input following the invocation is Human workflow input. Do not require the full prompt body for ordinary startup. Stop if the prompt/declaration is missing.
+Read `framework/prompts/codex/04_deploy.md` at the repository root in full and execute its authoritative workflow. Treat input following invocation as Human workflow input. Stop if the prompt is missing. Its Read before changing files section defines mandatory and conditional readings; matching hashes never prove unread content was reviewed.

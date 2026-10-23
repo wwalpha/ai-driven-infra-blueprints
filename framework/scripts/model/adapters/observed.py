@@ -8,7 +8,7 @@ from design_catalog import DesignSchemaCatalog
 from iac_values import cfn_resource_identity
 from model.projection import catalog_outputs
 from model.core import properties, entries, stack_model
-from model.identity import resource_link, Resolver
+from model.identity import resource_link, Resolver, parse_reference
 
 
 def reference_key(value, path, resolver=None):
@@ -293,28 +293,44 @@ def resolve_resources(root, environment, directory, templates, units, selected, 
     Unrelated authorities are not expanded or diagnosed. No naming inference is used.
     """
     from model.sources import raw_model, FileReads
-    wanted = {(name, logical) for name, logicals in selected.items() for logical in logicals}
+    wanted = set()
+    target = target or (load_target(root, environment, directory) if (root / 'project.json').is_file() else {})
     catalog = DesignSchemaCatalog(root)
     for unit in units:
-        document, _ = templates[unit['name']]
+        document, parameters = templates[unit['name']]
+        pseudo = {'AWS::StackName': unit['name']} | {
+            'AWS::' + key: target[value] for key, value in
+            (('AccountId', 'awsAccountId'), ('Region', 'awsRegion')) if value in target}
+        if 'awsExecutionAccountId' in target:
+            pseudo['AWS::AccountId'] = target['awsExecutionAccountId']
         definitions = document.get('Resources', {}) | (removed or {}).get(unit['name'], {})
         for logical in selected.get(unit['name'], ()):
             definition = definitions.get(logical, {})
+            deleting = logical in (removed or {}).get(unit['name'], {})
+            if not deleting and not condition_active(document, parameters, pseudo, definition):
+                continue
+            wanted.add((unit['name'], logical))
             rules = [rule for kind, rule in GROUPED.items()
                      if rule['identityProperty'] is None and catalog.cloudformation_type(kind) == definition.get('Type')]
             if rules:
-                parent = definition.get('Properties', {}).get(rules[0]['parentProperty'])
+                parent = output_value(document, parameters, pseudo,
+                    definition.get('Properties', {}).get(rules[0]['parentProperty']))
                 if not isinstance(parent, dict) or set(parent) != {'Ref'} or not isinstance(parent['Ref'], str):
                     ambiguous(f"{unit['name']}/{logical}: integrated child parent evidence unavailable")
+                parent_definition = definitions.get(parent['Ref'], {})
+                if (parent_definition.get('Type') != catalog.cloudformation_type(rules[0]['parent'])
+                        or not deleting and not condition_active(document, parameters, pseudo, parent_definition)):
+                    ambiguous(f"{unit['name']}/{logical}: integrated child parent missing, inactive or formal CFn type mismatch")
                 wanted.add((unit['name'], parent['Ref']))
+    wanted = {name + '-' + logical for name, logical in wanted}
     loaded, reads = {}, FileReads()
     for path in model_paths(root, environment, directory, reads):
         if path.stem == 'cloudformation-stacks':
             continue
         raw = raw_model(path, reads)
-        owners = [resource for _, resource in entries(raw.authoritative, 'desired.resource.')
-                  if 'cfn-logicalId' in resource and any(resource['cfn-logicalId'] == name + '-' + logical
-                     for name, logical in wanted)]
+        owners = any(key.startswith('desired.resource.') and key.endswith('.cfn-logicalId')
+                     and value in wanted
+                     for key, value in raw.authoritative.items())
         if owners:
             loaded[path] = properties(read_model(path))
     return _mappings(root, environment, directory, templates, units, removed, target,
@@ -325,17 +341,22 @@ def propagate_references(root, loaded, changes, identifiers, by_identifier=None)
     """Discover incoming links mechanically; both deploy and destroy use this scanner."""
     # Read out-of-target models only if a raw incoming link reaches an updated identifier.
     # This is link discovery, not validation of unrelated prod/service designs.
+    from model.sources import raw_model, FileReads
     resolver = Resolver(root)
-    for path in model_paths(root) if identifiers else []:
+    incoming = {(*own_key(path, resource)[:3], resource.get('anchor'))
+                for path, values in loaded.items() for _, resource in entries(values, 'desired.resource.')
+                if own_key(path, resource) in identifiers}
+    reads = FileReads()
+    for path in model_paths(root, read_context=reads) if identifiers else []:
         if path in loaded or path.stem == "cloudformation-stacks":
             continue
         design = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
         linked = False
-        values = properties(read_model(path))
+        values = raw_model(path, reads).authoritative
         for key, value in values.items():
             link = resource_link(value) if key.startswith("desired.row.") and key.endswith(".value") else None
             if link:
-                linked |= reference_key(link[0], path, resolver) in identifiers
+                linked |= parse_reference(link[0], scope_for(path)) in incoming
         if linked:
             loaded[path] = properties(read_model(path))
     # Include every incoming reference, including out-of-scope ones; reject before any write.

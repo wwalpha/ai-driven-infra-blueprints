@@ -97,7 +97,9 @@ def begin_prepare(unit, state, aws, save, check_imports, template_arguments, cle
         if not cleanup_failed_create(unit, state, empty_only=True):
             raise Blocked('failed CREATE resources are not all deleted; cleanup requires human')
         state['emptyStackRecreated'] = True
-        reset_after_cleanup(state)
+        reset_after_cleanup(state, retain_delivery=True)
+        boundary = {}
+        check_imports(unit, boundary=boundary)
     arguments = template_arguments(unit, state, boundary=boundary)
     if not state.get("changeSetId"):
         try:
@@ -116,7 +118,9 @@ def begin_prepare(unit, state, aws, save, check_imports, template_arguments, cle
             if not cleanup_failed_create(unit, state, empty_only=True):
                 raise Blocked('failed CREATE resources are not all deleted; cleanup requires human')
             state['emptyStackRecreated'] = True
-            reset_after_cleanup(state)
+            reset_after_cleanup(state, retain_delivery=True)
+            boundary = {}
+            check_imports(unit, boundary=boundary)
             arguments = template_arguments(unit, state, boundary=boundary)
             stack = None
         if stack and stack["StackStatus"] not in SUCCESS | {"UPDATE_ROLLBACK_COMPLETE"}:

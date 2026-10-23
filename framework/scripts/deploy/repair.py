@@ -365,8 +365,10 @@ def wait_cleanup(aws, save, state):
     raise Blocked('failed CREATE cleanup timeout; inspect same StackId before resuming')
 
 
-def reset_after_cleanup(save, state):
+def reset_after_cleanup(save, state, *, retain_delivery=False):
     retained = {key: state[key] for key in ('repairs', 'cleanupStatus', 'cleanupStackId', 'emptyStackRecreated') if key in state}
+    if retain_delivery and 'delivery' in state:
+        retained['delivery'] = state['delivery']
     state.clear()
     state.update(retained, status='NOT_STARTED')
     save()
