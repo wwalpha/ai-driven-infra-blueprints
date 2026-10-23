@@ -19,11 +19,11 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test
 
 `pytest.ini`は既存のpytest型ファイル、`*-unit.checks.py`、deploy SDK/client/controllerの明示したpytest型suiteを対象にする。全UTがpytest型ではない。`array_display`、`aws_mapping_catalog`、`check-deploy-context`、`cloudformation_schema`、`comparison_core-unit`、`script_loader`、`update-catalog-lock`、`validation-units`には直接実行の入口がある。`validation_checks/*.py`は同じ分類のaggregatorから呼ぶ。`test_issues_iac.py`は既存unittestメソッドをpytestでも収集する。
 
-`blueprint-loop.py` は `units/**/*.checks.py` と `units/**/test_*.py` を、既存のPython直接実行入口で起動する。`full` / `--all` も回帰部分は全UTのみで、validatorのScopeや安全制御は維持する。`task` / `local` の自動回帰もUT限定。元々回帰不要のScopeではUTを追加しない。
+`blueprint-loop.py` の `task` / `local` はProjectのValidation scopeに従って検証し、Framework回帰UT／ITを自動実行しない。通常TaskではFrameworkを不変として扱い、FrameworkファイルのGit差分から回帰テストを選択しない。`full` / `--all` は `units/**/*.checks.py` と `units/**/test_*.py` の全UTを既存のPython直接実行入口で起動する。`full` は既存のProject Validation scopeを維持し、`--all` はProject全体を検証する。Scope `all` だけではFramework UTを実行しない。`blueprint-loop.py` からFramework ITは実行しない。
 
-`--affected` は従来の依存マッピングと分割UT対応を適用してからUTだけを抽出する。共有・不明・欠落依存は全UTへfallbackする。`--staged` は同じ選択を固定snapshot内で行う。全UT選択時のWindows認証、UTF-8、診断ログ、失敗伝播を維持する。
+通常Taskの `--affected` は `task` / `local` 用の互換オプションで、Framework回帰テストの選択・実行を行わず、`full` / `--all` とは併用できない。`--staged` と組み合わせても同じで、固定snapshotの入力・stale検出・Task検証は維持する。全UT選択時のWindows認証、UTF-8、診断ログ、失敗伝播を維持する。
 
-登録された全ITスイートは [Framework IT](../../../.github/workflows/framework-it.yml) がPR、main/masterへのpush、手動実行で検証する。Python 3.12と既存requirementsを使用し、唯一の公式入口 `python -B framework/scripts/tests/run_it.py` が各 `integrations/**/*.checks.py` を独立プロセスで起動する。既存のpytest・直接実行・トップレベル実行方式を維持する。
+[Framework IT](../../../.github/workflows/framework-it.yml) はPRおよびmain/masterへのpushで、`run_it.py --affected BASE` により既存の依存関係マッピングから関連UT／ITを選択する。これは通常Taskの `--affected` とは別の機能で、未登録・未解決依存関係のエラー処理を維持する。手動 `workflow_dispatch` は既存のFull IT実行を維持する。Python 3.12と既存requirementsを使用し、唯一の公式入口 `python -B framework/scripts/tests/run_it.py` が対象の `integrations/**/*.checks.py` を独立プロセスで起動する。既存のpytest・直接実行・トップレベル実行方式を維持する。
 
 runnerは共通fixture bundleを1回初期化し、`input_templates`・`typed_services`・`generated_policy`・`import_sources` の4 seedを各1回生成する。共有seedは読み取り専用で、可変データはケースごとのworkspaceへ展開する。Framework定義は既存の定義rootを参照する。新しいFrameworkコピー・symlink/hardlinkは作らない。実プロジェクトのModelやAWS認証情報は使用しない。
 

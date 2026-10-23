@@ -440,7 +440,7 @@ Record `Task type` and `## Allowed paths` in the active prompt. Allowed paths ca
 - `tasks/network-design.md`
 ```
 
-Read [Validation policy](framework/rules/loop-engineering.md#validation-policy), [Validation scope](framework/rules/loop-engineering.md#validation-scope), and the selected workflow's task-type completion section. Use the classified final validation; the commands below apply when a loop is required. Scope comes from the active contract; `full` adds all framework UT regression without expanding actual service validation. Explicit `--all` or scope `all` means overall validation plus all UT regression.
+Read [Validation policy](framework/rules/loop-engineering.md#validation-policy), [Validation scope](framework/rules/loop-engineering.md#validation-scope), and the selected workflow's task-type completion section. Use the classified final validation; the commands below apply when a loop is required. Scope comes from the active contract. Normal `task` / `local` validates that Project scope without automatically running Framework UT or IT; Framework files are treated as immutable, and their Git differences do not select regression tests. Scope `all` means Project-wide validation only, without Framework UT. Explicit `--all` runs Project-wide validation plus all Framework UT; `--mode full` runs all Framework UT while preserving the existing Project Validation scope. Neither runs Framework IT.
 
 ```console
 python -X utf8 framework/scripts/blueprint-loop.py --mode task --task-file tasks/<task-name>.md
@@ -516,7 +516,7 @@ Read [Conflict resolution and reproducible validation](framework/rules/loop-engi
 python -X utf8 framework/scripts/blueprint-loop.py --mode task --staged --base <比較元commit> --affected
 ```
 
-The disposable snapshot excludes original unstaged/untracked inputs and preserves the source index. Changed source inputs make the result stale. `--affected` uses proven dependencies, filters mapped results to UTs and falls back to all UTs for shared/unknown inputs, and cannot combine with `full`/`--all`. Framework task completion still requires `full`. See [Validation cache](framework/rules/loop-engineering.md#validation-cache) before reuse; cache success never replaces dynamic Task/issue/permission checks.
+The disposable snapshot excludes original unstaged/untracked inputs and preserves the source index. Changed source inputs make the result stale. `--affected` is a compatibility option for `task` / `local`: it does not select or run Framework UT/IT, including with `--staged`, and cannot combine with `full` / `--all`. Snapshot input isolation, stale detection and Task validation remain unchanged. This is separate from dedicated Framework CI's dependency selection through `run_it.py --affected BASE`. Framework task completion follows the classified [Validation policy](framework/rules/loop-engineering.md#validation-policy). See [Validation cache](framework/rules/loop-engineering.md#validation-cache) before reuse; cache success never replaces dynamic Task/issue/permission checks.
 
 ### Local loop timing measurement
 
