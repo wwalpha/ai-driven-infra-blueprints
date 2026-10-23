@@ -22,12 +22,22 @@ from model.operations import operation_values
 from model.sources import json_text, load_model
 from support.import_model_fixtures import (ACCOUNT, TARGET, SERVICES, SUBNETS, VPC_ID, AwsCli,
     aws, correspondence, exclusions, fixture, logs_edit, m, publish_fixture, review_fixture, snapshot, resource_values, stage)
+from support.import_repository_fixtures import checkpoint
 
 
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     monkeypatch.setattr(socket.socket, 'connect', lambda *a, **k: (_ for _ in ()).throw(AssertionError('live network forbidden')))
+    from support.import_repository_fixtures import repositories
+    popen = subprocess.Popen
+    def without_git(command, *args, **kwargs):
+        assert Path(command[0]).stem != 'git', 'Import IT must not start Git'
+        return popen(command, *args, **kwargs)
+    monkeypatch.setattr(subprocess, 'Popen', without_git)
+    with repositories(monkeypatch):
+        yield
+    assert 'support.worktree_task_fixtures' not in sys.modules
 
 
 def prepare(tmp_path, service='cloudwatch-logs', changed=True, dry_run=False):
@@ -40,7 +50,6 @@ def prepare(tmp_path, service='cloudwatch-logs', changed=True, dry_run=False):
 
 def input_file(root, service='cloudwatch-logs', env='dev'):
     return root / 'model' / env / TARGET / (service + '.properties')
-
 
 
 def source_files(root):
@@ -56,15 +65,6 @@ def promote_logs(root, acquisition):
     selected = [correspondence(acquisition, 'managed-new')]
     stage(root, acquisition, files, selected, exclusions(acquisition, selected))
     return files
-
-
-
-def check_cli_preflight(tmp_path):
-    for args in [[], ['--environment', 'dev'], ['--service', 'vpc'], ['--environment', 'dev', '--service', 'vpc']]:
-        command = [sys.executable, '-B', str(m.ROOT / 'framework/scripts/model/cli.py'), 'import', *args]
-        assert subprocess.run(command, capture_output=True).returncode == 2
-    assert not any(hasattr(m, name) for name in ('refresh', 'snapshot_values', 'snapshot_sources', 'promoted_sources'))
-
 
 
 def check_logs_roundtrip(tmp_path):
@@ -150,8 +150,7 @@ def check_managed_resource_addition(tmp_path, kind, unknown):
         values = dict(load_model(path).authoritative)
         del values['observed.row.001-001.value']
         path.write_text(serialize(values), encoding='utf-8')
-        subprocess.run(['git', 'add', 'model'], cwd=root, check=True)
-        subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'unobserved fixture'], cwd=root, check=True)
+        checkpoint(root)
     original = load_model(path)
     foreign = {p: p.read_bytes() for p in (root / 'model').rglob('*.properties') if p != path}
     cli = aws('vpc', changed=True)
@@ -191,7 +190,6 @@ def check_managed_resource_addition(tmp_path, kind, unknown):
     if kind == 'subnet':
         assert current.authoritative['desired.row.009-002.value'] == '[001](#vpc-main)'
     assert all(p.read_bytes() == data for p, data in foreign.items())
-
 
 
 @pytest.mark.parametrize('action', ['update', 'add'])
@@ -260,7 +258,6 @@ def check_create_definition_reuse(tmp_path):
     assert not (root / 'model/templates').exists()
 
 
-
 def check_cli_faults(tmp_path):
     root = tmp_path / 'case'
     fixture(root, register=False)
@@ -300,15 +297,13 @@ def check_exact_scope(tmp_path):
     import_guard.discard_acquisition(root, acquired['evidence'])
 
 
-
 def check_external_reference_preservation(tmp_path):
     root = tmp_path / 'case'
     path = fixture(root, 'config')
     values = dict(load_model(path).authoritative)
     values['desired.row.001-007.value'] = '[role](iam.md#not-locally-resolved)'
     path.write_text(serialize(values), encoding='utf-8')
-    subprocess.run(['git', 'add', 'model'], cwd=root, check=True)
-    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'external reference fixture'], cwd=root, check=True)
+    checkpoint(root)
     acquired = m.acquire(root, 'dev', 'config', TARGET, cli_runner=aws('config'))
     role = next(r for r in acquired['records'] if r['kind'] == 'Config.ConfigurationRecorder')['properties']['Config.ConfigurationRecorder.RoleARN']['value']
     values['observed.row.001-007.value'] = role
@@ -320,7 +315,6 @@ def check_external_reference_preservation(tmp_path):
     import_guard.discard_acquisition(root, acquired['evidence'])
     assert '[role](iam.md#not-locally-resolved)' in path.read_text()
     assert not any('iam' == r['kind'] for r in acquired['records'])
-
 
 
 def check_mapping_preservation(tmp_path):
@@ -346,7 +340,6 @@ def check_shared_property_and_bindings(tmp_path):
     assert stg_path.read_bytes() == before
     assert not (root / 'docs/designs/stg').exists()
     assert not any('/stg/' in str(p) for p in result.get('files', []))
-
 
 
 @pytest.mark.parametrize('relative', ['model/stg/cde/cloudwatch-logs.properties',
@@ -410,7 +403,6 @@ def check_add_identity_boundary(tmp_path, service, scenario):
         import_guard.discard_acquisition(root, acquired['evidence'])
 
 
-
 def check_unacquired_property_rejection(tmp_path):
     root, acquired, _ = prepare(tmp_path)
     logs_edit(root, acquired, days=91)
@@ -433,8 +425,7 @@ def check_repeat_without_reformat(tmp_path):
     import_guard.require_import_changes(root)
     from task_contract import start, selected_task
     old_name, new_name = 'tasks/import-fixture.md', 'tasks/reimport.md'
-    for args in [('add', 'model'), ('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'first Import')]:
-        subprocess.run(['git', *args], cwd=root, check=True, capture_output=True)
+    checkpoint(root, task=new_name)
     text = (root / old_name).read_text().replace(old_name, new_name)
     start(root, new_name, text)
     with selected_task(root, new_name):
@@ -446,7 +437,6 @@ def check_repeat_without_reformat(tmp_path):
         import_guard.require_import_changes(root)
     with selected_task(root, old_name):
         assert import_guard.read_sealed(root, import_guard.proof_path(root))['complete']
-
 
 
 def check_fixed_identity_rejection(tmp_path):
@@ -461,7 +451,6 @@ def check_fixed_identity_rejection(tmp_path):
         publish_fixture(root, acquired)
     assert snapshot(root) == before
     import_guard.discard_acquisition(root, acquired['evidence'])
-
 
 
 def check_empty_inventory_preserves_sources(tmp_path):
@@ -503,7 +492,6 @@ def check_native_types_preserved(tmp_path):
     import_guard.discard_acquisition(root, acquired['evidence'])
 
 
-
 def check_consumer_set_race(tmp_path):
     root = tmp_path / 'case'
     fixture(root)
@@ -516,7 +504,6 @@ def check_consumer_set_race(tmp_path):
         publish_fixture(root, acquired)
     assert snapshot(root) == before
     import_guard.discard_acquisition(root, acquired['evidence'])
-
 
 
 def check_source_transaction_rollback(tmp_path):
@@ -553,7 +540,6 @@ def check_yaml_candidate_edit(tmp_path):
     assert next(iter(files.values())) == current
 
 
-
 def check_reflection_validation_boundary(tmp_path):
     root, acquired, _ = prepare(tmp_path)
     logs_edit(root, acquired)
@@ -562,29 +548,6 @@ def check_reflection_validation_boundary(tmp_path):
          patch.object(m.comparator(), 'compare_resource', side_effect=AssertionError('no AWS comparison phase')):
         result = publish_fixture(root, acquired)
     assert result['model'] == 'reflected' and result['designValidation'] == 'not-run'
-
-
-
-def check_cross_process_evidence(tmp_path):
-    root = tmp_path / 'case'
-    fixture(root)
-    scripts = m.ROOT / 'framework/scripts'
-    setup = f"import sys; sys.path[:0] = [{str(scripts)!r}, {str(scripts / 'tests')!r}]; from pathlib import Path; from support.import_model_fixtures import m, aws; "
-    acquire_code = setup + f"import json; print(json.dumps(m.acquire(Path({str(root)!r}), 'dev', 'cloudwatch-logs', 'cde', cli_runner=aws(changed=True), resource_types=['Logs.LogGroup'])))"
-    completed = subprocess.run([sys.executable, '-B', '-c', acquire_code], capture_output=True, text=True, encoding='utf-8', check=True)
-    acquired = json.loads(completed.stdout)
-    logs_edit(root, acquired)
-    review_fixture(root, acquired)
-    # Run the real CLI parser/entrypoint in an unpatched child, with no Host adapter.
-    command = [sys.executable, '-B', str(scripts / 'model/cli.py'), 'import', 'publish', '--repository-root', str(root),
-               '--environment', 'dev', '--service', 'cloudwatch-logs', '--target', 'cde',
-               '--evidence', acquired['evidence']]
-    result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', check=True)
-    report = json.loads(result.stdout)
-    assert report['model'] == 'reflected' and report['markdown'] == 'generated'
-    assert import_guard.read_proof(root)['complete']
-    # The ignored completion receipt contains hashes, not captured configuration values.
-    assert '"retentionInDays"' not in import_guard.proof_path(root).read_text(encoding='utf-8')
 
 
 def check_dry_run_cleanup(tmp_path):
@@ -604,7 +567,6 @@ def check_dry_run_cleanup(tmp_path):
     with pytest.raises(ValueError):
         publish_fixture(root, second, dry_run=True)
     assert Path(second['evidence']).is_file()
-
 
 
 def check_evidence_and_display_recovery(tmp_path):
@@ -637,69 +599,6 @@ def check_evidence_and_display_recovery(tmp_path):
         assert m.recover_display(root, 'dev', 'cloudwatch-logs', TARGET)['status'] == 'complete'
     assert source_files(root) == before and import_guard.read_proof(root)['markdown'] == 'generated'
     assert not (root / '.blueprint').exists()
-
-
-
-
-@pytest.mark.parametrize('failure', ['none', 'rollback', 'race', 'wrong-target', 'ordinary', 'ordinary-delete'])
-def check_model_only_publication(tmp_path, monkeypatch, failure):
-    from support.import_model_fixtures import operation_fixture, operation_candidate, operation_contract
-    from support.worktree_task_fixtures import fixture, git, start
-    from model import prepare_edit, publish_edit
-    from model.adapters.task import source_write_context, edit_write_context
-    from model.operations import verify_model_operation
-    from task_contract import model_operation, status
-    action = 'import-delete' if failure == 'ordinary-delete' else 'import-merge'
-    with fixture() as root:
-        operation_fixture(root)
-        sources = operation_candidate(root, tmp_path / 'edited', action)
-        candidate = {name: (tmp_path / 'edited' / name).read_text() for name in sources}
-        git(root, 'add', 'model', 'project.json'); git(root, 'commit', '-qm', 'synthetic operation')
-        target, state = start(root, files=tuple(sorted(sources)))
-        name = state['task_file']
-        contract = operation_contract(destination='stg/cde/vpc/008' if failure == 'wrong-target' else 'stg/cde/vpc/001')
-        if failure in {'ordinary', 'ordinary-delete'}:
-            contract = '## Task contract\n- Task type: `design`\n- Task status: `running`\n'
-        contract += '\n## Required changes\n- [R1] Synthetic source candidate\n## Acceptance checks\n- [R1] `exists:project.json`\n'
-        for heading in ('Modified files', 'Allowed paths'):
-            contract += '\n## ' + heading + '\n' + ''.join('- `' + item + '`\n' for item in sorted(sources | {name}))
-        contract += '\n## Validation scope\n- `dev/cde/vpc`\n- `stg/cde/vpc`\n'
-        (target / name).write_text(contract)
-        before = source_files(target)
-        path = target / 'model/stg/cde/vpc.properties'
-        if failure == 'rollback':
-            def fail_save(output):
-                path.write_text('partial interrupted source')
-                raise OSError('injected source publication failure')
-            monkeypatch.setattr(sync_files, 'save_files', fail_save)
-        authority = edit_write_context(target, {('stg', TARGET, 'vpc')}, name) if failure in {'ordinary', 'ordinary-delete'} else source_write_context(target, name)
-        with authority as context:
-            snapshot = load_model(path, context.snapshot)
-            output = {target / relative: text for relative, text in candidate.items()}
-            def save():
-                plan = prepare_edit(snapshot, output, context)
-                if failure == 'race':
-                    path.write_bytes(path.read_bytes() + b'# concurrent human input\n')
-                return publish_edit(plan, context)
-            if failure not in {'none', 'ordinary', 'ordinary-delete'}:
-                with pytest.raises((ValueError, OSError)):
-                    save()
-                if failure == 'race':
-                    assert path.read_bytes() == before[path.relative_to(target)] + b'# concurrent human input\n'
-                else:
-                    assert source_files(target) == before
-            else:
-                assert set(save()) == set(output)
-                expected_id = 'vpc-source'
-                if action == 'import-delete':
-                    expected_id = 'vpc-stg'
-                assert load_model(path).authoritative['observed.row.001-001.value'] == expected_id
-                if failure == 'none':
-                    verify_model_operation(root, target, model_operation(contract), sources)
-                assert status((target / name).read_text()) == 'running'
-        assert source_files(root) == before
-
-
 
 
 def check_partial_acquisition_cannot_complete(tmp_path):
@@ -735,9 +634,7 @@ def check_generic_acquisition_roundtrip(tmp_path):
     write_model(path, {'desired.service.datazone.serviceId': 'datazone',
                       'desired.service.datazone.ownedCatalogResourceTypes': 'DataZone.Domain',
                       'display.service.title': '# DataZone 詳細設計'})
-    subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
-    subprocess.run(['git', 'add', '.'], cwd=root, check=True)
-    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'synthetic DataZone'], cwd=root, check=True)
+    checkpoint(root)
     cli = CloudControlCli({'DataZone.Domain': [{'identifier': 'dzd-fixture', 'properties': {'Id': 'dzd-fixture', 'Name': 'fixture', 'DomainVersion': 'V2', 'SingleSignOn': {'Type': 'DISABLED'}}}]})
     before = source_files(root)
     acquired = m.acquire(root, 'dev', 'datazone', ACCOUNT, True, cli, resource_types=['DataZone.Domain'])
@@ -749,94 +646,6 @@ def check_generic_acquisition_roundtrip(tmp_path):
         review_fixture(root, acquired, dry_run=True)
         result = m.publish_acquisition(root, 'dev', 'datazone', acquired['evidence'], ACCOUNT, True)
     assert result['status'] == 'dry-run' and source_files(root) == before and len(cli.calls) == count
-
-
-def check_intermediate_model_sources(monkeypatch):
-    import base64
-    from support.worktree_task_fixtures import fixture, git, start
-    from support.import_model_fixtures import operation_fixture, operation_contract
-    from model import prepare_edit, publish_edit
-    from model.adapters.task import source_write_context
-    from model.sources import publication_lock
-    with fixture() as root:
-        operation_fixture(root)
-        git(root, 'add', 'model', 'project.json'); git(root, 'commit', '-qm', 'model sources')
-        relative = 'model/stg/cde/vpc.properties'
-        target, state = start(root, files=(relative,))
-        name = state['task_file']
-        text = operation_contract() + '\n## Validation scope\n- `stg/cde/vpc`\n'
-        for heading in ('Modified files', 'Allowed paths'):
-            text += '\n## ' + heading + '\n- `' + name + '`\n- `' + relative + '`\n'
-        (target / name).write_text(text)
-        path = target / relative
-        original = path.read_bytes()
-        values = dict(load_model(path).authoritative)
-        values['desired.row.001-002.comment'] = '中間保存は最終設計検証を実行しない'
-        intermediate = serialize(values)
-        with source_write_context(target, name) as context:
-            publish_edit(prepare_edit(load_model(path, context.snapshot), {path: intermediate}, context), context)
-        assert path.read_text() == intermediate
-        with source_write_context(target, name) as context:
-            plan = prepare_edit(load_model(path, context.snapshot), {path: original.decode()}, context)
-            with patch.object(sync_files, 'save_files', side_effect=OSError('second leaf failed')):
-                with pytest.raises(OSError, match='second leaf failed'):
-                    publish_edit(plan, context)
-        assert path.read_text() == intermediate
-        assert (root / relative).read_bytes() == original
-        with publication_lock(target) as journal:
-            journal.write_text(json.dumps({'root': str(target.resolve()), 'originals': {relative: base64.b64encode(original).decode()}}))
-            path.write_text('interrupted write')
-        with pytest.raises(ValueError, match='recovery'):
-            load_model(path)
-        with source_write_context(target, name) as context:
-            assert context.snapshot.read(path) == original
-            assert publish_edit(prepare_edit(load_model(path, context.snapshot), {}, context), context) == ()
-        assert path.read_bytes() == original
-
-
-
-def check_batch_leaf_saves(monkeypatch):
-    import tempfile
-    from support.worktree_task_fixtures import fixture, git, start
-    from support.import_model_fixtures import batch_operation_fixture
-    from model import prepare_edit, publish_edit
-    from model.adapters.task import source_write_context
-    from model.operations import verify_model_operation
-    from model.format import owner
-    from task_contract import model_operation
-    with fixture() as root, tempfile.TemporaryDirectory() as temporary:
-        candidate = Path(temporary) / 'candidate'
-        contract, sources = batch_operation_fixture(root, candidate)
-        git(root, 'add', 'model', 'project.json'); git(root, 'commit', '-qm', 'batch Model fixture')
-        target, state = start(root, files=tuple(sorted(sources)))
-        name = state['task_file']
-        for heading in ('Modified files', 'Allowed paths'):
-            contract += '\n## ' + heading + '\n' + ''.join('- `' + item + '`\n' for item in sorted(sources | {name}))
-        contract += '\n## Validation scope\n- `dev/cde/vpc`\n- `stg/cde/vpc`\n'
-        (target / name).write_text(contract)
-        path = target / 'model/stg/cde/vpc.properties'
-        before = dict(load_model(path).authoritative)
-        final = parse((candidate / 'model/stg/cde/vpc.properties').read_text()).values
-        operation = model_operation(contract)
-        deleted = {pair.source.rsplit('/', 1)[1] for pair in operation.pairs}
-        transferred = dict(final)
-        transferred.update({key: value for key, value in before.items() if owner(key, before) in {('resource', rid) for rid in deleted}})
-        # Keep original Resource/Row order while retaining the pending source deletions.
-        transferred = {key: transferred[key] for key in before if key in transferred}
-        with source_write_context(target, name) as context:
-            publish_edit(prepare_edit(load_model(path, context.snapshot), {path: serialize(transferred)}, context), context)
-        for rid in deleted:
-            assert f'desired.resource.{rid}.resourceType' in load_model(path).authoritative
-        with source_write_context(target, name) as context:
-            assert publish_edit(prepare_edit(load_model(path, context.snapshot), {}, context), context) == ()
-        with source_write_context(target, name) as context:
-            publish_edit(prepare_edit(load_model(path, context.snapshot), {path: serialize(final)}, context), context)
-        for rid in deleted:
-            assert f'desired.resource.{rid}.resourceType' not in load_model(path).authoritative
-        verify_model_operation(root, target, operation, sources)
-        assert git(root, 'rev-parse', 'HEAD') == state['start']
-
-
 
 
 @pytest.mark.parametrize('present,race,diagnostic', [(False, False, None), (True, False, None), (True, True, None),
@@ -866,8 +675,7 @@ def check_reference_publication(tmp_path, present, race, diagnostic):
             fields = dict(load_model(producer).authoritative)
         fields.update(resource_values('002', 'S3.Bucket', 'another-bucket', 'CREATE', [('BucketName', '`audit-bucket`')]))
         write_model(producer, fields)
-    for args in [('init', '-q'), ('add', '.'), ('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'reference fixture')]:
-        subprocess.run(['git', *args], cwd=root, check=True)
+    checkpoint(root)
     files = {path, root / 'docs/designs/dev/cde/cloudtrail.md'}
     listed = ['- `' + p.relative_to(root).as_posix() + '`' for p in sorted(files)] + ['- `tasks/import-fixture.md`']
     text = '\n'.join(['# Reference fixture', '## Task contract', '- Task type: `design`', '- Task status: `running`',
@@ -969,7 +777,6 @@ def check_reference_publication(tmp_path, present, race, diagnostic):
     assert source_files(root) == before_recovery and document.read_text() == markdown
 
 
-
 @pytest.mark.parametrize('action', ['refresh', 'replace', 'bind'])
 @pytest.mark.parametrize('dry_run', [False, True])
 def check_user_selected_overwrite_publication(tmp_path, action, dry_run):
@@ -980,8 +787,7 @@ def check_user_selected_overwrite_publication(tmp_path, action, dry_run):
         values = dict(load_model(path).authoritative)
         values['desired.row.001-001.value'] = 'UNSET'
         path.write_text(serialize(values), encoding='utf-8')
-        subprocess.run(['git', 'add', 'model'], cwd=root, check=True)
-        subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'unknown existing IMPORT identity'], cwd=root, check=True)
+        checkpoint(root)
     cli = aws(changed=True)
     acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, dry_run, cli, resource_types=['Logs.LogGroup'])
     before = load_model(path)
@@ -1010,7 +816,6 @@ def check_user_selected_overwrite_publication(tmp_path, action, dry_run):
         assert len(entries(after.authoritative, 'desired.resource.')) == 2
         assert all((root / rel).read_bytes() == data for rel, data in original.items() if 'stg' in rel.parts)
         import_guard.require_import_changes(root)
-
 
 
 @pytest.mark.parametrize('fail', [False, True])
@@ -1050,7 +855,6 @@ def check_mixed_add_refresh_single_publication(tmp_path, fail):
     assert len(cli.calls) == 2
 
 
-
 def check_replace_warns_incoming_references(tmp_path):
     from import_guard import digest
     root = tmp_path / 'case'
@@ -1072,7 +876,6 @@ def check_replace_warns_incoming_references(tmp_path):
     assert Path(acquired['evidence']).is_file()
 
 
-
 @pytest.mark.parametrize('missing', [False, True])
 @pytest.mark.parametrize('shared_template', [False, True])
 def check_first_resource_uses_existing_source_format(tmp_path, missing, shared_template):
@@ -1088,8 +891,7 @@ def check_first_resource_uses_existing_source_format(tmp_path, missing, shared_t
     else:
         path.write_text(serialize(service), encoding='utf-8')
         assert not entries(load_model(path).authoritative, 'desired.resource.')
-    subprocess.run(['git', 'add', '-A'], cwd=root, check=True)
-    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'synthetic absent or empty service'], cwd=root, check=True)
+    checkpoint(root)
     cli = aws(changed=True)
     acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli, resource_types=['Logs.LogGroup'])
     service.update(operation_values(seed, '001'))
@@ -1110,7 +912,6 @@ def check_first_resource_uses_existing_source_format(tmp_path, missing, shared_t
     assert len(cli.calls) == 2
 
 
-
 def check_refresh_switches_definition_without_foreign_changes(tmp_path):
     root = tmp_path / 'case'
     file = fixture(root)
@@ -1129,8 +930,6 @@ def check_refresh_switches_definition_without_foreign_changes(tmp_path):
     assert current['desired.row.002-004.value'] == '`STANDARD`'
     assert all((root / rel).read_bytes() == data for rel, data in before.items() if 'stg' in rel.parts)
     assert load_model(input_file(root, env='stg')).authoritative['desired.row.001-004.value'] == '`STANDARD`'
-
-
 
 
 @pytest.mark.parametrize('tamper', ['candidate', 'sources', 'task', 'worktree', 'risk', 'legacy'])
@@ -1164,13 +963,10 @@ def check_approval_bound_save_guard(tmp_path, tamper):
     assert source_files(root) == original
 
 
-
-
-@pytest.mark.parametrize('failure', ['none', 'source', 'task', 'head', 'review', 'candidate', 'source-set', 'model-io', 'receipt', 'display-io', 'subprocess', 'source-crash', 'receipt-crash', 'display-crash', 'bind', 'replace'])
+@pytest.mark.parametrize('failure', ['none', 'source', 'task', 'review', 'candidate', 'source-set', 'model-io', 'receipt', 'display-io', 'bind', 'replace'])
 def check_properties_import_acquire_review_publish(monkeypatch, failure):
     from support.model_v2_fixtures import import_publication_case
     import_publication_case(monkeypatch, failure)
-
 
 
 @pytest.mark.parametrize('failure', [None, 'review', 'draft', 'candidate', 'acquisition', 'baseline',
@@ -1183,11 +979,9 @@ def check_publication_transaction_without_host(monkeypatch, failure):
     import_publication_case(monkeypatch, action)
 
 
-
 def check_saved_display_recovery_needs_no_new_approval(monkeypatch):
     from support.model_v2_fixtures import import_publication_case
     import_publication_case(monkeypatch, 'display-io')
-
 
 
 @pytest.mark.parametrize('change', ['property', 'destination', 'resource', 'selector'])
@@ -1197,6 +991,63 @@ def check_candidate_review_mismatch_rejected_without_host(monkeypatch, change):
               'selector': 'candidate-reference'}[change]
     import_publication_case(monkeypatch, action)
 
+
+@pytest.mark.parametrize('boundary', ['head', 'base', 'owner', 'task', 'allowed', 'scope', 'target', 'unapproved-source'])
+def check_gitless_guard_boundaries(tmp_path, boundary):
+    from support.import_repository_fixtures import state
+    root, acquired, _ = prepare(tmp_path)
+    logs_edit(root, acquired)
+    review_fixture(root, acquired)
+    before = source_files(root)
+    task = root / 'tasks/import-fixture.md'
+    if boundary == 'head':
+        state(root).head = 'changed-head'
+    elif boundary == 'base':
+        state(root).base = 'different-start'
+    elif boundary == 'owner':
+        state(root).owner = root.parent
+    elif boundary == 'task':
+        task.write_text(task.read_text() + '\n## Notes\nconcurrent Task edit\n')
+    elif boundary == 'allowed':
+        text = task.read_text()
+        prefix, allowed = text.split('## Allowed paths\n')
+        allowed, rest = allowed.split('## Modified files\n')
+        task.write_text(prefix + '## Allowed paths\n' + allowed.replace('- `model/dev/cde/cloudwatch-logs.properties`\n', '') + '## Modified files\n' + rest)
+    elif boundary == 'scope':
+        task.write_text(task.read_text().replace('- `dev/cde/cloudwatch-logs`', '- `dev/cde/vpc`'))
+    elif boundary == 'target':
+        task.write_text(task.read_text().replace('IMPORT target: `dev/cde/cloudwatch-logs`', 'IMPORT target: `dev/cde/vpc`'))
+    if boundary == 'unapproved-source':
+        assert m.publish_acquisition(root, 'dev', 'cloudwatch-logs', acquired['evidence'], TARGET)['status'] == 'complete'
+        foreign = input_file(root, env='stg')
+        foreign.write_bytes(foreign.read_bytes() + b'# unapproved source\n')
+        saved = source_files(root)
+        with pytest.raises(ValueError, match='outside Modified files/Allowed paths'):
+            import_guard.require_import_changes(root)
+        assert source_files(root) == saved
+    else:
+        with pytest.raises(ValueError, match='stale|changed|mismatched|outside|scope|target|declare'):
+            m.publish_acquisition(root, 'dev', 'cloudwatch-logs', acquired['evidence'], TARGET)
+        assert source_files(root) == before
+        assert not (import_guard.evidence_store(root) / 'import-fixture.json').exists()
+    assert not (root / '.git').exists()
+
+
+def check_repository_snapshot_detects_real_changes(tmp_path):
+    from model.importing import repository
+    from support.import_repository_fixtures import state
+    root = tmp_path / 'case'
+    path = fixture(root)
+    baseline = state(root).baseline.copy()
+    path.write_bytes(path.read_bytes() + b'# comment change\n')
+    added = path.with_name('extra.properties')
+    added.write_bytes(b'# model-format: 2\n')
+    deleted = input_file(root, env='stg')
+    deleted.unlink()
+    task = root / 'tasks/import-fixture.md'
+    task.write_text(task.read_text() + '\n# Task change\n')
+    assert repository.changed_paths(root) == {p.relative_to(root).as_posix() for p in (path, added, deleted, task)}
+    assert state(root).baseline == baseline
 
 
 if __name__ == '__main__':

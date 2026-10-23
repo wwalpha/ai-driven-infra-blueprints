@@ -88,7 +88,8 @@ def readable(root):
         return None
     from validation_scope import active_scope
     from task_contract import contracts
-    scope = active_scope(root) if (root / '.git').exists() and contracts(root) else None
+    from model.importing.repository import has_baseline
+    scope = active_scope(root) if has_baseline(root) and contracts(root) else None
     return (scope or set()) | {identity}
 
 

@@ -159,9 +159,8 @@ def fixture(root, service='cloudwatch-logs', register=True):
     from support.it_workspace import populate
     from task_contract import start
     populate('import_sources', root)
-    subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
-    subprocess.run(['git', 'add', '.'], cwd=root, check=True)
-    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'synthetic import seed'], cwd=root, check=True)
+    from support.import_repository_fixtures import checkpoint
+    checkpoint(root)
     path = root / 'model/dev' / TARGET / (service + '.properties')
     if register:
         sources = {p.relative_to(root).as_posix() for p in load_model(path).files}

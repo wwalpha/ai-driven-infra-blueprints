@@ -131,7 +131,7 @@ def acquired(root, identity, ctx, records, sources, consumers, dry_run, *, sourc
         raise ValueError('IMPORT acquisition requires a verified single-service AWS context')
     from model.importing.inventory import inventory_for
     if not dry_run:
-        from worktree_task import task_start_commit
+        from model.importing.repository import task_start_commit
         name = workflow(root)
         if task_start_commit(root, name) is not None:
             managed_task_state(root, name)
@@ -173,7 +173,7 @@ def read_acquisition(root, file, identity, dry_run):
             or value.get('sts', {}).get('verified') is not True):
         raise ValueError('IMPORT acquisition is stale or belongs to another Task/Worktree/scope')
     if not dry_run:
-        from worktree_task import task_start_commit
+        from model.importing.repository import task_start_commit
         name = workflow(root)
         if task_start_commit(root, name) is not None:
             managed_task_state(root, name)

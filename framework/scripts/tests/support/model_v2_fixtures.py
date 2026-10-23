@@ -208,16 +208,16 @@ def value_snapshot(values, provenance=None, files=None):
     return SimpleNamespace(authoritative=dict(values), values=runtime_values(values), files=files or {}, warnings=())
 
 
-def import_publication_case(monkeypatch, failure):
+def import_publication_case(monkeypatch, failure, *, workspace=None):
     import sys
     import pytest
     from model.sources import load_model
     from model.importing import cli
     from model.format import parse, patch
     from support.model_v2_fixtures import logs_fixture, LogsCli, import_contract
-    from support.worktree_task_fixtures import fixture, git, start
+    from support.import_repository_fixtures import publication_workspace
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
-    with fixture() as root:
+    with (workspace or publication_workspace)() as (root, begin, advance):
         model = logs_fixture(root)
         if failure == 'bind':
             model.write_text(patch(parse(model.read_text(encoding='utf-8')), {'observed.row.001-001.value': None}), encoding='utf-8')
@@ -235,9 +235,7 @@ def import_publication_case(monkeypatch, failure):
             incoming_source.write_text(serialize(fields), encoding='utf-8')
             incoming_before = incoming_source.read_bytes()
         relative = model.relative_to(root)
-        git(root, 'add', 'model', 'project.json')
-        git(root, 'commit', '-qm', 'synthetic properties Import')
-        target, state = start(root, files=(relative.as_posix(),))
+        target, state = begin(root, relative)
         (target / state['task_file']).write_text(import_contract(state['task_file'], relative), encoding='utf-8')
         path = target / relative
         original = path.read_bytes()
@@ -282,7 +280,7 @@ def import_publication_case(monkeypatch, failure):
             changed['dispositions'][0]['risks'] = ['changed review']
             file.write_text(json.dumps(changed), encoding='utf-8')
         elif failure == 'head':
-            git(target, 'commit', '--allow-empty', '-qm', 'changed HEAD')
+            advance(target)
         elif failure == 'candidate':
             candidate.write_text(candidate.read_text(encoding='utf-8').replace('`90`', '`91`'), encoding='utf-8')
         elif failure == 'source-set':
@@ -305,7 +303,7 @@ def import_publication_case(monkeypatch, failure):
             from model.format import serialize
             candidate.write_text(serialize(extra), encoding='utf-8')
         if failure in {'source', 'task', 'head', 'review', 'candidate', 'source-set', 'selection-target', 'candidate-resource', 'candidate-reference'}:
-            with pytest.raises(ValueError, match='changed|differs|unregistered|stale|candidate|selected Resource|reference map|correspondence|reference occurrence|allocation'):
+            with pytest.raises(ValueError, match='changed|differs|unregistered|stale|candidate|selected Resource|reference map|correspondence|reference occurrence|allocation|lifecycle|ancestor|worktree'):
                 cli.publish_acquisition(target, 'qa-synthetic', 'cloudwatch-logs', evidence, 'team-a')
             assert path.read_bytes() == original + (b'# concurrent edit\n' if failure == 'source' else b'')
             from import_guard import proof_path

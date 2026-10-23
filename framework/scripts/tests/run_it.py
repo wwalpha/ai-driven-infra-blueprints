@@ -136,6 +136,8 @@ def run_child(suite, tests, receipt, baseline=False):
     def audit(event, args):
         if event in ('shutil.copytree', 'shutil.copyfile', 'subprocess.Popen'):
             metrics[event] += 1
+            if event == 'subprocess.Popen' and Path(args[0]).stem == 'git':
+                metrics['subprocess.git'] += 1
         elif event == 'blueprint.it_fixture.generated':
             metrics['generated:' + args[0]] += 1
         elif event == 'blueprint.it_case.completed':
@@ -239,7 +241,8 @@ def execute_suites(tests, output, summary, baseline=False):
             print(f'missing/invalid runtime receipt: {suite.name}: {error}', file=sys.stderr)
             code = 1
         status = 'PASS' if code == 0 else 'FAIL'
-        rows.append({'suite': suite.name, 'code': code, 'seconds': elapsed})
+        rows.append({'suite': suite.name, 'code': code, 'seconds': elapsed,
+                     'metrics': data.get('metrics', {}) if code == 0 else {}})
         print(f'{status}: {suite.name} ({elapsed:.3f}s, exit={code})\n::endgroup::', flush=True)
         summary.write(f'| {suite.name} | {status} | {elapsed:.3f} |\n')
         summary.flush()

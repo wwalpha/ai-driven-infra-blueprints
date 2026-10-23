@@ -53,13 +53,8 @@ def proof_path(root, *, contract_file=None):
 
 
 def working_revision(root):
-    result = subprocess.run(['git', 'rev-parse', '--verify', 'HEAD'], cwd=root, capture_output=True, text=True, encoding='utf-8')
-    if result.returncode:
-        valid = subprocess.run(['git', 'rev-parse', '--git-dir'], cwd=root, capture_output=True)
-        if valid.returncode:
-            raise ValueError('cannot determine the versioned IMPORT baseline')
-        return None  # Initial registration has no previous versioned configuration.
-    return result.stdout.strip()
+    from model.importing.repository import working_revision
+    return working_revision(root)
 
 
 def base_revision(root, *, contract_file=None):
@@ -67,7 +62,7 @@ def base_revision(root, *, contract_file=None):
     if head is None:
         return None
     if contracts(root):
-        from worktree_task import task_start_commit
+        from model.importing.repository import task_start_commit
         path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, required=False)
         start = task_start_commit(root, path.relative_to(root).as_posix()) if path is not None else None
         if start is not None:
@@ -77,12 +72,8 @@ def base_revision(root, *, contract_file=None):
 
 def changed_sources(root, supplied=None, *, contract_file=None):
     if supplied is None:
-        from worktree_task import changed_paths, committed_task_paths
-        supplied = changed_paths(root)
-        if contracts(root):
-            path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, required=False)
-            if path is not None:
-                supplied |= committed_task_paths(root, path.relative_to(root).as_posix()) or set()
+        from model.importing.repository import changed_paths
+        supplied = changed_paths(root, task_file=contract_file)
     return {str(p) for p in supplied if str(p).startswith('model/') or str(p) == 'project.json'}
 
 
@@ -159,7 +150,8 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
     if contract_file is not None and (output is not None or generation or final_candidate is not None):
         raise ValueError('contract reference is limited to read-only integration checks')
     root = root.resolve()
-    if not (root / '.git').exists():
+    from model.importing.repository import has_baseline
+    if not has_baseline(root):
         return  # Disposable generator stages have no Git baseline; the calling boundary is guarded.
     sources = ({p for p in final_candidate.changed_paths if p.startswith(('model/', 'project.json'))}
                if final_candidate is not None else changed_sources(root, supplied, contract_file=contract_file))
@@ -315,15 +307,15 @@ def write_sealed(root, file, value):
 def managed_source_write(root: Path, task_file: str) -> bool:
     """Select the guarded intermediate path only for a real managed Model operation."""
     from task_contract import model_operation, task_revision
-    from worktree_task import task_start_commit
+    from model.importing.repository import task_start_commit
     _, text = task_revision(root, selected=task_file)
     return bool(text and model_operation(text) is not None and task_start_commit(root, task_file) is not None)
 
 
 def managed_task_state(root: Path, name: str):
     """Check live Task/worktree ownership; callers bind the returned state to their save."""
-    from worktree_task import load, task_worktree
-    _, _, _, state = load(root, Path(name).stem)
+    from model.importing.repository import task_state, task_worktree
+    state = task_state(root, name)
     if state['task_file'] != name or Path(state['worktree']) != root or state['merged'] is not None:
         raise ValueError('source write task/worktree is mismatched or merged')
     if task_worktree(root, state) != root:

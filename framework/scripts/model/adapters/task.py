@@ -88,8 +88,8 @@ def _write_context(root, task_file, *, requested=None):
             if model_operation(text) is not None:
                 raise ValueError('Model-only operations require their limited source write context')
         state = managed_task_state(root, name)
-        from worktree_task import output
-        head = output(root, 'rev-parse', 'HEAD')
+        from model.importing.repository import task_head
+        head = task_head(root)
         with input_context(), publication_lock(root):
             snapshot = GenerationInputs(root, task_file=name)
             context = None
@@ -132,7 +132,7 @@ def _write_context(root, task_file, *, requested=None):
                 def require_current(changes):
                     if task_revision(root, selected=name) != (name, text):
                         raise ValueError('parent task changed before source publication')
-                    if managed_task_state(root, name) != state or output(root, 'rev-parse', 'HEAD') != head:
+                    if managed_task_state(root, name) != state or task_head(root) != head:
                         raise ValueError('managed worktree revision changed before source publication')
                     for file in changes:
                         relative = file.relative_to(root).as_posix()
