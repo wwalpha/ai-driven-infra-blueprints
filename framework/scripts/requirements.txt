@@ -1,6 +1,7 @@
 # Local framework development, validation and PDF tooling (Python >= 3.10).
 PyYAML==6.0.3
 boto3==1.43.108
+cfn-lint==1.57.2
 pytest==9.1.1
 pypdf==6.10.0
 weasyprint==70.0
