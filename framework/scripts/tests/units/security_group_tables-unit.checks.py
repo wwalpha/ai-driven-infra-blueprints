@@ -31,7 +31,7 @@ from model.display import sg_tables
 from model.core import literal
 from aws_mapping_display import selected_rows
 from design_catalog import DesignSchemaCatalog
-from issues_iac import Comparison
+from issues.comparison import Comparison
 from iac_values import same
 from security_group_tables import cells
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")

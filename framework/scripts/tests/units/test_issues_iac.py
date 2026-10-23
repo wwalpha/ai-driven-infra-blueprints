@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 from types import SimpleNamespace
 import tempfile
 
-import issues_iac
+import issues.comparison as issues_iac
 
 
 def legacy_comparison(root, count=3, services=1, stacks=2):
@@ -40,7 +40,7 @@ def legacy_comparison(root, count=3, services=1, stacks=2):
       path.write_text(json.dumps(value), encoding='utf-8')
   catalog = issues_iac.DesignSchemaCatalog(Path(__file__).resolve().parents[4])
   target = {'iacEngine': 'cloudformation', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1'}
-  with patch('issues_iac.load_target', return_value=target), patch('issues_iac.load_model', side_effect=loaded.__getitem__):
+  with patch('issues.comparison.load_target', return_value=target), patch('issues.inputs.load_model', side_effect=loaded.__getitem__):
     comparison = issues_iac.Comparison(root, 'fixture', 'team', models, catalog=catalog)
   comparison.templates = lambda: units
   return comparison
@@ -48,7 +48,7 @@ def legacy_comparison(root, count=3, services=1, stacks=2):
 
 class IntrinsicWarningTests(unittest.TestCase):
   def test_unresolved_leaves_keep_other_comparisons_and_report_counts(self):
-    from issues_reports import iac_summary, comparison_status
+    from issues.aggregate import iac_summary, comparison_status
     from utils.json_format import validate_aws_document
     expressions = [
         {'Fn::Sub': '${Missing}'}, {'Fn::GetAtt': ['Missing', 'Arn']},
@@ -157,7 +157,7 @@ class ImportValueResolutionTests(unittest.TestCase):
       document = {'Resources': {'Repository': definition}, 'Conditions': {'Inactive': {'Fn::Equals': ['yes', 'no']}}}
       comparison.stack_inputs = {'stack0': (document, {'Prefix': 'fixture'}, {})}
       path = 'Stages[].Actions[].Configuration.RepositoryName'
-      with patch('issues_iac.catalog_outputs', return_value=set()):
+      with patch('issues.references.catalog_outputs', return_value=set()):
         desired = comparison.desired_reference('service-0', '[repository](service-0.md#repository)',
             'CodePipeline.Pipeline', path,
             context={'ActionTypeId': dict(Category='Source', Owner='AWS', Provider='CodeCommit', Version='1')})
@@ -250,7 +250,7 @@ class ImportValueResolutionTests(unittest.TestCase):
             'document': json.dumps([{'Name': name, 'Type': variable_type, 'Value': value}])}, 'CodeBuild.Project')[0]['Value']
       def equal(left, right):
         return comparison.reference_same(left, right, 'CodeBuild.Project', prop)
-      with patch('issues_iac.catalog_outputs', return_value=set()):
+      with patch('issues.references.catalog_outputs', return_value=set()):
         key, alias = desired('Key', 'Arn'), desired('Alias', 'AliasArn')
         for selector in [{'$resource': '[key](kms.md#existing-Key)'},
                          {'$resource': '[key](kms.md#existing-Key)', '$attribute': 'Arn'}]:

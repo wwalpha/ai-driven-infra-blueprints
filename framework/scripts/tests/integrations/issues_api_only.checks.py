@@ -9,6 +9,7 @@ if not __debug__:
 from support.it_case_receipt import it_case
 
 from support.issues_api_only_fixtures import *
+from issues.aggregate import aggregate
 
 @it_case
 def main_checks():
@@ -35,7 +36,8 @@ def main_checks():
             assert stats['categories']['CFn非対応・比較対象外'] == 1, stats
             assert stats['categories']['処理エラー'] == stats['categories']['原因未確定'] == 0
             assert stats['proven_causes'] == 1
-            artifact = dict(iac=records, ordinary=[], judgments=[], naming={'names': []})
+            artifact = dict(version=2, ordinary=[], judgments=[], naming={'names': []},
+                        **aggregate(records, 'dev', '123456789012', ['s3']))
             assert summary(artifact)['iac_status'] == 'partial'
             for selected in (records, [api]):
                 report = iac_report('dev', '123456789012', ['s3'], selected)
@@ -56,7 +58,8 @@ def main_checks():
             failure = next(item for item in records if item['resource'] == '002')
             assert failure['category'] == 'error' and failure.get('cause', {}).get('kind') != 'cloudformation-unsupported', failure
             assert iac_summary(records, 'dev', '123456789012', ['s3'])['categories']['処理エラー'] == 1
-            artifact = dict(iac=records, ordinary=[], judgments=[], naming={'names': []})
+            artifact = dict(version=2, ordinary=[], judgments=[], naming={'names': []},
+                        **aggregate(records, 'dev', '123456789012', ['s3']))
             assert summary(artifact)['iac_status'] == 'error'
             cli_exit(root, Path(temporary), artifact, 2)
 
@@ -67,7 +70,8 @@ def main_checks():
         template_path.write_text(json.dumps(template), encoding='utf-8')
         records = Comparison(root, 'dev', '123456789012', ['s3']).run()
         assert sum(item['category'] == 'difference' for item in records) == 1, records
-        artifact = dict(iac=records, ordinary=[], judgments=[], naming={'names': []})
+        artifact = dict(version=2, ordinary=[], judgments=[], naming={'names': []},
+                        **aggregate(records, 'dev', '123456789012', ['s3']))
         assert summary(artifact)['iac_status'] == 'differences'
         cli_exit(root, Path(temporary), artifact, 0)
         template_path.write_text(original, encoding='utf-8')
@@ -77,16 +81,18 @@ def main_checks():
         with patch.object(comparison, 'stack', side_effect=ValueError('broken template input')):
             records = comparison.run()
         assert records and all(item['category'] == 'error' for item in records), records
-        artifact = dict(iac=records, ordinary=[], judgments=[], naming={'names': []})
+        artifact = dict(version=2, ordinary=[], judgments=[], naming={'names': []},
+                        **aggregate(records, 'dev', '123456789012', ['s3']))
         cli_exit(root, Path(temporary), artifact, 2)
 
         # Authoritative input parse failure must survive comparison and aggregation.
-        with patch('issues_iac.load_model', side_effect=ValueError('broken model input')):
+        with patch('issues.inputs.load_model', side_effect=ValueError('broken model input')):
             comparison = Comparison(root, 'dev', '123456789012', ['s3'])
         records = comparison.run()
         assert records and all(item['category'] == 'error' for item in records), records
-        assert summary(dict(iac=records))['iac_status'] == 'error'
-        artifact = dict(iac=baseline, ordinary=[], judgments=[], naming={'names': []})
+        assert summary(dict(version=2, **aggregate(records, 'dev', '123456789012', ['s3'])))['iac_status'] == 'error'
+        artifact = dict(version=2, ordinary=[], judgments=[], naming={'names': []},
+                        **aggregate(baseline, 'dev', '123456789012', ['s3']))
         assert summary(artifact)['iac_status'] == 'complete match'
         cli_exit(root, Path(temporary), artifact, 0)
     print('API-only IaC classification: PASS (API/unknown/broken/CFn counts, CLI exits, implementation rejection)')

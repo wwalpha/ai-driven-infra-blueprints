@@ -52,6 +52,7 @@ class Validator:
         self.task_iac_paths = task_iac_paths
         self.workers = workers
         self.write = write
+        self.service_cache_pending = []
         self.catalog_pending = None
         self.catalog_key = None
         self.model_check = model_check
@@ -282,7 +283,7 @@ class Validator:
         finally:
             plan.close()
 
-    def check_scoped_designs(self) -> None:
+    def check_scoped_designs(self, *, defer_cache=False) -> None:
         # These whole-scope checks must also run when individual services are reused.
         self.check_design_service_ownership(self.design_files())
         self.findings.evaluate('design.stacks', self.scope, lambda: {'stack_definitions': self.check_stack_designs()})
@@ -365,12 +366,9 @@ class Validator:
                 self.check(unchanged, f"validation inputs changed during service validation: {'/'.join(entry)}")
                 if unchanged and entry not in reused and not results[entry].errors and not generator.errors and not results[entry].warnings and not generator.warnings and not results[entry].findings.unverified and not unavailable:
                     successful.append((keys[entry], results[entry].checks))
-        if self.cache and self.cache.common is not None:
-            unchanged = self.cache.common == self.cache.common_key()
-            self.check(unchanged, "framework/project inputs changed during service validation")
-            if unchanged:
-                for key, checks in successful:
-                    self.cache.save(key, checks)
+        self.service_cache_pending = successful
+        if not defer_cache and self.cache and self.cache.common is not None:
+            self.finalize_service_cache(self.cache.common_key())
         if self.cache:
             print(f"Service validation: {len(missing)} executed, {len(reused)} reused; workers: {self.workers}")
         generation = self.findings.result('framework.generated-service-model', self.scope)
@@ -387,6 +385,15 @@ class Validator:
         policy.warnings = tuple(w for p in policies for w in p.warnings)
         policy.errors = tuple(error for p in policies for error in p.errors)
         self.generated_models_checked = True
+
+    def finalize_service_cache(self, current_common_key):
+        pending, self.service_cache_pending = self.service_cache_pending, []
+        if self.cache and self.cache.common is not None:
+            unchanged = self.cache.common == current_common_key
+            self.check(unchanged, "framework/project inputs changed during service validation")
+            if unchanged:
+                for key, checks in pending:
+                    self.cache.save(key, checks)
 
     def check_generated_service_models(self) -> None:
         return self.findings.evaluate('framework.generated-service-model', self.scope, self._check_generated_service_models)

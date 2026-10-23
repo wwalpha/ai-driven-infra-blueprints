@@ -194,7 +194,7 @@ def check_admission_selection(tmp_path, monkeypatch):
 
 
 def check_shared_issue_files(tmp_path, monkeypatch):
-    from issues_reports import save
+    from issues.publication import save
     first, second = 'tasks/first.md', 'tasks/second.md'
     report = 'issues/dev/cde/issues.md'
     tasks.start(tmp_path, first, contract(first, [report], kind='migration', scope='dev/cde/ec2'))

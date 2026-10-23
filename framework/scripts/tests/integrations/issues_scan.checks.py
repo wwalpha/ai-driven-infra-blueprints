@@ -160,7 +160,7 @@ def checks(root, values, template):
     names = artifact['naming']['names']
     assert {item['service'] for item in names} == set(services)
     assert len([item for item in names if item['property'] != '(no selected naming property)']) == 9
-    review = {'reviewed_names': [item['id'] for item in names], 'reviewed_judgments': [item['id'] for item in artifact['judgments']]}
+    review = dict(review_for(artifact), **{'reviewed_names': [item['id'] for item in names], 'reviewed_judgments': [item['id'] for item in artifact['judgments']]})
     def git(*args):
         return subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test',
                                *args], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
@@ -168,7 +168,7 @@ def checks(root, values, template):
     git('commit', '--quiet', '--allow-empty', '-m', 'scan inputs')
     scan_head = git('rev-parse', 'HEAD')
     with task(root, services):
-        expect_error(lambda: save_scan(root, artifact, {}), 'all naming')
+        expect_error(lambda: save_scan(root, artifact, {}), 'scan_id')
         contract = (root / 'tasks/save.md').read_bytes()
         git('commit', '--quiet', '--allow-empty', '-m', 'HEAD advances after scan')
         paths = save_scan(root, artifact, review)
@@ -193,7 +193,7 @@ def checks(root, values, template):
         save(root, 'dev', '123456789012', ['s3'], additions=[{'service': 's3', 'message': '診断にlinkがない新問題'}])
         assert not any('ambiguous' in error for error in issue_errors(root, {('dev', '123456789012', 's3')}))
         previous = ordinary.read_bytes()
-        with patch('issues_reports.os.replace', side_effect=OSError('fixture save failure')):
+        with patch('utils.file_operations.os.replace', side_effect=OSError('fixture save failure')):
             expect_error(lambda: save(root, 'dev', '123456789012', ['s3'], additions=[{'service': 's3', 'message': '保存不可'}]))
         assert ordinary.read_bytes() == previous
         malformed = load_case('issues_scan', 'malformed-report')['files']
@@ -217,8 +217,8 @@ def checks(root, values, template):
         expect_error(lambda: save_scan(root, artifact, review), 'stale scan')
         rescanned = scan(root, 'dev', '123456789012', services, fresh=True, jobs=1)
         assert any(item['category'] == 'difference' for item in rescanned['iac'])
-        renewed = {'reviewed_names': [item['id'] for item in rescanned['naming']['names']],
-                   'reviewed_judgments': [item['id'] for item in rescanned['judgments']]}
+        renewed = dict(review_for(rescanned), **{'reviewed_names': [item['id'] for item in rescanned['naming']['names']],
+                   'reviewed_judgments': [item['id'] for item in rescanned['judgments']]})
         save_scan(root, rescanned, renewed)
         assert (root / 'tasks/save.md').read_bytes() == contract
         template_path.write_bytes(original)
@@ -252,7 +252,7 @@ def checks(root, values, template):
     write(doc, original)
     # Save-only never enters scan/naming/comparison.
     with task(root, ['s3'], name='saveonly'):
-        with patch('issues_scan.scan', side_effect=AssertionError('rescan forbidden')), patch.object(Comparison, 'run', side_effect=AssertionError('compare forbidden')):
+        with patch('issues.runner.scan', side_effect=AssertionError('rescan forbidden')), patch.object(Comparison, 'run', side_effect=AssertionError('compare forbidden')):
             save(root, 'dev', '123456789012', ['s3'], additions=[{'service': 's3', 'message': '取得済みの具体的診断'}])
         prompt = root / 'tasks/saveonly.md'
         running = prompt.read_text()
@@ -1025,7 +1025,8 @@ def reference_diagnostic_cases():
                 hidden = []
                 assert comparison.reference_same(arn, secret, 'Athena.WorkGroup', field, hidden) is (None if '{{resolve:' in secret else False)
                 masked = dict(record, reference_diagnostics=hidden * 3)
-                artifact = dict(environment='dev', target='cde', services=['athena'], iac=[masked])
+                artifact = dict(version=2, environment='dev', target='cde', services=['athena'],
+                                **aggregate([masked], 'dev', 'cde', ['athena']))
                 rendered = json.dumps(artifact) + json.dumps(detail_payload(artifact, 'iac')) + iac_report('dev', 'cde', ['athena'], [masked])
                 assert secret not in rendered
                 example = iac_summary([masked], 'dev', 'cde', ['athena'])['groups'][0]['examples'][0]
@@ -1050,7 +1051,8 @@ check_reference_diagnostics = reference_diagnostic_cases
 
 def reference_identity_report_cases():
     from iac_values import Expression
-    from issues_reports import iac_key, iac_actions
+    from issues.records import iac_key
+    from issues.aggregate import iac_actions
     with tempfile.TemporaryDirectory(prefix='reference-identity-') as directory:
         root = Path(directory)
         _, template = fixture(root, stacks=2, services=['cloudwatch-logs', 's3'])
@@ -1161,7 +1163,8 @@ def reference_identity_report_cases():
 
 
 def action_report_cases():
-    from issues_reports import iac_key, iac_actions
+    from issues.records import iac_key
+    from issues.aggregate import iac_actions
     with tempfile.TemporaryDirectory(prefix='iac-actions-') as directory:
         root = Path(directory)
         path = root / 'issues/dev/cde/iac-issues.md'
@@ -1273,9 +1276,9 @@ def mismatch_display_cases():
         mismatch = next(item for item in artifact['iac'] if item['reason'] == 'value mismatch')
         assert identifier(mismatch) in artifact['iac_display']
         with task(fixture_root, ['s3']):
-            saved = save_scan(fixture_root, artifact, {'issues': [], 'resolved': [],
+            saved = save_scan(fixture_root, artifact, dict(review_for(artifact), **{'issues': [], 'resolved': [],
                 'reviewed_names': [item['id'] for item in artifact['naming']['names']],
-                'reviewed_judgments': [item['id'] for item in artifact['judgments']]})
+                'reviewed_judgments': [item['id'] for item in artifact['judgments']]}))
         saved_report = next(file for file in saved if file.name == 'iac-issues.md').read_text()
         assert 'changed-bucket' in saved_report and 'bucket-app-dev-data1' in saved_report
         assert '<!-- iac-report-data:' not in saved_report
@@ -1316,7 +1319,7 @@ def state_report_cases():
                     return read_text(file, *args, **kwargs)
                 with task(root, ['s3']), patch.object(Path, 'read_text', guarded_read), \
                      patch.object(Comparison, 'run', side_effect=AssertionError('save comparison forbidden')), \
-                     patch('issues_iac.load_model', side_effect=AssertionError('save parse forbidden')), \
+                     patch('issues.inputs.load_model', side_effect=AssertionError('save parse forbidden')), \
                      patch('socket.socket', side_effect=AssertionError('network forbidden')):
                     assert save(root, 'dev', '123456789012', ['s3'], iac=[record], display=display, stamp='fixed') == outputs
                 text = path.read_text()
@@ -1337,7 +1340,7 @@ def state_report_cases():
                                 if after: replace(source, destination)
                                 raise error_type('fixture publication failure')
                             return replace(source, destination)
-                        with patch('issues_reports.os.replace', side_effect=fail_replace):
+                        with patch('utils.file_operations.os.replace', side_effect=fail_replace):
                             with pytest.raises(error_type):
                                 save(root, 'dev', '123456789012', ['s3'], iac=[record], display=display)
                         assert failed and snapshot() == before
@@ -1509,7 +1512,8 @@ def check_condition_diagnostics():
             assert '意図的な無効化か設計との不整合か' in report
             entries, actions, _ = iac_dataset(records, 'dev', '123456789012', ['s3'])
             assert actions[0]['classification'] == 'ConditionによるCREATE無効化'
-            artifact = {'environment': 'dev', 'target': '123456789012', 'services': ['s3'], 'iac': records}
+            artifact = dict(version=2, environment='dev', target='123456789012', services=['s3'],
+                            **aggregate(records, 'dev', '123456789012', ['s3']))
             detail = detail_payload(artifact, 'iac', issue_id=actions[0]['id'])
             assert detail['items'][0]['cause'] == cause
             return cause, report
@@ -1632,8 +1636,6 @@ check_state_report = state_report_cases
 
 def check_summary_detail_cli():
     artifact = summary_fixture()
-    entries, actions, _ = iac_dataset(artifact['iac'], 'dev', 'cde', artifact['services'], artifact['iac_display'])
-    artifact['iac_issues'] = [dict(group, members=[entries[i]['record_index'] for i in group['members']]) for group in actions]
     pending = detail_payload(artifact, 'iac_issues', category='比較未完了')['items'][0]
     with tempfile.TemporaryDirectory(prefix='iac-detail-cli-') as temporary:
         file = Path(temporary) / 'artifact.json'; write(file, json.dumps(artifact))

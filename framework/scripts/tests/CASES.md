@@ -1,5 +1,27 @@
 # UT / IT 全ケース台帳
 
+## Issues package, artifact v2 and isolated cfn-lint
+
+既存deploy lint廃止は復元しない。旧workerの設定/schema/custom rule状態隔離とscope回収契約をutils入口で検証する。Framework定義は読取専用、一時HOME/config/rule/schemaは独立fixtureとする。
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `issues-v2::check_classification` | `check_classification` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 9 | severity・E0000 provenance・特殊Error分類 | Issues v2 |
+| `issues-v2::check_explicit_plan` | `check_explicit_plan` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | Stack parametersと独立した対象・共有dedup・owner・対象外 | Issues v2 |
+| `issues-v2::check_v2_index_and_status` | `check_v2_index_and_status` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | 一次集計・page先行・未対応形式拒否・status・bounded notice・review照合 | Issues v2 |
+| `issues-v2::check_dependency_guards` | `check_dependency_guards` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | 外部config追加/変更・rule集合・runtime/HOME照合 | Issues v2 |
+| `issues-v2::check_deferred_cache_finalization` | `check_deferred_cache_finalization` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | 最終入力確認まで候補保留・変更時不採用 | Issues v2 |
+| `issues-v2::check_scan_cache_guard_order` | `check_scan_cache_guard_order` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | 集計→live guard→cache確定・stale/例外/中断時の不採用 | Issues v2 |
+| `issues-v2::check_worker_protocol_and_fatal` | `check_worker_protocol_and_fatal` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | protocol拒否・共通runtime失敗後not_run | Issues v2 |
+| `issues-v2::check_cli_equivalence` | `check_cli_equivalence` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 4 | 固定版CLIのRule/Severity/Path/位置/Message同等性 | Issues v2 |
+| `issues-v2::check_config_exclusion_and_outputs` | `check_config_exclusion_and_outputs` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | config除外・抑制時coverage・output_file非書込・競合 | Issues v2 |
+| `issues-v2::check_noecho_and_dependencies` | `check_noecho_and_dependencies` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | NoEcho mask・HOME/cwd config存在と内容変更 | Issues v2 |
+| `issues-v2::check_rule_schema_state_and_reaping` | `check_rule_schema_state_and_reaping` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | custom rule/schema状態隔離・child異常後継続・回収 | Issues v2 |
+| `issues-v2::check_legacy_worker_scope` | `check_legacy_worker_scope` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | 従来Worker/scope・CLI応答・例外回収 | Issues v2 |
+| `issues-v2::check_offline_schema` | `check_offline_schema` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 2 | provider/schema欠落・offline阻止・not_run | Issues v2 |
+| `issues-v2::check_timeout` | `check_timeout` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | timeoutとhelper/child回収 | Issues v2 |
+| `issues-v2::check_scan_publication_and_missing_view` | `check_scan_publication_and_missing_view` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | scan→review→atomic save・guard/cache順序・共有dedup・stale・独立View検査 | Issues v2 |
+
 ## Ordinary receiving-property reference contracts
 
 既存の `units/model-markdown-reference.checks.py::main` に、Glue.Connection 001/002の2要素配列、各位置のS3型違反、不在・曖昧警告、明示契約なし、document除外、Name/observedとIMPORT契約、通常配列と明示JSON禁止の境界、保存・生成・再読取の値と順序不変を追加。入口数は変更しない。

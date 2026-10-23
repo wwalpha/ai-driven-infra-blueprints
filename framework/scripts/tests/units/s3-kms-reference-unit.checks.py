@@ -21,7 +21,7 @@ from validation.design_links import check_design_links as validate_links
 from validation.design_tables import check_design_tables as validate_tables
 from validation.findings import Findings
 from design_catalog import DesignSchemaCatalog
-from issues_iac import Comparison
+from issues.comparison import Comparison
 
 FRAMEWORK = Path(__file__).resolve().parents[4]
 KEY_LINK = '[fixture-key](kms.md#key-one)'

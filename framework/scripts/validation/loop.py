@@ -283,7 +283,6 @@ def select_checks(root, paths, affected=False):
                   "cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
     mapping["framework/scripts/comparison_rows.py"] = comparison
     mapping["framework/scripts/model/adapters/aws.py"] = comparison
-    mapping["framework/scripts/issues_iac.py"] = comparison - {"check-model-aws.checks.py"}
     mapping["framework/scripts/cloudformation-deploy.py"] = {"cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
     for name in ("__init__", "preparation", "controller", "inputs", "contracts", "context", "guards", "session", "scheduler", "change_sets", "delivery", "s3_delivery", "repair", "secret_bootstrap", "observed", "timing"):
         mapping[f"framework/scripts/deploy/{name}.py"] = mapping["framework/scripts/cloudformation-deploy.py"]
@@ -292,7 +291,6 @@ def select_checks(root, paths, affected=False):
     mapping['framework/scripts/utils/cloudformation_format.py'] = comparison | {'cloudformation-format.checks.py', 'json-resource-arn-unit.checks.py'}
     # JSON/identity helpers are also used by shared design/catalog processing.
     mapping["framework/scripts/iac_values.py"] = {check.name for check in checks}
-    mapping["framework/scripts/issues_reports.py"] = {"issues_scan.checks.py", "comparison_core.checks.py"}
     mapping["framework/scripts/issues_scan.py"] = {"issues_scan.checks.py"}
     mapping["framework/scripts/deploy/s3_delivery.py"] = {"cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
     mapping["framework/scripts/iac_evaluation.py"] = comparison - {"check-model-aws.checks.py"}
@@ -307,8 +305,13 @@ def select_checks(root, paths, affected=False):
                        if name.replace(".checks.py", "-unit.checks.py") in names)
         if "validate-blueprint.checks.py" in targets and "validation-units.checks.py" in names:
             targets.add("validation-units.checks.py")
-    mapping["framework/scripts/issues_iac.py"].update(
-        path.name for path in units if path.name == "test_issues_iac.py")
+    issues_tests = (comparison - {'check-model-aws.checks.py', 'check-model-aws-unit.checks.py'}) | {'test_issues_iac.py', 'issues-lint-unit.checks.py'}
+    issues_tests.update(name.replace('.checks.py', '-unit.checks.py') for name in list(issues_tests)
+                        if name.replace('.checks.py', '-unit.checks.py') in names)
+    for name in ('__init__','cli','runner','inputs','integrity','materials','comparison','references','records','aggregate','artifact','reports','publication','cfn_lint'):
+        mapping[f'framework/scripts/issues/{name}.py'] = set(issues_tests)
+    mapping['framework/scripts/utils/cfn_lint.py'] = set(issues_tests)
+    mapping['framework/scripts/issues_scan.py'] = set(issues_tests)
     selected = set()
     for path in sorted(paths):
         if not framework_changed({path}):

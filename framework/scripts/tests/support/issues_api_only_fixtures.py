@@ -23,11 +23,13 @@ from unittest.mock import patch
 
 from design_catalog import DesignSchemaCatalog
 
-from issues_iac import Comparison
+from issues.comparison import Comparison
 
-from issues_reports import iac_summary, iac_report
+from issues.aggregate import iac_summary
+from issues.reports import iac_report
 
-from issues_scan import main, summary
+from issues.cli import main
+from issues.artifact import summary
 
 from support.validator import load
 
@@ -35,7 +37,7 @@ ROOT = Path(__file__).resolve().parents[4]
 
 def cli_exit(root, temporary, artifact, expected):
     before = copy.deepcopy(artifact)
-    with patch('issues_scan.scan', return_value=artifact), patch('issues_scan.review_payload', return_value={}), \
+    with patch('issues.runner.scan', return_value=artifact), patch('issues.artifact.review_payload', return_value={}), \
          patch('sys.argv', ['issues_scan.py', '--repository-root', str(root), 'scan', '--environment', 'dev',
                             '--target-directory', '123456789012', '--service', 's3',
                             '--artifact', str(temporary / 'scan.json')]):

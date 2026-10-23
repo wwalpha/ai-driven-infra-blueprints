@@ -16,7 +16,7 @@ import tempfile
 from unittest.mock import patch
 
 from iac_values import Expression, ResourceReference, same, selected_same
-from issues_reports import identifier
+from issues.records import identifier
 from support.validator import load
 
 

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from iac_values import cfn_resource_identity
 from comparison_rows import Unresolved, put_row
-from issues_iac import Comparison
+from issues.comparison import Comparison
 from iac_values import same
 from utils.json_format import fingerprint
 from cloudformation_inputs import Blocked, resolve_value, condition_active, output_value

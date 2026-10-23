@@ -17,7 +17,7 @@ def check_report_commit_independence(tmp_path, monkeypatch, kind):
     from validation.findings import Findings
     from validation.task import TaskValidation
     from validation_scope import active_scope
-    from issues_reports import save
+    from issues.publication import save
     name = 'tasks/investigation.md'
     reports = {'issues/dev/cde/issues.md', 'issues/dev/cde/iac-issues.md'}
     permitted = reports | {name}

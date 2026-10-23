@@ -39,15 +39,15 @@ with patch.object(Path, 'read_text', side_effect=AssertionError('input read')), 
     assert evaluator.evaluate('stack', {'Fn::Join': [',', ['a', 'b']]}) == 'a,b'
 
 # Orchestrators may read the immutable layout at import, but never project inputs.
-import issues_iac as iac
-spec = importlib.util.spec_from_file_location('alternate_iac', Path(sys.argv[1]) / 'issues_iac.py')
+import issues.comparison as iac
+spec = importlib.util.spec_from_file_location('issues.alternate_comparison', Path(sys.argv[1]) / 'issues/comparison.py')
 alternate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(alternate)
 assert alternate.Expression is iac.Expression is values.Expression
 assert alternate.ResourceReference is iac.ResourceReference is values.ResourceReference
 assert alternate.Blocked is iac.Blocked is evaluation.Blocked
 from script_loader import module
-import issues_scan as scan
+import issues.runner as scan
 from deploy import s3_delivery as delivery
 aws = module('model/adapters/aws.py', 'model.adapters.aws')
 from deploy import controller as deploy

@@ -15,8 +15,9 @@ import tempfile
 from unittest.mock import patch
 
 from iac_values import Expression, same
-from issues_iac import KMS_COMPARISON_FORMS
-from issues_reports import iac_actions, identifier
+from issues.comparison import KMS_COMPARISON_FORMS
+from issues.aggregate import iac_actions
+from issues.records import identifier
 from support.validator import load
 
 

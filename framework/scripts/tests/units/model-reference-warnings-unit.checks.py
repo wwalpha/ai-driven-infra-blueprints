@@ -214,7 +214,7 @@ def check_generation_metadata_reaches_findings(tmp_path, monkeypatch):
 @pytest.mark.parametrize('mixed', [False, True])
 def check_legacy_diagnostic_forms(tmp_path, diagnostic, mixed):
     from issue_gate import issue_errors, reference_issue_parts, task_issue_errors
-    from issues_scan import existing_materials
+    from issues.materials import existing_materials
     path = tmp_path / 'issues/dev/target/issues.md'
     path.parent.mkdir(parents=True)
     source = '7. <!-- issue-id: old-7 --> invalid service model: model/dev/target/service.properties: ' + diagnostic + '\n'

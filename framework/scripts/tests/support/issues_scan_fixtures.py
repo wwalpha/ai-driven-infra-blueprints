@@ -49,15 +49,22 @@ import time
 
 from unittest.mock import patch
 
-from issues_iac import Comparison
+from issues.comparison import Comparison
 
 from script_loader import module
 
 from iac_values import same, selected_same, strict_json
 
-from issues_scan import scan, mechanical, naming_materials, save_scan, summary, verify_inputs, review_payload, detail_payload
+from issues.runner import scan, mechanical
+from issues.materials import naming_materials
+from issues.publication import save_scan
+from issues.artifact import summary, review_payload, detail_payload
+from issues.integrity import verify_inputs
 
-from issues_reports import save, blocks, numbered, identifier, iac_report, iac_dataset, iac_summary, value_differences
+from issues.publication import save
+from issues.reports import blocks, numbered, iac_report
+from issues.records import identifier, value_differences
+from issues.aggregate import aggregate, iac_dataset, iac_summary
 
 from model.render import markdown_for
 from model.validation import naming_targets, naming_target_matches
@@ -250,7 +257,7 @@ def required_context(root, services):
     for service in services:
         kind = {'s3': 'S3', 'sqs': 'SQS', 'cloudwatch-logs': 'Logs'}[service]
         files.update(naming_rule_files(root, kind))
-    from issues_scan import rule_section
+    from issues.materials import rule_section
     shared = []
     for file, headings in [('model-information.md', ('## Model authority', '## Properties format')),
                            ('detailed-design.md', ('## Markdown structure', '## Links and anchors'))]:
@@ -336,13 +343,13 @@ raise SystemExit(status)
         if variant == 'C':
             artifact = scan(root, 'dev', '123456789012', services, fresh=True, jobs=1)
             llm = required_context(root, services) + json.dumps(review_payload(artifact, '/tmp/fixture-scan.json'), ensure_ascii=False)
-            llm_output = json.dumps({'reviewed_names': [item['id'] for item in artifact['naming']['names']],
-                                     'reviewed_judgments': [item['id'] for item in artifact['judgments']]})
+            llm_output = json.dumps(dict(review_for(artifact), **{'reviewed_names': [item['id'] for item in artifact['naming']['names']],
+                                     'reviewed_judgments': [item['id'] for item in artifact['judgments']]}))
             errors = [item['message'] for item in artifact['ordinary']]
             records = artifact['iac']
             counts['template_decodes'] += artifact['metrics']['template_decodes']
             save_started = time.perf_counter()
-            save_scan(root, artifact, {'reviewed_names': [item['id'] for item in artifact['naming']['names']], 'reviewed_judgments': [item['id'] for item in artifact['judgments']]})
+            save_scan(root, artifact, dict(review_for(artifact), **{'reviewed_names': [item['id'] for item in artifact['naming']['names']], 'reviewed_judgments': [item['id'] for item in artifact['judgments']]}))
             timings['save_seconds'] = time.perf_counter() - save_started
             timings.update({key: artifact['metrics'][key] for key in ('mechanical_seconds', 'iac_seconds')})
         else:
@@ -420,7 +427,7 @@ def benchmark(logdir, repeats=5):
     print(json.dumps({'benchmark': str(logdir / 'benchmark.json'), 'fixtures': {key: value['medians'] for key, value in output['fixtures'].items()}}, ensure_ascii=False))
 
 def summary_fixture():
-    from issues_reports import identifier
+    from issues.records import identifier
     unknown = [dict(category='difference', service=['s3', 'iam', 'glue'][i % 3], resource=f'u{i:04d}',
                     property='Setting', reason='cause and repair target unknown', stack=None, desired=None, actual=None) for i in range(1000)]
     incomplete = [dict(category='uncompared', service='s3', resource=f'c{i:04d}', property='Role',
@@ -433,15 +440,20 @@ def summary_fixture():
     display = {identifier(item): value_differences(item['desired'], item['actual'], item['property']) for item in differences}
     names = [dict(id=identifier(['name', i]), service='s3', resource=f'{i:04d}', property='BucketName', value=f'bucket-app-dev-data{i}', resourceMode='CREATE', comment='human-confirmed application=app', pattern_review='required') for i in range(1000)]
     judgments = [dict(id=identifier(['judgment', i]), kind='human-components/exceptions', service='s3', materials='Confirm application component and exception scope') for i in range(100)]
-    artifact = dict(version=1, environment='dev', target='cde', services=['glue', 'iam', 's3'], iac=records, iac_display=display,
-                    ordinary=[], naming=dict(names=names, rules={}, target_context={}, review_policy='review all'),
-                    judgments=judgments, human_confirmations=[], checks=1, executed_at='2026-10-08T00:00:00Z')
+    context = dict(rules={}, target_context={}, review_policy='review all')
+    artifact = dict(version=2, scan_id='a'*32, naming_context=context, naming_context_id=identifier(context),
+                    environment='dev', target='cde', services=['glue', 'iam', 's3'],
+                    ordinary=[], naming=dict(names=names),
+                    judgments=judgments, human_confirmations=[], checks=1, executed_at='2026-10-08T00:00:00Z',
+                    **aggregate(records, 'dev', 'cde', ['glue', 'iam', 's3'], display))
     return artifact
 
 @pytest.fixture(scope="module", autouse=True)
 def protected_sources():
     protected = [ROOT / 'framework/scripts' / name for name in
-                 ('issues_iac.py', 'issue_gate.py', 'comparison_rows.py', 'iac_values.py', 'iac_evaluation.py', 'script_loader.py', 'model/render.py', 'policy_tables.py')]
+                 ('issues/comparison.py', 'issue_gate.py', 'comparison_rows.py', 'iac_values.py', 'iac_evaluation.py', 'script_loader.py', 'model/render.py', 'policy_tables.py')]
+    protected.extend((ROOT / 'framework/scripts/issues').glob('*.py'))
+    protected.append(ROOT / 'framework/scripts/utils/cfn_lint.py')
     before = {path: path.read_bytes() for path in protected if path.exists()}
     yield
     assert before == {path: path.read_bytes() if path.exists() else None for path in before}, 'checks changed protected source'
@@ -453,7 +465,7 @@ def scan_project(tmp_path):
     return root, values, template
 
 
-__all__ = ['Comparison', 'Counter', 'Path', 'ROOT', 'SELECTOR', 'argparse', 'baseline_input', 'benchmark', 'blocks', 'compare', 'sequential_reports', 'contextmanager', 'detail_payload', 'entries', 'expect_error', 'fixture', 'hashlib', 'iac_dataset', 'iac_report', 'iac_summary', 'identifier', 'input_scope', 'issue_errors', 'json', 'legacy_mechanical', 'load_model', 'markdown_for', 'mechanical', 'model_file_contents', 'module', 'mutate_template', 'naming_materials', 'naming_target_matches', 'naming_targets', 'numbered', 'os', 'patch', 'properties', 'protected_sources', 'pytest', 'pytestmark', 're', 'read_model', 'render_iac', 'required_context', 'resource_name_fields', 'resource_row_index', 'remove_model', 'review_payload', 'run', 'same', 'save', 'save_scan', 'scan', 'scan_project', 'selected_same', 'shutil', 'snapshot_model', 'statistics', 'strict_json', 'subprocess', 'summary', 'summary_fixture', 'sys', 'task', 'tempfile', 'time', 'value_differences', 'verify_inputs', 'worker', 'write', 'write_fixture_files', 'write_model', 'write_report']
+__all__ = ['aggregate', 'review_for', 'Comparison', 'Counter', 'Path', 'ROOT', 'SELECTOR', 'argparse', 'baseline_input', 'benchmark', 'blocks', 'compare', 'sequential_reports', 'contextmanager', 'detail_payload', 'entries', 'expect_error', 'fixture', 'hashlib', 'iac_dataset', 'iac_report', 'iac_summary', 'identifier', 'input_scope', 'issue_errors', 'json', 'legacy_mechanical', 'load_model', 'markdown_for', 'mechanical', 'model_file_contents', 'module', 'mutate_template', 'naming_materials', 'naming_target_matches', 'naming_targets', 'numbered', 'os', 'patch', 'properties', 'protected_sources', 'pytest', 'pytestmark', 're', 'read_model', 'render_iac', 'required_context', 'resource_name_fields', 'resource_row_index', 'remove_model', 'review_payload', 'run', 'same', 'save', 'save_scan', 'scan', 'scan_project', 'selected_same', 'shutil', 'snapshot_model', 'statistics', 'strict_json', 'subprocess', 'summary', 'summary_fixture', 'sys', 'task', 'tempfile', 'time', 'value_differences', 'verify_inputs', 'worker', 'write', 'write_fixture_files', 'write_model', 'write_report']
 
 
 def remove_model(path):
@@ -461,3 +473,8 @@ def remove_model(path):
     for source in model_parts(path):
         source.unlink()
     path.unlink(missing_ok=True)
+
+def review_for(artifact):
+    return dict(scan_id=artifact['scan_id'], reviewed_naming_context_id=artifact['naming_context_id'],
+                reviewed_names=[item['id'] for item in artifact['naming']['names']],
+                reviewed_judgments=[item['id'] for item in artifact['judgments']], diagnostic_assignments={}, issues=[], resolved=[])

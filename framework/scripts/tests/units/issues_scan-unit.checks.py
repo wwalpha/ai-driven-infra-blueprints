@@ -10,7 +10,8 @@ from support.issues_scan_fixtures import *
 
 def check_mismatch_rendering():
     from iac_values import safe_value
-    from issues_reports import iac_actions, iac_key
+    from issues.aggregate import iac_actions
+    from issues.records import iac_key
 
     def fields(left, right, name='Setting', exact=False):
         return value_differences(left, right, name, exact=exact)
@@ -66,7 +67,7 @@ def check_mismatch_rendering():
         display = {identifier(base): fields(role, arn_role), identifier(secret): fields('first', 'second', 'Glue.Job.Password'),
                    identifier(long_record): fields(long_record['desired'], long_record['actual'], 'Glue.Job.Config')}
         # No source/evidence reads, even when saved line numbers are invalid.
-        with patch('issues_reports.evidence', side_effect=AssertionError('mismatch evidence read forbidden')):
+        with patch('issues.reports.evidence', side_effect=AssertionError('mismatch evidence read forbidden')):
             report, report_state = render_iac(root, path, 'dev', 'cde', ['glue'], records, display)
         assert '相違項目: $attribute\n- Model: RoleName\n- IaC: Arn' in report
         assert '$resource' not in report and '修正対象: Model／IaC（修正先は要判断）' in report and '根拠（代表例）:' not in report
@@ -95,11 +96,15 @@ def check_mismatch_rendering():
 
 
 def summary_scale_cases():
-    from issues_reports import iac_key, MAX_GROUPS
+    from issues.records import iac_key
+    from issues.aggregate import MAX_GROUPS
     artifact = summary_fixture()
+    def with_records(records, services=artifact['services'], display=None):
+        return dict(artifact, services=services, **aggregate(records, 'dev', 'cde', services, display))
+
     records = artifact['iac']
     original = json.dumps(artifact, sort_keys=True)
-    assert hashlib.sha256(original.encode()).hexdigest() == '8fdf987e881faec5843aeb876d30e769f3fd15eb206a5cafdd3fd6fd25ce47fb'
+    assert hashlib.sha256(original.encode()).hexdigest() == 'edd38257633c96366b7e60fdc793ec191419da4ad93e3cfd370bf4edb523c627'
     entries, actions, fields = iac_dataset(records, 'dev', 'cde', artifact['services'], artifact['iac_display'])
     stats = iac_summary(records, 'dev', 'cde', artifact['services'], artifact['iac_display'])
     signature = sorted((group['id'], sorted(identifier(entries[i]['record']) for i in group['members'])) for group in actions)
@@ -112,8 +117,7 @@ def summary_scale_cases():
     assert sum(len(action['members']) for action in actions) == len(records)
     assert sorted(entries[i]['record_index'] for action in actions for i in action['members']) == list(range(len(records)))
     assert {entry['id'] for entry in entries} == {iac_key(record) for record in records}
-    artifact['iac_issues'] = [dict(group, members=[entries[i]['record_index'] for i in group['members']]) for group in actions]
-    with patch.object(Comparison, 'run', side_effect=AssertionError('detail must not compare')), patch('issues_iac.load_model', side_effect=AssertionError('detail must not parse')):
+    with patch.object(Comparison, 'run', side_effect=AssertionError('detail must not compare')), patch('issues.inputs.load_model', side_effect=AssertionError('detail must not parse')):
         for category, count in stats['categories'].items():
             assert detail_payload(artifact, 'iac_issues', category=category)['total'] == count
         pending = detail_payload(artifact, 'iac_issues', category='比較未完了')['items'][0]
@@ -145,7 +149,6 @@ def summary_scale_cases():
     again_entries, again_actions, _ = iac_dataset(records[::-1], 'dev', 'cde', artifact['services'], artifact['iac_display'])
     assert [group['id'] for group in again_actions] == [group['id'] for group in actions]
     assert [[again_entries[i]['id'] for i in group['members']] for group in again_actions] == [[entries[i]['id'] for i in group['members']] for group in actions]
-    artifact.pop('iac_issues')
     assert json.dumps(artifact, sort_keys=True) == original
     # Matching/excluded records are preserved but never become independent Issues.
     extra = [dict(records[0], category='matched'), dict(records[1], category='excluded')]
@@ -156,14 +159,14 @@ def summary_scale_cases():
     safe = Comparison.__new__(Comparison); safe.sensitive_values = {'confidential'}
     hidden = dict(secret, desired=safe.redacted(secret['desired']), actual=safe.redacted(secret['actual']))
     hidden_fields = {identifier(hidden): value_differences(secret['desired'], secret['actual'], secret['property'], redact=safe.redacted)}
-    secret_artifact = dict(artifact, iac=[hidden], iac_display=hidden_fields)
+    secret_artifact = with_records([hidden], display=hidden_fields)
     for word in ('first', 'second', 'confidential', 'arn:aws:'):
         assert word not in json.dumps(secret_artifact) + iac_report('dev', 'cde', artifact['services'], [hidden], hidden_fields) + json.dumps(detail_payload(secret_artifact, 'iac'))
     for category, expected in [('matched', 'complete match'), ('uncompared', 'partial'), ('excluded', 'no compared records'), ('error', 'error')]:
         current = dict(records[0], category=category)
-        assert summary(dict(artifact, iac=[current]))['iac_status'] == expected
+        assert summary(with_records([current]))['iac_status'] == expected
         assert '今回の判定: ' + expected in iac_report('dev', 'cde', artifact['services'], [current])
-    assert summary(dict(artifact, iac=[]))['iac_status'] == 'no compared records'
+    assert summary(with_records([]))['iac_status'] == 'no compared records'
     # Limits are presentation-only; all IDs and members remain retrievable.
     base = dict(records[2000], service='glue', category='difference', reason='value mismatch',
                 stack='shared', iac={'path': 'infra/shared.yaml'}, resource='shared', property='Setting')
@@ -173,20 +176,20 @@ def summary_scale_cases():
     assert len(re.findall(r'^### ISSUE-', report20, re.M)) == 16
     common = [dict(base, resource=str(i), service='glue' if i % 2 else 's3',
                    cause={'kind': 'template-missing', 'path': 'infra/shared.yaml', 'relationship': 'direct'}) for i in range(50)]
-    small = dict(artifact, iac=common, services=['glue', 's3'], iac_display={})
+    small = with_records(common, ['glue', 's3'])
     units = detail_payload(small, 'iac_issues')['items']
     assert len(units) == 1 and len(units[0]['members']) == 50
     pages = [item for offset in range(0, 50, 10) for item in detail_payload(small, 'iac', offset, 10, issue_id=units[0]['id'])['items']]
     assert len(pages) == 50 and {item['record_index'] for item in pages} == set(range(50))
     compact = iac_summary(common, 'dev', 'cde', small['services'])['groups'][0]
     assert len(compact['examples']) == 10 and compact['omitted_examples'] == 40
-    twelve = dict(small, iac=common[:12])
+    twelve = with_records(common[:12], small['services'])
     assert len(detail_payload(twelve, 'iac', 10, 10, issue_id=units[0]['id'])['items']) == 2
     expect_error(lambda: iac_report('dev', 'cde', ['glue'], common), 'outside selected services')
     left, right = {f'field{i}': i for i in range(12)}, {f'field{i}': i + 1 for i in range(12)}
     record = dict(base, desired=left, actual=right)
     shown = {identifier(record): value_differences(left, right, 'Setting')}
-    twelve_fields = dict(artifact, iac=[record], iac_display=shown, services=['glue'])
+    twelve_fields = with_records([record], ['glue'], shown)
     report12 = iac_report('dev', 'cde', ['glue'], [record], shown)
     assert report12.count('相違項目:') == 10 and '省略相違フィールド: 2件' in report12
     assert len(detail_payload(twelve_fields, 'iac')['items'][0]['value_differences']) == 12
@@ -203,7 +206,7 @@ check_summary_scale = summary_scale_cases
 
 
 def check_operation_pass_cache():
-    import issues_scan
+    import issues.integrity as issues_scan
     from validation_cache import PassCache, digest_files
 
     def baseline(root, artifact):
@@ -257,7 +260,7 @@ def check_operation_pass_cache():
             assert len(calls) == 2 and calls[0] is calls[1]
             calls.clear()
             assert issues_scan.verify_inputs(root, saved) is None
-            assert len(calls) == 3 and calls[-1] is not calls[0]
+            assert len(calls) == 2 and calls[-1] is calls[0]
         # Three services also demonstrate fewer common hashes, without a timing threshold.
         saved['service_keys']['dev/team/producer'] = PassCache(root).service_key(('dev', 'team', 'producer'))
         with patch.object(PassCache, 'common_key', counted):
@@ -332,7 +335,7 @@ def check_operation_pass_cache():
         refreshed['fingerprint']['file_sets'] = {'docs/designs/dev/team/first': []}
         assert outcome(lambda: issues_scan.verify_inputs(root, refreshed)) == (ValueError, 'stale scan: input file set changed')
         refreshed['fingerprint']['file_sets'] = {}
-        with patch.object(issues_scan, 'verify_service_keys', side_effect=lambda *_: write(common, '{}\n')):
+        with patch.object(issues_scan, 'verify_service_keys', side_effect=lambda *_, **kwargs: write(common, '{}\n')):
             assert outcome(lambda: issues_scan.verify_inputs(root, refreshed)) == (ValueError, 'stale scan: framework/project input changed')
 
 if __name__ == '__main__':
