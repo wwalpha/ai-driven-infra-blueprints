@@ -454,14 +454,17 @@ def selected_task(root: Path, task_file: str | None):
         _selected_tasks.reset(token)
 
 
-def _selected_contract(root, selected=None):
+def _selected_contract(root, selected=None, *, allow_empty=False):
     selected = selected or _selected_tasks.get().get(root.resolve()) or os.environ.get(SELECTOR)
     current = _read_contracts.get()
+    records = current[1] if current is not None and current[0] == root else contracts(root)
+    if allow_empty and not records:
+        return None, None
     if current is not None and current[0] == root:
         if selected not in current[2]:
             current[2][selected] = _select_contract(root, selected, current[1])
         return current[2][selected]
-    return _select_contract(root, selected, contracts(root))
+    return _select_contract(root, selected, records)
 
 
 def _select_contract(root, selected, records):

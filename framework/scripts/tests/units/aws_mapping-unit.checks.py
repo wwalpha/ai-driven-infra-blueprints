@@ -281,7 +281,8 @@ def check_runtime_cache():
             assert parse.call_count == compile.call_count == 1
             assert mappings_for(root).get('iam').service == 'iam'
             assert mappings_for(other).get('config') is not first
-            assert parse.call_count == compile.call_count == 3
+            assert parse.call_count == 2
+            assert compile.call_count == 3
             assert reads == [ROOT / 'framework/mappings/aws/config.yaml', ROOT / 'framework/mappings/aws/iam.yaml',
                              ROOT / 'framework/mappings/aws/config.yaml']
 
@@ -422,7 +423,42 @@ def check_full_failure_isolation():
                 fresh = Mappings(root)
                 assert fresh.validated('sns', Sdk(), Schemas(root), Catalogs(root),
                                        aws_mapping_catalog.catalog_properties).resource_types == runtime.resource_types
-            assert parse.call_count == 5
+            assert parse.call_count == 1
+
+
+def check_shared_documents():
+    import utils.aws_mappings as providers
+    with TemporaryDirectory() as directory:
+        first, other = Mappings(Path(directory) / 'first'), Mappings(Path(directory) / 'other')
+        with patch.object(_mapping_types, 'yaml_read', wraps=aws_mapping.yaml_read) as parse:
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                documents = list(pool.map(lambda n: (first if n % 2 else other)._document('config'), range(8)))
+            assert parse.call_count == 1
+            assert first._document('config') is not other._document('config')
+            first._document('config')['service'] = 'changed'
+            assert other._document('config')['service'] == 'config'
+            fresh = Mappings(Path(directory) / 'fresh')
+            assert fresh._document('config')['service'] == 'config'
+            assert parse.call_count == 1
+            original_read = providers.input_text
+            with patch.object(providers, 'input_text', side_effect=lambda path, **kw: original_read(path, **kw) + '\n'):
+                changed = Mappings(Path(directory) / 'changed')
+                assert changed._document('config')['service'] == 'config'
+            assert parse.call_count == 2, 'changed content must be parsed again'
+        original = providers.input_text
+        # Equal definitions at distinct Framework paths must not share a document.
+        with patch.object(providers, 'definition_root', return_value=Path(directory) / 'framework-owner'), \
+             patch.object(providers, 'input_text', side_effect=lambda path, **kw: original(ROOT / path.relative_to(Path(directory) / 'framework-owner'), **kw)), \
+             patch.object(_mapping_types, 'yaml_read', wraps=aws_mapping.yaml_read) as parse:
+            distinct = Mappings(Path(directory))
+            assert distinct.get('config').root == Path(directory) / 'framework-owner'
+            assert parse.call_count == 1
+        with patch.object(_mapping_types, 'yaml_read', side_effect=[ValueError('parse failure'), aws_mapping.yaml_read(original(ROOT / 'framework/mappings/aws/config.yaml'))]) as parse:
+            broken = Mappings(Path(directory) / 'broken')
+            with pytest.raises(ValueError, match='parse failure'):
+                broken.get('config')
+            assert Mappings(Path(directory) / 'healthy').get('config').service == 'config'
+            assert parse.call_count == 2
 
 
 def check_stage_alias():

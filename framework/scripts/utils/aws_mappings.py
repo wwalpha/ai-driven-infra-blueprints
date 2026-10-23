@@ -1,6 +1,7 @@
 """Process-local static Mapping definitions, shared by exact source/stage roots."""
 
 import re
+from copy import deepcopy
 from concurrent.futures import Future
 from contextlib import contextmanager
 from functools import partial as _bind_framework_callback
@@ -16,6 +17,7 @@ from utils.json_format import policy_json
 _lock = Lock()
 _instances = {}
 _aliases = {}
+_documents = {}
 
 
 def _once(table, key, load):
@@ -32,6 +34,10 @@ def _once(table, key, load):
         except BaseException as error:
             # Complete waiters even for cancellation/interrupt, then propagate it.
             future.set_exception(error)
+            if table is _documents:
+                with _lock:
+                    if table.get(key) is future:
+                        del table[key]
             raise
         else:
             future.set_result(result)
@@ -40,7 +46,11 @@ def _once(table, key, load):
 
 def _callback_Mappings__document_load(self, service, /):
     aws_mapping = _imports_aws_mapping
-    document = aws_mapping.yaml_read(input_text(aws_mapping.mapping_path(self._root, service), encoding='utf-8'))
+    path = aws_mapping.mapping_path(self._root, service)
+    content = input_text(path, encoding='utf-8')
+    # Only successful parsing is shared; each provider owns its mutable document.
+    document = deepcopy(_once(_documents, (path, content, aws_mapping.yaml_read),
+                              lambda: aws_mapping.yaml_read(content)))
     expected = {kind for kind, owner in self._owners.items() if owner == service}
     if (not isinstance(document, dict) or document.get('service') != service
             or not isinstance(document.get('resourceTypes'), dict)

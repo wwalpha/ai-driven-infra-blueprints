@@ -21,7 +21,7 @@ from import_guard import (
     workflow,
 )
 from script_loader import module as load_script
-from task_contract_core import section, selected_task, task_path
+from task_contract_core import contract_read_scope, contract_reads, section, selected_task, task_path
 from utils.file_operations import atomic_files
 from utils.input_cache import input_context, input_scope, memoized, recording_inputs
 from utils.json_format import json_text
@@ -120,6 +120,7 @@ def inventory(ctx, service, resource_types=None):
     return inventory_for(ctx).discover(service, resource_types)
 
 
+@contract_read_scope
 def contract_scope(root, scope):
     selected = _imports_model_importing_scope.selected
     workflow(root)
@@ -140,6 +141,7 @@ def contract_scope(root, scope):
         raise ValueError('IMPORT requires a running Task Contract')
 
 
+@contract_read_scope
 def record_outputs(root, identity, sources, views, consumers=None):
     """Check the predeclared plan without changing an approved Task/acquisition."""
     allowed_source = _imports_model_importing_scope.allowed_source
@@ -301,6 +303,7 @@ def unchanged(root, checksums):
 
 
 @input_scope
+@contract_read_scope
 def resume_acquisition(root, environment, service, evidence, selector=None, dry_run=False):
     """Read the LLM's checkpoint after verifying the original session and live baseline."""
     safe = _imports_model_sources.safe
@@ -385,7 +388,7 @@ def acquire(root, environment, service, selector=None, dry_run=False, cli_runner
             require_import_changes(root, generation=True)
         inputs = GenerationInputs(root)
         try:
-            with recording_inputs(inputs):
+            with contract_reads(root), recording_inputs(inputs):
                 before = before_model(model_path(root, identity), inputs)
                 ctx = import_context(root, target, cli_runner, service)
                 ctx.verify()
@@ -402,6 +405,7 @@ def acquire(root, environment, service, selector=None, dry_run=False, cli_runner
             inputs.close()
 
 
+@contract_read_scope
 def review_inputs(root, identity, evidence, acquisition, inputs):
     Resolver = _imports_model_importing_references.Resolver
     unchanged(root, acquisition['sources'])
@@ -463,7 +467,7 @@ def review_acquisition(root, environment, service, evidence, selector=None, dry_
         acquisition = read_acquisition(root, evidence, identity, dry_run)
         inputs = GenerationInputs(root)
         try:
-            with recording_inputs(inputs):
+            with contract_reads(root), recording_inputs(inputs):
                 _, _, _, _, review, _, external = review_inputs(root, identity, evidence, acquisition, inputs)
             inputs.verify()
             if any(file.read_bytes() != raw for file, raw in external.items()):
@@ -478,16 +482,17 @@ def review_acquisition(root, environment, service, evidence, selector=None, dry_
 
 
 def _callback_publish_acquisition_current(acquisition, before, evidence, expected_task, external, identity, output, review_file, review_raw, root, /, changes):
-    if task_contract.task_revision(root, selected=expected_task[0]) != expected_task:
-        raise ValueError('IMPORT Task changed before publication')
-    unchanged(root, acquisition['sources'])
-    unchanged_sets(root, acquisition['sourceSets'])
-    if (candidate_sources(root, evidence.parent / 'candidates', before)[0] != output
-            or any(file.read_bytes() != raw for file, raw in external.items())
-            or review_file.read_bytes() != review_raw
-            or read_acquisition(root, evidence, identity, False) != acquisition):
-        raise ValueError('IMPORT candidate, selection, acquisition or Review changed before publication')
-    record_outputs(root, identity, set(changes), set())
+    with contract_reads(root):
+        if task_contract.task_revision(root, selected=expected_task[0]) != expected_task:
+            raise ValueError('IMPORT Task changed before publication')
+        unchanged(root, acquisition['sources'])
+        unchanged_sets(root, acquisition['sourceSets'])
+        if (candidate_sources(root, evidence.parent / 'candidates', before)[0] != output
+                or any(file.read_bytes() != raw for file, raw in external.items())
+                or review_file.read_bytes() != review_raw
+                or read_acquisition(root, evidence, identity, False) != acquisition):
+            raise ValueError('IMPORT candidate, selection, acquisition or Review changed before publication')
+        record_outputs(root, identity, set(changes), set())
 
 
 def _callback_publish_acquisition_begin_receipt(after, binding, changes, evidence, managed, output, root, selected_records, selection, /):
@@ -522,7 +527,7 @@ def publish_acquisition(root, environment, service, evidence, selector=None, dry
         inputs = GenerationInputs(root)
         context = None
         try:
-            with recording_inputs(inputs):
+            with contract_reads(root), recording_inputs(inputs):
                 before, after, output, selection, expected, changes, external = review_inputs(root, identity, evidence, acquisition, inputs)
                 import_approval.verify_review(reviewed, expected)
                 document = root / 'docs/designs' / identity[0] / identity[1] / (identity[2] + '.md')
@@ -573,14 +578,15 @@ def publish_acquisition(root, environment, service, evidence, selector=None, dry
 
 
 def _callback_recover_transaction_authorize(acquisition, evidence, expected_task, identity, managed_task_state, name, root, state, /, record):
-    if record.get('importReceipt', {}).get('task') != name:
-        raise ValueError('pending transaction belongs to a different Task or is not an Import transaction')
-    if (task_contract.task_revision(root, selected=name) != expected_task or managed_task_state(root, name) != state
-            or read_acquisition(root, evidence, identity, False) != acquisition):
-        raise ValueError('Import recovery Task/Worktree/acquisition changed')
-    paths = {root / relative for relative in record['originals']}
-    sources = {path for path in paths if path.is_relative_to(root / 'model')}
-    record_outputs(root, identity, sources, paths - sources)
+    with contract_reads(root):
+        if record.get('importReceipt', {}).get('task') != name:
+            raise ValueError('pending transaction belongs to a different Task or is not an Import transaction')
+        if (task_contract.task_revision(root, selected=name) != expected_task or managed_task_state(root, name) != state
+                or read_acquisition(root, evidence, identity, False) != acquisition):
+            raise ValueError('Import recovery Task/Worktree/acquisition changed')
+        paths = {root / relative for relative in record['originals']}
+        sources = {path for path in paths if path.is_relative_to(root / 'model')}
+        record_outputs(root, identity, sources, paths - sources)
 
 
 @input_scope
@@ -616,7 +622,7 @@ def recover_display(root, environment, service, selector=None):
             raise ValueError('IMPORT display recovery requires an already saved Model')
         inputs = GenerationInputs(root)
         try:
-            with recording_inputs(inputs):
+            with contract_reads(root), recording_inputs(inputs):
                 snapshot = load_model(model_path(root, identity), inputs)
                 document = root / 'docs/designs' / environment / identity[1] / (service + '.md')
                 managed = {root / relative for relative in proof['ownedArtifacts']}

@@ -6,7 +6,7 @@ from contextvars import ContextVar
 
 import task_contract_core as _imports_task_contract
 import task_contract_core as _imports_validation_scope
-from task_contract_core import _selected_contract, contracts
+from task_contract_core import _selected_contract
 from utils.function_wrapper import FunctionWrapper
 from utils.input_cache import memoized
 
@@ -36,10 +36,8 @@ def reference_reader(path):
 def selected(root, *, contract_file=None):
     if _scope.get() is not None:
         return _scope.get()
-    if not contracts(root):
-        return None
     # Reading scope grants no execution/write rights; those boundaries check paths/status.
-    path, text = _selected_contract(root, selected=contract_file)
+    path, text = _selected_contract(root, selected=contract_file, allow_empty=True)
     if path is None:
         return None
     name = path.relative_to(root).as_posix()
