@@ -205,6 +205,9 @@ def check_dependency_selection():
     assert integrations('framework/scripts/iac_evaluation.py') == cases
     assert all(path == 'integrations/issues_scan.checks.py' for path, name in cases)
     assert not integrations('framework/scripts/tests/run_it.py')
+    assert selected('framework/scripts/tests/CASES.md') == {'blueprint-loop-unit.checks.py'}
+    assert not integrations('framework/scripts/tests/CASES.md')
+    assert integrations(resource, 'framework/scripts/tests/CASES.md') == cases
     assert integrations('framework/scripts/deploy/controller.py')  # A real deploy change retains its own consumers.
     assert integrations(resource, 'framework/scripts/deploy/controller.py') == cases | integrations('framework/scripts/deploy/controller.py')
     assert MODULE.select_checks(root, set(), integration_cases=ledger)[0] == ledger

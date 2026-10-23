@@ -373,7 +373,8 @@ def select_checks(root, paths, affected=False, *, integration_cases=None):
             's3-kms-reference-unit.checks.py', 'security_group_tables-unit.checks.py',
             'check-model-aws-unit.checks.py'} | {'issues_scan.checks.py::' + case for case in comparison_cases}
     mapping['framework/scripts/validation/loop.py'] = {'blueprint-loop-unit.checks.py'}
-    for path in ('framework/scripts/tests/run_it.py', 'framework/rules/loop-engineering.md',
+    for path in ('framework/scripts/tests/run_it.py', 'framework/scripts/tests/CASES.md',
+                 'framework/rules/loop-engineering.md',
                  '.github/workflows/framework-it.yml'):
         mapping[path] = {'blueprint-loop-unit.checks.py'}
     mapping['README.md'] = set()
