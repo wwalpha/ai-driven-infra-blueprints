@@ -53,7 +53,7 @@ def main() -> int:
     parser.add_argument("--write", action="store_true", help="Generate and validate selected Models before remaining checks")
     parser.add_argument("--staged", action="store_true", help="Validate a fixed staged tree in a private repository")
     parser.add_argument("--base", help="Explicit comparison commit for --staged (including incoming changes)")
-    parser.add_argument("--affected", action="store_true", help="Select affected checks (task/local default); unknown dependencies stop")
+    parser.add_argument("--affected", action="store_true", help="Compatibility option for task/local; does not start framework regression")
     args = parser.parse_args()
     if args.staged and args.write:
         parser.error('--staged cannot be combined with --write')

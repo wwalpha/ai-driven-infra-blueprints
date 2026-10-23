@@ -256,7 +256,12 @@ def check_regression_discovery(tmp_path):
 
 
 
-def check_unit_dispatch(tmp_path):
+@pytest.mark.parametrize('scope', [set(), {'dev/cde/ec2'}, None])
+@pytest.mark.parametrize('paths', [set(), {'framework/scripts/tests/units/a.checks.py'},
+    {'framework/scripts/import_guard.py', 'framework/scripts/sync-model.py',
+     'framework/scripts/validation/runner.py', 'framework/scripts/unregistered.py'},
+    {'model/dev/cde/ec2.properties'}, {'infra/dev/cde/ec2.yaml'}])
+def check_unit_dispatch(tmp_path, scope, paths):
     root = tmp_path / "repository"
     scripts = root / "framework/scripts"
     for relative in ("tests/units/a.checks.py", "tests/units/test_extra.py", "tests/integrations/only.checks.py"):
@@ -266,8 +271,10 @@ def check_unit_dispatch(tmp_path):
     runner = scripts / "blueprint-loop.py"
     with patch.dict(os.environ, {}, clear=True), \
          patch.object(Path, "cwd", return_value=root), \
-         patch.object(MODULE, "active_scope", side_effect=lambda root, all_: None if all_ else {"framework"}), \
-         patch.object(MODULE, "changed_paths", return_value={"framework/scripts/tests/units/a.checks.py"}) as changes, \
+         patch.object(MODULE, "active_scope", side_effect=lambda root, all_: None if all_ else scope), \
+         patch.object(MODULE, "changed_paths", return_value=paths) as changes, \
+         patch.object(MODULE, "select_checks", wraps=MODULE.select_checks) as selection, \
+         patch.object(MODULE._imports_validation_runner, "run_validation") as validate, \
          patch.object(MODULE, "authorize_full_regression") as authorize, \
          patch.object(MODULE, "run_commands", return_value=0) as dispatch, \
          patch.object(MODULE, "utf8_preflight"), \
@@ -276,20 +283,29 @@ def check_unit_dispatch(tmp_path):
         for args in (["--mode", "full"], ["--mode", "task"], ["--mode", "local"],
                      ["--mode", "task", "--all"], ["--mode", "task", "--affected"]):
             authorize.reset_mock()
+            selection.reset_mock()
             with patch.object(sys, "argv", [str(runner), *args, "--log-dir", str(tmp_path / "logs")]):
                 assert CLI.main() == 0
             commands = dispatch.call_args.args[1]
             full = "full" in args or "--all" in args
-            assert [Path(command[1]).name for command in commands[1:-2]] == (["a.checks.py", "test_extra.py"] if full else ["a.checks.py"])
+            assert [Path(command[1]).name for command in commands[1:-2]] == (["a.checks.py", "test_extra.py"] if full else [])
             assert all("integrations" not in command[1] for command in commands)
-            assert "--repository-wide-iac" in commands[0]
-            assert ("--all" in commands[0]) == ("--all" in args)
+            assert ("--repository-wide-iac" in commands[0]) == full
+            assert ("--all" in commands[0]) == ("--all" in args or scope is None)
             if args == ["--mode", "full"]:
-                assert "--fresh" in commands[0] and "--contract-scope" in commands[0]
+                assert "--fresh" in commands[0]
+                assert ("--contract-scope" in commands[0]) == (scope is not None)
             if full:
                 authorize.assert_called_once_with(root)
             else:
                 authorize.assert_not_called()
+                selection.assert_not_called()
+            assert commands[-2][-1] == '--check' and '--cached' in commands[-1]
+            dispatch.call_args.kwargs['validation_call']()
+            options = validate.call_args.args[1]
+            assert options.repository_wide_iac == full
+            assert options.all == ('--all' in args or scope is None)
+            assert options.contract_scope == (args[1] in {'task', 'full'} and scope is not None and '--all' not in args)
         changes.return_value = set()
         with patch.object(sys, "argv", [str(runner), "--mode", "task", "--log-dir", str(tmp_path / "logs")]):
             assert CLI.main() == 0

@@ -673,10 +673,10 @@ def __run_loop_fail(message):
     raise ValueError(message)
 
 
-def _callback__run_loop_validation_call(args, directory, final_candidate, full_validation, regression, root, run_validation, scope, selected_name, /):
+def _callback__run_loop_validation_call(args, directory, final_candidate, full_validation, root, run_validation, scope, selected_name, /):
     validation_options = SimpleNamespace(task_file=selected_name, write=args.write,
         all=full_validation, fresh=args.fresh or args.mode == 'full' or args.all,
-        jobs=args.validation_jobs, repository_wide_iac=regression,
+        jobs=args.validation_jobs, repository_wide_iac=args.mode == 'full' or args.all,
         contract_scope=args.mode in {'task', 'full'} and scope is not None)
     if args.profile:
         cProfile = _imports_cProfile
@@ -698,7 +698,6 @@ def _run_loop(root, args, final_candidate):
         fail('invalid staged/write/base options')
     if args.affected and (args.mode == 'full' or args.all):
         fail('--affected cannot narrow full/--all validation')
-    affected = args.affected or (args.mode != 'full' and not args.all)
     if cache_directory := os.environ.get("BLUEPRINT_VALIDATION_CACHE_DIR"):
         cache_path = Path(cache_directory).resolve()
         if cache_path == root or root in cache_path.parents:
@@ -718,16 +717,14 @@ def _run_loop(root, args, final_candidate):
         suspend_selected(root, selected_name, f"Local loop preflight failed: {error}")
         fail(str(error))
     full_validation = scope is None
-    regression = (args.mode == "full" or args.all or framework_changed(repository_changed)
-                  or (args.mode == "local" and scope is None))
+    regression = args.mode == "full" or args.all
     try:
-        checks, reason = select_checks(root, repository_changed, affected) if regression else ([], "shared framework unchanged")
+        checks, reason = select_checks(root, set()) if regression else ([], "explicit full/--all only")
     except ValueError as error:
         print(f"Blueprint local loop: ERROR ({error})", file=sys.stderr)
         suspend_selected(root, selected_name, f"Regression discovery failed: {error}")
         return 2
-    if regression and not args.staged and (not affected or
-            set(checks) == set(select_checks(root, set())[0])):
+    if regression and not args.staged:
         try:
             authorize_full_regression(root)
         except KeyboardInterrupt:
@@ -773,7 +770,7 @@ def _run_loop(root, args, final_candidate):
                     *(["--write"] if args.write else []),
                     *(["--fresh"] if args.fresh or args.mode == "full" or args.all else []),
                     *(["--all"] if full_validation else []),
-                    *(["--repository-wide-iac"] if regression else []),
+                    *(["--repository-wide-iac"] if args.mode == "full" or args.all else []),
                     *(["--contract-scope"] if args.mode in {"task", "full"} and scope is not None else []),
                 ],
                 *(
@@ -788,7 +785,7 @@ def _run_loop(root, args, final_candidate):
                 environment["BLUEPRINT_PROFILE_DIR"] = str(directory)
         if not args.staged:
             diagnostics.print(f"Validation: {'all' if full_validation else 'active scope'}; "
-                              f"framework regression: {('selected UT' if affected else 'all UT') if regression else 'skipped (shared framework unchanged)'}")
+                              f"framework regression: {'all UT' if regression else 'skipped (explicit full/--all only)'}")
         if regression and not args.staged:
             diagnostics.print(f"Regression selection: {reason}; {len(checks)} UT suites selected: {', '.join(path.name for path in checks) or 'none'}")
             omitted = sorted(path.name for path in select_checks(root, set())[0] if path not in checks)
@@ -801,7 +798,7 @@ def _run_loop(root, args, final_candidate):
         if not args.staged:
 
             run_validation = _imports_validation_runner.run_validation
-            validation_call = _bind_framework_callback(_callback__run_loop_validation_call, args, directory, final_candidate, full_validation, regression, root, run_validation, scope, selected_name)
+            validation_call = _bind_framework_callback(_callback__run_loop_validation_call, args, directory, final_candidate, full_validation, root, run_validation, scope, selected_name)
         if final_candidate is not None:
             commands[-2:] = [[*diff_check, '--check', final_candidate.base_commit, final_candidate.candidate_head, '--']]
         result = run_commands(root, commands, environment, directory, jobs=args.jobs, diagnostics=diagnostics, stop_after_validator_failure=args.write, validation_call=validation_call)

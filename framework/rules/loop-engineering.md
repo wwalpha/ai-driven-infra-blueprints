@@ -56,12 +56,12 @@ classified as an independent documentation edit.
 Normal changes use the existing dependency mapping; sharing a module never by itself requires all IT. Explicit release validation may separately request all UT/IT. During development, run directly related tests first. After a failure and a material fix,
 rerun the failed test or affected service; for a fixture fix, run its consuming tests.
 Do not run Full after each correction, repeat unchanged results, or retry Full with known
-failures left unfixed. Reuse the existing `--affected` mapping when it selects the needed
+failures left unfixed. Use the dedicated Framework CI `run_it.py --affected BASE` mapping when it selects the needed
 subset. If dependencies need investigation, directly invoke the relevant existing UT
 `framework/scripts/tests/units/<name>.checks.py` entrypoints or installed pytest test nodes during
 repair. This narrowing does not replace a required final Full or prove unknown impact safe.
-For bounded final validation, use these tests and the existing scoped validator rather
-than a loop that would automatically add all regression:
+For bounded final validation, run these tests and the existing Project scoped loop or
+standalone scoped validator:
 
 ```console
 python3 -B framework/scripts/tests/units/<name>.checks.py
@@ -73,10 +73,11 @@ Use pytest only for existing pytest suites and an already available dependency; 
 script entrypoints for other suites. The standalone validator uses the contract's explicit
 Validation scope; do not add `--all` or `--repository-wide-iac` for bounded checks.
 Local regression selects only UTs; dependency mappings, caches, worker counts and validation scope are retained.
-The loop adds dependency-selected UT regression for framework paths in task/local mode.
-Unknown or missing dependency mappings stop with an error; register related feature tests
-rather than silently expanding to all tests. Documentation-only completion therefore
-uses the lightweight row without invoking it. Explicit Full uses
+Ordinary Project Tasks treat Framework code and definitions as immutable. Task/local
+loops do not select UT/IT from Framework Git differences; they validate the Project's
+Validation scope and Task Contract. Framework development uses dedicated UT entrypoints,
+`run_it.py`, Framework IT CI, or explicit Full. Unknown dependency mappings still fail
+in dedicated affected CI. Explicit Full uses
 `blueprint-loop.py --mode full --task-file tasks/<task-name>.md` once after repairs stabilize;
 Full does not expand service scope to `all`.
 
@@ -122,7 +123,7 @@ entrypoint. IMPORT's dedicated flow, AWS post-operation verification and indepen
 invoked validation remain separate purposes. Follow
 [Selection and publication](task-contract.md#selection-and-publication) for concurrent editing.
 
-Ordinary local loops use `blueprint-loop.py --mode task` to run common checks over the actual repository, design/model checks for services in Validation scope, task type checks, task Acceptance checks, required framework regression, and both unstaged/staged `git diff --check`. Changes require an active task and valid Task type. Blocking failure at any layer is FAIL. Existing checks retain their scan scope and record discovered failures as ordinary errors. `--all`, scope `all`, and `--repository-wide-iac` retain their existing scan-scope behavior.
+Ordinary local loops use `blueprint-loop.py --mode task` to run common checks over the actual repository, design/model checks for services in Validation scope, task type checks, task Acceptance checks, and both unstaged/staged `git diff --check`. Changes require an active task and valid Task type. Blocking failure at any layer is FAIL. Existing checks retain their scan scope and record discovered failures as ordinary errors. `--all`, scope `all`, and `--repository-wide-iac` retain their existing scan-scope behavior.
 
 Validate contract Requirement IDs/Acceptance checks on every run according to [Acceptance contract](task-contract.md#acceptance-contract). Before successful final validation under [Validation policy](#validation-policy) and `--complete`, finish all requested work under [Task transition](task-contract.md#task-transition).
 
@@ -226,12 +227,13 @@ current-run deduplication remains active.
 
 ## Framework regression
 
-Local development and every local loop mode (`task`, `local`, `full`, `--all`,
-`--affected`, `--staged`) execute UT regression only. Full retains its existing
-validator scope and safety checks; only its regression portion changes to all UTs.
-Scopes that previously required no regression still require none. Task/local modes
-use the existing dependency mapping by default, as does `--affected`. Unknown or missing
-dependencies are errors, not all-test fallback or PASS. Explicit Full retains all UTs.
+Ordinary `task` / `local` loops, including `--affected` and staged snapshots, do not
+automatically run Framework regression for changed files or missing Validation scope.
+Explicit `full` / `--all` runs all UTs and no IT, retaining validator scope and safety
+checks. `--affected` remains a compatibility option for task/local and does not invoke
+the dependency selector. Framework development runs related dedicated UTs and necessary
+IT cases under Validation policy. Dedicated CI retains its dependency mapping and
+unknown/missing dependency errors; never fall back silently to all tests.
 
 IT runs in [Framework IT](../../.github/workflows/framework-it.yml) on pull requests
 and pushes to `main`/`master` that include `.py` changes, and on manual dispatch, using Python 3.12 and the existing
@@ -258,7 +260,7 @@ alone do not enable that setting.
 
 ### Windows full regression input guard
 
-- Windows full regression requires human password input before starting validation processes for explicit `full` / `--all`, automatic addition due to framework changes, or `--affected` selections covering all UT checks (including `test_*.py`). Scoped validation and regression narrowed to a subset by explicit mappings require no input. In staged validation, the snapshot runner uses the same guard. On Windows, stage the current runner/guard and reject dispatch through old entrypoints differing from workspace content.
+- Windows full regression requires human password input before starting validation processes for explicit `full` / `--all` (including `test_*.py`). Scoped validation and regression narrowed to a subset by explicit mappings require no input. In staged validation, the snapshot runner uses the same guard. On Windows, stage the current runner/guard and reject dispatch through old entrypoints differing from workspace content.
 - The human runs `python -I -B framework/scripts/regression_guard.py --install` at repository root to register a salted PBKDF2-HMAC-SHA256 hash only in the single `.lock` at repo root. Do not use administrator privileges, ProgramData, separate helper installation, or ACL settings. Do not overwrite existing `.lock`.
 - Before each full regression, match input against that repository's `.lock`. For absent registration, invalid format, redirect, noninteractive input, mismatch, or canceled input, do not start validation processes or report PASS. Do not pass passwords through chat, arguments, environment variables, or logs or save unlock flags/tokens/authenticated state. Agents must not register/retrieve actual passwords or bypass guards.
 - `.lock` is local configuration, not a task artifact; exclude only repo-root `.lock` from validator changed task paths. Carry the same registration into staged snapshots; source `.lock` changes also make final results stale. Do not display actual password/hash registration values in completion reports or logs.
@@ -266,8 +268,8 @@ alone do not enable that setting.
 
 - When [Validation policy](#validation-policy) requires a scoped loop for design, implement, deploy, update, destroy, scenario/evidence, initialization or target migration, use `python framework/scripts/blueprint-loop.py --mode task`. Retain `validate-blueprint.py` inheriting Validation scope, properties/generated Markdown/JSON equality via its service-scoped `sync-model.py`, active task contracts, task-specific checks, and `git diff --check`.
 - Select final regression under [Validation policy](#validation-policy). A required Full runs specified-scope validation and every `framework/scripts/tests/units/**/*.checks.py` and `units/**/test_*.py` through their existing Python script entrypoints with at most 2 parallel workers, aggregating diagnostics/failure lists in name order. Keep regression fixtures, mocks and fixed catalog inputs separate from ordinary tasks. Service parameter and typed service integration contracts run in CI; their split unit cases remain local. Reject an empty regression discovery or empty required service case selection; script counts are not coverage.
-- The existing runner automatically adds regression in `task` / `local` for changed `framework/**`, `.agents/**`, `AGENTS.md` or `README.md`, including deletion/rename sources. This describes runner behavior, not an obligation to launch it for every edit; select the entrypoint under [Validation policy](#validation-policy). If Git cannot determine changes, stop rather than infer bounded impact.
-- `--mode local` is also valid as the same scoped validation as `task`. For a classification requiring a scoped loop, a skill's `local` execution suffices; do not add another `task` run. For a classification requiring Full, select the final Full directly instead of adding it after a redundant scoped loop. Explicit `--all` means overall validation plus all regression; `local` scope `all` likewise remains overall validation plus all regression. `full` alone or regression addition due to framework changes does not expand actual design scope.
+- Task/local loops retain Git change discovery for Task boundaries and diff checks, but never use those paths to select Framework UT/IT. Framework changes remain subject to Task Contract and Allowed paths restrictions.
+- `--mode local` is also valid as the same scoped validation as `task`. Do not add a redundant task run. Explicit `--all` means overall validation plus all regression; scope `all` alone means overall Project validation without automatic Framework regression. `full` alone does not expand actual design scope. Repository-wide IaC checks remain enabled for explicit `full` / `--all`, not because Framework files changed.
 - Continue regression and diff checks even if the validator fails. Prevent Python optimization from disabling assertions. Failed/unexecuted selected checks are FAIL.
 - Retain existing mandatory CloudFormation deploy context, `aws cloudformation validate-template`, change set/change summary, delete/replacement checks, AWS account/region checks, and Terraform fmt/init/validate/plan/apply procedures according to each phase's rules/prompts. The loop does not replace actual IaC/deployment procedures or combine implement and deploy.
 
@@ -276,8 +278,7 @@ alone do not enable that setting.
 - Launch with `python -X utf8 framework/scripts/blueprint-loop.py --mode task` is recommended. Even under ordinary launch, the runner restarts in UTF-8 mode and passes `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8` to child processes. Before validation, confirm Japanese file reads/writes and child process output; do not start regression if this fails. Explicitly specify UTF-8 for text I/O.
 - After conflict resolution, stage files to validate and this task's `tasks/<task-name>.md`, then specify `--staged --base <比較元commit>`. Explicitly specify a base commit matching the human's change scope and include incoming changes in the diff against it. Stop on unresolved index conflicts. Ordinary mode continues to validate unstaged/staged/untracked changes.
 - Staged mode fixes the base commit, HEAD, and index tree and expands them into an independent Git repository outside the repository to validate that snapshot's runner, contract, and inputs. Do not include original workspace unstaged/untracked files or rewrite the original index. Setting snapshot HEAD to the base makes contracts, changed paths, and diff checks use the same basis. If original HEAD/index tree changes by completion, exit nonzero as stale; do not treat the old tree's result as a PASS for the latest state. This does not lock subsequent edits.
-- When using an affected loop, select `--mode task --affected` (`local` is also permitted). The runner narrows regression only through its explicit mapping. The mapping covers regression entries, the standalone runner, exact validator test modules, shared test support consumers, and dynamic reference/layout fixture consumers. Unknown files (including siblings in these directories), missing mapped files, and unresolved deletion/rename sources stop for dependency investigation. Existing explicit mappings for common validators/generators retain their registered consumers; choose development and final entrypoints under [Validation policy](#validation-policy). Do not omit merely because changes are incoming.
-- `--affected` cannot be combined with `full` / `--all`. Do not omit common validation, task-specific checks, Acceptance checks, or diff checks. Display selection reasons, selected checks, and unexecuted checks. Final validation follows [Validation policy](#validation-policy).
+- `--affected` in task/local is a compatibility option and does not select or start Framework regression. It cannot be combined with `full` / `--all`. Common validation, task-specific checks, Acceptance checks and diff checks remain mandatory. Dedicated Framework CI selection retains explicit mappings, selection diagnostics and unknown/missing dependency errors.
 - Every regression test uses explicit synthetic project/Model inputs generated in temporary directories within tests, regardless of repository type or active Validation scope. Do not inspect the executing repository's `project.json` or `model/`, including existence checks, test-case discovery and cache inputs. Necessary framework inputs may be used; do not copy actual consumer issues, projects, models, designs or active tasks into fixtures. This rule does not restrict the selected service validation or ordinary import/issues workflows from reading their authorized inputs. Compare filesystem paths with `Path`; use `as_posix()` only for contract values requiring POSIX notation such as Markdown links.
 - Only independent regression scripts run with at most 2 parallel workers; validators and Git diff checks run serially. `--jobs 1` permits serial comparison. Each check owns its temporary fixture and must not write shared workspaces. Run remaining checks after failure; on interruption, stop running child processes.
 

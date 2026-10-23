@@ -416,7 +416,8 @@ def check_staged_snapshot(tmp_path):
     saved_index = index.read_bytes()
     result = subprocess.run(command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode == 0 and "日本語 snapshot" in result.stdout, result.stdout + result.stderr
-    assert "snapshot regression assertion executed" in result.stdout
+    assert "snapshot regression assertion executed" not in result.stdout
+    assert "PASS (0 framework regression scripts)" in result.stdout
     assert index.read_bytes() == saved_index
     assert active.read_text(encoding="utf-8") == "dirty workspace contract"
     metadata = json.loads(next(log_parent.glob("*/snapshot.json")).read_text(encoding="utf-8"))
@@ -484,10 +485,7 @@ def check_regression_authorization(tmp_path):
          patch.object(MODULE, "utf8_preflight"), \
          redirect_stdout(io.StringIO()), patch.object(sys, "stderr", io.StringIO()):
         logs = tmp_path / "logs"
-        for mode, paths, extra in (("full", set(), []), ("task", {"README.md"}, []),
-                                   ("local", set(), ["--all"]),
-                                   ("task", {"framework/scripts/shared.py"}, ["--affected"]),
-                                   ("task", {"framework/scripts/tests/units/a.checks.py"}, ["--affected"])):
+        for mode, paths, extra in (("full", set(), []), ("local", set(), ["--all"])):
             changed.return_value = paths
             with patch.object(sys, "argv", [str(runner), "--mode", mode, "--log-dir", str(logs), *extra]):
                 assert CLI.main() == 2
@@ -507,7 +505,7 @@ def check_regression_authorization(tmp_path):
             assert CLI.main() == 0
         authorize.assert_called_once()
         assert len(run.call_args.args[1]) == 4
-        # A proven leaf selection among multiple checks remains a focused run.
+        # Compatibility --affected never starts regression, even for a registered leaf.
         (scripts / "tests/units/b.checks.py").write_text("# fixture\n", encoding="utf-8")
         changed.return_value = {"framework/scripts/tests/units/a.checks.py"}
         authorize.reset_mock()
@@ -785,7 +783,7 @@ def check_workflow(tmp_path) -> None:
     assert rejected.returncode != 0 and "outside the repository" in rejected.stderr
 
     (scripts / "validate-blueprint.py").write_text("import sys\nassert '--all' not in sys.argv\n", encoding="utf-8")
-    # A normal design edit skips regression; any shared framework change selects all checks.
+    # Design and Framework edits skip regression unless full/all is explicit.
     (root / "tasks").mkdir()
     active = root / "tasks/example.md"
     active.write_text("## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n- `model/dev/cde/ec2.properties`\n## Allowed paths\n- `tasks/example.md`\n- `model/dev/cde/ec2.properties`\n## Validation scope\n- `dev/cde/ec2`\n", encoding="utf-8")
@@ -816,10 +814,9 @@ def check_workflow(tmp_path) -> None:
     scoped_command[scoped_command.index("local")] = "task"
     (scripts / "a.py").write_text("# validator change\n", encoding="utf-8")
     result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
-    assert result.returncode == 0 and "PASS (2 framework regression scripts)" in result.stdout
-    assert (root / "continued").exists(), "shared change must run all regression"
+    assert result.returncode == 0 and "PASS (0 framework regression scripts)" in result.stdout
+    assert not (root / "continued").exists(), "shared change must not start regression"
     (scripts / "a.py").unlink()
-    (root / "continued").unlink()
     # CRLF is a preserved Model/view format; spaces before CRLF remain defects.
     model.write_bytes(b"design change\r\nCRLF line\r\n")
     result = subprocess.run(scoped_command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
