@@ -108,9 +108,9 @@ def check_dependency_selection():
     assert selected("framework/scripts/comparison_rows.py") == comparison
     for name in ("iac_evaluation", "script_loader"):
         assert selected(f"framework/scripts/{name}.py") == (comparison - {'check-model-aws-unit.checks.py'})
-    for name in ("__init__", "scheduler", "guards", "delivery", "s3_delivery", "observed", "controller", "inputs", "change_sets", "repair", "secret_bootstrap", "session"):
+    for name in ("__init__", "scheduler", "guards", "delivery", "s3_delivery", "observed", "observed_resume", "controller", "inputs", "change_sets", "repair", "secret_bootstrap", "session"):
         assert selected(f"framework/scripts/deploy/{name}.py") == {'cloudformation-deploy-unit.checks.py', 'deploy_preparation-unit.checks.py', 'model_files-unit.checks.py',
-            'deploy-sdk.checks.py', 'deploy-runtime-unit.checks.py', 'deploy-observed-unit.checks.py'}
+            'deploy-sdk.checks.py', 'deploy-runtime-unit.checks.py', 'deploy-observed-unit.checks.py', 'deploy-observed-resume-unit.checks.py'}
     for name in ('client', 'cloudformation', 's3', 'kms', 'sts', 'secretsmanager'):
         assert selected(f'framework/scripts/utils/aws/{name}.py') == selected('framework/scripts/deploy/controller.py') | {'aws-client.checks.py'}
     for name in ('__init__','cli','runner','inputs','integrity','materials','records','aggregate','artifact','reports','publication','cfn_lint'):

@@ -2428,3 +2428,29 @@ import-references のSubnet配列とCodePipeline Configuration生成fixtureは�
 | `deploy-v2::sdk-shapes` | `check_sdk_arguments_and_pages` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 1 | real SDK request/response schema and pagination | botocore Stubber |
 
 | `deploy-v2::durable-delivery-reset` | `check_cleanup_delivery_evidence_is_durable` | UT | [units/deploy-sdk.checks.py](units/deploy-sdk.checks.py) | pytest / 1 | cleanup reset saves existing evidence atomically, repaired input replans | saved state |
+
+
+## Deploy observed publication plans and controller Remove resume
+
+Task fixtureは正式worktree lifecycleとtask_contract.startで開始・選択し、可変Projectだけをmanaged worktreeへ置く。Framework定義は共有参照する。UTは計画照合の純粋判定、ITは実保存・journal/rollback・生成・session再読込・別プロセス再開を検証する。pytest receiptは既存run_it.pyが収集する。
+
+| Case ID | Check | Class | File | Execution | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `observed-resume::classification` | `check_classification` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 8 | exact before/after, no-op, journal-only mixed state, third bytes and file set rejection | manifests |
+| `observed-resume::execution` | `check_execution_identity` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 5 | successful original Stack/ChangeSet/digest/token binding | execution evidence |
+| `observed-resume::journal` | `check_journal_ownership` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 7 | own originals, complete restoration, unrelated receipt and third bytes rejection | journal records |
+| `observed-resume::plan` | `check_plan_validation` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 12 | Task/evidence/manifest/candidate/desired/unrelated bytes/file set/Allowed paths/stage/original-set/manifest-set checks | isolated bytes |
+| `observed-resume::intent-io` | `check_intent_save_failure` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 1 | failed intent persistence leaves Model untouched | session I/O |
+| `observed-resume::peer-barrier` | `check_pending_plan_drained_peer_barrier` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 1 | saved plan finishes before drained peers synchronize | scheduler state |
+| `observed-resume::first-error` | `check_original_failure_retained` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 1 | first stage/cause retained separately from later guard refusal | failure records |
+| `observed-resume::publication-process` | `check_observed_publication_process_resume` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 6 | intent save failure, pre-write rollback, mixed Model journal recovery, post-Model and post-design process exit, design I/O failure; original evidence and no duplicate Execute | real managed Task and I/O |
+| `observed-resume::drain-process` | `check_observed_drains_peer_then_resumes` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 1 | drain accepted peer while first plan is blocked; resume both without mutation replay | same group |
+| `observed-resume::external-process` | `check_observed_external_change_rejected` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 11 | candidate/file set/other Model/desired/display/reference/dependency/Task/IaC/evidence/approval edits retained; no rollback or AWS mutation | interrupted session |
+| `observed-resume::legacy-process` | `check_legacy_session_without_observed_plan` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 2 | matching legacy manifest accepted; mismatched legacy manifest rejected without publication proof | old session shape |
+| `observed-resume::remove-process` | `check_remove_controller_process_resume` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 7 | Remove approval, production evidence, accepted Execute crash and separate resume; Delete/Retain/skipped/missing/wrong token/Stack/physical proof | existing Stack update |
+
+| `observed-resume::task-bytes` | `check_exact_task_bytes_bound` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 1 | pending plan binds full contract bytes in addition to the existing normalized session identity | Task text |
+
+既存affectedのdeploy依存集合にobserved-resume UTを含め、observed_resume.pyを同じ集合へ対応付ける。選択方式、IT runnerとGitHub Actionsの入口は維持する。
+
+| `observed-resume::direct-snapshot` | `check_direct_writer_keeps_noop_source_snapshot` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 1 | direct sync retains every selected source snapshot, including unchanged candidates | observation inputs |

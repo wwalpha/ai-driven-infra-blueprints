@@ -29,8 +29,8 @@ def removed_resources(units, states):
     return result
 
 
-def sync_successful(backend, units, states):
-    """Plan every update before writing; success markers are saved only after generation passes."""
+def collect_successful(backend, units, states):
+    """Resolve exact candidates from fresh successful Stack reads without writing."""
     root, environment, directory = backend.root, backend.environment, backend.directory
     require_target_no_issues(root, (environment, directory))
     removed = removed_resources(units, states)
@@ -54,6 +54,9 @@ def sync_successful(backend, units, states):
         if not mapped[name]:
             continue
         stack = backend.aws("describe_stacks", StackName=name)["Stacks"][0]
+        planned = getattr(backend, 'session', {}).get('pendingObserved', {}).get('evidence', {}).get(name)
+        if planned and (stack.get('StackId') != planned['stackId'] or stack.get('StackStatus') != planned['stackStatus']):
+            ambiguous(f'{name}: saved successful Stack identity/status changed')
         if stack["StackStatus"] not in {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}:
             ambiguous(f"{name}: stack no longer terminal success")
         outputs = {item["OutputKey"]: item["OutputValue"] for item in stack.get("Outputs", [])}
@@ -109,16 +112,33 @@ def sync_successful(backend, units, states):
                 changes.setdefault(path, {})[f"observed.row.{rid}.value"] = f"`{value}`"
     propagate_references(root, loaded, changes, identifiers)
     if not changes:
-        for unit in units:
-            states[unit["name"]]["observedSynced"] = True
-        return
+        return {}, [], None
     destinations, views, sync = observed_destinations(root, environment, directory, loaded, changes)
-    publish_observed(root, destinations, {p: data for source in changes for p, data in input_snapshot(source).items()})
-    if sync.sync(root, True, environment, directory, services=sorted({path.stem for path in changes})):
-        raise ValueError("observed model sync/validation failed; resume same session after resolving blocker")
-    for unit in units:
-        states[unit["name"]]["observedSynced"] = True
-    return destinations
+    return destinations, sorted({path.stem for path in changes}), sync
+
+
+def sync_successful(backend, units, states):
+    """Keep successful AWS state while the Model and generated views cross their barrier."""
+    from deploy.observed_resume import prepare, finish
+    if getattr(backend, 'session', {}).get('pendingObserved'):
+        destinations = finish(backend, units)
+        names = backend.session['pendingObserved']['evidence']
+    else:
+        destinations, services, sync = collect_successful(backend, units, states)
+        names = [unit['name'] for unit in units]
+        if services:
+            if getattr(backend, 'session', {}).get('modelInputManifest') is not None:
+                prepare(backend, units, destinations, services)
+                finish(backend, units)
+            else:
+                root = backend.root
+                publish_observed(root, destinations, {path: raw for service in services
+                    for path, raw in input_snapshot(root / 'model' / backend.environment / backend.directory / (service + '.properties')).items()})
+                if sync.sync(root, True, backend.environment, backend.directory, services=services):
+                    raise ValueError("observed model sync/validation failed; resume same session after resolving blocker")
+    for name in names:
+        states[name]['observedSynced'] = True
+    return destinations or None
 
 
 

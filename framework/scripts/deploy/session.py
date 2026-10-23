@@ -16,6 +16,13 @@ from task_contract import task_path, status, paths_in
 from validation_scope import active_scope as validation_scope
 from deploy.scheduler import run_group
 from deploy.secret_bootstrap import BOOTSTRAP_STAGES
+from deploy import observed_resume
+
+
+def save_session(path, session):
+    temporary = path.with_suffix(path.suffix + '.tmp')
+    temporary.write_text(json.dumps(session, indent=2) + '\n', encoding='utf-8')
+    temporary.replace(path)
 
 
 def active_scope(root, requested, environment, account, alias=None):
@@ -97,7 +104,7 @@ def execution_digest(root, target, file_digest, unit_digests):
 
 def run_session(units, limit, session, backend, save, pause_after_group=False, sleep=time.sleep):
     """Observed synchronization is an idempotent, persisted barrier between groups."""
-    def sync_completed():
+    def sync_once():
         unsynced = [u for u in units if session["states"][u["name"]]["status"] == "SUCCESS"
                     and not session["states"][u["name"]].get("observedSynced")]
         if not unsynced:
@@ -110,16 +117,32 @@ def run_session(units, limit, session, backend, save, pause_after_group=False, s
             outputs = sync_successful(backend, unsynced, session["states"])
             if hasattr(backend, 'after_observed'):
                 backend.after_observed(previous, outputs or {})
+            session.pop('pendingObserved', None)
             session.pop("observedError", None)
+            session.pop('observedRecoveryError', None)
             return True
         except Exception as error:
             for unit in unsynced:
                 session["states"][unit["name"]].pop("observedSynced", None)
-            session["observedError"] = str(error)
+            session.setdefault('observedError', str(error))
+            session['observedRecoveryError'] = str(error)
+            failure = {'stage': session.get('pendingObserved', {}).get('stage', 'PLANNING'), 'cause': str(error)}
+            failures = session.setdefault('observedFailures', [])
+            if not failures or failures[-1] != failure:
+                failures.append(failure)
             return False
         finally:
             session["metrics"]["observedSyncSeconds"] += time.perf_counter() - started
             save()
+
+    def sync_completed():
+        # Peers may have completed while an earlier persisted plan was blocked.
+        while True:
+            pending = session.get('pendingObserved')
+            if not sync_once():
+                return False
+            if not pending:
+                return True
 
     backend.sync_completed = sync_completed
     while True:
@@ -182,6 +205,23 @@ def run(args, root, timing, script_directory, backend_type, load_units):
         except FileExistsError as error:
             raise Blocked(f"controller session already active or interrupted; verify no controller is running before removing {lock_path}") from error
         directory = args.alias or args.aws_account_id
+        if args.resume:
+            session = json.loads(state_path.read_text(encoding='utf-8'))
+            require_session_format(session)
+            if session.get('pendingObserved'):
+                # Recovery must precede load_units/design_digest and all read-only Model snapshots.
+                from deploy.contracts import sha
+                try:
+                    if any(sha(root / path) != digest for path, digest in session['infraManifest'].items()):
+                        raise Blocked('IaC changed during pending observed publication')
+                    if execution_digest(root, target, sha, session['unitDigests']) != session['executionDigest']:
+                        raise Blocked('execution definitions changed during pending observed publication')
+                    observed_resume.reconcile(root, session, target, args.environment, directory)
+                except Exception as error:
+                    session['observedRecoveryError'] = str(error)
+                    save_session(state_path, session)
+                    raise
+                save_session(state_path, session)
         limit, units = load_units(root, args.environment, directory, args.stack)
         if args.sequential:
             limit = 1
@@ -204,7 +244,6 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                     for path in sorted(set(backend.deployment_input_paths(units)))}
         current_infra = infra_manifest()
         if args.resume:
-            session = json.loads(state_path.read_text(encoding="utf-8"))
             for unit in units:
                 state = session['states'][unit['name']]
                 pending = state.get('repairs', [])[-1:]
@@ -289,9 +328,7 @@ def run(args, root, timing, script_directory, backend_type, load_units):
         def save():
             metrics["totalControllerSeconds"] = previous_duration + time.perf_counter() - invocation_started
             metrics["awsPollCount"] = sum(s.get("pollApiCount", 0) for s in session["states"].values())
-            temporary = state_path.with_suffix(state_path.suffix + ".tmp")
-            temporary.write_text(json.dumps(session, indent=2) + "\n", encoding="utf-8")
-            temporary.replace(state_path)
+            save_session(state_path, session)
         backend.save = save
         persist = save
         def guard():
@@ -369,8 +406,10 @@ def run(args, root, timing, script_directory, backend_type, load_units):
         print(f"CloudFormation controller: BLOCKED: {error}", file=sys.stderr)
         return 2
     finally:
-        if persist is not None:
-            persist()
-        if lock is not None:
-            lock.close()
-            lock_path.unlink(missing_ok=True)
+        try:
+            if persist is not None:
+                persist()
+        finally:
+            if lock is not None:
+                lock.close()
+                lock_path.unlink(missing_ok=True)
