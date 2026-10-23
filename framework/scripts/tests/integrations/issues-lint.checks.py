@@ -268,6 +268,7 @@ def check_corrupt_provider_schema(tmp_path, monkeypatch, broken):
         assert result['status'] == 'processing_error' and not result['completed'] and result['unverified'], result
         assert any(error.get('resource_type') == 'AWS::S3::Bucket' and error['code'] == 'schema_unavailable'
                    for error in result['processing_errors']), result
+        assert all(type(error['resource_type']) is str for error in result['processing_errors'] if 'resource_type' in error), result
         assert {'E3002', 'E3006'} <= {m['Rule']['Id'] for m in result['matches']}, result
         assert result['fatal'] and validate_template(session, template, 'ap-northeast-1')['status'] == 'not_run'
     verify_dependencies(result['dependencies'])

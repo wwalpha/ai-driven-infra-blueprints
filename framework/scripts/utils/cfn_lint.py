@@ -371,7 +371,7 @@ def structured(request, emit=None):
             except ResourceNotFoundError as error:
                 # The pinned loader chains only provider I/O/JSON/Schema construction failures.
                 if schema_hash and error.__cause__ is not None:
-                    failure = dict(code='schema_unavailable', resource_type=resource_type, region=region,
+                    failure = dict(code='schema_unavailable', resource_type=str(resource_type), region=region,
                                    exception=type(error.__cause__).__name__)
                     if failure not in response['processing_errors']:
                         response['processing_errors'].append(failure)

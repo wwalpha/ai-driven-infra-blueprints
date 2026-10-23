@@ -20,7 +20,7 @@ from utils.json_format import fingerprint
 def project(tmp_path, monkeypatch):
     root, session, aws = tmp_path / 'project', tmp_path / 'session.json', tmp_path / 'aws.json'
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
-    seed(root, session)
+    root = seed(root, session)
     monkeypatch.chdir(root)
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/deploy.md')
     monkeypatch.setenv('AWS_EC2_METADATA_DISABLED', 'true')
@@ -89,7 +89,7 @@ def check_observed_io_resume(project):
 def check_group_delivery(tmp_path, monkeypatch, failure):
     root, session, aws = tmp_path / 'project', tmp_path / 'session.json', tmp_path / 'aws.json'
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
-    seed(root, session, 'delivery')
+    root = seed(root, session, 'delivery')
     monkeypatch.chdir(root)
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/deploy.md')
     aws_state(aws, same_group=True, delivery=True, delivery_fail=failure)
@@ -107,7 +107,7 @@ def check_group_delivery(tmp_path, monkeypatch, failure):
 def check_input_guard_drains_peer(tmp_path, monkeypatch):
     root, session, aws = tmp_path / 'project', tmp_path / 'session.json', tmp_path / 'aws.json'
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
-    seed(root, session, 'same-group')
+    root = seed(root, session, 'same-group')
     monkeypatch.chdir(root)
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/deploy.md')
     aws_state(aws, same_group=True, edit_input=True)
@@ -161,7 +161,7 @@ def recover_owned_lock(root, child):
 def check_cleanup_and_repair_process_resume(tmp_path, monkeypatch, repair):
     root, session, aws = tmp_path / 'project', tmp_path / 'session.json', tmp_path / 'aws.json'
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
-    seed(root, session, 'repair' if repair else 'orders')
+    root = seed(root, session, 'repair' if repair else 'orders')
     aws_state(aws, crash_cleanup=True, repair=repair)
     if not repair:
         state = json.loads(aws.read_text())
@@ -195,7 +195,7 @@ def check_cleanup_and_repair_process_resume(tmp_path, monkeypatch, repair):
 def check_bootstrap_process_resume(tmp_path, monkeypatch, external_current):
     root, session, aws = tmp_path / 'project', tmp_path / 'session.json', tmp_path / 'aws.json'
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
-    seed(root, session, 'bootstrap')
+    root = seed(root, session, 'bootstrap')
     aws_state(aws, bootstrap=True, crash_bootstrap=True)
     helper = Path(__file__).resolve().parents[1] / 'support/deploy_controller_fixtures.py'
     command = [sys.executable, '-B', str(helper), str(root), str(session), str(aws)]

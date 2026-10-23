@@ -20,6 +20,7 @@ SCRIPTS = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(SCRIPTS), str(SCRIPTS / 'tests')]
 from support.fixture_cases import load_case, materialize_files
 from support.model_sources import allocate_fixture, write_model
+from support.worktree_task_fixtures import cli as worktree_cli
 from model.files import read_model
 from utils.cloudformation_format import decode
 
@@ -98,11 +99,14 @@ def seed(root, state_path, case='orders'):
         '## Modified files\n' + listed + '## Allowed paths\n' + listed)
     with selected_task(root, 'tasks/deploy.md'):
         assert sync_runtime.sync(root, True, 'dev', ACCOUNT, services=[*services, 'cloudformation-stacks']) == 0
-    git(root, 'init', '-q')
+    (root / '.gitignore').write_text('/.worktrees/\n', encoding='utf-8')
+    git(root, 'init', '-q', '-b', 'main')
     git(root, 'config', 'user.name', 'Offline Fixture')
     git(root, 'config', 'user.email', 'fixture@example.invalid')
     git(root, 'add', '.')
     git(root, 'commit', '-qm', 'Synthetic inputs')
+    # Reuse the real lifecycle fixture; only Python installation is stubbed there.
+    return Path(worktree_cli(root, 'create', task_id='deploy')['worktree'])
 
 
 def aws_state(path, **knobs):
@@ -285,10 +289,8 @@ def clients(root, state_path, aws_path):
 def invoke(root, state_path, aws_path, options=(), fail_observed=False):
     from deploy.controller import main
     original_write = Path.write_text
-    failed = []
     def write(path, text, *args, **kwargs):
-        if fail_observed and not failed and path == root / f'model/dev/{ACCOUNT}/ec2.properties' and 'observed.row.' in text:
-            failed.append(path)
+        if fail_observed and path == root / f'model/dev/{ACCOUNT}/ec2.properties' and 'observed.row.' in text:
             raise OSError('injected observed I/O failure')
         return original_write(path, text, *args, **kwargs)
     with ExitStack() as stack:
