@@ -46,7 +46,7 @@ def seed(root, state_path, case='orders'):
         document, errors = decode(second.read_text())
         assert not errors
         document['Resources']['Consumer'] = {'Type': 'AWS::QuickSight::DataSource', 'Properties': {
-            'AwsAccountId': ACCOUNT, 'DataSourceId': 'fixture', 'Name': 'fixture', 'Type': 'POSTGRESQL',
+            'AwsAccountId': ACCOUNT, 'DataSourceId': 'app-dev-source', 'Name': 'app-dev-source', 'Type': 'POSTGRESQL',
             'Credentials': {'CredentialPair': {key: {'Fn::Sub': ['{{resolve:secretsmanager:${Secret}:SecretString:' + key.lower() + '}}',
                 {'Secret': {'Fn::ImportValue': 'FixtureSecret'}}]} for key in ('Username', 'Password')}}}}
         second.write_text(json.dumps(document))

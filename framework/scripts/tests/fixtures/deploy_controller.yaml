@@ -45,10 +45,13 @@ base:
       desired.row.001-001.property: S3.Bucket.BucketName
       desired.row.001-001.value: '`app-dev-bucket`'
       desired.row.001-001.comment: 識別子
-      desired.row.001-002.property: S3.BucketPolicy.PolicyDocument
-      desired.row.001-002.value: '[policy](s3/s3-bucket-001-bucket-policy.json)'
-      desired.row.001-002.document: '{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":"s3:DeleteBucket","Resource":"*"}]}'
-      desired.row.001-002.comment: 統合子
+      desired.row.001-002.property: S3.Bucket.Region
+      desired.row.001-002.value: '`ap-northeast-1`'
+      desired.row.001-002.comment: 配置Region
+      desired.row.001-003.property: S3.BucketPolicy.PolicyDocument
+      desired.row.001-003.value: '[policy](s3/s3-bucket-001-bucket-policy.json)'
+      desired.row.001-003.document: '{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":"s3:DeleteBucket","Resource":"*"}]}'
+      desired.row.001-003.comment: 統合子
       desired.resource.002.resourceType: S3.Bucket
       desired.resource.002.resourceMode: IMPORT
       desired.row.002-001.property: S3.Bucket.BucketName
