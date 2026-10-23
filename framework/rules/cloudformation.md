@@ -171,11 +171,11 @@ Session v3 retains intent, ChangeSet ID, client token, approval and Task/input d
 
 New metrics include controllerInvocationCount, deployOrderCount, awsPollCount, observedSyncSeconds, inputLoadSeconds, totalControllerSeconds and contextCheckSeconds. Preserve Stack changeSetCreateSeconds/changeSetWaitSeconds/executionSeconds/pollCount/pollApiCount. Historical metrics remain historical.
 
-Existing external timing.jsonl records environment, contractPreparation, documentRead, documentReview, contractRegistration, authenticationContext and awsApi operation/service, success/failure, UTC and duration. Never log API arguments/responses or secrets. Individual parallel durations do not sum to wall time. Skill start is passed as UTC epoch --skill-started-at through preparation to the session. Only the first successful ExecuteChangeSet response records firstExecuteAcceptedAt and skillToFirstExecuteSeconds/within120Seconds. Preparation within60Seconds is separate. Missing Skill-start evidence cannot prove the 120-second goal.
+Existing external timing.jsonl records environment, contractPreparation, documentRead, documentReview, contractRegistration, authenticationContext and awsApi operation/service, success/failure, UTC and duration. Never log API arguments/responses or secrets. Individual parallel durations do not sum to wall time. Legacy Skill-start measurement metadata and the deprecated option remain readable for compatibility; do not generate new Skill-start/first-Execute measurements or performance verdicts. Existing audit timing and receipts remain in force.
 
 ### Deployment execution
 
-承認済Modelから正確なStackName/入力path/DeployOrder/並行数を選ぶ。AI本文から省略してもModel/IaC/parameters/artifactの全byteと依存file集合を監視する。preparationはoffline、runtimeは各起動で指定profile/Region/期待execution accountを一度認証する。値・target・対応付けを推測しない。
+承認済Modelから正確なStackName/入力path/DeployOrder/並行数を選ぶ。Read契約に従って必須本文を読み、Model/IaC/parameters/artifactの全byteと依存file集合を監視する。preparationはoffline、runtimeは各起動で指定profile/Region/期待execution accountを一度認証する。値・target・対応付けを推測しない。
 
 running infrastructure Taskのscope/AWS許可内だけ変更し、全mutation直前にTask/Issue/target/入力不変guardを通す。既存Stackの実owner確認は維持する。startup/resume/Create/Executeは全体mapping/lint/Issue PASS証明/過去検証cacheを実行許可にしない。implementの独立mapping検証は維持する。
 

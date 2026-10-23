@@ -17,7 +17,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/vali
 python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test_issues_iac.py
 ```
 
-`pytest.ini`は既存のpytest型ファイルと`*-unit.checks.py`を対象にする。全UTがpytest型ではない。`array_display`、`aws_mapping_catalog`、`check-deploy-context`、`cloudformation_schema`、`comparison_core-unit`、`script_loader`、`update-catalog-lock`、`validation-units`には直接実行の入口がある。`validation_checks/*.py`は同じ分類のaggregatorから呼ぶ。`test_issues_iac.py`は既存unittestメソッドをpytestでも収集する。
+`pytest.ini`は既存のpytest型ファイル、`*-unit.checks.py`、deploy SDK/client/controllerの明示したpytest型suiteを対象にする。全UTがpytest型ではない。`array_display`、`aws_mapping_catalog`、`check-deploy-context`、`cloudformation_schema`、`comparison_core-unit`、`script_loader`、`update-catalog-lock`、`validation-units`には直接実行の入口がある。`validation_checks/*.py`は同じ分類のaggregatorから呼ぶ。`test_issues_iac.py`は既存unittestメソッドをpytestでも収集する。
 
 `blueprint-loop.py` は `units/**/*.checks.py`（59スイート）と `units/**/test_*.py`（既存unittest 1スイート）を、既存のPython直接実行入口で起動する。合計60 UTスイート。`full` / `--all` も回帰部分は全UTのみで、validatorのScopeや安全制御は維持する。`task` / `local` の自動回帰もUT限定。元々回帰不要のScopeではUTを追加しない。
 
@@ -25,9 +25,9 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test
 
 IT全68スイートは [Framework IT](../../../.github/workflows/framework-it.yml) がPR、main/masterへのpush、手動実行で検証する。Python 3.12と既存requirementsを使用し、唯一の公式入口 `python -B framework/scripts/tests/run_it.py` が各 `integrations/**/*.checks.py` を独立プロセスで起動する。既存のpytest・直接実行・トップレベル実行方式を維持する。
 
-runnerは共通fixture bundleを1回初期化し、`framework`・`input_templates`・`typed_services`・`generated_policy`・`import_sources` の5 seedを各1回生成する。共有seedは読み取り専用で、変更領域は各ケースに独立したコピーを渡し、実行後に内容と権限の整合性を確認する。実プロジェクトのModelやAWS認証情報は使用しない。
+runnerは共通fixture bundleを1回初期化し、`input_templates`・`typed_services`・`generated_policy`・`import_sources` の4 seedを各1回生成する。共有seedは読み取り専用で、可変データはケースごとのworkspaceへ展開する。Framework定義は既存の定義rootを参照する。新しいFrameworkコピー・symlink/hardlinkは作らない。実プロジェクトのModelやAWS認証情報は使用しない。
 
-`CASES.md` のIT登録は370実行入口・588条件（pytest 234関数、direct 117関数、direct_group 13入口、module 6末尾）。UT登録は398実行入口・960条件。削除分は260登録・590条件から255登録・585条件への減少で、既存の未登録142件とparameter件数1件の訂正、CodeCommit返却属性1件を別途反映した。sync-modelのpublication boundaryはmappingを除いた6条件。model_templatesは9条件。pytestは既存 `PytestReceipt` で収集・PASS・パラメータ数を照合する。直接実行117関数と13のmain入口は最外側の `@it_case` が正常return後だけaudit完了イベントを発行し、module型は末尾の `module_complete(__file__)` で完了を通知する。同一ケースの複数回呼出しは独立ケース数に加算しない。未登録スイート、記録対象でない入口、未完了ケース、欠落・不正receipt、非0終了コードは失敗とする。
+登録件数とparameter数は `CASES.md` と実収集から照合する。pytestは既存 `PytestReceipt`、直接実行は正常return後の `@it_case`、module型は末尾の `module_complete(__file__)` で完了を確認する。未登録suite、未実行・未完了ケース、不正receipt、非0終了を失敗とする。件数を合格ノルマにしない。
 
 Model v2 移行専用の10関数・23条件と固定旧Framework checkout・専用Python環境は撤去済み。現行機能の15関数・82条件は既存3 ITへ統合し、ケースID・assertion・parameter matrix・pytest receiptを保持する。
 
@@ -76,3 +76,12 @@ loaderのUTは `units/fixture_cases-unit.checks.py`。正式ITと性能の全体
 issuesの正規APIは `issues/`。旧 `issues_iac.py` / `issues_reports.py` のwrapperは置かず、CLIだけ `issues_scan.py` を維持する。UT追加は `issues-lint-unit.checks.py` の7関数15条件、IT追加は `issues-lint.checks.py` の8関数12条件。正式ITは既存 `Framework IT` / `tests/run_it.py` だけを使う。固定版1.57.2が無い環境で、CLI同等性・状態隔離の検証を実施済みとは扱わない。
 
 一時HOME/cwd/config/custom rule/provider schemaを実環境から分離し、本物のHOMEとインストール済みpackageには書き込まない。Framework定義はコピーも読取専用。モデル・template・parametersは独立した可変fixtureを使う。summary/detail/saveはv2の保存済み集計だけを使う。
+
+
+## Deploy correctness / 1023v2
+
+`deploy-runtime-unit.checks.py` は旧controller suiteのrequest/判定/scheduler/差替えsessionケースを保持する。`deploy-sdk.checks.py` は境界内共有と境界間再取得、cleanup中の配送条件変更、削除証拠を検証する。`deploy-observed-unit.checks.py` は条件付き親参照とraw候補探索を、`aws-client.checks.py` は実SDKの一時設定/合成credential、生成排他とpaginationを検証する。API総件数や読込量・120秒判定を合格条件にしない。
+
+`integrations/deploy-controller.checks.py` は実controllerからtarget/Task/CFN loader、guard、SDK service wrapper、scheduler、session保存/再読込とobserved公開を通す。AWSだけをSDK client取得境界で置換し、未定義operationは失敗する。static seedは `fixtures/deploy_controller.yaml` と既存 `fixture_cases` を使い、各ケースが独立Project/cwd/実Git/sessionを持つ。別プロセスresumeはfake AWS JSONとsessionファイルだけを共有する。finallyを通らない終了後のlockは、その子を終了確認したテストだけが明示的に回収する。productionには回収分岐を追加しない。
+
+関連UTは各ファイルの既存直接入口または明示pytestで実行できる。既定収集は `python3 -B framework/scripts/run-python.py -m pytest --collect-only -q framework/scripts/tests`。正式ITは既存のGitHub Actions `Framework IT` jobが `framework/scripts/tests/run_it.py` を実行する。新しいFull IT runnerは追加していない。

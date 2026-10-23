@@ -113,6 +113,65 @@ def check_failed_continuation_returns_no_inventory(monkeypatch):
         cloudformation.describe_change_set(('context',),ChangeSetName='change')
 
 
+
+
+
+def check_effective_default_profile(tmp_path, monkeypatch):
+    """Use the actual SDK provider chain with private, synthetic config files."""
+    config = tmp_path / 'config'
+    credentials = tmp_path / 'credentials'
+    config.write_text('[profile one]\nregion = us-east-1\n[profile two]\nregion = us-east-1\n')
+    credentials.write_text('[one]\naws_access_key_id = synthetic-one\naws_secret_access_key = synthetic-secret-one\n[two]\naws_access_key_id = synthetic-two\naws_secret_access_key = synthetic-secret-two\n')
+    for key in ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_PROFILE', 'AWS_DEFAULT_PROFILE'):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv('AWS_CONFIG_FILE', str(config))
+    monkeypatch.setenv('AWS_SHARED_CREDENTIALS_FILE', str(credentials))
+    monkeypatch.setenv('AWS_EC2_METADATA_DISABLED', 'true')
+    monkeypatch.setattr('socket.socket.connect', lambda *a, **k: pytest.fail('network forbidden'))
+    monkeypatch.setattr('socket.socket.connect_ex', lambda *a, **k: pytest.fail('network forbidden'))
+    sdk._sessions.clear(); sdk._clients.clear()
+    try:
+        monkeypatch.setenv('AWS_DEFAULT_PROFILE', 'one')
+        first = sdk.connection_context(None, 'us-east-1', '123456789012')
+        a = sdk.client(first, 'sts')
+        assert a is sdk.client(sdk.connection_context(None, 'us-east-1', '123456789012'), 'sts')
+        assert a._request_signer._credentials.access_key == 'synthetic-one'
+        monkeypatch.setenv('AWS_DEFAULT_PROFILE', 'two')
+        second = sdk.connection_context(None, 'us-east-1', '123456789012')
+        b = sdk.client(second, 'sts')
+        assert b is not a
+        with pytest.raises(RuntimeError, match='authentication context changed'):
+            sdk.client(first, 's3')
+        assert b._request_signer._credentials.access_key == 'synthetic-two'
+        # An explicit profile overrides both environment profile selectors.
+        explicit = sdk.connection_context('one', 'us-east-1', '123456789012')
+        assert sdk.client(explicit, 'sts')._request_signer._credentials.access_key == 'synthetic-one'
+        from deploy.controller import create_runtime
+        target = {'awsProfile': 'one', 'awsRegion': 'us-east-1', 'awsAccountId': '123456789012'}
+        assert create_runtime(tmp_path, 'dev', 'test', target).profile == 'one'
+        with pytest.raises(RuntimeError, match='profile does not match'):
+            create_runtime(tmp_path, 'dev', 'test', target, 'two')
+    finally:
+        sdk._clients.clear(); sdk._sessions.clear()
+
+
+def check_sdk_arguments_and_pages(tmp_path, monkeypatch):
+    import boto3
+    from botocore.stub import Stubber
+    session = boto3.Session(aws_access_key_id='synthetic', aws_secret_access_key='synthetic', region_name='us-east-1')
+    cfn = session.client('cloudformation')
+    monkeypatch.setattr(sdk, 'client', lambda context, service: cfn)
+    monkeypatch.setattr('socket.socket.connect', lambda *a, **k: pytest.fail('network forbidden'))
+    with Stubber(cfn) as stub:
+        stub.add_response('validate_template', {'Parameters': []}, {'TemplateBody': 'Resources: {}'})
+        assert cloudformation.validate_template(('offline',), TemplateBody='Resources: {}') == {'Parameters': []}
+        export = {'Name': 'Required', 'Value': 'first', 'ExportingStackId': 'stack'}
+        stub.add_response('list_exports', {'Exports': [export], 'NextToken': 'next'}, {})
+        stub.add_response('list_exports', {'Exports': []}, {'NextToken': 'next'})
+        assert cloudformation.list_exports(('offline',))['Exports'] == [export]
+        stub.assert_no_pending_responses()
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

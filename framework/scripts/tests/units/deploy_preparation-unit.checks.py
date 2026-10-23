@@ -9,15 +9,17 @@ if not __debug__:
 from support.deploy_preparation_fixtures import *
 
 def check_workflow_contract():
-    from utils.markdown_format import read_declaration, declared_readings
     prompt = ROOT / 'framework/prompts/codex/04_deploy.md'
-    declaration = read_declaration(prompt.read_text(encoding='utf-8'))
-    assert set(declaration) == {'startup', 's3', 'approval', 'repair', 'resume', 'success', 'terraform'}
-    for stage in declaration:
-        assert declared_readings(ROOT, prompt, [stage])
-    assert sum(len(v['text']) for v in declared_readings(ROOT, prompt, ['startup', 's3']).values()) <= 20000
+    text = prompt.read_text(encoding='utf-8')
+    reading = M.markdown_sections(text)['read-before-changing-files'].split('\n### Conditional rule readings', 1)[0]
+    rules = M.rule_readings(ROOT, prompt, reading, engine='cloudformation')
+    assert {'task-contract.md', 'issue-gate.md', 'project-configuration.md', 'cloudformation.md',
+            'observed-values.md', 'model-information.md', 'detailed-design.md', 'loop-engineering.md'} <= {p.name for p in rules}
+    assert rules[ROOT / 'framework/rules/task-contract.md']['text'] == (ROOT / 'framework/rules/task-contract.md').read_text()
+    assert rules[ROOT / 'framework/rules/observed-values.md']['text'] == (ROOT / 'framework/rules/observed-values.md').read_text()
     skill = (ROOT / '.agents/skills/deploy/SKILL.md').read_text()
-    assert '#normal-startup' in skill and '#read' in skill and 'in full' not in skill
+    assert 'in full' in skill and 'UTC epoch' not in skill
+    assert '--skill-started-at' not in text and 'deploy-read-plan' not in text
 
 
 def check_dependencies_and_timing():

@@ -6,12 +6,10 @@ from deploy.inputs import load_units, paths, deployment_input_paths
 from deploy.contracts import sha
 from deploy.timing import Timing
 from project_targets import load_target
-from utils.markdown_format import markdown_prose, markdown_sections, rule_readings, declared_readings
+from utils.markdown_format import markdown_sections, rule_readings
 from model import projection as model_projection
 from utils.aws_mappings import definition_root
 import argparse
-from contextlib import contextmanager
-from datetime import datetime, timezone
 import hashlib
 import importlib
 import importlib.metadata
@@ -23,7 +21,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from threading import Lock
 import time
 
 
@@ -135,10 +132,11 @@ def prepare(root, args, run, timing):
         contract.write_text(text, encoding="utf-8")
     with timing.phase("documentRead"):
         prompt = definition_root(root) / "framework/prompts/codex/04_deploy.md"
-        stages = ['startup']
-        if any(unit.get('artifacts') or paths(root, args.environment, directory, target, unit)[0].stat().st_size > 51200 for unit in units):
-            stages.append('s3')
-        rules = declared_readings(root, prompt, stages)
+        reading = markdown_sections(prompt.read_text(encoding='utf-8'))['read-before-changing-files']
+        reading = reading.split('\n### Conditional rule readings', 1)[0]
+        rules = rule_readings(root, prompt, reading, engine='cloudformation')
+        if not rules:
+            raise ValueError('deployment prompt has no required rule readings')
         required = ["AGENTS.md", "project.json", "framework/prompts/codex/04_deploy.md", ".agents/skills/deploy/SKILL.md"]
         sources.update(rules)
         required_inputs = {*((definition_root(root) if path.startswith(("framework/", ".agents/")) else root) / path for path in required), *rules}
@@ -159,7 +157,7 @@ def prepare(root, args, run, timing):
             if path in rules and data.decode("utf-8") != rules[path]["sourceText"]:
                 raise ValueError(f"rule changed during preparation: {relative}")
             # Generated views and binary build artifacts remain fingerprinted, without body chunks.
-            if path not in rules:
+            if path in generated_views or path.suffix == ".zip":
                 continue
             content = rules[path]["text"] if path in rules else data.decode("utf-8")
             chunks = []
@@ -168,45 +166,37 @@ def prepare(root, args, run, timing):
                 output.write_text(content[offset:offset + 6000], encoding="utf-8")
                 chunks.append(str(output))
             documents.append({"source": relative, "sha256": hashes[relative], "chunks": chunks,
-                              "sections": rules[path]["sections"] if path in rules else [""],
-                              "sourceCharacters": len(data.decode("utf-8")), "readCharacters": len(content)})
+                              "sections": rules[path]["sections"] if path in rules else [""]})
         summary = {'environment': args.environment, 'alias': target.get('alias'),
                    'resourceAccount': target['awsAccountId'], 'executionAccount': target.get('awsExecutionAccountId', target['awsAccountId']),
                    'region': target['awsRegion'], 'profile': target.get('awsProfile') or args.profile,
                    'maxConcurrentStacks': 1 if args.sequential else load_units(root, args.environment, directory, args.stack)[0],
                    'stacks': units, 'serviceIds': services,
                    'inputPaths': sorted(path.relative_to(root).as_posix() for path in sources if path.is_relative_to(root)),
-                   'deliveryRequired': 's3' in stages, 'problems': []}
+                   'deliveryRequired': any(unit.get('artifacts') or paths(root, args.environment, directory, target, unit)[0].stat().st_size > 51200 for unit in units), 'problems': []}
         summary_text = json.dumps(summary, ensure_ascii=False, indent=2)
         summary_file = run / 'target-summary.json'
         summary_file.write_text(summary_text, encoding='utf-8')
-        documents.append({'source': 'target-summary', 'chunks': [str(summary_file)], 'readCharacters': len(summary_text), 'kind': 'variable'})
+        documents.append({'source': 'target-summary', 'chunks': [str(summary_file)], 'kind': 'variable'})
         chunks = []
         content = contract.read_text(encoding="utf-8")
         for offset in range(0, len(content), 6000):
             output = docs / f"contract-{len(chunks) + 1:03d}.txt"
             output.write_text(content[offset:offset + 6000], encoding="utf-8")
             chunks.append(str(output))
-        documents.append({"source": args.task_file, "sha256": sha(contract), "chunks": chunks, "readCharacters": len(content), "kind": "variable"})
+        documents.append({"source": args.task_file, "sha256": sha(contract), "chunks": chunks, "kind": "variable"})
     selector = ["--alias", args.alias] if args.alias else ["--aws-account-id", args.aws_account_id]
     command = [sys.executable, str(definition_root(root) / "framework/scripts/cloudformation-deploy.py"),
                "--environment", args.environment, *selector]
     for unit in units:
         command += ["--stack", unit["name"]]
     command += ["--state", str(run / "session.json"), "--timing-log", str(timing.path)]
-    if getattr(args, "skill_started_at", None) is not None:
-        command += ["--skill-started-at", str(args.skill_started_at)]
     if args.profile:
         command += ["--profile", args.profile]
     if args.sequential:
         command.append("--sequential")
     return {"repository": str(root), "taskFile": args.task_file, "contract": str(contract),
             "contractDigest": sha(contract), "runtime": runtime, "inputs": hashes, "documents": documents,
-            "readingStages": stages,
-            "readingCharacters": {'fixed': sum(len(v['text']) for v in rules.values()),
-                'startup': sum(len(v['text']) for v in declared_readings(root, prompt, ['startup']).values()),
-                'conditional': sum(len(v['text']) for v in rules.values()) - sum(len(v['text']) for v in declared_readings(root, prompt, ['startup']).values()),
-                'variable': len(summary_text) + len(content)},
             "generatedViews": sorted(path.relative_to(root).as_posix() for path in generated_views),
             "scope": scope, "controllerArgv": command,
             "modelInputPaths": model_input_paths(root, scope),
@@ -292,7 +282,7 @@ def main(argv=None):
     parser.add_argument("--stack", action="append")
     parser.add_argument("--service", action="append", help="all owning/referencing service IDs, explicitly reviewed")
     parser.add_argument("--task-file")
-    parser.add_argument("--skill-started-at", type=float, help="UTC epoch recorded at Skill invocation")
+    parser.add_argument("--skill-started-at", type=float, help=argparse.SUPPRESS)
     parser.add_argument("--profile")
     parser.add_argument("--sequential", action="store_true")
     parser.add_argument("--log-dir", type=Path, help="external parent for a fresh preparation directory")

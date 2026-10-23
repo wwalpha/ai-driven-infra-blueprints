@@ -9,6 +9,7 @@ if not __debug__:
 from support.it_case_receipt import it_case
 
 from support.deploy_preparation_fixtures import *
+from contextlib import chdir
 
 
 @it_case
@@ -18,10 +19,8 @@ def check_preparation():
         root = base / "repo"
         fixture(root)
         original = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
-        started = time.perf_counter()
-        with patch.object(Path, "cwd", return_value=root):
+        with chdir(root):
             assert invoke(arguments(root, base)[2:]) == 0
-        wall = time.perf_counter() - started
         run = next((base / "logs").iterdir())
         path = run / "preparation.json"
         plan = json.loads(path.read_text(encoding="utf-8"))
@@ -59,11 +58,12 @@ def check_preparation():
         assert len(documents) == len(plan["documents"])
         entrance = root / "model/dev/123456789012/ec2.properties"
         assert all(p.relative_to(root).as_posix() in plan['inputs'] for p in source_inputs(entrance))
-        assert not any(name.startswith(('model/', 'infra/')) for name in documents)
+        assert any(name.startswith('model/') for name in documents)
+        assert any(name.startswith('infra/') for name in documents)
         assert 'AGENTS.md' in documents and 'target-summary' in documents
         assert all(name in plan['controllerArgv'] for name in STACKS)
-        assert plan['readingCharacters']['fixed'] <= 20000
-        assert plan['readingCharacters']['variable'] > 0
+        assert 'readingCharacters' not in plan and 'readingStages' not in plan
+        assert all('readCharacters' not in doc for doc in plan['documents'])
         assert "framework/rules/task-contract.md" in documents
         assert "framework/rules/issue-gate.md" in documents
         assert "framework/rules/project-configuration.md" in documents
@@ -102,7 +102,7 @@ def check_preparation():
         (run / "session.json").write_text("{}", encoding="utf-8")
         with patch.object(subprocess, "run", side_effect=AssertionError("existing session restarted")), redirect_stderr(io.StringIO()):
             assert M.main(["--repository-root", str(root), "--run-controller", str(path)]) == 1
-        print(f"Offline preparation benchmark: {wall:.3f}s; phase timing generated (fixture, no AWS)")
+        print("Offline preparation: required bodies, input fingerprints and audit timing verified")
 
 
 @it_case
@@ -181,7 +181,7 @@ def check_generated_boundaries():
         run = next((base / "logs").iterdir())
         plan = json.loads((run / "preparation.json").read_text(encoding="utf-8"))
         documents = {d["source"] for d in plan["documents"]}
-        assert "infra/cloudformation/artifacts/execution.json" not in documents
+        assert "infra/cloudformation/artifacts/execution.json" in documents
         assert "infra/cloudformation/artifacts/execution.json" in plan["inputs"]
         assert "infra/cloudformation/artifacts/build.zip" not in documents
         assert "infra/cloudformation/artifacts/build.zip" in plan["inputs"]

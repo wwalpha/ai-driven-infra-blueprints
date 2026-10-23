@@ -1,0 +1,131 @@
+version: 1
+base:
+  files:
+    AGENTS.md: |
+      # Synthetic Project
+      Only the selected offline infrastructure fixture is mutable.
+    project.json: |
+      {"projectName":"fixture","targets":[{"environment":"dev","awsAccountId":"123456789012","awsRegion":"ap-northeast-1","iacEngine":"cloudformation"}]}
+    infra/cloudformation/templates/first.yaml: |
+      Conditions:
+        Enabled: !Equals [!Ref 'AWS::AccountId', '123456789012']
+        Disabled: false
+      Resources:
+        Bucket:
+          Type: AWS::S3::Bucket
+        Subnet:
+          Type: AWS::EC2::Subnet
+          Properties: {VpcId: vpc-existing, CidrBlock: 10.0.1.0/24}
+        Association:
+          Type: AWS::EC2::SubnetRouteTableAssociation
+          Properties:
+            SubnetId: !If [Enabled, !Ref Subnet, !Ref Missing]
+            RouteTableId: rtb-existing
+        OtherBucket:
+          Type: AWS::S3::Bucket
+          Condition: Disabled
+        Policy:
+          Type: AWS::S3::BucketPolicy
+          Properties:
+            Bucket: !If [Enabled, !Ref Bucket, !Ref Missing]
+            PolicyDocument: {Version: '2012-10-17', Statement: [{Effect: Deny, Principal: '*', Action: 's3:DeleteBucket', Resource: '*'}]}
+    infra/cloudformation/templates/second.yaml: |
+      Resources:
+        Vpc:
+          Type: AWS::EC2::VPC
+          Properties:
+            CidrBlock: 10.0.0.0/16
+    infra/cloudformation/parameters/dev/123456789012/first.json: '[]'
+    infra/cloudformation/parameters/dev/123456789012/second.json: '[]'
+  data:
+    s3:
+      desired.resource.001.resourceType: S3.Bucket
+      desired.resource.001.cfn-logicalId: cfn-stack-app-dev-first-Bucket
+      desired.row.001-001.property: S3.Bucket.BucketName
+      desired.row.001-001.value: '[bucket](#resource-S3_Bucket_001)'
+      desired.row.001-001.comment: 識別子
+      desired.row.001-002.property: S3.BucketPolicy.PolicyDocument
+      desired.row.001-002.value: '[policy](s3/s3-bucket-001-bucket-policy.json)'
+      desired.row.001-002.document: '{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":"s3:DeleteBucket","Resource":"*"}]}'
+      desired.row.001-002.comment: 統合子
+      desired.resource.002.resourceType: S3.Bucket
+      desired.resource.002.resourceMode: IMPORT
+      desired.row.002-001.property: S3.Bucket.BucketName
+      desired.row.002-001.value: '`fixture-assets`'
+      desired.row.002-001.comment: 配送先
+      desired.row.002-002.property: S3.Bucket.Region
+      desired.row.002-002.value: '`ap-northeast-1`'
+      desired.row.002-002.comment: 配送先Region
+      desired.row.002-003.property: S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm
+      desired.row.002-003.value: '`AES256`'
+      desired.row.002-003.comment: 暗号化
+    ec2:
+      desired.resource.001.resourceType: EC2.VPC
+      desired.resource.001.cfn-logicalId: cfn-stack-app-dev-second-Vpc
+      desired.row.001-001.property: EC2.VPC.VpcId
+      desired.row.001-001.value: '[vpc](#resource-EC2_VPC_001)'
+      desired.row.001-001.comment: 識別子
+      desired.row.001-002.property: EC2.VPC.CidrBlock
+      desired.row.001-002.value: '`10.0.0.0/16`'
+      desired.row.001-002.comment: CIDR
+      desired.row.001-003.property: EC2.VPC.Name
+      desired.row.001-003.value: '`app-dev-vpc`'
+      desired.row.001-003.comment: 名前
+      desired.resource.002.resourceType: EC2.Subnet
+      desired.resource.002.cfn-logicalId: cfn-stack-app-dev-first-Subnet
+      desired.row.002-001.property: EC2.Subnet.SubnetId
+      desired.row.002-001.value: '[subnet](#resource-EC2_Subnet_001)'
+      desired.row.002-001.comment: 識別子
+      desired.row.002-002.property: EC2.SubnetRouteTableAssociation.RouteTableId
+      desired.row.002-002.value: '`rtb-existing`'
+      desired.row.002-002.comment: 統合子
+      desired.row.002-003.property: EC2.Subnet.VpcId
+      desired.row.002-003.value: '`vpc-existing`'
+      desired.row.002-003.comment: 合成VPC
+      desired.row.002-004.property: EC2.Subnet.CidrBlock
+      desired.row.002-004.value: '`10.0.1.0/24`'
+      desired.row.002-004.comment: CIDR
+      desired.row.002-005.property: EC2.Subnet.Name
+      desired.row.002-005.value: '`app-dev-subnet`'
+      desired.row.002-005.comment: 名前
+cases:
+  orders: {}
+  same-group:
+    data:
+      same_group: true
+  delivery:
+    data:
+      same_group: true
+      delivery: true
+  repair:
+    files:
+      infra/cloudformation/templates/second.yaml: |
+        Resources:
+          Vpc:
+            Type: AWS::EC2::VPC
+            Properties:
+              CidrBlock: 10.2.0.0/16
+  bootstrap:
+    data:
+      bootstrap: true
+      secretsmanager:
+        desired.resource.001.resourceType: SecretsManager.Secret
+        desired.resource.001.cfn-logicalId: cfn-stack-app-dev-first-Secret
+        desired.row.001-001.property: SecretsManager.Secret.Name
+        desired.row.001-001.value: '`app-dev-secret`'
+        desired.row.001-001.comment: 管理Secret
+      quicksight:
+        desired.resource.001.resourceType: QuickSight.DataSource
+        desired.resource.001.cfn-logicalId: cfn-stack-app-dev-second-Consumer
+        desired.row.001-001.property: QuickSight.DataSource.AwsAccountId
+        desired.row.001-001.value: '`123456789012`'
+        desired.row.001-001.comment: 実行account
+        desired.row.001-002.property: QuickSight.DataSource.DataSourceId
+        desired.row.001-002.value: '`app-dev-source`'
+        desired.row.001-002.comment: 識別子
+        desired.row.001-003.property: QuickSight.DataSource.Name
+        desired.row.001-003.value: '`app-dev-source`'
+        desired.row.001-003.comment: 名前
+        desired.row.001-004.property: QuickSight.DataSource.Type
+        desired.row.001-004.value: '`POSTGRESQL`'
+        desired.row.001-004.comment: 種別

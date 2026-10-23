@@ -40,9 +40,9 @@ def runtime_inputs(tmp_path, large=False, artifact=False, count=1):
     return runtime, selected
 
 
-@pytest.mark.parametrize('large,artifact,count,expected', [(False,False,1,5),(True,False,1,22),
-    (False,True,1,22),(True,True,1,27),(True,False,3,22)])
-def check_boundary_operation_counts(tmp_path, large, artifact, count, expected):
+@pytest.mark.parametrize('large,artifact,count', [(False,False,1),(True,False,1),
+    (False,True,1),(True,True,1),(True,False,3)])
+def check_boundary_sharing(tmp_path, large, artifact, count):
     runtime, selected = runtime_inputs(tmp_path, large, artifact, count)
     with patch('model.adapters.observed.mappings', side_effect=AssertionError('whole-scope mapping forbidden')), \
          patch('subprocess.run', side_effect=AssertionError('AWS CLI/lint forbidden')):
@@ -52,11 +52,13 @@ def check_boundary_operation_counts(tmp_path, large, artifact, count, expected):
         state['clientToken'] = 'token'
         runtime.execute(unit, state)
     before_execute = [operation for operation, _ in runtime.calls if operation != 'execute_change_set']
-    assert len(before_execute) == expected, before_execute
+    if large or artifact:
+        assert sum(op == 'get_bucket_policy' for op in before_execute) == 3
+        assert sum(op == 'get_bucket_encryption' for op in before_execute) == 3
+    # Delivery, Create, and Execute each acquire their own bucket snapshot.
     assert not any(op == 'list_exports' for op in before_execute)
     assert state['executionEvidence']['clientToken'] == 'token'
     assert 'TemplateBody' not in json.dumps(state['delivery'])
-    print(f'large={large}, artifact={artifact}, stacks={count}: {len(before_execute)} before Execute')
 
 
 def check_exports_and_boundary_freshness(tmp_path):
@@ -188,6 +190,66 @@ def check_key_policy_scope(tmp_path):
     with pytest.raises(RuntimeError,match='MISMATCH'):
         preflight(placement,'app-dev-assets','denied/',['denied/file'],boundary)
     assert sum(op == 'get_bucket_policy' for op,_ in runtime.calls) == 1
+
+
+@pytest.mark.parametrize('resume', [False, True])
+@pytest.mark.parametrize('mutation', ['encryption', 'policy', 'kms', 'current', 'export', 'producer', 'unchanged'])
+def check_cleanup_refreshes_create_boundary(tmp_path, resume, mutation):
+    runtime, selected = runtime_inputs(tmp_path, artifact=True)
+    document, parameters = runtime.templates['A']
+    document['Outputs'] = {'Imported': {'Value': {'Fn::ImportValue': 'Required'}}}
+    runtime.export_values = {'Required': 'before'}
+    if mutation == 'kms':
+        runtime.default_algorithm, runtime.default_key = 'aws:kms', runtime.key_arn
+        runtime.add_bucket('app-dev-assets', 'aws:kms', runtime.key_arn)
+    runtime.prepare_delivery_group(selected, runtime.states)
+    state = runtime.states['A']
+    if resume:
+        state['cleanupStatus'] = 'DELETE_INTENT'
+    original = runtime.aws
+    cleaned = []
+    def aws(operation, **arguments):
+        if operation == 'describe_stacks' and not cleaned:
+            return {'Stacks': [{'StackStatus': 'ROLLBACK_COMPLETE', 'StackId': 'failed-stack'}]}
+        response = original(operation, **arguments)
+        if operation == 'list_exports' and cleaned and mutation == 'producer':
+            response['Exports'][0]['ExportingStackId'] = 'changed-producer'
+        return response
+    def cleanup(*args, **kwargs):
+        cleaned.append(True)
+        if mutation == 'encryption': runtime.default_algorithm = 'aws:kms'
+        if mutation == 'policy':
+            runtime.policy = {'Statement': [{'Effect': 'Deny', 'Principal': '*', 'Action': 's3:PutObject',
+                'Resource': 'arn:aws:s3:::app-dev-assets/artifacts/*',
+                'Condition': {'StringEquals': {'s3:x-amz-server-side-encryption': 'AES256'}}}]}
+        if mutation == 'kms': runtime.key_state, runtime.key_enabled = 'Disabled', False
+        if mutation == 'current':
+            obj = state['delivery']['objects'][0]
+            runtime.objects[obj['bucket'], obj['key']]['ChecksumSHA256'] = 'changed'
+        if mutation == 'export': runtime.export_values['Required'] = 'after'
+        return True
+    runtime.aws = aws
+    runtime.cleanup_failed_create = cleanup
+    if mutation == 'unchanged':
+        assert runtime.begin_prepare(selected[0], state) == 'CHANGESET_CREATING'
+        assert any(op == 'create_change_set' for op, _ in runtime.calls)
+    else:
+        with pytest.raises(RuntimeError):
+            runtime.begin_prepare(selected[0], state)
+        assert not any(op in {'validate_template', 'create_change_set', 'execute_change_set'} for op, _ in runtime.calls)
+    assert cleaned
+
+
+def check_cleanup_delivery_evidence_is_durable():
+    from deploy.repair import reset_after_cleanup
+    record = {'imports': {'Required': {'Value': 'before', 'ExportingStackId': 'producer'}}}
+    state = {'status': 'BLOCKED', 'delivery': record, 'cleanupStatus': 'DELETE_COMPLETE'}
+    saved = []
+    reset_after_cleanup(lambda: saved.append(copy.deepcopy(state)), state, retain_delivery=True)
+    assert saved[-1]['delivery'] == record
+    # A repaired input gets a new delivery plan through the existing default path.
+    reset_after_cleanup(lambda: saved.append(copy.deepcopy(state)), state)
+    assert 'delivery' not in saved[-1]
 
 
 if __name__ == '__main__':

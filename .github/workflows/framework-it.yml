@@ -2,10 +2,10 @@ name: Framework IT
 
 on:
   pull_request:
-    paths: ['**.py', 'framework/scripts/requirements.txt']
+    paths: ['**.py', 'framework/scripts/tests/fixtures/**', 'framework/scripts/tests/pytest.ini', 'framework/scripts/tests/CASES.md', 'framework/scripts/requirements*.txt', '.github/workflows/framework-it.yml']
   push:
     branches: [main, master]
-    paths: ['**.py', 'framework/scripts/requirements.txt']
+    paths: ['**.py', 'framework/scripts/tests/fixtures/**', 'framework/scripts/tests/pytest.ini', 'framework/scripts/tests/CASES.md', 'framework/scripts/requirements*.txt', '.github/workflows/framework-it.yml']
   workflow_dispatch:
     inputs:
       baseline_ref:

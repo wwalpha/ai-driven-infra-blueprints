@@ -101,7 +101,7 @@ def check_framework_active_task_transition(findings, root):
 
 
 def check_framework_rule_readings(findings, root):
-    from utils.markdown_format import markdown_sections, rule_readings, read_declaration, declared_readings
+    from utils.markdown_format import markdown_sections, rule_readings
     # These entry sections must direct execution to the existing authorities.
     routes = {
         ("README.md", "task-transition"): {
@@ -138,20 +138,7 @@ def check_framework_rule_readings(findings, root):
                 reading = sections.get("read-first", sections.get("read-before-changing-files", ""))
                 required = {root / "framework/rules" / name for name in
                             ("task-contract.md", "issue-gate.md", "project-configuration.md")}
-                if source.name == '04_deploy.md':
-                    declaration = read_declaration(text)
-                    conditions = {'always', 's3-required', 'destructive-change', 'execution-failed', 'resume', 'aws-success', 'terraform'}
-                    findings.check({v['when'] for v in declaration.values()} == conditions, 'deploy Read conditions must be finite and complete')
-                    for stage in declaration:
-                        declared_readings(root, source, [stage])
-                    readings = declared_readings(root, source, ['startup'])
-                    s3_readings = declared_readings(root, source, ['startup', 's3'])
-                    findings.check(sum(len(v['text']) for v in s3_readings.values()) <= 20000, 'deploy required startup including S3 exceeds 20000 characters')
-                    for name in ('task-contract.md', 'issue-gate.md', 'project-configuration.md'):
-                        entry = readings.get(root / 'framework/rules' / name)
-                        findings.check(bool(entry) and '' not in entry['sections'], f'deploy requires canonical section references: {name}')
-                else:
-                    readings = rule_readings(root, source, reading)
+                readings = rule_readings(root, source, reading)
                 if source.name == "08_import.md":
                     required.remove(root / "framework/rules/issue-gate.md")
                     worktree = root / ".agents/skills/worktree/SKILL.md"
