@@ -2,10 +2,8 @@ name: Framework IT
 
 on:
   pull_request:
-    paths: ['**.py', 'framework/scripts/tests/fixtures/**', 'framework/scripts/tests/pytest.ini', 'framework/scripts/tests/CASES.md', 'framework/scripts/requirements*.txt', '.github/workflows/framework-it.yml']
   push:
     branches: [main, master]
-    paths: ['**.py', 'framework/scripts/tests/fixtures/**', 'framework/scripts/tests/pytest.ini', 'framework/scripts/tests/CASES.md', 'framework/scripts/requirements*.txt', '.github/workflows/framework-it.yml']
   workflow_dispatch:
     inputs:
       baseline_ref:
@@ -33,7 +31,6 @@ jobs:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
-          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -48,14 +45,7 @@ jobs:
           ref: ${{ inputs.baseline_ref }}
           path: .it-baseline
           persist-credentials: false
-      - name: Run affected UT and IT cases (manual dispatch runs full IT)
+      - name: Run all UT and IT
         env:
           IT_BASELINE: ${{ github.event_name == 'workflow_dispatch' && inputs.baseline_ref != '' && '.it-baseline' || '' }}
-          IT_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-          IT_EVENT: ${{ github.event_name }}
-        run: |
-          if [ "$IT_EVENT" = workflow_dispatch ]; then
-            python -B framework/scripts/tests/run_it.py --baseline-root "$IT_BASELINE"
-          else
-            python -B framework/scripts/tests/run_it.py --affected "$IT_BASE"
-          fi
+        run: python -B framework/scripts/tests/run_it.py --baseline-root "$IT_BASELINE"

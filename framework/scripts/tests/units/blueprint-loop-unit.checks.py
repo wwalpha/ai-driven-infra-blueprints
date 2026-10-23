@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import run_it
 import support.model_design_fixtures as _imports_support_model_design_fixtures
 import utils.aws_mappings as _imports_utils_aws_mappings
+import yaml
 from support import it_fixture_bundle as fixtures
 from support.blueprint_loop_fixtures import (
     CLI,
@@ -373,14 +374,37 @@ def check_ci_workflow(tmp_path):
         rows, receipts = run_it.execute_suites(tests, output, io.StringIO())
     assert all(row['code'] != 0 for row in rows) and not receipts
 
-    outcome = {'reachability_errors': [], 'suites': []}
-    with patch.object(sys, 'argv', ['run_it.py', '--affected', 'base']), \
-         patch.object(run_it.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, 'framework/scripts/comparison/resource.py\0', '')), \
-         patch.object(MODULE, 'select_checks', side_effect=[({}, 'IT selection'), ([SCRIPT], 'UT selection')]), \
-         patch.object(MODULE, 'run_commands', return_value=1) as unit_dispatch, \
-         patch.object(run_it, 'run_all', return_value=outcome):
-        assert run_it.main() == 1  # A selected UT failure fails CI even if IT succeeds.
-    assert unit_dispatch.call_args.kwargs['jobs'] == 2
+    workflow = yaml.safe_load((SCRIPT.parents[2] / '.github/workflows/framework-it.yml').read_text())
+    events = workflow[True]  # PyYAML's YAML 1.1 resolver reads the key 'on' as True.
+    assert set(events) == {'pull_request', 'push', 'workflow_dispatch'}
+    assert events['pull_request'] is None and events['push'] == {'branches': ['main', 'master']}
+    step = workflow['jobs']['framework-it']['steps'][-1]
+    assert step['run'] == 'python -B framework/scripts/tests/run_it.py --baseline-root "$IT_BASELINE"'
+    assert set(step['env']) == {'IT_BASELINE'}
+
+    for unit_status, it_status in ((0, 0), (1, 0), (0, 1)):
+        outcome = {'reachability_errors': [], 'suites': [{'code': it_status}]}
+        with patch.object(sys, 'argv', ['run_it.py']), \
+             patch.object(MODULE, 'authorize_full_regression') as authorize, \
+             patch.object(MODULE, 'select_checks', return_value=([SCRIPT], 'all requested')) as discover, \
+             patch.object(MODULE, 'run_commands', return_value=unit_status) as unit_dispatch, \
+             patch.object(run_it, 'run_all', return_value=outcome) as it_dispatch:
+            assert run_it.main() == int(bool(unit_status or it_status))
+        authorize.assert_called_once_with(run_it.TESTS.parents[2])
+        assert discover.call_args.args == (run_it.TESTS.parents[2], set())
+        assert unit_dispatch.call_args.args[1] == [[sys.executable, str(SCRIPT)]]
+        assert unit_dispatch.call_args.kwargs['jobs'] == 2
+        it_dispatch.assert_called_once()
+        assert it_dispatch.call_args.args[0] == run_it.TESTS
+        assert it_dispatch.call_args.kwargs == {}
+
+    with patch.object(sys, 'argv', ['run_it.py']), \
+         patch.object(MODULE, 'authorize_full_regression', side_effect=ValueError('locked')), \
+         patch.object(MODULE, 'run_commands') as unit_dispatch, \
+         patch.object(run_it, 'run_all') as it_dispatch, pytest.raises(ValueError, match='locked'):
+        run_it.main()
+    unit_dispatch.assert_not_called()
+    it_dispatch.assert_not_called()
 
 
 def check_it_reachability(tmp_path):
@@ -422,18 +446,13 @@ if __name__ == '__main__':
     assert 'expected 3, collected 2, passed body 2' in run_it.reachability(cases, [data])[0]
     assert run_it.reachability(cases, [{**data, 'passed': []}])
 
-    selected = {('integrations/receipt.checks.py', 'check_body'): ('pytest', 2)}
-    output = tmp_path / 'selected-receipts'
+    output = tmp_path / 'receipts'
     output.mkdir()
-    rows, receipts = run_it.execute_suites(tests, output, io.StringIO(), selected=selected)
+    rows, receipts = run_it.execute_suites(tests, output, io.StringIO())
     assert [row['code'] for row in rows] == [0]
-    assert not run_it.reachability(selected, receipts)
+    assert not run_it.reachability({('integrations/receipt.checks.py', 'check_body'): ('pytest', 2)}, receipts)
+    assert run_it.reachability(cases, receipts)  # Full execution still detects an unreachable registered body.
     assert all(receipt['metrics'].get('subprocess.git', 0) == 0 for receipt in receipts)
-    failed = {('integrations/receipt.checks.py', 'check_not_called'): ('pytest', 1)}
-    rows, receipts = run_it.execute_suites(tests, output, io.StringIO(), selected=failed)
-    assert rows[0]['code'] != 0 and run_it.reachability(failed, receipts)
-    rows, receipts = run_it.execute_suites(tests, output, io.StringIO(), selected={})
-    assert rows == receipts == []
 
     suite.write_text(f"import sys\nsys.path.insert(0, {str(Path(run_it.__file__).parent.parent)!r})\n" + """from support.it_case_receipt import it_case, module_complete
 from unittest.mock import patch
@@ -627,13 +646,7 @@ def check_it_run_lifecycle(tmp_path):
         assert not result['reachability_errors']
         assert os.environ[fixtures.ENV] == 'previous-bundle'
         assert os.environ['BLUEPRINT_VALIDATION_CACHE_DIR'] == 'previous-cache'
-    ledger, errors = run_it.inventory(tmp_path)
-    assert not errors
-    with patch.object(fixtures, 'bundle', side_effect=AssertionError('unrelated seeds forbidden')), \
-         patch.object(run_it, 'execute_suites', return_value=([], [])):
-        result = run_it.run_all(tmp_path, io.StringIO(), selected={})
-    assert result['selection'] == 'affected' and result['reachability'] == 'not required (no affected IT)'
-    assert result['bundle_initializations'] == 0 and result['seed_generations'] == {}
+    assert result['selection'] == 'full'
     # Old baseline may have neither ledger nor markers; only process results are comparable.
     (tmp_path / 'CASES.md').unlink()
     with patch.object(run_it, 'execute_suites', return_value=([{'suite': 'old', 'code': 7}], [])):

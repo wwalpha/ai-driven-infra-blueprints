@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Official offline IT entrypoint: isolated suites, one seed bundle, runtime receipts."""
+"""Official offline UT/IT entrypoint: isolated suites, one seed bundle, runtime receipts."""
 
 import argparse
 import ast
@@ -156,7 +156,7 @@ def _callback_run_child_measured_pytest(plugin, pytest_main, /, args=None, plugi
     return pytest_main(args, plugins=[*(plugins or []), plugin])
 
 
-def run_child(suite, tests, receipt, baseline=False, cases=()):
+def run_child(suite, tests, receipt, baseline=False):
     """Execute existing entrypoints, including pytest_cli.run and top-level scripts."""
     sys.path[:0] = [str(tests.parent), str(tests)]
     pytest = _imports_pytest
@@ -171,8 +171,6 @@ def run_child(suite, tests, receipt, baseline=False, cases=()):
     sys.addaudithook(worktree_audit)
     sys.argv = [str(suite)]
     try:
-        if cases:
-            raise SystemExit(pytest.main([str(suite) + '::' + name for name in cases]))
         with (nullcontext() if baseline else ordinary_suite(suite, tests)):
             runpy.run_path(str(suite), run_name='__main__')
     finally:
@@ -241,11 +239,9 @@ def reachability(cases, receipts, registered=None):
     return errors
 
 
-def execute_suites(tests, output, summary, baseline=False, selected=None):
+def execute_suites(tests, output, summary, baseline=False):
     suites = sorted((tests / 'integrations').rglob('*.checks.py'))
-    if selected is not None:
-        suites = [suite for suite in suites if any(path == suite.relative_to(tests).as_posix() for path, _ in selected)]
-    if not suites and selected is None:
+    if not suites:
         raise ValueError('No integration suites discovered')
     rows, receipts = [], []
     summary.write('| IT suite | Result | Seconds |\n| --- | --- | ---: |\n')
@@ -253,15 +249,10 @@ def execute_suites(tests, output, summary, baseline=False, selected=None):
         print(f'::group::{suite.name}', flush=True)
         started = time.monotonic()
         receipt = output / (suite.name + '.json')
-        owned = {name: mode for (path, name), (mode, _) in (selected or {}).items()
-                 if path == suite.relative_to(tests).as_posix()}
-        # Mixed/direct suites retain their authored entrypoint. Selected pytest
-        # cases use the same pytest configuration and runtime receipt plugin.
-        nodes = [argument for name in sorted(owned) for argument in ('--case', name)] if owned and all(mode == 'pytest' for mode in owned.values()) else []
         try:
             code = subprocess.run([sys.executable, '-B', '-X', 'utf8', str(Path(__file__).resolve()),
                                    *(['--baseline'] if baseline else []),
-                                   *nodes, '--suite', str(suite), '--tests', str(tests), '--receipt', str(receipt)],
+                                   '--suite', str(suite), '--tests', str(tests), '--receipt', str(receipt)],
                                   cwd=tests.parents[2]).returncode
         except OSError as error:
             print(error, file=sys.stderr, flush=True)
@@ -295,7 +286,7 @@ def _callback_run_all_audit(_state_run_all_284, metrics, /, event, args):
             metrics['generated:' + args[0]] += 1
 
 
-def run_all(tests, summary, baseline=False, selected=None):
+def run_all(tests, summary, baseline=False):
     policy_errors = [] if baseline else violations(tests)
     if policy_errors:
         raise ValueError('Worktree test policy: ' + '; '.join(policy_errors))
@@ -308,11 +299,6 @@ def run_all(tests, summary, baseline=False, selected=None):
         ENV = 'BLUEPRINT_IT_FIXTURES'
     cases, errors = ({}, []) if baseline else inventory(tests)
     registered = cases
-    if selected is not None:
-        cases = selected
-        summary.write(f'\nSelected IT cases: {len(cases)}; unselected cases were not run.\n')
-        for path, name in cases:
-            summary.write(f'- {path}::{name}\n')
     if not baseline:
         check_assertion_guards(tests)
     started = time.monotonic()
@@ -326,10 +312,10 @@ def run_all(tests, summary, baseline=False, selected=None):
     try:
         with tempfile.TemporaryDirectory(prefix='framework-it-receipts-') as directory:
             os.environ['BLUEPRINT_VALIDATION_CACHE_DIR'] = str(Path(directory) / 'cache')
-            with (nullcontext(None) if baseline or selected is not None else bundle()) as fixture:
+            with (nullcontext(None) if baseline else bundle()) as fixture:
                 if fixture is not None:
                     os.environ[ENV] = str(fixture)
-                rows, receipts = execute_suites(tests, Path(directory), summary, baseline, selected)
+                rows, receipts = execute_suites(tests, Path(directory), summary, baseline)
                 if not baseline and cases:
                     errors += reachability(cases, receipts, registered)
     except RuntimeError as error:
@@ -347,11 +333,11 @@ def run_all(tests, summary, baseline=False, selected=None):
         metrics.update(receipt.get('metrics', {}))
     result = {'seconds': time.monotonic() - started, 'bundle_initializations': None if baseline else metrics['blueprint.it_bundle.initialized'],
               'seed_generations': None if baseline else {key.removeprefix('generated:'): count for key, count in metrics.items() if key.startswith('generated:')},
-              'selection': 'full' if selected is None else 'affected',
+              'selection': 'full',
               'selected_cases': len(cases),
-              'reachability': 'not verified (baseline)' if baseline else 'not required (no affected IT)' if selected == {} else 'verified' if not errors else 'failed',
+              'reachability': 'not verified (baseline)' if baseline else 'verified' if not errors else 'failed',
               'metrics': dict(metrics), 'suites': rows, 'reachability_errors': errors}
-    if not baseline and selected is None:
+    if not baseline:
         NAMES = _imports_support_it_fixture_bundle.NAMES
         if result['bundle_initializations'] != 1 or result['seed_generations'] != dict.fromkeys(NAMES, 1):
             errors.append('common fixtures must be initialized exactly once')
@@ -371,39 +357,22 @@ def run_all(tests, summary, baseline=False, selected=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--baseline-root', default='')
-    parser.add_argument('--affected', metavar='BASE', help='Select dependencies of BASE..HEAD; default is explicit full IT')
     parser.add_argument('--baseline', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--suite', type=Path, help=argparse.SUPPRESS)
     parser.add_argument('--tests', type=Path, default=TESTS, help=argparse.SUPPRESS)
     parser.add_argument('--receipt', type=Path, help=argparse.SUPPRESS)
-    parser.add_argument('--case', action='append', default=[], help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.suite:
-        run_child(args.suite, args.tests, args.receipt, args.baseline, args.case)
+        run_child(args.suite, args.tests, args.receipt, args.baseline)
         return 0
     sys.path[:0] = [str(TESTS.parent), str(TESTS)]
-    selected = None
-    unit_status = 0
-    if args.affected:
-        if args.baseline_root:
-            parser.error('--affected cannot narrow an explicit baseline/full measurement')
-        run_commands = _imports_validation_loop.run_commands
-        select_checks = _imports_validation_loop.select_checks
-        utf8_environment = _imports_validation_loop.utf8_environment
-        root = TESTS.parents[2]
-        paths = subprocess.run(['git', 'diff', '--no-renames', '--name-only', '-z', args.affected, 'HEAD', '--'],
-                               cwd=root, capture_output=True, text=True, check=True).stdout
-        cases, errors = inventory(TESTS)
-        if errors:
-            raise ValueError('; '.join(errors))
-        selected, reason = select_checks(root, set(paths.split('\0')) - {''}, True, integration_cases=cases)
-        print(reason, flush=True)
-        units, unit_reason = select_checks(root, set(paths.split('\0')) - {''}, True)
-        print(f'{unit_reason}: {len(units)} UT suites', flush=True)
-        if units:
-            with tempfile.TemporaryDirectory(prefix='framework-affected-ut-') as directory:
-                unit_status = run_commands(root, [[sys.executable, str(path)] for path in units],
-                                           utf8_environment(), Path(directory), jobs=2)
+    _imports_validation_loop.authorize_full_regression(TESTS.parents[2])
+    units, reason = _imports_validation_loop.select_checks(TESTS.parents[2], set())
+    print(f'{reason}: {len(units)} UT suites', flush=True)
+    with tempfile.TemporaryDirectory(prefix='framework-ut-') as directory:
+        unit_status = _imports_validation_loop.run_commands(
+            TESTS.parents[2], [[sys.executable, str(path)] for path in units],
+            _imports_validation_loop.utf8_environment(), Path(directory), jobs=2)
     summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
     with (open(summary_path, 'a', encoding='utf-8') if summary_path else nullcontext(sys.stdout)) as summary:
         if args.baseline_root:
@@ -413,7 +382,7 @@ def main():
             summary.write('\n### Baseline\n\n')
             before = run_all(baseline_tests, summary, baseline=True)
         summary.write('\n### Current\n\n')
-        after = run_all(TESTS, summary, selected=selected)
+        after = run_all(TESTS, summary)
         if args.baseline_root:
             summary.write(f'\nObserved times: baseline {before["seconds"]:.3f}s; current {after["seconds"]:.3f}s.\n'
                           'Validation content and suite equivalence are not established; these are not a same-condition speedup.\n'

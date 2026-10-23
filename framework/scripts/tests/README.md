@@ -22,7 +22,7 @@ productionの管理所有者確認は維持し、そのfactory/registry境界を
 全UT/IT/supportの依存を静的にたどり、直接/間接Import・動的fixture loader・worktree Mockを検出する。
 pytestと公式IT runnerには実操作/管理書込の実行時guardもある。通常Git init/commit/diffとproductionの
 read-only discoveryは許可する。公開Reviewの `worktree` フィールドは証跡の入力データとして保持する。
-既存CIのaffected選択にも新fixtureを登録し、専用fixtureの選択先から業務スイートを除外する。
+関連テストの依存関係マッピングでも、専用fixtureの選択先から業務スイートを除外する。
 分類・移動先・assertion対応は [CASES.md](CASES.md#worktree-dependency-separation-master-1024v2) を参照。
 
 ## 実行入口
@@ -41,7 +41,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test
 
 通常Taskの `--affected` は `task` / `local` 用の互換オプションで、Framework回帰テストの選択・実行を行わず、`full` / `--all` とは併用できない。`--staged` と組み合わせても同じで、固定snapshotの入力・stale検出・Task検証は維持する。全UT選択時のWindows認証、UTF-8、診断ログ、失敗伝播を維持する。
 
-[Framework IT](../../../.github/workflows/framework-it.yml) はPRおよびmain/masterへのpushで、`run_it.py --affected BASE` により既存の依存関係マッピングから関連UT／ITを選択する。これは通常Taskの `--affected` とは別の機能で、未登録・未解決依存関係のエラー処理を維持する。手動 `workflow_dispatch` は既存のFull IT実行を維持する。Python 3.12と既存requirementsを使用し、唯一の公式入口 `python -B framework/scripts/tests/run_it.py` が対象の `integrations/**/*.checks.py` を独立プロセスで起動する。既存のpytest・直接実行・トップレベル実行方式を維持する。
+[Framework IT](../../../.github/workflows/framework-it.yml) はすべてのPRおよびmain/masterへのpushと手動 `workflow_dispatch` で、変更ファイルによる選別をせず全UT・全ITを実行する。ファイル種別による起動除外も行わない。Python 3.12と既存requirementsを使用し、唯一の公式入口 `python -B framework/scripts/tests/run_it.py` が既存schedulerで全UTを最大2並列、その後 `integrations/**/*.checks.py` を独立プロセスで全件実行する。UT失敗後もITを実行し、いずれかの失敗でCIを失敗させる。既存のpytest・直接実行・トップレベル実行方式と手動baseline計測を維持する。runnerの `--affected`・case選別とSelected IT表示は廃止した。
 
 runnerは共通fixture bundleを1回初期化し、`input_templates`・`typed_services`・`generated_policy`・`import_sources` の4 seedを各1回生成する。共有seedは読み取り専用で、可変データはケースごとのworkspaceへ展開する。Framework定義は既存の定義rootを参照する。新しいFrameworkコピー・symlink/hardlinkは作らない。実プロジェクトのModelやAWS認証情報は使用しない。
 
