@@ -13,7 +13,6 @@ import sys
 import tempfile
 from contextlib import ExitStack
 from functools import partial
-from functools import partial as _bind_framework_callback
 from pathlib import Path
 from threading import RLock
 from types import SimpleNamespace
@@ -21,6 +20,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tests'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 import sysconfig
 import urllib.parse as _imports_urllib_parse
 import venv

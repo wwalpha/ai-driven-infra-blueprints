@@ -3,7 +3,6 @@
 
 import sys
 from datetime import datetime as real_datetime
-from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
 from types import SimpleNamespace as _CallbackState
@@ -11,6 +10,8 @@ from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 import issues.integrity as issues_scan
 import model.sources as sources

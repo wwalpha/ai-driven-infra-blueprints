@@ -11,12 +11,13 @@ import sys
 import time
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
-from functools import partial as _bind_framework_callback
 from json import JSONDecodeError
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 import importlib.util
 

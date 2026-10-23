@@ -4,12 +4,13 @@
 import subprocess
 import sys
 from copy import deepcopy
-from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace

@@ -2,11 +2,12 @@
 """Byte preservation and failure boundaries of shared file publication."""
 
 import sys
-from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from unittest.mock import patch
 
 import pytest

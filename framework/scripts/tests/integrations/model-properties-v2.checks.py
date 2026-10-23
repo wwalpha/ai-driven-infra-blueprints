@@ -3,12 +3,13 @@
 import os
 import shutil
 import sys
-from functools import partial as _bind_framework_callback
 from pathlib import Path
 from unittest.mock import patch as mock_patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 import json
 import subprocess

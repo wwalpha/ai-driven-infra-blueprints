@@ -6,7 +6,6 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
-from functools import partial as _bind_framework_callback
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from threading import Event
@@ -14,6 +13,8 @@ from types import SimpleNamespace as _CallbackState
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 from support.it_case_receipt import it_case
 from support.worktree_python_fixtures import (

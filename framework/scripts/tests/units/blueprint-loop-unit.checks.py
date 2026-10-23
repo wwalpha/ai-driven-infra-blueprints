@@ -195,7 +195,11 @@ def check_dependency_selection():
 
     ledger, errors = run_it.inventory(root / 'framework/scripts/tests')
     assert not errors, errors
+    assert {'aws_definitions.checks.py', 'aws_mapping-unit.checks.py', 'file_operations-unit.checks.py'} <= selected('framework/scripts/utils/function_wrapper.py')
     integrations = _bind_framework_callback(_callback_check_dependency_selection_integrations, ledger, root)
+    wrapper_cases = integrations('framework/scripts/utils/function_wrapper.py')
+    assert ('integrations/issues-lint.checks.py', 'check_cli_equivalence') in wrapper_cases
+    assert ('integrations/sync-model.checks.py', 'check_multiple_targets_barrier') in wrapper_cases
     resource = 'framework/scripts/comparison/resource.py'
     service = 'framework/scripts/comparison/services/cloudtrail.py'
     cases = integrations(resource)
@@ -405,6 +409,11 @@ if __name__ == '__main__':
     assert not run_it.reachability(cases, [data])
     assert len(data['passed']) == 2
     assert 'calls' not in data
+    helper = ('integrations/helper.py', 'check_helper')
+    with_helper = {**data, 'completed': {'::'.join(helper): 1}}
+    assert run_it.reachability(cases, [with_helper])
+    assert not run_it.reachability(cases, [with_helper], {**cases, helper: ('direct', 1)})
+    assert run_it.reachability(cases, [{**with_helper, 'passed': []}], {**cases, helper: ('direct', 1)})
     assert run_it.reachability(cases, [{**data, 'passed': data['passed'][:1]}])
     assert run_it.reachability(cases, [{**data, 'passed': [data['passed'][0]] * 2}])
     cases[('integrations/receipt.checks.py', 'check_not_called')] = ('direct', 1)

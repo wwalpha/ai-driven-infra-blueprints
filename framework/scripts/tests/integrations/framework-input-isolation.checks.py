@@ -2,11 +2,12 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 
 import sys
-from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 import integrations.validation_checks.task as _imports_integrations_validation_checks_task
 from support.blueprint_loop_fixtures import make_project_fixture

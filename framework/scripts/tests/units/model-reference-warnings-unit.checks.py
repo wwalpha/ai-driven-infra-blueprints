@@ -6,13 +6,14 @@ import shutil
 import sys
 from collections import Counter
 from contextlib import ExitStack, closing, nullcontext
-from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 import model.references as references
 import model.sources as sources

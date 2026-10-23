@@ -200,7 +200,8 @@ def receipt_errors(receipt, suite=None):
     return []
 
 
-def reachability(cases, receipts):
+def reachability(cases, receipts, registered=None):
+    registered = cases if registered is None else registered
     completed, collected, passed = Counter(), Counter(), Counter()
     errors = [] if cases else ['empty IT case ledger']
     owners = set()
@@ -224,7 +225,7 @@ def reachability(cases, receipts):
         if cases.get(tuple(key.split('::', 1)), (None,))[0] != 'pytest':
             errors.append(f'unregistered collected IT case: {key}')
     for key in completed:
-        if cases.get(tuple(key.split('::', 1)), (None,))[0] not in ('direct', 'direct_group', 'module'):
+        if registered.get(tuple(key.split('::', 1)), (None,))[0] not in ('direct', 'direct_group', 'module'):
             errors.append(f'unregistered completed IT case: {key}')
     for (path, name), (mode, count) in cases.items():
         key = path + '::' + name
@@ -299,6 +300,7 @@ def run_all(tests, summary, baseline=False, selected=None):
     else:
         ENV = 'BLUEPRINT_IT_FIXTURES'
     cases, errors = ({}, []) if baseline else inventory(tests)
+    registered = cases
     if selected is not None:
         cases = selected
         summary.write(f'\nSelected IT cases: {len(cases)}; unselected cases were not run.\n')
@@ -322,7 +324,7 @@ def run_all(tests, summary, baseline=False, selected=None):
                     os.environ[ENV] = str(fixture)
                 rows, receipts = execute_suites(tests, Path(directory), summary, baseline, selected)
                 if not baseline and cases:
-                    errors += reachability(cases, receipts)
+                    errors += reachability(cases, receipts, registered)
     except RuntimeError as error:
         errors.append(str(error))
     finally:

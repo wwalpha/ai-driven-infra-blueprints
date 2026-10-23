@@ -3,11 +3,12 @@
 
 import inspect
 import sys
-from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 import model.render as model_design
 import support.model_design_fixtures as _exports_support_model_design_fixtures

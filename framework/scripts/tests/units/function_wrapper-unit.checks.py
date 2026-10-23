@@ -1,11 +1,12 @@
 """Decorator state preserves calls, metadata and Python method descriptors."""
 import inspect
+from unittest.mock import patch
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import FunctionWrapper
+from utils.function_wrapper import BoundCallback, FunctionWrapper
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -45,7 +46,22 @@ def check_method_binding():
     assert str(inspect.signature(instance.method)) == '(number=1)'
 
 
+def captured_method(offset, self, number=1):
+    return offset + self.offset + number
+
+
+def check_callback_binding():
+    callback = BoundCallback(captured_method, 3, number=2)
+    instance = BoundExample()
+    with patch.object(BoundExample, 'method', callback):
+        assert instance.method() == 15
+        assert BoundExample.method(instance, number=4) == 17
+        assert callback(instance, number=5) == 18
+    assert instance.method(2) == 15
+
+
 if __name__ == "__main__":
     check_wrapper()
     check_method_binding()
-    print("Function wrapper checks: PASS (2 checks)")
+    check_callback_binding()
+    print("Function wrapper checks: PASS (3 checks)")
