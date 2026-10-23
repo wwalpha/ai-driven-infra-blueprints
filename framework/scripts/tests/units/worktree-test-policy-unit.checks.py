@@ -9,14 +9,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from run_it import registered_cases
 from support.worktree_test_policy import (
     audit,
     forbidden_process,
     ordinary_suite,
     violations,
 )
-from validation.loop import select_checks
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -66,27 +64,6 @@ def check_runtime_guard(tmp_path):
 
 
 
-
-@pytest.mark.parametrize('fixture,expected', [
-    ('worktree_task_fixtures', {'worktree_task.checks.py', 'worktree_python.checks.py', 'import-worktree-contract.checks.py', 'worktree-deploy-repair.checks.py', 'worktree-model-operation.checks.py'}),
-    ('worktree_deploy_fixtures', {'worktree-deploy-repair.checks.py'}),
-    ('deploy_repair_fixtures', {'deploy-controller.checks.py', 'worktree-deploy-repair.checks.py'}),
-    ('resource_delete_fixtures', {'worktree-model-operation.checks.py'}),
-])
-def check_fixture_selection(fixture, expected):
-    root = Path(__file__).resolve().parents[4]
-    cases = registered_cases(root / 'framework/scripts/tests')
-    selected, _ = select_checks(root, {'framework/scripts/tests/support/' + fixture + '.py'}, True, integration_cases=cases)
-    assert {Path(path).name for path, _ in selected} == expected
-
-
-def check_new_shared_fixture_mappings():
-    root = Path(__file__).resolve().parents[4]
-    cases = registered_cases(root / 'framework/scripts/tests')
-    for relative in ('support/publication_fixtures.py', 'support/repository_fixtures.py', 'support/worktree_test_policy.py', 'pytest.ini'):
-        path = 'framework/scripts/tests/' + relative
-        assert select_checks(root, {path}, True)[0]
-        assert select_checks(root, {path}, True, integration_cases=cases)[0]
 
 if __name__ == '__main__':
     from support.pytest_cli import run

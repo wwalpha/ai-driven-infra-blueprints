@@ -342,8 +342,6 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/model_design.checks.py:303` | `check_changed_paths_error` | UT | [units/blueprint-loop-unit.checks.py:24](units/blueprint-loop-unit.checks.py#L24) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
 | `unknown/blueprint-loop.checks.py:68` | `check_process_interruption` | UT | [units/blueprint-loop-unit.checks.py:32](units/blueprint-loop-unit.checks.py#L32) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
 | `unknown/blueprint-loop.checks.py:413` | `check_parallel_interruption` | UT | [units/blueprint-loop-unit.checks.py:56](units/blueprint-loop-unit.checks.py#L56) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
-| `unknown/blueprint-loop.checks.py:419` | `check_leaf_selection` | UT | [units/blueprint-loop-unit.checks.py:74](units/blueprint-loop-unit.checks.py#L74) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 関数内抽出 |
-| `unknown/blueprint-loop.checks.py:437` | `check_dependency_selection` | UT | [units/blueprint-loop-unit.checks.py:96](units/blueprint-loop-unit.checks.py#L96) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
 | `unknown/blueprint-loop.checks.py:464` | `check_fixture_independence` | UT | [units/blueprint-loop-unit.checks.py:131](units/blueprint-loop-unit.checks.py#L131) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 配置/共有fixture分離 |
 | `unknown/blueprint-loop.checks.py:1000` | `check_regression_discovery` | UT | [units/blueprint-loop-unit.checks.py:154](units/blueprint-loop-unit.checks.py#L154) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 配置/共有fixture分離 |
 | `units/check-model-aws-unit.checks.py:11` | `check_summary_exit_codes` | UT | [units/check-model-aws-unit.checks.py:11](units/check-model-aws-unit.checks.py#L11) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
@@ -473,10 +471,8 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `units/blueprint-loop-unit.checks.py::check_changed_paths_error` | 1（内部パラメータ化なし） |
 | `units/blueprint-loop-unit.checks.py::check_process_interruption` | 1（内部パラメータ化なし） |
 | `units/blueprint-loop-unit.checks.py::check_parallel_interruption` | 1（内部パラメータ化なし） |
-| `units/blueprint-loop-unit.checks.py::check_leaf_selection` | L78: 2 (('a', 'b'))<br>L86: 動的 (selected)<br>L87: 4 (('framework/scripts/shared.py', 'framework/rules/rule.md', 'framework/scripts/tests/integrations/deleted.checks.py', 'framework/materials/catalog.sha256')) |
-| `units/blueprint-loop-unit.checks.py::check_dependency_selection` | L99: 動的 (MODULE.select_checks(root, set(paths), affected)[0])<br>L102: 6 ((('integrations', 'task'), ('units', 'design'), ('units', 'references'), ('units', 'cloudformation'), ('integrations', 'scope'), ('units', 'contracts')))<br>L109: 3 (('iac_evaluation', 'script_loader', 'issues_iac'))<br>L111: 8 (('__init__', 'scheduler', 'aws_adapter', 'delivery', 'change_sets', 'repair', 'secret_bootstrap', 'session'))<br>L113: 動的 ((SCRIPT.parent / 'tests/units').rglob('*.checks.py'))<br>L115: 2 (('framework/scripts/tests/support/validation_checks/unknown.py', 'framework/scripts/tests/support/unknown.py'))<br>L122: 7 (('service_rows', 'model_display', 'model_projection', 'model_references', 'sync_runtime', 'sync_views', 'sync_files')) |
 | `units/blueprint-loop-unit.checks.py::check_fixture_independence` | L144: 2 (('AGENTS.md', 'README.md'))<br>L146: 5 (('issues/dev/other/issues.md', 'model/dev/other/ec2.properties', 'docs/designs/dev/other/ec2.md', 'tasks/example.md', 'project.json')) |
-| `units/blueprint-loop-unit.checks.py::check_regression_discovery` | L158: 動的 (MODULE.select_checks(root, set())[0])<br>L159: 動的 ((root / 'framework/scripts/tests/units').rglob('*.checks.py'))<br>L161: 動的 (MODULE.select_checks(root, set())[0])<br>L162: 動的 (all_checks)<br>L163: 2 ((('parameter_cases', 'service-parameter-inputs.checks.py'), ('service_contracts', 'model_parameter_inputs.checks.py')))<br>L166: 動的 (selected) |
+| `units/blueprint-loop-unit.checks.py::check_regression_discovery` | 全UTの検出、IT除外、空集合拒否 |
 | `units/check-model-aws-unit.checks.py::check_summary_exit_codes` | 1（内部パラメータ化なし） |
 | `units/check-model-aws-unit.checks.py::check_value_normalization` | 1（内部パラメータ化なし） |
 | `units/check-model-aws-unit.checks.py::check_secret_redaction` | 1（内部パラメータ化なし） |
@@ -2457,7 +2453,7 @@ Task fixtureは独立した通常Gitとtask_contract.startで開始・選択し�
 
 | `observed-resume::task-bytes` | `check_exact_task_bytes_bound` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 1 | pending plan binds full contract bytes in addition to the existing normalized session identity | Task text |
 
-既存affectedのdeploy依存集合にobserved-resume UTを含め、observed_resume.pyを同じ集合へ対応付ける。選択方式、IT runnerとGitHub Actionsの入口は維持する。
+observed-resume UTはCIで毎回実行する。IT runnerとGitHub Actionsの入口は維持する。
 
 | `observed-resume::direct-snapshot` | `check_direct_writer_keeps_noop_source_snapshot` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 1 | direct sync retains every selected source snapshot, including unchanged candidates | observation inputs |
 
@@ -2665,6 +2661,3 @@ worktree所有登録/配送の能力境界だけを置換する。Managed state�
 全assert文のASTを変更前後で照合し、削除したassert式は0件。所有者ケースは上記の専用側へ集約し、
 業務parameter matrixのLifecycle条件だけを移動する。実行時guardはworker threadも対象にし、
 静的依存違反をpytest/公式ITの実行前に拒否する。旧baseline計測には現行policyを強制しない。
-
-| `worktree-separation::ci-fixtures` | `check_fixture_selection` | UT | [fixture selection](units/worktree-test-policy-unit.checks.py) | pytest / 4 | CIで専用fixtureの選択先から業務スイートを排除、共有業務fixtureの両責務consumerを保持 | Recurrence |
-| `worktree-separation::ci-shared` | `check_new_shared_fixture_mappings` | UT | [shared mapping](units/worktree-test-policy-unit.checks.py) | pytest / 1 | 新しいGit/publication/policy fixtureとpytest設定を既存affected選択に登録 | Recurrence |

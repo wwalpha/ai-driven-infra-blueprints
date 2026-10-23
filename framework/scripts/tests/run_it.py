@@ -367,7 +367,7 @@ def main():
         return 0
     sys.path[:0] = [str(TESTS.parent), str(TESTS)]
     _imports_validation_loop.authorize_full_regression(TESTS.parents[2])
-    units, reason = _imports_validation_loop.select_checks(TESTS.parents[2], set())
+    units, reason = _imports_validation_loop.select_checks(TESTS.parents[2])
     print(f'{reason}: {len(units)} UT suites', flush=True)
     with tempfile.TemporaryDirectory(prefix='framework-ut-') as directory:
         unit_status = _imports_validation_loop.run_commands(

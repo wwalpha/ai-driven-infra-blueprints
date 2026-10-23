@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 from unittest.mock import patch
 
-from support.validator import MODULE, SCRIPT, load, project, write
+from support.validator import MODULE, SCRIPT, project, write
 from validation_cache import PassCache
 
 
@@ -136,9 +136,3 @@ def check_module_keys():
                     assert cache.common_key() != before, (base, name)
                     write(path, 'original\n')
                     assert cache.common_key() == before
-    loop = load('blueprint-loop')
-    all_checks = sorted({*(SCRIPT.parent / "tests/units").rglob("*.checks.py"),
-                         *(SCRIPT.parent / "tests/units").rglob("test_*.py")}, key=lambda path: path.name)
-    for name in names:
-        selected, _ = loop.select_checks(SCRIPT.parents[2], {f'framework/scripts/validation/{name}.py'}, True)
-        assert selected == all_checks, name

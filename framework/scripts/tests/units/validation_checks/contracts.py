@@ -7,9 +7,8 @@ import re
 import shlex
 from pathlib import Path
 
-import pytest as _imports_pytest
 import utils.markdown_format as _imports_utils_markdown_format
-from support.validator import MODULE, SCRIPT, load
+from support.validator import MODULE, SCRIPT
 
 
 def check_optional_alias_contract() -> None:
@@ -194,7 +193,6 @@ def check_design_handoff_prompt() -> None:
 
 
 def check_rule_reading_contract() -> None:
-    pytest = _imports_pytest
     validator = MODULE.Validator(SCRIPT.parents[2])
     validator.check_framework_rule_readings()
     assert not validator.errors, validator.errors
@@ -220,16 +218,3 @@ def check_rule_reading_contract() -> None:
             assert path.is_file(), (source, link)
             if anchor:
                 assert anchor in markdown_sections(path.read_text(encoding="utf-8")), (source, link)
-    loop = load("blueprint-loop")
-    all_checks = sorted({*(SCRIPT.parent / "tests/units").rglob("*.checks.py"),
-                         *(SCRIPT.parent / "tests/units").rglob("test_*.py")}, key=lambda path: path.name)
-    for path in ("framework/scripts/deploy_preparation.py", "framework/scripts/validation_cache.py",
-                 "framework/scripts/validation/framework_contracts.py", "README.md",
-                 ".agents/skills/worktree/SKILL.md", "framework/rules/loop-engineering.md"):
-        if path in {'framework/scripts/deploy_preparation.py', '.agents/skills/worktree/SKILL.md'}:
-            with pytest.raises(ValueError, match='dependency not tracked'):
-                loop.select_checks(repository, {path}, True)
-        else:
-            selected, reason = loop.select_checks(repository, {path}, True)
-            expected = sorted((SCRIPT.parent / 'tests/units' / name for name in ('validation_cache-unit.checks.py', 'framework-input-isolation-unit.checks.py', 'kms-validation-reuse-unit.checks.py')), key=lambda path: path.name) if path == 'framework/scripts/validation_cache.py' else [] if path == 'README.md' else [SCRIPT.parent / 'tests/units/blueprint-loop-unit.checks.py'] if path.endswith('loop-engineering.md') else all_checks
-            assert selected == expected, (path, selected, reason)

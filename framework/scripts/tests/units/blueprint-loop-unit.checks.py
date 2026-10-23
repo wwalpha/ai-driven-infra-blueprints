@@ -103,126 +103,13 @@ def check_parallel_interruption(tmp_path):
 
 
 
-def check_leaf_selection(tmp_path):
-    root = tmp_path
-    scripts = root / 'framework/scripts/tests/units'
-    scripts.mkdir(parents=True)
-    for name in ('a', 'b'):
-        (scripts / (name + '.checks.py')).write_text('# selection fixture\n', encoding='utf-8')
-    paths = {"framework/scripts/tests/units/a.checks.py"}
-    integration = scripts.parent / "integrations/only.checks.py"
-    integration.parent.mkdir()
-    integration.write_text("raise AssertionError('IT must not run locally')\n", encoding="utf-8")
-    assert MODULE.select_checks(root, {integration.relative_to(root).as_posix()}, True)[0] == []
-    selected, reason = MODULE.select_checks(root, paths, True)
-    assert [path.name for path in selected] == ["a.checks.py"]
-    for unknown in ("framework/scripts/shared.py", "framework/rules/rule.md",
-                    "framework/scripts/tests/integrations/deleted.checks.py", "framework/materials/catalog.sha256"):
-        with pytest.raises(ValueError, match="dependency not tracked"):
-            MODULE.select_checks(root, paths | {unknown}, True)
-    assert len(MODULE.select_checks(root, paths, False)[0]) == 2
-    assert not MODULE.select_checks(root, {"model/dev/cde/ec2.properties"}, True)[0]
 
 
 
-def _callback_check_dependency_selection_integrations(ledger, root, /, *paths):
-    return MODULE.select_checks(root, set(paths), True, integration_cases=ledger)[0]
 
 
-def _callback_check_dependency_selection_selected(root, /, *paths, affected=True):
-    return {p.name for p in MODULE.select_checks(root, set(paths), affected)[0]}
 
 
-def check_dependency_selection():
-    root = SCRIPT.parents[2]
-    selected = _bind_framework_callback(_callback_check_dependency_selection_selected, root)
-    validator = {'validation-units.checks.py'}
-    shared = validator | {'blueprint-loop-unit.checks.py'}
-    for category, name in (("integrations", "task"), ("units", "design"), ("units", "references"),
-                           ("units", "cloudformation"), ("integrations", "scope"), ("units", "contracts")):
-        assert selected(f"framework/scripts/tests/{category}/validation_checks/{name}.py") == validator, name
-    leaf = "framework/scripts/tests/integrations/validation_checks/task.py"
-    assert selected(leaf, "framework/scripts/blueprint-loop.py") == shared
-    comparison = {'comparison_core-unit.checks.py', 'issues_scan-unit.checks.py', 'check-model-aws-unit.checks.py', 'cloudformation-deploy-unit.checks.py', 'deploy_preparation-unit.checks.py', 'model_files-unit.checks.py'}
-    engine = {"comparison_core-unit.checks.py", "test_issues_iac.py", "reference-evidence-unit.checks.py", "s3-kms-reference-unit.checks.py",
-              "security_group_tables-unit.checks.py", "check-model-aws-unit.checks.py"}
-    assert selected("framework/scripts/comparison_rows.py") == engine
-    assert selected("framework/scripts/iac_evaluation.py") == engine
-    assert selected("framework/scripts/script_loader.py") == comparison - {"check-model-aws-unit.checks.py"}
-    for name in ("__init__", "scheduler", "guards", "delivery", "s3_delivery", "observed", "observed_resume", "controller", "inputs", "change_sets", "recovery", "failures", "retry_policy", "handoff", "resume", "secret_bootstrap", "session"):
-        assert selected(f"framework/scripts/deploy/{name}.py") == {'cloudformation-deploy-unit.checks.py', 'deploy_preparation-unit.checks.py', 'model_files-unit.checks.py',
-            'deploy-sdk.checks.py', 'deploy-runtime-unit.checks.py', 'deploy-observed-unit.checks.py', 'deploy-observed-resume-unit.checks.py', 'deploy-handoff-unit.checks.py'}
-    for name in ('client', 'cloudformation', 's3', 'kms', 'sts', 'secretsmanager'):
-        assert selected(f'framework/scripts/utils/aws/{name}.py') == selected('framework/scripts/deploy/controller.py') | {'aws-client.checks.py'}
-    for name in ('__init__','cli','runner','inputs','integrity','materials','records','aggregate','artifact','reports','publication','cfn_lint'):
-        expected = (comparison - {'check-model-aws-unit.checks.py'}) | {'test_issues_iac.py','issues-lint-unit.checks.py'}
-        if name in {'materials', 'reports'}:
-            expected.add('model-reference-warnings-unit.checks.py')
-        if name in {'publication', 'reports'}:
-            expected.add('issue_gate-unit.checks.py')
-        checks, reason = MODULE.select_checks(root, {f'framework/scripts/issues/{name}.py'}, True)
-        assert expected <= {p.name for p in checks}
-        assert reason.startswith('affected:')
-        assert all('/units/' in p.as_posix() for p in checks)
-    common = {'comparison_core-unit.checks.py', 'test_issues_iac.py', 'reference-evidence-unit.checks.py',
-              's3-kms-reference-unit.checks.py', 'security_group_tables-unit.checks.py'}
-    for path in ('comparison/resource.py', 'comparison/runner.py', 'comparison/inputs.py', 'comparison/references.py',
-                 'comparison/model_reference.py', 'comparison/reference_evidence.py', 'comparison/expressions.py'):
-        assert selected('framework/scripts/' + path) == common
-    for service in ('s3', 'kms', 'security_group'):
-        expected = {'comparison_core-unit.checks.py', 'test_issues_iac.py', 'reference-evidence-unit.checks.py'} | {
-            'security_group_tables-unit.checks.py' if service == 'security_group' else 's3-kms-reference-unit.checks.py'}
-        assert selected('framework/scripts/comparison/services/' + service + '.py') == expected
-    assert selected('framework/scripts/utils/cfn_lint.py') == selected('framework/scripts/issues/cfn_lint.py')
-    all_checks = {p.name for p in (SCRIPT.parent / "tests/units").rglob("*.checks.py")} | {"test_issues_iac.py"}
-    assert selected("framework/scripts/iac_values.py") == engine
-    for unknown in ("framework/scripts/tests/support/validation_checks/unknown.py", "framework/scripts/tests/support/unknown.py"):
-        with pytest.raises(ValueError, match="dependency not tracked"):
-            selected(leaf, unknown)
-    with patch.object(Path, "is_file", return_value=False):
-        with pytest.raises(ValueError, match="dependency not tracked"):
-            selected(leaf)  # A removed source requires dependency review.
-    assert selected("framework/scripts/tests/support/validator.py") == all_checks
-    assert selected("framework/scripts/tests/integrations/model_design.checks.py") == all_checks
-    assert selected("framework/scripts/tests/integrations/rotation_schedule.checks.py") == {'cloudformation-deploy-unit.checks.py'}
-    for name in ("service_rows", "sync_runtime", "sync_views", "sync_files"):
-        assert selected(f"framework/scripts/{name}.py") == all_checks
-    for name in ("model_display", "model_projection", "model_references", "model_core"):
-        with pytest.raises(ValueError, match="dependency not tracked"):
-            selected(f"framework/scripts/{name}.py")
-    assert selected("framework/scripts/ec2_display.py") == all_checks
-    assert selected(leaf, affected=False) == all_checks
-    assert selected("framework/scripts/tests/integrations/design_layout.checks.py") == {'design_layout-unit.checks.py', 'design_document-unit.checks.py', 'validation-units.checks.py', 'sync-model-unit.checks.py', 'policy_tables-unit.checks.py'}
-
-    ledger, errors = run_it.inventory(root / 'framework/scripts/tests')
-    assert not errors, errors
-    assert {'aws_definitions.checks.py', 'aws_mapping-unit.checks.py', 'file_operations-unit.checks.py'} <= selected('framework/scripts/utils/function_wrapper.py')
-    integrations = _bind_framework_callback(_callback_check_dependency_selection_integrations, ledger, root)
-    wrapper_cases = integrations('framework/scripts/utils/function_wrapper.py')
-    assert ('integrations/issues-lint.checks.py', 'check_cli_equivalence') in wrapper_cases
-    assert ('integrations/sync-model.checks.py', 'check_multiple_targets_barrier') in wrapper_cases
-    resource = 'framework/scripts/comparison/resource.py'
-    service = 'framework/scripts/comparison/services/cloudtrail.py'
-    cases = integrations(resource)
-    assert ('integrations/issues_scan.checks.py', 'check_condition_diagnostics') in cases
-    assert integrations(service) == {('integrations/issues_scan.checks.py', 'check_cloudtrail_membership'): ('pytest', 1)}
-    assert integrations(resource, service) == cases | integrations(service)
-    assert selected(resource, service) == selected(resource) | selected(service)
-    assert integrations('framework/scripts/iac_evaluation.py') == cases
-    assert all(path == 'integrations/issues_scan.checks.py' for path, name in cases)
-    assert not integrations('framework/scripts/tests/run_it.py')
-    assert selected('framework/scripts/tests/CASES.md') == {'blueprint-loop-unit.checks.py'}
-    assert not integrations('framework/scripts/tests/CASES.md')
-    assert integrations(resource, 'framework/scripts/tests/CASES.md') == cases
-    assert integrations('framework/scripts/deploy/controller.py')  # A real deploy change retains its own consumers.
-    assert integrations(resource, 'framework/scripts/deploy/controller.py') == cases | integrations('framework/scripts/deploy/controller.py')
-    assert MODULE.select_checks(root, set(), integration_cases=ledger)[0] == ledger
-    with pytest.raises(ValueError, match='dependency not tracked'):
-        integrations('framework/scripts/unknown.py')
-    missing = dict(ledger)
-    del missing[('integrations/issues_scan.checks.py', 'check_condition_diagnostics')]
-    with pytest.raises(ValueError, match='not registered'):
-        MODULE.select_checks(root, {resource}, True, integration_cases=missing)
 
 
 
@@ -251,17 +138,13 @@ def check_fixture_independence(tmp_path):
 def check_regression_discovery(tmp_path):
     with patch.object(MODULE, "definition_root", return_value=tmp_path), \
          pytest.raises(ValueError, match="no framework regression checks discovered"):
-        MODULE.select_checks(tmp_path, set())
+        MODULE.select_checks(tmp_path)
     root = Path(__file__).resolve().parents[4]
-    all_checks = {p.name for p in MODULE.select_checks(root, set())[0]}
+    all_checks = {p.name for p in MODULE.select_checks(root)[0]}
     assert all_checks == {p.name for p in (root / "framework/scripts/tests/units").rglob("*.checks.py")} | {"test_issues_iac.py"}
     assert "service-parameter-inputs.checks.py" not in all_checks
-    assert all(p.is_relative_to(root / "framework/scripts/tests/units") for p in MODULE.select_checks(root, set())[0])
+    assert all(p.is_relative_to(root / "framework/scripts/tests/units") for p in MODULE.select_checks(root)[0])
     assert not any("parameter-migration" in name for name in all_checks)
-    for helper, _expected in (("parameter_cases", "service-parameter-inputs.checks.py"),
-                             ("service_contracts", "model_parameter_inputs.checks.py")):
-        selected, reason = MODULE.select_checks(root, {f"framework/scripts/tests/integrations/{helper}.py"}, True)
-        assert {p.name for p in selected} == ({"model_parameter_inputs-unit.checks.py"} if helper == "service_contracts" else set()), reason
 
 
 
@@ -391,7 +274,7 @@ def check_ci_workflow(tmp_path):
              patch.object(run_it, 'run_all', return_value=outcome) as it_dispatch:
             assert run_it.main() == int(bool(unit_status or it_status))
         authorize.assert_called_once_with(run_it.TESTS.parents[2])
-        assert discover.call_args.args == (run_it.TESTS.parents[2], set())
+        assert discover.call_args.args == (run_it.TESTS.parents[2],)
         assert unit_dispatch.call_args.args[1] == [[sys.executable, str(SCRIPT)]]
         assert unit_dispatch.call_args.kwargs['jobs'] == 2
         it_dispatch.assert_called_once()

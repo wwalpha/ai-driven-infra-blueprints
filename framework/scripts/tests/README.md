@@ -22,7 +22,6 @@ productionの管理所有者確認は維持し、そのfactory/registry境界を
 全UT/IT/supportの依存を静的にたどり、直接/間接Import・動的fixture loader・worktree Mockを検出する。
 pytestと公式IT runnerには実操作/管理書込の実行時guardもある。通常Git init/commit/diffとproductionの
 read-only discoveryは許可する。公開Reviewの `worktree` フィールドは証跡の入力データとして保持する。
-関連テストの依存関係マッピングでも、専用fixtureの選択先から業務スイートを除外する。
 分類・移動先・assertion対応は [CASES.md](CASES.md#worktree-dependency-separation-master-1024v2) を参照。
 
 ## 実行入口

@@ -53,11 +53,10 @@ classified as an independent documentation edit.
 | Validation infrastructure or execution control | Related selection/runner tests plus scoped validator |
 | Unknown impact | Stop for missing dependency evidence; identify related feature tests before validation |
 
-Normal changes use the existing dependency mapping; sharing a module never by itself requires all IT. Explicit release validation may separately request all UT/IT. During development, run directly related tests first. After a failure and a material fix,
+Normal changes use proven callers, imports and fixtures to identify related local tests; sharing a module never by itself requires all IT. Explicit release validation may separately request all UT/IT. During development, run directly related tests first. After a failure and a material fix,
 rerun the failed test or affected service; for a fixture fix, run its consuming tests.
 Do not run Full after each correction, repeat unchanged results, or retry Full with known
-failures left unfixed. Use the existing dependency mapping to identify related local tests.
-If dependencies need investigation, directly invoke the relevant existing UT
+failures left unfixed. If dependencies need investigation, directly invoke the relevant existing UT
 `framework/scripts/tests/units/<name>.checks.py` entrypoints or installed pytest test nodes during
 repair. CI always runs all UT/IT; local narrowing does not replace a required final Full or prove unknown impact safe.
 For bounded final validation, run these tests and the existing Project scoped loop or
@@ -72,12 +71,11 @@ python3 framework/scripts/validate-blueprint.py --repository-root . --task-file 
 Use pytest only for existing pytest suites and an already available dependency; retain
 script entrypoints for other suites. The standalone validator uses the contract's explicit
 Validation scope; do not add `--all` or `--repository-wide-iac` for bounded checks.
-Local regression selects only UTs; dependency mappings, caches, worker counts and validation scope are retained.
+Local regression discovers all UTs; caches, worker counts and validation scope are retained.
 Ordinary Project Tasks treat Framework code and definitions as immutable. Task/local
 loops do not select UT/IT from Framework Git differences; they validate the Project's
 Validation scope and Task Contract. Framework development uses dedicated UT entrypoints,
-`run_it.py`, Framework IT CI, or explicit Full. Unknown dependency mappings still fail
-in explicit local dependency selection. Explicit Full uses
+`run_it.py`, Framework IT CI, or explicit Full. CI changed-file selection and its dependency mapping are removed. Explicit Full uses
 `blueprint-loop.py --mode full --task-file tasks/<task-name>.md` once after repairs stabilize;
 Full does not expand service scope to `all`.
 
@@ -232,8 +230,7 @@ automatically run Framework regression for changed files or missing Validation s
 Explicit `full` / `--all` runs all UTs and no IT, retaining validator scope and safety
 checks. `--affected` remains a compatibility option for task/local and does not invoke
 the dependency selector. Framework development runs related dedicated UTs and necessary
-IT cases under Validation policy. Explicit local dependency selection retains its mapping and
-unknown/missing dependency errors; CI deliberately runs all tests.
+IT cases under Validation policy. CI always runs all tests.
 
 All UT and IT run in [Framework IT](../../.github/workflows/framework-it.yml) on every pull request,
 push to `main`/`master`, and manual dispatch, using Python 3.12 and the existing requirements.
@@ -276,7 +273,7 @@ alone do not enable that setting.
 - Launch with `python -X utf8 framework/scripts/blueprint-loop.py --mode task` is recommended. Even under ordinary launch, the runner restarts in UTF-8 mode and passes `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8` to child processes. Before validation, confirm Japanese file reads/writes and child process output; do not start regression if this fails. Explicitly specify UTF-8 for text I/O.
 - After conflict resolution, stage files to validate and this task's `tasks/<task-name>.md`, then specify `--staged --base <比較元commit>`. Explicitly specify a base commit matching the human's change scope and include incoming changes in the diff against it. Stop on unresolved index conflicts. Ordinary mode continues to validate unstaged/staged/untracked changes.
 - Staged mode fixes the base commit, HEAD, and index tree and expands them into an independent Git repository outside the repository to validate that snapshot's runner, contract, and inputs. Do not include original workspace unstaged/untracked files or rewrite the original index. Setting snapshot HEAD to the base makes contracts, changed paths, and diff checks use the same basis. If original HEAD/index tree changes by completion, exit nonzero as stale; do not treat the old tree's result as a PASS for the latest state. This does not lock subsequent edits.
-- `--affected` in task/local is a compatibility option and does not select or start Framework regression. It cannot be combined with `full` / `--all`. Common validation, task-specific checks, Acceptance checks and diff checks remain mandatory. Explicit local dependency selection retains its mappings, diagnostics and unknown/missing dependency errors; Framework CI always runs all UT/IT.
+- `--affected` in task/local is a compatibility option and does not select or start Framework regression. It cannot be combined with `full` / `--all`. Common validation, task-specific checks, Acceptance checks and diff checks remain mandatory. Framework CI always runs all UT/IT.
 - Every regression test uses explicit synthetic project/Model inputs generated in temporary directories within tests, regardless of repository type or active Validation scope. Do not inspect the executing repository's `project.json` or `model/`, including existence checks, test-case discovery and cache inputs. Necessary framework inputs may be used; do not copy actual consumer issues, projects, models, designs or active tasks into fixtures. This rule does not restrict the selected service validation or ordinary import/issues workflows from reading their authorized inputs. Compare filesystem paths with `Path`; use `as_posix()` only for contract values requiring POSIX notation such as Markdown links.
 - Only independent regression scripts run with at most 2 parallel workers; validators and Git diff checks run serially. `--jobs 1` permits serial comparison. Each check owns its temporary fixture and must not write shared workspaces. Run remaining checks after failure; on interruption, stop running child processes.
 
