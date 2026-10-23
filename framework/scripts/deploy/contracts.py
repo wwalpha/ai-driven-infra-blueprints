@@ -136,3 +136,13 @@ def migrate_delivery(root, target, unit, state, template_data, file_digest):
     state['legacyDeliveryArguments'] = arguments
     record['arguments'] = migrated
     return True
+
+
+def validation_snapshot(root):
+    """Hash ordinary Git inputs used by a validated repair candidate."""
+    safe_path = _imports_task_contract.safe_path
+    result = {}
+    for relative in sorted(paths(root, 'ls-files', '-z') | paths(root, 'ls-files', '--others', '--exclude-standard', '-z')):
+        path = safe_path(root, relative)
+        result[relative] = sha(path) if path.is_file() else None
+    return result

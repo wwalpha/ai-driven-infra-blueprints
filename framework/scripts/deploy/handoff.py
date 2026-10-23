@@ -13,7 +13,6 @@ import model.sources as _imports_model_sources
 import project_targets as _imports_project_targets
 import task_contract_core as _imports_task_contract
 import utils.aws_mappings as _imports_utils_aws_mappings
-import worktree_task as _imports_worktree_task
 from cloudformation_inputs import Blocked
 from task_contract_core import safe_path, task_path
 from task_contract_core import task_digest as task_digest
@@ -22,6 +21,7 @@ from utils.file_operations import atomic_files as atomic_files
 from utils.file_operations import sha as sha
 from utils.json_format import fingerprint
 from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
+from worktree_task import bind_deploy_workflow as register_workflow
 
 import deploy.change_sets as _imports_deploy_change_sets
 import deploy.inputs as _imports_deploy_inputs
@@ -156,7 +156,6 @@ def workflow(session):
 
 def bind(root, path, session):
     """One unfinished workflow per Task; replacing/deleting its session is not a reset."""
-    bind_deploy_workflow = _imports_worktree_task.bind_deploy_workflow
     current = workflow(session)
     if not current['attempts'] and not current.get('reserved') and not current.get('budgetExtensions'):
         current['budget'] = session.get('repairBudget', retry_policy.DEFAULT_BUDGET)
@@ -174,7 +173,7 @@ def bind(root, path, session):
         _verified[id(session)] = (str(path), 0)
     session['workflowBinding'] = str(record_path)
     contract = (root / session['taskFile']).read_text(encoding='utf-8') if (root / session['taskFile']).is_file() else ''
-    bind_deploy_workflow(root, path, session, record_path,
+    register_workflow(root, path, session, record_path,
         activate='- External IaC repair: `allowed`' in contract.splitlines() or bool(current['attempts']) or current['reserved'] > 0)
 
 

@@ -26,7 +26,8 @@ from support.json_yaml_document_hash_fixtures import (
     trace_model,
     write_model,
 )
-from support.worktree_task_fixtures import fixture, git, start
+from support.publication_fixtures import publication_repository
+from support.repository_fixtures import fixture, git, start
 
 from model import prepare_edit, publish_edit
 
@@ -105,5 +106,5 @@ def check(root):
 
 
 if __name__=='__main__':
-    with tempfile.TemporaryDirectory() as directory:
+    with publication_repository(), tempfile.TemporaryDirectory() as directory:
         check(Path(directory).resolve())

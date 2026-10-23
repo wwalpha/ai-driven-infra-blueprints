@@ -24,7 +24,6 @@ from support.blueprint_loop_fixtures import (
     Path,
     SimpleNamespace,
     events,
-    importlib,
     io,
     json,
     make_loop_fixture,
@@ -708,16 +707,6 @@ def check_startup_diagnostics(tmp_path, phase):
     assert (root / other).read_bytes() == untouched
 
 
-def check_windows_exit_propagation(tmp_path):
-    spec = importlib.util.spec_from_file_location("python_wrapper", SCRIPT.with_name("run-python.py"))
-    wrapper = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(wrapper)
-    for code in (0, 2, 7, 130):
-        with patch.object(wrapper.worktree_python, "runtime", return_value=None), \
-             patch.object(wrapper.sys, "platform", "win32"), \
-             patch.object(wrapper.sys, "argv", ["run-python.py", "-c", f"raise SystemExit({code})"]), \
-             patch.object(wrapper.os, "execvpe", side_effect=AssertionError("Windows must wait")):
-            assert wrapper.main() == code
 
 
 def check_workflow(tmp_path) -> None:

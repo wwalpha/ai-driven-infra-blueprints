@@ -18,33 +18,12 @@ from unittest.mock import patch
 import pytest
 import task_contract as tasks
 import worktree_task as wt
+from support.repository_fixtures import contract as contract
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 SCRIPT = (Path(__file__).resolve().parents[2] / 'worktree_task.py')
-
-def git(root, *args):
-    return wt.output(root, *args)
-
-def contract(task_id, files):
-    name = f"tasks/{task_id}.md"
-    listed = "\n".join(f"- `{path}`" for path in [name, *files])
-    return f"""# Task
-## Task contract
-- Task type: `governance`
-- Task status: `running`
-## Validation scope
-- `framework`
-## Required changes
-- [R1] Fixture change
-## Acceptance checks
-- [R1] `exists:{files[0]}`
-## Modified files
-{listed}
-## Allowed paths
-{listed}
-"""
 
 @contextmanager
 def fixture(branch="main"):
@@ -60,6 +39,11 @@ def fixture(branch="main"):
         git(root, "add", ".")
         git(root, "commit", "-qm", "fixture")
         yield root
+
+
+def git(root, *args):
+    return wt.output(root, *args)
+
 
 def cli(root, command, task_id="example", success=True, approval=None):
     environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0"}

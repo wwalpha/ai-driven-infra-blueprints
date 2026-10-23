@@ -25,9 +25,8 @@ import model.sources as _imports_model_sources
 import pytest
 import support.import_model_fixtures as _imports_support_import_model_fixtures
 import support.model_sources as _imports_support_model_sources
-import support.worktree_task_fixtures as _imports_support_worktree_task_fixtures
+import support.repository_fixtures as _imports_support_repository_fixtures
 import task_contract_core as _imports_task_contract
-import worktree_state
 from aws_mapping import readonly
 from aws_mapping_compare import comparison
 from aws_mapping_compare import value as mapped_value
@@ -1125,12 +1124,9 @@ def check_intermediate_source_context(tmp_path, monkeypatch, action):
         issues = tmp_path / 'issues/stg/cde/issues.md'
         issues.parent.mkdir(parents=True)
         issues.write_text('### vpc\n1. 削除前の既存Issue\n', encoding='utf-8')
-    state = {'task_file': name, 'worktree': str(tmp_path), 'merged': None}
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/wrong.md')
     candidate = serialize(raw) + '# intermediate save\n'
-    with patch('worktree_state.managed_task_state', return_value=state), \
-         patch.object(worktree_state, 'output', return_value='synthetic-head'), \
-         patch.object(GenerationInputs, 'open_stage', side_effect=AssertionError('intermediate save cannot stage')), \
+    with patch.object(GenerationInputs, 'open_stage', side_effect=AssertionError('intermediate save cannot stage')), \
          patch('model.operations.verify_model_operation', side_effect=AssertionError('intermediate save cannot run final whole-design proof')):
         with source_write_context(tmp_path, name) as first:
             assert publish_edit(prepare_edit(load_model(path, first.snapshot), {path: candidate}, first), first) == (path,)
@@ -1879,9 +1875,9 @@ def _callback_check_repair_invalid_model_final_only(calls, saved_load, /, scope,
 @pytest.mark.parametrize('old_error', ['reference', 'syntax', 'identity', 'duplicate', 'encoding'])
 @pytest.mark.parametrize('failure', ['none', 'reference', 'duplicate', 'allowed', 'scope', 'race', 'rollback', 'anchor'])
 def check_repair_invalid_model(tmp_path, old_error, failure):
-    fixture = _imports_support_worktree_task_fixtures.fixture
-    git = _imports_support_worktree_task_fixtures.git
-    start = _imports_support_worktree_task_fixtures.start
+    fixture = _imports_support_repository_fixtures.fixture
+    git = _imports_support_repository_fixtures.git
+    start = _imports_support_repository_fixtures.start
     with fixture() as root:
         dependency_fixture(root)
         relative = 'model/stg/cde/service-b.properties'

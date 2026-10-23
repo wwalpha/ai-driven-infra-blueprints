@@ -11,7 +11,6 @@ import issue_gate as _imports_issue_gate
 import task_contract_core as _imports_task_contract
 import utils.input_cache as _imports_validation_cache
 import validation_scope as _imports_validation_scope
-import worktree_state
 
 import model.importing.repository as _imports_model_importing_repository
 import model.sources as _dependency_model_sources
@@ -66,10 +65,10 @@ def observed_write_context(root, changes, task_file=None):
         yield context
 
 
-def _callback__write_context_require_current(allowed, declared, head, managed_task_state, matches, name, root, safe_path, state, task_head, task_revision, text, writable, /, changes):
+def _callback__write_context_require_current(allowed, declared, revision, publication_revision, matches, name, root, safe_path, task_revision, text, writable, /, changes):
     if task_revision(root, selected=name) != (name, text):
         raise ValueError('parent task changed before source publication')
-    if managed_task_state(root, name) != state or task_head(root) != head:
+    if publication_revision(root, name) != revision:
         raise ValueError('managed worktree revision changed before source publication')
     for file in changes:
         relative = file.relative_to(root).as_posix()
@@ -82,7 +81,7 @@ def _callback__write_context_require_current(allowed, declared, head, managed_ta
 def _write_context(root, task_file, *, requested=None):
     """Authorize one Model-only intermediate save, without running final validation."""
     GenerationInputs = _imports_generation_inputs.GenerationInputs
-    managed_task_state = worktree_state.managed_task_state
+    publication_revision = _imports_model_importing_repository.publication_revision
     require_no_issues = _imports_issue_gate.require_no_issues
     matches = _imports_task_contract.matches
     model_operation = _imports_task_contract.model_operation
@@ -120,9 +119,7 @@ def _write_context(root, task_file, *, requested=None):
                 raise ValueError('ordinary Model editing requires a design Task; infrastructure design inputs remain immutable')
             if model_operation(text) is not None:
                 raise ValueError('Model-only operations require their limited source write context')
-        state = managed_task_state(root, name)
-        task_head = _imports_model_importing_repository.task_head
-        head = task_head(root)
+        revision = publication_revision(root, name)
         with input_context(), _dependency_model_sources.publication_lock(root):
             snapshot = GenerationInputs(root, task_file=name)
             context = None
@@ -162,7 +159,7 @@ def _write_context(root, task_file, *, requested=None):
                         file = root / 'model' / identity[0] / identity[1] / (identity[2] + '.properties')
                         snapshot.read(file)
 
-                require_current = _bind_framework_callback(_callback__write_context_require_current, allowed, declared, head, managed_task_state, matches, name, root, safe_path, state, task_head, task_revision, text, writable)
+                require_current = _bind_framework_callback(_callback__write_context_require_current, allowed, declared, revision, publication_revision, matches, name, root, safe_path, task_revision, text, writable)
 
                 context = _dependency_model_sources.SourceWriteContext._authorized(root, snapshot, operation, require_current, frozenset(writable),
                                                          finish=lambda: require_current({}))

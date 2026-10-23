@@ -7,6 +7,24 @@
 - `support/`: 共通fixture、loader、pytestの診断補助。UTはITテストモジュールをimportしない。
 - `unknown/`: 分類対象を残さない。分類済みかどうかはディレクトリ名だけで判断しない。
 
+## Worktree責務の分離
+
+Worktree機能自体を検証するレビュー済みケースだけが、実worktree操作とLifecycleのMock/fixtureを使う。
+許可は `support/worktree_test_policy.py` のケース一覧で固定し、ファイル名の変更だけでは付与しない。
+Model / Import / Deploy / Issues / Validation / CloudFormationの業務テストには含めない。
+
+業務側は `repository_fixtures` の独立した通常Git、または `import_repository_fixtures` のファイルsnapshotを使う。
+保存能力は `publication_fixtures` で渡し、実Task検証・入力変更検知・保存・生成・rollbackを通す。
+productionの管理所有者確認は維持し、そのfactory/registry境界を専用UT/ITで検証する。
+通常controllerはsession内ledgerを実保存し、worktree間の所有登録アダプターだけを置換する。
+外部修復のcheckpoint・child・検証・親統合・cleanupは専用Worktree ITが実行する。
+
+全UT/IT/supportの依存を静的にたどり、直接/間接Import・動的fixture loader・worktree Mockを検出する。
+pytestと公式IT runnerには実操作/管理書込の実行時guardもある。通常Git init/commit/diffとproductionの
+read-only discoveryは許可する。公開Reviewの `worktree` フィールドは証跡の入力データとして保持する。
+既存CIのaffected選択にも新fixtureを登録し、専用fixtureの選択先から業務スイートを除外する。
+分類・移動先・assertion対応は [CASES.md](CASES.md#worktree-dependency-separation-master-1024v2) を参照。
+
 ## 実行入口
 
 リポジトリルートから実行する。管理worktreeでは登録済みPython環境のwrapperを使う。
@@ -82,7 +100,7 @@ issuesの正規APIは `issues/`、Model ↔ IaC比較の入口は `comparison.Co
 
 `deploy-runtime-unit.checks.py` は旧controller suiteのrequest/判定/scheduler/差替えsessionケースを保持する。`deploy-sdk.checks.py` は境界内共有と境界間再取得、cleanup中の配送条件変更、削除証拠を検証する。`deploy-observed-unit.checks.py` は条件付き親参照とraw候補探索を、`aws-client.checks.py` は実SDKの一時設定/合成credential、生成排他とpaginationを検証する。API総件数や読込量・120秒判定を合格条件にしない。
 
-`integrations/deploy-controller.checks.py` は実controllerからtarget/Task/CFN loader、guard、SDK service wrapper、scheduler、session保存/再読込とobserved公開を通す。AWSだけをSDK client取得境界で置換し、未定義operationは失敗する。static seedは `fixtures/deploy_controller.yaml` と既存 `fixture_cases` を使い、各ケースが独立Project/cwd/実Git/sessionを持つ。別プロセスresumeはfake AWS JSONとsessionファイルだけを共有する。finallyを通らない終了後のlockは、その子を終了確認したテストだけが明示的に回収する。productionには回収分岐を追加しない。
+`integrations/deploy-controller.checks.py` は実controllerからtarget/Task/CFN loader、guard、SDK service wrapper、scheduler、session保存/再読込とobserved公開を通す。AWS応答をSDK client取得境界で置換し、未定義operationは失敗する。static seedは `fixtures/deploy_controller.yaml` と既存 `fixture_cases` を使い、各ケースが独立Project/cwd/実Git/sessionを持つ。別プロセスresumeはfake AWS JSONとsessionファイルだけを共有する。finallyを通らない終了後のlockは、その子を終了確認したテストだけが明示的に回収する。productionには回収分岐を追加しない。
 
 関連UTは各ファイルの既存直接入口または明示pytestで実行できる。既定収集は `python3 -B framework/scripts/run-python.py -m pytest --collect-only -q framework/scripts/tests`。正式ITは既存のGitHub Actions `Framework IT` jobが `framework/scripts/tests/run_it.py` を実行する。新しいFull IT runnerは追加していない。
 

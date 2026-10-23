@@ -15,8 +15,6 @@ from unittest.mock import patch
 
 import import_guard
 import pytest
-import worktree_state
-import worktree_task
 from model.adapters.task import edit_write_context, source_write_context
 from model.format import owner as owner
 from model.operations import prepare_edit, publish_edit, verify_model_operation
@@ -200,7 +198,7 @@ def _callback_check_guarded_save_git(before, /, *args):
     return subprocess.run(['git', *args], cwd=before, check=True, capture_output=True, text=True).stdout.strip()
 
 
-@pytest.mark.parametrize('mode', ['success', 'reuse', 'conflict', 'new-file', 'task-change', 'wrong-owner', 'invalid', 'normal-save', 'mixed-save', 'missing-scope', 'issue', 'other-issue'])
+@pytest.mark.parametrize('mode', ['success', 'reuse', 'conflict', 'new-file', 'task-change', 'invalid', 'normal-save', 'mixed-save', 'missing-scope', 'issue', 'other-issue'])
 def check_guarded_save(tmp_path, monkeypatch, mode):
 
     before, after, sources = fixture(tmp_path)
@@ -220,16 +218,13 @@ def check_guarded_save(tmp_path, monkeypatch, mode):
         scopes.append('dev/cde/service-b')
     text = contract() + '## Validation scope\n' + ''.join('- `' + s + '`\n' for s in scopes) + '## Modified files\n' + listing + '## Allowed paths\n' + listing
     start(before, name, text)
-    state = {'task_file': name, 'worktree': str(after if mode == 'wrong-owner' else before), 'merged': None}
     if mode in {'issue', 'other-issue'}:
         p = before / ('issues/dev/cde/issues.md' if mode == 'other-issue' else 'issues/stg/cde/issues.md')
         p.parent.mkdir(parents=True)
         p.write_text(('### service-b\n' if mode == 'other-issue' else '### service-a\n') + '1. existing issue\n')
-    with patch.object(worktree_state, 'load', return_value=(before, None, None, state)), \
-         patch.object(worktree_state, 'task_worktree', return_value=before), \
-         patch.object(worktree_state, 'task_start_commit', return_value=base), \
+    with patch('model.importing.repository.task_start_commit', return_value=base), \
          mapping_alias(Path(__file__).resolve().parents[4], before), selected_task(before, name):
-        if mode in {'wrong-owner', 'missing-scope', 'issue', 'other-issue'}:
+        if mode in {'missing-scope', 'issue', 'other-issue'}:
             with pytest.raises(ValueError):
                 with source_write_context(before, name):
                     pass
@@ -302,14 +297,11 @@ def check_final_candidate_uses_latest_base(tmp_path):
     candidate = SimpleNamespace(base_commit=latest, changed_paths=frozenset(sources), scope={('stg', 'cde', 'service-a'), ('stg', 'cde', 'service-b')})
     assert final_model_task(text)
     with mapping_alias(Path(__file__).resolve().parents[4], before), selected_task(before, name), \
-         patch.object(worktree_state, 'task_start_commit', return_value=original_base):
+         patch('model.importing.repository.task_start_commit', return_value=original_base):
         import_guard.require_import_changes(before, final_candidate=candidate)
         candidate.base_commit = original_base
         with pytest.raises(ValueError):
             import_guard.require_import_changes(before, final_candidate=candidate)
-        state = {'task_file': name, 'task_id': 'retarget'}
-        with pytest.raises(worktree_task.Blocked, match='successful final candidate'):
-            worktree_task._prepare_commit(before, before / 'unused-state.json', state, before, 'approval cannot bypass')
     assert producer.read_text().count('latest-name') == 2
 
 

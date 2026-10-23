@@ -8,8 +8,8 @@ from pathlib import Path
 
 import model.core as _imports_model_core
 import model.files as _dependency_model_files
+import model.importing.repository as repository
 import validation_scope as _dependency_validation_scope
-import worktree_state as _imports_worktree_state
 from task_contract_core import (
     contract_path,
     model_operation,
@@ -206,7 +206,7 @@ def task_issue_errors(root: Path, scope, *, target=None, task_file=None, contrac
                     not scope <= declared or target is not None and not any(entry[:2] == target for entry in scope)):
                 raise ValueError('IMPORT deletion issue exception requires explicit matching service Validation scope')
             if (root / '.git').exists():
-                task_start_commit = _imports_worktree_state.task_start_commit
+                task_start_commit = repository.task_start_commit
                 task_start_commit(root, name)
             if status(text) != 'completed':
                 remaining = scope - operation.source_scopes

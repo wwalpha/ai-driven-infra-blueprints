@@ -20,7 +20,7 @@ from support.framework_input_isolation_fixtures import (
     sys,
 )
 from support.it_case_receipt import it_case
-from support.worktree_task_fixtures import contract, fixture, git
+from support.repository_fixtures import contract, fixture, git
 from task_contract_core import selected_task
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 

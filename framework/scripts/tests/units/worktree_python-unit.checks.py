@@ -74,6 +74,18 @@ def check_pdf_native_optional():
     print("Missing PDF native library allowed; core imports, pip check and pinned PDF version retained: PASS")
 
 
+def check_windows_exit_propagation(tmp_path):
+    spec = importlib.util.spec_from_file_location("python_wrapper", (Path(__file__).resolve().parents[2] / "run-python.py"))
+    wrapper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wrapper)
+    for code in (0, 2, 7, 130):
+        with patch.object(wrapper.worktree_python, "runtime", return_value=None), \
+             patch.object(wrapper.sys, "platform", "win32"), \
+             patch.object(wrapper.sys, "argv", ["run-python.py", "-c", f"raise SystemExit({code})"]), \
+             patch.object(wrapper.os, "execvpe", side_effect=AssertionError("Windows must wait")):
+            assert wrapper.main() == code
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

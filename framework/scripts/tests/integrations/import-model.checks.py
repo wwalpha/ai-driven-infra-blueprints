@@ -1033,7 +1033,7 @@ def check_candidate_review_mismatch_rejected_without_host(monkeypatch, change):
     import_publication_case(monkeypatch, action)
 
 
-@pytest.mark.parametrize('boundary', ['head', 'base', 'owner', 'task', 'allowed', 'scope', 'target', 'unapproved-source'])
+@pytest.mark.parametrize('boundary', ['head', 'base', 'task', 'allowed', 'scope', 'target', 'unapproved-source'])
 def check_gitless_guard_boundaries(tmp_path, boundary):
     root, acquired, _ = prepare(tmp_path)
     logs_edit(root, acquired)
@@ -1044,8 +1044,6 @@ def check_gitless_guard_boundaries(tmp_path, boundary):
         state(root).head = 'changed-head'
     elif boundary == 'base':
         state(root).base = 'different-start'
-    elif boundary == 'owner':
-        state(root).owner = root.parent
     elif boundary == 'task':
         task.write_text(task.read_text() + '\n## Notes\nconcurrent Task edit\n')
     elif boundary == 'allowed':

@@ -17,6 +17,7 @@ from threading import Barrier
 import aws_mapping_catalog
 import aws_mapping_catalog as _imports_aws_mapping_catalog
 import pytest
+import utils.aws_mappings as providers
 import utils.mapping_runtime as _mapping_runtime
 import utils.mapping_types as _mapping_types
 from support.aws_mapping_fixtures import (
@@ -427,12 +428,11 @@ def check_full_failure_isolation():
 
 
 def check_shared_documents():
-    import utils.aws_mappings as providers
     with TemporaryDirectory() as directory:
         first, other = Mappings(Path(directory) / 'first'), Mappings(Path(directory) / 'other')
         with patch.object(_mapping_types, 'yaml_read', wraps=aws_mapping.yaml_read) as parse:
             with ThreadPoolExecutor(max_workers=8) as pool:
-                documents = list(pool.map(lambda n: (first if n % 2 else other)._document('config'), range(8)))
+                list(pool.map(lambda n: (first if n % 2 else other)._document('config'), range(8)))
             assert parse.call_count == 1
             assert first._document('config') is not other._document('config')
             first._document('config')['service'] = 'changed'

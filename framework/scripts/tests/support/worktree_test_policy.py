@@ -1,0 +1,161 @@
+"""Responsibility registry and recurrence checks for test-only Worktree dependencies."""
+import ast
+import re
+from contextlib import contextmanager
+from pathlib import Path
+
+# Reviewed Worktree responsibilities, not a filename convention. Exact cases are checked.
+WORKTREE_CASES = {
+    'units/worktree-guard-unit.checks.py': (
+        'check_registered_guard_process',
+        'check_prepare_rejects_before_git_write',
+        'check_cli_failure_diagnostics',
+        'check_idle_git_paths_and_state',
+        'check_repin_rejects_before_state_write',
+    ),
+    'units/worktree_python-unit.checks.py': (
+        'check_environment',
+        'check_pdf_native_optional',
+        'check_windows_exit_propagation',
+    ),
+    'units/worktree-model-guard-unit.checks.py': (
+        'check_ownership',
+        'check_finalize_rejects_incomplete_leaves',
+        'check_model_finalize_cannot_bypass_candidate',
+        'check_git_baseline_fail_closed',
+        'check_issue_gate_rejects_foreign_managed_task',
+    ),
+    'integrations/worktree_task.checks.py': (
+        'check_sync_base_preserves_candidate',
+        'check_deploy_workflow_cross_task_reset_rejected',
+        'check_success_and_empty',
+        'check_finalize_line_endings',
+        'check_incomplete_and_git_safety',
+        'check_dirty_base_and_retry',
+        'check_ahead_and_rebase_conflict',
+        'check_collisions_and_base_selection',
+        'check_directory_layout',
+        'check_metadata_storage',
+        'check_cleanup_failure_and_retry',
+        'check_merge_retry_and_commit_failure',
+        'check_human_approved_validation_failure',
+        'check_real_loop_integration',
+        'check_final_candidate_staleness',
+        'check_approved_model_reads',
+        'check_registered_normal_model_guard',
+        'check_model_operation_integration',
+        'check_model_refactor_integration',
+    ),
+    'integrations/worktree_python.checks.py': (
+        'check_output_decoding',
+        'check_setup',
+        'check_real_global',
+        'check_venv_fallback',
+        'check_parallel_fallback',
+        'check_symlink_safety',
+    ),
+    'integrations/import-worktree-contract.checks.py': (
+        'check_import_managed_contract_boundaries',
+        'check_model_source_context_worktree_boundary',
+    ),
+    'integrations/worktree-deploy-repair.checks.py': (
+        'check_external_implement_round_trip',
+    ),
+    'integrations/worktree-model-operation.checks.py': (
+        'check_one_parent_merge_and_failed_candidate_repair',
+    ),
+}
+WORKTREE_SUPPORT = frozenset({'support.worktree_task_fixtures', 'support.worktree_python_fixtures', 'support.worktree_deploy_fixtures'})
+_active = None
+
+
+def worktree_suite(path, tests):
+    relative = Path(path).resolve().relative_to(tests.resolve()).as_posix()
+    expected = WORKTREE_CASES.get(relative)
+    if expected is None:
+        return False
+    tree = ast.parse(Path(path).read_text(encoding='utf-8'))
+    return {n.name for n in tree.body if isinstance(n, ast.FunctionDef) and n.name.startswith('check_')} == set(expected)
+
+
+def violations(tests):
+    modules = {'.'.join(p.relative_to(tests).with_suffix('').parts): p for p in tests.rglob('*.py')}
+    edges, forbidden, errors = {}, {}, []
+    for module, path in modules.items():
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        relative = path.relative_to(tests).as_posix()
+        if relative in WORKTREE_CASES:
+            cases = {n.name for n in tree.body if isinstance(n, ast.FunctionDef) and n.name.startswith('check_')}
+            if cases != set(WORKTREE_CASES[relative]):
+                errors.append(relative + ': unreviewed Worktree responsibility/case change')
+        imports = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imports.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                imports.add(node.module or '')
+                imports.update((node.module + '.' if node.module else '') + a.name for a in node.names)
+            elif isinstance(node, ast.Dict):
+                keys = {key.value for key in node.keys if isinstance(key, ast.Constant)}
+                if {'task_file', 'worktree'} <= keys:
+                    imports.add('worktree_lifecycle_fixture')
+            elif isinstance(node, ast.Call):
+                call = ast.unparse(node.func)
+                # Include dynamic fixture loaders and Mock targets, including aliased patch objects.
+                if any(part in call for part in ('patch', 'setattr', 'import_module', 'spec_from_file_location')):
+                    values = ' '.join(ast.unparse(arg) for arg in node.args)
+                    if re.search(r'worktree_(?:state|task|python|runtime)|support[./]worktree_', values):
+                        imports.add('worktree_mock_or_loader')
+        edges[module] = {name for name in imports if name in modules}
+        forbidden[module] = {name for name in imports if name.startswith('worktree_') or name in WORKTREE_SUPPORT}
+    for module, path in modules.items():
+        relative = path.relative_to(tests).as_posix()
+        if relative in WORKTREE_CASES or module in WORKTREE_SUPPORT or relative in {'conftest.py', 'support/worktree_test_policy.py'}:
+            continue
+        pending, seen = [module], set()
+        while pending:
+            current = pending.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            bad = forbidden[current] | (edges[current] & WORKTREE_SUPPORT)
+            if bad:
+                errors.append(relative + ': Worktree dependency through ' + current + ': ' + ', '.join(sorted(bad)))
+            pending.extend(edges[current] - seen)
+    return sorted(set(errors))
+
+
+def forbidden_process(command):
+    if not isinstance(command, (list, tuple)):
+        return bool(re.search(r'git\s+worktree\s+(?:add|remove|move|prune|repair|lock|unlock)|worktree_task\.py', str(command)))
+    words = [str(word) for word in command]
+    if any(Path(word).name == 'worktree_task.py' or re.search(r'(?:import|from) (?:support\.)?worktree_(?:task|state|python|runtime)', word) for word in words):
+        return True
+    if not words or Path(words[0]).stem != 'git' or 'worktree' not in words:
+        return False
+    return any(word in {'add', 'remove', 'move', 'prune', 'repair', 'lock', 'unlock'}
+               for word in words[words.index('worktree') + 1:])
+
+
+def audit(event, args):
+    suite = _active
+    if suite is None:
+        return
+    if event == 'subprocess.Popen' and forbidden_process(args[1]):
+        raise AssertionError(suite + ': non-Worktree test attempted lifecycle subprocess')
+    if event in {'open', 'os.mkdir', 'os.remove', 'os.rename', 'os.rmdir'}:
+        values = args[:2] if event == 'os.rename' else args[:1]
+        writing = event != 'open' or (isinstance(args[1], str) and any(c in args[1] for c in 'wax+')) or isinstance(args[2], int) and args[2] & 3
+        if writing and any(isinstance(value, (str, bytes)) and '.worktrees' in Path(value.decode() if isinstance(value, bytes) else value).parts for value in values):
+            raise AssertionError(suite + ': non-Worktree test wrote lifecycle storage')
+
+
+@contextmanager
+def ordinary_suite(path, tests):
+    global _active
+    previous = _active
+    _active = None if worktree_suite(path, tests) else str(path)
+    try:
+        yield
+    finally:
+        _active = previous

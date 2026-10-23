@@ -22,7 +22,7 @@ from contextlib import redirect_stdout
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-import support.worktree_task_fixtures as _imports_support_worktree_task_fixtures
+import support.repository_fixtures as _imports_support_repository_fixtures
 import task_contract_core as _imports_task_contract
 import validation.scenario as _imports_validation_scenario
 import validation_cache as _imports_validation_cache
@@ -196,7 +196,7 @@ def check():
                 assert 'invalid Markdown Resource reference' in str(error)
             else:
                 raise AssertionError('Model tree escape accepted')
-        contract = _imports_support_worktree_task_fixtures.contract
+        contract = _imports_support_repository_fixtures.contract
         SELECTOR = _imports_task_contract.SELECTOR
         task_revision = _imports_task_contract.task_revision
         name = 'tasks/audit.md'

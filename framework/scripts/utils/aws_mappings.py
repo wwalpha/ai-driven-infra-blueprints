@@ -1,9 +1,9 @@
 """Process-local static Mapping definitions, shared by exact source/stage roots."""
 
 import re
-from copy import deepcopy
 from concurrent.futures import Future
 from contextlib import contextmanager
+from copy import deepcopy
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from threading import Lock

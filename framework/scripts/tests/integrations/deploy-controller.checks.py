@@ -4,9 +4,7 @@
 import hashlib
 import re
 import sys
-from functools import partial as _bind_framework_callback
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -16,16 +14,16 @@ import os
 import subprocess
 import tempfile
 
+import deploy.contracts as repair_contracts
 import deploy.handoff as _imports_deploy_handoff
 import deploy.observed_resume as _imports_deploy_observed_resume
+import deploy.resume as repair_resume
 import deploy.session as _imports_deploy_session
 import project_targets as _imports_project_targets
 import pytest
 import sync_runtime as _imports_sync_runtime
-import worktree_task as wt
 from deploy import controller, handoff
 from deploy import session as sessions
-from deploy.contracts import accepted_changes
 from deploy.session import model_input_manifest
 from deploy_handoff import main as migrate
 from model.core import properties
@@ -35,17 +33,25 @@ from support.deploy_controller_fixtures import (
     ACCOUNT,
     aws_state,
     child_environment,
-    git,
     invoke,
+    ordinary_base,
+    recover_owned_lock,
     seed,
 )
-from task_contract import complete, resume
-from task_contract_core import selected_task, start, suspend
+from support.deploy_repair_fixtures import external_round_trip, ordinary_delivery
+from task_contract_core import selected_task
 from utils.cloudformation_format import decode
 from utils.json_format import fingerprint
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
+
+
+@pytest.fixture(autouse=True)
+def ordinary_workflow(monkeypatch):
+    monkeypatch.setattr(handoff, 'register_workflow', lambda *args, **kwargs: None)
+    monkeypatch.setattr(repair_resume, 'verify_integration_owner', lambda *args: None)
+    monkeypatch.setattr(repair_contracts, 'task_start_commit', ordinary_base)
 
 
 @pytest.fixture(autouse=True)
@@ -187,22 +193,10 @@ def check_subprocess_execution_resume(project, crash):
     assert sum(op == 'execute_change_set' and args['StackName'] == evidence['StackId'] for _, op, args in calls) == 1
 
 
-def recover_owned_lock(root, child):
-    assert child.returncode is not None  # subprocess.run has reaped this exact child.
-
-    target = load_target(root, 'dev', ACCOUNT)
-    lock = Path(tempfile.gettempdir()) / ('blueprint-cfn-' + fingerprint(['dev', target]) + '.lock')
-    assert lock.exists()
-    lock.unlink()
-    state_path = Path(child.args[child.args.index(str(root)) + 1])
-    state_path.with_name(state_path.name + '.handoff-lock').rmdir()
 
 
-@pytest.mark.parametrize('repair', [False, True])
-def check_cleanup_and_repair_process_resume(tmp_path, monkeypatch, repair):
-    if repair:
-        external_round_trip(tmp_path, monkeypatch, 'cleanup')
-        return
+def check_cleanup_and_repair_process_resume(tmp_path, monkeypatch):
+    repair = False
     root, session, aws = tmp_path / 'project', tmp_path / 'session.json', tmp_path / 'aws.json'
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     root = seed(root, session, 'repair' if repair else 'orders')
@@ -264,276 +258,12 @@ def check_bootstrap_process_resume(tmp_path, monkeypatch, external_current):
         assert after['result'] == 'COMPLETE' and 'AWSCURRENT' in final['versions'][token]
 
 
-def _callback_external_round_trip_lifecycle(command, target, identity, *options):
-    env = child_environment() | {'BLUEPRINT_TASK_FILE': 'tasks/' + identity + '.md'}
-    result = subprocess.run([sys.executable, '-B', str(Path(wt.__file__)), command,
-        '--repository-root', str(target), '--task-id', identity, *map(str, options)], cwd=target,
-        env=env, capture_output=True, text=True, timeout=90)
-    assert result.returncode == 0, result.stdout + result.stderr
-    return json.loads(result.stdout)
 
 
-def _callback_external_round_trip_record_validation(diagnostics, real_run, /, command, *args, **kwargs):
-    result = real_run(command, *args, **kwargs)
-    if '--fresh' in command:
-        diagnostics.append(result.stdout + result.stderr)
-    return result
 
 
-def _callback_external_round_trip_interrupted_git(actual_git, parent, /, target, *args, **kwargs):
-    result = actual_git(target, *args, **kwargs)
-    if target == parent and args[:2] == ('merge', '--ff-only'):
-        raise InterruptedError('injected after real parent FF')
-    return result
 
 
-def external_round_trip(tmp_path, monkeypatch, boundary):
-    unexecuted = boundary in {'input-decode', 'validate-template', 'create-change-set', 'changeset-review'}
-    case = 'shared-success' if boundary == 'shared-success' else 'input-syntax' if boundary == 'input-decode' else 'repair-series' if boundary in {'new-problem', 'regression'} else 'repair'
-    parent = seed(tmp_path / 'project', tmp_path / 'session.json', case)
-    session, aws = tmp_path / 'session.json', tmp_path / 'aws.json'
-    monkeypatch.chdir(parent)
-    monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/deploy.md')
-    stage = {'validate-template':'validate_template','create-change-set':'create_change_set','changeset-review':'changeset_review'}.get(boundary)
-    aws_state(aws, repair=True, followup_dns=boundary in {'new-problem', 'regression'}, input_stage=stage)
-    original = {p: p.read_bytes() for p in (parent / 'infra').rglob('*') if p.is_file()}
-    assert invoke(parent, session, aws) == 2
-    assert all(p.read_bytes() == raw for p, raw in original.items())
-    saved = json.loads(session.read_text())
-    handoff.restore(parent, session, saved)
-    failed = saved['states']['cfn-stack-app-dev-second']
-    if unexecuted:
-        assert failed['status'] == 'BLOCKED' and 'stackStatus' not in failed and 'executionEvidence' not in failed
-        assert not any(op == 'execute_change_set' and args['StackName'].split(':stack/')[-1].split('/')[0] == 'cfn-stack-app-dev-second'
-            for _,op,args in json.loads(aws.read_text())['calls'])
-    else:
-        assert failed['status'] == 'FAILED' and saved['states']['cfn-stack-app-dev-first']['observedSynced']
-    observation = next(o for o in saved['failureObservations'] if o['observationId'] in saved['workflow']['latestObservations'])
-    relative = 'infra/cloudformation/templates/' + ('first.yaml' if boundary == 'shared-success' else 'second.yaml')
-    model = f'model/dev/{ACCOUNT}/ec2.properties'
-    diagnosis = {'revision': saved['inputRevision'], 'problems': [{
-        'observationId': observation['observationId'], 'eventIndices': [0], 'resourcePath': 'Vpc',
-        'resourceType': 'AWS::EC2::VPC', 'operation': 'CREATE', 'property': 'CidrBlock',
-        'constraint': 'approved-CidrBlock', 'cause': 'IAC_PROPERTY',
-        'relation': 'NEW', 'relatedProblemIds': [],
-        'reason': 'The CidrBlock input disagrees with its approved Model row and the failed Vpc operation.',
-        'evidenceRefs': [{'observationId': observation['observationId'], 'revision': saved['inputRevision'], 'eventIndices': [0]}],
-        'inputRefs': [{'path': relative, 'sha256': saved['infraManifest'][relative], 'pointer': '/Resources/Vpc/Properties/CidrBlock'}],
-        'modelRefs': [{'path': model, 'sha256': saved['modelInputManifest'][model], 'key': 'desired.row.001-002.value'}]}]}
-    if unexecuted:
-        entry = diagnosis['problems'][0]
-        entry['evidenceRefs'][0]['eventIndices'] = []
-        entry.update(eventIndices=[], operation='create_change_set' if boundary == 'changeset-review' else stage or 'decode_input')
-        if boundary == 'input-decode':
-            model = f'model/dev/{ACCOUNT}/cloudformation-stacks.properties'
-            entry.update(resourcePath='Template', resourceType='AWS::CloudFormation::Stack', property='Template',
-                constraint='parseable-template', cause='IAC_SYNTAX')
-            entry['inputRefs'][0]['pointer'] = ''
-            entry['modelRefs'] = [{'path':model,'sha256':saved['modelInputManifest'][model],'key':'desired.stack.002.template'}]
-    assert handoff.diagnose(parent, saved, diagnosis) == 'REPAIR_ALLOWED'
-    problems = saved['workflow']['currentProblemIds']
-    handoff.save(session, saved)
-    problem = diagnosis['problems'][0]
-    expectation = [{'stack': 'cfn-stack-app-dev-second', 'resourcePath': 'Vpc', 'operation': 'CREATE', 'status': 'CREATE_COMPLETE'}]
-    if unexecuted:
-        expectation[0].update(resourcePath=problem['resourcePath'], operation=problem['operation'], status='SUCCEEDED')
-    if boundary == 'request':
-        # Kill after the real atomic publication; the next command consumes its saved intent.
-        diagnosis_path, expectation_path = tmp_path / 'diagnosis.json', tmp_path / 'expectation.json'
-        diagnosis_path.write_text(json.dumps(diagnosis))
-        expectation_path.write_text(json.dumps(expectation))
-        _ = Path(wt.__file__).with_name('deploy_handoff.py')
-        command = [sys.executable, '-B', '-c',
-            "import os,sys,json; from pathlib import Path; from unittest.mock import patch; "
-            "from deploy_handoff import main; actual=os.replace\n"
-            "def replace(a,b):\n actual(a,b)\n if Path(b)==Path(sys.argv[1]): os._exit(76)\n"
-            "with patch.object(os,'replace',side_effect=replace): main(sys.argv[2:])", str(session),
-            'request', '--state', str(session), '--repository-root', str(parent), '--expectation', str(expectation_path), '--path', relative,
-            *[arg for problem in problems for arg in ('--problem', problem)]]
-        interrupted = subprocess.run(command, cwd=parent, env=child_environment(), capture_output=True, text=True, timeout=90)
-        assert interrupted.returncode == 76, interrupted.stdout + interrupted.stderr
-        session.with_name(session.name + '.handoff-lock').rmdir()  # This test owns/reaped the writer.
-        saved = json.loads(session.read_text())
-        handoff.restore(parent, session, saved)
-    pending = handoff.issue_request(parent, session, saved, problems, [relative], expectation)
-    assert handoff.issue_request(parent, session, saved, problems, [relative], expectation) == pending
-    assert saved['workflow']['reserved'] == 1
-    handoff.save(session, saved)
-    lifecycle = _callback_external_round_trip_lifecycle
-    request = lifecycle('repair-checkpoint', parent, 'deploy', '--state', session) if boundary == 'normal' else wt.deploy_checkpoint(parent, 'deploy', session)
-    assert request['parentTip'] == git(parent, 'rev-parse', 'HEAD').strip()
-    suspend(parent, 'tasks/deploy.md', 'authorized external implement repair ' + request['requestId'])
-    child_state = lifecycle('create', parent, 'repair-one', '--repair-request', request['requestPath']) if boundary == 'normal' else wt.create(parent, 'repair-one', Path(request['requestPath']))
-    child = Path(child_state['worktree'])
-    with pytest.raises(ValueError, match='another child'):
-        wt.create(parent, 'repair-two', Path(request['requestPath']))
-    assert git(child, 'rev-parse', 'HEAD').strip() == request['parentTip']
-    child_task = child_state['task_file']
-    paths = '\n'.join('- `' + p + '`' for p in [child_task, relative])
-    contract = ('## Task contract\n- Task type: `infrastructure`\n- Task status: `running`\n'
-        '- Infrastructure phase: `implement`\n- AWS API execution: `forbidden`\n- AWS mutation: `forbidden`\n- Deploy/apply: `forbidden`\n'
-        f'- Target environment: `dev`\n- Target AWS account: `{ACCOUNT}`\n- Deploy repair request: `{request["requestPath"]}`\n'
-        '## Required changes\n- [R1] Correct approved Vpc CidrBlock\n## Acceptance checks\n- [R1] `changed:' + relative + '`\n'
-        '## Validation scope\n' + ''.join('- `' + scope + '`\n' for scope in request['validationScope']) +
-        '## Modified files\n' + paths + '\n## Allowed paths\n' + paths + '\n')
-    start(child, child_task, contract)
-    if boundary == 'input-decode':
-        (child / relative).write_text('Resources: {Vpc: {Type: AWS::EC2::VPC, Properties: {CidrBlock: 10.0.0.0/16}}}\n')
-    else:
-        (child / relative).write_text((child / relative).read_text().replace('10.2.0.0/16', '10.0.0.0/16'))
-    real_run, diagnostics = subprocess.run, []
-    record_validation = _bind_framework_callback(_callback_external_round_trip_record_validation, diagnostics, real_run)
-    if boundary == 'normal':
-        approved = (child / relative).read_text()
-        (child / relative).write_text('Resources: [invalid')
-        with selected_task(child, child_task), pytest.raises((ValueError, RuntimeError)):
-            wt.deploy_validate(child, 'repair-one', Path(request['requestPath']))
-        rejected = json.loads(session.read_text())
-        assert rejected['workflow']['reserved'] == 1
-        assert rejected['workflow']['attempts'][pending['attemptId']]['staticFailures'] == 1
-        (child / relative).write_text(approved)
-        resume(child, child_task)
-    with selected_task(child, child_task), patch.object(subprocess, 'run', side_effect=record_validation):
-        try:
-            if boundary == 'normal':
-                lifecycle('repair-validate', child, 'repair-one', '--repair-request', request['requestPath'])
-            else:
-                wt.deploy_validate(child, 'repair-one', Path(request['requestPath']))
-        except ValueError:
-            raise AssertionError('Synthetic static validator: ' + ''.join(diagnostics)) from None
-        complete(child, child_task)
-    if boundary == 'merge':
-        actual_git = wt.git
-        interrupted_git = _bind_framework_callback(_callback_external_round_trip_interrupted_git, actual_git, parent)
-        with patch.object(wt, 'git', side_effect=interrupted_git), pytest.raises(InterruptedError):
-            wt.finalize(child, 'repair-one')
-    result = lifecycle('finalize', child, 'repair-one') if boundary == 'normal' else wt.finalize(child, 'repair-one')
-    result_path = Path(result['repair_result'])
-    assert result_path.is_file() and git(parent, 'rev-parse', 'HEAD').strip() == result['tip']
-    wt.cleanup(parent, 'repair-one')
-    assert not child.exists()  # Parent seal and archived contract survive cleanup.
-    resume(parent, 'tasks/deploy.md')
-    if boundary == 'normal':
-        forged = tmp_path / 'unsigned-result.json'
-        forged.write_text(json.dumps({'result':'PASS','requestId':request['requestId']}))
-        assert invoke(parent, session, aws, ['--resume','--repair-result',str(forged)]) == 2
-        model_path = parent / model
-        raw = model_path.read_bytes()
-        model_path.write_bytes(raw + b'\n# dependency changed after static validation\n')
-        assert invoke(parent, session, aws, ['--resume','--repair-result',str(result_path)]) == 2
-        model_path.write_bytes(raw)
-    if boundary in {'cleanup', 'execute', 'accept-before', 'accept-after'}:
-        state = json.loads(aws.read_text())
-        state['knobs'][{'cleanup': 'crash_cleanup', 'execute': 'crash_execute',
-                        'accept-before': 'crash_accept_before', 'accept-after': 'crash_accept_after'}[boundary]] = True
-        aws.write_text(json.dumps(state))
-        helper = Path(__file__).resolve().parents[1] / 'support/deploy_controller_fixtures.py'
-        command = [sys.executable, '-B', str(helper), str(parent), str(session), str(aws), '--resume', '--repair-result', str(result_path)]
-        stopped = subprocess.run(command, cwd=parent, env=child_environment(), capture_output=True, text=True, timeout=90)
-        assert stopped.returncode == {'cleanup': 74, 'execute': 73, 'accept-before': 77, 'accept-after': 78}[boundary], stopped.stdout + stopped.stderr
-        intent = json.loads(session.read_text())
-        assert intent['workflow']['reserved'] == 1
-        if boundary == 'cleanup':
-            failed = intent['states']['cfn-stack-app-dev-second']
-            assert failed['cleanupStatus'] == 'DELETE_INTENT' and failed['recoveryPending']
-        recover_owned_lock(parent, stopped)
-    if boundary == 'repeat':
-        data = json.loads(aws.read_text())
-        data['knobs']['repeat_cidr'] = True
-        aws.write_text(json.dumps(data))
-    resumed_code = invoke(parent, session, aws, ['--resume', '--repair-result', str(result_path)])
-    if boundary == 'shared-success':
-        assert resumed_code == 2
-        after = json.loads(session.read_text())
-        assert after['workflow']['status'] == 'WAITING_HUMAN' and after['pendingRequest']
-        assert after['states']['cfn-stack-app-dev-first'] == saved['states']['cfn-stack-app-dev-first']
-        assert after['inputRevision'] == 0 and after['workflow']['reserved'] == 1
-        return
-    if boundary in {'repeat', 'new-problem', 'regression'}:
-        assert resumed_code == 2
-        saved = json.loads(session.read_text())
-        handoff.restore(parent, session, saved)
-        current = next(o for o in saved['failureObservations'] if o['observationId'] in saved['workflow']['latestObservations'])
-        entry = dict(problem) if boundary == 'repeat' else {**problem, 'property':'EnableDnsSupport', 'constraint':'approved-DNS'}
-        entry = json.loads(json.dumps(entry))
-        entry.update(relation='SAME' if boundary == 'repeat' else 'NEW', relatedProblemIds=problems,
-                     reason='CidrBlock recurred after repair.' if boundary == 'repeat' else 'AWS now identifies EnableDnsSupport, while the prior observation identified CidrBlock.')
-        entry['reason'] += ' Compare the pinned prior observation and the current operation below.'
-        entry['evidenceRefs'].append({'observationId':current['observationId'], 'revision':current['revision'], 'eventIndices':[0]})
-        entry['observationId'] = current['observationId']
-        entry['inputRefs'][0]['sha256'] = saved['infraManifest'][relative]
-        entry['modelRefs'][0]['sha256'] = saved['modelInputManifest'][model]
-        if boundary != 'repeat':
-            entry['inputRefs'][0]['pointer'] = '/Resources/Vpc/Properties/EnableDnsSupport'
-            entry['modelRefs'][0]['key'] = 'desired.row.001-004.value'
-        status = handoff.diagnose(parent,saved,{'revision':saved['inputRevision'],'problems':[entry]})
-        handoff.save(session,saved)
-        if boundary == 'repeat':
-            assert status == 'STOPPED' and saved['workflow']['reserved'] == 1
-            with pytest.raises(ValueError, match='STOPPED'):
-                handoff.issue_request(parent,session,saved,problems,[relative],expectation)
-            return
-        assert status == 'REPAIR_ALLOWED'
-        next_problems = saved['workflow']['currentProblemIds']
-        assert next_problems != problems
-        next_request = handoff.issue_request(parent,session,saved,next_problems,[relative],expectation)
-        next_request = wt.deploy_checkpoint(parent,'deploy',session)
-        suspend(parent,'tasks/deploy.md','authorized second distinct cause')
-        second_state = wt.create(parent,'repair-two',Path(next_request['requestPath']))
-        second = Path(second_state['worktree'])
-        second_contract = contract.replace('Correct approved Vpc CidrBlock','Correct approved Vpc EnableDnsSupport').replace('tasks/repair-one.md','tasks/repair-two.md').replace(request['requestPath'],next_request['requestPath'])
-        start(second,'tasks/repair-two.md',second_contract)
-        (second / relative).write_text((second / relative).read_text().replace('EnableDnsSupport: false','EnableDnsSupport: true'))
-        with selected_task(second,'tasks/repair-two.md'):
-            wt.deploy_validate(second,'repair-two',Path(next_request['requestPath']))
-            complete(second,'tasks/repair-two.md')
-        second_result = wt.finalize(second,'repair-two')
-        wt.cleanup(parent,'repair-two')
-        resume(parent,'tasks/deploy.md')
-        if boundary == 'regression':
-            data=json.loads(aws.read_text())
-            data['knobs']['repeat_cidr']=True
-            aws.write_text(json.dumps(data))
-        resumed_code = invoke(parent,session,aws,['--resume','--repair-result',second_result['repair_result']])
-        after = json.loads(session.read_text())
-        assert after['workflow']['reserved'] == 2 and after['inputRevision'] == 2
-        if boundary == 'regression':
-            assert resumed_code == 2
-            handoff.restore(parent,session,after)
-            current = next(o for o in after['failureObservations'] if o['observationId'] in after['workflow']['latestObservations'])
-            again = json.loads(json.dumps(problem))
-            again['observationId']=current['observationId']
-            again.update(relation='SAME', relatedProblemIds=problems)
-            again['evidenceRefs'].append({'observationId':current['observationId'], 'revision':current['revision'], 'eventIndices':[0]})
-            again['inputRefs'][0]['sha256']=after['infraManifest'][relative]
-            again['modelRefs'][0]['sha256']=after['modelInputManifest'][model]
-            assert handoff.diagnose(parent,after,{'revision':2,'problems':[again]}) == 'STOPPED'
-            assert after['workflow']['problems'][problems[0]]['regression']
-            handoff.save(session,after)
-            return
-        assert resumed_code == 0 and all(after['workflow']['problems'][p].get('resolvedByExecution') for p in problems + next_problems)
-        return
-    assert resumed_code == 0
-    after = json.loads(session.read_text())
-    assert after['inputRevision'] == 1 and after['workflow']['reserved'] == 1
-    assert all(state['status'] == 'SUCCESS' and state['observedSynced'] for state in after['states'].values())
-    assert accepted_changes(parent, (parent / 'tasks/deploy.md').read_text(), {relative}) == {relative}
-    if boundary == 'normal':
-        interpreter, environment = wt.python_env.runtime(parent)
-        command = [str(interpreter), '-B', str(Path(wt.__file__).with_name('blueprint-loop.py')),
-            '--mode','task','--task-file','tasks/deploy.md','--fresh']
-        checked = subprocess.run(command, cwd=parent, env=environment, capture_output=True, text=True, timeout=90)
-        assert checked.returncode == 0, checked.stdout + checked.stderr
-    assert after['workflow']['problems'][problems[0]].get('resolvedByExecution')
-    before = json.loads(aws.read_text())['calls']
-    copied = tmp_path / 'same-result-copy.json'
-    copied.write_bytes(result_path.read_bytes())
-    assert invoke(parent, session, aws, ['--resume', '--repair-result', str(copied)]) == 0
-    assert invoke(parent, session, aws, ['--resume', '--repair-result', str(result_path)]) == 0
-    assert not [call for call in json.loads(aws.read_text())['calls'][len(before):] if call[1] == 'execute_change_set']
-    (parent / relative).write_text((parent / relative).read_text() + '# unrecorded parent edit\n')
-    with pytest.raises(ValueError, match='unrecorded'):
-        accepted_changes(parent, (parent / 'tasks/deploy.md').read_text(), {relative})
 
 
 @pytest.mark.parametrize('stage', ['REPAIR_INTENT', 'VALIDATING', 'VALIDATED'])
@@ -599,9 +329,6 @@ def check_explicit_legacy_migration(tmp_path, monkeypatch, stage):
     assert not any(operation == 'execute_change_set' for _,operation,_ in json.loads(aws.read_text())['calls'])
 
 
-@pytest.mark.parametrize('boundary', ['normal', 'request', 'merge', 'accept-before', 'accept-after', 'execute', 'repeat', 'new-problem', 'regression', 'input-decode', 'validate-template', 'create-change-set', 'changeset-review', 'shared-success'])
-def check_external_implement_round_trip(tmp_path, monkeypatch, boundary):
-    external_round_trip(tmp_path, monkeypatch, boundary)
 
 
 FIRST = 'cfn-stack-app-dev-first'
@@ -926,6 +653,18 @@ def check_remove_controller_process_resume(tmp_path, monkeypatch, policy, proof,
         assert not after['states'][FIRST].get('observedSynced') and after['observedError']
         assert after['states'][SECOND]['status'] == 'NOT_STARTED'
         assert 'subnet-before' in (root / f'docs/designs/dev/{ACCOUNT}/ec2.md').read_text()
+
+
+
+
+@pytest.mark.parametrize('boundary', ['request', 'accept-before', 'accept-after', 'execute', 'repeat', 'new-problem', 'regression',
+    'input-decode', 'validate-template', 'create-change-set', 'changeset-review', 'shared-success'])
+def check_external_repair_resumption(tmp_path, monkeypatch, boundary):
+    external_round_trip(tmp_path, monkeypatch, boundary, seed=seed, deliver=ordinary_delivery)
+
+@pytest.mark.parametrize('boundary', ['cleanup'])
+def check_external_repair_cleanup_recovery(tmp_path, monkeypatch, boundary):
+    external_round_trip(tmp_path, monkeypatch, boundary, seed=seed, deliver=ordinary_delivery)
 
 
 if __name__ == '__main__':

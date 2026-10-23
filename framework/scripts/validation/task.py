@@ -9,6 +9,7 @@ from pathlib import Path
 
 import deploy.contracts as _imports_deploy_contracts
 import import_guard as _imports_import_guard
+import model.importing.repository as repository
 import model.observed as _imports_model_observed
 import worktree_state
 from issue_gate import require_no_issues
@@ -67,7 +68,7 @@ class TaskValidation:
             self.baseline_fixed = True
             return
         prompt = task_path(self.root, required=False)
-        start = worktree_state.task_start_commit(self.root, prompt.relative_to(self.root).as_posix()) if prompt is not None else None
+        start = repository.task_start_commit(self.root, prompt.relative_to(self.root).as_posix()) if prompt is not None else None
         if start is None:
             head = worktree_state.git(self.root, 'rev-parse', '--verify', 'HEAD^{commit}', check=False)
             if head.returncode == 0:

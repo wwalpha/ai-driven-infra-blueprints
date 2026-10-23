@@ -1370,7 +1370,7 @@ def check_integrated_validator(generated_policy, initial):
         subprocess.run(['git', 'add', '.'], cwd=root, check=True)
         subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
                         '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Task generated B'], cwd=root, check=True)
-        with patch.dict(os.environ, env), patch('worktree_state.task_start_commit', return_value=baseline), \
+        with patch.dict(os.environ, env), patch('model.importing.repository.task_start_commit', return_value=baseline), \
              patch.object(sync_runtime.GenerationInputs, 'verify', autospec=True, side_effect=sync_runtime.GenerationInputs.verify) as guard, \
              patch.object(sync_runtime, '_publish_transaction', side_effect=AssertionError('no-op publication')):
             committed_write = validator_module.Validator(root, scope, write=True)
@@ -1387,7 +1387,7 @@ def check_integrated_validator(generated_policy, initial):
         template = model
         template.write_bytes(template.read_bytes()+b'# source-only comment\n')
         task.write_text(task.read_text()+'- [R1] `changed:docs/designs/dev/123456789012/iam.md`\n')
-        with patch.dict(os.environ, env), patch('worktree_state.task_start_commit', return_value=baseline):
+        with patch.dict(os.environ, env), patch('model.importing.repository.task_start_commit', return_value=baseline):
             restored = validator_module.Validator(root, scope, write=True)
             assert restored.run() == 1
         assert design.read_bytes() == head_design
@@ -1396,7 +1396,7 @@ def check_integrated_validator(generated_policy, initial):
         assert design.relative_to(root).as_posix() in restored.task.permission_paths
         Findings = _imports_validation_findings.Findings
         TaskValidation = _imports_validation_task.TaskValidation
-        with patch.dict(os.environ, env), patch('worktree_state.task_start_commit', return_value=baseline):
+        with patch.dict(os.environ, env), patch('model.importing.repository.task_start_commit', return_value=baseline):
             final = TaskValidation(root, Findings(root))
             final.check_task_scope()
             assert design.relative_to(root).as_posix() not in final.changed_paths

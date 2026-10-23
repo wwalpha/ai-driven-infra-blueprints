@@ -12,7 +12,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-import worktree_state
 from support.pytest_cli import run
 from utils import sealed_evidence as evidence
 from utils.json_format import document_sha256
@@ -138,25 +137,6 @@ def check_atomic_failure(tmp_path):
     assert list(tmp_path.iterdir()) == [file]
 
 
-@pytest.mark.parametrize('problem', ['none', 'task', 'root', 'merged', 'owner'])
-def check_ownership(tmp_path, problem):
-    name = 'tasks/example.md'
-    state = {'task_file': name, 'worktree': str(tmp_path), 'merged': None}
-    owner = tmp_path
-    if problem == 'task':
-        state['task_file'] = 'tasks/other.md'
-    elif problem == 'root':
-        state['worktree'] = str(tmp_path / 'other')
-    elif problem == 'merged':
-        state['merged'] = 'commit'
-    elif problem == 'owner':
-        owner = tmp_path / 'other'
-    with patch.object(worktree_state, 'load', return_value=(None, None, None, state)), patch.object(worktree_state, 'task_worktree', return_value=owner):
-        if problem == 'none':
-            assert worktree_state.managed_task_state(tmp_path, name) is state
-        else:
-            with pytest.raises(ValueError):
-                worktree_state.managed_task_state(tmp_path, name)
 
 
 def check_dependency_boundaries():

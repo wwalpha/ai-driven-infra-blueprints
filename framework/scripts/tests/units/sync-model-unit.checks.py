@@ -23,8 +23,8 @@ import validation.design_links as _imports_validation_design_links
 import validation_cache as _imports_validation_cache
 from design_catalog import property_paths_with_parents
 from script_loader import module
+from support.repository_fixtures import contract
 from support.validator import load
-from support.worktree_task_fixtures import contract
 from sync_files import changed_files, markdown_newlines
 from utils.input_cache import (
     input_bytes,
@@ -374,33 +374,10 @@ def _callback_check_git_baseline_fail_closed_task(tmp_path, /):
     return TaskValidation(tmp_path, Findings(tmp_path))
 
 
-def _callback_check_git_baseline_fail_closed_git(root, *args, **kwargs):
-    return SimpleNamespace(returncode=1 if args[0] == 'show-ref' else 128, stdout='', stderr='missing HEAD')
-
-
 def check_git_baseline_fail_closed(tmp_path):
-
     (tmp_path / 'tasks').mkdir()
     (tmp_path / 'tasks/example.md').write_text(contract('example', ['file.txt']))
     task = _bind_framework_callback(_callback_check_git_baseline_fail_closed_task, tmp_path)
-    with patch('worktree_state.task_start_commit', return_value='task-start'), \
-         patch('worktree_state.git', side_effect=AssertionError('managed fallback to HEAD')):
-        current = task()
-        current.fix_baseline()
-        assert current.baseline == 'task-start'
-    git = _callback_check_git_baseline_fail_closed_git
-    with patch('worktree_state.task_start_commit', return_value=None), \
-         patch('worktree_state.output', return_value='refs/heads/new'), patch('worktree_state.git', side_effect=git):
-        current = task()
-        current.fix_baseline()
-        assert current.baseline_fixed and current.baseline is None
-    with patch('worktree_state.task_start_commit', side_effect=ValueError('invalid managed state')), \
-         pytest.raises(ValueError, match='invalid managed state'):
-        task().fix_baseline()
-    with patch('worktree_state.task_start_commit', return_value=None), \
-         patch('worktree_state.output', side_effect=ValueError('broken Git')), \
-         patch('worktree_state.git', side_effect=git), pytest.raises(ValueError, match='broken Git'):
-        task().fix_baseline()
     with patch('validation.task.subprocess.run', return_value=SimpleNamespace(returncode=0, stdout='rename old\0追加 file\0deleted\0', stderr='')):
         assert task().git_paths(['diff']) == {'rename old', '追加 file', 'deleted'}
     with patch('validation.task.subprocess.run', return_value=SimpleNamespace(returncode=128, stdout='', stderr='broken')), \

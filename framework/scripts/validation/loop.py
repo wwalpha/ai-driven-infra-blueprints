@@ -300,7 +300,7 @@ def select_checks(root, paths, affected=False, *, integration_cases=None):
                   "cloudformation-deploy.checks.py", "deploy_preparation.checks.py", "model_files.checks.py"}
     mapping["framework/scripts/comparison_rows.py"] = comparison
     mapping["framework/scripts/model/adapters/aws.py"] = comparison
-    deploy_tests = {'cloudformation-deploy.checks.py', 'deploy_preparation.checks.py', 'model_files.checks.py',
+    deploy_tests = {'deploy-controller.checks.py', 'worktree-deploy-repair.checks.py', 'cloudformation-deploy.checks.py', 'deploy_preparation.checks.py', 'model_files.checks.py',
                     'deploy-sdk.checks.py', 'deploy-runtime-unit.checks.py', 'deploy-observed-unit.checks.py',
                     'deploy-observed-resume-unit.checks.py', 'deploy-handoff-unit.checks.py'}
     mapping['framework/scripts/cloudformation-deploy.py'] = deploy_tests
@@ -373,7 +373,7 @@ def select_checks(root, paths, affected=False, *, integration_cases=None):
         mapping['framework/scripts/' + name + '.py'] = comparison_units | {
             's3-kms-reference-unit.checks.py', 'security_group_tables-unit.checks.py',
             'check-model-aws-unit.checks.py'} | {'issues_scan.checks.py::' + case for case in comparison_cases}
-    mapping['framework/scripts/validation/loop.py'] = {'blueprint-loop-unit.checks.py'}
+    mapping['framework/scripts/validation/loop.py'] = {'blueprint-loop-unit.checks.py', 'worktree-test-policy-unit.checks.py'}
     for path in ('framework/scripts/tests/run_it.py', 'framework/scripts/tests/CASES.md',
                  'framework/rules/loop-engineering.md',
                  '.github/workflows/framework-it.yml'):
@@ -414,7 +414,7 @@ def select_checks(root, paths, affected=False, *, integration_cases=None):
     for path in ('framework/scripts/regression_guard.py',):
         mapping[path] = {'regression_guard-unit.checks.py'}
     for path in ('framework/scripts/requirements.txt', 'framework/scripts/run-python.py', 'framework/scripts/worktree_python.py', 'framework/scripts/worktree_task.py', 'framework/scripts/worktree_state.py'):
-        mapping[path] = {'worktree-guard-unit.checks.py', 'worktree_task.checks.py', 'worktree_python-unit.checks.py'}
+        mapping[path] = {'worktree-guard-unit.checks.py', 'worktree-model-guard-unit.checks.py', 'worktree_task.checks.py', 'import-worktree-contract.checks.py', 'worktree_python-unit.checks.py', 'worktree-deploy-repair.checks.py', 'worktree_python.checks.py', 'worktree-model-operation.checks.py'}
     for path in ('framework/scripts/security_group_tables.py',):
         mapping[path] = {'security_group_tables-unit.checks.py'}
     for path in ('framework/scripts/sync-existing-files.py', 'framework/scripts/sync-model.py', 'framework/scripts/sync_progress.py'):
@@ -493,8 +493,7 @@ def select_checks(root, paths, affected=False, *, integration_cases=None):
         mapping[path] = {'validation_scope.checks.py', 'validation_scope-unit.checks.py'}
     for path in ('framework/scripts/tests/support/worktree_python_fixtures.py',):
         mapping[path] = {'worktree_python.checks.py', 'worktree_python-unit.checks.py'}
-    for path in ('framework/scripts/tests/support/worktree_task_fixtures.py',):
-        mapping[path] = {'worktree-guard-unit.checks.py', 'model_impact.checks.py', 'framework-input-isolation.checks.py', 'model-test.checks.py', 'task-contract-unit.checks.py', 'import-model-unit.checks.py', 'cloudformation-destroy.checks.py', 'json-yaml-document-hash.checks.py', 'human-inputs-group-05.checks.py', 'model-properties-v2.checks.py', 'deploy-controller.checks.py', 'sync-model-unit.checks.py', 'resource-delete-unit.checks.py', 'cloudformation-deploy.checks.py', 'import-worktree-contract.checks.py', 'worktree_task.checks.py', 'used-definition-inputs.checks.py'}
+    mapping['framework/scripts/tests/support/worktree_task_fixtures.py'] = {'worktree-guard-unit.checks.py', 'worktree_task.checks.py', 'import-worktree-contract.checks.py', 'worktree_python-unit.checks.py', 'worktree-deploy-repair.checks.py', 'worktree_python.checks.py', 'worktree-model-operation.checks.py'}
     for path in ('framework/scripts/update-catalog-lock.py',):
         mapping[path] = {'update-catalog-lock.checks.py'}
     for path in ('framework/scripts/utils/file_operations.py',):
@@ -514,9 +513,25 @@ def select_checks(root, paths, affected=False, *, integration_cases=None):
         mapping[path] = {"python_structure-unit.checks.py", "blueprint-loop-unit.checks.py"}
     mapping['framework/scripts/aws_sdk_runtime.py'] = {'aws-client.checks.py', 'aws_mapping-unit.checks.py', 'comparison_core.checks.py', 'check-model-aws.checks.py', 'model-test.checks.py'}
     mapping['framework/scripts/task_contract_runtime.py'] = {'task-contract-unit.checks.py', 'task_contract.checks.py', 'worktree_task.checks.py'}
-    mapping['framework/scripts/worktree_runtime.py'] = {'worktree-guard-unit.checks.py', 'worktree_task.checks.py', 'deploy-controller.checks.py'}
+    mapping['framework/scripts/worktree_runtime.py'] = {'worktree-guard-unit.checks.py', 'worktree-model-guard-unit.checks.py', 'worktree_task.checks.py', 'import-worktree-contract.checks.py', 'worktree_python-unit.checks.py', 'worktree-deploy-repair.checks.py', 'worktree_python.checks.py', 'worktree-model-operation.checks.py'}
     mapping['framework/scripts/utils/import_evidence.py'] = {'import-model-unit.checks.py', 'import-model.checks.py', 'import-worktree-contract.checks.py'}
     mapping['framework/scripts/utils/sealed_evidence.py'] = {'sealed-evidence-unit.checks.py', 'import-model-unit.checks.py', 'import-approval-unit.checks.py', 'deploy-handoff-unit.checks.py', 'deploy-observed-resume-unit.checks.py', 'worktree-guard-unit.checks.py', 'import-model.checks.py::check_evidence_and_display_recovery', 'worktree_task.checks.py::check_cleanup_failure_and_retry'}
+    # Shared test capabilities and lifecycle adapters have separate consumers.
+    worktree_tests = {'worktree-guard-unit.checks.py', 'worktree-model-guard-unit.checks.py', 'worktree_task.checks.py', 'import-worktree-contract.checks.py', 'worktree_python-unit.checks.py', 'worktree-deploy-repair.checks.py', 'worktree_python.checks.py', 'worktree-model-operation.checks.py'}
+    mapping['framework/scripts/tests/support/repository_fixtures.py'] = {'worktree-guard-unit.checks.py', 'worktree_task.checks.py', 'worktree-model-guard-unit.checks.py', 'sync-model-unit.checks.py', 'resource-delete-unit.checks.py', 'worktree_python-unit.checks.py', 'model_impact.checks.py', 'model-properties-v2.checks.py', 'model-test.checks.py', 'worktree_python.checks.py', 'used-definition-inputs.checks.py', 'human-inputs-group-05.checks.py', 'cloudformation-deploy.checks.py', 'import-worktree-contract.checks.py', 'worktree-deploy-repair.checks.py', 'task-contract-unit.checks.py', 'import-cli.checks.py', 'cloudformation-destroy.checks.py', 'import-model-unit.checks.py', 'json-yaml-document-hash.checks.py', 'worktree-model-operation.checks.py', 'framework-input-isolation.checks.py'}
+    mapping['framework/scripts/tests/support/publication_fixtures.py'] = {check.name for check in checks} - worktree_tests
+    mapping['framework/scripts/tests/support/resource_delete_fixtures.py'] = {'resource-delete-unit.checks.py', 'worktree-model-guard-unit.checks.py', 'worktree-model-operation.checks.py'}
+    mapping['framework/scripts/tests/support/deploy_repair_fixtures.py'] = {'deploy-controller.checks.py', 'worktree-deploy-repair.checks.py'}
+    mapping['framework/scripts/tests/support/worktree_deploy_fixtures.py'] = {'worktree-deploy-repair.checks.py'}
+    for path in ('framework/scripts/tests/pytest.ini', 'framework/scripts/tests/conftest.py',
+                 'framework/scripts/tests/support/worktree_test_policy.py'):
+        mapping[path] = {check.name for check in checks}
+    for path in ('framework/scripts/tests/support/import_model_fixtures.py',
+                 'framework/scripts/tests/support/import_repository_fixtures.py',
+                 'framework/scripts/tests/support/model_sources.py'):
+        mapping[path].update({'import-cli.checks.py', 'worktree-model-operation.checks.py', 'worktree-model-guard-unit.checks.py', 'worktree-deploy-repair.checks.py'})
+    mapping['framework/scripts/tests/support/model_v2_fixtures.py'].add('import-cli.checks.py')
+    mapping['framework/scripts/issue_gate.py'].add('worktree-model-guard-unit.checks.py')
     known = {check.name for check in checks}
     if integration_cases is not None:
         known.update(Path(path).name + '::' + name for path, name in integration_cases)

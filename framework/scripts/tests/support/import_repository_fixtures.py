@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import model.importing.repository as _imports_model_importing_repository
-import worktree_state
 from utils import sealed_evidence
 
 _cases = ContextVar('import_it_repositories', default=None)
@@ -27,7 +26,6 @@ class Repository:
     head: str = 'synthetic-head'
     base: str = 'synthetic-head'
     task: str = 'tasks/import-fixture.md'
-    owner: Path | None = None
     baseline: dict = field(default_factory=dict)
 
     def checkpoint(self):
@@ -40,7 +38,7 @@ def checkpoint(root, *, task='tasks/import-fixture.md'):
     if cases is None:
         return  # Real-Git boundary suites use the same authored seed, without this provider.
     root = root.resolve()
-    state = cases.setdefault(root, Repository(root, task=task, owner=root))
+    state = cases.setdefault(root, Repository(root, task=task))
     state.task = task
     state.checkpoint()
     return state
@@ -50,11 +48,6 @@ def state(root):
     return _cases.get()[root.resolve()]
 
 
-
-
-def _repositories_task_state(root, name):
-    current = state(root)
-    return {'task_file': current.task, 'worktree': str(current.owner), 'merged': None, 'start': current.base}
 
 
 def _callback_repositories_changed(root, *, task_file=None):
@@ -68,15 +61,13 @@ def repositories(monkeypatch):
     cases = {}
     token = _cases.set(cases)
     changed = _callback_repositories_changed
-    task_state = _repositories_task_state
     with monkeypatch.context() as patch:
         patch.setattr(repository, 'has_baseline', lambda root: root.resolve() in cases)
         patch.setattr(repository, 'working_revision', lambda root: state(root).head)
         patch.setattr(repository, 'task_head', lambda root: state(root).head)
         patch.setattr(repository, 'task_start_commit', lambda root, name: state(root).base)
         patch.setattr(repository, 'changed_paths', changed)
-        patch.setattr(worktree_state, 'load', lambda root, task_id: (None, None, None, task_state(root, 'tasks/' + task_id + '.md')))
-        patch.setattr(worktree_state, 'task_worktree', lambda root, value: state(root).owner)
+        patch.setattr(repository, 'publication_revision', lambda root, name: (str(root.resolve()), name, state(root).head))
         try:
             yield cases
         finally:

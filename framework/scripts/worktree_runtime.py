@@ -230,13 +230,8 @@ def deploy_checkpoint(where, task_id, session_path):
         return request
 
 def deploy_snapshot(target):
-    """Hash tracked validation dependencies and actual untracked inputs, never their values."""
-    sha = _imports_deploy_contracts.sha
-    result = {}
-    for relative in sorted(wt.paths(target, 'ls-files', '-z') | wt.paths(target, 'ls-files', '--others', '--exclude-standard', '-z')):
-        path = tasks.safe_path(target, relative)
-        result[relative] = sha(path) if path.is_file() else None
-    return result
+    return _imports_deploy_contracts.validation_snapshot(target)
+
 
 def deploy_validate(where, task_id, request_path):
     handoff = _imports_deploy_handoff

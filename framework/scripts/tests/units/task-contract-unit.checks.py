@@ -21,7 +21,7 @@ from generation_inputs import GenerationInputs
 from model.importing import scope as import_scope
 from support.import_model_fixtures import dependency_contract
 from support.pytest_cli import run
-from support.worktree_task_fixtures import contract
+from support.repository_fixtures import contract
 from sync_runtime import publish_generation
 from utils.input_cache import input_scope
 

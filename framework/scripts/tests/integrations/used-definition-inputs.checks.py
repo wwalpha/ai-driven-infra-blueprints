@@ -19,8 +19,9 @@ from support.producer_identifier_reference_fixtures import (
     setup,
     write_model,
 )
-from support.worktree_task_fixtures import fixture as worktree_fixture
-from support.worktree_task_fixtures import git, start
+from support.publication_fixtures import publication_repository
+from support.repository_fixtures import fixture as repository_fixture
+from support.repository_fixtures import git, start
 
 from model import prepare_edit, publish_edit
 
@@ -34,7 +35,7 @@ tempfile = _exports_support_producer_identifier_reference_fixtures.tempfile
 
 @it_case
 def check(root):
-    with worktree_fixture() as primary:
+    with repository_fixture() as primary:
         setup(primary, ['security-group'], ['EC2.SecurityGroup'])
         path = primary / 'model/preview/team/security-group.properties'
         values = {}
@@ -86,6 +87,6 @@ def check(root):
         assert (primary / relative).read_bytes() == baseline
 
 
-with tempfile.TemporaryDirectory(prefix='explicit-model-values-') as directory:
+with publication_repository(), tempfile.TemporaryDirectory(prefix='explicit-model-values-') as directory:
     check(Path(directory))
 print('Explicit Model values: PASS (independent equal values; canonical fields; managed one-use save; no-op bytes; syntax/identity retention; no final-validation at intermediate save)')

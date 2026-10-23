@@ -21,26 +21,25 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tests'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import sysconfig
 import urllib.parse as _imports_urllib_parse
-import venv
 
 import cloudformation_inputs as _imports_cloudformation_inputs
 import generation_inputs as _imports_generation_inputs
 import model.format as _imports_model_format
 import sync_files as _imports_sync_files
 import sync_runtime
-import worktree_task as wt
 from botocore.exceptions import ClientError, ReadTimeoutError
 from cloudformation_inputs import condition_active
 from deploy.controller import main
 from model.files import read_model
+from project_targets import load_target
 from support.fixture_cases import load_case, materialize_files
 from support.model_sources import allocate_fixture, write_model
-from support.worktree_task_fixtures import cli as worktree_cli
+from support.publication_fixtures import publication_repository
 from task_contract_core import selected_task, start
 from utils.cloudformation_format import decode
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
+from utils.json_format import fingerprint
 
 SCRIPTS = Path(__file__).resolve().parents[2]
 
@@ -167,28 +166,15 @@ def seed(root, state_path, case='orders', *, same_group=False, generated_artifac
     with selected_task(root, 'tasks/deploy.md'):
         assert sync_runtime.sync(root, True, 'dev', ACCOUNT, services=[*services, 'cloudformation-stacks']) == 0
     ignore = root / '.gitignore'
-    ignore.write_text('tasks/**\n/.worktrees/\n__pycache__/\n')
+    ignore.write_text('tasks/**\n__pycache__/\n')
     git(root, 'init', '-q', '-b', 'main')
     git(root, 'config', 'user.name', 'Offline Fixture')
     git(root, 'config', 'user.email', 'fixture@example.invalid')
     git(root, 'add', '.')
     git(root, 'commit', '-qm', 'Synthetic inputs')
-    # Provision only the interpreter offline; dependencies come from this fixed test runtime.
-
-    directory = root / '.worktrees/.blueprint/python-env'
-    venv.EnvBuilder(with_pip=False).create(directory)
-    version = f'python{sys.version_info.major}.{sys.version_info.minor}'
-    packages = directory / 'lib' / version / 'site-packages'
-    (packages / 'fixture-runtime.pth').write_text(sysconfig.get_path('purelib') + '\n')
-    for marker in ('.blueprint-owner', '.blueprint-ready'):
-        (directory / marker).write_text(str(directory))
     saved_contract = '\n'.join(line for line in task.read_text().splitlines() if not line.startswith('- `infra/')) + '\n'
-    # Retain master's lifecycle fixture; finish its provisioning through real setup.
-    state = worktree_cli(root, 'create', task_id='deploy')
-    state = wt.setup(root, 'deploy')
-    target = Path(state['worktree'])
-    start(target, state['task_file'], saved_contract)
-    return target
+    task.write_text(saved_contract)
+    return root
 
 
 def aws_state(path, **knobs):
@@ -541,7 +527,25 @@ def child_environment():
         'AWS_ACCESS_KEY_ID': 'synthetic', 'AWS_SECRET_ACCESS_KEY': 'synthetic'}
 
 
+def recover_owned_lock(root, child):
+    assert child.returncode is not None  # subprocess.run has reaped this exact child.
+
+    target = load_target(root, 'dev', ACCOUNT)
+    lock = Path(tempfile.gettempdir()) / ('blueprint-cfn-' + fingerprint(['dev', target]) + '.lock')
+    assert lock.exists()
+    lock.unlink()
+    state_path = Path(child.args[child.args.index(str(root)) + 1])
+    state_path.with_name(state_path.name + '.handoff-lock').rmdir()
+
+
+def ordinary_base(root, name):
+    return git(root, 'rev-list', '--max-parents=0', 'HEAD').strip()
+
+
 if __name__ == '__main__':
     root, state_path, aws_path = map(lambda arg: Path(arg).resolve(), sys.argv[1:4])
     os.chdir(root)
-    raise SystemExit(invoke(root, state_path, aws_path, sys.argv[4:], fault=os.environ.get('BLUEPRINT_OBSERVED_FAULT')))
+    with publication_repository(), patch('deploy.handoff.register_workflow'), \
+            patch('deploy.resume.verify_integration_owner'), \
+            patch('deploy.contracts.task_start_commit', ordinary_base):
+        raise SystemExit(invoke(root, state_path, aws_path, sys.argv[4:], fault=os.environ.get('BLUEPRINT_OBSERVED_FAULT')))

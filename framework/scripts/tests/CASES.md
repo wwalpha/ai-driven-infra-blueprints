@@ -577,7 +577,7 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/blueprint-loop.checks.py:602` | `check_regression_authorization` | IT | [integrations/blueprint-loop.checks.py:423](integrations/blueprint-loop.checks.py#L423) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/blueprint-loop.checks.py:651` | `check_failure_suspension` | IT | [integrations/blueprint-loop.checks.py:471](integrations/blueprint-loop.checks.py#L471) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 予約由来の未登録変更preflightだけ削除。失敗時suspendと他契約不変を保持 |
 | `unknown/blueprint-loop.checks.py:723` | `check_startup_diagnostics` | IT | [integrations/blueprint-loop.checks.py:531](integrations/blueprint-loop.checks.py#L531) | pytest / 11 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:831` | `check_windows_exit_propagation` | IT | [integrations/blueprint-loop.checks.py:636](integrations/blueprint-loop.checks.py#L636) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
+| `unknown/blueprint-loop.checks.py:831` | `check_windows_exit_propagation` | UT | [units/worktree_python-unit.checks.py](units/worktree_python-unit.checks.py) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/blueprint-loop.checks.py:853` | `check_workflow` | IT | [integrations/blueprint-loop.checks.py:648](integrations/blueprint-loop.checks.py#L648) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `integrations/bound-anchor-name-change.checks.py:86` | `check` | IT | [integrations/bound-anchor-name-change.checks.py:86](integrations/bound-anchor-name-change.checks.py#L86) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
 | `integrations/bound-stack-name-change.checks.py:33` | `check` | IT | [integrations/bound-stack-name-change.checks.py:28](integrations/bound-stack-name-change.checks.py#L28) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
@@ -638,7 +638,7 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/design_layout.checks.py:981` | `check_workflow` | IT | [integrations/design_layout.checks.py:862](integrations/design_layout.checks.py#L862) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/framework-input-isolation.checks.py:23` | `check` | IT | [integrations/framework-input-isolation.checks.py:14](integrations/framework-input-isolation.checks.py#L14) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/human-inputs-group-05.checks.py:253` | `check_declared_inputs` | IT | [integrations/human-inputs-group-05.checks.py:25](integrations/human-inputs-group-05.checks.py#L25) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
-| `import-agent-sources::check_cli_preflight` | `check_cli_preflight` | IT | [integrations/import-worktree-contract.checks.py:57](integrations/import-worktree-contract.checks.py#L57) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
+| `import-agent-sources::check_cli_preflight` | `check_cli_preflight` | IT | [integrations/import-cli.checks.py](integrations/import-cli.checks.py) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
 | `import-agent-sources::check_logs_roundtrip` | `check_logs_roundtrip` | IT | [integrations/import-model.checks.py:70](integrations/import-model.checks.py#L70) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
 | `import-agent-sources::check_config_sources` | `check_config_sources` | IT | [integrations/import-model.checks.py:92](integrations/import-model.checks.py#L92) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
 | `import-agent-sources::check_vpc_eight_instances` | `check_vpc_eight_instances` | IT | [integrations/import-model.checks.py:108](integrations/import-model.checks.py#L108) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
@@ -669,7 +669,7 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `import-agent-sources::check_source_transaction_rollback` | `check_source_transaction_rollback` | IT | [integrations/import-model.checks.py:509](integrations/import-model.checks.py#L509) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
 | `import-agent-sources::check_yaml_candidate_edit` | `check_yaml_candidate_edit` | IT | [integrations/import-model.checks.py:531](integrations/import-model.checks.py#L531) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
 | `import-agent-sources::check_reflection_validation_boundary` | `check_reflection_validation_boundary` | IT | [integrations/import-model.checks.py:543](integrations/import-model.checks.py#L543) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_cross_process_evidence` | `check_cross_process_evidence` | IT | [integrations/import-worktree-contract.checks.py:64](integrations/import-worktree-contract.checks.py#L64) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
+| `import-agent-sources::check_cross_process_evidence` | `check_cross_process_evidence` | IT | [integrations/import-cli.checks.py](integrations/import-cli.checks.py) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
 | `import-agent-sources::check_dry_run_cleanup` | `check_dry_run_cleanup` | IT | [integrations/import-model.checks.py:553](integrations/import-model.checks.py#L553) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
 | `import-agent-sources::check_evidence_and_display_recovery` | `check_evidence_and_display_recovery` | IT | [integrations/import-model.checks.py:572](integrations/import-model.checks.py#L572) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
 | `integrations/issues_api_only.checks.py:27` | `main_checks` | IT | [integrations/issues_api_only.checks.py:11](integrations/issues_api_only.checks.py#L11) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
@@ -2008,19 +2008,12 @@ partial-cache validation spies on compare_generation with the full consumer scop
 
 ## Resource Delete parent transaction units
 
-`units/resource-delete-unit.checks.py` uses only temporary synthetic Models and the
-existing temporary Git fixture. It covers 10 sources in one service / two services,
-duplicate/empty/cross-target/mixed/unrelated declaration rejection,
-missing/extra deletions, setting/identity/observation preservation, shared consumers,
-related retarget and two-consumer detach, remaining-reference warnings, fifth-save
-failure with retained prior saves and same-parent continuation, source-service-only
-Issue Gate exception, pre-commit incomplete-leaf rejection, one parent final check and
-one actual ff-only merge/cleanup. Its repair variant retains a failed private candidate,
-rejects its merge, commits the correction without amending and validates before the
-single merge. The lifecycle units replace only Python setup and full-loop dispatch;
-they execute the existing source guard, final semantic check and temporary Git operations.
-Existing import-model, task-contract and model-retarget units retain merge/single-delete/
-standalone-retarget compatibility coverage. No IT execution engine is added.
+`units/resource-delete-unit.checks.py` retains source deletion, identity/raw-value preservation,
+reference detach/retarget, warnings, Issue Gate and failed-leaf rollback assertions.
+Its authored Model helpers are shared by `support/resource_delete_fixtures.py`.
+The pre-commit incomplete-leaf assertion is in Worktree guard UT; actual failed-candidate
+repair, one final check, one ff-only merge and cleanup are in Worktree operation IT.
+Business tests use ordinary Git or file snapshots and never create lifecycle records.
 
 
 ## 保存・通常統合ガード
@@ -2352,7 +2345,7 @@ Model v2 移行完了に伴い、固定旧 Framework の export/convert/compare 
 | `existing-ut-inventory` | `check_rejects_unsafe_candidates` | UT | [units/model-retarget-unit.checks.py](units/model-retarget-unit.checks.py#L78) | pytest / 18 | rejects unsafe candidates | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_json_positions` | UT | [units/model-retarget-unit.checks.py](units/model-retarget-unit.checks.py#L134) | pytest / 2 | json positions | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_route_table_pair_example` | UT | [units/model-retarget-unit.checks.py](units/model-retarget-unit.checks.py#L150) | pytest / 1 | route table pair example | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_guarded_save` | UT | [units/model-retarget-unit.checks.py](units/model-retarget-unit.checks.py#L189) | pytest / 12 | guarded save | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_guarded_save` | UT | [units/model-retarget-unit.checks.py](units/model-retarget-unit.checks.py#L189) | pytest / 11 | guarded save | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_final_candidate_uses_latest_base` | UT | [units/model-retarget-unit.checks.py](units/model-retarget-unit.checks.py#L263) | pytest / 1 | final candidate uses latest base | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_additional_boundaries` | UT | [units/model-retarget-unit.checks.py](units/model-retarget-unit.checks.py#L298) | pytest / 5 | additional boundaries | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_one_way_model_contract` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#L221) | pytest / 1 | one way model contract | 既存テストの登録漏れ補完・本体変更なし |
@@ -2369,10 +2362,10 @@ Model v2 移行完了に伴い、固定旧 Framework の export/convert/compare 
 | `existing-ut-inventory` | `check_related_detach_and_two_consumers` | UT | [units/resource-delete-unit.checks.py](units/resource-delete-unit.checks.py#L152) | pytest / 1 | related detach and two consumers | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_remaining_reference_is_warning` | UT | [units/resource-delete-unit.checks.py](units/resource-delete-unit.checks.py#L176) | pytest / 1 | remaining reference is warning | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_fifth_save_failure_retains_first_four` | UT | [units/resource-delete-unit.checks.py](units/resource-delete-unit.checks.py#L186) | pytest / 2 | fifth save failure retains first four | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_finalize_rejects_incomplete_leaves` | UT | [units/resource-delete-unit.checks.py](units/resource-delete-unit.checks.py#L225) | pytest / 1 | finalize rejects incomplete leaves | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_finalize_rejects_incomplete_leaves` | UT | [units/worktree-model-guard-unit.checks.py](units/worktree-model-guard-unit.checks.py) | pytest / 1 | finalize rejects incomplete leaves | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_related_retarget` | UT | [units/resource-delete-unit.checks.py](units/resource-delete-unit.checks.py#L239) | pytest / 1 | related retarget | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_delete_issue_exception_is_service_scoped` | UT | [units/resource-delete-unit.checks.py](units/resource-delete-unit.checks.py#L256) | pytest / 1 | delete issue exception is service scoped | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_one_parent_merge_and_failed_candidate_repair` | UT | [units/resource-delete-unit.checks.py](units/resource-delete-unit.checks.py#L273) | pytest / 2 | one parent merge and failed candidate repair | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_one_parent_merge_and_failed_candidate_repair` | IT | [integrations/worktree-model-operation.checks.py](integrations/worktree-model-operation.checks.py) | pytest / 2 | one parent merge and failed candidate repair | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_batch_operation_contract` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py#L214) | pytest / 1 | batch operation contract | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_idle_git_paths_and_state` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py#L129) | pytest / 6 | idle git paths and state | 既存テストの登録漏れ補完・本体変更なし |
 
@@ -2429,13 +2422,13 @@ import-references のSubnet配列とCodePipeline Configuration生成fixtureは�
 | `deploy-v2::scope-discovery` | `check_discovery_defers_semantics` | UT | [units/deploy-observed-unit.checks.py](units/deploy-observed-unit.checks.py) | pytest / 1 | raw discovery, related validation and corrupt input rejection | synthetic Models |
 | `deploy-v2::cleanup-boundary` | `check_cleanup_refreshes_create_boundary` | UT | [units/deploy-sdk.checks.py](units/deploy-sdk.checks.py) | pytest / 14 | rollback/delete-intent, current object, encryption/policy/KMS/Export value/producer change and unchanged continuation | delivery state |
 | `deploy-v2::profile` | `check_effective_default_profile` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 1 | real SDK provider chain, private config and synthetic credentials | offline SDK |
-| `deploy-v2::orders` | `check_orders_and_observed` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 1 | real observed publication in a lifecycle-created managed worktree before next DeployOrder, old measurement metadata compatibility | YAML Project |
+| `deploy-v2::orders` | `check_orders_and_observed` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 1 | real observed publication in an ordinary Git repository before next DeployOrder, old measurement metadata compatibility | YAML Project |
 | `deploy-v2::approval` | `check_approval_resume` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 1 | same ChangeSet/digest approval retained across resume | SDK boundary |
 | `deploy-v2::observed-io` | `check_observed_io_resume` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 1 | AWS SUCCESS retained through persistent publication failure in one invocation, explicit resume retries without Execute | target I/O failure |
 | `deploy-v2::group-delivery` | `check_group_delivery` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 2 | complete delivery before Create, no starts on failure | real S3 wrappers |
 | `deploy-v2::guard-drain` | `check_input_guard_drains_peer` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 1 | input change stops new mutation and drains accepted peer | real guard |
 | `deploy-v2::execution-process` | `check_subprocess_execution_resume` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 2 | response loss and process exit without finally, stable ID/token and no duplicate Execute | separate processes |
-| `deploy-v2::cleanup-repair-process` | `check_cleanup_and_repair_process_resume` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 2 | unchanged-input cleanup and external-child cleanup intent recovery, original evidence and fresh AWS state | separate processes |
+| `deploy-v2::cleanup-repair-process` | `check_cleanup_and_repair_process_resume` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 1 | unchanged-input cleanup and external-child cleanup intent recovery, original evidence and fresh AWS state | separate processes |
 | `deploy-v2::bootstrap-process` | `check_bootstrap_process_resume` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 2 | original token, private version reuse, external AWSCURRENT rejection | separate processes |
 
 | `deploy-v2::sdk-shapes` | `check_sdk_arguments_and_pages` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 1 | real SDK request/response schema and pagination | botocore Stubber |
@@ -2445,7 +2438,7 @@ import-references のSubnet配列とCodePipeline Configuration生成fixtureは�
 
 ## Deploy observed publication plans and controller Remove resume
 
-Task fixtureは正式worktree lifecycleとtask_contract.startで開始・選択し、可変Projectだけをmanaged worktreeへ置く。Framework定義は共有参照する。UTは計画照合の純粋判定、ITは実保存・journal/rollback・生成・session再読込・別プロセス再開を検証する。pytest receiptは既存run_it.pyが収集する。
+Task fixtureは独立した通常Gitとtask_contract.startで開始・選択し、可変Projectを通常repositoryへ置く。Framework定義は共有参照する。UTは計画照合の純粋判定、ITは実保存・journal/rollback・生成・session再読込・別プロセス再開を検証する。pytest receiptは既存run_it.pyが収集する。
 
 | Case ID | Check | Class | File | Execution | Contract | Inputs |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -2474,7 +2467,7 @@ Task fixtureは正式worktree lifecycleとtask_contract.startで開始・選択�
 
 | Case ID | Check | Class | File | Execution | Contract | Inputs |
 | --- | --- | --- | --- | --- | --- | --- |
-| `external-repair::round-trip` | `check_external_implement_round_trip` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 14 | Separate implement, shared SUCCESS impact wait, unexecuted decode/ValidateTemplate/CreateChangeSet/API-review handoff, actual static FAIL/retry, integration, same-session resume, request/merge/accept/execute interruption, A/A and A/B/A | Synthetic offline inputs |
+| `external-repair::round-trip` | `check_external_implement_round_trip` | IT | [integrations/worktree-deploy-repair.checks.py](integrations/worktree-deploy-repair.checks.py) | pytest / 2 | Separate implement, shared SUCCESS impact wait, unexecuted decode/ValidateTemplate/CreateChangeSet/API-review handoff, actual static FAIL/retry, integration, same-session resume, request/merge/accept/execute interruption, A/A and A/B/A | Synthetic offline inputs |
 | `external-repair::legacy` | `check_explicit_legacy_migration` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 3 | Explicit definition migration; old pending candidate retained and never applied; original tokens drained | Synthetic offline inputs |
 | `external-repair::base-sync` | `check_sync_base_preserves_candidate` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py) | direct / 1 | Real Git inherited base advance preserves reviewed uncommitted candidate without task commit/reset | Synthetic offline inputs |
 | `external-repair::problem-sequences` | `check_problem_sequences` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 4 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
@@ -2498,11 +2491,11 @@ Task fixtureは正式worktree lifecycleとtask_contract.startで開始・選択�
 
 | `external-repair::after-bootstrap` | `check_bootstrap_history_preserves_distinct_safe_failure` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | Actual poll/repair preserve a different structured non-secret cause after bootstrap; no PUT/cleanup fallback; changing event identity cannot create NEW | Offline AWS read boundary |
 
-| `import-worktree::properties-boundary` | `check_properties_import_worktree_boundary` | IT | [real Git boundaries](integrations/import-worktree-contract.checks.py#L53) | pytest / 5 | HEAD invalidation, separate CLI process and source/receipt/display os._exit(17) recovery, moved intact from properties publication matrix | Issue 14 |
+| `import-worktree::properties-boundary` | `check_properties_import_git_boundary` | IT | [real Git boundaries](integrations/import-cli.checks.py#L53) | pytest / 5 | HEAD invalidation, separate CLI process and source/receipt/display os._exit(17) recovery, moved intact from properties publication matrix | Issue 14 |
 
 ## Issue 14: Import / Model / Worktree separation
 
-The original 112 parametrized cases remain reachable. `check_properties_import_acquire_review_publish` keeps 11 Import parameters; its `head`, `subprocess`, `source-crash`, `receipt-crash`, and `display-crash` parameters move to `check_properties_import_worktree_boundary` unchanged. The latter retains actual `os._exit(17)` processes. CLI preflight and cross-process evidence move intact. No case is skipped or xfailed.
+The original 112 parametrized cases remain reachable. `check_properties_import_acquire_review_publish` keeps 11 Import parameters; its `head`, `subprocess`, `source-crash`, `receipt-crash`, and `display-crash` parameters move to `check_properties_import_git_boundary` unchanged. The latter retains actual `os._exit(17)` processes. CLI preflight and cross-process evidence move intact. No case is skipped or xfailed.
 
 | Original function | Original cases | Current suite / function |
 | --- | ---: | --- |
@@ -2552,7 +2545,7 @@ The original 112 parametrized cases remain reachable. `check_properties_import_a
 | `check_first_resource_uses_existing_source_format` | 4 | `import-model.checks.py::check_first_resource_uses_existing_source_format` |
 | `check_refresh_switches_definition_without_foreign_changes` | 1 | `import-model.checks.py::check_refresh_switches_definition_without_foreign_changes` |
 | `check_approval_bound_save_guard` | 6 | `import-model.checks.py::check_approval_bound_save_guard` |
-| `check_properties_import_acquire_review_publish` | 16 | `import-model.checks.py::check_properties_import_acquire_review_publish` (11) + `import-worktree-contract.checks.py::check_properties_import_worktree_boundary` (5) |
+| `check_properties_import_acquire_review_publish` | 16 | `import-model.checks.py::check_properties_import_acquire_review_publish` (11) + `import-worktree-contract.checks.py::check_properties_import_git_boundary` (5) |
 | `check_publication_transaction_without_host` | 10 | `import-model.checks.py::check_publication_transaction_without_host` |
 | `check_saved_display_recovery_needs_no_new_approval` | 1 | `import-model.checks.py::check_saved_display_recovery_needs_no_new_approval` |
 | `check_candidate_review_mismatch_rejected_without_host` | 4 | `import-model.checks.py::check_candidate_review_mismatch_rejected_without_host` |
@@ -2561,7 +2554,7 @@ Additional safety checks use byte snapshots for Model, Project and Task addition
 
 | Requirement | Case | Layer | File | Mode / Count | Verification | Reason |
 | --- | --- | --- | --- | --- | --- | --- |
-| `import-gitless::guards` | `check_gitless_guard_boundaries` | IT | [guards](integrations/import-model.checks.py#L996) | pytest / 8 | HEAD/base/ownership/Task/Allowed paths/scope/target/foreign source rejection, no publication side effects | Issue 14 |
+| `import-gitless::guards` | `check_gitless_guard_boundaries` | IT | [guards](integrations/import-model.checks.py#L996) | pytest / 7 | HEAD/base/Task/Allowed paths/scope/target/foreign source rejection, no publication side effects | Issue 14 |
 | `import-gitless::snapshot` | `check_repository_snapshot_detects_real_changes` | IT | [snapshots](integrations/import-model.checks.py#L1036) | pytest / 1 | Real bytes detect additions, removals, comment edits and Task edits without changing the baseline | Issue 14 |
 | `import-worktree::contract` | `check_import_managed_contract_boundaries` | IT | [real contract](integrations/import-worktree-contract.checks.py#L87) | pytest / 5 | Real Git/Worktree Task conflicts, invalid start commit, wrong owner and foreign Worktree publication rejection | Issue 14 |
 
@@ -2623,6 +2616,55 @@ Model value, rollback and journal cases use `model-operation-publication.checks.
 | `sealed-evidence::symlink_rejection` | `check_symlink_rejection` | UT | [units/sealed-evidence-unit.checks.py](units/sealed-evidence-unit.checks.py) | pytest / 3 | receipt・鍵・保存先symlink拒否 | evidence |
 | `sealed-evidence::private_permissions` | `check_private_permissions` | UT | [units/sealed-evidence-unit.checks.py](units/sealed-evidence-unit.checks.py) | pytest / 1 | 所有者と権限 | evidence |
 | `sealed-evidence::atomic_failure` | `check_atomic_failure` | UT | [units/sealed-evidence-unit.checks.py](units/sealed-evidence-unit.checks.py) | pytest / 1 | atomic失敗時の旧証拠保持 | evidence |
-| `sealed-evidence::ownership` | `check_ownership` | UT | [units/sealed-evidence-unit.checks.py](units/sealed-evidence-unit.checks.py) | pytest / 5 | Worktree正本とTask所有確認 | evidence |
+| `sealed-evidence::ownership` | `check_ownership` | UT | [units/worktree-model-guard-unit.checks.py](units/worktree-model-guard-unit.checks.py) | pytest / 5 | Worktree正本とTask所有確認 | evidence |
 | `sealed-evidence::dependency_boundaries` | `check_dependency_boundaries` | UT | [units/sealed-evidence-unit.checks.py](units/sealed-evidence-unit.checks.py) | pytest / 1 | 共通証拠とWorktreeの依存分離 | evidence |
 | `observed-resume::signed-legacy` | `check_signed_legacy_plan` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 1 | 署名検証後の旧managedTask除外・同フィールド改ざん拒否 | evidence |
+
+## Worktree dependency separation (master 1024v2)
+
+| 分類 | 旧依存 / 対象 | 現在の検証責務 |
+|---|---|---|
+| A | worktree_task / worktree_python / guard / managed Import boundary | 所有・Task基準・専用Python・create/merge/finalize/cleanup・中断復旧を専用ケースで検証 |
+| A | Deploy managed delivery 2条件、Delete parent integration | 実checkpoint→child登録→static検証→親FF→cleanupとその証跡・再開を専用ITへ移動。parameter matrixとassertionを保持 |
+| B | Model properties/repair、Impact、CloudFormation deploy/destroy、group05、JSON hash、explicit values、Import process 5条件、Deploy request/acceptance/retry/CFN cleanup 13条件 | `repository_fixtures`の通常Git候補へ変更。実Task・Model・生成・保存・rollback・プロセス終了/復旧を保持 |
+| C | Import repository、Model intermediate save、retarget、sync/Issue Gate baseline | 合成所有者/worktree/mergedレコードを撤去。業務側はpublication revision能力と通常のTask Git基準を渡す。所有者・未完leaf・finalize承認・managed基準の拒否は専用UT/IT |
+| D | Git init/commit/diff、Reviewの公開worktreeフィールド、Framework参照整合性 | 通常Git・証跡データの検証でありLifecycleではないため保持 |
+
+Import `gitless_guard_boundaries[owner]` は既存 `check_import_managed_contract_boundaries[owner]`、
+retarget `guarded_save[wrong-owner]` は共有factoryの `check_ownership` と
+`check_model_source_context_worktree_boundary[owner]` に責務を集約する。
+HEAD/Task変更、未承認パス、scope/target、非選択データ、保存前後byte、no-opとrollbackの業務assertionは保持する。
+`check_git_baseline_fail_closed` のGitパス判定はsync UT、managed/unborn/故障基準はWorktree guard UT。
+controllerの通常cleanup 1条件と、外部修復後のCloudFormation cleanup復旧 1条件は業務側で別々に登録する。
+
+`support/worktree_test_policy.py` はレビュー済みの専用ケースを関数単位で固定し、
+UT/IT/supportのImport・動的loader・Mock対象を推移的に調べる。改名だけでは許可しない。
+非専用pytestと公式IT runnerは実行時にもGit worktree変更、Lifecycle CLI、管理領域への書込みを拒否する。
+通常Gitとproductionによるread-only discoveryは許可する。別プロセスの業務fixtureも通常Gitと
+publication能力だけを渡し、管理状態を生成・Mockしない。既存の唯一のIT runnerと完了receiptを使用する。
+
+| Origin | Case | Class | Location | Entry / conditions | Responsibility | Scope |
+|---|---|---|---|---|---|---|
+| `worktree-separation::cleanup` | `check_external_repair_cleanup_recovery` | IT | [external repair cleanup](integrations/deploy-controller.checks.py) | pytest / 1 | 子統合後の親再開でcleanup中断・元証跡・単一Executeを保持 | Controller domain |
+| `worktree-separation::candidate` | `check_model_finalize_cannot_bypass_candidate` | UT | [candidate guard](units/worktree-model-guard-unit.checks.py) | pytest / 1 | retarget承認による最終候補検証迂回を拒否 | Worktree integration |
+| `worktree-separation::baseline` | `check_git_baseline_fail_closed` | UT | [baseline guard](units/worktree-model-guard-unit.checks.py) | pytest / 1 | managed基準・unborn・故障伝播 | Worktree integration |
+| `worktree-separation::issue-owner` | `check_issue_gate_rejects_foreign_managed_task` | UT | [Issue owner](units/worktree-model-guard-unit.checks.py) | pytest / 1 | Issue Gateがmanaged Task不一致を伝播 | Worktree integration |
+| `worktree-separation::policy` | `check_repository_policy` | UT | [policy](units/worktree-test-policy-unit.checks.py) | pytest / 1 | 全UT/IT/supportの非専用依存0 | Recurrence |
+| `worktree-separation::dependencies` | `check_direct_and_indirect` | UT | [dependencies](units/worktree-test-policy-unit.checks.py) | pytest / 5 | 直接/間接/Mock/dynamic fixture依存とLifecycle形状のfixtureを拒否 | Recurrence |
+| `worktree-separation::rename` | `check_filename_grants_no_authority` | UT | [rename](units/worktree-test-policy-unit.checks.py) | pytest / 1 | 改名による許可拡大を拒否 | Recurrence |
+| `worktree-separation::runtime` | `check_runtime_guard` | UT | [runtime](units/worktree-test-policy-unit.checks.py) | pytest / 1 | 実操作・管理書込禁止と通常Git許可 | Recurrence |
+
+| `worktree-separation::repair-business` | `check_external_repair_resumption` | IT | [repair resumption](integrations/deploy-controller.checks.py) | pytest / 12 | signed external result, real Git history/hash/snapshot, acceptance crash, known/new/regressed cause, unexecuted input failures, shared-success impact | Controller domain |
+
+追加の責務分割：ImportのHEAD/CLI/source/receipt/display crash 5条件は通常Gitの `import-cli` へ移動。
+Deployの14条件はworktree delivery 2条件とcontroller request/acceptance/retry 12条件へ分割し、
+外部修復後のCloudFormation cleanup復旧1条件も業務側で保持する。業務fixtureは通常Gitの実commit/hashと署名付き外部結果を供給し、
+worktree所有登録/配送の能力境界だけを置換する。Managed stateやLifecycleのMockは作らない。
+実static FAIL→修正→PASSとcheckpoint/create/重複child拒否/FF/cleanupは専用側で引き続き検証する。
+
+全assert文のASTを変更前後で照合し、削除したassert式は0件。所有者ケースは上記の専用側へ集約し、
+業務parameter matrixのLifecycle条件だけを移動する。実行時guardはworker threadも対象にし、
+静的依存違反をpytest/公式ITの実行前に拒否する。旧baseline計測には現行policyを強制しない。
+
+| `worktree-separation::ci-fixtures` | `check_fixture_selection` | UT | [fixture selection](units/worktree-test-policy-unit.checks.py) | pytest / 4 | CIで専用fixtureの選択先から業務スイートを排除、共有業務fixtureの両責務consumerを保持 | Recurrence |
+| `worktree-separation::ci-shared` | `check_new_shared_fixture_mappings` | UT | [shared mapping](units/worktree-test-policy-unit.checks.py) | pytest / 1 | 新しいGit/publication/policy fixtureとpytest設定を既存affected選択に登録 | Recurrence |

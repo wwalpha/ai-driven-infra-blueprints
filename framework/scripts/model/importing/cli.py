@@ -10,7 +10,6 @@ from types import SimpleNamespace
 
 import project_targets as _imports_project_targets
 import task_contract_core as task_contract
-import worktree_state
 from aws_mapping_compare import MODEL_ONLY
 from aws_mapping_compare import value as mapping_value
 from generation_inputs import GenerationInputs
@@ -21,7 +20,13 @@ from import_guard import (
     workflow,
 )
 from script_loader import module as load_script
-from task_contract_core import contract_read_scope, contract_reads, section, selected_task, task_path
+from task_contract_core import (
+    contract_read_scope,
+    contract_reads,
+    section,
+    selected_task,
+    task_path,
+)
 from utils.file_operations import atomic_files
 from utils.input_cache import input_context, input_scope, memoized, recording_inputs
 from utils.json_format import json_text
@@ -29,6 +34,7 @@ from utils.source_reads import FileReads as FileReads
 from validation_scope import active_scope
 
 import model.importing.references as _imports_model_importing_references
+import model.importing.repository as repository
 import model.importing.scope as _exports_model_importing_scope
 import model.importing.scope as _imports_model_importing_scope
 import model.references as _imports_model_references
@@ -577,11 +583,11 @@ def publish_acquisition(root, environment, service, evidence, selector=None, dry
                 inputs.close()
 
 
-def _callback_recover_transaction_authorize(acquisition, evidence, expected_task, identity, managed_task_state, name, root, state, /, record):
+def _callback_recover_transaction_authorize(acquisition, evidence, expected_task, identity, publication_revision, name, root, revision, /, record):
     with contract_reads(root):
         if record.get('importReceipt', {}).get('task') != name:
             raise ValueError('pending transaction belongs to a different Task or is not an Import transaction')
-        if (task_contract.task_revision(root, selected=name) != expected_task or managed_task_state(root, name) != state
+        if (task_contract.task_revision(root, selected=name) != expected_task or publication_revision(root, name) != revision
                 or read_acquisition(root, evidence, identity, False) != acquisition):
             raise ValueError('Import recovery Task/Worktree/acquisition changed')
         paths = {root / relative for relative in record['originals']}
@@ -592,7 +598,7 @@ def _callback_recover_transaction_authorize(acquisition, evidence, expected_task
 @input_scope
 def recover_transaction(root, environment, service, evidence, selector=None, dry_run=False):
     """Restore only this Task's interrupted source/display transaction, with no AWS calls."""
-    managed_task_state = worktree_state.managed_task_state
+    publication_revision = repository.publication_revision
     if dry_run:
         raise ValueError('a dry-run acquisition cannot authorize transaction recovery')
     root, evidence = root.resolve(), Path(evidence).absolute()
@@ -602,9 +608,9 @@ def recover_transaction(root, environment, service, evidence, selector=None, dry
         contract_scope(root, {identity})
         acquisition = read_acquisition(root, evidence, identity, False)
         name = workflow(root)
-        state = managed_task_state(root, name)
+        revision = publication_revision(root, name)
         expected_task = task_contract.task_revision(root, selected=name)
-        authorize = _bind_framework_callback(_callback_recover_transaction_authorize, acquisition, evidence, expected_task, identity, managed_task_state, name, root, state)
+        authorize = _bind_framework_callback(_callback_recover_transaction_authorize, acquisition, evidence, expected_task, identity, publication_revision, name, root, revision)
         with publication_lock(root, recovery_check=authorize):
             pass
         return {'status': 'recovered', 'aws': 'not-contacted', 'scope': list(identity)}

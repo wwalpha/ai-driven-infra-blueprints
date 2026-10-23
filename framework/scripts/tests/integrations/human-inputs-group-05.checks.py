@@ -14,7 +14,8 @@ from model.sources import design_source_digest, load_model
 from support.it_case_receipt import it_case
 from support.model_sources import write_model
 from support.producer_identifier_reference_fixtures import rejected, resource, setup
-from support.worktree_task_fixtures import fixture, git, start
+from support.publication_fixtures import publication_repository
+from support.repository_fixtures import fixture, git, start
 
 from model import prepare_edit, publish_edit
 
@@ -92,5 +93,6 @@ def check_declared_inputs(service='cloudtrail'):
 
 
 if __name__ == '__main__':
-    for service in sorted(SERVICES):
-        check_declared_inputs(service)
+    with publication_repository():
+        for service in sorted(SERVICES):
+            check_declared_inputs(service)

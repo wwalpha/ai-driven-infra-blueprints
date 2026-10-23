@@ -37,8 +37,9 @@ from support.producer_identifier_reference_fixtures import (
     resource,
     setup,
 )
+from support.publication_fixtures import publication_repository
+from support.repository_fixtures import start as start_repository
 from support.validator import MODULE
-from support.worktree_task_fixtures import cli
 from task_contract_core import selected_task
 from utils.input_cache import input_context
 from utils.source_reads import FileReads
@@ -446,12 +447,11 @@ def check_task_snapshot_routes(root):
     source = producer(root, 'iam', 'IAM.Role', 'RoleName')
     consumer(root, 'secretsmanager', 'iam', 'IAM.Role', '001')
     consumer(root, 's3', 'iam', 'IAM.Role', '002')
-    write(root / '.gitignore', '/.worktrees/\ntasks/**\nissues/**\n')
+    write(root / '.gitignore', 'tasks/**\nissues/**\n')
     baseline(root)
     git(root, 'add', '.gitignore')
     git(root, 'commit', '-m', 'Fixture lifecycle ignores')
-    state = cli(root, 'create', 'precision-routes')
-    target = Path(state['worktree'])
+    target, state = start_repository(root, 'precision-routes')
     source = target / source.relative_to(root)
     values = dict(load_model(source).authoritative)
     values.update(resource('003', 'IAM.Role', 'iam-003', [('RoleName', '`dev-name3`')]))
@@ -465,7 +465,7 @@ def check_task_snapshot_routes(root):
             '## Validation scope\n- `dev/team/iam`\n## Modified files\n' + listed + '\n## Allowed paths\n' + listed + '\n')
     write(target / name, text)
     write(target / 'issues/dev/team/issues.md', '### secretsmanager\n1. Unrelated secret issue\n')
-    with selected_task(target, name):
+    with selected_task(target, name), patch('model.importing.repository.task_start_commit', return_value=state['start']):
         with input_context():
             candidate = task_impact(target, paths, output=output)
             assert candidate.services == {entry('iam')}
@@ -538,7 +538,7 @@ def check_task_snapshot_routes(root):
             assert task_impact(target, paths, base=final.base_commit).services == candidate.services
 
 
-with tempfile.TemporaryDirectory() as directory:
+with publication_repository(), tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
     checks = [(service, check_precision, (service, kind, prop)) for service, kind, prop in [
         ('iam', 'IAM.Role', 'RoleName'), ('s3', 'S3.Bucket', 'BucketName'), ('lambda', 'Lambda.Function', 'FunctionName')]]

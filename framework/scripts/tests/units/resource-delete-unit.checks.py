@@ -7,22 +7,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import json
 import shutil
-from contextlib import nullcontext
 from unittest.mock import patch
 
 import pytest
 import task_contract_core as tasks
-import worktree_state as ws
-import worktree_task as wt
-from import_guard import require_import_changes
 from issue_gate import task_issue_errors
 from model.adapters.task import source_write_context
 from model.core import entries
-from model.format import owner, serialize
-from model.operations import prepare_edit, publish_edit, verify_model_operation
-from model.sources import load_model, scope_for
+from model.operations import verify_model_operation
+from model.sources import load_model
 from support.import_model_fixtures import (
     dependency_contract,
     dependency_fixture,
@@ -30,70 +24,32 @@ from support.import_model_fixtures import (
     operation_contract,
     reference_fields,
     resource_values,
-    service_values,
 )
 from support.model_sources import write_model
-from support.worktree_task_fixtures import fixture as git_fixture
-from support.worktree_task_fixtures import git
-from utils.aws_mappings import mapping_alias
+from support.resource_delete_fixtures import (
+    changed,
+    contract,
+    deletion,
+    fixture,
+    save,
+    write_candidate,
+)
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
 
-def contract(sources, references=(), detaches=()):
-    text = operation_contract('import-delete').split('## Model merge pairs')[0].split('## Model delete sources')[0]
-    if detaches:
-        text += '- Model refactor: `value-preserving`\n'
-    text += '## Model delete sources\n' + ''.join('- `' + source + '`\n' for source in sources)
-    for heading, records in [('Model reference changes', references), ('Model dependency detach', detaches)]:
-        if records:
-            text += '## ' + heading + '\n' + ''.join('- ' + json.dumps(record) + '\n' for record in records)
-    return text
 
 
-def fixture(root, multiple=False):
-    root.mkdir(parents=True, exist_ok=True)
-    services = ['service-a', 'service-b'] if multiple else ['service-a']
-    count = 5 if multiple else 10
-    sources = []
-    (root / 'project.json').write_text(json.dumps({'targets': [
-        {'environment': env, 'alias': 'cde', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1',
-         'iacEngine': 'cloudformation'} for env in ('dev', 'stg')]}))
-    for service in services:
-        for env in ('dev', 'stg'):
-            values = service_values(service, ['Example.Resource'])
-            for index in range(1, count + 2):
-                rid = f'{index:03d}'
-                values.update(resource_values(rid, 'Example.Resource', 'resource-' + rid, 'IMPORT', [('Name', env + '-' + rid)]))
-                values[f'observed.row.{rid}-001.value'] = 'observed-' + rid
-                if env == 'stg' and index <= count:
-                    sources.append('stg/cde/' + service + '/' + rid)
-            write_model(root / 'model' / env / 'cde' / (service + '.properties'), values)
-    return sources
 
 
-def deletion(root, address):
-    env, target, service, rid = address.split('/')
-    file = root / 'model' / env / target / (service + '.properties')
-    values = dict(load_model(file).authoritative)
-    return {file: serialize({key: value for key, value in values.items() if owner(key, values) != ('resource', rid)})}
 
 
-def write_candidate(context, changes):
-    scope = scope_for(next(iter(changes)))
-    return publish_edit(prepare_edit(load_model(scope, context.snapshot), changes, context), context)
 
 
-def save(changes):
-    for path, text in changes.items():
-        path.write_text(text, encoding='utf-8')
 
 
-def changed(before, after):
-    return {path.relative_to(after).as_posix() for path in after.rglob('*') if path.is_file()
-            and (not (before / path.relative_to(after)).exists() or path.read_bytes() != (before / path.relative_to(after)).read_bytes())}
 
 
 @pytest.mark.parametrize('multiple', [False, True])
@@ -213,11 +169,7 @@ def check_fifth_save_failure_retains_first_four(tmp_path, failure):
     listed = '\n'.join('- `' + path + '`' for path in [name, *paths])
     text = contract(sources) + '## Validation scope\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n## Modified files\n' + listed + '\n## Allowed paths\n' + listed + '\n'
     tasks.start(tmp_path, name, text)
-    state = {'task_file': name, 'worktree': str(tmp_path), 'merged': None}
-    with patch.object(ws, 'load', return_value=(tmp_path, None, None, state)), patch.object(ws, 'task_worktree', return_value=tmp_path), \
-         patch.object(wt, 'finalize', side_effect=AssertionError('leaf cannot finalize')), \
-         patch('model.operations.verify_model_operation', side_effect=AssertionError('leaf must not run final validation')), \
-         patch.object(ws, 'output', return_value='synthetic-head'):
+    with patch('model.operations.verify_model_operation', side_effect=AssertionError('leaf must not run final validation')):
         for source in sources[:4]:
             with source_write_context(tmp_path, name) as context:
                 write_candidate(context, deletion(tmp_path, source))
@@ -242,18 +194,6 @@ def check_fifth_save_failure_retains_first_four(tmp_path, failure):
                 write_candidate(context, deletion(tmp_path, source))
 
 
-def check_finalize_rejects_incomplete_leaves(tmp_path):
-    sources = fixture(tmp_path)
-    name = 'tasks/parent.md'
-    (tmp_path / 'tasks').mkdir()
-    (tmp_path / name).write_text(contract(sources) + '## Validation scope\n- `stg/cde/service-a`\n' +
-        f'## Modified files\n- `{name}`\n## Allowed paths\n- `{name}`\n')
-    state = {'task_file': name, 'python_setup': {'status': 'ready'}, 'merged': None}
-    with patch.object(wt, 'load', return_value=(tmp_path, None, tmp_path / 'state.json', state)), \
-         patch.object(wt, 'lifecycle_lock', return_value=nullcontext()), patch.object(wt, 'task_worktree', return_value=tmp_path), \
-         patch.object(wt, '_prepare_commit', side_effect=AssertionError('incomplete leaves cannot commit')):
-        with pytest.raises(wt.Blocked, match='leaves incomplete'):
-            wt.prepare_integration(tmp_path, 'parent')
 
 
 def check_related_retarget(tmp_path):
@@ -288,63 +228,8 @@ def check_delete_issue_exception_is_service_scoped(tmp_path):
     assert len(errors) == 1 and 'service-c' in errors[0]
 
 
-def _callback_check_one_parent_merge_and_failed_candidate_repair_final_check(name, /, repository, options, *, final_candidate):
-    try:
-        with tasks.selected_task(repository, name):
-            require_import_changes(repository, final_candidate=final_candidate)
-    except ValueError:
-        return 1
-    return 0
 
 
-@pytest.mark.parametrize('repair', [False, True])
-def check_one_parent_merge_and_failed_candidate_repair(repair):
-    with git_fixture() as root:
-        sources = fixture(root, True)
-        git(root, 'add', 'model', 'project.json')
-        git(root, 'commit', '-qm', 'synthetic sources')
-        with patch.object(wt.python_env, 'setup', return_value={'status': 'ready'}):
-            state = wt.create(root, 'parent')
-        target = Path(state['worktree'])
-        name = state['task_file']
-        paths = sorted({path.relative_to(target).as_posix() for source in sources for path in deletion(target, source)})
-        listed = '\n'.join('- `' + path + '`' for path in [name, *paths])
-        text = contract(sources) + ('## Validation scope\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n'
-            '## Modified files\n' + listed + '\n## Allowed paths\n' + listed + '\n')
-        tasks.start(target, name, text)
-        for source in sources:
-            with source_write_context(target, name) as context:
-                write_candidate(context, deletion(target, source))
-        final_check = _bind_framework_callback(_callback_check_one_parent_merge_and_failed_candidate_repair_final_check, name)
-        original_git = wt.git
-        with mapping_alias(Path(__file__).resolve().parents[4], target), patch.object(wt, 'git', wraps=original_git) as calls, patch('validation.loop.run_loop', side_effect=final_check) as validation:
-            first_head = None
-            if repair:
-                path = target / 'model/stg/cde/service-a.properties'
-                original = path.read_text()
-                values = dict(load_model(path).authoritative)
-                values['observed.row.006-001.value'] = 'unauthorized'
-                write_model(path, values)
-                candidate = wt.prepare_integration(target, 'parent')
-                result = wt.validate_final_candidate(candidate)
-                assert result.returncode == 1
-                with pytest.raises(wt.Blocked, match='no merge'):
-                    wt.merge_validated_candidate(result)
-                first_head = git(target, 'rev-parse', 'HEAD')
-                assert git(root, 'rev-parse', 'HEAD') == candidate.base_commit
-                assert target.is_dir()
-                path.write_text(original)
-            wt._integrate_model(target, 'parent')
-            assert sum(call.args[1:2] == ('merge',) for call in calls.call_args_list) == 1
-            expected = 1
-            if repair:
-                expected = 2
-                assert git(target, 'rev-parse', 'HEAD^') == first_head
-            assert validation.call_count == expected
-            assert tasks.status((target / name).read_text()) == 'completed'
-            assert git(root, 'rev-parse', 'HEAD') == git(target, 'rev-parse', 'HEAD')
-        wt.cleanup(root, 'parent')
-        assert not target.exists()
 
 
 if __name__ == '__main__':

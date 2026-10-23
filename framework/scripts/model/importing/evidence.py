@@ -8,7 +8,6 @@ from pathlib import Path
 import import_guard as _imports_import_guard
 import task_contract_core as _imports_task_contract
 import utils.import_evidence as _receipt_storage
-import worktree_state
 from utils.json_format import json_text
 from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
@@ -137,7 +136,7 @@ def discard_import_proof(root, task_name):
 
 def acquired(root, identity, ctx, records, sources, consumers, dry_run, *, source_sets):
     base_revision = _imports_import_guard.base_revision
-    managed_task_state = worktree_state.managed_task_state
+    publication_revision = _imports_model_importing_repository.publication_revision
     workflow = _imports_import_guard.workflow
     working_revision = _imports_import_guard.working_revision
 
@@ -148,7 +147,7 @@ def acquired(root, identity, ctx, records, sources, consumers, dry_run, *, sourc
         task_start_commit = _imports_model_importing_repository.task_start_commit
         name = workflow(root)
         if task_start_commit(root, name) is not None:
-            managed_task_state(root, name)
+            publication_revision(root, name)
     directory = Path(tempfile.mkdtemp(prefix='session-', dir=evidence_store(root)))
     try:
         value = {'version': 3, **FORMAT_FIELDS, 'root': str(root.resolve()), 'task': None if dry_run else workflow(root),
@@ -172,7 +171,7 @@ def acquired(root, identity, ctx, records, sources, consumers, dry_run, *, sourc
 
 def read_acquisition(root, file, identity, dry_run):
     base_revision = _imports_import_guard.base_revision
-    managed_task_state = worktree_state.managed_task_state
+    publication_revision = _imports_model_importing_repository.publication_revision
     workflow = _imports_import_guard.workflow
     working_revision = _imports_import_guard.working_revision
     file = Path(file).absolute()
@@ -193,7 +192,7 @@ def read_acquisition(root, file, identity, dry_run):
         task_start_commit = _imports_model_importing_repository.task_start_commit
         name = workflow(root)
         if task_start_commit(root, name) is not None:
-            managed_task_state(root, name)
+            publication_revision(root, name)
     validate_inventory(value)
     if not isinstance(value.get('sourceSets'), list):
         raise ValueError('IMPORT acquisition has no properties v2 input file-set snapshot')

@@ -22,6 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest as _imports_pytest
 import support.it_fixture_bundle as _imports_support_it_fixture_bundle
 import validation.loop as _imports_validation_loop
+from support.worktree_test_policy import audit as worktree_audit
+from support.worktree_test_policy import ordinary_suite, violations
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -41,7 +43,7 @@ def registered_cases(tests):
 def inventory(tests):
     """The existing ledger is the only case list; reject stale/unregistered entries."""
     cases = registered_cases(tests)
-    errors = []
+    errors = violations(tests)
     if not cases:
         errors.append('empty IT case ledger')
     suites = sorted((tests / 'integrations').rglob('*.py'))
@@ -166,11 +168,13 @@ def run_child(suite, tests, receipt, baseline=False, cases=()):
     suite_key = suite.resolve().relative_to(tests.resolve()).as_posix()
     audit = _bind_framework_callback(_callback_run_child_audit, completed, metrics, tests)
     sys.addaudithook(audit)
+    sys.addaudithook(worktree_audit)
     sys.argv = [str(suite)]
     try:
         if cases:
             raise SystemExit(pytest.main([str(suite) + '::' + name for name in cases]))
-        runpy.run_path(str(suite), run_name='__main__')
+        with (nullcontext() if baseline else ordinary_suite(suite, tests)):
+            runpy.run_path(str(suite), run_name='__main__')
     finally:
         receipt.write_text(json.dumps({'version': 1, 'suite': suite_key, 'completed': completed, 'collected': plugin.collected,
                                        'passed': plugin.passed, 'metrics': metrics}), encoding='utf-8')
@@ -292,6 +296,9 @@ def _callback_run_all_audit(_state_run_all_284, metrics, /, event, args):
 
 
 def run_all(tests, summary, baseline=False, selected=None):
+    policy_errors = [] if baseline else violations(tests)
+    if policy_errors:
+        raise ValueError('Worktree test policy: ' + '; '.join(policy_errors))
     # Only the official runner owns the shared bundle's lifetime and cleanup.
     _state_run_all_284 = _CallbackState()
     if not baseline:

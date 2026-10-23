@@ -14,7 +14,6 @@ import issue_gate
 import pytest
 import sync_runtime
 import task_contract as tasks
-import worktree_state
 from issues.publication import save
 from script_loader import module
 from support.import_model_fixtures import operation_contract
@@ -66,7 +65,7 @@ def check_report_commit_independence(tmp_path, monkeypatch, kind):
     monkeypatch.setenv(tasks.SELECTOR, name)
     findings = Findings(tmp_path)
     task = TaskValidation(tmp_path, findings)
-    with mock.patch('worktree_state.task_start_commit', return_value=baseline) as start:
+    with mock.patch('model.importing.repository.task_start_commit', return_value=baseline) as start:
         task.fix_baseline()
         assert start.call_count == (0 if kind == 'reports' else 1)
         git('commit', '--quiet', '--allow-empty', '-m', 'advance HEAD')
@@ -111,7 +110,7 @@ def check_report_commit_independence(tmp_path, monkeypatch, kind):
     (tmp_path / 'untracked.txt').unlink()
     task.check_task_scope()
     assert not findings.errors, findings.errors
-    with mock.patch('worktree_state.task_start_commit', side_effect=AssertionError('report completion used a baseline')):
+    with mock.patch('model.importing.repository.task_start_commit', side_effect=AssertionError('report completion used a baseline')):
         tasks.complete(tmp_path, name)
     assert tasks.status((tmp_path / name).read_text()) == 'completed'
 
@@ -200,10 +199,6 @@ def check_deletion_task_selection(deletion_gate):
         '- Model operation: `import-delete`\n', '').replace('## Model delete sources\n- `stg/cde/vpc/009`\n', ''))
     with tasks.selected_task(root, other), pytest.raises(ValueError, match='unresolved issue'):
         require_no_issues(root, scope)
-    (root / '.git').mkdir()
-    with mock.patch.object(worktree_state, 'task_start_commit', side_effect=ValueError('selected task does not match managed task_file')):
-        with pytest.raises(ValueError, match='managed task_file'):
-            require_no_issues(root, scope)
 
 
 def check_remediation_still_requires_explicit_scope(deletion_gate):

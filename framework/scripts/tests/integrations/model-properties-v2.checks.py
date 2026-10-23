@@ -20,7 +20,7 @@ import model.observed as _imports_model_observed
 import model.operations as _imports_model_operations
 import model.sources as _imports_model_sources
 import pytest
-import support.worktree_task_fixtures as _imports_support_worktree_task_fixtures
+import support.repository_fixtures as _imports_support_repository_fixtures
 import sync_files as _imports_sync_files
 from generation_inputs import GenerationInputs
 from model.adapters.task import (
@@ -552,9 +552,9 @@ def _callback_check_managed_properties_save_concurrent(contract, failure, git, n
 
 @pytest.mark.parametrize('failure', ['none', 'task', 'source', 'unregistered', 'reuse', 'io', 'head', 'post-dependency', 'post-task', 'post-head', 'post-file-set', 'callback', 'process-death'])
 def check_managed_properties_save(monkeypatch, failure):
-    fixture = _imports_support_worktree_task_fixtures.fixture
-    git = _imports_support_worktree_task_fixtures.git
-    start = _imports_support_worktree_task_fixtures.start
+    fixture = _imports_support_repository_fixtures.fixture
+    git = _imports_support_repository_fixtures.git
+    start = _imports_support_repository_fixtures.start
 
     prepare_edit = _imports_model.prepare_edit
     publish_edit = _imports_model.publish_edit
@@ -609,7 +609,7 @@ def check_managed_properties_save(monkeypatch, failure):
                     prepare_edit(snapshot, {target / 'project.json': '{}'}, context)
                 return
             elif failure == 'process-death':
-                program = "import sys, os\nfrom pathlib import Path\nsys.path.insert(0, sys.argv[1])\nfrom task_contract import selected_task\nfrom model.adapters.task import source_write_context\nfrom model.sources import load_model\nfrom model.operations import prepare_edit, publish_edit\nfrom model.format import patch\nimport sync_files\nroot, name, path = Path(sys.argv[2]), sys.argv[3], Path(sys.argv[4])\ndef crash(outputs):\n    path.write_bytes(b'partial child bytes')\n    os._exit(17)\nwith selected_task(root, name), source_write_context(root, name) as context:\n    snapshot = load_model(path, context.snapshot)\n    candidate = patch(snapshot.documents[path], {'desired.row.007-001.comment': 'child candidate'})\n    plan = prepare_edit(snapshot, {path: candidate}, context)\n    sync_files.save_files = crash\n    publish_edit(plan, context)\n"
+                program = "import sys, os\nfrom pathlib import Path\nsys.path[:0] = [sys.argv[1], str(Path(sys.argv[1]) / 'tests')]\nfrom task_contract import selected_task\nfrom model.adapters.task import source_write_context\nfrom model.sources import load_model\nfrom model.operations import prepare_edit, publish_edit\nfrom model.format import patch\nimport sync_files\nroot, name, path = Path(sys.argv[2]), sys.argv[3], Path(sys.argv[4])\ndef crash(outputs):\n    path.write_bytes(b'partial child bytes')\n    os._exit(17)\nfrom support.publication_fixtures import publication_repository\nwith publication_repository(), selected_task(root, name), source_write_context(root, name) as context:\n    snapshot = load_model(path, context.snapshot)\n    candidate = patch(snapshot.documents[path], {'desired.row.007-001.comment': 'child candidate'})\n    plan = prepare_edit(snapshot, {path: candidate}, context)\n    sync_files.save_files = crash\n    publish_edit(plan, context)\n"
                 crashed = subprocess.run([sys.executable, '-B', '-c', program, str(FRAMEWORK / 'framework/scripts'), str(target), name, str(path)],
                                          capture_output=True, text=True, encoding='utf-8')
                 assert crashed.returncode == 17, crashed.stdout + crashed.stderr
@@ -767,9 +767,9 @@ def check_managed_observation_preserves_exact_authority(monkeypatch, change):
     prepare_observed = _imports_model_observed.prepare_observed
     prepare_edit = _imports_model_operations.prepare_edit
     publish_edit = _imports_model_operations.publish_edit
-    fixture = _imports_support_worktree_task_fixtures.fixture
-    git = _imports_support_worktree_task_fixtures.git
-    start = _imports_support_worktree_task_fixtures.start
+    fixture = _imports_support_repository_fixtures.fixture
+    git = _imports_support_repository_fixtures.git
+    start = _imports_support_repository_fixtures.start
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     with fixture() as root:
         scope = properties_fixture(root)
@@ -852,9 +852,9 @@ def check_managed_observation_preserves_exact_authority(monkeypatch, change):
 def check_ordinary_properties_edit_uses_real_task_guard(monkeypatch, tmp_path, change):
     prepare_edit = _imports_model_operations.prepare_edit
     publish_edit = _imports_model_operations.publish_edit
-    fixture = _imports_support_worktree_task_fixtures.fixture
-    git = _imports_support_worktree_task_fixtures.git
-    start = _imports_support_worktree_task_fixtures.start
+    fixture = _imports_support_repository_fixtures.fixture
+    git = _imports_support_repository_fixtures.git
+    start = _imports_support_repository_fixtures.start
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     with fixture() as root:
         scope = properties_fixture(root)

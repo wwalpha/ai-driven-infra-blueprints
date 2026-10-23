@@ -56,19 +56,14 @@ def accept(root, result_path, session, backend, units, current_units, current_ma
     for relative, record in result['changes'].items():
         if session['infraManifest'][relative] != record['before'] or current_manifest[relative] != record['after']:
             raise Blocked('repair before/after bytes changed')
-    deploy_snapshot = _imports_worktree_task.deploy_snapshot
-    load = _imports_worktree_task.load
-    output = _imports_worktree_task.output
-    paths = _imports_worktree_task.paths
-    task_worktree = _imports_worktree_task.task_worktree
-    _, _, lifecycle_path, lifecycle = load(root, Path(session['taskFile']).stem)
-    intent = lifecycle.get('deployIntegrationIntent', {})
-    if (task_worktree(root, lifecycle) != root or output(root, 'rev-parse', 'HEAD') != result['commit'] or
+    verify_integration_owner(root, request, result_path, result)
+    output = _dependency_deploy_contracts.output
+    paths = _dependency_deploy_contracts.paths
+    if (output(root, 'rev-parse', 'HEAD') != result['commit'] or
             output(root, 'rev-parse', result['commit'] + '^') != result['parentTip'] or
-            paths(root, 'diff', '--name-only', '--no-renames', '-z', result['parentTip'], result['commit']) != changed or
-            intent != {'requestId': request['requestId'], 'parentTip': result['parentTip'], 'commit': result['commit'], 'result': str(result_path)}):
+            paths(root, 'diff', '--name-only', '--no-renames', '-z', result['parentTip'], result['commit']) != changed):
         raise Blocked('repair integration history/parent lifecycle mismatch')
-    if deploy_snapshot(root) != result['validation']['snapshot']:
+    if _dependency_deploy_contracts.validation_snapshot(root) != result['validation']['snapshot']:
         raise Blocked('validation dependencies or file set changed after child validation')
     handoff.verify_inputs(root, session, child_paths=changed)
     effective = handoff.effective(root, units, backend.paths, backend.deployment_input_paths)
@@ -140,6 +135,17 @@ def accept(root, result_path, session, backend, units, current_units, current_ma
     backend.templates.clear()
     backend.expected_digests = session['unitDigests']
 
+
+
+def verify_integration_owner(root, request, result_path, result):
+    """Managed delivery adapter; receipt/history/content validation stays in accept."""
+    load = _imports_worktree_task.load
+    task_worktree = _imports_worktree_task.task_worktree
+    _, _, _, lifecycle = load(root, Path(request['taskFile']).stem)
+    if (task_worktree(root, lifecycle) != root or lifecycle.get('deployIntegrationIntent', {}) != {
+            'requestId': request['requestId'], 'parentTip': result['parentTip'],
+            'commit': result['commit'], 'result': str(result_path)}):
+        raise Blocked('repair integration history/parent lifecycle mismatch')
 
 def recover(backend, unit, state):
     if state.get('preExecutionRecovery'):

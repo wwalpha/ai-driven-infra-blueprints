@@ -28,12 +28,14 @@ def task_start_commit(root, name):
 
 def changed_paths(root, *, task_file=None):
     changed_paths = _imports_worktree_state.changed_paths
-    committed_task_paths = _imports_worktree_state.committed_task_paths
+    paths = _imports_worktree_state.paths
     changed = changed_paths(root)
     if contracts(root):
         path = contract_path(root, selected=task_file) if task_file is not None else task_path(root, required=False)
         if path is not None:
-            changed |= committed_task_paths(root, path.relative_to(root).as_posix()) or set()
+            start = task_start_commit(root, path.relative_to(root).as_posix())
+            if start is not None:
+                changed |= paths(root, 'diff', '--no-renames', '--name-only', '-z', start, 'HEAD')
     return changed
 
 
@@ -50,3 +52,8 @@ def task_worktree(root, state):
 def task_head(root):
     output = _imports_worktree_state.output
     return output(root, 'rev-parse', 'HEAD')
+
+
+def publication_revision(root, name):
+    """Opaque save authority; managed ownership and HEAD must both remain current."""
+    return _imports_worktree_state.managed_task_state(root, name), task_head(root)

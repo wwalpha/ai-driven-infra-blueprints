@@ -16,7 +16,7 @@ import model.files as _imports_model_files
 import model.files as model_files
 import model.format as _imports_model_format
 import model.sources as model_sources
-import support.worktree_task_fixtures as _fixture_managed_project_workspace
+import support.repository_fixtures as _fixture_publication_workspace
 from deploy.observed import removed_resources, sync_successful
 from deploy.preparation import candidate
 from deploy.session import design_digest, model_input_manifest
@@ -59,7 +59,7 @@ from support.cloudformation_deploy_fixtures import (
 )
 from support.model_sources import allocate_fixture as allocate
 from support.model_v2_fixtures import deploy_properties_fixture
-from support.worktree_task_fixtures import fixture, git, start
+from support.repository_fixtures import fixture, git, start
 from task_contract_core import paths_in, selected_task
 from utils.aws import cloudformation as cfn
 from utils.aws_catalogs import catalog_outputs
@@ -68,7 +68,7 @@ from utils.input_cache import input_scope, memo_table
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
-managed_project_workspace = _fixture_managed_project_workspace.managed_project_workspace
+publication_workspace = _fixture_publication_workspace.publication_workspace
 
 _CALLBACK_DEFAULT = object()
 
@@ -423,10 +423,10 @@ def _callback_check_shared_stack_mapping_measured(entry, *args):
     return result, lookups.call_count, bodies, expanded.call_count
 
 
-def check_shared_stack_mapping(managed_project_workspace):
+def check_shared_stack_mapping(publication_workspace):
     _state_check_shared_stack_mapping_395 = _CallbackState()
     read_model = _imports_model_files.read_model
-    root = managed_project_workspace
+    root = publication_workspace
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}) + "\n")
     source = root / "model/dev/123456789012/ec2.properties"
     source.parent.mkdir(parents=True)
@@ -818,8 +818,8 @@ def _callback_check_secretsmanager_arn_identifiers_aws(actual, outputs, /, opera
             {"StackResourceSummaries": actual})
 
 
-def check_secretsmanager_arn_identifiers(managed_project_workspace):
-    root = managed_project_workspace
+def check_secretsmanager_arn_identifiers(publication_workspace):
+    root = publication_workspace
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev", **TARGET}]}) + "\n")
     model = root / "model/dev/123456789012"
     model.mkdir(parents=True)

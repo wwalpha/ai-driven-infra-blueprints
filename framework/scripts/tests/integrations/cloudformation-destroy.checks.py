@@ -29,8 +29,8 @@ from model.render import markdown_for
 from support.model_sources import allocate_fixture as allocate
 from support.model_sources import snapshot_model, write_model
 from support.pytest_cli import run
-from support.worktree_task_fixtures import fixture as repository
-from support.worktree_task_fixtures import git, start
+from support.repository_fixtures import fixture as repository
+from support.repository_fixtures import git, start
 from task_contract_core import selected_task
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
