@@ -7,7 +7,7 @@ from pathlib import Path
 import project_targets as _imports_project_targets
 import worktree_task as _imports_worktree_task
 from cloudformation_inputs import Blocked
-from import_guard import read_sealed
+from utils.sealed_evidence import read_sealed
 from task_contract_core import section, task_path
 from utils.json_format import fingerprint
 

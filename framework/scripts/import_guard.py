@@ -18,14 +18,13 @@ import model.importing.repository as _imports_model_importing_repository
 import model.operations as _imports_model_operations
 import model.sources as _dependency_model_sources
 import task_contract_core as _imports_task_contract
-import utils.import_evidence as _receipt_storage
 import validation_scope as _imports_validation_scope
 from model.configuration import resource_configuration
 from sync_files import save_files
 from task_contract_core import contract_path, contracts, section, task_path
 from utils.aws_mappings import definition_root, mapping_alias
-from utils.file_operations import digest as digest
-from utils.file_operations import evidence_store as evidence_store
+from utils.json_format import document_sha256 as digest
+import utils.sealed_evidence as _sealed_evidence
 from utils.input_cache import _baselines as _baselines
 from utils.input_cache import baseline_scope as baseline_scope
 from utils.input_cache import (
@@ -47,7 +46,7 @@ def workflow(root, *, contract_file=None):
 
 
 def proof_path(root, *, contract_file=None):
-    return evidence_store(root) / ((contract_path(root, selected=contract_file) if contract_file is not None else task_path(root)).stem + '.json')
+    return _sealed_evidence.evidence_store(root) / ((contract_path(root, selected=contract_file) if contract_file is not None else task_path(root)).stem + '.json')
 
 
 def working_revision(root):
@@ -243,34 +242,6 @@ def file_hash(path):
 
 
 
-def seal_key(root):
-    return _receipt_storage.seal_key(root)
-
-
-def sealed(root, value):
-    return _receipt_storage.sealed(root, value, key_for=seal_key)
-
-
-def read_sealed(root, file):
-    return _receipt_storage.read_sealed(root, file, key_for=seal_key)
-
-
-def write_sealed(root, file, value):
-    return _receipt_storage.write_sealed(root, file, value, encode=sealed)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def managed_source_write(root: Path, task_file: str) -> bool:
     """Select the guarded intermediate path only for a real managed Model operation."""
     task_start_commit = _imports_model_importing_repository.task_start_commit
@@ -278,19 +249,6 @@ def managed_source_write(root: Path, task_file: str) -> bool:
     task_revision = _imports_task_contract.task_revision
     _, text = task_revision(root, selected=task_file)
     return bool(text and model_operation(text) is not None and task_start_commit(root, task_file) is not None)
-
-
-def managed_task_state(root: Path, name: str):
-    """Check live Task/worktree ownership; callers bind the returned state to their save."""
-    task_state = _imports_model_importing_repository.task_state
-    task_worktree = _imports_model_importing_repository.task_worktree
-    state = task_state(root, name)
-    if state['task_file'] != name or Path(state['worktree']) != root or state['merged'] is not None:
-        raise ValueError('source write task/worktree is mismatched or merged')
-    if task_worktree(root, state) != root:
-        raise ValueError('source write requires its managed worktree')
-    return state
-
 
 
 resource_config = resource_configuration

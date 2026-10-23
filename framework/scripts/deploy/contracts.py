@@ -6,8 +6,9 @@ import re
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+from utils.sealed_evidence import read_sealed
+
 import cloudformation_inputs as _imports_cloudformation_inputs
-import import_guard as _imports_import_guard
 import model.core as _imports_model_core
 import task_contract_core as _imports_task_contract
 import utils.json_format as _imports_utils_json_format
@@ -22,7 +23,6 @@ import deploy.handoff as _imports_deploy_handoff
 
 def accepted_changes(root, contract, changed):
     """Attribute exact child commit transitions; never grant the parent IaC write scope."""
-    read_sealed = _imports_import_guard.read_sealed
     task_path = _imports_task_contract.task_path
     fingerprint = _imports_utils_json_format.fingerprint
     if not any(path.startswith('infra/') for path in changed):

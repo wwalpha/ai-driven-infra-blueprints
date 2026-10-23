@@ -8,7 +8,7 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
-import import_guard as _imports_import_guard
+import worktree_state
 import project_targets as _imports_project_targets
 import task_contract_core as task_contract
 from aws_mapping_compare import MODEL_ONLY
@@ -20,9 +20,7 @@ from import_guard import (
     require_import_changes,
     workflow,
 )
-from import_guard import (
-    write_sealed as write_sealed,
-)
+from utils.sealed_evidence import write_sealed
 from script_loader import module as load_script
 from task_contract_core import section, selected_task, task_path
 from utils.file_operations import atomic_files
@@ -589,7 +587,7 @@ def _callback_recover_transaction_authorize(acquisition, evidence, expected_task
 @input_scope
 def recover_transaction(root, environment, service, evidence, selector=None, dry_run=False):
     """Restore only this Task's interrupted source/display transaction, with no AWS calls."""
-    managed_task_state = _imports_import_guard.managed_task_state
+    managed_task_state = worktree_state.managed_task_state
     if dry_run:
         raise ValueError('a dry-run acquisition cannot authorize transaction recovery')
     root, evidence = root.resolve(), Path(evidence).absolute()

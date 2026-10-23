@@ -6,10 +6,12 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
+from utils.sealed_evidence import read_sealed, write_sealed
+
 import deploy.contracts as _imports_deploy_contracts
 import deploy.handoff as _imports_deploy_handoff
 import deploy.inputs as _imports_deploy_inputs
-import import_guard as _imports_import_guard
+import worktree_state
 import model.core as _imports_model_core
 import model.sources as _imports_model_sources
 import task_contract as tasks
@@ -75,9 +77,7 @@ def bind_deploy_workflow(where, session_path, session, ledger, *, activate=False
     # Pure session units have no Git; production deploy already requires clean Git inputs.
     if not (where / '.git').exists():
         return
-    managed_task_state = _imports_import_guard.managed_task_state
-    read_sealed = _imports_import_guard.read_sealed
-    write_sealed = _imports_import_guard.write_sealed
+    managed_task_state = worktree_state.managed_task_state
     root, _, primary = wt.repository(where)
     directory = wt.metadata_directory(primary) / 'deploy-workflows'
     target = session['target']
@@ -129,7 +129,6 @@ def deploy_request(where, request_path):
     """Read the sealed handoff through the parent seal and verify its live checkpoint."""
     task_digest = _imports_deploy_contracts.task_digest
     external = _imports_deploy_handoff.external
-    read_sealed = _imports_import_guard.read_sealed
     request_path = external(Path(where), request_path)
     envelope = json.loads(request_path.read_text(encoding='utf-8'))
     parent = Path(envelope['payload']['repository'])
@@ -160,7 +159,6 @@ def deploy_checkpoint(where, task_id, session_path):
 
     handoff = _imports_deploy_handoff
     task_digest = _imports_deploy_contracts.task_digest
-    write_sealed = _imports_import_guard.write_sealed
     root, _, path, state = wt.load(where, task_id)
     target = wt.task_worktree(root, state)
     session_path = handoff.external(target, session_path)
@@ -243,7 +241,6 @@ def deploy_snapshot(target):
 
 def deploy_validate(where, task_id, request_path):
     handoff = _imports_deploy_handoff
-    write_sealed = _imports_import_guard.write_sealed
     root, _, path, state = wt.load(where, task_id)
     target = wt.task_worktree(root, state)
     _, _, parent_state, session, request = wt.deploy_request(target, request_path)
@@ -313,8 +310,6 @@ def deploy_finalize(where, task_id):
     handoff = _imports_deploy_handoff
     sha = _imports_deploy_contracts.sha
     subprocess_bytes = _imports_deploy_contracts.subprocess_bytes
-    read_sealed = _imports_import_guard.read_sealed
-    write_sealed = _imports_import_guard.write_sealed
     root, _, path, state = wt.load(where, task_id)
     target = wt.task_worktree(root, state)
     _, parent_path, parent_state, session, request = wt.deploy_request(target, state['deployRepair'])

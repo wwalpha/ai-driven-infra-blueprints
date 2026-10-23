@@ -6,7 +6,6 @@ import hashlib
 from functools import partial as _bind_framework_callback
 
 import generation_inputs as _imports_generation_inputs
-import import_guard as _imports_import_guard
 import model.adapters.observed as _imports_model_adapters_observed
 import sync_runtime as _imports_sync_runtime
 from cloudformation_inputs import Blocked
@@ -143,7 +142,6 @@ def verify_generated_journal(root, plan, record):
 
 
 def _identity(root, session, target, environment, directory):
-    managed_task_state = _imports_import_guard.managed_task_state
     task = task_path(root)
     text = task.read_text(encoding='utf-8')
     validate_contract(root, task.relative_to(root).as_posix(), text)
@@ -152,7 +150,6 @@ def _identity(root, session, target, environment, directory):
         raise Blocked('observed plan Task/repository changed')
     return {'repository': str(root), 'taskFile': session['taskFile'], 'taskDigest': task_digest(text),
             'taskBytes': hashlib.sha256(task.read_bytes()).hexdigest(),
-            'managedTask': managed_task_state(root, session['taskFile']),
             'environment': environment, 'directory': directory, 'target': target,
             **{key: session[key] for key in ('inputDigest', 'executionDigest', 'infraManifest')}}
 
@@ -192,7 +189,9 @@ def validate_plan(root, session, target, environment, directory):
     if (plan['originals'].keys() != plan['outputs'].keys()
             or plan['beforeManifest'].keys() != plan['afterManifest'].keys()):
         raise Blocked('observed plan file sets differ')
-    if plan['identity'] != _identity(root, session, target, environment, directory):
+    # Old signed plans retain this field; only Worktree metadata is excluded.
+    identity = {key: value for key, value in plan['identity'].items() if key != 'managedTask'}
+    if identity != _identity(root, session, target, environment, directory):
         raise Blocked('observed plan Task/target/session identity changed')
     if plan['evidence'] != evidence(session['states'], plan['evidence']):
         raise Blocked('observed plan execution evidence changed')

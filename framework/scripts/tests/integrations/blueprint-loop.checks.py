@@ -2,6 +2,7 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 
 import sys
+import shutil
 from datetime import datetime, timezone
 from functools import partial as _bind_framework_callback
 from pathlib import Path
@@ -12,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pstats
 
+from utils import sealed_evidence
 import import_guard
 import run_it as _imports_run_it
 from model.importing import evidence
@@ -853,6 +855,19 @@ def main():
     return run(__file__, message='blueprint-loop: PASS')
 
 
+def _snapshot_evidence_git(source, root, *args, **kwargs):
+    if args[0] == 'init':
+        (root / '.git').mkdir()
+    elif args[0] == 'read-tree':
+        shutil.copytree(source, root, dirs_exist_ok=True)
+    return 'synthetic-revision'
+
+
+def _snapshot_evidence_pack(command, **kwargs):
+    assert command[:2] in (['git', 'pack-objects'], ['git', 'index-pack'])
+    return SimpleNamespace(returncode=0)
+
+
 @pytest.mark.parametrize('result', [0, 1])
 def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
 
@@ -865,21 +880,21 @@ def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', selected)
     monkeypatch.setattr(import_guard.tempfile, 'gettempdir', lambda: str(tmp_path))
     monkeypatch.setattr(import_guard, 'require_import_changes', lambda root: None)
-    monkeypatch.setattr(evidence, 'read_proof', lambda root: import_guard.read_sealed(root, import_guard.proof_path(root)))
+    monkeypatch.setattr(evidence, 'read_proof', lambda root: sealed_evidence.read_sealed(root, import_guard.proof_path(root)))
     # Authorization is covered by Import IT; this fixture runs the real staged copy/finally boundary.
     (scripts / 'blueprint-loop.py').write_text('raise SystemExit(' + str(result) + ')\n')
-    MODULE.git(root, 'init', '-q')
-    MODULE.git(root, 'add', '.')
-    MODULE.git(root, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'base')
+    monkeypatch.setattr(MODULE, 'git', _bind_framework_callback(_snapshot_evidence_git, root))
+    monkeypatch.setattr(MODULE, 'index_tree', lambda *args: 'synthetic-tree')
+    monkeypatch.setattr(MODULE.subprocess, 'run', _snapshot_evidence_pack)
     proof = {'version': 6, **FORMAT_FIELDS, 'task': selected, 'acquiredAt': datetime.now(timezone.utc).isoformat()}
-    import_guard.write_sealed(root, import_guard.proof_path(root), proof)
+    sealed_evidence.write_sealed(root, import_guard.proof_path(root), proof)
     saved = import_guard.proof_path(root).read_bytes()
     directory = tmp_path / 'logs'
     directory.mkdir()
     args = SimpleNamespace(base='HEAD', mode='task', jobs=1, validation_jobs=1, fresh=False, all=False, affected=False, profile=False)
     assert MODULE.staged_snapshot(root, args, directory, MODULE.utf8_environment()) == result
     snapshot = directory / 'repository'
-    assert not import_guard.evidence_store(snapshot, create=False).exists()
+    assert not sealed_evidence.evidence_store(snapshot, create=False).exists()
     assert import_guard.proof_path(root).read_bytes() == saved
     assert not (root / '.blueprint').exists() and not (snapshot / '.blueprint').exists()
     import_guard.discard_import_proof(root, selected)

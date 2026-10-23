@@ -15,7 +15,7 @@ import task_contract_core as _imports_task_contract
 import utils.aws_mappings as _imports_utils_aws_mappings
 import worktree_task as _imports_worktree_task
 from cloudformation_inputs import Blocked
-from import_guard import evidence_store, read_sealed, write_sealed
+from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 from task_contract_core import safe_path, task_path
 from task_contract_core import task_digest as task_digest
 from utils.cloudformation_format import decode

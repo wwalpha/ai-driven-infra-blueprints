@@ -7,7 +7,7 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 import generation_inputs as _imports_generation_inputs
-import import_guard as _imports_import_guard
+import worktree_state
 import issue_gate as _imports_issue_gate
 import task_contract_core as _imports_task_contract
 import utils.input_cache as _imports_validation_cache
@@ -82,7 +82,7 @@ def _callback__write_context_require_current(allowed, declared, head, managed_ta
 def _write_context(root, task_file, *, requested=None):
     """Authorize one Model-only intermediate save, without running final validation."""
     GenerationInputs = _imports_generation_inputs.GenerationInputs
-    managed_task_state = _imports_import_guard.managed_task_state
+    managed_task_state = worktree_state.managed_task_state
     require_no_issues = _imports_issue_gate.require_no_issues
     matches = _imports_task_contract.matches
     model_operation = _imports_task_contract.model_operation

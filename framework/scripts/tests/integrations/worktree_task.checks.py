@@ -15,6 +15,7 @@ import io
 import venv
 from contextlib import redirect_stderr
 
+from utils import sealed_evidence
 import import_guard as _imports_import_guard
 import import_guard as guard
 import pytest
@@ -470,8 +471,8 @@ def check_cleanup_failure_and_retry():
         assert "ignored files" in cli(root, "cleanup", success=False)["error"]
         assert (target / "secret.bin").read_bytes() == b"ignored human data"
         (target / "secret.bin").rename(root.parent / "saved-secret.bin")
-        evidence_store = _imports_import_guard.evidence_store
-        write_sealed = _imports_import_guard.write_sealed
+        evidence_store = sealed_evidence.evidence_store
+        write_sealed = sealed_evidence.write_sealed
         evidence = evidence_store(target)
         own, other = evidence / 'example.json', evidence / 'other.json'
         write_sealed(target, own, {'task': state['task_file']})
@@ -726,7 +727,7 @@ def check_approved_model_reads():
                             'scope': ['dev', 'cde', 'vpc'], 'sources': {relative: '0' * 64}}[key]
                     receipt = guard.proof_path(target)
                     if mode != 'missing':
-                        guard.write_sealed(target, receipt, proof)
+                        sealed_evidence.write_sealed(target, receipt, proof)
                     if mode == 'tampered':
                         receipt.write_text(receipt.read_text().replace('fixture-plan', 'modified-plan'))
             tasks.suspend(target, state['task_file'], 'Synthetic validation FAIL: properties')

@@ -18,6 +18,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from utils import sealed_evidence
 import import_guard
 import issue_gate as _imports_issue_gate
 import model.format as _imports_model_format
@@ -367,14 +368,14 @@ def check_candidate_scope_and_changed_files(tmp_path):
 def check_sealed_evidence_tamper(tmp_path):
     file = tmp_path / 'acquisition.json'
     value = {'scope': ['dev', 'cde', 'vpc'], 'records': [record()], 'sts': {'verified': True}}
-    with patch.object(import_guard, 'seal_key', return_value=b'x' * 32):
-        file.write_text(import_guard.sealed(tmp_path, value), encoding='utf-8')
-        assert import_guard.read_sealed(tmp_path, file) == value
+    with patch.object(sealed_evidence, 'seal_key', return_value=b'x' * 32):
+        file.write_text(sealed_evidence.sealed(tmp_path, value), encoding='utf-8')
+        assert sealed_evidence.read_sealed(tmp_path, file) == value
         data = json.loads(file.read_text(encoding='utf-8'))
         data['payload']['records'][0]['identity'] = 'fabricated'
         file.write_text(json.dumps(data), encoding='utf-8')
         with pytest.raises(ValueError, match='modified'):
-            import_guard.read_sealed(tmp_path, file)
+            sealed_evidence.read_sealed(tmp_path, file)
 
 
 @pytest.mark.parametrize('args', [[], ['--environment', 'dev', '--service', 'vpc'],
@@ -728,7 +729,7 @@ def check_external_completion_proof(tmp_path, monkeypatch, failure):
         proof['scope'] = ['dev', 'cde', 'vpc']
     file = import_guard.proof_path(root)
     assert not file.is_relative_to(root)
-    import_guard.write_sealed(root, file, proof)
+    sealed_evidence.write_sealed(root, file, proof)
     if failure == 'tamper':
         file.write_text(file.read_text().replace('verified', 'fabricated'))
     elif failure == 'missing':
@@ -760,7 +761,7 @@ def check_snapshot_proof_resigning_and_cleanup(tmp_path, monkeypatch):
              'model': 'unchanged', 'markdown': 'unchanged', 'ownedArtifacts': [],
              'acquiredAt': datetime.now(timezone.utc).isoformat()}
     review_proof_fixture(root, proof)
-    import_guard.write_sealed(root, import_guard.proof_path(root), proof)
+    sealed_evidence.write_sealed(root, import_guard.proof_path(root), proof)
     import_guard.copy_import_proof(root, snapshot)
     with pytest.raises(ValueError, match='no verified'):
         import_guard.read_proof(snapshot)
@@ -1127,7 +1128,7 @@ def check_intermediate_source_context(tmp_path, monkeypatch, action):
     state = {'task_file': name, 'worktree': str(tmp_path), 'merged': None}
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/wrong.md')
     candidate = serialize(raw) + '# intermediate save\n'
-    with patch('import_guard.managed_task_state', return_value=state), \
+    with patch('worktree_state.managed_task_state', return_value=state), \
          patch.object(worktree_state, 'output', return_value='synthetic-head'), \
          patch.object(GenerationInputs, 'open_stage', side_effect=AssertionError('intermediate save cannot stage')), \
          patch('model.operations.verify_model_operation', side_effect=AssertionError('intermediate save cannot run final whole-design proof')):

@@ -133,3 +133,13 @@ def subprocess_bytes(root, revision, relative):
     if result.returncode:
         raise ValueError('recorded IaC blob missing')
     return result.stdout
+
+
+def managed_task_state(root: Path, name: str):
+    """Check live Task/worktree ownership; callers bind the returned state to their save."""
+    state = load(root, Path(name).stem)[3]
+    if state['task_file'] != name or Path(state['worktree']) != root or state['merged'] is not None:
+        raise ValueError('source write task/worktree is mismatched or merged')
+    if task_worktree(root, state) != root:
+        raise ValueError('source write requires its managed worktree')
+    return state

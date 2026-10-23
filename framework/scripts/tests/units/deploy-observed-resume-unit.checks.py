@@ -1,6 +1,7 @@
 """Pure classification/authorization checks for durable observed publication plans."""
 
 import sys
+import json
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from unittest.mock import patch
 
 import pytest
 from cloudformation_inputs import Blocked
-from deploy import observed
+from deploy import observed, handoff
 from deploy import observed_resume as M
 from deploy import session as controller
 from task_contract_core import selected_task
@@ -101,11 +102,15 @@ def proposal(tmp_path):
         yield tmp_path, session, source, old, new
 
 
-@pytest.mark.parametrize('problem', ['none', 'task', 'evidence', 'manifest', 'candidate', 'desired', 'bytes', 'file-set', 'allowed', 'stage', 'original-set', 'manifest-set'])
+@pytest.mark.parametrize('problem', ['none', 'legacy', 'legacy-other', 'task', 'evidence', 'manifest', 'candidate', 'desired', 'bytes', 'file-set', 'allowed', 'stage', 'original-set', 'manifest-set'])
 def check_plan_validation(proposal, problem):
     root, session, source, old, new = proposal
     plan = session['pendingObserved']
     relative = source.relative_to(root).as_posix()
+    if problem in {'legacy', 'legacy-other'}:
+        plan['identity']['managedTask'] = {'merged': 'changed-since-plan', 'other': 'old metadata'}
+    if problem == 'legacy-other':
+        plan['identity']['unexpected'] = True
     if problem == 'task':
         plan['identity'] = {'target': 'changed'}
     if problem == 'evidence':
@@ -129,11 +134,29 @@ def check_plan_validation(proposal, problem):
     if problem == 'manifest-set':
         plan['afterManifest']['extra'] = None
     with patch.object(M, '_identity', return_value={'target': 'pinned'}):
-        if problem == 'none':
+        if problem in {'none', 'legacy'}:
             assert M.validate_plan(root, session, {}, 'dev', 'team') is plan
         else:
             with pytest.raises((ValueError, Blocked)):
                 M.validate_plan(root, session, {}, 'dev', 'team')
+
+
+def check_signed_legacy_plan(proposal):
+    root, session, _, _, _ = proposal
+    session.update(repository=str(root), taskFile='tasks/deploy.md')
+    plan = session['pendingObserved']
+    plan['identity']['managedTask'] = {'merged': 'legacy state', 'tip': 'old'}
+    path = root / 'session.json'
+    handoff.bind(root, path, session)
+    handoff.save(path, session)
+    restored = json.loads(path.read_text(encoding='utf-8'))
+    handoff.restore(root, path, restored)
+    with patch.object(M, '_identity', return_value={'target': 'pinned'}):
+        assert M.validate_plan(root, restored, {}, 'dev', 'team') == plan
+    # Even the ignored metadata cannot be tampered with outside the signed Session.
+    restored['pendingObserved']['identity']['managedTask'] = {}
+    with pytest.raises(Blocked, match='ledger'):
+        handoff.restore(root, path, restored)
 
 
 def check_intent_save_failure(proposal):
@@ -169,10 +192,9 @@ def check_exact_task_bytes_bound(proposal):
     task.write_text(task.read_text().replace('## Task contract', '## Task contract\n- Authorized delete/replacement: `none`'))
     session.update(repository=str(root), taskFile='tasks/deploy.md', taskDigest=M.task_digest(task.read_text()),
                    inputDigest='inputs', executionDigest='execution', infraManifest={})
-    with patch('import_guard.managed_task_state', return_value={'worktree': str(root)}):
-        original = M._identity(root, session, {}, 'dev', 'team')
-        task.write_text(task.read_text().replace('Authorized delete/replacement: `none`', 'Authorized delete/replacement: `all`'))
-        changed = M._identity(root, session, {}, 'dev', 'team')
+    original = M._identity(root, session, {}, 'dev', 'team')
+    task.write_text(task.read_text().replace('Authorized delete/replacement: `none`', 'Authorized delete/replacement: `all`'))
+    changed = M._identity(root, session, {}, 'dev', 'team')
     assert original['taskDigest'] == changed['taskDigest']
     assert original['taskBytes'] != changed['taskBytes']
 

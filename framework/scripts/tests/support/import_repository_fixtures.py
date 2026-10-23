@@ -7,8 +7,9 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import import_guard as _imports_import_guard
+from utils import sealed_evidence
 import model.importing.repository as _imports_model_importing_repository
+import worktree_state
 
 _cases = ContextVar('import_it_repositories', default=None)
 
@@ -74,13 +75,13 @@ def repositories(monkeypatch):
         patch.setattr(repository, 'task_head', lambda root: state(root).head)
         patch.setattr(repository, 'task_start_commit', lambda root, name: state(root).base)
         patch.setattr(repository, 'changed_paths', changed)
-        patch.setattr(repository, 'task_state', task_state)
-        patch.setattr(repository, 'task_worktree', lambda root, value: state(root).owner)
+        patch.setattr(worktree_state, 'load', lambda root, task_id: (None, None, None, task_state(root, 'tasks/' + task_id + '.md')))
+        patch.setattr(worktree_state, 'task_worktree', lambda root, value: state(root).owner)
         try:
             yield cases
         finally:
             _cases.reset(token)
-            evidence_store = _imports_import_guard.evidence_store
+            evidence_store = sealed_evidence.evidence_store
             for root in cases:
                 directory = evidence_store(root, create=False)
                 if directory.exists():

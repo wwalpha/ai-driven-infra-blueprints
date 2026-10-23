@@ -15,6 +15,7 @@ import subprocess
 from unittest.mock import patch
 
 import import_guard
+from utils import sealed_evidence
 import model.importing.scope as _imports_model_importing_scope
 import model.sources
 import pytest
@@ -469,7 +470,7 @@ def check_repeat_without_reformat(tmp_path):
         assert publish_fixture(root, again)['status'] == 'complete'
         import_guard.require_import_changes(root)
     with selected_task(root, old_name):
-        assert import_guard.read_sealed(root, import_guard.proof_path(root))['complete']
+        assert sealed_evidence.read_sealed(root, import_guard.proof_path(root))['complete']
 
 
 def check_fixed_identity_rejection(tmp_path):
@@ -850,7 +851,7 @@ def check_user_selected_overwrite_publication(tmp_path, action, dry_run):
     assert Path(acquired['evidence']).is_file()
     if dry_run:
         assert snapshot(root) == original
-        assert not (import_guard.evidence_store(root) / 'import-fixture.json').exists()
+        assert not (sealed_evidence.evidence_store(root) / 'import-fixture.json').exists()
     else:
         after = load_model(path)
         assert after.authoritative['desired.row.001-002.value'] == '`90`'
@@ -1001,7 +1002,7 @@ def check_approval_bound_save_guard(tmp_path, tamper):
             del proof['reviewBinding']
         else:
             proof['reviewBinding'][{'risk': 'recordsDigest'}.get(tamper, tamper)] = 'forged'
-        import_guard.write_sealed(root, import_guard.proof_path(root), proof)
+        sealed_evidence.write_sealed(root, import_guard.proof_path(root), proof)
         with pytest.raises(ValueError, match='no verified /import evidence|differs from acquired change plan'):
             import_guard.require_import_changes(root)
     assert source_files(root) == original
@@ -1068,7 +1069,7 @@ def check_gitless_guard_boundaries(tmp_path, boundary):
         with pytest.raises(ValueError, match='stale|changed|mismatched|outside|scope|target|declare'):
             m.publish_acquisition(root, 'dev', 'cloudwatch-logs', acquired['evidence'], TARGET)
         assert source_files(root) == before
-        assert not (import_guard.evidence_store(root) / 'import-fixture.json').exists()
+        assert not (sealed_evidence.evidence_store(root) / 'import-fixture.json').exists()
     assert not (root / '.git').exists()
 
 

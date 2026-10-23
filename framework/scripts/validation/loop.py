@@ -21,6 +21,8 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
 
+from utils.sealed_evidence import evidence_store
+
 import import_guard as _imports_import_guard
 import task_contract_core as _imports_task_contract
 import validation.runner as _imports_validation_runner
@@ -513,6 +515,7 @@ def select_checks(root, paths, affected=False, *, integration_cases=None):
     mapping['framework/scripts/task_contract_runtime.py'] = {'task-contract-unit.checks.py', 'task_contract.checks.py', 'worktree_task.checks.py'}
     mapping['framework/scripts/worktree_runtime.py'] = {'worktree-guard-unit.checks.py', 'worktree_task.checks.py', 'deploy-controller.checks.py'}
     mapping['framework/scripts/utils/import_evidence.py'] = {'import-model-unit.checks.py', 'import-model.checks.py', 'import-worktree-contract.checks.py'}
+    mapping['framework/scripts/utils/sealed_evidence.py'] = {'sealed-evidence-unit.checks.py', 'import-model-unit.checks.py', 'import-approval-unit.checks.py', 'deploy-handoff-unit.checks.py', 'deploy-observed-resume-unit.checks.py', 'worktree-guard-unit.checks.py', 'import-model.checks.py::check_evidence_and_display_recovery', 'worktree_task.checks.py::check_cleanup_failure_and_retry'}
     known = {check.name for check in checks}
     if integration_cases is not None:
         known.update(Path(path).name + '::' + name for path, name in integration_cases)
@@ -619,7 +622,6 @@ def staged_snapshot(root, args, directory, environment):
     finally:
         if import_task:
             discard_import_proof = _imports_import_guard.discard_import_proof
-            evidence_store = _imports_import_guard.evidence_store
             discard_import_proof(snapshot, selected)
             store = evidence_store(snapshot)
             # This freshly created snapshot owns its seal; source evidence is retained.

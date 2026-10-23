@@ -21,7 +21,7 @@ import task_contract_core as task_contract
 import utils.json_format as _imports_utils_json_format
 from project_targets import DeployContextError, select_target
 from sync_progress import phase, thread_lock
-from utils.file_operations import evidence_store
+from utils.sealed_evidence import evidence_store
 from utils.input_cache import (
     input_is_symlink,
     memo_table,

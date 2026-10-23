@@ -5,6 +5,9 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
+
+import worktree_state
 import import_guard as _imports_import_guard
 import task_contract_core as _imports_task_contract
 import utils.import_evidence as _receipt_storage
@@ -22,7 +25,6 @@ def read_proof(root, *, contract_file=None):
     base_revision = _imports_import_guard.base_revision
     digest = _imports_import_guard.digest
     proof_path = _imports_import_guard.proof_path
-    read_sealed = _imports_import_guard.read_sealed
     workflow = _imports_import_guard.workflow
     safe_path = _imports_task_contract.safe_path
 
@@ -72,7 +74,6 @@ def record_import(root, output, evidence, plan, complete=True, *, review_binding
     proof_path = _imports_import_guard.proof_path
     text_hash = _imports_import_guard.text_hash
     workflow = _imports_import_guard.workflow
-    write_sealed = _imports_import_guard.write_sealed
 
     verify_review_binding = _imports_model_importing_approval.verify_review_binding
     selected = _imports_model_importing_scope.selected
@@ -110,7 +111,6 @@ def record_import(root, output, evidence, plan, complete=True, *, review_binding
 def finish_import(root, model=None, markdown=None):
     proof_path = _imports_import_guard.proof_path
     require_import_changes = _imports_import_guard.require_import_changes
-    write_sealed = _imports_import_guard.write_sealed
     require_import_changes(root, generation=True)
     proof = read_proof(root)
     if model is not None:
@@ -125,7 +125,6 @@ def copy_import_proof(root, snapshot):
     """Carry only currently valid evidence into an existing staged validation snapshot."""
     proof_path = _imports_import_guard.proof_path
     require_import_changes = _imports_import_guard.require_import_changes
-    write_sealed = _imports_import_guard.write_sealed
     require_import_changes(root)
     proof = read_proof(root)
     destination = proof_path(snapshot)
@@ -139,11 +138,9 @@ def discard_import_proof(root, task_name):
 
 def acquired(root, identity, ctx, records, sources, consumers, dry_run, *, source_sets):
     base_revision = _imports_import_guard.base_revision
-    evidence_store = _imports_import_guard.evidence_store
-    managed_task_state = _imports_import_guard.managed_task_state
+    managed_task_state = worktree_state.managed_task_state
     workflow = _imports_import_guard.workflow
     working_revision = _imports_import_guard.working_revision
-    write_sealed = _imports_import_guard.write_sealed
 
     inventory_for = _imports_model_importing_inventory.inventory_for
     if not ctx.verified or ctx.services != (identity[2],) or not ctx.trace:
@@ -176,9 +173,7 @@ def acquired(root, identity, ctx, records, sources, consumers, dry_run, *, sourc
 
 def read_acquisition(root, file, identity, dry_run):
     base_revision = _imports_import_guard.base_revision
-    evidence_store = _imports_import_guard.evidence_store
-    managed_task_state = _imports_import_guard.managed_task_state
-    read_sealed = _imports_import_guard.read_sealed
+    managed_task_state = worktree_state.managed_task_state
     workflow = _imports_import_guard.workflow
     working_revision = _imports_import_guard.working_revision
     file = Path(file).absolute()
@@ -232,7 +227,6 @@ def require_fresh_acquisition(value):
 
 
 def discard_acquisition(root, file):
-    evidence_store = _imports_import_guard.evidence_store
     file = Path(file).absolute()
     if file.name != 'acquisition.json' or file.parent.parent != evidence_store(root) or not file.parent.name.startswith('session-') or file.parent.is_symlink():
         raise ValueError('IMPORT refusing to remove an unknown temporary directory')
