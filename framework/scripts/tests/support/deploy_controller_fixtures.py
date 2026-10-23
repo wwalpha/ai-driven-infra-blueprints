@@ -30,6 +30,7 @@ import sync_files as _imports_sync_files
 import sync_runtime
 from botocore.exceptions import ClientError, ReadTimeoutError
 from cloudformation_inputs import condition_active
+from deploy import session
 from deploy.controller import main
 from model.files import read_model
 from project_targets import load_target
@@ -503,6 +504,8 @@ def invoke(root, state_path, aws_path, options=(), fail_observed=False, fault=No
     unlink = _bind_framework_callback(_callback_invoke_unlink, fault, journal, original_unlink)
     replace = _bind_framework_callback(_callback_invoke_replace, aws_path, original_replace, state_path)
     with ExitStack() as stack:
+        stack.enter_context(patch.object(session, 'run_session', partial(session.run_session, sleep=lambda _: None)))
+        stack.enter_context(patch.object(session, 'run_group', partial(session.run_group, sleep=lambda _: None)))
         stack.enter_context(patch.object(Path, 'replace', replace))
         stack.enter_context(patch('utils.aws.client.client', clients(root, state_path, aws_path)))
         stack.enter_context(patch('socket.socket.connect', side_effect=AssertionError('network forbidden')))
