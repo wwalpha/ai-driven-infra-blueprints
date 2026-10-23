@@ -70,7 +70,8 @@ def seed(root, state_path, case='orders'):
         values = fixture['data'][service]
         values.update(allocate_fixture(values, ['001', '002'] if service in ('s3', 'ec2') else ['001']))
         values[f'desired.service.{service}.serviceId'] = service
-        values[f'desired.service.{service}.ownedCatalogResourceTypes'] = ','.join(sorted({v for k, v in values.items() if k.endswith('.resourceType')}))
+        values[f'desired.service.{service}.ownedCatalogResourceTypes'] = ','.join(sorted({v for k, v in values.items() if k.endswith('.resourceType')} |
+            {'.'.join(v.split('.')[:2]) for k, v in values.items() if k.startswith('desired.row.') and k.endswith('.property')}))
         values['display.service.title'] = '# 合成詳細設計'
         for identity in ('001', '002') if service in ('s3', 'ec2') else ('001',):
             values[f'display.resource.{identity}.comment'] = '合成resource'
@@ -204,7 +205,7 @@ def clients(root, state_path, aws_path):
                 elif operation == 'list_stack_resources':
                     document = state['changes'].get(name, {}).get('document', {})
                     result = {'StackResourceSummaries': [{'LogicalResourceId': logical, 'ResourceType': definition['Type'],
-                        'PhysicalResourceId': secret if logical == 'Secret' else 'fixture-first' if logical == 'Bucket' else 'vpc-fixture' if logical == 'Vpc' else 'subnet-fixture' if logical == 'Subnet' else 'integrated-child',
+                        'PhysicalResourceId': secret if logical == 'Secret' else 'app-dev-bucket' if logical == 'Bucket' else 'vpc-fixture' if logical == 'Vpc' else 'subnet-fixture' if logical == 'Subnet' else 'integrated-child',
                         'ResourceStatus': 'CREATE_COMPLETE'} for logical, definition in document.get('Resources', {}).items()
                         if definition.get('Condition') != 'Disabled']}
                     if stack and stack['status'] == 'ROLLBACK_COMPLETE':

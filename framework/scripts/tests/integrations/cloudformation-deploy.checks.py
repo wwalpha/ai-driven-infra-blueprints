@@ -137,6 +137,13 @@ def observed_collector_seed(root):
         stack_values.update({f'desired.stack.{number:03d}.' + key: value for key, value in unit.items()})
     write_model(source.with_name('cloudformation-stacks.properties'), stack_values)
     save_model()
+    unrelated = root / "model/prod/999999999999/broken.properties"
+    unrelated.parent.mkdir(parents=True)
+    unrelated.write_text('# model-format: 2\ninvalid=one\n')
+    project = root / 'project.json'
+    data = json.loads(project.read_text())
+    data['targets'].append({'environment': 'prod', 'awsAccountId': '999999999999', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'})
+    project.write_text(json.dumps(data) + '\n')
 
 
 @pytest.fixture
@@ -219,16 +226,14 @@ def check_observed_collector(observed_collector_root):
     import shutil
     remove_model(consumer)
     unrelated = root / "model/prod/999999999999/broken.properties"
-    unrelated.parent.mkdir(parents=True)
-    unrelated.write_text('# model-format: 2\ninvalid=one\n')
-    project = root / 'project.json'
-    data = json.loads(project.read_text())
-    data['targets'].append({'environment': 'prod', 'awsAccountId': '999999999999', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'})
-    project.write_text(json.dumps(data) + '\n')
+    # A malformed source cannot be classified as unrelated; syntactically valid
+    # metadata with unrelated semantic errors does not block the selected update.
+    original = unrelated.read_text()
+    unrelated.write_text('broken syntax\n')
     saved = states([unit])
-    rejects(lambda: sync_successful(backend, [unit], saved), 'invalid Model key')
+    rejects(lambda: sync_successful(backend, [unit], saved), 'unsupported Model format')
     assert snapshot_model(source) == before
-    unrelated.unlink()
+    unrelated.write_text(original)
     with redirect_stdout(io.StringIO()):
         sync_successful(backend, [unit], saved)
     observed = properties(read_model(source))

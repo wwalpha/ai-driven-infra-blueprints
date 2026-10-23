@@ -13,6 +13,7 @@ base:
       Resources:
         Bucket:
           Type: AWS::S3::Bucket
+          Properties: {BucketName: app-dev-bucket}
         Subnet:
           Type: AWS::EC2::Subnet
           Properties: {VpcId: vpc-existing, CidrBlock: 10.0.1.0/24}
@@ -42,7 +43,7 @@ base:
       desired.resource.001.resourceType: S3.Bucket
       desired.resource.001.cfn-logicalId: cfn-stack-app-dev-first-Bucket
       desired.row.001-001.property: S3.Bucket.BucketName
-      desired.row.001-001.value: '[bucket](#resource-S3_Bucket_001)'
+      desired.row.001-001.value: '`app-dev-bucket`'
       desired.row.001-001.comment: 識別子
       desired.row.001-002.property: S3.BucketPolicy.PolicyDocument
       desired.row.001-002.value: '[policy](s3/s3-bucket-001-bucket-policy.json)'
@@ -67,7 +68,7 @@ base:
       desired.row.001-001.comment: 識別子
       desired.row.001-002.property: EC2.VPC.CidrBlock
       desired.row.001-002.value: '`10.0.0.0/16`'
-      desired.row.001-002.comment: CIDR
+      desired.row.001-002.comment: アドレス範囲
       desired.row.001-003.property: EC2.VPC.Name
       desired.row.001-003.value: '`app-dev-vpc`'
       desired.row.001-003.comment: 名前
@@ -84,7 +85,7 @@ base:
       desired.row.002-003.comment: 合成VPC
       desired.row.002-004.property: EC2.Subnet.CidrBlock
       desired.row.002-004.value: '`10.0.1.0/24`'
-      desired.row.002-004.comment: CIDR
+      desired.row.002-004.comment: アドレス範囲
       desired.row.002-005.property: EC2.Subnet.Name
       desired.row.002-005.value: '`app-dev-subnet`'
       desired.row.002-005.comment: 名前
