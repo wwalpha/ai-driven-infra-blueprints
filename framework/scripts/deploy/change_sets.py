@@ -91,6 +91,7 @@ def verify_stack_ownership(aws, templates, unit):
 
 def begin_prepare(unit, state, aws, save, check_imports, template_arguments, cleanup_failed_create,
         reset_after_cleanup, verify_stack_ownership, paths):
+    state.setdefault('preparationId', uuid.uuid4().hex)
     boundary = {}
     check_imports(unit, boundary=boundary)  # Fresh Create boundary, never shared across approval waits.
     if state.get('cleanupStatus') == 'DELETE_INTENT':
@@ -98,6 +99,7 @@ def begin_prepare(unit, state, aws, save, check_imports, template_arguments, cle
             raise Blocked('failed CREATE resources are not all deleted; cleanup requires human')
         state['emptyStackRecreated'] = True
         reset_after_cleanup(state, retain_delivery=True)
+        state.setdefault('preparationId', uuid.uuid4().hex)
         boundary = {}
         check_imports(unit, boundary=boundary)
     arguments = template_arguments(unit, state, boundary=boundary)
@@ -119,6 +121,7 @@ def begin_prepare(unit, state, aws, save, check_imports, template_arguments, cle
                 raise Blocked('failed CREATE resources are not all deleted; cleanup requires human')
             state['emptyStackRecreated'] = True
             reset_after_cleanup(state, retain_delivery=True)
+            state.setdefault('preparationId', uuid.uuid4().hex)
             boundary = {}
             check_imports(unit, boundary=boundary)
             arguments = template_arguments(unit, state, boundary=boundary)
@@ -129,6 +132,7 @@ def begin_prepare(unit, state, aws, save, check_imports, template_arguments, cle
             verify_stack_ownership(unit)
         _, parameters = paths(unit)
         aws("validate_template", **arguments)
+        state.setdefault("successfulPreparationOperations", {})["validate_template"] = state["preparationId"]
         state["operationType"] = "UPDATE" if stack else "CREATE"
         state["absentBeforeCreate"] = stack is None
         state["changeSetId"] = "blueprint-" + uuid.uuid4().hex
@@ -158,7 +162,19 @@ def review_prepared(unit, state, approvals, aws, describe_change_set, change_set
             state["reason"] = "no changes; existing stack terminal success"
             return "SUCCESS"
     if change_set["Status"] != "CREATE_COMPLETE" or change_set["ExecutionStatus"] != "AVAILABLE":
-        raise Blocked("change set is not CREATE_COMPLETE/AVAILABLE: " + change_set.get("StatusReason", change_set["Status"]))
+        from deploy import failures
+        diagnostic = failures.event({'ResourceStatusReason': change_set.get('StatusReason', '')}, {})
+        state['changeSetFailure'] = {'status': change_set['Status'], 'executionStatus': change_set.get('ExecutionStatus'),
+                                     'code': diagnostic['code'], 'reasonDigest': diagnostic['reasonDigest']}
+        code = diagnostic['code']
+        classification = ('AUTHORIZATION' if code in failures.AUTH_CODES else
+                          'IAC_CANDIDATE' if change_set['Status'] == 'FAILED' and code in {'InvalidRequest', 'InvalidParameter', 'ValidationError'} else 'NEEDS_HUMAN')
+        error = Blocked('change set is not CREATE_COMPLETE/AVAILABLE; inspect safe structured changeSetFailure')
+        error.deploy_failure = {'stage': 'CHANGESET_REVIEW', 'service':'cloudformation', 'operation':'create_change_set',
+                                'code':code, 'classification':classification, 'executionState':'NOT_EXECUTED'}
+        raise error
+    if state.get("preparationId"):
+        state.setdefault("successfulPreparationOperations", {})["create_change_set"] = state["preparationId"]
     summary = change_summary(change_set)
     digest = fingerprint(change_set.get("Changes", []))
     if state.get("changeDigest") and digest != state["changeDigest"]:
@@ -167,10 +183,12 @@ def review_prepared(unit, state, approvals, aws, describe_change_set, change_set
     destructive = any(item["Action"] == "Remove" or item["Replacement"] in {"True", "Conditional"} for item in summary)
     if destructive and state["changeSetId"] not in approvals:
         state["failureClassification"] = "HUMAN_REQUIRED"
+        state["failure"] = {"classification": "APPROVAL", "stage": "CHANGESET_REVIEW", "executionState": "NOT_EXECUTED"}
         state["reason"] = "unapproved delete/replacement; change set unexecuted; human confirmation required"
         return "BLOCKED"
     state["approvedChangeDigest"] = digest
     state.pop("reason", None)
+    state.pop("failure", None)
     return "READY"
 
 

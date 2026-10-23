@@ -13,6 +13,81 @@ from contextlib import redirect_stderr
 from support.worktree_task_fixtures import *
 
 @it_case
+def check_sync_base_preserves_candidate():
+    with fixture() as root:
+        target, state = start(root, files=('file.txt',))
+        old = state['start']
+        (root / 'file.txt').write_text('upstream\n')
+        (root / 'upstream.txt').write_text('inherited\n')
+        git(root, 'add', '.')
+        git(root, 'commit', '-qm', 'reviewed upstream')
+        latest = git(root, 'rev-parse', 'HEAD')
+        (target / 'file.txt').write_text('upstream\nreviewed candidate\n')
+        saved = wt.sync_base(target, 'example', latest)
+        assert saved['start'] == old and saved['tip'] == saved['validation_base'] == latest
+        assert saved['commit'] is None and git(target, 'rev-parse', 'HEAD') == latest
+        assert (target / 'file.txt').read_text() == 'upstream\nreviewed candidate\n'
+        assert (target / 'upstream.txt').read_text() == 'inherited\n'
+        assert tasks.status((target / state['task_file']).read_text()) == 'running'
+        finish_contract(target, state)
+        assert cli(root, 'finalize')['cleaned']
+
+
+@it_case
+def check_deploy_workflow_cross_task_reset_rejected():
+    from deploy import handoff
+    from deploy.contracts import task_digest
+    from deploy_handoff import main as handoff_cli
+    with fixture() as primary:
+        parent, parent_state = start(primary, task_id='deploy-one', files=('file.txt',))
+        other, other_state = start(primary, task_id='deploy-two', files=('file.txt',))
+        target = {'awsAccountId':'123456789012','awsRegion':'ap-northeast-1'}
+        def initial(root, state):
+            return {'repository':str(root), 'taskFile':state['task_file'], 'target':target,
+                    'taskDigest':task_digest((root / state['task_file']).read_text()),
+                    'states':{'Stack':{'status':'NOT_STARTED'}}}
+        path = primary.parent / 'original-session.json'
+        original = initial(parent,parent_state)
+        handoff.bind(parent,path,original)
+        original['workflow']['reserved'] = 2
+        handoff.save(path,original)
+        wt.bind_deploy_workflow(parent,path,original,Path(original['workflowBinding']),activate=True)
+        replacement = initial(other,other_state)
+        next_path = primary.parent / 'replacement-session.json'
+        try:
+            handoff.bind(other,next_path,replacement)
+        except ValueError as error:
+            assert 'unfinished deploy workflow' in str(error)
+        else:
+            raise AssertionError('another Task reset the original workflow')
+        proof = Path(original['workflowBinding'])
+        retained = proof.with_name(proof.name + '.retained')
+        proof.rename(retained)
+        try:
+            try:
+                handoff.bind(other,next_path,replacement)
+            except (OSError,ValueError):
+                pass
+            else:
+                raise AssertionError('missing prior ledger became a zero-cycle workflow')
+        finally:
+            retained.rename(proof)
+        original['workflow']['attempts']['static-failed'] = {'attemptId':'static-failed','stage':'STATIC_FAILED','staticRuns':3}
+        original['pendingRequest'] = {'attemptId':'static-failed','requestId':'retained-pending-proof'}
+        handoff.save(path,original)
+        with tasks.selected_task(parent,parent_state['task_file']):
+            assert handoff_cli(['close','--repository-root',str(parent),'--state',str(path),
+                '--authorization','fixture explicit Human termination']) == 0
+        handoff.bind(other,next_path,replacement)
+        wt.bind_deploy_workflow(other,next_path,replacement,Path(replacement['workflowBinding']),activate=True)
+        saved = json.loads(path.read_text())
+        assert saved['workflow']['reserved'] == 2 and saved['workflow']['status'] == 'CLOSED'
+        assert 'pendingRequest' not in saved
+        assert saved['workflow']['attempts']['static-failed']['closedRequest']['requestId'] == 'retained-pending-proof'
+        assert saved['workflow']['attempts']['static-failed']['stage'] == 'ABANDONED'
+
+
+@it_case
 def check_success_and_empty():
     for empty in (False, True):
         with fixture() as root:
@@ -686,7 +761,7 @@ atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(co
 
 
 def main():
-    for check in (check_model_refactor_integration, check_final_candidate_staleness, check_model_operation_integration, check_success_and_empty, check_finalize_line_endings, check_incomplete_and_git_safety,
+    for check in (check_sync_base_preserves_candidate, check_deploy_workflow_cross_task_reset_rejected, check_model_refactor_integration, check_final_candidate_staleness, check_model_operation_integration, check_success_and_empty, check_finalize_line_endings, check_incomplete_and_git_safety,
                   check_dirty_base_and_retry, check_ahead_and_rebase_conflict,
                   check_collisions_and_base_selection, check_directory_layout, check_metadata_storage,
                   check_cleanup_failure_and_retry,

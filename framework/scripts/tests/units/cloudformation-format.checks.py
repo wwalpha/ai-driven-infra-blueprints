@@ -9,7 +9,6 @@ import datetime
 import pytest
 import yaml
 from utils.cloudformation_format import decode, decode_file
-from deploy.repair import repair_template
 
 
 def check_scalars_and_intrinsics(tmp_path):
@@ -68,11 +67,9 @@ Resources:
 '''
     document, errors = decode(original)
     assert not errors and document['Merged'] == {'Enabled': True, 'Count': 2}
-    repaired = repair_template(original, 'Item', 'BucketName', {'Fn::Sub': '${Prefix}-bucket'})
-    expected = document
-    expected['Resources']['Item']['Properties']['BucketName'] = {'Fn::Sub': '${Prefix}-bucket'}
-    assert decode(repaired) == (expected, [])
-    assert 'Tags: [{Key: Owner, Value: !Ref Owner}]' in repaired
+    # Effective-input identity uses this existing decoder; comments cannot buy a retry.
+    assert decode(original + '# formatting only\n') == (document, [])
+    assert document['Resources']['Item']['Properties']['Tags'] == [{'Key': 'Owner', 'Value': {'Ref': 'Owner'}}]
 
 
 if __name__ == '__main__':

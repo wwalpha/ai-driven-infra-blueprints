@@ -52,7 +52,7 @@ contracts do not grant the exception.
 
 ## Issue remediation
 
-- Record the target issue, cause, and repair scope in the repair task's Goal and Required changes. Place the following section in the same active contract. Entries must be subsets of the explicit Validation scope only; repair exceptions using `all` / `framework` are prohibited. The exception applies only to that service's issue repair and revalidation; do not mix in feature additions, ordinary design, other issue repairs, etc. Do not automatically resume other suspended tasks after the repair task completes.
+- Record the target issue, cause, and repair scope in the repair task's Goal and Required changes. Place the following section in the same active contract. Entries must be subsets of the explicit Validation scope only; repair exceptions using `all` / `framework` are prohibited. The exception applies only to that service's issue repair and revalidation; do not mix in feature additions, ordinary design, other issue repairs, etc. Do not automatically resume other suspended tasks after the repair task completes. The explicitly preauthorized CloudFormation external-repair request permits only the supervising LLM to resume its matching original deploy Task through the existing helper; it does not waive Issue Gate, extend scope, or authorize unrelated phases.
 
 ```md
 ## Issue remediation

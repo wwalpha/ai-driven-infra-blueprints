@@ -166,7 +166,7 @@ For tasks affecting runtime inputs or behavior, task-type-specific checks cannot
 
 - `initialization`: `project.json` changes, and target paths and IaC selection are valid
 - `design`: Target authoritative service Model inputs change first, and Markdown/JSON artifacts match their deterministic generation results
-- `infrastructure`: IaC changes in the `implement` phase; in the `deploy` phase, IaC is unchanged or only files matching controlled repair evidence in the same session change. In the `update` phase, human-changed authoritative service Model inputs, generated Markdown, and IaC are in the same diff. In `destroy`, only post-success observed models/generated views/active contract may change; no IaC validation. Scenarios are unchanged in all phases
+- `infrastructure`: IaC changes in the `implement` phase; in the `deploy` phase, deploy does not edit IaC; only exact verified child commit transitions accepted by the same session may be attributed. In the `update` phase, human-changed authoritative service Model inputs, generated Markdown, and IaC are in the same diff. In `destroy`, only post-success observed models/generated views/active contract may change; no IaC validation. Scenarios are unchanged in all phases
 - `scenario-test`: The scenario and current results for the same target change
 - `governance`: Framework files other than the active task change
 - `catalog-maintenance`: Catalog files and `framework/materials/catalog.sha256` change
@@ -305,11 +305,11 @@ Infrastructure task Task contracts must contain exactly 1 `Infrastructure phase`
 1. Using approved design and service models as input, create/change only IaC specified by the active prompt.
 2. Perform the existing local Model/provider-schema and mapping checks with shared CloudFormation decoding, or `terraform fmt -check`, `terraform init -backend=false`, and `terraform validate` for Terraform.
 3. Do not execute AWS APIs, CloudFormation change sets, Terraform plans, deploy/apply, or observed value updates.
-4. Run the local loop and finish.
+4. Run the local loop and finish. A deploy-request child uses `worktree_task.py repair-validate` to execute this same scoped task loop, sealing the actual result/dependent-input snapshot for exact parent integration. Keep at most 3 same-child static correction cycles. Handwritten PASS, changed validation inputs and failure-approval integration do not qualify; static PASS alone is not AWS resolution.
 
 `deploy` phase:
 
-1. Run deterministic preflight with created/validated IaC. Classify failures under [Controlled deploy repair](cloudformation.md#controlled-deploy-repair); minimally repair/revalidate affected units only for AUTO_REPAIRABLE.
+1. Run deterministic preflight with validated IaC. Preserve failure and AWS execution state under [Controlled deploy repair](cloudformation.md#controlled-deploy-repair). The supervising LLM hands proven IaC causes to a separate authorized implement Task; deploy never edits IaC. Runtime recovery is independent.
 2. Confirm scope with AWS ValidateTemplate and change sets for CloudFormation; validation and saved plans for Terraform.
 3. If no unapproved delete/replacement exists, deploy/apply only targets authorized by the active prompt. If any exists, explain targets, reasons, impacts, and current execution state and wait for human confirmation; after approval, resume in the same task with the same change set or saved plan.
 4. Update model observed values and regenerate Markdown only when successful AWS mutation exists.

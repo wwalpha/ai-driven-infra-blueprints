@@ -16,13 +16,11 @@ from task_contract import task_path, status, paths_in
 from validation_scope import active_scope as validation_scope
 from deploy.scheduler import run_group
 from deploy.secret_bootstrap import BOOTSTRAP_STAGES
-from deploy import observed_resume
+from deploy import handoff, resume as repair_resume, failures, observed_resume
 
 
 def save_session(path, session):
-    temporary = path.with_suffix(path.suffix + '.tmp')
-    temporary.write_text(json.dumps(session, indent=2) + '\n', encoding='utf-8')
-    temporary.replace(path)
+    handoff.save(path, session)
 
 
 def active_scope(root, requested, environment, account, alias=None):
@@ -44,8 +42,8 @@ def active_scope(root, requested, environment, account, alias=None):
     return "update" if "- Infrastructure phase: `update`" in text.splitlines() else "deploy"
 
 
-def design_digest(root, environment, directory):
-    scope = validation_scope(root)
+def design_digest(root, environment, directory, *, contract_file=None):
+    scope = validation_scope(root, contract_file=contract_file)
     pending = ([root / "model" / env / target / (service + ".properties") for env, target, service in scope
                 if (env, target) == (environment, directory)] if scope is not None
                else model_paths(root, environment, directory))
@@ -73,9 +71,9 @@ def model_input_manifest(root, environment, directory):
 
 
 def require_session_format(session):
-    expected = {'version': 3, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1}
+    expected = {'version': 4, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1}
     if any(type(session.get(key)) is not int or session[key] != value for key, value in expected.items()):
-        raise Blocked('controller session format is incompatible with properties v2; retain the original session for explicit migration')
+        raise Blocked('controller session format is incompatible; explicit v3 to v4 migration must retain original identity/history/candidates')
 
 
 def verify_observed_transition(root, environment, directory, previous, outputs, intended_design):
@@ -163,11 +161,10 @@ def run_session(units, limit, session, backend, save, pause_after_group=False, s
                 return "COMPLETE" if all(s["status"] == "SUCCESS" for s in session["states"].values()) else "GROUP_COMPLETE"
             continue
         if result == "STOPPED":
-            for state in session['states'].values():
-                if state['status'] == 'BLOCKED':
-                    state['failureClassification'] = 'HUMAN_REQUIRED'
             # Do not abandon successful peers' observed values after another stack fails.
             synced = sync_completed()
+            handoff.record_stop(session, units)
+            save()
             failed = [u for u in units if session["states"][u["name"]]["status"] == "FAILED"]
             if synced and failed and hasattr(backend, "repair"):
                 repaired = all([backend.repair(u, session["states"][u["name"]]) for u in failed])
@@ -183,6 +180,7 @@ def run(args, root, timing, script_directory, backend_type, load_units):
     lock = None
     session = None
     persist = None
+    handoff_lock = None
     invocation_started = time.perf_counter()
     try:
         if state_path.is_relative_to(root):
@@ -204,11 +202,16 @@ def run(args, root, timing, script_directory, backend_type, load_units):
             lock = lock_path.open("x")
         except FileExistsError as error:
             raise Blocked(f"controller session already active or interrupted; verify no controller is running before removing {lock_path}") from error
+        candidate_lock = handoff.locked(state_path)
+        candidate_lock.__enter__()
+        handoff_lock = candidate_lock
         directory = args.alias or args.aws_account_id
         if args.resume:
             session = json.loads(state_path.read_text(encoding='utf-8'))
-            require_session_format(session)
-            if session.get('pendingObserved'):
+            handoff.restore(root, state_path, session)
+            if not getattr(args, 'observe_only', False):
+                require_session_format(session)
+            if session.get('pendingObserved') and not getattr(args, 'observe_only', False):
                 # Recovery must precede load_units/design_digest and all read-only Model snapshots.
                 from deploy.contracts import sha
                 try:
@@ -244,46 +247,39 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                     for path in sorted(set(backend.deployment_input_paths(units)))}
         current_infra = infra_manifest()
         if args.resume:
-            for unit in units:
-                state = session['states'][unit['name']]
-                pending = state.get('repairs', [])[-1:]
-                if not pending or pending[0].get('stage') not in {'REPAIR_INTENT', 'VALIDATING', 'VALIDATED'}:
-                    continue
-                entry = pending[0]
-                if entry.get('classification') != 'AUTO_REPAIRABLE':
-                    raise Blocked('unapproved pending repair')
-                relative = entry['path']
-                if current_infra.get(relative) == entry['newFileDigest'] and backend.input_digest(unit) == entry['newDigest']:
-                    session['unitDigests'][unit['name']] = entry['newDigest']
-                    session['infraManifest'][relative] = entry['newFileDigest']
-                    entry['stage'] = 'VALIDATING'  # Resume repeats affected validation, never assumes interrupted PASS.
-                elif current_infra.get(relative) != entry['oldFileDigest'] or backend.input_digest(unit) != entry['oldDigest']:
-                    raise Blocked('pending repair bytes/digest changed outside authorized transaction')
+            if getattr(args, 'observe_only', False):
+                if session['inputDigest'] != digest or session.get('repository') != str(root) or session.get('taskFile') != task_path(root).relative_to(root).as_posix():
+                    raise Blocked('observation session target/Task identity changed')
+                return repair_resume.observe_only(backend, units, limit, state_path, session)
+            require_session_format(session)
+            if session.get('workflow', {}).get('status') == 'CLOSED':
+                raise Blocked('closed workflow cannot resume AWS execution; use an explicitly authorized new Task')
+            if session.get('workflow', {}).get('legacyUncertain'):
+                raise Blocked('WAITING_HUMAN: legacy repair identity/cycles require diagnosis; no candidate reapplication')
+            current_execution = execution_digest(root, target, backend.file_digest, unit_digests)
+            if session.get('executionDigest') != current_execution:
+                raise Blocked('execution definitions changed; explicitly migrate original session first')
+            if getattr(args, 'repair_result', None):
+                repair_resume.accept(root, args.repair_result, session, backend, units, unit_digests, current_infra)
+            elif session.get('pendingRequest'):
+                raise Blocked('pending external repair requires --resume --repair-result')
             # Older sessions watched all infra; retain only current execution inputs.
             previous_infra = {path: digest for path, digest in session.get('infraManifest', current_infra).items()
                               if path in current_infra}
             changed_infra = {path for path in previous_infra.keys() | current_infra.keys()
                              if previous_infra.get(path) != current_infra.get(path)}
-            handoff = {path.relative_to(root).as_posix() for unit in units
+            update_handoff = {path.relative_to(root).as_posix() for unit in units
                        if phase == 'update' and session['states'][unit['name']]['status'] == 'NOT_STARTED'
                        for path in backend.deployment_input_paths([unit])}
-            if changed_infra - handoff:
+            if changed_infra - update_handoff:
                 raise Blocked('unauthorized IaC change outside recorded repair; cannot resume')
             session['infraManifest'] = current_infra
             if phase == 'deploy':
-                from deploy.contracts import repair_changes
-                paths = sorted({str(path.relative_to(root)) for unit in units for path in backend.paths(unit)})
+                paths = sorted({str(path.relative_to(root)) for path in backend.deployment_input_paths(units)})
                 revision = subprocess.run(['git', 'status', '--porcelain', '--', *paths], cwd=root,
                                           capture_output=True, text=True, timeout=30)
-                if revision.returncode:
-                    raise Blocked('cannot verify resumed IaC revision')
-                if revision.stdout.strip():
-                    repaired = {entry['path'] for state in session['states'].values() for entry in state.get('repairs', [])
-                                if entry.get('classification') == 'AUTO_REPAIRABLE' and entry.get('stage') != 'REPAIR_INTENT'}
-                    repair_changes(root, task_path(root).read_text(encoding='utf-8'), repaired)
-                    # Exact input digests/manifest below reject any other dirty bytes.
-                    if not repaired:
-                        raise Blocked('deploy revision dirty without repair evidence')
+                if revision.returncode or revision.stdout.strip():
+                    raise Blocked('resumed deploy inputs must be committed verified child bytes')
             require_session_format(session)
             if session.get('modelInputManifest') != model_input_manifest(root, args.environment, directory):
                 raise Blocked('Model raw inputs or dependency file set changed; cannot resume this session')
@@ -300,7 +296,7 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                 raise Blocked("new session requires unused state path and no approvals")
             session = {"inputDigest": digest, "unitDigests": unit_digests,
                        "states": {unit["name"]: {"status": "NOT_STARTED"} for unit in units}}
-        session.update(version=3, modelFormat=2, snapshotVersion=2, referenceMeaningVersion=1,
+        session.update(version=4, modelFormat=2, snapshotVersion=2, referenceMeaningVersion=1,
                        designDigest=current_design, profile=backend.profile,
                        modelInputManifest=model_input_manifest(root, args.environment, directory))
         session.setdefault('repository', str(root))
@@ -308,10 +304,25 @@ def run(args, root, timing, script_directory, backend_type, load_units):
         from deploy.contracts import sha, task_digest
         session.setdefault('taskDigest', task_digest(task_path(root).read_text(encoding='utf-8')))
         session.setdefault('infraManifest', current_infra)
+        session.setdefault('unitInputPaths', {u['name']: [p.relative_to(root).as_posix() for p in backend.deployment_input_paths([u])] for u in units})
+        session.setdefault('environment', args.environment)
+        session.setdefault('directory', directory)
+        session.setdefault('target', target)
+        session.setdefault('logicalTarget', [args.environment, directory, target['awsAccountId'], target['awsRegion']])
+        budget_lines = re.findall(r'^- Repair cycle budget: `([0-9]+)`$', task_path(root).read_text(), re.M)
+        if budget_lines and (len(budget_lines) != 1 or int(budget_lines[0]) <= 0):
+            raise Blocked('invalid repair cycle budget')
+        session.setdefault('repairBudget', int(budget_lines[0]) if budget_lines else 20)
+        session.setdefault('validationScope', sorted(paths_in(task_path(root).read_text(), '## Validation scope')))
+        if phase == 'update' and args.resume and not getattr(args, 'repair_result', None):
+            session['effectiveDigests'] = handoff.effective(root, units, backend.paths, backend.deployment_input_paths)
+        session.setdefault('effectiveDigests', handoff.effective(root, units, backend.paths, backend.deployment_input_paths))
+        session.setdefault("executionDigest", execution_digest(root, target, backend.file_digest, unit_digests))
+        handoff.bind(root, state_path, session)
         backend.session = session
         contract = task_path(root).read_text(encoding='utf-8')
-        if '- Controlled repair: `allowed`' in contract.splitlines() and f'- Deploy repair session: `{state_path}`' not in contract.splitlines():
-            raise Blocked('controlled repair session path must match task contract')
+        if '- External IaC repair: `allowed`' in contract.splitlines() and f'- Deploy repair session: `{state_path}`' not in contract.splitlines():
+            raise Blocked('external repair session path must match task contract')
         metrics = session.setdefault("metrics", {})
         for key in ("controllerInvocationCount", "deployOrderCount", "observedSyncSeconds",
                     "inputLoadSeconds", "totalControllerSeconds", "contextCheckSeconds"):
@@ -340,7 +351,7 @@ def run(args, root, timing, script_directory, backend_type, load_units):
             if model_input_manifest(root, args.environment, directory) != session['modelInputManifest']:
                 raise Blocked('Model raw inputs or dependency file set changed before mutation')
             if infra_manifest() != session['infraManifest']:
-                raise Blocked('unauthorized IaC change outside controlled repair')
+                raise Blocked('unauthorized IaC change outside accepted input revision')
             if task_digest(task_path(root).read_text(encoding='utf-8')) != session['taskDigest']:
                 raise Blocked('task contract changed before mutation')
             if any(backend.input_digest(unit) != unit_digests[unit["name"]] for unit in units):
@@ -354,28 +365,26 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                 root, args.environment, directory, previous, outputs, current_design)
         backend.after_observed = after_observed
         def refresh_validation(unit):
-            # Recheck just the recorded resource corrections, never a scope-wide validator.
+            # Runtime bootstrap does not change IaC or grant a validation/hash exception.
             backend.load_inputs(unit)
-            from deploy.repair import verify_repair
-            verify_repair(root, args.environment, directory, target, backend.templates, unit, backend.states[unit['name']])
             if backend.input_digest(unit, fresh=True) != unit_digests[unit['name']]:
-                raise Blocked('repaired inputs changed during verification')
-            session['executionDigest'] = execution_digest(root, target, backend.file_digest, unit_digests)
-            save()
+                raise Blocked('runtime recovery changed immutable IaC inputs')
         backend.refresh_validation = refresh_validation
         backend.units = units
-        # Legacy static PASS/failure metadata has no execution authority. Keep original intent/identity.
-        if 'validationStatus' in session or 'validationDigest' in session:
-            legacy = {key: session.pop(key) for key in ('validationStatus', 'validationDigest', 'validationError', 'validationErrors') if key in session}
-            session['legacyStaticValidation'] = legacy
-            session['migration'] = 'v3 execution-definition digest; prior static validation is historical only'
-        for state in session['states'].values():
-            if state.get('stackStatus') == 'PRE_EXECUTION':
-                raise Blocked('legacy static validation failure requires explicit repair; no AWS execution failure inferred')
         started = time.perf_counter()
         try:
             for unit in units:
-                backend.load_inputs(unit)
+                state = session['states'][unit['name']]
+                try:
+                    backend.load_inputs(unit)
+                except Exception as error:
+                    state['preparationId'] = state.get('preparationId') or __import__('uuid').uuid4().hex
+                    failures.exception(state, error, 'INPUT_DECODE' if getattr(error, 'deploy_input_kind', None) == 'DECODE' else 'INPUT_GUARD')
+                    if state['status'] not in {'RUNNING', 'FAILED', 'SUCCESS'}:
+                        state['status'] = 'BLOCKED'
+                    handoff.record_stop(session, units)
+                    save()
+                    raise
                 state = session['states'][unit['name']]
                 if state['status'] not in {'SUCCESS', 'RUNNING', 'FAILED'}:
                     from deploy.contracts import migrate_delivery
@@ -384,7 +393,8 @@ def run(args, root, timing, script_directory, backend_type, load_units):
             current_execution = execution_digest(root, target, backend.file_digest, unit_digests)
             if args.resume and session.get('executionDigest', current_execution) != current_execution:
                 raise Blocked('execution definitions changed; review and explicitly migrate the same session')
-            session['executionDigest'] = current_execution
+            session.setdefault('executionDigest', current_execution)
+            session.setdefault('declaredConsumers', handoff.dependencies(backend, units))
             save()
         except Exception:
             run_group(units, limit, session['states'], backend, save, drain_only=True)
@@ -393,12 +403,16 @@ def run(args, root, timing, script_directory, backend_type, load_units):
             metrics['inputLoadSeconds'] += time.perf_counter() - started
         for unit in units:
             state = session['states'][unit['name']]
-            if state.get('repairs') and state['repairs'][-1].get('stage') in {'REPAIR_INTENT', 'VALIDATING', 'VALIDATED'} | BOOTSTRAP_STAGES:
+            repair_resume.recover(backend, unit, state)
+            if state.get('repairs') and state['repairs'][-1].get('classification') == 'RUNTIME_BOOTSTRAP' and state['repairs'][-1].get('stage') in BOOTSTRAP_STAGES:
                 if not backend.repair(unit, state):
                     session['result'] = 'STOPPED'
                     save()
                     return 2
         session["result"] = run_session(units, limit, session, backend, save, args.pause_after_group)
+        handoff.record_outcomes(session)
+        if session.get('repairOutcomeUnverified'):
+            session['result'] = 'STOPPED'
         save()
         print(json.dumps(session, indent=2))
         return 2 if session["result"] == "STOPPED" else 0
@@ -410,6 +424,10 @@ def run(args, root, timing, script_directory, backend_type, load_units):
             if persist is not None:
                 persist()
         finally:
-            if lock is not None:
-                lock.close()
-                lock_path.unlink(missing_ok=True)
+            try:
+                if handoff_lock is not None:
+                    handoff_lock.__exit__(None, None, None)
+            finally:
+                if lock is not None:
+                    lock.close()
+                    lock_path.unlink(missing_ok=True)

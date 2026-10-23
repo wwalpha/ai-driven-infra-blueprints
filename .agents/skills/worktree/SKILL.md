@@ -134,6 +134,16 @@ python3 -B framework/scripts/worktree_task.py cleanup --task-id <task-id>
 
 Different worktrees still share AWS resources. Cross-worktree AWS mutation locking is a separate responsibility; this skill adds none and does not relax existing deployment controls.
 
+## Explicit CloudFormation repair handoff
+
+Follow [External IaC repair handoff](../../../framework/prompts/codex/04_deploy.md#external-iac-repair-handoff) only for its preauthorized request. The LLM issues request and `repair-checkpoint`, suspends the original deploy through task_contract.py, then calls ordinary `create --task-id <child> --repair-request <absolute request.json>`. This single explicit option uses the exact suspended parent branch/tip as child base; ordinary Create remains unchanged. Keep lifecycle lock, managed ownership/selector and registered Python. Child contract is infrastructure/implement, exact request IaC paths plus its own contract, and AWS API execution/AWS mutation/Deploy/apply forbidden.
+
+`repair-validate --task-id <child> --repair-request <request.json>` runs the existing scoped static task loop, seals real results and dependency hashes, and retains one child/attempt across at most 3 static cycles. After complete, `finalize --task-id <child>` dispatches to pinned parent ff-only integration, persisting commit/merge intent and issuing external result.json. No validation-failure approval can issue this result. Retry the same helper after verified interruption; intent/actual commit must agree. Cleanup only after verified integration, retaining external child contract/result evidence. The LLM explicitly resumes only the matching original parent through task_contract.py and the same controller/session with `--resume --repair-result <result.json>`. No parent IaC permission expansion, whole-file exemption, baseline reset, force/stash/reset or metadata hand edit is permitted. Final parent validation separates exact ordered child byte transitions from parent changes, including later additions to the same file. This does not authorize unrelated Task/phase starts or generic automatic resume.
+
+## Reviewed fresh governance base sync
+
+When explicitly asked to merge the latest local base before tests in a fresh governance Task, read that exact base diff and reconcile overlapping uncommitted candidates first. With an unstaged index and no Task commits, use `worktree_task.py sync-base --task-id <task-id> --expected-base <full-reviewed-base-hash>`. It preserves exact reviewed candidates/deletions in external backups, fast-forwards only the proven named base, restores candidates, and records the inherited validation base without completing/committing the Task. Existing start history is retained. Subsequent proven base advances use the same procedure; unexpected commits, scope changes or unknown dirty bytes stop. An interrupted sync retains its intent/backups for the same helper retry, never manual lifecycle reconstruction. Reconcile upstream changes in overlapping candidates before invocation; preservation alone does not prove a semantic merge.
+
 ## Human-reviewed governance conflict recovery
 
 For an explicitly authorized retained governance repair, use

@@ -38,11 +38,9 @@ def check_preparation():
         assert outputs <= declared
         assert "model/dev/123456789012/iam.properties" in declared
         assert not any(p.endswith(("observed.json", "source.json", ".tpl")) for p in declared)
-        assert {p for p in declared if p.startswith("infra/")} == {
-            "infra/cloudformation/templates/shared.yaml",
-            "infra/cloudformation/parameters/dev/123456789012/1.json",
-            "infra/cloudformation/parameters/dev/123456789012/2.json"}
-        assert '- Controlled repair: `allowed`' in text
+        assert not {p for p in declared if p.startswith('infra/')}
+        assert '- Runtime recovery: `allowed`' in text
+        assert '- External IaC repair: `forbidden`' in text
         assert f'- Deploy repair session: `{run / "session.json"}`' in text
         for document in plan["documents"]:
             assert all(len(Path(chunk).read_text(encoding="utf-8")) <= 6000 for chunk in document["chunks"])

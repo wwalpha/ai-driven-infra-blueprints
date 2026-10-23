@@ -9,7 +9,7 @@ Read before changing filesの必須本文と対象入力、Task候補を漏れ�
 固定したworktree Python/PATH/PYTHONPATHで、明示serviceと全Stackを一度に準備する。load_units()が既存のStack Model/generated Stack view一致を確認する。
 
 ```console
-<fixed-python> framework/scripts/deploy_preparation.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName> ...] --service <service-id> [--service <service-id> ...] --task-file tasks/<task-name>.md [--profile <profile>] [--sequential]
+<fixed-python> framework/scripts/deploy_preparation.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName> ...] --service <service-id> [--service <service-id> ...] --task-file tasks/<task-name>.md [--profile <profile>] [--sequential] [--allow-external-repair] [--repair-budget 20]
 ```
 
 aliasなしは--aws-account-id。preparation.jsonのdocuments（<=6,000文字/chunk）、対象要約、契約候補を漏れなく確認する。確認済みの同一範囲だけ再読込を省略できる。inputs/generatedViewsのhashは読了やPASS証明ではない。欠損・不一致では停止する。Do not newly reregister already registered tasks. 新Taskは次の登録を最初の変更とし、runtime/hash/Task競合/最新Issuesを再確認する。
@@ -46,7 +46,7 @@ Ordinary deploy AI design inputs are authoritative model properties. Obtain desi
 
 Markdown Resource links are internal Model addresses. Resolve them through the common scope-checked resolver and read only necessary producer groups; use the producer Model saved anchor as selector; never use generated Markdown as authority. No generated Markdown fallback is permitted.
 
-Retain generated artifact existence verification, hash monitoring, machine generated artifact validation, and stop conditions. Only for explicit display defect/mismatch investigation, necessary artifact portions may be read. Classify model/generated artifact/IaC mismatches and deployment failures under [Controlled deploy repair](../../rules/cloudformation.md#controlled-deploy-repair). Repair only AUTO_REPAIRABLE, or let the same controller handle RUNTIME_BOOTSTRAP without repository changes, and continue after validation. Secrets Manager initial-value bootstrap classification, CREATE ownership/account/region/schema/value checks, intent/token persistence, AWS mutation and failed-stack retry belong exclusively to the controller; do not manually run put-secret-value.
+Retain generated artifact existence verification, hash monitoring, machine generated artifact validation, and stop conditions. Only for explicit display defect/mismatch investigation, necessary artifact portions may be read. Classify model/generated artifact/IaC mismatches and deployment failures under [Controlled deploy repair](../../rules/cloudformation.md#controlled-deploy-repair). The supervising LLM handles proven IaC defects through the separate implement handoff below. The same controller handles authorized RUNTIME_BOOTSTRAP without repository changes. Secrets Manager initial-value bootstrap classification, CREATE ownership/account/region/schema/value checks, intent/token persistence, AWS mutation and failed-stack retry belong exclusively to the controller; do not manually run put-secret-value.
 
 `<target-directory>` is the selected target's alias if present, otherwise AWS account ID.
 
@@ -81,11 +81,154 @@ If the human approves all targets/reasons, update Authorized delete/replacement 
 
 If the human does not approve or approves only a subset, stop without executing change sets/plans. Even if resource retention, removal from CloudFormation management, or configuration changes are needed, do not change IaC/intended design in this deploy phase.
 
-CloudFormation failures proceed to controller Controlled deploy repair classification; AUTO_REPAIRABLE and RUNTIME_BOOTSTRAP automatically continue remaining units after their respective repair/bootstrap, validation, new change sets, and retries. Consult Human only for HUMAN_REQUIRED such as scope excess, account/region mismatch, unknown delete/replacement actions, unconfirmed designs, or missing external permissions. Terraform validation/plan/apply failures continue to stop as before. Only unapproved delete/replacement waits for human confirmation above rather than ending as failure. Do not change intended design or perform IaC changes without repair history or retries with unconfirmed causes. On CloudFormation stop conditions, do not start new units; confirm running stack terminal states and distinguish successful, failed, and unexecuted units. Do not automatically rollback/delete/redeploy successful stacks. Terraform apply failure may mean partial apply; check state and actual AWS resources read-only and stop.
+CloudFormation failure stops new starts, drains accepted peers and synchronizes successful observations. The LLM investigates the preserved failure set and uses the external handoff below only when explicitly authorized. Keep runtime recovery independent. Approval waits resume the saved ChangeSet; auth/read/guard/unknown-submission/observed errors are never converted automatically to IaC repair. Terraform failures retain their existing stop and partial-state investigation rules.
 
 ## Resume
 
-Resume the existing Task/session with --resume and only Human-approved --approve-change-set IDs. Preserve original intent/token, ChangeSet/approval and input evidence. Reacquire boundary AWS data; historical static validation metadata is never execution permission. Unsafe migration stops with its reason, retaining SUCCESS and unsynchronized work. Do not replace a session or rerun successful Stacks merely because modules/transport changed. Repair changes require exact persisted evidence, unchanged intended Model and scope.
+Resume the existing Task/session with --resume and only Human-approved --approve-change-set IDs. Preserve original intent/token, ChangeSet/approval and input evidence. Reacquire boundary AWS data; historical static validation metadata is never execution permission. Unsafe migration stops with its reason, retaining SUCCESS and unsynchronized work. Do not replace a session or rerun successful Stacks merely because modules/transport changed. External changes require --resume --repair-result, signed child validation/integration evidence, unchanged intended Model/scope/execution definitions and the original workflow ledger.
+
+For v3/definition migration, use the explicit procedure in [Controller sessions](../../rules/cloudformation.md#controller-sessions-and-execution-timing). --resume --observe-only observes/drains existing identities without mutation, Model publication or accepting new execution definitions.
+
+## External IaC repair handoff
+
+This CloudFormation-only workflow requires the original Human-authorized contract
+`External IaC repair: allowed`, an absolute external `Deploy repair session`, and
+separate `Runtime recovery: allowed` when runtime recovery is authorized. Preparation
+adds the external-loop permission only with `--allow-external-repair`; the optional
+`--repair-budget N` sets the initial positive cycle budget (default 20 per approval
+interval, a safety bound rather than a measured optimum). Parent Modified files and
+Allowed paths contain its contract and authorized observed/generated outputs; never
+add templates, parameters or artifact sources for repair.
+
+After STOPPED, the supervising LLM investigates the saved `failureObservations` and
+exact approved Model/input locations. No Python deploy process starts an LLM or
+implement. Keep execution status independent of cause: safe terminal failed executions
+and proven unexecuted IaC failures can be diagnosed; approval waits resume the same
+ChangeSet without a repair attempt. Authentication/authorization, guards, reads,
+unknown submission, observed publication, deficient design and scope expansion need
+their own investigation/Human decision. BLOCKED alone grants no repair authority.
+
+Write non-secret external diagnosis JSON with `revision` and `problems`. Each problem
+has `observationId`, `eventIndices`, `resourcePath`, formal `resourceType`, `operation`,
+`property`, confirmed `constraint`, `cause`, `inputRefs` and `modelRefs`. Input references
+identify exact `path`, `sha256`, and JSON `pointer` (empty only for a whole unparseable
+input/artifact); Model references identify exact `path`, `sha256`, and authoritative
+`key` belonging to the failed resource. Supported causes are IAC_PROPERTY, IAC_SYNTAX,
+IAC_PARAMETER, IAC_ARTIFACT and IAC_PERMISSION. Cover the entire failure set; do not
+silently drop unknown rollback/delete failures. A distinct problem on the same resource
+also names prior IDs in `distinctFrom`; a different constraint on the same property
+needs different confirmed provider `constraintRefs` (path/hash/pointer and matching
+ResourceType) or different structured event error-code evidence. Ambiguity stays
+NEEDS_DIAGNOSIS. IAC_PROPERTY references must identify the claimed template Property
+and its approved Model row; a different Property also needs corresponding event/schema
+evidence. Existence/revision checks do not prove the LLM's semantic diagnosis.
+
+The LLM runs these commands explicitly from the original managed Worktree, using its
+registered Python for task commands and the ordinary launcher for lifecycle commands:
+
+```console
+python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_handoff.py diagnose --state <session.json> --diagnosis <external-diagnosis.json>
+python3 -B framework/scripts/run-python.py -B framework/scripts/deploy_handoff.py request --state <session.json> --problem <problemId> [--problem <problemId>] --path <exact-IaC-path> [--path <exact-IaC-path>] --expectation <external-expectation.json>
+python3 -B framework/scripts/worktree_task.py repair-checkpoint --task-id <original-task-id> --state <session.json>
+python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<original-task-id>.md --suspend-reason "authorized implement repair request <requestId>"
+python3 -B framework/scripts/worktree_task.py create --task-id <repair-task-id> --repair-request <request.json>
+```
+
+The expectation JSON is a nonempty list of `{stack, resourcePath, operation, status}`
+objects covering exactly the target problem operations. Resource statuses are
+CREATE_COMPLETE/UPDATE_COMPLETE/IMPORT_COMPLETE; a successful unexecuted preparation
+operation uses status SUCCEEDED. Reuse the request/attempt on interruption. Reservation
+occurs once; multiple target problems each get one attempt while the global budget
+uses one cycle. One attempt owns one child Task, including static failures.
+
+Checkpoint validates the parent's permitted differences and observed barrier without
+completing deploy. The sealed request fixes parent Worktree/branch/start/tip, integration
+destination, Task/target/scope, original input/design/execution digests, failure evidence,
+problem IDs and exact permitted IaC paths. Create with `--repair-request` starts at that
+suspended parent tip; ordinary Create still uses the configured base. In the returned
+child Worktree register a new infrastructure/implement contract with target fields,
+`Deploy repair request: <absolute request.json>`, identical Validation scope, and
+AWS API execution/AWS mutation/Deploy/apply all forbidden. Allowed paths are exactly
+the request's IaC paths plus its own contract. Never edit the parent contract or Model.
+Follow /implement, correct only defects repairable from the existing approved design,
+and use the existing same-child static repair limit of 3.
+
+```console
+python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<repair-task-id>.md --source <external-child-contract.md>
+python3 -B framework/scripts/worktree_task.py repair-validate --task-id <repair-task-id> --repair-request <request.json>
+python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<repair-task-id>.md --complete
+python3 -B framework/scripts/worktree_task.py finalize --task-id <repair-task-id>
+```
+
+repair-validate executes the existing scoped task loop in registered Python, records
+its real command/result and all tracked/dependent input hashes, and seals the receipt
+outside Git. Static PASS means a candidate for retry; it is not AWS resolution.
+finalize rechecks contract/snapshot, commits exact bytes, and ff-only integrates into
+the pinned suspended parent. Its durable intent supports retry after commit/merge
+interruption. Its result preserves child contract, blob/hash transitions, effective
+inputs, validation snapshot and integration commit after child cleanup. A handwritten
+PASS, a failure-approval exception, stale validation, extra files/commits, or a changed
+parent tip cannot produce an accepted result. No AWS or deploy/apply runs in child.
+
+From a surviving root, clean up the child before continuing the parent. The supervising
+LLM explicitly resumes only the original Task named by this preauthorized request:
+
+```console
+python3 -B framework/scripts/worktree_task.py cleanup --task-id <repair-task-id>
+python3 -B framework/scripts/run-python.py -B framework/scripts/task_contract.py --task-file tasks/<original-task-id>.md --resume
+python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-deploy.py <original-target-and-stack-arguments> --state <same-session.json> --resume --repair-result <result.json>
+```
+
+The dedicated result entrance plans and seals one input revision under exclusion before
+AWS recovery/execution. Normal --resume accepts no external IaC change. InputDigest,
+intended design/Model dependencies and executionDigest retain their authority; only
+verified child IaC manifests/unit digests/caches advance. Unknown commits/bytes and
+post-validation dependency changes are rejected. Final parent validation attributes
+only actual ordered before/after child transitions; it does not exempt whole files or
+expand parent permissions. Same-result replay recovers that acceptance without resetting
+RUNNING/SUCCESS or sending Execute again. Old/unrelated/out-of-order results fail closed.
+
+Affected unexecuted units and declared consumers discard old delivery, ChangeSets,
+client tokens and approvals. Input-unchanged SUCCESS/observed synchronization is retained.
+Shared-input or dependency impact on SUCCESS waits for scope confirmation. Failed
+executions first recheck original StackId/token, original failure safety and live state;
+unknown operations are observed through their existing identity before another execute.
+A failed, empty REVIEW_IN_PROGRESS CREATE shell is cleaned only with original
+Stack/ChangeSet ownership, FAILED/UNAVAILABLE, no execution, empty inventory and live
+protection checks; its status is never rewritten as rollback. Runtime cleanup requires
+the original separate recovery authorization. Each retry uses a new ChangeSet and new
+destructive approval when applicable.
+
+Problem identity uses logical target/Stack, nested resource path/type, operation,
+confirmed property/constraint/permission operation and cause. Task IDs, request IDs,
+time/token, recreated Stack ARN suffixes and changed hashes are evidence only.
+A→repair→A without observable target progress stops on the second distinct execution;
+A→B continues with distinct evidence; A→B→A stops as a cycle/regression. Untargeted B in
+A+B does not consume a B failure. Only confirmed target/nested operation successes count
+as progress, with at most 3 cycles per problem. File changes, static PASS, LLM claims,
+peer success and absence of A before its validation point are not resolution. Existing
+decoding excludes template comments/formatting from effective inputs; parameters and
+artifact content join the fingerprint. Unchanged or known failed effective input is
+rejected before redeploy. Unchanged-IaC runtime recovery remains a separate route.
+
+At the global limit retain all history and WAITING_HUMAN. A Human may explicitly extend
+the same interval with `deploy_handoff.py budget --state <session.json>
+--additional-cycles <N> --authorization "<Human authorization>"`; it does not reset
+per-problem limits or permit unrelated Tasks/phases. Signed workflow ledger state and
+save intents prevent session rollback/new-file resets. The Worktree helper also keeps a
+sealed, repository-wide lifecycle index of workflow/session references per AWS account,
+region and overlapping Stack scope. Another deploy Task cannot reset an unfinished
+workflow; missing/unreadable prior proof stops. Resume the original workflow, or
+explicitly close drained/synchronized state with `deploy_handoff.py close --state
+<session.json> --authorization "<Human termination>"` before an independently authorized
+new Task. Close archives a pending request into its ABANDONED attempt, retaining its
+proof and static/global counts, so its child helpers reject further delivery. It never
+cleans an unknown AWS operation or deletes an unfinished child Worktree. The old
+history/budget and registry references remain; CLOSED never re-executes. After a verified interrupted
+writer has exited, retain/review its locks using the existing lock ownership procedure;
+never delete unknown locks. `deploy_handoff.py recover-session --state <original-path>`
+restores only the same Task's signed latest state if its session is lost/corrupt. It
+cannot replace an unreadable result with parent write authority.
 
 ## Terraform
 

@@ -1,6 +1,10 @@
 version: 1
 base:
   files:
+    README.md: '# Synthetic offline Project'
+    docs/system-overview.md: '# Synthetic approved overview'
+    tests/scenarios/.gitkeep: ''
+    tests/results/.gitkeep: ''
     AGENTS.md: |
       # Synthetic Project
       Only the selected offline infrastructure fixture is mutable.
@@ -14,17 +18,21 @@ base:
         Bucket:
           Type: AWS::S3::Bucket
           Properties: {BucketName: app-dev-bucket}
+
         Subnet:
           Type: AWS::EC2::Subnet
           Properties: {VpcId: vpc-existing, CidrBlock: 10.0.1.0/24}
+
         Association:
           Type: AWS::EC2::SubnetRouteTableAssociation
           Properties:
             SubnetId: !If [Enabled, !Ref Subnet, !Ref Missing]
             RouteTableId: rtb-existing
+
         OtherBucket:
           Type: AWS::S3::Bucket
           Condition: Disabled
+
         Policy:
           Type: AWS::S3::BucketPolicy
           Properties:
@@ -109,6 +117,23 @@ cases:
             Type: AWS::EC2::VPC
             Properties:
               CidrBlock: 10.2.0.0/16
+  input-syntax:
+    files:
+      infra/cloudformation/templates/second.yaml: 'Resources: [invalid'
+  shared-success:
+    data:
+      shared_template: true
+  repair-series:
+    files:
+      infra/cloudformation/templates/second.yaml: |
+        Resources:
+          Vpc:
+            Type: AWS::EC2::VPC
+            Properties:
+              CidrBlock: 10.2.0.0/16
+              EnableDnsSupport: false
+    data:
+      dns_series: true
   bootstrap:
     data:
       bootstrap: true

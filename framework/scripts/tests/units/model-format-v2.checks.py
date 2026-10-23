@@ -49,13 +49,13 @@ def check_unsupported_version(header):
         parse(header + '\na=1\n')
 
 
-@pytest.mark.parametrize('version', [None, 1, 2, 3.0])
+@pytest.mark.parametrize('version', [None, 1, 2, 3, 3.0, 4.0])
 def check_deploy_rejects_legacy_session_format(version):
     from deploy.session import require_session_format
     from cloudformation_inputs import Blocked
     with pytest.raises(Blocked, match='format is incompatible'):
         require_session_format({'version': version, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1})
-    require_session_format({'version': 3, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1})
+    require_session_format({'version': 4, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1})
 
 
 def check_observed_insertion_is_local_without_reflow():

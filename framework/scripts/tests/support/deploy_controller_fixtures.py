@@ -71,6 +71,19 @@ def seed(root, state_path, case='orders', *, same_group=False):
             'Credentials': {'CredentialPair': {key: {'Fn::Sub': ['{{resolve:secretsmanager:${Secret}:SecretString:' + key.lower() + '}}',
                 {'Secret': {'Fn::ImportValue': 'FixtureSecret'}}]} for key in ('Username', 'Password')}}}}
         second.write_text(json.dumps(document))
+    if fixture['data'].get('shared_template'):
+        first = root / 'infra/cloudformation/templates/first.yaml'
+        text = first.read_text().replace('Conditions:\n',
+            "Conditions:\n  First: !Equals [!Ref Instance, first]\n  Second: !Equals [!Ref Instance, second]\n")
+        text = text.replace('    Type:', '    Condition: First\n    Type:').replace('  OtherBucket:\n    Condition: First', '  OtherBucket:')
+        first.write_text('Parameters: {Instance: {Type: String}}\n' + text +
+            '\n  Vpc:\n    Type: AWS::EC2::VPC\n    Condition: Second\n    Properties: {CidrBlock: 10.2.0.0/16}\n')
+        for instance in ('first','second'):
+            (root / f'infra/cloudformation/parameters/dev/{ACCOUNT}/{instance}.json').write_text(
+                json.dumps([{'ParameterKey':'Instance','ParameterValue':instance}]))
+    if fixture['data'].get('dns_series'):
+        fixture['data']['ec2'].update({'desired.row.001-004.property': 'EC2.VPC.EnableDnsSupport',
+            'desired.row.001-004.value': '`true`', 'desired.row.001-004.comment': 'DNS利用'})
     services = ['s3', 'ec2'] + (['secretsmanager', 'quicksight'] if fixture['data'].get('bootstrap') else [])
     model = root / 'model/dev' / ACCOUNT
     stack_values = {'desired.deployment.maxConcurrentStacks': '2'}
@@ -79,6 +92,8 @@ def seed(root, state_path, case='orders', *, same_group=False):
                            'parameters': ('first' if number == 1 else 'second') + '.json',
                            'deployOrder': '10' if number == 1 or fixture['data'].get('same_group') else '20'}.items():
             stack_values[f'desired.stack.{number:03}.{key}'] = value
+        if fixture['data'].get('shared_template'):
+            stack_values[f'desired.stack.{number:03}.template'] = 'first.yaml'
         stack_values[f'display.stack.{number:03}.comment'] = '合成Stack'
     if fixture['data'].get('delivery'):
         stack_values.update({'desired.deployment.templateBucket': '[assets](s3.md#resource-S3_Bucket_002)',
@@ -117,23 +132,39 @@ def seed(root, state_path, case='orders', *, same_group=False):
         '- Infrastructure phase: `deploy`\n- AWS API execution: `allowed`\n- Deploy/apply: `allowed`\n'
         f'- Target environment: `dev`\n- Target AWS account: `{ACCOUNT}`\n'
         '- Deployment scope: `cfn-stack-app-dev-first`, `cfn-stack-app-dev-second`\n- Authorized delete/replacement: `none`\n'
-        f'- Controlled repair: `allowed`\n- Deploy repair session: `{state_path}`\n'
+        f'- Runtime recovery: `allowed`\n- External IaC repair: `allowed`\n- Deploy repair session: `{state_path}`\n'
         '## Required changes\n- [R1] Synthetic deployment\n## Acceptance checks\n- [R1] `exists:project.json`\n'
         '## Validation scope\n' + ''.join(f'- `dev/{ACCOUNT}/{s}`\n' for s in [*services, 'cloudformation-stacks']) +
         '## Modified files\n' + listed + '## Allowed paths\n' + listed)
     start(root, 'tasks/deploy.md', contract)
     with selected_task(root, 'tasks/deploy.md'):
         assert sync_runtime.sync(root, True, 'dev', ACCOUNT, services=[*services, 'cloudformation-stacks']) == 0
-    (root / '.gitignore').write_text('/.worktrees/\ntasks/**\n', encoding='utf-8')
+    ignore = root / '.gitignore'
+    ignore.write_text('tasks/**\n/.worktrees/\n__pycache__/\n')
     git(root, 'init', '-q', '-b', 'main')
     git(root, 'config', 'user.name', 'Offline Fixture')
     git(root, 'config', 'user.email', 'fixture@example.invalid')
     git(root, 'add', '.')
     git(root, 'commit', '-qm', 'Synthetic inputs')
-    # Reuse the real lifecycle fixture; only Python installation is stubbed there.
-    managed = Path(worktree_cli(root, 'create', task_id='deploy')['worktree'])
-    start(managed, 'tasks/deploy.md', contract)
-    return managed
+    # Provision only the interpreter offline; dependencies come from this fixed test runtime.
+    import worktree_task as wt
+    import sysconfig
+    import venv
+    directory = root / '.worktrees/.blueprint/python-env'
+    venv.EnvBuilder(with_pip=False).create(directory)
+    version = f'python{sys.version_info.major}.{sys.version_info.minor}'
+    packages = directory / 'lib' / version / 'site-packages'
+    (packages / 'fixture-runtime.pth').write_text(sysconfig.get_path('purelib') + '\n')
+    for marker in ('.blueprint-owner', '.blueprint-ready'):
+        (directory / marker).write_text(str(directory))
+    saved_contract = '\n'.join(line for line in task.read_text().splitlines() if not line.startswith('- `infra/')) + '\n'
+    # Retain master's lifecycle fixture; finish its provisioning through real setup.
+    state = worktree_cli(root, 'create', task_id='deploy')
+    state = wt.setup(root, 'deploy')
+    target = Path(state['worktree'])
+    from task_contract import start
+    start(target, state['task_file'], saved_contract)
+    return target
 
 
 def aws_state(path, **knobs):
@@ -164,7 +195,11 @@ def clients(root, state_path, aws_path):
                                    'ResponseMetadata': {'HTTPStatusCode': status}}, operation)
             name = arguments.get('StackName', '')
             name = name.split(':stack/')[-1].split('/')[0]
-            stack_id = f'arn:aws:cloudformation:{REGION}:{ACCOUNT}:stack/{name}/fixture'
+            stack_id = state['stacks'].get(name, {}).get('id') or state['changes'].get(name, {}).get('stackId') or f'arn:aws:cloudformation:{REGION}:{ACCOUNT}:stack/{name}/fixture'
+            def active(definition, change):
+                from cloudformation_inputs import condition_active
+                return condition_active(change['document'], {p['ParameterKey']:p['ParameterValue'] for p in change.get('parameters', [])},
+                    {'AWS::AccountId':ACCOUNT, 'AWS::Region':REGION, 'AWS::StackName':name}, definition)
             result = None
             if service == 'sts' and operation == 'get_caller_identity':
                 result = {'Account': ACCOUNT, 'Arn': f'arn:aws:iam::{ACCOUNT}:user/fixture', 'UserId': 'fixture'}
@@ -175,12 +210,22 @@ def clients(root, state_path, aws_path):
                 elif operation == 'get_template':
                     result = {'TemplateBody': state['changes'][name]['document']}
                 elif operation == 'validate_template':
+                    if knobs.get('input_stage') == 'validate_template':
+                        document, errors = decode(arguments.get('TemplateBody', ''))
+                        if document.get('Resources', {}).get('Vpc', {}).get('Properties', {}).get('CidrBlock') == '10.2.0.0/16':
+                            error('ValidationError', 'synthetic invalid property; private details omitted')
                     result = {'Parameters': []}
                 elif operation == 'describe_stacks':
                     if stack is None: error('ValidationError', 'Stack with id fixture does not exist')
                     result = {'Stacks': [{'StackId': stack_id, 'StackName': name, 'StackStatus': stack['status'],
                         **({'Outputs': [{'OutputKey': 'SecretId', 'OutputValue': secret}]} if knobs.get('bootstrap') and name == 'cfn-stack-app-dev-first' else {})}]}
                 elif operation == 'create_change_set':
+                    if knobs.get('input_stage') == 'create_change_set' and name == 'cfn-stack-app-dev-second':
+                        document, errors = decode(arguments.get('TemplateBody', ''))
+                        if document['Resources']['Vpc']['Properties']['CidrBlock'] == '10.2.0.0/16':
+                            error('ValidationError', 'synthetic invalid property; private details omitted')
+                    if arguments.get('ChangeSetType') == 'CREATE':
+                        stack_id = f'arn:aws:cloudformation:{REGION}:{ACCOUNT}:stack/{name}/' + arguments['ChangeSetName']
                     if name == 'cfn-stack-app-dev-second' and not knobs.get('same_group'):
                         saved = json.loads(state_path.read_text())
                         assert saved['states']['cfn-stack-app-dev-first']['observedSynced']
@@ -199,7 +244,10 @@ def clients(root, state_path, aws_path):
                     assert not errors
                     change = f'arn:aws:cloudformation:{REGION}:{ACCOUNT}:changeSet/{arguments["ChangeSetName"]}/fixture'
                     state['changes'][name] = {'id': change, 'alias': arguments['ChangeSetName'], 'document': document,
-                                               'executed': False, 'stackId': stack_id}
+                                               'executed': False, 'stackId': stack_id, 'parameters': arguments.get('Parameters', [])}
+                    if knobs.get('input_stage') == 'changeset_review' and name == 'cfn-stack-app-dev-second' and document['Resources']['Vpc']['Properties']['CidrBlock'] == '10.2.0.0/16':
+                        state['changes'][name]['failedReview'] = True
+                        state['stacks'][name] = {'status':'REVIEW_IN_PROGRESS', 'id':stack_id}
                     result = {'Id': change, 'StackId': stack_id}
                 elif operation == 'describe_change_set':
                     change = state['changes'][name]
@@ -207,7 +255,7 @@ def clients(root, state_path, aws_path):
                     changes = [{'ResourceChange': {'Action': 'Modify' if knobs.get('approval') and name == 'cfn-stack-app-dev-first' else 'Add',
                         'Replacement': 'True' if knobs.get('approval') and name == 'cfn-stack-app-dev-first' else 'False',
                         'LogicalResourceId': logical, 'ResourceType': definition['Type']}}
-                        for logical, definition in change['document']['Resources'].items() if definition.get('Condition') != 'Disabled']
+                        for logical, definition in change['document']['Resources'].items() if active(definition, change)]
                     if knobs.get('remove') and name == 'cfn-stack-app-dev-first':
                         for change_entry in changes:
                             change_entry['ResourceChange'].update(Action='Modify', Replacement='False')
@@ -216,13 +264,23 @@ def clients(root, state_path, aws_path):
                             'PolicyAction': knobs.get('policy', 'Delete')}})
                     result = {'ChangeSetId': change['id'], 'StackId': change['stackId'], 'Status': 'CREATE_COMPLETE',
                               'ExecutionStatus': 'EXECUTE_COMPLETE' if change['executed'] else 'AVAILABLE', 'Changes': changes}
+                    if change.get('failedReview'):
+                        result.update(Status='FAILED', ExecutionStatus='UNAVAILABLE', StatusReason='provider input invalid (HandlerErrorCode: InvalidRequest)')
                 elif operation == 'execute_change_set':
                     change = state['changes'][name]
                     assert not change['executed'], 'duplicate Execute'
                     assert arguments['ChangeSetName'] == change['id']
                     change.update(executed=True, token=arguments['ClientRequestToken'])
+                    properties = change['document'].get('Resources', {}).get('Vpc', {}).get('Properties', {})
+                    if isinstance(properties.get('CidrBlock'), dict):
+                        from cloudformation_inputs import resolve_value
+                        properties = {**properties, 'CidrBlock': resolve_value(properties['CidrBlock'],
+                            {p['ParameterKey']:p['ParameterValue'] for p in change.get('parameters', [])}, {})}
+                    cidr_failure = (knobs.get('repair') and properties.get('CidrBlock') != '10.0.0.0/16') or knobs.get('repeat_cidr')
+                    dns_failure = knobs.get('followup_dns') and properties.get('EnableDnsSupport') is not True
                     failed = name == 'cfn-stack-app-dev-second' and (knobs.get('bootstrap') and not any('AWSCURRENT' in v for v in state['versions'].values())
-                        or knobs.get('repair') and change['document']['Resources']['Vpc']['Properties']['CidrBlock'] != '10.0.0.0/16')
+                        or cidr_failure or dns_failure)
+                    change['failureProperty'] = 'EnableDnsSupport' if dns_failure and not cidr_failure else 'CidrBlock'
                     state['stacks'][name] = {'status': 'ROLLBACK_COMPLETE' if failed else 'UPDATE_COMPLETE' if knobs.get('remove') and name == 'cfn-stack-app-dev-first' else 'CREATE_COMPLETE', 'id': stack_id}
                     change['failed'] = failed
                     if knobs.pop('edit_input', False):
@@ -239,6 +297,10 @@ def clients(root, state_path, aws_path):
                     events = [] if not change or not change['executed'] else [{
                         'StackId': stack_id, 'ResourceType': 'AWS::CloudFormation::Stack',
                         'ClientRequestToken': change['token'], 'ResourceStatus': state['stacks'][name]['status']}]
+                    if change and change['executed'] and not failed:
+                        events.extend({'StackId': stack_id, 'ClientRequestToken': change['token'], 'ResourceStatus': 'CREATE_COMPLETE',
+                            'LogicalResourceId': logical, 'ResourceType': definition['Type']} for logical, definition in change['document']['Resources'].items()
+                            if active(definition, change))
                     if knobs.get('remove') and change and change['executed'] and name == 'cfn-stack-app-dev-first':
                         proof = knobs.get('delete_proof', 'complete')
                         event = {'StackId': stack_id, 'ClientRequestToken': change['token'],
@@ -251,7 +313,7 @@ def clients(root, state_path, aws_path):
                         events.append({'StackId': stack_id, 'ClientRequestToken': change['token'], 'ResourceStatus': 'CREATE_FAILED',
                             'LogicalResourceId': 'Consumer' if knobs.get('bootstrap') else 'Vpc',
                             'ResourceType': 'AWS::QuickSight::DataSource' if knobs.get('bootstrap') else 'AWS::EC2::VPC',
-                            'ResourceStatusReason': 'AWSCURRENT secret value not found' if knobs.get('bootstrap') else 'invalid CidrBlock'})
+                            'ResourceStatusReason': 'AWSCURRENT secret value not found' if knobs.get('bootstrap') else 'invalid ' + change.get('failureProperty', 'CidrBlock')})
                     if name == 'cfn-stack-app-dev-second' and events and knobs.pop('defer_peer', False):
                         events[0]['ResourceStatus'] = 'UPDATE_IN_PROGRESS'
                     result = {'StackEvents': events}
@@ -260,14 +322,15 @@ def clients(root, state_path, aws_path):
                     result = {'StackResourceSummaries': [{'LogicalResourceId': logical, 'ResourceType': definition['Type'],
                         'PhysicalResourceId': secret if logical == 'Secret' else 'app-dev-bucket' if logical == 'Bucket' else 'vpc-first-fixture' if logical == 'VpcFirst' else 'vpc-fixture' if definition['Type'] == 'AWS::EC2::VPC' else 'subnet-fixture' if logical == 'Subnet' else 'integrated-child',
                         'ResourceStatus': 'CREATE_COMPLETE'} for logical, definition in document.get('Resources', {}).items()
-                        if definition.get('Condition') != 'Disabled']}
-                    if stack and stack['status'] == 'ROLLBACK_COMPLETE':
+                        if active(definition, state['changes'][name])]}
+                    if stack and stack['status'] in {'ROLLBACK_COMPLETE', 'REVIEW_IN_PROGRESS'}:
                         result = {'StackResourceSummaries': []}
                     if knobs.get('remove') and name == 'cfn-stack-app-dev-first' and not state['changes'].get(name, {}).get('executed'):
                         result['StackResourceSummaries'].append({'LogicalResourceId': 'Subnet', 'ResourceType': 'AWS::EC2::Subnet',
                             'PhysicalResourceId': 'subnet-before', 'ResourceStatus': 'CREATE_COMPLETE'})
                 elif operation == 'delete_stack':
-                    assert stack and stack['status'] == 'ROLLBACK_COMPLETE'
+                    assert stack and (stack['status'] == 'ROLLBACK_COMPLETE' or
+                        stack['status'] == 'REVIEW_IN_PROGRESS' and state['changes'][name].get('failedReview') and not state['changes'][name]['executed'])
                     state['stacks'].pop(name)
                     if knobs.pop('crash_cleanup', False):
                         persist(); os._exit(74)
@@ -340,7 +403,7 @@ def clients(root, state_path, aws_path):
 
 def invoke(root, state_path, aws_path, options=(), fail_observed=False, fault=None):
     from deploy.controller import main
-    original_write = Path.write_text
+    original_write, original_replace = Path.write_text, Path.replace
     original_unlink = Path.unlink
     journal = Path(tempfile.gettempdir()) / 'blueprint-model-publication' / (hashlib.sha256(str(root).encode()).hexdigest() + '.json')
     def write(path, text, *args, **kwargs):
@@ -366,7 +429,20 @@ def invoke(root, state_path, aws_path, options=(), fail_observed=False, fault=No
         result = original_unlink(path, *args, **kwargs)
         if model_commit: os._exit(77)
         return result
+    def replace(path, target):
+        if Path(target) == state_path:
+            candidate = json.loads(path.read_text())
+            data = json.loads(aws_path.read_text())
+            if candidate.get('inputRevision') == 1:
+                for knob, code in (('crash_accept_before', 77), ('crash_accept_after', 78)):
+                    if data['knobs'].pop(knob, False):
+                        aws_path.write_text(json.dumps(data))
+                        if knob.endswith('after'):
+                            original_replace(path, target)
+                        os._exit(code)
+        return original_replace(path, target)
     with ExitStack() as stack:
+        stack.enter_context(patch.object(Path, 'replace', replace))
         stack.enter_context(patch('utils.aws.client.client', clients(root, state_path, aws_path)))
         stack.enter_context(patch('socket.socket.connect', side_effect=AssertionError('network forbidden')))
         stack.enter_context(patch('socket.socket.connect_ex', side_effect=AssertionError('network forbidden')))

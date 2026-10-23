@@ -79,7 +79,7 @@ def candidate(root, task, env, directory, target, stacks, services):
              f"- Target environment: `{env}`", f"- Target AWS account: `{target['awsAccountId']}`"]
     if "alias" in target:
         lines.append(f"- Target alias: `{target['alias']}`")
-    lines += [f"- Goal: {env}/{directory}の承認済みCloudFormation {units}をcontrolled repairの範囲でdeployし、必要なobservedを同期する。",
+    lines += [f"- Goal: {env}/{directory}の承認済みCloudFormation {units}を元Taskの許可範囲でdeployし、必要なobservedを同期する。",
               f"- Deployment scope: {units}", "- AWS API execution: `allowed`", "- Deploy/apply: `allowed`",
               "- Authorized delete/replacement: `none`", "", "## Validation scope", ""]
     lines += [f"- `{value}`" for value in scope]
@@ -117,12 +117,12 @@ def prepare(root, args, run, timing):
         sources.update(execution_inputs)
         if generated_views & execution_inputs:
             raise ValueError('generated view conflicts with execution/required input')
-        repair_paths = sorted(path.relative_to(root).as_posix() for path in execution_inputs)
-        for heading in ('## Modified files', '## Allowed paths'):
-            text = text.replace(heading + '\n', heading + '\n' + ''.join(f'- `{relative}`\n' for relative in repair_paths))
+        if getattr(args, 'repair_budget', 20) <= 0:
+            raise ValueError('repair budget must be positive')
         text = text.replace('- Authorized delete/replacement: `none`',
-                            '- Authorized delete/replacement: `none`\n- Controlled repair: `allowed`\n'
-                            + f'- Deploy repair session: `{run / "session.json"}`')
+                            '- Authorized delete/replacement: `none`\n- Runtime recovery: `allowed`\n'
+                            + ('- External IaC repair: `allowed`\n' if getattr(args, 'allow_external_repair', False) else '- External IaC repair: `forbidden`\n')
+                            + f'- Repair cycle budget: `{getattr(args, "repair_budget", 20)}`\n- Deploy repair session: `{run / "session.json"}`')
         checks = [f"- [R1] `exists:{path.relative_to(root).as_posix()}`" for unit in units for path in paths(root, args.environment, directory, target, unit)]
         text = text.replace("## Acceptance checks\n", "## Acceptance checks\n" + "\n".join(sorted(set(checks))) + "\n")
         records = contracts(root)
@@ -284,6 +284,8 @@ def main(argv=None):
     parser.add_argument("--task-file")
     parser.add_argument("--skill-started-at", type=float, help=argparse.SUPPRESS)
     parser.add_argument("--profile")
+    parser.add_argument("--repair-budget", type=int, default=20, help="repair cycles per approval interval, default safety limit 20")
+    parser.add_argument("--allow-external-repair", action="store_true", help="explicitly authorize the separate implement repair loop")
     parser.add_argument("--sequential", action="store_true")
     parser.add_argument("--log-dir", type=Path, help="external parent for a fresh preparation directory")
     args = parser.parse_args(argv)

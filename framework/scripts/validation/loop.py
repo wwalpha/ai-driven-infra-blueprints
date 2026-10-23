@@ -285,10 +285,11 @@ def select_checks(root, paths, affected=False):
     mapping["framework/scripts/model/adapters/aws.py"] = comparison
     deploy_tests = {'cloudformation-deploy.checks.py', 'deploy_preparation.checks.py', 'model_files.checks.py',
                     'deploy-sdk.checks.py', 'deploy-runtime-unit.checks.py', 'deploy-observed-unit.checks.py',
-                    'deploy-observed-resume-unit.checks.py'}
+                    'deploy-observed-resume-unit.checks.py', 'deploy-handoff-unit.checks.py'}
     mapping['framework/scripts/cloudformation-deploy.py'] = deploy_tests
+    mapping['framework/scripts/deploy_handoff.py'] = deploy_tests
     for name in ('__init__', 'preparation', 'controller', 'inputs', 'contracts', 'context', 'guards', 'session',
-                 'scheduler', 'change_sets', 'delivery', 's3_delivery', 'repair', 'secret_bootstrap', 'observed', 'observed_resume', 'timing'):
+                 'scheduler', 'change_sets', 'delivery', 's3_delivery', 'recovery', 'failures', 'retry_policy', 'handoff', 'resume', 'secret_bootstrap', 'observed', 'observed_resume', 'timing'):
         mapping[f'framework/scripts/deploy/{name}.py'] = deploy_tests
     for name in ('__init__', 'client', 'sts', 'cloudformation', 's3', 'kms', 'secretsmanager'):
         mapping[f'framework/scripts/utils/aws/{name}.py'] = deploy_tests | {'aws-client.checks.py'}

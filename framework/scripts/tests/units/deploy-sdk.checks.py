@@ -241,7 +241,7 @@ def check_cleanup_refreshes_create_boundary(tmp_path, resume, mutation):
 
 
 def check_cleanup_delivery_evidence_is_durable():
-    from deploy.repair import reset_after_cleanup
+    from deploy.recovery import reset_after_cleanup
     record = {'imports': {'Required': {'Value': 'before', 'ExportingStackId': 'producer'}}}
     state = {'status': 'BLOCKED', 'delivery': record, 'cleanupStatus': 'DELETE_COMPLETE'}
     saved = []

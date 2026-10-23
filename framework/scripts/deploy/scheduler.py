@@ -5,6 +5,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from cloudformation_inputs import Blocked
+from deploy import failures
 
 SUCCESS = {"CREATE_COMPLETE", "UPDATE_COMPLETE", "IMPORT_COMPLETE"}
 FAILED = {"CREATE_FAILED", "ROLLBACK_COMPLETE", "ROLLBACK_FAILED", "DELETE_COMPLETE", "DELETE_FAILED",
@@ -41,6 +42,7 @@ def run_group(units, limit, states, backend, save=lambda: None, sleep=time.sleep
             candidate = next((u for u in group if states[u['name']]['status'] not in {'RUNNING', 'SUCCESS'}), None)
             if candidate:
                 states[candidate['name']].update(status='BLOCKED', reason=str(error))
+                failures.exception(states[candidate['name']], error, 'DELIVERY')
             stopped = True
             save()
     while True:
@@ -68,6 +70,7 @@ def run_group(units, limit, states, backend, save=lambda: None, sleep=time.sleep
             except Exception as error:
                 # Lost read access is not proof of terminal failure. Drain/retry only.
                 state["pollError"] = str(error)
+                failures.exception(state, error, 'POLL')
                 stopped = True
             save()
         if any(states[u["name"]]["status"] == "SUCCESS" and not states[u["name"]].get("observedSynced") for u in group) and hasattr(backend, "sync_completed"):
@@ -86,6 +89,7 @@ def run_group(units, limit, states, backend, save=lambda: None, sleep=time.sleep
                     begin = getattr(backend, "begin_prepare", backend.prepare)
                     state["status"] = begin(unit, state)
                 except Exception as error:
+                    failures.exception(state, error, "PREPARATION")
                     state["status"] = "BLOCKED"
                     state["reason"] = str(error)
                     stopped = True
@@ -105,6 +109,7 @@ def run_group(units, limit, states, backend, save=lambda: None, sleep=time.sleep
                     # Workers fetch only. Classification and approval decisions stay here.
                     state["status"] = backend.review_prepared(unit, state, change_set)
                 except Exception as error:
+                    failures.exception(state, error, "CHANGESET_REVIEW")
                     state["status"], state["reason"] = "BLOCKED", str(error)
                 if state["status"] == "BLOCKED":
                     stopped = True
@@ -121,6 +126,7 @@ def run_group(units, limit, states, backend, save=lambda: None, sleep=time.sleep
                     save()
                     backend.execute(unit, state)
                 except Exception as error:
+                    failures.exception(state, error, "EXECUTE")
                     state["reason"] = str(error)
                     stopped = True
                 save()

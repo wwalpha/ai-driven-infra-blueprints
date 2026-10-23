@@ -44,7 +44,7 @@ For manual edits, do not split implement and deploy. `05_update.md` receives hum
 | 2 | [`codex/02_add-target.md`](codex/02_add-target.md) | Add 1 environment/logical target after initialization | Update `project.json` and added target paths |
 | Design | [`chatbot/service-design.md`](chatbot/service-design.md) | Confirm detailed design values for new systems, features, or services with the human | Output completed template/YAML sources and fixed bindings and destination Markdown/JSON, or a self-contained Codex prompt for existing-resource retrieval |
 | 3 | [`codex/03_implement.md`](codex/03_implement.md) | Reflect detailed designs already created in the repository into CloudFormation/Terraform | Create/change IaC through local static validation |
-| 4 | [`codex/04_deploy.md`](codex/04_deploy.md) | Deploy/apply created/validated IaC to AWS | Execute, perform uniquely determined CloudFormation controlled repair, and update necessary observed values |
+| 4 | [`codex/04_deploy.md`](codex/04_deploy.md) | Deploy/apply created/validated IaC to AWS | Execute, preserve guarded runtime recovery, hand IaC repair to a separate implement Task, and synchronize observations |
 | 5 | [`codex/05_update.md`](codex/05_update.md) | The human manually edits existing authoritative service Model inputs, then reflects them in IaC and deploys while uncommitted | Perform Markdown generation, IaC changes, deploy/apply, and observed value updates in one task |
 | 8 | [`codex/08_import.md`](codex/08_import.md) | Rebuild IMPORT configuration from read-only AWS CLI inventory | Update IMPORT Model and generate/verify Markdown/JSON; never AWS or IaC |
 | 7 | [`codex/07_destroy.md`](codex/07_destroy.md) | Explicit CloudFormation Stack deletion requested | Independent destroy; observed consistency and scoped local loop |
@@ -140,7 +140,7 @@ Implementation scope:
 
 ### `codex/04_deploy.md`
 
-- Description: Deploy/apply created/validated IaC to authorized target AWS accounts; only controlled repair under the deploy workflow may change IaC.
+- Description: Deploy/apply created/validated IaC to authorized target AWS accounts; authoritative IaC changes belong to a separately verified implement Task, accepted through the original deploy session.
 - Timing: IaC from `03_implement.md` is confirmed and target IaC has no uncommitted changes.
 - How to use: Pass environment, alias when present, AWS account, deployment scope, permitted delete/replacement, and AWS profile if needed. Perform preflight, change set/plan checks, execution, completion confirmation, and necessary observed value updates.
 
@@ -218,7 +218,7 @@ If design changes need new human decisions, confirm them in chat before reposito
 
 - Codex prompts output by `service-design.md` change only detailed designs and models.
 - `03_implement.md` changes only IaC and does not run AWS APIs.
-- `04_deploy.md` executes only authorized deploy/apply; IaC changes require its controlled repair contract.
+- `04_deploy.md` executes only authorized deploy/apply; IaC changes require a separate authorized implement Task and verified same-session handoff.
 - `05_update.md` preserves human intended-design model diffs, generates Markdown/JSON, reflects IaC, and executes only authorized deploy/apply and observed updates.
 - `06_scenario-test.md` changes only scenarios/results, without repairing designs or IaC.
 - Do not treat deploy success as application behavior PASS.

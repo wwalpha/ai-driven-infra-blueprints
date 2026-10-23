@@ -188,7 +188,14 @@ class TaskValidation:
                    if (match := re.fullmatch(r"- `([^`]+)`", line))]
         self.check(bool(allowed), f"Allowed paths section missing or empty: {self.relative(prompt)}")
 
-        for changed in sorted(self.permission_paths):
+        delegated = set()
+        if self.infrastructure_phase == 'deploy':
+            try:
+                from deploy.contracts import accepted_changes
+                delegated = accepted_changes(self.root, self.contract_text, self.permission_paths)
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                self.check(False, f'invalid child IaC attribution: {error}')
+        for changed in sorted(self.permission_paths - delegated):
             permitted = any(self.matches(changed, pattern) for pattern in allowed)
             self.check(permitted, f"changed path is outside task scope: {changed}")
         self.check_task_boundary(prompt, self.scope_paths)
@@ -296,12 +303,14 @@ class TaskValidation:
                 self.check(iac_changed, "infrastructure implement phase must change selected IaC")
             elif self.infrastructure_phase == "deploy":
                 if iac_changed:
-                    from deploy.contracts import repair_changes
+                    from deploy.contracts import accepted_changes
                     try:
-                        repair_changes(self.root, input_text(task_path(self.root), encoding="utf-8"),
+                        attributed = accepted_changes(self.root, input_text(task_path(self.root), encoding="utf-8"),
                                        {path for path in changed if self.under(path, "infra")})
+                        self.check(attributed == {path for path in changed if self.under(path, 'infra')},
+                                   'infrastructure deploy phase must not change IaC without verified child attribution')
                     except (OSError, ValueError, KeyError, TypeError) as error:
-                        self.check(False, f"infrastructure deploy phase must not change IaC without controlled repair evidence: {error}")
+                        self.check(False, f"infrastructure deploy phase must not change IaC: {error}")
             elif self.infrastructure_phase == "update":
                 self.check(iac_changed, "infrastructure update phase must change selected IaC")
                 self.check(

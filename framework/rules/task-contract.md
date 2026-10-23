@@ -278,7 +278,9 @@ a separately authorized deletion. No remaining Resource edit is permitted inside
 
 ## Controlled deploy repair contract
 
-The CloudFormation deploy phase permits IaC repair only under [Controlled deploy repair](cloudformation.md#controlled-deploy-repair). Specify the values of `- Controlled repair: ` and `- Deploy repair session: ` in backticks as `allowed` and an absolute session path outside the repository, respectively; declare only target templates/parameters/declared artifacts as exact Modified files/Allowed paths. Intended design, scope, and task type are immutable; file additions follow existing scope checks. Repair authorization does not permit arbitrary editing: the validator requires matching AUTO_REPAIRABLE history and file digests in the same session. Human approval updates for existing change sets remain permitted as before.
+CloudFormation deploy never edits authoritative templates, parameters or artifact sources. An explicitly authorized original contract may contain `- External IaC repair: ` with backtick value `allowed`, an absolute external `- Deploy repair session: `, and a positive `- Repair cycle budget: ` (default 20). `- Runtime recovery: ` separately authorizes the existing guarded AWS recovery. Deprecated Controlled repair grants no IaC write exception. Parent Modified files/Allowed paths remain its own permitted observation/view outputs and contract.
+
+The supervising LLM follows [External IaC repair handoff](../prompts/codex/04_deploy.md#external-iac-repair-handoff): preserve failures/operations, issue one durable attempt/request, checkpoint permitted parent changes, suspend it, create a distinct implement child from the pinned parent, validate and ff-only integrate, then explicitly resume only that request's original Task. This is the sole preauthorized same-workflow transition; the general prohibition on automatically resuming other Tasks or starting unrelated phases remains. Child AWS API execution/mutation/deploy are forbidden; approved design is immutable. Exact child contract, validation dependencies, before/after bytes and commit order remain verifiable externally after cleanup. Parent validation attributes only those proved transitions and rejects unrecorded additions to the same files; never widen parent permissions or reset its start baseline. Human failure approval cannot issue a repair result.
 
 ## Acceptance contract
 
@@ -293,7 +295,7 @@ Only `changed:`, `exists:`, `absent:`, and validator-registered `check:` are per
 
 ## Retry and stop
 
-- Automatic correction for the same active task, task type, and logical failure class is limited to 3 iterations.
+- Automatic correction for the same active task, task type, and logical failure class is limited to 3 iterations. The explicitly authorized external CloudFormation workflow retains its per-problem limit across Tasks and its separate approval-interval budget (default 20); distinct evidenced problems do not share a global three-failure stop. Static FAILs remain in the same child/attempt.
 - Stop if the same error occurs twice consecutively without material progress.
 - Do not fix missing human input by inventing values.
 - Stop on out-of-scope file changes.

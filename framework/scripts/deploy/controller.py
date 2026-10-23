@@ -9,13 +9,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from functools import partial
 
-from deploy import delivery, change_sets, repair as repair_ops, secret_bootstrap, session as session_ops, inputs
+from deploy import delivery, change_sets, recovery as repair_ops, secret_bootstrap, session as session_ops, inputs
 from deploy.secret_bootstrap import BOOTSTRAP_STAGES
 from deploy.guards import secret_value_missing, call
 from deploy.inputs import load_units
 from deploy.timing import Timing
 from issue_gate import require_target_no_issues
-from task_contract import task_path
 from cloudformation_inputs import Blocked, load_template_inputs
 from model.core import ARTIFACT_PROPERTIES
 from utils.json_format import fingerprint
@@ -49,7 +48,6 @@ def create_runtime(root, environment, directory, target, profile=None, approvals
     runtime.review_prepared = partial(review_prepared, runtime)
     runtime.prepare = partial(prepare, runtime)
     runtime.execute = partial(execute, runtime)
-    runtime.repair_plan = partial(repair_plan, runtime)
     runtime.bootstrap_plan = partial(bootstrap_plan, runtime)
     runtime.check_secret_arn = partial(check_secret_arn, runtime)
     runtime.bootstrap_current = partial(bootstrap_current, runtime)
@@ -66,7 +64,11 @@ def create_runtime(root, environment, directory, target, profile=None, approvals
 
 
 def aws(runtime, operation, service="cloudformation", **arguments):
-    return call(runtime, service, operation, arguments)
+    try:
+        return call(runtime, service, operation, arguments)
+    except Exception as error:
+        error.deploy_service, error.deploy_operation = service, operation
+        raise
 
 def paths(runtime, unit):
     return inputs.paths(runtime.root, runtime.environment, runtime.directory, runtime.target, unit)
@@ -86,7 +88,13 @@ def input_digest(runtime, unit, fresh=False):
 def load_inputs(runtime, unit):
     """Decode current immutable files cheaply; never persist parameter/secret contents."""
     template, parameters = runtime.paths(unit)
-    runtime.templates[unit["name"]] = load_template_inputs(template, parameters)
+    try:
+        runtime.templates[unit["name"]] = load_template_inputs(template, parameters)
+    except (Blocked, ValueError):
+        error = Blocked('invalid/transform template or parameter input; inspect exact authorized source offline')
+        error.deploy_input_kind = 'DECODE'
+        error.code = 'InputDecodeError'
+        raise error from None
     document, _ = runtime.templates[unit["name"]]
     for artifact in unit.get("artifacts", []):
         runtime.source_path(artifact)
@@ -95,6 +103,8 @@ def load_inputs(runtime, unit):
             raise Blocked("artifact resource/type/property does not match the declared template")
     if not unit.get("artifacts") and template.stat().st_size > 1024 * 1024:
         raise Blocked("template exceeds the 1 MiB CloudFormation limit")
+    if hasattr(runtime, 'states') and unit['name'] in runtime.states:
+        runtime.states[unit['name']].setdefault('successfulPreparationOperations', {})['decode_input'] = runtime.input_digest(unit)
 
 def placement(runtime):
     return delivery.placement(runtime.root, runtime.environment, runtime.directory, runtime.target,
@@ -184,6 +194,8 @@ def execute(runtime, unit, state):
         if state.get('executionEvidence') not in (None, evidence):
             raise Blocked('persisted execution evidence changed')
         state['executionEvidence'] = evidence
+        from deploy.failures import template_safety
+        state['failureTemplateSafety'] = template_safety(runtime.templates[unit['name']][0])
         runtime.save()
     except Exception:
         state['status'] = 'BLOCKED'
@@ -192,10 +204,6 @@ def execute(runtime, unit, state):
                 ClientRequestToken=state['clientToken'])
     runtime.save()
 
-
-def repair_plan(runtime, unit, state):
-    return repair_ops.repair_plan(runtime.root, runtime.environment, runtime.directory, runtime.target,
-                                  runtime.templates, runtime.paths, runtime.aws, unit, state)
 
 def bootstrap_plan(runtime, unit, state):
     return secret_bootstrap.bootstrap_plan(runtime.root, runtime.environment, runtime.directory, runtime.target,
@@ -227,46 +235,37 @@ def finish_repair(runtime, unit, state, entry):
                                     runtime.reset_after_cleanup, unit, state, entry)
 
 def repair(runtime, unit, state):
+    """Runtime recovery only. External IaC work always returns to the supervising LLM."""
     history = state.setdefault('repairs', [])
     try:
         runtime.guard()
         require_target_no_issues(runtime.root, (runtime.environment, runtime.directory))
-        contract = task_path(runtime.root).read_text(encoding='utf-8')
-        if '- Controlled repair: `allowed`' not in contract.splitlines():
-            raise Blocked('controlled repair not authorized in task contract')
+        repair_ops.require_authorized(runtime.root, runtime.session)
         if state.get('stackStatus') not in {'ROLLBACK_COMPLETE', 'UPDATE_ROLLBACK_COMPLETE'}:
             raise Blocked('unsafe rollback state; no automatic delete or ResourcesToSkip')
-        bootstrap_history = history[-1:] if history and history[-1].get('classification') == 'RUNTIME_BOOTSTRAP' else []
-        if bootstrap_history and bootstrap_history[0].get('stage') in BOOTSTRAP_STAGES:
-            return runtime.bootstrap(unit, state, bootstrap_history[0])
+        if runtime.session.get('pendingRequest') or any(e.get('classification') == 'AUTO_REPAIRABLE' and
+                e.get('stage') in {'REPAIR_INTENT', 'VALIDATING', 'VALIDATED'} for e in history):
+            raise Blocked('external/legacy IaC repair requires supervising LLM handoff')
+        pending = history[-1:] if history and history[-1].get('classification') == 'RUNTIME_BOOTSTRAP' else []
+        if pending and pending[0].get('stage') in BOOTSTRAP_STAGES:
+            return runtime.bootstrap(unit, state, pending[0])
         if any(secret_value_missing(e.get('ResourceStatusReason')) for e in state.get('failureEvents', [])):
-            # A failed safety proof must never fall through to empty-stack recreation or IaC repair.
             return runtime.bootstrap(unit, state)
-        pending = history[-1:] if history and history[-1].get('stage') in {'REPAIR_INTENT', 'VALIDATING', 'VALIDATED'} else []
-        if pending:
-            entry = pending[0]
-            return repair_ops.resume_candidate(runtime.root, runtime.workdir, runtime.file_digest, runtime.input_digest,
-                                        runtime.expected_digests, runtime.session['infraManifest'], runtime.save,
-                                        runtime.finish_repair, unit, state, entry)
-        try:
-            path, text, failure_class = runtime.repair_plan(unit, state)
-        except Blocked:
-            if (state.get('stackStatus') == 'ROLLBACK_COMPLETE' and not state.get('emptyStackRecreated')
-                    and runtime.cleanup_failed_create(unit, state, empty_only=True)):
-                state['emptyStackRecreated'] = True
-                runtime.reset_after_cleanup(state)
-                return True
-            raise
-        runtime.guard()  # Diagnostics cannot admit concurrent IaC/model edits into the repair.
-        return repair_ops.apply_candidate(runtime.root, runtime.workdir, runtime.file_digest, runtime.input_digest,
-                                      runtime.deployment_input_paths, runtime.expected_digests,
-                                      runtime.session['infraManifest'], runtime.save, runtime.finish_repair,
-                                      unit, state, history, path, text, failure_class)
+        # This unchanged-input exception is independent of IaC repair, once per Stack.
+        if (state.get('stackStatus') == 'ROLLBACK_COMPLETE' and not state.get('emptyStackRecreated')
+                and not history and runtime.cleanup_failed_create(unit, state, empty_only=True)):
+            state['emptyStackRecreated'] = True
+            runtime.reset_after_cleanup(state)
+            return True
+        state['failureClassification'] = 'HUMAN_REQUIRED' if state.get('emptyStackRecreated') else 'NEEDS_DIAGNOSIS'
+        runtime.save()
+        return False
     except Exception as error:
         state['failureClassification'] = 'HUMAN_REQUIRED'
         state['reason'] = str(error)
         runtime.save()
         return False
+
 
 def poll(runtime, unit, state):
     state["pollCount"] = state.get("pollCount", 0) + 1
@@ -283,17 +282,19 @@ def poll(runtime, unit, state):
             raise Blocked("execution not submitted; saved change set remains unexecuted")
         return "UPDATE_IN_PROGRESS"  # Submission may be pending; never re-execute or release its slot.
     state["operationStackId"] = operation[0].get("StackId")
-    state["failureEvents"] = []
-    for event in events:
-        if event.get('ClientRequestToken') != state.get('clientToken') or not (
-                event.get('ResourceStatus', '').endswith('_FAILED') or event.get('ResourceStatus') == 'DELETE_SKIPPED'):
+    from deploy import failures
+    document, _ = runtime.templates.get(unit['name'], ({}, {}))
+    state['failureEvents'] = []
+    state['successEvents'] = []
+    for item in events:
+        if item.get('ClientRequestToken') != state.get('clientToken'):
             continue
-        failure = {key: event.get(key) for key in ('LogicalResourceId', 'ResourceType', 'ResourceStatus', 'ResourceStatusReason')}
-        if secret_value_missing(failure['ResourceStatusReason']):
-            failure['ResourceStatusReason'] = 'SECRET_CURRENT_VALUE_MISSING'
-        elif any(e.get('classification') == 'RUNTIME_BOOTSTRAP' for e in state.get('repairs', [])):
-            failure['ResourceStatusReason'] = 'resource failure after runtime bootstrap; Human diagnosis required'
-        state['failureEvents'].append(failure)
+        resource_status = item.get('ResourceStatus', '')
+        if resource_status.endswith('_FAILED') or resource_status == 'DELETE_SKIPPED':
+            state['failureEvents'].append(failures.event(item, document))
+        elif resource_status in {'CREATE_COMPLETE', 'UPDATE_COMPLETE', 'IMPORT_COMPLETE'}:
+            state['successEvents'].append({key: value for key, value in failures.event(item, document).items()
+                                          if key not in {'reasonDigest', 'ResourceStatusReason'}})
     event_status = operation[0]["ResourceStatus"]
     if "ROLLBACK" in event_status or event_status.endswith("_FAILED"):
         state["failureDetected"] = True
@@ -320,9 +321,15 @@ def controller_main(argv=None, root=None, timing=None):
     parser.add_argument("--profile")
     parser.add_argument("--approve-change-set", action="append", default=[])
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--observe-only", action="store_true", help="resume observation/drain only, without mutation or accepting changed definitions")
+    parser.add_argument("--repair-result", type=Path, help="accept a helper-verified child result into this same session")
     parser.add_argument("--sequential", action="store_true", help="limit this session to one stack at a time without changing the design")
     parser.add_argument("--pause-after-group", action="store_true", help="update phase only: explicit producer/consumer IaC handoff")
     args = parser.parse_args(argv)
+    if (args.repair_result or args.observe_only) and not args.resume:
+        parser.error("--repair-result/--observe-only require --resume")
+    if args.repair_result and args.observe_only:
+        parser.error("--repair-result cannot be combined with --observe-only")
     root = (root if root is not None else Path.cwd()).resolve()
     return session_ops.run(args, root, timing, Path(__file__).parent.parent, create_runtime, load_units)
 
