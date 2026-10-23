@@ -115,9 +115,10 @@ def check_intent_save_failure(proposal):
     session.pop('pendingObserved')
     backend = SimpleNamespace(root=root, session=session, environment='dev', directory='team', target={},
                               save=lambda: (_ for _ in ()).throw(OSError('intent write failed')))
-    with patch.object(M, '_identity', return_value={}), patch.object(M, 'authority_snapshot', return_value={source: old.encode()}):
+    with patch.object(M, '_identity', return_value={}), patch.object(M, 'authority_snapshot', return_value={source: old.encode()}), \
+         patch.object(M, 'generated_plan', return_value={}):
         with pytest.raises(OSError, match='intent write failed'):
-            M.prepare(backend, [{'name': 'A'}], {source: new}, ['service'])
+            M.prepare(backend, [{'name': 'A'}], {source: new}, ['service'], set())
     assert source.read_text() == old
 
 
@@ -180,6 +181,84 @@ def check_original_failure_retained():
     assert session['observedError'] == 'original design I/O failure'
     assert session['observedRecoveryError'] == 'later guard refusal'
     assert session['observedFailures'][0]['stage'] == 'MODEL_PUBLISHED'
+
+
+@pytest.mark.parametrize('state', ['before', 'after', 'append', 'value', 'empty', 'missing', 'add', 'partial', 'no-proof', 'candidate'])
+def check_generated_classification(tmp_path, state):
+    from task_contract import selected_task
+    view = 'docs/designs/dev/team/service.md'
+    artifact = 'docs/designs/dev/team/service/policy.json'
+    paths = [view, artifact]
+    before, after = {view: b'old\n', artifact: None}, {view: 'new\n', artifact: '{}\n'}
+    generated = {'groups': {view: paths}, 'originals': {p: None if raw is None else base64.b64encode(raw).decode()
+                 for p, raw in before.items()}, 'outputs': after, 'stage': 'CANDIDATE'}
+    plan = {'generated': generated}
+    for p, raw in (before if state == 'before' else {p: s.encode() for p, s in after.items()}).items():
+        file = tmp_path / p
+        file.parent.mkdir(parents=True, exist_ok=True)
+        if raw is not None: file.write_bytes(raw)
+    task = tmp_path / 'tasks/deploy.md'
+    task.parent.mkdir()
+    listed = ''.join('- `' + p + '`\n' for p in ['tasks/deploy.md', *paths])
+    task.write_text('## Task contract\n- Task status: `running`\n## Modified files\n' + listed + '## Allowed paths\n' + listed)
+    if state == 'append': (tmp_path / view).write_bytes(b'new\nexternal\n')
+    if state == 'value': (tmp_path / artifact).write_bytes(b'{"external":true}')
+    if state == 'empty': (tmp_path / artifact).write_bytes(b'')
+    if state == 'missing': (tmp_path / view).unlink()
+    if state == 'add': (tmp_path / artifact).with_name('extra.json').write_bytes(b'{}')
+    if state == 'partial': (tmp_path / view).write_bytes(before[view])
+    if state == 'no-proof': plan.clear()
+    if state == 'candidate': generated['outputs'][artifact] = '{"other":true}'
+    retained = {p: p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
+    with selected_task(tmp_path, 'tasks/deploy.md'):
+        if state in {'before', 'after'}:
+            current = M.check_generated(tmp_path, plan)
+            assert current == M.generated_manifests(tmp_path, plan)[state == 'after']
+        else:
+            with pytest.raises(Blocked): M.check_generated(tmp_path, plan)
+    assert {p: p.read_bytes() for p in retained} == retained
+
+
+@pytest.mark.parametrize('problem', ['none', 'third', 'foreign', 'incomplete', 'empty-original', 'receipt'])
+def check_generated_journal(tmp_path, problem):
+    from task_contract import selected_task
+    view, artifact = 'docs/designs/dev/team/service.md', 'docs/designs/dev/team/service/policy.json'
+    files = {view: b'old', artifact: None}
+    generated = {'groups': {view: list(files)}, 'originals': {p: None if raw is None else base64.b64encode(raw).decode()
+                 for p, raw in files.items()}, 'outputs': {view: 'new', artifact: '{}'}, 'stage': 'CANDIDATE'}
+    plan = {'generated': generated}
+    (tmp_path / view).parent.mkdir(parents=True)
+    (tmp_path / view).write_bytes(b'new')
+    record = {'originals': dict(generated['originals'])}
+    if problem == 'third': (tmp_path / view).write_bytes(b'external')
+    if problem == 'foreign': record['originals']['other'] = None
+    if problem == 'incomplete': record['originals'].pop(view)
+    if problem == 'empty-original': record['originals'][artifact] = ''
+    if problem == 'receipt': record['importReceipt'] = {}
+    task = tmp_path / 'tasks/deploy.md'
+    task.parent.mkdir()
+    listed = ''.join('- `' + p + '`\n' for p in ['tasks/deploy.md', *files])
+    task.write_text('## Task contract\n- Task status: `running`\n## Modified files\n' + listed + '## Allowed paths\n' + listed)
+    with selected_task(tmp_path, 'tasks/deploy.md'):
+        if problem == 'none': M.verify_generated_journal(tmp_path, plan, record)
+        else:
+            with pytest.raises(Blocked): M.verify_generated_journal(tmp_path, plan, record)
+
+
+def check_generated_plan_snapshot(proposal):
+    root, _, _, _, _ = proposal
+    view = root / 'docs/designs/dev/team/service.md'
+    view.parent.mkdir(parents=True)
+    view.write_bytes(b'')
+    artifact = view.with_suffix('') / 'policy.json'
+    artifact.parent.mkdir()
+    extra = artifact.with_name('extra.json')
+    extra.write_bytes(b'{}\n')
+    plan = M.generated_plan(root, {view, artifact})
+    assert plan['outputs'] is None and plan['stage'] == 'PREPARED'
+    assert plan['originals'] == {view.relative_to(root).as_posix(): '', artifact.relative_to(root).as_posix(): None,
+                                extra.relative_to(root).as_posix(): base64.b64encode(b'{}\n').decode()}
+    assert plan['groups'] == {view.relative_to(root).as_posix(): sorted(plan['originals'])}
 
 
 if __name__ == '__main__':

@@ -33,7 +33,7 @@ def git(root, *args):
     return subprocess.run(['git', *args], cwd=root, check=True, capture_output=True, text=True).stdout
 
 
-def seed(root, state_path, case='orders', *, same_group=False):
+def seed(root, state_path, case='orders', *, same_group=False, generated_artifacts=False):
     fixture = load_case('deploy_controller', 'orders' if case in {'remove', 'multi-observed'} else case)
     if same_group:
         fixture['data']['same_group'] = True
@@ -55,6 +55,13 @@ def seed(root, state_path, case='orders', *, same_group=False):
             values.update({'desired.resource.003.cfn-logicalId': 'cfn-stack-app-dev-first-VpcFirst',
                 'desired.row.003-001.value': '[vpc](#resource-EC2_VPC_002)',
                 'desired.row.003-002.value': '`10.1.0.0/16`', 'desired.row.003-003.value': '`app-dev-observed-vpc`'})
+            if generated_artifacts:
+                fixture['data']['s3'].update({
+                    'desired.row.001-004.property': 'S3.Bucket.Tags[].Key', 'desired.row.001-004.value': '`Network`',
+                    'desired.row.001-004.comment': '合成参照',
+                    'desired.row.001-005.property': 'S3.Bucket.Tags[].Value',
+                    'desired.row.001-005.value': '[vpc](ec2.md#resource-EC2_VPC_002)',
+                    'desired.row.001-005.comment': '合成参照'})
         template.write_text(json.dumps(document))
     if fixture['data'].get('bootstrap'):
         first = root / 'infra/cloudformation/templates/first.yaml'
@@ -412,6 +419,9 @@ def invoke(root, state_path, aws_path, options=(), fail_observed=False, fault=No
             raise OSError('injected observed I/O failure')
         if fault == 'design-io' and path.is_relative_to(root / 'docs/designs'):
             raise OSError('injected design I/O failure')
+        if fault == 'generation-io' and path.suffix == '.md' and not path.is_relative_to(root) and state_path.is_file():
+            if json.loads(state_path.read_text()).get('pendingObserved', {}).get('stage') == 'MODEL_PUBLISHED':
+                raise OSError('injected staged generation I/O failure')
         if path == state_path.with_suffix('.json.tmp'):
             saved = json.loads(text)
             if fault == 'plan-save' and saved.get('pendingObserved'):
@@ -422,6 +432,9 @@ def invoke(root, state_path, aws_path, options=(), fail_observed=False, fault=No
         if fault == 'model-partial' and model_output:
             assert journal.is_file()
             os._exit(76)
+        if fault == 'design-partial' and path.is_relative_to(root / 'docs/designs'):
+            assert journal.is_file()
+            os._exit(79)
         return result
     def unlink(path, *args, **kwargs):
         model_commit = (fault == 'model-committed' and path == journal and path.is_file()
@@ -449,6 +462,14 @@ def invoke(root, state_path, aws_path, options=(), fail_observed=False, fault=No
         if fail_observed or fault:
             stack.enter_context(patch.object(Path, 'write_text', write))
             stack.enter_context(patch.object(Path, 'unlink', unlink))
+        if fault == 'design-race':
+            from generation_inputs import GenerationInputs
+            original_seal = GenerationInputs.seal
+            def seal(snapshot):
+                original_seal(snapshot)
+                path = root / f'docs/designs/dev/{ACCOUNT}/ec2.md'
+                original_write(path, path.read_text() + '\nexternal during generation\n')
+            stack.enter_context(patch.object(GenerationInputs, 'seal', seal))
         return main(['--environment', 'dev', '--aws-account-id', ACCOUNT, '--stack', 'cfn-stack-app-dev-first', '--stack', 'cfn-stack-app-dev-second',
             '--state', str(state_path), '--timing-log', str(state_path.with_suffix('.timing.jsonl')), *options])
 

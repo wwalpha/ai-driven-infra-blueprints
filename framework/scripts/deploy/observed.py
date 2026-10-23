@@ -29,7 +29,7 @@ def removed_resources(units, states):
     return result
 
 
-def collect_successful(backend, units, states):
+def collect_successful(backend, units, states, *, generated_views=None):
     """Resolve exact candidates from fresh successful Stack reads without writing."""
     root, environment, directory = backend.root, backend.environment, backend.directory
     require_target_no_issues(root, (environment, directory))
@@ -114,6 +114,8 @@ def collect_successful(backend, units, states):
     if not changes:
         return {}, [], None
     destinations, views, sync = observed_destinations(root, environment, directory, loaded, changes)
+    if generated_views is not None:
+        generated_views.update(views)
     return destinations, sorted({path.stem for path in changes}), sync
 
 
@@ -124,11 +126,12 @@ def sync_successful(backend, units, states):
         destinations = finish(backend, units)
         names = backend.session['pendingObserved']['evidence']
     else:
-        destinations, services, sync = collect_successful(backend, units, states)
+        views = set()
+        destinations, services, sync = collect_successful(backend, units, states, generated_views=views)
         names = [unit['name'] for unit in units]
         if services:
             if getattr(backend, 'session', {}).get('modelInputManifest') is not None:
-                prepare(backend, units, destinations, services)
+                prepare(backend, units, destinations, services, views)
                 finish(backend, units)
             else:
                 root = backend.root

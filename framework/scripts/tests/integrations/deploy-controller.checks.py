@@ -592,23 +592,29 @@ def assert_single_execution(aws, evidence):
 
 def assert_published(root, session, evidence):
     from deploy.session import model_input_manifest
-    from model.render import markdown_for
     from task_contract import selected_task
     saved = json.loads(session.read_text())
     assert saved['result'] == 'COMPLETE' and 'pendingObserved' not in saved
     assert saved['repository'] == str(root) and saved['taskFile'] == 'tasks/deploy.md'
     assert saved['states'][FIRST]['executionEvidence'] == evidence
     assert all(state['status'] == 'SUCCESS' and state['observedSynced'] for state in saved['states'].values())
+    for service in ('s3', 'ec2', 'cloudformation-stacks'):
+        assert (root / f'docs/designs/dev/{ACCOUNT}/{service}.md').is_file()
+    assert (root / f'docs/designs/dev/{ACCOUNT}/s3/s3-bucket-001-bucket-policy.json').is_file()
+    values = properties(read_model(root / f'model/dev/{ACCOUNT}/ec2.properties'))
+    assert values['observed.row.001-001.value'].strip('`') == 'vpc-fixture'
+    removed = any(item['Action'] == 'Remove' for item in evidence['resources'])
+    if not removed:
+        assert values['observed.row.002-001.value'].strip('`') == 'subnet-fixture'
     with selected_task(root, 'tasks/deploy.md'):
         assert saved['modelInputManifest'] == model_input_manifest(root, 'dev', ACCOUNT)
-        from sync_runtime import compare_generation
-        errors = compare_generation(root, {('dev', ACCOUNT, service) for service in ('s3', 'ec2', 'cloudformation-stacks')})
-        assert not errors, errors
+        from sync_runtime import sync
+        assert sync(root, False, 'dev', ACCOUNT, services=['s3', 'ec2', 'cloudformation-stacks']) == 0
 
 
 @pytest.mark.parametrize('fault,exit_code', [
     ('plan-save', 2), ('model-io', 2), ('model-partial', 76),
-    ('model-committed', 77), ('design-io', 2), ('design-committed', 78)])
+    ('model-committed', 77), ('generation-io', 2), ('design-io', 2), ('design-partial', 79), ('design-committed', 78)])
 def check_observed_publication_process_resume(tmp_path, monkeypatch, fault, exit_code):
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     session, aws = tmp_path / 'session.json', tmp_path / 'aws.json'
@@ -631,7 +637,7 @@ def check_observed_publication_process_resume(tmp_path, monkeypatch, fault, exit
         assert plan['evidence'][FIRST]['executionEvidence'] == evidence
         if fault in {'model-partial', 'model-committed'}:
             assert plan['stage'] == 'PREPARED'
-        if fault in {'design-io', 'design-committed'}:
+        if fault in {'generation-io', 'design-io', 'design-partial', 'design-committed'}:
             assert plan['stage'] == 'MODEL_PUBLISHED'
         if fault == 'model-partial':
             from deploy.observed_resume import classify, manifest
@@ -645,7 +651,7 @@ def check_observed_publication_process_resume(tmp_path, monkeypatch, fault, exit
     assert resumed.returncode == 0, resumed.stdout + resumed.stderr
     assert_published(root, session, evidence)
     assert_single_execution(aws, evidence)
-    if fault in {'model-io', 'design-io'}:
+    if fault in {'model-io', 'generation-io', 'design-io'}:
         assert json.loads(session.read_text())['observedFailures'][0]['cause']
 
 
@@ -668,6 +674,76 @@ def check_observed_drains_peer_then_resumes(tmp_path, monkeypatch):
     assert_single_execution(aws, evidence[FIRST])
     assert sum(op == 'execute_change_set' and args['StackName'] == evidence[SECOND]['StackId']
                for _, op, args in json.loads(aws.read_text())['calls']) == 1
+
+
+@pytest.mark.parametrize('change', ['append', 'value', 'json', 'add', 'delete', 'json-delete', 'journal', 'no-proof', 'generation-append'])
+def check_generated_external_change_rejected(tmp_path, monkeypatch, change):
+    import hashlib
+    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
+    session, aws = tmp_path / 'session.json', tmp_path / 'aws.json'
+    root = seed(tmp_path / 'project', session, 'multi-observed', generated_artifacts=True)
+    aws_state(aws)
+    fault = 'design-partial' if change == 'journal' else 'generation-io' if change == 'generation-append' else 'design-io'
+    child = child_run(root, session, aws, fault=fault)
+    assert child.returncode == (79 if change == 'journal' else 2), child.stdout + child.stderr
+    if change == 'journal': recover_owned_lock(root, child)
+    saved = json.loads(session.read_text())
+    evidence = saved['states'][FIRST]['executionEvidence']
+    generated = saved['pendingObserved']['generated']
+    design = root / f'docs/designs/dev/{ACCOUNT}/ec2.md'
+    artifact = root / f'docs/designs/dev/{ACCOUNT}/s3/s3-bucket-001-bucket-policy.json'
+    assert artifact.relative_to(root).as_posix() in generated['originals']
+    if change in {'append', 'journal', 'generation-append'}: design.write_bytes(design.read_bytes() + b'\nexternal append\n')
+    if change == 'value':
+        raw = design.read_bytes()
+        altered = raw.replace(b'app-dev-subnet', b'external-subnet')
+        assert altered != raw
+        design.write_bytes(altered)
+    if change == 'json': artifact.write_bytes(b'{"external": true}\n')
+    if change == 'add': artifact.with_name('external.json').write_bytes(b'{}\n')
+    if change == 'delete': design.unlink()
+    if change == 'json-delete': artifact.unlink()
+    if change == 'no-proof':
+        # Exercise a real signed older pending-plan shape, not a tampered workflow ledger.
+        from deploy import handoff
+        handoff.restore(root, session, saved)
+        saved['pendingObserved'].pop('generated')
+        from deploy.session import save_session
+        save_session(session, saved)
+    retained = {p: p.read_bytes() for p in root.rglob('*') if p.is_file() and '.git' not in p.parts}
+    journal = Path(tempfile.gettempdir()) / 'blueprint-model-publication' / (hashlib.sha256(str(root).encode()).hexdigest() + '.json')
+    journal_bytes = journal.read_bytes() if journal.exists() else None
+    resumed = child_run(root, session, aws, ['--resume'])
+    assert resumed.returncode == 2, resumed.stdout + resumed.stderr
+    assert {p: p.read_bytes() for p in root.rglob('*') if p.is_file() and '.git' not in p.parts} == retained
+    assert (journal.read_bytes() if journal.exists() else None) == journal_bytes
+    after = json.loads(session.read_text())
+    assert after['states'][FIRST]['status'] == 'SUCCESS' and not after['states'][FIRST].get('observedSynced')
+    assert after['states'][FIRST]['executionEvidence'] == evidence
+    assert after['states'][SECOND]['status'] == 'NOT_STARTED' and after['pendingObserved']
+    assert after['observedRecoveryError']
+    assert_single_execution(aws, evidence)
+
+
+def check_generated_change_during_publication(tmp_path, monkeypatch):
+    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
+    session, aws = tmp_path / 'session.json', tmp_path / 'aws.json'
+    root = seed(tmp_path / 'project', session, 'multi-observed')
+    aws_state(aws)
+    design = root / f'docs/designs/dev/{ACCOUNT}/ec2.md'
+    expected = design.read_bytes() + b'\nexternal during generation\n'
+    child = child_run(root, session, aws, fault='design-race')
+    assert child.returncode == 2, child.stdout + child.stderr
+    assert design.read_bytes() == expected
+    saved = json.loads(session.read_text())
+    assert 'generation inputs changed before publication' in saved['observedError']
+    assert saved['states'][FIRST]['status'] == 'SUCCESS' and saved['pendingObserved']
+    assert saved['states'][SECOND]['status'] == 'NOT_STARTED'
+    evidence = saved['states'][FIRST]['executionEvidence']
+    resumed = child_run(root, session, aws, ['--resume'])
+    assert resumed.returncode == 2, resumed.stdout + resumed.stderr
+    assert design.read_bytes() == expected
+    assert_single_execution(aws, evidence)
 
 
 @pytest.mark.parametrize('fault,change', [

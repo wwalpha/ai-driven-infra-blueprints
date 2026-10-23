@@ -45,7 +45,93 @@ def classify(current, before, after, *, mixed=False):
     if mixed and current.keys() == before.keys() == after.keys() and all(
             current[key] in (before[key], after[key]) for key in current):
         return 'PARTIAL'
-    raise Blocked('observed plan cannot explain current Model bytes or dependency file set')
+    raise Blocked('observed plan cannot explain current bytes or dependency file set')
+
+
+def generated_plan(root, views):
+    """Pin observed_destinations before any Model save or fallible generation."""
+    from generation_inputs import GenerationInputs
+    snapshot = GenerationInputs(root)
+    try:
+        files = set(views)
+        for view in (p for p in views if p.suffix == '.md'):
+            files.update(snapshot.select(view.with_suffix(''), '*.json', True, ('file', 'symlink')))
+        originals = {}
+        for path in files:
+            safe(root, path)
+            raw = snapshot.read(path)
+            originals[path.relative_to(root).as_posix()] = None if raw is None else base64.b64encode(raw).decode('ascii')
+        groups = {view.relative_to(root).as_posix(): sorted(p.relative_to(root).as_posix() for p in files
+                  if p == view or p.is_relative_to(view.with_suffix('')))
+                  for view in views if view.suffix == '.md'}
+        snapshot.verify()
+        return {'groups': groups, 'originals': originals, 'outputs': None, 'stage': 'PREPARED'}
+    finally:
+        snapshot.close()
+
+
+def generated_manifests(root, plan):
+    generated = plan.get('generated')
+    if not isinstance(generated, dict):
+        raise Blocked('observed plan has no generated-file evidence; safe resume cannot be proven')
+    groups, originals, outputs = (generated[key] for key in ('groups', 'originals', 'outputs'))
+    if (not isinstance(groups, dict) or not groups or not isinstance(originals, dict)
+            or generated['stage'] not in {'PREPARED', 'CANDIDATE', 'PUBLISHED'}
+            or set(originals) != {p for files in groups.values() for p in files}
+            or outputs is not None and (not isinstance(outputs, dict) or outputs.keys() != originals.keys())):
+        raise Blocked('invalid observed generated-file evidence')
+    task = task_path(root).read_text(encoding='utf-8')
+    declared, allowed = paths_in(task, '## Modified files'), paths_in(task, '## Allowed paths')
+    for view, files in groups.items():
+        if (not view.startswith('docs/designs/') or not view.endswith('.md') or view not in files
+                or len(files) != len(set(files))):
+            raise Blocked('invalid observed generated-file group')
+        for relative in files:
+            path = root / relative
+            safe(root, path)
+            if (relative not in declared or not any(matches(relative, p) for p in allowed)
+                    or relative != view and (path.suffix != '.json' or path.parent != (root / view).with_suffix(''))):
+                raise Blocked('observed generated output outside Task authority')
+    before = manifest({p: None if raw is None else base64.b64decode(raw, validate=True) for p, raw in originals.items()})
+    after = before if outputs is None else manifest({p: text.encode('utf-8') for p, text in outputs.items()})
+    return before, after
+
+
+def check_generated(root, plan, *, mixed=False):
+    before, after = generated_manifests(root, plan)
+    current = {}
+    for relative in before:
+        path = root / relative
+        safe(root, path)
+        current[relative] = path.read_bytes() if path.is_file() else None
+    generated = plan['generated']
+    for view in generated['groups']:
+        # Generation scans this exact artifact selection, including unexpected JSONs.
+        for path in (root / view).with_suffix('').rglob('*.json'):
+            if path.relative_to(root).as_posix() not in before:
+                raise Blocked('observed generated file set changed: ' + str(path.relative_to(root)))
+    current = manifest(current)
+    classify(current, before, after, mixed=True)
+    if not mixed:
+        # Each service is one existing journal transaction; completed services may differ.
+        for files in generated['groups'].values():
+            classify({p: current[p] for p in files}, {p: before[p] for p in files}, {p: after[p] for p in files})
+    return current
+
+
+def verify_generated_journal(root, plan, record):
+    before, after = generated_manifests(root, plan)
+    generated = plan['generated']
+    if ('importReceipt' in record or generated['outputs'] is None or not record['originals']
+            or any(p not in generated['originals'] or raw != generated['originals'][p]
+                   for p, raw in record['originals'].items())
+            or not any(set(record['originals']) == {p for p in files if before[p] != after[p]}
+                       for files in generated['groups'].values())):
+        raise Blocked('publication journal is not owned by this observed generated plan')
+    current = check_generated(root, plan, mixed=True)
+    restored = {**current, **{p: before[p] for p in record['originals']}}
+    for files in generated['groups'].values():
+        classify({p: restored[p] for p in files}, {p: before[p] for p in files}, {p: after[p] for p in files})
 
 
 def _identity(root, session, target, environment, directory):
@@ -63,7 +149,7 @@ def _identity(root, session, target, environment, directory):
             **{key: session[key] for key in ('inputDigest', 'executionDigest', 'infraManifest')}}
 
 
-def prepare(backend, units, outputs, services):
+def prepare(backend, units, outputs, services, views):
     root, session = backend.root, backend.session
     with publication_lock(root, read_only=True):
         before = authority_snapshot(root, backend.environment, backend.directory)
@@ -75,6 +161,10 @@ def prepare(backend, units, outputs, services):
         after = {**relative, **{path.relative_to(root).as_posix(): text.encode('utf-8') for path, text in outputs.items()}}
         directories = {f'model/{backend.environment}/{backend.directory}'}
         directories.update('/'.join(path.split('/')[:3]) for path in relative if path.startswith('model/'))
+        generated = generated_plan(root, views)
+        if manifest({p.relative_to(root).as_posix(): raw for p, raw in authority_snapshot(
+                root, backend.environment, backend.directory).items()}) != before_manifest:
+            raise Blocked('Model inputs changed during observed generation planning')
         session['pendingObserved'] = {
             'identity': _identity(root, session, backend.target, backend.environment, backend.directory),
             'evidence': evidence(session['states'], [unit['name'] for unit in units]),
@@ -82,7 +172,7 @@ def prepare(backend, units, outputs, services):
             'originals': {path.relative_to(root).as_posix(): base64.b64encode(before[path]).decode('ascii') for path in outputs},
             'outputs': {path.relative_to(root).as_posix(): text for path, text in outputs.items()},
             'directories': sorted(directories), 'inventory': inventory(root, directories),
-            'services': services, 'stage': 'PREPARED'}
+            'services': services, 'stage': 'PREPARED', 'generated': generated}
         backend.save()  # A failed intent save must never reach Model publication.
 
 
@@ -150,13 +240,19 @@ def reconcile(root, session, target, environment, directory):
         plan = validate_plan(root, session, target, environment, directory)
         current = {relative: (root / relative).read_bytes() if (root / relative).is_file() else None
                    for relative in plan['beforeManifest']}
-        verify_journal(plan, record, manifest(current))
+        if record['originals'] and all(p.startswith('docs/designs/') for p in record['originals']):
+            classify(manifest(current), plan['beforeManifest'], plan['afterManifest'])
+            verify_generated_journal(root, plan, record)
+        else:
+            check_generated(root, plan)
+            verify_journal(plan, record, manifest(current))
 
     with publication_lock(root, recovery_check=recovery):
         plan = validate_plan(root, session, target, environment, directory)
         current = {path.relative_to(root).as_posix(): raw
                    for path, raw in authority_snapshot(root, environment, directory).items()}
         stage = classify(manifest(current), plan['beforeManifest'], plan['afterManifest'])
+        check_generated(root, plan)
         plan['stage'] = stage
         session['modelInputManifest'] = plan['beforeManifest'] if stage == 'PREPARED' else plan['afterManifest']
     return stage
@@ -183,8 +279,35 @@ def finish(backend, units):
             raise Blocked('observed publication did not produce the exact candidate')
     backend.save()
     backend.guard()
-    if sync_runtime.sync(root, True, backend.environment, backend.directory, services=plan['services']):
-        raise ValueError('observed model sync/validation failed; resume same session after resolving blocker')
+    # Keep journal recovery owned across preparation and the existing atomic publication.
+    with publication_lock(root, read_only=True):
+        reconcile(root, session, backend.target, backend.environment, backend.directory)
+        with sync_runtime.generation_context(root, True) as snapshot:
+            generation = sync_runtime.prepare_generation(root, {
+                (backend.environment, backend.directory, service) for service in plan['services']}, snapshot=snapshot)
+            try:
+                sync_runtime.validate_generation(generation)
+                if generation.failures or generation.unavailable:
+                    raise Blocked('observed generation failed: ' + str(generation.failures or generation.unavailable))
+                candidate = {p.relative_to(root).as_posix(): text
+                             for files in generation.expected_outputs.values() for p, text in files.items()}
+                generated = plan['generated']
+                if candidate.keys() != generated['originals'].keys():
+                    raise Blocked('observed generated candidate file set changed')
+                if generated['outputs'] is not None and candidate != generated['outputs']:
+                    raise Blocked('observed generated candidate differs from saved session')
+                check_generated(root, plan)
+                generated['outputs'], generated['stage'] = candidate, 'CANDIDATE'
+                backend.save()  # Persist exact candidates before the first generated-file write.
+                backend.guard()
+                reconcile(root, session, backend.target, backend.environment, backend.directory)
+                sync_runtime.publish_generation(generation)  # Verifies the consumed input/output snapshot under lock.
+                sync_runtime.report_generation(generation)
+                if check_generated(root, plan) != manifest({p: text.encode('utf-8') for p, text in candidate.items()}):
+                    raise Blocked('observed generated publication did not produce the saved candidate')
+                generated['stage'] = 'PUBLISHED'
+            finally:
+                generation.close()
     if reconcile(root, session, backend.target, backend.environment, backend.directory) != 'MODEL_PUBLISHED':
         raise Blocked('Model changed during observed design generation')
     backend.guard()
