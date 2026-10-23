@@ -25,12 +25,15 @@ def inventories(root, path):
 
 
 def markdown_matches(text, pattern):
-    result, offset, fence = [], 0, ''
+    result, offset, fence = [], 0, None
     for line in text.splitlines(keepends=True):
-        marker = re.match(r'^\s*(`{3,}|~{3,})', line)
-        if marker:
-            fence = '' if fence == marker[1][0] else marker[1][0] if not fence else fence
-        elif not fence:
+        marker = re.match(r'^ {0,3}(`{3,}|~{3,})(.*)$', line.rstrip('\r\n'))
+        if fence:
+            if marker and marker[1][0] == fence[0] and len(marker[1]) >= fence[1] and not marker[2].strip():
+                fence = None
+        elif marker and (marker[1][0] == '~' or '`' not in marker[2]):
+            fence = (marker[1][0], len(marker[1]))
+        else:
             match = re.match(pattern, line.rstrip('\r\n'))
             if match:
                 result.append((offset, offset + match.end(), match.group(1)))
@@ -63,6 +66,14 @@ def owned_blocks(root, path, text):
     owners = unresolved_services(root, path) if path.is_file() else []
     offset = len(numbered(preamble)[1])
     result = []
+    if offset and len(owners[:offset]) == offset:
+        known = {next(iter(services)) for _, services in owners[:offset] if len(services) == 1}
+        if len(known) == 1 and all(len(services) == 1 for _, services in owners[:offset]):
+            service = next(iter(known))
+            markers = markdown_matches(preamble, r'^(<!-- issue-service: [a-z0-9_-]+ -->)$')
+            boundary = markers[0][0] if markers else markdown_matches(preamble, r'^ {0,3}(\d+)[.)] +')[0][0]
+            result.append((service, f'### {service}\n\n' + preamble[boundary:]))
+            preamble = preamble[:boundary]
     for service, body in sections:
         count = len(numbered(body)[1])
         belonging = [services for _, services in owners[offset:offset + count]]
@@ -242,27 +253,37 @@ def iac_report(environment, directory, services, records, display=None, *, stamp
 
 
 # Notices are scope-stamped machine output, never Human confirmation material.
-NOTICE = r'<!-- issues-notices:([^ >]+):start -->.*?<!-- issues-notices:\1:end -->\s*'
-LEGACY_NOTICE = r'<!-- reference-warnings:start -->.*?<!-- reference-warnings:end -->\s*'
+NOTICE_MARKER = r'^(<!-- (?:issues-notices:[^ >]+:(?:start|end)|reference-warnings:(?:start|end)) -->)[ \t]*$'
 
 def without_notices(text):
     return split_notices(text)[0]
 
 
 def split_notices(text):
-    notices = []
-    def remove(match):
-        notices.append((match.group(1), match[0].rstrip()))
-        return ''
-    ordinary = re.sub(NOTICE + '|' + LEGACY_NOTICE, remove, text, flags=re.S)
-    return ordinary, notices
+    notices, ordinary, offset = [], [], 0
+    markers = markdown_matches(text, NOTICE_MARKER)
+    for index, (start, _, marker) in enumerate(markers[:-1]):
+        if ':start -->' not in marker:
+            continue
+        _, end, closing = markers[index + 1]
+        if closing != marker.replace(':start -->', ':end -->'):
+            continue
+        ordinary.append(text[offset:start])
+        scope = marker.removeprefix('<!-- issues-notices:').removesuffix(':start -->') if marker.startswith('<!-- issues-notices:') else None
+        notices.append((scope, text[start:end]))
+        offset = end
+    ordinary.append(text[offset:])
+    return ''.join(ordinary), notices
 
 
 def attach_notices(text, notices):
     if not notices:
         return text
-    header, newline, body = text.partition('\n')
-    return header + (newline or '\n') + '\n'.join(block for _, block in notices) + '\n\n' + body
+    # A real title is a safe boundary; an ownership marker must stay beside its Issue.
+    title = re.match(r'^# [^\r\n]+(?:\r?\n|$)', text)
+    boundary = title.end() if title else 0
+    header = text[:boundary] if title else '# 問題一覧\n'
+    return header + '\n' + '\n'.join(block for _, block in notices) + '\n\n' + text[boundary:].lstrip('\r\n')
 
 def notice_report(text, environment, directory, services, channels, *, preserve_prior=False):
     scope_id = identifier([environment, directory, sorted(services)])

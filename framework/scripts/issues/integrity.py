@@ -42,9 +42,9 @@ def fingerprint(comparison, *, common_key):
                                  if base.is_relative_to(comparison.root)] if reads else []}
 
 
-def verify_inputs(root, artifact, *, cache=None, common=True):
+def verify_inputs(root, artifact, *, cache=None, common=True, allow_unreadable=False):
     expected = artifact['fingerprint']
-    if expected.get('unreadable'):
+    if expected.get('unreadable') and not allow_unreadable:
         raise ValueError('scan input freshness unprovable: input bytes could not be read')
     from generation_inputs import GenerationInputs
     for path, kind in expected.get('model_kinds', {}).items():

@@ -271,6 +271,11 @@ def check_corrupt_provider_schema(tmp_path, monkeypatch, broken):
         assert all(type(error['resource_type']) is str for error in result['processing_errors'] if 'resource_type' in error), result
         assert {'E3002', 'E3006'} <= {m['Rule']['Id'] for m in result['matches']}, result
         assert result['fatal'] and validate_template(session, template, 'ap-northeast-1')['status'] == 'not_run'
+    assert not any(e['code'] == 'child_execution' for e in result['processing_errors']), result
+    assert result['decode_complete'] and result['decode']
+    observed = {item['locator']: item for item in result['dependencies']['files']}
+    assert str(schema) in observed and observed[str(schema)]['sha256']
+    assert str(template) in observed
     verify_dependencies(result['dependencies'])
     # A zero-match schema failure still cannot become completed lint.
     template.write_text('Resources:\n  Bucket:\n    Type: AWS::S3::Bucket\n    Properties:\n      MadeUpProperty: true\n')
@@ -288,6 +293,65 @@ def check_corrupt_provider_schema(tmp_path, monkeypatch, broken):
         assert normal['completed'] and not normal['processing_errors'] and not normal['unverified'], normal
         assert any(m['Rule']['Id'] == 'E3006' for m in normal['matches']), normal
     assert schema.read_text() == broken
+
+
+@pytest.mark.parametrize('failure', ['utf8', 'missing', 'permission'])
+def check_scan_dependency_view_failure(tmp_path, monkeypatch, failure):
+    from support.issues_scan_fixtures import fixture, task, review_for
+    from issues.runner import scan
+    from issues.publication import save_scan
+    from validation_cache import PassCache
+    from validation.runner import Validator
+    from utils.cfn_lint import validate_template as real_lint
+    _, cwd = isolated(tmp_path, monkeypatch)
+    root = cwd / 'fixture'
+    fixture(root)
+    docs = root / 'docs/designs/dev/123456789012'
+    source, bad = docs / 'sqs.md', docs / 's3.md'
+    source.write_text(source.read_text() + '\n[dependent bucket](s3.md#s3-bucket-app-dev-data1)\n')
+    if failure == 'utf8':
+        bad.write_bytes(b'\xff private dependency body')
+    elif failure == 'missing':
+        bad.unlink()
+    else:
+        read_bytes = Path.read_bytes
+        def read(path):
+            if path == bad:
+                raise PermissionError('private permission body')
+            return read_bytes(path)
+        monkeypatch.setattr(Path, 'read_bytes', read)
+    template = root / 'infra/cloudformation/templates/shared.yaml'
+    data = json.loads(template.read_text())
+    data['Resources']['Log']['Properties']['RetentionInDays'] = 14
+    template.write_text(json.dumps(data))
+    with patch.object(PassCache, 'save') as cache_save, \
+         patch('issues.cfn_lint.validate_template', wraps=real_lint) as lint:
+        artifact = scan(root, 'dev', '123456789012', ['sqs', 'cloudwatch-logs'], fresh=True, jobs=1)
+    errors = [e for e in artifact['processing_errors'] if e['code'] == 'mechanical.view_read']
+    assert len(errors) == 1 and errors[0]['path'].endswith('/s3.md'), artifact
+    assert errors[0]['phase'] == 'design-links-reference' and errors[0]['consumers'] == [source.relative_to(root).as_posix()]
+    assert any(e.get('service') == 'sqs' and e['code'] == 'design.links_unavailable' for e in artifact['unverified'])
+    assert any(r['category'] == 'difference' and r['service'] == 'cloudwatch-logs' for r in artifact['iac'])
+    assert lint.call_count == 1 and artifact['cfn_lint']['jobs'][0]['completed'], (lint.call_count, artifact['cfn_lint'], artifact['processing_errors'])
+    assert not cache_save.called and artifact['validation_status'] == 'ERROR'
+    assert artifact['checks'] > 0 and 'private dependency body' not in json.dumps(artifact)
+    assert artifact['services'] == ['cloudwatch-logs', 'sqs']
+    with task(root, ['sqs', 'cloudwatch-logs']):
+        if failure == 'permission':
+            assert artifact['fingerprint']['unreadable']
+            with pytest.raises(ValueError, match='freshness unprovable'):
+                save_scan(root, artifact, review_for(artifact))
+            return
+        save_scan(root, artifact, review_for(artifact))
+        bad.write_bytes(b'changed dependency bytes')
+        with pytest.raises(ValueError, match='stale scan'):
+            save_scan(root, artifact, review_for(artifact))
+    if failure == 'utf8':
+        bad.write_bytes(b'\xff private dependency body')
+        normal = Validator(root, {('dev', '123456789012', 'sqs')}, workers=1)
+        normal.design_sources = {source: {}}
+        with pytest.raises(UnicodeDecodeError):
+            normal.check_design_links({}, [source])
 
 
 if __name__=='__main__':

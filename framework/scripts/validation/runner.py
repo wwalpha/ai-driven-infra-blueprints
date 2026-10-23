@@ -56,6 +56,7 @@ class Validator:
         self.catalog_pending = None
         self.catalog_key = None
         self.unavailable_views = {}
+        self.view_reader = None
         self.model_check = model_check
         self.cache = PassCache(root, fresh, include_project=scope != set(), definitions_root=definitions_root) if cache else None
         self.relative_paths = self.findings.relative_paths
@@ -284,8 +285,9 @@ class Validator:
         finally:
             plan.close()
 
-    def check_scoped_designs(self, *, defer_cache=False, view_errors=None) -> None:
-        self.unavailable_views = view_errors or {}
+    def check_scoped_designs(self, *, defer_cache=False, view_errors=None, view_reader=None) -> None:
+        self.unavailable_views = view_errors if view_errors is not None else {}
+        self.view_reader = view_reader
         unreadable = {(*path.relative_to(self.root / 'docs/designs').parts[:2], path.stem)
                       for path in self.unavailable_views}
         if unreadable:
@@ -344,6 +346,7 @@ class Validator:
                 validator.schema_catalog = self.schema_catalog or DesignSchemaCatalog(self.definitions_root)
                 validator.generated_models_checked = True
                 validator.unavailable_views = self.unavailable_views
+                validator.view_reader = self.view_reader
                 validator.check_designs()
                 validator.check_observed_values(scoped_files(self.root, "model", ".properties", scope))
             return validator
@@ -688,22 +691,8 @@ class Validator:
 
     def check_design_links(self, identifier_outputs: dict[str, set[str]], paths: list[Path] | None = None, *,
                            design_index: DesignIndex | None = None) -> None:
-        if self.unavailable_views:
-            from sync_runtime import local_design_links
-            from validation_cache import input_text
-            available = []
-            for path in self.design_files() if paths is None else paths:
-                values = design.design_model_values(path, design_sources=getattr(self, 'design_sources', {}), root=self.root)
-                targets = local_design_links(self.root, path, [input_text(path), *(values or {}).values()])
-                if targets & self.unavailable_views.keys():
-                    self.findings.unverified.append(dict(code='design.links_unavailable', path=self.relative(path),
-                                                        message='linked View unavailable; cross-View checks not run'))
-                else:
-                    available.append(path)
-            if not available:
-                return
-            paths = available
-        return design_links.check_design_links(identifier_outputs, self.design_files() if paths is None else paths, design_index=design_index, design_sources=getattr(self, "design_sources", {}), findings=self.findings, root=self.root, scope=self.scope, definitions_root=self.definitions_root)
+        return design_links.check_design_links(identifier_outputs, self.design_files() if paths is None else paths, design_index=design_index, design_sources=getattr(self, "design_sources", {}), findings=self.findings, root=self.root, scope=self.scope, definitions_root=self.definitions_root, view_reader=self.view_reader,
+                                               unavailable_views=self.unavailable_views)
 
     def check_design_artifacts(self, paths: list[Path] | None = None) -> None:
         return design_links.check_design_artifacts(paths, accounts=self.accounts, findings=self.findings, markdown_design_artifacts=self.markdown_design_artifacts, root=self.root)

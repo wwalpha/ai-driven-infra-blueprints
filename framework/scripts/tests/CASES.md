@@ -29,6 +29,11 @@
 | `issues-v2::check_notice_resolution_and_update_series` | `check_notice_resolution_and_update_series` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | T1〜T4日時/scope・ordinary解消ID・legacy/別scope/Human保全・save-results非再実行 | Issues v2 |
 | `issues-v2::check_view_read_failure_policy` | `check_view_read_failure_policy` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | issues局所View障害・独立service/source診断・実チェック件数・非cache・raw guard・通常Validator伝播 | Issues v2 |
 | `issues-v2::check_corrupt_provider_schema` | `check_corrupt_provider_schema` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 2 | 隔離cacheのJSON/Schema構築障害・通常文字列のresource_typeによる実worker間の診断返却・診断0件/混在保持・未知type/override非誤分類・回収 | Issues v2 |
+| `issues-v4::check_child_builtin_packets_preserve_progress` | `check_child_builtin_packets_preserve_progress` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 2 | JSON組込み型へのIPC正規化・途中例外でも取得済み全channel/dependencies保持 | Issues residual repair |
+| `issues-v4::check_scan_dependency_view_failure` | `check_scan_dependency_view_failure` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 3 | scope外S3のUTF-8/欠落/permission障害・SQS未検証・独立Logs差分と実lint・非cache・raw変更guard・通常Validator伝播 | Issues residual repair |
+| `issues-v4::check_notice_fenced_roundtrip` | `check_notice_fenced_roundtrip` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | headerless owner/ID/Gate・backtick/tildeコード例・legacy/別scope・normal/notice/save-results解消往復 | Issues residual repair |
+| `issues-v4::check_notice_marker_boundaries` | `check_notice_marker_boundaries` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | scope不一致/未完marker/HTML保持・長いfence・正常notice再接続 | Issues residual repair |
+
 
 ## Ordinary receiving-property reference contracts
 

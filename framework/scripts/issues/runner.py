@@ -19,7 +19,7 @@ from .inputs import view_text
 import uuid
 
 @contract_read_scope
-def mechanical(root, scope, *, fresh=False, jobs=4, catalog=None, fingerprint_out=None, warnings=None, cache=None, validator_out=None, view_errors=None):
+def mechanical(root, scope, *, fresh=False, jobs=4, catalog=None, fingerprint_out=None, warnings=None, cache=None, validator_out=None, view_errors=None, view_reader=None):
     """Reuse service checks/cache/parallelism, without contract/deploy/full-loop execution."""
     os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
     validator_module = module('validate-blueprint.py', 'issues_validator')
@@ -33,7 +33,7 @@ def mechanical(root, scope, *, fresh=False, jobs=4, catalog=None, fingerprint_ou
         validator.check_validation_scope()
         validator.check_model_files()
         # Continue diagnosable checks even when model/Markdown equality fails.
-        validator.check_scoped_designs(defer_cache=validator_out is not None, view_errors=view_errors)
+        validator.check_scoped_designs(defer_cache=validator_out is not None, view_errors=view_errors, view_reader=view_reader)
         validator.check_iac_selection()
     if validator_out is not None:
         validator_out.append(validator)
@@ -67,7 +67,8 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     before = fingerprint(comparison, common_key=cache.common)
     begin = time.perf_counter()
     validators = []
-    errors, checks, diagnostics = mechanical(root, scope, fresh=fresh, jobs=jobs, catalog=comparison.catalog, fingerprint_out=service_keys, warnings=warnings, cache=cache, validator_out=validators, view_errors=comparison.view_errors)
+    errors, checks, diagnostics = mechanical(root, scope, fresh=fresh, jobs=jobs, catalog=comparison.catalog, fingerprint_out=service_keys, warnings=warnings, cache=cache, validator_out=validators, view_errors=comparison.view_errors,
+        view_reader=lambda path, **kwargs: view_text(comparison, path, **kwargs))
     mechanical_seconds = time.perf_counter() - begin
     ordinary, judgments = [], []
     for message in dict.fromkeys(errors):
@@ -162,7 +163,9 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
         current = sorted(file.relative_to(root).as_posix() for file in (root / directory_name).rglob('*') if file.is_file() or file.is_symlink())
         if current != files:
             raise ValueError('stale scan: initial input file set changed')
-    verify_inputs(root, artifact, cache=cache, common=False)
+    # Return partial View diagnostics; only publication must prove every input readable.
+    partial_views = bool(view_errors) and not getattr(getattr(comparison, 'model_reads', None), 'read_failures', ())
+    verify_inputs(root, artifact, cache=cache, common=False, allow_unreadable=partial_views)
     current_common = live_common_key(cache)  # Live enumeration and bytes, never the starting memo.
     if current_common != cache.common:
         raise ValueError('stale scan: framework/project input changed')

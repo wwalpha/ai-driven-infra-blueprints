@@ -166,6 +166,45 @@ def check_worker_protocol_and_fatal():
         assert request.call_count==1
 
 
+@pytest.mark.parametrize('crash', [False, True])
+def check_child_builtin_packets_preserve_progress(crash):
+    from utils.cfn_lint import child
+    class ParserString(str):
+        pass
+    state = dict(processing_errors=[dict(code=ParserString('schema_unavailable'),
+                 resource_type=ParserString('AWS::S3::Bucket'))],
+                 unverified=[dict(code='schema')], fatal=True, decode=[dict(success=True)],
+                 status='processing_error', completed=False)
+    match = dict(Rule=dict(Id=ParserString('E3002')), Location=dict(Path=[ParserString('Resources')]))
+    dependencies = dict(files=[dict(locator=ParserString('/fixture/schema'), sha256='observed')])
+    def execution(request, emit):
+        emit(dict(progress=dict(state=state, match=match, dependencies=dependencies)))
+        if crash:
+            raise RuntimeError('private exception body')
+        return dict(state, matches=[match], dependencies=dependencies)
+    sender = Mock()
+    with patch('utils.cfn_lint.execute', execution):
+        child({}, sender)
+    packets = [call.args[0] for call in sender.send.call_args_list]
+    def builtins(value):
+        assert type(value) in (dict, list, str, int, float, bool, type(None))
+        if isinstance(value, dict):
+            for key, item in value.items():
+                builtins(key); builtins(item)
+        elif isinstance(value, list):
+            for item in value:
+                builtins(item)
+    for packet in packets:
+        builtins(packet)
+    result = packets[-1]
+    assert result['matches'] == [match] and result['dependencies'] == dependencies
+    assert result['decode'] == state['decode'] and result['fatal'] and not result['completed']
+    assert result['status'] == 'processing_error' and result['unverified'][0] == state['unverified'][0]
+    assert result['processing_errors'][0] == state['processing_errors'][0]
+    assert 'private exception body' not in json.dumps(result)
+    sender.close.assert_called_once()
+
+
 def check_scan_cache_guard_order():
     from issues.runner import scan
     from issues.aggregate import aggregate as real_aggregate

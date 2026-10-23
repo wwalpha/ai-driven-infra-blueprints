@@ -128,11 +128,11 @@ class DesignIndex:
         self._documents: dict[Path, DesignDocument] = {}
         self._lock = RLock()
 
-    def get(self, path: Path) -> DesignDocument:
+    def get(self, path: Path, *, text: str | None = None) -> DesignDocument:
         path = path.resolve()
         with self._lock:
             if path not in self._documents:
-                document = DesignDocument(path, input_text(path, encoding="utf-8"), self.root or definition_root(path.parent))
+                document = DesignDocument(path, input_text(path, encoding="utf-8") if text is None else text, self.root or definition_root(path.parent))
                 # Construct these cheap text views once before sharing across workers.
                 document.lines, document.anchors, document.visible_text
                 self._documents[path] = document

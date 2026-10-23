@@ -480,7 +480,72 @@ def check_notice_resolution_and_update_series(tmp_path):
 
 
 
+@pytest.mark.parametrize('fence', ['```', '~~~~'])
+def check_notice_fenced_roundtrip(tmp_path, fence):
+    from issues.reports import normal_merge, notice_report, split_notices
+    from issues.materials import existing_materials
+    from issue_gate import unresolved_services, issue_errors
+    root = tmp_path
+    path = root / 'issues/dev/team/issues.md'
+    path.parent.mkdir(parents=True)
+    example = (f'{fence}text\n<!-- reference-warnings:start -->\n## 参照警告\n'
+               '- example\n<!-- reference-warnings:end -->\n'
+               '<!-- issues-notices:sample:start -->\n- scoped example\n<!-- issues-notices:sample:end -->\n'
+               + ('```\n' if fence.startswith('~') else '~~~\n') + fence + '\n')
+    legacy = '<!-- reference-warnings:start -->\n## 旧参照\n- legacy warning\n<!-- reference-warnings:end -->\n'
+    human = 'Human確認済み\n\n' + example + '\nHuman後続\n'
+    old = '<!-- issue-service: s3 -->\n1. existing s3 problem\n\n' + legacy
+    path.write_text(old)
+    before = unresolved_services(root, path)
+    gate = issue_errors(root, {('dev', 'team', 'sqs')})
+    issues, _ = existing_materials(root, 'dev', 'team', ['s3'])
+    assert len(issues) == 1 and issues[0]['service'] == 's3'
+    merged = normal_merge(root, path, 'dev', 'team', ['sqs'], [], [], [])
+    merged = notice_report(merged, 'dev', 'team', ['sqs'], {'warnings': ['current']})
+    path.write_text(merged)
+    assert unresolved_services(root, path) == before
+    assert issue_errors(root, {('dev', 'team', 'sqs')}) == gate == []
+    assert existing_materials(root, 'dev', 'team', ['s3'])[0][0]['id'] == issues[0]['id']
+    # Keep a Human example in the preamble and real notices for two scopes.
+    path.write_text(human + merged)
+    merged = normal_merge(root, path, 'dev', 'team', ['s3'], [], [], [])
+    merged = notice_report(merged, 'dev', 'team', ['s3'], {'unverified': ['selected']})
+    assert example in split_notices(merged)[0] and len(split_notices(merged)[1]) == 3
+    assert merged.index('Human確認済み') < merged.index(example) < merged.index('Human後続')
+    path.write_text(merged)
+    with patch('issues.publication.save_authority', return_value=[path]), \
+         patch('issues.publication.atomic_files') as atomic:
+        save(root, 'dev', 'team', ['s3'], artifact=None)
+    saved = atomic.call_args.args[0][path]
+    assert example in split_notices(saved)[0]
+    assert saved.index('Human確認済み') < saved.index(example) < saved.index('Human後続')
+    assert split_notices(saved)[1] == split_notices(merged)[1]
+    path.write_text(saved)
+    resolution = dict(id=issues[0]['id'], reason='explicit revalidation', evidence='fixture')
+    resolved = normal_merge(root, path, 'dev', 'team', ['s3'], [], [], [resolution])
+    assert 'existing s3 problem' not in resolved and example in resolved
+    assert 'legacy warning' in resolved and 'current' in resolved
+
+
+def check_notice_marker_boundaries():
+    from issues.reports import split_notices, attach_notices
+    human = ('<!-- ordinary comment -->\n<!-- issues-notices:one:start -->\n'
+             '- incomplete\n<!-- issues-notices:two:end -->\n'
+             '<!-- reference-warnings:start -->\n- unfinished\n')
+    assert split_notices(human) == (human, [])
+    block = '<!-- issues-notices:scope:start -->\n## Warning\n- valid\n<!-- issues-notices:scope:end -->'
+    ordinary, notices = split_notices('before\n' + block + '\nafter\n')
+    assert ordinary == 'before\n\nafter\n' and notices == [('scope', block)]
+    assert split_notices(attach_notices(ordinary, notices))[1] == notices
+    longer = '````text\n```\n' + block + '\n````\n'
+    assert split_notices(longer) == (longer, [])
+
+
 def check_view_read_failure_policy(tmp_path):
+    import sync_runtime
+    import model.sources as sources
+    real_load_model = sources.load_model
+    assert sync_runtime.load_model is real_load_model
     from types import SimpleNamespace
     from unittest.mock import Mock
     from issues.inputs import view_text
@@ -532,6 +597,7 @@ def check_view_read_failure_policy(tmp_path):
         default = Validator(root, validator.scope, workers=1)
         with pytest.raises(UnicodeDecodeError):
             default.check_scoped_designs()
+    assert sources.load_model is sync_runtime.load_model is real_load_model
     artifact = dict(fingerprint=fingerprint(comparison, common_key='common'))
     verify_inputs(root, artifact, cache=SimpleNamespace(common_key=lambda: 'common'))
     bad.write_bytes(b'changed bytes')

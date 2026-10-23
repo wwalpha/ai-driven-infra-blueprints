@@ -281,7 +281,7 @@ def structured(request, emit=None):
             return
         decoded = [event for event in response['decode'] if event['locator']==request['template']]
         success = bool(decoded and decoded[-1].get('success') and decoded[-1].get('root') in {'dict','dict_node'})
-        state = {key:response[key] for key in ('decode','effective_templates','requested_region','effective_regions','configuration_sources','schema_roots','effective_config_fingerprint','processing_errors','unverified','fatal') if key in response}
+        state = {key:response[key] for key in ('completed','status','decode','effective_templates','requested_region','effective_regions','configuration_sources','schema_roots','effective_config_fingerprint','processing_errors','unverified','fatal') if key in response}
         state.update(decode_complete=success,input_defect=bool(decoded and not success and (decoded[-1].get('input_error') or decoded[-1].get('success'))))
         delta = dict(runtime=dependencies['runtime'],files=[value for key,value in files.items() if key not in sent_files],
                      directories=[value for key,value in directories.items() if key not in sent_directories],
@@ -371,7 +371,7 @@ def structured(request, emit=None):
             except ResourceNotFoundError as error:
                 # The pinned loader chains only provider I/O/JSON/Schema construction failures.
                 if schema_hash and error.__cause__ is not None:
-                    failure = dict(code='schema_unavailable', resource_type=str(resource_type), region=region,
+                    failure = dict(code='schema_unavailable', resource_type=str(resource_type), region=str(region),
                                    exception=type(error.__cause__).__name__)
                     if failure not in response['processing_errors']:
                         response['processing_errors'].append(failure)
@@ -539,10 +539,17 @@ def execute(request, emit=None):
 
 
 def child(request, sender):
+    partial = {}
+    def send(packet):
+        # Strip parser subclasses through the existing JSON diagnostic contract before pickle.
+        packet = json.loads(json.dumps(packet, allow_nan=False))
+        if 'progress' in packet:
+            merge_progress(partial, packet)
+        sender.send(packet)
     try:
-        sender.send(execute(request,lambda packet:sender.send(packet)))
+        send(execute(request, send))
     except BaseException:
-        sender.send(failure('child_execution'))
+        send(interrupted(partial, 'child_execution'))
     finally:
         sender.close()
 

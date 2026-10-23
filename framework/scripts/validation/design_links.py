@@ -178,7 +178,8 @@ def check_design_overviews(paths: list[Path] | None = None, *, findings, root, s
 
 @input_scope
 def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path] | None = None, *,
-                       design_index: DesignIndex | None = None, design_sources=None, findings, root, scope, definitions_root=None) -> None:
+                       design_index: DesignIndex | None = None, design_sources=None, findings, root, scope, definitions_root=None,
+                       view_reader=None, unavailable_views=None) -> None:
     definitions_root = definitions_root or root
     design_index = design_index or DesignIndex(definitions_root)
     source_values = {}
@@ -274,6 +275,8 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 findings.check(False, f"invalid JSON Resource reference: {findings.relative(source)}: {error}")
     references = {path.resolve() for path in sources}
     fragments = {}
+    consumers = {}
+    unavailable = set(unavailable_views or {})
     visible_text = {}
     for source in sources:
         document = design_index.get(source)
@@ -291,13 +294,24 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 linked = (source.parent / target if target else source).resolve()
                 if outside_design(root, linked):
                     continue
-                if input_is_file(linked) and linked.suffix == ".md" and linked.is_relative_to(root / "docs/designs"):
+                if (input_is_file(linked) or view_reader is not None) and linked.suffix == ".md" and linked.is_relative_to(root / "docs/designs"):
                     references.add(linked)
+                    consumers.setdefault(linked, set()).add(source)
                     fragments.setdefault(linked, set()).add(fragment)
-    anchors = {
-        path: design_index.get(path).anchors
-        for path in references
-    }
+    # Only issues supplies a reader: normal validation retains read/decode exceptions.
+    for path in sorted(references - {source.resolve() for source in sources}):
+        if view_reader is not None:
+            for consumer in sorted(consumers.get(path, ())):
+                text = view_reader(path, consumer=consumer, phase='design-links-reference')
+                if text is None:
+                    unavailable.add(path)
+                    findings.unverified.append(dict(code='design.links_unavailable', path=findings.relative(path),
+                        consumer=findings.relative(consumer), service=consumer.stem, phase='design-links-reference',
+                        message='referenced View unavailable; dependent cross-View checks not run'))
+                else:
+                    design_index.get(path, text=text)
+    references -= unavailable
+    anchors = {path: design_index.get(path).anchors for path in references}
     resources: dict[tuple[Path, str], tuple[str, dict[str, str]]] = {}
     configured_names: dict[tuple[Path, str], dict[str, str]] = {}
     hidden_ids: dict[tuple[Path, str], str] = {}
@@ -374,7 +388,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             for link in re.finditer(r"\[([^\]]+)\]\(([^)]*?)#([^)]+)\)", line):
                 label, target_text, fragment = link.groups()
                 target = (source if not target_text else source.parent / target_text).resolve()
-                if outside_design(root, target):
+                if target in unavailable or outside_design(root, target):
                     continue
                 findings.warn(label != hidden_ids.get((target, fragment)), f"design link must not display internal logical ID: {findings.relative(source)}: {label}")
                 if role_name := configured_names.get((target, fragment), {}).get("IAM.Role.RoleName"):
@@ -397,7 +411,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             target_text, separator, fragment = raw.partition("#")
             findings.check(not Path(target_text).is_absolute(), f"design link must be relative: {findings.relative(source)}: {raw}")
             target = (source if not target_text else source.parent / target_text).resolve()
-            if outside_design(root, target):
+            if target in unavailable or outside_design(root, target):
                 continue
             (findings.warn if target.suffix == ".md" else findings.check)(input_is_file(target), f"broken design link: {findings.relative(source)}: {raw}")
             if separator and input_is_file(target):
@@ -423,7 +437,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                     automatic_references.add((anchor, row['property'], target, reference.group(3), reference.group(1)))
                 if observed is not None and reference:
                     target = (source.parent / reference.group(2) if reference.group(2) else source).resolve()
-                    if outside_design(root, target):
+                    if target in unavailable or outside_design(root, target):
                         continue
                     observed_references.add((anchor, row["property"], target, reference.group(3), literal(observed)))
         source_lines = document.lines
@@ -464,7 +478,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 continue
             label, target_text, fragment = link.groups()
             target = (source if not target_text else source.parent / target_text).resolve()
-            if outside_design(root, target):
+            if target in unavailable or outside_design(root, target):
                 continue
             resource = resources.get((target, fragment))
             findings.warn(
@@ -494,7 +508,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 continue  # The display-row parser reports the missing resource link.
             _, target_text, fragment = link.groups()
             target = (source if not target_text else source.parent / target_text).resolve()
-            if outside_design(root, target):
+            if target in unavailable or outside_design(root, target):
                 continue
             resource = resources.get((target, fragment))
             expected = (
@@ -540,7 +554,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 continue
             label, target_text, fragment = link.groups()
             target = (source if not target_text else source.parent / target_text).resolve()
-            if outside_design(root, target):
+            if target in unavailable or outside_design(root, target):
                 continue
             resource = resources.get((target, fragment))
             if expected := RESOURCE_REFERENCE_PROPERTIES.get(cells[1]):
