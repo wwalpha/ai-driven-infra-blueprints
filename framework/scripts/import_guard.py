@@ -223,7 +223,11 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
         scope = active_scope(root, contract_file=contract_file)
         if final_candidate is not None:
             scope = set(final_candidate.scope)
-        warnings.extend(validate_candidates(root, sources, output or {}, scope))
+        if operation is None and refactor is None and scope is not None:
+            from issue_gate import require_no_issues
+            require_no_issues(root, scope, contract_file=contract_file)
+        warnings.extend(validate_candidates(root, sources, output or {}, scope,
+            base=final_candidate.base_commit if final_candidate is not None else None, contract_file=contract_file))
     from model.core import report_reference_warnings
     report_reference_warnings(warnings)
     return warnings

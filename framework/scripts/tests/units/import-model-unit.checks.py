@@ -1955,7 +1955,7 @@ def check_repair_invalid_model(tmp_path, old_error, failure):
             calls.append(scope)
             assert reads is not None, 'candidate must use its overlay, never old source bytes'
             return saved_load(scope, reads)
-        with selected_task(target, name), patch('import_guard.archive_sources', side_effect=AssertionError('no Git old Model')), \
+        with selected_task(target, name), \
                 patch('model.operations.load_model', side_effect=final_only):
             def save():
                 with edit_write_context(target, {('stg', 'cde', 'service-b')}, name) as context:

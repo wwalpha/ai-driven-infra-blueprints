@@ -509,23 +509,13 @@ class Validator:
         return framework_contracts.check_framework_focused_check_runner(self.findings, self.definitions_root)
 
     def check_validation_scope(self) -> None:
-        if self.task.final_candidate is not None:
-            from import_guard import snapshots
-            with snapshots(self.root, self.task.final_candidate.base_commit, {}, definitions_root=self.definitions_root) as (before, _):
-                self.task.impact = project.check_validation_scope(self.accounts, self.task.scope_paths, self.contract_scope, self.findings, self.root, self.scope, self.task_iac_paths, candidates=False, before=before)
-                self.task.design_impact = self.task.impact
-        else:
-            self.task.impact = project.check_validation_scope(self.accounts, self.task.scope_paths, self.contract_scope, self.findings, self.root, self.scope, self.task_iac_paths, candidates=self.write)
-        if self.write and self.task_type == 'design':
-            desired = {p for p in self.task.permission_paths if p.startswith('model/') and p.endswith('.properties')}
-            if not desired:
-                self.task.design_impact = set()
-            elif desired:
-                # Desired-source task requirements differ from all-source validation impact.
-                from model.impact import affected
-                self.task.design_impact = affected(self.root, desired)
-            else:
-                self.task.design_impact = self.task.impact
+        if self.task.final_candidate is not None or (self.root / '.git').exists():
+            self.task.fix_baseline()
+        self.task.impact = project.check_validation_scope(
+            self.accounts, self.task.scope_paths, self.contract_scope, self.findings, self.root,
+            self.scope, self.task_iac_paths, candidates=self.write, base=self.task.baseline)
+        # Design requirements and scope validation consume the same source set and snapshot.
+        self.task.design_impact = self.task.impact
 
 
     def check_framework_cloudformation_schema_catalog(self) -> None:
