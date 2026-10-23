@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from task_contract_core import TASK_NAME
+
 from utils.sealed_evidence import evidence_store, read_sealed
 
 

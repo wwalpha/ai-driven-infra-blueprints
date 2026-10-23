@@ -8,9 +8,9 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
-import worktree_state
 import project_targets as _imports_project_targets
 import task_contract_core as task_contract
+import worktree_state
 from aws_mapping_compare import MODEL_ONLY
 from aws_mapping_compare import value as mapping_value
 from generation_inputs import GenerationInputs
@@ -20,7 +20,6 @@ from import_guard import (
     require_import_changes,
     workflow,
 )
-from utils.sealed_evidence import write_sealed
 from script_loader import module as load_script
 from task_contract_core import section, selected_task, task_path
 from utils.file_operations import atomic_files

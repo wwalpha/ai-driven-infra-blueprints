@@ -6,14 +6,13 @@ import re
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from utils.sealed_evidence import read_sealed
-
 import cloudformation_inputs as _imports_cloudformation_inputs
 import model.core as _imports_model_core
 import task_contract_core as _imports_task_contract
 import utils.json_format as _imports_utils_json_format
 from task_contract_core import task_digest as task_digest
 from utils.file_operations import sha as sha
+from utils.sealed_evidence import read_sealed
 from worktree_state import output, paths, task_start_commit
 from worktree_state import subprocess_bytes as subprocess_bytes
 

@@ -15,7 +15,6 @@ import io
 import venv
 from contextlib import redirect_stderr
 
-from utils import sealed_evidence
 import import_guard as _imports_import_guard
 import import_guard as guard
 import pytest
@@ -52,6 +51,7 @@ from support.worktree_task_fixtures import (
     contract as contract,
 )
 from task_contract_core import task_digest
+from utils import sealed_evidence
 from utils.aws_mappings import mapping_alias
 from validation import loop
 from validation_scope import active_scope

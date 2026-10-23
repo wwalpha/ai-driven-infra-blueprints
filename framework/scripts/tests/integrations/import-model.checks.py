@@ -15,7 +15,6 @@ import subprocess
 from unittest.mock import patch
 
 import import_guard
-from utils import sealed_evidence
 import model.importing.scope as _imports_model_importing_scope
 import model.sources
 import pytest
@@ -55,6 +54,7 @@ from support.import_repository_fixtures import checkpoint, repositories, state
 from support.model_sources import write_model
 from support.model_v2_fixtures import import_publication_case
 from task_contract_core import selected_task, start
+from utils import sealed_evidence
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

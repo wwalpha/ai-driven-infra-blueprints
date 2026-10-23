@@ -5,13 +5,12 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
-
-import worktree_state
 import import_guard as _imports_import_guard
 import task_contract_core as _imports_task_contract
 import utils.import_evidence as _receipt_storage
+import worktree_state
 from utils.json_format import json_text
+from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
 import model.importing.approval as _imports_model_importing_approval
 import model.importing.inventory as _imports_model_importing_inventory

@@ -21,14 +21,13 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
 
-from utils.sealed_evidence import evidence_store
-
 import import_guard as _imports_import_guard
 import task_contract_core as _imports_task_contract
 import validation.runner as _imports_validation_runner
 from regression_guard import authorize_full_regression
 from task_contract_core import SELECTOR, contracts, suspend, task_path
 from utils.aws_mappings import definition_root
+from utils.sealed_evidence import evidence_store
 from validation_scope import active_scope
 
 

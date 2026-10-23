@@ -7,9 +7,9 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from utils import sealed_evidence
 import model.importing.repository as _imports_model_importing_repository
 import worktree_state
+from utils import sealed_evidence
 
 _cases = ContextVar('import_it_repositories', default=None)
 

@@ -18,13 +18,12 @@ import model.importing.repository as _imports_model_importing_repository
 import model.operations as _imports_model_operations
 import model.sources as _dependency_model_sources
 import task_contract_core as _imports_task_contract
+import utils.sealed_evidence as _sealed_evidence
 import validation_scope as _imports_validation_scope
 from model.configuration import resource_configuration
 from sync_files import save_files
 from task_contract_core import contract_path, contracts, section, task_path
 from utils.aws_mappings import definition_root, mapping_alias
-from utils.json_format import document_sha256 as digest
-import utils.sealed_evidence as _sealed_evidence
 from utils.input_cache import _baselines as _baselines
 from utils.input_cache import baseline_scope as baseline_scope
 from utils.input_cache import (
@@ -33,6 +32,9 @@ from utils.input_cache import (
     input_scope,
     input_select,
     input_text,
+)
+from utils.json_format import (
+    document_sha256 as digest,  # noqa: F401 - compatibility export used by import fixtures
 )
 
 

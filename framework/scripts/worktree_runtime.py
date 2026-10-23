@@ -6,12 +6,9 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
-from utils.sealed_evidence import read_sealed, write_sealed
-
 import deploy.contracts as _imports_deploy_contracts
 import deploy.handoff as _imports_deploy_handoff
 import deploy.inputs as _imports_deploy_inputs
-import worktree_state
 import model.core as _imports_model_core
 import model.sources as _imports_model_sources
 import task_contract as tasks
@@ -22,7 +19,9 @@ import validation.loop as _imports_validation_loop
 import validation.task as _imports_validation_task
 import validation_scope as _imports_validation_scope
 import worktree_python as python_env
+import worktree_state
 import worktree_task as wt
+from utils.sealed_evidence import read_sealed, write_sealed
 
 deploy_handoff = _imports_deploy_handoff
 

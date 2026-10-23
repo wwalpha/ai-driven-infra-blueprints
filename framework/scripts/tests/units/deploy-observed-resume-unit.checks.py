@@ -1,7 +1,7 @@
 """Pure classification/authorization checks for durable observed publication plans."""
 
-import sys
 import json
+import sys
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import pytest
 from cloudformation_inputs import Blocked
-from deploy import observed, handoff
+from deploy import handoff, observed
 from deploy import observed_resume as M
 from deploy import session as controller
 from task_contract_core import selected_task

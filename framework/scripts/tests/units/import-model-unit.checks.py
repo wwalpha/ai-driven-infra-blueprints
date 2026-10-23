@@ -18,7 +18,6 @@ import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from utils import sealed_evidence
 import import_guard
 import issue_gate as _imports_issue_gate
 import model.format as _imports_model_format
@@ -88,6 +87,7 @@ from support.model_sources import write_model
 from support.model_v2_fixtures import value_snapshot as Expansion
 from task_contract import complete
 from task_contract_core import model_operation, model_refactor, selected_task
+from utils import sealed_evidence
 from utils.input_cache import input_context
 from utils.source_reads import FileReads
 from utils.yaml_format import yaml_read as yaml_read

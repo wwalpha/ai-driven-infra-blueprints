@@ -7,11 +7,11 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 import generation_inputs as _imports_generation_inputs
-import worktree_state
 import issue_gate as _imports_issue_gate
 import task_contract_core as _imports_task_contract
 import utils.input_cache as _imports_validation_cache
 import validation_scope as _imports_validation_scope
+import worktree_state
 
 import model.importing.repository as _imports_model_importing_repository
 import model.sources as _dependency_model_sources

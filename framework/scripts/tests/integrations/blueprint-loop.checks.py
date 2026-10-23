@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
 
-import sys
 import shutil
+import sys
 from datetime import datetime, timezone
 from functools import partial as _bind_framework_callback
 from pathlib import Path
@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pstats
 
-from utils import sealed_evidence
 import import_guard
 import run_it as _imports_run_it
 from model.importing import evidence
@@ -42,6 +41,7 @@ from support.blueprint_loop_fixtures import (
     tasks,
     write_model,
 )
+from utils import sealed_evidence
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

@@ -15,13 +15,13 @@ import task_contract_core as _imports_task_contract
 import utils.aws_mappings as _imports_utils_aws_mappings
 import worktree_task as _imports_worktree_task
 from cloudformation_inputs import Blocked
-from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 from task_contract_core import safe_path, task_path
 from task_contract_core import task_digest as task_digest
 from utils.cloudformation_format import decode
 from utils.file_operations import atomic_files as atomic_files
 from utils.file_operations import sha as sha
 from utils.json_format import fingerprint
+from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
 import deploy.change_sets as _imports_deploy_change_sets
 import deploy.inputs as _imports_deploy_inputs

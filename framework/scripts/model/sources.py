@@ -21,7 +21,6 @@ import task_contract_core as task_contract
 import utils.json_format as _imports_utils_json_format
 from project_targets import DeployContextError, select_target
 from sync_progress import phase, thread_lock
-from utils.sealed_evidence import evidence_store
 from utils.input_cache import (
     input_is_symlink,
     memo_table,
@@ -29,6 +28,7 @@ from utils.input_cache import (
 )
 from utils.json_format import exact as exact
 from utils.json_format import json_text, strict_json
+from utils.sealed_evidence import evidence_store
 from utils.source_reads import CandidateReads as CandidateReads
 from utils.source_reads import FileReads as FileReads
 
