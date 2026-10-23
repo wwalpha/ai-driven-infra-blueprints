@@ -11,8 +11,6 @@ from unittest.mock import Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
-
 import issues.integrity as issues_scan
 import model.sources as sources
 import support.issues_scan_fixtures as _exports_support_issues_scan_fixtures
@@ -59,6 +57,7 @@ from support.issues_scan_fixtures import (
     write_model,
 )
 from support.issues_scan_fixtures import pytestmark as pytestmark
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import digest_files
 from utils.source_reads import FileReads
 from validation.runner import Validator

@@ -7,7 +7,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
 import os
 import shutil
 import socket
@@ -24,6 +23,7 @@ from utils.aws_catalogs import Catalogs
 from utils.aws_mappings import Mappings, mapping_alias
 from utils.aws_schemas import Schemas
 from utils.aws_sdk import Sdk, sdk_for
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import input_scope
 
 if not __debug__:

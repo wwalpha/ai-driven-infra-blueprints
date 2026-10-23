@@ -10,8 +10,6 @@ from types import SimpleNamespace as _CallbackState
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
-
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from threading import Barrier
@@ -44,6 +42,7 @@ from utils.aws_catalogs import Catalogs
 from utils.aws_mappings import Mappings, mapping_alias, mappings_for, owners
 from utils.aws_schemas import Schemas
 from utils.aws_sdk import Sdk
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import memo_table
 
 if not __debug__:

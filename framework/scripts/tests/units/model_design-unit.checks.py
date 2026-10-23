@@ -8,8 +8,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
-
 import model.render as model_design
 import support.model_design_fixtures as _exports_support_model_design_fixtures
 import support.model_design_fixtures as _retained_fixture_project
@@ -47,6 +45,7 @@ from support.model_design_fixtures import (
     sys,
 )
 from support.model_design_fixtures import pytestmark as pytestmark
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

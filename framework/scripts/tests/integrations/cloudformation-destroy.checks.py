@@ -9,7 +9,6 @@ from types import SimpleNamespace as _CallbackState
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
 import importlib.util
 import io
 import json
@@ -33,6 +32,7 @@ from support.pytest_cli import run
 from support.worktree_task_fixtures import fixture as repository
 from support.worktree_task_fixtures import git, start
 from task_contract_core import selected_task
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

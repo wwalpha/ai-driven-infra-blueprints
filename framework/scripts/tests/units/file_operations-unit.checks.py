@@ -7,13 +7,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from unittest.mock import patch
 
 import pytest
 import sync_files
 from support.pytest_cli import run
 from utils import file_operations as files
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

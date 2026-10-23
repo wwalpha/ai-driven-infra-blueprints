@@ -13,8 +13,6 @@ from unittest.mock import Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
-
 import model.references as references
 import model.sources as sources
 import pytest
@@ -44,6 +42,7 @@ from model.validation import check_model_inputs as _check_model_inputs
 from support.import_model_fixtures import dependency_fixture
 from support.model_sources import write_model
 from support.model_v2_fixtures import logs_fixture
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import input_context
 from utils.source_reads import FileReads
 from validation.findings import CheckResult, Findings

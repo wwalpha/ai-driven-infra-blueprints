@@ -17,8 +17,6 @@ from types import SimpleNamespace as _CallbackState
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
-
 import importlib.util
 
 from yaml.parser import ParserError
@@ -34,6 +32,7 @@ from utils.cfn_lint import (
     merge_progress,
     runtime,
 )
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 try:
     import cfnlint.helpers as helpers

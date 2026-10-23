@@ -12,7 +12,6 @@ from types import SimpleNamespace as _CallbackState
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
 import io
 import json
 import os
@@ -53,6 +52,7 @@ from support.pytest_cli import run
 from support.sync_model_fixtures import MODULE
 from support.validator import diagnostics, load
 from utils.aws_mappings import definition_root, mapping_alias, mappings_for
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import input_scope, memo_table
 from validation import cloudformation, design_links, design_tables
 from validation import design as design_checks

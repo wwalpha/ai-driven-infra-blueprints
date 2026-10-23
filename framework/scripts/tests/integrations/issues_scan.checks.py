@@ -9,8 +9,6 @@ from types import SimpleNamespace as _CallbackState
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
-
 import cloudformation_inputs as _imports_cloudformation_inputs
 import comparison.services.iam as _imports_comparison_services_iam
 import iac_values as _imports_iac_values
@@ -85,6 +83,7 @@ from support.issues_scan_fixtures import pytestmark as pytestmark
 from support.it_case_receipt import it_case
 from support.model_sources import allocate_fixture as allocate
 from sync_files import save_files
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

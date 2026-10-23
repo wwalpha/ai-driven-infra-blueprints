@@ -14,8 +14,6 @@ from types import SimpleNamespace as _CallbackState
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
-
 from support.it_case_receipt import it_case
 from support.worktree_python_fixtures import (
     Path,
@@ -30,6 +28,7 @@ from support.worktree_python_fixtures import (
 from support.worktree_python_fixtures import (
     spec as spec,
 )
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

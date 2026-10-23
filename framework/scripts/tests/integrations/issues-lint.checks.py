@@ -7,7 +7,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
 import json
 import subprocess
 from unittest.mock import patch
@@ -27,6 +26,7 @@ from utils.cfn_lint import (
     verify_dependencies,
 )
 from utils.cfn_lint import validate_template as real_lint
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from validation.runner import Validator
 from validation_cache import PassCache
 

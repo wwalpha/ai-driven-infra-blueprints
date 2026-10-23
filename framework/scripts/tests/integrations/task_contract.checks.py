@@ -7,7 +7,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
 import os
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
@@ -18,6 +17,7 @@ import task_contract as tasks
 from issues.publication import save
 from support.pytest_cli import run
 from utils.file_operations import atomic_files
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from validation_scope import active_scope
 
 if not __debug__:

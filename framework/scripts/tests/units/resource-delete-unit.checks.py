@@ -7,8 +7,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
-
 import json
 import shutil
 from contextlib import nullcontext
@@ -38,6 +36,7 @@ from support.model_sources import write_model
 from support.worktree_task_fixtures import fixture as git_fixture
 from support.worktree_task_fixtures import git
 from utils.aws_mappings import mapping_alias
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

@@ -9,7 +9,6 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
 import pytest
 from cloudformation_inputs import Blocked
 from deploy import failures, handoff
@@ -22,6 +21,7 @@ from task_contract_core import selected_task, set_status, task_digest
 from utils.aws.client import AwsError
 from utils.aws_mappings import definition_root
 from utils.file_operations import sha
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.json_format import fingerprint as fingerprint
 
 if not __debug__:

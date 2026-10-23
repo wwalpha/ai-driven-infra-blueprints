@@ -9,8 +9,6 @@ from unittest.mock import patch as mock_patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
-
 import json
 import subprocess
 import tempfile
@@ -59,6 +57,7 @@ from support.sync_model_fixtures import build_generated_policy
 from sync_runtime import generate_views, stage_inputs
 from task_contract_core import MergePair, ModelOperation, ReferenceChange, selected_task
 from utils.aws_mappings import mapping_alias
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import input_context, recording_inputs
 
 import model as _imports_model

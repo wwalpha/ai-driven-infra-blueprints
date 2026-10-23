@@ -21,7 +21,6 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'tests'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
 import sysconfig
 import urllib.parse as _imports_urllib_parse
 import venv
@@ -41,6 +40,7 @@ from support.model_sources import allocate_fixture, write_model
 from support.worktree_task_fixtures import cli as worktree_cli
 from task_contract_core import selected_task, start
 from utils.cloudformation_format import decode
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 SCRIPTS = Path(__file__).resolve().parents[2]
 

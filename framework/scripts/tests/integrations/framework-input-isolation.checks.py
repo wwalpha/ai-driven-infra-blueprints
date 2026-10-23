@@ -7,8 +7,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
-
 import integrations.validation_checks.task as _imports_integrations_validation_checks_task
 from support.blueprint_loop_fixtures import make_project_fixture
 from support.framework_input_isolation_fixtures import (
@@ -24,6 +22,7 @@ from support.framework_input_isolation_fixtures import (
 from support.it_case_receipt import it_case
 from support.worktree_task_fixtures import contract, fixture, git
 from task_contract_core import selected_task
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

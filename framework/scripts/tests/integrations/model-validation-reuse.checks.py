@@ -9,7 +9,6 @@ from types import SimpleNamespace as _CallbackState
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
 import subprocess
 import threading
 from collections import defaultdict
@@ -32,6 +31,7 @@ from support.sync_model_fixtures import MODULE
 from support.validator import MODULE as validator_module
 from support.validator import diagnostics
 from utils.aws_mappings import definition_root, mapping_alias, mappings_for
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from validation.findings import Findings
 
 if not __debug__:
