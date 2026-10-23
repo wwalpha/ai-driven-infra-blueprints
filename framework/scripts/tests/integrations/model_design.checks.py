@@ -1130,12 +1130,14 @@ def check_secret_naming_values(tmp_path):
     for constraint in ("`application` as the first level", "`environment` as the second level",
                        "one or more levels", "no upper limit on the number of levels",
                        "do not force distinct purposes into the third level", "lower-kebab-case",
-                       "empty components and leading or trailing `/` are prohibited",
+                       "CREATE `SecretsManager.Secret.Name` must not end in ASCII `-`",
+                       "Empty components, `//`, and leading or trailing `/` are prohibited",
                        "1–512 characters", "ASCII letters, numbers, and `/_+=.@-`",
                        "Do not reject names solely for ending in a hyphen followed by 6 characters",
                        "IMPORT retains actual/current names"):
         assert constraint in rules
-    for invalid in ("app/dev//keypair", "/app/dev/credentials", "app/dev/credentials/"):
+    for invalid in ("app/dev/credentials-", "app/dev/snowflake/keypair-",
+                    "app/dev//keypair", "/app/dev/credentials", "app/dev/credentials/"):
         assert f"`{invalid}`" in rules.partition("Invalid examples:")[2]
     path = tmp_path / "docs/designs/dev/cde/secrets-manager.md"
     schema = DesignSchemaCatalog(ROOT)
