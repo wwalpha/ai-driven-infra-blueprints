@@ -79,3 +79,15 @@ def repairable(observation):
         return state.get('stackStatus') in {'ROLLBACK_COMPLETE', 'UPDATE_ROLLBACK_COMPLETE'} and bool(state.get('failureEvents'))
     return (failure.get('classification') in {'IAC_CANDIDATE', 'INPUT_CANDIDATE'} and
             failure.get('executionState') == 'NOT_EXECUTED')
+
+
+def structured(observation, indices):
+    """Observation identity only, never a root-cause classifier or prose fingerprint."""
+    state = observation['awsState']
+    events = state.get('failureEvents', [])
+    if events:
+        return {fingerprint([observation['stack'], event.get('resourcePath', event.get('LogicalResourceId')),
+                             event.get('ResourceType'), event.get('ResourceStatus'), event.get('code'),
+                             sorted(event.get('properties', []))]) for event in (events[i] for i in indices)}
+    failure = state.get('failure', {})
+    return {fingerprint([observation['stack'], *(failure.get(k) for k in ('stage', 'service', 'operation', 'code'))])}

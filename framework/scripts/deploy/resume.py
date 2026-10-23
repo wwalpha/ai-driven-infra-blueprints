@@ -62,9 +62,8 @@ def accept(root, result_path, session, backend, units, current_units, current_ma
     affected = {unit['name'] for unit in units if set(p.relative_to(root).as_posix() for p in backend.deployment_input_paths([unit])) & changed}
     if not affected or any(effective[name] == session['effectiveDigests'][name] for name in affected):
         raise Blocked('repair has no effective input change (comments/formatting do not count)')
-    previous_ids = {o['observationId'] for p in attempt['problemIds'] for o in workflow['problems'][p]['observations']}
     for name in affected:
-        failed = {o.get('effectiveDigest') for o in session.get('failureObservations', []) if o['stack'] == name and o['observationId'] in previous_ids}
+        failed = {o.get('effectiveDigest') for o in session.get('failureObservations', []) if o['stack'] == name}
         if effective[name] in failed:
             raise Blocked('known failed effective input resubmitted')
     # Declared Import/Export dependencies only; never scan Model mappings to start deploy.

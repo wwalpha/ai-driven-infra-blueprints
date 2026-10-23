@@ -268,10 +268,14 @@ def external_round_trip(tmp_path, monkeypatch, boundary):
         'observationId': observation['observationId'], 'eventIndices': [0], 'resourcePath': 'Vpc',
         'resourceType': 'AWS::EC2::VPC', 'operation': 'CREATE', 'property': 'CidrBlock',
         'constraint': 'approved-CidrBlock', 'cause': 'IAC_PROPERTY',
+        'relation': 'NEW', 'relatedProblemIds': [],
+        'reason': 'The CidrBlock input disagrees with its approved Model row and the failed Vpc operation.',
+        'evidenceRefs': [{'observationId': observation['observationId'], 'revision': saved['inputRevision'], 'eventIndices': [0]}],
         'inputRefs': [{'path': relative, 'sha256': saved['infraManifest'][relative], 'pointer': '/Resources/Vpc/Properties/CidrBlock'}],
         'modelRefs': [{'path': model, 'sha256': saved['modelInputManifest'][model], 'key': 'desired.row.001-002.value'}]}]}
     if unexecuted:
         entry = diagnosis['problems'][0]
+        entry['evidenceRefs'][0]['eventIndices'] = []
         entry.update(eventIndices=[], operation='create_change_set' if boundary == 'changeset-review' else stage or 'decode_input')
         if boundary == 'input-decode':
             model = f'model/dev/{ACCOUNT}/cloudformation-stacks.properties'
@@ -415,8 +419,12 @@ def external_round_trip(tmp_path, monkeypatch, boundary):
         assert resumed_code == 2
         saved = json.loads(session.read_text()); handoff.restore(parent, session, saved)
         current = next(o for o in saved['failureObservations'] if o['observationId'] in saved['workflow']['latestObservations'])
-        entry = dict(problem) if boundary == 'repeat' else {**problem, 'property':'EnableDnsSupport', 'constraint':'approved-DNS', 'distinctFrom':problems}
+        entry = dict(problem) if boundary == 'repeat' else {**problem, 'property':'EnableDnsSupport', 'constraint':'approved-DNS'}
         entry = json.loads(json.dumps(entry))
+        entry.update(relation='SAME' if boundary == 'repeat' else 'NEW', relatedProblemIds=problems,
+                     reason='CidrBlock recurred after repair.' if boundary == 'repeat' else 'AWS now identifies EnableDnsSupport, while the prior observation identified CidrBlock.')
+        entry['reason'] += ' Compare the pinned prior observation and the current operation below.'
+        entry['evidenceRefs'].append({'observationId':current['observationId'], 'revision':current['revision'], 'eventIndices':[0]})
         entry['observationId'] = current['observationId']
         entry['inputRefs'][0]['sha256'] = saved['infraManifest'][relative]
         entry['modelRefs'][0]['sha256'] = saved['modelInputManifest'][model]
@@ -457,6 +465,8 @@ def external_round_trip(tmp_path, monkeypatch, boundary):
             handoff.restore(parent,session,after)
             current = next(o for o in after['failureObservations'] if o['observationId'] in after['workflow']['latestObservations'])
             again = json.loads(json.dumps(problem)); again['observationId']=current['observationId']
+            again.update(relation='SAME', relatedProblemIds=problems)
+            again['evidenceRefs'].append({'observationId':current['observationId'], 'revision':current['revision'], 'eventIndices':[0]})
             again['inputRefs'][0]['sha256']=after['infraManifest'][relative]
             again['modelRefs'][0]['sha256']=after['modelInputManifest'][model]
             assert handoff.diagnose(parent,after,{'revision':2,'problems':[again]}) == 'STOPPED'

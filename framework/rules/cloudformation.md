@@ -114,7 +114,23 @@ For other `ROLLBACK_COMPLETE` cleanup candidates, require this session's confirm
 
 External repair requests freeze exact IaC paths and parent branch/checkpoint while keeping parent Allowed paths unchanged. Child is implement-only with AWS API/mutation/deploy forbidden and immutable approved Model. A signed real static-loop receipt plus exact commit/current bytes/dependency snapshot is mandatory; handwritten PASS grants no authority. Static PASS is a retry candidate, not problem resolution. A signed request/result ledger keeps workflow/problem/attempt/input histories across Task switches, process restarts and lost-session recovery. Same-result replay is idempotent; old, unrelated, reordered or unrecorded changes fail closed.
 
-Keep problem identity stable across request IDs, tokens and recreated Stack ARN suffixes. Require matching input/Model/event references and distinct constraint evidence for a different problem on the same resource; never default ambiguity to NEW. Stop A→repair→A without observable target progress on its second distinct execution, and stop A→B→A. Continue distinct B/C and untargeted B in A+B within per-problem limits. Only target/nested operation success counts as progress; at most 3 repairs per problem. The separate approval-interval safety budget defaults to 20 and may be explicitly extended without resetting histories. Child static FAILs remain in the same attempt and retain their existing 3-cycle bound.
+The supervising LLM explicitly diagnoses SAME/NEW/UNKNOWN against retained causes,
+with concrete reasons and pinned current/prior observation, IaC and Model references.
+Python validates references/scope/revisions and records that judgment; it never infers a
+root cause from fingerprints, schema strings or an AWS-message pattern table. Stable
+opaque problem IDs retain request targets; causeId links SAME across Resources and
+shares attempts/stops. NEW must compare all retained prior problems and cannot reuse a
+known structured failure by changing labels/constraintRefs. A schema pointer's existence
+is not causal evidence. UNKNOWN is saved without dummy cause/constraint and issues no
+request; insufficient structural distinction requires investigation/Human.
+Stop A→repair→A without target progress and A→B→A. Untargeted B in A+B consumes no B
+attempt. Only actual target/nested AWS successes count as progress, within 3 repairs per
+cause; static FAILs stay in the same child/attempt. The total interval budget defaults
+to 20. No externally verifiable Human budget approval is available: budget extension
+fails closed with WAITING_HUMAN. Close/new Task cannot bypass unresolved history.
+Legacy v5 (session v4) histories without diagnosisVersion retain IDs/counts and become
+legacyUncertain/WAITING_HUMAN under explicit execution-definition migration, never zero.
+
 
 Before redeploy reject unchanged effective inputs and known failed inputs using the existing CFn decoder, parameter content and artifact hashes. No generic intrinsic evaluator or semantic-equivalence engine is added. Before cleanup archive original failures/execution evidence, verify original failed-input Retain/Custom/nested safety and live identity/token; a corrected template cannot authorize deleting old resources. begin_prepare's unchanged-input empty-shell cleanup retains delivery and reacquires Import/Export and delivery conditions at its new boundary. External changed-input acceptance invalidates old delivery/preparation/approval, including declared consumers. Preserve unaffected SUCCESS/observed; impact on SUCCESS waits for scope confirmation. Runtime recovery remains separate and may legitimately keep IaC unchanged.
 

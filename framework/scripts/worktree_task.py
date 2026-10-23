@@ -755,10 +755,10 @@ def bind_deploy_workflow(where, session_path, session, ledger, *, activate=False
             if previous['workflowId'] != owner['workflowId'] or previous['session'] != owner['session']:
                 raise Blocked('previous deploy workflow identity cannot be verified')
             state = previous['state']
-            finished = state['workflow'].get('status') in {'COMPLETE','CLOSED'} and not state.get('pendingRequest')
+            finished = state['workflow'].get('status') == 'COMPLETE' and not state.get('pendingRequest')
             if (not finished or any(s['status'] == 'RUNNING' or s.get('pollError') or s.get('cleanupStatus') == 'DELETE_INTENT' or
                     s['status'] == 'SUCCESS' and not s.get('observedSynced') for s in state['states'].values())):
-                raise Blocked('unfinished deploy workflow owns overlapping Stacks; resume/inherit or explicitly close it: ' + owner['session'])
+                raise Blocked('unfinished deploy workflow owns overlapping Stacks; resume/inherit its retained history: ' + owner['session'])
         if activate and not existing:
             owners.append(current)
             write_sealed(primary, file, owners)

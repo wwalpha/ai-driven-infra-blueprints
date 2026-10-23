@@ -108,20 +108,46 @@ ChangeSet without a repair attempt. Authentication/authorization, guards, reads,
 unknown submission, observed publication, deficient design and scope expansion need
 their own investigation/Human decision. BLOCKED alone grants no repair authority.
 
-Write non-secret external diagnosis JSON with `revision` and `problems`. Each problem
-has `observationId`, `eventIndices`, `resourcePath`, formal `resourceType`, `operation`,
-`property`, confirmed `constraint`, `cause`, `inputRefs` and `modelRefs`. Input references
-identify exact `path`, `sha256`, and JSON `pointer` (empty only for a whole unparseable
-input/artifact); Model references identify exact `path`, `sha256`, and authoritative
-`key` belonging to the failed resource. Supported causes are IAC_PROPERTY, IAC_SYNTAX,
-IAC_PARAMETER, IAC_ARTIFACT and IAC_PERMISSION. Cover the entire failure set; do not
-silently drop unknown rollback/delete failures. A distinct problem on the same resource
-also names prior IDs in `distinctFrom`; a different constraint on the same property
-needs different confirmed provider `constraintRefs` (path/hash/pointer and matching
-ResourceType) or different structured event error-code evidence. Ambiguity stays
-NEEDS_DIAGNOSIS. IAC_PROPERTY references must identify the claimed template Property
-and its approved Model row; a different Property also needs corresponding event/schema
-evidence. Existence/revision checks do not prove the LLM's semantic diagnosis.
+Write non-secret external diagnosis JSON with `revision` and `problems`. The LLM
+compares AWS events/execution state, exact input IaC, approved Model, and all retained
+diagnoses/repairs. Each entry requires `relation: SAME | NEW | UNKNOWN`,
+`relatedProblemIds`, a concrete `reason` (at least 32 characters, explaining observed
+facts and the causal comparison rather than boilerplate), and `evidenceRefs` containing
+`{observationId, revision, eventIndices}` for the current and related historical failures.
+These reuse saved observations; `inputRefs`/`modelRefs`/optional `constraintRefs` below
+pin the corresponding source revisions. Do not put raw secrets or AWS prose in JSON.
+
+SAME names existing IDs for one common cause and reuses that cause's attempts, even
+across Resources. NEW compares all retained prior IDs (conservatively including other
+Resources), explains the specific difference and cites corresponding observations.
+Examples: another Property with a newly observed Property failure, or the same Property
+with a different observed constraint code, may support the LLM's NEW analysis. They do
+not prove a new cause by themselves. The same IAM permission deficiency across Resources
+can be SAME; identical error codes can still hide distinct constraints. After correcting A,
+explain whether B became observable and why it differs. Python never makes these causal
+judgments. It only rejects absent/inconsistent evidence and unsafe repeated observations.
+
+For SAME/NEW also supply `observationId`, `eventIndices`, `resourcePath`, formal
+`resourceType`, `operation`, `property`, confirmed `constraint`, `cause`, `inputRefs`
+and `modelRefs`. Input references identify exact `path`, `sha256`, and JSON `pointer`
+(empty for a whole unparseable input/artifact); Model references identify exact `path`,
+`sha256`, and authoritative `key` belonging to the failed resource. Supported causes
+remain IAC_PROPERTY, IAC_SYNTAX, IAC_PARAMETER, IAC_ARTIFACT and IAC_PERMISSION.
+IAC_PROPERTY must reference its claimed template Property and approved Model row.
+Optional provider `constraintRefs` identify path/hash/pointer and matching ResourceType.
+Cover the entire failure set, including rollback/delete peers.
+
+UNKNOWN is a valid saved diagnosis. Omit unproved cause/constraint/property fields;
+never fill them with dummy strings. Cite known observations and available source locations,
+perform additional authorized read-only investigation, and defer to Human if unprovable.
+No repair request is allowed while any failure is UNKNOWN or insufficiently distinguished.
+A changed label, invalid value, schema pointer, Task, RequestId, time or hash never buys a
+new cause/attempt. NEW with an already known structured target/operation/code/Property
+observation stays NEEDS_DIAGNOSIS even if a different schema pointer exists. If genuine
+causes cannot be distinguished structurally, stop for Human; do not invent evidence or
+relabel the problem. SAME also cannot transfer known observations to another cause.
+Reference existence/revision and structural differences are mechanical safety conditions,
+never Python confirmation that the semantic diagnosis is correct.
 
 The LLM runs these commands explicitly from the original managed Worktree, using its
 registered Python for task commands and the ordinary launcher for lifecycle commands:
@@ -199,9 +225,14 @@ protection checks; its status is never rewritten as rollback. Runtime cleanup re
 the original separate recovery authorization. Each retry uses a new ChangeSet and new
 destructive approval when applicable.
 
-Problem identity uses logical target/Stack, nested resource path/type, operation,
-confirmed property/constraint/permission operation and cause. Task IDs, request IDs,
-time/token, recreated Stack ARN suffixes and changed hashes are evidence only.
+Python issues stable opaque problem IDs per common cause and request target
+(logical target/Stack/resource/type/operation); `causeId` links the common LLM-diagnosed
+cause across targets. Display/property/constraint labels are evidence, not identity keys.
+Task IDs, request IDs, time/token and changed hashes are evidence only. SAME retains
+IDs for existing targets and shares attempts/stops across all targets of that cause.
+Observation sets and the repaired subset remain separate; diagnosis rewrites never
+refund reservations. All diagnoses are retained in the signed workflow ledger.
+
 A→repair→A without observable target progress stops on the second distinct execution;
 A→B continues with distinct evidence; A→B→A stops as a cycle/regression. Untargeted B in
 A+B does not consume a B failure. Only confirmed target/nested operation successes count
@@ -211,24 +242,34 @@ decoding excludes template comments/formatting from effective inputs; parameters
 artifact content join the fingerprint. Unchanged or known failed effective input is
 rejected before redeploy. Unchanged-IaC runtime recovery remains a separate route.
 
-At the global limit retain all history and WAITING_HUMAN. A Human may explicitly extend
-the same interval with `deploy_handoff.py budget --state <session.json>
---additional-cycles <N> --authorization "<Human authorization>"`; it does not reset
-per-problem limits or permit unrelated Tasks/phases. Signed workflow ledger state and
-save intents prevent session rollback/new-file resets. The Worktree helper also keeps a
-sealed, repository-wide lifecycle index of workflow/session references per AWS account,
-region and overlapping Stack scope. Another deploy Task cannot reset an unfinished
-workflow; missing/unreadable prior proof stops. Resume the original workflow, or
-explicitly close drained/synchronized state with `deploy_handoff.py close --state
-<session.json> --authorization "<Human termination>"` before an independently authorized
-new Task. Close archives a pending request into its ABANDONED attempt, retaining its
-proof and static/global counts, so its child helpers reject further delivery. It never
-cleans an unknown AWS operation or deletes an unfinished child Worktree. The old
-history/budget and registry references remain; CLOSED never re-executes. After a verified interrupted
-writer has exited, retain/review its locks using the existing lock ownership procedure;
+At the global limit retain all history and WAITING_HUMAN. There is currently no
+machine-verifiable external Human budget approval boundary. `deploy_handoff.py budget`
+always refuses extension, persists WAITING_HUMAN and returns nonzero; arbitrary
+`--authorization` text, handwritten JSON, environment variables or LLM declarations are
+not approval. Do not edit sessions/contracts to expand an existing interval. Even a future
+authentic extension must bind workflow/interval/count/single use and cannot release
+per-cause no-progress/cycle stops or authorize delete/replacement or elevated permissions.
+
+Signed workflow ledger/save intents prevent rollback/new-file resets. The Worktree
+helper's sealed account/Region/overlapping-Stack registry retains the original workflow.
+Closing drained/synchronized state archives any pending request and counts but cannot
+release an unresolved workflow to a new Task, even with another label. Only COMPLETE
+with all successful observations synchronized releases overlapping scope. CLOSED never
+re-executes. Resume the original session rather than resetting history. Close never
+cleans unknown AWS operations or unfinished children.
+
+The v5 implementation used session v4. This change retains that outer format and adds
+`workflow.diagnosisVersion: 1`. Existing IDs, observations, attempts, budget, consumed
+results, execution tokens and pending child evidence remain intact. A legacy workflow
+with problems/reservations but no relation marker is conservatively `legacyUncertain`
+and WAITING_HUMAN, never a fresh zero-attempt cause. Explicit `migrate` with the existing
+old/new execution digests is still required for changed execution definitions; the
+relation marker does not grant migration or AWS authority. No automatic semantic
+reclassification or clearing of legacy uncertainty is provided.
+
+After an interrupted writer exits, retain/review locks using existing ownership rules;
 never delete unknown locks. `deploy_handoff.py recover-session --state <original-path>`
-restores only the same Task's signed latest state if its session is lost/corrupt. It
-cannot replace an unreadable result with parent write authority.
+restores the same Task's latest signed state including cause links/diagnoses and attempts.
 
 ## Terraform
 

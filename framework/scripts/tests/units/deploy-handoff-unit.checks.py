@@ -184,18 +184,24 @@ def check_total_budget_is_not_three_global_failures():
     assert policy.decision(w, [names[-1]]) == 'REPAIR_ALLOWED'
 
 
-def diagnosis_fixture(tmp_path):
+def diagnosis_fixture(tmp_path, peer=False):
     from support.model_sources import write_model, allocate_fixture
     root = tmp_path
     (root / 'project.json').write_text(json.dumps({'projectName':'fixture','targets':[{'environment':'dev','awsAccountId':'123456789012','awsRegion':'ap-northeast-1','iacEngine':'cloudformation'}]}))
     template = root / 'infra/template.yaml'
     template.parent.mkdir()
     template.write_text('Resources: {Item: {Type: AWS::EC2::VPC, Properties: {CidrBlock: wrong, EnableDnsSupport: true}}}')
+    if peer:
+        template.write_text(template.read_text().replace('Resources: {', 'Resources: {Item2: {Type: AWS::EC2::VPC, Properties: {CidrBlock: wrong}}, '))
     model = root / 'model/dev/123456789012/ec2.properties'
     values = {'desired.resource.001.resourceType': 'EC2.VPC', 'desired.resource.001.cfn-logicalId': 'Stack-Item',
                        'desired.row.001-001.property': 'EC2.VPC.CidrBlock', 'desired.row.001-001.value': '10.0.0.0/16', 'desired.row.001-001.comment':'承認済アドレス',
                        'desired.row.001-002.property': 'EC2.VPC.EnableDnsSupport', 'desired.row.001-002.value': 'true', 'desired.row.001-002.comment':'承認済DNS'}
-    values.update(allocate_fixture(values, ['001']))
+    if peer:
+        values.update({'desired.resource.002.resourceType':'EC2.VPC', 'desired.resource.002.cfn-logicalId':'Stack-Item2',
+                       'desired.row.002-001.property':'EC2.VPC.CidrBlock', 'desired.row.002-001.value':'10.0.0.0/16',
+                       'desired.row.002-001.comment':'承認済アドレス'})
+    values.update(allocate_fixture(values, ['001', '002'] if peer else ['001']))
     write_model(model, values)
     relative, model_relative = template.relative_to(root).as_posix(), model.relative_to(root).as_posix()
     state = {'status': 'FAILED', 'stackStatus': 'ROLLBACK_COMPLETE', 'failureEvents': [
@@ -205,7 +211,9 @@ def diagnosis_fixture(tmp_path):
                'failureObservations': [{'observationId': 'one', 'stack': 'Stack', 'execution': 'token-one', 'revision': 0,
                                         'inputManifest': {relative: sha(template)}, 'awsState': state}]}
     handoff.workflow(session)['latestObservations'] = ['one']
-    problem = {'observationId': 'one', 'eventIndices': [0], 'resourcePath': 'Item', 'resourceType': 'AWS::EC2::VPC',
+    problem = {'relation': 'NEW', 'relatedProblemIds': [],
+               'reason': 'The failed CidrBlock differs from the approved Model row in the referenced template.',
+               'evidenceRefs': [{'observationId': 'one', 'revision': 0, 'eventIndices': [0]}], 'observationId': 'one', 'eventIndices': [0], 'resourcePath': 'Item', 'resourceType': 'AWS::EC2::VPC',
                'operation': 'CREATE', 'property': 'CidrBlock', 'constraint': 'approved-cidr', 'cause': 'IAC_PROPERTY',
                'inputRefs': [{'path': relative, 'sha256': sha(template), 'pointer': '/Resources/Item/Properties/CidrBlock'}],
                'modelRefs': [{'path': model_relative, 'sha256': sha(model), 'key': 'desired.row.001-001.value'}]}
@@ -221,17 +229,20 @@ def check_ambiguous_new_and_invalid_evidence_rejected(tmp_path, defect):
     if defect == 'unknown':
         entry['property'] = 'unknown'
     elif defect == 'same-constraint-proof':
-        entry.update(constraint='new-claim-only', distinctFrom=[first])
+        entry.update(constraint='new-claim-only', relatedProblemIds=[first])
     elif defect == 'wrong-property-proof':
-        entry.update(property='EnableDnsSupport', distinctFrom=[first])
+        entry.update(property='EnableDnsSupport', relatedProblemIds=[first])
     elif defect == 'wrong-sha':
         entry['inputRefs'][0]['sha256'] = 'bad'
     elif defect == 'wrong-event':
         entry['resourcePath'] = 'Other'
     else:
         session['failureObservations'][0]['awsState']['failureEvents'].append({'resourcePath':'Unknown', 'ResourceType':'Custom::Unknown', 'ResourceStatus':'DELETE_FAILED'})
-    with pytest.raises((Blocked, ValueError)):
-        handoff.diagnose(tmp_path, session, {'revision': 0, 'problems': [entry]})
+    if defect == 'same-constraint-proof':
+        assert handoff.diagnose(tmp_path, session, {'revision': 0, 'problems': [entry]}) == 'NEEDS_DIAGNOSIS'
+    else:
+        with pytest.raises((Blocked, ValueError)):
+            handoff.diagnose(tmp_path, session, {'revision': 0, 'problems': [entry]})
 
 
 def check_distinct_property_and_request_id_stability(tmp_path):
@@ -243,12 +254,11 @@ def check_distinct_property_and_request_id_stability(tmp_path):
     handoff.diagnose(tmp_path, session, {'revision': 0, 'problems': [problem]})
     assert session['workflow']['currentProblemIds'] == [first]
     other = copy.deepcopy(problem)
-    other.update(property='EnableDnsSupport', constraint='boolean', distinctFrom=[first])
+    other.update(property='EnableDnsSupport', constraint='boolean', relatedProblemIds=[first])
     other['inputRefs'][0]['pointer'] = '/Resources/Item/Properties/EnableDnsSupport'
     other['modelRefs'][0]['key'] = 'desired.row.001-002.value'
-    with pytest.raises(Blocked, match='corresponding event'):
-        handoff.diagnose(tmp_path, session, {'revision': 0, 'problems': [other]})
-    state['failureEvents'][0]['properties'] = ['EnableDnsSupport']
+    assert handoff.diagnose(tmp_path, session, {'revision': 0, 'problems': [other]}) == 'NEEDS_DIAGNOSIS'
+    session['failureObservations'][0]['awsState']['failureEvents'][0]['properties'] = ['EnableDnsSupport']
     assert handoff.diagnose(tmp_path, session, {'revision': 0, 'problems': [other]}) == 'REPAIR_ALLOWED'
     assert session['workflow']['currentProblemIds'] != [first]
 
@@ -261,6 +271,7 @@ def check_unexecuted_diagnosis_preserves_aws_state(tmp_path, classification, all
     state.clear()
     state.update(status='BLOCKED', failure={'classification':classification,'executionState':'NOT_EXECUTED','operation':'validate_template'}, failureEvents=[])
     problem.update(eventIndices=[], operation='validate_template')
+    problem['evidenceRefs'][0]['eventIndices'] = []
     if allowed:
         assert handoff.diagnose(tmp_path,session,{'revision':0,'problems':[problem]}) == 'REPAIR_ALLOWED'
     else:
@@ -321,11 +332,10 @@ def check_constraint_identity_ignores_reference_order(tmp_path, defect):
     handoff.diagnose(tmp_path,session,{'revision':0,'problems':[problem]})
     original = session['workflow']['currentProblemIds'][0]
     entry = copy.deepcopy(problem)
-    entry.update(constraint='same-proofs-new-name',distinctFrom=[original],constraintRefs=list(reversed(refs)))
+    entry.update(constraint='same-proofs-new-name',relatedProblemIds=[original],constraintRefs=list(reversed(refs)))
     if defect == 'metadata': entry['constraintRefs'][0]['note'] = 'not a new constraint'
-    with pytest.raises(Blocked,match='distinct confirmed'):
-        handoff.diagnose(tmp_path,session,{'revision':0,'problems':[entry]})
-    assert session['workflow']['currentProblemIds'] == [original]
+    assert handoff.diagnose(tmp_path,session,{'revision':0,'problems':[entry]}) == 'NEEDS_DIAGNOSIS'
+    assert list(session['workflow']['problems']) == [original]
 
 
 def check_bootstrap_history_preserves_distinct_safe_failure(tmp_path):
@@ -367,6 +377,230 @@ def check_bootstrap_history_preserves_distinct_safe_failure(tmp_path):
     backend.poll(unit,state)
     assert handoff.diagnose(tmp_path,session,{'revision':0,'problems':[problem]}) == 'REPAIR_ALLOWED'
     assert session['workflow']['currentProblemIds'] == original
+
+
+def next_diagnosis(session, entry, *, relation='SAME', related=None, properties=None, code=None):
+    """A distinct AWS execution, with immutable previous observation evidence."""
+    previous = session['failureObservations'][-1]
+    observation = copy.deepcopy(previous)
+    observation.update(observationId='obs-' + str(len(session['failureObservations'])),
+                       execution='exec-' + str(len(session['failureObservations'])), revision=session['inputRevision'] + 1)
+    if properties is not None:
+        observation['awsState']['failureEvents'][0]['properties'] = properties
+    if code is not None:
+        observation['awsState']['failureEvents'][0]['code'] = code
+    session['failureObservations'].append(observation)
+    session['inputRevision'] = observation['revision']
+    session['workflow']['latestObservations'] = [observation['observationId']]
+    candidate = copy.deepcopy(entry)
+    candidate.update(relation=relation, relatedProblemIds=related or session['workflow']['currentProblemIds'],
+                     observationId=observation['observationId'],
+                     reason='Compare this distinct AWS execution with the cited prior failure and approved input/Model locations.')
+    candidate['evidenceRefs'].append({'observationId':observation['observationId'], 'revision':observation['revision'], 'eventIndices':[0]})
+    return candidate
+
+
+@pytest.mark.parametrize('difference', ['schema-pointer', 'label', 'request-and-prose', 'invalid-value'])
+def check_v5_relabel_does_not_buy_new_attempt(tmp_path, difference):
+    from utils.aws_mappings import definition_root
+    session, entry = diagnosis_fixture(tmp_path)
+    schema = 'framework/materials/cloudformation-schema/ap-northeast-1/aws-ec2-vpc.json'
+    entry['constraintRefs'] = [{'path':schema, 'sha256':sha(definition_root(tmp_path) / schema), 'pointer':'/properties/CidrBlock/type'}]
+    handoff.diagnose(tmp_path,session,{'revision':0,'problems':[entry]})
+    identity = session['workflow']['currentProblemIds'][0]
+    attempted(session['workflow'],identity,revision=1)
+    new = next_diagnosis(session,entry,relation='NEW')
+    new['constraint'] = 'different-name'
+    if difference == 'schema-pointer':
+        new['constraintRefs'][0]['pointer'] = '/properties/CidrBlock'
+    elif difference == 'request-and-prose':
+        session['failureObservations'][-1]['awsState']['failureEvents'][0].update(RequestId='new', reasonDigest='new-prose')
+        session['taskFile'] = 'tasks/another.md'
+    elif difference == 'invalid-value':
+        path = tmp_path / new['inputRefs'][0]['path']
+        path.write_text(path.read_text().replace('wrong','still-invalid'))
+        digest = sha(path)
+        new['inputRefs'][0]['sha256'] = digest
+        session['failureObservations'][-1]['inputManifest'][new['inputRefs'][0]['path']] = digest
+    assert handoff.diagnose(tmp_path,session,{'revision':1,'problems':[new]}) == 'NEEDS_DIAGNOSIS'
+    assert list(session['workflow']['problems']) == [identity] and session['workflow']['reserved'] == 1
+    new.update(relation='SAME')
+    assert handoff.diagnose(tmp_path,session,{'revision':1,'problems':[new]}) == 'STOPPED'
+    assert session['workflow']['currentProblemIds'] == [identity]
+    # Rewriting the diagnosis and duplicate polling never erase a spent attempt/stop.
+    new['constraint'] = 'yet-another-name'
+    assert handoff.diagnose(tmp_path,session,{'revision':1,'problems':[new]}) == 'STOPPED'
+    assert len(session['workflow']['problems'][identity]['observations']) == 2
+
+
+@pytest.mark.parametrize('missing', ['relation','relatedProblemIds','reason','evidenceRefs','prior-reference','prior-comparison','boilerplate'])
+def check_relation_contract_and_atomic_rejection(tmp_path, missing):
+    session, entry = diagnosis_fixture(tmp_path)
+    handoff.diagnose(tmp_path,session,{'revision':0,'problems':[entry]})
+    new = next_diagnosis(session,entry,relation='NEW',code='AnotherCode')
+    if missing == 'prior-reference':
+        new['evidenceRefs'] = new['evidenceRefs'][-1:]
+    elif missing == 'boilerplate':
+        new['reason'] = 'different cause'
+    elif missing == 'prior-comparison':
+        new['relatedProblemIds'] = []
+    else:
+        new.pop(missing)
+    before = copy.deepcopy(session)
+    with pytest.raises(Blocked):
+        handoff.diagnose(tmp_path,session,{'revision':1,'problems':[new]})
+    assert session == before
+
+
+@pytest.mark.parametrize('repairable', [True, False])
+def check_unknown_is_durable_and_never_issues_request(tmp_path, repairable):
+    session, entry = diagnosis_fixture(tmp_path)
+    if not repairable:
+        session['failureObservations'][0]['awsState']['failure'] = {'classification':'NEEDS_HUMAN'}
+    entry.update(relation='UNKNOWN', reason='The available event does not distinguish the input defect from the runtime constraint; read-only evidence is required.')
+    for key in ('cause','constraint','property'):
+        entry.pop(key)
+    assert handoff.diagnose(tmp_path,session,{'revision':0,'problems':[entry]}) == 'NEEDS_DIAGNOSIS'
+    path = tmp_path / 'session.json'
+    handoff.save(path,session)
+    restored = json.loads(path.read_text())
+    assert restored['workflow']['diagnoses'][0]['problems'][0]['relation'] == 'UNKNOWN'
+    assert not restored['workflow']['problems']
+    with pytest.raises(ValueError,match='NEEDS_DIAGNOSIS'):
+        handoff.issue_request(tmp_path,path,restored,[],[],[])
+
+
+@pytest.mark.parametrize('target', ['Item/Child', 'Item2'])
+def check_same_cause_across_resource_targets_shares_attempt_limit(tmp_path, target):
+    session, entry = diagnosis_fixture(tmp_path, peer=target == 'Item2')
+    handoff.diagnose(tmp_path,session,{'revision':0,'problems':[entry]})
+    original = session['workflow']['currentProblemIds'][0]
+    attempted(session['workflow'],original,revision=1)
+    new = next_diagnosis(session,entry)
+    new['resourcePath'] = target
+    session['failureObservations'][-1]['awsState']['failureEvents'][0]['resourcePath'] = target
+    if target == 'Item2':
+        new['inputRefs'][0]['pointer'] = '/Resources/Item2/Properties/CidrBlock'
+        new['modelRefs'][0]['key'] = 'desired.row.002-001.value'
+    assert handoff.diagnose(tmp_path,session,{'revision':1,'problems':[new]}) == 'STOPPED'
+    other = session['workflow']['currentProblemIds'][0]
+    assert other != original
+    assert session['workflow']['problems'][other]['causeId'] == original
+    assert len(policy.attempts_for(session['workflow'],other)) == 1
+    assert session['workflow']['problems'][original]['attempts']
+
+
+def check_new_code_is_evidence_not_python_cause_inference(tmp_path):
+    session, entry = diagnosis_fixture(tmp_path)
+    handoff.diagnose(tmp_path,session,{'revision':0,'problems':[entry]})
+    original = session['workflow']['currentProblemIds'][0]
+    attempted(session['workflow'],original,revision=1)
+    new = next_diagnosis(session,entry,relation='NEW',code='DifferentConstraint')
+    new['constraint'] = 'second-constraint'
+    new['reason'] = 'The current AWS operation reports a different constraint code after the first constraint was corrected; compare both cited executions.'
+    assert handoff.diagnose(tmp_path,session,{'revision':1,'problems':[new]}) == 'REPAIR_ALLOWED'
+    second = session['workflow']['currentProblemIds'][0]
+    assert second != original
+    attempted(session['workflow'],second,revision=2)
+    again = next_diagnosis(session,entry,related=[original],code='InvalidRequest')
+    assert handoff.diagnose(tmp_path,session,{'revision':2,'problems':[again]}) == 'STOPPED'
+    assert session['workflow']['currentProblemIds'] == [original]
+    # SAME cannot transfer an already known signature to a different cause either.
+    again['relatedProblemIds'] = [second]
+    again['evidenceRefs'].extend(new['evidenceRefs'])
+    assert handoff.diagnose(tmp_path,session,{'revision':2,'problems':[again]}) == 'NEEDS_DIAGNOSIS'
+    assert session['workflow']['reserved'] == 2
+
+
+@pytest.mark.parametrize('history', ['problem', 'budget-extension'])
+def check_v5_signed_history_migrates_without_reset(tmp_path, history):
+    root = tmp_path / 'repository'
+    root.mkdir()
+    session, entry = diagnosis_fixture(root)
+    handoff.diagnose(root,session,{'revision':0,'problems':[entry]})
+    identity = session['workflow']['currentProblemIds'][0]
+    attempted(session['workflow'],identity,revision=1)
+    session.update(repository=str(root),taskFile='tasks/deploy.md')
+    path = tmp_path / 'session.json'
+    handoff.bind(root,path,session)
+    # Simulate sealed v5 histories, including an unverifiable extension before repairs.
+    cycles = 1
+    if history == 'budget-extension':
+        session['workflow'].update(problems={}, attempts={}, reserved=0, budget=40,
+                                   budgetExtensions=[{'cycles':20, 'authorizationDigest':'unverified'}])
+        cycles = 0
+    session['workflow'].pop('diagnosisVersion')
+    handoff.save(path,session)
+    session = json.loads(path.read_text())
+    handoff.restore(root,path,session)
+    retained = copy.deepcopy(session['workflow']['attempts'])
+    handoff.workflow(session)
+    assert session['workflow']['legacyUncertain'] and session['workflow']['reserved'] == cycles
+    assert session['workflow']['attempts'] == retained
+    assert policy.decision(session['workflow'],[identity]) == 'WAITING_HUMAN'
+    handoff.save(path,session)
+    path.unlink()
+    restored = handoff.recover_session(root,path,'tasks/deploy.md')
+    assert restored['workflow']['legacyUncertain'] and restored['workflow']['reserved'] == cycles
+
+
+def check_budget_text_is_not_human_authority(tmp_path):
+    from deploy_handoff import main
+    root = tmp_path / 'repository'
+    root.mkdir()
+    task = root / 'tasks/deploy.md'
+    task.parent.mkdir()
+    task.write_text('## Task contract\n- Task type: `infrastructure`\n- Task status: `running`\n'
+                    '## Modified files\n- `tasks/deploy.md`\n## Allowed paths\n- `tasks/deploy.md`\n')
+    session = {'repository':str(root),'taskFile':'tasks/deploy.md','taskDigest':task_digest(task.read_text()),
+               'states':{'Stack':{'status':'NOT_STARTED'}}}
+    path = tmp_path / 'state.json'
+    handoff.bind(root,path,session)
+    session['workflow']['reserved'] = 20
+    handoff.save(path,session)
+    assert main(['budget','--repository-root',str(root),'--state',str(path),'--additional-cycles','20',
+                 '--authorization','LLMが作った文字列']) == 2
+    restored = json.loads(path.read_text())
+    assert restored['workflow']['budget'] == restored['workflow']['reserved'] == 20
+    assert restored['workflow']['status'] == 'WAITING_HUMAN'
+    assert not restored['workflow'].get('budgetExtensions')
+    assert main(['close','--repository-root',str(root),'--state',str(path),'--authorization','stop']) == 0
+    assert main(['budget','--repository-root',str(root),'--state',str(path),'--additional-cycles','20',
+                 '--authorization','another self-issued string']) == 2
+    assert json.loads(path.read_text())['workflow']['status'] == 'CLOSED'
+
+
+
+@pytest.mark.parametrize('progress', ['nested', 'peer', 'static'])
+def check_only_observed_target_progress_counts(tmp_path, progress):
+    session, entry = diagnosis_fixture(tmp_path)
+    handoff.diagnose(tmp_path,session,{'revision':0,'problems':[entry]})
+    identity = session['workflow']['currentProblemIds'][0]
+    attempted(session['workflow'],identity,revision=1)
+    new = next_diagnosis(session,entry)
+    state = session['failureObservations'][-1]['awsState']
+    state['successEvents'] = [{'resourcePath':'Item/Child' if progress == 'nested' else 'Peer', 'ResourceStatus':'CREATE_COMPLETE'}]
+    state['staticValidation'] = 'PASS'
+    expected = 'REPAIR_ALLOWED' if progress == 'nested' else 'STOPPED'
+    assert handoff.diagnose(tmp_path,session,{'revision':1,'problems':[new]}) == expected
+
+@pytest.mark.parametrize('targeted', [True, False])
+def check_common_cause_progress_requires_repaired_target_success(tmp_path, targeted):
+    session, entry = diagnosis_fixture(tmp_path, peer=True)
+    handoff.diagnose(tmp_path,session,{'revision':0,'problems':[entry]})
+    identity = session['workflow']['currentProblemIds'][0]
+    attempt = attempted(session['workflow'],identity,revision=1)
+    attempt['expectation'] = [{'stack':'Stack','resourcePath':'Item','operation':'CREATE','status':'CREATE_COMPLETE'}]
+    new = next_diagnosis(session,entry)
+    new['resourcePath'] = 'Item2'
+    new['inputRefs'][0]['pointer'] = '/Resources/Item2/Properties/CidrBlock'
+    new['modelRefs'][0]['key'] = 'desired.row.002-001.value'
+    session['failureObservations'][-1]['awsState']['failureEvents'][0]['resourcePath'] = 'Item2'
+    session['states']['Stack'].update(clientToken='actual-new-execution', successEvents=[
+        {'resourcePath':'Item' if targeted else 'UnrelatedPeer', 'ResourceStatus':'CREATE_COMPLETE'}])
+    handoff.record_outcomes(session)
+    assert bool(session['workflow']['problems'][identity].get('resolvedByExecution')) == targeted
+    assert handoff.diagnose(tmp_path,session,{'revision':1,'problems':[new]}) == ('REPAIR_ALLOWED' if targeted else 'STOPPED')
 
 
 if __name__ == '__main__':

@@ -253,7 +253,7 @@ def run(args, root, timing, script_directory, backend_type, load_units):
                 return repair_resume.observe_only(backend, units, limit, state_path, session)
             require_session_format(session)
             if session.get('workflow', {}).get('status') == 'CLOSED':
-                raise Blocked('closed workflow cannot resume AWS execution; use an explicitly authorized new Task')
+                raise Blocked('closed workflow cannot resume AWS execution; unresolved history still owns overlapping scope')
             if session.get('workflow', {}).get('legacyUncertain'):
                 raise Blocked('WAITING_HUMAN: legacy repair identity/cycles require diagnosis; no candidate reapplication')
             current_execution = execution_digest(root, target, backend.file_digest, unit_digests)

@@ -78,8 +78,13 @@ def check_deploy_workflow_cross_task_reset_rejected():
         with tasks.selected_task(parent,parent_state['task_file']):
             assert handoff_cli(['close','--repository-root',str(parent),'--state',str(path),
                 '--authorization','fixture explicit Human termination']) == 0
-        handoff.bind(other,next_path,replacement)
-        wt.bind_deploy_workflow(other,next_path,replacement,Path(replacement['workflowBinding']),activate=True)
+        try:
+            handoff.bind(other,next_path,replacement)
+            wt.bind_deploy_workflow(other,next_path,replacement,Path(replacement['workflowBinding']),activate=True)
+        except ValueError as error:
+            assert 'unfinished deploy workflow' in str(error)
+        else:
+            raise AssertionError('close must not reset unresolved history or budget')
         saved = json.loads(path.read_text())
         assert saved['workflow']['reserved'] == 2 and saved['workflow']['status'] == 'CLOSED'
         assert 'pendingRequest' not in saved

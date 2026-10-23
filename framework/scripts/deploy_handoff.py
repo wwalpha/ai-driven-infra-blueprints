@@ -7,7 +7,6 @@ from deploy import handoff
 from cloudformation_inputs import Blocked
 from deploy.contracts import task_digest
 from task_contract import selected_task, task_path
-from utils.json_format import fingerprint
 
 
 def main(argv=None):
@@ -73,12 +72,11 @@ def main(argv=None):
                         value = {'result': 'REQUESTED', 'requestId': pending['requestId'], 'attemptId': pending['attemptId'],
                                  'next': 'worktree_task.py repair-checkpoint --task-id ' + Path(session['taskFile']).stem + ' --state ' + str(path)}
                     elif args.command == 'budget':
-                        if not args.authorization or not args.additional_cycles or args.additional_cycles <= 0:
-                            raise Blocked('additional budget needs explicit Human authorization and a positive cycle count')
-                        workflow = session['workflow']
-                        workflow['budget'] += args.additional_cycles
-                        workflow.setdefault('budgetExtensions', []).append({'cycles': args.additional_cycles, 'authorizationDigest': fingerprint(args.authorization)})
-                        value = {'result': 'BUDGET_EXTENDED', 'budget': workflow['budget'], 'reserved': workflow['reserved']}
+                        if session['workflow'].get('status') in {'CLOSED', 'COMPLETE'}:
+                            raise Blocked('terminal workflow cannot be reopened by a budget command')
+                        session['workflow']['status'] = 'WAITING_HUMAN'
+                        value = {'result': 'WAITING_HUMAN', 'budget': session['workflow']['budget'],
+                                 'reason': 'No externally verified Human budget authorization is available; extension refused'}
                     else:
                         if not args.authorization or any(s['status'] == 'RUNNING' or s.get('cleanupStatus') == 'DELETE_INTENT' or
                                 s['status'] == 'SUCCESS' and not s.get('observedSynced') for s in session['states'].values()):
@@ -87,11 +85,11 @@ def main(argv=None):
                         if pending:
                             session['workflow']['attempts'][pending['attemptId']].update(stage='ABANDONED', closedRequest=pending)
                         session['workflow']['status'] = 'CLOSED'
-                        # Keep binding and history. A new Task is required for a genuinely new workflow.
+                        # Closing retains unresolved scope ownership and every spent attempt.
                         value = {'result': 'CLOSED', 'retained': str(path)}
             handoff.save(path, session)
         print(json.dumps(value, indent=2))
-        return 0
+        return 2 if args.command == 'budget' else 0
     except (OSError, ValueError, KeyError, TypeError, Blocked) as error:
         print('Deploy handoff: BLOCKED (' + str(error) + ')')
         return 2
