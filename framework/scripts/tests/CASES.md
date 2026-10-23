@@ -2484,3 +2484,24 @@ Task fixtureは正式worktree lifecycleとtask_contract.startで開始・選択�
 | `external-repair::cross-task-workflow` | `check_deploy_workflow_cross_task_reset_rejected` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py) | direct / 1 | Same Stack in another real managed Task cannot reset an unfinished budget; missing ledger refuses; explicit close archives pending static FAIL and preserves old history/counts | Real Git/lifecycle and sealed session |
 
 | `external-repair::after-bootstrap` | `check_bootstrap_history_preserves_distinct_safe_failure` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | Actual poll/repair preserve a different structured non-secret cause after bootstrap; no PUT/cleanup fallback; changing event identity cannot create NEW | Offline AWS read boundary |
+
+
+## Resource impact 1023v5
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `resource-impact::addition` | `check_resource_addition` | IT | [integrations/model_impact.checks.py](integrations/model_impact.checks.py) | direct / 1 | 同Serviceの別logicalId追加と新Consumer、Task基準Snapshot | Resource impact |
+
+| `resource-impact::changes` | `check_resource_changes` | IT | [integrations/model_impact.checks.py](integrations/model_impact.checks.py) | direct / 1 | 更新・削除・旧新参照・Resource連鎖・複数Service和集合 | Resource impact |
+| `resource-impact::semantics` | `check_semantic_boundaries` | IT | [integrations/model_impact.checks.py](integrations/model_impact.checks.py) | direct / 1 | コメント・表示・採番・Observed・project変更 | Resource impact |
+| `resource-impact::fallback` | `check_stack_context_and_fallback` | IT | [integrations/model_impact.checks.py](integrations/model_impact.checks.py) | direct / 1 | Stack・Context・不明参照・不正旧Model修復 | Resource impact |
+| `resource-impact::routes` | `check_task_snapshot_routes` | IT | [integrations/model_impact.checks.py](integrations/model_impact.checks.py) | direct / 1 | 実managed保存・Candidate・stage/commit・最終Validation・Issue Gate・Snapshot/graph回数 | Resource impact |
+| `resource-impact::internal-ids` | `check_internal_ids_and_comments` | UT | [units/model-impact-unit.checks.py](units/model-impact-unit.checks.py) | pytest / 1 | Resource/Row/Reference番号・表示と意味的差分 | Resource impact |
+| `resource-impact::cycles` | `check_minimal_fallback_and_cycles` | UT | [units/model-impact-unit.checks.py](units/model-impact-unit.checks.py) | pytest / 1 | Resource/Service境界と循環停止 | Resource impact |
+| `resource-impact::invalid` | `check_invalid_baseline_and_counter` | UT | [units/model-impact-unit.checks.py](units/model-impact-unit.checks.py) | pytest / 1 | 不正旧Modelと不明採番の局所fallback | Resource impact |
+
+既存 `units/import-model-unit.checks.py::check_repair_invalid_model` は旧Snapshotのraw差分取得を許可し、変更後だけの `load_model`、旧syntax/identity/encoding不正の修復、権限・scope・race・rollback・anchor拒否の全40展開を維持する。旧Modelを完全検証することを要求しない。
+
+`integrations/sync-model.checks.py::check_integrated_validator` の2展開はImpact再計算3回の旧期待を、共通Snapshotによる計算1回の期待へ変更。生成・候補検証・入力比較各1回と保存後readbackなしのassertionは保持。
+
+| `resource-impact::design-source` | `check_design_requires_changed_authority` | UT | [units/model-impact-unit.checks.py](units/model-impact-unit.checks.py) | pytest / 1 | 共通Impactがあってもproject変更だけでdesign Taskを許可しない | Resource impact |

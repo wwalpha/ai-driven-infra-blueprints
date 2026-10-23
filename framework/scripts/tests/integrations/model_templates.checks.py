@@ -272,7 +272,7 @@ def check_reference_impact(root):
     values = {key: value for key, value in values.items() if not key.startswith('desired.reference.')}
     write_model(paths['codepipeline'], values)
     assert not dependencies(root)[('dev', 'team', 'codepipeline')]
-    assert affected(root, {relative}, before=previous) == chain
+    assert affected(root, {relative}, before=previous) == own
     raw = paths['codepipeline'].read_bytes()
     paths['codepipeline'].write_text('invalid')
     rejected(lambda: dependencies(root), 'unsupported Model format')

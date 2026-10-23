@@ -19,21 +19,23 @@ def check_target_file(path: Path, base: Path, *, accounts, findings) -> tuple[st
     return target
 
 
-def check_validation_scope(accounts, changed_paths, contract_scope, findings, root, scope, task_iac_paths, *, candidates=False, before=None):
+def check_validation_scope(accounts, changed_paths, contract_scope, findings, root, scope, task_iac_paths, *, candidates=False, before=None, base=None):
     if task_iac_paths is not None:
         for changed in sorted(changed_paths):
             if changed.startswith("infra/"):
                 findings.check(root / changed in task_iac_paths,
                            f"changed IaC path is outside Deployment scope: {changed}")
     scope = contract_scope if contract_scope is not None else scope
+    from model.impact import affected, task_impact, scope_diagnostic
+    impact = set()
+    if scope or candidates:
+        try:
+            impact = (affected(root, changed_paths, before=before, raw=True) if before is not None
+                      else set(task_impact(root, changed_paths, base=base).services))
+        except (OSError, ValueError) as error:
+            findings.check(False, f'invalid Model source scope: {error}')
     if scope is None:
-        if candidates:
-            from model.impact import affected
-            try:
-                return affected(root, changed_paths, before=before)
-            except (OSError, ValueError) as error:
-                findings.check(False, f'invalid Model source scope: {error}')
-        return
+        return impact if candidates else None
     if not scope:
         findings.check(not any(path.startswith('model/') for path in changed_paths),
                        'Model source changes require service Validation scope')
@@ -44,8 +46,8 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
             findings.check(model_exists(root/"model"/environment/target/(service+".properties")), f"validation properties input missing: {environment}/{target}/{service}")
         except (OSError, ValueError) as error:
             findings.check(False, f"invalid validation properties input: {error}")
-        for base, suffix in (() if candidates else (("docs/designs", ".md"),)):
-            relative = f"{base}/{environment}/{target}/{service}{suffix}"
+        for design_base, suffix in (() if candidates else (("docs/designs", ".md"),)):
+            relative = f"{design_base}/{environment}/{target}/{service}{suffix}"
             if not input_is_file(root / relative):
                 from model.sources import load_model
                 from model.core import ReferenceResolutionError
@@ -58,14 +60,11 @@ def check_validation_scope(accounts, changed_paths, contract_scope, findings, ro
                     findings.check(False, f'invalid validation properties input: {relative}: {error}')
                     continue
             findings.check(input_is_file(root / relative), f"validation input missing: {relative}")
-    from model.impact import affected
-    impact = set()
-    try:
-        impact = affected(root, changed_paths, before=before) if scope else set()
-        for entry in impact:
-            findings.check(entry in scope, f"Model source change requires affected validation scope: {'/'.join(entry)}")
-    except (OSError, ValueError) as error:
-        findings.check(False, f'invalid Model source scope: {error}')
+    if impact != scope:
+        from sync_progress import output_file
+        print('Model impact: ' + scope_diagnostic(impact, scope), file=output_file())
+    for entry in impact:
+        findings.check(entry in scope, f"Model source change requires affected validation scope: {'/'.join(entry)}")
     for changed in sorted(changed_paths):
         for base in ("model/", "docs/designs/"):
             if changed.startswith(base):

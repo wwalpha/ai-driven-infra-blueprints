@@ -1243,7 +1243,7 @@ def check_integrated_validator(generated_policy, initial):
         published = True
         return result
     with patch.dict(os.environ, env), \
-         patch.object(model_impact, 'affected', wraps=model_impact.affected) as impact, \
+         patch.object(model_impact, 'analyze', wraps=model_impact.analyze) as impact, \
          patch.object(import_guard, 'require_import_changes', wraps=import_guard.require_import_changes) as import_check, \
          patch.object(sync_runtime, '_publish_transaction', side_effect=publish), \
          patch.object(Path, 'read_bytes', read), \
@@ -1259,7 +1259,7 @@ def check_integrated_validator(generated_policy, initial):
     contexts = [(call.args[0], id(call.args[1])) for call in expand.call_args_list]
     assert contexts and len(contexts) == len(set(contexts)), expand.call_args_list
     print('integrated write counts: Model once per input/permission context; generation=1, candidate validation=1, guard=1, post-save readback=0')
-    assert import_check.call_count == 1 and impact.call_count == 3, (impact.call_count, import_check.call_count)
+    assert import_check.call_count == impact.call_count == 1, (impact.call_count, import_check.call_count)
     assert values['desired.note.001.text'] in design.read_text()
     if not initial:
         from tempfile import TemporaryDirectory
