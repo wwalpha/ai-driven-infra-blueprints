@@ -840,14 +840,17 @@ def verify_model_refactor(before, after, detaches, sources, validation_scope):
     return warnings
 
 
-def validate_candidates(root, sources, output, scope):
+def validate_candidates(root, sources, output, scope, *, base=None, contract_file=None):
     """Common ordinary-save/Task/integration check: validate only the final authority."""
     from model.sources import FileReads, source_scope
-    from model.impact import affected
-    reads = CandidateReads(FileReads(), output)
-    required = affected(root, sources, read_context=reads, raw=True)
+    from model.impact import task_impact, scope_diagnostic
+    from model.sources import _invocation_reads
+    original = _invocation_reads(root)
+    reads = CandidateReads(original, output) if output else original
+    required = set(task_impact(root, sources, output=output, base=base,
+                              contract_file=contract_file, read_context=original).services)
     if scope is not None and not required <= scope:
-        raise ValueError('Model changes require all affected services in Validation scope')
+        raise ValueError('Model changes require all affected services in Validation scope: ' + scope_diagnostic(required, scope))
     warnings = []
     for identity in sorted(required):
         path = root / 'model' / identity[0] / identity[1] / (identity[2] + '.properties')

@@ -2509,3 +2509,23 @@ Task fixtureは正式worktree lifecycleとtask_contract.startで開始・選択�
 | `observed-views::external` | `check_generated_external_change_rejected` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 9 | Markdown append/value, JSON edits, output addition/deletion, foreign bytes in retained journal and legacy plan without output evidence; bytes retained and later DeployOrder blocked | managed controller and real publication |
 | `observed-views::publication-race` | `check_generated_change_during_publication` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 1 | external edit after validation and plan reconciliation, caught by actual publication snapshot; resume preserves edit and execution evidence | real GenerationInputs and controller |
 | `observed-views::snapshot` | `check_generated_plan_snapshot` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 1 | pin views and actual JSON selection before fallible generation; empty vs absent and unexpected file evidence | raw snapshot |
+
+## Resource impact 1023v5
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `resource-impact::addition` | `check_resource_addition` | IT | [integrations/model_impact.checks.py](integrations/model_impact.checks.py) | direct / 1 | 同Serviceの別logicalId追加と新Consumer、Task基準Snapshot | Resource impact |
+
+| `resource-impact::changes` | `check_resource_changes` | IT | [integrations/model_impact.checks.py](integrations/model_impact.checks.py) | direct / 1 | 更新・削除・旧新参照・Resource連鎖・複数Service和集合 | Resource impact |
+| `resource-impact::semantics` | `check_semantic_boundaries` | IT | [integrations/model_impact.checks.py](integrations/model_impact.checks.py) | direct / 1 | コメント・表示・採番・Observed・project変更 | Resource impact |
+| `resource-impact::fallback` | `check_stack_context_and_fallback` | IT | [integrations/model_impact.checks.py](integrations/model_impact.checks.py) | direct / 1 | Stack・Context・不明参照・不正旧Model修復 | Resource impact |
+| `resource-impact::routes` | `check_task_snapshot_routes` | IT | [integrations/model_impact.checks.py](integrations/model_impact.checks.py) | direct / 1 | 実managed保存・Candidate・stage/commit・最終Validation・Issue Gate・Snapshot/graph回数 | Resource impact |
+| `resource-impact::internal-ids` | `check_internal_ids_and_comments` | UT | [units/model-impact-unit.checks.py](units/model-impact-unit.checks.py) | pytest / 1 | Resource/Row/Reference番号・表示と意味的差分 | Resource impact |
+| `resource-impact::cycles` | `check_minimal_fallback_and_cycles` | UT | [units/model-impact-unit.checks.py](units/model-impact-unit.checks.py) | pytest / 1 | Resource/Service境界と循環停止 | Resource impact |
+| `resource-impact::invalid` | `check_invalid_baseline_and_counter` | UT | [units/model-impact-unit.checks.py](units/model-impact-unit.checks.py) | pytest / 1 | 不正旧Modelと不明採番の局所fallback | Resource impact |
+
+既存 `units/import-model-unit.checks.py::check_repair_invalid_model` は旧Snapshotのraw差分取得を許可し、変更後だけの `load_model`、旧syntax/identity/encoding不正の修復、権限・scope・race・rollback・anchor拒否の全40展開を維持する。旧Modelを完全検証することを要求しない。
+
+`integrations/sync-model.checks.py::check_integrated_validator` の2展開はImpact再計算3回の旧期待を、共通Snapshotによる計算1回の期待へ変更。生成・候補検証・入力比較各1回と保存後readbackなしのassertionは保持。
+
+| `resource-impact::design-source` | `check_design_requires_changed_authority` | UT | [units/model-impact-unit.checks.py](units/model-impact-unit.checks.py) | pytest / 1 | 共通Impactがあってもproject変更だけでdesign Taskを許可しない | Resource impact |

@@ -85,23 +85,15 @@ def main(argv=None, *, definitions_root=None) -> int:
                 if not scope:
                     raise ValueError("no service validation scope; specify environment/target/service")
             consumers(scope)
-            from model.impact import affected
-            import subprocess
-            changed = set()
-            if (root / '.git').exists():
-                for arguments in (['diff', '--name-only', '--no-renames', '-z'],
-                                  ['diff', '--cached', '--name-only', '--no-renames', '-z'],
-                                  ['ls-files', '--others', '--exclude-standard', '-z']):
-                    result = subprocess.run(['git', *arguments], cwd=root, capture_output=True, text=True)
-                    if result.returncode:
-                        raise ValueError('cannot determine Model impact for generation')
-                    changed.update(filter(None, result.stdout.split('\0')))
+            from model.impact import task_impact, scope_diagnostic
+            from import_guard import changed_sources
+            changed = changed_sources(root) if (root / '.git').exists() else set()
             with phase("impact-scope"):
-                impact = affected(root, changed)
+                impact = set(task_impact(root, changed).services)
             from model.importing.scope import selected as import_selection
             impact_scope = contract_scope if import_selection(root) is not None else scope
             if impact_scope is None or not impact <= impact_scope:
-                raise ValueError('include all affected Model services in generation/Validation scope: ' + ', '.join('/'.join(entry) for entry in sorted(impact - scope)))
+                raise ValueError('include all affected Model services in generation/Validation scope: ' + scope_diagnostic(impact, scope))
             if args.write and import_selection(root) is None:
                 from import_guard import require_import_changes
                 from issue_gate import require_no_issues

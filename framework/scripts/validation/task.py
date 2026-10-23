@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 from model.core import properties
 from model.files import service_model_path
-from model.impact import affected
+from model.impact import task_impact
 from validation_scope import active_scope
 from issue_gate import require_no_issues
 from task_contract import task_path, TASK_NAME, matches, issues_save_only
@@ -287,8 +287,8 @@ class TaskValidation:
                         require_import_changes(self.root, self.scope_paths, final_candidate=self.final_candidate)
                 except (OSError, ValueError) as error:
                     self.check(False, str(error))
-            models = {'model/' + '/'.join(entry) + '.properties' for entry in (self.design_impact if self.design_impact is not None else affected(self.root, design_sources))}
-            self.check(bool(models), "design task must change authoritative properties service inputs")
+            models = {'model/' + '/'.join(entry) + '.properties' for entry in (self.design_impact if self.design_impact is not None else task_impact(self.root, design_sources, base=self.baseline).services)}
+            self.check(bool(design_sources) and bool(models), "design task must change authoritative properties service inputs")
             for path in markdown:
                 expected = "model/" + path.removeprefix("docs/designs/").removesuffix(".md") + ".properties"
                 self.check(expected in models, f"changed design Markdown lacks changed service model: {path}")
