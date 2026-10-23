@@ -310,7 +310,7 @@ def select_checks(root, paths, affected=False):
     issues_tests = (comparison - {'check-model-aws.checks.py', 'check-model-aws-unit.checks.py'}) | {'test_issues_iac.py', 'issues-lint-unit.checks.py'}
     issues_tests.update(name.replace('.checks.py', '-unit.checks.py') for name in list(issues_tests)
                         if name.replace('.checks.py', '-unit.checks.py') in names)
-    for name in ('__init__','cli','runner','inputs','integrity','materials','comparison','references','records','aggregate','artifact','reports','publication','cfn_lint'):
+    for name in ('__init__','cli','runner','inputs','integrity','materials','records','aggregate','artifact','reports','publication','cfn_lint'):
         mapping[f'framework/scripts/issues/{name}.py'] = set(issues_tests)
     mapping['framework/scripts/utils/cfn_lint.py'] = set(issues_tests)
     mapping['framework/scripts/issues_scan.py'] = set(issues_tests)
@@ -318,8 +318,8 @@ def select_checks(root, paths, affected=False):
         mapping[f'framework/scripts/issues/{name}.py'].add('model-reference-warnings-unit.checks.py')
     for name in ('publication', 'reports'):
         mapping[f'framework/scripts/issues/{name}.py'].add('issue_gate-unit.checks.py')
-    for name in ('comparison', 'references'):
-        mapping[f'framework/scripts/issues/{name}.py'].update({'s3-kms-reference-unit.checks.py', 'security_group_tables-unit.checks.py'})
+    for path in (root / 'framework/scripts/comparison').rglob('*.py'):
+        mapping[path.relative_to(root).as_posix()] = issues_tests | {'s3-kms-reference-unit.checks.py', 'security_group_tables-unit.checks.py', 'deploy-runtime-unit.checks.py'}
     for support in ('cloudformation_deploy_fixtures', 'deploy_controller_fixtures'):
         mapping[f'framework/scripts/tests/support/{support}.py'] = set(deploy_tests)
     selected = set()

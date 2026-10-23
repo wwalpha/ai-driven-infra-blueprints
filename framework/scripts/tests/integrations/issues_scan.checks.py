@@ -422,7 +422,7 @@ def extended_cases(root, template):
     write(refpath, 'desired.service.vpc.serviceId=vpc\ndesired.resource.001.resourceType=EC2.Subnet\ndesired.resource.001.logicalId=EC2_Subnet_001\ndesired.resource.001.anchor=resource-EC2_Subnet_001\ndesired.service.identity.lastAllocated={"EC2.Subnet":1}\n')
     write(modelpath, '\n'.join(f'{key}={value}' for key, value in rows.items()) + '\n')
     comparison = Comparison(root, 'dev', '123456789012', ['codebuild'])
-    value = comparison.desired_value('codebuild', comparison.rows['codebuild']['001'][0][1], 'CodeBuild.Project')
+    value = comparison.prepare_value('codebuild', comparison.rows['codebuild']['001'][0][1], 'CodeBuild.Project').require_value()
     assert isinstance(value, list) and len(value) == 1 and value[0]['$attribute'] == 'SubnetId'
     remove_model(modelpath); remove_model(refpath)
     # Pattern disagreement, unknown components, required missing Name are separate review material.
@@ -518,7 +518,7 @@ def comparison_repair_cases():
             comparison, records = compare(root, ['codebuild'])
             assert len(records) == 1 and records[0]['category'] == 'matched', records
             # Other role properties still use the default RoleName attribute.
-            assert comparison.desired_value('codebuild', {'property': 'IAM.ManagedPolicy.Roles', 'value': '[IAM_Role_001](iam.md#resource-IAM_Role_001)'}, 'IAM.ManagedPolicy')[0]['$attribute'] == 'RoleName'
+            assert comparison.prepare_value('codebuild', {'property': 'IAM.ManagedPolicy.Roles', 'value': '[IAM_Role_001](iam.md#resource-IAM_Role_001)'}, 'IAM.ManagedPolicy').require_value()[0]['$attribute'] == 'RoleName'
             for field, expected in [('text', 'resolved'), ('number', '7')]:
                 assert comparison.evaluate(name, {'Fn::Sub': ['${X}-${AWS::Region}-${!literal}',
                        {'X': {'Fn::FindInMap': ['Table', 'one', field]}}]}) == expected + '-ap-northeast-1-${literal}'
@@ -679,17 +679,18 @@ def local_reference_cases():
             policy = {'Statement': [{'Condition': {'Bool': {'aws:SecureTransport': 'false'}},
                                      'Resource': {'Fn::GetAtt': ['AppKey', 'Arn']}}]}
             row = {'property': 'S3.BucketPolicy.PolicyDocument', 'value': 'policy.json', 'document': json.dumps(policy)}
-            pending = comparison.desired_value('s3', row, 'S3.BucketPolicy')['Statement'][0]['Resource']
+            prepared = comparison.prepare_value('s3', row, 'S3.BucketPolicy')
+            pending = prepared.require_value()['Statement'][0]['Resource']
             assert isinstance(pending, Expression) and pending.operation == 'Unverified'
-            assert any(w['function'] == 'Fn::GetAtt' for w in comparison.warnings)
+            assert any(w['function'] == 'Fn::GetAtt' for w in prepared.warnings)
             del policy['Statement'][0]['Resource']
-            assert comparison.desired_value('s3', dict(row, document=json.dumps(policy)), 'S3.BucketPolicy') == policy
+            assert comparison.prepare_value('s3', dict(row, document=json.dumps(policy)), 'S3.BucketPolicy').require_value() == policy
             # Shared deploy repair callers never run Comparison.run(): retain their original behavior.
             deploy = Comparison(root, 'dev', '123456789012', ['s3'])
             deploy.stack(deploy.templates()[0][1])
             expect_error(lambda: deploy.evaluate(consumer, {'Fn::Sub': '${Bucket}'}), 'variable')
             expect_error(lambda: deploy.evaluate(consumer, imported), 'handoff')
-            assert deploy.desired_value('s3', row, 'S3.BucketPolicy')['Statement'][0]['Resource'] == {'Fn::GetAtt': ['AppKey', 'Arn']}
+            assert deploy.prepare_value('s3', row, 'S3.BucketPolicy').require_value()['Statement'][0]['Resource'] == {'Fn::GetAtt': ['AppKey', 'Arn']}
             # A missing declared stack prevents proof of export uniqueness.
             (root / 'infra/cloudformation/parameters/dev/123456789012/stack-2.json').unlink()
             expect_error(lambda: candidate().evaluate(consumer, imported), 'search incomplete')
@@ -725,11 +726,13 @@ def symbolic_string_cases(_network):
         prop = 'LogGroupName'
         def category(actual, desired):
             comparison.results = []
-            with patch.object(comparison, 'desired_value', return_value=desired):
-                comparison.compare_rows('cloudwatch-logs', '001', resource, name, 'Log',
+            from comparison.values import PreparedValue
+            with patch.object(comparison, 'prepare_value', return_value=PreparedValue(desired, [])):
+                batch = comparison.compare_rows('cloudwatch-logs', '001', resource, name, 'Log',
                     root / 'infra/cloudformation/templates/shared.yaml',
                     {'Properties': {prop: actual}}, template)
-            records = [record for record in comparison.results if record['property'].endswith('.' + prop)]
+            assert batch.failure is None, batch.failure
+            records = [record for record in batch.records if record['property'].endswith('.' + prop)]
             assert len(records) == 1, records
             return records[0]['category']
         # Inject already bound desired expressions, never grant raw model intrinsics a binding.
@@ -883,13 +886,13 @@ def reference_property_contract_cases():
                 bad = json.loads(json.dumps(stages))
                 bad[0]['Actions'][0]['ActionTypeId'][field] = wrong
                 row = {'property': 'CodePipeline.Pipeline.Stages', 'value': '`' + json.dumps(bad) + '`'}
-                expect_error(lambda: comparison.desired_value('codepipeline', row, 'CodePipeline.Pipeline'), 'ActionTypeId')
+                expect_error(lambda: comparison.prepare_value('codepipeline', row, 'CodePipeline.Pipeline').require_value(), 'ActionTypeId')
                 del bad[0]['Actions'][0]['ActionTypeId'][field]
                 row['value'] = '`' + json.dumps(bad) + '`'
-                expect_error(lambda: comparison.desired_value('codepipeline', row, 'CodePipeline.Pipeline'), 'ActionTypeId')
+                expect_error(lambda: comparison.prepare_value('codepipeline', row, 'CodePipeline.Pipeline').require_value(), 'ActionTypeId')
             bad = json.loads(json.dumps(stages))
             bad[0]['Actions'][0]['Configuration']['RepositoryName'] = function
-            expect_error(lambda: comparison.desired_value('codepipeline', {'property': 'CodePipeline.Pipeline.Stages', 'value': '`' + json.dumps(bad) + '`'}, 'CodePipeline.Pipeline'), 'reference attribute not confirmed: Name')
+            expect_error(lambda: comparison.prepare_value('codepipeline', {'property': 'CodePipeline.Pipeline.Stages', 'value': '`' + json.dumps(bad) + '`'}, 'CodePipeline.Pipeline').require_value(), 'reference attribute not confirmed: Name')
             # Explicit row indexes bind configuration to its own action, independent of row order.
             model = models['codepipeline']
             for key in list(model):
@@ -1007,12 +1010,14 @@ def reference_diagnostic_cases():
             for rid in ('001-002', '001-003', '001-004'):
                 del model[f'desired.row.{rid}.property'], model[f'desired.row.{rid}.value']
             alias = ResourceReference({'$resource': ['kms', '002'], '$attribute': 'AliasName'})
-            diagnostics = []
-            assert comparison.reference_same(alias, alias, 'Athena.WorkGroup', field, diagnostics) is False
+            decision = comparison.reference_decision(alias, alias, 'Athena.WorkGroup', field)
+            diagnostics = decision.diagnostics
+            assert decision.equal is False
             assert diagnostics[0]['allowed_forms'] == ['KeyArn']
-            diagnostics.clear()
             alias_arn = ResourceReference(dict(alias, **{'$attribute': 'AliasArn'}))
-            assert comparison.reference_same(alias_arn, alias_arn, 'Athena.WorkGroup', field, diagnostics) is False
+            decision = comparison.reference_decision(alias_arn, alias_arn, 'Athena.WorkGroup', field)
+            diagnostics = decision.diagnostics
+            assert decision.equal is False
             assert diagnostics[0]['identity'] == 'same' and 'outside allowed forms' in diagnostics[0]['reason']
             keyid = ResourceReference({'$resource': ['kms', '001'], '$attribute': 'KeyId'})
             arn = ResourceReference(dict(keyid, **{'$attribute': 'Arn'}))
@@ -1022,8 +1027,9 @@ def reference_diagnostic_cases():
             assert comparison.reference_same(alias, arn, 'Athena.WorkGroup', field) is False
             comparison.sensitive_values = {'confidential'}
             for secret in ['arn:aws:kms:ap-northeast-1:123456789012:key/example', '{{resolve:secretsmanager:example}}', 'confidential']:
-                hidden = []
-                assert comparison.reference_same(arn, secret, 'Athena.WorkGroup', field, hidden) is (None if '{{resolve:' in secret else False)
+                decision = comparison.reference_decision(arn, secret, 'Athena.WorkGroup', field)
+                hidden = list(decision.diagnostics)
+                assert decision.equal is (None if '{{resolve:' in secret else False)
                 masked = dict(record, reference_diagnostics=hidden * 3)
                 artifact = dict(version=2, environment='dev', target='cde', services=['athena'],
                                 **aggregate([masked], 'dev', 'cde', ['athena']))
@@ -1319,7 +1325,7 @@ def state_report_cases():
                     return read_text(file, *args, **kwargs)
                 with task(root, ['s3']), patch.object(Path, 'read_text', guarded_read), \
                      patch.object(Comparison, 'run', side_effect=AssertionError('save comparison forbidden')), \
-                     patch('issues.inputs.load_model', side_effect=AssertionError('save parse forbidden')), \
+                     patch('comparison.inputs.load_model', side_effect=AssertionError('save parse forbidden')), \
                      patch('socket.socket', side_effect=AssertionError('network forbidden')):
                     assert save(root, 'dev', '123456789012', ['s3'], iac=[record], display=display, stamp='fixed') == outputs
                 text = path.read_text()
@@ -1378,14 +1384,15 @@ def check_nested_membership(scan_project):
     definition = {'Properties': {'RestartExecutionOnUpdate': True, 'Stages': [{'Name': 'first'}]}}
     comparison.source = lambda *args: {'path': 'synthetic-model'}
     with patch('socket.socket', side_effect=AssertionError('network forbidden')):
-        comparison.compare_rows('codepipeline', '001', resource, 'stack', 'Pipeline', template, definition, {})
-    stages = [item for item in comparison.results if '.Stages' in item['property']]
+        batch = comparison.compare_rows('codepipeline', '001', resource, 'stack', 'Pipeline', template, definition, {})
+    assert batch.failure is None, batch.failure
+    stages = [item for item in batch.records if '.Stages' in item['property']]
     assert len(stages) == 1 and stages[0]['category'] == 'difference', stages
     assert stages[0]['desired'] == [
         {'Actions': [{'Name': 'a', 'InputArtifacts': [{'Name': 'same'}],
                       'OutputArtifacts': [{'Name': 'same'}]}], 'Name': 'first'},
         {'Name': 'last'}], stages
-    assert any(item['category'] == 'difference' and item['property'] == kind + '.RestartExecutionOnUpdate' for item in comparison.results), comparison.results
+    assert any(item['category'] == 'difference' and item['property'] == kind + '.RestartExecutionOnUpdate' for item in batch.records), batch.records
 
 
 def check_cloudtrail_membership(scan_project):
@@ -1795,7 +1802,7 @@ def check_arn_array_reference_forms():
             # The receiving ARN form uses the producer's formal PolicyArn attribute.
             with patch.object(comparison, 'reference', return_value=policy) as reference:
                 row = {'property': prop, 'value': values['desired.row.001-001.value']}
-                assert comparison.desired_value('iam', row, 'IAM.Role') == [policy]
+                assert comparison.prepare_value('iam', row, 'IAM.Role').require_value() == [policy]
             reference.assert_called_once_with('iam', link, 'Arn', consumer_property='IAM.Role.ManagedPolicyArns[]')
             assert comparison.reference_same(policy, policy, 'IAM.Role', 'ManagedPolicyArns[]') is True
             assert comparison.reference_same(policy, other, 'IAM.Role', 'ManagedPolicyArns[]') is False
@@ -1814,7 +1821,7 @@ def check_arn_array_reference_forms():
             for unresolved, reason in (('[IAM_ManagedPolicy_999](iam.md#resource-IAM_ManagedPolicy_999)', 'Resource anchor is absent or ambiguous'),
                                        ('`PENDING_DEPLOY`', 'desired value is unresolved')):
                 row = {'property': prop, 'value': unresolved}
-                expect_error(lambda: comparison.desired_value('iam', row, 'IAM.Role'), reason)
+                expect_error(lambda: comparison.prepare_value('iam', row, 'IAM.Role').require_value(), reason)
 
 
 def check_eventbridge_reference_literals():
@@ -2276,7 +2283,7 @@ def check_aws_standard_comparison(_network):
             row = {'property': 'CodeBuild.Project.Environment', 'value': '', 'document': json.dumps({
                 'EnvironmentVariables': [{'Name': 'VALUE', 'Type': 'PLAINTEXT', 'Value': value}]})}
             with pytest.raises(Blocked, match=reason):
-                comparison.desired_value('codebuild', row, 'CodeBuild.Project', stack=stack)
+                comparison.prepare_value('codebuild', row, 'CodeBuild.Project', stack=stack).require_value()
         symbol = comparison.reference('iam', policy, 'Arn')
         assert symbol['$attribute'] == 'PolicyArn'
         assert same(symbol, comparison.evaluate(stack, {'Ref': 'Policy'}))
@@ -2286,17 +2293,21 @@ def check_aws_standard_comparison(_network):
         # Both attachment locations deduplicate one proven edge; disabled/missing edges cannot match.
         document = comparison.stack_inputs[stack][0]
         definition = document['Resources']['Role']
-        assert len(comparison.managed_policy_roles('iam', 'Policy', stack, [{'Ref': 'Role'}])) == 1
+        from comparison.services.iam import managed_policy_roles
+        from functools import partial
+        policy_roles = partial(managed_policy_roles, stack_inputs=comparison.stack_inputs,
+            evaluate=comparison.evaluate, reference_same=comparison.reference_same, symbol=comparison.symbol)
+        assert len(policy_roles('iam', 'Policy', stack, [{'Ref': 'Role'}])) == 1
         definition['Properties']['ManagedPolicyArns'] = []
-        assert comparison.managed_policy_roles('iam', 'Policy', stack, []) == []
+        assert policy_roles('iam', 'Policy', stack, []) == []
         definition['Properties']['ManagedPolicyArns'] = [{'Ref': 'Policy'}]
         definition['Condition'] = 'Inactive'
         document['Conditions']['Inactive'] = {'Fn::Equals': ['yes', 'no']}
-        assert comparison.managed_policy_roles('iam', 'Policy', stack, []) == []
+        assert policy_roles('iam', 'Policy', stack, []) == []
         definition.pop('Condition')
         definition['Properties']['ManagedPolicyArns'] = [{'Ref': 'Unknown'}]
         with pytest.raises(Blocked):
-            comparison.managed_policy_roles('iam', 'Policy', stack, [])
+            policy_roles('iam', 'Policy', stack, [])
         definition['Properties']['ManagedPolicyArns'] = [{'Ref': 'Policy'}]
         # Secret name/ARN identities are contextual; selectors and wrong Type remain distinct.
         desired = {'Name': 'SECRET', 'Type': 'SECRETS_MANAGER', 'Value': comparison.reference('iam', secret)}
@@ -2311,12 +2322,12 @@ def check_aws_standard_comparison(_network):
         # Whole-object input binds each variable's own Type, too.
         row = {'property': 'CodeBuild.Project.Environment', 'value': '`' + json.dumps({
             'EnvironmentVariables': [{'Name': 'SECRET', 'Type': 'SECRETS_MANAGER', 'Value': secret}]}) + '`'}
-        assert comparison.desired_value('codebuild', row, 'CodeBuild.Project', stack=stack)['EnvironmentVariables'][0]['Value'] == desired['Value']
+        assert comparison.prepare_value('codebuild', row, 'CodeBuild.Project', stack=stack).require_value()['EnvironmentVariables'][0]['Value'] == desired['Value']
         # Unproven Model Sub variables are warnings; confirmed stack bindings still resolve.
         def sub(argument):
             row = {'property': 'IAM.ManagedPolicy.PolicyDocument', 'value': '',
                    'document': json.dumps({'Statement': [{'Resource': {'Fn::Sub': argument}}]})}
-            return comparison.desired_value('iam', row, 'IAM.ManagedPolicy', stack=stack)['Statement'][0]['Resource']
+            return comparison.prepare_value('iam', row, 'IAM.ManagedPolicy', stack=stack).require_value()['Statement'][0]['Resource']
         assert sub('arn:${AWS::Partition}:s3:::${Name}/${!aws:username}') == 'arn:aws:s3:::app-dev-data1/${aws:username}'
         assert sub('${AWS::Region}/${AWS::AccountId}') == 'ap-northeast-1/123456789012'
         assert sub(['${AWS::Region}', {'AWS::Region': 'explicit'}]) == 'explicit'

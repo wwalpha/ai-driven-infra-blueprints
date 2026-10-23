@@ -23,7 +23,7 @@ from unittest.mock import patch
 
 from design_catalog import DesignSchemaCatalog
 
-from issues.comparison import Comparison
+from comparison import Comparison
 
 from issues.aggregate import iac_summary
 from issues.reports import iac_report

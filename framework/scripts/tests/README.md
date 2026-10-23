@@ -73,7 +73,7 @@ loaderのUTは `units/fixture_cases-unit.checks.py`。正式ITと性能の全体
 
 ## Issues v2 / cfn-lint
 
-issuesの正規APIは `issues/`。旧 `issues_iac.py` / `issues_reports.py` のwrapperは置かず、CLIだけ `issues_scan.py` を維持する。UT追加は `issues-lint-unit.checks.py` の9関数20条件、IT追加は `issues-lint.checks.py` の9関数15条件。正式ITは既存 `Framework IT` / `tests/run_it.py` だけを使う。固定版1.57.2が無い環境で、CLI同等性・状態隔離の検証を実施済みとは扱わない。
+issuesの正規APIは `issues/`、Model ↔ IaC比較の入口は `comparison.Comparison`。比較の結果・診断・表示差分は `comparison/` が返し、Issuesが1回集約する。旧 `issues_iac.py` / `issues_reports.py` のwrapperは置かず、CLIだけ `issues_scan.py` を維持する。UT追加は `issues-lint-unit.checks.py` の9関数20条件、IT追加は `issues-lint.checks.py` の9関数15条件。正式ITは既存 `Framework IT` / `tests/run_it.py` だけを使う。固定版1.57.2が無い環境で、CLI同等性・状態隔離の検証を実施済みとは扱わない。
 
 一時HOME/cwd/config/custom rule/provider schemaを実環境から分離し、本物のHOMEとインストール済みpackageには書き込まない。Framework定義はコピーも読取専用。モデル・template・parametersは独立した可変fixtureを使う。summary/detail/saveはv2の保存済み集計だけを使う。
 

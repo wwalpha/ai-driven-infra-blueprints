@@ -1,0 +1,471 @@
+"""Tracked, lazy input session for local comparison and bounded repair evaluation."""
+from __future__ import annotations
+
+import hashlib
+import re
+
+from cloudformation_inputs import Blocked, load_template_inputs
+from model.adapters.observed import resource_index, mapped_resource
+from model.core import entries, stack_model
+from model.sources import model_exists
+from model.files import load_model, resource_row_index
+from policy_tables import literal
+
+
+from cloudformation_inputs import load_target, condition_active
+from design_catalog import DesignSchemaCatalog
+from design_layout import resource_mode
+from iac_values import ResourceReference, Expression, cfn_resource_identity, same
+from model.projection import catalog_outputs, reference_attribute
+from model.sources import _invocation_reads, model_paths
+from model.core import ReferenceResolutionError
+from utils.json_format import policy_json as strict_json
+from . import registry, evaluation, references, design_link, values
+from .result import redacted
+from iac_evaluation import RETURN_ATTRIBUTE_PROPERTIES
+from reference_contracts import REFERENCE_PROPERTIES
+
+
+class Inputs:
+    def __init__(self, root, environment, directory, services, *, catalog=None):
+        self.root, self.environment, self.directory = root, environment, directory
+        self.services = sorted(set(services))
+        self.target = load_target(root, environment, directory)
+        self.catalog = catalog or DesignSchemaCatalog(root)
+        self.models, self.rows, self.resources = {}, {}, {}
+        self.documents, self.stack_inputs = {}, {}
+        self.template_locations = {}
+        self._index, self.symbols = None, {}
+        self.local_comparison, self.reference_models_loaded = False, False
+        self.exports = None
+        self.export_failures, self.stack_errors = [], {}
+        self._templates, self.reference_formats = None, {}
+        self.read_hashes, self.sensitive_values = {}, set()
+        self.model_reads = _invocation_reads(root)
+        self.unreadable_inputs = False
+        self.view_errors = {}
+        self.load_errors, self.warnings = [], []
+        self.reference_unavailable = {}
+        self.inputs = {root / 'project.json'}
+        self.metrics = {'model_loads': 0, 'model_parses': 0, 'template_decodes': 0, 'stack_evaluations': 0}
+        for service in self.services:
+            try:
+                self.model(service)
+            except ReferenceResolutionError as error:
+                self.warnings.append({**error.diagnostic, 'service': service})
+                self.reference_unavailable[service] = str(error)
+                from model.sources import load_model as load_source
+                try:
+                    analysis = load_source(root / 'model' / environment / directory / (service + '.properties'), self.model_reads)
+                    self.inputs.update(analysis.files)
+                    self.warnings.extend(analysis.warnings)
+                finally:
+                    self.retain_reads()
+                self.resources[service], self.rows[service] = {}, {}
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                self.load_errors.append((service, str(error)))
+                self.resources[service], self.rows[service] = {}, {}
+
+    def retain_reads(self):
+        observed = getattr(self, 'model_observations', set())
+        self.model_observations = observed
+        for file in self.model_reads.contents.keys() - observed:
+            raw = self.model_reads.contents[file]
+            if file.is_relative_to(self.root):
+                self.retain_hash(file, None if raw is None else hashlib.sha256(raw).hexdigest())
+            observed.add(file)
+
+    def retain_hash(self, path, value):
+        self.inputs.add(path)
+        if self.read_hashes.setdefault(path, value) != value:
+            self.stale_inputs = True
+            raise ValueError('stale scan: contradictory input observations: ' + path.relative_to(self.root).as_posix())
+
+    def model(self, service):
+        if not re.fullmatch(r'[a-z0-9]+(?:[-_][a-z0-9]+)*', service):
+            raise ValueError('invalid reference service')
+        if service not in self.models:
+            path = self.root / 'model' / self.environment / self.directory / (service + '.properties')
+            # Discovery must precede any parsing failure; never take a later repair as baseline.
+            self.model_reads.select(path.with_suffix(''), '*', recursive=True)
+            try:
+                loaded = load_model(path, self.model_reads)
+            except OSError as error:
+                if not isinstance(error, FileNotFoundError):
+                    self.unreadable_inputs = True
+                raise
+            finally:
+                self.retain_reads()
+            self.warnings.extend(getattr(loaded, "warnings", ()))
+            if service != 'cloudformation-stacks' and loaded.values.get(f'desired.service.{service}.serviceId') != service:
+                raise ValueError(f'mismatched service ID: {path}')
+            self.models[service] = loaded
+            self._index = None
+            self.symbols.clear()
+            for file, raw in loaded.dependencies.items():
+                self.retain_hash(file, None if raw is None else hashlib.sha256(raw).hexdigest())
+            self.metrics['model_loads'] += 1
+            self.metrics['model_parses'] += 1
+            self.resources[service] = dict(entries(loaded.values, 'desired.resource.'))
+            self.rows[service] = resource_row_index(loaded.values)
+            for rows in self.rows[service].values():
+                for _, row in rows:
+                    if re.search(r'password|secretstring|secretbinary|token|credential|privatekey', '.'.join(row.get('property', '').split('.')[2:]), re.I):
+                        raw = row.get('document', row.get('value', ''))
+                        self.sensitive_values.update((raw, literal(raw)))
+        return self.models[service]
+
+    def source(self, service, key):
+        location = self.models[service].locations.get(key) if service in self.models else None
+        return {'path': location[0].relative_to(self.root).as_posix(), 'line': location[1], 'key': key} if location else None
+
+    def track(self, path):
+        if path in self.read_hashes:
+            return
+        try:
+            value = hashlib.sha256(path.read_bytes()).hexdigest()
+        except FileNotFoundError:
+            value = None
+        except OSError:
+            self.unreadable_inputs = True
+            raise
+        self.retain_hash(path, value)
+
+    def index(self):
+        if self._index is None:
+            loaded = {self.root / 'model' / self.environment / self.directory / (service + '.properties'): model.values
+                      for service, model in self.models.items() if service != 'cloudformation-stacks'}
+            self._index = resource_index(loaded, self.catalog)
+        return self._index
+
+    def templates(self):
+        if self._templates is not None:
+            return self._templates
+        stackpath = self.root / 'model' / self.environment / self.directory / 'cloudformation-stacks.properties'
+        self.model_reads.select(stackpath.with_suffix(''), '*', recursive=True)
+        try:
+            if not model_exists(stackpath, self.model_reads):
+                self._templates = []
+                return self._templates
+        finally:
+            self.retain_reads()
+        _, stacks = stack_model(self.model('cloudformation-stacks').values)
+        self._templates = stacks
+        return self._templates
+
+    def stack(self, unit):
+        name = unit['name']
+        if name in self.stack_errors:
+            raise self.stack_errors[name].with_traceback(None)
+        try:
+            return self.stack_input(unit)
+        except (Blocked, ValueError, KeyError, TypeError, OSError) as error:
+            self.stack_errors[name] = error
+            raise
+
+    def stack_input(self, unit):
+        name = unit['name']
+        template = self.root / 'infra/cloudformation/templates' / self.target.get('alias', '') / unit['template']
+        parameters_path = self.root / 'infra/cloudformation/parameters' / self.environment / self.directory / unit['parameters']
+        self.track(template)
+        self.track(parameters_path)
+        if name in self.stack_inputs:
+            return template, self.stack_inputs[name]
+        for path in (template, parameters_path):
+            if not path.is_file():
+                blocked = Blocked(f'stack input missing: {path.relative_to(self.root).as_posix()}')
+                blocked.iac_cause = {'kind': 'template-missing' if path == template else 'parameters-missing',
+                                     'path': path.relative_to(self.root).as_posix(), 'stack': name,
+                                     'relationship': 'stack-input'}
+                raise blocked
+        if template not in self.documents:
+            from utils.cloudformation_format import decode_file
+            document, errors = decode_file(template, locations=self.template_locations)
+            self.metrics['template_decodes'] += 1
+            if errors or not isinstance(document, dict):
+                raise ValueError(f'invalid template: {template}')
+            self.documents[template] = document
+        document = self.documents[template]
+        _, values = load_template_inputs(template, parameters_path, strict_parameters=True, document=document)
+        definitions = document.get('Parameters', {})
+        for key, definition in definitions.items():
+            if definition.get('NoEcho') or re.search(r'password|secret|token|credential', key, re.I):
+                value = values[key]
+                self.sensitive_values.update(str(item) for item in (value if isinstance(value, list) else [value]))
+        pseudo = {'AWS::StackName': name, 'AWS::AccountId': self.target.get('awsExecutionAccountId', self.target['awsAccountId']),
+                  'AWS::Region': self.target['awsRegion'], 'AWS::NoValue': {'$noValue': True}}
+        if not hasattr(self, 'partition'):
+            from botocore.loaders import Loader
+            self.partition = next((part['partition'] for part in Loader().load_data('endpoints')['partitions']
+                                   if self.target['awsRegion'] in part['regions']), None)
+        if self.partition is not None:
+            pseudo['AWS::Partition'] = self.partition
+        self.stack_inputs[name] = document, values, pseudo
+        self.metrics['stack_evaluations'] += 1
+        return template, self.stack_inputs[name]
+
+    def reference(self, service, value, expected_attribute=None, *, consumer_property=None):
+        from model.identity import parse_reference, anchor_index, select_anchor
+        from model.sources import Scope
+        consumer = Scope(self.root, self.environment, self.directory, service)
+        environment, directory, refservice, anchor = parse_reference(value, consumer)
+        if (environment, directory) != (self.environment, self.directory):
+            from model.identity import Resolver
+            Resolver(self.root).resolve(value, consumer)
+            raise Blocked('cross-target IaC reference requires a proven handoff')
+        model = self.model(refservice)
+        if not hasattr(self, 'reference_anchor_indexes'):
+            self.reference_anchor_indexes = {}
+        if refservice not in self.reference_anchor_indexes:
+            self.reference_anchor_indexes[refservice] = anchor_index(model.values)
+        try:
+            identity, resource = select_anchor(self.reference_anchor_indexes[refservice], anchor, value)
+        except ReferenceResolutionError as error:
+            raise Blocked(str(error)) from error
+        attributes = {row['property'].removeprefix(resource['resourceType'] + '.')
+                      for _, row in self.rows[refservice][identity]
+                      if row['property'] in catalog_outputs(self.root, resource['resourceType'])}
+        schema = self.catalog.schema(resource['resourceType'])
+        primary = schema.get('primaryIdentifier', [])
+        if expected_attribute is None:
+            expected_attribute = registry.ref_attribute(resource['resourceType'])
+            if expected_attribute is None:
+                raise Blocked(f'reference attribute is unproven: {resource["resourceType"]}; explicit property contract required')
+        expected_attribute = reference_attribute(resource['resourceType'], expected_attribute)
+        # The link label is never a physical ID, including PENDING_DEPLOY.
+        readonly = schema.get('readOnlyProperties', [])
+        alias_arn = registry.special_attribute(resource['resourceType'], expected_attribute)
+        if (not alias_arn and expected_attribute not in attributes
+                and expected_attribute not in schema.get('identifierOutputs', [])
+                and '/properties/' + expected_attribute not in primary + readonly):
+            raise Blocked(f'reference attribute not confirmed: {expected_attribute}')
+        symbol = ResourceReference({'$resource': [refservice, identity], '$attribute': expected_attribute})
+        if resource_mode(resource) == 'IMPORT':
+            if (self.local_comparison and registry.import_consumer(consumer_property, resource['resourceType'], expected_attribute)
+                    and REFERENCE_PROPERTIES.get(consumer_property) == (resource['resourceType'], expected_attribute)
+                    and self.target['iacEngine'] == 'cloudformation'):
+                self.reference_literal(symbol)
+                return symbol
+            observed = [literal(self.models[refservice].values.get(f'observed.row.{rid}.value', 'PENDING_DEPLOY'))
+                        for rid, row in self.rows[refservice][identity]
+                        if row['property'] == resource['resourceType'] + '.' + expected_attribute]
+            if not observed or all(value == 'PENDING_DEPLOY' for value in observed):
+                raise Blocked('IMPORT reference is PENDING_DEPLOY (not imported/unobserved); comparison deferred until approved handoff; no physical ID inference')
+            raise Blocked('IMPORT reference requires approved handoff; no physical ID inference')
+        return symbol
+
+    def symbol(self, stack, logical, attribute=None):
+        attribute = str(attribute) if isinstance(attribute, str) else attribute
+        cachekey = stack, logical, attribute
+        if cachekey in self.symbols:
+            if self.symbols[cachekey] is None:
+                raise Blocked(f'cyclic resource reference: {stack}/{logical}')
+            return self.symbols[cachekey]
+        document, parameters, pseudo = self.stack_inputs[stack]
+        definition = document.get('Resources', {}).get(logical)
+        if not definition or not condition_active(document, parameters, pseudo, definition):
+            raise Blocked(f'local resource reference missing/inactive: {stack}/{logical}')
+        if self.local_comparison and not self.reference_models_loaded:
+            # Same-target model identities establish uniqueness, never physical values.
+            for path in model_paths(self.root, self.environment, self.directory):
+                if path.stem != 'cloudformation-stacks':
+                    self.model(path.stem)
+            self.reference_models_loaded = True
+        direct = self.index()
+        try:
+            entry = mapped_resource(direct, stack, logical, definition['Type'])
+        except ValueError as error:
+            if self.local_comparison:
+                raise Blocked(f'unproven resource correspondence: {stack}/{logical}: {error}') from error
+            raise
+        path, identity, resource, _ = entry
+        if attribute is None:
+            ref_rule = registry.hook(resource['resourceType'], 'ref_attribute')
+            ref_property = getattr(registry.rules(resource['resourceType']), 'REF_PROPERTIES', {}).get(resource['resourceType'])
+            if self.local_comparison and ref_rule and ref_property:
+                self.symbols[cachekey] = None
+                try:
+                    vpc = self.evaluate(stack, definition.get('Properties', {}).get(ref_property))
+                finally:
+                    self.symbols.pop(cachekey, None)
+                attribute = ref_rule(vpc, self.resource_type)
+            else:
+                attribute = registry.ref_attribute(resource['resourceType'])
+            if attribute is None:
+                raise Blocked(f'Ref return attribute is unproven: {resource["resourceType"]}')
+        else:
+            try:
+                self.catalog.property_schema(resource['resourceType'], attribute)
+            except ValueError as error:
+                if self.local_comparison:
+                    raise Blocked(f'unproven resource attribute: {logical}.{attribute}') from error
+                raise
+            if self.local_comparison and '/properties/' + attribute.replace('.', '/') not in self.catalog.schema(resource['resourceType']).get('readOnlyProperties', []):
+                raise Blocked(f'unproven GetAtt return attribute: {logical}.{attribute}')
+        result = ResourceReference({'$resource': [path.stem, identity], '$attribute': attribute})
+        self.symbols[cachekey] = result
+        return result
+
+    def import_value(self, stack, argument, seen):
+        name = self.evaluate(stack, argument, seen)
+        if not isinstance(name, str):
+            raise Blocked('ImportValue name is not a local string')
+        token = ('import', stack, name)
+        if token in seen:
+            raise Blocked(f'cyclic ImportValue: {name}')
+        if self.exports is None:
+            # Cache the partial index and failures too: one broken stack is not a
+            # reason to discard proven exports or retry the entire search per row.
+            self.exports = {}
+            for _, unit in self.templates():
+                try:
+                    _, (document, parameters, pseudo) = self.stack(unit)
+                    if document.get('Transform'):
+                        raise Blocked('Transform requires external evaluation')
+                except (Blocked, ValueError, KeyError, TypeError, OSError) as error:
+                    self.export_failures.append(error)
+                    continue
+                for output in document.get('Outputs', {}).values():
+                    try:
+                        if 'Export' not in output or not condition_active(document, parameters, pseudo, output):
+                            continue
+                        export = self.evaluate(unit['name'], output['Export']['Name'], frozenset({('export-name',)}))
+                        if not isinstance(export, str):
+                            raise Blocked('Export name is not a local string')
+                        self.exports.setdefault(export, []).append((unit['name'], output.get('Value')))
+                    except (Blocked, ValueError, KeyError, TypeError, OSError) as error:
+                        self.export_failures.append(error)
+        candidates = self.exports.get(name, [])
+        if not candidates and self.export_failures:
+            error = self.export_failures[0]
+            blocked = Blocked(f'ImportValue handoff search incomplete: {error}')
+            causes = [getattr(failure, 'iac_cause', None) for failure in self.export_failures]
+            if all(causes) and len({(cause['kind'], cause['path']) for cause in causes}) == 1:
+                blocked.iac_cause = dict(causes[0], relationship='export-search-incomplete', consumer_stack=stack)
+            else:
+                blocked.iac_cause = {'kind': 'import-unresolved', 'export': name, 'relationship': 'import', 'consumer_stack': stack}
+            raise blocked from error
+        if len(candidates) != 1 or candidates[0][0] == stack:
+            blocked = Blocked(f'ImportValue handoff matches={len(candidates)} or same-stack export: {name}')
+            blocked.iac_cause = {'kind': 'import-unresolved', 'export': name, 'relationship': 'import', 'consumer_stack': stack}
+            raise blocked
+        producer, value = candidates[0]
+        try:
+            return self.evaluate(producer, value, seen | {token})
+        except Blocked as error:
+            if not getattr(error, 'iac_cause', None):
+                error.iac_cause = {'kind': 'import-unresolved', 'export': name, 'relationship': 'import', 'consumer_stack': stack}
+            raise
+
+    def reference_literal(self, value):
+        """Resolve explicit names/ARNs and supported expressions, never generated IDs."""
+        if isinstance(value, Expression):
+            return references.literal_expression(value, resolve_literal=self.reference_literal, resource_type=self.resource_type)
+        service, identity = value['$resource']
+        resource = self.resources[service][identity]
+        imported_arn = registry.hook(resource['resourceType'], 'imported_group_arn')
+        if (self.local_comparison and imported_arn and resource['resourceType'] in registry.hook(resource['resourceType'], 'IMPORTED_ARN_KINDS')
+                and resource_mode(resource) == 'IMPORT'
+                and value['$attribute'] == 'Arn' and self.target['iacEngine'] == 'cloudformation'):
+            return imported_arn(self.rows[service][identity], self.catalog, getattr(self, 'partition', None),
+                                self.target, self.stack_inputs)
+        name, logical = cfn_resource_identity(resource['cfn-logicalId'])
+        units = [unit for _, unit in self.templates() if unit['name'] == name]
+        if len(units) != 1:
+            raise Blocked('reference stack correspondence is unproven')
+        self.stack(units[0])
+        attribute = value['$attribute']
+        if registry.special_attribute(resource['resourceType'], attribute):
+            alias = self.reference_literal(ResourceReference(dict(value, **{'$attribute': 'AliasName'})))
+            return registry.hook(resource['resourceType'], 'alias_arn')(alias, self.stack_inputs[name][2])
+        secret_name = (resource['resourceType'], attribute) == registry.hook(resource['resourceType'], 'EXPLICIT_NAME')
+        bound = self.symbol(name, logical, None if secret_name or attribute == registry.ref_attribute(resource['resourceType']) else attribute)
+        if secret_name:
+            bound = ResourceReference(dict(bound, **{'$attribute': 'Name'}))
+        if not same(bound, value):
+            raise Blocked('reference resource correspondence is unproven')
+        document, _, pseudo = self.stack_inputs[name]
+        if document.get('Transform'):
+            raise Blocked('Transform requires external evaluation')
+        evaluator = self.evaluator()
+        properties = document['Resources'][logical].get('Properties', {})
+        properties = evaluator.setting_properties(resource['resourceType'], attribute, properties)
+        literal_arn = registry.hook(resource['resourceType'], 'literal_arn')
+        if literal_arn and attribute == 'Arn':
+            return registry.literal_arn(resource['resourceType'], resource_mode(resource), properties, pseudo,
+                resolve_attribute=lambda attribute: self.reference_literal(ResourceReference(dict(value, **{'$attribute': attribute}))),
+                substitute=lambda reference: evaluator.substitution(name, reference, frozenset()), reference=value)
+        named_arn = registry.hook(resource['resourceType'], 'NAMED_ARN')
+        if named_arn and attribute == 'Arn':
+            return registry.named_arn(resource['resourceType'], properties, pseudo,
+                                      evaluate=lambda value: evaluator.evaluate(name, value))
+        setting = RETURN_ATTRIBUTE_PROPERTIES.get((resource['resourceType'], attribute))
+        if (attribute != registry.ref_attribute(resource['resourceType']) and not secret_name and setting is None) or (setting or attribute) not in properties:
+            raise Blocked('reference has no explicit name property contract')
+        result = evaluator.substitution(name, value, frozenset())
+        if not isinstance(result, str):
+            raise Blocked('reference name remains symbolic')
+        if not result or result in {'UNSET', 'PENDING_DEPLOY', 'TBD', 'TODO', '未確定'}:
+            raise Blocked('reference name is unresolved')
+        return result
+
+    def parameter_keys(self, unit):
+        path = self.root / 'infra/cloudformation/parameters' / self.environment / self.directory / unit['parameters']
+        self.track(path)
+        return path, {item['ParameterKey'] for item in strict_json(path.read_text(encoding='utf-8'))}
+
+    def resource_type(self, reference):
+        service, identity = reference['$resource']
+        return self.resources[service][identity]['resourceType']
+
+    def redacted(self, value, prop=''):
+        return redacted(value, prop, sensitive_values=self.sensitive_values)
+
+    def evaluator(self):
+        return evaluation.evaluator(self.stack_inputs, self.resources, self.catalog.property_schema,
+                                    self.symbol, self.import_value, self.local_comparison)
+
+    def evaluate(self, stack, value, seen=frozenset()):
+        return self.evaluator().evaluate(stack, value, seen)
+
+    def reference_forms(self, kind, path):
+        key = self.local_comparison, kind, path
+        if key not in self.reference_formats:
+            self.reference_formats[key] = references.reference_forms(kind, path,
+                local_comparison=self.local_comparison, property_schema=self.catalog.property_schema)
+        return self.reference_formats[key]
+
+    def kms_format(self, value):
+        return registry.kms_format(value, self.resources)
+
+    def reference_diagnostic(self, left, right, kind, path, reason):
+        return references.reference_diagnostic(left, right, kind, path, reason,
+            local_comparison=self.local_comparison, forms_for=self.reference_forms,
+            kms_format=self.kms_format, resource_type=self.resource_type, redact=self.redacted)
+
+    def reference_decision(self, left, right, kind, path):
+        return references.reference_same(left, right, kind, path, local_comparison=self.local_comparison,
+            forms_for=self.reference_forms, resolve_literal=self.reference_literal,
+            resource_type=self.resource_type, kms_format=self.kms_format, diagnostic=self.reference_diagnostic)
+
+    def reference_same(self, left, right, kind, path):
+        return self.reference_decision(left, right, kind, path).equal
+
+    def desired_reference(self, service, value, kind, path, attribute=None, context=None):
+        return design_link.desired_reference(service, value, kind, path, attribute, context,
+            local_comparison=self.local_comparison, reference=self.reference,
+            resource_type=self.resource_type, forms_for=self.reference_forms)
+
+    def prepare_value(self, service, row, kind, *, stack=None, context=None):
+        return values.desired_value(service, row, kind, stack=stack, context=context,
+            local_comparison=self.local_comparison, desired_reference=self.desired_reference,
+            resource_type=self.resource_type, property_schema=self.catalog.property_schema,
+            evaluate=self.evaluate, model_path=self.root / 'model' / self.environment / self.directory / (service + '.properties'))
+
+
+    def project_rows(self, kind, rows):
+        prepare = registry.hook(kind, 'prepare_rows')
+        if prepare is None:
+            return rows
+        from array_display import indexed_rows
+        return prepare(rows, index_rows=lambda rows, kind: indexed_rows(rows, kind, self.root))

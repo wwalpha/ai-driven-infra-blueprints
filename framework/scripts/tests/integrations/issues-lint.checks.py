@@ -211,7 +211,7 @@ def check_scan_publication_and_missing_view(tmp_path,monkeypatch,view_failure):
     with task(root,['s3','sqs']):
         review=review_for(artifact)
         with patch('issues.aggregate.iac_dataset',side_effect=AssertionError('repeat aggregation')), \
-             patch('issues.comparison.Comparison.run',side_effect=AssertionError('repeat comparison')), \
+             patch('comparison.Comparison.run',side_effect=AssertionError('repeat comparison')), \
              patch('utils.cfn_lint.validate_template',side_effect=AssertionError('repeat lint')):
             files=save_scan(root,artifact,review)
         assert len(files)==2 and all(path.is_file() for path in files)

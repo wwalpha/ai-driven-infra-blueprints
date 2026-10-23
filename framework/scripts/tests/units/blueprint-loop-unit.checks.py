@@ -113,16 +113,23 @@ def check_dependency_selection():
             'deploy-sdk.checks.py', 'deploy-runtime-unit.checks.py', 'deploy-observed-unit.checks.py'}
     for name in ('client', 'cloudformation', 's3', 'kms', 'sts', 'secretsmanager'):
         assert selected(f'framework/scripts/utils/aws/{name}.py') == selected('framework/scripts/deploy/controller.py') | {'aws-client.checks.py'}
-    for name in ('__init__','cli','runner','inputs','integrity','materials','comparison','references','records','aggregate','artifact','reports','publication','cfn_lint'):
+    for name in ('__init__','cli','runner','inputs','integrity','materials','records','aggregate','artifact','reports','publication','cfn_lint'):
         expected = (comparison - {'check-model-aws-unit.checks.py'}) | {'test_issues_iac.py','issues-lint-unit.checks.py'}
         if name in {'materials', 'reports'}:
             expected.add('model-reference-warnings-unit.checks.py')
         if name in {'publication', 'reports'}:
             expected.add('issue_gate-unit.checks.py')
-        if name in {'comparison', 'references'}:
-            expected.update({'s3-kms-reference-unit.checks.py', 'security_group_tables-unit.checks.py'})
         checks, reason = MODULE.select_checks(root, {f'framework/scripts/issues/{name}.py'}, True)
         assert expected <= {p.name for p in checks}
+        assert reason.startswith('affected:')
+        assert all('/units/' in p.as_posix() for p in checks)
+    expected_comparison = (comparison - {'check-model-aws-unit.checks.py'}) | {
+        'test_issues_iac.py', 'issues-lint-unit.checks.py', 's3-kms-reference-unit.checks.py',
+        'security_group_tables-unit.checks.py', 'deploy-runtime-unit.checks.py'}
+    for path in ('comparison/runner.py', 'comparison/inputs.py', 'comparison/references.py',
+                 'comparison/services/s3.py', 'comparison/services/kms.py', 'comparison/services/security_group.py'):
+        checks, reason = MODULE.select_checks(root, {'framework/scripts/' + path}, True)
+        assert {p.name for p in checks} == expected_comparison
         assert reason.startswith('affected:')
         assert all('/units/' in p.as_posix() for p in checks)
     assert selected('framework/scripts/utils/cfn_lint.py') == selected('framework/scripts/issues/cfn_lint.py')

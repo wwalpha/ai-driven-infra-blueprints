@@ -25,10 +25,10 @@ def file_sets(comparison):
 def fingerprint(comparison, *, common_key):
     if getattr(comparison, 'stale_inputs', False):
         raise ValueError('stale scan: contradictory input observations')
-    from .inputs import retain_reads
     reads = getattr(comparison, 'model_reads', None)
     if reads is not None:
-        retain_reads(comparison)
+        from comparison.inputs import Inputs
+        Inputs.retain_reads(comparison)
     paths = sorted(path.relative_to(comparison.root).as_posix() for path in comparison.inputs)
     return {'paths': paths, 'digest': digest_files(comparison.root, comparison.inputs),
             'file_sets': file_sets(comparison), 'framework': common_key,

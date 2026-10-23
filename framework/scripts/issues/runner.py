@@ -10,7 +10,7 @@ from model.sources import FileReads
 from validation_cache import input_scope, digest_files, PassCache
 from task_contract import contract_read_scope
 from script_loader import module
-from .comparison import Comparison
+from comparison import Comparison
 from .records import identifier, safe_text
 from .materials import naming_materials, existing_materials
 from .integrity import selected_scope, fingerprint, verify_inputs, live_common_key

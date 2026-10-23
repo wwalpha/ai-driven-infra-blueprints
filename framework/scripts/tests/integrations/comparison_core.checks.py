@@ -39,13 +39,14 @@ with patch.object(Path, 'read_text', side_effect=AssertionError('input read')), 
     assert evaluator.evaluate('stack', {'Fn::Join': [',', ['a', 'b']]}) == 'a,b'
 
 # Orchestrators may read the immutable layout at import, but never project inputs.
-import issues.comparison as iac
-spec = importlib.util.spec_from_file_location('issues.alternate_comparison', Path(sys.argv[1]) / 'issues/comparison.py')
+import comparison as iac
+import comparison.inputs as inputs
+spec = importlib.util.spec_from_file_location('comparison.alternate_inputs', Path(sys.argv[1]) / 'comparison/inputs.py')
 alternate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(alternate)
-assert alternate.Expression is iac.Expression is values.Expression
-assert alternate.ResourceReference is iac.ResourceReference is values.ResourceReference
-assert alternate.Blocked is iac.Blocked is evaluation.Blocked
+assert alternate.Expression is inputs.Expression is values.Expression
+assert alternate.ResourceReference is inputs.ResourceReference is values.ResourceReference
+assert alternate.Blocked is inputs.Blocked is evaluation.Blocked
 from script_loader import module
 import issues.runner as scan
 from deploy import s3_delivery as delivery
@@ -55,11 +56,11 @@ from deploy import repair
 assert delivery.module('model/adapters/aws.py', 'model.adapters.aws') is aws
 assert aws.Unresolved is rows.Unresolved and aws.put_row is repair.put_row is rows.put_row
 assert repair.same is values.same and scan.Comparison is iac.Comparison
-assert deploy.Blocked is iac.Blocked
+assert deploy.Blocked is inputs.Blocked
 import model.render as model_design, model.core as model_core
 from model.adapters import observed
 assert not hasattr(model_design, 'cfn_resource_identity')
-assert iac.cfn_resource_identity is observed.cfn_resource_identity is repair.cfn_resource_identity is model_core.cfn_resource_identity is values.cfn_resource_identity
+assert inputs.cfn_resource_identity is observed.cfn_resource_identity is repair.cfn_resource_identity is model_core.cfn_resource_identity is values.cfn_resource_identity
 assert values.cfn_resource_identity('cfn-stack-app-dev-ism-DepartmentVpc') == ('cfn-stack-app-dev-ism', 'DepartmentVpc')
 for invalid in ('missing', 'stack-lowercase', 'stack-Resource-with-hyphen'):
     try:

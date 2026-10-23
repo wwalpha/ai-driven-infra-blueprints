@@ -9,7 +9,10 @@ if not __debug__:
 
 from comparison_rows import Unresolved, put_row
 
-from comparison_rows import cloudtrail_rows
+from comparison.services.cloudtrail import cloudtrail_rows
+from array_display import indexed_rows
+from functools import partial
+index_rows = partial(indexed_rows, root=Path(__file__).resolve().parents[4])
 
 trail_kind = 'CloudTrail.Trail.'
 trail_fields = [
@@ -35,14 +38,14 @@ trail_paths = [
 trail_expected = {rid: dict(row, property=trail_kind + prop)
                   for (rid, row), prop in zip(trail_rows, trail_paths)}
 for ordered in (trail_rows, trail_rows[::-1], trail_rows[::2] + trail_rows[1::2]):
-    projected = dict(cloudtrail_rows(ordered, Path(__file__).resolve().parents[4]))
+    projected = dict(cloudtrail_rows(ordered, index_rows=index_rows))
     assert projected == trail_expected, projected
     assert all(row['property'] == trail_kind + prop for (_, row), (prop, _) in zip(trail_rows, trail_fields))
 for invalid in (trail_rows[:3], trail_rows + [(trail_rows[0][0], dict(trail_rows[0][1], value='`false`'))],
                 [('unknown', trail_rows[0][1]), *trail_rows[1:]],
                 [(trail_rows[0][0], dict(trail_rows[0][1], property=trail_kind + 'EventSelectors[1].IncludeManagementEvents')), *trail_rows[1:]]):
     try:
-        cloudtrail_rows(invalid, Path(__file__).resolve().parents[4])
+        cloudtrail_rows(invalid, index_rows=index_rows)
     except Unresolved as error:
         assert 'array membership unresolved' in str(error)
     else:

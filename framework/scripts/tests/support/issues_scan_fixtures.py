@@ -49,7 +49,7 @@ import time
 
 from unittest.mock import patch
 
-from issues.comparison import Comparison
+from comparison import Comparison
 
 from script_loader import module
 
@@ -63,7 +63,7 @@ from issues.integrity import verify_inputs
 
 from issues.publication import save
 from issues.reports import blocks, numbered, iac_report
-from issues.records import identifier, value_differences
+from comparison.result import identifier, value_differences
 from issues.aggregate import aggregate, iac_dataset, iac_summary
 
 from model.render import markdown_for
@@ -451,8 +451,9 @@ def summary_fixture():
 @pytest.fixture(scope="module", autouse=True)
 def protected_sources():
     protected = [ROOT / 'framework/scripts' / name for name in
-                 ('issues/comparison.py', 'issue_gate.py', 'comparison_rows.py', 'iac_values.py', 'iac_evaluation.py', 'script_loader.py', 'model/render.py', 'policy_tables.py')]
+                 ('comparison/runner.py', 'issue_gate.py', 'comparison_rows.py', 'iac_values.py', 'iac_evaluation.py', 'script_loader.py', 'model/render.py', 'policy_tables.py')]
     protected.extend((ROOT / 'framework/scripts/issues').glob('*.py'))
+    protected.extend((ROOT / 'framework/scripts/comparison').rglob('*.py'))
     protected.append(ROOT / 'framework/scripts/utils/cfn_lint.py')
     before = {path: path.read_bytes() for path in protected if path.exists()}
     yield

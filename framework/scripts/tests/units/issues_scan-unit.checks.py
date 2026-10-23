@@ -117,7 +117,7 @@ def summary_scale_cases():
     assert sum(len(action['members']) for action in actions) == len(records)
     assert sorted(entries[i]['record_index'] for action in actions for i in action['members']) == list(range(len(records)))
     assert {entry['id'] for entry in entries} == {iac_key(record) for record in records}
-    with patch.object(Comparison, 'run', side_effect=AssertionError('detail must not compare')), patch('issues.inputs.load_model', side_effect=AssertionError('detail must not parse')):
+    with patch.object(Comparison, 'run', side_effect=AssertionError('detail must not compare')), patch('comparison.inputs.load_model', side_effect=AssertionError('detail must not parse')):
         for category, count in stats['categories'].items():
             assert detail_payload(artifact, 'iac_issues', category=category)['total'] == count
         pending = detail_payload(artifact, 'iac_issues', category='比較未完了')['items'][0]
@@ -343,7 +343,8 @@ def check_failed_model_input_guards(tmp_path, failure):
     from types import SimpleNamespace
     from model.sources import FileReads, load_model as real_load
     from model.format import FORMAT, INDEX, PART
-    from issues.inputs import model, templates
+    from comparison.inputs import Inputs
+    model, templates = Inputs.model, Inputs.templates
     from issues.integrity import fingerprint
     from validation_cache import digest_files
     root = tmp_path
@@ -363,6 +364,8 @@ def check_failed_model_input_guards(tmp_path, failure):
     comparison = SimpleNamespace(root=root, environment='dev', directory='123456789012', services=[],
         models={}, model_reads=FileReads(), inputs=set(), read_hashes={}, unreadable_inputs=False,
         warnings=[], resources={}, rows={}, symbols={}, metrics={'model_loads': 0, 'model_parses': 0}, sensitive_values=set())
+    comparison.retain_reads = lambda: Inputs.retain_reads(comparison)
+    comparison.retain_hash = lambda path, value: Inputs.retain_hash(comparison, path, value)
     def read_reference(path, reads):
         reads.read(path)
         reads.kind(dependency)
@@ -373,7 +376,7 @@ def check_failed_model_input_guards(tmp_path, failure):
             raise PermissionError('input body must not escape')
         return original_read(path)
     original_read = Path.read_bytes
-    with patch('issues.inputs.load_model', side_effect=read_reference if failure == 'reference' else real_load), \
+    with patch('comparison.inputs.load_model', side_effect=read_reference if failure == 'reference' else real_load), \
          patch.object(Path, 'read_bytes', denied if failure == 'permission' else original_read):
         with pytest.raises((OSError, ValueError)):
             model(comparison, 'cloudformation-stacks')
@@ -402,7 +405,8 @@ def check_failed_model_input_guards(tmp_path, failure):
 def check_first_model_observation_is_not_replaced(tmp_path):
     from types import SimpleNamespace
     from model.sources import FileReads
-    from issues.inputs import model, retain_hash
+    from comparison.inputs import Inputs
+    model, retain_hash = Inputs.model, Inputs.retain_hash
     from issues.integrity import fingerprint
     root = tmp_path
     path = root / 'model/dev/team/s3.properties'
@@ -410,12 +414,14 @@ def check_first_model_observation_is_not_replaced(tmp_path):
     path.write_text('first')
     comparison = SimpleNamespace(root=root, environment='dev', directory='team', services=['s3'], models={},
         model_reads=FileReads(), inputs=set(), read_hashes={}, unreadable_inputs=False)
+    comparison.retain_reads = lambda: Inputs.retain_reads(comparison)
+    comparison.retain_hash = lambda path, value: Inputs.retain_hash(comparison, path, value)
     def interrupted(entrance, reads):
         reads.read(entrance)
         (entrance.with_suffix('') / 'part-001.properties').parent.mkdir()
         (entrance.with_suffix('') / 'part-001.properties').write_text('added during read')
         raise ValueError('parse interrupted')
-    with patch('issues.inputs.load_model', side_effect=interrupted), pytest.raises(ValueError):
+    with patch('comparison.inputs.load_model', side_effect=interrupted), pytest.raises(ValueError):
         model(comparison, 's3')
     artifact = dict(fingerprint=fingerprint(comparison, common_key='common'))
     with pytest.raises(ValueError, match='selection changed'):
@@ -465,7 +471,7 @@ def check_notice_resolution_and_update_series(tmp_path):
     with patch('issues.publication.save_authority', return_value=[path]), \
          patch('issues.publication.atomic_files') as atomic, \
          patch('issues.reports.notice_report', side_effect=AssertionError('notice rerun')), \
-         patch('issues.comparison.Comparison.run', side_effect=AssertionError('comparison rerun')), \
+         patch('comparison.Comparison.run', side_effect=AssertionError('comparison rerun')), \
          patch('issues.cfn_lint.run_lint', side_effect=AssertionError('lint rerun')):
         save(root, 'dev', 'team', ['s3'], resolutions=[resolution], artifact=None, warnings=())
     saved = atomic.call_args.args[0][path]

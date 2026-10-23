@@ -9,7 +9,7 @@ from pathlib import Path
 
 from iac_values import cfn_resource_identity
 from comparison_rows import Unresolved, put_row
-from issues.comparison import Comparison
+from comparison import Comparison
 from iac_values import same
 from utils.json_format import fingerprint
 from cloudformation_inputs import Blocked, resolve_value, condition_active, output_value
@@ -152,9 +152,10 @@ def repair_plan(root, environment, directory, target, templates, paths, aws, uni
         source, identity, resource, _ = mapped_resource(direct, unit['name'], logical, definition['Type'])
         if (environment, directory, source.stem) not in scope:
             raise Blocked('failure outside service task scope')
-        comparison.results = []
-        comparison.compare_rows(source.stem, identity, resource, unit['name'], logical, path, definition, document)
-        differences = [item for item in comparison.results if item['category'] == 'difference']
+        batch = comparison.compare_rows(source.stem, identity, resource, unit['name'], logical, path, definition, document)
+        if batch.failure is not None:
+            raise batch.failure
+        differences = [item for item in batch.records if item['category'] == 'difference']
         reason = (event.get('ResourceStatusReason') or '').lower()
         kind = resource['resourceType']
         # Stable classes ignore request IDs and changing physical IDs.
@@ -187,7 +188,7 @@ def repair_plan(root, environment, directory, target, templates, paths, aws, uni
                 put_row(desired, 'Tags[]', {'Key': 'Name', 'Value': literal(row['value'])})
             elif row['property'].startswith(kind + '.') and short.split('.', 1)[0].removesuffix('[]') == prop:
                 try:
-                    put_row(desired, short, comparison.desired_value(source.stem, row, kind))
+                    put_row(desired, short, comparison.prepare_value(source.stem, row, kind).require_value())
                 except Unresolved as error:
                     raise Blocked(str(error)) from error
                 exact |= short == prop
@@ -472,7 +473,7 @@ def verify_repair(root, environment, directory, target, templates, unit, state):
         prefix = resource['resourceType'] + '.' + prop
         for _, row in comparison.rows[source.stem][identity]:
             if row['property'] == prefix or row['property'].startswith((prefix + '.', prefix + '[')):
-                referenced(comparison.desired_value(source.stem, row, resource['resourceType']))
+                referenced(comparison.prepare_value(source.stem, row, resource['resourceType']).require_value())
     for _, producer in comparison.templates():
         if producer['name'] not in producers - {unit['name']}:
             continue
@@ -483,10 +484,11 @@ def verify_repair(root, environment, directory, target, templates, unit, state):
                 comparison.exports.setdefault(name, []).append((producer['name'], output.get('Value')))
     for logical, prop in pairs:
         source, identity, resource = mapped[unit['name']][logical][:3]
-        comparison.results = []
-        comparison.compare_rows(source.stem, identity, resource, unit['name'], logical, path,
-                                document['Resources'][logical], document)
+        batch = comparison.compare_rows(source.stem, identity, resource, unit['name'], logical, path,
+                                document['Resources'][logical], document, properties={prop})
+        if batch.failure is not None:
+            raise batch.failure
         prefix = resource['resourceType'] + '.' + prop
-        selected = [item for item in comparison.results if item.get('property') == prefix or str(item.get('property', '')).startswith((prefix + '.', prefix + '['))]
+        selected = [item for item in batch.records if item.get('property') == prefix or str(item.get('property', '')).startswith((prefix + '.', prefix + '['))]
         if not selected or any(item['category'] not in {'matched', 'excluded'} for item in selected):
             raise Blocked('repaired property is not confirmed against its authoritative Model: ' + '; '.join(str(item.get('category')) + ': ' + str(item.get('reason')) for item in selected))

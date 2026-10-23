@@ -45,6 +45,13 @@ class Evaluation:
         return False
 
 
+    @staticmethod
+    def setting_properties(kind, attribute, properties):
+        # Shared with JSON intrinsic projection and comparison's literal lookup.
+        if kind == 'Glue.Connection' and attribute == 'Name':
+            return properties.get('ConnectionInput', {})
+        return properties
+
     def substitution(self, stack, value, seen):
         if isinstance(value, ResourceReference):
             service, identity = value['$resource']
@@ -60,9 +67,7 @@ class Evaluation:
             if document.get('Transform'):
                 raise Blocked('Transform requires external evaluation')
             properties = document['Resources'][logical].get('Properties', {})
-            # Glue's returned Name lives inside ConnectionInput, not Properties.Name.
-            if resource['resourceType'] == 'Glue.Connection' and attribute == 'Name':
-                properties = properties.get('ConnectionInput', {})
+            properties = self.setting_properties(resource['resourceType'], attribute, properties)
             setting = RETURN_ATTRIBUTE_PROPERTIES.get((resource['resourceType'], attribute), attribute)
             if setting not in properties:
                 if self.string_operand(value):

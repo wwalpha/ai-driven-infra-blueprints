@@ -9,7 +9,12 @@ from unittest.mock import Mock, patch
 from types import SimpleNamespace
 import tempfile
 
-import issues.comparison as issues_iac
+import comparison as issues_iac
+from comparison import registry
+from design_catalog import DesignSchemaCatalog
+from cloudformation_inputs import Blocked
+from iac_values import ResourceReference, Expression
+from comparison.values import PreparedValue
 
 
 def legacy_comparison(root, count=3, services=1, stacks=2):
@@ -38,9 +43,9 @@ def legacy_comparison(root, count=3, services=1, stacks=2):
                         (root / 'infra/cloudformation/parameters/fixture/team' / unit['parameters'], [])]:
       path.parent.mkdir(parents=True, exist_ok=True)
       path.write_text(json.dumps(value), encoding='utf-8')
-  catalog = issues_iac.DesignSchemaCatalog(Path(__file__).resolve().parents[4])
+  catalog = DesignSchemaCatalog(Path(__file__).resolve().parents[4])
   target = {'iacEngine': 'cloudformation', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1'}
-  with patch('issues.comparison.load_target', return_value=target), patch('issues.inputs.load_model', side_effect=lambda path, reads: loaded[path]):
+  with patch('comparison.inputs.load_target', return_value=target), patch('comparison.inputs.load_model', side_effect=lambda path, reads: loaded[path]):
     comparison = issues_iac.Comparison(root, 'fixture', 'team', models, catalog=catalog)
   comparison.templates = lambda: units
   return comparison
@@ -72,6 +77,15 @@ class IntrinsicWarningTests(unittest.TestCase):
           results = comparison.run()
           self.assertEqual([item['category'] for item in results], ['matched', 'uncompared'])
           self.assertTrue(comparison.warnings)
+          saved_records, saved_warnings = list(comparison.results), list(comparison.warnings)
+          partial = comparison.compare_rows('service-0', '0000', comparison.resources['service-0']['0000'],
+              'stack0', 'Log0', template, document['Resources']['Log0'], document,
+              properties={'DataProtectionPolicy'})
+          self.assertEqual(partial.records, [item for item in results if item['property'] == 'Logs.LogGroup.DataProtectionPolicy'])
+          self.assertTrue(partial.warnings)
+          self.assertEqual(comparison.results, saved_records)
+          self.assertEqual(comparison.warnings, saved_warnings)
+
           self.assertTrue(all(w['severity'] == 'WARNING' and w['property'] == 'Logs.LogGroup.DataProtectionPolicy'
                               and w['pointer'].startswith('/Deferred') for w in comparison.warnings))
           summary = iac_summary(results, 'fixture', 'team', ['service-0'])
@@ -96,11 +110,11 @@ class IntrinsicWarningTests(unittest.TestCase):
           ({'Fn::FindInMap': ['M', 'K', 'V']}, 'mapped')]
       for expression, expected in expressions:
         row = {'property': 'Logs.LogGroup.DataProtectionPolicy', 'value': '', 'document': json.dumps({'Value': expression})}
-        self.assertEqual(comparison.desired_value('service-0', row, 'Logs.LogGroup', stack='stack0'), {'Value': expected})
+        self.assertEqual(comparison.prepare_value('service-0', row, 'Logs.LogGroup', stack='stack0').require_value(), {'Value': expected})
       self.assertFalse(comparison.warnings)
       row['document'] = '{"Value": {"Fn::Join": [""]}}'
       with self.assertRaises(ValueError):
-        comparison.desired_value('service-0', row, 'Logs.LogGroup', stack='stack0')
+        comparison.prepare_value('service-0', row, 'Logs.LogGroup', stack='stack0').require_value()
 
 
 class ExplicitIdentityTests(unittest.TestCase):
@@ -157,13 +171,13 @@ class ImportValueResolutionTests(unittest.TestCase):
       document = {'Resources': {'Repository': definition}, 'Conditions': {'Inactive': {'Fn::Equals': ['yes', 'no']}}}
       comparison.stack_inputs = {'stack0': (document, {'Prefix': 'fixture'}, {})}
       path = 'Stages[].Actions[].Configuration.RepositoryName'
-      with patch('issues.references.catalog_outputs', return_value=set()):
+      with patch('comparison.inputs.catalog_outputs', return_value=set()):
         desired = comparison.desired_reference('service-0', '[repository](service-0.md#repository)',
             'CodePipeline.Pipeline', path,
             context={'ActionTypeId': dict(Category='Source', Owner='AWS', Provider='CodeCommit', Version='1')})
       def equal(actual):
         return comparison.reference_same(desired, actual, 'CodePipeline.Pipeline', path)
-      self.assertEqual(issues_iac.REF_ATTRIBUTES['CodeCommit.Repository'], 'RepositoryId')
+      self.assertEqual(registry.ref_attribute('CodeCommit.Repository'), 'RepositoryId')
       self.assertTrue(equal(comparison.evaluate('stack0', {'Fn::GetAtt': ['Repository', 'Name']})))
       self.assertFalse(equal(comparison.evaluate('stack0', {'Ref': 'Repository'})))
       self.assertTrue(equal('fixture-repository'))
@@ -207,7 +221,7 @@ class ImportValueResolutionTests(unittest.TestCase):
       comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
       comparison.root = Path(directory)
       comparison.environment, comparison.directory = 'fixture', 'team'
-      comparison.catalog = issues_iac.DesignSchemaCatalog(Path(__file__).resolve().parents[4])
+      comparison.catalog = DesignSchemaCatalog(Path(__file__).resolve().parents[4])
       comparison.local_comparison = comparison.reference_models_loaded = True
       comparison.reference_formats, comparison.symbols = {}, {}
       comparison._index = None
@@ -245,21 +259,21 @@ class ImportValueResolutionTests(unittest.TestCase):
         service = {'Bucket': 's3', 'Vpc': 'vpc', 'Secret': 'secrets-manager'}.get(logical, 'kms')
         link = f'[resource]({service}.md#existing-{logical})'
         value = {'$resource': link, '$attribute': attribute} if attribute else link
-        return comparison.desired_value('codebuild', {
+        return comparison.prepare_value('codebuild', {
             'property': 'CodeBuild.Project.Environment.EnvironmentVariables', 'value': '',
-            'document': json.dumps([{'Name': name, 'Type': variable_type, 'Value': value}])}, 'CodeBuild.Project')[0]['Value']
+            'document': json.dumps([{'Name': name, 'Type': variable_type, 'Value': value}])}, 'CodeBuild.Project').require_value()[0]['Value']
       def equal(left, right):
         return comparison.reference_same(left, right, 'CodeBuild.Project', prop)
-      with patch('issues.references.catalog_outputs', return_value=set()):
+      with patch('comparison.inputs.catalog_outputs', return_value=set()):
         key, alias = desired('Key', 'Arn'), desired('Alias', 'AliasArn')
         for selector in [{'$resource': '[key](kms.md#existing-Key)'},
                          {'$resource': '[key](kms.md#existing-Key)', '$attribute': 'Arn'}]:
           policy = {'property': 'IAM.ManagedPolicy.PolicyDocument', 'value': '',
                     'document': json.dumps({'Statement': [{'Resource': selector}]})}
-          self.assertEqual(comparison.desired_value('iam', policy, 'IAM.ManagedPolicy')['Statement'][0]['Resource'], key)
+          self.assertEqual(comparison.prepare_value('iam', policy, 'IAM.ManagedPolicy').require_value()['Statement'][0]['Resource'], key)
         policy['document'] = json.dumps({'Statement': [{'Resource': {**selector, 'extra': 1}}]})
-        with self.assertRaises(issues_iac.Blocked):
-          comparison.desired_value('iam', policy, 'IAM.ManagedPolicy')
+        with self.assertRaises(Blocked):
+          comparison.prepare_value('iam', policy, 'IAM.ManagedPolicy').require_value()
         for model, actual, exported in [
             (key, {'Fn::GetAtt': ['Key', 'Arn']}, 'key-export'), (alias, alias_value, 'alias-export')]:
           self.assertTrue(equal(model, comparison.evaluate('producer', actual)))
@@ -270,7 +284,7 @@ class ImportValueResolutionTests(unittest.TestCase):
         self.assertFalse(equal(key, desired('OtherKey', 'Arn')))
         self.assertFalse(equal(key, desired('Key', 'KeyId')))
         self.assertFalse(equal(alias, desired('Alias', 'AliasName')))
-        with self.assertRaises((issues_iac.Blocked, KeyError)):
+        with self.assertRaises((Blocked, KeyError)):
           comparison.evaluate('producer', {'Fn::GetAtt': ['Alias', 'AliasArn']})
         self.assertFalse(equal(alias, comparison.evaluate('producer', {'Ref': 'Alias'})))
         self.assertIsNone(equal(key, 'arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012'))
@@ -282,45 +296,53 @@ class ImportValueResolutionTests(unittest.TestCase):
         self.assertFalse(equal(desired('Bucket'), desired('Bucket', 'Arn')))
         self.assertEqual(desired('Key', 'KeyId', name='KEY_ARN')['$attribute'], 'KeyId')
         for logical in ['Key', 'Alias']:
-          with self.assertRaisesRegex(issues_iac.Blocked, 'requires an explicit attribute for KMS'):
+          with self.assertRaisesRegex(Blocked, 'requires an explicit attribute for KMS'):
             desired(logical)
-        with self.assertRaisesRegex(issues_iac.Blocked, 'must be a proven string'):
+        with self.assertRaisesRegex(Blocked, 'must be a proven string'):
           desired('Vpc', 'CidrBlockAssociations')
         self.assertEqual(desired('Secret', variable_type='SECRETS_MANAGER'), comparison.evaluate('producer', {'Ref': 'Secret'}))
         for variable_type in [None, 'INVALID', 'PARAMETER_STORE']:
-          with self.subTest(variable_type=variable_type), self.assertRaisesRegex(issues_iac.Blocked, 'Type is required'):
+          with self.subTest(variable_type=variable_type), self.assertRaisesRegex(Blocked, 'Type is required'):
             desired('Bucket', variable_type=variable_type)
         comparison.resources['kms']['001']['resourceMode'] = 'IMPORT'
         comparison.models['kms'].values['desired.resource.001.resourceMode'] = 'IMPORT'
         comparison.reference_anchor_indexes.pop('kms')
-        with self.assertRaisesRegex(issues_iac.Blocked, 'approved handoff'):
+        with self.assertRaisesRegex(Blocked, 'approved handoff'):
           desired('Key', 'Arn')
         comparison.resources['kms']['001'].pop('resourceMode')
         comparison.models['kms'].values.pop('desired.resource.001.resourceMode')
         comparison.reference_anchor_indexes.pop('kms')
         for logical, attribute in [('Key', None), ('Alias', None), ('Missing', 'Arn'), ('Key', 'AliasArn')]:
-          with self.subTest(logical=logical, attribute=attribute), self.assertRaises((issues_iac.Blocked, KeyError)):
+          with self.subTest(logical=logical, attribute=attribute), self.assertRaises((Blocked, KeyError)):
             desired(logical, attribute)
-        with self.assertRaises(issues_iac.Blocked):
+        with self.assertRaises(Blocked):
           comparison.evaluate('build', {'Fn::ImportValue': 'unknown-export'})
-        self.assertIsNone(equal(key, issues_iac.Expression('Sub', ['${Unknown}', {}])))
-        unknown = issues_iac.Expression('Sub', ['${Unknown}', {}])
+        self.assertIsNone(equal(key, Expression('Sub', ['${Unknown}', {}])))
+        unknown = Expression('Sub', ['${Unknown}', {}])
         self.assertIsNone(equal(unknown, unknown))
         row = {'property': 'CodeBuild.Project.' + prop, 'value': '`' + json.dumps({
             '$resource': '[key](kms.md#existing-Key)', '$attribute': 'Arn'}) + '`'}
-        self.assertEqual(comparison.desired_value('codebuild', row, 'CodeBuild.Project', context={'Type': 'PLAINTEXT'}), key)
+        self.assertEqual(comparison.prepare_value('codebuild', row, 'CodeBuild.Project', context={'Type': 'PLAINTEXT'}).require_value(), key)
         for selector in [{'$resource': '[key](kms.md#existing-Key)'},
                          {'$resource': 'key-export', '$attribute': 'Arn'},
                          {'$resource': '[key](kms.md#existing-Key)', '$attribute': 'Arn', 'extra': 'x'},
                          {'$resource': '[key](kms.md#existing-Key)', '$attribute': 3}]:
           row['value'] = '`' + json.dumps(selector) + '`'
-          with self.subTest(selector=selector), self.assertRaises(issues_iac.Blocked):
-            comparison.desired_value('codebuild', row, 'CodeBuild.Project', context={'Type': 'PLAINTEXT'})
+          with self.subTest(selector=selector), self.assertRaises(Blocked):
+            comparison.prepare_value('codebuild', row, 'CodeBuild.Project', context={'Type': 'PLAINTEXT'}).require_value()
 
   def test_formal_pipeline_membership_and_configuration_context(self):
-    comparison = Mock()
+    comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
+    comparison.models = {}
+    comparison.sensitive_values = set()
+    comparison.template_locations = {}
+    comparison.catalog = Mock()
+    comparison.stack_inputs = {'stack': ({}, {}, {})}
+    comparison.evaluate = Mock()
+    comparison.reference_decision = Mock()
     comparison.root = Path(__file__).resolve().parents[4]
     comparison.local_comparison = True
+    comparison.results, comparison.warnings = [], []
     fields = [
         ('Stages[].Actions[].ActionTypeId.Category', '`Build`'),
         ('Stages[].Actions[].ActionTypeId.Owner', '`AWS`'),
@@ -347,9 +369,10 @@ class ImportValueResolutionTests(unittest.TestCase):
         contexts.append(kwargs['context'])
         return json.loads(value)
       return value
-    comparison.desired_value = desired_value
+    comparison.prepare_value = lambda *args, **kwargs: PreparedValue(desired_value(*args, **kwargs), [])
     comparison.evaluate.side_effect = lambda stack, value: value
-    comparison.reference_same.return_value = True
+    from comparison.references import ReferenceDecision
+    comparison.reference_decision.return_value = ReferenceDecision(True)
     stages = [
         {'Name': 'BuildAndApprove', 'Actions': [
             {'Name': 'Build', 'ActionTypeId': {'Category': 'Build', 'Owner': 'AWS', 'Provider': 'CodeBuild', 'Version': '1'},
@@ -359,12 +382,43 @@ class ImportValueResolutionTests(unittest.TestCase):
     ]
     template = comparison.root / 'infra/cloudformation/templates/fixture.yaml'
     definition = {'Properties': {'Stages': stages}}
-    issues_iac.Comparison.compare_rows(comparison, 'codepipeline', '001',
+    batch = comparison.compare_rows('codepipeline', '001',
         {'resourceType': 'CodePipeline.Pipeline'}, 'stack', 'Pipeline', template, definition, {})
     self.assertEqual(contexts, [{'ActionTypeId': {'Category': 'Build', 'Owner': 'AWS', 'Provider': 'CodeBuild', 'Version': '1'}}])
-    self.assertEqual(comparison.record.call_count, 1)
-    self.assertEqual(comparison.record.call_args.args[:5],
+    self.assertEqual(len(batch.records), 1)
+    self.assertEqual(tuple(batch.records[0][key] for key in ('category', 'service', 'resource', 'property', 'reason')),
                      ('matched', 'codepipeline', '001', 'CodePipeline.Pipeline.Stages', 'equal'))
+    self.assertEqual(comparison.results, [])
+    self.assertEqual(comparison.warnings, [])
+    # Selecting Stages still uses its sibling action context and never prepares Name.
+    rows.append(('other', {'property': 'CodePipeline.Pipeline.Name', 'value': '`unrelated`'}))
+    prepare = comparison.prepare_value
+    def selected_value(service, row, kind, **kwargs):
+      self.assertNotEqual(row['property'], 'CodePipeline.Pipeline.Name')
+      return prepare(service, row, kind, **kwargs)
+    comparison.prepare_value = selected_value
+    selected = comparison.compare_rows('codepipeline', '001', {'resourceType': 'CodePipeline.Pipeline'},
+        'stack', 'Pipeline', template, definition, {}, properties={'Stages'})
+    self.assertIsNone(selected.failure)
+    self.assertEqual(selected.records, batch.records)
+    self.assertEqual(contexts[-1], contexts[0])
+
+    # Invalid indexed siblings defer their setting while independent Name still compares.
+    comparison.rows['codepipeline']['001'] = [
+        ('bad', {'property': 'CodePipeline.Pipeline.Stages[0].Actions[1].ActionTypeId.Category', 'value': '`Build`'}),
+        ('name', {'property': 'CodePipeline.Pipeline.Name', 'value': '`pipeline`'})]
+    comparison.prepare_value = lambda *args, **kwargs: PreparedValue('pipeline', [])
+    definition = {'Properties': {'Name': 'pipeline'}}
+    complete = comparison.compare_rows('codepipeline', '001', {'resourceType': 'CodePipeline.Pipeline'},
+        'stack', 'Pipeline', template, definition, {})
+    self.assertIsNone(complete.failure)
+    self.assertEqual([(item['property'], item['category']) for item in complete.records],
+        [('CodePipeline.Pipeline.Stages', 'uncompared'), ('CodePipeline.Pipeline.Name', 'matched')])
+    limited = comparison.compare_rows('codepipeline', '001', {'resourceType': 'CodePipeline.Pipeline'},
+        'stack', 'Pipeline', template, definition, {}, properties={'Name'})
+    self.assertIsNone(limited.failure)
+    self.assertEqual(limited.records, complete.records[1:])
+
 
   def test_api_managed_resource_remains_unverified_in_cloudformation_comparison(self):
     comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
@@ -395,7 +449,7 @@ class ImportValueResolutionTests(unittest.TestCase):
         (Path("kms.yaml"), {"name": "kms", "template": "kms.yaml"}),
     ]
     comparison.stack.side_effect = [
-        issues_iac.Blocked("stack input missing: missing.yaml"),
+        Blocked("stack input missing: missing.yaml"),
         (
             Path("kms.yaml"),
             (
@@ -414,7 +468,8 @@ class ImportValueResolutionTests(unittest.TestCase):
     self.assertEqual(value, "alias/app")
 
   def test_kms_alias_retains_identity_even_with_the_same_parent_key(self):
-    comparison = Mock()
+    comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
+    comparison.sensitive_values = set()
     comparison.local_comparison = True
     comparison.resources = {
         "kms": {
@@ -425,14 +480,19 @@ class ImportValueResolutionTests(unittest.TestCase):
     comparison.reference_formats = {}
     comparison.reference_forms = lambda kind, path: {"Arn"}
 
-    left = issues_iac.ResourceReference({"$resource": ["kms", "002"], "$attribute": "AliasName"})
-    right = issues_iac.ResourceReference({"$resource": ["kms", "001"], "$attribute": "Arn"})
+    left = ResourceReference({"$resource": ["kms", "002"], "$attribute": "AliasName"})
+    right = ResourceReference({"$resource": ["kms", "001"], "$attribute": "Arn"})
 
     result = issues_iac.Comparison.reference_same(comparison, left, right, "S3.Bucket", "BucketEncryption")
 
     self.assertFalse(result)
     self.assertFalse(issues_iac.Comparison.reference_same(comparison, right, left, "S3.Bucket", "BucketEncryption"))
     self.assertTrue(issues_iac.Comparison.reference_same(comparison, right, right, "S3.Bucket", "BucketEncryption"))
+    comparison.resources['s3'] = {'001': {'resourceType': 'S3.Bucket'}}
+    bucket = ResourceReference({'$resource': ['s3', '001'], '$attribute': 'Arn'})
+    self.assertIs(comparison.reference_decision(bucket, right, 'S3.BucketPolicy', 'PolicyDocument').equal, False)
+    self.assertIs(comparison.reference_decision(right, bucket, 'S3.BucketPolicy', 'PolicyDocument').equal, False)
+
 
 
 if __name__ == "__main__":

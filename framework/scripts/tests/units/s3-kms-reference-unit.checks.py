@@ -21,7 +21,7 @@ from validation.design_links import check_design_links as validate_links
 from validation.design_tables import check_design_tables as validate_tables
 from validation.findings import Findings
 from design_catalog import DesignSchemaCatalog
-from issues.comparison import Comparison
+from comparison import Comparison
 
 FRAMEWORK = Path(__file__).resolve().parents[4]
 KEY_LINK = '[fixture-key](kms.md#key-one)'
@@ -244,14 +244,14 @@ def check_iac_matrix(project_workspace, actual, expected):
     assert len(encryption) == 1 and encryption[0]['category'] == expected, results
     if actual == {'Ref': 'Key'}:
         assert encryption[0]['reference_diagnostics'][0]['allowed_forms'] == ['KeyArn']
-    symbol = comparison.desired_value('s3', dict(entries(bucket, 'desired.row.'))['001-003'], 'S3.Bucket')
+    symbol = comparison.prepare_value('s3', dict(entries(bucket, 'desired.row.'))['001-003'], 'S3.Bucket').require_value()
     assert symbol['$resource'] == ['kms', '001'] and symbol['$attribute'] == 'Arn'
     assert comparison.kms_format(symbol) == 'KeyArn'
-    plain = comparison.desired_value('s3', {'property': PROP, 'value': KEY_LINK}, 'S3.Bucket')
+    plain = comparison.prepare_value('s3', {'property': PROP, 'value': KEY_LINK}, 'S3.Bucket').require_value()
     assert plain['$attribute'] == 'KeyId'
     assert comparison.reference_same(plain, comparison.evaluate('fixture', {'Fn::GetAtt': ['Key', 'Arn']}),
                                      'S3.Bucket', PROP.removeprefix('S3.Bucket.')) is True
-    alias = comparison.desired_value('s3', {'property': PROP, 'value': ALIAS_LINK}, 'S3.Bucket')
+    alias = comparison.prepare_value('s3', {'property': PROP, 'value': ALIAS_LINK}, 'S3.Bucket').require_value()
     assert comparison.reference_same(alias, comparison.evaluate('fixture', {'Ref': 'Alias'}),
                                      'S3.Bucket', PROP.removeprefix('S3.Bucket.')) is True
     assert 'arn:' not in scope.path.read_text(encoding='utf-8')

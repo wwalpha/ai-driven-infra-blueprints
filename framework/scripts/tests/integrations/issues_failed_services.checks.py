@@ -15,7 +15,8 @@ import tempfile
 from unittest.mock import patch
 
 from iac_values import Expression, same
-from issues.comparison import KMS_COMPARISON_FORMS
+from comparison.registry import SERVICES
+KMS_COMPARISON_FORMS = {key: forms for rules in set(SERVICES.values()) for key, forms in getattr(rules, "KMS_FORMS", {}).items()}
 from issues.aggregate import iac_actions
 from issues.records import identifier
 from support.validator import load

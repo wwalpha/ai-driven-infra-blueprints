@@ -86,7 +86,7 @@ def main_checks():
         cli_exit(root, Path(temporary), artifact, 2)
 
         # Authoritative input parse failure must survive comparison and aggregation.
-        with patch('issues.inputs.load_model', side_effect=ValueError('broken model input')):
+        with patch('comparison.inputs.load_model', side_effect=ValueError('broken model input')):
             comparison = Comparison(root, 'dev', '123456789012', ['s3'])
         records = comparison.run()
         assert records and all(item['category'] == 'error' for item in records), records
