@@ -176,14 +176,19 @@ class Resolver:
 
     def validate_attribute(self, kind, attribute, *, field=None, context=None):
         declared = _imports_reference_contracts.contract(field, context) if field else {}
-        if field and _imports_reference_contracts.configuration_contract(field, context) == {}:
-            raise ReferenceResolutionError('CodePipeline ActionTypeId or Configuration reference contract unproven')
+        if field and not declared and _imports_reference_contracts.requires_context(field, context):
+            reason = 'CodePipeline ActionTypeId or Configuration' if _imports_reference_contracts.configuration_contract(field, context) is not None else 'reference context or receiving property'
+            raise ReferenceResolutionError(reason + ' contract unproven: ' + field)
         if declared and kind not in declared:
             raise ReferenceResolutionError('JSON Resource reference type differs from receiving property')
         if not isinstance(attribute, str) or not attribute:
             raise ValueError('JSON Resource attribute must be a nonempty string')
         if self.catalog is None:
             self.catalog = _imports_design_catalog.DesignSchemaCatalog(self.root)
+        try:
+            self.catalog.schema(kind)
+        except KeyError as error:
+            raise ReferenceResolutionError('Framework unsupported producer ResourceType: ' + kind) from error
         returned = reference_attribute(kind, attribute)
         if (declared and reference_attribute(kind, attribute) not in {reference_attribute(kind, form) for form in declared[kind]} or
                 (kind, attribute) not in _imports_reference_contracts.ARN_FORMS and

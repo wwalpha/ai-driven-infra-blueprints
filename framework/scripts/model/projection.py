@@ -35,7 +35,7 @@ from model.core import (
 from model.format import JSON_LINK as JSON_LINK
 from model.format import REFERENCE_NAME_SUFFIXES as REFERENCE_NAME_SUFFIXES
 from model.format import RESOURCE_LINK as RESOURCE_LINK
-from model.reference_nodes import display_value, nodes, project
+from model.reference_nodes import display_source, display_value, nodes, project
 
 ANCHOR = re.compile(r'^<a\s+id="([^"]+)"\s*></a>$')
 
@@ -250,6 +250,9 @@ def reference_display(values, path, root):
                 result[key] = '`' + displayed + '`'
             elif key.endswith('.value') and value.startswith('`'):
                 result[key] = '`' + result[key] + '`'
+            if key.endswith('.value') and any(nodes(raw)):
+                comment = key.removesuffix('value') + 'comment'
+                result[comment] = '<!-- reference-value: ' + display_source(value) + ' --> ' + values.get(comment, '')
             if key.endswith('.document'):
                 result[key.removesuffix('document') + 'artifactSha256'] = document_sha256(displayed)
     return result

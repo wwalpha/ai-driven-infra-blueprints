@@ -5,7 +5,8 @@ from functools import lru_cache
 from utils.comparison_rows import put_row
 
 # Returned attributes whose explicit setting has a different property name.
-RETURN_ATTRIBUTE_PROPERTIES = {('CodeCommit.Repository', 'Name'): 'RepositoryName'}
+RETURN_ATTRIBUTE_PROPERTIES = {('CodeCommit.Repository', 'Name'): 'RepositoryName',
+                               ('Events.Rule', 'RuleName'): 'Name'}
 
 
 SUBNET_LIST_PROPERTIES = {
@@ -175,11 +176,21 @@ ARN_FORMS = {(kind, 'Arn'): (shape[0], _arn_pattern(shape) + (r'(?::\*)?' if kin
              for kind, shape in ARN_SHAPES.items()}
 ARN_IDENTITIES = {kind: ARN_FORMS[kind, 'Arn'] for kind in ('S3.Bucket', 'KMS.Key', 'KMS.Alias')}
 ARN_FORMS['S3.Bucket', 'ObjectArn'] = ('BucketName', ARN_FORMS['S3.Bucket', 'Arn'][1] + r'/(?P<prefix>[^*]*)')
+# DataResource Values selects objects below the bucket, including the required slash.
+ATTRIBUTE_SUFFIXES = {('S3.Bucket', 'ObjectArn'): ('Arn', '/')}
 VALUE_IDENTITIES = {
     ('SecretsManager.Secret', 'Name'): r'(?P<id>[^:]+)(?::[^:]*){0,3}',
     ('SecretsManager.Secret', 'Id'): r'(?P<id>arn:[a-z0-9-]+:secretsmanager:[a-z0-9-]+:\d{12}:secret:[^:]+)(?::[^:]*){0,3}',
 }
 TYPE_FORMS = {'KMS.Key': {'KeyId', 'Arn'}, 'KMS.Alias': {'AliasName', 'Arn'}}
+# Existing Framework format policies, shared by the Resolver and comparison.
+KMS_FORMS = {
+    'CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id': {'AliasArn'},
+    'Glue.SecurityConfiguration.EncryptionConfiguration.S3Encryptions[].KmsKeyArn': {'AliasArn'},
+    'Glue.SecurityConfiguration.EncryptionConfiguration.CloudWatchEncryption.KmsKeyArn': {'AliasArn'},
+    'Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey': {'KeyArn'},
+    'Logs.LogGroup.KmsKeyId': {'KeyArn', 'AliasArn'},
+}
 CONTEXT_PROPERTIES = {
     'CodeBuild.Project.Environment.EnvironmentVariables[].Value': (
         'CodeBuild.Project.Environment.EnvironmentVariables[].Type',
@@ -187,6 +198,7 @@ CONTEXT_PROPERTIES = {
     'CloudTrail.Trail.EventSelectors[].DataResources[].Values': (
         'CloudTrail.Trail.EventSelectors[].DataResources[].Type',
         {'AWS::S3::Object': ('S3.Bucket', 'ObjectArn'), 'AWS::Lambda::Function': ('Lambda.Function', 'Arn')}),
+    'EC2.FlowLog.ResourceId': ('EC2.FlowLog.ResourceType', {'VPC': ('EC2.VPC', 'VpcId')}),
 }
 ACTION_CONFIGURATION = 'CodePipeline.Pipeline.Stages[].Actions[].Configuration'
 ACTION_CONFIGURATION_CONTRACTS = {
@@ -213,10 +225,34 @@ def action_contexts(rows):
     return contexts
 
 
+def row_contexts(kind, rows):
+    """Context for split rows; callers already scope rows to one Resource."""
+    contexts, variables = {}, {}
+    for index, (rid, row) in enumerate(rows):
+        prop = row['property'].removeprefix(kind + '.')
+        value = row['value']
+        value = value[1:-1] if value.startswith('`') and value.endswith('`') else value
+        if kind == 'CodeBuild.Project' and re.fullmatch(r'Environment.EnvironmentVariables\[\d*\]\.(Name|Type|Value)', prop):
+            put_row(variables, prop, rid if prop.endswith('.Value') else value)
+        if kind == 'CloudTrail.Trail' and (data := re.fullmatch(r'(.*\.DataResources\[\d+\])\.Type', prop)):
+            put_row(contexts.setdefault(data[1], {}), 'Type', value)
+        if (kind == 'CloudTrail.Trail' and prop.endswith('.DataResources[].Type') and index + 1 < len(rows)
+                and rows[index + 1][1]['property'] == row['property'].removesuffix('Type') + 'Values'):
+            contexts[rows[index + 1][0]] = {'Type': value}
+    for variable in variables.get('Environment', {}).get('EnvironmentVariables', []):
+        if 'Value' in variable:
+            contexts[variable['Value']] = variable
+    if kind == 'EC2.FlowLog':
+        types = [row['value'].strip('`') for _, row in rows if row['property'] == kind + '.ResourceType']
+        if len(types) == 1:
+            contexts['ResourceId'] = {'ResourceType': types[0]}
+    return contexts
+
+
 def reference_context(path, value, context):
     """Bind context to its containing object, never a sibling or a previous traversal."""
     path = re.sub(r'\[\d+\]', '[]', path)
-    if path.endswith(('.Actions[]', '.DataResources[]', '.EnvironmentVariables[]')):
+    if path == 'EC2.FlowLog' or path.endswith(('.Actions[]', '.DataResources[]', '.EnvironmentVariables[]')):
         return value
     return context
 
@@ -241,7 +277,9 @@ def contract(prop, context=None):
     if configuration is not None:
         return configuration
     # Mapping represents terminal list scalars with or without [].
-    found = IMPORT_PROPERTIES.get(prop) or IMPORT_PROPERTIES.get(prop + '[]')
+    prop = next((candidate for candidate in (prop, prop + '[]', prop.removesuffix('[]'))
+                 if candidate in IMPORT_PROPERTIES or candidate in CONTEXT_PROPERTIES), prop)
+    found = IMPORT_PROPERTIES.get(prop)
     if found is None and prop in CONTEXT_PROPERTIES:
         selector, choices = CONTEXT_PROPERTIES[prop]
         value = (context or {}).get(selector, (context or {}).get(selector.rsplit('.', 1)[-1]))
@@ -251,7 +289,20 @@ def contract(prop, context=None):
     kinds, attribute = found
     kinds = (kinds,) if isinstance(kinds, str) else kinds
     forms = REFERENCE_FORMS.get(prop, set(attribute) if isinstance(attribute, tuple) else {attribute} if attribute else {'KeyId', 'Arn', 'AliasName'})
-    return {kind: tuple(sorted(forms & TYPE_FORMS.get(kind, forms))) for kind in kinds}
+    result = {kind: tuple(sorted(forms & TYPE_FORMS.get(kind, forms))) for kind in kinds}
+    if prop in KMS_FORMS:
+        result = {kind: tuple(form for form in attributes if
+                  {'KMS.Key': {'Arn': 'KeyArn'}, 'KMS.Alias': {'Arn': 'AliasArn'}}.get(kind, {}).get(form, form) in KMS_FORMS[prop])
+                  for kind, attributes in result.items()}
+    return {kind: attributes for kind, attributes in result.items() if attributes}
+
+
+def requires_context(prop, context=None):
+    prop = re.sub(r'\[\d+\]', '[]', prop)
+    if prop == 'CodeBuild.Project.Environment.EnvironmentVariables[].Value' and (context or {}).get('Type') == 'PLAINTEXT':
+        return False  # Arbitrary string values still undergo producer attribute/type validation.
+    return (any(candidate in CONTEXT_PROPERTIES for candidate in (prop, prop + '[]', prop.removesuffix('[]')))
+            or configuration_contract(prop) is not None)
 
 
 @lru_cache(maxsize=None)
@@ -277,4 +328,4 @@ def reference_attribute(kind: str, attribute: str) -> str:
     # Ref/GetAtt Id return the Secret ARN; ManagedPolicy uses PolicyArn, not Arn.
     # https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-secretsmanager-secret.html
     # https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-iam-managedpolicy.html
-    return {"SecretsManager.Secret": "Id", "IAM.ManagedPolicy": "PolicyArn"}.get(kind, attribute) if attribute == "Arn" else attribute
+    return {"SecretsManager.Secret": "Id", "IAM.ManagedPolicy": "PolicyArn", "KMS.Alias": "AliasArn"}.get(kind, attribute) if attribute == "Arn" else attribute

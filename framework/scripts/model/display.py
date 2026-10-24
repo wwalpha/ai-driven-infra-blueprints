@@ -1,6 +1,7 @@
 """Catalog ordering and common display tables, separate from document assembly."""
 
 import json
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -28,8 +29,47 @@ from design.services.guardduty import display_row as guardduty_display_row
 from utils.input_cache import input_scope
 
 from model.core import LINK, ReferenceResolutionError, literal
+from model.reference_nodes import (
+    display_source,
+    nodes,
+    project_text,
+    read_display_source,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
+REFERENCE_ROWS = re.compile(r'^<!-- reference-rows: ([A-Za-z0-9+/=]+) --> ')
+
+
+def restored_reference_rows(rows, kind, root, *, mode):
+    marker = REFERENCE_ROWS.match(rows[0][3])
+    source = read_display_source(marker[1])
+    if not isinstance(source, list) or len(source) != 3:
+        raise ValueError('invalid reference display source')
+    original, projected, count = source
+    if (not isinstance(original, list) or not original or not isinstance(projected, list) or
+            len(original) != len(projected) or type(count) is not int or not 1 <= count <= len(rows) or
+            any(not isinstance(row, list) or len(row) != 4 or any(not isinstance(cell, str) for cell in row)
+                for row in original + projected)):
+        raise ValueError('invalid reference source rows or count')
+    references = set()
+    for before, after in zip(original, projected, strict=True):
+        if before[:2] != after[:2] or before[3] != after[3]:
+            raise ValueError('reference source identity/property/comment differs')
+        if any(nodes(literal(before[2]))):
+            project_text(before[2])
+            references.add(before[0])
+            if any(nodes(literal(after[2]))):
+                raise ValueError('reference display contains internal nodes')
+        elif before != after:
+            raise ValueError('non-reference source row differs')
+    if not references:
+        raise ValueError('reference source requires typed references')
+    expected = _display_rows(kind, projected, root, mode=mode, _counts=None, consumed=None, references=references)
+    actual = [list(row) for row in rows[:count]]
+    actual[0][3] = actual[0][3][marker.end():]
+    if len(expected) != count or [row[1:] for row in actual] != [row[1:] for row in expected]:
+        raise ValueError('reference display differs from source rows')
+    return original, count
 
 
 def catalog_display_rows(rows: list[list[str]], kind: str, root: Path) -> list[list[str]]:
@@ -62,6 +102,28 @@ def catalog_display_rows(rows: list[list[str]], kind: str, root: Path) -> list[l
 
 @input_scope
 def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="CREATE", _counts=None, consumed: list[str] | None = None) -> list[list[str]]:
+    rows = _display_aws_mapping_display.selected_rows(rows, root)
+    originals, projected, references = [], [], set()
+    for row in rows:
+        original, shown = list(row), list(row)
+        marker = re.match(r'^<!-- reference-value: ([A-Za-z0-9+/=]+) --> ', row[3])
+        if marker:
+            original[2] = read_display_source(marker[1])
+            original[3] = shown[3] = row[3][marker.end():]
+        if any(nodes(literal(original[2]))):
+            references.add(row[0])
+            if not marker:
+                shown[2] = project_text(row[2])
+        originals.append(original)
+        projected.append(shown)
+    result = _display_rows(kind, projected, root, mode=mode, _counts=_counts, consumed=consumed, references=references)
+    if references and result:
+        source = display_source([originals, projected, len(result)])
+        result[0][3] = '<!-- reference-rows: ' + source + ' --> ' + result[0][3]
+    return result
+
+
+def _display_rows(kind, rows, root, *, mode, _counts, consumed, references):
     """Apply the existing service displays without changing formal model values."""
     rows = _display_aws_mapping_display.selected_rows(rows, root)
     processed = []
@@ -85,11 +147,12 @@ def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="C
             index += len(block)
             continue
         if prop == CODEBUILD_FORMAL_VARIABLE + "Name":
-            _, prop, value, comment = design.services.codebuild.codebuild_display_row(rows, index, comment, mode=mode)
+            _, prop, value, comment = design.services.codebuild.codebuild_display_row(rows, index, comment, mode=mode,
+                                                                                   typed=rows[index + 2][0] in references)
             index += 2
         elif prop in _display_design_layout.LINKED_LIST_PROPERTIES:
             linked = LINK.fullmatch(value)
-            if prop in CODEBUILD_VPC_PROPERTIES and not linked and mode != "IMPORT":
+            if prop in CODEBUILD_VPC_PROPERTIES and not linked and mode != "IMPORT" and identity not in references:
                 if literal(value).lstrip().startswith(('[', '{')):
                     _display_common.subnet_list_items(prop, value)
                 raise ReferenceResolutionError("CodeBuild VpcConfig value must be a resource link", property=prop, reference=value)

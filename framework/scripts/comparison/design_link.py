@@ -3,14 +3,25 @@ import re
 
 from model.projection import reference_attribute
 from utils.cloudformation.inputs import Blocked
-from utils.iac_values import ResourceReference
-from utils.reference_contracts import REFERENCE_PROPERTIES
+from utils.iac_values import Expression, ResourceReference
+from utils.reference_contracts import (
+    ATTRIBUTE_SUFFIXES,
+    REFERENCE_PROPERTIES,
+    requires_context,
+)
+from utils.reference_contracts import (
+    contract as receiving_contract,
+)
 
 from . import registry
 
 
 def desired_reference(service, value, kind, path, attribute=None, context=None, *, local_comparison, reference, resource_type, forms_for):
     path = re.sub(r'\[\d+\]', '[]', path)
+    context = context or {}
+    declared = receiving_contract(kind + '.' + path, context) if local_comparison else {}
+    if local_comparison and not declared and requires_context(kind + '.' + path, context):
+        raise Blocked(f'reference context or receiving property contract unproven: {kind}.{path}')
     if local_comparison and not isinstance(value, ResourceReference) and registry.kms_forms(kind, path) is not None:
         symbol = reference(service, value)
         refservice, identity = symbol['$resource']
@@ -18,9 +29,9 @@ def desired_reference(service, value, kind, path, attribute=None, context=None, 
         if registry.kms_forms(kind, path) <= {'KeyArn', 'AliasArn'}:
             select = registry.hook(refkind, 'arn_attribute')
             selected = select(refkind, symbol['$attribute']) if select else symbol['$attribute']
-            return ResourceReference(dict(symbol, **{'$attribute': selected}))
-        return reference(service, value, attribute) if attribute else symbol
-    context = context or {}
+            symbol = ResourceReference(dict(symbol, **{'$attribute': selected}))
+        value = symbol
+        attribute = value['$attribute'] if attribute is None else attribute
     expected_kind = None
     contract = REFERENCE_PROPERTIES.get(kind + '.' + path)
     if local_comparison:
@@ -45,11 +56,17 @@ def desired_reference(service, value, kind, path, attribute=None, context=None, 
     validator = registry.hook(kind, 'validate_reference')
     if local_comparison and validator:
         validator(path, attribute, context, refkind)
-    if forms and symbol['$attribute'] not in {reference_attribute(refkind, form) for form in forms}:
+    if forms and registry.kms_forms(kind, path) is None and symbol['$attribute'] not in {reference_attribute(refkind, form) for form in forms}:
         error = Blocked(f'reference attribute {symbol["$attribute"]} is outside property contract: {kind}.{path}')
         error.reference_detail = (symbol, path)
         raise error
     if expected_kind:
         if refkind not in ((expected_kind,) if isinstance(expected_kind, str) else expected_kind):
             raise Blocked(f'reference target must be {expected_kind}: {kind}.{path}')
+    if declared and (refkind not in declared or symbol['$attribute'] not in
+                     {reference_attribute(refkind, form) for form in declared[refkind]}):
+        raise Blocked(f'reference target or attribute is outside receiving property contract: {kind}.{path}')
+    suffix = ATTRIBUTE_SUFFIXES.get((refkind, symbol['$attribute']))
+    if suffix:
+        return Expression('Join', ['', [ResourceReference(dict(symbol, **{'$attribute': suffix[0]})), suffix[1]]])
     return symbol

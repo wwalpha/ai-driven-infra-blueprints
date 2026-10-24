@@ -1,7 +1,7 @@
 """vpc comparison contracts and projections."""
 
-from design.policy_tables import literal
 from utils.cloudformation.inputs import Blocked
+from utils.reference_contracts import row_contexts
 
 REF_ATTRIBUTES = {'EC2.Subnet': 'SubnetId', 'EC2.VPC': 'VpcId', 'EC2.RouteTable': 'RouteTableId'}
 
@@ -11,8 +11,7 @@ NAME_TAG_KINDS = {'EC2.VPC', 'EC2.Subnet', 'EC2.RouteTable', 'EC2.FlowLog'}
 
 
 def contexts(rows):
-    types = [literal(row['value']) for _, row in rows if row['property'] == 'EC2.FlowLog.ResourceType']
-    return {'ResourceId': {'ResourceType': types[0]}} if len(types) == 1 else {}
+    return row_contexts('EC2.FlowLog', rows)
 
 
 def reference_contract(path, attribute, context):

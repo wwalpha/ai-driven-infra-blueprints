@@ -12,7 +12,7 @@ from utils.reference_contracts import (
     REFERENCE_PROPERTIES,
 )
 
-from . import registry
+from . import expressions, registry
 
 
 @dataclass(frozen=True)
@@ -106,8 +106,18 @@ def reference_same(left, right, kind, path, *, local_comparison, forms_for, reso
     unproven = _bind_framework_callback(_callback_reference_same_unproven, decision, diagnostic, kind, left, path, right)
 
     if isinstance(left, Expression) or isinstance(right, Expression):
-        if same(left, right):
-            return decision(True)
+        try:
+            left_parts, right_parts = expressions.parts(left, resource_type), expressions.parts(right, resource_type)
+            if all(any(isinstance(part, ResourceReference) for part in parts) for parts in (left_parts, right_parts)):
+                return decision(same(left_parts, right_parts, reference=reference, path=path))
+        except (Blocked, ValueError, KeyError, TypeError):
+            pass
+        if isinstance(left, Expression) and isinstance(right, Expression) and left.operation == right.operation:
+            equal = same(left.operands, right.operands, reference=reference, path=path)
+            if equal is True:
+                return decision(True)
+            if equal is None:
+                return unproven('expression contains an unresolved reference operand')
         expression, other = (left, right) if isinstance(left, Expression) else (right, left)
         if not isinstance(other, str):
             return unproven('unresolved expression; reference identity and format cannot be proven')
@@ -121,11 +131,6 @@ def reference_same(left, right, kind, path, *, local_comparison, forms_for, reso
         return decision(NotImplemented)
     if not any(resource_type(value) in getattr(registry.rules(resource_type(value)), 'IDENTITY_KINDS', set()) for value in symbols):
         if len(symbols) == 2:
-            forms = forms_for(kind, path)
-            refkind = resource_type(left)
-            allowed = {reference_attribute(refkind, form) for form in forms or ()}
-            if left['$resource'] == right['$resource'] and left['$attribute'] in allowed and right['$attribute'] in allowed:
-                return decision(True, equivalent=left['$attribute'] != right['$attribute'])
             if left['$resource'] != right['$resource']:
                 return decision(False)
             if left['$attribute'] == right['$attribute']:
@@ -152,7 +157,9 @@ def reference_same(left, right, kind, path, *, local_comparison, forms_for, reso
         return unproven('literal versus symbolic reference; no observed value proves identity or format')
     provider = (registry.hook(resource_type(left), 'identity_same') or
                 registry.hook(resource_type(right), 'identity_same'))
-    equal, reason, equivalent = provider(left, right, forms_for(kind, path))
+    forms = forms_for(kind, path)
+    forms = {reference_attribute(resource_type(left), form) for form in forms} if forms else forms
+    equal, reason, equivalent = provider(left, right, forms)
     return decision(equal, [diagnostic(left, right, kind, path, reason)] if reason else (), equivalent)
 
 

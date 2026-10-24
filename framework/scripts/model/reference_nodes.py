@@ -1,5 +1,6 @@
 """Typed design references; identity lookup belongs to model.identity.Resolver."""
 
+import base64
 import json
 import re
 from dataclasses import dataclass
@@ -111,6 +112,28 @@ def project(value, render=None, pointer=''):
         displayed = project(encoded, render, pointer)
         return value if displayed == encoded else json.dumps(displayed, ensure_ascii=False)
     return value
+
+
+def display_source(value):
+    """Opaque restoration metadata keeps Model nodes out of human-facing tables."""
+    return base64.b64encode(json.dumps(value, ensure_ascii=True).encode('utf-8')).decode('ascii')
+
+
+def read_display_source(value):
+    return strict_json(base64.b64decode(value, validate=True).decode('utf-8'))
+
+
+def project_text(value):
+    raw = literal(value)
+    try:
+        parsed = strict_json(raw)
+    except ValueError:
+        return value
+    if not any(nodes(parsed)):
+        return value
+    displayed = project(parsed)
+    text = displayed if isinstance(displayed, str) else json.dumps(displayed, ensure_ascii=False)
+    return '`' + text + '`' if value.startswith('`') else text
 
 
 def display_value(resolver, scope, node):

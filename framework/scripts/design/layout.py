@@ -457,6 +457,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
         guardduty_names = set()
         cloudtrail_count = 0
         packed_pipeline = False
+        reference_restored = False
         changed = False
         normalized = False
         kind = ""
@@ -468,7 +469,9 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
             stop += 1
         if any(len(row) != 4 for row in source_rows):
             raise ValueError("resource table row must have four cells")
-        restored = design.services.glue.restored_glue_argument_rows(_dependency_array_display.restored_rows(source_rows, resource_type, root), resource_type)
+        restored = _dependency_array_display.restored_rows(source_rows, resource_type, root)
+        if not any(_imports_model_display.REFERENCE_ROWS.match(row[3]) for row in restored):
+            restored = design.services.glue.restored_glue_argument_rows(restored, resource_type)
         if restored != source_rows:
             if [row[0] for row in source_rows] != [str(number) for number in range(1, len(source_rows) + 1)]:
                 raise ValueError("Array table numbering error")
@@ -479,6 +482,16 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
             cells = [cell.strip() for cell in lines[index].strip("|").split("|")]
             if len(cells) != 4:
                 raise ValueError("resource table row must have four cells")
+            if _imports_model_display.REFERENCE_ROWS.match(cells[3]):
+                remaining = [[cell.strip() for cell in line.strip('|').split('|')] for line in lines[index:]
+                             if line.startswith('|')]
+                original, count = _imports_model_display.restored_reference_rows(remaining, resource_type, root, mode=mode)
+                row_numbers.extend(row[0] for row in remaining[:count])
+                rows.extend(original)
+                reference_restored = True
+                index += count
+                changed, kind = True, 'Model reference display'
+                continue
             if '<!-- compact-source:' in cells[3]:
                 marker = COMPACT_SOURCE.match(cells[3])
                 if mode != 'IMPORT' or marker is None:
@@ -586,15 +599,15 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
             else:
                 rows.append(cells)
             index += 1
-        if resource_type == "Lambda.Function" and any(row[1].startswith(LAMBDA_PERMISSION + ".") or "<!-- lambda-permission:" in row[3] for row in rows):
+        if not reference_restored and resource_type == "Lambda.Function" and any(row[1].startswith(LAMBDA_PERMISSION + ".") or "<!-- lambda-permission:" in row[3] for row in rows):
             rows = permission_rows(rows)
             changed = True
             kind = "Lambda Permission"
-        if resource_type == "CodePipeline.Pipeline" and not packed_pipeline:
+        if resource_type == "CodePipeline.Pipeline" and not packed_pipeline and not reference_restored:
             rows = design.services.codepipeline.pipeline_display_rows(rows)
             changed = True
             kind = "CodePipeline"
-        if resource_type in REQUIRED_NAME_TAG_TYPES:
+        if resource_type in REQUIRED_NAME_TAG_TYPES and not reference_restored:
             rows = ec2_formal_rows(rows, resource_type)
             changed = True
             kind = resource_type

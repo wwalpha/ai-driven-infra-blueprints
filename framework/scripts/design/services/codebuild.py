@@ -29,7 +29,7 @@ def compact_array(template):
     return bool(COMPACT_ARRAY.search(template))
 
 
-def codebuild_display_row(rows, index, comment, *, mode="CREATE"):
+def codebuild_display_row(rows, index, comment, *, mode="CREATE", typed=False):
     block = rows[index:index + 3]
     if [row[1] for row in block] != [CODEBUILD_FORMAL_VARIABLE + field for field in ("Name", "Type", "Value")]:
         raise ValueError("CodeBuild variables require contiguous Name/Type/Value rows")
@@ -42,7 +42,7 @@ def codebuild_display_row(rows, index, comment, *, mode="CREATE"):
         comment = f"<!-- codebuild-variable-type: {variable_type} --> {comment}"
     elif variable_type == "PLAINTEXT":
         value = block[2][2]
-    elif mode == "IMPORT" and variable_type in {"PARAMETER_STORE", "SECRETS_MANAGER"}:
+    elif (typed or mode == "IMPORT") and variable_type in {"PARAMETER_STORE", "SECRETS_MANAGER"}:
         value = block[2][2]
         comment = f"<!-- codebuild-variable-type: {variable_type} --> {comment}"
     else:

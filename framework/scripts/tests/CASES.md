@@ -3351,3 +3351,29 @@ existing owners because they test independent contracts rather than typed-node d
 | `iac-partial::diagnostics` | `test_iac_partial_error_keeps_reference_diagnostics` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 1 | IaC子errorが別の未解決参照診断を消さない | 共通設定比較 |
 | `iac-partial::artifact` | `check_iac_partial_error_artifact` | IT | [integrations/issues_failed_services.checks.py](integrations/issues_failed_services.checks.py) | direct / 1 | 合成Model→比較→集計→artifact→iac-issuesでImage/Type・差分1/未比較1/error1・位置・マスキングを確認 | Frameworkのみ |
 | `iac-partial::error-unknown` | `test_iac_partial_error_and_unknown_condition` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 2 | 同時に発生するIaC実errorとCondition未解決を保持し、既知兄弟の一致・不一致を判定 | 共通設定比較 |
+
+## Common receiving-reference contract audit
+
+`units/reference-contract-audit-unit.checks.py` owns the full current static contract matrix
+(115 Producer/attribute/receiving-property combinations across 89 entries), applying the
+Resolver, typed normalization, final symbolic comparison, wrong Producer/attribute and
+IMPORT rejection together. Context/Action contracts are covered jointly with the existing
+`model-reference-nodes-unit.checks.py`; SSM.Parameter applicability is explicitly unsupported.
+No old service-specific tests or CodePipeline acceptance checks are duplicated or removed.
+
+| Case | Function | Layer | Entry | Runtime | Guarantees | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `reference-audit::static` | `test_registered_contract_route` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 115 | Shared contract/Resolver/typed comparison, wrong attributes/Producer and IMPORT protection for every static declaration | Authored temporary Models |
+| `reference-audit::context` | `test_context_never_guesses` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 3 | Wrong/missing CloudTrail Type and unknown CodeBuild Type cannot produce confirmed references | Synthetic JSON |
+| `reference-audit::flow-resolver` | `test_flowlog_nested_context` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 1 | VPC context and rejection of another ResourceType | Synthetic Models |
+| `reference-audit::catalog` | `test_catalog_and_context_boundaries` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 1 | Every registered schema and context choice is inspected; SSM is unsupported | Framework schemas |
+| `reference-audit::display` | `test_common_markdown_projection_and_restoration` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 9 | Glue maps, CodeBuild variables, Subnet/SG arrays; unknown/pending/observed display, exact source rows and tamper rejection | Synthetic Models |
+| `reference-audit::prefix` | `test_cloudtrail_object_prefix_semantics` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 3 | S3 object slash/prefix cannot equal a bucket ARN; sibling Lambda remains isolated | Synthetic references |
+| `reference-audit::settings` | `test_setting_attributes_and_consumers` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 4 | Secret Name/Id, Event Rule Name/RuleName and Alias Arn with receiving restrictions | Synthetic Models |
+| `reference-audit::flow-comparison` | `test_flowlog_comparison_and_validation` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 4 | Split ResourceType reaches validation and comparison; unsupported types remain unverified | Synthetic Models |
+| `reference-audit::arrays` | `test_array_elements_and_scalar_array_boundary` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 2 | Scalar reference cannot replace an array; elements require correct attributes | Synthetic Models |
+| `reference-audit::malformed` | `test_malformed_display_objects` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 3 | Projection does not permit malformed objects or elements | Synthetic rows |
+| `reference-audit::expression` | `test_unknown_expression_operand_never_matches` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 1 | Identical expression spelling cannot hide an unresolved operand | Symbolic values |
+| `reference-audit::unsupported` | `test_unsupported_ssm_and_name_id_equivalence` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 1 | Unsupported SSM cannot be authorized by a receiving contract; Secret Name and Id are not automatically equivalent | Synthetic Models |
+| `reference-audit::split-context` | `test_cloudtrail_split_context` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 2 | S3/Lambda split Type/Values rows use the same context boundary | Synthetic Models |
+| `reference-audit::plaintext` | `test_codebuild_plaintext_and_missing_sibling_type` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 1 | Explicit string PLAINTEXT reference and missing sibling Type remain distinct | Synthetic JSON |

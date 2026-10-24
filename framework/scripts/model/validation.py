@@ -31,7 +31,7 @@ from utils.aws_mappings import definition_root
 from utils.input_cache import input_is_file, memoized
 from utils.input_cache import input_scope as input_scope
 from utils.json_format import policy_json
-from utils.reference_contracts import action_contexts
+from utils.reference_contracts import action_contexts, row_contexts
 
 import model.core as _imports_model_core
 import model.files as _imports_model_files
@@ -107,6 +107,13 @@ def validate_json_settings(values, model_path, *, warnings=None):
                 field_name = receiving_property(row['property'], node.pointer)
                 context = configuration_context(values, row_id, scope.root) if row['property'].startswith(
                     'CodePipeline.Pipeline.Stages[].Actions[].Configuration') else None
+                if context is None:
+                    kind = '.'.join(row['property'].split('.')[:2])
+                    number = row_id.rpartition('-')[0]
+                    contexts = row_contexts(kind, [(rid, item) for rid, item in entries(values, 'desired.row.')
+                                                  if rid.rpartition('-')[0] == number])
+                    prop = row['property'].removeprefix(kind + '.')
+                    context = contexts.get(row_id, contexts.get(prop, contexts.get(prop.rsplit('.', 1)[0])))
                 context = context_at(value, row['property'], node.pointer, context)
                 resolve(node, scope, resolver, field=field_name, property_name=row['property'], context=context)
             number = row_id.rpartition('-')[0]

@@ -2,11 +2,12 @@
 
 from design.services.codepipeline import pipeline_rows
 from utils.cloudformation.inputs import Blocked
+from utils.reference_contracts import KMS_FORMS as _KMS_FORMS
 from utils.reference_contracts import action_contexts, configuration_contract
 
 contexts = action_contexts
 
-KMS_FORMS = {'CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id': {'AliasArn'}}
+KMS_FORMS = {prop: forms for prop, forms in _KMS_FORMS.items() if prop.startswith('CodePipeline.')}
 
 
 def prepare_rows(rows, *, index_rows):

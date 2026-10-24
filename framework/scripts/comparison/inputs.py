@@ -28,7 +28,7 @@ from utils.cloudformation.inputs import (
 from utils.iac_values import Expression, ResourceReference, cfn_resource_identity, same
 from utils.json_format import policy_json as strict_json
 from utils.project_targets import load_target_directory as load_target
-from utils.reference_contracts import REFERENCE_PROPERTIES
+from utils.reference_contracts import REFERENCE_PROPERTIES, row_contexts
 
 from . import (
     design_link,
@@ -505,6 +505,12 @@ class Inputs:
             if service not in self.model_references:
                 self.model_references[service] = model_reference.ModelReferences(self, service)
             key = f'desired.row.{row_id}.{field}'
+            if context is None and row_id and row_id.rpartition('-')[0] in self.resources[service]:
+                number = row_id.rpartition('-')[0]
+                kind = self.resources[service][number]['resourceType']
+                contexts = row_contexts(kind, self.rows[service][number])
+                prop = self.model(service).authoritative.get(f'desired.row.{row_id}.property', '').removeprefix(kind + '.')
+                context = contexts.get(row_id, contexts.get(prop, contexts.get(prop.rsplit('.', 1)[0])))
             return self.model_references[service].normalize(self, key, value,
                 '' if field == 'document' or isinstance(value, (list, dict)) else None, context)
         except (KeyError, ValueError, TypeError) as error:

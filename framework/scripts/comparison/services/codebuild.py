@@ -1,12 +1,10 @@
 """codebuild comparison contracts and projections."""
 
-import re
 from functools import partial as _bind_framework_callback
 
-from design.policy_tables import literal
 from utils.cloudformation.inputs import Blocked
-from utils.comparison_rows import put_row
 from utils.iac_values import Expression, ResourceReference, same
+from utils.reference_contracts import contract, row_contexts
 
 REF_ATTRIBUTES = {'CodeBuild.Project': 'Name'}
 
@@ -14,23 +12,18 @@ REF_ATTRIBUTES = {'CodeBuild.Project': 'Name'}
 
 
 def contexts(rows):
-    variables, contexts = {}, {}
-    for rid, row in rows:
-        short = row['property'].removeprefix('CodeBuild.Project.')
-        if re.fullmatch(r'Environment.EnvironmentVariables\[\d*\]\.(Name|Type|Value)', short):
-            put_row(variables, short, rid if short.endswith('.Value') else literal(row['value']))
-    for variable in variables.get('Environment', {}).get('EnvironmentVariables', []):
-        if 'Value' in variable:
-            contexts[variable['Value']] = variable
-    return contexts
+    return row_contexts('CodeBuild.Project', rows)
 
 
 def reference_contract(path, attribute, context):
     if path != 'Environment.EnvironmentVariables[].Value':
         return NotImplemented
     variable_type = context.get('Type')
-    if variable_type == 'SECRETS_MANAGER':
-        return 'SecretsManager.Secret', 'Id'
+    declared = contract('CodeBuild.Project.' + path, context)
+    if declared:
+        kind, = declared
+        forms = declared[kind]
+        return kind, attribute if attribute in forms else forms[0]
     if variable_type != 'PLAINTEXT':
         raise Blocked('reference property contract unproven: CodeBuild environment Type is required')
     return None, attribute

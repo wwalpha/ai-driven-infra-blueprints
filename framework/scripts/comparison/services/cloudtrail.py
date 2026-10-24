@@ -3,9 +3,9 @@
 import re
 
 import model.display as _imports_model_display
-from design.policy_tables import literal
 from utils.cloudformation.inputs import Blocked
-from utils.comparison_rows import Unresolved, put_row
+from utils.comparison_rows import Unresolved
+from utils.reference_contracts import contract, row_contexts
 
 
 def cloudtrail_rows(rows, *, index_rows):
@@ -48,20 +48,17 @@ def cloudtrail_rows(rows, *, index_rows):
 prepare_rows = cloudtrail_rows
 
 def contexts(rows):
-    contexts = {}
-    for _, row in rows:
-        prop = row['property'].removeprefix('CloudTrail.Trail.')
-        data = re.fullmatch(r'(.*\.DataResources\[\d+\])\.Type', prop)
-        if data:
-            put_row(contexts.setdefault(data[1], {}), 'Type', literal(row['value']))
-    return contexts
+    return row_contexts('CloudTrail.Trail', rows)
 
 
 def reference_contract(path, attribute, context):
     if path != 'EventSelectors[].DataResources[].Values[]':
         return NotImplemented
-    if context.get('Type', 'AWS::Lambda::Function') != 'AWS::Lambda::Function':
-        raise Blocked('CloudTrail DataResource link requires a confirmed Lambda ARN; other resource/prefix contracts are unproven')
-    return 'Lambda.Function', 'Arn'
+    declared = contract('CloudTrail.Trail.' + path, context)
+    if not declared:
+        raise Blocked('CloudTrail DataResource Type is required; resource/prefix contract unproven')
+    kind, = declared
+    form, = declared[kind]
+    return kind, form
 
 DEFERRED_ROWS = 'EventSelectors'
