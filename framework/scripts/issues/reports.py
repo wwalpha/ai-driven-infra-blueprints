@@ -208,10 +208,11 @@ def iac_report(environment, directory, services, records, display=None, *, stamp
             if example.get('omitted_deferred_children'):
                 lines.append(f"省略保留原因: {example['omitted_deferred_children']}件（全文はartifact）")
             for field in example.get('reference_diagnostics', []):
-                lines.extend(['未比較field: ' + field['path'], '- Model参照: ' + field['model'],
+                lines.extend(['参照field: ' + field['path'], '- Model参照: ' + field['model'],
                               '- IaC参照: ' + field['iac'], '- 参照同一性: ' + field['identity'],
-                              '- 許容形式: ' + field['allowed_forms'], '- 両側の形式適合性: ' + field['format'],
-                              '- 形式／未比較理由: ' + field['reason']])
+                              '- 許容形式: ' + field['allowed_forms'], '- 静的形式適合性: ' + field['format'],
+                              '- ローカル具体値比較: ' + field.get('local_comparison', '未実施'),
+                              '- 証明／比較理由: ' + field['reason']])
             if example.get('omitted_reference_fields'):
                 lines.append(f'省略参照フィールド: {example["omitted_reference_fields"]}件')
             if 'condition' in example:

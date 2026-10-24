@@ -145,7 +145,7 @@ def compare(inputs, left, right, kind, path):
             if equal:
                 try:
                     validate_declaration(inputs, left)
-                except (Blocked, ValueError, KeyError, TypeError, OSError) as error:
+                except Blocked as error:
                     return ReferenceDecision(None, (inputs.reference_diagnostic(left, right, kind, path, str(error)),))
             return ReferenceDecision(equal)
         return ReferenceDecision(NotImplemented)
@@ -187,12 +187,13 @@ def compare(inputs, left, right, kind, path):
             reason = 'recorded_identifier_mismatch'
         else:
             reason = 'recorded_observed' if proof.observed else 'iac_concrete'
-    except (Blocked, ValueError, KeyError, TypeError, OSError) as error:
+    except Blocked as error:
         reason = str(error)
     detail = inputs.reference_diagnostic(left, right, kind, path, reason)
     if declared is not None:
         detail['model_literal'] = inputs.redacted(raw, kind + '.' + path)
-    detail.update(evidence_type='recorded_observed' if proof.observed else 'local_evaluation',
+    detail.update(local_comparison='matched' if equal is True else 'difference' if equal is False else 'uncompared',
+                  evidence_type='recorded_observed' if proof.observed else 'local_evaluation',
                   current_aws_verified=False, producers=proof.producers)
     return ReferenceDecision(equal, (inputs.redacted(detail),), equal is True)
 

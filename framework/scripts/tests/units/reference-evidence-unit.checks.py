@@ -1685,3 +1685,181 @@ def test_iac_partial_error_and_unknown_condition(different):
     assert any('Condition' in item['message'] for item in batch.warnings)
     if different:
         assert [item['path'] for item in next(iter(batch.display_differences.values()))] == ['Image']
+
+
+QUEUE_ARN = 'arn:aws:sqs:ap-northeast-1:123456789012:fixture-dlq'
+RULE_ARN = 'arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule'
+
+
+def sqs_policy_fixture():
+    comparison = fixture()
+    resource(comparison, 'sqs', '001', 'SQS.Queue', 'Queue', [('QueueName', 'fixture-dlq', None)],
+             properties={'QueueName': 'fixture-dlq'})
+    resource(comparison, 'eventbridge', '001', 'Events.Rule', 'Rule', [('Name', 'fixture-rule', None)],
+             properties={'Name': 'fixture-rule', 'EventBusName': 'default'})
+    desired = {'Version': '2012-10-17', 'Statement': [{'Effect': 'Allow',
+        'Principal': {'Service': 'events.amazonaws.com'}, 'Action': 'sqs:SendMessage',
+        'Resource': QUEUE_ARN, 'Condition': {'ArnEquals': {'aws:SourceArn': RULE_ARN}}}]}
+    actual = copy.deepcopy(desired)
+    actual['Statement'][0]['Resource'] = {'Fn::GetAtt': ['Queue', 'Arn']}
+    actual['Statement'][0]['Condition']['ArnEquals']['aws:SourceArn'] = {'Fn::GetAtt': ['Rule', 'Arn']}
+    return comparison, desired, actual
+
+
+def test_sqs_policy_named_arn_match():
+    comparison, desired, actual = sqs_policy_fixture()
+    before = copy.deepcopy(comparison.models['sqs'].authoritative)
+    records = setting(comparison, 'SQS.QueuePolicy', 'PolicyDocument', desired, actual)
+    assert [record['category'] for record in records] == ['matched'], records
+    assert comparison.models['sqs'].authoritative == before
+
+
+@pytest.mark.parametrize('change', ['name', 'partition', 'region', 'account', 'source'])
+def test_sqs_policy_proven_difference_is_sqs_specific(change):
+    comparison, desired, actual = sqs_policy_fixture()
+    statement = desired['Statement'][0]
+    if change == 'name':
+        comparison.stack_inputs['producer'][0]['Resources']['Queue']['Properties']['QueueName'] = 'other-dlq'
+    elif change == 'source':
+        statement['Condition']['ArnEquals']['aws:SourceArn'] = RULE_ARN + '-other'
+    else:
+        old, new = {'partition': ('aws:', 'aws-cn:'), 'region': ('ap-northeast-1', 'us-east-1'),
+                    'account': ('123456789012', '999999999999')}[change]
+        statement['Resource'] = QUEUE_ARN.replace(old, new)
+    records = setting(comparison, 'SQS.QueuePolicy', 'PolicyDocument', desired, actual)
+    assert [record['category'] for record in records] == ['difference'], records
+    diagnostics = records[0]['reference_diagnostics']
+    queue = next(item for item in diagnostics if item['path'].endswith('.Resource'))
+    rule = next(item for item in diagnostics if item['path'].endswith('aws:SourceArn'))
+    assert queue['producers'] == [{'producer': 'sqs/001', 'attribute': 'Arn'}]
+    assert queue['local_comparison'] == ('matched' if change == 'source' else 'difference')
+    assert rule['local_comparison'] == ('difference' if change == 'source' else 'matched')
+    assert queue['identity'] == 'unproven' and queue['format']['model'] == 'unproven'
+    assert queue['evidence_type'] == 'local_evaluation' and queue['current_aws_verified'] is False
+    assert '123456789012' not in json.dumps(records) and 'arn:aws:' not in json.dumps(records)
+
+
+@pytest.mark.parametrize('name', [None, '', 'UNSET', 'PENDING_DEPLOY', 'TODO', 'invalid/path', 'invalid.name', 'wildcard-*', 'x' * 81,
+                                  'x' * 76 + '.fifo', {'Ref': 'Missing'}, {'Fn::If': ['Unknown', 'one', 'two']}])
+def test_sqs_unproven_names(name):
+    comparison, desired, actual = sqs_policy_fixture()
+    properties = comparison.stack_inputs['producer'][0]['Resources']['Queue']['Properties']
+    if name is None:
+        properties.clear()
+    else:
+        properties['QueueName'] = name
+    records = setting(comparison, 'SQS.QueuePolicy', 'PolicyDocument', desired, actual)
+    assert [record['category'] for record in records] == ['uncompared'], records
+    queue = next(item for item in records[0]['reference_diagnostics'] if item['path'].endswith('.Resource'))
+    assert queue['local_comparison'] == 'uncompared'
+
+
+@pytest.mark.parametrize('name', ['a', 'x' * 80, 'x' * 75 + '.fifo'])
+def test_sqs_explicit_name_boundaries(name):
+    comparison, desired, actual = sqs_policy_fixture()
+    comparison.stack_inputs['producer'][0]['Resources']['Queue']['Properties']['QueueName'] = name
+    desired['Statement'][0]['Resource'] = QUEUE_ARN.rsplit(':', 1)[0] + ':' + name
+    assert [item['category'] for item in setting(comparison, 'SQS.QueuePolicy', 'PolicyDocument', desired, actual)] == ['matched']
+
+
+@pytest.mark.parametrize('field', ['Partition', 'Region', 'AccountId'])
+@pytest.mark.parametrize('value', [None, '', 'UNSET', '${Unresolved}', 123, 'invalid:context'])
+def test_sqs_arn_context_requires_proof(field, value):
+    comparison, desired, actual = sqs_policy_fixture()
+    pseudo = comparison.stack_inputs['producer'][2]
+    if value is None:
+        pseudo.pop('AWS::' + field)
+    else:
+        pseudo['AWS::' + field] = value
+    reference = comparison.evaluate('producer', {'Fn::GetAtt': ['Queue', 'Arn']})
+    decision = comparison.reference_decision(QUEUE_ARN, reference, 'SQS.QueuePolicy', 'PolicyDocument.Statement[].Resource')
+    assert decision.equal is None and decision.diagnostics[0]['local_comparison'] == 'uncompared'
+    assert field in decision.diagnostics[0]['reason']
+    records = setting(comparison, 'SQS.QueuePolicy', 'PolicyDocument', desired, actual)
+    assert [item['category'] for item in records] == ['uncompared'], records
+
+
+@pytest.mark.parametrize('kind,field,name,logical', [
+    ('Events.Rule', 'Name', 'fixture-rule', 'Rule'), ('CodeBuild.Project', 'Name', 'fixture-project', 'Build'),
+    ('Logs.LogGroup', 'LogGroupName', 'fixture-log', 'Log')])
+@pytest.mark.parametrize('context', ['Partition', 'Region', 'AccountId'])
+def test_existing_named_arn_context_guards(kind, field, name, logical, context):
+    comparison = fixture()
+    resource(comparison, 'producer', '001', kind, logical, [], properties={field: name})
+    reference = comparison.evaluate('producer', {'Fn::GetAtt': [logical, 'Arn']})
+    assert comparison.reference_literal(reference).startswith('arn:aws:')
+    comparison.stack_inputs['producer'][2].pop('AWS::' + context)
+    with pytest.raises(Blocked, match=context):
+        comparison.reference_literal(reference)
+
+
+@pytest.mark.parametrize('fault', ['type', 'stack', 'logical', 'duplicate', 'missing', 'condition', 'inactive', 'transform', 'import'])
+def test_sqs_arn_correspondence_and_mode_guards(fault):
+    comparison, desired, actual = sqs_policy_fixture()
+    queue = comparison.stack_inputs['producer'][0]['Resources']['Queue']
+    model = comparison.resources['sqs']['001']
+    if fault == 'type':
+        queue['Type'] = 'AWS::SNS::Topic'
+    elif fault in {'stack', 'logical'}:
+        model['cfn-logicalId'] = 'other-Queue' if fault == 'stack' else 'producer-Other'
+    elif fault == 'duplicate':
+        resource(comparison, 'sqs', '002', 'SQS.Queue', 'Queue', [], properties={'QueueName': 'fixture-dlq'})
+    elif fault == 'missing':
+        comparison.resources['sqs'].clear()
+        comparison.models.pop('sqs')
+    elif fault in {'condition', 'inactive'}:
+        queue['Condition'] = 'Unknown'
+        if fault == 'inactive':
+            comparison.stack_inputs['producer'][0]['Conditions'] = {'Unknown': False}
+    elif fault == 'transform':
+        comparison.stack_inputs['producer'][0]['Transform'] = 'Unknown'
+    else:
+        model['resourceMode'] = 'IMPORT'
+    records = setting(comparison, 'SQS.QueuePolicy', 'PolicyDocument', desired, actual)
+    assert [item['category'] for item in records] == ['uncompared'], records
+
+
+def test_sqs_queue_url_is_not_getatt_arn():
+    comparison, _, _ = sqs_policy_fixture()
+    ref = comparison.evaluate('producer', {'Ref': 'Queue'})
+    arn = comparison.evaluate('producer', {'Fn::GetAtt': ['Queue', 'Arn']})
+    assert ref['$attribute'] == 'QueueUrl' and arn['$attribute'] == 'Arn'
+    assert comparison.reference_decision(QUEUE_ARN, ref, 'SQS.QueuePolicy', 'PolicyDocument.Statement[].Resource').equal is None
+    assert comparison.reference_decision(QUEUE_ARN, arn, 'SQS.QueuePolicy', 'Queues[]').equal is False
+    with pytest.raises(Blocked):
+        comparison.reference_literal(ref)
+    comparison.resources['sqs']['001']['resourceMode'] = 'IMPORT'
+    assert comparison.reference_decision(QUEUE_ARN, arn, 'SQS.QueuePolicy', 'PolicyDocument.Statement[].Resource').equal is None
+
+
+@pytest.mark.parametrize('error', [OSError, ValueError, TypeError])
+def test_sqs_reference_processing_errors_propagate(error):
+    comparison, desired, actual = sqs_policy_fixture()
+    reference = comparison.evaluate('producer', {'Fn::GetAtt': ['Queue', 'Arn']})
+    with patch('comparison.registry.named_arn', side_effect=error('synthetic reference evaluation failure')):
+        with pytest.raises(error, match='synthetic reference evaluation failure'):
+            comparison.reference_decision(QUEUE_ARN, reference, 'SQS.QueuePolicy', 'PolicyDocument.Statement[].Resource')
+        resource(comparison, 'consumer', '090', 'SQS.QueuePolicy', 'Receiver', [('PolicyDocument', json.dumps(desired), None)],
+                 properties={'PolicyDocument': actual})
+        document = comparison.stack_inputs['producer'][0]
+        batch = comparison.compare_rows('consumer', '090', comparison.resources['consumer']['090'], 'producer', 'Receiver',
+            ROOT / 'synthetic.yaml', document['Resources']['Receiver'], document)
+        assert isinstance(batch.failure, error) and not batch.records
+
+
+@pytest.mark.parametrize('declared', [False, True])
+@pytest.mark.parametrize('error', [OSError, ValueError, TypeError])
+def test_recorded_reference_processing_errors_are_not_missing_proof(declared, error):
+    comparison = fixture()
+    vpc(comparison)
+    row = consumer(comparison)
+    if declared:
+        declaration(comparison, 'desired.row.010-001.value', VPC)
+        desired = prepared(comparison, row).require_value()
+        actual = VPC
+    else:
+        desired = VPC
+        actual = comparison.evaluate('producer', {'Ref': 'Vpc'})
+    with patch('comparison.reference_evidence.catalog_outputs', side_effect=error('synthetic catalog read failure')):
+        with pytest.raises(error, match='synthetic catalog read failure'):
+            comparison.reference_decision(desired, actual, 'EC2.Subnet', 'VpcId')

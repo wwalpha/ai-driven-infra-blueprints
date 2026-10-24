@@ -188,6 +188,7 @@ def iac_summary(records, environment, directory, services, display=None, *, incl
             if diagnostics:
                 example['reference_diagnostics'] = [{name: brief(field[name]) for name in
                     ('path', 'model', 'iac', 'identity', 'allowed_forms', 'format', 'reason')}
+                    | ({'local_comparison': brief(field['local_comparison'])} if 'local_comparison' in field else {})
                     for field in diagnostics[:MAX_FIELDS]]
                 example['omitted_reference_fields'] = max(0, len(diagnostics) - MAX_FIELDS)
             if item['category'] == 'difference' and item['reason'] in {

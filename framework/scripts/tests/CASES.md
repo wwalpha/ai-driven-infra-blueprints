@@ -3387,3 +3387,19 @@ No old service-specific tests or CodePipeline acceptance checks are duplicated o
 | `issue-markdown::ambiguous` | `check_ambiguous_input_stops_save` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 8 | 未完/不一致/入れ子scope・scope内Issue・境界なしIDを明示エラー、publication未実行/入力不変 | 共通分類 |
 | `issue-markdown::sections` | `check_warning_sections` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 2 | 同位警告セクションの分離と本文保持 | 共通分類 |
 | `issue-markdown::fenced-owner` | `check_fenced_owner_does_not_override_issue` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 1 | 通常Issue内部の長いfence内ownership/番号を無視し、ID・件数を保存再読込で維持 | 共通分類 |
+
+## SQS Queue named ARN comparison (1024v12)
+
+| ID | Case | Layer | Source | Runner / count | Responsibility | Fixture |
+| --- | --- | --- | --- | --- | --- | --- |
+| `sqs-arn::match` | `test_sqs_policy_named_arn_match` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 1 | Queue/Rule ARN一致、Model権威不変 | 合成CREATE Queue/Rule/QueuePolicy |
+| `sqs-arn::difference` | `test_sqs_policy_proven_difference_is_sqs_specific` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 5 | QueueName/partition/region/accountはSQSだけを変更しRule一致を確認、SourceArn差分はQueue一致を確認、個別診断と全体判定・マスキング | 合成PolicyDocument |
+| `sqs-arn::name-proof` | `test_sqs_unproven_names` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 12 | 明示名欠落・不正・未確定・長さ超過はuncompared | 合成Queue |
+| `sqs-arn::name-boundary` | `test_sqs_explicit_name_boundaries` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 3 | 1/80文字・FIFO接尾辞込み80文字 | 合成Queue |
+| `sqs-arn::context` | `test_sqs_arn_context_requires_proof` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 18 | partition/region/accountの欠落・空・placeholder・型・形式不正はSQS個別証明でもuncompared | 合成実行context |
+| `sqs-arn::shared-regression` | `test_existing_named_arn_context_guards` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 9 | Events/CodeBuild/Logsの既存ARN評価とcontext欠落時のproof境界 | 合成既存NAMED_ARN producer |
+| `sqs-arn::correspondence` | `test_sqs_arn_correspondence_and_mode_guards` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 9 | formal type/Stack/Logical ID/一意性/Model/Condition/Transform/IMPORTの証明不足 | 合成Resource対応 |
+| `sqs-arn::attributes` | `test_sqs_queue_url_is_not_getatt_arn` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 1 | Ref QueueUrl/GetAtt Arnを区別、IMPORTの推測禁止 | 合成Queue |
+| `sqs-arn::errors` | `test_sqs_reference_processing_errors_propagate` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 3 | ARN評価のI/O/Value/Type実例外は上位へ伝搬 | 合成処理障害 |
+| `sqs-arn::recorded-errors` | `test_recorded_reference_processing_errors_are_not_missing_proof` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 6 | 記録識別子・保存宣言検証の実例外は証明不能と区別 | 合成VPC・catalog read障害 |
+| `sqs-arn::artifact` | `sqs_policy_artifact_checks` | IT | [integrations/issues_policy_equivalence.checks.py](integrations/issues_policy_equivalence.checks.py) | direct / 1 | 比較器→artifact保存再読込→detail/集計/表示のmatched/difference/uncompared/error整合、SQS単独region差分とRule一致、ARN/accountマスク | 一時合成projectのみ |

@@ -431,6 +431,8 @@ class Inputs:
                 substitute=lambda reference: evaluator.substitution(name, reference, frozenset()), reference=value)
         named_arn = registry.hook(resource['resourceType'], 'NAMED_ARN')
         if named_arn and attribute == 'Arn':
+            if resource_mode(resource) != 'CREATE':
+                raise Blocked('named ARN requires CREATE resource correspondence; IMPORT requires approved handoff')
             return registry.named_arn(resource['resourceType'], properties, pseudo,
                                       evaluate=lambda value: evaluator.evaluate(name, value))
         setting = RETURN_ATTRIBUTE_PROPERTIES.get((resource['resourceType'], attribute))

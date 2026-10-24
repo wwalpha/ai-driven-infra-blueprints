@@ -108,11 +108,17 @@ def named_arn(kind, properties, pseudo, *, evaluate):
     Blocked = _imports_cfn_inputs.Blocked
     field, pattern, service, prefix, suffix = hook(kind, 'NAMED_ARN')
     explicit = evaluate(properties.get(field))
-    if not isinstance(explicit, str) or not re.fullmatch(pattern, explicit):
+    if (not isinstance(explicit, str) or explicit in {'UNSET', 'PENDING_DEPLOY', 'TBD', 'TODO', '未確定'}
+            or not re.fullmatch(pattern, explicit)):
         raise Blocked('ARN requires a valid explicit resource name')
     validator = hook(kind, 'validate_arn_context')
     if validator:
         validator(properties, evaluate)
+    for field, pattern in [('Partition', r'aws(?:-[a-z]+)*'),
+                           ('Region', r'[a-z]{2}(?:-[a-z]+)+-\d+'), ('AccountId', r'[0-9]{12}')]:
+        value = pseudo.get('AWS::' + field)
+        if not isinstance(value, str) or re.fullmatch(pattern, value) is None:
+            raise Blocked('ARN requires a confirmed ' + field)
     return f"arn:{pseudo['AWS::Partition']}:{service}:{pseudo['AWS::Region']}:{pseudo['AWS::AccountId']}:{prefix}{explicit}{suffix}"
 
 
