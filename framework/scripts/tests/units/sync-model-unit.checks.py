@@ -22,6 +22,9 @@ import sync_views
 import utils.input_cache as _imports_input_cache
 import validation.design_links as _imports_validation_design_links
 from design_catalog import property_paths_with_parents
+from model.format import serialize
+from model.identity import COUNTERS
+from model.sources import runtime_values
 from script_loader import module
 from support.pytest_cli import run
 from support.validator import load
@@ -39,9 +42,6 @@ from validation.task import TaskValidation
 from validation_cache import PassCache
 
 from model import projection
-from model.format import serialize
-from model.identity import COUNTERS
-from model.sources import runtime_values
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
