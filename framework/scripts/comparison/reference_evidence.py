@@ -10,16 +10,12 @@ from utils.aws_catalogs import catalog_outputs
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, cfn_resource_identity, same
 from utils.reference_contracts import (
-    ARN_FORMS,
     ARN_SHAPES,
     REFERENCE_PROPERTIES,
 )
 
 from . import registry
 from .references import ReferenceDecision, literal_expression, reference_same
-
-# Enable recorded ARN derivation only for resource kinds covered by proof tests.
-RECORDED_ARN_KINDS = {'KMS.Key'}
 
 
 class Evidence:
@@ -38,7 +34,19 @@ class Evidence:
         if not any(item['producer'] == producer['producer'] and item['attribute'] == producer['attribute']
                    for item in self.producers):
             self.producers.append(producer)
-        return inputs.reference_literal(value, recorded=self.recorded)
+        result = inputs.reference_literal(value, recorded=self.recorded)
+        kind = inputs.resource_type(value)
+        if kind in ARN_SHAPES and value['$attribute'] == reference_attribute(kind, 'Arn'):
+            fields = ARN_SHAPES[kind][0]
+            sources = [self.properties[service, identity, field] for field in (fields if isinstance(fields, dict) else [fields])
+                       if (service, identity, field) in self.properties]
+            if sources:
+                for item in self.producers:
+                    if item['producer'] == producer['producer'] and item['attribute'] == producer['attribute']:
+                        form = inputs.kms_format(result)
+                        item.update(source_property=','.join(sources), evidence_type='recorded_observed',
+                                    derived_format='Arn' if form == 'invalid' else form, current_aws_verified=False)
+        return result
 
     def recorded(self, value):
         inputs = self.inputs
@@ -47,8 +55,6 @@ class Evidence:
         kind, attribute = resource['resourceType'], value['$attribute']
         if resource_mode(resource) == 'IMPORT':
             raise Blocked('attribute_format_unproven: IMPORT requires approved handoff')
-        if kind in RECORDED_ARN_KINDS and attribute == 'Arn':
-            return self.derived_arn(value)
         prop = kind + '.' + attribute
         outputs = catalog_outputs(inputs.root, kind)
         if prop not in outputs:
@@ -75,37 +81,6 @@ class Evidence:
         self.observed = True
         return text
 
-    def derived_arn(self, value):
-        inputs = self.inputs
-        service, identity = value['$resource']
-        resource = inputs.resources[service][identity]
-        kind = resource['resourceType']
-        identifier, template, patterns = ARN_SHAPES[kind]
-        fields = identifier if isinstance(identifier, dict) else {identifier: 'id'}
-        parts = {}
-        for attribute, group in fields.items():
-            source = ResourceReference(dict(value, **{'$attribute': attribute}))
-            text = self.recorded(source)
-            if re.fullmatch(patterns[group], text) is None:
-                raise Blocked('attribute_format_unproven: recorded ARN identifier format')
-            parts[group] = text
-        stack, _ = cfn_resource_identity(resource['cfn-logicalId'])
-        pseudo = inputs.stack_inputs[stack][2]
-        context = {name: pseudo.get('AWS::' + field) for name, field in
-                   [('partition', 'Partition'), ('region', 'Region'), ('account', 'AccountId')]}
-        if any(not isinstance(text, str) or not text for text in context.values()):
-            raise Blocked('attribute_format_unproven: Producer ARN context is unresolved')
-        arn = template.format(**context, **parts)
-        if re.fullmatch(ARN_FORMS[kind, 'Arn'][1], arn) is None:
-            raise Blocked('attribute_format_unproven: Producer ARN context is invalid')
-        for producer in self.producers:
-            if producer['producer'] == service + '/' + identity and producer['attribute'] == 'Arn':
-                producer.update(source_property=','.join(kind + '.' + field for field in fields),
-                                evidence_type='recorded_observed', derived_format=inputs.kms_format(arn),
-                                current_aws_verified=False)
-        return arn
-
-
 def validate_declaration(inputs, reference):
     service, identity = reference['$resource']
     prop = reference.saved_property
@@ -129,6 +104,8 @@ def validate_declaration(inputs, reference):
 
 def compare(inputs, left, right, kind, path):
     original_left, original_right = left, right
+    if hasattr(right, 'saved_literal') and not hasattr(left, 'saved_literal'):
+        left, right = right, left
     if (isinstance(right, str) and isinstance(left, (ResourceReference, Expression))
             and not hasattr(left, 'saved_literal')):
         left, right = right, left
@@ -155,6 +132,8 @@ def compare(inputs, left, right, kind, path):
     try:
         if declared is not None:
             validate_declaration(inputs, left)
+            if hasattr(right, 'saved_literal'):
+                validate_declaration(inputs, right)
             saved = proof.resolve(left)
             if saved != raw or (left.declared_format == 'identifier' and raw.startswith('arn:')):
                 raise Blocked('recorded_identifier_mismatch: declaration and saved value differ')

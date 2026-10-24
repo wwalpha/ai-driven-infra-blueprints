@@ -19,6 +19,9 @@ def parts(value, resource_type=None):
     if intrinsic_shape_error('Fn::' + value.operation, value.operands):
         raise Blocked('string expression syntax unproven')
     if value.operation == 'Select':
+        index, source = value.operands
+        if isinstance(source, list) and re.fullmatch(r'\d+', str(index)) and int(index) < len(source):
+            return parts(source[int(index)], resource_type)
         return [value]
     if value.operation == 'Join':
         delimiter, values = value.operands
@@ -46,7 +49,8 @@ def exact_same(left, right, path=''):
     """Expression tokens require the same Producer and attribute, without form coercion."""
     if any(isinstance(value, Expression) for value in (left, right)):
         if (not all(isinstance(value, Expression) for value in (left, right))
-                or left.operation != right.operation or left.operation not in {'Sub', 'Join', 'Split', 'Select'}
+                or left.operation not in {'Sub', 'Join', 'Split', 'Select'}
+                or right.operation not in ({'Sub', 'Join'} if left.operation in {'Sub', 'Join'} else {left.operation})
                 or any(intrinsic_shape_error('Fn::' + value.operation, value.operands) for value in (left, right))):
             return None
         if left.operation == 'Select':
@@ -75,6 +79,14 @@ def symbolic_same(left, right):
             len(part) for part in right if isinstance(part, str)):
         return False
     return None
+
+
+def references(value):
+    """Retain ordered Producer/attribute evidence through nested string operations."""
+    if isinstance(value, ResourceReference):
+        return [value]
+    children = value.operands if isinstance(value, Expression) else value.values() if isinstance(value, dict) else value if isinstance(value, list) else ()
+    return [reference for child in children for reference in references(child)]
 
 
 def string(value, resolve):

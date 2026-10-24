@@ -25,7 +25,12 @@ from support.model_reference_fixtures import (
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
-from utils.reference_contracts import ARN_SHAPES, reference_attribute
+from utils.reference_contracts import (
+    ARN_SHAPES,
+    REF_ATTRIBUTES,
+    getatt_attribute,
+    reference_attribute,
+)
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -82,6 +87,16 @@ CASES = [
     ('QuickSight.DataSet', {'AwsAccountId': '123456789012', 'DataSetId': 'fixture'}, CONTEXT.format(service='quicksight', tail='dataset/fixture')),
     ('QuickSight.DataSource', {'AwsAccountId': '123456789012', 'DataSourceId': 'fixture'}, CONTEXT.format(service='quicksight', tail='datasource/fixture')),
     ('QuickSight.VPCConnection', {'AwsAccountId': '123456789012', 'VPCConnectionId': 'fixture'}, CONTEXT.format(service='quicksight', tail='vpcConnection/fixture')),
+    ('ApiGateway.UsagePlanKey', {'UsagePlanId': 'abc123', 'KeyId': 'def456'}, 'arn:aws:apigateway:ap-northeast-1::/usageplans/abc123/keys/def456'),
+    ('ApiGateway.DomainName', {'DomainName': 'api.example.com', 'EndpointConfiguration': {'Types': ['REGIONAL']}}, 'arn:aws:apigateway:ap-northeast-1::/domainnames/api.example.com'),
+    ('ApiGatewayV2.DomainName', {'DomainName': 'api.example.com'}, 'arn:aws:apigateway:ap-northeast-1::/domainnames/api.example.com'),
+    ('ApiGateway.Stage', {'RestApiId': 'abc123', 'StageName': 'qa'}, 'arn:aws:apigateway:ap-northeast-1::/restapis/abc123/stages/qa'),
+    ('ApiGatewayV2.Stage', {'ApiId': 'abc123', 'StageName': '$default'}, 'arn:aws:apigateway:ap-northeast-1::/apis/abc123/stages/$default'),
+    ('ApiGateway.BasePathMapping', {'DomainName': 'api.example.com', 'BasePath': 'v1'}, 'arn:aws:apigateway:ap-northeast-1::/domainnames/api.example.com/basepathmappings/v1'),
+    ('ApiGateway.GatewayResponse', {'RestApiId': 'abc123', 'ResponseType': 'DEFAULT_4XX'}, 'arn:aws:apigateway:ap-northeast-1::/restapis/abc123/gatewayresponses/DEFAULT_4XX'),
+    ('ApiGateway.Method', {'RestApiId': 'abc123', 'ResourceId': 'def456', 'HttpMethod': 'GET'}, 'arn:aws:apigateway:ap-northeast-1::/restapis/abc123/resources/def456/methods/GET'),
+    ('ApiGateway.Model', {'RestApiId': 'abc123', 'Name': 'Fixture'}, 'arn:aws:apigateway:ap-northeast-1::/restapis/abc123/models/Fixture'),
+    ('NetworkFirewall.RuleGroup', {'RuleGroupName': 'fixture', 'Type': 'STATEFUL'}, CONTEXT.format(service='network-firewall', tail='stateful-rulegroup/fixture')),
 
 ]
 
@@ -151,11 +166,7 @@ def test_proven_arns_and_both_comparison_directions(models, kind, properties, ar
         assert inputs.reference_same(different, symbol, 'Glue.Job', 'DefaultArguments') is False
 
 
-EXPRESSION_CASES = [case for case in CASES if case[0] in {
-    'S3.Bucket', 'Lambda.Function', 'IAM.Role', 'Logs.LogGroup', 'KMS.Alias', 'Glue.Job', 'Athena.WorkGroup', 'SQS.Queue'}]
-
-
-@pytest.mark.parametrize('kind,properties,arn', EXPRESSION_CASES)
+@pytest.mark.parametrize('kind,properties,arn', CASES)
 @pytest.mark.parametrize('operation', ['Sub', 'Join', 'nested', 'split-select'])
 def test_model_nodes_before_common_intrinsic_evaluation(models, kind, properties, arn, operation):
     inputs, symbol = producer(models, kind, properties)
@@ -246,7 +257,11 @@ def test_producer_proof_cannot_be_replaced_by_a_matching_name(models, fault):
 
 
 def test_arn_contract_inventory_covers_every_derivable_type():
-    assert {kind for kind, _, _ in CASES} == ARN_SHAPES.keys() - {'KMS.Key'}
+    catalog = DesignSchemaCatalog(FRAMEWORK)
+    generated = {kind for kind, (fields, _, _) in ARN_SHAPES.items()
+        if any('/properties/' + field.replace('.', '/') in catalog.schema(kind).get('readOnlyProperties', ())
+            for field in (fields if isinstance(fields, dict) else [fields]))}
+    assert {kind for kind, _, _ in CASES} == ARN_SHAPES.keys() - generated
     catalog = DesignSchemaCatalog(FRAMEWORK)
     assert len(catalog.resource_types) == 176
     assert set(catalog.api_schemas) == {'Macie.ClassificationJob', 'QuickSight.Group'}
@@ -354,7 +369,7 @@ def test_pseudo_parameters_and_formal_escaping(models):
     assert inputs.reference_same(expression, expected, 'Glue.Job', 'DefaultArguments') is True
 
 
-@pytest.mark.parametrize('kind,properties,arn', EXPRESSION_CASES)
+@pytest.mark.parametrize('kind,properties,arn', CASES)
 def test_qualifiers_keys_and_literal_affixes_remain_part_of_the_value(models, kind, properties, arn):
     inputs, symbol = producer(models, kind, properties)
     suffix = ':live' if kind == 'Lambda.Function' else ':stream' if kind == 'Logs.LogGroup' else '/objects/key'
@@ -401,6 +416,134 @@ def test_sub_arn_uses_contract_even_with_a_spoofed_template_field(models, kind, 
     expression = inputs.evaluate('producer', {'Fn::Sub': ['pre/${R}/suffix', {'R': symbol}]})
     assert inputs.reference_same(expression, 'pre/' + arn + '/suffix', 'Glue.Job', 'DefaultArguments') is True
     assert inputs.reference_same(expression, 'pre/spoofed/suffix', 'Glue.Job', 'DefaultArguments') is False
+
+
+
+@pytest.mark.parametrize('attribute', ['Arn', 'Name'])
+def test_compound_values_do_not_replace_producer_proof_with_equal_names(models, attribute):
+    inputs, symbol = producer(models, 'Glue.Job', {'Name': 'fixture'})
+    symbol['$attribute'] = attribute
+    inputs.resources['producer']['002'] = dict(inputs.resources['producer']['001'],
+        logicalId='Glue_Job_002', **{'cfn-logicalId': 'producer-Other'})
+    inputs.index()['producer', 'Other'] = [(path, '002', inputs.resources['producer']['002'], values)
+        for path, _, _, values in inputs.index()['producer', 'Resource001']]
+    inputs.stack_inputs['producer'][0]['Resources']['Other'] = copy.deepcopy(
+        inputs.stack_inputs['producer'][0]['Resources']['Resource001'])
+    other = ResourceReference(dict(symbol, **{'$resource': ['producer', '002']}))
+    left = Expression('Join', ['', ['pre/', symbol]])
+    right = Expression('Sub', ['pre/${R}', {'R': other}])
+    for a, b in [(left, right), (right, left), (symbol, Expression('Join', ['', [other]]))]:
+        assert inputs.reference_same(a, b, 'Glue.Job', 'DefaultArguments') is not True
+
+
+def test_nested_split_select_uses_sub_join_semantics(models):
+    inputs, symbol = producer(models, 'KMS.Key', {})
+    left = Expression('Select', [0, Expression('Split', ['|', Expression('Sub', ['${R}/a|b', {'R': symbol}])])])
+    right = Expression('Select', [0, Expression('Split', ['|', Expression('Join', ['', [symbol, '/a|b']])])])
+    assert inputs.reference_same(left, right, 'Glue.Job', 'DefaultArguments') is True
+    assert inputs.reference_same(right, left, 'Glue.Job', 'DefaultArguments') is True
+    selected = Expression('Select', [1, ['unused', symbol]])
+    assert inputs.reference_same(selected, symbol, 'Glue.Job', 'DefaultArguments') is True
+    assert inputs.reference_same(symbol, selected, 'Glue.Job', 'DefaultArguments') is True
+
+
+def test_multiple_references_preserve_order_attribute_and_affixes(models):
+    inputs, symbol = producer(models, 'KMS.Key', {})
+    other = ResourceReference(dict(symbol, **{'$attribute': 'KeyId'}))
+    left = Expression('Sub', ['${A}/${B}', {'A': symbol, 'B': other}])
+    right = Expression('Join', ['/', [symbol, other]])
+    assert inputs.reference_same(left, right, 'Glue.Job', 'DefaultArguments') is True
+    for changed in (Expression('Join', ['/', [other, symbol]]), Expression('Join', [':', [symbol, other]])):
+        assert inputs.reference_same(left, changed, 'Glue.Job', 'DefaultArguments') is not True
+        assert inputs.reference_same(changed, left, 'Glue.Job', 'DefaultArguments') is not True
+
+
+
+GENERATED_TYPES = [kind for kind, (fields, _, _) in ARN_SHAPES.items()
+    if any('/properties/' + field.replace('.', '/') in DesignSchemaCatalog(FRAMEWORK).schema(kind).get('readOnlyProperties', ())
+        for field in (fields if isinstance(fields, dict) else [fields]))]
+
+
+@pytest.mark.parametrize('kind', GENERATED_TYPES)
+def test_generated_arn_identity_is_symbolic_and_template_ids_are_not_evidence(models, kind):
+    fields = ARN_SHAPES[kind][0]
+    properties = {field: 'forged' for field in (fields if isinstance(fields, dict) else [fields])}
+    inputs, symbol = producer(models, kind, properties)
+    Resolver(models).validate_attribute(kind, 'Arn')
+    with pytest.raises(Blocked, match='generated identifier'):
+        inputs.reference_literal(symbol)
+    sub = inputs.evaluate('producer', {'Fn::Sub': ['${R}/suffix', {'R': symbol}]})
+    join = inputs.evaluate('producer', {'Fn::Join': ['', [symbol, '/suffix']]})
+    for left, right in [(sub, join), (join, sub), (symbol, copy.deepcopy(symbol))]:
+        assert inputs.reference_same(left, right, 'Glue.Job', 'DefaultArguments') is True
+    assert inputs.reference_same(sub, 'forged/suffix', 'Glue.Job', 'DefaultArguments') is None
+    assert inputs.reference_same('forged/suffix', sub, 'Glue.Job', 'DefaultArguments') is None
+    if not getatt_attribute(kind, symbol['$attribute'], inputs.catalog.schema(kind)):
+        with pytest.raises(Blocked, match='GetAtt'):
+            inputs.evaluate('producer', {'Fn::GetAtt': ['Resource001', symbol['$attribute']]})
+
+
+@pytest.mark.parametrize('kind', [kind for kind, attribute in REF_ATTRIBUTES.items() if attribute == 'Ref'])
+def test_opaque_ref_keeps_its_full_return_identity(models, kind):
+    inputs, _ = producer(models, kind, {'Ref': 'forged'})
+    actual = inputs.evaluate('producer', {'Ref': 'Resource001'})
+    assert actual['$attribute'] == 'Ref'
+    Resolver(models).validate_attribute(kind, 'Ref')
+    assert inputs.reference_same(actual, copy.deepcopy(actual), 'Glue.Job', 'DefaultArguments') is True
+    assert inputs.reference_same(actual, 'forged', 'Glue.Job', 'DefaultArguments') is None
+    with pytest.raises(Blocked, match='GetAtt'):
+        inputs.evaluate('producer', {'Fn::GetAtt': ['Resource001', 'Ref']})
+    component = ResourceReference(dict(actual, **{'$attribute': 'Id'}))
+    assert inputs.reference_same(actual, component, 'Glue.Job', 'DefaultArguments') is not True
+
+
+def test_evaluated_names_keep_producer_identity_in_sub_and_join(models):
+    inputs, _ = producer(models, 'Glue.Job', {'Name': 'fixture'})
+    inputs.resources['producer']['002'] = dict(inputs.resources['producer']['001'],
+        logicalId='Glue_Job_002', **{'cfn-logicalId': 'producer-Other'})
+    inputs.index()['producer', 'Other'] = [(path, '002', inputs.resources['producer']['002'], values)
+        for path, _, _, values in inputs.index()['producer', 'Resource001']]
+    inputs.stack_inputs['producer'][0]['Resources']['Other'] = {'Type': 'AWS::Glue::Job', 'Properties': {'Name': 'fixture'}}
+    left = inputs.evaluate('producer', {'Fn::Sub': 'pre/${Resource001}'})
+    right = inputs.evaluate('producer', {'Fn::Join': ['', ['pre/', {'Ref': 'Other'}]]})
+    assert isinstance(left, Expression) and isinstance(right, Expression)
+    assert inputs.reference_same(left, right, 'Glue.Job', 'DefaultArguments') is not True
+    assert inputs.reference_same(right, left, 'Glue.Job', 'DefaultArguments') is not True
+
+
+@pytest.mark.parametrize('kind,path', [('Logs.LogGroup', 'KmsKeyId'), ('CodePipeline.Pipeline', 'ArtifactStore.EncryptionKey.Id')])
+def test_kms_alias_forms_and_expressions_are_symmetric(models, kind, path):
+    inputs, symbol = producer(models, 'KMS.Alias', {'AliasName': 'alias/fixture'})
+    literal = CONTEXT.format(service='kms', tail='alias/fixture')
+    forms = [symbol, Expression('Sub', ['${A}', {'A': symbol}]), Expression('Join', ['', [symbol]]), literal]
+    for left in forms:
+        for right in forms:
+            result = inputs.reference_same(left, right, kind, path)
+            assert result is True, (left, right, result)
+    invalid = Expression('Join', ['', ['not-an-arn/', symbol]])
+    assert inputs.reference_same(invalid, copy.deepcopy(invalid), kind, path) is not True
+
+
+
+@pytest.mark.parametrize('operation', ['Sub', 'Join'])
+def test_kms_generated_key_arn_compares_by_identity_in_allowed_forms(models, operation):
+    inputs, symbol = producer(models, 'KMS.Key', {})
+    expression = Expression(operation, ['${R}', {'R': symbol}] if operation == 'Sub' else ['', [symbol]])
+    for left, right in [(symbol, expression), (expression, symbol), (expression, copy.deepcopy(expression))]:
+        assert inputs.reference_same(left, right, 'Logs.LogGroup', 'KmsKeyId') is True
+    invalid = Expression('Join', ['', ['prefix/', symbol]])
+    assert inputs.reference_same(invalid, copy.deepcopy(invalid), 'Logs.LogGroup', 'KmsKeyId') is None
+
+
+
+
+def test_same_producer_different_attributes_cannot_be_proven_by_equal_template_fields(models):
+    inputs, base = producer(models, 'EC2.Subnet', {'AvailabilityZone': 'fixture', 'AvailabilityZoneId': 'fixture'})
+    left = ResourceReference(dict(base, **{'$attribute': 'AvailabilityZone'}))
+    right = ResourceReference(dict(base, **{'$attribute': 'AvailabilityZoneId'}))
+    a, b = Expression('Join', ['', [left]]), Expression('Sub', ['${R}', {'R': right}])
+    assert inputs.reference_same(a, b, 'Glue.Job', 'DefaultArguments') is not True
+    assert inputs.reference_same(b, a, 'Glue.Job', 'DefaultArguments') is not True
 
 
 if __name__ == '__main__':

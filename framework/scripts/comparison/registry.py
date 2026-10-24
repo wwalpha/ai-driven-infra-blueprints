@@ -6,6 +6,7 @@ import utils.cloudformation.inputs as _imports_cfn_inputs
 from utils.reference_contracts import ARN_DEFAULTS, ARN_SHAPES, REF_ATTRIBUTES
 
 from .services import (
+    apigateway,
     athena,
     cloudtrail,
     cloudwatch_logs,
@@ -15,6 +16,7 @@ from .services import (
     glue,
     iam,
     kms,
+    network_firewall,
     quicksight,
     s3,
     secrets_manager,
@@ -23,6 +25,7 @@ from .services import (
 )
 
 SERVICES = {
+    'ApiGateway.DomainName': apigateway,
     'S3.Bucket': s3,
     'Logs.LogGroup': cloudwatch_logs,
     'KMS.Key': kms,
@@ -54,6 +57,7 @@ SERVICES = {
     'QuickSight.Group': quicksight,
     'QuickSight.DataSource': quicksight,
     'Events.Rule': events,
+    'NetworkFirewall.RuleGroup': network_firewall,
 }
 
 
@@ -83,35 +87,51 @@ def kms_format(value, resources):
     return kms.kms_format(value, resources)
 
 
-def named_arn(kind, properties, pseudo, *, evaluate):
+def context_value(pseudo, group):
+    field, pattern = {'partition': ('Partition', r'aws(?:-[a-z]+)*'),
+                      'region': ('Region', r'[a-z]{2}(?:-[a-z]+)+-\d+'),
+                      'account': ('AccountId', r'[0-9]{12}')}[group]
+    value = pseudo.get('AWS::' + field)
+    if not isinstance(value, str) or re.fullmatch(pattern, value) is None:
+        raise _imports_cfn_inputs.Blocked('reference requires a confirmed ' + field)
+    return value
+
+
+def named_arn(kind, properties, pseudo, *, evaluate, schema, recorded=None):
     """Concretize a proven Producer using the shared ARN identity contract."""
     Blocked = _imports_cfn_inputs.Blocked
     identifier, template, patterns = ARN_SHAPES[kind]
     fields = identifier if isinstance(identifier, dict) else {identifier: 'id'}
+    generated = [field for field in fields if any(
+        ('/properties/' + field.replace('.', '/')).startswith(pointer.rstrip('/') + '/') or
+        '/properties/' + field.replace('.', '/') == pointer for pointer in schema.get('readOnlyProperties', ()))]
+    if generated:
+        if recorded is None:
+            raise Blocked('ARN requires a proven generated identifier: ' + ', '.join(generated))
     components = {}
     for field, group in fields.items():
-        explicit = properties
-        for token in field.split('.'):
-            explicit = explicit.get(token, ARN_DEFAULTS.get((kind, field))) if isinstance(explicit, dict) else None
-        explicit = evaluate(explicit)
+        if field in generated:
+            explicit = recorded(field)
+        else:
+            explicit = properties
+            for token in field.split('.'):
+                explicit = explicit.get(token, ARN_DEFAULTS.get((kind, field))) if isinstance(explicit, dict) else None
+            explicit = evaluate(explicit)
         if (not isinstance(explicit, str) or explicit in {'UNSET', 'PENDING_DEPLOY', 'TBD', 'TODO', '未確定'}
                 or re.fullmatch(patterns[group], explicit) is None
                 or any(token in explicit for token in ('*', '?', '${', '{{resolve:'))):
-            raise Blocked('ARN requires a valid explicit resource ' + field)
+            raise Blocked(('attribute_format_unproven: recorded ARN identifier format: ' if field in generated else
+                           'ARN requires a valid explicit resource ') + field)
         components[group] = explicit
     provider = hook(kind, 'arn_components')
     if provider:
         components.update(provider(properties, evaluate))
-    for group, field, pattern in [('partition', 'Partition', r'aws(?:-[a-z]+)*'),
-                                 ('region', 'Region', r'[a-z]{2}(?:-[a-z]+)+-\d+'),
-                                 ('account', 'AccountId', r'[0-9]{12}')]:
+    for group in ('partition', 'region', 'account'):
         if '{' + group + '}' not in template:
             continue
-        value = pseudo.get('AWS::' + field)
-        if not isinstance(value, str) or re.fullmatch(pattern, value) is None:
-            raise Blocked('ARN requires a confirmed ' + field)
+        value = context_value(pseudo, group)
         if group in components and components[group] != value:
-            raise Blocked('ARN identifier and confirmed ' + field + ' differ')
+            raise Blocked('ARN identifier and confirmed ' + group + ' differ')
         components[group] = value
     return template.format(**components)
 

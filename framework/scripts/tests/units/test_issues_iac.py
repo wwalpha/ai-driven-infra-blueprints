@@ -293,7 +293,7 @@ class ImportValueResolutionTests(unittest.TestCase):
       self.assertFalse(equal(comparison.evaluate('stack0', {'Ref': 'Repository'})))
       self.assertTrue(equal('fixture-repository'))
       self.assertFalse(equal('different-repository'))
-      self.assertEqual(comparison.evaluate('stack0', {'Fn::Sub': '${Repository.Name}'}), 'fixture-repository')
+      self.assertEqual(comparison.reference_literal(comparison.evaluate('stack0', {'Fn::Sub': '${Repository.Name}'})), 'fixture-repository')
       self.assertEqual(comparison.evaluate('stack0', {'Fn::Sub': '${Repository}'})['$attribute'], 'RepositoryId')
       for setting in [None, {'Ref': 'Unknown'}, {'Fn::GetAtt': ['Repository', 'RepositoryId']}, 42, True, ['repository'], 'PENDING_DEPLOY', '']:
         definition['Properties'] = {} if setting is None else {'RepositoryName': setting}
@@ -364,8 +364,9 @@ class ImportValueResolutionTests(unittest.TestCase):
       comparison.templates = lambda: [('001', {'name': 'producer'})]
       comparison.stack = lambda unit: (Path('producer.yaml'), comparison.stack_inputs['producer'])
       alias_value = {'Fn::Sub': ['arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}', {'Alias': {'Ref': 'Alias'}}]}
-      comparison.exports = {'key-export': [('producer', {'Fn::GetAtt': ['Key', 'Arn']})],
-                            'alias-export': [('producer', alias_value)]}
+      producer['Outputs'] = {'Key': {'Value': {'Fn::GetAtt': ['Key', 'Arn']}, 'Export': {'Name': 'key-export'}},
+                             'Alias': {'Value': alias_value, 'Export': {'Name': 'alias-export'}}}
+      comparison.exports = None
       comparison.export_failures = []
       prop = 'Environment.EnvironmentVariables[].Value'
       desired = _bind_framework_callback(_callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_desired, comparison)
@@ -521,6 +522,7 @@ class ImportValueResolutionTests(unittest.TestCase):
 
   def test_import_value_requires_a_complete_export_search(self):
     comparison = Mock()
+    comparison.stack_inputs = {'s3': ({}, {}, {'AWS::Partition': 'aws', 'AWS::Region': 'ap-northeast-1', 'AWS::AccountId': '123456789012'})}
     comparison.evaluate.side_effect = lambda stack, value, seen: (
         "KmsAppKeyAlias-p4x8r2" if isinstance(value, dict) else value
     )
@@ -611,7 +613,9 @@ def reference_comparison(root):
         'consumer': ({'Resources': {'Bucket': {'Type': 'AWS::S3::Bucket', 'Properties': {'BucketName': 'bucket-app-dev-data1'}}}}, {}, dict(pseudo))}
     comparison.templates = lambda: [(name, {'name': name}) for name in comparison.stack_inputs]
     comparison.stack = lambda unit: (Path(unit['name'] + '.yaml'), comparison.stack_inputs[unit['name']])
-    comparison.exports = {'fixture-BucketArn': [('producer', {'Fn::GetAtt': ['Bucket', 'Arn']})]}
+    comparison.stack_inputs['producer'][0]['Outputs'] = {'BucketArn': {
+        'Value': {'Fn::GetAtt': ['Bucket', 'Arn']}, 'Export': {'Name': 'fixture-BucketArn'}}}
+    comparison.exports = None
     comparison.export_failures = []
     return comparison
 
@@ -695,9 +699,9 @@ class ReferenceValueTests(unittest.TestCase):
             build = comparison.evaluate(stack, {'Fn::GetAtt': ['Build', 'Arn']})
             assert comparison.reference_same(build, 'arn:aws:codebuild:ap-northeast-1:123456789012:project/fixture-build', 'IAM.Role', '') is None
             # Neither a fake Alias GetAtt nor a generated key ARN is synthesized.
-            with pytest.raises(KeyError, match='KMS.Alias.Arn'):
+            with pytest.raises(Blocked, match='unproven GetAtt return attribute: Alias.Arn'):
                 comparison.evaluate(stack, {'Fn::GetAtt': ['Alias', 'Arn']})
-            with pytest.raises((Blocked, ValueError), match='KMS ARN requires a proven KeyId'):
+            with pytest.raises((Blocked, ValueError), match='ARN requires a proven generated identifier: KeyId'):
                 comparison.reference_literal(arn)
 
 
