@@ -1,23 +1,21 @@
 """Assemble lazy inputs and atomic comparison steps; run() retains its full-scan contract."""
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeAlias
-from design_catalog import DesignSchemaCatalog
-from iac_values import Expression, ResourceReference
-from utils.type_contracts import JsonObject, JsonValue
-
-ComparisonValue: TypeAlias = JsonValue | Expression | ResourceReference | tuple[str, str] | list['ComparisonValue'] | dict[str, 'ComparisonValue']
-import re
-from dataclasses import dataclass, field
 
 from cloudformation_inputs import Blocked, condition_active
 from comparison_rows import Unresolved, put_row, select
+from design_catalog import DesignSchemaCatalog
 from design_layout import resource_mode
+from iac_values import Expression, ResourceReference
 from model.core import ReferenceResolutionError
 from utils.aws_catalogs import catalog_outputs
 from utils.layout_schema import GROUPED, HIDDEN_PROPERTIES
+from utils.type_contracts import JsonObject, JsonValue
 
 from . import evaluation, registry
 from . import resource as resource_rules
@@ -25,7 +23,6 @@ from . import rows as row_rules
 from .inputs import Inputs
 from .result import RowResult, record, setting_result
 from .values import compare_values
-
 
 ComparisonValue: TypeAlias = JsonValue | Expression | ResourceReference | tuple[str, str] | list['ComparisonValue'] | dict[str, 'ComparisonValue']
 

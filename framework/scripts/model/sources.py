@@ -32,13 +32,13 @@ from utils.json_format import json_text, strict_json
 from utils.sealed_evidence import evidence_store
 from utils.source_reads import CandidateReads as CandidateReads
 from utils.source_reads import FileReads as FileReads
+from utils.type_contracts import JsonObject
+from utils.type_contracts import JsonValue as JsonValue
 
 import model.core as _imports_model_core
 import model.importing.scope as _imports_model_importing_scope
 import model.references as _imports_model_references
 from model.format import FORMAT, INDEX, PART, Document, parse, validate_blocks
-from utils.type_contracts import JsonObject
-from utils.type_contracts import JsonValue as JsonValue
 
 if os.name == 'nt':
     import msvcrt

@@ -2,15 +2,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from utils.type_contracts import JsonObject
-from utils.type_contracts import JsonValue as JsonValue
-
 from datetime import datetime, timedelta, timezone
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
 
 import import_guard as _dependency_import_guard
+from utils.type_contracts import JsonObject
+from utils.type_contracts import JsonValue as JsonValue
 
 import model.identity as _dependency_model_identity
 import model.identity as _imports_model_identity

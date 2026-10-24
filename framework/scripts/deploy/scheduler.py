@@ -1,20 +1,19 @@
 """Ordered group control through an injected backend, without AWS transport."""
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-from typing import TypeVar
-
 import copy
 import time
 import uuid
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial as _bind_framework_callback
+from typing import TypeVar
 
 from cloudformation_inputs import Blocked
+from utils.type_contracts import JsonValue as JsonValue
 
 from deploy import failures
 from deploy.typing import Save, SchedulerBackend, Sleep, StackState, StackUnit, States
-from utils.type_contracts import JsonValue as JsonValue
 
 ReadResult = TypeVar("ReadResult")
 

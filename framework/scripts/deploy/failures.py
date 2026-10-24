@@ -1,18 +1,17 @@
 """Safe structured failure evidence; cause diagnosis belongs to the supervising LLM."""
 from __future__ import annotations
 
-from utils.type_contracts import JsonValue as JsonValue
-
-from collections.abc import Iterable
-from deploy.typing import AwsResponse, Session, StackState, StackUnit
-from deploy.typing import AwsValue as AwsValue
-from utils.type_contracts import JsonObject
 import copy
 import re
+from collections.abc import Iterable
 
 from utils.json_format import fingerprint
+from utils.type_contracts import JsonObject
+from utils.type_contracts import JsonValue as JsonValue
 
 from deploy.guards import secret_value_missing
+from deploy.typing import AwsResponse, Session, StackState, StackUnit
+from deploy.typing import AwsValue as AwsValue
 
 # A transport failure, approval wait or guard failure never becomes an IaC failure.
 AUTH_CODES = {'AccessDenied', 'AccessDeniedException', 'UnauthorizedOperation', 'ExpiredToken',
