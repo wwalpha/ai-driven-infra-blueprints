@@ -9,30 +9,56 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 
 ## Unresolved issue gate
 
-- issues/<environment>/<alias-or-account>/issues.mdの番号付きissue（1.等）は全て未解決。fileなし/空は未解決なし。修復を明示依頼され、再検証と解消根拠がある項目だけ削除する。履歴はGitに残し、一覧の削除/書換えを解消扱いしない。0件なら「未解決issueなし」を記載できる。
-- owner serviceは### service-id、issue-service comment、同targetのModel properties/詳細設計linkで特定する。AWS表示名から推測しない。owner不明、番号も0件宣言もない不正一覧はtarget全体を停止する。
-- 該当environment/target/serviceの未解決issueは通常の相談・設計/save・implement・deploy/apply・scenario・migrationの開始/継続を止める。他target/serviceは止めない。複数serviceは全てValidation scopeに明示し、一つでもblockedなら停止する。全体検証scopeと実変更targetを混同しない。Framework-only governance/catalog-maintenanceはservice taskではない。
-- read-only調査、Human明示issue修復、Model deletion例外、save-only例外は許可する。既存Task種別/設計境界/AWS権限は維持する。
-- issue調査/saveはmigration。明示service scopeのissues.md/iac-issues.mdと当TaskだけがAllowed/変更先のsave-onlyは既存issueで停止せず、独立worktree不要。実validation ERRORはFAILと報告する。iac-issues.mdは非blocking Model→IaC比較で未解決issueに数えずIssue remediationも不要。iac stateは保存/削除対象でない。他のmigration/Model/IaC/save/AWS mutationは通常gateを維持する。
-- standalone import-retargetはproducer/consumer全serviceの通常pre-task/resume/save/generation/final gateを維持する。deletion例外を継承せず、issueの変更/解消扱いは禁止。
+- Every numbered issue (such as `1.`) in `issues/<environment>/<alias-or-account>/issues.md`
+  is unresolved. A missing or empty file means there are no unresolved issues. Remove an
+  item only when the Human explicitly requests its repair and revalidation provides
+  evidence of resolution. Keep history in Git; deleting or rewriting the inventory does
+  not resolve issues. When the count is zero, the report may state `未解決issueなし`.
+- Identify the owning service from `### service-id`, an `issue-service` comment, or a
+  link to Model properties or a detailed design for the same target. Do not infer it
+  from an AWS display name. Unknown ownership or a malformed inventory with neither
+  numbered issues nor a zero-issue declaration stops work for the entire target.
+- An unresolved issue for an environment/target/service blocks the start or continuation
+  of ordinary consultation, design/save, implement, deploy/apply, scenario and migration
+  work. It does not block other targets or services. Explicitly list every affected
+  service in Validation scope and stop if any is blocked. Distinguish the overall
+  validation scope from the targets actually changed. Framework-only governance and
+  catalog-maintenance tasks are not service tasks.
+- Read-only investigation, Human-requested issue remediation, the Model deletion
+  exception and the save-only exception are permitted. Retain the existing Task type,
+  design boundaries and AWS permissions.
+- Issue investigation and saving use `migration`. A save-only task whose Allowed paths
+  and changes contain only the explicitly service-scoped `issues.md`/`iac-issues.md` and
+  its own Task is not stopped by existing issues and needs no independent worktree.
+  Report actual validation ERRORs as FAIL. `iac-issues.md` contains nonblocking
+  Model-to-IaC comparisons, does not count as unresolved issues and needs no Issue
+  remediation declaration. Do not save or delete IaC state. Other migration, Model,
+  IaC, save and AWS mutation work retains the ordinary gate.
+- Standalone `import-retarget` retains the ordinary pre-task, resume, save, generation
+  and final gates for all producer and consumer services. It does not inherit the
+  deletion exception and must not change issues or mark them resolved.
 
 ## Issue and notice classification
 
-通常Issueの読取、Human確認材料、Issue Gateは共通のMarkdown分類を使う。
-`issues-notices:<scope>:start/end` の対応範囲と、`警告（非ブロッキング）`・
-`参照警告（非ブロッキング）` セクション内は非ブロッキング。コードフェンス内の
-見出し・番号・markerは分類根拠にしない。警告内の `### service` と番号だけの
-項目は警告本文として保持する。警告外の従来のmarkerなしIssueは引き続き認識する。
+Ordinary issue reading, Human review materials and Issue Gate use the same Markdown
+classification. Matching `issues-notices:<scope>:start/end` ranges and the
+`警告（非ブロッキング）` (nonblocking warnings) and `参照警告（非ブロッキング）`
+(nonblocking reference warnings) sections are nonblocking. Headings, numbers and
+markers inside code fences do not determine classification. Keep `### service` headings
+and numbered items inside warning sections as warning content. Continue recognizing
+legacy issues without markers outside warning sections.
 
-警告後に通常Issueを置く場合は、同位以上の明示セクション境界、または
-`issue-service` marker／`issue-id` markerを持つserviceセクションで再開する。
-生成側はserviceとIssue IDを明示し、通常Issueを警告に含めない。
-対応しない・入れ子のscope marker、明示scope内部のIssue marker、service境界のない
-警告内のIssue IDは曖昧な入力として読取・保存を停止する。markerを補う際はHumanが
-意図した所有と境界を確認し、推測で通常Issueへ変換しない。
+To resume ordinary issues after a warning, use an explicit section boundary at the
+same or a higher heading level, or a service section with an `issue-service` or
+`issue-id` marker. Producers must explicitly identify the service and Issue ID and
+keep ordinary issues out of warnings. Unmatched or nested scope markers, Issue markers
+inside an explicit notice scope, and an Issue ID inside a warning without a service
+boundary are ambiguous input: stop reading and saving. Before adding markers, confirm
+the Human's intended ownership and boundaries; do not infer ordinary issues.
 
-保存時は既存の並び替えを使い、通常Issue、情報、未検証範囲、処理エラー、警告、
-参照警告の順に置く。Issue ID・ownershipと警告本文は保存・再読込で保持する。
+When saving, reuse the existing ordering: ordinary issues, information, unverified
+scope, processing errors, warnings, then reference warnings. Preserve Issue IDs,
+ownership and warning content across saving and reloading.
 
 ## Reference-only Issues
 
@@ -75,10 +101,20 @@ contracts do not grant the exception.
 
 ## Check timing
 
-save-only/Model deletionの明示例外以外は、target確定時、開始前、resume、設計save前、AWS mutation直前に最新一覧を確認する。開始前は次を実行し、複数serviceは同processに--serviceを繰り返す。旧Taskの修復例外で通常相談/実行を許可しない。修復依頼は停止原因を確認し、Human指定範囲の契約を登録して既存修復workflowへ進む。
+Except for the explicit save-only and Model deletion exceptions, check the latest
+inventory when the target is determined, before starting, on resume, before saving
+designs and immediately before AWS mutation. Before starting, run the following
+command; repeat `--service` within the same process for multiple services. A previous
+Task's remediation exception does not authorize ordinary consultation or execution.
+For a repair request, confirm the reason work stopped, register a contract limited to
+the Human-specified scope and proceed through the existing remediation workflow.
 
 ```text
 python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>
 ```
 
-Task validator、sync-model.py --write、deploy contextは共通判断を使う。AWS read-only contextは調査の認証確認だけで他task続行権限ではない。mutation直前は通常preflightに加えて同じgateを--task付きで確認し、そのTaskのIssue remediationだけ適用する。通常taskは修復例外なしで再確認する。
+The Task validator, `sync-model.py --write` and deploy context use the common decision.
+AWS read-only context only verifies authentication for investigation; it does not
+authorize continuation of another task. Immediately before mutation, run the same
+gate with `--task` in addition to ordinary preflight, applying only that Task's Issue
+remediation declaration. Recheck ordinary tasks without a remediation exception.
