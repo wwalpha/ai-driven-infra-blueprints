@@ -1659,7 +1659,7 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `integrations/compact-model-sources.checks.py:54` | 動的: `range(2)` |
 | `integrations/compact-model-sources.checks.py:95` | 3: `(('preview', 'Common'), ('release', 'Common'), ('independent', 'Independent'))` |
 | `integrations/compact-model-sources.checks.py:102` | 動的: `paths` |
-| `integrations/comparison_core.checks.py:68` | 2: `[('comparison_rows', 'iac_values', 'iac_evaluation'), ('iac_evaluation', 'iac_values', 'comparison_rows')]` |
+| `integrations/comparison_core.checks.py:68` | 2: `[('utils.comparison_rows', 'utils.iac_values', 'iac_evaluation'), ('iac_evaluation', 'utils.iac_values', 'utils.comparison_rows')]` |
 | `integrations/eventbridge-producer-name-reference.checks.py:105` | 3: `[('lambda', 'Lambda.Function', 'FunctionName'), ('sqs', 'SQS.Queue', 'QueueName'), ('iam', 'IAM.User', 'UserName')]` |
 | `integrations/glue_datazone_catalog.checks.py:29` | 2: `((glue, glue_model), (datazone, datazone_model))` |
 | `integrations/group-03-input-references.checks.py:128` | 2: `[('iam', 'IAM.InstanceProfile', 'IAM.InstanceProfile.InstanceProfileName'), ('kms', 'KMS.Key', None)]` |

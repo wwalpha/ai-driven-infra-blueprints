@@ -33,11 +33,13 @@ with patch.object(Path, 'read_text', side_effect=AssertionError('input read')), 
      patch.object(subprocess, 'Popen', side_effect=AssertionError('process')):
     for name in sys.argv[2:]:
         __import__(name)
-    import comparison_rows as rows, iac_values as values, iac_evaluation as evaluation
+    import utils.comparison_rows as rows, utils.iac_values as values, iac_evaluation as evaluation
     tree = {}
     rows.put_row(tree, 'A[].V', 1)
     assert tree == {'A': [{'V': 1}]}
     assert values.same(1, True) is False
+    assert values.Expression.__module__ == "utils.iac_values"
+    assert not {"comparison_rows", "iac_values", "script_loader", "aws_sdk_runtime", "project_targets", "reference_contracts"} & sys.modules.keys()
     def forbidden(*args): raise AssertionError('lookup on literal')
     evaluator = evaluation.Evaluation({'stack': ({}, {}, {})}, {}, forbidden, forbidden, forbidden, True)
     assert evaluator.evaluate('stack', {'Fn::Join': [',', ['a', 'b']]}) == 'a,b'
@@ -51,7 +53,7 @@ spec.loader.exec_module(alternate)
 assert alternate.Expression is inputs.Expression is values.Expression
 assert alternate.ResourceReference is inputs.ResourceReference is values.ResourceReference
 assert alternate.Blocked is inputs.Blocked is evaluation.Blocked
-from script_loader import module
+from utils.script_loader import module
 import issues.runner as scan
 from deploy import s3_delivery as delivery
 aws = module('model/adapters/aws.py', 'model.adapters.aws')
@@ -73,7 +75,7 @@ for invalid in ('missing', 'stack-lowercase', 'stack-Resource-with-hyphen'):
     else:
         raise AssertionError('invalid CFn identity accepted')
 '''
-for order in [('comparison_rows', 'iac_values', 'iac_evaluation'), ('iac_evaluation', 'iac_values', 'comparison_rows')]:
+for order in [('utils.comparison_rows', 'utils.iac_values', 'iac_evaluation'), ('iac_evaluation', 'utils.iac_values', 'utils.comparison_rows')]:
     subprocess.run([sys.executable, '-B', '-c', code, str(Path(__file__).resolve().parents[2]), *order], check=True)
 print('Comparison core checks: PASS (rows/typed values/uncertainty/masking/fresh import identity)')
 

@@ -35,7 +35,6 @@ def engine(snapshot):
     m = ModuleType('audit_comparison')
     sys.modules[m.__name__] = m
     exec(compile(snapshot['engine'], '<existing-comparator>', 'exec'), m.__dict__)
-    sys.modules['iac_values'] = m
     m._imports_iac_values = m
     m.SERVICES = tuple(snapshot['adapters'])
     adapters = {}

@@ -4,8 +4,8 @@ import json
 import posixpath as _imports_posixpath
 import re
 
-import reference_contracts as _imports_reference_contracts
 import utils.aws_catalogs as _imports_utils_aws_catalogs
+import utils.reference_contracts as _imports_reference_contracts
 
 import model.importing.scope as _imports_model_importing_scope
 import model.sources as _imports_model_sources

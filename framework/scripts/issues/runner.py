@@ -9,9 +9,9 @@ from contextlib import redirect_stdout
 
 from comparison import Comparison
 from model.core import ReferenceResolutionError
-from script_loader import module
 from task_contract_core import contract_read_scope
 from utils.input_cache import digest_files, input_scope
+from utils.script_loader import module
 from utils.source_reads import FileReads
 from validation_cache import PassCache
 

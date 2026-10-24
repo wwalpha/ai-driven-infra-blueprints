@@ -7,9 +7,9 @@ import aws_mapping as _imports_aws_mapping
 import model.importing.inventory as _imports_model_importing_inventory
 from aws_mapping import Property, registry
 from aws_mapping_catalog import project
-from comparison_rows import select
-from script_loader import module
+from utils.comparison_rows import select
 from utils.input_cache import memoized
+from utils.script_loader import module
 
 # These five design-only keys deliberately have no Catalog entry.
 MODEL_ONLY = frozenset({'EC2.VPC.Name', 'EC2.Subnet.Name', 'EC2.RouteTable.Name',

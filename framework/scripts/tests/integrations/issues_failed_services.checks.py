@@ -12,13 +12,13 @@ import tempfile
 from unittest.mock import patch
 
 from comparison.registry import SERVICES
-from iac_values import Expression, same
 from issues.aggregate import iac_actions
 from issues.records import identifier
 from support import issues_scan_fixtures as fixture
 from support.it_case_receipt import it_case
 from support.model_sources import allocate_fixture as allocate
 from support.validator import load as load
+from utils.iac_values import Expression, same
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

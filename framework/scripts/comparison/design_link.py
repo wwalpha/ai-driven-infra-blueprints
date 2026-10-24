@@ -1,10 +1,10 @@
 """Convert Model resource links under explicit receiving-property contracts."""
 import re
 
-from iac_values import ResourceReference
 from model.projection import reference_attribute
-from reference_contracts import REFERENCE_PROPERTIES
 from utils.cloudformation.inputs import Blocked
+from utils.iac_values import ResourceReference
+from utils.reference_contracts import REFERENCE_PROPERTIES
 
 from . import registry
 

@@ -134,7 +134,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/func
 共有Python環境の更新は自動実行せず、[明示的メンテナンス手順](../../../.agents/skills/worktree/SKILL.md#explicit-shared-python-maintenance)に従う。
 Formatterの全件適用はこのチェックに含めない。
 
-AWS SDKのセッション・接続・設定生成は `aws_sdk_runtime.py` に分離する。SDKを必要とする機能だけが既存の `script_loader` を通してこの実装を起動し、オフライン比較のImport時にはSDKを読み込まない。Taskの検証付き状態遷移とWorktreeのModel検証・修復実装も、標準ライブラリだけの起動処理から分離する。
+AWS SDKのセッション・接続・設定生成は `utils/aws_sdk_runtime.py` に分離する。SDKを必要とする機能だけが `utils.aws_sdk.aws_runtime()` の `importlib.import_module("utils.aws_sdk_runtime")` を通してこの実装を起動し、オフライン比較のImport時にはSDKを読み込まない。Taskの検証付き状態遷移とWorktreeのModel検証・修復実装も、標準ライブラリだけの起動処理から分離する。
 
 Modelの公開編集・描画APIとCLIコマンド実装も機能モジュールに分離し、読取APIとヘルプ表示では編集・描画実装を初期化しない。Resource構成比較は公開処理に依存しない `model/configuration.py` が共通所有する。
 

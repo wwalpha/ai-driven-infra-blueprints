@@ -161,7 +161,7 @@ def check_deploy_scope_isolation(tmp_path):
     scope_check = root / 'scope.checks.py'
     scope_check.write_text('assert True\n')
     child = (f"import sys; sys.path.insert(0, {str(SCRIPT.parent)!r}); "
-             "from validation import loop; from script_loader import module; "
+             "from validation import loop; from utils.script_loader import module; "
              f"loop.select_checks = lambda *a, **k: ([__import__('pathlib').Path({str(scope_check)!r})], 'scope fixture'); "
              "cli = module('blueprint-loop.py', 'scope_loop_cli'); raise SystemExit(cli.main())")
 

@@ -11,14 +11,14 @@ import sys
 from pathlib import Path
 
 from issue_gate import require_target_no_issues
-from project_targets import DeployContextError as DeployContextError
-from project_targets import load_target as load_target
 from utils.aws.identity import (
     IdentityError,
     execution_account,
     select_profile,
     verify_account,
 )
+from utils.project_targets import DeployContextError as DeployContextError
+from utils.project_targets import load_target as load_target
 
 
 def check_deploy_context(

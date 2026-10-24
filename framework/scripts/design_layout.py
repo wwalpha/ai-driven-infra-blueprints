@@ -21,8 +21,6 @@ import utils.aws_mappings as _imports_utils_aws_mappings
 from design_catalog import design_material_files
 from ec2_display import ec2_formal_rows
 from model.core import ReferenceResolutionError, literal, positive_integer
-from reference_contracts import LINKED_LIST_PROPERTIES as LINKED_LIST_PROPERTIES
-from reference_contracts import SUBNET_LIST_PROPERTIES as SUBNET_LIST_PROPERTIES
 from utils.aws_catalogs import catalogs_for
 from utils.input_cache import input_scope as input_scope
 from utils.input_cache import input_text, memoized
@@ -68,6 +66,8 @@ from utils.layout_schema import STACK_DESIGN as STACK_DESIGN
 from utils.layout_schema import STACK_HEADER as STACK_HEADER
 from utils.layout_schema import SUBNET_LIST_SOURCE as SUBNET_LIST_SOURCE
 from utils.layout_schema import resource_anchor as resource_anchor
+from utils.reference_contracts import LINKED_LIST_PROPERTIES as LINKED_LIST_PROPERTIES
+from utils.reference_contracts import SUBNET_LIST_PROPERTIES as SUBNET_LIST_PROPERTIES
 
 
 def is_service_role_reference(prop: str, value: str) -> bool:

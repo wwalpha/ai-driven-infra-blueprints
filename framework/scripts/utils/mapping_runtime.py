@@ -1,8 +1,7 @@
 """Executable Mapping parsing, independent of design/catalog validation imports."""
 
-from script_loader import module
-
 import utils.mapping_types as _imports_aws_mapping
+from utils.script_loader import module
 
 
 def runtime_properties(root, service, document):

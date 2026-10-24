@@ -11,7 +11,6 @@ import utils.cloudformation.format as _imports_cfn_format
 from design_catalog import DesignSchemaCatalog
 from design_layout import resource_mode
 from iac_evaluation import RETURN_ATTRIBUTE_PROPERTIES
-from iac_values import Expression, ResourceReference, cfn_resource_identity, same
 from model.adapters.observed import mapped_resource, resource_index
 from model.core import ReferenceResolutionError, entries, stack_model
 from model.files import load_model, resource_row_index
@@ -19,8 +18,6 @@ from model.identity import anchor_index, parse_reference, select_anchor
 from model.projection import reference_attribute
 from model.sources import _invocation_reads, model_exists, model_paths
 from policy_tables import literal
-from project_targets import load_target_directory as load_target
-from reference_contracts import REFERENCE_PROPERTIES
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_sdk import aws_runtime
 from utils.cloudformation.inputs import (
@@ -28,7 +25,10 @@ from utils.cloudformation.inputs import (
     condition_active,
     load_template_inputs,
 )
+from utils.iac_values import Expression, ResourceReference, cfn_resource_identity, same
 from utils.json_format import policy_json as strict_json
+from utils.project_targets import load_target_directory as load_target
+from utils.reference_contracts import REFERENCE_PROPERTIES
 
 from . import (
     design_link,

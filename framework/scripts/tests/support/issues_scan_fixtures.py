@@ -27,7 +27,6 @@ import sync_files as _imports_sync_files
 from comparison import Comparison
 from comparison.result import identifier, value_differences
 from design_layout import resource_name_fields
-from iac_values import same, selected_same, strict_json
 from issue_gate import issue_errors
 from issues.aggregate import aggregate, iac_dataset, iac_summary
 from issues.artifact import detail_payload, review_payload, summary
@@ -41,12 +40,13 @@ from model.files import load_model, model_file_contents, read_model, resource_ro
 from model.render import markdown_for
 from model.sources import model_parts
 from model.validation import naming_target_matches, naming_targets
-from script_loader import module
 from support.model_sources import snapshot_model, write_fixture_files, write_model
 from support.pytest_cli import run
 from task_contract import refresh
 from task_contract_core import SELECTOR, status
+from utils.iac_values import same, selected_same, strict_json
 from utils.input_cache import input_scope
+from utils.script_loader import module
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -247,7 +247,7 @@ def summary_fixture():
 @pytest.fixture(scope="module", autouse=True)
 def protected_sources():
     protected = [ROOT / 'framework/scripts' / name for name in
-                 ('comparison/runner.py', 'issue_gate.py', 'comparison_rows.py', 'iac_values.py', 'iac_evaluation.py', 'script_loader.py', 'model/render.py', 'policy_tables.py')]
+                 ('comparison/runner.py', 'issue_gate.py', 'utils/comparison_rows.py', 'utils/iac_values.py', 'iac_evaluation.py', 'utils/script_loader.py', 'model/render.py', 'policy_tables.py')]
     protected.extend((ROOT / 'framework/scripts/issues').glob('*.py'))
     protected.extend((ROOT / 'framework/scripts/comparison').rglob('*.py'))
     protected.append(ROOT / 'framework/scripts/utils/cfn_lint.py')

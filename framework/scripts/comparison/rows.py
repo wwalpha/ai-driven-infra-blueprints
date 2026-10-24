@@ -3,7 +3,7 @@
 import re
 
 import policy_tables as _imports_policy_tables
-from comparison_rows import Unresolved, put_row
+from utils.comparison_rows import Unresolved, put_row
 
 
 def grouped_rows(resource, rows):

@@ -1,9 +1,9 @@
 """Deploy runtime target/authentication checks, independent of read-only context CLIs."""
 from issue_gate import require_target_no_issues
-from project_targets import load_target
 from utils.aws.client import connection_context
 from utils.aws.identity import execution_account, select_profile, verify_account
 from utils.aws.sts import get_caller_identity
+from utils.project_targets import load_target
 
 
 def check_deploy_context(root, environment, account_id=None, alias=None, profile=None):

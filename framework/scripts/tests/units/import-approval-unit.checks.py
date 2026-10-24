@@ -19,9 +19,9 @@ from model.importing import approval
 from model.importing import cli as m
 from model.operations import operation_values
 from model.sources import load_model
-from script_loader import module as module
 from support.model_v2_fixtures import value_snapshot as Expansion
 from utils.json_format import document_sha256
+from utils.script_loader import module as module
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

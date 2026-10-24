@@ -2,9 +2,8 @@
 
 import os
 from functools import partial as _bind_framework_callback
+from importlib import import_module
 from threading import Lock
-
-from script_loader import module
 
 import utils.aws_mappings as _imports_utils_aws_mappings
 from utils.lazy_definitions import load_once
@@ -54,4 +53,4 @@ def sdk_for(root):
 
 def aws_runtime():
     """Activate the optional SDK integration at the capability boundary."""
-    return module("aws_sdk_runtime.py", "aws_sdk_runtime")
+    return import_module("utils.aws_sdk_runtime")

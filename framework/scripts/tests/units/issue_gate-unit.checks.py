@@ -15,7 +15,6 @@ import pytest
 import sync_runtime
 import task_contract as tasks
 from issues.publication import save
-from script_loader import module
 from support.import_model_fixtures import operation_contract
 from support.issue_gate_fixtures import (
     Path,
@@ -26,6 +25,7 @@ from support.issue_gate_fixtures import (
     subprocess,
     sys,
 )
+from utils.script_loader import module
 from validation.findings import Findings
 from validation.task import TaskValidation
 from validation_scope import active_scope

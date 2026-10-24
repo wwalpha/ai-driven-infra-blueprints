@@ -15,7 +15,6 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
-from iac_values import safe_value
 from issues.aggregate import aggregate
 from issues.aggregate import aggregate as real_aggregate
 from issues.artifact import detail_payload, scan_exit_code, summary, validate_artifact
@@ -36,6 +35,7 @@ from utils.cfn_lint import (
     verify_dependencies,
 )
 from utils.cfn_lint_worker import child
+from utils.iac_values import safe_value
 from utils.input_cache import input_recorder, recording_inputs
 from validation.runner import Validator
 

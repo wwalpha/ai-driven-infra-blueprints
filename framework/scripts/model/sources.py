@@ -20,7 +20,6 @@ import sync_files
 import task_contract_core as _imports_task_contract
 import task_contract_core as task_contract
 import utils.json_format as _imports_utils_json_format
-from project_targets import DeployContextError, select_target
 from sync_progress import phase, thread_lock
 from utils.file_operations import atomic_replace_file
 from utils.input_cache import (
@@ -30,6 +29,7 @@ from utils.input_cache import (
 )
 from utils.json_format import exact as exact
 from utils.json_format import json_text, strict_json
+from utils.project_targets import DeployContextError, select_target
 from utils.sealed_evidence import evidence_store
 from utils.source_reads import CandidateReads as CandidateReads
 from utils.source_reads import FileReads as FileReads

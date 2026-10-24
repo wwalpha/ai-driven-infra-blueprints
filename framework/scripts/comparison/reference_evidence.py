@@ -2,18 +2,18 @@
 import re
 
 from design_layout import resource_mode
-from iac_values import Expression, ResourceReference, cfn_resource_identity, same
 from model.adapters.observed import identifier_source
 from model.format import REFERENCE_NAME_SUFFIXES
 from model.projection import reference_attribute
 from policy_tables import literal
-from reference_contracts import (
+from utils.aws_catalogs import catalog_outputs
+from utils.cloudformation.inputs import Blocked
+from utils.iac_values import Expression, ResourceReference, cfn_resource_identity, same
+from utils.reference_contracts import (
     ARN_FORMS,
     ARN_SHAPES,
     REFERENCE_PROPERTIES,
 )
-from utils.aws_catalogs import catalog_outputs
-from utils.cloudformation.inputs import Blocked
 
 from . import expressions, registry
 from .references import ReferenceDecision, reference_same

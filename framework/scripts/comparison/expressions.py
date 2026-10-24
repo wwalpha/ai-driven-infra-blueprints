@@ -1,8 +1,8 @@
 """Resolve evaluated string expressions without discarding literal affixes."""
 import re
 
-from iac_values import Expression, ResourceReference
 from utils.cloudformation.inputs import Blocked
+from utils.iac_values import Expression, ResourceReference
 
 
 def string(value, resolve):

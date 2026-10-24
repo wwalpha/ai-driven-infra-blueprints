@@ -20,9 +20,9 @@ from unittest.mock import patch
 import pytest
 import task_contract as tasks
 from model.files import read_model
-from script_loader import module
 from support.model_sources import snapshot_model, write_fixture_files, write_model
 from support.pytest_cli import run
+from utils.script_loader import module
 from validation import loop as MODULE
 
 if not __debug__:
@@ -54,7 +54,7 @@ from pathlib import Path
 from types import SimpleNamespace
 sys.path.insert(0, {str(SCRIPT.parent)!r})
 from validation import loop, runner
-from script_loader import module
+from utils.script_loader import module
 cli = module('blueprint-loop.py', 'fixture_loop_cli')
 root = Path.cwd().resolve()
 original_changed = loop.framework_changed

@@ -10,12 +10,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
+import importlib
 import importlib.util
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from unittest.mock import patch
 
-import script_loader
+from utils import script_loader
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -42,6 +43,15 @@ def _callback_main_Loader_exec_module(self, release, started, /, loaded):
 
 
 def main():
+    assert script_loader.SCRIPTS_ROOT == Path(__file__).resolve().parents[2]
+    model_core = importlib.import_module('model.core')
+    assert script_loader.module('model/core.py', 'model.core') is model_core
+    try:
+        script_loader.module('core.py', 'model.core')
+    except ValueError as error:
+        assert 'canonical path' in str(error)
+    else:
+        raise AssertionError('noncanonical Model path accepted')
     started, release, entered, returned = (Event() for _ in range(4))
     name = '_script_loader_concurrent_fixture'
 
@@ -65,7 +75,7 @@ def main():
             finally:
                 release.set()
             assert first.result(timeout=5) is waiting.result(timeout=5)
-            assert locate.call_count == 1
+            locate.assert_called_once_with(name, script_loader.SCRIPTS_ROOT / "fixture.py")
     finally:
         sys.modules.pop(name, None)
     print('Script loader: PASS (concurrent initialization, complete module, shared identity)')

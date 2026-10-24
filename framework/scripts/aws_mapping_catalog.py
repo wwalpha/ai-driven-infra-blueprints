@@ -13,9 +13,9 @@ import utils.aws_schemas as _imports_utils_aws_schemas
 import utils.aws_sdk as _imports_utils_aws_sdk
 import utils.mapping_runtime as _mapping_runtime
 from design_catalog import DesignSchemaCatalog as DesignSchemaCatalog
-from script_loader import module
 from utils.aws_sdk import aws_runtime
 from utils.json_format import exact
+from utils.script_loader import module
 
 # Existing fetch code explicitly copies these inputs into its projected response.
 INPUT_SOURCES = {

@@ -13,7 +13,6 @@ import pytest
 from aws_mapping_display import selected_rows
 from comparison.values import desired_value
 from design_catalog import DesignSchemaCatalog
-from iac_values import same
 from model.core import literal
 from model.display import sg_tables
 from security_group_tables import cells
@@ -30,6 +29,7 @@ from support.security_group_tables_fixtures import (
     security_group_table_lines,
     sys,
 )
+from utils.iac_values import same
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

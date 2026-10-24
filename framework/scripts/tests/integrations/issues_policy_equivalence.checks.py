@@ -14,11 +14,11 @@ import tempfile
 from copy import deepcopy
 from unittest.mock import patch
 
-from iac_values import Expression, same, selected_same
 from issues.records import identifier
 from support import issues_scan_fixtures as fixtures
 from support.it_case_receipt import it_case
 from support.validator import load as load
+from utils.iac_values import Expression, same, selected_same
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

@@ -63,7 +63,6 @@ from model.operations import (
 )
 from model.references import Reference, incoming, symbolic, usages
 from model.sources import Scope, candidate_sources, load_model
-from script_loader import module as module
 from support.import_model_fixtures import (
     ACCOUNT,
     SERVICES,
@@ -88,6 +87,7 @@ from task_contract_core import model_operation, model_refactor, selected_task
 from utils import sealed_evidence
 from utils.input_cache import input_context
 from utils.json_format import document_sha256
+from utils.script_loader import module as module
 from utils.source_reads import FileReads
 from utils.yaml_format import yaml_read as yaml_read
 

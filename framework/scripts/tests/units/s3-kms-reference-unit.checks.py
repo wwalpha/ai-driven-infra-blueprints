@@ -21,9 +21,9 @@ from model.projection import reference_display
 from model.references import incoming
 from model.render import generate_markdown
 from model.sources import Scope, load_model
-from reference_contracts import S3_KMS_MASTER_KEY_ID as PROP
 from support.model_sources import catalog_display, write_model
 from sync_runtime import _compare_generation
+from utils.reference_contracts import S3_KMS_MASTER_KEY_ID as PROP
 from utils.source_reads import FileReads
 from validation.design_links import check_design_links as validate_links
 from validation.design_tables import check_design_tables as validate_tables

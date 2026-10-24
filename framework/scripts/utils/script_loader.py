@@ -5,19 +5,21 @@ import sys
 from pathlib import Path
 from threading import RLock
 
+SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+
 _lock = RLock()
 
 
 def module(filename, name):
     with _lock:
         if name.startswith('model.'):
-            expected = Path(__file__).parent / filename
-            canonical = Path(__file__).parent.joinpath(*name.split('.')).with_suffix('.py')
+            expected = SCRIPTS_ROOT / filename
+            canonical = SCRIPTS_ROOT.joinpath(*name.split('.')).with_suffix('.py')
             if expected != canonical:
                 raise ValueError('package module requires its canonical path: ' + name)
             return importlib.import_module(name)
         if name not in sys.modules:
-            spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(filename))
+            spec = importlib.util.spec_from_file_location(name, SCRIPTS_ROOT / filename)
             loaded = importlib.util.module_from_spec(spec)
             sys.modules[name] = loaded
             spec.loader.exec_module(loaded)

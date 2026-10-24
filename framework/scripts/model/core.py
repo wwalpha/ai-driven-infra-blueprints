@@ -5,7 +5,7 @@ import re
 import sys
 from pathlib import Path
 
-from iac_values import cfn_resource_identity
+from utils.iac_values import cfn_resource_identity
 from utils.input_cache import memo_table
 from utils.json_format import document_sha256, strict_json
 

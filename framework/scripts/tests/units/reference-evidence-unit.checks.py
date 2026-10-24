@@ -14,18 +14,18 @@ from comparison.reference_evidence import Evidence
 from comparison.resource import inline_owner
 from comparison.services.iam import managed_policy_roles
 from comparison.values import PreparedValue, compare_values
-from comparison_rows import put_row
 from design_catalog import DesignSchemaCatalog
-from iac_values import (
+from issues.materials import naming_materials
+from model.references import declarations
+from model.sources import ModelSnapshot, Scope
+from utils.cloudformation.inputs import Blocked
+from utils.comparison_rows import put_row
+from utils.iac_values import (
     Expression,
     ResourceReference,
     same,
     unordered_same,
 )
-from issues.materials import naming_materials
-from model.references import declarations
-from model.sources import ModelSnapshot, Scope
-from utils.cloudformation.inputs import Blocked
 from utils.source_reads import FileReads
 
 if not __debug__:

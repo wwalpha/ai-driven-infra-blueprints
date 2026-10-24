@@ -8,8 +8,8 @@ from pathlib import Path
 if __name__ == '__main__' and not __package__:
     sys.path[0] = str(Path(__file__).resolve().parents[1])
 
-from script_loader import module
 from utils.input_cache import input_scope
+from utils.script_loader import module
 
 
 @input_scope

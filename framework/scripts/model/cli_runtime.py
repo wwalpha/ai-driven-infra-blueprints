@@ -5,8 +5,8 @@ import sys
 from dataclasses import asdict
 
 import task_contract_core as _imports_task_contract
-from script_loader import module
 from task_contract_core import model_operation, selected_task, task_path
+from utils.script_loader import module
 
 from model import prepare_edit, publish_edit, render_model
 from model.files import find_model, read_resource, trace_model

@@ -25,7 +25,6 @@ from design_catalog import property_paths_with_parents
 from model.format import serialize
 from model.identity import COUNTERS
 from model.sources import runtime_values
-from script_loader import module
 from support.pytest_cli import run
 from support.validator import load
 from sync_files import changed_files, markdown_newlines
@@ -37,6 +36,7 @@ from utils.input_cache import (
     memo_table,
     recording_inputs,
 )
+from utils.script_loader import module
 from validation.findings import CheckResult, Findings
 from validation.task import TaskValidation
 from validation_cache import PassCache

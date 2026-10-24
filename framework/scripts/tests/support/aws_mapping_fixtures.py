@@ -22,9 +22,9 @@ from model.display import display_rows
 from model.files import load_model
 from model.projection import resource_rows
 from model.render import resource_table_lines
-from script_loader import module
 from support.model_sources import write_model
 from utils.input_cache import input_scope
+from utils.script_loader import module
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

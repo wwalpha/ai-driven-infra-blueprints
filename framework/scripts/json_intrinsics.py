@@ -4,9 +4,9 @@ import json as _imports_json
 from functools import partial as _bind_framework_callback
 
 import iac_evaluation as _imports_iac_evaluation
-from iac_values import Expression
 from utils.cloudformation.format import JSON_INTRINSICS, intrinsic_shape_error
 from utils.cloudformation.inputs import Blocked
+from utils.iac_values import Expression
 from utils.json_format import AwsDocumentError, policy_json, validate_aws_document
 
 

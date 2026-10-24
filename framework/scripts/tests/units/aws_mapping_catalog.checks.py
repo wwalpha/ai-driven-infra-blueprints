@@ -15,6 +15,7 @@ import copy
 import socket
 from collections import Counter
 from dataclasses import replace
+from importlib import import_module
 from unittest.mock import patch
 
 import aws_mapping_catalog as catalog
@@ -24,10 +25,10 @@ from aws_mapping_catalog import catalog_properties, project
 from aws_mapping_display import MODEL_ONLY, display_name, formal_name
 from botocore.session import get_session
 from design_catalog import design_material_files
-from script_loader import module
 from utils.aws_mappings import owners
-from utils.aws_sdk import Sdk
+from utils.aws_sdk import Sdk, aws_runtime
 from utils.input_cache import input_scope
+from utils.script_loader import module
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -108,6 +109,8 @@ def _callback_initialization_checks_reuse(_state_initialization_checks_88, docum
 
 
 def initialization_checks():
+    assert aws_runtime() is aws_runtime() is import_module('utils.aws_sdk_runtime')
+    assert 'aws_sdk_runtime' not in sys.modules
 
     _state_initialization_checks_88 = _CallbackState()
     adapter = yaml.safe_load((ROOT / 'framework/mappings/aws/config.yaml').read_text(encoding='utf-8'))

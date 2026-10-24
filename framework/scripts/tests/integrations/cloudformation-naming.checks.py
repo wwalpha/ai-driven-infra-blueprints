@@ -14,12 +14,12 @@ from unittest.mock import patch
 from model.core import entries, literal
 from model.files import load_model
 from model.sources import model_paths
-from project_targets import load_target_directory as load_target
 from support.it_case_receipt import it_case
 from support.model_sources import write_model
 from utils.cloudformation.format import decode_file as decode
 from utils.cloudformation.inputs import checked_parameters, resolve_value
 from utils.input_cache import input_scope
+from utils.project_targets import load_target_directory as load_target
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

@@ -3,9 +3,9 @@
 import re
 from functools import partial as _bind_framework_callback
 
-from iac_values import cfn_resource_identity
 from utils.cloudformation.inputs import Blocked as Blocked
 from utils.cloudformation.inputs import output_value, resolve_value
+from utils.iac_values import cfn_resource_identity
 from utils.layout_schema import GROUPED
 
 

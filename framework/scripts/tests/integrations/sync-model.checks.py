@@ -44,7 +44,6 @@ from import_guard import snapshots
 from model.files import load_model, read_model
 from model.format import FORMAT, INDEX, serialize
 from model.sources import json_text
-from script_loader import module
 from support.model_sources import allocate_fixture as allocate
 from support.model_sources import write_model as write_model
 from support.model_templates_fixtures import config_model, fixture, write_fixture
@@ -54,6 +53,7 @@ from support.validator import diagnostics, load
 from utils.aws_mappings import definition_root, mapping_alias, mappings_for
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import input_scope, memo_table
+from utils.script_loader import module
 from validation import cloudformation, design_links, design_tables
 from validation import design as design_checks
 from validation.findings import Findings

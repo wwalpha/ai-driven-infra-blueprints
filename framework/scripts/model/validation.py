@@ -11,7 +11,6 @@ from types import SimpleNamespace as _CallbackState
 import aws_mapping_display as _imports_aws_mapping_display
 import design_layout as _dependency_design_layout
 import design_layout as _imports_design_layout
-import iac_values
 import json_intrinsics as _imports_json_intrinsics
 import policy_tables as _dependency_policy_tables
 import utils.aws_catalogs as _compat_utils_aws_catalogs
@@ -22,6 +21,7 @@ from design_catalog import (
     property_paths_with_parents,
     selected_properties,
 )
+from utils import iac_values
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_is_file, memoized
 from utils.input_cache import input_scope as input_scope

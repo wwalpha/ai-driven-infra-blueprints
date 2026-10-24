@@ -4,13 +4,13 @@ import re
 from dataclasses import dataclass
 from functools import partial as _bind_framework_callback
 
-from iac_values import Expression, ResourceReference, same
 from model.projection import reference_attribute
-from reference_contracts import (
+from utils.cloudformation.inputs import Blocked
+from utils.iac_values import Expression, ResourceReference, same
+from utils.reference_contracts import (
     REFERENCE_FORMS,
     REFERENCE_PROPERTIES,
 )
-from utils.cloudformation.inputs import Blocked
 
 from . import registry
 

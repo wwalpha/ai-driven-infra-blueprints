@@ -12,10 +12,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import model.sources as _imports_model_sources
-import project_targets as _imports_project_targets
 import task_contract_core as _imports_task_contract
 import utils.aws_mappings as _imports_utils_aws_mappings
 import utils.cloudformation.inputs as _imports_cfn_inputs
+import utils.project_targets as _imports_project_targets
 from task_contract_core import (
     safe_path,
     task_snapshot,

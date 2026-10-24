@@ -25,9 +25,8 @@ from types import SimpleNamespace
 from urllib.parse import unquote
 
 import aws_mapping_compare as _imports_aws_mapping_compare
-import iac_values as _imports_iac_values
-import project_targets as _imports_project_targets
-from comparison_rows import MISSING, Unresolved, put_row, select
+import utils.iac_values as _imports_iac_values
+import utils.project_targets as _imports_project_targets
 from design_catalog import DesignSchemaCatalog, selected_properties
 from policy_tables import literal
 from utils.aws.identity import (
@@ -38,6 +37,7 @@ from utils.aws.identity import (
 )
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_sdk import aws_runtime
+from utils.comparison_rows import MISSING, Unresolved, put_row, select
 from utils.input_cache import input_scope
 from utils.json_format import policy_json
 from utils.lazy_definitions import load_once

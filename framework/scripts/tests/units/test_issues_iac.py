@@ -19,9 +19,9 @@ import utils.json_format as _imports_utils_json_format
 from comparison import registry
 from comparison.values import PreparedValue
 from design_catalog import DesignSchemaCatalog
-from iac_values import Expression, ResourceReference
 from model.format import serialize
 from utils.cloudformation.inputs import Blocked
+from utils.iac_values import Expression, ResourceReference
 
 
 def legacy_comparison(root, count=3, services=1, stacks=2):

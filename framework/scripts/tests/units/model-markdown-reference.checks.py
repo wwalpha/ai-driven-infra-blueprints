@@ -37,9 +37,9 @@ from model.projection import execution_document, reference_display
 from model.references import diagnose, incoming, symbolic, usages
 from model.render import generate_markdown
 from model.sources import Scope, load_model
-from reference_contracts import contract
 from support.import_model_fixtures import resource_values, service_values
 from support.model_sources import write_model
+from utils.reference_contracts import contract
 from utils.source_reads import FileReads
 
 if not __debug__:
@@ -265,8 +265,11 @@ def main():
         program, metadata, unsupported = generate(root, 'dev', 'cde', 'lambda')
         audit = root / 'audit.py'
         audit.write_text(program, encoding='utf-8')
-        code = ('import runpy; n=runpy.run_path(' + repr(str(audit)) + '); '
+        code = ('import runpy, sys; n=runpy.run_path(' + repr(str(audit)) + '); '
             'm=n["engine"](n["SNAPSHOT"]); '
+            'assert "utils" not in sys.modules and "iac_values" not in sys.modules; '
+            'assert m._imports_iac_values is m; '
+            'assert n["masked"]({"Password": "secret"}) == {"Password": "[REDACTED]"}; '
             'ctx=m.Context(m.ROOT, n["SNAPSHOT"]["target"], None); '
             'model=m.Model(ctx,m.ROOT/"model/dev/cde/lambda.properties"); '
             'ctx.models[model.path]=model; '

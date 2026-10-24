@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from functools import partial as _bind_framework_callback
 from pathlib import PurePosixPath
 
-import reference_contracts as _imports_reference_contracts
+import utils.reference_contracts as _imports_reference_contracts
 from utils.json_format import strict_json
 from utils.model_addresses import resource_address as resource_address
 

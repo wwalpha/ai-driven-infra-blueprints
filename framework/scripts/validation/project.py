@@ -12,9 +12,9 @@ import model.importing.scope as _imports_model_importing_scope
 import model.sources as _imports_model_sources
 import sync_progress as _imports_sync_progress
 from model.impact import affected, scope_diagnostic, task_impact
-from project_targets import LOWER_KEBAB_PATTERN as LOWER_KEBAB_PATTERN
 from utils.aws.identity import IdentityError, select_profile, validate_account_id
 from utils.input_cache import input_is_dir, input_is_file, input_text
+from utils.project_targets import LOWER_KEBAB_PATTERN as LOWER_KEBAB_PATTERN
 
 from .terraform import root_directory
 

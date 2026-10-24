@@ -7,9 +7,7 @@ from pathlib import Path
 
 import sync_runtime as _imports_sync_runtime
 from design_catalog import DesignSchemaCatalog
-from iac_values import cfn_resource_identity
 from issue_gate import require_target_no_issues as require_target_no_issues
-from project_targets import load_target_directory as load_target
 from task_contract_core import matches as matches
 from task_contract_core import paths_in as paths_in
 from task_contract_core import section as section
@@ -23,8 +21,10 @@ from utils.cloudformation.inputs import (
     output_value,
     resolve_value,
 )
+from utils.iac_values import cfn_resource_identity
 from utils.input_cache import input_scope
 from utils.layout_schema import CODEBUILD_FORMAL_VARIABLE, GROUPED, HIDDEN_PROPERTIES
+from utils.project_targets import load_target_directory as load_target
 from utils.source_reads import FileReads
 from validation_scope import active_scope
 

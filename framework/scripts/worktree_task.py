@@ -16,9 +16,9 @@ from pathlib import Path
 import task_contract as tasks
 import worktree_python as python_env
 import worktree_state
-from script_loader import module
 from utils.file_operations import sha
 from utils.import_evidence import discard_import_proof
+from utils.script_loader import module
 from worktree_state import (
     Blocked as Blocked,
 )

@@ -6,9 +6,11 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 import aws_mapping as _imports_aws_mapping
-import project_targets as _imports_project_targets
 import utils.aws_mappings as _imports_utils_aws_mappings
-from reference_contracts import (
+import utils.project_targets as _imports_project_targets
+from utils.aws_mappings import mappings_for, owners
+from utils.aws_sdk import aws_runtime
+from utils.reference_contracts import (
     ARN_FORMS,
     CONFIGURATION_PROPERTIES,
     CONTEXT_PROPERTIES,
@@ -16,8 +18,6 @@ from reference_contracts import (
     attributes_for,
     contract,
 )
-from utils.aws_mappings import mappings_for, owners
-from utils.aws_sdk import aws_runtime
 
 import model.core as _imports_model_core
 import model.identity as _dependency_model_identity

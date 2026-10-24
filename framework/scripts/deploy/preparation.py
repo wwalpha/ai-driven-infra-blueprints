@@ -21,11 +21,11 @@ import model.core as _imports_model_core
 import model.sources as _imports_model_sources
 import task_contract_core as _imports_task_contract
 from model.sources import load_model
-from project_targets import load_target
 from utils.aws.identity import execution_account, select_profile
 from utils.aws_mappings import definition_root
 from utils.file_operations import sha
 from utils.markdown_format import markdown_sections, rule_readings
+from utils.project_targets import load_target
 from utils.source_reads import FileReads
 
 from deploy.inputs import deployment_input_paths, load_units, paths

@@ -4,10 +4,9 @@ import json
 import re
 from pathlib import Path
 
-from reference_contracts import LINKED_LIST_PROPERTIES as LINKED_LIST_PROPERTIES
-from reference_contracts import SUBNET_LIST_PROPERTIES as SUBNET_LIST_PROPERTIES
-
 from utils.input_cache import input_text
+from utils.reference_contracts import LINKED_LIST_PROPERTIES as LINKED_LIST_PROPERTIES
+from utils.reference_contracts import SUBNET_LIST_PROPERTIES as SUBNET_LIST_PROPERTIES
 
 LAYOUT_PATH = Path(__file__).resolve().parents[2] / "rules" / "resource-layout.json"
 

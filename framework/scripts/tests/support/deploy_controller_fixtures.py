@@ -32,7 +32,6 @@ from deploy import session
 from deploy.controller import main
 from model.core import properties, stack_model
 from model.files import read_model
-from project_targets import load_target
 from support.fixture_cases import load_case, materialize_files
 from support.model_sources import allocate_fixture, write_model
 from support.publication_fixtures import publication_repository
@@ -41,6 +40,7 @@ from utils.cloudformation.format import decode
 from utils.cloudformation.inputs import condition_active
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.json_format import fingerprint
+from utils.project_targets import load_target
 
 SCRIPTS = Path(__file__).resolve().parents[2]
 

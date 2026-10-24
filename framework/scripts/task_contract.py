@@ -3,7 +3,6 @@
 import argparse as argparse
 from functools import wraps as wraps
 
-from script_loader import module
 from task_contract_core import SELECTOR as SELECTOR
 from task_contract_core import TASK_NAME as TASK_NAME
 from task_contract_core import ContextVar as ContextVar
@@ -80,6 +79,7 @@ from task_contract_core import task_snapshot as task_snapshot
 from task_contract_core import validate_contract as validate_contract
 from task_contract_core import verify_contract_reads as verify_contract_reads
 from task_contract_core import verify_snapshot as verify_snapshot
+from utils.script_loader import module
 
 
 def refresh(root, name, resuming=False):

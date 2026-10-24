@@ -26,10 +26,10 @@ import support.repository_fixtures as _imports_support_repository_fixtures
 import task_contract_core as _imports_task_contract
 import utils.input_cache as _imports_input_cache
 import validation.scenario as _imports_validation_scenario
-from script_loader import module
 from support.it_case_receipt import it_case
 from support.model_sources import write_model
 from utils.input_cache import input_scope
+from utils.script_loader import module
 from validation.findings import Findings
 
 if not __debug__:

@@ -2,9 +2,9 @@
 
 import re
 
-from iac_values import ResourceReference, same, unordered_same
 from policy_tables import POLICY_FORMATS
 from utils.cloudformation.inputs import Blocked, condition_active
+from utils.iac_values import ResourceReference, same, unordered_same
 
 REF_ATTRIBUTES = {'IAM.Role': 'RoleName', 'IAM.InstanceProfile': 'InstanceProfileName', 'IAM.ManagedPolicy': 'PolicyArn'}
 

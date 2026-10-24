@@ -4,8 +4,8 @@ import hashlib
 import re
 from functools import partial as _bind_framework_callback
 
-import project_targets as _imports_project_targets
 import utils.cloudformation.inputs as _imports_cfn_inputs
+import utils.project_targets as _imports_project_targets
 from model.core import deployment_settings, properties, stack_model
 from model.files import read_model
 from model.projection import deployment_bucket

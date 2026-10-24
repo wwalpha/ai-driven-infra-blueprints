@@ -1,6 +1,6 @@
 """Public Model API. The caller supplies read and authorized publication contexts."""
 
-from script_loader import module
+from utils.script_loader import module
 
 from model.sources import list_models as list_models
 from model.sources import load_model as load_model

@@ -28,7 +28,6 @@ from design_catalog import (
     design_material_files,
 )
 from model.core import ReferenceResolutionError, entries, properties
-from project_targets import LOWER_KEBAB_PATTERN
 from utils.cloudformation.schema import material_files, snapshot_errors
 from utils.input_cache import input_scope, input_text, memoized
 from utils.layout_schema import (
@@ -40,6 +39,7 @@ from utils.layout_schema import (
     STACK_DESIGN,
 )
 from utils.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
+from utils.project_targets import LOWER_KEBAB_PATTERN
 
 TABLE_HEADER = "| No. | Property | Value | Source / Comment |"
 TABLE_ALIGNMENT = "| ---: | --- | --- | --- |"

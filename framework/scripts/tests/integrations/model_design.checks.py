@@ -8,7 +8,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import support.model_design_fixtures as fixtures
-from iac_values import cfn_resource_identity
 from model.format import FORMAT
 from model.format import INDEX as INDEX_HEADER
 from model.format import PART as PART_PREFIX
@@ -37,6 +36,7 @@ from support.model_design_fixtures import (
 from support.model_design_fixtures import pytestmark as pytestmark
 from support.validator import diagnostics
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
+from utils.iac_values import cfn_resource_identity
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

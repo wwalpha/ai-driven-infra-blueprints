@@ -3,9 +3,9 @@
 import re
 
 import model.display as _imports_model_display
-from comparison_rows import Unresolved, put_row
 from policy_tables import literal
 from utils.cloudformation.inputs import Blocked
+from utils.comparison_rows import Unresolved, put_row
 
 
 def cloudtrail_rows(rows, *, index_rows):

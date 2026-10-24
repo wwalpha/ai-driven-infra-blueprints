@@ -27,8 +27,8 @@ from model.observed import observed_outputs
 from model.references import diagnose as diagnose
 from model.render import display_name, render_model, resource_details
 from model.sources import load_model
-from script_loader import module
 from support.model_v2_fixtures import FRAMEWORK, format_fixture
+from utils.script_loader import module
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

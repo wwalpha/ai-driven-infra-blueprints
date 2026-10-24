@@ -41,7 +41,6 @@ from model.references import declarations, incoming
 from model.render import generate_markdown
 from model.sources import Scope, candidate_sources, json_text
 from model.sources import load_model as load_for_edit
-from reference_contracts import contract
 from service_rows import CODEBUILD_FORMAL_VARIABLE
 from support.model_sources import write_model
 from support.model_v2_fixtures import value_snapshot as Expansion
@@ -51,6 +50,7 @@ from utils.aws_mappings import owners
 from utils.input_cache import input_context
 from utils.json_format import document_sha256
 from utils.layout_schema import ALIGNMENT, HEADER
+from utils.reference_contracts import contract
 from utils.source_reads import FileReads
 from validation.design_links import check_design_links as _check_design_links
 from validation.findings import Findings

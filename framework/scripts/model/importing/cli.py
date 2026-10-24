@@ -8,8 +8,8 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
-import project_targets as _imports_project_targets
 import task_contract_core as task_contract
+import utils.project_targets as _imports_project_targets
 from aws_mapping_compare import MODEL_ONLY
 from aws_mapping_compare import value as mapping_value
 from generation_inputs import GenerationInputs
@@ -19,7 +19,6 @@ from import_guard import (
     require_import_changes,
     workflow,
 )
-from script_loader import module as load_script
 from task_contract_core import (
     section,
     selected_task,
@@ -31,6 +30,7 @@ from utils.aws.identity import import_profile
 from utils.file_operations import atomic_files
 from utils.input_cache import input_context, input_scope, memoized, recording_inputs
 from utils.json_format import json_text
+from utils.script_loader import module as load_script
 from utils.source_reads import FileReads as FileReads
 from validation_scope import active_scope
 

@@ -8,11 +8,11 @@ from threading import RLock
 import aws_mapping_compare as mapping_compare
 from aws_mapping import readonly
 from aws_mapping_catalog import project
-from script_loader import module
 from utils.aws_mappings import owners
 from utils.aws_schemas import schemas_for
 from utils.json_format import policy_json
 from utils.lazy_definitions import load_once
+from utils.script_loader import module
 
 import model.identity as _dependency_model_identity
 import model.projection as _imports_model_projection

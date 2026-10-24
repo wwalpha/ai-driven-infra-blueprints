@@ -12,22 +12,22 @@ from pathlib import Path
 
 import aws_mapping as _imports_aws_mapping
 import generation_inputs as _imports_generation_inputs
-import iac_values as _imports_iac_values
 import issue_gate as _imports_issue_gate
 import task_contract_core as _imports_task_contract
 import utils.aws_mappings as _imports_utils_aws_mappings
 import utils.file_operations as _imports_utils_file_operations
+import utils.iac_values as _imports_iac_values
 import utils.input_cache as _imports_input_cache
 import validation_scope as _imports_validation_scope
 from aws_mapping_compare import comparison
 from design_catalog import DesignSchemaCatalog
-from script_loader import module
 from task_contract_core import SELECTOR as SELECTOR
 from task_contract_core import status as status
 from task_contract_core import task_revision as task_revision
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_sdk import aws_runtime
 from utils.input_cache import input_scope, input_text
+from utils.script_loader import module
 
 import model.identity as _imports_model_identity
 import model.sources as _imports_model_sources
@@ -218,9 +218,9 @@ def generate(root, environment, selector, service):
                           ['IdentityError', 'validate_profile', 'select_profile', 'validate_account_id', 'execution_account', 'verify_account'])
     engine += definitions(scripts / 'utils/lazy_definitions.py', ['load_once'])
     engine += definitions(scripts / 'utils/json_format.py', ['unique_object', 'invalid_constant', 'policy_json'])
-    engine += definitions(scripts / 'iac_values.py', ['cfn_resource_identity'])
+    engine += definitions(scripts / 'utils/iac_values.py', ['cfn_resource_identity'])
     engine += definitions(scripts / 'model/core.py', ['ReferenceResolutionError', 'resource_link', 'entries', 'literal'])
-    engine += definitions(scripts / 'comparison_rows.py', ['Unresolved', 'select', 'put_row'])
+    engine += definitions(scripts / 'utils/comparison_rows.py', ['Unresolved', 'select', 'put_row'])
     engine += 'MISSING = {"absent": True}\n'
     # Preserve the exact collection semantics maintained by the existing comparator.
     original = input_text(scripts / 'model/adapters/aws.py', encoding='utf-8')

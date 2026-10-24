@@ -11,9 +11,11 @@ from unittest.mock import Mock
 from array_display import indexed_rows
 from comparison.resource import inactive_evidence
 from comparison.services.cloudtrail import cloudtrail_rows
-from comparison_rows import Unresolved, put_row
 from iac_evaluation import Evaluation
-from iac_values import (
+from support.cloudformation_inputs_fixtures import condition_document
+from utils.cloudformation.inputs import Blocked
+from utils.comparison_rows import Unresolved, put_row
+from utils.iac_values import (
     Expression,
     ResourceReference,
     comparison_result,
@@ -21,8 +23,6 @@ from iac_values import (
     same,
     selected_same,
 )
-from support.cloudformation_inputs_fixtures import condition_document
-from utils.cloudformation.inputs import Blocked
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

@@ -26,7 +26,6 @@ from design_layout import (
     stack_deployment_policy,
     stack_design,
 )
-from iac_values import cfn_resource_identity
 from model.core import entries, stack_model, validate_model_keys
 from model.format import parse, serialize
 from model.identity import resource_index
@@ -66,6 +65,7 @@ from support.model_design_fixtures import (
 )
 from support.model_design_fixtures import pytestmark as pytestmark
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
+from utils.iac_values import cfn_resource_identity
 from validation.design_links import check_design_links as validate_design_links
 from validation.findings import Findings
 
