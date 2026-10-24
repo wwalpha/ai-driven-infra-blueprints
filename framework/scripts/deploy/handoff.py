@@ -587,7 +587,12 @@ def record_outcomes(session: Session) -> None:
     if all(state['status'] == 'SUCCESS' and state.get('observedSynced') for state in session['states'].values()):
         unresolved = {problem for attempt in current['attempts'].values() if attempt.get('acceptedRevision') is not None
                       for problem in attempt['problemIds'] if not current['problems'][problem].get('resolvedByExecution')}
-        current['status'] = 'NEEDS_DIAGNOSIS' if unresolved else 'COMPLETE'
+        if unresolved:
+            current['status'] = 'NEEDS_DIAGNOSIS'
+        elif session.get('result') == 'COMPLETE' and not any('schedulerError' in state for state in session['states'].values()):
+            current['status'] = 'COMPLETE'
+        elif current.get('status') not in {'NEEDS_DIAGNOSIS', 'WAITING_HUMAN', 'CLOSED'}:
+            current['status'] = 'STOPPED'
         if unresolved:
             session['repairOutcomeUnverified'] = sorted(unresolved)
         else:
