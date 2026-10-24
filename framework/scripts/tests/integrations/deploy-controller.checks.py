@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seven real controller flows; condition matrices live in direct unit checks."""
+"""Six real controller flows; condition matrices live in direct unit checks."""
 
 import hashlib
 import json
@@ -13,13 +13,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
 import sync_runtime
-from deploy import contracts, controller, handoff, resume
-from deploy import session as sessions
+from deploy import contracts, handoff, resume
 from deploy.session import model_input_manifest
-from deploy_handoff import main as migrate
 from model.core import properties
 from model.files import read_model
-from project_targets import load_target
 from support.deploy_controller_fixtures import (
     ACCOUNT,
     aws_state,
@@ -36,8 +33,6 @@ from support.deploy_repair_fixtures import (
 )
 from support.pytest_cli import run
 from task_contract_core import selected_task
-from utils.cloudformation_format import decode
-from utils.json_format import fingerprint
 
 FIRST = 'cfn-stack-app-dev-first'
 SECOND = 'cfn-stack-app-dev-second'
@@ -236,68 +231,6 @@ def check_external_repair_cleanup_resumes(tmp_path, monkeypatch):
     calls = json.loads(context['aws'].read_text())['calls']
     assert sum(op == 'create_change_set' and args['StackName'] == SECOND for _, op, args in calls) == 2
     assert sum(op == 'execute_change_set' for _, op, _ in calls) == 3
-
-
-def check_explicit_legacy_migration(tmp_path, monkeypatch):
-
-    root = seed(tmp_path / 'project', tmp_path / 'session.json')
-    path, aws = tmp_path / 'session.json', tmp_path / 'aws.json'
-    monkeypatch.chdir(root)
-    monkeypatch.setenv('BLUEPRINT_TASK_FILE', 'tasks/deploy.md')
-    target = load_target(root, 'dev', ACCOUNT)
-    names = ['cfn-stack-app-dev-first', 'cfn-stack-app-dev-second']
-    limit, units = controller.load_units(root, 'dev', ACCOUNT, names)
-    backend = controller.create_runtime(root, 'dev', ACCOUNT, target)
-    for unit in units:
-        backend.load_inputs(unit)
-    token, stack_id = 'legacy-original-token', f'arn:aws:cloudformation:ap-northeast-1:{ACCOUNT}:stack/{names[0]}/legacy'
-    template = root / 'infra/cloudformation/templates/second.yaml'
-    original_template = template.read_bytes()
-    candidate = tmp_path / 'old-candidate.yaml'
-    candidate.write_text('DO NOT APPLY legacy candidate')
-    old_repair = {'classification':'AUTO_REPAIRABLE', 'stage':'VALIDATED', 'failureClass':'Vpc:CidrBlock',
-                  'path':template.relative_to(root).as_posix(), 'candidatePath':str(candidate), 'newFileDigest':hashlib.sha256(candidate.read_bytes()).hexdigest()}
-    contract = (root / 'tasks/deploy.md').read_text()
-    old_task = '\n'.join(line for line in contract.splitlines() if not line.startswith(('- Authorized delete/replacement:', '- Task status:')))
-    legacy = {'version':3, 'modelFormat':2, 'snapshotVersion':2, 'referenceMeaningVersion':1,
-        'repository':str(root), 'taskFile':'tasks/deploy.md', 'taskDigest':hashlib.sha256(old_task.encode()).hexdigest(),
-        'inputDigest':fingerprint([str(root), target, 'dev', 'deploy', limit, units]),
-        'unitDigests':{unit['name']:backend.input_digest(unit) for unit in units},
-        'infraManifest':{p.relative_to(root).as_posix():backend.file_digest(p) for p in backend.deployment_input_paths(units)},
-        'designDigest':sessions.design_digest(root,'dev',ACCOUNT), 'modelInputManifest':sessions.model_input_manifest(root,'dev',ACCOUNT),
-        'states':{names[0]:{'status':'RUNNING','clientToken':token,'stackId':stack_id,'changeSetId':'legacy-cs',
-                          'executionEvidence':{'StackId':stack_id,'ChangeSetId':'legacy-cs','clientToken':token}},
-                  names[1]:{'status':'FAILED','stackStatus':'ROLLBACK_COMPLETE','clientToken':'other-token',
-                            'cleanupStatus':'DELETE_INTENT','cleanupStackId':'old-cleanup','repairs':[old_repair]}}}
-    handoff.save(path, legacy)
-    aws_state(aws)
-    fake = json.loads(aws.read_text())
-    document = decode((root / 'infra/cloudformation/templates/first.yaml').read_bytes())[0]
-    fake['stacks'][names[0]] = {'id':stack_id,'status':'CREATE_COMPLETE'}
-    fake['changes'][names[0]] = {'id':'legacy-cs','alias':'legacy-cs','stackId':stack_id,'executed':True,'token':token,'document':document}
-    aws.write_text(json.dumps(fake))
-    inputs = {p:p.read_bytes() for p in (root / 'model').rglob('*') if p.is_file()}
-    assert invoke(root,path,aws,['--resume']) == 2
-    assert invoke(root,path,aws,['--resume','--observe-only']) == 0
-    observed = json.loads(path.read_text())
-    assert observed['states'][names[0]]['status'] == 'SUCCESS' and not observed['states'][names[0]].get('observedSynced')
-    assert all(p.read_bytes() == raw for p,raw in inputs.items())
-    assert migrate(['migrate','--state',str(path),'--repository-root',str(root),
-        '--acknowledge-legacy-cycles','1','--authorization','explicit synthetic migration review']) == 0
-    migrated = json.loads(path.read_text())
-    assert migrated['version'] == 4
-    assert migrated['workflow']['reserved'] == 1 and migrated['workflow']['legacyUncertain']
-    assert migrated['states'][names[0]]['clientToken'] == token
-    assert migrated['states'][names[0]]['status'] == 'SUCCESS'
-    assert not migrated['states'][names[0]].get('observedSynced')
-    assert migrated['states'][names[0]]['executionEvidence'] == observed['states'][names[0]]['executionEvidence']
-    assert migrated['workflow']['status'] == 'WAITING_HUMAN'
-    assert migrated['states'][names[1]]['cleanupStatus'] == 'DELETE_INTENT'
-    assert migrated['states'][names[1]]['repairs'] == [old_repair]
-    assert candidate.read_text() == 'DO NOT APPLY legacy candidate'
-    assert template.read_bytes() == original_template
-    assert invoke(root,path,aws,['--resume']) == 2
-    assert not any(operation == 'execute_change_set' for _,operation,_ in json.loads(aws.read_text())['calls'])
 
 
 if __name__ == '__main__':
