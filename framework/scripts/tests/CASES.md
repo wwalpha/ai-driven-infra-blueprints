@@ -2447,7 +2447,7 @@ Task fixtureは独立した通常Gitとtask_contract.startで開始・選択し�
 | `observed-resume::classification` | `check_classification` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 8 | exact before/after, no-op, journal-only mixed state, third bytes and file set rejection | manifests |
 | `observed-resume::execution` | `check_execution_identity` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 5 | successful original Stack/ChangeSet/digest/token binding | execution evidence |
 | `observed-resume::journal` | `check_journal_ownership` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 7 | own originals, complete restoration, unrelated receipt and third bytes rejection | journal records |
-| `observed-resume::plan` | `check_plan_validation` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 14 | Legacy managedTask exclusion only; Task/evidence/manifest/candidate/desired/unrelated bytes/file set/Allowed paths/stage/original-set/manifest-set checks | isolated bytes |
+| `observed-resume::plan` | `check_plan_validation` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 13 | Task/extra identity field/evidence/manifest/candidate/desired/unrelated bytes/file set/Allowed paths/stage/original-set/manifest-set checks | isolated bytes |
 | `observed-resume::intent-io` | `check_intent_save_failure` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 1 | failed intent persistence leaves Model untouched | session I/O |
 | `observed-resume::peer-barrier` | `check_pending_plan_drained_peer_barrier` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 1 | saved plan finishes before drained peers synchronize | scheduler state |
 | `observed-resume::first-error` | `check_original_failure_retained` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 1 | first stage/cause retained separately from later guard refusal | failure records |
@@ -2562,12 +2562,11 @@ Model value, rollback and journal cases use `model-operation-publication.checks.
 
 | ID | Function | Kind | Location | Entry / count | Responsibility | Scope |
 |---|---|---|---|---|---|---|
-| `cause-boundary::v5-relabel-different-proof` | `check_v5_relabel_does_not_buy_new_attempt` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 4 | Schema pointer, invalid value, label, RequestId/prose cannot create a new cause or refund attempts | Offline synthetic inputs |
+| `cause-boundary::relabel-different-proof` | `check_relabel_does_not_buy_new_attempt` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 4 | Schema pointer, invalid value, label, RequestId/prose cannot create a new cause or refund attempts | Offline synthetic inputs |
 | `cause-boundary::relation-contract` | `check_relation_contract_and_atomic_rejection` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 7 | Required relation/comparison/reason/current and prior evidence; failed publication is atomic | Offline synthetic inputs |
 | `cause-boundary::unknown-diagnosis` | `check_unknown_is_durable_and_never_issues_request` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 2 | Persist unknown, including nonrepairable failures, without dummy causes or repair requests | Offline synthetic inputs |
 | `cause-boundary::same-cross-resource` | `check_same_cause_across_resource_targets_shares_attempt_limit` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 2 | Nested and independent Resource targets share cause attempts and no-progress stops | Offline synthetic inputs |
 | `cause-boundary::new-code-and-cycle` | `check_new_code_is_evidence_not_python_cause_inference` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | LLM NEW with distinct code can continue; SAME recurrence and cause transfer cannot evade histories | Offline synthetic inputs |
-| `cause-boundary::v5-sealed-migration` | `check_v5_signed_history_migrates_without_reset` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 2 | Retain old IDs/attempts/budget and extension-only histories; restart and signed recovery stay Human-bound | Offline synthetic inputs |
 | `cause-boundary::budget-text-refused` | `check_budget_text_is_not_human_authority` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | Self-issued authorization cannot extend budget or reopen a closed workflow | Offline synthetic inputs |
 | `cause-boundary::observed-target-progress` | `check_only_observed_target_progress_counts` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 3 | Only nested target AWS success counts; peer/static success does not | Offline synthetic inputs |
 | `cause-boundary::common-cause-target-progress` | `check_common_cause_progress_requires_repaired_target_success` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 2 | Only actual expected success of a repaired target sharing this cause is partial progress; unrelated peer success is excluded | Offline synthetic observations and production outcome verification |
@@ -2612,7 +2611,6 @@ Model value, rollback and journal cases use `model-operation-publication.checks.
 | `sealed-evidence::atomic_failure` | `check_atomic_failure` | UT | [units/sealed-evidence-unit.checks.py](units/sealed-evidence-unit.checks.py) | pytest / 1 | atomic失敗時の旧証拠保持 | evidence |
 | `sealed-evidence::ownership` | `check_ownership` | UT | [units/worktree-model-guard-unit.checks.py](units/worktree-model-guard-unit.checks.py) | pytest / 5 | Worktree正本とTask所有確認 | evidence |
 | `sealed-evidence::dependency_boundaries` | `check_dependency_boundaries` | UT | [units/sealed-evidence-unit.checks.py](units/sealed-evidence-unit.checks.py) | pytest / 1 | 共通証拠とWorktreeの依存分離 | evidence |
-| `observed-resume::signed-legacy` | `check_signed_legacy_plan` | UT | [units/deploy-observed-resume-unit.checks.py](units/deploy-observed-resume-unit.checks.py) | pytest / 1 | 署名検証後の旧managedTask除外・同フィールド改ざん拒否 | evidence |
 
 ## Worktree dependency separation (master 1024v2)
 
@@ -2827,7 +2825,7 @@ through os.replace, without depending on temporary filenames.
 
 ## Deploy controller processing reduction (1024v4)
 
-旧66条件の主要assertionを以下の保証先へ割り当てる。ITの配置変更でUT化せず、直接関数呼出しだけをUTへ補強する。controllerは6関数6入口、小型ITは1関数1入口とする。今回ITは実行・収集・計測しない。
+旧66条件の主要assertionと、Human指示によるlegacy互換専用条件の除外を以下に記録する。ITの配置変更でUT化せず、直接関数呼出しだけをUTへ補強する。controllerは6関数6入口、小型ITは1関数1入口とする。今回ITは実行・収集・計測しない。
 
 | 旧controller条件（件数） | 主要assertion / 保証先 |
 | --- | --- |
@@ -2841,7 +2839,7 @@ through os.replace, without depending on temporary filenames.
 | legacy_session_without_observed_plan (2) | observed-resume `check_session_without_plan_and_signed_removal`: 正当なplanなしsessionと署名済plan除去を区別 |
 | cleanup_and_repair_process_resume (1)、external_repair_cleanup_recovery (1) | `check_external_repair_cleanup_resumes`: 元の失敗証跡・DELETE_INTENT・単一Delete・成功Stack保護・再実行・公開・結果再適用 |
 | bootstrap_process_resume (2) | 既存runtime `check_secret_runtime_bootstrap`: JSON保存session再読込、同token/単一PUT、外部AWSCURRENT競合 |
-| explicit_legacy_migration (3) | handoff `check_legacy_observation_only`: 実observe_onlyで元tokenの完了観測・Model不変・cleanup intent保持・実行中migrate拒否。`check_legacy_resume_migration`: 実migrateとCLI dispatch、元token/候補/cleanup intent/保守的cycle/旧定義digest移行を保持 |
+| explicit_legacy_migration (3) | Human指示によりlegacy互換専用条件を削除し、保証対象から除外。代替テストは追加しない |
 | external_repair_resumption (12) | request/accept前後はhandoff `check_issue_request_stability` / `check_accept_protects_success_and_retries`、未実行decode/validate/create/reviewは `check_unexecuted_exception_to_diagnosis`、shared-successはaccept UT。repeat/new-problem/regressionは既存 `check_problem_sequences` とcause/relation UT。通常Git receipt境界はcleanup controller IT。専用Worktree normal/mergeのcheckpoint/child/validation/merge/cleanup/親再開および追加assertionを維持 |
 
 66条件 = 1+1+1+1+2+7+1+1+8+1+9+1+11+2+1+1+2+3+12。以下の登録件数はソースのASTから静的確認した値であり、今回ITを収集して得た値ではない。
@@ -2867,11 +2865,9 @@ through os.replace, without depending on temporary filenames.
 | `deploy-reduction::issue_request_stability` | `check_issue_request_stability` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | 上の旧条件・主要assertion対応表を参照 | 直接関数・小fixture |
 | `deploy-reduction::signed_protected_fields` | `check_signed_protected_fields` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 4 | 上の旧条件・主要assertion対応表を参照 | 直接関数・小fixture |
 | `deploy-reduction::unexecuted_exception_to_diagnosis` | `check_unexecuted_exception_to_diagnosis` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 4 | 上の旧条件・主要assertion対応表を参照 | 直接関数・小fixture |
-| `deploy-reduction::legacy_resume_migration` | `check_legacy_resume_migration` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 3 | 上の旧条件・主要assertion対応表を参照 | 直接関数・小fixture |
 
-| `deploy-reduction::legacy_observation_only` | `check_legacy_observation_only` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | 元tokenのみの完了観測、v3定義/Model/失敗Stack cleanup intent保持、RUNNING中のmigrateと観測後のmutation禁止 | 直接関数・小fixture |
 
-関連4 UTはSDK 11関数38条件、runtime 16関数32条件、observed-resume 20関数79条件、handoff 31関数89条件、計238条件。既存bootstrap/retry/削除policy条件は再追加していない。
+関連4 UTはSDK 11関数38条件、runtime 16関数32条件、observed-resume 19関数76条件、handoff 28関数83条件、計229条件。legacy session移行3条件・観測1条件、旧workflow履歴移行2条件、旧Observed plan互換3条件の計9条件と専用helperを削除した。policyのlegacyUncertain専用assertionも削除した。未知のidentityフィールド拒否は現行planだけで確認し、planなしsessionと署名済planの不正除去、現行retry・署名・所有者検証を維持する。既存bootstrap/retry/削除policy条件は再追加していない。
 
 | controller suite内の処理 | 1024v4設計値 | 再構成後の静的呼出構造 |
 |---|---:|---:|

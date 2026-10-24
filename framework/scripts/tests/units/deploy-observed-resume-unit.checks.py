@@ -106,14 +106,12 @@ def proposal(tmp_path):
         yield tmp_path, session, source, old, new
 
 
-@pytest.mark.parametrize('problem', ['none', 'legacy', 'legacy-other', 'task', 'evidence', 'manifest', 'candidate', 'desired', 'bytes', 'file-set', 'allowed', 'stage', 'original-set', 'manifest-set'])
+@pytest.mark.parametrize('problem', ['none', 'identity-extra', 'task', 'evidence', 'manifest', 'candidate', 'desired', 'bytes', 'file-set', 'allowed', 'stage', 'original-set', 'manifest-set'])
 def check_plan_validation(proposal, problem):
     root, session, source, old, new = proposal
     plan = session['pendingObserved']
     relative = source.relative_to(root).as_posix()
-    if problem in {'legacy', 'legacy-other'}:
-        plan['identity']['managedTask'] = {'merged': 'changed-since-plan', 'other': 'old metadata'}
-    if problem == 'legacy-other':
+    if problem == 'identity-extra':
         plan['identity']['unexpected'] = True
     if problem == 'task':
         plan['identity'] = {'target': 'changed'}
@@ -138,29 +136,11 @@ def check_plan_validation(proposal, problem):
     if problem == 'manifest-set':
         plan['afterManifest']['extra'] = None
     with patch.object(M, '_identity', return_value={'target': 'pinned'}):
-        if problem in {'none', 'legacy'}:
+        if problem == 'none':
             assert M.validate_plan(root, session, {}, 'dev', 'team') is plan
         else:
             with pytest.raises((ValueError, Blocked)):
                 M.validate_plan(root, session, {}, 'dev', 'team')
-
-
-def check_signed_legacy_plan(proposal):
-    root, session, _, _, _ = proposal
-    session.update(repository=str(root), taskFile='tasks/deploy.md')
-    plan = session['pendingObserved']
-    plan['identity']['managedTask'] = {'merged': 'legacy state', 'tip': 'old'}
-    path = root / 'session.json'
-    handoff.bind(root, path, session)
-    handoff.save(path, session)
-    restored = json.loads(path.read_text(encoding='utf-8'))
-    handoff.restore(root, path, restored)
-    with patch.object(M, '_identity', return_value={'target': 'pinned'}):
-        assert M.validate_plan(root, restored, {}, 'dev', 'team') == plan
-    # Even the ignored metadata cannot be tampered with outside the signed Session.
-    restored['pendingObserved']['identity']['managedTask'] = {}
-    with pytest.raises(Blocked, match='ledger'):
-        handoff.restore(root, path, restored)
 
 
 def check_intent_save_failure(proposal):
@@ -366,14 +346,11 @@ def owned_proposal(proposal):
     return root, session, source, old, new
 
 
-@pytest.mark.parametrize('problem', ['none', 'legacy', 'task-body', 'task-merged', 'worktree-moved',
+@pytest.mark.parametrize('problem', ['none', 'task-body', 'task-merged', 'worktree-moved',
                                      'worktree-deleted', 'tampered-session', 'foreign-journal', 'external-model'])
 def check_owned_resume_boundaries(owned_proposal, problem):
     root, session, source, old, new = owned_proposal
     path = root.parent / (root.name + '-session.json')
-    plan = session['pendingObserved']
-    if problem == 'legacy':
-        plan['identity']['managedTask'] = {'merged': 'historical metadata', 'tip': 'old'}
     handoff.bind(root, path, session)
     handoff.save(path, session)
     restored = json.loads(path.read_text(encoding='utf-8'))

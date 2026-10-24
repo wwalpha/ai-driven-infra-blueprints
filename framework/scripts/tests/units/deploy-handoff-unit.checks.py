@@ -4,7 +4,6 @@ import copy
 import json
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -94,8 +93,6 @@ def check_progress_limits_and_budget():
     assert policy.decision(w, ['B']) == 'WAITING_HUMAN'
     w['budget'] += 1
     assert policy.decision(w, ['B']) == 'REPAIR_ALLOWED'
-    w['legacyUncertain'] = True
-    assert policy.decision(w, ['B']) == 'WAITING_HUMAN'
 
 
 def check_duplicate_poll_is_not_a_new_failure():
@@ -456,7 +453,7 @@ def next_diagnosis(session, entry, *, relation='SAME', related=None, properties=
 
 
 @pytest.mark.parametrize('difference', ['schema-pointer', 'label', 'request-and-prose', 'invalid-value'])
-def check_v5_relabel_does_not_buy_new_attempt(tmp_path, difference):
+def check_relabel_does_not_buy_new_attempt(tmp_path, difference):
     session, entry = diagnosis_fixture(tmp_path)
     schema = 'framework/materials/cloudformation-schema/ap-northeast-1/aws-ec2-vpc.json'
     entry['constraintRefs'] = [{'path':schema, 'sha256':sha(definition_root(tmp_path) / schema), 'pointer':'/properties/CidrBlock/type'}]
@@ -564,38 +561,6 @@ def check_new_code_is_evidence_not_python_cause_inference(tmp_path):
     again['evidenceRefs'].extend(new['evidenceRefs'])
     assert handoff.diagnose(tmp_path,session,{'revision':2,'problems':[again]}) == 'NEEDS_DIAGNOSIS'
     assert session['workflow']['reserved'] == 2
-
-
-@pytest.mark.parametrize('history', ['problem', 'budget-extension'])
-def check_v5_signed_history_migrates_without_reset(tmp_path, history):
-    root = tmp_path / 'repository'
-    root.mkdir()
-    session, entry = diagnosis_fixture(root)
-    handoff.diagnose(root,session,{'revision':0,'problems':[entry]})
-    identity = session['workflow']['currentProblemIds'][0]
-    attempted(session['workflow'],identity,revision=1)
-    session.update(repository=str(root),taskFile='tasks/deploy.md')
-    path = tmp_path / 'session.json'
-    handoff.bind(root,path,session)
-    # Simulate sealed v5 histories, including an unverifiable extension before repairs.
-    cycles = 1
-    if history == 'budget-extension':
-        session['workflow'].update(problems={}, attempts={}, reserved=0, budget=40,
-                                   budgetExtensions=[{'cycles':20, 'authorizationDigest':'unverified'}])
-        cycles = 0
-    session['workflow'].pop('diagnosisVersion')
-    handoff.save(path,session)
-    session = json.loads(path.read_text())
-    handoff.restore(root,path,session)
-    retained = copy.deepcopy(session['workflow']['attempts'])
-    handoff.workflow(session)
-    assert session['workflow']['legacyUncertain'] and session['workflow']['reserved'] == cycles
-    assert session['workflow']['attempts'] == retained
-    assert policy.decision(session['workflow'],[identity]) == 'WAITING_HUMAN'
-    handoff.save(path,session)
-    path.unlink()
-    restored = handoff.recover_session(root,path,'tasks/deploy.md')
-    assert restored['workflow']['legacyUncertain'] and restored['workflow']['reserved'] == cycles
 
 
 def check_budget_text_is_not_human_authority(tmp_path):
@@ -891,95 +856,6 @@ def check_unexecuted_exception_to_diagnosis(tmp_path, stage):
     problem['evidenceRefs'] = [{'observationId': observation['observationId'], 'revision': 0, 'eventIndices': []}]
     problem['inputRefs'][0]['sha256'] = sha(template)
     assert handoff.diagnose(tmp_path, session, {'revision': 0, 'problems': [problem]}) == 'REPAIR_ALLOWED'
-
-
-@pytest.mark.parametrize('stage', ['REPAIR_INTENT', 'VALIDATING', 'VALIDATED'])
-def check_legacy_resume_migration(tmp_path, stage):
-    root = tmp_path / 'repo'
-    (root / 'tasks').mkdir(parents=True)
-    (root / 'infra/cloudformation/templates').mkdir(parents=True)
-    parameters = root / 'infra/cloudformation/parameters/dev/123456789012'
-    parameters.mkdir(parents=True)
-    (parameters / 'one.json').write_text('[]')
-    template = root / 'infra/cloudformation/templates/one.yaml'
-    template.write_text('Resources: {}')
-    candidate = tmp_path / 'candidate.yaml'
-    candidate.write_bytes(b'DO NOT APPLY')
-    contract = ('## Task contract\n- Task status: `running`\n- Task type: `infrastructure`\n'
-                '- Target environment: `dev`\n- Target AWS account: `123456789012`\n'
-                '- Controlled repair: `allowed`\n## Validation scope\n- `dev/123456789012/ec2`\n'
-                '## Modified files\n- `tasks/deploy.md`\n## Allowed paths\n- `tasks/deploy.md`\n')
-    (root / 'tasks/deploy.md').write_text(contract)
-    unit = {'name': 'Stack', 'template': 'one.yaml', 'parameters': 'one.json'}
-    state = {'status': 'FAILED', 'clientToken': 'original', 'executionEvidence': {'clientToken': 'original'}, 'failureEvents': [],
-             'cleanupStatus': 'DELETE_INTENT', 'cleanupStackId': 'original-cleanup',
-             'repairs': [{'classification': 'AUTO_REPAIRABLE', 'stage': stage, 'candidatePath': str(candidate)}]}
-    legacy = {'version': 3, 'repository': str(root), 'taskFile': 'tasks/deploy.md', 'taskDigest': task_digest(contract),
-              'unitDigests': {'Stack': 'unit'}, 'executionDigest': 'old', 'designDigest': 'design',
-              'modelInputManifest': {}, 'infraManifest': {p.relative_to(root).as_posix(): sha(p) for p in (template, parameters / 'one.json')},
-              'states': {'Stack': state}}
-    args = SimpleNamespace(authorization='explicit Human migration', old_execution_digest='old', new_execution_digest='new', acknowledge_legacy_cycles=1)
-    path = tmp_path / 'session.json'
-    with selected_task(root, 'tasks/deploy.md'), \
-         patch.object(resume._imports_project_targets, 'load_target', return_value=TARGET), \
-         patch.object(resume._imports_deploy_session, 'execution_digest', return_value='new'), \
-         patch.object(resume._imports_deploy_session, 'design_digest', return_value='design'), \
-         patch.object(resume._imports_deploy_session, 'model_input_manifest', return_value={}), \
-         patch.object(resume._imports_deploy_inputs, 'load_units', return_value=(1, [unit])), \
-         patch.object(handoff, 'register_workflow'):
-        migrated = copy.deepcopy(legacy)
-        resume.migrate(root, migrated, args)
-        assert migrated['version'] == 4 and migrated['executionDigest'] == 'new' and migrated['states']['Stack'] == state
-        assert migrated['workflow']['reserved'] == 1 and migrated['workflow']['status'] == 'WAITING_HUMAN'
-        assert migrated['workflow']['legacyUncertain']
-        assert migrated['workflow']['legacyHistory'] == state['repairs']
-        assert candidate.read_bytes() == b'DO NOT APPLY' and template.read_text() == 'Resources: {}'
-        handoff.save(path, legacy)
-        with patch.object(resume, 'migrate', wraps=resume.migrate) as dispatch:
-            assert main(['migrate', '--state', str(path), '--repository-root', str(root),
-                '--authorization', args.authorization, '--old-execution-digest', 'old', '--new-execution-digest', 'new',
-                '--acknowledge-legacy-cycles', '1']) == 0
-        dispatch.assert_called_once()
-        assert json.loads(path.read_text())['states']['Stack'] == state
-
-
-def legacy_observation_aws(calls, operation, **arguments):
-    calls.append((operation, arguments))
-    assert arguments == {'StackName': 'Running'}
-    if operation == 'describe_stack_events':
-        return {'StackEvents': [{'ResourceType': 'AWS::CloudFormation::Stack', 'ClientRequestToken': 'original-token',
-                                 'StackId': 'original-stack', 'ResourceStatus': 'CREATE_COMPLETE'}]}
-    assert operation == 'describe_stacks'
-    return {'Stacks': [{'StackId': 'original-stack', 'StackStatus': 'CREATE_COMPLETE'}]}
-
-
-def check_legacy_observation_only(tmp_path):
-    source = tmp_path / 'model/dev/team/service.properties'
-    source.parent.mkdir(parents=True)
-    source.write_bytes(b'observed bytes must remain unchanged')
-    proof = {'StackId': 'original-stack', 'ChangeSetId': 'original-change', 'clientToken': 'original-token'}
-    failed = {'status': 'FAILED', 'cleanupStatus': 'DELETE_INTENT', 'cleanupStackId': 'failed-stack'}
-    session = {'version': 3, 'executionDigest': 'legacy-definitions', 'states': {
-        'Running': {'status': 'RUNNING', 'clientToken': 'original-token', 'stackId': 'original-stack',
-                    'changeSetId': 'original-change', 'executionEvidence': dict(proof)}, 'Failed': dict(failed)}}
-    path = tmp_path / 'session.json'
-    units = [{'name': name, 'deployOrder': 10} for name in session['states']]
-    backend, calls = create_runtime(tmp_path, 'dev', 'team', TARGET), []
-    backend.aws = _bind_framework_callback(legacy_observation_aws, calls)
-    with pytest.raises(Blocked, match='observe/drain'):
-        resume.migrate(tmp_path, session, SimpleNamespace(authorization='explicit Human migration'))
-    assert resume.observe_only(backend, units, 1, path, session) == 0
-    restored = json.loads(path.read_text())
-    assert restored['version'] == 3 and restored['executionDigest'] == 'legacy-definitions'
-    assert restored['states']['Running']['status'] == 'SUCCESS'
-    assert not restored['states']['Running'].get('observedSynced')
-    assert restored['states']['Running']['executionEvidence'] == proof
-    assert restored['states']['Running']['clientToken'] == 'original-token'
-    assert restored['states']['Failed'] == failed
-    assert source.read_bytes() == b'observed bytes must remain unchanged'
-    assert [operation for operation, _ in calls] == ['describe_stack_events', 'describe_stacks']
-    with pytest.raises(Blocked, match='cannot mutate AWS or publish Models'):
-        backend.guard()
 
 
 if __name__ == '__main__':
