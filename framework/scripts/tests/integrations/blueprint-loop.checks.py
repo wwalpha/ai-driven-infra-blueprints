@@ -110,8 +110,9 @@ def check_deploy_scope_isolation(tmp_path):
 {listed}
 """)
     values = stack_values["stg"] | {"display.stack.001.comment": "更新対象のstack"}
-    write_model(models["stg"], values)
-    designs["stg"].write_text(markdown_for(designs["stg"], values, root))
+    with tasks.selected_task(root, 'tasks/stg.md'):
+        write_model(models["stg"], values)
+        designs["stg"].write_text(markdown_for(designs["stg"], values, root))
     environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONOPTIMIZE": "0"}
 
     command = [sys.executable, str(SCRIPT), "--mode", "task", "--task-file", "tasks/dev.md",
