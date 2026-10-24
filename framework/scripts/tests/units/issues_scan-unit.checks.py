@@ -671,7 +671,7 @@ def check_notice_tail_order_and_materials(tmp_path, warnings, references):
             assert text.rindex('## 情報') < text.index('## 警告（非ブロッキング）')
             headings = ['情報', '未検証範囲', '処理エラー（未検証範囲あり）', '警告（非ブロッキング）']
             assert all(text.rindex('## ' + first) < text.index('## ' + second)
-                       for first, second in zip(headings, headings[1:]))
+                       for first, second in zip(headings, headings[1:], strict=False))
             assert all(text.count('- "' + value + '"') == 1 for value in ['Warning A', 'Info A', 'Not run A', 'Error A', 'Outside Warning', 'Outside Info', 'Outside Not run', 'Outside Error'])
             assert {scope for scope, _ in split_notices(text)[1] if scope is not None} == {
                 identifier(['dev', 'team', ['s3']]), identifier(['dev', 'team', ['sqs']])}

@@ -284,7 +284,7 @@ def split_notices(text):
     ordinary, offset = [], 0
     # Only owned, numbered service blocks end notices; auxiliary headings stay inside.
     service_starts = {start for (start, _, _), (service, body) in
-                      zip(markdown_matches(text, r'^### (.+)$'), blocks(text)[1])
+                      zip(markdown_matches(text, r'^### (.+)$'), blocks(text)[1], strict=False)
                       if service is not None and numbered(body)[1]}
     headings = [(start, end, heading) for start, end, heading in markdown_matches(text, r'^#{1,3} (.+)$')
                 if not text.startswith('### ', start) or start in service_starts]
