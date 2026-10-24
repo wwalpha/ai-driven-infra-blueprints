@@ -15,6 +15,9 @@ from issues.publication import save
 from issues.reports import attach_notices, normal_merge, notice_report
 from support.pytest_cli import run
 
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
 REFERENCE = '## 参照警告（非ブロッキング）\n\n'
 PREAMBLE = '# 問題一覧\n\n## dev／team\n\n'
 SCOPE = {('dev', 'team', 's3')}
