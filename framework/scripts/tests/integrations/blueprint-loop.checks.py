@@ -275,8 +275,6 @@ display.resource.001.comment=通信ログを保存するLog Group
     assert result.returncode == 0 and "PASS (0 framework regression scripts)" in result.stdout, result.stdout + result.stderr
     # A local password service_source does not become a design-task scope error.
     (root / ".lock").write_text('{"local":"fixture service_source"}\n', encoding="utf-8")
-    warm = run()
-    assert warm.returncode == 0 and "0 executed, 1 reused" in warm.stdout, warm.stdout + warm.stderr
     fresh = subprocess.run([*command, "--fresh", "--validation-jobs", "1", "--profile"],
                            cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert fresh.returncode == 0 and "1 executed, 0 reused; workers: 1" in fresh.stdout, fresh.stdout + fresh.stderr

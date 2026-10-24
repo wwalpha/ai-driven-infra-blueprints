@@ -1,4 +1,4 @@
-"""Compatibility input-cache exports and content-addressed validation results."""
+"""Compatibility input-cache exports and invocation-local validation results."""
 
 import hashlib
 import json
@@ -11,7 +11,6 @@ from pathlib import Path
 import model.files as _imports_model_files
 import model.sources as _imports_model_sources
 import utils.aws_mappings as _imports_utils_aws_mappings
-from utils.file_operations import atomic_replace_file
 from utils.input_cache import _baselines as _baselines
 from utils.input_cache import _generation_inputs as _generation_inputs
 from utils.input_cache import _inputs as _inputs
@@ -45,28 +44,24 @@ class PassCache:
                               Path(tempfile.gettempdir()) / "blueprint-validation-cache").resolve()
         if self.directory == root or root in self.directory.parents:
             raise ValueError("validation cache must be outside the repository")
+        # No trusted Framework release identity exists: never reuse a prior run's PASS.
+        self.passes = {}
 
     def common_inputs(self, snapshot=None):
-        """The complete historical common set, including actual definitions/runtime."""
-        groups = {}
-        runtime = Path(__file__).resolve().parents[2]
-        for root, names in ((self.root, ('framework', '.agents')),
-                            (self.definitions_root, ('framework', '.agents')), (runtime, ('framework',))):
-            paths = groups.setdefault(root, set())
-            for name in names:
-                base = root / name
-                selected = (snapshot.select(base, '*', True, ('file', 'symlink')) if snapshot else
-                            input_select(base, '*', recursive=True, kinds=('file', 'symlink')))
-                paths.update(p for p in selected if not (p.suffix == '.pyc' and '__pycache__' in p.parts))
-        for root in {self.root, self.definitions_root}:
-            groups[root].update(root / p for p in ('AGENTS.md', 'README.md'))
+        """Mutable Project dependencies; Framework/distributed definitions are static."""
+        base = self.root / '.agents'
+        if snapshot is None:
+            selected = input_select(base, '*', recursive=True, kinds=('file', 'symlink'))
+        else:
+            selected = snapshot.select(base, '*', True, ('file', 'symlink'))
+        paths = {p for p in selected if not (p.suffix == '.pyc' and '__pycache__' in p.parts)}
+        paths.update(self.root / name for name in ('AGENTS.md', 'README.md'))
         if self.include_project:
-            groups[self.root].add(self.root / 'project.json')
+            paths.add(self.root / 'project.json')
         if snapshot is not None:
-            for paths in groups.values():
-                for path in paths:
-                    snapshot.read(path)
-        return groups
+            for path in paths:
+                snapshot.read(path)
+        return {self.root: paths}
 
     def common_key(self, contents=None, *, snapshot=None):
         groups = self.common_inputs(snapshot)
@@ -124,24 +119,18 @@ class PassCache:
                         paths.add(dependency)
         return self.key("service:" + "/".join(entry), digest_files(self.root, paths))
 
+    def _results(self):
+        memo = memo_table()
+        if memo is None:
+            return self.passes
+        return memo.setdefault((PassCache, self.root, self.definitions_root, self.directory), {})
+
     def load(self, key):
         if self.fresh or key is None:
             return None
-        try:
-            record = json.loads((self.directory / f"{key}.json").read_text(encoding="utf-8"))
-            if record == {"version": 1, "key": key, "result": "pass", "checks": record["checks"]} and \
-                    type(record["checks"]) is int and record["checks"] > 0:
-                return record["checks"]
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
-        return None
+        return self._results().get(key)
 
     def save(self, key, checks):
-        if key is None or checks <= 0:
+        if key is None or type(checks) is not int or checks <= 0:
             return
-        try:
-            self.directory.mkdir(parents=True, exist_ok=True)
-            atomic_replace_file(self.directory / f"{key}.json", json.dumps(
-                {"version": 1, "key": key, "result": "pass", "checks": checks}))
-        except OSError:
-            pass  # Cache availability never replaces actual validation.
+        self._results()[key] = checks

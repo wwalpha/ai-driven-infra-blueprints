@@ -41,7 +41,7 @@ def main():
     task.check_model_task_boundaries()
     runner.check_dispatch()
     runner.check_boundaries()
-    runner.check_module_keys()
+    runner.check_common_cache_guard()
     scenario.check_timestamp()
     assert MODULE.CODEX_PROMPT_FILENAME_PATTERN.fullmatch("01_initialize.md")
     assert not MODULE.CODEX_PROMPT_FILENAME_PATTERN.fullmatch("initialize.md")

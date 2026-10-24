@@ -31,6 +31,7 @@ from support.validation_scope_fixtures import (
     write_model,
 )
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
+from utils.input_cache import input_context
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -103,32 +104,31 @@ def check_single_target_cache(root):
     assert not serial.errors and not parallel.errors, serial.errors + parallel.errors
     assert serial.checks == parallel.checks
     with tempfile.TemporaryDirectory() as directory:
-        cold = validate(cache=PassCache(root, directory=directory))
+        shared_cache = PassCache(root, directory=directory)
+        cold = validate(cache=shared_cache)
         assert not cold.errors, cold.errors
         with patch.object(VALIDATOR.Validator, "check_generated_service_models", side_effect=AssertionError("unchanged generation reran")), \
              patch.object(VALIDATOR.Validator, "check_designs", side_effect=AssertionError("unchanged service reran")):
-            warm = validate(cache=PassCache(root, directory=directory))
+            warm = validate(cache=shared_cache)
         assert not warm.errors and cold.checks == warm.checks, warm.errors
         # An out-of-scope reference remains shallow, but changing its anchor invalidates its consumer.
         reference = docs / "vpc.md"
         saved = reference.read_text(encoding="utf-8")
         reference.write_text(saved.replace('id="resource-EC2_Subnet_001"', 'id="changed-anchor"'), encoding="utf-8")
-        invalid = validate(cache=PassCache(root, directory=directory))
+        invalid = validate(cache=shared_cache)
         assert not invalid.errors and any("anchor" in warning["message"] for warning in invalid.findings.warnings), invalid.findings.warnings
         reference.write_text(saved, encoding="utf-8")
         # Newly introduced JSON must never disappear behind an unchanged Markdown cache hit.
         artifact = docs / "codecommit/orphan.json"
         artifact.parent.mkdir(exist_ok=True)
         artifact.write_text("invalid JSON", encoding="utf-8")
-        invalid = validate(cache=PassCache(root, directory=directory))
+        invalid = validate(cache=shared_cache)
         assert invalid.errors and "orphan" in "\n".join(invalid.errors), invalid.errors
         artifact.unlink()
         # Mid-validation edits fail and do not persist the service's old key.
         cache = PassCache(root, fresh=True, directory=directory)
         model = models / "sqs.properties"
         saved = read_model(model)
-        old_key = cache.service_key(("dev", "cde", "sqs"))
-        (Path(directory) / f"{old_key}.json").unlink()
         changed = _bind_framework_callback(_callback_check_single_target_cache_changed, model, original, saved)
         with patch.object(VALIDATOR.Validator, "check_designs", changed):
             invalid = validate(cache=cache)
@@ -187,11 +187,11 @@ def check_template_consumers(root):
     with patch.object(sys, 'argv', command[1:] + ['--scope', 'dev/team/config']), redirect_stdout(io.StringIO()):
         assert SYNC.active_scope(root) == scope
         assert SYNC.main() == 0
-    with tempfile.TemporaryDirectory() as directory:
+    with tempfile.TemporaryDirectory() as directory, input_context():
         validate = _bind_framework_callback(_callback_check_template_consumers_validate, directory, root, scope)
         cold = validate()
         dev_key = cold.service_keys[('dev', 'team', 'config')]
-        (Path(directory)/f'{dev_key}.json').unlink()
+        cold.cache._results().pop(dev_key)
         sync_runtime = _imports_sync_runtime
         with patch.object(sync_runtime, 'compare_generation', wraps=sync_runtime.compare_generation) as generate:
             partial = validate()

@@ -200,6 +200,34 @@ def check_snapshot_conflict(tmp_path):
     snapshot.close()
 
 
+def check_snapshot_project_common_inputs(tmp_path):
+    root, definitions = tmp_path / 'repo', tmp_path / 'definitions'
+    project = root / 'project.json'
+    project.parent.mkdir()
+    project.write_bytes(b'{}')
+    distributed = definitions / 'README.md'
+    distributed.parent.mkdir()
+    distributed.write_bytes(b'distributed')
+    framework = definitions / 'framework/mapping.json'
+    framework.parent.mkdir()
+    framework.write_bytes(b'{}')
+    snapshot = sync_runtime.GenerationInputs(root, definitions)
+    cache = _imports_validation_cache.PassCache(root, definitions_root=definitions)
+    with patch.object(snapshot, 'live_select', wraps=snapshot.live_select) as select:
+        cache.common_key(snapshot=snapshot)
+        cache.common_key(snapshot=snapshot)
+        assert select.call_count == 1
+    with recording_inputs(snapshot):
+        assert input_bytes(framework) == b'{}'
+    assert framework not in snapshot.contents and distributed not in snapshot.contents
+    snapshot.seal()
+    snapshot.verify()
+    project.write_bytes(b'{"changed": true}')
+    with pytest.raises(ValueError, match='inputs changed before publication'):
+        snapshot.verify()
+    snapshot.close()
+
+
 def check_planned_outputs_and_boundary(tmp_path):
 
     path, created = tmp_path/'view.md', tmp_path/'new.json'

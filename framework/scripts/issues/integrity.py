@@ -68,16 +68,15 @@ def verify_inputs(root, artifact, *, cache=None, common=True, allow_unreadable=F
         current = sorted(file.relative_to(root).as_posix() for file in (root / directory).rglob('*') if file.is_file() or file.is_symlink())
         if current != files:
             raise ValueError('stale scan: input file set changed')
+    supplied = cache is not None
     if cache is None:
         cache = PassCache(root)
-        cache.common = live_common_key(cache)
-        if cache.common != expected['framework']:
-            raise ValueError('stale scan: framework/project input changed')
+        cache.common = expected['framework']
     verify_service_keys(root, artifact, cache=cache)
     if artifact.get("lint_dependencies"):
         verify_dependencies = _imports_utils_cfn_lint.verify_dependencies
         verify_dependencies(artifact["lint_dependencies"], cwd=root)
-    if common and live_common_key(cache or PassCache(root)) != expected['framework']:
+    if (common or not supplied) and live_common_key(cache) != expected['framework']:
         raise ValueError('stale scan: framework/project input changed')
 
 

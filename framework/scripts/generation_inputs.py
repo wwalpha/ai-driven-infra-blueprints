@@ -42,7 +42,10 @@ class GenerationInputs:
     def tracks(self, path):
         if self.stage is not None and path.is_relative_to(self.stage):
             return False
-        return path.is_relative_to(self.root) or path.is_relative_to(self.definitions_root) or path.is_relative_to(self.runtime_root / 'framework')
+        for root in (self.root, self.definitions_root, self.runtime_root):
+            if path.is_relative_to(root / 'framework'):
+                return False
+        return path.is_relative_to(self.root) or path.is_relative_to(self.definitions_root)
 
     def require_open(self, path):
         if self.sealed:

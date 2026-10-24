@@ -66,7 +66,7 @@ def accept(root, result_path, session, backend, units, current_units, current_ma
             output(root, 'rev-parse', result['commit'] + '^') != result['parentTip'] or
             paths(root, 'diff', '--name-only', '--no-renames', '-z', result['parentTip'], result['commit']) != changed):
         raise Blocked('repair integration history/parent lifecycle mismatch')
-    if _dependency_deploy_contracts.validation_snapshot(root) != result['validation']['snapshot']:
+    if _dependency_deploy_contracts.validation_snapshot(root) != _dependency_deploy_contracts.project_snapshot(result['validation']['snapshot']):
         raise Blocked('validation dependencies or file set changed after child validation')
     handoff.verify_inputs(root, session, child_paths=changed)
     effective = handoff.effective(root, units, backend.paths, backend.deployment_input_paths)

@@ -355,7 +355,7 @@ def check_operation_pass_cache():
             assert len(calls) == 2 and calls[0] is calls[1]
             calls.clear()
             assert issues_scan.verify_inputs(root, saved) is None
-            assert len(calls) == 2 and calls[-1] is calls[0]
+            assert len(calls) == 1
         # Three services also demonstrate fewer common hashes, without a timing threshold.
         saved['service_keys']['dev/team/producer'] = PassCache(root).service_key(('dev', 'team', 'producer'))
         with patch.object(PassCache, 'common_key', counted):

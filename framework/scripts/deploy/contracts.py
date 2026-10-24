@@ -139,10 +139,17 @@ def migrate_delivery(root, target, unit, state, template_data, file_digest):
 
 
 def validation_snapshot(root):
-    """Hash ordinary Git inputs used by a validated repair candidate."""
+    """Hash mutable Project Git inputs used by a validated repair candidate."""
     safe_path = _imports_task_contract.safe_path
     result = {}
-    for relative in sorted(paths(root, 'ls-files', '-z') | paths(root, 'ls-files', '--others', '--exclude-standard', '-z')):
+    for relative in sorted(paths(root, 'ls-files', '--cached', '--others', '--exclude-standard', '-z',
+                                 '--', '.', ':(top,exclude)framework')):
         path = safe_path(root, relative)
         result[relative] = sha(path) if path.is_file() else None
     return result
+
+
+def project_snapshot(snapshot):
+    """Compare legacy signed snapshots without rewriting their Framework entries."""
+    return {path: digest for path, digest in snapshot.items()
+            if path != 'framework' and not path.startswith('framework/')}

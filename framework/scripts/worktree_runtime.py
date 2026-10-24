@@ -316,7 +316,7 @@ def deploy_finalize(where, task_id):
         text = wt.deploy_child_contract(target, state, request)
         validation = read_sealed(parent, Path(state['deployValidation']))
         if (validation['requestId'] != request['requestId'] or validation['contract'] != tasks.set_status(text, 'running') or
-                validation['snapshot'] != wt.deploy_snapshot(target)):
+                _imports_deploy_contracts.project_snapshot(validation['snapshot']) != wt.deploy_snapshot(target)):
             raise wt.Blocked('validated child contract/inputs changed')
         handoff.verify_inputs(parent, session, child_paths=request['allowedPaths'] if parent_state.get('deployIntegrationIntent') else ())
         if not state.get('deployCommitIntent'):

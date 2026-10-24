@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
 
+import json
 import sys
 from functools import partial as _bind_framework_callback
 from pathlib import Path
@@ -9,8 +10,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import pytest
 import task_contract_core as tasks
-import validation_cache
 from model.importing import scope as import_scope
 from support.validation_cache_fixtures import (
     PassCache,
@@ -44,10 +45,6 @@ def check_cache_inputs(tmp_path):
         cache.save(key, 17)
         assert cache.load(key) == 17
         assert PassCache(root, fresh=True, directory=directory).load(key) is None
-        record = Path(directory) / f"{key}.json"
-        for corrupted in ('{', 'null', '[]', '{"version":1,"checks":true}'):
-            record.write_text(corrupted, encoding="utf-8")
-            assert cache.load(key) is None
         bytecode = root/"__pycache__/fixture.cpython.pyc"
         bytecode.parent.mkdir(parents=True,exist_ok=True)
         bytecode.write_bytes(b"generated cache")
@@ -55,8 +52,8 @@ def check_cache_inputs(tmp_path):
         bytecode.write_bytes(b"regenerated cache")
         assert PassCache(root,directory=directory).key("catalog")==key
         cache.save(key, 0)
-        assert cache.load(key) is None
-        for relative in ("README.md",):
+        assert cache.load(key) == 17
+        for relative in ("README.md", "AGENTS.md", "project.json", ".agents/project/SKILL.md"):
             path = root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             before = PassCache(root, directory=directory).key("catalog")
@@ -85,17 +82,33 @@ def check_cache_location(tmp_path):
         raise AssertionError("cache directory inside repository accepted")
 
 
-def check_cache_save_failure_continues(tmp_path: Path) -> None:
-    cache = PassCache(tmp_path / 'repo', directory=tmp_path / 'cache')
-    with patch.object(validation_cache, 'atomic_replace_file', side_effect=OSError('unavailable')):
-        cache.save('key', 17)
-    assert cache.load('key') is None
-    cache.save('key', 17)
-    assert cache.load('key') == 17
-    assert (cache.directory / 'key.json').read_bytes() == b'{"version": 1, "key": "key", "result": "pass", "checks": 17}'
+def _project_rglob(path, pattern):
+    assert path.name == '.agents', f'unexpected Framework scan: {path}'
+    return iter(())
 
 
-
+def check_cache_lifetime(tmp_path):
+    root, definitions, directory = tmp_path / 'repo', tmp_path / 'definitions', tmp_path / 'cache'
+    framework = root / 'framework/validator.py'
+    framework.parent.mkdir(parents=True)
+    framework.write_bytes(b'first version')
+    directory.mkdir()
+    cache = PassCache(root, directory=directory, definitions_root=definitions)
+    with patch.object(Path, 'rglob', _project_rglob), input_context():
+        key = cache.key('catalog')
+        # A valid historical disk PASS is still unproved for this Framework version.
+        (directory / f'{key}.json').write_text(json.dumps(
+            {'version': 1, 'key': key, 'result': 'pass', 'checks': 17}))
+        assert cache.load(key) is None
+        cache.save(key, 17)
+        assert PassCache(root, directory=directory, definitions_root=definitions).load(key) == 17
+    framework.write_bytes(b'second version')
+    with patch.object(Path, 'rglob', _project_rglob), input_context():
+        assert cache.load(cache.key('catalog')) is None
+        assert PassCache(root, directory=directory, definitions_root=definitions).load(key) is None
+    with pytest.raises(ValueError, match='symlink inputs'):
+        (root / 'README.md').symlink_to(framework)
+        PassCache(root, directory=directory).common_key()
 
 
 def _check_retained_common_key_contract(name, service):

@@ -8,7 +8,7 @@ from types import SimpleNamespace as _CallbackState
 from unittest.mock import patch
 
 from support.validator import MODULE, SCRIPT, project, write
-from validation_cache import PassCache
+from utils.input_cache import input_context
 
 
 def _callback_check_dispatch_run_check(_state_check_dispatch_13, /, name):
@@ -117,22 +117,22 @@ def check_boundaries():
             child.assert_called_once_with()
 
 
-def check_module_keys():
-    names = ('findings', 'scenario', 'cloudformation', 'iac', 'terraform', 'design', 'design_tables', 'design_links',
-             'project', 'task', 'framework_contracts')
-    with project() as root, project() as runtime:
-        for base in (root, runtime):
-            directory = base / 'framework/scripts/validation'
-            directory.mkdir(parents=True)
-            for name in names:
-                write(directory / f'{name}.py', 'original\n')
-        with patch('validation_cache.__file__', str(runtime / 'framework/scripts/validation_cache.py')):
-            cache = PassCache(root)
-            before = cache.common_key()
-            for base in (root, runtime):
-                for name in names:
-                    path = base / f'framework/scripts/validation/{name}.py'
-                    write(path, 'changed\n')
-                    assert cache.common_key() != before, (base, name)
-                    write(path, 'original\n')
-                    assert cache.common_key() == before
+def check_common_cache_guard():
+    state = _CallbackState(task_type='governance', phase='', failed=False, invoked=[])
+    methods = ('check_structure', 'check_task_scope', 'check_project_topology', 'check_validation_scope',
+               'check_model_files', 'check_issue_gate', 'check_initialized_paths', 'check_resource_layout',
+               'check_iac_selection', 'check_acceptance_checks')
+    with project() as root, input_context(), ExitStack() as lifetime, redirect_stdout(io.StringIO()):
+        state.validator = MODULE.Validator(root, set(), cache=True)
+        validator = state.validator
+        run_check = _bind_framework_callback(_callback_check_dispatch_run_check, state)
+        for name in methods:
+            lifetime.enter_context(patch.object(validator, name, _bind_framework_callback(run_check, name)))
+        lifetime.enter_context(patch.object(validator.task, 'fix_baseline'))
+        common = lifetime.enter_context(patch.object(validator.cache, 'common_key', wraps=validator.cache.common_key))
+        catalog = lifetime.enter_context(patch.object(validator, 'check_catalog_inputs',
+                        side_effect=_bind_framework_callback(validator.check, True, 'catalog')))
+        assert validator.run() == 0
+        assert validator.run() == 0
+        assert common.call_count == 4  # One initial key and one final guard per run.
+        catalog.assert_called_once()

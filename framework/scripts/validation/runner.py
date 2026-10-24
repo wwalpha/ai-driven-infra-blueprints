@@ -192,12 +192,12 @@ class Validator:
                 lifetime.enter_context(mapping_alias(self.definitions_root, self.root))
             self.task.fix_baseline()
             common = self.cache or PassCache(self.root, definitions_root=self.definitions_root)
-            # Register the full cache dependency set before lookup; never derive it from
-            # the growing subset of project inputs already consumed.
-            common.common_inputs(snapshot)
+            # Register mutable common inputs once, before any cache lookup.
             if self.cache:
                 self.cache.common = self.cache.common_key(snapshot=snapshot)
                 self.catalog_key = self.cache.key('catalog')
+            else:
+                common.common_inputs(snapshot)
             return self._run(snapshot)
 
     def input_check(self, snapshot, handler):
@@ -250,15 +250,17 @@ class Validator:
             self.check_results()
             self.check_scenario_changes()
         self.check_acceptance_checks()
+        current_common = None
         if self.cache and self.cache.common is not None:
-            self.check(self.cache.common == self.cache.common_key(), "framework/project inputs changed during validation")
+            current_common = self.cache.common_key()
+            self.check(self.cache.common == current_common, "project inputs changed during validation")
 
         verify_contract_reads(self.root)
         if self.cache and not self.errors:
             if self.catalog_pending is not None:
                 self.cache.save(*self.catalog_pending)
                 self.catalog_pending = None
-            self.finalize_service_cache(self.cache.common_key())
+            self.finalize_service_cache(current_common)
         return self.report()
 
     def report(self):
@@ -511,19 +513,12 @@ class Validator:
                 self.findings.evaluate(check_id, self.scope, lambda: None)
             self.schema_catalog = DesignSchemaCatalog(self.definitions_root)
             print("Catalog validation: reused (content hashes match)")
-            if not self.write:
-                self.check(self.cache.common == self.cache.common_key(), "framework/project inputs changed during catalog validation")
             return
         before, errors = self.checks, len(self.errors)
         self.check_catalog_inputs()
         if self.cache and key is not None and errors == len(self.errors):
-            if self.write:
-                self.catalog_pending = (key, self.checks - before)
-            else:
-                unchanged = self.cache.common == self.cache.common_key()
-                self.check(unchanged, "framework/project inputs changed during catalog validation")
-                if unchanged:
-                    self.catalog_pending = (key, self.checks - before - 1)
+            # Save only after the invocation's final Project input comparison.
+            self.catalog_pending = (key, self.checks - before)
 
 
     def check_designs(self) -> None:

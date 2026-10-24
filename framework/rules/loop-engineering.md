@@ -199,11 +199,28 @@ Framework implementation or ordinary design.
 
 Do not save warning-bearing or incomplete results as count-only PASS cache records.
 Keep their warnings/unverified scope visible on rerun. Reuse normal complete caches
-under the existing content-hash rules.
+only within the existing invocation input context (or an explicitly caller-owned PassCache
+outside that context). Cache instances inside the context share successful results; leaving
+it discards them, including when the same instance is used in a later invocation.
 
-Read-only task/local runs save only successful catalog/service results in the OS temporary directory `blueprint-validation-cache` outside the repository and reuse them when content hashes match. `BLUEPRINT_VALIDATION_CACHE_DIR` may specify a destination outside the repository. Include filenames, file sets, SHA-256, Python/OS, all framework inputs (including validator/generator/rule/catalog/schema), project and AGENTS, target model entries/parts, Markdown/JSON, and referenced models/displays in the key. Read reference-target content only for invalidation decisions; do not add out-of-scope service schema validation. Do not decide by mtime alone.
+Successful catalog/service results are held in memory, never loaded from or saved to
+persistent PASS files. There is no trusted complete Framework release identity; restricting
+reuse to one invocation prevents a Framework update between executions from reusing an old
+PASS without another Framework scan, Git/mtime check or substitute digest. The existing
+external cache-directory option remains an in-memory namespace and retains its path guard.
+Framework code and distributed definitions are immutable during ordinary Project execution;
+Framework development still uses its required checks and fresh providers for definition edits.
+Common inputs cover the mutable Project's `project.json`, `AGENTS.md`, `README.md` and
+`.agents/` file set. Distribution copies under a separate definitions/runtime root are not
+Project inputs. Generation records actual mutable Project bytes, kinds and file sets; it
+does not register/re-read immutable Framework files for change detection.
+Include filenames, file sets, SHA-256, Python/OS, target model entries/parts, Markdown/JSON,
+and referenced models/displays in the key. Read reference-target content only for
+invalidation decisions; do not add out-of-scope service schema validation. Do not decide
+by mtime alone. Issues artifacts retain stable Project input fingerprints independent of
+the PASS-cache lifetime, including their live final input guard.
 
-For new inputs, changed contents, added/deleted files, missing/corrupt caches, unknown dependencies, or symlinks, do not reuse successful results; revalidate within explicit scope. Input changes during validation are FAIL; do not save that service's result. Run task contracts, Requirement/Acceptance, issue gates, change scope, project topology, model part structure, scope-wide resource ownership/stack duplication, IaC/deploy safety checks, and Git diff checks every time. Do not infer scope from changed paths or fall back to out-of-scope overall validation. Caches do not replace current AWS values, change sets, plans, or account/region confirmation.
+For new inputs, changed contents, added/deleted files, missing cache entries, unknown dependencies, or symlinks, do not reuse successful results; revalidate within explicit scope. Input changes during validation are FAIL; do not save that service's result. Run task contracts, Requirement/Acceptance, issue gates, change scope, project topology, model part structure, scope-wide resource ownership/stack duplication, IaC/deploy safety checks, and Git diff checks every time. Do not infer scope from changed paths or fall back to out-of-scope overall validation. Caches do not replace current AWS values, change sets, plans, or account/region confirmation.
 
 `--fresh` disables successful-result reuse. `--mode full` and `--all` also validate fresh. Invocation-local Model rows and input/path reuse is used even in fresh runs and does not carry over to the next execution.
 
@@ -222,8 +239,8 @@ Do not terminate validation exceeding 60 seconds and call it PASS.
 
 Integrated write reuses current-run candidate results rather than service PassCache:
 never regenerate or read saved outputs to create a service cache. Catalog uses its
-existing compatible key from retained common input bytes; save a new Catalog PASS only
-after the single input comparison succeeds. `--fresh` disables cross-run reuse, while
+Project key from retained common input bytes; retain a new Catalog PASS only
+after the single input comparison succeeds. `--fresh` disables retained PASS reuse, while
 current-run deduplication remains active.
 
 ## Framework regression
