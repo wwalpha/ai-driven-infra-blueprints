@@ -1,6 +1,7 @@
 """Decorator state preserves calls, metadata and Python method descriptors."""
 import inspect
 import sys
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -60,8 +61,39 @@ def check_callback_binding():
     assert instance.method(2) == 15
 
 
+def write_callback(original, failed, calls, /, path, data, *args, **kwargs):
+    calls.append((path, data, kwargs))
+    if path == failed:
+        raise OSError('test write failure')
+    return original(path, data, *args, **kwargs)
+
+
+def check_path_write_text_binding():
+    with tempfile.TemporaryDirectory() as directory:
+        saved = Path(directory) / 'saved.md'
+        failed = Path(directory) / 'failed.md'
+        failed.write_text('old', encoding='utf-8')
+        calls = []
+        callback = BoundCallback(write_callback, Path.write_text, failed, calls)
+        with patch.object(Path, 'write_text', callback):
+            assert saved.write_text('日本語', encoding='utf-8') == 3
+            assert Path.write_text(saved, 'class call', encoding='utf-8') == 10
+            try:
+                failed.write_text('changed', encoding='utf-8')
+            except OSError as error:
+                assert str(error) == 'test write failure'
+            else:
+                raise AssertionError('injected failure was not raised')
+        assert calls == [(saved, '日本語', {'encoding': 'utf-8'}),
+                         (saved, 'class call', {'encoding': 'utf-8'}),
+                         (failed, 'changed', {'encoding': 'utf-8'})]
+        assert saved.read_text(encoding='utf-8') == 'class call'
+        assert failed.read_text(encoding='utf-8') == 'old'
+
+
 if __name__ == "__main__":
     check_wrapper()
     check_method_binding()
     check_callback_binding()
-    print("Function wrapper checks: PASS (3 checks)")
+    check_path_write_text_binding()
+    print("Function wrapper checks: PASS (4 checks)")

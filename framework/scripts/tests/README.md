@@ -7,6 +7,17 @@
 - `support/`: 共通fixture、loader、pytestの診断補助。UTはITテストモジュールをimportしない。
 - `unknown/`: 分類対象を残さない。分類済みかどうかはディレクトリ名だけで判断しない。
 
+## Model Designの責務
+
+`model_design` ITは7関数・7 pytest条件。Endpoint/Route53、IMPORT任意Name、KMS Execution Account、Config異型anchor、Stack/索引Model再読込、複数サービス部分失敗、Dynamic Referenceの実生成を検証する。
+部分失敗はVPC/Logs/IAMの正常生成後、IAMだけのMarkdown書込失敗で旧Markdown/JSONと全正本を保持し、独立Logsの成功を確認する。
+表示・命名・Schema・Mode・異常値の組合せは既存UTの直接関数呼出しへ集約し、重複保証は再追加しない。
+単体表示にはSync、実CLI、Git、全Model生成、全Frameworkコピーやroundtripを使わない。
+Task変更・publication barrier・sidecar rollbackはsync-model/Task専用テスト、参照警告はmodel-reference-warnings、Dynamic Referenceの値制約はcloudformation_schemaが受け持つ。
+実Path.write_text差替えのself/data/encodingと失敗伝播はfunction_wrapper UTが受け持つ。
+旧29関数のassertion対応と登録は [CASES.md](CASES.md#issue-17-model-designの検証責務) を参照。
+pytest/direct/module completionとrunner receiptの契約は維持する。
+
 ## Worktree責務の分離
 
 Worktree機能自体を検証するレビュー済みケースだけが、実worktree操作とLifecycleのMock/fixtureを使う。

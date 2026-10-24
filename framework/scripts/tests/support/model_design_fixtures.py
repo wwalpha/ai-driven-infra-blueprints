@@ -118,14 +118,16 @@ def roundtrip(path, values, root):
     if stacks.exists():
         stack_values = dict(load_model(stacks).values)
         stack_view = path.with_name("cloudformation-stacks.md")
-        stack_view.write_text(markdown_for(stack_view, stack_values, project_root, definitions_root=root), encoding="utf-8")
+        expected_stack = markdown_for(stack_view, stack_values, project_root, definitions_root=root)
+        if not stack_view.exists() or stack_view.read_bytes() != expected_stack.encode("utf-8"):
+            stack_view.write_text(expected_stack, encoding="utf-8")
     write_model(project_root / "model" / path.relative_to(project_root / "docs/designs").with_suffix(".properties"), values)
     expected = markdown_for(path, values, project_root, definitions_root=root)
     path.write_text(expected, encoding="utf-8")
     plan = SimpleNamespace(root=path.parent, read_inputs={}, expected_outputs={path: {path: expected}}, failures=[], saved={})
     sync_runtime._compare_generation(plan)
     assert not plan.failures, plan.failures
-    return path.read_text(encoding="utf-8")
+    return expected
 
 @pytest.fixture
 def root(project_workspace):
@@ -142,12 +144,12 @@ def project(root):
     write_model(stacks, values)
     view = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
     view.parent.mkdir(parents=True, exist_ok=True)
-    view.write_text(markdown_for(view, values, root))
+    view.write_text(markdown_for(view, values, root), encoding="utf-8")
 
 
 __all__ = ['ALIGNMENT', 'CODEBUILD_VPC_PROPERTIES', 'COMMENTS', 'Diagnostics', 'GROUP_COMMENTS', 'HEADER', 'Path', 'ROOT', 'SUBNET_LIST_PROPERTIES', 'SYNC', 'SimpleNamespace', 'catalog_display_rows', 'catalog_order_errors', 'design_naming_errors', 'display_rows', 'expanded_display_rows', 'io', 'json', 'load', 'load_model', 'markdown_for', 'model', 'model_design', 'model_projection', 'naming_errors', 'naming_rule_files', 'naming_target_matches', 'naming_targets', 'os', 'patch', 'project', 'properties', 'pytest', 'pytestmark', 'read_model', 'redirect_stderr', 'resource_anchor', 'resource_display_name', 'resource_has_name_property', 'resource_rows', 'root', 'roundtrip', 'row_table', 'run', 'shutil', 'snapshot_model', 'stack_deployment_policy', 'stack_design', 'stack_model', 'subprocess', 'sync_files', 'sync_runtime', 'sync_views', 'sys', 'text', 'validate_kms_policy_accounts', 'write_fixture_files', 'write_model']
 
 def main():
-    return run(Path(__file__).resolve().parents[1] / 'integrations/model_design.checks.py', message="model_design: PASS (authoritative updates, service rollback, naming coverage and service displays)")
+    return run(Path(__file__).resolve().parents[1] / 'integrations/model_design.checks.py', message="model_design: PASS (7 integration checks: generated references, imports, accounts, stacks and service failure protection)")
 
 __all__.append('main')

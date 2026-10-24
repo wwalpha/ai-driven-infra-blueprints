@@ -23,6 +23,7 @@ import utils.input_cache as _imports_input_cache
 import validation.design_links as _imports_validation_design_links
 from design_catalog import property_paths_with_parents
 from script_loader import module
+from support.pytest_cli import run
 from support.validator import load
 from sync_files import changed_files, markdown_newlines
 from utils.input_cache import (
@@ -589,6 +590,29 @@ def check_resource_row_scope_restoration():
     assert projection._resource_row_cache.get() is None
 
 
+def check_readonly_stale_views(tmp_path):
+    path = tmp_path / 'docs/designs/dev/team/logs.md'
+    source = tmp_path / 'model/dev/team/logs.properties'
+    path.parent.mkdir(parents=True)
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b'authoritative source')
+    expected = '| RetentionInDays | `14` | 保持日数 |\n'
+    for content in (expected, expected.replace('`14`', '`31`'), '', expected.replace('RetentionInDays', 'UnknownField')):
+        path.write_text(content, encoding='utf-8')
+        before = {file: file.read_bytes() for file in (path, source)}
+        plan = SimpleNamespace(root=tmp_path, read_inputs={source: before[source]}, expected_outputs={path: {path: expected}}, failures=[], saved={})
+        sync_runtime._compare_generation(plan)
+        if content == expected:
+            assert plan.saved == {path: {}} and not plan.failures
+        else:
+            assert plan.failures == ['generated Markdown is stale or missing: docs/designs/dev/team/logs.md']
+            assert not plan.saved
+        assert {file: file.read_bytes() for file in before} == before
+    path.unlink()
+    plan = SimpleNamespace(root=tmp_path, read_inputs={}, expected_outputs={path: {path: expected}}, failures=[], saved={})
+    sync_runtime._compare_generation(plan)
+    assert plan.failures and not path.exists()
+
+
 if __name__ == '__main__':
-    from support.pytest_cli import run
     raise SystemExit(run(__file__))

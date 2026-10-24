@@ -43,6 +43,11 @@ def check_resource_display_names():
         ('CREATE', [], 'Config recorder', 'required Name is not selected'),
         ('IMPORT', [], None, 'confirmed resource display label is missing'),
         ('IMPORT', [['1', 'Name', '``', '名称']], 'label', 'confirmed and non-empty'),
+        ('IMPORT', [['1', 'Name', '', '名称']], 'label', 'confirmed and non-empty'),
+        ('IMPORT', [['1', 'Name', '`   `', '名称']], 'label', 'confirmed and non-empty'),
+        ('IMPORT', [['1', 'Name', '`UNSET`', '名称']], 'label', 'confirmed and non-empty'),
+        ('IMPORT', [['1', 'Name', '`Pending`', '名称']], 'label', 'confirmed and non-empty'),
+        ('IMPORT', [['1', 'Name', '[name](#other)', '名称']], 'label', 'confirmed and non-empty'),
         ('IMPORT', [['1', 'Name', '`PENDING_DEPLOY`', '名称']], 'label', 'confirmed and non-empty'),
         ('IMPORT', [['1', 'Name', '`{{application}}`', '名称']], 'label', 'confirmed and non-empty'),
     ):
@@ -79,6 +84,26 @@ def check_resource_display_names():
                 resource_display_selection(REPOSITORY, kind, [output], None, 'IMPORT', 1)
             with pytest.raises(ValueError, match='confirmed and non-empty'):
                 resource_display_selection(REPOSITORY, kind, [[*configured[:2], '`UNSET`', configured[3]], output], None, 'CREATE', 1)
+
+
+    kind = 'GuardDuty.Detector'
+    assert not resource_has_name_property(REPOSITORY, kind)
+    for count in (1, 2):
+        assert resource_display_selection(REPOSITORY, kind, [], 'primary-detector', 'CREATE', count) == ('primary-detector', None)
+    assert resource_display_selection(REPOSITORY, kind, [], None, 'CREATE', 1) == (kind, None)
+    assert resource_display_selection(REPOSITORY, kind, [], None, 'CREATE', 2) == (None, None)
+    assert resource_display_name(kind, [['1', 'Tags[].Key', '`Name`', 'キー'], ['2', 'Tags[].Value', '`selected-name`', '名前']]) == 'selected-name'
+    assert resource_has_name_property(REPOSITORY, 'CodeCommit.Repository')
+    assert resource_has_name_property(REPOSITORY, 'SNS.Topic')
+    aliases = [['1', 'KMS.Alias.AliasName', '`alias/one`', 'alias'], ['2', 'KMS.Alias.AliasName', '`alias/two`', 'alias']]
+    for label in (None, 'other'):
+        with pytest.raises(ValueError, match='multiple aliases'):
+            resource_display_name('KMS.Key', aliases, label)
+    assert resource_display_name('KMS.Key', aliases, 'one') == 'one'
+    assert resource_display_name('KMS.Key', []) is None
+    for invalid in ('alias/', 'one'):
+        with pytest.raises(ValueError, match='AliasName'):
+            resource_display_name('KMS.Key', [['1', 'KMS.Alias.AliasName', invalid, 'alias']])
 
 
 
@@ -140,6 +165,10 @@ def check_pipeline_expansion(catalog):
 
 
 def check_fixed_identity_anchors():
+    assert resource_anchor('config', 'default', 'Config.ConfigurationRecorder') == 'config-configuration-recorder-default'
+    assert resource_anchor('config', 'DEFAULT', 'Config.ConfigurationRecorder') == 'config-configuration-recorder-default'
+    assert resource_anchor('config', 'default', 'Config.DeliveryChannel') == 'config-delivery-channel-default'
+    assert resource_anchor('s3', 'app/data', 'S3.Bucket') == 's3-app-data'
     pytest = _imports_pytest
     resource_logical_ids = _imports_design_layout.resource_logical_ids
     lines = []
@@ -151,5 +180,4 @@ def check_fixed_identity_anchors():
 
 
 if __name__ == '__main__':
-    from support.pytest_cli import run
     raise SystemExit(run(__file__))
