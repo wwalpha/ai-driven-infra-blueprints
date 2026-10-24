@@ -1219,10 +1219,16 @@ def check_candidate_design_diagnostics(tmp_path):
         design_validation.check_resource_names(metadata, [path], findings=findings, root=tmp_path,
                                               scope=None, definitions_root=ROOT, design_sources={path: values})
     assert any('resource heading must display resource name' in error for error in findings.errors), findings.errors
-    assert DesignSchemaCatalog(ROOT).literal_errors('IAM.Role', 'MaxSessionDuration', '`app-dev-role`')
     path.parent.mkdir(parents=True)
     path.write_text(document, encoding='utf-8')
     validator = load('validate-blueprint').Validator(tmp_path, definitions_root=ROOT)
+    validator.design_sources = {path: values}
+    validator.schema_catalog = DesignSchemaCatalog(ROOT)
+    with patch.object(design_tables, 'input_text', return_value=document.replace('| RoleName |', '| MaxSessionDuration |')), \
+         patch('model.projection.bound_resource_anchors', return_value={}):
+        validator.check_design_tables(metadata, *validator.catalog_design_properties(), [path])
+    assert any('provider schema violation' in error and 'IAM.Role.MaxSessionDuration' in error
+               for error in validator.errors), validator.errors
     validator.check_design_overviews([path])
     assert any('resource overview must appear exactly once' in error for error in validator.errors), validator.errors
 

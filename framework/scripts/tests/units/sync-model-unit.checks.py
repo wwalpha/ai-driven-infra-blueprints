@@ -181,33 +181,77 @@ def check_progress_heartbeat_and_waits():
 
 
 
-def check_snapshot_conflict(tmp_path):
-    input_bytes = _imports_input_cache.input_bytes
-    input_is_file = _imports_input_cache.input_is_file
-    input_select = _imports_input_cache.input_select
-    recording_inputs = _imports_input_cache.recording_inputs
-    snapshot = sync_runtime.GenerationInputs(tmp_path)
-    path = tmp_path / 'project.json'
-    assert snapshot.read(path) is None
-    with pytest.raises(ValueError, match='inputs changed while reading'):
-        snapshot.record(path, b'different')
-    with pytest.raises(ValueError, match='inputs changed before publication'):
-        snapshot.verify()
-    snapshot.close()
-    snapshot = sync_runtime.GenerationInputs(tmp_path)
-    with recording_inputs(snapshot):
-        assert not input_is_file(path)
-        with pytest.raises(FileNotFoundError):
-            input_bytes(path)
-        assert input_select(tmp_path, '*.json') == ()
-        snapshot.seal()
-        path.write_bytes(b'new')
-        assert not input_is_file(path)  # Sealed reads retain the recorded missing state.
-        with pytest.raises(ValueError, match='after seal'):
-            snapshot.read(tmp_path / 'new-dependency')
+@pytest.mark.parametrize('filename,mutation', [
+    (None, None),
+    ('entry', 'change'), ('entry', 'delete'), ('part', 'change'), ('part', 'delete'),
+    ('other-model', 'change'), ('other-model', 'delete'),
+    ('part', 'add'), ('other-model', 'add'), ('sidecar', 'add'), ('task', 'add'),
+    ('sidecar', 'change'), ('task', 'change'),
+])
+def check_snapshot_conflict(tmp_path, filename, mutation):
+    if filename is None:
+        input_bytes = _imports_input_cache.input_bytes
+        input_is_file = _imports_input_cache.input_is_file
+        input_select = _imports_input_cache.input_select
+        recording_inputs = _imports_input_cache.recording_inputs
+        snapshot = sync_runtime.GenerationInputs(tmp_path)
+        path = tmp_path / 'project.json'
+        assert snapshot.read(path) is None
+        with pytest.raises(ValueError, match='inputs changed while reading'):
+            snapshot.record(path, b'different')
         with pytest.raises(ValueError, match='inputs changed before publication'):
             snapshot.verify()
-    snapshot.close()
+        snapshot.close()
+        snapshot = sync_runtime.GenerationInputs(tmp_path)
+        with recording_inputs(snapshot):
+            assert not input_is_file(path)
+            with pytest.raises(FileNotFoundError):
+                input_bytes(path)
+            assert input_select(tmp_path, '*.json') == ()
+            snapshot.seal()
+            path.write_bytes(b'new')
+            assert not input_is_file(path)  # Sealed reads retain the recorded missing state.
+            with pytest.raises(ValueError, match='after seal'):
+                snapshot.read(tmp_path / 'new-dependency')
+            with pytest.raises(ValueError, match='inputs changed before publication'):
+                snapshot.verify()
+        snapshot.close()
+        return
+
+    paths = {'entry': 'model/dev/team/iam.properties', 'part': 'model/dev/team/iam/part-001.properties',
+             'other-model': 'model/stg/team/kms.properties',
+             'sidecar': 'docs/designs/dev/team/iam/policy.json', 'task': 'tasks/concurrent.md'}
+    target = tmp_path / paths[filename]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if mutation != 'add':
+        target.write_bytes(b'## Task contract\n- Task type: `governance`\n- Task status: `running`\n'
+                           b'## Modified files\n- `tasks/concurrent.md`\n'
+                           b'## Allowed paths\n- `tasks/concurrent.md`\n## Validation scope\n- `framework`\n'
+                           if filename == 'task' else b'original\r\n')
+    snapshot = sync_runtime.GenerationInputs(tmp_path)
+    try:
+        if filename == 'task' and mutation != 'add':
+            assert target in snapshot.contents, 'Task capture belongs to snapshot construction'
+        original = None if mutation == 'add' else snapshot.read(target)
+        if filename != 'task':
+            base = tmp_path / ('docs/designs' if filename == 'sidecar' else 'model')
+            snapshot.select(base, '*', recursive=True)
+        snapshot.seal()
+        snapshot.verify()
+        if mutation == 'delete':
+            target.unlink()
+        else:
+            target.write_bytes(b'concurrent\n')
+        with pytest.raises(ValueError, match='inputs changed before publication') as error:
+            snapshot.verify()
+        assert target.relative_to(tmp_path).as_posix() in str(error.value)
+        if mutation == 'add':
+            assert target not in snapshot.contents
+        else:
+            assert snapshot.read(target) == original
+        assert not target.exists() if mutation == 'delete' else target.read_bytes() == b'concurrent\n'
+    finally:
+        snapshot.close()
 
 
 @pytest.mark.parametrize('mutation', ['change', 'delete'])
@@ -230,6 +274,7 @@ def check_snapshot_project_common_inputs(tmp_path, mutation):
         assert select.call_count == 1
     with recording_inputs(snapshot):
         assert input_bytes(framework) == b'{}'
+    assert snapshot.read(project) == b'{}'
     assert framework not in snapshot.contents and distributed not in snapshot.contents
     snapshot.seal()
     snapshot.verify()
@@ -237,8 +282,10 @@ def check_snapshot_project_common_inputs(tmp_path, mutation):
         project.unlink()
     else:
         project.write_bytes(b'{"changed": true}')
-    with pytest.raises(ValueError, match='inputs changed before publication'):
+    with pytest.raises(ValueError, match='inputs changed before publication') as error:
         snapshot.verify()
+    assert 'project.json' in str(error.value) and snapshot.read(project) == b'{}'
+    assert not project.exists() if mutation == 'delete' else project.read_bytes() == b'{"changed": true}'
     snapshot.close()
 
 
@@ -683,47 +730,6 @@ def check_readonly_stale_views(tmp_path):
 
 
 
-@pytest.mark.parametrize('filename,mutation', [
-    ('entry', 'change'), ('entry', 'delete'), ('part', 'change'), ('part', 'delete'),
-    ('other-model', 'change'), ('other-model', 'delete'),
-    ('part', 'add'), ('other-model', 'add'), ('sidecar', 'add'), ('task', 'add'),
-    ('sidecar', 'change'), ('task', 'change'),
-])
-def check_snapshot_input_differences(tmp_path, filename, mutation):
-    paths = {'entry': 'model/dev/team/iam.properties', 'part': 'model/dev/team/iam/part-001.properties',
-             'other-model': 'model/stg/team/kms.properties', 'project': 'project.json',
-             'sidecar': 'docs/designs/dev/team/iam/policy.json', 'task': 'tasks/concurrent.md'}
-    target = tmp_path / paths[filename]
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if mutation != 'add':
-        target.write_bytes(b'## Task contract\n- Task type: `governance`\n- Task status: `running`\n'
-                           b'## Modified files\n- `tasks/concurrent.md`\n'
-                           b'## Allowed paths\n- `tasks/concurrent.md`\n## Validation scope\n- `framework`\n'
-                           if filename == 'task' else b'original\r\n')
-    snapshot = sync_runtime.GenerationInputs(tmp_path)
-    try:
-        original = None if mutation == 'add' else snapshot.read(target)
-        base = tmp_path / ('model' if filename in {'entry', 'part', 'other-model'} else
-                           'docs/designs' if filename == 'sidecar' else 'tasks' if filename == 'task' else '.')
-        snapshot.select(base, '*', recursive=True)
-        snapshot.seal()
-        snapshot.verify()
-        if mutation == 'delete':
-            target.unlink()
-        else:
-            target.write_bytes(b'concurrent\n')
-        with pytest.raises(ValueError, match='inputs changed before publication') as error:
-            snapshot.verify()
-        assert target.relative_to(tmp_path).as_posix() in str(error.value)
-        if mutation == 'add':
-            assert target not in snapshot.contents
-        else:
-            assert snapshot.read(target) == original
-        assert not target.exists() if mutation == 'delete' else target.read_bytes() == b'concurrent\n'
-    finally:
-        snapshot.close()
-
-
 @pytest.mark.parametrize('location', ['file', 'parent'])
 def check_snapshot_symlink_safety(tmp_path, location):
     external = tmp_path / 'external'
@@ -874,14 +880,24 @@ def check_sidecar_output_difference(tmp_path, state):
 
 
 
-def check_missing_validation_inputs(tmp_path):
+@pytest.mark.parametrize('missing', ['model', 'view'])
+def check_missing_validation_inputs(tmp_path, missing):
     (tmp_path / 'project.json').write_text('{"projectName":"test","targets":[{"environment":"dev",'
                                          '"awsAccountId":"123456789012","awsRegion":"ap-northeast-1",'
                                          '"iacEngine":"cloudformation"}]}\n')
+    source = tmp_path / 'model/dev/123456789012/iam.properties'
+    if missing == 'view':
+        source.parent.mkdir(parents=True)
+        source.write_text(serialize({'desired.service.iam.serviceId': 'iam',
+                                     'desired.service.iam.ownedCatalogResourceTypes': 'IAM.Role'}), encoding='utf-8')
+    original = source.read_bytes() if source.exists() else None
     validator = load('validate-blueprint').Validator(tmp_path, {('dev', '123456789012', 'iam')})
     validator.check_project_topology()
     validator.check_validation_scope()
-    assert any('validation properties input missing' in error for error in validator.errors), validator.errors
+    expected = 'validation properties input missing' if missing == 'model' else 'validation input missing: docs/designs/dev/123456789012/iam.md'
+    assert any(expected in error for error in validator.errors), validator.errors
+    assert not (tmp_path / 'docs/designs/dev/123456789012/iam.md').exists()
+    assert (source.read_bytes() if source.exists() else None) == original
 
 
 

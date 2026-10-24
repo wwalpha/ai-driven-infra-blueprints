@@ -202,13 +202,13 @@ def check_stage_definition_sources(generated_policy, tmp_path):
 
 
 def check_stage_candidate_isolation(generated_policy, tmp_path):
-    expected = 'broken design link'
     root, model, values, design, artifact, _ = generated_policy
     stage = tmp_path / 'candidates'
     staged = stage / design.relative_to(root)
-    originals = {p: p.read_bytes() for p in (design, artifact)}
+    originals = {p: p.read_bytes() for p in (model, design, artifact)}
     with mapping_alias(root, stage):
         sync_runtime.stage_inputs(stage, root, {design: values}, [model], [design], ['iam'], False)
+        write_model(stage / model.relative_to(root), values | {'desired.service.iam.serviceId': 's3'})
         validator = sync_views.view_validator(stage, root)
         validator.scope = {('dev', '123456789012', 'iam')}
         validator.check_project_topology()
@@ -219,7 +219,9 @@ def check_stage_candidate_isolation(generated_policy, tmp_path):
         validator.check_design_overviews([staged])
         validator.check_design_links(catalog[2], [staged])
         validator.check_policy_tables()
-        assert any(expected in error for error in diagnostics(validator)), diagnostics(validator)
+        errors = diagnostics(validator)
+        assert any('model service' in error for error in errors), errors
+        assert any('broken design link' in error for error in errors), errors
         assert all(str(root) not in error and str(stage) not in error for error in validator.errors)
         assert not (stage / 'framework').exists()
     assert {p: p.read_bytes() for p in originals} == originals
@@ -812,7 +814,8 @@ def _callback_check_integrated_validator_publish(_state_check_integrated_validat
     return result
 
 
-def check_integrated_validator(generated_policy):
+@pytest.mark.parametrize('initial', [False, True])
+def check_integrated_validator(generated_policy, initial):
     _state_check_integrated_validator_1251 = _CallbackState()
     root, model, values, design, artifact, register = generated_policy
     env = register([design, artifact, artifact.parent/"extra.json"])
@@ -830,8 +833,13 @@ def check_integrated_validator(generated_policy):
     subprocess.run(['git', 'add', '.'], cwd=root, check=True)
     subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
                     '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Fixture'], cwd=root, check=True)
+    originals = {path: path.read_bytes() for path in (design, artifact)}
+    if initial:
+        shutil.rmtree(design.parent)
+        assert not design.exists() and not artifact.exists()
     values['desired.note.001.text'] = '統合した生成と検証を確認する。'
     write_model(model, values)
+    source_bytes = {path: path.read_bytes() for path in load_model(model).files}
     validator_module = load('validate-blueprint')
     _state_check_integrated_validator_1251.published = False
     read_bytes, transaction = Path.read_bytes, sync_runtime._publish_transaction
@@ -840,7 +848,7 @@ def check_integrated_validator(generated_policy):
     with patch.dict(os.environ, env), \
          patch.object(model_impact, 'analyze', wraps=model_impact.analyze) as impact, \
          patch.object(import_guard, 'require_import_changes', wraps=import_guard.require_import_changes) as import_check, \
-         patch.object(sync_runtime, '_publish_transaction', side_effect=publish), \
+         patch.object(sync_runtime, '_publish_transaction', side_effect=publish) as publication, \
          patch.object(Path, 'read_bytes', read), \
          patch.object(model_sources, '_read_model', wraps=model_sources._read_model) as expand, \
          patch.object(sync_runtime, 'generate_views', wraps=sync_runtime.generate_views) as generate, \
@@ -850,12 +858,19 @@ def check_integrated_validator(generated_policy):
         validator = validator_module.Validator(root, {('dev', '123456789012', 'iam')}, write=True)
         assert validator.run() == 0, validator.errors
         assert len(validator.acceptance_results) == 3
+        assert _state_check_integrated_validator_1251.published
     assert generate.call_count == validate.call_count == verify.call_count == 1
+    assert publication.call_count == 1
+    assert publication.call_args.kwargs['originals'] == (
+        {design: None, artifact: None} if initial else {design: originals[design]})
     contexts = [(call.args[0], id(call.args[1])) for call in expand.call_args_list]
     assert contexts and len(contexts) == len(set(contexts)), expand.call_args_list
     print('integrated write counts: Model once per input/permission context; generation=1, candidate validation=1, guard=1, post-save readback=0')
     assert import_check.call_count == impact.call_count == 1, (impact.call_count, import_check.call_count)
     assert values['desired.note.001.text'] in design.read_text()
+    assert design.read_bytes() != originals[design]
+    assert artifact.read_bytes() == originals[artifact]
+    assert {path: path.read_bytes() for path in source_bytes} == source_bytes
 
 
 def check_integrated_validator_publication_failure(generated_policy):

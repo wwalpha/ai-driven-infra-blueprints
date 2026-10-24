@@ -88,12 +88,15 @@ runnerは共通fixture bundleを1回初期化し、`input_templates`・`typed_se
 
 契約の選択・通常の状態遷移・公開時の変更検出を既存UTで確認する。実Git、Atomic rollback、finalize/cleanupの安全停止は既存ITで検証する。予約と独自worktree identityだけを検証するケースは廃止した。
 
-Sync Model ITは20関数・27 pytest条件（旧67条件）。実Stage/定義共有・cold並列worker・CLI・複数Service・候補Validation・Publication・Rollback・Recoveryを保持する。
-入力差分、Cache、Git正味差分、Task境界、出力形式、Property判定、集計条件は直接UTへ集約する。対象UT3ファイルは合計84→136条件（sync-model 34→68、model_design 46→59、validation_cache 4→9）。
+Sync Model ITは20関数・28 pytest条件（旧25関数67条件、今回開始時のmasterは20関数27条件）。実Stage/定義共有・cold並列worker・CLI・複数Service・候補Validation・Publication・Rollback・Recoveryを保持する。
+入力差分、Cache、Git正味差分、Task境界、出力形式、Property判定、集計条件は直接UTへ集約する。対象UT3ファイルは合計84→137条件（sync-model 34→69、model_design 46→59、validation_cache 4→9）。
 UTで実Sync、Git初期化/commit、全Model生成、Framework全体コピーを行わず、既存の小さい合成入力/fixtureを利用する。Framework読取例外はMockで注入し、定義ファイルを変更しない。
+Snapshotの12差分条件は既存check_snapshot_conflictへ集約し、Sync UTは28関数69条件。project change/deleteは既存check_snapshot_project_common_inputsがsealed bytesと外部変更保持まで確認する。Stage代表ITはModel不整合とリンク破損を別々にassertし、Table Schemaは直接UTで実Table Validatorまで呼ぶ。
+read-onlyのView欠落拒否も既存check_missing_validation_inputsへ補い、Model欠落とは別条件で非生成と入力不変を確認する。
+Validator正常ITは新規生成/既存更新の2条件を維持する。欠落からのMarkdown/JSON生成とoriginals=None、Markdownだけの更新と旧bytesの受渡しを区別し、両方で保存後Acceptance・正本保護を確認する。
 PassCacheは同一呼出し内だけ再利用する。別Validatorの生成省略を期待せず、freshと入力変更後の失効は直接UT、候補結果からAcceptanceへの再利用は既存CheckResult UTが保証する。
 共有generated_policy seedと既存pytest入口・receipt・reachabilityを維持する。旧67条件のAssertion分類、削除/統合理由と各ITの固有保証は [CASES.md](CASES.md#issue-15-sync-model-itの責務再編) を参照。
-ローカルでは関連UTと構文/parameter数/登録を静的確認し、IT本体・時間計測・cProfileは実行しない。13.37秒から10秒以下への達成とIT PASSは、変更後の既存Framework ITでの確認待ち。
+ローカルでは関連UTと構文/parameter数/登録を静的確認し、IT本体・時間計測・cProfileは実行しない。直近成功CIの13.37秒は1024v9自体の測定値ではない。10秒以下の達成とIT PASSは、変更後の既存Framework ITでの確認待ち。
 
 Framework定義（Mapping/Schema/Rules/Catalog/Materials等）はテスト中に変更・追加・削除せず、コピーも同じ内容を維持する。定義変更に依存する条件を削除し、現行定義の読取・メモリ上の入力検証・独立した読取例外、Model/Task/生成物の変更と保存保護は維持する。削除・部分削除・Fixture整理と台帳件数の差分は [CASES.md](CASES.md#framework定義不変による削除) を参照。
 
