@@ -4,7 +4,7 @@ import json
 import sys
 from functools import partial
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -12,10 +12,18 @@ import pytest
 from cloudformation_inputs import Blocked
 from comparison import Comparison
 from comparison.reference_evidence import Evidence
-from comparison.values import compare_values
+from comparison.resource import inline_owner
+from comparison.services.iam import managed_policy_roles
+from comparison.values import PreparedValue, compare_values
 from comparison_rows import put_row
 from design_catalog import DesignSchemaCatalog
-from iac_values import Expression, ResourceReference
+from iac_values import (
+    Expression,
+    ResourceReference,
+    same,
+    unordered_same,
+)
+from issues.materials import naming_materials
 from model.references import declarations
 from model.sources import ModelSnapshot, Scope
 from utils.source_reads import FileReads
@@ -603,6 +611,738 @@ def test_runner_keeps_recorded_evidence_and_does_not_write_authority():
     assert [item['category'] for item in results] == ['matched'], results
     assert results[0]['reference_diagnostics'][0]['evidence_type'] == 'recorded_observed'
     assert {service: model.authoritative for service, model in comparison.models.items()} == before
+
+
+RECEIVERS = [('s3', 'S3.Bucket', 'BucketName', 'CloudTrail.Trail', 'S3BucketName'),
+ ('s3', 'S3.Bucket', 'BucketName', 'CodePipeline.Pipeline', 'ArtifactStore.Location'),
+ ('s3', 'S3.Bucket', 'BucketName', 'Lambda.Function', 'Code.S3Bucket'),
+ ('cloudwatch-logs',
+  'Logs.LogGroup',
+  'LogGroupName',
+  'CodeBuild.Project',
+  'LogsConfig.CloudWatchLogs.GroupName'),
+ ('cloudwatch-logs', 'Logs.LogGroup', 'LogGroupName', 'Lambda.Function', 'LoggingConfig.LogGroup'),
+ ('cloudwatch-logs', 'Logs.LogGroup', 'LogGroupName', 'EC2.FlowLog', 'LogGroupName'),
+ ('vpc', 'EC2.VPC', 'VpcId', 'CodeBuild.Project', 'VpcConfig.VpcId'),
+ ('vpc', 'EC2.VPC', 'VpcId', 'EC2.Subnet', 'VpcId'),
+ ('vpc', 'EC2.VPC', 'VpcId', 'EC2.SecurityGroup', 'VpcId'),
+ ('vpc', 'EC2.VPC', 'VpcId', 'EC2.RouteTable', 'VpcId'),
+ ('vpc', 'EC2.VPC', 'VpcId', 'EC2.VPCEndpoint', 'VpcId'),
+ ('vpc', 'EC2.VPC', 'VpcId', 'Route53.HostedZone', 'VPCs[].VPCId'),
+ ('vpc', 'EC2.Subnet', 'SubnetId', 'EC2.Instance', 'SubnetId'),
+ ('vpc', 'EC2.Subnet', 'SubnetId', 'CodeBuild.Project', 'VpcConfig.Subnets[]'),
+ ('vpc', 'EC2.Subnet', 'SubnetId', 'Lambda.Function', 'VpcConfig.SubnetIds[]'),
+ ('vpc', 'EC2.Subnet', 'SubnetId', 'EC2.VPCEndpoint', 'SubnetIds[]'),
+ ('vpc',
+  'EC2.Subnet',
+  'SubnetId',
+  'Glue.Connection',
+  'ConnectionInput.PhysicalConnectionRequirements.SubnetId'),
+ ('vpc', 'EC2.Subnet', 'SubnetId', 'MWAA.Environment', 'NetworkConfiguration.SubnetIds[]'),
+ ('vpc', 'EC2.Subnet', 'SubnetId', 'QuickSight.VPCConnection', 'SubnetIds[]'),
+ ('security-group', 'EC2.SecurityGroup', 'GroupId', 'CodeBuild.Project', 'VpcConfig.SecurityGroupIds[]'),
+ ('security-group', 'EC2.SecurityGroup', 'GroupId', 'EC2.Instance', 'SecurityGroupIds[]'),
+ ('security-group', 'EC2.SecurityGroup', 'GroupId', 'EC2.SecurityGroupIngress', 'GroupId'),
+ ('security-group', 'EC2.SecurityGroup', 'GroupId', 'EC2.SecurityGroupIngress', 'SourceSecurityGroupId'),
+ ('security-group', 'EC2.SecurityGroup', 'GroupId', 'EC2.SecurityGroupEgress', 'GroupId'),
+ ('security-group', 'EC2.SecurityGroup', 'GroupId', 'EC2.SecurityGroupEgress', 'DestinationSecurityGroupId'),
+ ('security-group',
+  'EC2.SecurityGroup',
+  'GroupId',
+  'EC2.SecurityGroup',
+  'SecurityGroupEgress[].DestinationSecurityGroupId'),
+ ('security-group', 'EC2.SecurityGroup', 'GroupId', 'EC2.VPCEndpoint', 'SecurityGroupIds[]'),
+ ('security-group',
+  'EC2.SecurityGroup',
+  'GroupId',
+  'Glue.Connection',
+  'ConnectionInput.PhysicalConnectionRequirements.SecurityGroupIdList[]'),
+ ('security-group', 'EC2.SecurityGroup', 'GroupId', 'Lambda.Function', 'VpcConfig.SecurityGroupIds[]'),
+ ('security-group',
+  'EC2.SecurityGroup',
+  'GroupId',
+  'MWAA.Environment',
+  'NetworkConfiguration.SecurityGroupIds[]'),
+ ('security-group', 'EC2.SecurityGroup', 'GroupId', 'QuickSight.VPCConnection', 'SecurityGroupIds[]'),
+ ('vpc', 'EC2.RouteTable', 'RouteTableId', 'EC2.SubnetRouteTableAssociation', 'RouteTableId'),
+ ('vpc', 'EC2.RouteTable', 'RouteTableId', 'EC2.VPCEndpoint', 'RouteTableIds[]'),
+ ('iam', 'IAM.Role', 'RoleName', 'Glue.Job', 'Role'),
+ ('iam', 'IAM.Role', 'RoleName', 'IAM.InstanceProfile', 'Roles[]'),
+ ('iam', 'IAM.InstanceProfile', 'InstanceProfileName', 'EC2.Instance', 'IamInstanceProfile'),
+ ('glue', 'Glue.SecurityConfiguration', 'Name', 'Glue.Job', 'SecurityConfiguration'),
+ ('lambda', 'Lambda.Function', 'FunctionName', 'Lambda.Permission', 'FunctionName'),
+ ('route53', 'Route53.HostedZone', 'Id', 'Route53.RecordSet', 'HostedZoneId'),
+ ('secrets-manager', 'SecretsManager.Secret', 'Id', 'SecretsManager.RotationSchedule', 'SecretId'),
+ ('sqs', 'SQS.Queue', 'QueueUrl', 'SQS.QueuePolicy', 'Queues[]'),
+ ('kms', 'KMS.Alias', 'AliasName', 'CodeCommit.Repository', 'KmsKeyId'),
+ ('kms', 'KMS.Alias', 'AliasName', 'EC2.Instance', 'BlockDeviceMappings[].Ebs.KmsKeyId'),
+ ('kms', 'KMS.Alias', 'AliasName', 'MWAA.Environment', 'KmsKey'),
+ ('kms', 'KMS.Alias', 'AliasName', 'SecretsManager.Secret', 'KmsKeyId'),
+ ('kms', 'KMS.Key', 'KeyId', 'KMS.Alias', 'TargetKeyId')]
+
+
+def setting(comparison, kind, prop, desired, actual, *, service='consumer'):
+    """One setting, in-memory snapshots; never scan, lint or generate project files."""
+    resource(comparison, service, '090', kind, 'Receiver',
+                   [(prop, desired if isinstance(desired, str) else json.dumps(desired), None)], stack='producer')
+    document = comparison.stack_inputs['producer'][0]
+    properties = {}
+    put_row(properties, prop, actual)
+    definition = document['Resources']['Receiver']
+    definition['Properties'] = properties
+    result = comparison.compare_rows(service, '090', comparison.resources[service]['090'],
+        'producer', 'Receiver', ROOT / 'synthetic.yaml', definition, document)
+    assert result.failure is None, result.failure
+    return result.records
+
+
+@pytest.mark.parametrize('service,producer,attribute,kind,path', RECEIVERS)
+def test_receiver_contracts(service, producer, attribute, kind, path):
+    comparison = fixture()
+    resource(comparison, service, '001', producer, 'Producer', [],
+             properties={'VpcId': VPC} if producer == 'EC2.SecurityGroup' else {})
+    resource(comparison, service, '002', producer, 'OtherProducer', [],
+             properties={'VpcId': VPC} if producer == 'EC2.SecurityGroup' else {})
+    link = '[label](' + service + '.md#producer)'
+    desired = comparison.desired_reference(service, link, kind, path)
+    assert desired == ResourceReference({'$resource': [service, '001'], '$attribute': attribute})
+    assert comparison.reference_same(desired, comparison.evaluate('producer', {'Ref': 'Producer'}), kind, path) is True
+    assert comparison.reference_same(desired, ResourceReference(dict(desired, **{'$resource': [service, '002']})), kind, path) is False
+    for bad_link, requested in ((link, 'Unknown'), (link.replace('#producer', '#missing'), None)):
+        with pytest.raises(Blocked):
+            comparison.desired_reference(service, bad_link, kind, path, requested)
+    resource(comparison, 'wrong', '001', 'IAM.Role' if producer != 'IAM.Role' else 'SecretsManager.Secret', 'Wrong', [])
+    with pytest.raises(Blocked):
+        comparison.desired_reference(service, '[wrong](wrong.md#wrong)', kind, path)
+    comparison.reference_anchor_indexes[service] = {'producer': [('001', dict(comparison.resources[service]['001'], resourceMode='IMPORT'))]}
+    with pytest.raises(Blocked, match='IMPORT'):
+        comparison.desired_reference(service, link, kind, path)
+
+
+@pytest.mark.parametrize('expression,expected', [
+    ('fixture', 'matched'), ({'Ref': 'Name'}, 'matched'), ({'Fn::Sub': '${Name}'}, 'matched'),
+    ({'Fn::Join': ['-', ['fix', 'ture']]}, 'difference'),
+    ({'Fn::If': ['Active', {'Ref': 'Name'}, 'inactive']}, 'matched'),
+    ({'Fn::FindInMap': ['Names', 'dev', 'Connection']}, 'matched'),
+    ({'Fn::Select': [0, {'Fn::Split': [',', 'fixture,other']}]}, 'matched'),
+    ('different', 'difference'), ({'Ref': 'Missing'}, 'uncompared'),
+    ({'Ref': 'Connection'}, 'uncompared'), ({'Fn::Sub': '${Connection}'}, 'uncompared'),
+    ({'Ref': 'OtherConnection'}, 'uncompared'), ('UNSET', 'uncompared'), (None, 'uncompared'),
+])
+def test_glue_connection_name(expression, expected):
+    comparison = fixture()
+    resource(comparison, 'glue', '001', 'Glue.Connection', 'Connection', [],
+             properties={'ConnectionInput': {'Name': expression}} if expression is not None else {'Name': 'fixture'})
+    resource(comparison, 'glue', '002', 'Glue.Connection', 'OtherConnection', [],
+             properties={'ConnectionInput': {'Name': {'Ref': 'Connection'}}})
+    document, parameters, _ = comparison.stack_inputs['producer']
+    parameters['Name'] = 'fixture'
+    document['Conditions'] = {'Active': {'Fn::Equals': [1, 1]}}
+    document['Mappings'] = {'Names': {'dev': {'Connection': 'fixture'}}}
+    records = setting(comparison, 'Glue.Job', 'Connections',
+        {'Connections': ['[connection](glue.md#connection)']}, {'Connections': ['fixture']})
+    record = records[0]
+    assert record['category'] == expected, record
+    if expected == 'matched':
+        assert comparison.evaluate('producer', {'Fn::Sub': 'prefix-${Connection}'}) == 'prefix-fixture'
+        assert comparison.evaluate('producer', {'Fn::Sub': '${Connection.Name}'}) == 'fixture'
+    if expression is None:
+        assert 'explicit name property' in record['reference_diagnostics'][0]['reason']
+    if expression == {'Ref': 'Connection'}:
+        with pytest.raises(Blocked, match='cyclic resource substitution'):
+            comparison.evaluate('producer', {'Fn::Sub': '${Connection}'})
+
+
+@pytest.mark.parametrize('kind,ref_attribute,attribute,invalid', [
+    ('Glue.Connection', 'Name', 'Name', 'Arn'),
+    ('SecretsManager.Secret', 'Id', 'Id', 'Arn'),
+    ('IAM.ManagedPolicy', 'PolicyArn', 'PolicyArn', 'Arn'),
+    ('CodeCommit.Repository', 'RepositoryId', 'Name', 'Unknown'),
+    ('QuickSight.VPCConnection', None, 'Arn', 'VPCConnectionId'),
+])
+def test_formal_return_attributes(kind, ref_attribute, attribute, invalid):
+    comparison = fixture()
+    resource(comparison, 'producer', '001', kind, 'Producer', [])
+    symbol = comparison.evaluate('producer', {'Fn::GetAtt': ['Producer', attribute]})
+    assert symbol['$attribute'] == attribute
+    if ref_attribute:
+        assert comparison.evaluate('producer', {'Ref': 'Producer'})['$attribute'] == ref_attribute
+    else:
+        with pytest.raises(Blocked):
+            comparison.evaluate('producer', {'Ref': 'Producer'})
+    with pytest.raises((Blocked, KeyError)):
+        comparison.evaluate('producer', {'Fn::GetAtt': ['Producer', invalid]})
+
+
+@pytest.mark.parametrize('actual,expected', [('same', 'matched'), ('other', 'difference'), ('wrong-attribute', 'uncompared')])
+def test_glue_secret_identity(actual, expected):
+    comparison = fixture()
+    for identity, logical in [('001', 'Secret'), ('002', 'OtherSecret')]:
+        resource(comparison, 'secrets-manager', identity, 'SecretsManager.Secret', logical, [], properties={'Name': 'same-name'})
+    value = {'Fn::GetAtt': ['Secret', 'Arn']} if actual == 'wrong-attribute' else {'Ref': 'OtherSecret' if actual == 'other' else 'Secret'}
+    records = setting(comparison, 'Glue.Connection', 'ConnectionInput.AuthenticationConfiguration.SecretArn',
+        '[secret](secrets-manager.md#secret)', value)
+    assert records[0]['category'] == expected, records
+
+
+@pytest.mark.parametrize('bad', [None, 'Category', 'Owner', 'Provider', 'Version', 'target'])
+def test_action_context_requires_own_codecommit_contract(bad):
+    comparison = fixture()
+    resource(comparison, 'codecommit', '001', 'CodeCommit.Repository', 'Repository', [])
+    resource(comparison, 'lambda', '001', 'Lambda.Function', 'Function', [])
+    action = dict(Category='Source', Owner='AWS', Provider='CodeCommit', Version='1')
+    link = '[repo](codecommit.md#repository)'
+    path = 'Stages[].Actions[].Configuration.RepositoryName'
+    if bad == 'target':
+        link = '[function](lambda.md#function)'
+    elif bad:
+        action[bad] = 'wrong'
+    if bad is None:
+        assert comparison.desired_reference('codecommit', link, 'CodePipeline.Pipeline', path,
+            context={'ActionTypeId': action})['$attribute'] == 'Name'
+    else:
+        with pytest.raises(Blocked):
+            comparison.desired_reference('codecommit', link, 'CodePipeline.Pipeline', path, context={'ActionTypeId': action})
+        if bad != 'target':
+            action.pop(bad)
+            with pytest.raises(Blocked):
+                comparison.desired_reference('codecommit', link, 'CodePipeline.Pipeline', path, context={'ActionTypeId': action})
+
+
+@pytest.mark.parametrize('fault', ['partition', 'region', 'account', 'version', 'alias', 'type', 'name',
+                                  'other-resource', 'attribute', 'missing-name', 'invalid-name', 'mapping', 'condition'])
+def test_eventbridge_literal_requires_exact_lambda_identity(fault):
+    comparison = fixture()
+    resource(comparison, 'lambda', '001', 'Lambda.Function', 'Function', [], properties={'FunctionName': 'fixture'})
+    resource(comparison, 'lambda', '002', 'Lambda.Function', 'Other', [], properties={'FunctionName': 'fixture'})
+    function = comparison.evaluate('producer', {'Fn::GetAtt': ['Function', 'Arn']})
+    arn = 'arn:aws:lambda:ap-northeast-1:123456789012:function:fixture'
+    assert comparison.reference_same(function, arn, 'Events.Rule', '') is True
+    replacements = {'partition': ('arn:aws:', 'arn:aws-cn:'), 'region': ('ap-northeast-1', 'us-east-1'),
+        'account': ('123456789012', '999999999999'), 'type': (':function:', ':layer:'), 'name': ('fixture', 'other')}
+    expected = False
+    actual = arn
+    definition = comparison.stack_inputs['producer'][0]['Resources']['Function']
+    if fault in replacements:
+        actual = arn.replace(*replacements[fault])
+    elif fault in {'version', 'alias'}:
+        actual += ':1' if fault == 'version' else ':alias'
+    elif fault == 'other-resource':
+        actual = ResourceReference(dict(function, **{'$resource': ['lambda', '002']}))
+    elif fault == 'attribute':
+        actual = ResourceReference(dict(function, **{'$attribute': 'FunctionName'}))
+    else:
+        expected = None
+        if fault == 'mapping':
+            comparison.resources['lambda']['001']['cfn-logicalId'] = 'producer-Missing'
+        elif fault == 'condition':
+            definition['Condition'] = 'Off'
+            comparison.stack_inputs['producer'][0]['Conditions'] = {'Off': {'Fn::Equals': [1, 2]}}
+        else:
+            definition['Properties'] = {} if fault == 'missing-name' else {'FunctionName': 'function:alias'}
+        comparison.symbols.clear()
+    assert comparison.reference_same(function, actual, 'Events.Rule', '') is expected
+    assert comparison.redacted(arn) == '<masked ARN/secret>'
+
+
+@pytest.mark.parametrize('fault', [None, 'other-stack', 'attribute', 'delimiter', 'invalid', 'missing', 'index', 'literal', 'sub'])
+def test_symbolic_setting_classification(fault):
+    comparison = fixture()
+    resource(comparison, 'cloudwatch-logs', '001', 'Logs.LogGroup', 'Log', [])
+    expression = {'Fn::Select': [0, {'Fn::Split': [':*', {'Fn::GetAtt': ['Log', 'Arn'] }]}]}
+    desired = comparison.evaluate('producer', expression)
+    actual = expression
+    expected = 'matched'
+    if fault == 'other-stack':
+        resource(comparison, 'cloudwatch-logs', '002', 'Logs.LogGroup', 'OtherLog', [], stack='consumer')
+        actual = {'Fn::Select': [0, {'Fn::Split': [':*', {'Fn::GetAtt': ['OtherLog', 'Arn']}]}]}
+        expected = 'uncompared'
+    elif fault == 'attribute':
+        desired = comparison.evaluate('producer', {'Fn::GetAtt': ['Log', 'Arn']})
+        expected = 'uncompared'
+    elif fault == 'delimiter':
+        actual = {'Fn::Select': [0, {'Fn::Split': [',', {'Fn::GetAtt': ['Log', 'Arn']}]}]}
+        expected = 'uncompared'
+    elif fault == 'invalid':
+        actual, expected = {'Fn::Split': [',', 42]}, 'error'
+    elif fault == 'missing':
+        actual, expected = {'Fn::GetAtt': ['Missing', 'Arn']}, 'uncompared'
+    elif fault == 'index':
+        actual, expected = {'Fn::Select': [1, expression['Fn::Select'][1]]}, 'uncompared'
+    elif fault == 'literal':
+        desired, actual = 'a:b', {'Fn::Join': ['-', ['a', 'b']]}
+        expected = 'difference'
+    elif fault == 'sub':
+        actual = {'Fn::Sub': ['${Arn}-${!literal}', {'Arn': expression}]}
+        desired = comparison.evaluate('producer', actual)
+    # Receiver and Log share a stack; only the desired value is pre-bound for this boundary test.
+    with patch.object(comparison, 'prepare_value', return_value=PreparedValue(desired, [])):
+        records = setting(comparison, 'Logs.LogGroup', 'LogGroupName', 'unused', actual)
+    assert records[0]['category'] == expected, records
+
+
+@pytest.mark.parametrize('fault', [None, 'id', 'unknown', 'intrinsic', 'wrong-pointer'])
+def test_model_policy_links_bind_but_raw_intrinsics_do_not(fault):
+    comparison = fixture()
+    resource(comparison, 'cloudwatch-logs', '001', 'Logs.LogGroup', 'Log', [])
+    link = '[log](cloudwatch-logs.md#log)'
+    model = {'Fn::Join': ['', [{'Fn::Select': [0, {'Fn::Split': [':*', link]}]}, ':stream']]}
+    actual = {'Fn::Join': ['', [{'Fn::Select': [0, {'Fn::Split': [':*', {'Fn::GetAtt': ['Log', 'Arn']}]}]}, ':stream']]}
+    if fault == 'id':
+        model = {'Fn::Sub': '${Log.Arn}'}
+    elif fault == 'intrinsic':
+        model = actual
+    elif fault == 'unknown':
+        model = {'Fn::Join': ['', [link.replace('#log', '#missing'), ':stream']]}
+    elif fault == 'wrong-pointer':
+        model = {'Fn::Sub': ['${Arn}:stream', {'Arn': {'Fn::Select': [0, {'Fn::Split': [':*', link]}]}}]}
+    if fault == 'intrinsic':
+        pending = comparison.prepare_value('consumer', {'property': 'IAM.ManagedPolicy.PolicyDocument',
+            'value': '', 'document': json.dumps({'Statement': [{'Resource': model}]})}, 'IAM.ManagedPolicy')
+        assert pending.warnings and pending.require_value()['Statement'][0]['Resource'].operation == 'Unverified'
+        return
+    records = setting(comparison, 'IAM.ManagedPolicy', 'PolicyDocument', {'Statement': [{'Resource': model}]},
+                      {'Statement': [{'Resource': actual}]})
+    assert records[0]['category'] == ('matched' if fault is None else 'uncompared'), records
+
+
+@pytest.mark.parametrize('fault', [None, 'off', 'missing', 'unknown'])
+def test_managed_policy_attachment_edges(fault):
+    comparison = fixture()
+    resource(comparison, 'iam', '001', 'IAM.ManagedPolicy', 'Policy', [])
+    resource(comparison, 'iam', '002', 'IAM.Role', 'Role', [], properties={'ManagedPolicyArns': [{'Ref': 'Policy'}]})
+    document = comparison.stack_inputs['producer'][0]
+    role = document['Resources']['Role']
+    if fault == 'off':
+        role['Condition'] = 'Off'
+        document['Conditions'] = {'Off': {'Fn::Equals': [1, 2]}}
+    elif fault == 'missing':
+        role['Properties']['ManagedPolicyArns'] = []
+    elif fault == 'unknown':
+        role['Properties']['ManagedPolicyArns'] = [{'Ref': 'Missing'}]
+    callback = partial(managed_policy_roles, stack_inputs=comparison.stack_inputs, evaluate=comparison.evaluate,
+                       reference_same=comparison.reference_same, symbol=comparison.symbol)
+    if fault == 'unknown':
+        with pytest.raises(Blocked):
+            callback('iam', '001', 'producer', [])
+    else:
+        result = callback('iam', '001', 'producer', [{'Ref': 'Role'}] if fault is None else [])
+        assert len(result) == int(fault is None)
+
+
+@pytest.mark.parametrize('fault', [None, 'missing', 'ambiguous', 'other-parent', 'unresolved'])
+def test_inline_policy_ownership(fault):
+    child = {'Type': 'AWS::S3::BucketPolicy', 'Properties': {'Bucket': {'Ref': 'Bucket'}, 'PolicyDocument': {}}}
+    document = {'Resources': {'Policy': child}}
+    if fault == 'missing':
+        document['Resources'].clear()
+    elif fault == 'ambiguous':
+        document['Resources']['Other'] = copy.deepcopy(child)
+    elif fault == 'other-parent':
+        child['Properties']['Bucket'] = {'Ref': 'Other'}
+    elif fault == 'unresolved':
+        child['Properties']['Bucket'] = 'literal'
+    selected, failure = inline_owner('S3.Bucket', 'S3.BucketPolicy', 'Bucket', {}, document, {}, {}, 'AWS::S3::BucketPolicy')
+    assert selected is child if fault is None else selected is None
+    if fault:
+        assert failure[0] == ('difference' if fault in {'missing', 'other-parent'} else 'uncompared')
+
+
+@pytest.mark.parametrize('fault', [None, 'account', 'namespace', 'group', 'region', 'partition', 'sub', 'join', 'unresolved',
+    'unset', 'invalid-account', 'link-name', 'missing-account', 'missing-namespace', 'missing-group', 'duplicate',
+    'missing-anchor', 'cross-target', 'attribute', 'deploy', 'terraform', 'no-partition', 'actions-order', 'actions-duplicate', 'actions-value', 'indexed', 'observed'])
+def test_quicksight_api_group_principal(fault):
+    comparison = fixture()
+    comparison.partition = 'aws'
+    rows = resource(comparison, 'quicksight', '001', 'QuickSight.Group', 'Group',
+        [('AwsAccountId', '210987654321', None), ('Namespace', 'default', None), ('GroupName', 'analysts', None)])
+    metadata = comparison.resources['quicksight']['001']
+    metadata.pop('cfn-logicalId')
+    metadata['resourceMode'] = 'IMPORT'
+    comparison.models['quicksight'].values['desired.resource.001.resourceMode'] = 'IMPORT'
+    comparison.models['quicksight'].authoritative['desired.resource.001.resourceMode'] = 'IMPORT'
+    comparison.models['quicksight'].authoritative.pop('desired.resource.001.cfn-logicalId')
+    comparison.models['quicksight'].values.pop('desired.resource.001.cfn-logicalId')
+    link = '[display label](quicksight.md#group)'
+    arn = 'arn:aws:quicksight:ap-northeast-1:210987654321:group/default/analysts'
+    actions = ['quicksight:DescribeDataSource', 'quicksight:PassDataSource']
+    actual = arn
+    expected = 'matched'
+    replacements = {'account': ('210987654321', '123456789012'), 'namespace': ('/default/', '/other/'),
+        'group': ('/analysts', '/other'), 'region': ('ap-northeast-1', 'us-east-1'), 'partition': ('arn:aws:', 'arn:aws-cn:')}
+    if fault in replacements:
+        actual, expected = arn.replace(*replacements[fault]), 'difference'
+    elif fault == 'sub':
+        actual = {'Fn::Sub': 'arn:${AWS::Partition}:quicksight:${AWS::Region}:210987654321:group/default/analysts'}
+    elif fault == 'join':
+        actual = {'Fn::Join': ['', ['arn:', {'Ref': 'AWS::Partition'}, ':quicksight:', {'Ref': 'AWS::Region'}, ':210987654321:group/default/analysts']]}
+    elif fault == 'unresolved':
+        actual, expected = {'Fn::Sub': '${Missing}'}, 'uncompared'
+    elif fault in {'unset', 'invalid-account', 'link-name'}:
+        index, value = {'unset': (2, 'UNSET'), 'invalid-account': (0, 'invalid'), 'link-name': (2, link)}[fault]
+        rows[index][1]['value'] = value
+        expected = 'uncompared'
+    elif fault and fault.startswith('missing-') and fault != 'missing-anchor':
+        rows.pop({'missing-account': 0, 'missing-namespace': 1, 'missing-group': 2}[fault])
+        expected = 'uncompared'
+    elif fault == 'duplicate':
+        rows.append(('001-004', dict(rows[-1][1])))
+        expected = 'uncompared'
+    elif fault == 'missing-anchor':
+        link = link.replace('#group', '#missing')
+        expected = 'uncompared'
+    elif fault == 'observed':
+        rows.append(('001-004', dict(property='QuickSight.Group.Arn', value=link)))
+        comparison.models['quicksight'].authoritative['observed.row.001-004.value'] = 'PENDING_DEPLOY'
+    elif fault in {'cross-target', 'attribute', 'deploy', 'terraform', 'no-partition'}:
+        if fault == 'cross-target':
+            link = link.replace('quicksight.md', '../other/quicksight.md')
+        elif fault == 'deploy':
+            comparison.local_comparison = False
+        elif fault == 'terraform':
+            comparison.target['iacEngine'] = 'terraform'
+        elif fault == 'no-partition':
+            comparison.partition = None
+        with patch('comparison.inputs._imports_model_identity.Resolver'), pytest.raises(Blocked):
+            comparison.desired_reference('quicksight', link, 'QuickSight.DataSource', 'Permissions[].Principal',
+                                         'GroupName' if fault == 'attribute' else None)
+        return
+    actual_actions = actions[::-1] if fault == 'actions-order' else actions + actions[:1] if fault == 'actions-duplicate' else ['quicksight:UpdateDataSource'] if fault == 'actions-value' else actions
+    if fault in {'actions-order', 'actions-duplicate', 'actions-value'}:
+        expected = 'difference'
+    desired = [{'Principal': link, 'Actions': actions}]
+    records = setting(comparison, 'QuickSight.DataSource', 'Permissions', desired,
+                      [{'Principal': actual, 'Actions': actual_actions}], service='quicksight')
+    if fault == 'indexed':
+        current = comparison.rows['quicksight']['090']
+        current[:] = [('090-001', dict(property='QuickSight.DataSource.Permissions[1].Principal', value=link)),
+                     ('090-002', dict(property='QuickSight.DataSource.Permissions[1].Actions', value=json.dumps(actions)))]
+        document = comparison.stack_inputs['producer'][0]
+        records = comparison.compare_rows('quicksight', '090', comparison.resources['quicksight']['090'],
+            'producer', 'Receiver', ROOT / 'synthetic.yaml', document['Resources']['Receiver'], document).records
+    assert records[0]['category'] == expected, records
+    if fault is None:
+        symbol = comparison.desired_reference('quicksight', link, 'QuickSight.DataSource', 'Permissions[].Principal')
+        assert comparison.reference_literal(symbol) == arn
+        with pytest.raises(Blocked, match='IMPORT'):
+            comparison.reference('quicksight', link, 'Arn')
+
+
+@pytest.mark.parametrize('prop,context,producer,expected', [
+    ('ResourceId', {'ResourceType': 'VPC'}, 'Vpc', True),
+    ('ResourceId', {}, 'Vpc', False), ('ResourceId', {'ResourceType': 'Subnet'}, 'Vpc', False),
+    ('ResourceId', {'ResourceType': 'UNSET'}, 'Vpc', False),
+    ('ResourceId', {'ResourceType': 'VPC'}, 'Subnet', False),
+])
+def test_flowlog_resource_type_context(prop, context, producer, expected):
+    comparison = fixture()
+    resource(comparison, 'vpc', '001', 'EC2.VPC', 'Vpc', [])
+    resource(comparison, 'vpc', '002', 'EC2.Subnet', 'Subnet', [])
+    link = '[producer](vpc.md#' + producer.lower() + ')'
+    if expected:
+        assert comparison.desired_reference('vpc', link, 'EC2.FlowLog', prop, context=context)['$attribute'] == 'VpcId'
+    else:
+        with pytest.raises(Blocked):
+            comparison.desired_reference('vpc', link, 'EC2.FlowLog', prop, context=context)
+
+
+@pytest.mark.parametrize('value', [None, {'Ref': 'AWS::NoValue'}, {'Fn::If': ['Active', {'Ref': 'AWS::NoValue'}, {'Ref': 'Vpc'}]},
+                                   {'Ref': 'Role'}, {'Ref': 'Group'}, 'UNSET'])
+def test_security_group_ref_requires_vpc(value):
+    comparison = fixture()
+    resource(comparison, 'vpc', '001', 'EC2.VPC', 'Vpc', [])
+    resource(comparison, 'iam', '001', 'IAM.Role', 'Role', [])
+    resource(comparison, 'security-group', '001', 'EC2.SecurityGroup', 'Group', [], properties={'VpcId': value})
+    comparison.stack_inputs['producer'][0]['Conditions'] = {'Active': {'Fn::Equals': [1, 1]}}
+    with pytest.raises(Blocked):
+        comparison.evaluate('producer', {'Ref': 'Group'})
+    assert comparison.evaluate('producer', {'Fn::GetAtt': ['Group', 'GroupId']})['$attribute'] == 'GroupId'
+
+
+@pytest.mark.parametrize('fault', ['move', 'duplicate', 'parent', 'type', 'invalid'])
+def test_cloudtrail_membership_comparison(fault):
+    comparison = fixture()
+    expected = [{'IncludeManagementEvents': True, 'DataResources': [
+        {'Type': 'AWS::S3::Object', 'Values': ['a', 'a']}]},
+        {'IncludeManagementEvents': False, 'DataResources': [{'Type': 'AWS::S3::Object', 'Values': ['b']}]}]
+    actual = copy.deepcopy(expected)
+    if fault == 'move':
+        actual[0]['DataResources'].append(actual[1]['DataResources'].pop())
+    elif fault == 'duplicate':
+        actual[0]['DataResources'][0]['Values'].pop()
+    elif fault == 'parent':
+        actual.append({'IncludeManagementEvents': False})
+    elif fault == 'type':
+        actual[1]['DataResources'][0]['Type'] = 'AWS::Lambda::Function'
+    if fault != 'invalid':
+        records = setting(comparison, 'CloudTrail.Trail', 'EventSelectors', expected, actual)
+        assert records[0]['category'] == 'difference', records
+    else:
+        resource(comparison, 'cloudtrail', '001', 'CloudTrail.Trail', 'Trail', [
+            ('EventSelectors[].DataResources[].Values', '["a"]', None), ('IsLogging', 'true', None)])
+        document = comparison.stack_inputs['producer'][0]
+        definition = document['Resources']['Trail']
+        definition['Properties'] = dict(IsLogging=False, EventSelectors=actual)
+        records = comparison.compare_rows('cloudtrail', '001', comparison.resources['cloudtrail']['001'],
+            'producer', 'Trail', ROOT / 'synthetic.yaml', definition, document).records
+        assert any(item['category'] == 'uncompared' and 'membership unresolved' in item['reason'] for item in records), records
+        assert any(item['property'].endswith('.IsLogging') and item['category'] == 'difference' for item in records), records
+
+
+@pytest.mark.parametrize('fault', ['missing', 'output', 'conditional-output', 'export-name', 'sub-cycle', 'ref-cycle'])
+def test_export_isolation_and_substitution_failures(fault):
+    comparison = fixture()
+    resource(comparison, 's3', '001', 'S3.Bucket', 'Bucket', [], properties={'BucketName': 'fixture'})
+    document = comparison.stack_inputs['producer'][0]
+    if fault == 'missing':
+        comparison.templates = lambda: [('missing', {'name': 'missing'}), ('producer', {'name': 'producer'})]
+        comparison.stack = Mock(side_effect=[Blocked('missing'), (ROOT / 'synthetic.yaml', comparison.stack_inputs['producer'])])
+    elif fault == 'output':
+        document['Outputs']['Broken'] = {'Value': 'x', 'Export': {'Name': {'Ref': 'Bucket'}}}
+    elif fault == 'conditional-output':
+        document['Conditions'] = {'Off': {'Fn::Equals': [1, 2]}}
+        document['Outputs']['Hidden'] = {'Value': 'value', 'Condition': 'Off', 'Export': {'Name': 'hidden'}}
+    elif fault == 'export-name':
+        document['Outputs']['Broken'] = {'Value': 'x', 'Export': {'Name': {'Fn::Sub': '${Bucket}'}}}
+    else:
+        document['Resources']['Bucket']['Properties']['BucketName'] = {'Fn::Sub': '${Bucket}'} if fault == 'sub-cycle' else {'Ref': 'Bucket'}
+        with pytest.raises(Blocked, match='cyclic'):
+            comparison.evaluate('producer', {'Fn::Sub': '${Bucket}'})
+        return
+    assert exported(comparison, {'Fn::GetAtt': ['Bucket', 'Arn']})['$resource'] == ['s3', '001']
+    with patch.object(comparison, 'templates', side_effect=AssertionError('repeated export search')):
+        assert comparison.evaluate('consumer', {'Fn::ImportValue': 'shared'})['$attribute'] == 'Arn'
+        with pytest.raises(Blocked):
+            comparison.evaluate('consumer', {'Fn::ImportValue': 'hidden'})
+
+
+@pytest.mark.parametrize('field,context', [('UnknownPolicyArns[]', {}), ('ManagedPolicyArns', {}), ('Description[]', {}),
+    ('Tags[].Value', {}), ('ArnLikeNames[]', {}), ('Groups[]', {}),
+    ('Environment.EnvironmentVariables[].Value', {}), ('ResourceRecords[]', {})])
+def test_unknown_reference_property_never_infers_from_name(field, context):
+    comparison = fixture()
+    resource(comparison, 'iam', '001', 'IAM.ManagedPolicy', 'Policy', [])
+    kind = 'CodeBuild.Project' if field.startswith('Environment') else 'Route53.RecordSet' if field.startswith('ResourceRecords') else 'IAM.User' if field == 'Groups[]' else 'IAM.Role'
+    with pytest.raises(Blocked):
+        comparison.desired_reference('iam', '[policy](iam.md#policy)', kind, field, context=context)
+
+
+@pytest.mark.parametrize('mode', ['implicit', 'missing', 'wrong', 'plaintext'])
+def test_codebuild_secret_context(mode):
+    comparison = fixture()
+    resource(comparison, 'secrets-manager', '001', 'SecretsManager.Secret', 'Secret', [], properties={'Name': 'app/secret'})
+    link = '[secret](secrets-manager.md#secret)'
+    if mode == 'implicit':
+        context = {'Type': 'SECRETS_MANAGER' if mode == 'implicit' else 'PLAINTEXT'}
+        symbol = comparison.desired_reference('secrets-manager', link, 'CodeBuild.Project', 'Environment.EnvironmentVariables[].Value', context=context)
+        desired = {'Name': 'SECRET', 'Type': context['Type'], 'Value': symbol}
+        callback = partial(reference_for, comparison, 'CodeBuild.Project')
+        assert same(desired, dict(desired, Value='app/secret'), path='Environment.EnvironmentVariables[]', reference=callback) is (mode == 'implicit')
+        assert same(desired, dict(desired, Value='app/secret:key:AWSPREVIOUS'), path='Environment.EnvironmentVariables[]', reference=callback) is False
+    else:
+        with pytest.raises(Blocked):
+            comparison.desired_reference('secrets-manager', link, 'CodeBuild.Project', 'Environment.EnvironmentVariables[].Value', context={} if mode == 'missing' else {'Type': 'PLAINTEXT' if mode == 'plaintext' else 'PARAMETER_STORE'})
+
+
+@pytest.mark.parametrize('case,expected', [('reverse', True), ('duplicate', False), ('missing', False), ('value', False), ('unrelated', False), ('unknown', None), ('known-difference', False)])
+def test_policy_statement_bijection(case, expected):
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Key', 'Key', [])
+    first = {'Sid': 'One', 'Effect': 'Allow', 'Action': 's3:GetObject', 'Resource': '*'}
+    second = dict(first, Sid='Two', Action='s3:PutObject')
+    left, right = [first, second], [second, first]
+    path = 'Policies[].PolicyDocument.Statement'
+    if case == 'duplicate':
+        left = [first, first]
+    elif case == 'missing':
+        left = [first]
+    elif case == 'value':
+        right = [second, dict(first, Effect='Deny')]
+    elif case == 'unrelated':
+        path = 'Unrelated'
+    elif case in {'unknown', 'known-difference'}:
+        left = [dict(first, Resource=comparison.evaluate('producer', {'Fn::GetAtt': ['Key', 'Arn']})), second]
+        if case == 'known-difference':
+            right = [dict(second, Effect='Deny'), first]
+    assert same(left, right, path=path, reference=partial(reference_for, comparison, 'IAM.Role')) is expected
+
+
+def test_unordered_augmenting_paths():
+    pairs = {(1, 3): True, (1, 4): True, (2, 3): True}
+    assert unordered_same([1, 2], [3, 4], reference=lambda a, b, p: pairs.get((a, b), False)) is True
+    assert unordered_same([1, 2], [3, 4], reference=lambda a, b, p: None) is None
+
+
+def reference_for(comparison, kind, left, right, path):
+    return comparison.reference_same(left, right, kind, path)
+
+
+@pytest.mark.parametrize('deferred', [False, True])
+def test_nested_diagnostics_retain_format_and_failures(deferred):
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Key', 'Key', [])
+    properties = {'ResultConfiguration': {'EncryptionConfiguration': {'KmsKey': {'Ref': 'Key'}}}}
+    rows = [(ATHENA_KMS, '[key](kms.md#key)', None), ('WorkGroupConfiguration.EnforceWorkGroupConfiguration', 'true', None)]
+    if deferred:
+        rows += [('WorkGroupConfiguration.ExecutionRole', '[private](kms.md#private-missing)', None),
+                 ('WorkGroupConfiguration.ResultConfiguration.ExpectedBucketOwner', '[missing](kms.md#missing)', None)]
+    resource(comparison, 'athena', '001', 'Athena.WorkGroup', 'WorkGroup', rows,
+             properties={'WorkGroupConfiguration': dict(properties, EnforceWorkGroupConfiguration=True)})
+    comparison.sensitive_values.add('private')
+    document = comparison.stack_inputs['producer'][0]
+    result = comparison.compare_rows('athena', '001', comparison.resources['athena']['001'],
+        'producer', 'WorkGroup', ROOT / 'synthetic.yaml', document['Resources']['WorkGroup'], document).records
+    record = next(item for item in result if item['property'] == 'Athena.WorkGroup.WorkGroupConfiguration')
+    if deferred:
+        assert record['category'] == 'uncompared' and len(record['deferred_children']) == 2
+        assert {child['property'] for child in record['deferred_children']} == {
+            'Athena.WorkGroup.WorkGroupConfiguration.ExecutionRole',
+            'Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.ExpectedBucketOwner'}
+        assert all(child['reason'] for child in record['deferred_children'])
+        assert 'private' not in json.dumps(result)
+        return
+    assert record['category'] == 'difference', result
+    diagnostic = record['reference_diagnostics'][0]
+    assert diagnostic['path'] == 'Athena.WorkGroup.' + ATHENA_KMS
+    assert diagnostic['identity'] == 'same' and diagnostic['allowed_forms'] == ['KeyArn']
+    assert diagnostic['model']['$attribute'] == 'Arn' and diagnostic['iac']['$attribute'] == 'KeyId'
+    assert len(record.get('deferred_children', [])) == (2 if deferred else 0)
+    assert 'private' not in json.dumps(result)
+
+
+def test_naming_materials_mode_and_root_targets():
+    comparison = fixture()
+    comparison.services = ['vpc', 'codebuild', 'codepipeline', 'glue', 'kms']
+    for identity, mode, rows in [('001', 'CREATE', []), ('002', 'IMPORT', []), ('003', 'CREATE', [('Name', 'bad_pattern_value', None)])]:
+        parsed = resource(comparison, 'vpc', identity, 'EC2.VPC', 'Vpc' + identity, rows)
+        comparison.resources['vpc'][identity]['resourceMode'] = mode
+        for _, row in parsed:
+            row['comment'] = 'component evidence unconfirmed'
+    specs = [('codebuild', 'CodeBuild.Project', ['Environment.EnvironmentVariables[].Name', 'Artifacts.Name']),
+             ('codepipeline', 'CodePipeline.Pipeline', ['Stages[].Name', 'Stages[].Actions[].Name']),
+             ('glue', 'Glue.Job', ['Command.Name'])]
+    for service, kind, nested in specs:
+        rows = resource(comparison, service, '001', kind, service.title(), [('Name', 'invalid_root_name', None), *[(prop, 'nested', None) for prop in nested]])
+        for _, row in rows:
+            row['comment'] = 'fixture name'
+    alias_rows = resource(comparison, 'kms', '001', 'KMS.Alias', 'Alias', [('AliasName', 'alias/HumanActual', None)])
+    comparison.resources['kms']['001']['resourceMode'] = 'IMPORT'
+    alias_rows[0][1]['comment'] = 'human exception'
+    material, _ = naming_materials(comparison)
+    names = material['names']
+    assert next(item for item in names if item['service'] == 'vpc' and item['resource'] == '001')['required_missing']
+    assert not next(item for item in names if item['service'] == 'vpc' and item['resource'] == '002')['required_missing']
+    selected = next(item for item in names if item['service'] == 'vpc' and item['resource'] == '003')
+    assert selected['pattern_review'] == 'required' and selected['value'] == '`bad_pattern_value`'
+    assert '推測しない' in material['review_policy']
+    alias = next(item for item in names if item['service'] == 'kms')
+    assert alias['resourceMode'] == 'IMPORT' and alias['value'] == '`alias/HumanActual`' and not alias['required_missing']
+    assert {(item['service'], item['property']) for item in names if item['service'] not in {'vpc', 'kms'}} == {
+        ('codebuild', 'Name'), ('codepipeline', 'Name'), ('glue', 'Name')}
+
+
+@pytest.mark.parametrize('region,partition', [('ap-northeast-1', 'aws'), ('cn-north-1', 'aws-cn'),
+    ('us-gov-west-1', 'aws-us-gov'), ('us-iso-east-1', 'aws-iso'), ('eusc-de-east-1', 'aws-eusc'), ('ap-fake-1', None)])
+def test_stack_partition_and_noecho(tmp_path, region, partition):
+    comparison = fixture()
+    comparison.root = tmp_path
+    comparison.target['awsRegion'] = region
+    comparison.stack_inputs = {}
+    comparison.documents = {}
+    comparison.metrics = dict(template_decodes=0, stack_evaluations=0)
+    comparison.track = Mock()
+    template = tmp_path / 'infra/cloudformation/templates/one.yaml'
+    parameters = tmp_path / 'infra/cloudformation/parameters/fixture/team/one.json'
+    template.parent.mkdir(parents=True)
+    parameters.parent.mkdir(parents=True)
+    template.write_text(json.dumps({'Parameters': {'Sensitive': {'Type': 'String', 'NoEcho': True, 'Default': 'private'}}}), encoding='utf-8')
+    parameters.write_text('[]', encoding='utf-8')
+    Comparison.stack_input(comparison, dict(name='stack', template='one.yaml', parameters='one.json'))
+    assert comparison.stack_inputs['stack'][2].get('AWS::Partition') == partition
+    assert comparison.redacted('prefix-private') == '<masked sensitive parameter>'
+    if partition is None:
+        with pytest.raises(Blocked):
+            comparison.evaluate('stack', {'Ref': 'AWS::Partition'})
+
+
+def test_inactive_inline_policy_provenance():
+    comparison = fixture()
+    resource(comparison, 's3', '001', 'S3.Bucket', 'Bucket', [('BucketName', 'fixture', None)], properties={'BucketName': 'fixture'})
+    comparison.rows['s3']['001'].append(('001-002', dict(property='S3.BucketPolicy.PolicyDocument', value='{}')))
+    document = comparison.stack_inputs['producer'][0]
+    document['Conditions'] = {'Off': {'Fn::Equals': [1, 2]}}
+    document['Resources']['Policy'] = dict(Type='AWS::S3::BucketPolicy', Condition='Off', Properties={'Bucket': {'Ref': 'Bucket'}, 'PolicyDocument': {}})
+    comparison.parameter_keys = Mock(return_value=(ROOT / 'parameters.json', set()))
+    result = comparison.compare_rows('s3', '001', comparison.resources['s3']['001'], 'producer', 'Bucket',
+        ROOT / 'synthetic.yaml', document['Resources']['Bucket'], document).records
+    child = next(item for item in result if item.get('cause', {}).get('kind') == 'condition-disabled')
+    assert child['property'] == 'S3.BucketPolicy' and child['cause']['logical'] == 'Policy'
+    assert child['iac']['key'] == 'Resources.Policy.Condition'
+
+
+@pytest.mark.parametrize('case,category', [('match', 'matched'), ('order', 'difference'), ('json', 'error')])
+def test_inline_policy_document(case, category):
+    comparison = fixture()
+    resource(comparison, 's3', '001', 'S3.Bucket', 'Bucket', [])
+    policy = {'Version': '2012-10-17', 'Statement': [{'Effect': 'Allow', 'Action': ['s3:GetObject'], 'Resource': ['first', 'second']}]}
+    comparison.rows['s3']['001'].append(('001-001', dict(property='S3.BucketPolicy.PolicyDocument', value='policy.json',
+        document='{bad json' if case == 'json' else json.dumps(policy))))
+    actual = copy.deepcopy(policy)
+    if case == 'order':
+        actual['Statement'][0]['Resource'].reverse()
+    document = comparison.stack_inputs['producer'][0]
+    document['Resources']['Policy'] = dict(Type='AWS::S3::BucketPolicy', Properties={'Bucket': {'Ref': 'Bucket'}, 'PolicyDocument': actual})
+    result = comparison.compare_rows('s3', '001', comparison.resources['s3']['001'], 'producer', 'Bucket',
+        ROOT / 'synthetic.yaml', document['Resources']['Bucket'], document)
+    assert any(item['category'] == category for item in result.records), result
+
+
+def test_grouped_parent_reference():
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Key', 'Key', [])
+    resource(comparison, 'kms', '002', 'KMS.Alias', 'Alias', [('AliasName', 'alias/fixture', None)],
+        properties={'AliasName': 'alias/fixture', 'TargetKeyId': {'Ref': 'Key'}})
+    alias = comparison.resources['kms']['002']
+    alias.update(parentReference='[key](kms.md#key)', parentProperty='KMS.Alias.TargetKeyId')
+    document = comparison.stack_inputs['producer'][0]
+    result = comparison.compare_rows('kms', '002', alias, 'producer', 'Alias', ROOT / 'synthetic.yaml',
+        document['Resources']['Alias'], document).records
+    assert any(item['property'] == 'KMS.Alias.TargetKeyId' and item['category'] == 'matched' for item in result), result
+
+
+@pytest.mark.parametrize('mode,category', [('IMPORT', 'excluded'), ('terraform', 'uncompared'),
+                                         ('undeclared', 'uncompared'), ('missing-template', 'difference')])
+def test_run_mode_classification(tmp_path, mode, category):
+    comparison = fixture()
+    comparison.root = tmp_path
+    comparison.services = ['s3']
+    resource(comparison, 's3', '001', 'S3.Bucket', 'Bucket', [])
+    if mode == 'IMPORT':
+        comparison.resources['s3']['001']['resourceMode'] = 'IMPORT'
+    elif mode == 'terraform':
+        comparison.target['iacEngine'] = 'terraform'
+    elif mode == 'undeclared':
+        comparison.resources['s3']['001']['cfn-logicalId'] = 'undeclared-Bucket'
+    records = comparison.run()
+    assert len(records) == 1 and records[0]['category'] == category, records
+    if mode == 'undeclared':
+        assert 'stack is not declared' in records[0]['reason'] and 'cause' not in records[0]
+    elif mode == 'missing-template':
+        assert records[0]['cause']['relationship'] == 'direct' and records[0]['cause']['kind'] == 'template-missing'
+
+
+@pytest.mark.parametrize('second,kind', [('same', 'template-missing'), ('other', 'import-unresolved'), ('unknown', 'import-unresolved')])
+def test_import_failure_cause_requires_unique_path(second, kind):
+    comparison = fixture()
+    failures = [Blocked('stack input missing'), Blocked('another input missing')]
+    failures[0].iac_cause = dict(kind='template-missing', path='missing.yaml', relationship='stack-input')
+    if second != 'unknown':
+        failures[1].iac_cause = dict(failures[0].iac_cause, path='missing.yaml' if second == 'same' else 'other.yaml')
+    comparison.stack = Mock(side_effect=failures)
+    with pytest.raises(Blocked) as error:
+        comparison.evaluate('consumer', {'Fn::ImportValue': 'missing'})
+    assert error.value.iac_cause['kind'] == kind
+    assert error.value.iac_cause['relationship'] == ('export-search-incomplete' if second == 'same' else 'import')
 
 
 if __name__ == '__main__':

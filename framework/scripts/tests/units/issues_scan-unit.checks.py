@@ -2,7 +2,9 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 
 import sys
+from contextlib import nullcontext
 from datetime import datetime as real_datetime
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from types import SimpleNamespace as _CallbackState
@@ -12,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import issues.integrity as issues_scan
+import issues.publication as publication
+import issues.runner as scan_runner
 import model.sources as sources
 import support.issues_scan_fixtures as _exports_support_issues_scan_fixtures
 import support.issues_scan_fixtures as _retained_fixture_protected_sources
@@ -25,7 +29,8 @@ from issues.integrity import fingerprint
 from issues.materials import existing_materials
 from issues.records import iac_key
 from issues.reports import attach_notices, normal_merge, notice_report, split_notices
-from model.format import FORMAT, INDEX, PART
+from model.core import ReferenceResolutionError, resource_row_index
+from model.format import FORMAT, INDEX, PART, split
 from model.sources import load_model as real_load
 from support.issues_scan_fixtures import (
     Comparison,
@@ -40,6 +45,7 @@ from support.issues_scan_fixtures import (
     iac_summary,
     identifier,
     json,
+    os,
     patch,
     pytest,
     re,
@@ -58,7 +64,7 @@ from support.issues_scan_fixtures import (
 )
 from support.issues_scan_fixtures import pytestmark as pytestmark
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
-from utils.input_cache import digest_files
+from utils.input_cache import digest_files, input_context
 from utils.source_reads import FileReads
 from validation.runner import Validator
 from validation_cache import PassCache
@@ -697,6 +703,236 @@ def check_view_read_failure_policy(tmp_path):
         verify_inputs(root, artifact, cache=SimpleNamespace(common_key=lambda: 'common'))
 
 
+def interrupt_comparison(comparison, exception):
+    comparison.sensitive_values.add('exception-secret')
+    for index in range(5):
+        comparison.record('difference', 's3', str(index), 'Setting', 'value mismatch', desired=1, actual=2)
+    raise exception('interrupted exception-secret')
+
+
+@pytest.mark.parametrize('exception', [ReferenceResolutionError, OSError, ValueError, KeyError, ImportError, TypeError])
+def check_scan_exception_classification(tmp_path, exception):
+    comparison = Comparison.__new__(Comparison)
+    comparison.root, comparison.environment, comparison.directory = tmp_path, 'dev', 'team'
+    comparison.sensitive_values, comparison.results, comparison.warnings = set(), [], []
+    comparison.view_errors, comparison.read_hashes, comparison.metrics = {}, {}, {}
+    comparison.models, comparison.display_differences, comparison.catalog = {}, {}, None
+    comparison.source = Mock(return_value=None)
+    comparison.track = Mock()
+    cache = SimpleNamespace(common=None, common_key=Mock(return_value='common'))
+    validator = SimpleNamespace(checks=1, findings=SimpleNamespace(unverified=[],
+        result=Mock(return_value=SimpleNamespace(metadata={}))), finalize_service_cache=Mock())
+    lint = dict(jobs=[], coverage=[], status='not_applicable', lint_dependencies={},
+        **{name: [] for name in ('ordinary', 'judgments', 'warnings', 'information', 'unverified', 'processing_errors')})
+    with patch.object(scan_runner, 'Comparison', return_value=comparison), \
+         patch.object(scan_runner, 'PassCache', return_value=cache), \
+         patch.object(scan_runner, 'fingerprint', return_value={'paths': [], 'file_sets': {}, 'digest': digest_files(tmp_path, [])}), \
+         patch.object(scan_runner, 'view_text', return_value=None), \
+         patch.object(scan_runner, 'mechanical', side_effect=partial(mechanical_result, validator)), \
+         patch.object(scan_runner, 'naming_materials', return_value=({'names': []}, [])), \
+         patch.object(scan_runner, 'existing_materials', return_value=([], [])), \
+         patch('issues.cfn_lint.run_lint', return_value=lint), \
+         patch.object(scan_runner, 'verify_inputs'), \
+         patch.object(comparison, 'run', side_effect=partial(interrupt_comparison, comparison, exception)) as invoked:
+        artifact = scan_runner.scan(tmp_path, 'dev', 'team', ['s3'])
+    invoked.assert_called_once_with()
+    assert artifact['iac'][:5] == comparison.results and len(artifact['iac']) == 6
+    tail = artifact['iac'][-1]
+    category = 'uncompared' if exception is ReferenceResolutionError else 'error'
+    assert tail['category'] == category and tail['comparison_incomplete']
+    status = summary(artifact)
+    assert status['iac_differences'] == 5 and status['comparison_incomplete']
+    assert status['iac_status'] == ('partial' if category == 'uncompared' else 'error')
+    report = iac_report('dev', 'team', ['s3'], artifact['iac'], artifact['iac_display'])
+    assert '比較途中終了' in report
+    assert 'exception-secret' not in json.dumps(artifact) + report + json.dumps(detail_payload(artifact, 'iac'))
+    assert sum(len(group['members']) for group in artifact['iac_issues']) == 6
+    assert any(warning['code'] == 'reference.unresolved' for warning in artifact['warnings']) == (exception is ReferenceResolutionError)
+
+
+def mechanical_result(validator, *args, **kwargs):
+    kwargs['validator_out'].append(validator)
+    return [], 1, ''
+
+
+@pytest.mark.parametrize('state,scope,allowed,saveonly', [
+    ('completed', True, True, True), ('suspend', True, True, True),
+    ('running', False, True, True), ('running', True, False, True), ('running', True, True, False),
+])
+def check_save_authority_rejections(tmp_path, state, scope, allowed, saveonly):
+    text = '## Task contract\n- Task status: `' + state + '`\n'
+    with patch.object(publication, 'task_snapshot', return_value=SimpleNamespace(text=text)), \
+         patch.object(publication, 'active_scope', return_value={('dev', 'team', 's3')} if scope else set()), \
+         patch.object(publication, 'paths_in', return_value=['issues/dev/team/issues.md'] if allowed else []), \
+         patch.object(publication, 'issues_save_only', return_value=saveonly), \
+         patch.object(publication, 'atomic_files', side_effect=AssertionError('rejected save wrote outputs')):
+        with pytest.raises(ValueError):
+            publication.save_authority(tmp_path, 'dev', 'team', ['s3'], ['issues.md'])
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize('failure', ['review-id', 'context', 'names', 'judgments', 'types', 'owner'])
+def check_save_review_rejections(tmp_path, failure):
+    artifact = dict(version=2, root=str(tmp_path), scan_id='a'*32, naming_context_id=identifier({}), naming_context={},
+        environment='dev', target='team', services=['s3'], naming={'names': [{'id': 'name'}]},
+        judgments=[dict(id='judgment', message='diagnostic')], ordinary=[], **aggregate([], 'dev', 'team', ['s3']))
+    review = dict(scan_id=artifact['scan_id'], reviewed_naming_context_id=artifact['naming_context_id'],
+        reviewed_names=['name'], reviewed_judgments=['judgment'], diagnostic_assignments={'judgment': 's3'}, issues=[], resolved=[])
+    key, value = {'review-id': ('scan_id', 'wrong'), 'context': ('reviewed_naming_context_id', 'wrong'),
+        'names': ('reviewed_names', []), 'judgments': ('reviewed_judgments', []),
+        'types': ('issues', {}), 'owner': ('diagnostic_assignments', {'judgment': 'sqs'})}[failure]
+    review[key] = value
+    with patch.object(publication, 'save', side_effect=AssertionError('invalid review published')):
+        with pytest.raises(ValueError):
+            publication.save_scan(tmp_path, artifact, review)
+
+
+@pytest.mark.parametrize('input_name', ['parameters.json', 's3.properties', 'template.yaml', 'project.json'])
+def check_saved_input_bytes_and_revision_independence(tmp_path, input_name):
+    path = tmp_path / input_name
+    path.write_bytes(b'original\r\n')
+    artifact = dict(fingerprint={'paths': [input_name], 'digest': digest_files(tmp_path, [path]),
+        'file_sets': {}, 'framework': 'common'}, git_head='old')
+    cache = SimpleNamespace(common_key=Mock(return_value='common'))
+    with patch('subprocess.run', side_effect=AssertionError('content guard must not inspect Git revision')):
+        verify_inputs(tmp_path, artifact, cache=cache)
+        path.write_bytes(b'changed\r\n')
+        with pytest.raises(ValueError, match='stale scan'):
+            verify_inputs(tmp_path, artifact, cache=cache)
+        path.write_bytes(b'original\r\n')
+        verify_inputs(tmp_path, artifact, cache=cache)
+
+
+@pytest.mark.parametrize('input_state', ['missing', 'empty', 'malformed'])
+def check_ordinary_merge_preserves_human_and_scope(tmp_path, input_state):
+    path = tmp_path / 'issues/dev/team/issues.md'
+    path.parent.mkdir(parents=True)
+    if input_state != 'missing':
+        path.write_text('' if input_state == 'empty' else 'malformed report', encoding='utf-8')
+    if input_state == 'malformed':
+        with pytest.raises(ValueError, match='malformed'):
+            normal_merge(tmp_path, path, 'dev', 'team', ['s3'], [], [], [])
+        assert path.read_text(encoding='utf-8') == 'malformed report'
+        return
+    text = normal_merge(tmp_path, path, 'dev', 'team', ['s3'], [], [{'service': 's3', 'message': 'new issue'}], [])
+    path.write_text(text + '\n### sqs\n\n1. other service issue\n', encoding='utf-8')
+    result = normal_merge(tmp_path, path, 'dev', 'team', ['s3'], [], [{'service': 's3', 'message': 'additional issue'}], [])
+    assert 'new issue' in result and 'additional issue' in result and 'other service issue' in result
+
+
+def check_causal_report_grouping():
+    direct = dict(category='difference', service='datazone', resource='001', property='*', reason='template missing',
+        stack='stack', cause=dict(kind='template-missing', path='missing.yaml', stack='stack', relationship='direct'))
+    cascade = dict(category='uncompared', service='s3', resource='001', property='Setting', reason='search incomplete',
+        cause=dict(direct['cause'], relationship='export-search-incomplete'))
+    records = [direct, cascade]
+    entries, actions, _ = iac_dataset(records, 'dev', 'team', ['datazone', 's3'])
+    assert len(actions) == 1 and len(actions[0]['members']) == 2
+    assert actions[0]['id'] != iac_actions(entries, 'stg', 'team')[0]['id']
+    other = dict(cascade, resource='other', cause=dict(cascade['cause'], path='other.yaml'))
+    unknown = dict(cascade, resource='unknown')
+    unknown.pop('cause')
+    parameter = dict(cascade, resource='parameter', cause=dict(cascade['cause'], kind='parameters-missing'))
+    _, separated, _ = iac_dataset(records + [other, unknown, parameter, dict(unknown, resource='unknown2')], 'dev', 'team', ['datazone', 's3'])
+    assert len(separated) == 5
+    base = dict(category='difference', service='s3', resource='001', property='S3.Bucket.BucketName',
+        stack='stack1', iac={'path': 'shared.yaml'}, reason='value mismatch', desired='a', actual='b')
+    distinct = [base, dict(base, stack='stack2'), dict(base, resource='002'), dict(base, property='S3.Bucket.Tags'),
+                dict(base, reason='property missing'), dict(base, iac={'path': 'other.yaml'})]
+    assert len(iac_dataset(distinct, 'dev', 'team', ['s3'])[1]) == 6
+    assert len(iac_dataset([base, base], 'dev', 'team', ['s3'])[1]) == 1
+    assert len(iac_dataset([base, base], 'dev', 'team', ['s3'])[0]) == 2
+    for invalid in (True, 'false', None, 0):
+        forged = dict(base, cause=dict(kind='condition-disabled', result=invalid))
+        assert iac_summary([forged], 'dev', 'team', ['s3'])['proven_causes'] == 0
+
+
+def fail_report_publication(state, real_replace, selected, after, source, destination):
+    if Path(destination) == selected and not state.failed:
+        state.failed = True
+        if after:
+            real_replace(source, destination)
+        raise KeyboardInterrupt()
+    return real_replace(source, destination)
+
+
+@pytest.mark.parametrize('output,after', [('issues.md', False), ('issues.md', True), ('iac-issues.md', False), ('iac-issues.md', True)])
+def check_report_publication_interruptions(tmp_path, output, after):
+    paths = [tmp_path / name for name in ('issues.md', 'iac-issues.md')]
+    originals = {path: b'original\r\n' for path in paths}
+    for path, content in originals.items():
+        path.write_bytes(content)
+    state = SimpleNamespace(failed=False)
+    with patch.object(publication._imports_model_sources, 'publication_lock', return_value=nullcontext()), \
+         patch.object(publication, 'save_authority', return_value=paths), \
+         patch.object(publication, 'normal_merge', return_value='new ordinary'), \
+         patch.object(publication, 'iac_report', return_value='new iac'), \
+         patch('utils.file_operations.os.replace', side_effect=partial(fail_report_publication, state, os.replace, tmp_path / output, after)):
+        with pytest.raises(KeyboardInterrupt):
+            publication.save(tmp_path, 'dev', 'team', ['s3'], iac=[])
+    assert state.failed and {path: path.read_bytes() for path in paths} == originals
+    assert set(tmp_path.iterdir()) == set(paths)
+
+
+def check_current_run_report_and_guard(tmp_path):
+    paths = [tmp_path / name for name in ('issues.md', 'iac-issues.md')]
+    record = dict(category='difference', service='s3', resource='001', property='Setting', reason='value mismatch', desired=1, actual=2)
+    with patch.object(publication._imports_model_sources, 'publication_lock', return_value=nullcontext()), \
+         patch.object(publication, 'save_authority', return_value=paths), \
+         patch.object(publication, 'normal_merge', return_value='human確認: kept ordinary issue'), \
+         patch.object(Comparison, 'run', side_effect=AssertionError('save-only comparison')):
+        paths[1].write_text('invalid previous iac report', encoding='utf-8')
+        publication.save(tmp_path, 'dev', 'team', ['s3'], iac=[record])
+        uncertain = dict(record, category='uncompared', reason='not comparable')
+        publication.save(tmp_path, 'dev', 'team', ['s3'], iac=[uncertain])
+        text = paths[1].read_text(encoding='utf-8')
+        assert '未比較 1項目' in text and 'value mismatch' not in text and 'invalid previous' not in text
+        before = {path: path.read_bytes() for path in paths}
+        with pytest.raises(ValueError, match='inputs changed'):
+            publication.save(tmp_path, 'dev', 'team', ['s3'], iac=[], guard=Mock(side_effect=ValueError('inputs changed')))
+        assert {path: path.read_bytes() for path in paths} == before
+        publication.save(tmp_path, 'dev', 'team', ['s3'], iac=[])
+        assert '元レコード数: 0' in paths[1].read_text(encoding='utf-8')
+        assert 'no compared records' in paths[1].read_text(encoding='utf-8')
+
+
+
+
+def check_model_part_bytes_and_legacy_rows(tmp_path):
+    source = tmp_path / 'model/dev/team/s3.properties'
+    write(tmp_path / 'project.json', json.dumps({'projectName': 'fixture', 'targets': [dict(environment='dev', alias='team',
+        awsAccountId='123456789012', awsRegion='ap-northeast-1', iacEngine='cloudformation')]}))
+    values = {'desired.service.s3.serviceId': 's3', 'desired.resource.legacy-id.resourceType': 'S3.Bucket',
+        'desired.row.legacy-id-001.property': 'S3.Bucket.BucketName', 'desired.row.legacy-id-001.value': '`bucket`',
+        'desired.row.legacy-id-001.comment': 'fixture', 'desired.resource.legacy.resourceType': 'S3.Bucket'}
+    values.update({"desired.resource.legacy-id.logicalId": "S3_Bucket_001",
+        "desired.resource.legacy.logicalId": "S3_Bucket_002",
+        "desired.service.identity.lastAllocated": "{\"S3.Bucket\":2}"})
+    outputs = split(source, values, limit=3)
+    assert len(outputs) > 1
+    for path, text in outputs.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(text.replace('\n', '\r\n').encode('utf-8'))
+    with input_context(), patch.object(sources, '_read_model', wraps=sources._read_model) as parser:
+        one, two = real_load(source), real_load(source)
+        assert one is two and parser.call_count == 1
+    assert one.values == values
+    assert all(text.encode('utf-8') == path.read_bytes() for path, text in one.files.items())
+    assert all(path.read_text(encoding='utf-8').splitlines()[line-1].partition('=')[0] == key
+               for key, (path, line) in one.locations.items())
+    assert resource_row_index(one.values)['legacy'] == []
+    assert len(resource_row_index(one.values)['legacy-id']) == 1
+
+
+def check_missing_template_report():
+    record = dict(category='difference', service='s3', resource='001', property='*', stack='stack',
+        reason='モデルに対応するtemplateが存在しない（CREATE未実装）', iac={'path': 'infra/cloudformation/templates/shared.yaml'},
+        cause=dict(kind='template-missing', path='infra/cloudformation/templates/shared.yaml', stack='stack', relationship='direct'))
+    report = iac_report('dev', 'team', ['s3'], [record])
+    assert '差分 1件 / 未比較 0項目 / 処理エラー 0項目' in report
+    assert '修正対象: 不足入力: shared.yaml' in report
+    assert '[infra/cloudformation/templates/shared.yaml]' not in report
+
+
 if __name__ == '__main__':
-    from support.pytest_cli import run
     raise SystemExit(run(__file__))

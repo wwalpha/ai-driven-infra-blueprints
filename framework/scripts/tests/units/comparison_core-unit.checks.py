@@ -6,9 +6,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from functools import partial
+from unittest.mock import Mock
 
+import pytest
 from array_display import indexed_rows
-from cloudformation_inputs import Blocked
+from cloudformation_inputs import (
+    Blocked,
+    checked_parameters,
+    condition_active,
+    load_template_inputs,
+)
+from comparison.resource import inactive_evidence
 from comparison.services.cloudtrail import cloudtrail_rows
 from comparison_rows import Unresolved, put_row
 from iac_evaluation import Evaluation
@@ -193,3 +201,74 @@ assert evaluate(select(1, {'Fn::Split': [':', 'zone:dns']})) == 'dns'
 rejects(first, ValueError, 'invalid Select operands')
 rejects({'Fn::Split': [':', getatt('Name')]}, ValueError, 'invalid Split operands')
 print('Symbolic array evaluation: PASS (schema types/bounds, chains, concrete inputs, errors, deploy isolation)')
+
+# Strict comparison typing has a separate contract from permissive deployment inputs.
+for kind, default, expected in [('String', 'abc', 'abc'), ('Number', '7', 7),
+    ('Number', '9007199254740993', 9007199254740993), ('Number', '0.5', 0.5),
+    ('CommaDelimitedList', 'a, b', ['a', 'b']), ('List<Number>', '1, 2.5', [1, 2.5])]:
+    document = {'Parameters': {'Extra': {'Type': kind, 'Default': default}}}
+    assert checked_parameters(document, [])['Extra'] == expected
+    assert checked_parameters(document, [{'ParameterKey': 'Extra', 'ParameterValue': default}])['Extra'] == expected
+for definition, reason in [
+    ({'Type': 'String', 'Default': 'bad', 'AllowedValues': ['dev', 'stg']}, 'AllowedValues'),
+    ({'Type': 'String', 'Default': 'prefix-good-suffix', 'AllowedPattern': 'good'}, 'AllowedPattern'),
+    ({'Type': 'String', 'Default': 'a', 'MinLength': 2}, 'MinLength'),
+    ({'Type': 'String', 'Default': 'abcd', 'MaxLength': 3}, 'MaxLength'),
+    ({'Type': 'Number', 'Default': '1', 'MinValue': 2}, 'MinValue'),
+    ({'Type': 'Number', 'Default': '3', 'MaxValue': 2}, 'MaxValue'),
+    ({'Type': 'Number', 'Default': 'NaN'}, 'Number'), ({'Type': 'Number', 'Default': True}, 'Number'),
+    ({'Type': 'String', 'Default': []}, 'String'), ({'Type': 'String'}, 'required parameter'),
+    ({'Type': 'CommaDelimitedList', 'Default': 'a,bad', 'AllowedValues': ['a']}, 'AllowedValues'),
+    ({'Type': 'CommaDelimitedList', 'Default': 'a,1', 'AllowedPattern': '[a-z]+'}, 'AllowedPattern')]:
+    with pytest.raises(ValueError, match=reason):
+        checked_parameters({'Parameters': {'Extra': definition}}, [])
+for text, reason in [('[]', 'required parameter'),
+    ('[{"ParameterKey":"Unknown","ParameterValue":"x"}]', 'undeclared'),
+    ('[{"ParameterKey":"Name","ParameterValue":7}]', 'explicit'),
+    ('[{"ParameterKey":"Name","ParameterValue":"a"},{"ParameterKey":"Name","ParameterValue":"b"}]', 'duplicate'),
+    ('[{"ParameterKey":"Name","ParameterValue":"a","ParameterValue":"b"}]', 'duplicate')]:
+    parameter_file = Mock()
+    parameter_file.read_text.return_value = text
+    with pytest.raises(ValueError, match=reason):
+        load_template_inputs(None, parameter_file, strict_parameters=True, document={'Parameters': {'Name': {'Type': 'String'}}})
+parameter_file = Mock()
+parameter_file.read_text.return_value = '[]'
+assert load_template_inputs(None, parameter_file, document={'Parameters': {'Extra': {'Type': 'Number', 'Default': '7'}}})[1] == {'Extra': '7'}
+
+conditions = {'IsEnabled': {'Fn::Equals': [{'Ref': 'Enable'}, 'true']},
+    'OtherEnabled': {'Fn::Equals': [{'Ref': 'Other'}, 'yes']},
+    'Combined': {'Fn::And': [{'Condition': 'IsEnabled'}, {'Fn::Or': [{'Condition': 'OtherEnabled'}, {'Fn::Not': [{'Condition': 'IsEnabled'}]}]}]},
+    'Branch': {'Fn::If': ['IsEnabled', {'Condition': 'Missing'}, False]},
+    'SubOff': {'Fn::Equals': [{'Fn::Sub': '${Enable}'}, 'true']}}
+condition_document = {'Parameters': {'Enable': {'Type': 'String', 'Default': 'false'}, 'Other': {'Type': 'String', 'Default': 'yes'}}, 'Conditions': conditions}
+for condition in ('IsEnabled', 'Combined', 'Branch', 'SubOff'):
+    assert condition_active(condition_document, {'Enable': 'false', 'Other': 'yes'}, {}, {'Condition': condition}) is False
+for condition in ('IsEnabled', 'Combined'):
+    assert condition_active(condition_document, {'Enable': 'true', 'Other': 'yes'}, {}, {'Condition': condition}) is True
+for expression, reason in [({'Condition': 'Missing'}, 'unresolved'), ({'Condition': 'Broken'}, 'cyclic'),
+                           ('false', 'non-boolean'), ({'Fn::Equals': [{'Ref': 'Unknown'}, 'x']}, 'unsupported')]:
+    with pytest.raises(Blocked, match=reason):
+        condition_active({'Conditions': {'Broken': expression}}, {}, {}, {'Condition': 'Broken'})
+
+for condition, names in [('Combined', {'Enable', 'Other'}), ('Branch', {'Enable'}), ('SubOff', {'Enable'})]:
+    location, cause = inactive_evidence('stack', 'Bucket', {'Condition': condition}, condition_document,
+        {'Enable': 'false', 'Other': 'yes'}, {}, path='template.yaml', parameter_path='parameters.json',
+        supplied=set(), stack_id='001', target={}, environment='dev', directory='team', marks={},
+        source_lookup=Mock(), redact=lambda value, key: value)
+    assert {item['name'] for item in cause['inputs']} == names
+    assert all(item['source']['kind'] == 'template-default' for item in cause['inputs'])
+    assert set(cause['conditions']) == ({'Combined', 'IsEnabled', 'OtherEnabled'} if condition == 'Combined' else {condition, 'IsEnabled'} if condition == 'Branch' else {condition})
+for value, noecho, name in [('private', True, 'Confidential'), (8912, True, 'Numeric'), ('private', False, 'SecretToken')]:
+    document = {'Parameters': {name: {'NoEcho': noecho}}, 'Conditions': {'Off': {'Fn::Equals': [{'Ref': name}, 'other']}}}
+    for supplied in (set(), {name}):
+        _, cause = inactive_evidence('stack', 'Bucket', {'Condition': 'Off'}, document, {name: value}, {},
+            path='template.yaml', parameter_path='parameters.json', supplied=supplied, stack_id='001', target={},
+            environment='dev', directory='team', marks={}, source_lookup=Mock(), redact=safe_value)
+        assert cause['inputs'][0]['value'] in {'<masked sensitive parameter>', '<masked>'}
+for name, source in [('AWS::Region', {'path': 'project.json', 'key': 'awsRegion'}),
+                     ('AWS::StackName', {'path': 'stacks.properties', 'key': 'desired.stack.001.name'})]:
+    document = {'Conditions': {'Off': {'Fn::Equals': [{'Ref': name}, 'other']}}}
+    _, cause = inactive_evidence('stack', 'Bucket', {'Condition': 'Off'}, document, {}, {name: 'fixture'},
+        path='template.yaml', parameter_path='parameters.json', supplied=set(), stack_id='001', target={},
+        environment='dev', directory='team', marks={}, source_lookup=Mock(return_value=source), redact=safe_value)
+    assert all(cause['inputs'][0]['source'][key] == value for key, value in source.items())
