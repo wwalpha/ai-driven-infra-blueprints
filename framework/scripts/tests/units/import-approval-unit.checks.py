@@ -19,6 +19,7 @@ from model.importing import approval, evidence
 from model.importing import cli as m
 from model.operations import operation_values
 from model.sources import load_model
+from support.model_v2_fixtures import acquisition_fixture
 from support.model_v2_fixtures import value_snapshot as Expansion
 from utils.json_format import document_sha256
 from utils.script_loader import module as module
@@ -708,6 +709,30 @@ def check_review_reports_every_canonical_change():
     assert {change['key']: change['after'] for change in changes} == {
         key: {'present': True, 'value': value} for key, value in proposed.items()}
     assert any(change['key'] == 'display.resource.001.comment' for change in review['dispositions'][0]['changes'])
+
+
+def check_acquisition_fixture_actions(tmp_path):
+    snapshot = SimpleNamespace(scope=SimpleNamespace(root=tmp_path, environment='dev', target='cde', service='vpc'),
+                               authoritative=proposal()[2].authoritative)
+    original = dict(snapshot.authoritative)
+    for action in ('add', 'refresh', 'bind', 'replace'):
+        acquired, selection = acquisition_fixture(snapshot, action=action, resource='001')
+        identity = 'vpc-original' if action == 'refresh' else 'vpc-acquired'
+        expected = {'record': 'record-one', 'resource': '001', 'action': action,
+                    'reason': '合成 fixture の明示的選択', 'basis': ['EC2.VPC.VpcId']}
+        if action in {'bind', 'replace'}:
+            expected['before'] = {'identity': None if action == 'bind' else 'vpc-original',
+                                  'model': document_sha256(operation_values(original, '001'))}
+        assert selection == {'resources': [expected], 'excluded': [], 'unreflected': []}
+        assert acquired['records'][0]['identity'] == identity
+        assert acquired['records'][0]['properties']['EC2.VPC.VpcId']['value'] == identity
+    default_acquired, default_selection = acquisition_fixture(snapshot)
+    refresh_acquired, refresh_selection = acquisition_fixture(snapshot, action='refresh')
+    default_acquired.pop('acquiredAt')
+    refresh_acquired.pop('acquiredAt')
+    assert (default_acquired, default_selection) == (refresh_acquired, refresh_selection)
+    assert default_selection['resources'][0]['resource'] == '007'
+    assert snapshot.authoritative == original
 
 
 if __name__ == '__main__':

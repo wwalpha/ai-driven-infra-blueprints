@@ -2095,11 +2095,11 @@ dirty baseは高コスト解析・commit前に拒否するため、既存テス�
 
 旧 check_other_definition_input_dependencies（8 variants）は Model の Definition／optional／choice／default／template owner が廃止されたため終了した。非選択 Resource／環境の値・identity・reference の保持は check_overwrite_does_not_grant_unrelated_edits と新 canonical snapshot/Task/Review 回帰に引き継ぐ。旧 YAML 部分編集ケースは properties の原文保持・native 値・no-op へ移管し、ケースと parameter matrix を保持する。
 
-旧 Import approval の保存 transaction 15 ケースは同じケース ID・parameter 数を維持して import-model IT へ移管した。削除済み publish_selected の Mock ではなく、実管理 worktree・取得 evidence・全件 Review・共通 publisher/receipt の競合・rollback と表示専用回復を検査する。AWS transport だけを合成に固定する。
+旧 Import approval の細かな入力条件・異常系は import-model-unit / import-approval-unit / import-references-unit が保証する。import-model IT は取得 evidence・全件 Review・代表的なPublication・Rollback・Recoveryを検査し、CLI・Git・Worktree境界は専用ITへ分離済み。削除・縮小した検証と既存UT・代表ITの対応は「Issue 14: Import IT responsibility reduction」の対応表を正とし、旧ケースID・parameter数の全維持を前提にしない。
 
 | `model-v2::review-complete-canonical-changes` | `check_review_reports_every_canonical_change` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L698) | pytest / 1 | 全正本キー・Row comment・display・service の Before/After と存在性を全件 Review に表示 | Model v2 |
 
-Properties v2 の検査移管（検査目的と parameter matrix を維持）:
+Properties v2 の検査移管（検査目的を維持し、Importのparameter削減と責務分担はIssue 14節に従う）:
 
 - model_files の検索・Resource group・trace・scope・Task 選択・原文不変・競合・publication cache 無効化を新 CLI／reader で検査する。旧 template parser 呼出し回数は廃止し、同一 snapshot の canonical reader 再利用と権限再確認を検査する。600 行は header を含む初回の目安になり、Resource block の途中分割をしない。
 - Import の value／approval／reference の単体ケースは model.* と明示 properties fixture へ移管する。参照の selector／template provenance は固定 producer identity／consumerKey／pointer／format／property／labelPolicy に置き換える。別環境への暗黙展開や未使用 Definition の生成は存在しない。
@@ -2112,13 +2112,17 @@ Properties v2 の検査移管（検査目的と parameter matrix を維持）:
 
 ## Properties v2 reference and Import assertion mapping
 
-既存の関数名・入口数と固定 Resource/Row ID を維持する。旧展開文法だけの検査は
+固定 Resource/Row IDと検証目的を維持し、Importの関数・条件数はIssue 14節の削減を反映する。旧展開文法だけの検査は
 普通の properties と `desired.reference` の構造・所有者・使用位置の検査へ置き換える。
 無効な構文・未知形式・範囲違反・I/O を参照 WARNING に読み替えない。
 
 | 既存ケース | 現在の検査対象・保持する assertion |
 | --- | --- |
-| `import-model` の全108 pytest instances | canonical 候補の add／refresh／bind／replace／混在、全件 Review、非選択/CREATE/固定 identity/別環境の保持、実保存1回、外部変更拒否、source と receipt の rollback、表示のみ復旧、別プロセスの単一 CLI |
+| `import-model` IT（47関数・104条件 → 29関数・37条件、67条件削減） | 代表的な取得・全件Review・add／refresh／bind／replace／混在のPublication、非選択/CREATE/別環境保持、保存前拒否・保存中race、source/ReceiptのRollbackと表示Recovery |
+| `import-cli` IT | 別プロセスCLI・実HEAD変更とsource/Receipt/displayの強制終了・復旧境界 |
+| `import-worktree-contract` IT | 実Git・Worktreeの所有権・Task・取得証跡と保存権限の境界 |
+| `model-operation-publication` IT | Model-only Publication、一回使い切りcontext・leaf保存・journal復旧・batch保存 |
+| 関連UT（import-model-unit / import-approval-unit / import-references-unit） | 入力・条件分岐・Identity・Scope・Approval・拒否判定。削除条件ごとの保証先はIssue 14節の対応表を参照 |
 | `check_model_only_publication` / `check_intermediate_model_sources` / `check_batch_leaf_saves` | Gitなしの状態Providerと一回使い切り context / prepare/publish API、限定操作・通常編集の境界、一次保存と最終検証の分離、5組の転送→未削除状態→削除完了、base 不変、journal 復旧。親の完了は final-candidate の別ケースで検査 |
 | `check_reference_publication` | scalar保存リンクとJSON物理値＋外部name参照のJSON Pointer、宣言/直接リンクの重複排除、read_context ごとの producer 読取再利用、読取依存の競合で source/receipt 復元、producer 外部変更の保持、再取得なしの表示復旧 |
 | raw-bucket / producer-identifier と各 schema UT | 正式 Property、固定 ID、backtick・JSON native type/順序、raw name と observed identifier、空/不存在/PENDING の区別、labelPolicy と必要/禁止フィールド。型・名前・識別子の不一致や producer 不在は値を保持して WARNING |
@@ -2509,8 +2513,14 @@ UTにはIT用Publication helper・Acquire→Publish全体・Full fixtureを移�
 
 ### 不足した単体判定だけを既存UTへ補完
 
-既存suiteに4関数を追加し、既存関数の不足parameterも合わせ32条件だけ増やす。
-FixtureのUTは合成fileを使ってコピー関数を直接呼び、Import fixtureやPublicationを実行しない。
+`acquisition_fixture()` のAction引数4種類と省略時refresh・既定Resource、Identity/before・非破壊性は既存import-approval-unit内の直接UTで保証する。model-properties-v2 ITのReview operation一致assertionは維持する。
+
+| Requirement | Case | Layer | File | Mode / Count | Verification | Reason |
+|---|---|---|---|---|---|---|
+| `import-fixture::actions` | `check_acquisition_fixture_actions` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#check_acquisition_fixture_actions) | pytest / 1 | add/refresh/bind/replace伝播、既定refresh/007、Identity/before、入力不変 | Issue 14残存回帰 |
+
+1024v9の責務移管では既存suiteに4関数を追加し、既存関数の不足parameterも合わせ32条件だけ増やした。上記Action伝播の回帰UTは別途1関数・1条件。
+`check_it_focused_fixture_isolation` は合成fileを使ってコピー関数を直接呼び、Import fixtureやPublicationを実行しない。
 
 | Requirement | Case | Layer | File | Mode / Count | Verification | Reason |
 |---|---|---|---|---|---|---|
