@@ -7,9 +7,14 @@ from model.core import LINK, literal
 from utils.json_format import policy_json
 
 from design.services.definitions.codepipeline import (
+    ARRAY_ACTIONS,
     CODEPIPELINE_CONFIGURATION,
     CODEPIPELINE_STAGE,
 )
+
+
+def array_template(template):
+    return ARRAY_ACTIONS.sub(r"\1[]", template)
 
 
 def pipeline_rows(rows: list[list[str]]) -> list[list[str]]:

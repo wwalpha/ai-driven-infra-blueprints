@@ -5,10 +5,28 @@ import re
 from model.core import LINK, ReferenceResolutionError, literal
 
 from design.services.definitions.codebuild import (
+    ARRAY_VARIABLE,
     CODEBUILD_FORMAL_VARIABLE,
+    CODEBUILD_SECURITY_GROUPS,
+    CODEBUILD_SUBNETS,
     CODEBUILD_VARIABLE,
     CODEBUILD_VARIABLE_TYPE,
+    COMPACT_ARRAY,
 )
+
+
+def adjust_display_order(kind, order):
+    """Adjust only the caller's catalog-order copy."""
+    if kind == "CodeBuild.Project":
+        order[CODEBUILD_SUBNETS], order[CODEBUILD_SECURITY_GROUPS] = order[CODEBUILD_SECURITY_GROUPS], order[CODEBUILD_SUBNETS]
+
+
+def array_template(template):
+    return ARRAY_VARIABLE.sub(r"\g<0>[]", template)
+
+
+def compact_array(template):
+    return bool(COMPACT_ARRAY.search(template))
 
 
 def codebuild_display_row(rows, index, comment, *, mode="CREATE"):

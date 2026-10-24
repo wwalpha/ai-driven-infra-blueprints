@@ -1,5 +1,6 @@
 """Fixed config design definitions; no display-engine dependencies."""
 
+IMPORT_PENDING_PROPERTIES = {"Config.ConfigurationRecorder.RoleARN"}
 
 RESOURCE_REFERENCE_PROPERTIES = {
     'Config.ConfigurationRecorder.RoleARN': ('IAM.Role', 'RoleName'),

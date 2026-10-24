@@ -2,6 +2,8 @@
 
 import re
 
+ARRAY_ACTIONS = re.compile(r"(Stages\[[1-9]\d*\]\.Actions)(?=\.)")
+
 PACKED_ARRAY_PREFIXES = ('CodePipeline.Pipeline.Stages[]',)
 
 CODEPIPELINE_STAGE = re.compile(r"^Stages\[([1-9]\d*)\]\.(?:Actions(?:\[([1-9]\d*)\])?\.)?(.+)$")

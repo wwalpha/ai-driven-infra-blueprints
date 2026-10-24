@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
 
-from design.array_display import SOURCE, indexed_rows, restored_rows
+from design.array_display import SOURCE, array_template, indexed_rows, restored_rows
 from design.catalog import DesignSchemaCatalog, design_material_files
 from utils.input_cache import input_scope
 
@@ -113,6 +113,20 @@ def nested_scalar_arrays():
 @input_scope
 def main():
     nested_scalar_arrays()
+    for kind, prop, expected in (
+        ("CodePipeline.Pipeline", "OtherStages[1].Actions.Name", "OtherStages[1].Actions[].Name"),
+        ("CodePipeline.Pipeline", "Stages[01].Actions.Name", "Stages[01].Actions.Name"),
+        ("CodePipeline.Pipeline", "Stages[0].Actions.Name", "Stages[0].Actions.Name"),
+        ("CloudTrail.Trail", "OtherEventSelectors.DataResources[1].S3", "OtherEventSelectors[].DataResources[].S3"),
+        ("CloudTrail.Trail", "EventSelectors.DataResources[01].S3", "EventSelectors.DataResources[01].S3"),
+        ("CloudTrail.Trail", "EventSelectors.DataResources[0].S3", "EventSelectors.DataResources[0].S3"),
+        ("CloudTrail.Trail", "EventSelectors.DataResources[1].S3.Extra", "EventSelectors.DataResources[1].S3.Extra"),
+        ("GuardDuty.Detector", "OtherFeatures.ONE", "OtherFeatures.ONE"),
+        ("GuardDuty.Detector", "Features.ONE.Extra", "Features.ONE.Extra"),
+        ("CodeBuild.Project", "Environment.Variables.ONE.Extra", "Environment.Variables.ONE.Extra"),
+        ("S3.Bucket", "Environment.Variables.ONE", "Environment.Variables.ONE"),
+    ):
+        assert array_template(prop, kind, ROOT) == expected
     source = rows([
         ("LifecycleConfiguration.Rules[].Id", "`first`"),
         ("LifecycleConfiguration.Rules[].Transitions[].StorageClass", "`STANDARD_IA`"),
@@ -155,6 +169,14 @@ def main():
     assert [row[1] for row in output] == ["Tasks[1].Name", "Tasks[1].Subnets[1]", "Tasks[1].Subnets[2]", "Tasks[2].Name", "Tasks[2].Subnets[1]"]
     assert restored_rows(output, "Example.Resource") == original
     for kind, fields, expected in (
+        ("CodeBuild.Project", [("Environment.Variables.ONE", "`one`"), ("Environment.Variables.TWO", "`two`")],
+         ["Environment.Variables[1].ONE", "Environment.Variables[2].TWO"]),
+        # Compact numbering historically matches the template independently of its owner.
+        ("Example.Resource", [("Features[].ONE", "`one`"), ("Features[].TWO", "`two`"),
+                              ("Environment.Variables[].ONE", "`one`"), ("Environment.Variables[].TWO", "`two`"),
+                              ("DataResources[].S3", "`one`"), ("DataResources[].Lambda", "`two`")],
+         ["Features[1].ONE", "Features[2].TWO", "Environment.Variables[1].ONE", "Environment.Variables[2].TWO",
+          "DataResources[1].S3", "DataResources[2].Lambda"]),
         ("GuardDuty.Detector", [("Features.ONE", "`ENABLED`"), ("Features[].AdditionalConfiguration[].Name", "`nested`"), ("Features[].AdditionalConfiguration[].Status", "`ENABLED`"), ("Features.TWO", "`DISABLED`")], ["Features[1].ONE", "Features[1].AdditionalConfiguration[1].Name", "Features[1].AdditionalConfiguration[1].Status", "Features[2].TWO"]),
         ("CloudTrail.Trail", [("EventSelectors.DataResources[1].S3", "[one](#one)"), ("EventSelectors.DataResources[2].Lambda", "[two](#two)"), ("EventSelectors.IncludeManagementEvents", "`true`"), ("EventSelectors.IncludeManagementEvents", "`false`"), ("EventSelectors.DataResources[3].S3", "[three](#three)")], ["EventSelectors[1].DataResources[1].S3", "EventSelectors[1].DataResources[2].Lambda", "EventSelectors[1].IncludeManagementEvents", "EventSelectors[2].IncludeManagementEvents", "EventSelectors[2].DataResources[1].S3"]),
     ):

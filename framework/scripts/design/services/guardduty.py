@@ -5,9 +5,19 @@ import re
 from model.core import literal
 
 from design.services.definitions.guardduty import (
+    ARRAY_FEATURE,
+    COMPACT_ARRAY,
     GUARDDUTY_FEATURE,
     GUARDDUTY_FORMAL_FEATURE,
 )
+
+
+def array_template(template):
+    return ARRAY_FEATURE.sub(r"\g<0>[]", template)
+
+
+def compact_array(template):
+    return bool(COMPACT_ARRAY.search(template))
 
 
 def formal_rows(cells, names):

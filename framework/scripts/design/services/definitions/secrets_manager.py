@@ -8,3 +8,5 @@ POLICY_FORMATS = {
 }
 
 ROTATION_SCHEDULE = "SecretsManager.RotationSchedule"
+
+ROTATION_SUBNETS = "SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds"

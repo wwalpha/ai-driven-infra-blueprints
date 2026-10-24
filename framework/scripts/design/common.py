@@ -9,6 +9,8 @@ from utils.aws_catalogs import catalogs_for
 from utils.input_cache import memoized
 
 from design.layout_schema import ALIGNMENT, DETAILS_HEADING, HEADER
+from design.services import secrets_manager
+from design.services.definitions.secrets_manager import ROTATION_SUBNETS
 
 
 def resource_heading_lines(lines: list[str]) -> list[str]:
@@ -33,8 +35,8 @@ def catalog_property_order(root: Path, resource_type: str):
 def subnet_list_items(prop: str, value: str) -> list[str]:
     """Split a saved list for display without inferring resource references."""
     raw = value[1:-1] if value.startswith("`") and value.endswith("`") else value
-    if prop == "SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds":
-        items = [item.strip() for item in raw.split(",")]
+    if prop == ROTATION_SUBNETS:
+        items = secrets_manager.subnet_list_items(raw)
     elif prop.endswith("[]") and not raw.lstrip().startswith(("[", "{")):
         items = [raw]
     else:

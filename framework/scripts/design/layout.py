@@ -85,6 +85,7 @@ from design.services.definitions.lambda_permission import (
     PERMISSION_METADATA as PERMISSION_METADATA,
 )
 from design.services.definitions.registry import HIDDEN_PROPERTIES as HIDDEN_PROPERTIES
+from design.services.definitions.registry import IMPORT_PENDING_PROPERTIES
 from design.services.definitions.registry import (
     REQUIRED_NAME_TAG_TYPES as REQUIRED_NAME_TAG_TYPES,
 )
@@ -108,11 +109,7 @@ def is_service_role_reference(prop: str, value: str) -> bool:
 
 
 def is_import_pending_reference(prop: str, value: str) -> bool:
-    return prop in {
-        "Config.ConfigurationRecorder.RoleARN",
-        "KinesisFirehose.DeliveryStream.S3DestinationConfiguration.BucketARN",
-        "KinesisFirehose.DeliveryStream.S3DestinationConfiguration.RoleARN",
-    } and value == "Pending"
+    return prop in IMPORT_PENDING_PROPERTIES and value == "Pending"
 
 
 def resource_logical_ids(lines: list[str]) -> dict[str, str]:
@@ -390,9 +387,7 @@ def catalog_order_errors(resource_type: str, rows: list[list[str]], root: Path |
     if cached_order is None:
         return [f"display order catalog is missing: {resource_type}"]
     order = dict(cached_order)
-    if resource_type == "CodeBuild.Project":
-        subnets, groups = "CodeBuild.Project.VpcConfig.Subnets", "CodeBuild.Project.VpcConfig.SecurityGroupIds"
-        order[subnets], order[groups] = order[groups], order[subnets]
+    design.services.codebuild.adjust_display_order(resource_type, order)
     previous = -1
     seen: set[str] = set()
     previous_property = ""

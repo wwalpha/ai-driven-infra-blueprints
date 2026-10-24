@@ -10,10 +10,18 @@ import aws_mapping_display as _imports_aws_mapping_display
 from utils.input_cache import input_scope, memoized
 
 from design.catalog import DesignSchemaCatalog
+from design.services import cloudtrail, codebuild, codepipeline, guardduty
 
 ROOT = Path(__file__).resolve().parents[3]
 SOURCE = re.compile(r"^<!-- array-source: (.+?) --> ")
 ARRAY = re.compile(r"\[\]")
+ARRAY_TEMPLATES = {
+    "CodePipeline.Pipeline": codepipeline.array_template,
+    "CloudTrail.Trail": cloudtrail.array_template,
+    "GuardDuty.Detector": guardduty.array_template,
+    "CodeBuild.Project": codebuild.array_template,
+}
+COMPACT_ARRAYS = (cloudtrail.compact_array, guardduty.compact_array, codebuild.compact_array)
 
 
 @memoized
@@ -41,13 +49,8 @@ def array_template(prop, kind, root):
                     if re.search(r"(?:^|\.)" + re.escape(ancestor) + r"(?:\.|$)", template):
                         template = re.sub(r"(^|\.)" + re.escape(ancestor) + r"(?=\.|$)", r"\g<0>[]", template, count=1)
                         break
-    if owner == "CodePipeline.Pipeline":
-        template = re.sub(r"(Stages\[[1-9]\d*\]\.Actions)(?=\.)", r"\1[]", template)
-    if owner == "CloudTrail.Trail" and re.search(r"EventSelectors\.DataResources\[[1-9]\d*\]\.(S3|Lambda)$", template):
-        template = re.sub(r"EventSelectors\.DataResources\[[1-9]\d*\]", "EventSelectors[].DataResources[]", template)
-    for compact_owner, field in (("GuardDuty.Detector", "Features"), ("CodeBuild.Project", "Environment.Variables")):
-        if owner == compact_owner:
-            template = re.sub(r"(^|\.)" + re.escape(field) + r"(?=\.[^.]+$)", r"\g<0>[]", template)
+    if owner in ARRAY_TEMPLATES:
+        template = ARRAY_TEMPLATES[owner](template)
     if "[]" in template:
         parent, remainder = template.split("[]", 1)
         template = parent + "[]" + re.sub(r"\[[1-9]\d*\]", "[]", remainder)
@@ -88,7 +91,7 @@ def indexed_rows(rows, kind, root=ROOT):
             numbered_property("Tags[].Key", states)
             numbered_property("Tags[].Value", states)
         template = array_template(prop, kind, root)
-        compact = bool(re.search(r"(?:Features|Environment\.Variables)\[\]\.[^.]+$|DataResources\[\]\.(?:S3|Lambda)$", template))
+        compact = any(matches(template) for matches in COMPACT_ARRAYS)
         if "[]" not in template:
             result.append([identity, prop, value, comment])
             continue

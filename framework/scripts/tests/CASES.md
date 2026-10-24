@@ -3006,9 +3006,10 @@ CloudFormation共通入力判定は `units/cloudformation-inputs-unit.checks.py`
 | Case ID | Check | Class | File | Execution | Contract | Inputs |
 | --- | --- | --- | --- | --- | --- | --- |
 | `design-definitions::values` | `check_values` | UT | [units/design-definitions-unit.checks.py](units/design-definitions-unit.checks.py) | direct / 1 | 移動前の31 Policy形式・参照・非表示・Name Tag・Packed定義を完全維持 | 固定baseline |
-| `design-definitions::duplicates` | `check_duplicates` | UT | [units/design-definitions-unit.checks.py](units/design-definitions-unit.checks.py) | direct / 1 | 6集合すべての重複登録を拒否 | 小型定義 |
+| `design-definitions::duplicates` | `check_duplicates` | UT | [units/design-definitions-unit.checks.py](units/design-definitions-unit.checks.py) | direct / 1 | Pendingを含む7集合すべての重複登録を拒否 | 小型定義 |
 | `design-definitions::registration` | `check_registration` | UT | [units/design-definitions-unit.checks.py](units/design-definitions-unit.checks.py) | direct / 1 | 25サービスの明示登録・決定順・純粋データ依存 | 固定定義module |
-| `design-layout::import-order` | `check_import_order` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py) | pytest / 4 | Layout・Policy・EC2 SG・Model表示の先頭importで循環初期化を検出 | 独立Python process |
+| `design-layout::import-order` | `check_import_order` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py) | pytest / 11 | Layout・Policy・EC2 SG・Model表示・共通Array/Subnet・5サービスの先頭importで循環初期化を検出 | 独立Python process |
+| `design-layout::import-pending` | `check_import_pending_reference` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py) | pytest / 1 | 許可3PropertyとPending完全一致、未登録Property・Backtick・literal/link拒否 | 小型入力、Model UTの重複したliteral/link判定を移管 |
 
 ## Incomplete Model settings and confirmed IaC differences
 

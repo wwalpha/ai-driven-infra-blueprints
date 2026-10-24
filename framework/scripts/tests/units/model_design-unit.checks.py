@@ -15,12 +15,12 @@ import validation.design as design_validation
 import validation.design_tables as design_tables
 from design.array_display import indexed_rows
 from design.catalog import DesignSchemaCatalog
+from design.common import catalog_property_order, subnet_list_items
 from design.document import DesignIndex
 from design.layout import (
     catalog_order_errors,
     expanded_design,
     formal_property,
-    is_import_pending_reference,
     is_import_role_arn,
     resource_display_name,
     resource_display_selection,
@@ -91,6 +91,14 @@ def check_design_naming_rules():
 
 
 def check_subnet_list_display():
+    prop = "SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds"
+    for value in ("subnet-a, subnet-b", "` subnet-a ,  subnet-b `"):
+        assert subnet_list_items(prop, value) == ["`subnet-a`", "`subnet-b`"]
+    assert subnet_list_items(prop, "` [a](vpc.md#a), [b](vpc.md#b) `") == ["[a](vpc.md#a)", "[b](vpc.md#b)"]
+    for value in ("", ",", "subnet-a,", "subnet-a,,subnet-b", "subnet-a|b", "subnet-a\nsubnet-b", "subnet-`a"):
+        with pytest.raises(ValueError) as error:
+            subnet_list_items(prop, value)
+        assert str(error.value) == prop + ": Subnet list must contain non-empty string elements"
     # Catalog coverage is explicit: single IDs and arrays of objects keep their format.
     catalog = {line.partition("=")[0] for path in (ROOT / "framework/materials/aws").glob("*.properties")
                for line in path.read_text(encoding="utf-8").splitlines() if "=" in line}
@@ -579,11 +587,20 @@ def check_catalog_display_order():
                          ("S3.Bucket", ["Tags[].Key", "Tags[].Value", "Region", "BucketName"]),
                          ("CodeBuild.Project", ["VpcConfig.VpcId", "VpcConfig.SecurityGroupIds", "VpcConfig.Subnets", "Name"])):
         rows = [[str(number), kind + "." + field, "値", "説明"] for number, field in enumerate(fields)]
+        catalog_order = catalog_property_order(ROOT, kind)
+        original_order = dict(catalog_order)
         shown = catalog_display_rows(rows, kind, ROOT)
         assert not catalog_order_errors(kind, shown, ROOT)
+        assert catalog_order == original_order
         assert sorted(row[0] for row in shown) == sorted(row[0] for row in rows)
         if kind == "S3.Bucket":
             assert [row[1] for row in shown[:2]] == [kind + ".BucketName", kind + ".Region"]
+        if kind == "CodeBuild.Project":
+            assert [row[1] for row in shown] == [kind + "." + field for field in (
+                "Name", "VpcConfig.Subnets", "VpcConfig.SecurityGroupIds", "VpcConfig.VpcId")]
+            assert catalog_order_errors(kind, rows, ROOT) == [
+                "resource rows must follow catalog file order: CodeBuild.Project: CodeBuild.Project.VpcConfig.SecurityGroupIds"]
+            assert catalog_order == original_order
     sg = [["1", "EC2.SecurityGroup.GroupDescription", "値", "説明"]]
     assert catalog_display_rows(sg, "EC2.SecurityGroup", ROOT) is sg
     print("Catalog display order: PASS (original row IDs, arrays and special positions)")
@@ -795,9 +812,6 @@ def check_import_pending_properties(kind, rows):
             validate_required_properties(create, ROOT)
     else:
         assert validate_required_properties(create, ROOT)
-    field = rows[-1][0]
-    assert not is_import_pending_reference(kind + '.' + field, '`arn:aws:s3:::dummy`')
-    assert not is_import_pending_reference(kind + '.' + field, '[dummy](service.md#dummy)')
     shown = display_rows(kind, resource_rows(values, '001', kind, ROOT), mode='IMPORT')
     assert any(row[2] == 'Pending' for row in shown)
 

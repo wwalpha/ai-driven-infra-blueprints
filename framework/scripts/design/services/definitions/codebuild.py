@@ -2,7 +2,12 @@
 
 import re
 
-CODEBUILD_VPC_PROPERTIES = {"CodeBuild.Project.VpcConfig.Subnets", "CodeBuild.Project.VpcConfig.SecurityGroupIds"}
+CODEBUILD_SUBNETS = "CodeBuild.Project.VpcConfig.Subnets"
+CODEBUILD_SECURITY_GROUPS = "CodeBuild.Project.VpcConfig.SecurityGroupIds"
+CODEBUILD_VPC_PROPERTIES = {CODEBUILD_SUBNETS, CODEBUILD_SECURITY_GROUPS}
+
+ARRAY_VARIABLE = re.compile(r"(^|\.)Environment\.Variables(?=\.[^.]+$)")
+COMPACT_ARRAY = re.compile(r"Environment\.Variables\[\]\.[^.]+$")
 
 CODEBUILD_FORMAL_VARIABLE = "CodeBuild.Project.Environment.EnvironmentVariables[]."
 

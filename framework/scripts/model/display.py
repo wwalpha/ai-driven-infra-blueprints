@@ -37,9 +37,7 @@ def catalog_display_rows(rows: list[list[str]], kind: str, root: Path) -> list[l
     if kind == "EC2.SecurityGroup" or _display_design_layout.GROUPED.get(kind, {}).get("display") == "rule-table":
         return rows  # Horizontal rule tables have their own generation and restoration.
     order = dict(_display_common.catalog_property_order(root, kind) or {})
-    if kind == "CodeBuild.Project":
-        subnets, groups = kind + ".VpcConfig.Subnets", kind + ".VpcConfig.SecurityGroupIds"
-        order[subnets], order[groups] = order[groups], order[subnets]
+    design.services.codebuild.adjust_display_order(kind, order)
     if kind in {"EC2.VPC", "EC2.Subnet", "EC2.RouteTable", "EC2.FlowLog"}:
         order[kind + ".Name"] = -1
     if kind == "S3.Bucket":

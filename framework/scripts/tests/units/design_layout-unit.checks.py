@@ -10,7 +10,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import design.layout as _imports_design_layout
 import pytest as _imports_pytest
 import support.design_layout_fixtures as _exports_support_design_layout_fixtures
-from design.layout import resource_display_selection, resource_has_name_property
+from design.layout import (
+    is_import_pending_reference,
+    resource_display_selection,
+    resource_has_name_property,
+)
 from support.design_layout_fixtures import (
     REPOSITORY,
     Path,
@@ -34,10 +38,30 @@ resource_logical_ids = _exports_support_design_layout_fixtures.resource_logical_
 
 
 
-@pytest.mark.parametrize("module", ["design.layout", "design.policy_tables", "design.services.ec2.security_groups", "model.display"])
+@pytest.mark.parametrize("module", [
+    "design.layout", "design.policy_tables", "design.services.ec2.security_groups", "model.display",
+    "design.array_display", "design.common", "design.services.codebuild", "design.services.codepipeline",
+    "design.services.cloudtrail", "design.services.guardduty", "design.services.secrets_manager",
+])
 def check_import_order(module):
     result = subprocess.run([sys.executable, "-B", "-c", "import importlib; importlib.import_module(" + repr(module) + ")"], cwd=REPOSITORY / "framework/scripts", capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def check_import_pending_reference():
+    for prop in (
+        "Config.ConfigurationRecorder.RoleARN",
+        "KinesisFirehose.DeliveryStream.S3DestinationConfiguration.BucketARN",
+        "KinesisFirehose.DeliveryStream.S3DestinationConfiguration.RoleARN",
+    ):
+        assert is_import_pending_reference(prop, "Pending")
+        for value in ("`Pending`", "pending", "Pending ", "", "`arn:aws:s3:::dummy`", "[dummy](service.md#dummy)"):
+            assert not is_import_pending_reference(prop, value)
+        for other in (prop + "Extra", prop.lower()):
+            assert not is_import_pending_reference(other, "Pending")
+    for prop in ("Config.DeliveryChannel.S3BucketName",
+                 "KinesisFirehose.DeliveryStream.DeliveryStreamEncryptionConfigurationInput.KeyARN"):
+        assert not is_import_pending_reference(prop, "Pending")
 
 
 def check_resource_display_names():

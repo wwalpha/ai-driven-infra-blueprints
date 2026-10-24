@@ -5,10 +5,24 @@ import re
 from model.core import ReferenceResolutionError, literal
 
 from design.services.definitions.cloudtrail import (
+    ARRAY_DATA_RESOURCE,
+    ARRAY_DATA_RESOURCE_PREFIX,
+    ARRAY_DATA_RESOURCE_TEMPLATE,
     CLOUDTRAIL_DATA_RESOURCE,
     CLOUDTRAIL_FORMAL_DATA_RESOURCE,
     CLOUDTRAIL_RESOURCE_TYPES,
+    COMPACT_ARRAY,
 )
+
+
+def array_template(template):
+    if ARRAY_DATA_RESOURCE.search(template):
+        return ARRAY_DATA_RESOURCE_PREFIX.sub(ARRAY_DATA_RESOURCE_TEMPLATE, template)
+    return template
+
+
+def compact_array(template):
+    return bool(COMPACT_ARRAY.search(template))
 
 
 def formal_rows(cells, display_property, count, mode):
