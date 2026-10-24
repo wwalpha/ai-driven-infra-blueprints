@@ -104,18 +104,6 @@ def main() -> None:
             )
             assert commands == ["aws"]
 
-        with mock.patch.object(MODULE.shutil, "which", return_value="/mock/aws"), mock.patch.object(
-            MODULE.subprocess,
-            "run",
-            return_value=subprocess.CompletedProcess([], 0, '{"Account":"999999999999"}', ""),
-        ):
-            try:
-                MODULE.check_deploy_context(root, "stg", alias="non-cde")
-            except MODULE.DeployContextError as error:
-                assert "AWS account mismatch" in str(error)
-            else:
-                raise AssertionError("account mismatch was accepted")
-
         try:
             MODULE.load_target(root, "stg", account_id="123456789012")
         except MODULE.DeployContextError as error:
@@ -133,19 +121,18 @@ def main() -> None:
             MODULE.subprocess, "run",
             return_value=subprocess.CompletedProcess([], 0, '{"Account":"123456789012"}', ""),
         ) as run:
-            for alias in ("cde", "non-cde"):
-                for read_only in (False, True):
-                    target = MODULE.check_deploy_context(root, "stg", alias=alias, read_only=read_only)
-                    assert target["awsProfile"] == f"stg-{alias}"
-                    assert run.call_args.args[0][:3] == ["/mock/aws", "--profile", f"stg-{alias}"]
-            MODULE.check_deploy_context(root, "stg", alias="cde", profile="stg-cde")
+            target = MODULE.check_deploy_context(root, "stg", alias="cde", read_only=True)
+            assert target["awsProfile"] == "stg-cde"
+            assert run.call_args.args[0][:3] == ["/mock/aws", "--profile", "stg-cde"]
             run.reset_mock()
-            try:
-                MODULE.check_deploy_context(root, "stg", alias="cde", profile="other")
-            except MODULE.DeployContextError as error:
-                assert "does not match target awsProfile" in str(error)
-            else:
-                raise AssertionError("conflicting AWS profile was accepted")
+            with mock.patch.object(MODULE, "select_profile", side_effect=ValueError("identity rejected")) as select:
+                try:
+                    MODULE.check_deploy_context(root, "stg", alias="cde", profile="explicit")
+                except MODULE.DeployContextError as error:
+                    assert str(error) == "identity rejected"
+                else:
+                    raise AssertionError("identity rejection ignored")
+                select.assert_called_once_with(target, "explicit")
             run.assert_not_called()
             run.return_value = subprocess.CompletedProcess([], 1, "", "profile not found")
             try:
@@ -163,42 +150,21 @@ def main() -> None:
             MODULE.subprocess, "run",
             return_value=subprocess.CompletedProcess([], 0, '{"Account":"999999999999"}', ""),
         ) as run:
-            for read_only in (False, True):
-                target = MODULE.check_deploy_context(root, "stg", alias="cde", read_only=read_only)
+            with mock.patch.object(MODULE, "verify_account", return_value="999999999999") as verify:
+                target = MODULE.check_deploy_context(root, "stg", alias="cde", read_only=True)
+                verify.assert_called_once_with(target, "999999999999")
                 assert target["awsAccountId"] == "123456789012"
                 assert target["awsExecutionAccountId"] == "999999999999"
-                assert run.call_args.args[0][2] == "stg-cde"
-            run.return_value = subprocess.CompletedProcess([], 0, '{"Account":"123456789012"}', "")
-            try:
-                MODULE.check_deploy_context(root, "stg", alias="cde", read_only=True)
-            except MODULE.DeployContextError as error:
-                assert "expected 999999999999, actual 123456789012" in str(error)
-            else:
-                raise AssertionError("resource account was accepted as execution account")
-        topology["targets"][0]["awsExecutionAccountId"] = "999999999999"
-        (root / "project.json").write_text(json.dumps(topology), encoding="utf-8")
-        assert MODULE.load_target(root, "production", account_id="210987654321")["awsAccountId"] == "210987654321"
-        for invalid in (None, 123456789012, "", "UNSET", "123", "1234567890123", " 123456789012", "123456789012\n", "１２３４５６７８９０１２"):
-            topology["targets"][1]["awsExecutionAccountId"] = invalid
-            (root / "project.json").write_text(json.dumps(topology), encoding="utf-8")
-            with mock.patch.object(MODULE.subprocess, "run") as run:
+            with mock.patch.object(MODULE, "verify_account", side_effect=ValueError("identity rejected")):
                 try:
                     MODULE.check_deploy_context(root, "stg", alias="cde", read_only=True)
                 except MODULE.DeployContextError as error:
-                    assert "AWS execution account ID is invalid" in str(error)
+                    assert str(error) == "identity rejected"
                 else:
-                    raise AssertionError(f"invalid execution account was accepted: {invalid!r}")
-                run.assert_not_called()
-        del topology["targets"][1]["awsExecutionAccountId"]
-        for invalid in (None, 123, "", " ", " padded ", "UNSET", "bad\nprofile", "bad\0profile"):
-            topology["targets"][1]["awsProfile"] = invalid
-            (root / "project.json").write_text(json.dumps(topology), encoding="utf-8")
-            try:
-                MODULE.load_target(root, "stg", alias="cde")
-            except MODULE.DeployContextError as error:
-                assert "AWS profile is invalid" in str(error)
-            else:
-                raise AssertionError(f"invalid AWS profile was accepted: {invalid!r}")
+                    raise AssertionError("STS identity rejection ignored")
+        topology["targets"][0]["awsExecutionAccountId"] = "999999999999"
+        (root / "project.json").write_text(json.dumps(topology), encoding="utf-8")
+        assert MODULE.load_target(root, "production", account_id="210987654321")["awsAccountId"] == "210987654321"
         topology["targets"][0]["awsRegion"] = "Tokyo"
         (root / "project.json").write_text(json.dumps(topology), encoding="utf-8")
         try:

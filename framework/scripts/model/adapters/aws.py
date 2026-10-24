@@ -30,6 +30,7 @@ import project_targets as _imports_project_targets
 from comparison_rows import MISSING, Unresolved, put_row, select
 from design_catalog import DesignSchemaCatalog, selected_properties
 from policy_tables import literal
+from utils.aws.identity import execution_account, select_profile, verify_account
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_sdk import aws_runtime
 from utils.input_cache import input_scope
@@ -348,11 +349,16 @@ class Context:
             raise self.cache[key]
         return self.cache[key]
 
-    def verify(self):
+    def verify(self) -> str:
+        select_profile(self.target)
+        execution_account(self.target)
         response = self.call("sts", "get_caller_identity")
-        if response.get("Account") != self.target.get("awsExecutionAccountId", self.target["awsAccountId"]):
-            raise AcquisitionError("sts.get_caller_identity", "AccountMismatch")
+        try:
+            account = verify_account(self.target, response.get("Account"))
+        except ValueError as error:
+            raise AcquisitionError("sts.get_caller_identity", "AccountMismatch") from error
         self.verified = True
+        return account
 
     def model(self, path):
         if path.is_symlink():
@@ -883,9 +889,9 @@ def summarize(results):
 @input_scope
 def run(root, items, profile=None, session_factory=None):
     # Reject every configured-profile conflict before any AWS retrieval.
+    selected_profiles = [select_profile(target, profile) for target, _ in items]
     for target, _ in items:
-        if target.get("awsProfile") and profile is not None and profile != target["awsProfile"]:
-            raise ValueError("explicit profile conflicts with target awsProfile")
+        execution_account(target)
     comparison = _imports_aws_mapping_compare.comparison
     for service in sorted({path.stem for _, path in items} - {'cloudformation-stacks'}):
         comparison(ROOT, service)  # Validate all Mapping inputs before AWS retrieval.
@@ -896,14 +902,16 @@ def run(root, items, profile=None, session_factory=None):
                 if row['property'] not in definitions:
                     raise ValueError('missing AWS Compare Mapping: ' + row['property'])
     contexts, results = {}, []
-    for target, path in items:
+    for (target, path), selected in zip(items, selected_profiles, strict=True):
         prefix = {"environment": target["environment"], "target": target["directory"], "service": path.stem}
         connection = (target["environment"], target["directory"])
         if connection not in contexts:
             try:
-                session = (session_factory(profile_name=target.get("awsProfile", profile), region_name=target["awsRegion"])
+                session = (session_factory(profile_name=selected, region_name=target["awsRegion"])
                            if session_factory else None)
-                connection_target = dict(target, awsProfile=target.get("awsProfile", profile))
+                connection_target = dict(target)
+                if selected is not None:
+                    connection_target["awsProfile"] = selected
                 ctx = Context(root, connection_target, session)
                 ctx.verify()
                 contexts[connection] = ctx

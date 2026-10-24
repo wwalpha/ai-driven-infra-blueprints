@@ -1,11 +1,10 @@
 """Assemble deployment state and functions; AWS clients live in utils.aws.client."""
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
-
 import argparse
 import sys
 import time
+from collections.abc import Iterable, Sequence
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,7 +13,10 @@ import utils.aws.client as _imports_utils_aws_client
 from cloudformation_inputs import Blocked, load_template_inputs
 from issue_gate import require_target_no_issues
 from model.core import ARTIFACT_PROPERTIES
+from utils.aws.identity import execution_account, select_profile
 from utils.json_format import fingerprint
+from utils.type_contracts import JsonObject
+from utils.type_contracts import JsonValue as JsonValue
 
 import deploy.failures as _imports_deploy_failures
 from deploy import change_sets, delivery, inputs, secret_bootstrap
@@ -24,9 +26,15 @@ from deploy.guards import call, secret_value_missing
 from deploy.inputs import load_units
 from deploy.secret_bootstrap import BOOTSTRAP_STAGES
 from deploy.timing import Timing
-from deploy.typing import AwsResponse, AwsValue, DeliveryBoundary, StackState, StackUnit, States, Target
-from utils.type_contracts import JsonObject
-from utils.type_contracts import JsonValue as JsonValue
+from deploy.typing import (
+    AwsResponse,
+    AwsValue,
+    DeliveryBoundary,
+    StackState,
+    StackUnit,
+    States,
+    Target,
+)
 
 
 def create_runtime(
@@ -38,11 +46,13 @@ def create_runtime(
     approvals: Iterable[str] = (),
 ) -> SimpleNamespace:
     connection_context = _imports_utils_aws_client.connection_context
-    configured = target.get("awsProfile")
-    if configured and profile is not None and profile != configured:
-        raise Blocked("explicit AWS profile does not match target awsProfile")
+    try:
+        selected = select_profile(target, profile)
+        account = execution_account(target)
+    except ValueError as error:
+        raise Blocked(str(error)) from error
     runtime = SimpleNamespace(root=root, environment=environment, directory=directory, target=target,
-        profile=configured or profile, approvals=set(approvals), timing=Timing(root), templates={},
+        profile=selected, approvals=set(approvals), timing=Timing(root), templates={},
         expected_digests={}, workdir=None, states={}, save=lambda: None, guard=lambda: None,
         hashes={}, session={}, refresh_validation=lambda unit: None)
     runtime.aws = partial(aws, runtime)
@@ -76,7 +86,7 @@ def create_runtime(
     runtime.finish_repair = partial(finish_repair, runtime)
     runtime.repair = partial(repair, runtime)
     runtime.poll = partial(poll, runtime)
-    runtime.connection = connection_context(runtime.profile, target["awsRegion"], target.get("awsExecutionAccountId", target["awsAccountId"]))
+    runtime.connection = connection_context(runtime.profile, target["awsRegion"], account)
     return runtime
 
 

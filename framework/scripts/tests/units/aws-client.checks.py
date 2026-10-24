@@ -13,7 +13,6 @@ from threading import Lock
 from types import SimpleNamespace
 
 import boto3
-import deploy.controller as _imports_deploy_controller
 import pytest
 from botocore.exceptions import ClientError
 from botocore.stub import Stubber
@@ -191,11 +190,6 @@ def check_effective_default_profile(tmp_path, monkeypatch):
         # An explicit profile overrides both environment profile selectors.
         explicit = sdk.connection_context('one', 'us-east-1', '123456789012')
         assert sdk.client(explicit, 'sts')._request_signer._credentials.access_key == 'synthetic-one'
-        create_runtime = _imports_deploy_controller.create_runtime
-        target = {'awsProfile': 'one', 'awsRegion': 'us-east-1', 'awsAccountId': '123456789012'}
-        assert create_runtime(tmp_path, 'dev', 'test', target).profile == 'one'
-        with pytest.raises(RuntimeError, match='profile does not match'):
-            create_runtime(tmp_path, 'dev', 'test', target, 'two')
     finally:
         sdk._clients.clear()
         sdk._sessions.clear()

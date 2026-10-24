@@ -239,6 +239,7 @@ def check():
     rt = runtime(vpc)
     cli = CLI(responses)
     _, account, records = rt['audit'](vpc, 'dev-profile', cli)
+    assert sum(api == ('sts', 'get-caller-identity') for api, _, _ in cli.calls) == 1
     status = {r['propertiesKey']: r['status'] for r in records}
     assert status['EC2.VPC.CidrBlock'] == 'match', records
     assert status['EC2.VPC.EnableDnsSupport'] == 'difference', records

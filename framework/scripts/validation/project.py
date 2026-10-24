@@ -13,6 +13,7 @@ import model.sources as _imports_model_sources
 import sync_progress as _imports_sync_progress
 from model.impact import affected, scope_diagnostic, task_impact
 from project_targets import LOWER_KEBAB_PATTERN as LOWER_KEBAB_PATTERN
+from utils.aws.identity import select_profile, validate_account_id
 from utils.input_cache import input_is_dir, input_is_file, input_text
 
 from .terraform import root_directory
@@ -151,18 +152,19 @@ def check_project_topology(accounts, findings, root, template_mode, *, scope_imp
         target_directory = alias or account
         target = f"{environment}/{target_directory}"
         execution_account = target_values.get("awsExecutionAccountId", account)
-        if "awsExecutionAccountId" in target_values:
-            findings.check(
-                re.fullmatch(r"[0-9]{12}", execution_account) is not None,
-                f"invalid AWS execution account: {target}",
-            )
-        if "awsProfile" in target_values:
-            profile = target_values["awsProfile"]
-            findings.check(
-                bool(profile) and profile == profile.strip() and profile != "UNSET"
-                and not any(char in profile for char in "\r\n\0"),
-                f"invalid AWS profile: {target}",
-            )
+        for field, label in (("awsAccountId", "account"), ("awsExecutionAccountId", "execution account"),
+                             ("awsProfile", "profile")):
+            if field not in target_values:
+                continue
+            try:
+                if field == "awsProfile":
+                    select_profile(target_values)
+                else:
+                    validate_account_id(target_values[field])
+            except ValueError:
+                findings.check(False, f"invalid AWS {label}: {target}")
+            else:
+                findings.check(True, f"invalid AWS {label}: {target}")
         if "suffix" in target_values:
             findings.check(
                 LOWER_KEBAB_PATTERN.fullmatch(target_values["suffix"]) is not None,
@@ -170,7 +172,6 @@ def check_project_topology(accounts, findings, root, template_mode, *, scope_imp
             )
         findings.check("UNSET" not in values and all(values), f"target contains unset value: {target}")
         findings.check(LOWER_KEBAB_PATTERN.fullmatch(environment) is not None, f"invalid Environment ID: {environment}")
-        findings.check(re.fullmatch(r"\d{12}", account) is not None, f"invalid AWS account: {target}")
         if alias:
             findings.check(
                 LOWER_KEBAB_PATTERN.fullmatch(alias) is not None

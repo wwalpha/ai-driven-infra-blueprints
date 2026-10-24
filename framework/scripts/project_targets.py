@@ -4,6 +4,7 @@ import json
 import re
 
 import utils.input_cache as _imports_validation_cache
+from utils.aws.identity import execution_account, select_profile, validate_account_id
 
 
 class DeployContextError(RuntimeError):
@@ -13,8 +14,11 @@ class DeployContextError(RuntimeError):
 def select_target(topology, environment, account_id=None, alias=None):
     if bool(account_id) == bool(alias):
         raise DeployContextError("exactly one of AWS account ID or alias is required")
-    if account_id and not re.fullmatch(r"\d{12}", account_id):
-        raise DeployContextError("AWS account ID must be 12 digits")
+    if account_id:
+        try:
+            validate_account_id(account_id)
+        except ValueError as error:
+            raise DeployContextError("AWS account ID must be 12 digits") from error
     if alias and (
         not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", alias)
         or re.fullmatch(r"\d{12}", alias)
@@ -44,8 +48,12 @@ def select_target(topology, environment, account_id=None, alias=None):
     resolved_account_id = target.get("awsAccountId")
     region = target.get("awsRegion")
     engine = target.get("iacEngine")
-    if not isinstance(resolved_account_id, str) or not re.fullmatch(r"\d{12}", resolved_account_id):
-        raise DeployContextError("target AWS account ID is invalid")
+    try:
+        validate_account_id(resolved_account_id, "target AWS account ID")
+        execution_account(target)
+        select_profile(target)
+    except ValueError as error:
+        raise DeployContextError(str(error)) from error
     if not isinstance(region, str) or not region:
         raise DeployContextError("target AWS region is missing")
     if not re.fullmatch(r"[a-z]{2,}(?:-[a-z0-9]+)+-[1-9][0-9]*", region):
@@ -59,17 +67,9 @@ def select_target(topology, environment, account_id=None, alias=None):
     }
     if alias:
         resolved["alias"] = alias
-    if "awsExecutionAccountId" in target:
-        execution_account = target["awsExecutionAccountId"]
-        if not isinstance(execution_account, str) or not re.fullmatch(r"[0-9]{12}", execution_account):
-            raise DeployContextError("target AWS execution account ID is invalid")
-        resolved["awsExecutionAccountId"] = execution_account
-    if "awsProfile" in target:
-        profile = target["awsProfile"]
-        if (not isinstance(profile, str) or not profile or profile != profile.strip()
-                or profile == "UNSET" or any(char in profile for char in "\r\n\0")):
-            raise DeployContextError("target AWS profile is invalid")
-        resolved["awsProfile"] = profile
+    for field in ("awsExecutionAccountId", "awsProfile"):
+        if field in target:
+            resolved[field] = target[field]
     return resolved
 
 

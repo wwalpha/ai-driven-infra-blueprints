@@ -13,6 +13,7 @@ from pathlib import Path
 from issue_gate import require_target_no_issues
 from project_targets import DeployContextError as DeployContextError
 from project_targets import load_target as load_target
+from utils.aws.identity import execution_account, select_profile, verify_account
 
 
 def check_deploy_context(
@@ -29,10 +30,11 @@ def check_deploy_context(
             require_target_no_issues(root, (environment, alias or target["awsAccountId"]))
         except (OSError, ValueError) as error:
             raise DeployContextError(str(error)) from error
-    configured_profile = target.get("awsProfile")
-    if configured_profile and profile is not None and profile != configured_profile:
-        raise DeployContextError("explicit AWS profile does not match target awsProfile")
-    profile = configured_profile or profile
+    try:
+        profile = select_profile(target, profile)
+        execution_account(target)
+    except ValueError as error:
+        raise DeployContextError(str(error)) from error
     required_commands = ["aws"]
     if not read_only and target["iacEngine"] == "terraform":
         required_commands.append("terraform")
@@ -65,11 +67,10 @@ def check_deploy_context(
         caller_account = json.loads(result.stdout).get("Account")
     except (json.JSONDecodeError, AttributeError) as error:
         raise DeployContextError("AWS caller identity response is invalid") from error
-    execution_account = target.get("awsExecutionAccountId", target["awsAccountId"])
-    if caller_account != execution_account:
-        raise DeployContextError(
-            f"AWS account mismatch: expected {execution_account}, actual {caller_account or 'unknown'}"
-        )
+    try:
+        verify_account(target, caller_account)
+    except ValueError as error:
+        raise DeployContextError(str(error)) from error
     return target
 
 
@@ -106,9 +107,10 @@ def main() -> int:
     if args.alias:
         print(f"- alias: {args.alias}")
     print(f"- AWS resource account: {target['awsAccountId']}")
-    print(f"- AWS execution account: {target.get('awsExecutionAccountId', target['awsAccountId'])}")
+    print(f"- AWS execution account: {execution_account(target)}")
     print(f"- AWS region: {target['awsRegion']}")
-    if target.get("awsProfile") or args.profile:
-        print(f"- AWS profile: {target.get('awsProfile') or args.profile}")
+    profile = select_profile(target, args.profile)
+    if profile:
+        print(f"- AWS profile: {profile}")
     print(f"- IaC engine: {target['iacEngine']}")
     return 0

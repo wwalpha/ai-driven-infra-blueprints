@@ -27,6 +27,7 @@ from task_contract_core import (
     task_reads,
     task_snapshot,
 )
+from utils.aws.identity import import_profile
 from utils.file_operations import atomic_files
 from utils.input_cache import input_context, input_scope, memoized, recording_inputs
 from utils.json_format import json_text
@@ -88,10 +89,12 @@ def comparator():
     return load_script('model/adapters/aws.py', 'model.adapters.aws')
 
 
-def import_context(root, target, runner=None, service=None):
-    profile = target.get('awsProfile')
-    if 'awsProfile' in target and (not isinstance(profile, str) or not profile or profile != profile.strip() or profile == 'UNSET' or any(c in profile for c in '\r\n\0')):
-        raise ValueError('AWS target has an invalid project.json awsProfile; no fallback')
+def import_context(root, target, runner=None, service=None, *, no_profile=False):
+    profile = import_profile(target, no_profile=no_profile)
+    target = dict(target)
+    target.pop('awsProfile', None)
+    if profile is not None:
+        target['awsProfile'] = profile
     region = target.get('awsRegion')
     if not isinstance(region, str) or not re.fullmatch(r'[a-z]{2}(?:-[a-z]+)+-[1-9][0-9]*', region):
         raise ValueError('AWS target RegionMismatch; use the project.json awsRegion')
@@ -382,8 +385,6 @@ def replacement_inputs(before, selected_records, reads):
 def acquire(root, environment, service, selector=None, dry_run=False, cli_runner=None, no_profile=False, resource_types=None):
     root = root.resolve()
     target = target_for(root, environment, service, selector)
-    if no_profile:
-        target.pop('awsProfile', None)
     identity = environment, target['directory'], service
     with restrict(identity), read_consumers({identity}), input_context(), publication_lock(root, read_only=True):
         if not dry_run:
@@ -395,7 +396,7 @@ def acquire(root, environment, service, selector=None, dry_run=False, cli_runner
         try:
             with task_reads(root), recording_inputs(inputs):
                 before = before_model(model_path(root, identity), inputs)
-                ctx = import_context(root, target, cli_runner, service)
+                ctx = import_context(root, target, cli_runner, service, no_profile=no_profile)
                 ctx.verify()
                 records = normalize_records(ctx, service, inventory(ctx, service, resource_types))
             inputs.verify()

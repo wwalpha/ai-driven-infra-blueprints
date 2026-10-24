@@ -22,6 +22,7 @@ import model.sources as _imports_model_sources
 import task_contract_core as _imports_task_contract
 from model.sources import load_model
 from project_targets import load_target
+from utils.aws.identity import execution_account, select_profile
 from utils.aws_mappings import definition_root
 from utils.file_operations import sha
 from utils.markdown_format import markdown_sections, rule_readings
@@ -113,8 +114,7 @@ def prepare(root, args, run, timing):
         target = load_target(root, args.environment, args.aws_account_id, args.alias)
         if target["iacEngine"] != "cloudformation":
             raise ValueError("offline preparation currently supports CloudFormation only")
-        if target.get("awsProfile") and args.profile is not None and args.profile != target["awsProfile"]:
-            raise ValueError("explicit AWS profile does not match target awsProfile")
+        profile = select_profile(target, args.profile)
         directory = args.alias or target["awsAccountId"]
         _, units = load_units(root, args.environment, directory, args.stack)
         services = sorted(set(args.service) | {"cloudformation-stacks"})
@@ -177,8 +177,8 @@ def prepare(root, args, run, timing):
             documents.append({"source": relative, "sha256": hashes[relative], "chunks": chunks,
                               "sections": rules[path]["sections"] if path in rules else [""]})
         summary = {'environment': args.environment, 'alias': target.get('alias'),
-                   'resourceAccount': target['awsAccountId'], 'executionAccount': target.get('awsExecutionAccountId', target['awsAccountId']),
-                   'region': target['awsRegion'], 'profile': target.get('awsProfile') or args.profile,
+                   'resourceAccount': target['awsAccountId'], 'executionAccount': execution_account(target),
+                   'region': target['awsRegion'], 'profile': profile,
                    'maxConcurrentStacks': 1 if args.sequential else load_units(root, args.environment, directory, args.stack)[0],
                    'stacks': units, 'serviceIds': services,
                    'inputPaths': sorted(path.relative_to(root).as_posix() for path in sources if path.is_relative_to(root)),

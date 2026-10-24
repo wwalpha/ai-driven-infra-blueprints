@@ -5,6 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from types import SimpleNamespace
+
 import pytest
 from support.deploy_preparation_fixtures import (
     ROOT,
@@ -93,6 +95,21 @@ def check_rule_section_boundaries():
     assert M.markdown_sections(nested)["required"] == "## Required\nrule\n### Exception\nstop on missing input\n"
 
 
+
+
+def check_identity_failure_precedes_preparation(tmp_path):
+    args = SimpleNamespace(task_file='tasks/test.md', service=['vpc'], environment='dev',
+                           aws_account_id='123456789012', alias=None, profile='explicit')
+    target = {'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}
+    timing = M.Timing(tmp_path / 'repository', tmp_path / 'timing.jsonl')
+    with patch.object(M, 'environment', return_value={}), patch.object(M, 'load_target', return_value=target), \
+            patch.object(M, 'select_profile', side_effect=ValueError('identity rejected')) as select, \
+            patch.object(M, 'candidate') as candidate, patch.object(M.subprocess, 'run') as aws:
+        with pytest.raises(ValueError, match='identity rejected'):
+            M.prepare(tmp_path / 'repository', args, tmp_path / 'run', timing)
+        select.assert_called_once_with(target, 'explicit')
+        candidate.assert_not_called()
+        aws.assert_not_called()
 
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 

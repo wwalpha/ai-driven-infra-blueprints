@@ -122,3 +122,13 @@ Formatterの全件適用はこのチェックに含めない。
 AWS SDKのセッション・接続・設定生成は `aws_sdk_runtime.py` に分離する。SDKを必要とする機能だけが既存の `script_loader` を通してこの実装を起動し、オフライン比較のImport時にはSDKを読み込まない。Taskの検証付き状態遷移とWorktreeのModel検証・修復実装も、標準ライブラリだけの起動処理から分離する。
 
 Modelの公開編集・描画APIとCLIコマンド実装も機能モジュールに分離し、読取APIとヘルプ表示では編集・描画実装を初期化しない。Resource構成比較は公開処理に依存しない `model/configuration.py` が共通所有する。
+
+
+## AWS Profile / Identity
+
+純粋な判定条件は `units/aws-identity-unit.checks.py` の49ケースに集約する。
+既存のpytest収集規則 `*-unit.checks.py` と直接入口で実行できる。
+各機能UTは共通判定の呼び出しとAWS前の停止、Import例外引き渡し、
+複数Target事前確認、SDK cacheとSession再開を担当する。
+Model Testは既存ITの隔離Python単独実行とMock STS回数で確認する。
+Profile条件表をITへ追加せず、実AWS接続を行わない。

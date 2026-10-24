@@ -101,9 +101,14 @@ def check_optional_alias_targets() -> None:
         validator.check_project_topology()
         assert any("must contain only projectName and targets" in error for error in validator.errors), validator.errors
 
+        with patch('validation.project.select_profile', side_effect=ValueError('identity rejected')) as select:
+            write(root / "project.json", json.dumps(topology) + "\n")
+            validator = MODULE.Validator(root)
+            validator.check_project_topology()
+            assert any('invalid AWS profile' in error for error in validator.errors)
+            assert select.call_count == 2
+
         invalid_targets = [
-            ([{**topology["targets"][0], "awsAccountId": "123"}, *topology["targets"][1:]],
-             "invalid AWS account"),
             ([{**topology["targets"][2], "environment": "modules"}],
              "Terraform environment conflicts with shared modules directory"),
             ([topology["targets"][0]], "single-target environment must omit alias"),
@@ -143,16 +148,6 @@ def check_optional_alias_targets() -> None:
             invalid_targets.append((
                 [{**topology["targets"][0], "suffix": invalid}, *topology["targets"][1:]],
                 "values must be strings" if not isinstance(invalid, str) else "invalid naming suffix",
-            ))
-        for invalid in (None, 123, "", " ", " padded ", "UNSET", "bad\nprofile", "bad\0profile"):
-            invalid_targets.append((
-                [{**topology["targets"][0], "awsProfile": invalid}, *topology["targets"][1:]],
-                "values must be strings" if not isinstance(invalid, str) else "invalid AWS profile",
-            ))
-        for invalid in (None, 123456789012, "", "UNSET", "123", "1234567890123", " 123456789012", "123456789012\n", "１２３４５６７８９０１２"):
-            invalid_targets.append((
-                [{**topology["targets"][0], "awsExecutionAccountId": invalid}, *topology["targets"][1:]],
-                "values must be strings" if not isinstance(invalid, str) else "invalid AWS execution account",
             ))
         invalid_targets.append((
             [topology["targets"][0],

@@ -124,21 +124,18 @@ def attributes(result):
 def audit(snapshot, profile=None, cli_runner=None):
     m = engine(snapshot)
     target = dict(snapshot['target'])
-    profile = profile if profile is not None else target.get('awsProfile')
-    target['awsProfile'] = profile
-    ctx = m.Context(m.ROOT, target, cli_runner=cli_runner)
+    ctx = None
     account, records = 'unverified', []
     try:
-        if profile is not None and (not profile or profile != profile.strip() or re.search(r'[\x00\r\n]', profile)):
-            raise m.Unresolved('invalid explicit profile; AWS not contacted')
-        configured = snapshot['target'].get('awsProfile')
-        if configured and profile != configured:
-            raise m.Unresolved('explicit profile conflicts with target awsProfile; AWS not contacted')
-        caller = ctx.call('sts', 'get_caller_identity')
-        account = caller.get('Account', 'unverified')
-        ctx.verify()
+        selected = m.select_profile(target, profile)
+        if selected is not None:
+            target['awsProfile'] = selected
+        ctx = m.Context(m.ROOT, target, cli_runner=cli_runner)
+        account = ctx.verify()
     except Exception as error:
-        reason = error.code if isinstance(error, m.AcquisitionError) else str(error) if isinstance(error, m.Unresolved) else type(error).__name__
+        reason = error.code if isinstance(error, m.AcquisitionError) else str(error) if isinstance(error, (m.Unresolved, ValueError)) else type(error).__name__
+        if ctx is None:
+            ctx = m.Context(m.ROOT, snapshot['target'], cli_runner=cli_runner)
         # Account/credential failure stops all resource APIs, but records every attribute.
         model = ctx.model(m.ROOT / 'model' / target['environment'] / target['directory'] / (snapshot['service'] + '.properties'))
         for resource in model.resources:

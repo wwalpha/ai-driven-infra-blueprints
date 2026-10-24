@@ -894,12 +894,24 @@ def _callback_check_session_cli_invoke(argv, backend_factory, base, contract, la
             patch.object(M.session_ops, "run_session", side_effect=run_session), \
             patch.object(Path, "cwd", return_value=base if options else root):
         result = M.main(argv + list(options), **({"root": root} if options else {}))
-        if not state_file.exists() and "other" not in options:
+        if not state_file.exists() and "--profile" not in options:
             raise AssertionError(output.getvalue() + errors_output.getvalue())
-        assert sts.call_count == 0 if 'other' in options else sts.call_count <= 1
+        assert sts.call_count == 0 if '--profile' in options else sts.call_count <= 1
         last_output.append(output.getvalue() + errors_output.getvalue())
         return result
 
+
+
+def check_runtime_identity_delegation(tmp_path):
+    with patch.object(M, 'select_profile', return_value='selected') as select:
+        runtime = M.create_runtime(tmp_path, 'dev', 'test', TARGET, 'explicit')
+        select.assert_called_once_with(TARGET, 'explicit')
+        assert runtime.profile == runtime.connection[0] == 'selected'
+    with patch.object(M, 'select_profile', side_effect=ValueError('identity rejected')), \
+            patch.object(M._imports_utils_aws_client, 'connection_context') as connection:
+        with pytest.raises(M.Blocked, match='identity rejected'):
+            M.create_runtime(tmp_path, 'dev', 'test', TARGET, 'explicit')
+        connection.assert_not_called()
 
 def check_session_cli(tmp_path, monkeypatch):
     """Exercise entrypoint, preflight, persisted groups, approvals and immutable inputs."""
@@ -953,7 +965,9 @@ def check_session_cli(tmp_path, monkeypatch):
     mutation = [None]
     run_session = _bind_framework_callback(_callback_check_session_cli_run_session, execution_limits, mutation, session_runner)
     last_output = []
-    assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--profile", "other"]) == 2
+    with patch('deploy.context.select_profile', side_effect=ValueError('identity rejected')) as select:
+        assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--profile", "explicit"]) == 2
+        select.assert_called_once_with(dict(TARGET, awsProfile='dev-profile'), 'explicit')
     assert not backends
     timing = [json.loads(line) for line in (base / "timing.jsonl").read_text().splitlines()]
     assert any(event["phase"] == "authenticationContext" and event["result"] == "FAIL" for event in timing)

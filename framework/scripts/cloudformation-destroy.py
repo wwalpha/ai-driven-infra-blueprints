@@ -28,6 +28,7 @@ from task_contract_core import (
     task_read_scope,
 )
 from task_contract_core import task_snapshot as read_task_snapshot
+from utils.aws.identity import execution_account, select_profile
 from utils.json_format import fingerprint
 from validation_scope import active_scope
 
@@ -87,7 +88,10 @@ class AwsBackend:
 
     def __init__(self, root, environment, directory, target, profile=None, timing_log=None):
         self.root, self.environment, self.directory, self.target = root, environment, directory, target
-        self.profile = target.get("awsProfile") or profile
+        try:
+            self.profile = select_profile(target, profile)
+        except ValueError as error:
+            raise Blocked(str(error)) from error
         self.timing_log = timing_log
         self.env = os.environ.copy()  # Freeze the invocation's credential chain; never persist credentials.
 
@@ -397,6 +401,7 @@ def controller_main(argv=None, root=None):
     try:
         context = context_module()
         target = context.load_target(root, args.environment, args.aws_account_id, args.alias)
+        profile = select_profile(target, args.profile)
         if target["iacEngine"] != "cloudformation":
             raise Blocked("destroy requires CloudFormation target")
         directory = args.alias or args.aws_account_id
@@ -412,8 +417,8 @@ def controller_main(argv=None, root=None):
             raise Blocked("timing log must be outside repository")
         limit = 1 if args.sequential else plan["maxConcurrentStacks"]
         identity = {"repository": str(root), "environment": args.environment, "target": target,
-                    "profile": target.get("awsProfile") or args.profile, "scope": sorted(args.stack),
-                    "profileIdentity": target.get("awsProfile") or args.profile or os.environ.get("AWS_PROFILE") or os.environ.get("AWS_DEFAULT_PROFILE") or "default credential chain",
+                    "profile": profile, "scope": sorted(args.stack),
+                    "profileIdentity": profile or os.environ.get("AWS_PROFILE") or os.environ.get("AWS_DEFAULT_PROFILE") or "default credential chain",
                     "limit": limit, "taskFile": contract_path.relative_to(root).as_posix(), "plan": plan}
         immutable = fingerprint(identity)
         if args.resume:
@@ -451,7 +456,7 @@ def controller_main(argv=None, root=None):
             with args.timing_log.open("a", encoding="utf-8") as stream:
                 stream.write(json.dumps({"phase": "authenticationContext", "seconds": time.perf_counter() - started}) + "\n")
         backend = AwsBackend(root, args.environment, directory, target, args.profile, args.timing_log)
-        session["context"] = {"account": target.get("awsExecutionAccountId", target["awsAccountId"]),
+        session["context"] = {"account": execution_account(target),
                               "region": target["awsRegion"], "profile": backend.profile}
         issue_digest = issue_snapshot(root, args.environment, directory)
         _state_controller_main_355.pinned = {}

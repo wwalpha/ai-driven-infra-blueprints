@@ -912,8 +912,6 @@ def check_cloudcontrol_json_and_readonly_boundary():
             ctx.call('cloudcontrol', operation)
     with pytest.raises(ValueError, match='allowlist'):
         ctx.call('datazone', 'get_domain', identifier='unvalidated-selector')
-    with pytest.raises(m.comparator().AcquisitionError, match='AccountMismatch'):
-        generic_context(account='999999999999')
     with pytest.raises(ValueError, match='unimplemented service'):
         m.comparator().Context(m.ROOT, target, services=('datazone',))
 
@@ -1042,6 +1040,18 @@ def check_tgw_compare_provider_evaluation():
     with pytest.raises(m.comparator().Unresolved, match='observation'):
         resource.identity()
 
+
+
+def check_import_profile_mode_delegation():
+    target = {'environment': 'dev', 'directory': 'synthetic', 'awsAccountId': ACCOUNT,
+              'awsRegion': 'ap-northeast-1', 'awsProfile': 'configured'}
+    cli = CloudControlCli({})
+    with patch.object(m, 'import_profile', return_value=None) as select:
+        ctx = m.import_context(m.ROOT, target, cli, 'datazone', no_profile=True)
+        select.assert_called_once_with(target, no_profile=True)
+    assert 'awsProfile' not in ctx.target and target['awsProfile'] == 'configured'
+    assert ctx.verify() == ACCOUNT
+    assert len(cli.calls) == 1 and cli.calls[0][0:2] == ('sts', 'get-caller-identity')
 
 def check_legacy_adapter_api_counts():
     # Baseline counts are physical mock transport invocations on the identical fixture.
