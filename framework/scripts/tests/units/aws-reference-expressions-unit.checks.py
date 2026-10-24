@@ -369,6 +369,34 @@ def test_pseudo_parameters_and_formal_escaping(models):
     assert inputs.reference_same(expression, expected, 'Glue.Job', 'DefaultArguments') is True
 
 
+@pytest.mark.parametrize('tag', ['aws:username', 'aws:PrincipalTag/JobName', 'aws:PrincipalTag/RoleName'])
+def test_escaped_policy_variables_in_sub_evaluation_and_comparison(models, tag):
+    inputs, symbol = producer(models, 'S3.Bucket', {'BucketName': 'fixture-bucket'})
+    arn = 'arn:aws:s3:::fixture-bucket'
+    text = '${BucketArn}/temp/${!' + tag + '}/*'
+    expected = arn + '/temp/${' + tag + '}/*'
+    inputs.stack_inputs['consumer'][1].update(BucketArn=arn, Suffix='Fixture')
+    assert inputs.evaluate('consumer', {'Fn::Sub': text}) == expected
+    inputs.stack_inputs['producer'][0]['Outputs'] = {'Arn': {
+        'Value': {'Fn::GetAtt': ['Resource001', 'Arn']},
+        'Export': {'Name': 'InternalProcessingBucketArnFixture'}}}
+    actual = inputs.evaluate('consumer', {'Fn::Sub': [text, {'BucketArn': {
+        'Fn::ImportValue': {'Fn::Sub': 'InternalProcessingBucketArn${Suffix}'}}}]})
+    desired = prepared(inputs, 'S3.Bucket', {'Fn::Sub': [text, {
+        'BucketArn': reference('S3_Bucket_001', 'Arn')}]}).require_value()['--value']
+    assert isinstance(actual, Expression)
+    assert expressions.parts(actual) == [symbol, '/temp/${' + tag + '}/*']
+    assert inputs.reference_literal(actual) == expected
+    for left, right in ((desired, actual), (actual, desired), (actual, expected), (expected, actual)):
+        assert inputs.reference_same(left, right, 'Glue.Job', 'DefaultArguments') is True
+    for different in (expected.replace(tag, 'aws:PrincipalTag/OtherName'), expected.replace('/temp/', '/other/')):
+        assert inputs.reference_same(actual, different, 'Glue.Job', 'DefaultArguments') is False
+        assert inputs.reference_same(different, actual, 'Glue.Job', 'DefaultArguments') is False
+    unresolved = Expression('Sub', [text, {}])
+    assert inputs.reference_same(unresolved, copy.deepcopy(unresolved), 'Glue.Job', 'DefaultArguments') is None
+    assert inputs.reference_same(unresolved, expected, 'Glue.Job', 'DefaultArguments') is None
+
+
 @pytest.mark.parametrize('kind,properties,arn', CASES)
 def test_qualifiers_keys_and_literal_affixes_remain_part_of_the_value(models, kind, properties, arn):
     inputs, symbol = producer(models, kind, properties)

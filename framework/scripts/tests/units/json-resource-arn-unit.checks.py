@@ -4,6 +4,7 @@ import copy
 import json
 import os
 import sys
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -281,6 +282,26 @@ def check_api_json_intrinsics():
         json.dumps({'bucketDefinitions': [{'accountId': 'invalid', 'buckets': {'Ref': 'Missing'}}]}))
     with pytest.raises(ValueError):
         catalog.literal_errors('Macie.ClassificationJob', 's3JobDefinition', '{"Ref":1}')
+
+
+@pytest.mark.parametrize('tag', ['JobName', 'RoleName'])
+def check_escaped_policy_sub_variables(tmp_path, tag):
+    scope, policy, _ = fixture(tmp_path)
+    text = '${BucketArn}/temp/${!aws:PrincipalTag/' + tag + '}/*'
+    expression = {'Fn::Sub': [text, {'BucketArn': {
+        'Fn::ImportValue': {'Fn::Sub': 'InternalProcessingBucketArn${Suffix}'}}}]}
+    document = {'Version': '2012-10-17', 'Statement': [{
+        'Effect': 'Allow', 'Action': 's3:GetObject', 'Resource': expression}]}
+    policy['desired.row.009-002.document'] = json.dumps(document)
+    validate_json_settings(policy, scope.path)
+    warnings = []
+    assert project_document(document, warnings=warnings) == document
+    assert warnings and all(w['code'] == 'json.intrinsic.unresolved' for w in warnings)
+    projected = project_document(document, evaluate=partial(resolve_value,
+        parameters={'Suffix': 'Fixture'}, pseudo={},
+        exports={'InternalProcessingBucketArnFixture': 'arn:aws:s3:::fixture-bucket'}))
+    assert projected['Statement'][0]['Resource'] == (
+        'arn:aws:s3:::fixture-bucket/temp/${aws:PrincipalTag/' + tag + '}/*')
 
 
 def check_pending_policy_siblings(tmp_path):

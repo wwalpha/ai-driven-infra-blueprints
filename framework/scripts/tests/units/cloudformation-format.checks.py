@@ -9,7 +9,12 @@ import datetime
 
 import pytest
 import yaml
-from utils.cloudformation.format import boolean_literal, decode, decode_file
+from utils.cloudformation.format import (
+    boolean_literal,
+    decode,
+    decode_file,
+    intrinsic_shape_error,
+)
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -25,6 +30,23 @@ def check_boolean_literal(raw, expected):
 def check_invalid_boolean_literal(raw):
     with pytest.raises(ValueError, match='must be boolean'):
         boolean_literal(raw)
+
+
+@pytest.mark.parametrize('text,valid', [
+    ('${AWS::AccountId}/${AWS::Region}/${BucketArn}/${SomeResource.Arn}', True),
+    ('${BucketArn/illegal}', False), ('${Missing', False), ('${}', False),
+    ('${!aws:username}', True), ('${!aws:PrincipalTag/JobName}', True),
+    ('${!aws:PrincipalTag/RoleName}', True), ('${!literal with spaces-/$}', True),
+    ('${!aws:username}${!aws:PrincipalTag/JobName}/${BucketArn}', True),
+    ('${!', False), ('${!aws:PrincipalTag/JobName', False), ('${!}', False),
+    ('${!outer${BucketArn}}', False), ('${!outer${!inner}}', False),
+    ('${!outer{inner}}', False), ('${!valid}${Missing', False),
+    ('${!valid}${BucketArn/illegal}', False),
+])
+@pytest.mark.parametrize('mapped', [False, True])
+def check_sub_variable_syntax(text, valid, mapped):
+    argument = [text, {'BucketArn': {'Fn::ImportValue': 'FixtureBucketArn'}}] if mapped else text
+    assert intrinsic_shape_error('Fn::Sub', argument) == (None if valid else 'invalid argument shape')
 
 
 def check_scalars_and_intrinsics(tmp_path):
