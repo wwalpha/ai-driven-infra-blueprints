@@ -260,6 +260,7 @@ def iac_report(environment, directory, services, records, display=None, *, stamp
 
 # Notices are scope-stamped machine output, never Human confirmation material.
 NOTICE_MARKER = r'^(<!-- issues-notices:[^ >]+:(?:start|end) -->)[ \t]*$'
+WARNING_HEADINGS = ('警告（非ブロッキング）', '参照警告（非ブロッキング）')
 
 def without_notices(text):
     return split_notices(text)[0]
@@ -279,17 +280,40 @@ def split_notices(text):
         notices.append((scope, text[start:end]))
         offset = end
     ordinary.append(text[offset:])
+    text = ''.join(ordinary)
+    ordinary, offset = [], 0
+    headings = markdown_matches(text, r'^#{1,2} (.+)$')
+    for index, (start, _, heading) in enumerate(headings):
+        if heading not in WARNING_HEADINGS:
+            continue
+        end = headings[index + 1][0] if index + 1 < len(headings) else len(text)
+        ordinary.append(text[offset:start])
+        notices.append((None, text[start:end].rstrip()))
+        offset = end
+    ordinary.append(text[offset:])
     return ''.join(ordinary), notices
 
 
 def attach_notices(text, notices):
     if not notices:
         return text
-    # A real title is a safe boundary; an ownership marker must stay beside its Issue.
-    title = re.match(r'^# [^\r\n]+(?:\r?\n|$)', text)
-    boundary = title.end() if title else 0
-    header = text[:boundary] if title else '# 問題一覧\n'
-    return header + '\n' + '\n'.join(block for _, block in notices) + '\n\n' + text[boundary:].lstrip('\r\n')
+    ordered = []
+    for scope, block in notices:
+        headings = markdown_matches(block, r'^## (.+)$')
+        prefix = block[:headings[0][0]] if headings else ''
+        closing = block.rfind('\n<!-- issues-notices:') if scope is not None else len(block)
+        groups = {}
+        for index, (start, _, heading) in enumerate(headings):
+            end = headings[index + 1][0] if index + 1 < len(headings) else closing
+            priority = WARNING_HEADINGS.index(heading) + 1 if heading in WARNING_HEADINGS else 0
+            groups.setdefault(priority, []).append(block[start:end].rstrip())
+        if len(groups) <= 1:
+            ordered.append((next(iter(groups), 0), block))
+        else:
+            # Each separated portion keeps its scope so later saves replace all of it.
+            ordered.extend((priority, prefix + '\n\n'.join(parts) + block[closing:])
+                           for priority, parts in groups.items())
+    return text.rstrip() + '\n\n' + '\n\n'.join(block for _, block in sorted(ordered, key=lambda item: item[0])) + '\n'
 
 def notice_report(text, environment, directory, services, channels, *, preserve_prior=False):
     scope_id = identifier([environment, directory, sorted(services)])
@@ -298,7 +322,7 @@ def notice_report(text, environment, directory, services, channels, *, preserve_
     retained = list(dict.fromkeys(line for block in previous for line in block.splitlines() if line.startswith('- '))) if preserve_prior else []
     notices = [(scope, block) for scope, block in notices if scope != scope_id]
     lines = [f'<!-- issues-notices:{scope_id}:start -->', f'今回の機械診断scope: {environment}／{directory}／{", ".join(sorted(services))}']
-    for channel, heading in [('warnings', '警告（非ブロッキング）'), ('information', '情報'), ('unverified', '未検証範囲'), ('processing_errors', '処理エラー（未検証範囲あり）')]:
+    for channel, heading in [('information', '情報'), ('unverified', '未検証範囲'), ('processing_errors', '処理エラー（未検証範囲あり）'), ('warnings', '警告（非ブロッキング）')]:
         values = channels.get(channel, [])
         if values:
             lines += ['## ' + heading, ''] + ['- ' + safe_text(json.dumps(value, ensure_ascii=False)) for value in values]

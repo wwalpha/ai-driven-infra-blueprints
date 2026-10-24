@@ -150,6 +150,7 @@ NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync 
 | `issues-v4::check_child_builtin_packets_preserve_progress` | `check_child_builtin_packets_preserve_progress` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 2 | JSON組込み型へのIPC正規化・途中例外でも取得済み全channel/dependencies保持 | Issues residual repair |
 | `issues-v4::check_notice_fenced_roundtrip` | `check_notice_fenced_roundtrip` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | headerless owner/ID/Gate・backtick/tildeコード例・別scope・normal/notice/save-results解消往復 | Issues residual repair |
 | `issues-v4::check_notice_marker_boundaries` | `check_notice_marker_boundaries` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | scope不一致/未完marker/HTML保持・長いfence・正常notice再接続 | Issues residual repair |
+| `issues-tail::check_notice_tail_order_and_materials` | `check_notice_tail_order_and_materials` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 4 | 通常のみ/警告/参照警告/両方・複数scope混在診断の末尾順序・再保存安定・ID/Human材料/ownership/Gate保全 | Issues末尾警告 |
 
 
 ## Issue 21 issues-lintの検証責務

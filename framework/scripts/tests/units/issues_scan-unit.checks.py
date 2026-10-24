@@ -582,6 +582,7 @@ def check_notice_fenced_roundtrip(tmp_path, fence):
     path = root / 'issues/dev/team/issues.md'
     path.parent.mkdir(parents=True)
     example = (f'{fence}text\n<!-- issues-notices:sample:start -->\n- scoped example\n<!-- issues-notices:sample:end -->\n'
+               '## 警告（非ブロッキング）\n\n- fenced warning\n## 参照警告（非ブロッキング）\n\n- fenced reference\n'
                + ('```\n' if fence.startswith('~') else '~~~\n') + fence + '\n')
     human = 'Human確認済み\n\n' + example + '\nHuman後続\n'
     old = '<!-- issue-service: s3 -->\n1. existing s3 problem\n\n'
@@ -628,6 +629,53 @@ def check_notice_marker_boundaries():
     assert split_notices(attach_notices(ordinary, notices))[1] == notices
     longer = '````text\n```\n' + block + '\n````\n'
     assert split_notices(longer) == (longer, [])
+
+
+@pytest.mark.parametrize('warnings,references', [(False, False), (True, False), (False, True), (True, True)])
+def check_notice_tail_order_and_materials(tmp_path, warnings, references):
+    root = tmp_path
+    path = root / 'issues/dev/team/issues.md'
+    path.parent.mkdir(parents=True)
+    ordinary = '# 問題一覧\n\nHuman確認済み\n\n## dev／team\n\n### s3\n\n1. selected issue\n\n### sqs\n\n1. outside issue\n'
+    path.write_text(ordinary, encoding='utf-8')
+    materials = existing_materials(root, 'dev', 'team', ['s3', 'sqs'])
+    owners = unresolved_services(root, path)
+    gate = issue_errors(root, {('dev', 'team', 's3'), ('dev', 'team', 'sqs')})
+    reference = '## 参照警告（非ブロッキング）\n\n- Reference Warning A\n'
+    plain_warning = '## 警告（非ブロッキング）\n\n- Existing Warning A\n'
+    # The only input for reference warnings is the existing report body.
+    path.write_text(ordinary + (reference if references else '') + (plain_warning if warnings else ''), encoding='utf-8')
+    channels = dict(warnings=['Warning A'], information=['Info A'], unverified=['Not run A'], processing_errors=['Error A']) if warnings else {}
+    other = notice_report(path.read_text(encoding='utf-8'), 'dev', 'team', ['sqs'],
+                          dict(warnings=['Outside Warning'], information=['Outside Info'])) if warnings else path.read_text(encoding='utf-8')
+    path.write_text(other, encoding='utf-8')
+    clock = Mock()
+    clock.now.return_value = real_datetime(2026, 10, 24)
+    saved = []
+    for _ in range(3):
+        with patch('issues.reports.datetime', clock), patch('issues.publication.save_authority', return_value=[path]):
+            save(root, 'dev', 'team', ['s3'], warnings=channels.get('warnings', ()), artifact=channels or None)
+        text = path.read_text(encoding='utf-8')
+        saved.append(text)
+        assert existing_materials(root, 'dev', 'team', ['s3', 'sqs']) == materials
+        assert unresolved_services(root, path) == owners
+        assert issue_errors(root, {('dev', 'team', 's3'), ('dev', 'team', 'sqs')}) == gate
+        assert text.count(reference) == int(references) and text.count(plain_warning.rstrip()) == int(warnings)
+        if warnings:
+            positions = [text.index('outside issue'), text.index('## 情報'), text.index('## 未検証範囲'),
+                         text.index('## 処理エラー'), text.index('## 警告（非ブロッキング）')]
+            assert positions == sorted(positions)
+            assert text.rindex('## 情報') < text.index('## 警告（非ブロッキング）')
+            assert all(text.count('- "' + value + '"') == 1 for value in ['Warning A', 'Info A', 'Not run A', 'Error A', 'Outside Warning', 'Outside Info'])
+            assert {scope for scope, _ in split_notices(text)[1] if scope is not None} == {
+                identifier(['dev', 'team', ['s3']]), identifier(['dev', 'team', ['sqs']])}
+        if references:
+            assert text.endswith(reference)
+            if warnings:
+                assert text.rindex('## 警告（非ブロッキング）') < text.index('## 参照警告（非ブロッキング）')
+        if not warnings and not references:
+            assert split_notices(text)[1] == [] and '### s3\n\n1. selected issue' in text
+    assert saved[0] == saved[1] == saved[2]
 
 
 
