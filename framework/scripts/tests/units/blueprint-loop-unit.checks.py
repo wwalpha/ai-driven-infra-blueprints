@@ -38,7 +38,7 @@ from support.blueprint_loop_fixtures import (
     sys,
     tasks,
 )
-from support.it_workspace import populate
+from support.it_workspace import populate, populate_focused
 from support.pytest_cli import run as pytest_run
 from support.validator import MODULE as validator
 from support.validator import project, schema_validator, write
@@ -440,6 +440,42 @@ def check_it_assertion_guards(tmp_path):
             run_it.check_assertion_guards(tmp_path)
     result = subprocess.run([sys.executable, '-O', run_it.__file__], capture_output=True, text=True)
     assert result.returncode != 0 and 'Focused checks require assertions' in result.stderr
+
+
+def check_it_focused_fixture_isolation(tmp_path):
+    seed = tmp_path / 'seed'
+    authored = {'project.json': '{}', 'model/dev/cde/cloudwatch-logs.properties': '# model-format: 2\n',
+                'model/dev/cde/cloudwatch-logs/part-001.properties': 'selected part',
+                'model/stg/cde/cloudwatch-logs.properties': 'other environment',
+                'model/dev/cde/vpc.properties': 'other service', 'model/dev/cde/config.properties': 'config'}
+    for relative, raw in authored.items():
+        path = seed / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(raw, encoding='utf-8')
+    fixtures.protect(seed, True)
+    before = fixtures.fingerprint(seed)
+    try:
+        with patch.object(fixtures, 'source', return_value=seed) as source:
+            full, first, second, config = (tmp_path / name for name in ('full', 'first', 'second', 'config'))
+            populate('import_sources', full)
+            selected = ['project.json', 'model/dev/cde/cloudwatch-logs.properties', 'model/dev/cde/cloudwatch-logs']
+            for root in (first, second):
+                populate_focused('import_sources', root, selected)
+                files = {p.relative_to(root).as_posix(): p.read_text(encoding='utf-8') for p in root.rglob('*') if p.is_file()}
+                assert files == {name: raw for name, raw in authored.items()
+                                 if name == 'project.json' or name.startswith('model/dev/cde/cloudwatch-logs')}
+                assert all(p.stat().st_mode & 0o200 for p in root.rglob('*'))
+                assert all(not p.is_symlink() and p.stat().st_nlink == 1 for p in root.rglob('*') if p.is_file())
+            populate_focused('import_sources', config, ['project.json', 'model/dev/cde/config.properties'])
+            assert {p.relative_to(config).as_posix() for p in config.rglob('*') if p.is_file()} == {
+                'project.json', 'model/dev/cde/config.properties'}
+            assert {p.relative_to(full).as_posix() for p in full.rglob('*') if p.is_file()} == set(authored)
+            (first / 'model/dev/cde/cloudwatch-logs/part-001.properties').write_text('changed')
+            assert (second / 'model/dev/cde/cloudwatch-logs/part-001.properties').read_text() == 'selected part'
+            assert fixtures.fingerprint(seed) == before
+            assert all(call.args == ('import_sources',) for call in source.call_args_list)
+    finally:
+        fixtures.protect(seed, False)
 
 
 def _callback_check_it_fixture_isolation_build(generations, /, root, name):

@@ -165,8 +165,12 @@ def build_seed(root):
         write_model(root / 'model/dev' / TARGET / (service + '.properties'), values)
 
 
-def fixture(root, service='cloudwatch-logs', register=True):
-    workspace.populate('import_sources', root)
+def fixture(root, service='cloudwatch-logs', register=True, *, focused=False):
+    if focused:
+        workspace.populate_focused('import_sources', root, ['project.json',
+            f'model/dev/{TARGET}/{service}.properties', f'model/dev/{TARGET}/{service}'])
+    else:
+        workspace.populate('import_sources', root)
     checkpoint(root)
     path = root / 'model/dev' / TARGET / (service + '.properties')
     if register:
@@ -176,7 +180,8 @@ def fixture(root, service='cloudwatch-logs', register=True):
         text = '\n'.join(['# Import fixture', '## Task contract', '- Task type: `design`', '- Workflow: `import`',
                            '- Task status: `running`', '- IMPORT target: `dev/' + TARGET + '/' + service + '`',
                            '## Goal', 'Apply authored synthetic candidates', '## Required changes', '- [R1] Reflect selected synthetic values',
-                           '## Validation scope', '- `dev/' + TARGET + '/' + service + '`', '- `stg/' + TARGET + '/' + service + '`',
+                           '## Validation scope', '- `dev/' + TARGET + '/' + service + '`',
+                           *([] if focused else ['- `stg/' + TARGET + '/' + service + '`']),
                            '## Allowed paths', *['- `' + p + '`' for p in paths],
                            '## Modified files', *['- `' + p + '`' for p in paths],
                            '## Acceptance checks', '- [R1] `exists:docs/designs/dev/' + TARGET + '/' + service + '.md`']) + '\n'

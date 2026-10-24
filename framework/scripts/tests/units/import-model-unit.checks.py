@@ -66,6 +66,7 @@ from model.sources import Scope, candidate_sources, load_model
 from support.import_model_fixtures import (
     ACCOUNT,
     SERVICES,
+    AwsCli,
     CloudControlCli,
     aws,
     batch_operation_fixture,
@@ -276,6 +277,8 @@ def check_new_resource_and_explicit_dispositions():
     chosen = selection_records(picked, [acquired], old, new, schema_for)
     assert chosen.keys() == {'009'}
     assert len(verify_values(expansion(old), expansion(new), chosen, schema_for)) == 3
+    with pytest.raises(ValueError, match='differs from the acquired'):
+        verify_values(expansion(old), expansion({**new, 'desired.row.009-002.value': '`10.99.0.0/16`'}), chosen, schema_for)
     invalid = {**new, 'desired.row.009-001.value': '[vpc](vpc.md#vpc-001)'}
     warnings = []
     verify_values(expansion(old), expansion(invalid), chosen, schema_for, warnings=warnings)
@@ -342,6 +345,9 @@ def check_typed_property_values():
     values.update({'desired.row.001-004.property': 'EC2.VPC.EnableDnsSupport', 'desired.row.001-004.value': '`false`'})
     assert property_values(values, '001', 'EC2.VPC.EnableDnsSupport', schema_for('EC2.VPC.EnableDnsSupport')) is False
     assert property_values(values, '001', 'EC2.VPC.VpcId', {'type': 'string'}) == 'vpc-confirmed'
+    row = {'property': 'Logs.LogGroup.RetentionInDays'}
+    assert typed_equal(typed_row(row, '`90`', {'type': 'integer'}), 90)
+    assert not typed_equal(typed_row(row, '`"90"`', {'type': 'integer'}), 90)
 
 
 def check_candidate_scope_and_changed_files(tmp_path):
@@ -426,10 +432,25 @@ def check_adapter_inventory_normalization(tmp_path):
         if service == 'vpc':
             vpc = next(r for r in records if r['kind'] == 'EC2.VPC')
             assert vpc['properties']['EC2.VPC.EnableDnsSupport']['value'] is True
+            subnets = [r for r in records if r['kind'] == 'EC2.Subnet']
+            assert len(subnets) == 7
+            assert all(r['properties']['EC2.Subnet.VpcId']['value'] == vpc['identity'] for r in subnets)
         if service == 'config':
             recorder = next(r for r in records if r['kind'] == 'Config.ConfigurationRecorder')
             assert recorder['properties']['Config.ConfigurationRecorder.RecordingGroup.AllSupported']['value'] is False
             assert recorder['properties']['Config.ConfigurationRecorder.RecordingGroup.ResourceTypes']['value'] == ['AWS::EC2::VPC']
+            assert 'Config.ConfigurationRecorder.RecordingMode.RecordingModeOverrides[].Description' not in recorder['properties']
+        if service == 'quicksight':
+            assert all(r['kind'] == 'QuickSight.DataSource' for r in records)
+            assert all(r['properties']['QuickSight.DataSource.Name']['value'] == r['identity'] for r in records)
+            assert all(inputs.get('AwsAccountId') == ACCOUNT for api, _, inputs in cli.calls if api == 'quicksight')
+    for cli, error_type, code in [(AwsCli(account='999999999999'), m.comparator().IdentityError, 'AccountMismatch'),
+                                 (AwsCli(fail='An error occurred (AccessDenied) when calling STS: PRIVATE-CREDENTIAL'),
+                                  m.comparator().AcquisitionError, 'AccessDenied')]:
+        ctx = m.import_context(m.ROOT, target, cli, 'cloudwatch-logs')
+        with pytest.raises(error_type) as caught:
+            ctx.verify()
+        assert caught.value.code == code and len(cli.calls) == 1
 
 
 def check_shared_source_preservation_boundary(tmp_path):
@@ -522,7 +543,8 @@ def check_authored_vpc_append_candidate(tmp_path, unknown):
 
 
 @pytest.mark.parametrize('relative', ['model/stg/cde/vpc.properties', 'model/stg/cde/vpc/part-001.properties',
-    'model/stg/another/vpc.properties', 'model/dev/cde/config.properties', 'model/dev/another/vpc.properties'])
+    'model/stg/another/vpc.properties', 'model/dev/cde/config.properties', 'model/dev/another/vpc.properties',
+    'model/dev/cde/config/part-001.properties', 'model/templates/cde/vpc.properties.tpl'])
 def check_foreign_candidate_scope(tmp_path, relative):
     root, directory = tmp_path / 'repository', tmp_path / 'candidate'
     operation_fixture(root)
@@ -530,7 +552,7 @@ def check_foreign_candidate_scope(tmp_path, relative):
     file = directory / relative
     file.parent.mkdir(parents=True)
     file.write_text('# model-format: 2\n', encoding='utf-8')
-    with pytest.raises(ValueError, match='outside'):
+    with pytest.raises(ValueError, match='outside|invalid authoritative Model path'):
         candidate_sources(root, directory, before)
 
 
@@ -706,7 +728,8 @@ def check_model_operation_shape_preservation(tmp_path, shape):
             assert json.loads(load_model(after / 'model/stg/cde/vpc.properties').authoritative['desired.row.001-010.document'])['Statement'] == [{'Effect': 'Allow'}]
 
 
-@pytest.mark.parametrize('failure', ['none', 'tamper', 'missing', 'expired', 'task', 'base', 'scope'])
+@pytest.mark.parametrize('failure', ['none', 'tamper', 'missing', 'expired', 'task', 'base', 'scope',
+                                     'binding-task', 'binding-worktree', 'binding-risk'])
 def check_external_completion_proof(tmp_path, monkeypatch, failure):
     root = tmp_path / 'repository'
     root.mkdir()
@@ -726,6 +749,11 @@ def check_external_completion_proof(tmp_path, monkeypatch, failure):
         proof[failure] = 'wrong'
     elif failure == 'scope':
         proof['scope'] = ['dev', 'cde', 'vpc']
+    elif failure.startswith('binding-'):
+        field = {'binding-task': 'task', 'binding-worktree': 'worktree', 'binding-risk': 'recordsDigest'}[failure]
+        proof['reviewBinding'][field] = 'f' * 64
+        if failure != 'binding-risk':
+            proof['reviewBindingDigest'] = document_sha256(proof['reviewBinding'])
     file = import_guard.proof_path(root)
     assert not file.is_relative_to(root)
     sealed_evidence.write_sealed(root, file, proof)
@@ -919,6 +947,15 @@ def check_inventory_status_and_partial_retention():
     assert inventory_for(empty).statuses['DataZone.DataSource']['status'] == 'not_modelled'
     with pytest.raises(ValueError, match='owner'):
         m.inventory(empty, 'datazone', ['EC2.TransitGateway'])
+    for payload in ({}, {'logGroups': None}, {'logGroups': 'invalid'}):
+        cli = aws()
+        cli.responses['logs', 'describe-log-groups'] = payload
+        ctx = m.import_context(m.ROOT, {'environment': 'dev', 'directory': 'cde', 'awsAccountId': ACCOUNT,
+            'awsRegion': 'ap-northeast-1', 'awsProfile': 'confirmed'}, cli, 'cloudwatch-logs')
+        ctx.verify()
+        assert m.inventory(ctx, 'cloudwatch-logs', ['Logs.LogGroup']) == []
+        assert inventory_for(ctx).statuses['Logs.LogGroup'] == {'status': 'failed', 'reason': 'InvalidInventoryResponse'}
+        assert not import_guard.acquisition_complete({'version': 3, **FORMAT_FIELDS, 'inventory': inventory_for(ctx).statuses})
 
 
 def check_cloudcontrol_json_and_readonly_boundary():

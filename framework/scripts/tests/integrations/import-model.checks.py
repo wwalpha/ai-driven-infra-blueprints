@@ -14,13 +14,12 @@ import subprocess
 from unittest.mock import patch
 
 import import_guard
-import model.importing.scope as _imports_model_importing_scope
 import model.sources
 import pytest
 import support.import_model_fixtures as _imports_support_import_model_fixtures
 import sync_files
 import sync_runtime
-from model.core import entries, properties
+from model.core import entries
 from model.format import parse, serialize
 from model.identity import COUNTERS, allocate
 from model.importing import repository
@@ -29,11 +28,9 @@ from model.operations import operation_values
 from model.sources import json_text, load_model
 from support.import_model_fixtures import (
     ACCOUNT,
-    SERVICES,
     SUBNETS,
     TARGET,
     VPC_ID,
-    AwsCli,
     CloudControlCli,
     aws,
     correspondence,
@@ -76,9 +73,9 @@ def offline(monkeypatch):
     assert 'support.worktree_task_fixtures' not in sys.modules
 
 
-def prepare(tmp_path, service='cloudwatch-logs', changed=True, dry_run=False):
+def prepare(tmp_path, service='cloudwatch-logs', changed=True, dry_run=False, *, focused=True):
     root = tmp_path / 'case'
-    fixture(root, service, register=not dry_run)
+    fixture(root, service, register=not dry_run, focused=focused)
     cli = aws(service, changed=changed)
     acquisition = m.acquire(root, 'dev', service, TARGET, dry_run, cli, resource_types=['Logs.LogGroup'] if service == 'cloudwatch-logs' else None)
     return root, acquisition, cli
@@ -104,11 +101,13 @@ def promote_logs(root, acquisition):
 
 
 def check_logs_roundtrip(tmp_path):
-    root, acquired, cli = prepare(tmp_path)
+    root, acquired, cli = prepare(tmp_path, focused=False)
     path = root / 'model/dev/cde/cloudwatch-logs.properties'
     before = load_model(path)
+    foreign = {p: raw for p, raw in source_files(root).items() if p != path.relative_to(root)}
     files = logs_edit(root, acquired)
-    result = publish_fixture(root, acquired)
+    with patch.object(m, 'import_context', side_effect=AssertionError('publish must not reacquire')):
+        result = publish_fixture(root, acquired)
     assert result['model'] == 'reflected' and result['markdown'] == 'generated' and result['status'] == 'complete'
     assert cli.calls == [('sts', 'get-caller-identity', {}), ('logs', 'describe-log-groups', {})]
     assert not (root / '.blueprint').exists()
@@ -119,6 +118,10 @@ def check_logs_roundtrip(tmp_path):
     assert '| LogGroupName | `managed-new` |' in display and '``managed-new``' not in display
     assert all(after.authoritative[key] == value for key, value in before.authoritative.items() if key != 'desired.service.identity.lastAllocated')
     assert len(files) == 1
+    assert next(iter(files.values())) == path.read_text(encoding='utf-8')
+    assert after.authoritative['desired.resource.002.resourceMode'] == 'CREATE'
+    assert after.authoritative['desired.resource.003.resourceMode'] == 'IMPORT'
+    assert all((root / p).read_bytes() == raw for p, raw in foreign.items())
     calls = list(cli.calls)
     assert m.recover_display(root, 'dev', 'cloudwatch-logs', TARGET)['status'] == 'complete'
     assert cli.calls == calls
@@ -155,50 +158,16 @@ def check_vpc_eight_instances(tmp_path):
     assert len(exclusions(acquired, [])) == 10
 
 
-def check_quicksight_normalization(tmp_path):
-    root, acquired, cli = prepare(tmp_path, 'quicksight', changed=False)
-    assert all(r['kind'] == 'QuickSight.DataSource' for r in acquired['records'])
-    for record in acquired['records']:
-        assert record['properties']['QuickSight.DataSource.Name']['value'] == record['identity']
-        assert 'getters' not in record
-    assert all(inputs.get('AwsAccountId') == ACCOUNT for service, _, inputs in cli.calls if service == 'quicksight')
-    import_guard.discard_acquisition(root, acquired['evidence'])
-
-
-def check_registry_services(tmp_path):
-    # Acquisition/normalization once per adapter; do not duplicate seven publish E2Es.
-    root = tmp_path / 'case'
-    fixture(root, register=False)
-    for service in SERVICES:
-        cli = aws(service)
-        acquired = m.acquire(root, 'dev', service, TARGET, True, cli, resource_types=['Logs.LogGroup'] if service == 'cloudwatch-logs' else None)
-        assert acquired['records'] and acquired['sts'] == {'account': ACCOUNT, 'verified': True}
-        assert cli.calls[0] == ('sts', 'get-caller-identity', {})
-        assert all('properties' in record and 'getters' not in record for record in acquired['records'])
-        import_guard.discard_acquisition(root, acquired['evidence'])
-
-
-@pytest.mark.parametrize('kind,unknown', [('subnet', False), ('vpc', False), ('vpc', True)])
-def check_managed_resource_addition(tmp_path, kind, unknown):
+def check_managed_resource_addition(tmp_path):
     root = tmp_path / 'case'
     path = fixture(root, 'vpc')
-    if unknown:
-        values = dict(load_model(path).authoritative)
-        del values['observed.row.001-001.value']
-        path.write_text(serialize(values), encoding='utf-8')
-        checkpoint(root)
     original = load_model(path)
     foreign = {p: p.read_bytes() for p in (root / 'model').rglob('*.properties') if p != path}
     cli = aws('vpc', changed=True)
-    if kind == 'subnet':
-        name, identity, source = 'audit-private-1a', 'subnet-managed-new', '002'
-        cli.responses['ec2', 'describe-subnets']['Subnets'].append({'SubnetId': identity, 'VpcId': VPC_ID,
-            'CidrBlock': '10.11.0.0/26', 'AvailabilityZone': 'ap-northeast-1a', 'MapPublicIpOnLaunch': False,
-            'Tags': [{'Key': 'Name', 'Value': name}]})
-    else:
-        name, identity, source = 'new-vpc', 'vpc-managed-new', '001'
-        cli.responses['ec2', 'describe-vpcs']['Vpcs'].append({'VpcId': identity, 'CidrBlock': '10.11.0.0/23',
-            'Tags': [{'Key': 'Name', 'Value': 'main-vpc'}]})
+    name, identity, source = 'audit-private-1a', 'subnet-managed-new', '002'
+    cli.responses['ec2', 'describe-subnets']['Subnets'].append({'SubnetId': identity, 'VpcId': VPC_ID,
+        'CidrBlock': '10.11.0.0/26', 'AvailabilityZone': 'ap-northeast-1a', 'MapPublicIpOnLaunch': False,
+        'Tags': [{'Key': 'Name', 'Value': name}]})
     acquired = m.acquire(root, 'dev', 'vpc', TARGET, cli_runner=cli)
     values = dict(original.authoritative)
     for key, value in original.authoritative.items():
@@ -209,9 +178,8 @@ def check_managed_resource_addition(tmp_path, kind, unknown):
     values['desired.resource.009.anchor'] = 'vpc-managed-009'
     values['desired.row.009-001.value'] = '[009](#vpc-managed-009)'
     values['observed.row.009-001.value'] = identity
-    values['desired.row.009-' + ('003' if kind == 'subnet' else '002') + '.value'] = m.model_literal('10.11.0.0/26' if kind == 'subnet' else '10.11.0.0/23')
-    if kind == 'subnet':
-        values['desired.row.009-004.value'] = m.model_literal(name)
+    values['desired.row.009-003.value'] = m.model_literal('10.11.0.0/26')
+    values['desired.row.009-004.value'] = m.model_literal(name)
     selected = [correspondence(acquired, identity, '009')]
     stage(root, acquired, {path.relative_to(root).as_posix(): serialize(values)}, selected, exclusions(acquired, selected))
     result = publish_fixture(root, acquired, 'vpc')
@@ -222,26 +190,13 @@ def check_managed_resource_addition(tmp_path, kind, unknown):
     assert all(current.authoritative[k] == v for k, v in original.authoritative.items() if k != 'desired.service.identity.lastAllocated')
     assert current.authoritative['observed.row.009-001.value'] == identity
     assert current.authoritative['desired.row.009-001.value'] == '[009](#vpc-managed-009)'
-    if kind == 'subnet':
-        assert current.authoritative['desired.row.009-002.value'] == '[001](#vpc-main)'
+    assert current.authoritative['desired.row.009-002.value'] == '[001](#vpc-main)'
     assert all(p.read_bytes() == data for p, data in foreign.items())
-
-
-@pytest.mark.parametrize('action', ['update', 'add'])
-def check_existing_resource_selection_rejected(tmp_path, action):
-    root, acquired, _ = prepare(tmp_path)
-    selected = [correspondence(acquired, 'fixture-001', '001', action)]
-    stage(root, acquired, {}, selected, exclusions(acquired, selected))
-    before = snapshot(root)
-    with pytest.raises(ValueError, match='add only'):
-        publish_fixture(root, acquired)
-    assert snapshot(root) == before
-    import_guard.discard_acquisition(root, acquired['evidence'])
 
 
 def check_optional_profile(tmp_path):
     root = tmp_path / 'case'
-    fixture(root, register=False)
+    fixture(root, register=False, focused=True)
     target = json.loads((root / 'project.json').read_text(encoding='utf-8'))
     target['targets'][0].pop('awsProfile')
     (root / 'project.json').write_text(json_text(target), encoding='utf-8')
@@ -261,14 +216,6 @@ def check_explicit_no_profile(tmp_path):
     assert publish_fixture(root, acquired)['model'] == 'reflected'
 
 
-def check_single_acquisition(tmp_path):
-    root, acquired, cli = prepare(tmp_path)
-    logs_edit(root, acquired)
-    with patch.object(m, 'import_context', side_effect=AssertionError('publish must not reacquire')):
-        result = publish_fixture(root, acquired)
-    assert result['model'] == 'reflected' and len(cli.calls) == 2
-
-
 def check_source_race(tmp_path):
     root, acquired, _ = prepare(tmp_path)
     logs_edit(root, acquired)
@@ -278,86 +225,6 @@ def check_source_race(tmp_path):
     with pytest.raises(ValueError, match='sources changed'):
         publish_fixture(root, acquired)
     assert snapshot(root) == before
-    import_guard.discard_acquisition(root, acquired['evidence'])
-
-
-def check_create_definition_reuse(tmp_path):
-    root, acquired, _ = prepare(tmp_path)
-    before = load_model(input_file(root)).authoritative
-    logs_edit(root, acquired)
-    publish_fixture(root, acquired)
-    after = load_model(input_file(root)).authoritative
-    assert operation_values(before, '002') == operation_values(after, '002')
-    assert after['desired.resource.002.resourceMode'] == 'CREATE'
-    assert after['desired.resource.003.resourceMode'] == 'IMPORT'
-
-
-def check_cli_faults(tmp_path):
-    root = tmp_path / 'case'
-    fixture(root, register=False)
-    for cli, error_type, code in [(AwsCli(account='999999999999'), m.comparator().IdentityError, 'AccountMismatch'),
-                                  (AwsCli(fail='An error occurred (AccessDenied) when calling STS: PRIVATE-CREDENTIAL'), m.comparator().AcquisitionError, 'AccessDenied')]:
-        before = snapshot(root)
-        with pytest.raises(error_type) as caught:
-            m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, True, cli, resource_types=['Logs.LogGroup'])
-        assert caught.value.code == code
-        assert snapshot(root) == before and len(cli.calls) == 1
-    for payload in ({}, {'logGroups': None}, {'logGroups': 'invalid'}):
-        cli = aws()
-        cli.responses['logs', 'describe-log-groups'] = payload
-        acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, True, cli, resource_types=['Logs.LogGroup'])
-        assert acquired['status'] == 'incomplete'
-        assert acquired['inventory']['Logs.LogGroup'] == {'status': 'failed', 'reason': 'InvalidInventoryResponse'}
-        assert acquired['records'] == []
-        import_guard.discard_acquisition(root, acquired['evidence'])
-
-
-def check_inventory_parent_references(tmp_path):
-    root, acquired, _ = prepare(tmp_path, 'vpc', changed=False)
-    records = {r['identity']: r for r in acquired['records']}
-    assert len(records) == 8
-    assert all(records['subnet-' + str(n).zfill(17)]['properties']['EC2.Subnet.VpcId']['value'] == VPC_ID for n in range(2, 9))
-    assert records[VPC_ID]['properties']['EC2.VPC.EnableDnsSupport']['value'] is True
-    import_guard.discard_acquisition(root, acquired['evidence'])
-
-
-def check_exact_scope(tmp_path):
-    root, acquired, _ = prepare(tmp_path)
-    foreign = input_file(root, env='stg')
-    stage(root, acquired, {foreign.relative_to(root).as_posix(): foreign.read_text()})
-    with pytest.raises(ValueError, match='outside|invalid authoritative Model path'):
-        publish_fixture(root, acquired)
-    with pytest.raises(ValueError, match='scope'):
-        m.publish_acquisition(root, 'dev', 'vpc', acquired['evidence'], TARGET)
-    import_guard.discard_acquisition(root, acquired['evidence'])
-
-
-def check_external_reference_preservation(tmp_path):
-    root = tmp_path / 'case'
-    path = fixture(root, 'config')
-    values = dict(load_model(path).authoritative)
-    values['desired.row.001-007.value'] = '[role](iam.md#not-locally-resolved)'
-    path.write_text(serialize(values), encoding='utf-8')
-    checkpoint(root)
-    acquired = m.acquire(root, 'dev', 'config', TARGET, cli_runner=aws('config'))
-    role = next(r for r in acquired['records'] if r['kind'] == 'Config.ConfigurationRecorder')['properties']['Config.ConfigurationRecorder.RoleARN']['value']
-    values['observed.row.001-007.value'] = role
-    stage(root, acquired, {path.relative_to(root).as_posix(): serialize(values)}, excluded=exclusions(acquired, []))
-    before = snapshot(root)
-    with pytest.raises(ValueError, match='unselected Resource'):
-        publish_fixture(root, acquired, 'config')
-    assert snapshot(root) == before
-    import_guard.discard_acquisition(root, acquired['evidence'])
-    assert '[role](iam.md#not-locally-resolved)' in path.read_text()
-    assert not any('iam' == r['kind'] for r in acquired['records'])
-
-
-def check_mapping_preservation(tmp_path):
-    root, acquired, _ = prepare(tmp_path, 'config', changed=False)
-    captured = next(r for r in acquired['records'] if r['kind'] == 'Config.ConfigurationRecorder')['properties']
-    assert captured['Config.ConfigurationRecorder.RecordingGroup.AllSupported']['value'] is False
-    assert captured['Config.ConfigurationRecorder.RecordingGroup.ResourceTypes']['value'] == ['AWS::EC2::VPC']
-    assert 'Config.ConfigurationRecorder.RecordingMode.RecordingModeOverrides[].Description' not in captured
     import_guard.discard_acquisition(root, acquired['evidence'])
 
 
@@ -377,11 +244,9 @@ def check_shared_property_and_bindings(tmp_path):
     assert not any('/stg/' in str(p) for p in result.get('files', []))
 
 
-@pytest.mark.parametrize('relative', ['model/stg/cde/cloudwatch-logs.properties',
-    'model/stg/cde/cloudwatch-logs/part-001.properties', 'model/dev/cde/vpc.properties',
-    'model/dev/cde/vpc/part-001.properties', 'model/templates/cde/vpc.properties.tpl'])
-def check_foreign_source_writes_rejected(tmp_path, relative):
-    root, acquired, _ = prepare(tmp_path)
+def check_foreign_source_writes_rejected(tmp_path):
+    relative = 'model/stg/cde/cloudwatch-logs.properties'
+    root, acquired, _ = prepare(tmp_path, focused=False)
     logs_edit(root, acquired)
     source = root / relative
     text = source.read_text() if source.exists() else '{"version":1,"values":{}}'
@@ -390,58 +255,6 @@ def check_foreign_source_writes_rejected(tmp_path, relative):
     destination.write_text(text + '\n')
     before = snapshot(root)
     with patch.object(m, 'publish_edit', side_effect=AssertionError('must reject before saving')), pytest.raises(ValueError, match='outside|invalid authoritative Model path'):
-        publish_fixture(root, acquired)
-    assert snapshot(root) == before
-    import_guard.discard_acquisition(root, acquired['evidence'])
-
-
-@pytest.mark.parametrize('service,scenario', [('cloudwatch-logs', 'duplicate'), ('cloudwatch-logs', 'new'),
-                                               ('vpc', 'duplicate'), ('vpc', 'hide-observed')])
-def check_add_identity_boundary(tmp_path, service, scenario):
-    root = tmp_path / 'case'
-    path = fixture(root, service)
-    acquired = m.acquire(root, 'dev', service, TARGET, cli_runner=aws(service, changed=True), resource_types=['Logs.LogGroup'] if service == 'cloudwatch-logs' else None)
-    values = dict(load_model(path).authoritative)
-    original = dict(values)
-    for key, value in operation_values(original, '001').items():
-        values[key.replace('.001', '.009', 1)] = value
-    del values['desired.resource.009.logicalId']
-    values = allocate(values, ['009'])
-    values['desired.resource.009.anchor'] = 'vpc-managed-009'
-    if service == 'cloudwatch-logs':
-        values['desired.row.009-001.value'] = '`managed-new`' if scenario == 'new' else '`fixture-001`'
-        values['desired.row.009-002.value'] = '`90`'
-    else:
-        values['desired.row.009-001.value'] = '[009](#vpc-managed-009)'
-        values['desired.row.009-002.value'] = '`10.11.0.0/23`'
-        values['observed.row.009-001.value'] = VPC_ID
-        if scenario == 'hide-observed':
-            del values['observed.row.001-001.value']
-    identity = 'managed-new' if scenario == 'new' else 'fixture-001' if service == 'cloudwatch-logs' else VPC_ID
-    selected = [correspondence(acquired, identity, '009', 'add')]
-    stage(root, acquired, {path.relative_to(root).as_posix(): serialize(values)}, selected, exclusions(acquired, selected))
-    before = snapshot(root)
-    if scenario == 'new':
-        result = publish_fixture(root, acquired, service)
-        assert result['status'] == 'complete'
-        assert {change['resource'] for change in result['changes']} == {'009'}
-        assert all(load_model(path).authoritative[key] == value for key, value in original.items() if key != 'desired.service.identity.lastAllocated')
-    else:
-        with patch.object(m, 'record_import', side_effect=AssertionError('must reject before recording')), \
-             patch.object(m, 'publish_edit', side_effect=AssertionError('must reject before saving')), \
-             patch.object(m, 'view_plan', side_effect=AssertionError('must reject before display')), \
-             pytest.raises(ValueError, match='009.*001|unselected Resource'):
-            publish_fixture(root, acquired, service)
-        assert snapshot(root) == before
-        assert not import_guard.proof_path(root).exists()
-        import_guard.discard_acquisition(root, acquired['evidence'])
-
-
-def check_unacquired_property_rejection(tmp_path):
-    root, acquired, _ = prepare(tmp_path)
-    logs_edit(root, acquired, days=91)
-    before = snapshot(root)
-    with pytest.raises(ValueError, match='differs from the acquired'):
         publish_fixture(root, acquired)
     assert snapshot(root) == before
     import_guard.discard_acquisition(root, acquired['evidence'])
@@ -472,23 +285,9 @@ def check_repeat_without_reformat(tmp_path):
         assert sealed_evidence.read_sealed(root, import_guard.proof_path(root))['complete']
 
 
-def check_fixed_identity_rejection(tmp_path):
-    root, acquired, _ = prepare(tmp_path)
-    files = logs_edit(root, acquired)
-    relative = next(iter(files))
-    values = parse(files[relative]).values
-    values['desired.resource.001.anchor'] = 'changed-fixed-anchor'
-    (Path(acquired['candidates']) / relative).write_text(serialize(values), encoding='utf-8')
-    before = snapshot(root)
-    with pytest.raises(ValueError):
-        publish_fixture(root, acquired)
-    assert snapshot(root) == before
-    import_guard.discard_acquisition(root, acquired['evidence'])
-
-
 def check_empty_inventory_preserves_sources(tmp_path):
     root = tmp_path / 'case'
-    fixture(root)
+    fixture(root, focused=True)
     cli = aws()
     cli.logs = []
     before = source_files(root)
@@ -499,35 +298,9 @@ def check_empty_inventory_preserves_sources(tmp_path):
     assert result['model'] == 'unchanged' and source_files(root) == before
 
 
-def check_partial_reflection(tmp_path):
-    root, acquired, _ = prepare(tmp_path)
-    files = logs_edit(root, acquired)
-    selected = [correspondence(acquired, 'managed-new')]
-    unresolved = next(r for r in acquired['records'] if r['identity'] == 'fixture-002')
-    stage(root, acquired, files, selected, excluded=[item for item in exclusions(acquired, selected) if item['record'] != unresolved['record']], pending=[{'record': unresolved['record'], 'reason': 'ownership not confirmed'}])
-    original = source_files(root)
-    with pytest.raises(ValueError, match='all Resource selections'):
-        publish_fixture(root, acquired)
-    assert source_files(root) == original and Path(acquired['evidence']).exists()
-
-
-def check_native_types_preserved(tmp_path):
-    root, acquired, _ = prepare(tmp_path)
-    files = logs_edit(root, acquired)
-    path = next(iter(files))
-    selected = [correspondence(acquired, 'managed-new')]
-    stage(root, acquired, {path: files[path].replace('desired.row.003-002.value=`90`', 'desired.row.003-002.value=`"90"`')},
-          selected, exclusions(acquired, selected))
-    before = source_files(root)
-    with pytest.raises(ValueError, match='type|acquired'):
-        publish_fixture(root, acquired)
-    assert source_files(root) == before
-    import_guard.discard_acquisition(root, acquired['evidence'])
-
-
 def check_consumer_set_race(tmp_path):
     root = tmp_path / 'case'
-    fixture(root)
+    fixture(root, focused=True)
     acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=aws(changed=True), resource_types=['Logs.LogGroup'])
     logs_edit(root, acquired)
     new_consumer = root / 'model/dev/cde/new-consumer.properties'
@@ -550,7 +323,7 @@ def _callback_check_source_transaction_rollback_fail_after_first(real_save, root
 
 def check_source_transaction_rollback(tmp_path):
     root = tmp_path / 'case'
-    fixture(root)
+    fixture(root, focused=True)
     cli = aws(changed=True)
     cli.logs[-1]['logGroupClass'] = 'INFREQUENT_ACCESS'
     acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, cli_runner=cli, resource_types=['Logs.LogGroup'])
@@ -562,18 +335,6 @@ def check_source_transaction_rollback(tmp_path):
         publish_fixture(root, acquired)
     assert source_files(root) == original and not import_guard.proof_path(root).exists()
     assert publish_fixture(root, acquired)['model'] == 'reflected'
-
-
-def check_yaml_candidate_edit(tmp_path):
-    root, acquired, _ = prepare(tmp_path)
-    original = input_file(root).read_text(encoding='utf-8')
-    files = logs_edit(root, acquired)
-    publish_fixture(root, acquired)
-    current = input_file(root).read_text(encoding='utf-8')
-    assert {key: value for key, value in properties(original).items() if key != 'desired.service.identity.lastAllocated'}.items() <= properties(current).items()
-    assert 'desired.resource.003.resourceType=Logs.LogGroup' in current
-    assert 'desired.row.003-002.value=`90`' in current
-    assert next(iter(files.values())) == current
 
 
 def check_reflection_validation_boundary(tmp_path):
@@ -634,7 +395,8 @@ def check_evidence_and_display_recovery(tmp_path):
     assert result['model'] == 'reflected' and result['markdown'] == 'failed' and result['status'] == 'display-failed'
     assert evidence.is_file()
     before = source_files(root)
-    with patch.object(m, 'import_context', side_effect=AssertionError('recovery must not acquire')):
+    with patch.object(m, 'import_context', side_effect=AssertionError('recovery must not acquire')), \
+         patch.object(m, 'read_acquisition', side_effect=AssertionError('recovery must not read acquisition')):
         assert m.recover_display(root, 'dev', 'cloudwatch-logs', TARGET)['status'] == 'complete'
     assert source_files(root) == before and import_guard.read_proof(root)['markdown'] == 'generated'
     assert not (root / '.blueprint').exists()
@@ -649,7 +411,7 @@ def _callback_check_partial_acquisition_cannot_complete_cli(original, /, command
 
 def check_partial_acquisition_cannot_complete(tmp_path):
     root = tmp_path / 'case'
-    fixture(root, 'config')
+    fixture(root, 'config', focused=True)
     original = aws('config')
     cli = _bind_framework_callback(_callback_check_partial_acquisition_cannot_complete_cli, original)
     before = source_files(root)
@@ -701,9 +463,8 @@ def _callback_check_reference_publication_finish(original_finish, producer, race
     return result
 
 
-@pytest.mark.parametrize('present,race,diagnostic', [(False, False, None), (True, False, None), (True, True, None),
-    (False, False, 'absent'), (True, False, 'mismatch'), (True, False, 'ambiguous'), (True, False, 'review-race')])
-def check_reference_publication(tmp_path, present, race, diagnostic):
+@pytest.mark.parametrize('race,review_race', [(False, False), (True, False), (False, True)])
+def check_reference_publication(tmp_path, race, review_race):
 
     CloudControlCli = _imports_support_import_model_fixtures.CloudControlCli
     project_fixture = _imports_support_import_model_fixtures.project_fixture
@@ -717,16 +478,7 @@ def check_reference_publication(tmp_path, present, race, diagnostic):
     path = root / 'model/dev/cde/cloudtrail.properties'
     write_model(path, service_values('cloudtrail', ['CloudTrail.Trail']))
     producer = path.with_name('s3.properties')
-    if present:
-        write_model(producer, resource_values('001', 'S3.Bucket', 's3-audit-bucket', 'CREATE', [('BucketName', '`audit-bucket`')]))
-    if diagnostic == 'mismatch':
-        producer.write_text(producer.read_text().replace('`audit-bucket`', '`different-bucket`'))
-    elif diagnostic == 'ambiguous':
-        reference_reader = _imports_model_importing_scope.reference_reader
-        with reference_reader(producer):
-            fields = dict(load_model(producer).authoritative)
-        fields.update(resource_values('002', 'S3.Bucket', 'another-bucket', 'CREATE', [('BucketName', '`audit-bucket`')]))
-        write_model(producer, fields)
+    write_model(producer, resource_values('001', 'S3.Bucket', 's3-audit-bucket', 'CREATE', [('BucketName', '`audit-bucket`')]))
     checkpoint(root)
     files = {path, root / 'docs/designs/dev/cde/cloudtrail.md'}
     listed = ['- `' + p.relative_to(root).as_posix() + '`' for p in sorted(files)] + ['- `tasks/import-fixture.md`']
@@ -751,36 +503,28 @@ def check_reference_publication(tmp_path, present, race, diagnostic):
     values = allocate(values, ['009'])
     values['desired.resource.009.anchor'] = 'vpc-managed-009'
     link = '[S3_Bucket_001](s3.md#s3-audit-bucket)'
-    if present or diagnostic:
-        for index, (prop, actual) in enumerate(captured.items(), 1):
-            key = f'desired.row.009-{index:03d}.value'
-            if prop == 'CloudTrail.Trail.S3BucketName':
-                values[key] = link
-                values[f'observed.row.009-{index:03d}.value'] = m.model_literal(actual)
-                values.update(reference_fields('bucket', key, link, 'dev/cde/s3/001', kind='S3.Bucket', mode='link', prop=None))
-                values['desired.reference.bucket.labelPolicy'] = 'display-name'
-            elif prop == 'CloudTrail.Trail.EventSelectors[].DataResources[].Values':
-                values.update(reference_fields('nested-bucket', key, 'audit-bucket', 'dev/cde/s3/001',
-                    kind='S3.Bucket', mode='name', prop='S3.Bucket.BucketName', pointer='/0/0/0'))
-                assert values[key] == m.model_literal(actual)
+    for index, (prop, actual) in enumerate(captured.items(), 1):
+        key = f'desired.row.009-{index:03d}.value'
+        if prop == 'CloudTrail.Trail.S3BucketName':
+            values[key] = link
+            values[f'observed.row.009-{index:03d}.value'] = m.model_literal(actual)
+            values.update(reference_fields('bucket', key, link, 'dev/cde/s3/001', kind='S3.Bucket', mode='link', prop=None))
+            values['desired.reference.bucket.labelPolicy'] = 'display-name'
+        elif prop == 'CloudTrail.Trail.EventSelectors[].DataResources[].Values':
+            values.update(reference_fields('nested-bucket', key, 'audit-bucket', 'dev/cde/s3/001',
+                kind='S3.Bucket', mode='name', prop='S3.Bucket.BucketName', pointer='/0/0/0'))
+            assert values[key] == m.model_literal(actual)
     selected = [correspondence(acquired, record['identity'], '009')]
     stage(root, acquired, {path.relative_to(root).as_posix(): serialize(values)}, selected)
     reviewed = review_fixture(root, acquired, 'cloudtrail')['review']
-    if diagnostic:
+    if review_race:
         assert reviewed['warnings'], reviewed
         assert m.review_acquisition(root, 'dev', 'cloudtrail', acquired['evidence'], TARGET)['review'] == reviewed
-        if diagnostic == 'absent':
-            assert any(w.get('phase') == 'after' and 'absent' in w['message'] for w in reviewed['warnings'])
-            assert reviewed['referenceImpact']['inputs'][producer.relative_to(root).as_posix()] is None
-        elif diagnostic in {'mismatch', 'ambiguous'}:
-            assert any(w.get('phase') == 'physical' and w.get('acquiredValue') and
-                w.get('consumerKey') and w.get('referenceIds') for w in reviewed['warnings'])
-        else:
-            producer.write_text(producer.read_text() + '# changed decision input\n')
-            with pytest.raises(ValueError, match='Review changed or stale'):
-                m.publish_acquisition(root, 'dev', 'cloudtrail', acquired['evidence'], TARGET)
-            assert not import_guard.proof_path(root).exists()
-            return
+        producer.write_text(producer.read_text() + '# changed decision input\n')
+        with pytest.raises(ValueError, match='Review changed or stale'):
+            m.publish_acquisition(root, 'dev', 'cloudtrail', acquired['evidence'], TARGET)
+        assert not import_guard.proof_path(root).exists()
+        return
     calls = len(cli.calls)
     reads = Counter()
     original_read = model.sources._read_model
@@ -803,17 +547,16 @@ def check_reference_publication(tmp_path, present, race, diagnostic):
         result = m.publish_acquisition(root, 'dev', 'cloudtrail', acquired['evidence'], TARGET)
     assert result['status'] == 'complete' and result['model'] == 'reflected' and result['markdown'] == 'generated', result
     assert all(count == 1 for count in reads.values()), reads
-    assert bool(reads) == present
+    assert reads
     assert len(cli.calls) == calls
     document = root / 'docs/designs/dev/cde/cloudtrail.md'
     markdown = document.read_text()
-    assert ('](s3.md#s3-audit-bucket)' if present or diagnostic else '`audit-bucket`') in markdown
-    if present or diagnostic:
-        saved = load_model(path).authoritative
-        key = values['desired.reference.nested-bucket.consumerKey']
-        assert saved[key] == values[key]
-        assert saved['desired.reference.nested-bucket.format'] == 'name'
-        assert saved['desired.reference.nested-bucket.pointer'] == '/0/0/0'
+    assert '](s3.md#s3-audit-bucket)' in markdown
+    saved = load_model(path).authoritative
+    key = values['desired.reference.nested-bucket.consumerKey']
+    assert saved[key] == values[key]
+    assert saved['desired.reference.nested-bucket.format'] == 'name'
+    assert saved['desired.reference.nested-bucket.pointer'] == '/0/0/0'
     assert all(p.read_bytes() == raw for p, raw in foreign.items())
     assert not (root / 'docs/designs/dev/cde/s3.md').exists()
     before_recovery = source_files(root)
@@ -821,44 +564,38 @@ def check_reference_publication(tmp_path, present, race, diagnostic):
     assert source_files(root) == before_recovery and document.read_text() == markdown
 
 
-@pytest.mark.parametrize('action', ['refresh', 'replace', 'bind'])
-@pytest.mark.parametrize('dry_run', [False, True])
-def check_user_selected_overwrite_publication(tmp_path, action, dry_run):
+@pytest.mark.parametrize('action', ['replace', 'bind'])
+def check_user_selected_overwrite_publication(tmp_path, action):
     root = tmp_path / 'case'
-    path = fixture(root, register=not dry_run)
+    path = fixture(root, register=True)
     if action == 'bind':
         values = dict(load_model(path).authoritative)
         values['desired.row.001-001.value'] = 'UNSET'
         path.write_text(serialize(values), encoding='utf-8')
         checkpoint(root)
     cli = aws(changed=True)
-    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, dry_run, cli, resource_types=['Logs.LogGroup'])
+    acquired = m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, False, cli, resource_types=['Logs.LogGroup'])
     before = load_model(path)
     original = snapshot(root)
     values = dict(before.authoritative)
-    identity = 'fixture-001' if action == 'refresh' else 'managed-new'
+    identity = 'managed-new'
     values.update({'desired.row.001-001.value': m.model_literal(identity), 'desired.row.001-002.value': '`90`'})
     selected = [correspondence(acquired, identity, '001', action)]
-    if action in {'replace', 'bind'}:
-        selected[0]['before'] = {'identity': None if action == 'bind' else 'fixture-001', 'model': document_sha256(operation_values(before.authoritative, '001'))}
+    selected[0]['before'] = {'identity': None if action == 'bind' else 'fixture-001', 'model': document_sha256(operation_values(before.authoritative, '001'))}
     stage(root, acquired, {path.relative_to(root).as_posix(): serialize(values)}, selected, exclusions(acquired, selected))
-    result = publish_fixture(root, acquired, dry_run=dry_run)
-    assert result['status'] == ('dry-run' if dry_run else 'complete')
+    result = publish_fixture(root, acquired)
+    assert result['status'] == 'complete'
     review = json.loads((Path(acquired['evidence']).parent / 'review.json').read_text())
     assert next(item for item in review['dispositions'] if item['record'] == selected[0]['record'])['operation'] == action
     assert cli.calls == [('sts', 'get-caller-identity', {}), ('logs', 'describe-log-groups', {})]
     assert Path(acquired['evidence']).is_file()
-    if dry_run:
-        assert snapshot(root) == original
-        assert not (sealed_evidence.evidence_store(root) / 'import-fixture.json').exists()
-    else:
-        after = load_model(path)
-        assert after.authoritative['desired.row.001-002.value'] == '`90`'
-        assert after.authoritative['desired.row.001-001.value'] == m.model_literal(identity)
-        assert operation_values(before.authoritative, '002') == operation_values(after.authoritative, '002')
-        assert len(entries(after.authoritative, 'desired.resource.')) == 2
-        assert all((root / rel).read_bytes() == data for rel, data in original.items() if 'stg' in rel.parts)
-        import_guard.require_import_changes(root)
+    after = load_model(path)
+    assert after.authoritative['desired.row.001-002.value'] == '`90`'
+    assert after.authoritative['desired.row.001-001.value'] == m.model_literal(identity)
+    assert operation_values(before.authoritative, '002') == operation_values(after.authoritative, '002')
+    assert len(entries(after.authoritative, 'desired.resource.')) == 2
+    assert all((root / rel).read_bytes() == data for rel, data in original.items() if 'stg' in rel.parts)
+    import_guard.require_import_changes(root)
 
 
 def _callback_check_mixed_add_refresh_single_publication_save(calls, fail, original_save, /, output):
@@ -921,13 +658,12 @@ def check_replace_warns_incoming_references(tmp_path):
     assert Path(acquired['evidence']).is_file()
 
 
-@pytest.mark.parametrize('missing', [False, True])
-@pytest.mark.parametrize('shared_template', [False, True])
-def check_first_resource_uses_existing_source_format(tmp_path, missing, shared_template):
+@pytest.mark.parametrize('missing,other_environment', [(False, False), (True, True)])
+def check_first_resource_uses_existing_source_format(tmp_path, missing, other_environment):
     root = tmp_path / 'case'
     path = fixture(root)
     seed = dict(load_model(path).authoritative)
-    if not shared_template:
+    if not other_environment:
         input_file(root, env='stg').unlink()
     service = {key: value for key, value in seed.items() if key.startswith(('desired.service.', 'display.service.'))}
     if missing:
@@ -952,6 +688,7 @@ def check_first_resource_uses_existing_source_format(tmp_path, missing, shared_t
     result = publish_fixture(root, acquired)
     assert result['status'] == 'complete'
     assert len(entries(load_model(path).authoritative, 'desired.resource.')) == 1
+    assert path.read_text(encoding='utf-8').startswith('# model-format: 2\n')
     assert (foreign.read_bytes() if foreign.is_file() else None) == original
     assert len(cli.calls) == 2
 
@@ -976,81 +713,41 @@ def check_refresh_switches_definition_without_foreign_changes(tmp_path):
     assert load_model(input_file(root, env='stg')).authoritative['desired.row.001-004.value'] == '`STANDARD`'
 
 
-@pytest.mark.parametrize('tamper', ['candidate', 'sources', 'task', 'worktree', 'risk'])
-def check_approval_bound_save_guard(tmp_path, tamper):
+def check_approval_bound_save_guard(tmp_path):
     root, acquired, _ = prepare(tmp_path)
     logs_edit(root, acquired)
     publish_fixture(root, acquired)
     original = source_files(root)
-    if tamper == 'candidate':
-        file = input_file(root)
-        raw = file.read_bytes()
-        try:
-            file.write_bytes(raw + b'\n# unapproved candidate bytes\n')
-            with pytest.raises(ValueError, match='no verified /import evidence|differs from acquired change plan'):
-                import_guard.require_import_changes(root)
-        finally:
-            file.write_bytes(raw)
-    else:
-        proof = import_guard.read_proof(root)
-        if tamper == 'sources':
-            name = next(iter(proof['sources']))
-            proof['sources'][name] = '0' * 64
-        else:
-            proof['reviewBinding'][{'risk': 'recordsDigest'}.get(tamper, tamper)] = 'forged'
-        sealed_evidence.write_sealed(root, import_guard.proof_path(root), proof)
+    file = input_file(root)
+    raw = file.read_bytes()
+    try:
+        file.write_bytes(raw + b'\n# unapproved candidate bytes\n')
         with pytest.raises(ValueError, match='no verified /import evidence|differs from acquired change plan'):
             import_guard.require_import_changes(root)
+    finally:
+        file.write_bytes(raw)
     assert source_files(root) == original
 
 
-@pytest.mark.parametrize('failure', ['none', 'source', 'task', 'review', 'candidate', 'source-set', 'model-io', 'receipt', 'display-io', 'bind', 'replace'])
+@pytest.mark.parametrize('failure', ['review', 'receipt'])
 def check_properties_import_acquire_review_publish(monkeypatch, failure):
     import_publication_case(monkeypatch, failure)
 
 
-@pytest.mark.parametrize('failure', [None, 'review', 'draft', 'candidate', 'acquisition', 'baseline',
-                                    'approval-expired', 'source-save', 'display-save', 'task-baseline'])
+@pytest.mark.parametrize('failure', ['post-candidate', 'post-baseline'])
 def check_publication_transaction_without_host(monkeypatch, failure):
-    action = {None: 'none', 'review': 'post-review', 'draft': 'post-draft', 'candidate': 'post-candidate',
-              'acquisition': 'post-acquisition', 'baseline': 'post-baseline', 'approval-expired': 'post-expiry',
-              'source-save': 'receipt', 'display-save': 'display-io', 'task-baseline': 'post-task'}[failure]
-    import_publication_case(monkeypatch, action)
+    import_publication_case(monkeypatch, failure)
 
 
-def check_saved_display_recovery_needs_no_new_approval(monkeypatch):
-    import_publication_case(monkeypatch, 'display-io')
-
-
-@pytest.mark.parametrize('change', ['property', 'destination', 'resource', 'selector'])
-def check_candidate_review_mismatch_rejected_without_host(monkeypatch, change):
-    action = {'property': 'candidate', 'destination': 'selection-target', 'resource': 'candidate-resource',
-              'selector': 'candidate-reference'}[change]
-    import_publication_case(monkeypatch, action)
-
-
-@pytest.mark.parametrize('boundary', ['head', 'base', 'task', 'allowed', 'scope', 'target', 'unapproved-source'])
+@pytest.mark.parametrize('boundary', ['task', 'unapproved-source'])
 def check_gitless_guard_boundaries(tmp_path, boundary):
-    root, acquired, _ = prepare(tmp_path)
+    root, acquired, _ = prepare(tmp_path, focused=False)
     logs_edit(root, acquired)
     review_fixture(root, acquired)
     before = source_files(root)
     task = root / 'tasks/import-fixture.md'
-    if boundary == 'head':
-        state(root).head = 'changed-head'
-    elif boundary == 'base':
-        state(root).base = 'different-start'
-    elif boundary == 'task':
+    if boundary == 'task':
         task.write_text(task.read_text() + '\n## Notes\nconcurrent Task edit\n')
-    elif boundary == 'allowed':
-        text = task.read_text()
-        prefix, allowed = text.split('## Allowed paths\n')
-        allowed, rest = allowed.split('## Modified files\n')
-        task.write_text(prefix + '## Allowed paths\n' + allowed.replace('- `model/dev/cde/cloudwatch-logs.properties`\n', '') + '## Modified files\n' + rest)
-    elif boundary == 'scope':
-        task.write_text(task.read_text().replace('- `dev/cde/cloudwatch-logs`', '- `dev/cde/vpc`'))
-    elif boundary == 'target':
-        task.write_text(task.read_text().replace('IMPORT target: `dev/cde/cloudwatch-logs`', 'IMPORT target: `dev/cde/vpc`'))
     if boundary == 'unapproved-source':
         assert m.publish_acquisition(root, 'dev', 'cloudwatch-logs', acquired['evidence'], TARGET)['status'] == 'complete'
         foreign = input_file(root, env='stg')

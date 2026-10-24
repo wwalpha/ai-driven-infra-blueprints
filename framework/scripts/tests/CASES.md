@@ -312,40 +312,38 @@ remain separate. Dry-run/incomplete/display-failed sessions are retained.
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
-| `import-approval::typed-review` | `check_complete_typed_before_after_and_digest` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | Before/After・型・論理参照・物理値・digest | Import Review |
-| `import-approval::inventory` | `check_full_inventory_required` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 3 | 全取得レコード・リスク・取得Typeの欠落拒否 | Import Review |
-| `import-approval::changed-review` | `check_changed_review_needs_new_review` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 10 | 反映先・操作・値・参照・リスク・基準・Scope・Task・Worktree・型の変更 | Import Review |
-| `import-approval::duplicate-risk` | `check_unknown_identity_risk_is_bound` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 既存ID不明の重複リスク | Import Review |
-| `import-approval::type-status` | `check_inventory_status_and_exclusions_remain_visible` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 5 | 取得失敗・権限・filter・empty・completeの区別 | Import Review |
-| `import-approval::native-values` | `check_array_boolean_name_and_unreflected_values` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 配列・Boolean・Name tag・未反映値 | Import Review |
-| `import-approval::composite-secret` | `check_composite_identity_and_secret_omission` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 複合識別子・機密値非出力 | Import Review |
-| `import-approval::observed` | `check_configuration_is_not_observed` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 3 | 通常設定のobserved保存拒否 | Pre-save |
-| `import-approval::warning` | `check_valid_observation_and_nonblocking_reference_warning` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 識別子observed許可・Reference warning非ブロック・無関係既存行保持 | Pre-save |
-| `import-approval::no-trusted-approval` | `check_local_claim_cannot_replace_review_binding` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 6 | 自己申告JSON・flag・HMACはReview bindingの代替にならない、証跡保持 | Fail-closed |
-| `import-approval::alternate-writer` | `check_alternate_source_guard_rejects_legacy_receipt` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 既存receipt経由のModel保存拒否 | Fail-closed |
-| `import-approval::expiry` | `check_expiry_and_digest_tampering` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 7日有効期限・digest改ざん拒否 | Import Review |
-| `import-approval::unselected` | `check_unselected_reference_changes_are_not_reviewed_as_selected` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 非選択Resourceの変更拒否 | Import Review |
-| `import-approval::review-command` | `check_review_command_is_read_only` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 4 | Review出力・baseline競合・承認flag・機密候補拒否、Model未変更 | Import Review |
-| `import-approval::display` | `check_preflight_before_any_save` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 8 | Review一致・値/反映先/baseline/provenance不一致拒否、表示用展開・メモリ生成と構造エラー時のModel/証跡保持 | Pre-save |
-| `import-approval::required-review` | `check_missing_review_rejected_before_candidate_load` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | Reviewなしの通常Publishは候補読込前に拒否 | Pre-save |
-| `import-approval::reference-meaning` | `check_same_value_reference_meaning_is_bound` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 6 | 同一展開値でもselector・Definition参照宣言・Service・Property・Definition・input名変更でReview不一致 | Import Review |
-| `import-approval::reference-metadata` | `check_reference_location_and_description_are_not_meaning` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 位置・説明文と派生observed traceはReference意味から除外 | Import Review |
-| `import-approval::reference-schema` | `check_reference_proposal_uses_existing_contract` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 5 | 参照提案は既存宣言/type/fixed-target契約と正規化形式で検証 | Import Review |
-| `import-approval::unselected-selector` | `check_unselected_reference_selector_is_rejected` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 未選択Resourceのselector変更を拒否 | Import Review |
-| `import-approval::loader-provenance` | `check_real_loader_retains_unresolved_reference_declaration` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 実loaderが未解決参照のService/type/Property/selectorを保持、Review構造検証は非ブロック | Import Review |
+| `import-approval::typed-review` | `check_complete_typed_before_after_and_digest` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L61) | pytest / 1 | Before/After・型・論理参照・物理値・digest | Import Review |
+| `import-approval::inventory` | `check_full_inventory_required` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L76) | pytest / 3 | 全取得レコード・リスク・取得Typeの欠落拒否 | Import Review |
+| `import-approval::changed-review` | `check_changed_review_needs_new_review` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L89) | pytest / 10 | 反映先・操作・値・参照・リスク・基準・Scope・Task・Worktree・型の変更 | Import Review |
+| `import-approval::duplicate-risk` | `check_unknown_identity_risk_is_bound` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L109) | pytest / 1 | 既存ID不明の重複リスク | Import Review |
+| `import-approval::type-status` | `check_inventory_status_and_exclusions_remain_visible` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L126) | pytest / 5 | 取得失敗・権限・filter・empty・completeの区別 | Import Review |
+| `import-approval::native-values` | `check_array_boolean_name_and_unreflected_values` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L137) | pytest / 1 | 配列・Boolean・Name tag・未反映値 | Import Review |
+| `import-approval::composite-secret` | `check_composite_identity_and_secret_omission` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L156) | pytest / 1 | 複合識別子・機密値非出力 | Import Review |
+| `import-approval::observed` | `check_configuration_is_not_observed` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L176) | pytest / 3 | 通常設定のobserved保存拒否 | Pre-save |
+| `import-approval::warning` | `check_valid_observation_and_nonblocking_reference_warning` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L183) | pytest / 1 | 識別子observed許可・Reference warning非ブロック・無関係既存行保持 | Pre-save |
+| `import-approval::no-trusted-approval` | `check_local_claim_cannot_replace_review_binding` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L198) | pytest / 6 | 自己申告JSON・flag・HMACはReview bindingの代替にならない、証跡保持 | Fail-closed |
+| `import-approval::alternate-writer` | `check_alternate_source_guard_rejects_legacy_receipt` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L208) | pytest / 1 | 既存receipt経由のModel保存拒否 | Fail-closed |
+| `import-approval::expiry` | `check_expiry_and_digest_tampering` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L224) | pytest / 1 | 7日有効期限・digest改ざん拒否 | Import Review |
+| `import-approval::unselected` | `check_unselected_reference_changes_are_not_reviewed_as_selected` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L235) | pytest / 1 | 非選択Resourceの変更拒否 | Import Review |
+| `import-approval::review-command` | `check_review_command_is_read_only` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L271) | pytest / 4 | Review出力・baseline競合・承認flag・機密候補拒否、Model未変更 | Import Review |
+| `import-approval::display` | `check_preflight_before_any_save` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L303) | pytest / 12 | Review一致・値/反映先/baseline/provenance不一致、候補value/target/resource/reference差替え拒否、表示エラー時のModel/証跡保持、保存Mock未呼出 | Pre-save |
+| `import-approval::required-review` | `check_missing_review_rejected_before_candidate_load` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L438) | pytest / 1 | Reviewなしの通常Publishは候補読込前に拒否 | Pre-save |
+| `import-approval::reference-meaning` | `check_same_value_reference_meaning_is_bound` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L457) | pytest / 6 | 同一展開値でもselector・Definition参照宣言・Service・Property・Definition・input名変更でReview不一致 | Import Review |
+| `import-approval::reference-metadata` | `check_reference_location_and_description_are_not_meaning` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L487) | pytest / 1 | 位置・説明文と派生observed traceはReference意味から除外 | Import Review |
+| `import-approval::reference-schema` | `check_reference_proposal_uses_existing_contract` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L495) | pytest / 5 | 参照提案は既存宣言/type/fixed-target契約と正規化形式で検証 | Import Review |
+| `import-approval::unselected-selector` | `check_unselected_reference_selector_is_rejected` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L512) | pytest / 1 | 未選択Resourceのselector変更を拒否 | Import Review |
+| `import-approval::loader-provenance` | `check_real_loader_retains_unresolved_reference_declaration` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L525) | pytest / 1 | 実loaderが未解決参照のService/type/Property/selectorを保持、Review構造検証は非ブロック | Import Review |
 
-| `import-approval::publication-transaction` | `check_publication_transaction_without_host` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L974) | pytest / 10 | Hostなしの正常保存、lock前Review/draft/candidate/acquisition/baseline変更・期限切れ拒否、実rollbackと表示保存失敗時のModel/証跡保持 | Publication |
-| `import-approval::display-recovery` | `check_saved_display_recovery_needs_no_new_approval` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L982) | pytest / 1 | sync-modelの既存回復workerで保存済みModelを保持して表示のみ保存、取得/承認呼出なし | Recovery |
-| `import-approval::unapproved-candidate` | `check_candidate_review_mismatch_rejected_without_host` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L988) | pytest / 4 | HostなしでもProperty・反映先・追加Resource・selector不一致を保存前拒否 | Publication |
+| `import-approval::publication-transaction` | `check_publication_transaction_without_host` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L738) | pytest / 2 | 保存計画後の候補/正本raceを実保存境界で拒否、外部編集保持・Receipt除去 | Publication |
 
-| `import-chat::check_explicit_bind_preserves_identity` | `check_explicit_bind_preserves_identity` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 12 | bind正常、既知ID・stale・CREATE・型・重複・無効ID・Anchor/Row/未取得変更拒否 | Chat approval |
-| `import-chat::check_subnet_answers_correction_and_resume` | `check_subnet_answers_correction_and_resume` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 複数SUBNET回答保持・訂正・session再開・baseline変更拒否。LLM判断品質の評価ではない | Chat approval |
-| `import-chat::check_checkpoint_rejects_stale_or_competing_answers` | `check_checkpoint_rejects_stale_or_competing_answers` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 8 | 期限・基準・Task/Worktree/scope・取得差替え・競合回答拒否 | Chat approval |
-| `import-chat::check_review_binding_integrity_without_host` | `check_review_binding_integrity_without_host` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 19 | HostなしのReview binding構造・全digest・期限と不要な認証fields拒否 | Chat approval |
-| `import-chat::check_unanswered_review_cannot_be_approved` | `check_unanswered_review_cannot_be_approved` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 未回答を含むReviewは最終承認に渡せない | Chat approval |
+| `import-chat::check_explicit_bind_preserves_identity` | `check_explicit_bind_preserves_identity` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L545) | pytest / 12 | bind正常、既知ID・stale・CREATE・型・重複・無効ID・Anchor/Row/未取得変更拒否 | Chat approval |
+| `import-chat::check_subnet_answers_correction_and_resume` | `check_subnet_answers_correction_and_resume` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L596) | pytest / 1 | 複数SUBNET回答保持・訂正・session再開・baseline変更拒否。LLM判断品質の評価ではない | Chat approval |
+| `import-chat::check_checkpoint_rejects_stale_or_competing_answers` | `check_checkpoint_rejects_stale_or_competing_answers` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L632) | pytest / 8 | 期限・基準・Task/Worktree/scope・取得差替え・競合回答拒否 | Chat approval |
+| `import-chat::check_review_binding_integrity_without_host` | `check_review_binding_integrity_without_host` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L656) | pytest / 19 | HostなしのReview binding構造・全digest・期限と不要な認証fields拒否 | Chat approval |
+| `import-chat::check_unanswered_review_cannot_be_approved` | `check_unanswered_review_cannot_be_approved` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L673) | pytest / 1 | 未回答を含むReviewは最終承認に渡せない | Chat approval |
 
-| `import-chat::consent-contract` | `check_conversational_consent_contract` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 全件Review・明示同意・訂正/取消・曖昧回答・再確認・merge後確認の規約 | Chat consent |
-| `import-chat::save-guard` | `check_approval_bound_save_guard` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L936) | pytest / 5 | 保存後の別候補・source hash・Task/Worktree・risk・旧証跡改ざんを保存guardで拒否（Human認証ではない） | Publication |
+| `import-chat::consent-contract` | `check_conversational_consent_contract` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L682) | pytest / 1 | 全件Review・明示同意・訂正/取消・曖昧回答・再確認・merge後確認の規約 | Chat consent |
+| `import-chat::save-guard` | `check_approval_bound_save_guard` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L716) | pytest / 1 | 実Publish後の承認外候補bytesを保存guardで拒否、元正本へ復元 | Publication |
 
 元パスは分離前の `framework/scripts/tests/` 相対。現在のリンクはこのファイルからの相対。分類は検証責務による。変更不要のケースも掲載。
 
@@ -466,12 +464,12 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/aws_mapping.checks.py:121` | `check_baseline` | UT | [units/aws_mapping-unit.checks.py:151](units/aws_mapping-unit.checks.py#L151) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 配置/共有fixture分離 |
 | `unknown/aws_mapping_catalog.checks.py:73` | `initialization_checks` | UT | [units/aws_mapping_catalog.checks.py:73](units/aws_mapping_catalog.checks.py#L76) | direct / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |
 | `unknown/aws_mapping_catalog.checks.py:120` | `schema_checks` | UT | [units/aws_mapping_catalog.checks.py:120](units/aws_mapping_catalog.checks.py#L121) | direct / 1 | Framework内部定義・入力制約の単体判定 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:847` | `check_utf8_restart` | UT | [units/blueprint-loop-unit.checks.py:11](units/blueprint-loop-unit.checks.py#L11) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
-| `unknown/model_design.checks.py:303` | `check_changed_paths_error` | UT | [units/blueprint-loop-unit.checks.py:24](units/blueprint-loop-unit.checks.py#L24) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
-| `unknown/blueprint-loop.checks.py:68` | `check_process_interruption` | UT | [units/blueprint-loop-unit.checks.py:32](units/blueprint-loop-unit.checks.py#L32) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
-| `unknown/blueprint-loop.checks.py:413` | `check_parallel_interruption` | UT | [units/blueprint-loop-unit.checks.py:56](units/blueprint-loop-unit.checks.py#L56) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
-| `unknown/blueprint-loop.checks.py:464` | `check_fixture_independence` | UT | [units/blueprint-loop-unit.checks.py:131](units/blueprint-loop-unit.checks.py#L131) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:1000` | `check_regression_discovery` | UT | [units/blueprint-loop-unit.checks.py:154](units/blueprint-loop-unit.checks.py#L154) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 配置/共有fixture分離 |
+| `unknown/blueprint-loop.checks.py:847` | `check_utf8_restart` | UT | [units/blueprint-loop-unit.checks.py:11](units/blueprint-loop-unit.checks.py#L52) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
+| `unknown/model_design.checks.py:303` | `check_changed_paths_error` | UT | [units/blueprint-loop-unit.checks.py:24](units/blueprint-loop-unit.checks.py#L65) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
+| `unknown/blueprint-loop.checks.py:68` | `check_process_interruption` | UT | [units/blueprint-loop-unit.checks.py:32](units/blueprint-loop-unit.checks.py#L81) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
+| `unknown/blueprint-loop.checks.py:413` | `check_parallel_interruption` | UT | [units/blueprint-loop-unit.checks.py:56](units/blueprint-loop-unit.checks.py#L116) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
+| `unknown/blueprint-loop.checks.py:464` | `check_fixture_independence` | UT | [units/blueprint-loop-unit.checks.py:131](units/blueprint-loop-unit.checks.py#L143) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 配置/共有fixture分離 |
+| `unknown/blueprint-loop.checks.py:1000` | `check_regression_discovery` | UT | [units/blueprint-loop-unit.checks.py:154](units/blueprint-loop-unit.checks.py#L165) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 配置/共有fixture分離 |
 | `units/check-model-aws-unit.checks.py:11` | `check_summary_exit_codes` | UT | [units/check-model-aws-unit.checks.py:44](units/check-model-aws-unit.checks.py#L44) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `units/check-model-aws-unit.checks.py:19` | `check_value_normalization` | UT | [units/check-model-aws-unit.checks.py:52](units/check-model-aws-unit.checks.py#L52) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `units/check-model-aws-unit.checks.py:29` | `check_secret_redaction` | UT | [units/check-model-aws-unit.checks.py:62](units/check-model-aws-unit.checks.py#L62) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
@@ -486,32 +484,32 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/design_layout.checks.py:621` | `check_pipeline_expansion` | UT | [units/design_layout-unit.checks.py:29](units/design_layout-unit.checks.py#L29) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 関数内抽出 |
 | `unknown/framework-input-isolation.checks.py:41` | `check_framework_input_guards` | UT | [units/framework-input-isolation-unit.checks.py:15](units/framework-input-isolation-unit.checks.py#L15) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `unknown/glue_datazone_catalog.checks.py:102` | `check_catalog_schema` | UT | [units/glue_datazone_catalog-unit.checks.py:11](units/glue_datazone_catalog-unit.checks.py#L11) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 関数内抽出 |
-| `import-agent-sources::check_null_parameter` | `check_null_parameter` | UT | [units/import-model-unit.checks.py:64](units/import-model-unit.checks.py#L64) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_yaml_edits` | `check_yaml_edits` | UT | [units/import-model-unit.checks.py:70](units/import-model-unit.checks.py#L70) | pytest / 7 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_yaml_empty_and_order` | `check_yaml_empty_and_order` | UT | [units/import-model-unit.checks.py:84](units/import-model-unit.checks.py#L84) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_physical_identity_wins_over_mutable_settings` | `check_physical_identity_wins_over_mutable_settings` | UT | [units/import-model-unit.checks.py:94](units/import-model-unit.checks.py#L94) | pytest / 2 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_invalid_candidates` | `check_invalid_candidates` | UT | [units/import-model-unit.checks.py:123](units/import-model-unit.checks.py#L123) | pytest / 12 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_unacquired_and_create_protection` | `check_unacquired_and_create_protection` | UT | [units/import-model-unit.checks.py:130](units/import-model-unit.checks.py#L130) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_duplicate_add_uses_baseline` | `check_duplicate_add_uses_baseline` | UT | [units/import-model-unit.checks.py:148](units/import-model-unit.checks.py#L148) | pytest / 8 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_selection_identity_duplicate` | `check_selection_identity_duplicate` | UT | [units/import-model-unit.checks.py:164](units/import-model-unit.checks.py#L164) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_existing_identity_ambiguity_is_local` | `check_existing_identity_ambiguity_is_local` | UT | [units/import-model-unit.checks.py:174](units/import-model-unit.checks.py#L174) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_unknown_identity_does_not_block_add` | `check_unknown_identity_does_not_block_add` | UT | [units/import-model-unit.checks.py:190](units/import-model-unit.checks.py#L190) | pytest / 4 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_new_resource_and_explicit_dispositions` | `check_new_resource_and_explicit_dispositions` | UT | [units/import-model-unit.checks.py:198](units/import-model-unit.checks.py#L198) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_binding_identity_and_addition` | `check_binding_identity_and_addition` | UT | [units/import-model-unit.checks.py:218](units/import-model-unit.checks.py#L218) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_shared_property_typed_preservation` | `check_shared_property_typed_preservation` | UT | [units/import-model-unit.checks.py:231](units/import-model-unit.checks.py#L231) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_shared_reference_is_symbolic` | `check_shared_reference_is_symbolic` | UT | [units/import-model-unit.checks.py:290](units/import-model-unit.checks.py#L290) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_typed_property_values` | `check_typed_property_values` | UT | [units/import-model-unit.checks.py:298](units/import-model-unit.checks.py#L298) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_candidate_scope_and_changed_files` | `check_candidate_scope_and_changed_files` | UT | [units/import-model-unit.checks.py:305](units/import-model-unit.checks.py#L305) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_sealed_evidence_tamper` | `check_sealed_evidence_tamper` | UT | [units/import-model-unit.checks.py:323](units/import-model-unit.checks.py#L323) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_cli_never_falls_back` | `check_cli_never_falls_back` | UT | [units/import-model-unit.checks.py:339](units/import-model-unit.checks.py#L339) | pytest / 4 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_cli_phase_dispatch` | `check_cli_phase_dispatch` | UT | [units/import-model-unit.checks.py:345](units/import-model-unit.checks.py#L345) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_native_equality_and_singleton` | `check_native_equality_and_singleton` | UT | [units/import-model-unit.checks.py:361](units/import-model-unit.checks.py#L361) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_adapter_inventory_normalization` | `check_adapter_inventory_normalization` | UT | [units/import-model-unit.checks.py:372](units/import-model-unit.checks.py#L372) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_shared_source_preservation_boundary` | `check_shared_source_preservation_boundary` | UT | [units/import-model-unit.checks.py:392](units/import-model-unit.checks.py#L392) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_existing_resource_action_rejected` | `check_existing_resource_action_rejected` | UT | [units/import-model-unit.checks.py:421](units/import-model-unit.checks.py#L421) | pytest / 4 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_new_anchor_and_reference_preservation` | `check_new_anchor_and_reference_preservation` | UT | [units/import-model-unit.checks.py:428](units/import-model-unit.checks.py#L428) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_authored_vpc_append_candidate` | `check_authored_vpc_append_candidate` | UT | [units/import-model-unit.checks.py:442](units/import-model-unit.checks.py#L442) | pytest / 2 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `import-agent-sources::check_foreign_candidate_scope` | `check_foreign_candidate_scope` | UT | [units/import-model-unit.checks.py:487](units/import-model-unit.checks.py#L487) | pytest / 5 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_null_parameter` | `check_null_parameter` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L139) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_yaml_edits` | `check_yaml_edits` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L145) | pytest / 7 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_yaml_empty_and_order` | `check_yaml_empty_and_order` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L158) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_physical_identity_wins_over_mutable_settings` | `check_physical_identity_wins_over_mutable_settings` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L168) | pytest / 2 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_invalid_candidates` | `check_invalid_candidates` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L197) | pytest / 12 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_unacquired_and_create_protection` | `check_unacquired_and_create_protection` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L204) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_duplicate_add_uses_baseline` | `check_duplicate_add_uses_baseline` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L222) | pytest / 8 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_selection_identity_duplicate` | `check_selection_identity_duplicate` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L238) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_existing_identity_ambiguity_is_local` | `check_existing_identity_ambiguity_is_local` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L248) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_unknown_identity_does_not_block_add` | `check_unknown_identity_does_not_block_add` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L264) | pytest / 4 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_new_resource_and_explicit_dispositions` | `check_new_resource_and_explicit_dispositions` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L272) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_binding_identity_and_addition` | `check_binding_identity_and_addition` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L295) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_shared_property_typed_preservation` | `check_shared_property_typed_preservation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L310) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_shared_reference_is_symbolic` | `check_shared_reference_is_symbolic` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L327) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_typed_property_values` | `check_typed_property_values` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L343) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_candidate_scope_and_changed_files` | `check_candidate_scope_and_changed_files` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L353) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_sealed_evidence_tamper` | `check_sealed_evidence_tamper` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L373) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_cli_never_falls_back` | `check_cli_never_falls_back` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L389) | pytest / 4 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_cli_phase_dispatch` | `check_cli_phase_dispatch` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L395) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_native_equality_and_singleton` | `check_native_equality_and_singleton` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L411) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_adapter_inventory_normalization` | `check_adapter_inventory_normalization` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L422) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_shared_source_preservation_boundary` | `check_shared_source_preservation_boundary` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L456) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_existing_resource_action_rejected` | `check_existing_resource_action_rejected` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L483) | pytest / 4 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_new_anchor_and_reference_preservation` | `check_new_anchor_and_reference_preservation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L490) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_authored_vpc_append_candidate` | `check_authored_vpc_append_candidate` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L511) | pytest / 2 | 取得・追加候補・不変性の単体判定 | Append-only Import |
+| `import-agent-sources::check_foreign_candidate_scope` | `check_foreign_candidate_scope` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L548) | pytest / 7 | 取得・追加候補・不変性の単体判定 | Append-only Import |
 | `unknown/issue_gate.checks.py:27` | `check_inventory_parser` | UT | [units/issue_gate-unit.checks.py:11](units/issue_gate-unit.checks.py#L11) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `integrations/issues_api_only.checks.py:62` | `check_api_type_rejection` | UT | [units/issues_api_only-unit.checks.py:11](units/issues_api_only-unit.checks.py#L11) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 関数内抽出 |
 | `unknown/issues_scan.checks.py:1622` | `check_mismatch_rendering` | UT | [units/issues_scan-unit.checks.py:11](units/issues_scan-unit.checks.py#L11) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
@@ -578,11 +576,11 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `units/task-contract-unit.checks.py:196` | `check_allowed_paths` | UT | [units/task-contract-unit.checks.py:28](units/task-contract-unit.checks.py#L28) | pytest / 4 | sync-performance: exact/glob/rejection and symlink checks | 検証本体・assertを保持 |
 | `units/task-contract-unit.checks.py:214` | `check_live_selection` | UT | [units/task-contract-unit.checks.py:47](units/task-contract-unit.checks.py#L47) | pytest / 1 | sync-performance: live selection and invalidation | 検証本体・assertを保持 |
 | `units/sync-model-unit.checks.py:91` | `check_progress_heartbeat_and_waits` | UT | [units/sync-model-unit.checks.py:91](units/sync-model-unit.checks.py#L91) | pytest / 1 | sync-performance: heartbeat and lock/stage diagnostics | 検証本体・assertを保持 |
-| `units/blueprint-loop-unit.checks.py:250` | `check_it_reachability` | UT | [units/blueprint-loop-unit.checks.py:253](units/blueprint-loop-unit.checks.py#L253) | pytest / 1 | runner: discovery, execution receipts, assertion guard or immutable fixture isolation | 検証本体・assertを保持 |
-| `units/blueprint-loop-unit.checks.py:282` | `check_it_assertion_guards` | UT | [units/blueprint-loop-unit.checks.py:331](units/blueprint-loop-unit.checks.py#L331) | pytest / 1 | runner: discovery, execution receipts, assertion guard or immutable fixture isolation | 検証本体・assertを保持 |
-| `units/blueprint-loop-unit.checks.py:297` | `check_it_fixture_isolation` | UT | [units/blueprint-loop-unit.checks.py:348](units/blueprint-loop-unit.checks.py#L348) | pytest / 1 | runner: discovery, execution receipts, assertion guard or immutable fixture isolation | 検証本体・assertを保持 |
-| `units/blueprint-loop-unit.checks.py:330` | `check_it_inventory` | UT | [units/blueprint-loop-unit.checks.py:409](units/blueprint-loop-unit.checks.py#L409) | pytest / 1 | runner: discovery, execution receipts, assertion guard or immutable fixture isolation | 固定総数・種別別件数・展開件数・suite総数のassertを削除。登録整合性・重複/未登録/欠落・到達性検証を保持 |
-| `units/blueprint-loop-unit.checks.py` | `check_it_run_lifecycle` | UT | [units/blueprint-loop-unit.checks.py:442](units/blueprint-loop-unit.checks.py#L442) | pytest / 1 | runner lifecycle: one initialization, measured events and environment restoration | 新規UT |
+| `units/blueprint-loop-unit.checks.py` | `check_it_reachability` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L328) | pytest / 1 | runner: discovery, execution receipts, assertion guard or immutable fixture isolation | 検証本体・assertを保持 |
+| `units/blueprint-loop-unit.checks.py` | `check_it_assertion_guards` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L418) | pytest / 1 | runner: discovery, execution receipts, assertion guard or immutable fixture isolation | 検証本体・assertを保持 |
+| `units/blueprint-loop-unit.checks.py` | `check_it_fixture_isolation` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L487) | pytest / 1 | runner: discovery, execution receipts, assertion guard or immutable fixture isolation | 検証本体・assertを保持 |
+| `units/blueprint-loop-unit.checks.py` | `check_it_inventory` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L543) | pytest / 1 | runner: discovery, execution receipts, assertion guard or immutable fixture isolation | 固定総数・種別別件数・展開件数・suite総数のassertを削除。登録整合性・重複/未登録/欠落・到達性検証を保持 |
+| `units/blueprint-loop-unit.checks.py` | `check_it_run_lifecycle` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L589) | pytest / 1 | runner lifecycle: one initialization, measured events and environment restoration | 新規UT |
 
 ### UT 内部パターン
 
@@ -696,9 +694,9 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/blueprint-loop.checks.py:235` | `check_task_service_validation` | IT | [case](integrations/blueprint-loop.checks.py) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 実CLI・実Git・子プロセスの代表統合保証 |
 | `unknown/blueprint-loop.checks.py:382` | `check_parallel_and_selection` | IT | [case](integrations/blueprint-loop.checks.py) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 実CLI・実Git・子プロセスの代表統合保証 |
 | `unknown/blueprint-loop.checks.py:493` | `check_staged_snapshot` | IT | [case](integrations/blueprint-loop.checks.py) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 実CLI・実Git・子プロセスの代表統合保証 |
-| `issue-18` | `check_regression_authorization` | UT | [case](units/blueprint-loop-unit.checks.py) | pytest / 1 | diagnostics / authorization / finally | 実プロセス・Gitなし |
+| `issue-18` | `check_regression_authorization` | UT | [case](units/blueprint-loop-unit.checks.py#L636) | pytest / 1 | diagnostics / authorization / finally | 実プロセス・Gitなし |
 | `unknown/blueprint-loop.checks.py:651` | `check_failure_suspension` | IT | [case](integrations/blueprint-loop.checks.py) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 実CLI・実Git・子プロセスの代表統合保証 |
-| `issue-18` | `check_startup_diagnostics` | UT | [case](units/blueprint-loop-unit.checks.py) | pytest / 11 | diagnostics / authorization / finally | 実プロセス・Gitなし |
+| `issue-18` | `check_startup_diagnostics` | UT | [case](units/blueprint-loop-unit.checks.py#L723) | pytest / 11 | diagnostics / authorization / finally | 実プロセス・Gitなし |
 | `unknown/blueprint-loop.checks.py:831` | `check_windows_exit_propagation` | UT | [units/worktree_python-unit.checks.py](units/worktree_python-unit.checks.py) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/blueprint-loop.checks.py:853` | `check_workflow` | IT | [case](integrations/blueprint-loop.checks.py) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 実CLI・実Git・子プロセスの代表統合保証 |
 | `integrations/bound-anchor-name-change.checks.py:86` | `check` | IT | [integrations/bound-anchor-name-change.checks.py:86](integrations/bound-anchor-name-change.checks.py#L86) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
@@ -758,39 +756,23 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/framework-input-isolation.checks.py:23` | `check` | IT | [integrations/framework-input-isolation.checks.py:14](integrations/framework-input-isolation.checks.py#L14) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/human-inputs-group-05.checks.py:253` | `check_declared_inputs` | IT | [integrations/human-inputs-group-05.checks.py:25](integrations/human-inputs-group-05.checks.py#L25) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `import-agent-sources::check_cli_preflight` | `check_cli_preflight` | IT | [integrations/import-cli.checks.py](integrations/import-cli.checks.py) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_logs_roundtrip` | `check_logs_roundtrip` | IT | [integrations/import-model.checks.py:70](integrations/import-model.checks.py#L70) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_config_sources` | `check_config_sources` | IT | [integrations/import-model.checks.py:92](integrations/import-model.checks.py#L92) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_vpc_eight_instances` | `check_vpc_eight_instances` | IT | [integrations/import-model.checks.py:108](integrations/import-model.checks.py#L108) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_quicksight_normalization` | `check_quicksight_normalization` | IT | [integrations/import-model.checks.py:122](integrations/import-model.checks.py#L122) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_registry_services` | `check_registry_services` | IT | [integrations/import-model.checks.py:132](integrations/import-model.checks.py#L132) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_managed_resource_addition` | `check_managed_resource_addition` | IT | [integrations/import-model.checks.py:146](integrations/import-model.checks.py#L146) | pytest / 3 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_existing_resource_selection_rejected` | `check_existing_resource_selection_rejected` | IT | [integrations/import-model.checks.py:196](integrations/import-model.checks.py#L196) | pytest / 2 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_optional_profile` | `check_optional_profile` | IT | [integrations/import-model.checks.py:207](integrations/import-model.checks.py#L207) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_explicit_no_profile` | `check_explicit_no_profile` | IT | [integrations/import-model.checks.py:218](integrations/import-model.checks.py#L218) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_single_acquisition` | `check_single_acquisition` | IT | [integrations/import-model.checks.py:229](integrations/import-model.checks.py#L229) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_source_race` | `check_source_race` | IT | [integrations/import-model.checks.py:237](integrations/import-model.checks.py#L237) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_create_definition_reuse` | `check_create_definition_reuse` | IT | [integrations/import-model.checks.py:249](integrations/import-model.checks.py#L249) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_cli_faults` | `check_cli_faults` | IT | [integrations/import-model.checks.py:261](integrations/import-model.checks.py#L261) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_inventory_parent_references` | `check_inventory_parent_references` | IT | [integrations/import-model.checks.py:280](integrations/import-model.checks.py#L280) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_exact_scope` | `check_exact_scope` | IT | [integrations/import-model.checks.py:289](integrations/import-model.checks.py#L289) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_external_reference_preservation` | `check_external_reference_preservation` | IT | [integrations/import-model.checks.py:300](integrations/import-model.checks.py#L300) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_mapping_preservation` | `check_mapping_preservation` | IT | [integrations/import-model.checks.py:320](integrations/import-model.checks.py#L320) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_shared_property_and_bindings` | `check_shared_property_and_bindings` | IT | [integrations/import-model.checks.py:329](integrations/import-model.checks.py#L329) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_foreign_source_writes_rejected` | `check_foreign_source_writes_rejected` | IT | [integrations/import-model.checks.py:348](integrations/import-model.checks.py#L348) | pytest / 5 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_add_identity_boundary` | `check_add_identity_boundary` | IT | [integrations/import-model.checks.py:365](integrations/import-model.checks.py#L365) | pytest / 4 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_unacquired_property_rejection` | `check_unacquired_property_rejection` | IT | [integrations/import-model.checks.py:406](integrations/import-model.checks.py#L406) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_repeat_without_reformat` | `check_repeat_without_reformat` | IT | [integrations/import-model.checks.py:416](integrations/import-model.checks.py#L416) | pytest / 1 | 同一Taskの再取得拒否、API未実行と保存済みModel不変 | Append-only Import |
-| `import-agent-sources::check_fixed_identity_rejection` | `check_fixed_identity_rejection` | IT | [integrations/import-model.checks.py:442](integrations/import-model.checks.py#L442) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_empty_inventory_preserves_sources` | `check_empty_inventory_preserves_sources` | IT | [integrations/import-model.checks.py:456](integrations/import-model.checks.py#L456) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_partial_reflection` | `check_partial_reflection` | IT | [integrations/import-model.checks.py:469](integrations/import-model.checks.py#L469) | pytest / 1 | 未回答Resourceがある全サービスPublish拒否、部分保存なし | Append-only Import |
-| `import-agent-sources::check_native_types_preserved` | `check_native_types_preserved` | IT | [integrations/import-model.checks.py:481](integrations/import-model.checks.py#L481) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_consumer_set_race` | `check_consumer_set_race` | IT | [integrations/import-model.checks.py:495](integrations/import-model.checks.py#L495) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_source_transaction_rollback` | `check_source_transaction_rollback` | IT | [integrations/import-model.checks.py:509](integrations/import-model.checks.py#L509) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_yaml_candidate_edit` | `check_yaml_candidate_edit` | IT | [integrations/import-model.checks.py:531](integrations/import-model.checks.py#L531) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_reflection_validation_boundary` | `check_reflection_validation_boundary` | IT | [integrations/import-model.checks.py:543](integrations/import-model.checks.py#L543) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
+| `import-agent-sources::check_logs_roundtrip` | `check_logs_roundtrip` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L103) | pytest / 1 | Acquire→Review→実保存・再読込・Markdown/Receipt、未選択CREATEと他サービス/環境保持、再取得なし | Append-only Import |
+| `import-agent-sources::check_config_sources` | `check_config_sources` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L131) | pytest / 1 | Config除外Publishの正本不変とRoleARN表示接続 | Append-only Import |
+| `import-agent-sources::check_vpc_eight_instances` | `check_vpc_eight_instances` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L147) | pytest / 1 | 8 Resourceの除外Publish・正本全体保持とDisposition接続 | Append-only Import |
+| `import-agent-sources::check_managed_resource_addition` | `check_managed_resource_addition` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L161) | pytest / 1 | Subnet追加の実保存/再読込、VPC参照と既存Resource・他サービス/環境保持 | Append-only Import |
+| `import-agent-sources::check_optional_profile` | `check_optional_profile` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L197) | pytest / 1 | profile未設定Projectから取得時にCLI引数を省略 | Append-only Import |
+| `import-agent-sources::check_explicit_no_profile` | `check_explicit_no_profile` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L208) | pytest / 1 | 明示no-profileの取得から実保存まで | Append-only Import |
+| `import-agent-sources::check_source_race` | `check_source_race` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L219) | pytest / 1 | 取得後の正本変更でPublish拒否、外部編集保持 | Append-only Import |
+| `import-agent-sources::check_shared_property_and_bindings` | `check_shared_property_and_bindings` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L231) | pytest / 1 | 定義選択を切り替える追加Publishとstg正本・生成範囲の保持 | Append-only Import |
+| `import-agent-sources::check_foreign_source_writes_rejected` | `check_foreign_source_writes_rejected` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L247) | pytest / 1 | stg候補を実Publishで保存前拒否、全ファイル不変 | Append-only Import |
+| `import-agent-sources::check_repeat_without_reformat` | `check_repeat_without_reformat` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L263) | pytest / 1 | 保存済みTaskの再取得拒否と新Taskによる再Import・両Receipt保持 | Append-only Import |
+| `import-agent-sources::check_empty_inventory_preserves_sources` | `check_empty_inventory_preserves_sources` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L288) | pytest / 1 | 空Inventory→Review→除外Publishで全正本不変 | Append-only Import |
+| `import-agent-sources::check_consumer_set_race` | `check_consumer_set_race` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L301) | pytest / 1 | 取得後のconsumerファイル追加をPublishで検出、正本不変 | Append-only Import |
+| `import-agent-sources::check_source_transaction_rollback` | `check_source_transaction_rollback` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L324) | pytest / 1 | 部分書込失敗の実Rollback・Receipt除去・同証跡から再Publish成功 | Append-only Import |
+| `import-agent-sources::check_reflection_validation_boundary` | `check_reflection_validation_boundary` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L340) | pytest / 1 | 実Import保存が全Model比較・全設計検証・AWS比較を起動しない | Append-only Import |
 | `import-agent-sources::check_cross_process_evidence` | `check_cross_process_evidence` | IT | [integrations/import-cli.checks.py](integrations/import-cli.checks.py) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_dry_run_cleanup` | `check_dry_run_cleanup` | IT | [integrations/import-model.checks.py:553](integrations/import-model.checks.py#L553) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
-| `import-agent-sources::check_evidence_and_display_recovery` | `check_evidence_and_display_recovery` | IT | [integrations/import-model.checks.py:572](integrations/import-model.checks.py#L572) | pytest / 1 | 取得・追加・保存・証跡・表示境界の連携 | Append-only Import |
+| `import-agent-sources::check_dry_run_cleanup` | `check_dry_run_cleanup` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L350) | pytest / 1 | Reviewとdry-run Publishのファイル不変・Task不要・証跡保持 | Append-only Import |
+| `import-agent-sources::check_evidence_and_display_recovery` | `check_evidence_and_display_recovery` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L375) | pytest / 1 | 改ざん取得拒否・表示生成エラーの保存前拒否・表示保存失敗後のModel/Receipt保持、再取得/取得読込なしの実復旧 | Append-only Import |
 | `integrations/issues_api_only.checks.py:27` | `main_checks` | IT | [integrations/issues_api_only.checks.py:11](integrations/issues_api_only.checks.py#L11) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `unknown/issues_failed_services.checks.py:21` | `main_checks` | IT | [integrations/issues_failed_services.checks.py:21](integrations/issues_failed_services.checks.py#L21) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/issues_policy_equivalence.checks.py:21` | `main_checks` | IT | [integrations/issues_policy_equivalence.checks.py:21](integrations/issues_policy_equivalence.checks.py#L21) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
@@ -1848,8 +1830,8 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `integrations/sync-model.checks.py` | `check_multiple_targets_barrier` | IT | [integrations/sync-model.checks.py:1373](integrations/sync-model.checks.py#L1373) | pytest / 5 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
 | `units/sync-model-unit.checks.py` | `check_framework_write_does_not_discover` | UT | [units/sync-model-unit.checks.py:383](units/sync-model-unit.checks.py#L383) | pytest / 2 | framework writeをModel探索前に拒否 | 新仕様の回帰 |
 | `units/sync-model-unit.checks.py` | `check_result_reuse_is_scoped` | UT | [units/sync-model-unit.checks.py:392](units/sync-model-unit.checks.py#L392) | pytest / 1 | CheckResultの状態・キー・候補scope再利用境界 | 新仕様の回帰 |
-| `units/blueprint-loop-unit.checks.py` | `check_write_validator_stops_followups` | UT | [units/blueprint-loop-unit.checks.py:474](units/blueprint-loop-unit.checks.py#L474) | pytest / 2 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
-| `units/blueprint-loop-unit.checks.py` | `check_staged_write_rejected` | UT | [units/blueprint-loop-unit.checks.py:489](units/blueprint-loop-unit.checks.py#L489) | pytest / 1 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
+| `units/blueprint-loop-unit.checks.py` | `check_write_validator_stops_followups` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L614) | pytest / 2 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
+| `units/blueprint-loop-unit.checks.py` | `check_staged_write_rejected` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L629) | pytest / 1 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
 | `integrations/sync-model.checks.py` | `check_normal_writer_contents` | IT | [integrations/sync-model.checks.py:350](integrations/sync-model.checks.py#L350) | pytest / 1 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
 | `units/validation_cache-unit.checks.py` | `check_retained_common_key` | UT | [units/validation_cache-unit.checks.py:66](units/validation_cache-unit.checks.py#L66) | pytest / 1 | Task読取cacheの選択・権限分離、契約内容/改行/追加/削除/selectorの最終比較 | 新仕様の回帰 |
 
@@ -1886,37 +1868,37 @@ Model操作の値・承認・保存判定は既存UTへ集約する。Worktree�
 
 | 元ケース | 現在の関数 | 種別 | 配置 | 入口 / 件数 | 検証責務 | 変更理由 |
 |---|---|---|---|---|---|---|
-| `import-resource-consolidation::check_model_operation_preserves_consumers` | `check_model_operation_preserves_consumers` | UT | [units/import-model-unit.checks.py:501](units/import-model-unit.checks.py#L501) | pytest / 2 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
-| `import-resource-consolidation::check_model_operation_rejects_unproved_changes` | `check_model_operation_rejects_unproved_changes` | UT | [units/import-model-unit.checks.py:519](units/import-model-unit.checks.py#L519) | pytest / 9 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
-| `import-resource-consolidation::check_model_operation_contract_scope` | `check_model_operation_contract_scope` | UT | [units/import-model-unit.checks.py:553](units/import-model-unit.checks.py#L553) | pytest / 8 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
-| `import-resource-consolidation::check_model_operation_row_correspondence` | `check_model_operation_row_correspondence` | UT | [units/import-model-unit.checks.py:582](units/import-model-unit.checks.py#L582) | pytest / 1 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
-| `import-resource-consolidation::check_model_operation_shape_preservation` | `check_model_operation_shape_preservation` | UT | [units/import-model-unit.checks.py:600](units/import-model-unit.checks.py#L600) | pytest / 5 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
-| `import-resource-consolidation::check_external_completion_proof` | `check_external_completion_proof` | UT | [units/import-model-unit.checks.py:682](units/import-model-unit.checks.py#L682) | pytest / 7 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
-| `import-resource-consolidation::check_snapshot_proof_resigning_and_cleanup` | `check_snapshot_proof_resigning_and_cleanup` | UT | [units/import-model-unit.checks.py:746](units/import-model-unit.checks.py#L746) | pytest / 1 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
+| `import-resource-consolidation::check_model_operation_preserves_consumers` | `check_model_operation_preserves_consumers` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L562) | pytest / 2 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
+| `import-resource-consolidation::check_model_operation_rejects_unproved_changes` | `check_model_operation_rejects_unproved_changes` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L592) | pytest / 9 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
+| `import-resource-consolidation::check_model_operation_contract_scope` | `check_model_operation_contract_scope` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L625) | pytest / 8 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
+| `import-resource-consolidation::check_model_operation_row_correspondence` | `check_model_operation_row_correspondence` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L656) | pytest / 1 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
+| `import-resource-consolidation::check_model_operation_shape_preservation` | `check_model_operation_shape_preservation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L699) | pytest / 5 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
+| `import-resource-consolidation::check_external_completion_proof` | `check_external_completion_proof` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L733) | pytest / 10 | read_proofの署名/期限/Task/Base/Scope、binding Task/worktree照合とrisk digest改ざん拒否、証跡保持/除去 | Import Receipt |
+| `import-resource-consolidation::check_snapshot_proof_resigning_and_cleanup` | `check_snapshot_proof_resigning_and_cleanup` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L799) | pytest / 1 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
 | `import-resource-consolidation::check_model_only_publication` | `check_model_only_publication` | IT | [integrations/model-operation-publication.checks.py:36](integrations/model-operation-publication.checks.py#L36) | pytest / 6 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
-| `issue-18` | `check_import_snapshot_evidence` | UT | [case](units/blueprint-loop-unit.checks.py) | pytest / 2 | diagnostics / authorization / finally | 実プロセス・Gitなし |
+| `issue-18` | `check_import_snapshot_evidence` | UT | [case](units/blueprint-loop-unit.checks.py#L808) | pytest / 2 | diagnostics / authorization / finally | 実プロセス・Gitなし |
 | `import-resource-consolidation::check_model_operation_integration` | `check_model_operation_integration` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py#L725) | direct / 1 | Import Mergeの実candidate検証・一意HEADのMergeとcleanup（Deleteは専用Transaction IT） | 統合境界のみ |
 
 | `sync attachment staging` | `check_linked_attachments` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_linked_attachments) | pytest / 2 | ローカル添付のバイト保持、欠落リンク失敗、復元と入力変更検出 | 新規 |
 
 ## Import Inventory 汎用取得
 
-| `import-inventory::check_partial_acquisition_cannot_complete` | `check_partial_acquisition_cannot_complete` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L604) | pytest / 1 | 部分取得失敗をPublish完了と誤認せず既存ModelとAWS非実行を維持 | Import Inventory |
-| `import-inventory::check_generic_acquisition_roundtrip` | `check_generic_acquisition_roundtrip` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L627) | pytest / 1 | Adapter未登録DataZoneの取得証跡とAWS非実行Publishを連携 | Import Inventory |
-| `import-inventory::check_inventory_singleflight_and_isolation` | `check_inventory_singleflight_and_isolation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
-| `import-inventory::check_context_api_singleflight_and_failures` | `check_context_api_singleflight_and_failures` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
-| `import-inventory::check_cloudtrail_all_model_properties` | `check_cloudtrail_all_model_properties` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
-| `import-inventory::check_tgw_provider_and_composite_identity` | `check_tgw_provider_and_composite_identity` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
-| `import-inventory::check_inventory_status_and_partial_retention` | `check_inventory_status_and_partial_retention` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
-| `import-inventory::check_cloudcontrol_json_and_readonly_boundary` | `check_cloudcontrol_json_and_readonly_boundary` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
-| `import-inventory::check_composite_identity_same_resource_only` | `check_composite_identity_same_resource_only` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
-| `import-inventory::check_inventory_capability_outcomes` | `check_inventory_capability_outcomes` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 4 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
-| `import-inventory::check_fetch_singleflight_and_trace` | `check_fetch_singleflight_and_trace` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
-| `import-inventory::check_tgw_compare_provider_evaluation` | `check_tgw_compare_provider_evaluation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
-| `import-inventory::check_legacy_adapter_api_counts` | `check_legacy_adapter_api_counts` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
-| `import-inventory::check_acquisition_account_region_isolation` | `check_acquisition_account_region_isolation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 2 | Context隔離・CLI選択・Identity不明の拒否 | Import Inventory |
-| `import-inventory::check_resource_type_cli_selection` | `check_resource_type_cli_selection` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | Context隔離・CLI選択・Identity不明の拒否 | Import Inventory |
-| `import-inventory::check_unknown_acquired_identity_rejected` | `check_unknown_acquired_identity_rejected` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | Context隔離・CLI選択・Identity不明の拒否 | Import Inventory |
+| `import-inventory::check_partial_acquisition_cannot_complete` | `check_partial_acquisition_cannot_complete` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L412) | pytest / 1 | 部分取得→Review→Publishで既存正本保持、未完了Receiptと追加AWS呼出なし | Import Inventory |
+| `import-inventory::check_generic_acquisition_roundtrip` | `check_generic_acquisition_roundtrip` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L431) | pytest / 1 | DataZoneのCloudControl取得証跡→Review→dry-run Publish、複合IDと正本不変 | Import Inventory |
+| `import-inventory::check_inventory_singleflight_and_isolation` | `check_inventory_singleflight_and_isolation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L843) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
+| `import-inventory::check_context_api_singleflight_and_failures` | `check_context_api_singleflight_and_failures` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L877) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
+| `import-inventory::check_cloudtrail_all_model_properties` | `check_cloudtrail_all_model_properties` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L894) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
+| `import-inventory::check_tgw_provider_and_composite_identity` | `check_tgw_provider_and_composite_identity` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L907) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
+| `import-inventory::check_inventory_status_and_partial_retention` | `check_inventory_status_and_partial_retention` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L932) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
+| `import-inventory::check_cloudcontrol_json_and_readonly_boundary` | `check_cloudcontrol_json_and_readonly_boundary` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L961) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
+| `import-inventory::check_composite_identity_same_resource_only` | `check_composite_identity_same_resource_only` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L989) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
+| `import-inventory::check_inventory_capability_outcomes` | `check_inventory_capability_outcomes` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1029) | pytest / 4 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
+| `import-inventory::check_fetch_singleflight_and_trace` | `check_fetch_singleflight_and_trace` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1051) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
+| `import-inventory::check_tgw_compare_provider_evaluation` | `check_tgw_compare_provider_evaluation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1079) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
+| `import-inventory::check_legacy_adapter_api_counts` | `check_legacy_adapter_api_counts` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1116) | pytest / 1 | 取得能力・Singleton・Identity・API回数の合成検証 | Import Inventory |
+| `import-inventory::check_acquisition_account_region_isolation` | `check_acquisition_account_region_isolation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1136) | pytest / 2 | Context隔離・CLI選択・Identity不明の拒否 | Import Inventory |
+| `import-inventory::check_resource_type_cli_selection` | `check_resource_type_cli_selection` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1150) | pytest / 1 | Context隔離・CLI選択・Identity不明の拒否 | Import Inventory |
+| `import-inventory::check_unknown_acquired_identity_rejected` | `check_unknown_acquired_identity_rejected` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1158) | pytest / 1 | Context隔離・CLI選択・Identity不明の拒否 | Import Inventory |
 
 Athena ResultConfiguration EncryptionConfiguration.KmsKey regression in `integrations/issues_failed_services.checks.py::main_checks` uses synthetic Model loading, Key Arn selection, GetAtt/ImportValue, same/different keys, rejected KeyId/AliasName/AliasArn on either/both sides, and unresolved form/identity cases. Other KMS contracts retain their existing expectations.
 
@@ -1951,24 +1933,24 @@ no new runner or live AWS/consumer inputs are introduced.
 
 | `atomic/batch-saves` | `check_batch_leaf_saves` | IT | [five pair saves](integrations/model-operation-publication.checks.py#L135) | pytest / 1 | transfer saves retain all five sources, empty-reference retarget is no-op, delete removes all and final semantic check passes; base unchanged | Added |
 
-| `import/references` | `check_reference_publication` | IT | [physical reference publication](integrations/import-model.checks.py#L653) | pytest / 7 | acquired Trail scalar links and JSON Pointer references to a unique local CREATE bucket; JSON retains acquired AWS literals with external name metadata; one producer read per expansion/physical-verification permission context and unchanged API count; a producer race rolls back sources and retains the external edit | Added |
+| `import/references` | `check_reference_publication` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L467) | pytest / 3 | scalar/JSON Pointer参照の実保存再読込・表示復旧、権限contextごとのproducer読込、保存中raceのRollbackとReview後producer変更拒否 | Added |
 
 ## Generic Model dependency detach
 
 | Original case | Case | Class | Current location | Execution / count | Responsibility | Change |
 | --- | --- | --- | --- | --- | --- | --- |
 | `dependency/contract` | `check_dependency_detach_contract` | UT | [strict opt-in contract](units/task-contract-unit.checks.py) | pytest / 1 | exact JSON/keys/IDs/scope, malformed/duplicate/conflicting declarations; ordinary design unchanged | Added |
-| `dependency/stack-usage` | `check_stack_reference_usage` | UT | [fixed-ID Stack usage](units/import-model-unit.checks.py) | pytest / 7 | synthetic Stack and Resource references, pointers/provenance, unrelated deletion meaning check, collision/missing/type/format/name/shape rejection | Added |
-| `dependency/usage` | `check_generic_reference_usage` | UT | [fixed-ID usage](units/import-model-unit.checks.py) | pytest / 1 | service-a/service-b cycle, identical names with distinct IDs, source line and value, read-only state | Added |
-| `dependency/shape` | `check_reference_active_shapes_and_documents` | UT | [active shapes](units/import-model-unit.checks.py) | pytest / 2 | active choice, inactive optional JSON/unused Definition, escaped JSON pointer, separate display links | Added |
-| `dependency/unresolved` | `check_reference_fail_closed` | UT | [unresolved references](units/import-model-unit.checks.py) | pytest / 4 | unknown fixed ID, cyclic name expansion, broken internal link and missing input fail closed | Added |
-| `dependency/delete` | `check_value_preserving_detach_and_single_deletions` | UT | [separate single deletions](units/import-model-unit.checks.py) | pytest / 1 | independent value-preserving detach followed by two unchanged single-delete checks; other environment preserved | Added |
-| `dependency/preservation` | `check_refactor_rejects_changes` | UT | [preservation rejection](units/import-model-unit.checks.py) | pytest / 10 | changed value/mode/anchor/observed/foreign consumer, identical-name retarget, scope, retained/undeclared reference and CREATE reject | Added |
+| `dependency/stack-usage` | `check_stack_reference_usage` | UT | [fixed-ID Stack usage](units/import-model-unit.checks.py#L1367) | pytest / 7 | synthetic Stack and Resource references, pointers/provenance, unrelated deletion meaning check, collision/missing/type/format/name/shape rejection | Added |
+| `dependency/usage` | `check_generic_reference_usage` | UT | [fixed-ID usage](units/import-model-unit.checks.py#L1426) | pytest / 1 | service-a/service-b cycle, identical names with distinct IDs, source line and value, read-only state | Added |
+| `dependency/shape` | `check_reference_active_shapes_and_documents` | UT | [active shapes](units/import-model-unit.checks.py#L1446) | pytest / 2 | active choice, inactive optional JSON/unused Definition, escaped JSON pointer, separate display links | Added |
+| `dependency/unresolved` | `check_reference_fail_closed` | UT | [unresolved references](units/import-model-unit.checks.py#L1470) | pytest / 4 | unknown fixed ID, cyclic name expansion, broken internal link and missing input fail closed | Added |
+| `dependency/delete` | `check_value_preserving_detach_and_single_deletions` | UT | [separate single deletions](units/import-model-unit.checks.py#L1499) | pytest / 1 | independent value-preserving detach followed by two unchanged single-delete checks; other environment preserved | Added |
+| `dependency/preservation` | `check_refactor_rejects_changes` | UT | [preservation rejection](units/import-model-unit.checks.py#L1523) | pytest / 10 | changed value/mode/anchor/observed/foreign consumer, identical-name retarget, scope, retained/undeclared reference and CREATE reject | Added |
 | `dependency/integration` | `check_model_refactor_integration` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py#L770) | direct / 1 | 通常Model publicationとBase producer更新後の実Rebase・最終候補検証・Merge | 統合境界のみ |
-| `dependency/bounded-read` | `check_reference_readonly_and_bounded_expansion` | UT | [bounded read-only API](units/import-model-unit.checks.py) | pytest / 1 | one selected-service expansion for outgoing, selected target only for incoming, pending journal refusal without Model writes | Added |
-| `dependency/structure` | `check_reference_structural_and_remaining_delete` | UT | [structural and surviving references](units/import-model-unit.checks.py) | pytest / 1 | parentReference identity/role, structural detach and deletion with remaining name reference rejected | Added |
-| `dependency/json-types` | `check_dependency_json_types_and_exact_detach` | UT | [exact JSON detach](units/import-model-unit.checks.py) | pytest / 1 | declared JSON leaf detach, retained sibling reference, undeclared change, boolean/number type changes, escaped marker impersonation rejection | Added |
-| `dependency/link-label` | `check_reference_embedded_link_label` | UT | [embedded label reference](units/import-model-unit.checks.py) | pytest / 1 | typed name in Markdown label and link target remain distinct fixed-ID usages | Added |
+| `dependency/bounded-read` | `check_reference_readonly_and_bounded_expansion` | UT | [bounded read-only API](units/import-model-unit.checks.py#L1564) | pytest / 1 | one selected-service expansion for outgoing, selected target only for incoming, pending journal refusal without Model writes | Added |
+| `dependency/structure` | `check_reference_structural_and_remaining_delete` | UT | [structural and surviving references](units/import-model-unit.checks.py#L1623) | pytest / 1 | parentReference identity/role, structural detach and deletion with remaining name reference rejected | Added |
+| `dependency/json-types` | `check_dependency_json_types_and_exact_detach` | UT | [exact JSON detach](units/import-model-unit.checks.py#L1648) | pytest / 1 | declared JSON leaf detach, retained sibling reference, undeclared change, boolean/number type changes, escaped marker impersonation rejection | Added |
+| `dependency/link-label` | `check_reference_embedded_link_label` | UT | [embedded label reference](units/import-model-unit.checks.py#L1683) | pytest / 1 | typed name in Markdown label and link target remain distinct fixed-ID usages | Added |
 
 The existing IT cases retain their assertions and registrations after the runtime extraction:
 blueprint-loop orchestration uses the CLI and validator API boundaries; deployment fixtures
@@ -1991,19 +1973,19 @@ partial-cache validation spies on compare_generation with the full consumer scop
 
 | Origin | Case | Class | Location | Entry / conditions | Responsibility | Scope |
 |---|---|---|---|---|---|---|
-| `import-selected::check_selected_overwrite` | `check_selected_overwrite` | UT | [units/import-model-unit.checks.py:1547](units/import-model-unit.checks.py#L1547) | pytest / 2 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
-| `import-selected::check_overwrite_identity_and_mode_boundary` | `check_overwrite_identity_and_mode_boundary` | UT | [units/import-model-unit.checks.py:1568](units/import-model-unit.checks.py#L1568) | pytest / 4 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
-| `import-selected::check_overwrite_does_not_grant_unrelated_edits` | `check_overwrite_does_not_grant_unrelated_edits` | UT | [units/import-model-unit.checks.py:1578](units/import-model-unit.checks.py#L1578) | pytest / 8 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
-| `import-selected::check_refresh_new_rows_and_missing_properties` | `check_refresh_new_rows_and_missing_properties` | UT | [units/import-model-unit.checks.py:1601](units/import-model-unit.checks.py#L1601) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
-| `import-selected::check_overwrite_duplicate_selection_and_destination_identity` | `check_overwrite_duplicate_selection_and_destination_identity` | UT | [units/import-model-unit.checks.py:1616](units/import-model-unit.checks.py#L1616) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
-| `import-selected::check_selected_binding_switch_preserves_fixed_maps` | `check_selected_binding_switch_preserves_fixed_maps` | UT | [units/import-model-unit.checks.py:1630](units/import-model-unit.checks.py#L1630) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
-| `import-selected::check_overwrite_reference_permission_is_property_scoped` | `check_overwrite_reference_permission_is_property_scoped` | UT | [units/import-model-unit.checks.py:1642](units/import-model-unit.checks.py#L1642) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
-| `import-selected::check_import_llm_choice_contract` | `check_import_llm_choice_contract` | UT | [units/import-model-unit.checks.py:1660](units/import-model-unit.checks.py#L1660) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
-| `import-selected::check_user_selected_overwrite_publication` | `check_user_selected_overwrite_publication` | IT | [integrations/import-model.checks.py:782](integrations/import-model.checks.py#L782) | pytest / 6 | refresh/replace/bindの通常保存・dry-run、非選択・他環境保護 | User-selected Import |
-| `import-selected::check_mixed_add_refresh_single_publication` | `check_mixed_add_refresh_single_publication` | IT | [integrations/import-model.checks.py:822](integrations/import-model.checks.py#L822) | pytest / 2 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
-| `import-selected::check_replace_rejects_incoming_references` | `check_replace_warns_incoming_references` | IT | [integrations/import-model.checks.py:858](integrations/import-model.checks.py#L858) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
-| `import-selected::check_first_resource_uses_existing_source_format` | `check_first_resource_uses_existing_source_format` | IT | [integrations/import-model.checks.py:881](integrations/import-model.checks.py#L881) | pytest / 4 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
-| `import-selected::check_refresh_switches_definition_without_foreign_changes` | `check_refresh_switches_definition_without_foreign_changes` | IT | [integrations/import-model.checks.py:915](integrations/import-model.checks.py#L915) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_selected_overwrite` | `check_selected_overwrite` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1716) | pytest / 2 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_overwrite_identity_and_mode_boundary` | `check_overwrite_identity_and_mode_boundary` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1735) | pytest / 4 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_overwrite_does_not_grant_unrelated_edits` | `check_overwrite_does_not_grant_unrelated_edits` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1745) | pytest / 8 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_refresh_new_rows_and_missing_properties` | `check_refresh_new_rows_and_missing_properties` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1768) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_overwrite_duplicate_selection_and_destination_identity` | `check_overwrite_duplicate_selection_and_destination_identity` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1786) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_selected_binding_switch_preserves_fixed_maps` | `check_selected_binding_switch_preserves_fixed_maps` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1798) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_overwrite_reference_permission_is_property_scoped` | `check_overwrite_reference_permission_is_property_scoped` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1811) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_import_llm_choice_contract` | `check_import_llm_choice_contract` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1829) | pytest / 1 | 選択済み更新・取得証跡・非選択保護・原子的保存 | User-selected Import |
+| `import-selected::check_user_selected_overwrite_publication` | `check_user_selected_overwrite_publication` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L568) | pytest / 2 | bind/replaceの実保存と再読込、Review操作・Receipt一致、非選択Resource・他環境保持 | User-selected Import |
+| `import-selected::check_mixed_add_refresh_single_publication` | `check_mixed_add_refresh_single_publication` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L611) | pytest / 2 | Add/Refreshの一括保存・再読込、単一saveと部分失敗Rollback、再取得なし | User-selected Import |
+| `import-selected::check_replace_warns_incoming_references` | `check_replace_warns_incoming_references` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L641) | pytest / 1 | VPC replaceの実保存とincoming reference impact警告の連携 | User-selected Import |
+| `import-selected::check_first_resource_uses_existing_source_format` | `check_first_resource_uses_existing_source_format` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L662) | pytest / 2 | 空入口/他環境なしと入口欠落/他環境ありの初回実保存、v2再読込・他環境不変 | User-selected Import |
+| `import-selected::check_refresh_switches_definition_without_foreign_changes` | `check_refresh_switches_definition_without_foreign_changes` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L696) | pytest / 1 | Refreshの定義選択変更を実保存、非選択Resourceとstg定義保持 | User-selected Import |
 
 ## Resource Delete parent transaction units
 
@@ -2019,7 +2001,7 @@ Business tests use ordinary Git or file snapshots and never create lifecycle rec
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
-| `guard-cache/equivalence` | `check_guard_cache_equivalence` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 12 | 最終候補のキャッシュcontext有無による結果一致、旧Model不変性を要求しない検証 | Added |
+| `guard-cache/equivalence` | `check_guard_cache_equivalence` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1890) | pytest / 12 | 最終候補のキャッシュcontext有無による結果一致、旧Model不変性を要求しない検証 | Added |
 | `guard-runtime/process` | `check_registered_guard_process` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py#L21) | pytest / 8 | 明示Task・通常/承認contract_file、warning・非ゼロstdout/stderr、起動/runtime失敗 | Added |
 | `guard-runtime/preconditions` | `check_prepare_rejects_before_git_write` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py#L80) | pytest / 11 | 安価な前提違反、ガード拒否、ガード中のTask/HEAD/変更をGit書込み前に拒否 | Added |
 | `guard-runtime/json` | `check_cli_failure_diagnostics` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py#L116) | pytest / 1 | CLI JSONと子診断の分離 | Added |
@@ -2063,7 +2045,7 @@ dirty baseは高コスト解析・commit前に拒否するため、既存テス�
 | `model-v2::check_deploy_digest_covers_all_nonobserved_authority` | `check_deploy_digest_covers_all_nonobserved_authority` | IT | [integrations/cloudformation-deploy.checks.py](integrations/cloudformation-deploy.checks.py#L2677) | pytest / 3 | display/reference/placement を含む非観測設計 digest | Model v2 |
 | `model-v2::check_deploy_observed_baseline_advances_only_proven_outputs` | `check_deploy_observed_baseline_advances_only_proven_outputs` | IT | [integrations/cloudformation-deploy.checks.py](integrations/cloudformation-deploy.checks.py#L2702) | pytest / 5 | 観測差分だけの baseline 更新と同時設計変更拒否 | Model v2 |
 | `model-v2::check_deploy_preparation_separates_producer_reads_from_writes` | `check_deploy_preparation_separates_producer_reads_from_writes` | IT | [integrations/cloudformation-deploy.checks.py](integrations/cloudformation-deploy.checks.py#L2731) | pytest / 1 | producer 読取依存と許可書込先の分離 | Model v2 |
-| `model-v2::check_properties_import_acquire_review_publish` | `check_properties_import_acquire_review_publish` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L967) | pytest / 11 | 一回取得・Review・別プロセス保存・source/receipt/view rollback・強制終了回復 | Model v2 |
+| `model-v2::check_properties_import_acquire_review_publish` | `check_properties_import_acquire_review_publish` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L733) | pytest / 2 | 実取得/ReviewからReview改ざんの保存前拒否とReceipt失敗時の実Rollback | Model v2 |
 | `model-v2::check_properties_standalone_audit_has_no_framework_runtime` | `check_properties_standalone_audit_has_no_framework_runtime` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L615) | pytest / 1 | 独立 audit の生成・Framework import 不要・未取得 ERROR | Model v2 |
 | `model-v2::check_properties_model_operation_preservation` | `check_properties_model_operation_preservation` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L644) | pytest / 6 | merge/delete の固定 identity・観測・native type・非選択保持 | Model v2 |
 | `model-v2::check_properties_retarget_keeps_other_fragments_and_reference_ids` | `check_properties_retarget_keeps_other_fragments_and_reference_ids` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L684) | pytest / 6 | retarget の literal 断片・context・format・固定 refid 保持 | Model v2 |
@@ -2074,7 +2056,7 @@ dirty baseは高コスト解析・commit前に拒否するため、既存テス�
 
 旧 Import approval の保存 transaction 15 ケースは同じケース ID・parameter 数を維持して import-model IT へ移管した。削除済み publish_selected の Mock ではなく、実管理 worktree・取得 evidence・全件 Review・共通 publisher/receipt の競合・rollback と表示専用回復を検査する。AWS transport だけを合成に固定する。
 
-| `model-v2::review-complete-canonical-changes` | `check_review_reports_every_canonical_change` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 全正本キー・Row comment・display・service の Before/After と存在性を全件 Review に表示 | Model v2 |
+| `model-v2::review-complete-canonical-changes` | `check_review_reports_every_canonical_change` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L698) | pytest / 1 | 全正本キー・Row comment・display・service の Before/After と存在性を全件 Review に表示 | Model v2 |
 
 Properties v2 の検査移管（検査目的と parameter matrix を維持）:
 
@@ -2198,7 +2180,7 @@ Properties v2 の追加移行対応（model-properties-v2）:
 | --- | --- | --- | --- | --- |
 | `existing-ut-inventory` | `check_pending_reference_is_required_input` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py) | pytest / 1 | 保存済みResource URIは観測値が未配備でも必須入力として保持し、空値・未確定literalは拒否、入力不変 |
 
-| `candidate-model/repair` | `check_repair_invalid_model` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 40 | 不正な参照・形式・identity・重複の修正保存、IMPORT固定値変更、候補検証・権限・scope・競合・rollback、Git baseline Model展開なし | Added |
+| `candidate-model/repair` | `check_repair_invalid_model` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1947) | pytest / 40 | 不正な参照・形式・identity・重複の修正保存、IMPORT固定値変更、候補検証・権限・scope・競合・rollback、Git baseline Model展開なし | Added |
 
 ## 残存UTの登録整合
 
@@ -2211,24 +2193,24 @@ Properties v2 の追加移行対応（model-properties-v2）:
 | `existing-ut-inventory` | `check_full_validation_dependencies` | UT | [units/aws_definitions.checks.py](units/aws_definitions.checks.py#L97) | direct / 1 | full validation dependencies | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_stage_survival_and_definition_sources` | UT | [units/aws_definitions.checks.py](units/aws_definitions.checks.py#L138) | direct / 1 | stage survival and definition sources | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_validation_projection_scope` | UT | [units/aws_mapping_display-unit.checks.py](units/aws_mapping_display-unit.checks.py#L17) | pytest / 1 | validation projection scope | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_unit_dispatch` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L171) | pytest / 15 | unit dispatch | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_ci_workflow` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L214) | pytest / 1 | ci workflow | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_unit_dispatch` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L183) | pytest / 15 | unit dispatch | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_ci_workflow` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L269) | pytest / 1 | ci workflow | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_fixed_identity_anchors` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py#L74) | pytest / 1 | fixed identity anchors | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_atomic_bytes` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py#L15) | pytest / 1 | atomic bytes | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_atomic_failure` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py#L27) | pytest / 3 | all-stage-first failure and rollback before/after rename | 置換前後の障害注入を共通UTに集約 |
 | `existing-ut-inventory` | `check_save_rollback_patch` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py#L45) | pytest / 1 | save rollback patch | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_model_operation_catalog_arrays` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L604) | pytest / 6 | model operation catalog arrays | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_batch_model_operation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1050) | pytest / 1 | batch model operation | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_intermediate_source_context` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1069) | pytest / 2 | intermediate source context | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_explicit_reference_operation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1118) | pytest / 6 | explicit reference operation | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_effective_reference_identity` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1191) | pytest / 2 | effective reference identity | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_local_reference_effective_identity` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1221) | pytest / 1 | local reference effective identity | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_stack_reference_usage_identity` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1237) | pytest / 1 | stack reference usage identity | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_reference_target_diagnostics` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1262) | pytest / 2 | reference target diagnostics | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_issues_never_waive_delete_reference_safety` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1547) | pytest / 2 | issues never waive delete reference safety | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_publication_verifies_only_acquisition_selected_additions` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1663) | pytest / 1 | publication verifies only acquisition selected additions | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_existing_hyphenated_fixed_id_cannot_receive_rows` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1674) | pytest / 1 | existing hyphenated fixed id cannot receive rows | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_refactor_json_value_structure` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1825) | pytest / 22 | refactor json value structure | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_model_operation_catalog_arrays` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L680) | pytest / 6 | model operation catalog arrays | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_batch_model_operation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1170) | pytest / 1 | batch model operation | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_intermediate_source_context` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1184) | pytest / 2 | intermediate source context | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_explicit_reference_operation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1224) | pytest / 6 | explicit reference operation | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_effective_reference_identity` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1291) | pytest / 2 | effective reference identity | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_local_reference_effective_identity` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1314) | pytest / 1 | local reference effective identity | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_stack_reference_usage_identity` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1326) | pytest / 1 | stack reference usage identity | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_reference_target_diagnostics` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1347) | pytest / 2 | reference target diagnostics | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_issues_never_waive_delete_reference_safety` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1599) | pytest / 2 | issues never waive delete reference safety | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_publication_verifies_only_acquisition_selected_additions` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1697) | pytest / 1 | publication verifies only acquisition selected additions | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_existing_hyphenated_fixed_id_cannot_receive_rows` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1707) | pytest / 1 | existing hyphenated fixed id cannot receive rows | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_refactor_json_value_structure` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1859) | pytest / 22 | refactor json value structure | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_exact_reference` | UT | [units/import-references-unit.checks.py](units/import-references-unit.checks.py#L92) | pytest / 44 | exact reference | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_guardduty_bucket_reference_contract` | UT | [units/import-references-unit.checks.py](units/import-references-unit.checks.py#L110) | pytest / 1 | guardduty bucket reference contract | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_no_guessed_or_foreign_identity` | UT | [units/import-references-unit.checks.py](units/import-references-unit.checks.py#L138) | pytest / 1 | no guessed or foreign identity | 既存テストの登録漏れ補完・本体変更なし |
@@ -2454,74 +2436,91 @@ observed-resume UTはCIで毎回実行する。IT runnerとGitHub Actionsの入�
 
 | `import-worktree::properties-boundary` | `check_properties_import_git_boundary` | IT | [real Git boundaries](integrations/import-cli.checks.py#L53) | pytest / 5 | HEAD invalidation, separate CLI process and source/receipt/display os._exit(17) recovery, moved intact from properties publication matrix | Issue 14 |
 
-## Issue 14: Import / Model / Worktree separation
+## Issue 14: Import IT responsibility reduction
 
-The original 112 parametrized cases remain reachable. `check_properties_import_acquire_review_publish` keeps 11 Import parameters; its `head`, `subprocess`, `source-crash`, `receipt-crash`, and `display-crash` parameters move to `check_properties_import_git_boundary` unchanged. The latter retains actual `os._exit(17)` processes. CLI preflight and cross-process evidence move intact. No case is skipped or xfailed.
+`import-model` は **29登録関数・37 pytest条件**（変更前47関数・104条件）。67条件を削減した。
+件数は登録と収集の値であり、実行成功や性能の証拠ではない。目標約35条件より2条件多いが、
+保存中raceの外部編集保持、bind/replace、Mixed Add/Refresh成功/失敗を独立して残す。
+Production Import・runner・Receipt照合・Git/Worktree分離の実装は変更しない。
 
-| Original function | Original cases | Current suite / function |
-| --- | ---: | --- |
-| `check_cli_preflight` | 1 | `import-worktree-contract.checks.py::check_cli_preflight` |
-| `check_logs_roundtrip` | 1 | `import-model.checks.py::check_logs_roundtrip` |
-| `check_config_sources` | 1 | `import-model.checks.py::check_config_sources` |
-| `check_vpc_eight_instances` | 1 | `import-model.checks.py::check_vpc_eight_instances` |
-| `check_quicksight_normalization` | 1 | `import-model.checks.py::check_quicksight_normalization` |
-| `check_registry_services` | 1 | `import-model.checks.py::check_registry_services` |
-| `check_managed_resource_addition` | 3 | `import-model.checks.py::check_managed_resource_addition` |
-| `check_existing_resource_selection_rejected` | 2 | `import-model.checks.py::check_existing_resource_selection_rejected` |
-| `check_optional_profile` | 1 | `import-model.checks.py::check_optional_profile` |
-| `check_explicit_no_profile` | 1 | `import-model.checks.py::check_explicit_no_profile` |
-| `check_single_acquisition` | 1 | `import-model.checks.py::check_single_acquisition` |
-| `check_source_race` | 1 | `import-model.checks.py::check_source_race` |
-| `check_create_definition_reuse` | 1 | `import-model.checks.py::check_create_definition_reuse` |
-| `check_cli_faults` | 1 | `import-model.checks.py::check_cli_faults` |
-| `check_inventory_parent_references` | 1 | `import-model.checks.py::check_inventory_parent_references` |
-| `check_exact_scope` | 1 | `import-model.checks.py::check_exact_scope` |
-| `check_external_reference_preservation` | 1 | `import-model.checks.py::check_external_reference_preservation` |
-| `check_mapping_preservation` | 1 | `import-model.checks.py::check_mapping_preservation` |
-| `check_shared_property_and_bindings` | 1 | `import-model.checks.py::check_shared_property_and_bindings` |
-| `check_foreign_source_writes_rejected` | 5 | `import-model.checks.py::check_foreign_source_writes_rejected` |
-| `check_add_identity_boundary` | 4 | `import-model.checks.py::check_add_identity_boundary` |
-| `check_unacquired_property_rejection` | 1 | `import-model.checks.py::check_unacquired_property_rejection` |
-| `check_repeat_without_reformat` | 1 | `import-model.checks.py::check_repeat_without_reformat` |
-| `check_fixed_identity_rejection` | 1 | `import-model.checks.py::check_fixed_identity_rejection` |
-| `check_empty_inventory_preserves_sources` | 1 | `import-model.checks.py::check_empty_inventory_preserves_sources` |
-| `check_partial_reflection` | 1 | `import-model.checks.py::check_partial_reflection` |
-| `check_native_types_preserved` | 1 | `import-model.checks.py::check_native_types_preserved` |
-| `check_consumer_set_race` | 1 | `import-model.checks.py::check_consumer_set_race` |
-| `check_source_transaction_rollback` | 1 | `import-model.checks.py::check_source_transaction_rollback` |
-| `check_yaml_candidate_edit` | 1 | `import-model.checks.py::check_yaml_candidate_edit` |
-| `check_reflection_validation_boundary` | 1 | `import-model.checks.py::check_reflection_validation_boundary` |
-| `check_cross_process_evidence` | 1 | `import-worktree-contract.checks.py::check_cross_process_evidence` |
-| `check_dry_run_cleanup` | 1 | `import-model.checks.py::check_dry_run_cleanup` |
-| `check_evidence_and_display_recovery` | 1 | `import-model.checks.py::check_evidence_and_display_recovery` |
-| `check_model_only_publication` | 6 | `model-operation-publication.checks.py::check_model_only_publication` |
-| `check_partial_acquisition_cannot_complete` | 1 | `import-model.checks.py::check_partial_acquisition_cannot_complete` |
-| `check_generic_acquisition_roundtrip` | 1 | `import-model.checks.py::check_generic_acquisition_roundtrip` |
-| `check_intermediate_model_sources` | 1 | `model-operation-publication.checks.py::check_intermediate_model_sources` |
-| `check_batch_leaf_saves` | 1 | `model-operation-publication.checks.py::check_batch_leaf_saves` |
-| `check_reference_publication` | 7 | `import-model.checks.py::check_reference_publication` |
-| `check_user_selected_overwrite_publication` | 6 | `import-model.checks.py::check_user_selected_overwrite_publication` |
-| `check_mixed_add_refresh_single_publication` | 2 | `import-model.checks.py::check_mixed_add_refresh_single_publication` |
-| `check_replace_warns_incoming_references` | 1 | `import-model.checks.py::check_replace_warns_incoming_references` |
-| `check_first_resource_uses_existing_source_format` | 4 | `import-model.checks.py::check_first_resource_uses_existing_source_format` |
-| `check_refresh_switches_definition_without_foreign_changes` | 1 | `import-model.checks.py::check_refresh_switches_definition_without_foreign_changes` |
-| `check_approval_bound_save_guard` | 6 | `import-model.checks.py::check_approval_bound_save_guard` |
-| `check_properties_import_acquire_review_publish` | 16 | `import-model.checks.py::check_properties_import_acquire_review_publish` (11) + `import-worktree-contract.checks.py::check_properties_import_git_boundary` (5) |
-| `check_publication_transaction_without_host` | 10 | `import-model.checks.py::check_publication_transaction_without_host` |
-| `check_saved_display_recovery_needs_no_new_approval` | 1 | `import-model.checks.py::check_saved_display_recovery_needs_no_new_approval` |
-| `check_candidate_review_mismatch_rejected_without_host` | 4 | `import-model.checks.py::check_candidate_review_mismatch_rejected_without_host` |
+### IT削除と既存保証の対応
 
-Additional safety checks use byte snapshots for Model, Project and Task additions, edits and removals. Production guards still check Task, source paths, Validation scope, target, HMAC, Review binding, candidate and approved source hashes. The Provider replaces only repository state acquisition in-process; no CLI/environment bypass exists. Unversioned temporary generation stages keep their production semantics.
+以下の旧名は削除理由の記録で、現在の登録・実行入口ではない。
+UT略記: M=[import-model-unit](units/import-model-unit.checks.py)、A=[import-approval-unit](units/import-approval-unit.checks.py)、R=[import-references-unit](units/import-references-unit.checks.py)。
+UTにはIT用Publication helper・Acquire→Publish全体・Full fixtureを移植していない。
+
+| 削除した旧IT | 判断・直接呼出関数/既存UT | 残した代表ITと失われない保証 |
+|---|---|---|
+| `check_quicksight_normalization` (1)、`check_registry_services` (1) | M::check_adapter_inventory_normalization がimport_context/inventory/normalize_recordsを直接検証。QuickSight Name=identity・Account引数だけ同UTへ補完 | check_generic_acquisition_roundtrip、check_logs_roundtripが取得証跡→Review→Publish接続を維持 |
+| `check_inventory_parent_references` (1)、`check_mapping_preservation` (1) | 同M UTに7 Subnetの親VpcIdとConfig未取得property除外を補完。型付きConfig値は既存assertion | check_managed_resource_additionで親参照の実保存・再読込を維持 |
+| `check_cli_faults` (1、内部5入力) | M::check_adapter_inventory_normalizationにContext.verifyのAccountMismatch/AccessDenied、M::check_inventory_status_and_partial_retentionにinventoryの不正3応答を補完 | check_partial_acquisition_cannot_completeで失敗Inventoryと未完了Receiptの連携、check_evidence_and_display_recoveryで保存前不変を維持 |
+| `check_existing_resource_selection_rejected` (2) | M::check_existing_resource_action_rejectedがselection_recordsのupdate/add拒否を既存4条件で保証 | check_foreign_source_writes_rejected、check_properties_import_acquire_review_publishで保存前拒否の実境界を維持 |
+| `check_add_identity_boundary` (4) | M::check_duplicate_add_uses_baselineがLogs/VPC・observed隠し・CREATE/IMPORTの8条件を既存保証。新規追加はM::check_new_resource_and_explicit_dispositions | check_logs_roundtripの新Logs保存、check_managed_resource_additionのSubnet参照保存を維持 |
+| `check_unacquired_property_rejection` (1) | M::check_unacquired_and_create_protection、check_overwrite_does_not_grant_unrelated_edits。新規Resourceの取得値不一致だけcheck_new_resource_and_explicit_dispositionsへ補完 | check_properties_import_acquire_review_publishで保存前拒否・正本不変を維持 |
+| `check_fixed_identity_rejection` (1) | M::check_invalid_candidates、check_binding_identity_and_addition、check_overwrite_does_not_grant_unrelated_editsがanchor/logicalId/Mode/Rowの同一関数判定を既存保証 | 実bind/replace後の非選択Resource・保存結果はcheck_user_selected_overwrite_publication |
+| `check_native_types_preserved` (1) | M::check_shared_property_typed_preservation、check_native_equality_and_singleton。integer 90とstring "90"のtyped_row/typed_equal照合のみcheck_typed_property_valuesに補完 | check_logs_roundtripで取得integerの正本/表示を維持 |
+| `check_exact_scope` (1、内部2拒否) | M::check_foreign_candidate_scope、A::check_acquisition_identity_boundary / check_output_contract_scopeが直接検証 | check_foreign_source_writes_rejectedとcheck_gitless_guard_boundariesの実保存拒否を維持 |
+| `check_external_reference_preservation` (1) | M::check_shared_source_preservation_boundary、A::check_unselected_reference_changes_are_not_reviewed_as_selectedがverify_values/build_reviewで未選択変更拒否。R::check_no_guessed_or_foreign_identityも参照推測を拒否 | check_reference_publicationが参照宣言保存/再読込とproducer不変を維持 |
+| `check_partial_reflection` (1) | A::check_unanswered_review_cannot_be_approvedがreview_bindingで未回答を保存権限にしない | check_partial_acquisition_cannot_completeの実未完了Receiptを維持 |
+| `check_single_acquisition` (1)、`check_create_definition_reuse` (1)、`check_yaml_candidate_edit` (1) | UT追加なし。同じ保存結果のassertionをcheck_logs_roundtripへ集約 | 再取得呼出禁止・元canonical値/CREATE・追加IMPORT・候補bytes=保存bytesを同一正常Publicationで照合 |
+| `check_saved_display_recovery_needs_no_new_approval` (1) | UTへ移動しない。重複する実Recoveryを一本化 | check_evidence_and_display_recoveryで表示保存失敗後のModel/Receipt保持、recover_displayの実復旧とread_acquisition/import_context禁止を維持 |
+| `check_candidate_review_mismatch_rejected_without_host` (4) | A::check_changed_review_needs_new_review、check_same_value_reference_meaning_is_boundは既存。A::check_preflight_before_any_saveへ候補value/target/resource/referenceの4不足条件のみ補完、publish_editはMock | check_properties_import_acquire_review_publishのReview改ざん拒否とcheck_publication_transaction_without_hostの候補raceを維持 |
+
+### 不足した単体判定だけを既存UTへ補完
+
+既存suiteに4関数を追加し、既存関数の不足parameterも合わせ32条件だけ増やす。
+FixtureのUTは合成fileを使ってコピー関数を直接呼び、Import fixtureやPublicationを実行しない。
 
 | Requirement | Case | Layer | File | Mode / Count | Verification | Reason |
-| --- | --- | --- | --- | --- | --- | --- |
-| `import-gitless::guards` | `check_gitless_guard_boundaries` | IT | [guards](integrations/import-model.checks.py#L996) | pytest / 7 | HEAD/base/Task/Allowed paths/scope/target/foreign source rejection, no publication side effects | Issue 14 |
-| `import-gitless::snapshot` | `check_repository_snapshot_detects_real_changes` | IT | [snapshots](integrations/import-model.checks.py#L1036) | pytest / 1 | Real bytes detect additions, removals, comment edits and Task edits without changing the baseline | Issue 14 |
-| `import-worktree::contract` | `check_import_managed_contract_boundaries` | IT | [integrations/import-worktree-contract.checks.py](integrations/import-worktree-contract.checks.py#L89) | pytest / 1 | 実Worktree間の取得証跡所有権分離と正規publication/receipt接続 | 統合境界のみ |
+|---|---|---|---|---|---|---|
+| `import-current::inputs` | `check_publication_current_inputs` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L354) | pytest / 6 | 保存前callbackを直接呼びReview/draft/acquisition/Task/source-setの変更拒否、正本不変・output guard未呼出 | No Publication |
+| `import-current::identity` | `check_acquisition_identity_boundary` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L390) | pytest / 9 | read_acquisitionを直接呼びhead/base/Task/scope/root/dryRun/期限/statusを照合 | Sealed reader Mock |
+| `import-current::output-scope` | `check_output_contract_scope` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py#L414) | pytest / 7 | record_outputsを直接呼びAllowed/scope/target/source/view/consumer拒否 | Contract snapshot Mock |
+| `import-current::focused-fixture` | `check_it_focused_fixture_isolation` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L445) | pytest / 1 | 既存FullとFocusedのparts/階層、独立書込、共有seed不変、linkなし | Authored seed only |
 
-| `model-worktree::source-context` | `check_model_source_context_worktree_boundary` | IT | [integrations/import-worktree-contract.checks.py](integrations/import-worktree-contract.checks.py#L95) | pytest / 2 | 実管理Worktreeのsource保存と所有者変更時の保存拒否・Base bytes保持 | 統合境界のみ |
+### Parameterized ITの縮小
 
-Model value, rollback and journal cases use `model-operation-publication.checks.py` without Git; managed source capability conflicts run above, and `worktree_task.checks.py::check_model_operation_integration` retains Merge final-candidate integration; `worktree-model-operation.checks.py` retains the multi-service Delete transaction and failed-candidate repair.
+| IT | 条件数 前→後 | 除いた入力条件・UTの責務 | 統合固有のため維持した保証 |
+|---|---:|---|---|
+| check_properties_import_acquire_review_publish | 11→2 | none→logs roundtrip、source→source race、task→gitless guard、candidate→A preflight、source-set→A current inputs、model-io→source rollback、display-io→display recovery、bind/replace→overwrite IT | Review改ざん保存前拒否、finish_import後Receipt失敗の正本Rollback/Receipt除去 |
+| check_publication_transaction_without_host | 10→2 | 正常/Receipt/Display失敗は代表ITと重複。Review/draft/acquisition/Taskの保存直前再確認はA::check_publication_current_inputs。期限はA::check_expiry_and_digest_tampering / check_acquisition_identity_boundary | record_outputs後のcandidate/正本race。実保存境界と外部編集保持はUTで代替しない |
+| check_reference_publication | 7→3 | literal/no producerとabsentはR::check_exact_reference / check_unobserved_local_and_identity_self_links、mismatch/ambiguousはR::check_ambiguous_and_wrong_explicit_link / check_observed_comparison_in_design_and_import。incoming診断はR::check_saved_import_impact_analysis | 正常参照保存/JSON Pointer再読込・表示復旧、保存中producer raceのRollback、Review後producer変更拒否。producer読込/API回数assertionを保持 |
+| check_user_selected_overwrite_publication | 6→2 | refresh正常はMixed/definition switch、action別dry-runはM::check_selected_overwrite / A::check_explicit_bind_preserves_identityと共通dry-run ITの組合せで保証 | bind/replace両方の実Publication・再読込・Review操作一致・未選択/他環境保持 |
+| check_first_resource_uses_existing_source_format | 4→2 | missingと他環境あり/なしの直積だけ削除。初回入口の2保存経路と他環境不変を独立して保証するためのUT追加は不要 | 空入口/他環境なし、入口欠落/他環境あり。v2保存/再読込、他環境不変。templateの有無を検証しているとは扱わない |
+| check_approval_bound_save_guard | 5→1 | source hashはM::check_acquired_plan_completion。Task/worktree/risk digestはM::check_external_completion_proofへ不足3条件のみ追加、構造/期限はA::check_review_binding_integrity_without_host | 実Receiptと保存後候補bytesの不一致をrequire_import_changesで拒否 |
+| check_gitless_guard_boundaries | 7→2 | head/baseはA::check_acquisition_identity_boundary、Allowed/scope/targetはA::check_output_contract_scope。checkpointの競合は既存A::check_checkpoint_rejects_stale_or_competing_answers | Task変更拒否と実Publish後のScope外ソース変更拒否。実HEADはimport-cliのGit境界のみ |
+| check_foreign_source_writes_rejected | 5→1 | stg part、dev別Service/part、templateはM::check_foreign_candidate_scopeのcandidate_sources直接呼出（dev part/templateの2不足条件を追加） | stg候補をpublish_edit前に拒否、全ファイル不変 |
+| check_managed_resource_addition | 3→1 | VPC既知/不明はM::check_authored_vpc_append_candidate、unknown判定はM::check_unknown_identity_does_not_block_add | Subnetの実追加と親VPC参照、全既存Resource/他サービス/環境不変 |
+| check_mixed_add_refresh_single_publication | 2→2 | 削除なし | 実一括保存・再読込と部分保存失敗Rollbackの両方を維持 |
+
+全18削除関数・67削除条件の台帳。表中の集約先は現在存在する関数で、削除名への実行リンクを残さない。
+CLI parser/別プロセス証跡・実Git/強制終了復旧は [import-cli](integrations/import-cli.checks.py) の3登録関数・7条件、
+実managed所有者境界は [import-worktree-contract](integrations/import-worktree-contract.checks.py) の2登録関数・3条件、
+Model-onlyのleaf保存/journal/batchは [model-operation-publication](integrations/model-operation-publication.checks.py) の3登録関数・8条件に任せる。
+import-modelにはそれらの実操作を追加しない。PopenでGit起動を拒否し、worktree fixtureの非ロードassertionを保持する。
+
+### Fixtureと検証範囲
+
+`populate()` のFull契約はそのまま。新しい `populate_focused()` は既存共有seedの指定file/treeと親だけをcopytreeで複製する。
+Import fixtureのFocusedはproject.json、dev対象Service入口/partsのみ。必要なTaskは既存APIで登録し、Validation scopeも存在するdevのみ。
+共有seed生成は増やさず、symlink/hardlinkは使わない。既存呼出元はFullのままで、import-modelからだけ明示選択する。
+`check_it_focused_fixture_isolation` UTはparts/親階層、Full既存契約、不要Service/環境除外、別Service選択、書込可能・独立性、共有seed不変を検証する。
+
+Fullはlogs roundtrip、8 VPC、Subnet追加、shared property、foreign candidate、bind/replace、incoming replace、初回Resource、definition switch、gitless guard、snapshotに保持。
+参照ITはCloudTrail/S3の2サービスを明示構築する。Focusedの保証範囲縮小をFullの正本bytes比較・非選択Resource・他環境不変で補う。
+単一Serviceケースが不要な6 Serviceとstg Modelを複製しなくなることは構造から確認できるが、コピー回数・時間削減は推測値を記載しない。
+
+ローカルでは関連UT、変更Pythonの構文、pytest収集、登録/件数/Receipt契約の静的照合、削除関数参照、diffのみ検証する。
+import-model/import-cli/Worktree/Full IT、cProfile、性能用追加実行は行わない。
+10秒未満と削減対象UT+IT合計時間の非悪化は、公式Framework ITの同一依存・同一runner条件のbaseline_ref比較で判定する。
+手動baselineのreachability未検証/fixture比較不能の制限は既存runnerの表示に従う。CI未実施・待機をPASSや性能達成と扱わない。
+
+| Requirement | Case | Layer | File | Mode / Count | Verification | Reason |
+|---|---|---|---|---|---|---|
+| `import-gitless::guards` | `check_gitless_guard_boundaries` | IT | [guards](integrations/import-model.checks.py#L743) | pytest / 2 | Task変更拒否と実Publish後のScope外ソース変更拒否、Gitなし | Issue 14 |
+| `import-gitless::snapshot` | `check_repository_snapshot_detects_real_changes` | IT | [snapshots](integrations/import-model.checks.py#L767) | pytest / 1 | Model/Taskの追加・削除・comment編集とbaseline不変 | Issue 14 |
+| `import-worktree::contract` | `check_import_managed_contract_boundaries` | IT | [integrations/import-worktree-contract.checks.py](integrations/import-worktree-contract.checks.py) | pytest / 1 | 実Worktree間の取得証跡所有権分離と正規publication/Receipt接続 | 統合境界のみ |
+| `model-worktree::source-context` | `check_model_source_context_worktree_boundary` | IT | [integrations/import-worktree-contract.checks.py](integrations/import-worktree-contract.checks.py) | pytest / 2 | 実管理Worktreeのsource保存・所有者変更時の保存拒否・Base bytes保持 | 統合境界のみ |
 
 ## LLM diagnosis relations and mechanical retry boundaries
 
@@ -2658,7 +2657,7 @@ SDK環境由来認証識別、cache、Session再開、alias/suffix/Region/engine
 | `aws-identity::sts-mismatch` | `check_sts_mismatch` | UT | [units/aws-identity-unit.checks.py](units/aws-identity-unit.checks.py) | pytest / 5 | STS不一致/欠落/不正型 | Pure |
 | `aws-identity::context` | `check_identity_delegation_and_sts_reuse` | UT | [units/check-model-aws-unit.checks.py:68](units/check-model-aws-unit.checks.py#L68) | pytest / 1 | Context比較委譲、IdentityError同一性、検証済みAccount返却、STS transport再利用、拒否後resource API禁止 | Mock |
 | `aws-identity::multi-target` | `check_all_target_profiles_precede_aws` | UT | [units/check-model-aws-unit.checks.py:88](units/check-model-aws-unit.checks.py#L88) | pytest / 1 | 全Targetの事前判定、拒否時CLI/SDK session未実行 | Mock |
-| `aws-identity::import-boundary` | `check_import_profile_mode_delegation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | Import例外引渡し、設定不変、STS維持 | Mock |
+| `aws-identity::import-boundary` | `check_import_profile_mode_delegation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1105) | pytest / 1 | Import例外引渡し、設定不変、STS維持 | Mock |
 | `aws-identity::preparation` | `check_identity_failure_precedes_preparation` | UT | [units/deploy_preparation-unit.checks.py](units/deploy_preparation-unit.checks.py) | pytest / 1 | 共通判定委譲と準備/AWS前の拒否 | Mock |
 | `aws-identity::runtime` | `check_runtime_identity_delegation` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py) | pytest / 1 | 共通Profile保存、IdentityError同一性、connection作成前の拒否 | Mock |
 
@@ -2742,7 +2741,7 @@ Refactorの重複incoming CLI起動4回、decodingの子Python8回を削除。
 | `worktree-runtime::check_lifecycle_layout` | `check_lifecycle_layout` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 5 | lifecycle layout | 不足判定のみ追加・ITの入力反復を廃止 |
 | `worktree-runtime::check_metadata_symlinks` | `check_metadata_symlinks` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py) | pytest / 3 | metadata symlinks | 不足判定のみ追加・ITの入力反復を廃止 |
 | `worktree-runtime::check_candidate_staleness` | `check_candidate_staleness` | UT | [units/worktree-model-guard-unit.checks.py](units/worktree-model-guard-unit.checks.py) | pytest / 5 | candidate staleness | 不足判定のみ追加・ITの入力反復を廃止 |
-| `worktree-runtime::check_acquired_plan_completion` | `check_acquired_plan_completion` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 3 | acquired plan completion | 不足判定のみ追加・ITの入力反復を廃止 |
+| `worktree-runtime::check_acquired_plan_completion` | `check_acquired_plan_completion` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L777) | pytest / 3 | acquired plan completion | 不足判定のみ追加・ITの入力反復を廃止 |
 | `worktree-runtime::check_controller_sleep_injection` | `check_controller_sleep_injection` | UT | [units/cloudformation-deploy-unit.checks.py](units/cloudformation-deploy-unit.checks.py) | pytest / 1 | controller sleep injection | 不足判定のみ追加・ITの入力反復を廃止 |
 
 ## Single-file staging and publication
@@ -3006,8 +3005,8 @@ IT direct登録9→7。対象check-model-aws UT条件数5→22（既存UT19、�
 | `issue20::check_schema_rejections` | `check_schema_rejections` | UT | [units/check-model-aws-fixture-unit.checks.py:29](units/check-model-aws-fixture-unit.checks.py#L29) | pytest / 1 | 上記対応表の保証 | Issue #20移管/fixture契約 |
 | `issue20::check_context_isolation_and_cache` | `check_context_isolation_and_cache` | UT | [units/check-model-aws-fixture-unit.checks.py:48](units/check-model-aws-fixture-unit.checks.py#L48) | pytest / 1 | 上記対応表の保証 | Issue #20移管/fixture契約 |
 
-| `issue-18` | `check_snapshot_guards` | UT | [case](units/blueprint-loop-unit.checks.py) | pytest / 4 | staged guard / CLIエラー | Fake境界で確認 |
-| `issue-18` | `check_log_directory_rejected` | UT | [case](units/blueprint-loop-unit.checks.py) | pytest / 1 | staged guard / CLIエラー | Fake境界で確認 |
+| `issue-18` | `check_snapshot_guards` | UT | [case](units/blueprint-loop-unit.checks.py#L845) | pytest / 4 | staged guard / CLIエラー | Fake境界で確認 |
+| `issue-18` | `check_log_directory_rejected` | UT | [case](units/blueprint-loop-unit.checks.py#L887) | pytest / 1 | staged guard / CLIエラー | Fake境界で確認 |
 
 ## Issue 18 Blueprint Loopの検証責務
 

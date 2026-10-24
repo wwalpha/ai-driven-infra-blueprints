@@ -18,6 +18,23 @@ Task変更・publication barrier・sidecar rollbackはsync-model/Task専用テ�
 旧29関数のassertion対応と登録は [CASES.md](CASES.md#issue-17-model-designの検証責務) を参照。
 pytest/direct/module completionとrunner receiptの契約は維持する。
 
+## Importの責務
+
+`import-model` ITは29登録関数・37 pytest条件（変更前47関数・104条件）。Acquire→Review→Publishの保存/再読込、
+bind/replace、参照、Atomicity、部分失敗Rollback、Receipt整合性、実Recovery、非選択Resource・他サービス/環境の不変を検証する。
+Identity/Scope、Review/Approval、候補差分、参照診断の入力組合せは既存Import UTの直接関数呼出に集約する。
+削除18関数と縮小条件のAssertion対応は [Issue 14台帳](CASES.md#issue-14-import-it-responsibility-reduction) を参照。
+UTからITのPublication helperやFull fixtureを実行しない。
+
+共有seedの `populate()` は既存Fullのまま。Import ITだけ明示的にFocused（project.jsonと対象dev Serviceの入口/parts）を選べる。
+コピー先は独立した書込可能ファイルで、seed生成追加・symlink/hardlinkはない。
+Full代表ITと明示構築したCloudTrail/S3参照ITで、Focusedにない他サービス/環境の保護を保証する。
+Git/WorktreeとCLI実行境界は既存専用ITに任せ、Import ITのPopen Git禁止・worktree fixture非ロードを維持する。
+
+ローカルでは関連UT・構文・pytest収集・登録/Receipt静的整合性を確認する。ITと性能測定は実行しない。
+目標10秒未満と削減対象UT+IT合計時間の非悪化は、公式Framework ITのbaseline_refを使う同条件比較で判定する。
+CI実測前に高速化達成と報告しない。Fixtureのコピー削減だけから性能効果を断定しない。
+
 ## Worktree責務の分離
 
 Worktree機能自体を検証するレビュー済みケースだけが、実worktree操作とLifecycleのMock/fixtureを使う。

@@ -15,7 +15,7 @@ import import_guard
 import model.format as _imports_model_format
 import pytest
 from model.format import serialize
-from model.importing import approval
+from model.importing import approval, evidence
 from model.importing import cli as m
 from model.operations import operation_values
 from model.sources import load_model
@@ -298,7 +298,8 @@ def check_review_command_is_read_only(tmp_path, failure):
     assert case.source.read_bytes() == original and case.evidence.read_text() == 'retained acquisition'
 
 
-@pytest.mark.parametrize('failure', [None, 'load', 'render', 'review', 'property', 'selection', 'baseline', 'provenance'])
+@pytest.mark.parametrize('failure', [None, 'load', 'render', 'review', 'property', 'selection', 'baseline', 'provenance',
+                                     'candidate-value', 'candidate-target', 'candidate-resource', 'candidate-reference'])
 def check_preflight_before_any_save(tmp_path, failure):
     case = source_review_case(tmp_path)
     with patch.object(m, 'target_for', return_value={'directory': 'cde'}), \
@@ -320,9 +321,26 @@ def check_preflight_before_any_save(tmp_path, failure):
             file.write_text(json.dumps(reviewed), encoding='utf-8')
         elif failure == 'load':
             case.candidate.write_text('invalid properties', encoding='utf-8')
+        elif failure == 'candidate-target':
+            selection = case.evidence.parent / 'selection.json'
+            value = json.loads(selection.read_text(encoding='utf-8'))
+            value['resources'][0]['resource'] = '009'
+            selection.write_text(json.dumps(value), encoding='utf-8')
+        elif failure in {'candidate-value', 'candidate-resource', 'candidate-reference'}:
+            proposed = dict(case.proposed)
+            if failure == 'candidate-value':
+                proposed['desired.row.001-002.value'] = '`10.2.0.0/16`'
+            elif failure == 'candidate-resource':
+                proposed.update({'desired.resource.002.resourceType': 'EC2.VPC',
+                    'desired.resource.002.resourceMode': 'IMPORT', 'desired.resource.002.logicalId': 'EC2_VPC_002',
+                    'desired.service.identity.lastAllocated': '{"EC2.VPC":2}'})
+            else:
+                proposed.update(approval.validate_reference_proposal({'fixed': reference_trace('002')}, proposed))
+            case.candidate.write_text(serialize(proposed), encoding='utf-8')
         with patch.object(m, 'view_plan', side_effect=ValueError('synthetic JSON structure error') if failure == 'render' else None,
                           return_value=({}, {})):
-            if failure in {'load', 'render', 'property', 'selection', 'baseline', 'provenance'}:
+            if failure in {'load', 'render', 'property', 'selection', 'baseline', 'provenance',
+                           'candidate-value', 'candidate-target', 'candidate-resource', 'candidate-reference'}:
                 with pytest.raises(ValueError):
                     m.publish_acquisition(case.root, 'dev', 'vpc', case.evidence, 'cde', dry_run=True)
             else:
@@ -330,6 +348,91 @@ def check_preflight_before_any_save(tmp_path, failure):
                 assert result['model'] == 'unchanged' and result['status'] == 'dry-run'
         save.assert_not_called()
     assert case.source.read_bytes() == case.original and case.evidence.read_text() == 'retained acquisition'
+
+
+@pytest.mark.parametrize('failure', [None, 'review', 'draft', 'acquisition', 'task', 'source-set'])
+def check_publication_current_inputs(tmp_path, failure):
+    case = source_review_case(tmp_path)
+    before = load_model(case.source)
+    case.acquisition['sourceSets'] = [{'base': 'model/dev/cde', 'pattern': 'vpc/*.properties',
+        'recursive': False, 'kinds': ['file'], 'paths': []}]
+    review_file = case.evidence.parent / 'review.json'
+    review_file.write_bytes(b'original Review')
+    external = {file: file.read_bytes() for file in (case.evidence.parent / 'selection.json',
+                                                    case.evidence.parent / 'review-input.json')}
+    expected_task = ('tasks/import-fixture.md', 'original Task')
+    if failure == 'review':
+        review_file.write_bytes(b'changed Review')
+    elif failure == 'draft':
+        (case.evidence.parent / 'review-input.json').write_bytes(b'changed draft')
+    elif failure == 'source-set':
+        part = case.source.with_suffix('') / 'part-001.properties'
+        part.parent.mkdir()
+        part.write_text('# unexpected part', encoding='utf-8')
+    with patch.object(m.task_contract, 'task_revision', return_value=('tasks/import-fixture.md', 'changed')
+                      if failure == 'task' else expected_task), \
+         patch.object(m, 'read_acquisition', return_value={} if failure == 'acquisition' else case.acquisition), \
+         patch.object(m, 'record_outputs') as outputs:
+        args = (case.acquisition, before, case.evidence, expected_task, external,
+                ('dev', 'cde', 'vpc'), {case.source: case.candidate.read_text(encoding='utf-8')},
+                review_file, b'original Review', case.root, {case.source})
+        if failure:
+            with pytest.raises(ValueError, match='changed before publication|file set changed'):
+                m._callback_publish_acquisition_current(*args)
+            outputs.assert_not_called()
+        else:
+            m._callback_publish_acquisition_current(*args)
+            outputs.assert_called_once_with(case.root, ('dev', 'cde', 'vpc'), {case.source}, set())
+    assert case.source.read_bytes() == case.original
+
+
+@pytest.mark.parametrize('failure', [None, 'head', 'base', 'task', 'scope', 'root', 'dryRun', 'expired', 'status'])
+def check_acquisition_identity_boundary(tmp_path, failure):
+    acquisition = proposal()[0]
+    acquisition.update(root=str(tmp_path.resolve()), head='head', base='base', dryRun=False,
+                       status='acquired', sts={'verified': True})
+    if failure == 'expired':
+        acquisition['acquiredAt'] = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+    elif failure:
+        acquisition[failure] = True if failure == 'dryRun' else ['dev', 'other', 'vpc'] if failure == 'scope' else 'changed'
+    store = tmp_path / 'external-evidence'
+    file = store / 'session-unit' / 'acquisition.json'
+    with patch.object(evidence, 'evidence_store', return_value=store), \
+         patch.object(evidence, 'read_sealed', return_value=acquisition), \
+         patch.object(import_guard, 'base_revision', return_value='base'), \
+         patch.object(import_guard, 'working_revision', return_value='head'), \
+         patch.object(import_guard, 'workflow', return_value='tasks/import-fixture.md'), \
+         patch.object(m.repository, 'task_start_commit', return_value=None):
+        if failure:
+            with pytest.raises(ValueError, match='stale or belongs to another|expired'):
+                evidence.read_acquisition(tmp_path, file, ('dev', 'cde', 'vpc'), False)
+        else:
+            assert evidence.read_acquisition(tmp_path, file, ('dev', 'cde', 'vpc'), False) == acquisition
+
+
+@pytest.mark.parametrize('failure', [None, 'allowed', 'scope', 'target', 'foreign-source', 'foreign-view', 'consumer'])
+def check_output_contract_scope(tmp_path, failure):
+    identity = ('dev', 'cde', 'vpc')
+    relative = 'model/dev/cde/vpc.properties'
+    text = ('## Task contract\n- Task type: `design`\n- Task status: `running`\n'
+            '- Workflow: `import`\n- IMPORT target: `dev/cde/vpc`\n'
+            f'## Allowed paths\n- `{relative}`\n## Modified files\n- `{relative}`\n')
+    if failure == 'allowed':
+        text = text.replace('## Allowed paths\n- `' + relative + '`', '## Allowed paths')
+    elif failure == 'target':
+        text = text.replace('IMPORT target: `dev/cde/vpc`', 'IMPORT target: `dev/cde/other`')
+    sources = {tmp_path / ('model/stg/cde/vpc.properties' if failure == 'foreign-source' else relative)}
+    views = {tmp_path / 'docs/designs/dev/cde/other.md'} if failure == 'foreign-view' else set()
+    consumers = {('dev', 'cde', 'other')} if failure == 'consumer' else {identity}
+    with patch.object(m, 'workflow', return_value='tasks/import-fixture.md'), \
+         patch.object(m, 'task_snapshot', return_value=SimpleNamespace(text=text)), \
+         patch.object(m, 'active_scope', return_value={('dev', 'cde', 'other')} if failure == 'scope' else {identity}), \
+         patch('model.importing.scope.selected', return_value=identity):
+        if failure:
+            with pytest.raises(ValueError, match='outside|scope|target|declare|missing or duplicate paths'):
+                m.record_outputs(tmp_path, identity, sources, views, consumers)
+        else:
+            m.record_outputs(tmp_path, identity, sources, views, consumers)
 
 
 def check_missing_review_rejected_before_candidate_load(tmp_path):

@@ -1,6 +1,5 @@
 """Explicit properties authorities and offline AWS transport; no executing project inputs."""
 
-import datetime as _imports_datetime
 import json
 import os
 import subprocess
@@ -11,19 +10,16 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
 from types import SimpleNamespace as _CallbackState
-from unittest.mock import patch as mock_patch
 
 import generation_inputs as _imports_generation_inputs
 import import_guard as _imports_import_guard
 import model.format as _imports_model_format
-import model.importing.approval as _imports_model_importing_approval
 import model.importing.cli as _imports_model_importing_cli
 import model.operations as _imports_model_operations
 import model.sources as _imports_model_sources
 import pytest as _imports_pytest
 import support.import_repository_fixtures as _imports_support_import_repository_fixtures
 import support.model_v2_fixtures as _imports_support_model_v2_fixtures
-import sync_files as _imports_sync_files
 from model.format import parse, serialize
 from model.sources import Scope, load_model
 from task_contract_core import selected_task
@@ -96,8 +92,6 @@ class LogsCli:
         return subprocess.CompletedProcess(command, 0, json.dumps(value), '')
 
 
-
-
 def format_fixture(root, *, target='one', environment='qa-custom', service='network'):
     project = {'targets': [
         {'environment': environment, 'alias': 'one', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation', 'awsExecutionAccountId': '999999999999'},
@@ -156,13 +150,12 @@ def acquisition_fixture(snapshot, *, action='refresh', resource='007'):
              'scope': [snapshot.scope.environment, snapshot.scope.target, snapshot.scope.service],
              'sources': {}, 'connection': {}, 'acquiredAt': datetime.now(timezone.utc).isoformat(),
              'records': [record], 'inventory': {'EC2.VPC': {'status': 'complete'}}}
-    decision = {'record': record['record'], 'resource': resource, 'action': action,
+    decision = {'record': record['record'], 'resource': resource, 'action': 'refresh',
                 'reason': '合成 fixture の明示的選択', 'basis': ['EC2.VPC.VpcId']}
     if action in {'bind', 'replace'}:
         decision['before'] = {'identity': None if action == 'bind' else 'vpc-original',
                               'model': document_sha256(operation_values(snapshot.authoritative, resource))}
     return value, {'resources': [decision], 'excluded': [], 'unreflected': []}
-
 
 
 def role_operation_fixture(root):
@@ -232,17 +225,6 @@ def value_snapshot(values, provenance=None, files=None):
     return SimpleNamespace(authoritative=dict(values), values=runtime_values(values), files=files or {}, warnings=())
 
 
-def _callback_import_publication_case_fail(failure, path, save, /, output):
-    selected = {file: text for file, text in output.items() if
-                (file == path if failure == 'model-io' else file.suffix == '.md')}
-    if selected:
-        file = next(iter(selected))
-        file.parent.mkdir(parents=True, exist_ok=True)
-        file.write_text('partial output', encoding='utf-8')
-        raise OSError('injected write failure')
-    return save(output)
-
-
 def _callback_import_publication_case_fail_407(finish, /, root, model=None, markdown=None):
     if model is not None:
         finish(root, model, markdown)
@@ -250,37 +232,14 @@ def _callback_import_publication_case_fail_407(finish, /, root, model=None, mark
     return finish(root, model, markdown)
 
 
-class ExpiredClock(_imports_datetime.datetime):
-    @classmethod
-    def now(cls, tz=None):
-        return _imports_datetime.datetime.now(tz) + _imports_datetime.timedelta(days=8)
-
-
-
-def _callback_import_publication_case_race(_state_import_publication_case_250, candidate, evidence, failure, injection, original, original_outputs, path, state, target, /, *args, **kwargs):
-    pass
+def _callback_import_publication_case_race(state, candidate, failure, original, original_outputs, path, /, *args, **kwargs):
     result = original_outputs(*args, **kwargs)
-    if _state_import_publication_case_250.injected:
-        return result
-    _state_import_publication_case_250.injected = True
-    if failure in {'post-review', 'post-draft'}:
-        file = evidence.parent / ('review.json' if failure == 'post-review' else 'review-input.json')
-        file.write_bytes(file.read_bytes() + b' ')
-    elif failure == 'post-candidate':
-        candidate.write_bytes(candidate.read_bytes() + b'# changed candidate\n')
-    elif failure == 'post-acquisition':
-        envelope = json.loads(evidence.read_text(encoding='utf-8'))
-        envelope['payload']['status'] = 'changed acquisition'
-        evidence.write_text(json.dumps(envelope), encoding='utf-8')
-    elif failure == 'post-baseline':
-        path.write_bytes(original + b'# external source edit\n')
-    elif failure == 'post-task':
-        task = target / state['task_file']
-        task.write_bytes(task.read_bytes() + b'\n## Notes\nexternal Task edit\n')
-    else:
-
-        approval = _imports_model_importing_approval
-        injection.setattr(approval, 'datetime', ExpiredClock)
+    if not state.injected:
+        state.injected = True
+        if failure == 'post-candidate':
+            candidate.write_bytes(candidate.read_bytes() + b'# changed candidate\n')
+        else:
+            path.write_bytes(original + b'# external source edit\n')
     return result
 
 
@@ -299,21 +258,6 @@ def import_publication_case(monkeypatch, failure, *, workspace=None):
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
     with (workspace or publication_workspace)() as (root, begin, advance), ExitStack() as selection_scope:
         model = logs_fixture(root)
-        if failure == 'bind':
-            model.write_text(patch(parse(model.read_text(encoding='utf-8')), {'observed.row.001-001.value': None}), encoding='utf-8')
-        incoming_source = None
-        if failure in {'bind', 'replace'}:
-            serialize = _imports_model_format.serialize
-            incoming_source = model.with_name('codebuild.properties')
-            fields = {'desired.resource.002.resourceType': 'CodeBuild.Project', 'desired.resource.002.resourceMode': 'IMPORT',
-                'desired.resource.002.logicalId': 'CodeBuild_Project_002', 'desired.service.identity.lastAllocated': '{"CodeBuild.Project":2}', 'desired.row.002-001.property': 'CodeBuild.Project.LogsConfig.CloudWatchLogs.GroupName',
-                'desired.row.002-001.value': 'fixture-001', 'desired.row.002-001.comment': '合成 incoming 参照'}
-            for key, value in {'consumerKey': 'desired.row.002-001.value', 'text': 'fixture-001', 'occurrence': '1',
-                    'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/cloudwatch-logs', 'producerLogicalId': 'Logs_LogGroup_001',
-                    'resourceType': 'Logs.LogGroup', 'format': 'identifier', 'property': 'Logs.LogGroup.LogGroupName', 'labelPolicy': 'none'}.items():
-                fields['desired.reference.fixed-use.' + key] = value
-            incoming_source.write_text(serialize(fields), encoding='utf-8')
-            incoming_before = incoming_source.read_bytes()
         relative = model.relative_to(root)
         target, state = begin(root, relative)
         selection_scope.enter_context(selected_task(target, state['task_file']))
@@ -321,8 +265,6 @@ def import_publication_case(monkeypatch, failure, *, workspace=None):
         path = target / relative
         original = path.read_bytes()
         aws = LogsCli()
-        if failure == 'replace':
-            aws.groups[0]['logGroupName'] = 'replacement-001'
 
         result = cli.acquire(target, 'qa-synthetic', 'cloudwatch-logs', 'team-a', cli_runner=aws,
                              resource_types=['Logs.LogGroup'])
@@ -332,60 +274,25 @@ def import_publication_case(monkeypatch, failure, *, workspace=None):
         candidate = evidence.parent / 'candidates' / relative
         candidate.parent.mkdir(parents=True)
         changes = {'desired.row.001-002.value': '`90`', 'desired.row.001-003.value': '`true`'}
-        action = failure if failure in {'bind', 'replace'} else 'refresh'
-        chosen = {'record': record['record'], 'resource': '001', 'action': action,
+        chosen = {'record': record['record'], 'resource': '001', 'action': 'refresh',
             'reason': '合成の明示的な対応選択', 'basis': ['Logs.LogGroup.LogGroupName']}
-        if failure in {'bind', 'replace'}:
-            operation_values = _imports_model_operations.operation_values
-            chosen['before'] = {'identity': None if failure == 'bind' else 'fixture-001',
-                'model': document_sha256(operation_values(load_model(path).authoritative, '001'))}
-            changes['observed.row.001-001.value'] = '`' + record['identity'] + '`'
         candidate.write_text(patch(parse(original.decode('utf-8')), changes), encoding='utf-8')
         (evidence.parent / 'selection.json').write_text(json.dumps({'resources': [chosen], 'excluded': [], 'unreflected': []}), encoding='utf-8')
         (evidence.parent / 'review-input.json').write_text(json.dumps({'risks': {record['record']: []}}), encoding='utf-8')
         reviewed = cli.review_acquisition(target, 'qa-synthetic', 'cloudwatch-logs', evidence, 'team-a')
         assert reviewed['status'] == 'reviewed' and path.read_bytes() == original
-        if incoming_source is not None:
-            assert any(item.get('consumer') == 'qa-synthetic/team-a/codebuild/002'
-                       for item in reviewed['review']['referenceImpact']['warnings'])
         calls = list(aws.calls)
-        if failure == 'source':
-            path.write_bytes(original + b'# concurrent edit\n')
-        elif failure == 'task':
-            task = target / state['task_file']
-            task.write_bytes(task.read_bytes() + b'\n## Notes\nchanged Task\n')
-        elif failure == 'review':
+        if failure == 'review':
             file = evidence.parent / 'review.json'
             changed = json.loads(file.read_text(encoding='utf-8'))
             changed['dispositions'][0]['risks'] = ['changed review']
             file.write_text(json.dumps(changed), encoding='utf-8')
         elif failure == 'head':
             advance(target)
-        elif failure == 'candidate':
-            candidate.write_text(candidate.read_text(encoding='utf-8').replace('`90`', '`91`'), encoding='utf-8')
-        elif failure == 'source-set':
-            extra = path.with_suffix('') / 'part-003.properties'
-            extra.parent.mkdir()
-            extra.write_text('# model-format: 2\n', encoding='utf-8')
-        if failure == 'selection-target':
-            selection = evidence.parent / 'selection.json'
-            value = json.loads(selection.read_text())
-            value['resources'][0]['resource'] = '009'
-            selection.write_text(json.dumps(value), encoding='utf-8')
-        elif failure == 'candidate-resource':
-            candidate.write_text(patch(parse(candidate.read_text()), {'desired.resource.002.resourceType': 'Logs.LogGroup', 'desired.resource.002.resourceMode': 'IMPORT', 'desired.resource.002.logicalId': 'Logs_LogGroup_002', 'desired.service.identity.lastAllocated': '{"Logs.LogGroup":2}'}), encoding='utf-8')
-        elif failure == 'candidate-reference':
-            extra = {**parse(candidate.read_text()).values}
-            for field, value in {'consumerKey': 'desired.row.001-001.value', 'text': '[fixture](#logs-fixed)', 'occurrence': '1',
-                    'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/cloudwatch-logs', 'producerLogicalId': 'Logs_LogGroup_001',
-                    'resourceType': 'Logs.LogGroup', 'format': 'link', 'labelPolicy': 'fixed'}.items():
-                extra['desired.reference.unreviewed.' + field] = value
-            serialize = _imports_model_format.serialize
-            candidate.write_text(serialize(extra), encoding='utf-8')
-        if failure in {'source', 'task', 'head', 'review', 'candidate', 'source-set', 'selection-target', 'candidate-resource', 'candidate-reference'}:
-            with pytest.raises(ValueError, match='changed|differs|unregistered|stale|candidate|selected Resource|reference map|correspondence|reference occurrence|allocation|lifecycle|ancestor|worktree'):
+        if failure in {'head', 'review'}:
+            with pytest.raises(ValueError, match='changed|stale|ancestor|worktree'):
                 cli.publish_acquisition(target, 'qa-synthetic', 'cloudwatch-logs', evidence, 'team-a')
-            assert path.read_bytes() == original + (b'# concurrent edit\n' if failure == 'source' else b'')
+            assert path.read_bytes() == original
             proof_path = _imports_import_guard.proof_path
             assert not proof_path(target).exists()
             assert aws.calls == calls
@@ -413,18 +320,13 @@ def import_publication_case(monkeypatch, failure, *, workspace=None):
             if failure.startswith('post-'):
                 original_outputs = cli.record_outputs
                 _state_import_publication_case_250.injected = False
-                race = _bind_framework_callback(_callback_import_publication_case_race, _state_import_publication_case_250, candidate, evidence, failure, injection, original, original_outputs, path, state, target)
+                race = _bind_framework_callback(_callback_import_publication_case_race, _state_import_publication_case_250, candidate, failure, original, original_outputs, path)
                 injection.setattr(cli, 'record_outputs', race)
-            if failure in {'model-io', 'display-io'}:
-                sync_files = _imports_sync_files
-                save = sync_files.save_files
-                fail = _bind_framework_callback(_callback_import_publication_case_fail, failure, path, save)
-                injection.setattr(sync_files, 'save_files', fail)
-            elif failure == 'receipt':
+            if failure == 'receipt':
                 finish = cli.finish_import
                 fail = _bind_framework_callback(_callback_import_publication_case_fail_407, finish)
                 injection.setattr(cli, 'finish_import', fail)
-            if failure in {'model-io', 'receipt'} or failure.startswith('post-'):
+            if failure == 'receipt' or failure.startswith('post-'):
                 with pytest.raises((OSError, ValueError)):
                     cli.publish_acquisition(target, 'qa-synthetic', 'cloudwatch-logs', evidence, 'team-a')
                 assert path.read_bytes() == original + (b'# external source edit\n' if failure == 'post-baseline' else b'')
@@ -443,20 +345,11 @@ def import_publication_case(monkeypatch, failure, *, workspace=None):
             else:
                 published = cli.publish_acquisition(target, 'qa-synthetic', 'cloudwatch-logs', evidence, 'team-a')
         assert published['model'] == 'reflected', published
-        if failure == 'display-io':
-            assert published['status'] == 'display-failed', published
-            assert path.read_bytes() == candidate.read_bytes()
-            with mock_patch.object(cli, 'read_acquisition', side_effect=AssertionError('display recovery must not reacquire or read acquisition')):
-                assert cli.recover_display(target, 'qa-synthetic', 'cloudwatch-logs', 'team-a')['status'] == 'complete'
-        else:
-            assert published['status'] == 'complete', published
+        assert published['status'] == 'complete', published
         assert path.read_bytes() == candidate.read_bytes()
         assert aws.calls == calls
         assert (target / 'docs/designs/qa-synthetic/team-a/cloudwatch-logs.md').is_file()
         assert (root / relative).read_bytes() == original
-        if incoming_source is not None:
-            assert (target / incoming_source.relative_to(root)).read_bytes() == incoming_before
-
 
 
 def properties_fixture(root):
@@ -475,7 +368,6 @@ def properties_fixture(root):
         'desired.row.007-001.value': '[vpc](#network-existing)', 'desired.row.007-001.comment': '合成 ID',
         'observed.row.007-001.value': 'vpc-original'}), encoding='utf-8')
     return scope
-
 
 
 def deploy_properties_fixture(root):
