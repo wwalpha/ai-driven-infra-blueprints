@@ -24,6 +24,7 @@ from task_contract_core import (
 from task_contract_core import task_digest as task_digest
 from utils.cloudformation_format import decode
 from utils.file_operations import atomic_files as atomic_files
+from utils.file_operations import atomic_replace_file
 from utils.file_operations import sha as sha
 from utils.json_format import fingerprint
 from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
@@ -53,9 +54,7 @@ def binding_path(root: Path, task_file: str) -> Path:
 
 
 def write_session(path: Path, session: Session) -> None:
-    temporary = path.with_suffix(path.suffix + '.tmp')
-    temporary.write_text(json.dumps(session, indent=2) + '\n', encoding='utf-8')
-    temporary.replace(path)
+    atomic_replace_file(path, json.dumps(session, indent=2) + '\n', mode=0o666)
 
 
 def save(path: Path, session: Session) -> None:

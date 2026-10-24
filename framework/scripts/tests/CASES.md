@@ -1802,7 +1802,6 @@ main/module検証地点の現在配置: integrations=305, units=232。
 
 | 元パス | ケース | 分類 | 現在の配置 | 実行方式 / 展開数 | 検証責務 | 変更 |
 |---|---|---|---|---|---|---|
-| `integrations/task_contract.checks.py:204` | `check_atomic_output_rollback` | IT | [integrations/task_contract.checks.py:204](integrations/task_contract.checks.py#L204) | pytest / 1 | 通常の契約・保存・変更検出を維持 | 予約専用検証を除去し既存assertを整理 |
 | `units/task-contract-unit.checks.py:96` | `check_task_change_rolls_back_publication` | UT | [units/task-contract-unit.checks.py:97](units/task-contract-unit.checks.py#L97) | pytest / 3 | scope/completed/suspendへの処理中変更とrollbackを確認 | 予約専用検証を除去し既存assertを整理 |
 | `units/task-contract-unit.checks.py:114` | `check_publication_preserves_contract` | UT | [units/task-contract-unit.checks.py:118](units/task-contract-unit.checks.py#L118) | pytest / 3 | running/completed/suspendの3条件で拒否時の既存・新規・削除対象不変を確認 | 予約専用検証を除去し既存assertを整理 |
 | `units/task-contract-unit.checks.py:131` | `check_source_guard_keeps_plan_consistency` | UT | [units/task-contract-unit.checks.py:158](units/task-contract-unit.checks.py#L158) | pytest / 1 | 通常の契約・保存・変更検出を維持 | 予約専用検証を除去し既存assertを整理 |
@@ -2236,7 +2235,7 @@ Model v2 移行完了に伴い、固定旧 Framework の export/convert/compare 
 | `existing-ut-inventory` | `check_ci_workflow` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L214) | pytest / 1 | ci workflow | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_fixed_identity_anchors` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py#L74) | pytest / 1 | fixed identity anchors | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_atomic_bytes` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py#L15) | pytest / 1 | atomic bytes | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_atomic_failure` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py#L27) | pytest / 2 | atomic failure | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_atomic_failure` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py#L27) | pytest / 3 | all-stage-first failure and rollback before/after rename | 置換前後の障害注入を共通UTに集約 |
 | `existing-ut-inventory` | `check_save_rollback_patch` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py#L45) | pytest / 1 | save rollback patch | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_model_operation_catalog_arrays` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L604) | pytest / 6 | model operation catalog arrays | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_batch_model_operation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1050) | pytest / 1 | batch model operation | 既存テストの登録漏れ補完・本体変更なし |
@@ -2478,7 +2477,7 @@ observed-resume UTはCIで毎回実行する。IT runnerとGitHub Actionsの入�
 | `external-repair::failure-classes` | `check_failure_classes` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 6 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
 | `external-repair::effective-inputs-and-safe-events` | `check_effective_inputs_and_safe_events` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
 | `external-repair::status-helpers-preserve-task-identity` | `check_status_helpers_preserve_task_identity` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
-| `external-repair::signed-ledger-rejects-rollback-and-recovers` | `check_signed_ledger_rejects_rollback_and_recovers` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
+| `external-repair::signed-ledger-rejects-rollback-and-recovers` | `check_signed_ledger_rejects_rollback_and_recovers` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 2 | Signed intent recovery before/after session rename and stale-ledger rejection | Synthetic offline inputs |
 | `external-repair::total-budget-is-not-three-global-failures` | `check_total_budget_is_not_three_global_failures` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
 | `external-repair::ambiguous-new-and-invalid-evidence-rejected` | `check_ambiguous_new_and_invalid_evidence_rejected` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 6 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
 | `external-repair::distinct-property-and-request-id-stability` | `check_distinct_property_and_request_id_stability` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
@@ -2792,6 +2791,29 @@ Refactorの重複incoming CLI起動4回、decodingの子Python8回を削除。
 | `worktree-runtime::check_acquired_plan_completion` | `check_acquired_plan_completion` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 3 | acquired plan completion | 不足判定のみ追加・ITの入力反復を廃止 |
 | `worktree-runtime::check_controller_sleep_injection` | `check_controller_sleep_injection` | UT | [units/cloudformation-deploy-unit.checks.py](units/cloudformation-deploy-unit.checks.py) | pytest / 1 | controller sleep injection | 不足判定のみ追加・ITの入力反復を廃止 |
 
+## Single-file staging and publication
+
+Common byte, error, cleanup, collision and creation-mode checks live in the existing
+`file_operations-unit` suite. Cache retains best-effort save and corruption checks;
+Deploy retains signed intent/ledger recovery. Model retains journal ordering and its
+existing interruption, publication-lock and multi-file rollback integration cases.
+`atomic_files` keeps its consumed-stage rollback distinction and all-stage-first order.
+The duplicate primitive rollback case in task_contract IT is removed; its assertions
+are covered by file_operations check_atomic_failure and check_batch_stages_before_publish.
+Controller fixtures inject session save faults through the shared API and rename faults
+through os.replace, without depending on temporary filenames.
+
+| Origin | Case | Level | Entry | Execution | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `single-file::stage-publish` | `check_stage_and_publish` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py) | pytest / 2 | UTF-8, exact newlines, binary, unique sibling stages, no fsync | Synthetic files |
+| `single-file::failure` | `check_single_failure` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py) | pytest / 4 | Open/write/fsync/replace failures preserve destination and clean stages | Injected I/O errors |
+| `single-file::fsync-newlines` | `check_single_fsync_and_default_newlines` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py) | pytest / 1 | One requested fsync and legacy platform newline translation | Synthetic text |
+| `single-file::collision` | `check_stage_collision` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py) | pytest / 1 | Exclusive creation retries without clobbering another stage | Fixed UUID collision |
+| `single-file::permissions` | `check_single_permissions` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py) | pytest / 2 | Legacy 0600 and 0666-and-umask creation, also when replacing | POSIX modes; Windows skipped |
+| `single-file::batch-order` | `check_batch_stages_before_publish` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py) | pytest / 1 | All stages precede publish; rollback adds no fsync | Synthetic two-file batch |
+| `single-file::cache-failure` | `check_cache_save_failure_continues` | UT | [units/validation_cache-unit.checks.py](units/validation_cache-unit.checks.py) | pytest / 1 | Save OSError remains nonfatal and JSON bytes remain unchanged | Synthetic Cache |
+| `single-file::session-api` | `check_session_save_uses_shared_api` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | Session JSON/shared API/creation mode and save error propagation | Synthetic session |
+| `single-file::journal-order` | `check_journal_precedes_publication` | UT | [units/model_files-unit.checks.py](units/model_files-unit.checks.py) | pytest / 1 | Durable journal precedes Model write; journal failure stops publication | Synthetic journal |
 ## KMS recorded ARN proof through Export/Import
 
 `reference-evidence-unit.checks.py` は既存36条件に以下150条件を追加。Framework定義とModel保存形式は変更せず、合成Producer/Consumerと保存済み観測だけで検証する。

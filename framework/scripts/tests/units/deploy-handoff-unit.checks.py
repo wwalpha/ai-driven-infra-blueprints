@@ -18,6 +18,7 @@ from deploy.recovery import cleanup_unexecuted
 from deploy_handoff import main
 from support.model_sources import allocate_fixture, write_model
 from task_contract_core import selected_task, set_status, task_digest
+from utils import file_operations
 from utils.aws.client import AwsError
 from utils.aws_mappings import definition_root
 from utils.file_operations import sha
@@ -159,14 +160,29 @@ def check_status_helpers_preserve_task_identity():
     assert task_digest(text) != task_digest(text + '\n## Other\nchanged\n')
 
 
-def _callback_check_signed_ledger_rejects_rollback_and_recovers_interrupted(actual_replace, path, /, source, target):
+def check_session_save_uses_shared_api(tmp_path: Path) -> None:
+    path = tmp_path / 'session.json'
+    session = {'status': '保存', 'states': {}}
+    text = json.dumps(session, indent=2) + '\n'
+    with patch.object(handoff, 'atomic_replace_file', wraps=file_operations.atomic_replace_file) as save:
+        handoff.save(path, session)
+    save.assert_called_once_with(path, text, mode=0o666)
+    assert path.read_text(encoding='utf-8') == text
+    with patch.object(handoff, 'atomic_replace_file', side_effect=OSError('session save')), pytest.raises(OSError, match='session save'):
+        handoff.save(path, session)
+
+
+def _callback_check_signed_ledger_rejects_rollback_and_recovers_interrupted(actual_replace, path, after_replace, /, source, target):
+    if Path(target) == path and not after_replace:
+        raise OSError('injected session replacement')
     result = actual_replace(source, target)
     if Path(target) == path:
-        raise OSError('injected after real session replacement')
+        raise OSError('injected session replacement')
     return result
 
 
-def check_signed_ledger_rejects_rollback_and_recovers(tmp_path):
+@pytest.mark.parametrize('after_replace', [False, True])
+def check_signed_ledger_rejects_rollback_and_recovers(tmp_path, after_replace):
     root = tmp_path / 'repo'
     root.mkdir()
     path = tmp_path / 'state.json'
@@ -175,9 +191,9 @@ def check_signed_ledger_rejects_rollback_and_recovers(tmp_path):
     handoff.save(path, session)
     old = path.read_bytes()
     session['workflow']['reserved'] = 1
-    actual_replace = Path.replace
-    interrupted = _bind_framework_callback(_callback_check_signed_ledger_rejects_rollback_and_recovers_interrupted, actual_replace, path)
-    with patch.object(Path, 'replace', autospec=True, side_effect=interrupted), pytest.raises(OSError, match='injected after real session replacement'):
+    actual_replace = file_operations.os.replace
+    interrupted = _bind_framework_callback(_callback_check_signed_ledger_rejects_rollback_and_recovers_interrupted, actual_replace, path, after_replace)
+    with patch.object(file_operations.os, 'replace', side_effect=interrupted), pytest.raises(OSError, match='injected session replacement'):
         handoff.save(path, session)
     recovered = json.loads(path.read_text())
     handoff.restore(root, path, recovered)

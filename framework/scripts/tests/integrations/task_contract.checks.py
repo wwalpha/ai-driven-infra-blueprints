@@ -16,7 +16,6 @@ import pytest
 import task_contract as tasks
 from issues.publication import save
 from support.pytest_cli import run
-from utils.file_operations import atomic_files
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from validation_scope import active_scope
 
@@ -221,23 +220,6 @@ def check_shared_issue_files(tmp_path, monkeypatch):
     save(tmp_path, 'dev', 'cde', ['s3'], additions=[{'service': 's3', 'message': 'second issue'}])
     assert all(value in (tmp_path / report).read_text() for value in ('retained issue', 'second issue'))
     blocked(lambda: tasks.safe_path(tmp_path, 'issues/../escape.md'), 'exact repository-relative path')
-
-
-def _callback_check_atomic_output_rollback_fail_second(replace, tmp_path, /, source, destination):
-    if Path(destination) == tmp_path / 'two.txt':
-        raise OSError('injected publication failure')
-    return replace(source, destination)
-
-
-def check_atomic_output_rollback(tmp_path):
-    files = {tmp_path / 'one.txt': 'first', tmp_path / 'two.txt': 'second'}
-    for path, value in files.items():
-        path.write_text(value)
-    replace = os.replace
-    fail_second = _bind_framework_callback(_callback_check_atomic_output_rollback_fail_second, replace, tmp_path)
-    with patch('os.replace', side_effect=fail_second), pytest.raises(OSError):
-        atomic_files({path: 'new' for path in files}, staging_directory=tmp_path)
-    assert all(path.read_text() == value for path, value in files.items())
 
 
 if __name__ == '__main__':

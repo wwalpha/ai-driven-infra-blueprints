@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import task_contract_core as tasks
+import validation_cache
 from model.importing import scope as import_scope
 from support.validation_cache_fixtures import (
     PassCache,
@@ -82,6 +83,16 @@ def check_cache_location(tmp_path):
         pass
     else:
         raise AssertionError("cache directory inside repository accepted")
+
+
+def check_cache_save_failure_continues(tmp_path: Path) -> None:
+    cache = PassCache(tmp_path / 'repo', directory=tmp_path / 'cache')
+    with patch.object(validation_cache, 'atomic_replace_file', side_effect=OSError('unavailable')):
+        cache.save('key', 17)
+    assert cache.load('key') is None
+    cache.save('key', 17)
+    assert cache.load('key') == 17
+    assert (cache.directory / 'key.json').read_bytes() == b'{"version": 1, "key": "key", "result": "pass", "checks": 17}'
 
 
 

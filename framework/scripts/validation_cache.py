@@ -11,6 +11,7 @@ from pathlib import Path
 import model.files as _imports_model_files
 import model.sources as _imports_model_sources
 import utils.aws_mappings as _imports_utils_aws_mappings
+from utils.file_operations import atomic_replace_file
 from utils.input_cache import _baselines as _baselines
 from utils.input_cache import _generation_inputs as _generation_inputs
 from utils.input_cache import _inputs as _inputs
@@ -138,19 +139,9 @@ class PassCache:
     def save(self, key, checks):
         if key is None or checks <= 0:
             return
-        temporary = None
         try:
             self.directory.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.directory,
-                                             delete=False) as stream:
-                temporary = Path(stream.name)
-                json.dump({"version": 1, "key": key, "result": "pass", "checks": checks}, stream)
-            os.replace(temporary, self.directory / f"{key}.json")
+            atomic_replace_file(self.directory / f"{key}.json", json.dumps(
+                {"version": 1, "key": key, "result": "pass", "checks": checks}))
         except OSError:
             pass  # Cache availability never replaces actual validation.
-        finally:
-            if temporary is not None:
-                try:
-                    temporary.unlink(missing_ok=True)
-                except OSError:
-                    pass

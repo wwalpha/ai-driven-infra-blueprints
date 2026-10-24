@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from contextlib import ExitStack
 from functools import partial
 from pathlib import Path
@@ -30,7 +31,7 @@ import sync_files as _imports_sync_files
 import sync_runtime
 from botocore.exceptions import ClientError, ReadTimeoutError
 from cloudformation_inputs import condition_active
-from deploy import session
+from deploy import handoff, session
 from deploy.controller import main
 from model.files import read_model
 from project_targets import load_target
@@ -451,12 +452,6 @@ def _callback_invoke_write(fail_observed, fault, journal, original_write, root, 
     if fault == 'generation-io' and path.suffix == '.md' and not path.is_relative_to(root) and state_path.is_file():
         if json.loads(state_path.read_text()).get('pendingObserved', {}).get('stage') == 'MODEL_PUBLISHED':
             raise OSError('injected staged generation I/O failure')
-    if path == state_path.with_suffix('.json.tmp'):
-        saved = json.loads(text)
-        if fault == 'plan-save' and saved.get('pendingObserved'):
-            raise OSError('injected observed plan I/O failure')
-        if fault == 'design-committed' and saved['states']['cfn-stack-app-dev-first'].get('observedSynced'):
-            os._exit(78)
     result = original_write(path, text, *args, **kwargs)
     if fault == 'model-partial' and model_output:
         assert journal.is_file()
@@ -465,6 +460,18 @@ def _callback_invoke_write(fail_observed, fault, journal, original_write, root, 
         assert journal.is_file()
         os._exit(79)
     return result
+
+
+def _callback_invoke_session_save(
+    fault: str | None, original_save: Callable[..., None], /,
+    path: Path, text: str, **options: object,
+) -> None:
+    saved = json.loads(text)
+    if fault == 'plan-save' and saved.get('pendingObserved'):
+        raise OSError('injected observed plan I/O failure')
+    if fault == 'design-committed' and saved['states']['cfn-stack-app-dev-first'].get('observedSynced'):
+        os._exit(78)
+    original_save(path, text, **options)
 
 
 def _callback_invoke_unlink(fault, journal, original_unlink, /, path, *args, **kwargs):
@@ -503,7 +510,7 @@ def fake_sleep(delays, seconds):
 
 
 def invoke(root, state_path, aws_path, options=(), fail_observed=False, fault=None):
-    original_write, original_replace = Path.write_text, Path.replace
+    original_write, original_replace = Path.write_text, os.replace
     original_unlink = Path.unlink
     journal = Path(tempfile.gettempdir()) / 'blueprint-model-publication' / (hashlib.sha256(str(root).encode()).hexdigest() + '.json')
     write = _bind_framework_callback(_callback_invoke_write, fail_observed, fault, journal, original_write, root, state_path)
@@ -514,13 +521,16 @@ def invoke(root, state_path, aws_path, options=(), fail_observed=False, fault=No
     with ExitStack() as stack:
         stack.enter_context(patch.object(session, 'run_session', partial(session.run_session, sleep=sleep)))
         stack.enter_context(patch.object(session, 'run_group', partial(session.run_group, sleep=sleep)))
-        stack.enter_context(patch.object(Path, 'replace', replace))
+        stack.enter_context(patch.object(os, 'replace', replace))
         stack.enter_context(patch('utils.aws.client.client', clients(root, state_path, aws_path)))
         stack.enter_context(patch('socket.socket.connect', side_effect=AssertionError('network forbidden')))
         stack.enter_context(patch('socket.socket.connect_ex', side_effect=AssertionError('network forbidden')))
         if fail_observed or fault:
             stack.enter_context(patch.object(Path, 'write_text', write))
             stack.enter_context(patch.object(Path, 'unlink', unlink))
+        if fault in {'plan-save', 'design-committed'}:
+            save = _bind_framework_callback(_callback_invoke_session_save, fault, handoff.atomic_replace_file)
+            stack.enter_context(patch.object(handoff, 'atomic_replace_file', save))
         if fault == 'design-race':
             GenerationInputs = _imports_generation_inputs.GenerationInputs
             original_seal = GenerationInputs.seal

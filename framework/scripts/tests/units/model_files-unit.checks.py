@@ -3,6 +3,7 @@
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -13,6 +14,9 @@ from support.model_files_fixtures import (
     Path,
     sys,
 )
+from support.pytest_cli import run
+
+from model import sources
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -40,6 +44,27 @@ def check_cli_entrypoints():
     assert module.stdout == ''  # Preserve the existing module execution contract.
 
 
+def check_journal_precedes_publication(tmp_path: Path) -> None:
+    destination = tmp_path / 'model.properties'
+    destination.write_bytes(b'old\r\n')
+    record = {'root': str(tmp_path.resolve()), 'originals': {'model.properties': 'b2xkDQo='}}
+    calls = Mock()
+    with sources.publication_lock(tmp_path) as journal:
+        with patch.object(sources, 'atomic_replace_file', wraps=sources.atomic_replace_file) as save, \
+                patch.object(sources.sync_files, 'save_files', wraps=sources.sync_files.save_files) as publish:
+            calls.attach_mock(save, 'journal')
+            calls.attach_mock(publish, 'model')
+            sources._publish_transaction(tmp_path, {destination: 'new\n'}, (), journal)
+        save.assert_called_once_with(journal, sources.json_text(record), fsync=True, mode=0o666)
+        assert [call[0] for call in calls.mock_calls] == ['journal', 'model']
+        assert not journal.exists()
+    with sources.publication_lock(tmp_path) as journal:
+        with patch.object(sources, 'atomic_replace_file', side_effect=OSError('journal save')), \
+                patch.object(sources.sync_files, 'save_files') as publish, pytest.raises(OSError, match='journal save'):
+            sources._publish_transaction(tmp_path, {destination: 'unpublished'}, (), journal)
+        publish.assert_not_called()
+        assert not journal.exists()
+
+
 if __name__ == '__main__':
-    from support.pytest_cli import run
     raise SystemExit(run(__file__))

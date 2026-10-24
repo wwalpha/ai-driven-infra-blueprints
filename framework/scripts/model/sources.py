@@ -22,6 +22,7 @@ import task_contract_core as task_contract
 import utils.json_format as _imports_utils_json_format
 from project_targets import DeployContextError, select_target
 from sync_progress import phase, thread_lock
+from utils.file_operations import atomic_replace_file
 from utils.input_cache import (
     input_is_symlink,
     memo_table,
@@ -164,12 +165,7 @@ def _publish_transaction(root, output, obsolete, journal, *, originals=None, sta
         task, original = receipt
         record['importReceipt'] = {'task': task, 'original': None if original is None else base64.b64encode(original).decode()}
         originals = {**originals, **_receipt_original(root, record['importReceipt'])}
-    temporary = journal.with_suffix('.pending')
-    with temporary.open('w', encoding='utf-8') as stream:
-        stream.write(json_text(record))
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.replace(temporary, journal)
+    atomic_replace_file(journal, json_text(record), fsync=True, mode=0o666)
     if memo_table() is not None:
         memo_table().clear()
     try:
