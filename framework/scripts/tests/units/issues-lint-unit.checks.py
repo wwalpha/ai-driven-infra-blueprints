@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Pure lint planning/classification, artifact indexing and deferred-cache boundaries."""
+"""Lint planning/classification, artifact indexing and report-only input behavior."""
 
-import hashlib
 import io
 import signal
 import subprocess
@@ -25,7 +24,6 @@ from issues.aggregate import aggregate
 from issues.aggregate import aggregate as real_aggregate
 from issues.artifact import detail_payload, scan_exit_code, summary, validate_artifact
 from issues.cfn_lint import classify, owner, plan, run_lint
-from issues.integrity import live_common_key
 from issues.publication import save_scan
 from issues.records import identifier
 from issues.reports import notice_report, without_notices
@@ -35,14 +33,9 @@ from utils.cfn_lint import (
     LintSession,
     Worker,
     decode_response,
-    directory_state,
-    file_state,
-    runtime,
-    verify_dependencies,
 )
 from utils.cfn_lint_worker import child
 from utils.iac_values import safe_value
-from utils.input_cache import input_recorder, recording_inputs
 from validation.runner import Validator
 
 if not __debug__:
@@ -131,13 +124,7 @@ def check_v2_index_and_status():
         save_scan(Path('/fixture'),artifact,dict(scan_id='other',reviewed_naming_context_id=artifact['naming_context_id'],reviewed_names=[],reviewed_judgments=[],diagnostic_assignments={},issues=[],resolved=[]))
 
 
-def check_dependency_guards():
-    recorder=SimpleNamespace(tracks=lambda _:True)
-    cache=SimpleNamespace(common_key=lambda:'memo' if input_recorder(Path('/fixture')) else 'live')
-    with recording_inputs(recorder):
-        assert cache.common_key()=='memo'
-        assert live_common_key(cache)=='live'
-        assert input_recorder(Path('/fixture')) is recorder
+def check_pending_notices_preserve_warnings():
     text='# 問題一覧\nhuman confirmation\n'
     current=notice_report(text,'dev','team',['s3'],{'warnings':[dict(code='W',message='new warning')]})
     pending=notice_report(current,'dev','team',['s3'],{'unverified':[dict(code='not_run')]},preserve_prior=True)
@@ -145,23 +132,6 @@ def check_dependency_guards():
     again=notice_report(pending,'dev','team',['s3'],{'unverified':[dict(code='not_run')]},preserve_prior=True)
     assert again.count('new warning')==1
     assert 'warning' not in without_notices(again) and 'human confirmation' in without_notices(again)
-    with tempfile.TemporaryDirectory() as tmp:
-        root=Path(tmp)
-        config=root/'.cfnlintrc'
-        rules=root/'rules'
-        rules.mkdir()
-        dependencies=dict(runtime=runtime(Path.cwd()),files=[file_state(config)],directories=[directory_state(rules)])
-        verify_dependencies(dependencies)
-        config.write_text('ignore_checks: [W]')
-        with pytest.raises(ValueError,match='lint input changed'):
-            verify_dependencies(dependencies)
-        config.unlink()
-        (rules/'new.py').write_text('# custom rule')
-        with pytest.raises(ValueError,match='file set'):
-            verify_dependencies(dependencies)
-        dependencies['runtime']['home']='different'
-        with pytest.raises(ValueError,match='HOME'):
-            verify_dependencies(dependencies)
 
 
 def check_deferred_cache_finalization():
@@ -243,14 +213,8 @@ def check_child_builtin_packets_preserve_progress(crash):
     sender.close.assert_called_once()
 
 
-def _callback_check_scan_cache_guard_order_track(comp, /, path):
-    comp.inputs.add(path)
-    comp.read_hashes[path]=hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
-
-
 def _callback_check_scan_cache_guard_order_mechanical(validator, /, *args, **kwargs):
     kwargs['validator_out'].append(validator)
-    kwargs['fingerprint_out']['dev/team/s3']='service-key'
     return [],20,''
 
 
@@ -260,23 +224,26 @@ def _callback_check_scan_cache_guard_order_aggregation(events, /, *args, **kwarg
 
 
 def _callback_check_scan_cache_guard_order_lint(_state_check_scan_cache_guard_order_256, /, _):
-    if _state_check_scan_cache_guard_order_256.failure=='stale':
-        (_state_check_scan_cache_guard_order_256.root/'docs/designs/dev/team').mkdir(parents=True)
-        (_state_check_scan_cache_guard_order_256.root/'docs/designs/dev/team/s3.md').write_text('changed')
+    if _state_check_scan_cache_guard_order_256.failure=='changed':
+        (_state_check_scan_cache_guard_order_256.root/'docs/designs/dev/team').mkdir(parents=True, exist_ok=True)
+        (_state_check_scan_cache_guard_order_256.root/'docs/designs/dev/team/codepipeline.md').write_text('changed')
     if _state_check_scan_cache_guard_order_256.failure=='exception':
         raise RuntimeError('injected')
     if _state_check_scan_cache_guard_order_256.failure=='interrupt':
         raise KeyboardInterrupt()
-    return dict(jobs=[],coverage=[],status='not_applicable',lint_dependencies={},**{name:[] for name in ('ordinary','judgments','warnings','information','unverified','processing_errors')})
+    return dict(jobs=[],coverage=[],status='not_applicable',**{name:[] for name in ('ordinary','judgments','warnings','information','unverified','processing_errors')})
 
 
-def check_scan_cache_guard_order():
+def check_scan_changes_without_cache():
 
     _state_check_scan_cache_guard_order_256 = _CallbackState()
-    for _state_check_scan_cache_guard_order_256.failure in (None,'stale','exception','interrupt'):
+    for _state_check_scan_cache_guard_order_256.failure in (None,'changed','exception','interrupt'):
         with tempfile.TemporaryDirectory() as temporary:
             _state_check_scan_cache_guard_order_256.root=Path(temporary).resolve()
             (_state_check_scan_cache_guard_order_256.root/'project.json').write_text('{}')
+            view = _state_check_scan_cache_guard_order_256.root/'docs/designs/dev/team/codepipeline.md'
+            view.parent.mkdir(parents=True)
+            view.write_text('original')
             events=[]
             cache=SimpleNamespace(common=None,save=Mock(side_effect=lambda *_, events=events:events.append('cache')),
                                   common_key=lambda *, events=events, **kwargs: events.append('start' if kwargs else 'live') or 'common',
@@ -284,27 +251,26 @@ def check_scan_cache_guard_order():
             validator=SimpleNamespace(findings=SimpleNamespace(unverified=[],result=lambda *_:SimpleNamespace(metadata={})),
                                       cache=cache,checks=20,service_cache_pending=[('new-key',20)],check=lambda condition,_:condition)
             validator.finalize_service_cache=lambda key, *, validator=validator:Validator.finalize_service_cache(validator,key)
-            comp=SimpleNamespace(inputs={_state_check_scan_cache_guard_order_256.root/'project.json'},read_hashes={},view_errors={},services=['s3'],root=_state_check_scan_cache_guard_order_256.root,
+            comp=SimpleNamespace(inputs={_state_check_scan_cache_guard_order_256.root/'project.json'},read_hashes={},view_errors={},services=['codepipeline'],root=_state_check_scan_cache_guard_order_256.root,
                                  environment='dev',directory='team',warnings=[],catalog=None,models={},results=[],metrics={},display_differences={},
                                  redacted=lambda value,prop='':safe_value(value,prop),run=lambda:[])
-            track = _bind_framework_callback(_callback_check_scan_cache_guard_order_track, comp)
-            comp.track=track
             mechanical = _bind_framework_callback(_callback_check_scan_cache_guard_order_mechanical, validator)
             lint = _bind_framework_callback(_callback_check_scan_cache_guard_order_lint, _state_check_scan_cache_guard_order_256)
             aggregation = _bind_framework_callback(_callback_check_scan_cache_guard_order_aggregation, events)
-            with patch('issues.runner.Comparison',return_value=comp),patch('issues.runner.PassCache',return_value=cache), \
+            with patch('issues.runner.Comparison',return_value=comp), \
                  patch('issues.runner.mechanical',side_effect=mechanical),patch('issues.runner.naming_materials',return_value=({'names':[]},[])), \
                  patch('issues.runner.existing_materials',return_value=([],[])),patch('issues.cfn_lint.run_lint',side_effect=lint), \
                  patch('issues.runner.aggregate',side_effect=aggregation):
-                if _state_check_scan_cache_guard_order_256.failure:
-                    expected=ValueError if _state_check_scan_cache_guard_order_256.failure=='stale' else RuntimeError if _state_check_scan_cache_guard_order_256.failure=='exception' else KeyboardInterrupt
+                if _state_check_scan_cache_guard_order_256.failure in ('exception','interrupt'):
+                    expected=RuntimeError if _state_check_scan_cache_guard_order_256.failure=='exception' else KeyboardInterrupt
                     with pytest.raises(expected):
-                        scan(_state_check_scan_cache_guard_order_256.root,'dev','team',['s3'])
+                        scan(_state_check_scan_cache_guard_order_256.root,'dev','team',['codepipeline'])
                     assert not cache.save.called
                 else:
-                    result=scan(_state_check_scan_cache_guard_order_256.root,'dev','team',['s3'])
+                    result=scan(_state_check_scan_cache_guard_order_256.root,'dev','team',['codepipeline'])
                     assert result['version']==2 and result['checks']==20
-                    assert events.index('aggregation')<events.index('live')<events.index('cache')
+                    assert events == ['aggregation'] and not cache.save.called
+                    assert not {'fingerprint', 'service_keys', 'lint_dependencies'} & result.keys()
 
 
 
@@ -534,6 +500,21 @@ def check_offline_and_write_guards(tmp_path):
     assert response['processing_errors'] == [dict(code='schema_unavailable')]
     with pytest.raises(lint_worker.OfflineError):
         lint_worker._callback_structured_audit(state, response, Mock(), 'open', (str(tmp_path / 'output'), 'w', 0))
+
+
+
+@pytest.mark.parametrize('dependency', ['files', 'directories', 'selections'])
+def check_lint_jobs_accept_changed_dependencies(dependency):
+    jobs = [dict(id=str(i), template=f'/fixture/{i}.yaml', region='ap-northeast-1', status='planned') for i in range(2)]
+    results = [dict(status='completed', completed=True, decode_complete=True, matches=[],
+        processing_errors=[], unverified=[], dependencies={dependency: [dict(locator='/fixture/shared', pattern='*', sha256=str(i))]}) for i in range(2)]
+    comparison = SimpleNamespace(root=Path('/fixture'), sensitive_values=set(), redacted=lambda value: value)
+    with patch('issues.cfn_lint.plan', return_value=(jobs, [])), \
+         patch('issues.cfn_lint.lint_session'), patch('issues.cfn_lint.validate_template', side_effect=results) as lint:
+        result = run_lint(comparison)
+    assert lint.call_count == 2 and result['status'] == 'checked'
+    assert all(item['status'] == 'completed' for item in result['coverage'])
+    assert 'lint_dependencies' not in result
 
 
 if __name__=='__main__':

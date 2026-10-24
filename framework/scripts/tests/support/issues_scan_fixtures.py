@@ -30,7 +30,6 @@ from design.layout import resource_name_fields
 from issue_gate import issue_errors
 from issues.aggregate import aggregate, iac_dataset, iac_summary
 from issues.artifact import detail_payload, review_payload, summary
-from issues.integrity import verify_inputs
 from issues.materials import naming_materials
 from issues.publication import save, save_scan
 from issues.reports import blocks, iac_report, numbered
@@ -262,7 +261,7 @@ def scan_project(tmp_path):
     return root, values, template
 
 
-__all__ = ['aggregate', 'review_for', 'Comparison', 'Counter', 'Path', 'ROOT', 'SELECTOR', 'argparse', 'blocks', 'compare', 'sequential_reports', 'contextmanager', 'detail_payload', 'entries', 'expect_error', 'fixture', 'hashlib', 'iac_dataset', 'iac_report', 'iac_summary', 'identifier', 'input_scope', 'issue_errors', 'json', 'load_model', 'markdown_for', 'mechanical', 'model_file_contents', 'module', 'mutate_template', 'naming_materials', 'naming_target_matches', 'naming_targets', 'numbered', 'os', 'patch', 'properties', 'protected_sources', 'pytest', 'pytestmark', 're', 'read_model', 'render_iac', 'resource_name_fields', 'resource_row_index', 'remove_model', 'review_payload', 'run', 'same', 'save', 'save_scan', 'scan', 'scan_project', 'selected_same', 'shutil', 'snapshot_model', 'statistics', 'strict_json', 'subprocess', 'summary', 'summary_fixture', 'sys', 'task', 'tempfile', 'time', 'value_differences', 'verify_inputs', 'write', 'write_fixture_files', 'write_model', 'write_report']
+__all__ = ['aggregate', 'review_for', 'Comparison', 'Counter', 'Path', 'ROOT', 'SELECTOR', 'argparse', 'blocks', 'compare', 'sequential_reports', 'contextmanager', 'detail_payload', 'entries', 'expect_error', 'fixture', 'hashlib', 'iac_dataset', 'iac_report', 'iac_summary', 'identifier', 'input_scope', 'issue_errors', 'json', 'load_model', 'markdown_for', 'mechanical', 'model_file_contents', 'module', 'mutate_template', 'naming_materials', 'naming_target_matches', 'naming_targets', 'numbered', 'os', 'patch', 'properties', 'protected_sources', 'pytest', 'pytestmark', 're', 'read_model', 'render_iac', 'resource_name_fields', 'resource_row_index', 'remove_model', 'review_payload', 'run', 'same', 'save', 'save_scan', 'scan', 'scan_project', 'selected_same', 'shutil', 'snapshot_model', 'statistics', 'strict_json', 'subprocess', 'summary', 'summary_fixture', 'sys', 'task', 'tempfile', 'time', 'value_differences', 'write', 'write_fixture_files', 'write_model', 'write_report']
 
 
 def remove_model(path):

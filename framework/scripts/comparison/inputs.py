@@ -127,8 +127,6 @@ class Inputs:
             self.models[service] = loaded
             self._index = None
             self.symbols.clear()
-            for file, raw in loaded.dependencies.items():
-                self.retain_hash(file, None if raw is None else hashlib.sha256(raw).hexdigest())
             self.metrics['model_loads'] += 1
             self.metrics['model_parses'] += 1
             self.resources[service] = dict(entries(loaded.values, 'desired.resource.'))

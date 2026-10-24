@@ -6,11 +6,11 @@ The local issues-only entrypoint is `framework/scripts/issues_scan.py`. Process 
 
 Ordinary issues use `issues/<environment>/<target-directory>/issues.md`, model desired → IaC differences use `iac-issues.md` with full data only in the temporary external scan artifact, and environment comparisons retain `diff.md`. Ordinary gate implementation, service ownership format, and stop decisions remain unchanged. IaC differences alone must not cause failure exit, ordinary issue registration, suspension, or Issue remediation requirements. Retain existing validator diagnostics for schema, model/Markdown equality, references, policies, account/region, etc., and post-save validation under [Validation policy](loop-engineering.md#validation-policy).
 
-The scoped report-only `migration` Task runs without a worktree and is independent of
-Task-start/current main/master commits. HEAD changes alone do not stop investigation,
-save, validation or completion, suspend the Task, create a replacement Task or expand
-Validation scope. Validate current worktree/index changes and untracked files against
-the existing report-only Allowed paths and contract; other Tasks retain Git baseline checks.
+The scoped report-only `migration` Task runs without a worktree. Identify it with
+`issues_save_only()`; do not collect or compare HEAD/commit, worktree/index or untracked
+changes for investigation, saving, validation or completion. Other Tasks' edits are not
+Issue Task changes. Do not compare the Task catalog between start and completion. Retain contract/service scope/Acceptance and Allowed paths checks on
+actual report destinations. Other Tasks retain their input/Git safety checks.
 
 ## Read and review
 
@@ -22,7 +22,7 @@ Apply AGENTS.md section-reading rules. Apply common rules, target namespace rule
 | Existing service validators, generated Markdown/JSON equality, catalog/schema, references, policies, observed persistence prohibitions | Existing issues whose concrete diagnostic meaning/mapping is unclear. Retrieve diagnostic details/resources only when needed |
 | Naming coverage, mandatory Name, existing name value checks | Name patterns for all resources, human-confirmed components, human exceptions and their scope. Do not check only error names/representative examples |
 | Formal IaC type/ID/stack mappings and comparison of confirmed values and supported expressions | Do not regenerate machine differences as prose. Do not send uncompared items to full-text comparison or AWS |
-| Scoped report formatting, exclusion, saving, input fingerprints | Evidence-backed additional ordinary issues and resolution specifications for explicitly revalidated existing issues |
+| Scoped report formatting, exclusion, saving, report destination authority | Evidence-backed additional ordinary issues and resolution specifications for explicitly revalidated existing issues |
 
 `scan` stdout contains execution/Scope, per-category counts, bounded cause/action summaries and representatives, artifact path and detail/review instructions. Never expand all uncompared/errors/names/judgments in initial output. Retrieve all naming/judgment pages through `detail`; the complete-review requirement and exit/save decisions remain unchanged. Diagnostics, full records, rules and masked field differences stay in the same run's external artifact.
 
@@ -95,15 +95,14 @@ Uncompared: Terraform (no existing reliable local mapping/evaluator), Transform,
 
 ## Input reuse and publication
 
-`load_model` shares validated parsing, actual files/parts/keys/line positions, and text; retain the public `read_model` API. Row indexes use fixed Resource numbers and reject orphan rows. Ordinary material and comparison within a new scan do not reparse the same model entries/parts. Scan generation equality uses the existing read-only sync API per target, omitting extra generator processes and scope rereads. Retain ordinary validator/loop default process paths, successful caches, and at most 4 parallel workers. Do not add service subagents, nested parallelism, or persistent caches. Also share evidence-line verification per file within saving. Template decoding is per file, evaluation per stack/parameters/context, and catalog/index/reference symbols are shared within the run.
+`load_model` shares validated parsing, actual files/parts/keys/line positions, and text; retain the public `read_model` API. Row indexes use fixed Resource numbers and reject orphan rows. Ordinary material and comparison within a new scan do not reparse the same model entries/parts. Scan generation equality uses the existing read-only sync API per target, omitting extra generator processes and scope rereads. Retain ordinary validator/loop default process paths and at most 4 parallel workers. Issue scans execute diagnostics without PASS-cache reuse or publication. Do not add service subagents, nested parallelism, or persistent caches. Preserve Scan-time evidence paths/positive line numbers without rereading source files during saving. Template decoding is per file, evaluation per stack/parameters/context, and catalog/index/reference symbols are shared within the run.
 
-Scan artifacts are temporary handoffs outside the repository, not next-run caches. Before saving, confirm models, part sets, IaC, parameters, references, and rules/framework using existing digest/service dependency/common input helpers. Reject saving on changes and rescan the relevant scope. Do not rerun comparisons merely for saving.
-
-Keep `fingerprint` / `verify_inputs()` content checks: a changed commit SHA with unchanged
-inputs permits the existing scan. Changed actual inputs require a new scan of the necessary
-scope and renewed naming/judgment review before saving in the same Task. A stale scan is
-an input-integrity failure, independent of HEAD; never save it as current or call failed or
-unverified checks PASS. Reinvestigation grants no Model/IaC write authority.
+Scan artifacts are temporary handoffs outside the repository, not next-run caches.
+Do not fingerprint inputs, compare bytes/file sets or reject execution/publication for
+changes during or after scanning. Save the reviewed artifact with its execution time and
+confirmed/unverified scope. No input-change warnings, automatic rescan or renewed review
+are required. Keep complete Scan/Review ID/content validation. A new explicitly requested
+scan still requires its own complete review. Never promote unverified or failed results to PASS.
 
 Save reports with indivisible atomic publication/rollback. Reread/merge ordinary `issues.md` service blocks conservatively, preserving out-of-scope services, human confirmations and unresolved issues. IaC Markdown is instead this run's Scope only: no old result merge, no automatic resolution claim and no out-of-scope results in current counts. Do not parse old IaC Markdown or preserve its notes; retain previous bytes only for publication rollback. Mask secrets/current ARNs/NoEcho values in artifacts, detail and reports. No additional comparison or Model/IaC parsing during saving.
 
@@ -119,14 +118,14 @@ Aggregation runs once over finished comparison records, using dictionaries and d
 
 All comparison records (including matched/excluded), unchanged `iac_key` identities, masked field-display information and deterministic Issue-to-record membership belong to the execution's temporary artifact outside the repository. `iac_issues[].members` indexes the original `iac` list. `detail` retrieves category/Issue filters before offset/limit pagination without source reads or comparison. No persistent sidecar, embedded JSON, record restoration, old-result merge, or Markdown digest check.
 
-`iac-issues.md` is replaced from the current valid artifact only. Never restore old results, human annotations, embedded JSON or out-of-scope Services. Existing `iac-issues.state.json` is ignored even if stale, malformed or inconsistent; do not read, write, migrate or automatically delete it. Do not replace state with another persistent file/cache. Only `issues.md` and `iac-issues.md` belong to the indivisible save batch. Preserve the input-change check immediately before publication, atomic writes and rollback of all outputs on failure. Saving performs no comparison, lint or full regrouping; retain Model dependency reads needed by scoped/service/common fingerprints. Ordinary Issue Gate and CREATE/IMPORT logic remain unchanged.
+`iac-issues.md` is replaced from the current valid artifact only. Never restore old results, human annotations, embedded JSON or out-of-scope Services. Existing `iac-issues.state.json` is ignored even if stale, malformed or inconsistent; do not read, write, migrate or automatically delete it. Do not replace state with another persistent file/cache. Only `issues.md` and `iac-issues.md` belong to the indivisible save batch. Preserve destination authority, atomic writes and rollback of all outputs on failure. Saving performs no comparison, lint, full regrouping or input freshness checks. Ordinary Issue Gate and CREATE/IMPORT logic remain unchanged.
 
 
 ## Framework regression and fixture benchmark
 
 Select development checks and final validation of this entrypoint under [Validation policy](loop-engineering.md#validation-policy), keeping framework implementation scope separate from ordinary issues. `framework/scripts/tests/integrations/issues_scan.checks.py` checks isolated fixtures using existing checks format; `--benchmark --log-dir /tmp/issues-performance` repeatedly measures A (ordinary path equivalent to before changes in current checkout)/B (the same ordinary checks plus per-service reference comparison)/C (batch scan) with the same runtime, fresh cache, and no profile. Place benchmark fixtures and diagnostics only outside the repository.
 
-Measure A/B LLM volume as old-skill-required full model/Markdown reads and list reediting; C as actual scan stdout plus minimal review JSON UTF-8 bytes/characters. Add required rule input to A/B/C under the same conditions; C stdout shares patterns/scope/paths without duplicate body output. Actual LLM tokens, LLM wall time, and total actual project time are unmeasured. Do not call fixture Python scan/material extraction/formatting/saving whole-path wall/process/read/parse/decode/decision coverage measurements actual speed of the entire skill. Post-save local loops and actual LLM time are excluded from this benchmark and unmeasured. Separate read_text from input-integrity read_bytes; also include staged models in aggregation.
+Measure A/B LLM volume as old-skill-required full model/Markdown reads and list reediting; C as actual scan stdout plus minimal review JSON UTF-8 bytes/characters. Add required rule input to A/B/C under the same conditions; C stdout shares patterns/scope/paths without duplicate body output. Actual LLM tokens, LLM wall time, and total actual project time are unmeasured. Do not call fixture Python scan/material extraction/formatting/saving whole-path wall/process/read/parse/decode/decision coverage measurements actual speed of the entire skill. Post-save local loops and actual LLM time are excluded from this benchmark and unmeasured. Count actual input reads separately; also include staged models in aggregation.
 
 ## Complete membership and interrupted comparison
 
@@ -138,19 +137,27 @@ When the existing comparison exception boundary catches an error, retain accumul
 
 `issues_scan.py` preserves the CLI and optional `--repository-root` (cwd defaults to the repository root); `issues.cli` lazily selects scan/detail/save runtime. `runner` owns scan order and partial results; `inputs` owns Model/template/parameter reads; `references` owns existing expression/reference evaluation through the shared evaluators; `comparison.Comparison` retains explicit stack/index/templates/compare_rows/desired_value APIs and the single mutable scan state. These modules do not replace the shared IaC/Model APIs. No Mixins or dynamic forwarding.
 
-`records` owns pure IDs/masking/field differences, `aggregate` produces canonical IaC records, stable Issue IDs/members, lightweight record metadata and the bounded overview once. `artifact` reads this v2 data for review/detail; filter the saved action index, slice indices, then format only page records. `reports` formats current-run IaC from this aggregation and conservatively merges ordinary issues. `publication` owns authority/review/guard/atomic writes. No duplicate record body, persistent sidecar, second Model snapshot or lint cache. Only v2 scan artifacts are supported; reject unsupported artifact formats without deriving replacement indexes.
+`records` owns pure IDs/masking/field differences, `aggregate` produces canonical IaC records, stable Issue IDs/members, lightweight record metadata and the bounded overview once. `artifact` reads this v2 data for review/detail; filter the saved action index, slice indices, then format only page records. `reports` formats current-run IaC from this aggregation and conservatively merges ordinary issues. `publication` owns authority/review/atomic writes. No duplicate record body, persistent sidecar, second Model snapshot or lint cache. Only v2 scan artifacts are supported; reject unsupported artifact formats without deriving replacement indexes.
 
-## Input and cache completion order
+## Input reads and report publication
 
-Create a new scan ID and validate the explicit target/scope. Use `FileReads` only for one starting `PassCache.common_key(snapshot=reads)`; do not register it as a generation recorder or change GenerationInputs Task conditions. Share this PassCache with mechanical checks and service dependency verification. Always run selected scoped design checks even when a View is missing; retain independent source/service diagnostics and mark unavailable View checks unverified.
+Create a new scan ID and validate the explicit target/scope. Retain invocation-local Model
+parsing and actual read/parse error diagnostics. Always run selected scoped design checks,
+even when a View is missing; retain independent source/service diagnostics and mark
+unavailable View checks unverified. Do not build or revalidate input fingerprints, service
+cache keys or pending Issue PASS-cache candidates. Ordinary Validator cache checks and
+publication guards remain unchanged.
 
-Model reads retain the existing invocation-local reader, including failed read/absence/kind observations and the first parts discovery set. Failed byte retrieval cannot prove freshness and rejects publication; later observations never replace an earlier contradictory input. These records are not installed as an outer generation recorder.
+For issues only, a selected saved View read/decode failure is a structured service/path/phase
+processing error. Mark dependent View and incomplete scope-wide checks unverified and
+continue independent Model/service/comparison/lint checks. Normal Validator failure
+propagation is unchanged.
 
-Only issues calls `check_scoped_designs(defer_cache=True)`. Hold new successful mechanical candidates (never cache hits) under the existing no-errors/no-warnings/no-unverified eligibility conditions. After material collection, comparison and lint, redact and aggregate once. Verify initial and actually consumed Model/part/Markdown/IaC/parameter/reference bytes and file sets, service dependencies and lint dependencies; then enumerate/read common Framework/project/runtime inputs live and compare to the starting key. Only after every guard succeeds call `finalize_service_cache(current_common_key)`. Normal Validator remains immediate by default. Stale inputs, exceptions and interruptions never finalize pending candidates. This cache represents mechanical validation only, never comparison or lint success.
-
-For issues only, a selected saved View read/decode failure is a structured service/path/phase processing error. Keep its acquired raw-byte hash, mark dependent View and incomplete scope-wide checks unverified, continue independent Model/service/comparison/lint checks, and discard cache candidates whose eligibility cannot be proved. Normal Validator failure propagation is unchanged.
-
-Save separately revalidates scoped/file-set/service/common/lint inputs against live data; artifact start keys do not replace current reads. Under the publication lock, reread ordinary issues, format both reports, run the fresh guard immediately before the existing indivisible atomic batch/rollback. Preserve old ordinary issues unless explicit resolution evidence identifies them; preserve out-of-scope services/Human prose. Replace only this scope's machine notice marker. Exclude machine notices from Human review materials. `save-results` still accepts acquired ordinary results only and never scans/compares/lints.
+Under the publication lock, reread ordinary issues, format both reports and use the existing
+indivisible atomic batch/rollback. Preserve old ordinary issues unless explicit resolution
+evidence identifies them; preserve out-of-scope services/Human prose. Replace only this
+scope's machine notice marker. Exclude machine notices from Human review materials.
+`save-results` accepts acquired ordinary results only and never scans/compares/lints.
 
 ## Offline cfn-lint and coverage
 
@@ -160,7 +167,11 @@ Save separately revalidates scoped/file-set/service/common/lint inputs against l
 
 Use ConfigMixIn with explicit region/template/JSON format, validate conflicts, check effective template selection before Runner.run, and consume its iterator incrementally. Honor HOME/cwd rc precedence, Metadata, merge/rule configuration, parameters and suppression. Record requested/effective regions and effective config fingerprint. Do not invoke Runner.cli, stdin fallback, configured output_file, graph/update/output modes or lint_all batch assumptions. Missing/different runtime versions are processing errors, never unverified private-API execution. The current checkout removed the dependency under a separate deploy task; do not silently restore/change requirements or deploy policy.
 
-Record repository raw templates separately from external lint locators: all six HOME/cwd config candidate existence states, adopted config content hashes, parameter selections, custom rules/override/registry directory sets, provider mapping and selected schema bytes, bundle/cache selection/version inputs, Python/package/runtime/HOME/cwd. Only hashes/kinds/sets/locators/version metadata are persisted; never config/parameter/secret bodies. Reenumerate/hash at scan completion and before save, without lint reruns. A different runtime/HOME cannot reuse evidence. Provider prerequisites are checked before access; child-only offline replacements prohibit provider update/download and network access without editing the installed package.
+Keep requested/effective regions, configuration provenance and job coverage. Issue scans
+do not aggregate lint dependency hashes/file sets or compare them between jobs, at scan
+completion or before saving. Provider prerequisites are checked before access; child-only
+offline replacements prohibit provider update/download and network access without editing
+the installed package. Never persist config/parameter/secret bodies.
 
 A known provider mapping whose schema cannot be read/parsed/constructed is a processing error even when the library absorbs its chained loader exception and yields no matches. Keep acquired matches and incomplete coverage; unknown types and intentional override exclusions retain their ordinary diagnostic provenance.
 
@@ -172,6 +183,6 @@ Use diagnostic Resources/logical-ID paths plus explicit origins to prove one sel
 
 validation_status priority is ERROR (processing, including IaC category=error), FAIL (selected ordinary or unassigned Error), INCOMPLETE (required mechanical/lint checks unexecuted), CHECKED. Keep review_required, iac_status and lint coverage separate. Differences/uncompared only affect iac_status; not_applicable is never lint PASS. Error plus downstream-unexecuted coverage remains FAIL plus incomplete coverage; independent processing errors take ERROR precedence. Separate stage-error counts from affected IaC record counts.
 
-scan exit: processing/stale/input failure 2; ordinary/unassigned Error 1; otherwise 0. Coverage-only/Warning/Info/IaC differences alone do not raise the code. Save errors in authority/review/guard/I/O return 2; successful publication returns 2 when the artifact has processing errors, otherwise 0 even with ordinary issues. stdout includes publication_status=SAVED and validation_status. Save/CHECKED/exit 0 never means AWS equality or all-range PASS.
+scan exit: processing/input failure 2; ordinary/unassigned Error 1; otherwise 0. Coverage-only/Warning/Info/IaC differences alone do not raise the code. Save errors in authority/review/I/O return 2; successful publication returns 2 when the artifact has processing errors, otherwise 0 even with ordinary issues. stdout includes publication_status=SAVED and validation_status. Save/CHECKED/exit 0 never means AWS equality or all-range PASS.
 
-warnings/information/unverified/processing_errors summaries expose total, at most five masked/brief previews, omitted counts and paged detail; code lists are bounded. Retain IaC 16 groups/10 examples/10 fields/160-character limits, the Markdown complete compact Issue list and external all-member retrieval. Metrics separate mechanical, IaC comparison, aggregation, lint and final input guards. runner wall_seconds ends after aggregation/guard/cache finalization and excludes CLI JSON/output and LLM time; outer process wall time is a separate measurement. No unmeasured project speedup or worker/default changes.
+warnings/information/unverified/processing_errors summaries expose total, at most five masked/brief previews, omitted counts and paged detail; code lists are bounded. Retain IaC 16 groups/10 examples/10 fields/160-character limits, the Markdown complete compact Issue list and external all-member retrieval. Metrics separate mechanical, IaC comparison, aggregation and lint. runner wall_seconds ends after aggregation and excludes CLI JSON/output and LLM time; outer process wall time is a separate measurement. No unmeasured project speedup or worker/default changes.

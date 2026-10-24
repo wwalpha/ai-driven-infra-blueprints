@@ -2,6 +2,7 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 
 import sys
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from pathlib import Path
@@ -12,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import io
 import threading
 from contextlib import redirect_stderr
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import import_guard
 import model.validation as model_validation
@@ -41,6 +42,9 @@ from utils.input_cache import (
     recording_inputs,
 )
 from utils.script_loader import module
+from task_contract_core import selected_task
+from support.issues_scan_fixtures import task as issue_task
+import task_contract_runtime
 from validation.findings import CheckResult, Findings
 from validation.task import TaskValidation
 from validation_cache import PassCache
@@ -487,7 +491,7 @@ def _scope_git_paths(args):
 
 @pytest.mark.parametrize('mode,count,final,permission', [
     ('baseline', 5, {'final.txt', 'new.txt'}, {'working.txt', 'index.txt', 'new.txt', 'committed.txt'}),
-    ('issues', 3, {'working.txt', 'index.txt', 'new.txt'}, {'working.txt', 'index.txt', 'new.txt'}),
+    ('issues', 0, set(), set()),
     ('unborn', 4, {'present.txt', 'broken-link', 'new.txt'}, {'working.txt', 'index.txt', 'new.txt'}),
     ('candidate', 0, {'candidate.txt', '.lock'}, {'candidate.txt', '.lock'}),
 ])
@@ -504,13 +508,73 @@ def check_scope_git_collection(tmp_path, mode, count, final, permission):
         assert paths.call_count == count
         assert task.changed_paths == final and task.permission_paths == permission
         assert task.changed_paths is not task.permission_paths
-        assert task.findings.errors == ['selected task contract missing while repository has changes']
+        assert task.findings.errors == ([] if mode == 'issues' else ['selected task contract missing while repository has changes'])
         paths.reset_mock()
         task.check_task_scope()  # A second validation must collect again.
         assert paths.call_count == count
     if mode == 'candidate':
         task.changed_paths.clear()
         assert candidate.changed_paths == final and task.permission_paths == permission
+
+
+
+
+def check_issue_task_ignores_other_task_git_changes(tmp_path):
+    subprocess.run(['git', 'init', '-q', str(tmp_path)], check=True)
+    subprocess.run(['git', '-C', str(tmp_path), 'config', 'user.email', 'fixture@example.test'], check=True)
+    subprocess.run(['git', '-C', str(tmp_path), 'config', 'user.name', 'Fixture'], check=True)
+    subprocess.run(['git', '-C', str(tmp_path), 'commit', '--allow-empty', '-qm', 'initial'], check=True)
+    with issue_task(tmp_path, ['s3']):
+        contract = tmp_path/'tasks/save.md'
+        contract.write_text(contract.read_text() + '\n## Required changes\n- [R1] Save reports\n'
+            '\n## Acceptance checks\n- [R1] `exists:issues/dev/123456789012/issues.md`\n')
+        report = tmp_path/'issues/dev/123456789012/issues.md'
+        report.parent.mkdir(parents=True)
+        report.write_text('未解決issueなし')
+        for relative in ('model/dev/123456789012/s3.properties', 'infra/app.yaml'):
+            path = tmp_path/relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('other Task input')
+        subprocess.run(['git', '-C', str(tmp_path), 'add', 'model', 'infra'], check=True)
+        subprocess.run(['git', '-C', str(tmp_path), 'commit', '-qm', 'other Task advanced HEAD'], check=True)
+        (tmp_path/'model/dev/123456789012/s3.properties').write_text('other staged change')
+        subprocess.run(['git', '-C', str(tmp_path), 'add', 'model'], check=True)
+        (tmp_path/'infra/app.yaml').write_text('other unstaged change')
+        (tmp_path/'other-untracked').write_text('other new file')
+        task = TaskValidation(tmp_path, Findings(tmp_path))
+        with selected_task(tmp_path, 'tasks/save.md'), \
+             patch('validation.task.collect_working_paths', side_effect=AssertionError('Issue must not collect Git changes')), \
+             patch.object(task, 'git_paths', side_effect=AssertionError('Issue must not inspect Git paths')):
+            task.check_task_scope()
+            task.check_issue_gate()
+            task.check_acceptance_checks({})
+            assert task.changed_paths == task.permission_paths == set()
+            assert not task.findings.errors, task.findings.errors
+            task_contract_runtime.complete(tmp_path, 'tasks/save.md')
+        assert '- Task status: `completed`' in contract.read_text()
+        assert (tmp_path/'infra/app.yaml').read_text() == 'other unstaged change'
+
+def add_other_issue_task(root):
+    (root/'tasks/other.md').write_text('## Task contract\n- Task type: `migration`\n- Task status: `completed`\n'
+        '## Modified files\n- `tasks/other.md`\n## Allowed paths\n- `tasks/other.md`\n')
+
+
+def check_issue_validation_ignores_contract_catalog_changes(tmp_path):
+    with issue_task(tmp_path, ['s3']):
+        contract = tmp_path/'tasks/save.md'
+        contract.write_text(contract.read_text() + '\n## Required changes\n- [R1] Save report\n'
+            '\n## Acceptance checks\n- [R1] `exists:issues/dev/123456789012/issues.md`\n')
+        report = tmp_path/'issues/dev/123456789012/issues.md'
+        report.parent.mkdir(parents=True)
+        report.write_text('未解決issueなし')
+        validator = load('validate-blueprint').Validator(tmp_path, set(), cache=True)
+        methods = ('check_structure', 'check_project_topology', 'check_validation_scope', 'check_model_files',
+            'check_initialized_paths', 'check_resource_layout', 'check_iac_selection')
+        with selected_task(tmp_path, 'tasks/save.md'), \
+             patch.multiple(validator, **dict.fromkeys(methods, Mock(return_value=None))), \
+             patch.object(validator, 'check_catalog', side_effect=_bind_framework_callback(add_other_issue_task, tmp_path)):
+            assert validator.run() == 0, validator.errors
+        assert validator.cache is None and len(validator.acceptance_results) == 1
 
 
 @pytest.mark.parametrize('scope,contract_scope', [(set(), None), (None, set())])

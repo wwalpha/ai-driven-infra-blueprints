@@ -1,5 +1,4 @@
 
-import hashlib
 import io
 import os
 import re
@@ -7,32 +6,27 @@ import time
 import uuid
 from contextlib import redirect_stdout
 
-from comparison import Comparison
 from model.core import ReferenceResolutionError
-from task_contract_core import contract_read_scope
-from utils.input_cache import digest_files, input_scope
+from task_contract_core import task_read_scope
+from utils.input_cache import input_scope
 from utils.script_loader import module
-from utils.source_reads import FileReads
-from validation_cache import PassCache
 
 import issues.artifact as _imports_issues_artifact
 import issues.cfn_lint as _imports_issues_cfn_lint
 
 from .aggregate import aggregate
-from .inputs import view_text
-from .integrity import fingerprint, live_common_key, selected_scope, verify_inputs
+from .inputs import Comparison, view_text
+from .integrity import selected_scope
 from .materials import existing_materials, naming_materials
 from .records import identifier, safe_text
 
 
-@contract_read_scope
-def mechanical(root, scope, *, fresh=False, jobs=4, catalog=None, fingerprint_out=None, warnings=None, cache=None, validator_out=None, view_errors=None, view_reader=None):
-    """Reuse service checks/cache/parallelism, without contract/deploy/full-loop execution."""
+@task_read_scope
+def mechanical(root, scope, *, fresh=False, jobs=4, catalog=None, warnings=None, validator_out=None, view_errors=None, view_reader=None):
+    """Run service diagnostics without PASS caches, contract/deploy or full-loop checks."""
     os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
     validator_module = module('validate-blueprint.py', 'issues_validator')
-    validator = validator_module.Validator(root, scope, cache=True, fresh=fresh, workers=jobs)
-    if cache is not None:
-        validator.cache = cache
+    validator = validator_module.Validator(root, scope, fresh=fresh, workers=jobs)
     validator.schema_catalog = catalog
     output = io.StringIO()
     with redirect_stdout(output):
@@ -40,12 +34,10 @@ def mechanical(root, scope, *, fresh=False, jobs=4, catalog=None, fingerprint_ou
         validator.check_validation_scope()
         validator.check_model_files()
         # Continue diagnosable checks even when model/Markdown equality fails.
-        validator.check_scoped_designs(defer_cache=validator_out is not None, view_errors=view_errors, view_reader=view_reader)
+        validator.check_scoped_designs(view_errors=view_errors, view_reader=view_reader)
         validator.check_iac_selection()
     if validator_out is not None:
         validator_out.append(validator)
-    if fingerprint_out is not None:
-        fingerprint_out.update({'/'.join(entry): key for entry, key in getattr(validator, 'service_keys', {}).items()})
     if warnings is not None:
         warnings.extend(validator.warnings)
     return validator.errors, validator.checks, output.getvalue()
@@ -56,25 +48,14 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     started = time.perf_counter()
     scope = selected_scope(environment, directory, services)
     scan_id = uuid.uuid4().hex
-    reads = FileReads()
-    cache = PassCache(root, fresh=fresh)
-    cache.common = cache.common_key(snapshot=reads)
     comparison = Comparison(root, environment, directory, services)
-    # Capture before checks too: an edit during diagnostics must not produce a current artifact.
     for service in services:
         doc = root / 'docs/designs' / environment / directory / (service + '.md')
         view_text(comparison, doc, phase='view-preflight')
-        entrance = root / 'model' / environment / directory / (service + '.properties')
-        comparison.track(entrance)
-        for part in entrance.with_suffix('').rglob('*'):
-            if part.is_file() or part.is_symlink():
-                comparison.track(part)
-    service_keys = {}
     warnings = list(comparison.warnings)
-    before = fingerprint(comparison, common_key=cache.common)
     begin = time.perf_counter()
     validators = []
-    errors, checks, diagnostics = mechanical(root, scope, fresh=fresh, jobs=jobs, catalog=comparison.catalog, fingerprint_out=service_keys, warnings=warnings, cache=cache, validator_out=validators, view_errors=comparison.view_errors,
+    errors, checks, diagnostics = mechanical(root, scope, fresh=fresh, jobs=jobs, catalog=comparison.catalog, warnings=warnings, validator_out=validators, view_errors=comparison.view_errors,
         view_reader=lambda path, **kwargs: view_text(comparison, path, **kwargs))
     mechanical_seconds = time.perf_counter() - begin
     ordinary, judgments = [], []
@@ -153,37 +134,15 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
         executed_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), ordinary=ordinary, naming=naming,
         judgments=judgments, warnings=warnings, human_confirmations=[safe_text(line) for line in human],
         information=lint.pop('information'), unverified=unverified, processing_errors=processing,
-        fingerprint=fingerprint(comparison, common_key=cache.common), service_keys=service_keys,
-        lint_dependencies=lint.pop('lint_dependencies'), cfn_lint=lint, machine_diagnostics=safe_text(comparison.redacted(diagnostics)),
+        cfn_lint=lint, machine_diagnostics=safe_text(comparison.redacted(diagnostics)),
         **data)
     # Redact every channel before hashing/review/output; masked material never regains raw values.
     for key in ('ordinary','judgments','warnings','information','unverified','processing_errors','naming_context','naming','human_confirmations'):
         artifact[key] = comparison.redacted(artifact[key])
-    begin = time.perf_counter()
-    for path, expected_hash in comparison.read_hashes.items():
-        actual_hash = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
-        if actual_hash != expected_hash:
-            raise ValueError('stale scan: inputs changed after decoding: ' + path.relative_to(root).as_posix())
-    if digest_files(root, [root / path for path in before['paths']]) != before['digest']:
-        raise ValueError('stale scan: inputs changed during scan')
-    for directory_name, files in before['file_sets'].items():
-        current = sorted(file.relative_to(root).as_posix() for file in (root / directory_name).rglob('*') if file.is_file() or file.is_symlink())
-        if current != files:
-            raise ValueError('stale scan: initial input file set changed')
-    # Return partial View diagnostics; only publication must prove every input readable.
-    partial_views = bool(view_errors) and not getattr(getattr(comparison, 'model_reads', None), 'read_failures', ())
-    verify_inputs(root, artifact, cache=cache, common=False, allow_unreadable=partial_views)
-    current_common = live_common_key(cache)  # Live enumeration and bytes, never the starting memo.
-    if current_common != cache.common:
-        raise ValueError('stale scan: framework/project input changed')
-    if view_errors:
-        # Scope-wide ownership/reference coverage was incomplete; discard unproved candidates.
-        validator.service_cache_pending = []
-    validator.finalize_service_cache(current_common)
     artifact['checks'] = validator.checks
     artifact['metrics'] = comparison.metrics | dict(mechanical_seconds=mechanical_seconds, iac_seconds=iac_seconds,
-        lint_seconds=lint_seconds, aggregation_seconds=aggregation_seconds, input_guard_seconds=time.perf_counter()-begin,
-        wall_seconds=time.perf_counter()-started, wall_scope='runner through aggregation, final input guards and cache finalization; excludes CLI JSON/output')
+        lint_seconds=lint_seconds, aggregation_seconds=aggregation_seconds,
+        wall_seconds=time.perf_counter()-started, wall_scope='runner through aggregation; excludes CLI JSON/output')
     CHANNELS = _imports_issues_artifact.CHANNELS
     channel_summary = _imports_issues_artifact.channel_summary
     validation_status = _imports_issues_artifact.validation_status

@@ -17,7 +17,6 @@ from validation_scope import active_scope
 import issues.artifact as _imports_issues_artifact
 import issues.reports as _imports_issues_reports
 
-from .integrity import verify_inputs
 from .reports import iac_report, normal_merge
 
 
@@ -39,7 +38,7 @@ def save_authority(root, environment, directory, services, filenames):
 
 
 @input_scope
-def save(root, environment, directory, services, candidates=(), additions=(), resolutions=(), iac=None, guard=None, display=None, stamp=None, warnings=(), artifact=None):
+def save(root, environment, directory, services, candidates=(), additions=(), resolutions=(), iac=None, display=None, stamp=None, warnings=(), artifact=None):
     publication_lock = _imports_model_sources.publication_lock
     with publication_lock(root, read_only=True):
         names = ['issues.md'] + (['iac-issues.md'] if iac is not None else [])
@@ -51,8 +50,6 @@ def save(root, environment, directory, services, candidates=(), additions=(), re
             contents[paths[0]] = notice_report(contents[paths[0]], environment, directory, services, channels, preserve_prior=bool(artifact and (artifact.get('unverified') or artifact.get('processing_errors') or any(c['status']!='completed' for c in artifact.get('cfn_lint',{}).get('coverage',[])))))
         if iac is not None:
             contents[paths[1]] = iac_report(environment, directory, services, iac, display, stamp=stamp, artifact=artifact)
-        if guard:
-            guard()  # Check after formatting, immediately before publication; never repeat comparison.
         atomic_files(contents)
         return paths
 
@@ -82,5 +79,5 @@ def save_scan(root, artifact, review):
                 raise ValueError('diagnostic requires scoped service assignment')
             additions.append(dict(item, service=owner))
     paths = save(root, artifact['environment'], artifact['target'], artifact['services'], artifact['ordinary'], additions,
-                 review.get('resolved', []), artifact['iac'], guard=lambda: verify_inputs(root, artifact), display=artifact.get('iac_display'), stamp=artifact.get('executed_at'), warnings=artifact.get('warnings', []), artifact=artifact)
+                 review.get('resolved', []), artifact['iac'], display=artifact.get('iac_display'), stamp=artifact.get('executed_at'), warnings=artifact.get('warnings', []), artifact=artifact)
     return paths

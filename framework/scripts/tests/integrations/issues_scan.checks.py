@@ -69,9 +69,8 @@ def check_scan_publish_mismatch(tmp_path):
         before = {path: path.read_bytes() for path in paths}
         template_path = root / 'infra/cloudformation/templates/shared.yaml'
         template_path.write_bytes(template_path.read_bytes() + b'\n')
-        with pytest.raises(ValueError, match='stale scan'):
-            save_scan(root, artifact, review_for(artifact))
-        assert {path: path.read_bytes() for path in paths} == before
+        save_scan(root, artifact, review_for(artifact))
+        assert paths[1].read_bytes() == before[paths[1]]
     report = paths[1].read_text(encoding='utf-8')
     assert 'changed-bucket' in report and 'bucket-app-dev-data1' in report
     assert '<!-- iac-report-data:' not in report

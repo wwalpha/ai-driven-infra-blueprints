@@ -7,7 +7,7 @@ from types import SimpleNamespace as _CallbackState
 import model.sources as _imports_model_sources
 from design.layout import resource_mode
 from model.core import entries
-from utils.cfn_lint import POLICY, file_state, lint_session, runtime, validate_template
+from utils.cfn_lint import POLICY, lint_session, validate_template
 from utils.iac_values import cfn_resource_identity
 
 from .records import identifier, safe_text
@@ -123,11 +123,6 @@ def owner(comparison, job, match):
 def run_lint(comparison):
     jobs, coverage = plan(comparison)
     channels = {name:[] for name in ('ordinary','judgments','warnings','information','unverified','processing_errors')}
-    dependencies = dict(runtime=runtime(comparison.root), files=[], directories=[], selections=[])
-    files, directories, selections = {}, {}, {}
-    for job in jobs:
-        state = file_state(job['template'])
-        files[state['locator']] = state
     with lint_session(comparison.root) as session:
         for job in jobs:
             job['diagnostic_ids'] = []
@@ -136,19 +131,6 @@ def run_lint(comparison):
                 continue
             result = validate_template(session,job['template'],job['region'])
             comparison.sensitive_values.update(result.pop('sensitive_values', []))
-            for state in result.get('dependencies',{}).get('files',[]):
-                prior = files.setdefault(state['locator'],state)
-                if prior!=state:
-                    raise ValueError('stale scan: lint dependency changed during jobs')
-            for state in result.get('dependencies',{}).get('directories',[]):
-                key = (state['locator'],state['pattern'])
-                prior = directories.setdefault(key,state)
-                if prior!=state:
-                    raise ValueError('stale scan: lint file set changed during jobs')
-            for state in result.get('dependencies',{}).get('selections',[]):
-                prior = selections.setdefault(state['pattern'],state)
-                if prior!=state:
-                    raise ValueError('stale scan: lint selection changed during jobs')
             job.update(status=result['status'], completed=result['completed'], effective_regions=result.get('effective_regions',[]),
                        effective_config_fingerprint=result.get('effective_config_fingerprint'), decode=result.get('decode',[]),
                        configuration_sources=result.get('configuration_sources',[]),schema_roots=result.get('schema_roots',{}))
@@ -187,9 +169,6 @@ def run_lint(comparison):
     for item in coverage:
         if item['status'] in {'unverified','input_missing','excluded_by_config'}:
             channels['unverified'].append(dict(code='lint.coverage', **item))
-    dependencies['files'] = list(files.values())
-    dependencies['directories'] = list(directories.values())
-    dependencies['selections'] = list(selections.values())
     return dict(jobs=jobs, coverage=coverage,
                 status='not_applicable' if not jobs and coverage and all(c['status']=='not_applicable' for c in coverage) else 'incomplete' if channels['unverified'] else 'checked',
-                lint_dependencies=dependencies, **channels)
+                **channels)

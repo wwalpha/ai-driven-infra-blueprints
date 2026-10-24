@@ -21,7 +21,6 @@ from utils.cfn_lint import (
     Worker,
     lint_session,
     validate_template,
-    verify_dependencies,
 )
 
 if not __debug__:
@@ -73,7 +72,6 @@ def check_cli_equivalence(tmp_path, monkeypatch, body):
     assert signature(execution['matches']) == signature(json.loads(previous.stdout or '[]'))
     assert execution['requested_region'] == 'ap-northeast-1'
     assert execution['effective_regions'] == ['ap-northeast-1']
-    verify_dependencies(execution['dependencies'])
 
 
 def check_worker_config_isolation(tmp_path, monkeypatch):
@@ -154,7 +152,6 @@ def check_schema_failure_recovery(tmp_path, monkeypatch):
     assert not any(e['code'] == 'child_execution' for e in result['processing_errors'])
     observed = {item['locator']: item for item in result['dependencies']['files']}
     assert observed[str(schema)]['sha256'] and str(template) in observed
-    verify_dependencies(result['dependencies'])
     assert schema.read_text() == '{ broken json'  # Offline execution did not repair/download a schema.
     version.unlink()
     with lint_session(cwd) as recovered:

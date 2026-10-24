@@ -50,20 +50,6 @@ def glob_state(pattern):
     return dict(pattern=pattern, files=sorted(str(Path(p).absolute()) for p in glob.glob(pattern,recursive=True)))
 
 
-def verify_dependencies(dependencies, *, cwd=None):
-    if dependencies.get('runtime') != runtime(cwd or Path.cwd()):
-        raise ValueError('stale scan: lint runtime/cwd/HOME differs; rescan in the same environment')
-    for expected in dependencies.get('files', []):
-        if file_state(expected['locator']) != expected:
-            raise ValueError('stale scan: lint input changed: ' + expected['locator'])
-    for expected in dependencies.get('selections', []):
-        if glob_state(expected['pattern']) != expected:
-            raise ValueError('stale scan: lint selected file set changed')
-    for expected in dependencies.get('directories', []):
-        if directory_state(expected['locator'], expected['pattern']) != expected:
-            raise ValueError('stale scan: lint dependency file set changed: ' + expected['locator'])
-
-
 def merge_progress(partial, packet):
     progress = packet['progress']
     if 'match' in progress:

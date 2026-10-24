@@ -101,12 +101,17 @@ def issues_save_only(root, *, scope=..., text=None, paths=()):
                     and paths_in(text, "## Modified files") <= permitted and set(paths) <= permitted)
 
 
-def safe_path(root, value):
+def relative_path(value):
     path = PurePosixPath(value)
     if (not value or not path.parts or path.is_absolute() or str(path) != value or ".." in path.parts
             or "\\" in value or any(char in value for char in "*?[]\x00\n\r")
             or path.parts[0] in {".git", ".lock"}):
         raise ValueError(f"task path must be an exact repository-relative path: {value}")
+    return path
+
+
+def safe_path(root, value):
+    relative_path(value)
     candidate = root / value
     if any(parent.is_symlink() for parent in [candidate, *candidate.parents]
            if parent != root and parent.is_relative_to(root)):

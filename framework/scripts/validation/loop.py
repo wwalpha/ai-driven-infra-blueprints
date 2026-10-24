@@ -27,6 +27,7 @@ import validation.runner as _imports_validation_runner
 from regression_guard import authorize_full_regression
 from task_contract_core import (
     SELECTOR,
+    issues_save_only,
     suspend,
     task_path,
     task_snapshot,
@@ -341,14 +342,16 @@ def staged_snapshot(root, args, directory, environment):
                 process.kill()
                 process.wait()
             raise
-        current_tree = index_tree(root, directory)
-        current_lock = source_lock.read_bytes() if source_lock.is_file() else None
-        unchanged = current_tree == tree and git(root, "rev-parse", "HEAD") == head and current_lock == saved_lock
-        metadata.update(returncode=result, source_unchanged=unchanged)
+        metadata.update(returncode=result)
+        if not issues_save_only(snapshot, text=captured.text):
+            current_tree = index_tree(root, directory)
+            current_lock = source_lock.read_bytes() if source_lock.is_file() else None
+            unchanged = current_tree == tree and git(root, "rev-parse", "HEAD") == head and current_lock == saved_lock
+            metadata.update(source_unchanged=unchanged)
+            if not unchanged:
+                result = 1
+                print("Staged snapshot is stale: source HEAD/index/.lock changed; result applies only to the saved tree.", flush=True)
         (directory / "snapshot.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
-        if not unchanged:
-            print("Staged snapshot is stale: source HEAD/index/.lock changed; result applies only to the saved tree.", flush=True)
-            return 1
         return result
     finally:
         if import_task:
@@ -443,7 +446,11 @@ def _run_loop(root, args, final_candidate):
         scope = active_scope(root, args.all) if not args.staged else set()
         if args.write and (scope == set() or args.all and active_scope(root) == set()):
             raise ValueError("--write requires service scope; framework scope cannot generate Models")
-        repository_changed = set(final_candidate.changed_paths) if final_candidate is not None else changed_paths(root) if not args.staged else set()
+        issues_only = not args.staged and issues_save_only(root)
+        repository_changed = set()
+        if not issues_only:
+            repository_changed = (set(final_candidate.changed_paths) if final_candidate is not None
+                                  else changed_paths(root) if not args.staged else set())
         changed = repository_changed - {".lock"}
     except (OSError, ValueError) as error:
         suspend_selected(root, selected_name, f"Local loop preflight failed: {error}")
@@ -509,8 +516,10 @@ def _run_loop(root, args, final_candidate):
                     [sys.executable, str(path)]
                     for path in checks
                 ),
-                [*diff_check, "--check", *diff_scope],
-                [*diff_check, "--cached", "--check", *diff_scope],
+                *([] if issues_only else [
+                    [*diff_check, "--check", *diff_scope],
+                    [*diff_check, "--cached", "--check", *diff_scope],
+                ]),
             ]
             environment = utf8_environment()
             if args.profile:
@@ -531,7 +540,7 @@ def _run_loop(root, args, final_candidate):
 
             run_validation = _imports_validation_runner.run_validation
             validation_call = _bind_framework_callback(_callback__run_loop_validation_call, args, directory, final_candidate, full_validation, root, run_validation, scope, selected_name)
-        if final_candidate is not None:
+        if final_candidate is not None and not issues_only:
             commands[-2:] = [[*diff_check, '--check', final_candidate.base_commit, final_candidate.candidate_head, '--']]
         result = run_commands(root, commands, environment, directory, jobs=args.jobs, diagnostics=diagnostics, stop_after_validator_failure=args.write, validation_call=validation_call)
         if result:

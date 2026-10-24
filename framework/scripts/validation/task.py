@@ -88,8 +88,7 @@ class TaskValidation:
             return set(self.final_candidate.changed_paths)
         self.fix_baseline()
         if self.issues_only:
-            working = working if working is not None else collect_working_paths(self.root, path_reader=self.git_paths)
-            return set(working.all_paths) - {'.lock'}
+            return set()
         untracked = (working.untracked if working is not None else
                      self.git_paths(['ls-files', '--others', '--exclude-standard', '-z']))
         if self.baseline is None:
@@ -106,6 +105,8 @@ class TaskValidation:
         if self.final_candidate is not None:
             self.changed_paths = self.final_paths()
             self.permission_paths = set(self.final_candidate.changed_paths)
+        elif self.issues_only:
+            self.changed_paths, self.permission_paths = set(), set()
         else:
             working = collect_working_paths(self.root, path_reader=self.git_paths)
             self.changed_paths = self.final_paths(working)

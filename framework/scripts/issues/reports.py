@@ -12,8 +12,7 @@ from issue_gate import unresolved_services
 from issue_markdown import WARNING_HEADINGS, markdown_matches
 from issue_markdown import split_notices as split_notices
 from issue_markdown import without_notices as without_notices
-from task_contract_core import safe_path as safe_path
-from utils.input_cache import memoized
+from task_contract_core import relative_path
 
 from .aggregate import comparison_status, iac_summary
 from .records import brief, identifier, safe_text
@@ -78,19 +77,12 @@ def owned_blocks(root, path, text):
     return preamble, result
 
 
-@memoized
-def line_count(path):
-    return len(path.read_text(encoding="utf-8").splitlines())
-
-
 def evidence(root, report, source):
     if not source:
         return ''
-    path = safe_path(root, source['path'])
-    if not path.is_file():
-        return f"`{source['path']}`（ファイルが存在しない）"
+    path = root / relative_path(source['path'])
     number = source.get('line')
-    if number is not None and (type(number) is not int or not 1 <= number <= line_count(path)):
+    if number is not None and (type(number) is not int or number < 1):
         raise ValueError('invalid evidence line')
     label = source['path'] + (f':{number}' if number else '')
     relative = Path(os.path.relpath(path, report.parent)).as_posix()

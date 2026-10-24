@@ -205,6 +205,8 @@ class Validator:
 
     def _run(self, snapshot=None) -> int:
         self.relative_paths.clear()
+        if self.task.issues_only:
+            self.cache = None
         if self.cache and snapshot is None:
             self.cache.common = None
         self.input_check(snapshot, self.check_structure)
@@ -254,7 +256,8 @@ class Validator:
             current_common = self.cache.common_key()
             self.check(self.cache.common == current_common, "project inputs changed during validation")
 
-        verify_contract_reads(self.root)
+        if not self.task.issues_only:
+            verify_contract_reads(self.root)
         if self.cache and not self.errors:
             if self.catalog_pending is not None:
                 self.cache.save(*self.catalog_pending)
@@ -370,7 +373,7 @@ class Validator:
         finally:
             plan.close()
 
-    def check_scoped_designs(self, *, defer_cache=False, view_errors=None, view_reader=None) -> None:
+    def check_scoped_designs(self, *, view_errors=None, view_reader=None) -> None:
         _state_check_scoped_designs_351 = _CallbackState()
         load_model = _imports_model_sources.load_model
         check_model_inputs = _imports_model_validation.check_model_inputs

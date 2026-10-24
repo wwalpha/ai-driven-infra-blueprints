@@ -1,14 +1,20 @@
-"""Saved View review diagnostics; comparison inputs own only their byte observations."""
-import hashlib
+"""Report-only comparison inputs and saved View diagnostics."""
 
-from comparison.inputs import Inputs
+from comparison import Comparison as LocalComparison
+
+
+class Comparison(LocalComparison):
+    def retain_reads(self):
+        self.inputs.update(self.model_reads.contents)
+
+    def track(self, path):
+        self.inputs.add(path)
 
 
 def view_text(self, path, *, phase, consumer=None):
     try:
         raw = path.read_bytes()
     except FileNotFoundError as error:
-        Inputs.retain_hash(self, path, None)
         if consumer is None:
             return None
         failure = error
@@ -17,7 +23,6 @@ def view_text(self, path, *, phase, consumer=None):
         raw = None
         failure = error
     else:
-        Inputs.retain_hash(self, path, hashlib.sha256(raw).hexdigest())
         try:
             return raw.decode('utf-8')
         except UnicodeError as error:

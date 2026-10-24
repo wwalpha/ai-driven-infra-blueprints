@@ -78,6 +78,24 @@ def check_changed_paths_error(tmp_path):
 
 
 
+def check_issue_loop_has_no_git_change_checks(tmp_path):
+    root = tmp_path / 'repository'
+    name = 'tasks/issues.md'
+    root.mkdir()
+    tasks.start(root, name, '## Task contract\n- Task type: `migration`\n- Task status: `running`\n'
+        '## Validation scope\n- `dev/cde/s3`\n## Modified files\n- `tasks/issues.md`\n'
+        '- `issues/dev/cde/issues.md`\n## Allowed paths\n- `tasks/issues.md`\n- `issues/dev/cde/issues.md`\n')
+    with patch.object(Path, 'cwd', return_value=root), \
+         patch.object(MODULE, 'changed_paths', side_effect=AssertionError('Issue must not discover Git changes')), \
+         patch.object(MODULE, 'run_commands', return_value=0) as dispatch, \
+         patch.object(MODULE, 'utf8_preflight'), \
+         patch.object(MODULE.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, '', '')), \
+         patch.object(sys, 'argv', ['blueprint-loop.py', '--mode', 'local', '--task-file', name, '--log-dir', str(tmp_path/'logs')]):
+        assert CLI.main() == 0
+    commands = dispatch.call_args.args[1]
+    assert len(commands) == 1 and 'validate-blueprint.py' in commands[0][1]
+
+
 def check_process_interruption(tmp_path):
     root = tmp_path
     logs = root / 'logs'
@@ -842,12 +860,17 @@ def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
 
 
 @pytest.mark.parametrize('change', ['head', 'index', 'lock', 'windows'])
-def check_snapshot_guards(tmp_path, monkeypatch, change):
+@pytest.mark.parametrize('issue_only', [False, True])
+def check_snapshot_guards(tmp_path, monkeypatch, change, issue_only):
     root = tmp_path / 'source'
     root.mkdir()
     selected = 'tasks/snapshot.md'
     (root / 'tasks').mkdir()
     (root / selected).write_text('## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/snapshot.md`\n## Allowed paths\n- `tasks/snapshot.md`\n')
+    if issue_only:
+        (root / selected).write_text('## Task contract\n- Task type: `migration`\n- Task status: `running`\n'
+            '## Validation scope\n- `dev/cde/s3`\n## Modified files\n- `tasks/snapshot.md`\n'
+            '## Allowed paths\n- `tasks/snapshot.md`\n- `issues/dev/cde/issues.md`\n')
     monkeypatch.setenv(tasks.SELECTOR, selected)
     directory = tmp_path / 'logs'
     directory.mkdir()
@@ -866,8 +889,9 @@ def check_snapshot_guards(tmp_path, monkeypatch, change):
                 MODULE.staged_snapshot(root, args, directory, {})
             child.assert_not_called()
         else:
-            assert MODULE.staged_snapshot(root, args, directory, {}) == 1
-            assert not json.loads((directory / 'snapshot.json').read_text())['source_unchanged']
+            assert MODULE.staged_snapshot(root, args, directory, {}) == (0 if issue_only else 1)
+            metadata = json.loads((directory / 'snapshot.json').read_text())
+            assert ('source_unchanged' not in metadata) if issue_only else metadata['source_unchanged'] is False
 
 
 def _snapshot_guard_git(source, change, root, *args, **kwargs):

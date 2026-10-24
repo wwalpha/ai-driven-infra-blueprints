@@ -5,7 +5,6 @@ from functools import wraps as wraps
 
 import import_guard as _imports_import_guard
 import issue_gate as _imports_issue_gate
-import worktree_state as _imports_worktree_task
 from task_contract_core import SELECTOR as SELECTOR
 from task_contract_core import TASK_NAME as TASK_NAME
 from task_contract_core import ContextVar as ContextVar
@@ -117,8 +116,7 @@ def complete(root, name):
         try:
             os.environ[SELECTOR] = name
             if issues_save_only(root, text=text):
-                changed_paths = _imports_worktree_task.changed_paths
-                require_import_changes(root, changed_paths(root))
+                require_import_changes(root, set())
             else:
                 require_import_changes(root)
         finally:

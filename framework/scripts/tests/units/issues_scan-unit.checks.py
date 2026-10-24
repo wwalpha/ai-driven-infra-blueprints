@@ -13,7 +13,6 @@ from unittest.mock import Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import issues.integrity as issues_scan
 import issues.publication as publication
 import issues.runner as scan_runner
 import model.sources as sources
@@ -25,12 +24,11 @@ from comparison.inputs import Inputs
 from issue_gate import issue_errors, unresolved_services
 from issues.aggregate import MAX_GROUPS, iac_actions
 from issues.inputs import view_text
-from issues.integrity import fingerprint
 from issues.materials import existing_materials
 from issues.records import iac_key
 from issues.reports import normal_merge, notice_report, split_notices
 from model.core import ReferenceResolutionError, resource_row_index
-from model.format import FORMAT, INDEX, PART, split
+from model.format import split
 from model.sources import load_model as real_load
 from support.issues_scan_fixtures import (
     Comparison,
@@ -58,16 +56,14 @@ from support.issues_scan_fixtures import (
     sys,
     tempfile,
     value_differences,
-    verify_inputs,
     write,
     write_model,
 )
 from support.issues_scan_fixtures import pytestmark as pytestmark
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
-from utils.input_cache import digest_files, input_context
-from utils.source_reads import FileReads
+from utils.input_cache import input_context
 from validation.runner import Validator
-from validation_cache import PassCache
+from task_contract_core import contract_snapshot
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -288,248 +284,34 @@ check_summary_scale = summary_scale_cases
 
 
 
-def _check_operation_pass_cache_outcome(call):
-    try:
-        return call()
-    except (ValueError, OSError) as error:
-        return (type(error), str(error))
+def add_task_during_mechanical(root, **kwargs):
+    contract_snapshot(root)
+    (root/'tasks/other.md').write_text('## Task contract\n- Task type: `migration`\n- Task status: `completed`\n')
 
 
-def _callback_check_operation_pass_cache_baseline(root, artifact):
-    for entry, key in artifact.get('service_keys', {}).items():
-        if key is not None and PassCache(root).service_key(tuple(entry.split('/'))) != key:
-            raise ValueError('stale scan: validation/reference dependency changed')
+def check_mechanical_accepts_contract_catalog_changes(tmp_path):
+    validator = Validator(tmp_path, set())
+    with _exports_support_issues_scan_fixtures.task(tmp_path, ['s3']), \
+         patch.object(scan_runner, 'module', return_value=SimpleNamespace(Validator=Mock(return_value=validator))), \
+         patch.multiple(validator, **dict.fromkeys(('check_project_topology', 'check_validation_scope', 'check_model_files', 'check_iac_selection'), Mock(return_value=None))), \
+         patch.object(validator, 'check_scoped_designs', side_effect=partial(add_task_during_mechanical, tmp_path)):
+        assert scan_runner.mechanical(tmp_path, {('dev', '123456789012', 's3')})[:2] == ([], 0)
 
 
-def _callback_check_operation_pass_cache_artifact(entries, root, /):
-    return {'service_keys': {'/'.join(entry): PassCache(root).service_key(entry) for entry in entries},
-            'fingerprint': {'paths': [], 'digest': digest_files(root, []),
-                            'file_sets': {}, 'framework': PassCache(root).common_key()}}
-
-
-def _callback_check_operation_pass_cache_counted(calls, original_common, /, cache, *args, **kwargs):
-    calls.append(cache)
-    return original_common(cache, *args, **kwargs)
-
-
-def _callback_check_operation_pass_cache_mutate(common, project, seen, service_key, /, cache, entry):
-    key = service_key(cache, entry)
-    seen.append(entry)
-    if len(seen) == 1:
-        write(common, project + '\n')
-    return key
-
-
-def check_operation_pass_cache():
-
-    baseline = _callback_check_operation_pass_cache_baseline
-
-    outcome = _check_operation_pass_cache_outcome
-
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory).resolve()
-        common = root / 'project.json'
-        project = json.dumps({'projectName': 'fixture', 'targets': [{'environment': 'dev', 'alias': 'team',
-            'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n'
-        write(common, project)
-        docs = root / 'docs/designs/dev/team'
-        for service in ('first', 'second', 'producer'):
-            write_model(root / f'model/dev/team/{service}.properties', {
-                f'desired.service.{service}.serviceId': service,
-                f'desired.service.{service}.ownedCatalogResourceTypes': 'S3.Bucket',
-                'display.service.title': '# 合成入力'})
-            write(docs / f'{service}.md', '# 合成入力\n')
-        write(docs / 'first.md', '[producer](producer.md)\n[policy](policy.json)\n')
-        write(docs / 'policy.json', '{}\n')
-        orphan = docs / 'first/extra.json'
-        write(orphan, '{}\n')
-        entries = [('dev', 'team', service) for service in ('first', 'second')]
-
-        artifact = _bind_framework_callback(_callback_check_operation_pass_cache_artifact, entries, root)
-
-        saved = artifact()
-        calls = []
-        original_common = PassCache.common_key
-
-        counted = _bind_framework_callback(_callback_check_operation_pass_cache_counted, calls, original_common)
-
-        with patch.object(PassCache, 'common_key', counted):
-            assert baseline(root, saved) is None
-            assert len(calls) == len(entries)
-            calls.clear()
-            assert issues_scan.verify_service_keys(root, saved) is None
-            assert len(calls) == 2 and calls[0] is calls[1]
-            calls.clear()
-            assert issues_scan.verify_inputs(root, saved) is None
-            assert len(calls) == 1
-        # Three services also demonstrate fewer common hashes, without a timing threshold.
-        saved['service_keys']['dev/team/producer'] = PassCache(root).service_key(('dev', 'team', 'producer'))
-        with patch.object(PassCache, 'common_key', counted):
-            calls.clear()
-            baseline(root, saved)
-            assert len(calls) == 3
-            calls.clear()
-            issues_scan.verify_service_keys(root, saved)
-            assert len(calls) == 2
-
-        paths = [common, docs / 'first.md', root / 'model/dev/team/first.properties',
-                 root / 'model/dev/team/producer.properties', docs / 'producer.md',
-                 docs / 'policy.json', orphan]
-        paths += sorted((root / 'model/dev/team/first').rglob('*.properties'))
-        for path in paths:
-            original = path.read_bytes()
-            for replacement in (original + b'\n', None):
-                if replacement is None:
-                    path.unlink()
-                else:
-                    path.write_bytes(replacement)
-                expected = outcome(lambda: baseline(root, saved))
-                assert expected is not None
-                assert outcome(lambda: issues_scan.verify_service_keys(root, saved)) == expected
-                path.write_bytes(original)
-        for path in (docs / 'first/new.json', docs / 'producer/new.json',
-                     root / 'model/dev/team/first/new.properties'):
-            write(path, '{}\n')
-            assert outcome(lambda: issues_scan.verify_service_keys(root, saved)) == outcome(lambda: baseline(root, saved))
-            assert outcome(lambda: baseline(root, saved)) is not None
-            path.unlink()
-        for target in (docs / 'policy.json', docs / 'first.md', root / 'model/dev/team/first.properties', common):
-            original = target.read_bytes()
-            target.unlink()
-            target.symlink_to(orphan)
-            assert outcome(lambda: issues_scan.verify_service_keys(root, saved)) == outcome(lambda: baseline(root, saved))
-            assert outcome(lambda: baseline(root, saved)) is not None
-            target.unlink()
-            target.write_bytes(original)
-
-        service_key = PassCache.service_key
-        seen = []
-
-        mutate = _bind_framework_callback(_callback_check_operation_pass_cache_mutate, common, project, seen, service_key)
-
-        first = next(iter(saved['service_keys']))
-        single = {'service_keys': {first: saved['service_keys'][first]}}
-        with patch.object(PassCache, 'service_key', mutate):
-            assert outcome(lambda: issues_scan.verify_service_keys(root, single)) == (
-                ValueError, 'stale scan: validation/reference dependency changed')
-        # A new operation must observe the new common inputs rather than reuse the previous key.
-        assert outcome(lambda: issues_scan.verify_service_keys(root, saved)) == outcome(lambda: baseline(root, saved))
-        refreshed = artifact()
-        assert issues_scan.verify_inputs(root, refreshed) is None
-        with patch.object(issues_scan, 'PassCache', side_effect=AssertionError('None key must not construct a cache')):
-            assert issues_scan.verify_service_keys(root, {'service_keys': {'missing/service/key': None}}) is None
-            assert issues_scan.verify_service_keys(root, {}) is None
-        ordered = {'service_keys': {'dev/team/missing': 'bad', 'dev/team/first': 'bad'}}
-        assert outcome(lambda: issues_scan.verify_service_keys(root, ordered)) == outcome(lambda: baseline(root, ordered))
-        refreshed['fingerprint']['paths'] = ['docs/designs/dev/team/policy.json']
-        refreshed['fingerprint']['digest'] = digest_files(root, [docs / 'policy.json'])
-        write(docs / 'policy.json', '{"changed": true}\n')
-        assert outcome(lambda: issues_scan.verify_inputs(root, refreshed)) == (
-            ValueError, 'stale scan: scoped model/IaC/parameter/reference input changed; rescan affected scope')
-        write(docs / 'policy.json', '{}\n')
-        # Keep verify_inputs' earlier file-set guard and its final independent framework guard.
-        refreshed['fingerprint']['file_sets'] = {'docs/designs/dev/team/first': []}
-        assert outcome(lambda: issues_scan.verify_inputs(root, refreshed)) == (ValueError, 'stale scan: input file set changed')
-        refreshed['fingerprint']['file_sets'] = {}
-        with patch.object(issues_scan, 'verify_service_keys', side_effect=lambda *_, **kwargs: write(common, '{}\n')):
-            assert outcome(lambda: issues_scan.verify_inputs(root, refreshed)) == (ValueError, 'stale scan: framework/project input changed')
-
-def _callback_check_failed_model_input_guards_read_reference(dependency, /, path, reads):
-    reads.read(path)
-    reads.kind(dependency)
-    reads.read(dependency)
-    raise ValueError('reference unavailable')
-
-
-def _callback_check_failed_model_input_guards_denied(_state_check_failed_model_input_guards_423, entrance, /, path):
-    if path == entrance:
-        raise PermissionError('input body must not escape')
-    return _state_check_failed_model_input_guards_423.original_read(path)
-
-
-@pytest.mark.parametrize('failure', ['entrance', 'part', 'reference', 'decode', 'permission'])
-def check_failed_model_input_guards(tmp_path, failure):
-
-    _state_check_failed_model_input_guards_423 = _CallbackState()
-    model, templates = Inputs.model, Inputs.templates
-    root = tmp_path
-    (root / 'project.json').write_text(json.dumps({'projectName': 'fixture', 'targets': [
-        dict(environment='dev', awsAccountId='123456789012', awsRegion='ap-northeast-1', iacEngine='cloudformation')]}))
-    entrance = root / 'model/dev/123456789012/cloudformation-stacks.properties'
-    entrance.parent.mkdir(parents=True)
-    dependency = entrance
-    if failure == 'part':
-        dependency = entrance.with_suffix('') / 'part-001.properties'
-        entrance.write_text(FORMAT + '\n' + INDEX + '\n' + PART + 'cloudformation-stacks/part-001.properties\n')
-    elif failure in {'decode', 'permission'}:
-        entrance.write_bytes(b'\xff')
-    elif failure == 'reference':
-        dependency = entrance.with_name('producer.properties')
-        entrance.write_text(FORMAT + '\n')
-    comparison = SimpleNamespace(root=root, environment='dev', directory='123456789012', services=[],
-        models={}, model_reads=FileReads(), inputs=set(), read_hashes={}, unreadable_inputs=False,
-        warnings=[], resources={}, rows={}, symbols={}, metrics={'model_loads': 0, 'model_parses': 0}, sensitive_values=set())
-    comparison.retain_reads = lambda: Inputs.retain_reads(comparison)
-    comparison.retain_hash = lambda path, value: Inputs.retain_hash(comparison, path, value)
-    read_reference = _bind_framework_callback(_callback_check_failed_model_input_guards_read_reference, dependency)
-    denied = _bind_framework_callback(_callback_check_failed_model_input_guards_denied, _state_check_failed_model_input_guards_423, entrance)
-    _state_check_failed_model_input_guards_423.original_read = Path.read_bytes
-    with patch('comparison.inputs.load_model', side_effect=read_reference if failure == 'reference' else real_load), \
-         patch.object(Path, 'read_bytes', denied if failure == 'permission' else _state_check_failed_model_input_guards_423.original_read):
-        with pytest.raises((OSError, ValueError)):
-            model(comparison, 'cloudformation-stacks')
-    artifact = dict(fingerprint=fingerprint(comparison, common_key='common'))
-    cache = SimpleNamespace(common_key=lambda: 'common')
-    if failure == 'permission':
-        with pytest.raises(ValueError, match='freshness unprovable'):
-            verify_inputs(root, artifact, cache=cache)
-        return
-    verify_inputs(root, artifact, cache=cache)
-    dependency.parent.mkdir(parents=True, exist_ok=True)
-    dependency.write_text(FORMAT + '\n')
-    with pytest.raises(ValueError, match='stale scan'):
-        verify_inputs(root, artifact, cache=cache)
-    # A templates() absence check must be guarded even without a successful Model load.
-    if failure == 'entrance':
-        dependency.unlink()
-        comparison._templates = None
-        assert templates(comparison) == []
-        artifact = dict(fingerprint=fingerprint(comparison, common_key='common'))
-        dependency.write_text(FORMAT + '\n')
-        with pytest.raises(ValueError, match='stale scan'):
-            verify_inputs(root, artifact, cache=cache)
-
-
-
-
-def _check_first_model_observation_is_not_replaced_interrupted(entrance, reads):
-    reads.read(entrance)
-    (entrance.with_suffix('') / 'part-001.properties').parent.mkdir()
-    (entrance.with_suffix('') / 'part-001.properties').write_text('added during read')
-    raise ValueError('parse interrupted')
-
-
-def check_first_model_observation_is_not_replaced(tmp_path):
-
-    model, retain_hash = Inputs.model, Inputs.retain_hash
-    root = tmp_path
-    path = root / 'model/dev/team/s3.properties'
-    path.parent.mkdir(parents=True)
-    path.write_text('first')
-    comparison = SimpleNamespace(root=root, environment='dev', directory='team', services=['s3'], models={},
-        model_reads=FileReads(), inputs=set(), read_hashes={}, unreadable_inputs=False)
-    comparison.retain_reads = lambda: Inputs.retain_reads(comparison)
-    comparison.retain_hash = lambda path, value: Inputs.retain_hash(comparison, path, value)
-    interrupted = _check_first_model_observation_is_not_replaced_interrupted
-    with patch('comparison.inputs.load_model', side_effect=interrupted), pytest.raises(ValueError):
-        model(comparison, 's3')
-    artifact = dict(fingerprint=fingerprint(comparison, common_key='common'))
-    with pytest.raises(ValueError, match='selection changed'):
-        verify_inputs(root, artifact, cache=SimpleNamespace(common_key=lambda: 'common'))
-    with pytest.raises(ValueError, match='contradictory'):
-        retain_hash(comparison, path, 'later bytes')
-    with pytest.raises(ValueError, match='contradictory'):
-        fingerprint(comparison, common_key='common')
+def check_comparison_input_tracking_is_report_only(tmp_path):
+    from_report = scan_runner.Comparison.__new__(scan_runner.Comparison)
+    from_report.inputs = set()
+    from_report.model_reads = SimpleNamespace(contents={tmp_path / 'input': b'first'})
+    from_report.retain_reads()
+    from_report.model_reads.contents[tmp_path / 'input'] = b'changed'
+    from_report.retain_reads()
+    with patch.object(Path, 'read_bytes', side_effect=AssertionError('tracking must not read bytes')):
+        from_report.track(tmp_path / 'absent')
+    assert from_report.inputs == {tmp_path / 'input', tmp_path / 'absent'}
+    ordinary = SimpleNamespace(inputs=set(), read_hashes={}, root=tmp_path)
+    Inputs.retain_hash(ordinary, tmp_path / 'input', 'first')
+    with pytest.raises(ValueError, match='contradictory input observations'):
+        Inputs.retain_hash(ordinary, tmp_path / 'input', 'changed')
 
 
 def check_notice_resolution_and_update_series(tmp_path):
@@ -787,7 +569,7 @@ def check_view_read_failure_policy(tmp_path):
          patch.object(Validator, 'check_observed_values'), \
          patch('model.sources.load_model', return_value=SimpleNamespace(authoritative={}, warnings=[])), \
          patch('model.validation.check_model_inputs', source_checks):
-        validator.check_scoped_designs(defer_cache=True, view_errors=comparison.view_errors)
+        validator.check_scoped_designs(view_errors=comparison.view_errors)
         assert 'independent sqs diagnostic' in validator.errors
         assert source_checks.call_count == 1 and generated == [{('dev', 'team', 'sqs')}]
         assert validator.checks >= 8 and validator.findings.unverified
@@ -798,16 +580,10 @@ def check_view_read_failure_policy(tmp_path):
         with pytest.raises(UnicodeDecodeError):
             default.check_scoped_designs()
     assert sources.load_model is sync_runtime.load_model is real_load_model
-    artifact = dict(fingerprint=fingerprint(comparison, common_key='common'))
-    verify_inputs(root, artifact, cache=SimpleNamespace(common_key=lambda: 'common'))
     bad.write_bytes(b'changed bytes')
-    with pytest.raises(ValueError, match='stale scan'):
-        verify_inputs(root, artifact, cache=SimpleNamespace(common_key=lambda: 'common'))
+    assert view_text(comparison, bad, phase='review-prose') == 'changed bytes'
     with patch.object(Path, 'read_bytes', side_effect=PermissionError('private exception body')):
         assert view_text(comparison, good, phase='review-prose') is None
-    artifact = dict(fingerprint=fingerprint(comparison, common_key='common'))
-    with pytest.raises(ValueError, match='freshness unprovable'):
-        verify_inputs(root, artifact, cache=SimpleNamespace(common_key=lambda: 'common'))
 
 
 def dependency_read_failure(bad, original, path):
@@ -850,10 +626,9 @@ def check_dependency_view_failure_branches(tmp_path, monkeypatch, failure):
         findings=SimpleNamespace(unverified=[], result=Mock(return_value=SimpleNamespace(metadata={}))))
     validator.finalize_service_cache = partial(Validator.finalize_service_cache, validator)
     comparison.run = partial(compare_with_unreadable_view, comparison, bad, source, validator, dependent)
-    lint = dict(jobs=[dict(completed=True)], coverage=[], status='checked', lint_dependencies={},
+    lint = dict(jobs=[dict(completed=True)], coverage=[], status='checked',
         **{name: [] for name in ('ordinary', 'judgments', 'warnings', 'information', 'unverified', 'processing_errors')})
     with patch.object(scan_runner, 'Comparison', return_value=comparison), \
-         patch.object(scan_runner, 'PassCache', return_value=cache), \
          patch.object(scan_runner, 'mechanical', side_effect=partial(mechanical_result, validator)), \
          patch.object(scan_runner, 'naming_materials', return_value=({'names': []}, [])), \
          patch.object(scan_runner, 'existing_materials', return_value=([], [])), \
@@ -869,17 +644,9 @@ def check_dependency_view_failure_branches(tmp_path, monkeypatch, failure):
         assert not errors
         assert any(e['code'] == 'mechanical.view_missing' and e['service'] == 'sqs' for e in artifact['unverified'])
     assert artifact['iac'][0]['service'] == 'cloudwatch-logs' and artifact['cfn_lint']['jobs'][0]['completed']
-    assert lint_call.call_count == 1 and not cache.save.called and not validator.service_cache_pending
+    assert lint_call.call_count == 1 and not cache.save.called
     assert artifact['validation_status'] == ('ERROR' if dependent else 'INCOMPLETE') and artifact['checks'] == 3
     assert 'private dependency body' not in json.dumps(artifact)
-    if failure == 'permission':
-        with pytest.raises(ValueError, match='freshness unprovable'):
-            verify_inputs(tmp_path, artifact, cache=cache)
-    else:
-        verify_inputs(tmp_path, artifact, cache=cache)
-        bad.write_bytes(b'changed dependency')
-        with pytest.raises(ValueError, match='stale scan'):
-            verify_inputs(tmp_path, artifact, cache=cache)
 
 
 def interrupt_comparison(comparison, exception):
@@ -901,17 +668,14 @@ def check_scan_exception_classification(tmp_path, exception):
     cache = SimpleNamespace(common=None, common_key=Mock(return_value='common'))
     validator = SimpleNamespace(checks=1, findings=SimpleNamespace(unverified=[],
         result=Mock(return_value=SimpleNamespace(metadata={}))), finalize_service_cache=Mock())
-    lint = dict(jobs=[], coverage=[], status='not_applicable', lint_dependencies={},
+    lint = dict(jobs=[], coverage=[], status='not_applicable',
         **{name: [] for name in ('ordinary', 'judgments', 'warnings', 'information', 'unverified', 'processing_errors')})
     with patch.object(scan_runner, 'Comparison', return_value=comparison), \
-         patch.object(scan_runner, 'PassCache', return_value=cache), \
-         patch.object(scan_runner, 'fingerprint', return_value={'paths': [], 'file_sets': {}, 'digest': digest_files(tmp_path, [])}), \
          patch.object(scan_runner, 'view_text', return_value=None), \
          patch.object(scan_runner, 'mechanical', side_effect=partial(mechanical_result, validator)), \
          patch.object(scan_runner, 'naming_materials', return_value=({'names': []}, [])), \
          patch.object(scan_runner, 'existing_materials', return_value=([], [])), \
          patch('issues.cfn_lint.run_lint', return_value=lint), \
-         patch.object(scan_runner, 'verify_inputs'), \
          patch.object(comparison, 'run', side_effect=partial(interrupt_comparison, comparison, exception)) as invoked:
         artifact = scan_runner.scan(tmp_path, 'dev', 'team', ['s3'])
     invoked.assert_called_once_with()
@@ -950,6 +714,15 @@ def check_save_authority_rejections(tmp_path, state, scope, allowed, saveonly):
     assert not list(tmp_path.iterdir())
 
 
+@pytest.mark.parametrize('filename', ['other.md', '../issues.md', '../../other/issues.md'])
+def check_save_authority_limits_real_destinations(tmp_path, filename):
+    with _exports_support_issues_scan_fixtures.task(tmp_path, ['s3']):
+        with pytest.raises(ValueError):
+            publication.save_authority(tmp_path, 'dev', '123456789012', ['s3'], [filename])
+        allowed = publication.save_authority(tmp_path, 'dev', '123456789012', ['s3'], ['issues.md', 'iac-issues.md'])
+        assert [path.name for path in allowed] == ['issues.md', 'iac-issues.md']
+
+
 @pytest.mark.parametrize('failure', ['review-id', 'context', 'names', 'judgments', 'types', 'owner'])
 def check_save_review_rejections(tmp_path, failure):
     artifact = dict(version=2, root=str(tmp_path), scan_id='a'*32, naming_context_id=identifier({}), naming_context={},
@@ -969,17 +742,21 @@ def check_save_review_rejections(tmp_path, failure):
 @pytest.mark.parametrize('input_name', ['parameters.json', 's3.properties', 'template.yaml', 'project.json'])
 def check_saved_input_bytes_and_revision_independence(tmp_path, input_name):
     path = tmp_path / input_name
-    path.write_bytes(b'original\r\n')
-    artifact = dict(fingerprint={'paths': [input_name], 'digest': digest_files(tmp_path, [path]),
-        'file_sets': {}, 'framework': 'common'}, git_head='old')
-    cache = SimpleNamespace(common_key=Mock(return_value='common'))
-    with patch('subprocess.run', side_effect=AssertionError('content guard must not inspect Git revision')):
-        verify_inputs(tmp_path, artifact, cache=cache)
-        path.write_bytes(b'changed\r\n')
-        with pytest.raises(ValueError, match='stale scan'):
-            verify_inputs(tmp_path, artifact, cache=cache)
-        path.write_bytes(b'original\r\n')
-        verify_inputs(tmp_path, artifact, cache=cache)
+    path.write_bytes(b'original\r\n' * 20)
+    artifact = dict(version=2, root=str(tmp_path), scan_id='a'*32,
+        naming_context_id=identifier({}), naming_context={}, environment='dev', target='123456789012',
+        services=['s3'], ordinary=[dict(service='s3', message='scan finding', source=dict(path=input_name, line=20))], naming={'names': []}, judgments=[],
+        executed_at='2026-10-25T00:00:00Z', **aggregate([], 'dev', '123456789012', ['s3']))
+    review = dict(scan_id=artifact['scan_id'], reviewed_naming_context_id=artifact['naming_context_id'],
+        reviewed_names=[], reviewed_judgments=[], diagnostic_assignments={}, issues=[], resolved=[])
+    path.write_bytes(b'changed\r\n')
+    with _exports_support_issues_scan_fixtures.task(tmp_path, ['s3']), \
+         patch('subprocess.run', side_effect=AssertionError('saving must not inspect Git')):
+        outputs = publication.save_scan(tmp_path, artifact, review)
+        assert len(outputs) == 2 and all(output.is_file() for output in outputs)
+        assert input_name + ':20' in outputs[0].read_text()
+        assert '2026-10-25 09:00:00 Asia/Tokyo' in outputs[1].read_text()
+    assert path.read_bytes() == b'changed\r\n'
 
 
 @pytest.mark.parametrize('input_state', ['missing', 'empty', 'malformed'])
@@ -1053,7 +830,7 @@ def check_report_publication_interruptions(tmp_path, output, after):
     assert set(tmp_path.iterdir()) == set(paths)
 
 
-def check_current_run_report_and_guard(tmp_path):
+def check_current_run_report(tmp_path):
     paths = [tmp_path / name for name in ('issues.md', 'iac-issues.md')]
     record = dict(category='difference', service='s3', resource='001', property='Setting', reason='value mismatch', desired=1, actual=2)
     with patch.object(publication._imports_model_sources, 'publication_lock', return_value=nullcontext()), \
@@ -1066,10 +843,6 @@ def check_current_run_report_and_guard(tmp_path):
         publication.save(tmp_path, 'dev', 'team', ['s3'], iac=[uncertain])
         text = paths[1].read_text(encoding='utf-8')
         assert '未比較 1項目' in text and 'value mismatch' not in text and 'invalid previous' not in text
-        before = {path: path.read_bytes() for path in paths}
-        with pytest.raises(ValueError, match='inputs changed'):
-            publication.save(tmp_path, 'dev', 'team', ['s3'], iac=[], guard=Mock(side_effect=ValueError('inputs changed')))
-        assert {path: path.read_bytes() for path in paths} == before
         publication.save(tmp_path, 'dev', 'team', ['s3'], iac=[])
         assert '元レコード数: 0' in paths[1].read_text(encoding='utf-8')
         assert 'no compared records' in paths[1].read_text(encoding='utf-8')
