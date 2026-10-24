@@ -375,22 +375,35 @@ class Comparison(Inputs):
         inverse = self.local_comparison and (kind, key) == registry.hook(kind, 'INVERSE_ROLES')
         missing = 'property missing' if key not in owner.get('Properties', {}) and not inverse else None
         warnings, actual_error = [], None
+        failures = []
+        raw_actual = actual
         try:
             if inverse:
                 actual = registry.hook(kind, 'managed_policy_roles')(service, identity, name,
                     owner.get('Properties', {}).get(key, []), stack_inputs=self.stack_inputs,
                     evaluate=self.evaluate, reference_same=self.reference_same, symbol=self.symbol)
             elif not missing:
-                try:
-                    actual = self.evaluate(name, actual)
-                except (Blocked, KeyError) as error:
-                    actual_error = error
-                    if not self.local_comparison:
-                        raise
-                    prepared = evaluation.project_actual(actual, evaluate=lambda value: self.evaluate(name, value),
-                        property_name=prop, model_path=template)
+                if self.local_comparison:
+                    prepared = evaluation.project_actual(actual, evaluate=lambda child: self.evaluate(name, child),
+                        property_name=prop, model_path=template, desired=value, exact=key in settings.exact)
                     warnings.extend(prepared.warnings)
-                    actual = prepared.require_value()
+                    actual = prepared.value
+                    for _path, pointer, error in prepared.failures:
+                        if isinstance(error, (Blocked, KeyError)):
+                            actual_error = actual_error or error
+                            continue
+                        location = dict(iac_source, pointer=pointer)
+                        node = raw_actual
+                        for token in pointer.lstrip('/').split('/') if pointer else []:
+                            token = token.replace('~1', '/').replace('~0', '~')
+                            key_or_index = int(token) if isinstance(node, list) else token
+                            if line := self.template_locations.get(id(node), {}).get(key_or_index):
+                                location['line'] = line
+                            node = node[key_or_index]
+                        failures.append(self.make_record('error', service, identity, prop + ('#' + pointer if pointer else ''), str(error),
+                            source=sources[0], stack=name, template=location, cause=getattr(error, 'iac_cause', None)))
+                else:
+                    actual = self.evaluate(name, actual)
         except (Blocked, KeyError, ValueError, TypeError, IndexError) as error:
             category = 'uncompared' if isinstance(error, (Blocked, KeyError)) else 'error'
             return RowResult([self.make_record(category, service, identity, prop, str(error), source=sources[0],
@@ -400,6 +413,12 @@ class Comparison(Inputs):
         reference = (lambda a, b, path: self.reference_decision(a, b, kind, path)) if self.local_comparison else None
         decision = (ValueDecision(False, (), False) if missing else
                     compare_values(value, actual, key, exact=key in settings.exact, unordered=inverse, reference=reference))
+        if actual_error is not None and decision.equal is True:
+            decision = ValueDecision(None, decision.diagnostics, decision.equivalent)
+        if failures and decision.equal is not False:
+            if actual_error is None and not decision.diagnostics and not list(unverified(value)):
+                return RowResult(failures, warnings)
+            decision = ValueDecision(None, decision.diagnostics, decision.equivalent)
         if (key in settings.incomplete and decision.equal is None and actual_error is None and not decision.diagnostics
                 and not list(unverified(value)) and not list(unverified(actual))):
             return RowResult(warnings=warnings)
@@ -407,5 +426,6 @@ class Comparison(Inputs):
             exact=key in settings.exact, actual_error=actual_error, redact=self.redacted, reference=reference,
             default_source=self.source(service, f'desired.resource.{identity}.resourceType'), missing=missing,
             deferred_children=settings.incomplete.get(key, []))
+        batch.records.extend(failures)
         batch.warnings.extend(warnings)
         return batch

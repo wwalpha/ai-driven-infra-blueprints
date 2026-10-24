@@ -1503,3 +1503,185 @@ def test_import_failure_cause_requires_unique_path(second, kind):
 
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-q']))
+
+
+@pytest.mark.parametrize('function', ['select', 'if', 'join'])
+@pytest.mark.parametrize('known_difference', [False, True])
+@pytest.mark.parametrize('model_unresolved', [False, True])
+def test_iac_partial_errors_preserve_known_fields(function, known_difference, model_unresolved):
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Alias', 'Alias', [])
+    broken = {'select': {'Fn::Select': [2, ['only']]}, 'if': {'Fn::If': ['InvalidCondition']},
+              'join': {'Fn::Join': ['', [None]]}}[function]
+    rows = [('Environment.Image', 'GOOD_IMAGE', None),
+            ('Environment.EnvironmentVariables[1].Name', 'RELEASE_BUCKET_KMS_KEY_ID', None),
+            ('Environment.EnvironmentVariables[1].Type', 'PLAINTEXT', None),
+            ('Environment.EnvironmentVariables[1].Value', '[alias](kms.md#alias)' if model_unresolved else 'known', None)]
+    actual = dict(Image='WRONG_IMAGE' if known_difference else 'GOOD_IMAGE', EnvironmentVariables=[dict(
+        Name='RELEASE_BUCKET_KMS_KEY_ID', Type='PARAMETER_STORE' if known_difference else 'PLAINTEXT', Value=broken)])
+    resource(comparison, 'codebuild', '001', 'CodeBuild.Project', 'Build', rows, properties={'Environment': actual})
+    comparison.template_locations[id(actual['EnvironmentVariables'][0])] = {'Value': 23}
+    document = comparison.stack_inputs['producer'][0]
+    batch = comparison.compare_rows('codebuild', '001', comparison.resources['codebuild']['001'],
+        'producer', 'Build', ROOT / 'synthetic.yaml', document['Resources']['Build'], document)
+    categories = [item['category'] for item in batch.records]
+    assert categories.count('difference') == int(known_difference), batch.records
+    assert categories.count('error') == 1 and categories.count('uncompared') == int(model_unresolved), batch.records
+    assert 'matched' not in categories and batch.failure is None
+    error = next(item for item in batch.records if item['category'] == 'error')
+    assert error['property'] == 'CodeBuild.Project.Environment#/EnvironmentVariables/0/Value'
+    assert error['iac'] == {'path': 'synthetic.yaml', 'line': 23, 'pointer': '/EnvironmentVariables/0/Value'}
+    if known_difference:
+        assert {item['path'] for item in next(iter(batch.display_differences.values()))} == {
+            'Image', 'EnvironmentVariables[0].Type'}
+    if model_unresolved:
+        unresolved = next(item for item in batch.records if item['category'] == 'uncompared')
+        assert 'explicit attribute' in unresolved['reason']
+
+
+@pytest.mark.parametrize('exact', [False, True])
+@pytest.mark.parametrize('different', [False, True])
+def test_iac_partial_selective_extra_fields(exact, different):
+    comparison = fixture()
+    rows = [('Environment', json.dumps({'Image': 'MODEL_IMAGE'}), None)] if exact else [('Environment.Image', 'MODEL_IMAGE', None)]
+    actual = {'Image': 'OTHER_IMAGE' if different else 'MODEL_IMAGE',
+              'AdditionalField': {'Fn::If': ['InvalidCondition', 'A', 'B']}}
+    resource(comparison, 'codebuild', '001', 'CodeBuild.Project', 'Build', rows, properties={'Environment': actual})
+    document = comparison.stack_inputs['producer'][0]
+    batch = comparison.compare_rows('codebuild', '001', comparison.resources['codebuild']['001'],
+        'producer', 'Build', ROOT / 'synthetic.yaml', document['Resources']['Build'], document)
+    differences = [item for item in batch.records if item['category'] == 'difference']
+    assert len(differences) == int(different), batch.records
+    assert not any(item['category'] == 'error' for item in batch.records)
+    if not exact:
+        assert [item['category'] for item in batch.records] == ['difference' if different else 'matched']
+    if different:
+        assert 'Image' in {item['path'] for item in next(iter(batch.display_differences.values()))}
+
+
+@pytest.mark.parametrize('scenario', ['field', 'element', 'unknown-presence', 'key', 'no-value',
+                                      'null', 'false', 'empty-string', 'empty-array'])
+def test_iac_partial_array_presence(scenario):
+    comparison = fixture()
+    comparison.stack_inputs['producer'][2]['AWS::NoValue'] = {'$noValue': True}
+    broken = {'Fn::Select': [2, ['only']]}
+    first = dict(Name='FIRST', Type='PLAINTEXT', Value='known')
+    desired = {'Image': 'GOOD_IMAGE', 'EnvironmentVariables': [first]}
+    actual = copy.deepcopy(desired)
+    actual['EnvironmentVariables'][0]['Type'] = 'PARAMETER_STORE'
+    if scenario == 'field':
+        actual['EnvironmentVariables'][0]['Value'] = broken
+    elif scenario in {'element', 'unknown-presence'}:
+        desired['EnvironmentVariables'].append(dict(Name='SECOND', Value='value'))
+        actual['EnvironmentVariables'].append(broken if scenario == 'element' else
+            {'Fn::If': ['Unknown', dict(Name='SECOND', Value='value'), {'Ref': 'AWS::NoValue'}]})
+    elif scenario == 'key':
+        desired = {'Tags': [{'Key': 'Known', 'Value': 'one'}, {'Key': 'Missing', 'Value': 'two'}]}
+        actual = {'Tags': [{'Key': 'Known', 'Value': 'wrong'}, {'Key': broken, 'Value': 'two'}]}
+    elif scenario == 'no-value':
+        actual['EnvironmentVariables'].insert(0, {'Fn::If': ['Absent', broken, {'Ref': 'AWS::NoValue'}]})
+        comparison.stack_inputs['producer'][0]['Conditions'] = {'Absent': False}
+        actual['EnvironmentVariables'][1]['Value'] = broken
+    else:
+        value = {'null': None, 'false': False, 'empty-string': '', 'empty-array': []}[scenario]
+        desired['EnvironmentVariables'].append(value)
+        actual['EnvironmentVariables'].append(value)
+        actual['EnvironmentVariables'][0]['Value'] = broken
+    key = 'Tags' if scenario == 'key' else 'Environment'
+    resource(comparison, 'codebuild', '001', 'CodeBuild.Project', 'Build',
+        [(key, json.dumps(desired[key] if key == 'Tags' else desired), None)],
+        properties=actual if key == 'Tags' else {'Environment': actual})
+    document = comparison.stack_inputs['producer'][0]
+    batch = comparison.compare_rows('codebuild', '001', comparison.resources['codebuild']['001'],
+        'producer', 'Build', ROOT / 'synthetic.yaml', document['Resources']['Build'], document)
+    assert batch.failure is None and sum(item['category'] == 'difference' for item in batch.records) == 1, batch.records
+    assert any(item['category'] == ('uncompared' if scenario == 'unknown-presence' else 'error') for item in batch.records)
+    fields = next(iter(batch.display_differences.values()))
+    assert len(fields) == 1 and fields[0]['path'].endswith('.Type' if scenario != 'key' else '.Value'), fields
+    assert fields[0]['iac'] != '欠落'
+
+
+@pytest.mark.parametrize('case', ['missing', 'same', 'wrong', 'duplicate', 'omitted', 'condition-child'])
+def test_iac_partial_keyed_and_conditional_membership(case):
+    comparison = fixture()
+    comparison.stack_inputs['producer'][2]['AWS::NoValue'] = {'$noValue': True}
+    unknown = {'Fn::If': ['Unknown', 'key', {'Ref': 'AWS::NoValue'}]}
+    actual = [{'Key': 'Known', 'Value': 'wrong' if case == 'wrong' else 'one'}, {'Key': unknown, 'Value': 'two'}]
+    if case == 'duplicate':
+        actual.insert(0, {'Key': 'Known', 'Value': 'one'})
+    elif case == 'omitted':
+        actual[1]['Key'] = {'Ref': 'AWS::NoValue'}
+    elif case == 'condition-child':
+        comparison.stack_inputs['producer'][0]['Conditions'] = {'Active': True}
+        actual[0]['Value'] = {'Fn::Select': [3, ['only']]}
+        actual = {'Fn::If': ['Active', actual, {'Ref': 'AWS::NoValue'}]}
+    resource(comparison, 'codebuild', '001', 'CodeBuild.Project', 'Build',
+        [('Tags[1].Key', 'Known', None), ('Tags[1].Value', 'one', None),
+         ('Tags[2].Key', 'Missing', None), ('Tags[2].Value', 'two', None)] +
+        ([('Tags[3].Key', 'Third', None), ('Tags[3].Value', 'three', None)] if case == 'missing' else []),
+        properties={'Tags': actual})
+    document = comparison.stack_inputs['producer'][0]
+    batch = comparison.compare_rows('codebuild', '001', comparison.resources['codebuild']['001'],
+        'producer', 'Build', ROOT / 'synthetic.yaml', document['Resources']['Build'], document)
+    assert batch.failure is None
+    differences = [item for item in batch.records if item['category'] == 'difference']
+    assert len(differences) == int(case in {'wrong', 'missing', 'duplicate', 'omitted'}), batch.records
+    if case == 'wrong':
+        assert [item['path'] for item in next(iter(batch.display_differences.values()))] == ['Tags[Key=Known].Value']
+    if case == 'condition-child':
+        assert any(item['category'] == 'error' and '/Fn::If/1/0/Value' in item['property'] for item in batch.records)
+        assert not any(item['category'] == 'matched' for item in batch.records)
+
+
+@pytest.mark.parametrize('unordered', [False, True])
+@pytest.mark.parametrize('desired,actual,expected', [
+    (['a'], ['a', 'unknown'], None),
+    (['a', 'a'], ['a', 'unknown'], None),
+    (['a', 'a', 'a'], ['a', 'unknown'], False),
+    ([], ['a', 'unknown'], False),
+    (['b'], ['a', 'unknown'], False),
+    (['a', 'b'], ['unknown', 'a', 'b'], None),
+])
+def test_iac_partial_array_cardinality(unordered, desired, actual, expected):
+    comparison = fixture()
+    actual = [Expression('Unverified', []) if item == 'unknown' else item for item in actual]
+    callback = partial(reference_for, comparison, 'IAM.Role')
+    if unordered:
+        assert unordered_same(desired, actual, reference=callback) is expected
+    else:
+        assert same(desired, actual, reference=callback) is expected
+
+
+def test_iac_partial_error_keeps_reference_diagnostics():
+    comparison = fixture()
+    vpc(comparison, observed=None)
+    resource(comparison, 'codebuild', '001', 'CodeBuild.Project', 'Build',
+        [('VpcConfig.VpcId', '[vpc](vpc.md#vpc)', None), ('VpcConfig.Subnets', '["subnet"]', None)],
+        properties={'VpcConfig': {'VpcId': 'vpc-unproven', 'Subnets': {'Fn::Select': [2, ['only']]}}})
+    document = comparison.stack_inputs['producer'][0]
+    batch = comparison.compare_rows('codebuild', '001', comparison.resources['codebuild']['001'],
+        'producer', 'Build', ROOT / 'synthetic.yaml', document['Resources']['Build'], document)
+    assert batch.failure is None
+    assert sorted(item['category'] for item in batch.records) == ['error', 'uncompared'], batch.records
+    unresolved = next(item for item in batch.records if item['category'] == 'uncompared')
+    assert unresolved['reference_diagnostics'] and not batch.display_differences
+
+
+@pytest.mark.parametrize('different', [False, True])
+def test_iac_partial_error_and_unknown_condition(different):
+    comparison = fixture()
+    resource(comparison, 'codebuild', '001', 'CodeBuild.Project', 'Build',
+        [('Environment.Image', 'image', None), ('Environment.PrivilegedMode', 'false', None),
+         ('Environment.Type', 'LINUX_CONTAINER', None)], properties={'Environment': {
+             'Image': 'wrong' if different else 'image',
+             'PrivilegedMode': {'Fn::If': ['Unknown', True, False]},
+             'Type': {'Fn::Select': [2, ['only']]}}})
+    document = comparison.stack_inputs['producer'][0]
+    batch = comparison.compare_rows('codebuild', '001', comparison.resources['codebuild']['001'],
+        'producer', 'Build', ROOT / 'synthetic.yaml', document['Resources']['Build'], document)
+    assert batch.failure is None
+    assert sorted(item['category'] for item in batch.records) == sorted(
+        ['error', 'uncompared'] + (['difference'] if different else [])), batch.records
+    assert any('Condition' in item['message'] for item in batch.warnings)
+    if different:
+        assert [item['path'] for item in next(iter(batch.display_differences.values()))] == ['Image']

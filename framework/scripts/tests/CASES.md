@@ -3335,3 +3335,16 @@ producers, missing parent settings despite unknown children, policy forms and IM
 all display fallbacks, graph/incoming references, explicit Retarget preservation and deletion refusal.
 Existing Markdown-link, external metadata and service-specific equivalence tests remain with their
 existing owners because they test independent contracts rather than typed-node duplicates.
+
+## Partial IaC evaluation errors and confirmed differences
+
+| Case ID | Function | Layer | Source | Execution / Count | Contract | Scope |
+| --- | --- | --- | --- | --- | --- | --- |
+| `iac-partial::siblings` | `test_iac_partial_errors_preserve_known_fields` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 12 | Select・不正If・Joinの実評価errorとImage/Type差分、Model未比較・参照理由・位置を併存。既知兄弟一致でもmatched禁止 | 合成CodeBuild |
+| `iac-partial::selection` | `test_iac_partial_selective_extra_fields` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 4 | selectiveの追加設定を評価せず、exactの存在未確定と指定フィールド一致・不一致を分離 | 共通設定比較 |
+| `iac-partial::array-presence` | `test_iac_partial_array_presence` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 9 | フィールド・要素・識別子error、Condition存在不明、NoValue、null/false/空文字/空配列と確定兄弟差分を分離 | 合成配列 |
+| `iac-partial::membership` | `test_iac_partial_keyed_and_conditional_membership` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 6 | keyed配列の識別不明・確定差分・不足数・重複・NoValue、選択済If内の子errorを保持 | 共通membership |
+| `iac-partial::cardinality` | `test_iac_partial_array_cardinality` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 12 | 順序・multisetと重複を維持し、不明要素による存在数の上下限と位置対応を保守的に比較 | 純粋比較 |
+| `iac-partial::diagnostics` | `test_iac_partial_error_keeps_reference_diagnostics` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 1 | IaC子errorが別の未解決参照診断を消さない | 共通設定比較 |
+| `iac-partial::artifact` | `check_iac_partial_error_artifact` | IT | [integrations/issues_failed_services.checks.py](integrations/issues_failed_services.checks.py) | direct / 1 | 合成Model→比較→集計→artifact→iac-issuesでImage/Type・差分1/未比較1/error1・位置・マスキングを確認 | Frameworkのみ |
+| `iac-partial::error-unknown` | `test_iac_partial_error_and_unknown_condition` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 2 | 同時に発生するIaC実errorとCondition未解決を保持し、既知兄弟の一致・不一致を判定 | 共通設定比較 |

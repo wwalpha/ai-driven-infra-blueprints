@@ -67,6 +67,24 @@ def comparison_result(values, *, any_match=False):
     return decisive if decided else None if uncertain else not decisive
 
 
+def unknown_value(value):
+    return isinstance(value, Expression) and value.operation == 'Unverified'
+
+
+def array_presence(values):
+    """A failed element may be omitted; only the prefix has proven positional alignment."""
+    unknown = [i for i, value in enumerate(values)
+               if unknown_value(value)]
+    return len(values) - len(unknown), unknown[0] if unknown else len(values)
+
+
+def ordered_comparison(left, right, compare):
+    known, prefix = array_presence(right)
+    length = len(left) == len(right) if known == len(right) else (
+        False if not known <= len(left) <= len(right) else None)
+    return comparison_result([length, *(compare(a, b) for a, b in zip(left, right[:prefix], strict=False))])
+
+
 def same(left, right, *, reference=None, path=''):
     """Preserve types, array order, duplicates and object membership."""
     if reference:
@@ -76,12 +94,13 @@ def same(left, right, *, reference=None, path=''):
     if type(left) is not type(right):
         return False
     if isinstance(left, dict):
-        return comparison_result([left.keys() == right.keys(), *(
+        extra = right.keys() - left.keys()
+        membership = False if left.keys() - right.keys() or any(not unknown_value(right[key]) for key in extra) else None if extra else True
+        return comparison_result([membership, *(
             same(left[key], right[key], reference=reference, path=f'{path}.{key}' if path else key)
             for key in left if key in right)])
     if isinstance(left, list):
-        return comparison_result([len(left) == len(right), *(
-            same(a, b, reference=reference, path=path + '[]') for a, b in zip(left, right, strict=False))])
+        return ordered_comparison(left, right, lambda a, b: same(a, b, reference=reference, path=path + '[]'))
     return left == right
 
 
@@ -104,8 +123,15 @@ def _callback_unordered_same_matching(left, matrix, /, allow_unknown):
 
 def unordered_same(left, right, *, reference=None, path=''):
     """Prove a multiset match, retaining uncertainty and duplicate multiplicity."""
-    if not isinstance(left, list) or not isinstance(right, list) or len(left) != len(right):
+    if not isinstance(left, list) or not isinstance(right, list):
         return False
+    if len(left) != len(right):
+        known, _ = array_presence(right)
+        if known == len(right) or not known <= len(left) <= len(right):
+            return False
+        confirmed = [item for item in right if not unknown_value(item)]
+        matrix = [[same(a, b, reference=reference, path=path + '[]') for b in left] for a in confirmed]
+        return None if _callback_unordered_same_matching(confirmed, matrix, True) else False
     matrix = [[same(a, b, reference=reference, path=path + '[]') for b in right] for a in left]
 
     matching = _bind_framework_callback(_callback_unordered_same_matching, left, matrix)
@@ -131,11 +157,11 @@ def selected_same(desired, actual, property_name='', *, reference=None, path='')
         if property_name in {'Tags', 'HostedZoneTags'} and all(isinstance(item, dict) and 'Key' in item for item in desired):
             keys = [item['Key'] for item in desired]
             selected = [item for item in actual if isinstance(item, dict) and item.get('Key') in keys]
-            if len(set(keys)) != len(keys) or len(selected) != len(keys):
+            unknown = sum(unknown_value(item) or isinstance(item, dict) and unknown_value(item.get('Key')) for item in actual)
+            if len(set(keys)) != len(keys) or any(sum(item.get('Key') == key for item in selected) > 1 for key in keys):
                 return False
-            return comparison_result(comparison_result(
-                (selected_same(item, candidate, reference=reference, path=path + '[]') for candidate in selected), any_match=True)
-                for item in desired)
-        return comparison_result([len(desired) == len(actual), *(
-            selected_same(a, b, reference=reference, path=path + '[]') for a, b in zip(desired, actual, strict=False))])
+            membership = False if len(selected) + unknown < len(keys) else None if unknown else len(selected) == len(keys)
+            return comparison_result([membership, *(selected_same(item, candidate, reference=reference, path=path + '[]')
+                for item in desired for candidate in selected if item['Key'] == candidate['Key'])])
+        return ordered_comparison(desired, actual, lambda a, b: selected_same(a, b, reference=reference, path=path + '[]'))
     return desired == actual

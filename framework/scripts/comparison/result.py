@@ -6,7 +6,13 @@ import re
 from dataclasses import dataclass, field
 from functools import partial as _bind_framework_callback
 
-from utils.iac_values import safe_value, same, selected_same
+from utils.iac_values import (
+    array_presence,
+    safe_value,
+    same,
+    selected_same,
+    unknown_value,
+)
 
 import comparison.values as _imports_comparison_values
 
@@ -39,6 +45,8 @@ def _callback_value_differences_add(differences, formatted, property_name, /, pa
 
 
 def _recursive_value_differences_walk(add, child, exact, formatted, missing, predicate, property_name, reference, /, left, right, shown_left, shown_right, path, name):
+    if left is missing and unknown_value(right):
+        return
     if left is missing or right is missing:
         add(path, shown_left, shown_right)
         return
@@ -66,20 +74,28 @@ def _recursive_value_differences_walk(add, child, exact, formatted, missing, pre
             for i, item in enumerate(left):
                 model_keys.setdefault(item['Key'], []).append(i)
             for i, item in enumerate(right):
-                if isinstance(item, dict) and item.get('Key') in model_keys:
+                if isinstance(item, dict) and not unknown_value(item.get('Key')) and item.get('Key') in model_keys:
                     iac_keys.setdefault(item['Key'], []).append(i)
+            unknown = sum(unknown_value(item) or isinstance(item, dict) and unknown_value(item.get('Key')) for item in right)
+            if unknown and len(iac_keys) + unknown < len(model_keys):
+                add(path + '.要素数', len(model_keys), {'min': len(iac_keys), 'max': len(iac_keys) + unknown})
             for key, model_indexes in model_keys.items():
                 iac_indexes = iac_keys.get(key, [])
                 field = f'{path}[Key={formatted(safe_value(key))}]'
                 if len(model_indexes) != 1 or len(iac_indexes) > 1:
                     add(field + '.要素数（キー重複）', len(model_indexes), len(iac_indexes))
+                elif not iac_indexes and unknown:
+                    continue
                 else:
                     i = model_indexes[0]
                     j = iac_indexes[0] if iac_indexes else None
                     _recursive_value_differences_walk(add, child, exact, formatted, missing, predicate, property_name, reference, left[i], right[j] if j is not None else missing,
                          child(shown_left, i), child(shown_right, j) if j is not None else missing, field, '')
         else:
-            for i in range(max(len(left), len(right))):
+            known, prefix = array_presence(right)
+            if known != len(right) and not known <= len(left) <= len(right):
+                add(path + '.要素数', len(left), {'min': known, 'max': len(right)})
+            for i in range(max(len(left), len(right)) if known == len(right) else prefix):
                 _recursive_value_differences_walk(add, child, exact, formatted, missing, predicate, property_name, reference, left[i] if i < len(left) else missing, right[i] if i < len(right) else missing,
                      child(shown_left, i) if i < len(left) else missing,
                      child(shown_right, i) if i < len(right) else missing, f'{path}[{i}]', name)

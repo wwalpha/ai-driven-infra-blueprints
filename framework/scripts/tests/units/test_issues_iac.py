@@ -20,6 +20,7 @@ from comparison import registry
 from comparison.values import PreparedValue
 from design.catalog import DesignSchemaCatalog
 from model.format import serialize
+from model.sources import Scope
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
 
@@ -42,7 +43,8 @@ def legacy_comparison(root, count=3, services=1, stacks=2):
     path.parent.mkdir(parents=True, exist_ok=True)
     raw = serialize(values).encode()
     path.write_bytes(raw)
-    loaded[path] = SimpleNamespace(values=values, authoritative=values, dependencies={path: raw}, locations={})
+    loaded[path] = SimpleNamespace(values=values, authoritative=values, dependencies={path: raw}, locations={},
+                                   scope=Scope(root, 'fixture', 'team', service))
   for number, document in enumerate(documents):
     unit = {'name': f'stack{number}', 'template': f'{number}.json', 'parameters': f'{number}.json'}
     units.append((str(number), unit))

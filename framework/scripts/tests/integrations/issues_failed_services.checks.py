@@ -291,8 +291,60 @@ def check_incomplete_setting_artifact():
             print('Incomplete fixture:', json.dumps(counts), difference['reason'], difference['value_differences'])
 
 
+@it_case
+def check_iac_partial_error_artifact():
+    with tempfile.TemporaryDirectory(prefix='iac-partial-comparison-') as temporary:
+        root = Path(temporary)
+        _, template = fixture.fixture(root, services=('s3',))
+        models = {}
+        stack = 'cfn-stack-app-dev-data1'
+        resource = _bind_framework_callback(_callback_main_checks_resource, models, stack, template)
+        resource('kms', 'Alias', 'KMS.Alias', {'AliasName': 'alias/fixture'}, [('AliasName', '`alias/fixture`')])
+        resource('codebuild', 'Build', 'CodeBuild.Project', {'Environment': {
+            'Image': 'WRONG_IMAGE', 'EnvironmentVariables': [
+                {'Name': 'RELEASE_BUCKET_KMS_KEY_ID', 'Type': 'PARAMETER_STORE',
+                 'Value': {'Fn::Select': [2, ['only']]}},
+                {'Name': 'SECRET_TOKEN', 'Value': 'fixture-sensitive-value'}]}}, [
+            ('Environment.Image', '`GOOD_IMAGE`'),
+            ('Environment.EnvironmentVariables[1].Name', '`RELEASE_BUCKET_KMS_KEY_ID`'),
+            ('Environment.EnvironmentVariables[1].Type', '`PLAINTEXT`'),
+            ('Environment.EnvironmentVariables[1].Value', '[alias](kms.md#resource-KMS_Alias_001)'),
+            ('Environment.EnvironmentVariables[2].Name', '`SECRET_TOKEN`'),
+            ('Environment.EnvironmentVariables[2].Value', '`fixture-sensitive-value`')])
+        _callback_main_checks_publish(models, root, template)
+        with patch('socket.socket', side_effect=AssertionError('network forbidden')):
+            comparison, records = fixture.compare(root, ['codebuild'])
+        data = aggregate(records, 'dev', '123456789012', ['codebuild'], comparison.display_differences,
+                         redact=comparison.redacted)
+        artifact = dict(version=2, **data)
+        counts = data['overview']['records']
+        detail = detail_payload(artifact, 'iac')['items']
+        report = iac_report('dev', '123456789012', ['codebuild'], data['iac'], artifact=artifact)
+        serialized = json.dumps(artifact, ensure_ascii=False) + report
+        assert 'fixture-sensitive-value' not in serialized and '<masked>' in serialized
+        print('IaC partial fixture:', json.dumps(dict(counts=counts, summary=summary(artifact), detail=detail), ensure_ascii=False))
+        print(report)
+        assert counts == dict(difference=1, uncompared=1, error=1, matched=0, excluded=0), records
+        assert summary(artifact)['iac_differences'] == 1 and summary(artifact)['iac_errors'] == 1
+        difference = next(item for item in detail if item['category'] == 'difference')
+        unresolved = next(item for item in detail if item['category'] == 'uncompared')
+        error = next(item for item in detail if item['category'] == 'error')
+        assert {field['path'] for field in difference['value_differences']} == {
+            'Image', 'EnvironmentVariables[0].Type'}
+        assert 'explicit attribute' in unresolved['reason']
+        assert error['property'].endswith('#/EnvironmentVariables/0/Value')
+        assert error['iac']['pointer'] == '/EnvironmentVariables/0/Value'
+        for item in (difference, error):
+            assert item['model']['line'] > 0 and item['iac']['line'] > 0
+            assert item['model']['path'] == 'model/dev/123456789012/codebuild.properties'
+            assert item['iac']['path'] == 'infra/cloudformation/templates/shared.yaml'
+        assert '差分 1件 / 未比較 1項目 / 処理エラー 1項目' in report
+        assert '相違項目:' in report and 'Image' in report and 'EnvironmentVariables[0].Type' in report
+
+
 if __name__ == '__main__':
     from support.model_sources import catalog_display
     with catalog_display():
         main_checks()
         check_incomplete_setting_artifact()
+        check_iac_partial_error_artifact()
