@@ -282,7 +282,12 @@ def split_notices(text):
     ordinary.append(text[offset:])
     text = ''.join(ordinary)
     ordinary, offset = [], 0
-    headings = markdown_matches(text, r'^#{1,2} (.+)$')
+    # Only owned, numbered service blocks end notices; auxiliary headings stay inside.
+    service_starts = {start for (start, _, _), (service, body) in
+                      zip(markdown_matches(text, r'^### (.+)$'), blocks(text)[1])
+                      if service is not None and numbered(body)[1]}
+    headings = [(start, end, heading) for start, end, heading in markdown_matches(text, r'^#{1,3} (.+)$')
+                if not text.startswith('### ', start) or start in service_starts]
     for index, (start, _, heading) in enumerate(headings):
         if heading not in WARNING_HEADINGS:
             continue
@@ -298,6 +303,7 @@ def attach_notices(text, notices):
     if not notices:
         return text
     ordered = []
+    priorities = ('情報', '未検証範囲', '処理エラー（未検証範囲あり）', *WARNING_HEADINGS)
     for scope, block in notices:
         headings = markdown_matches(block, r'^## (.+)$')
         prefix = block[:headings[0][0]] if headings else ''
@@ -305,7 +311,7 @@ def attach_notices(text, notices):
         groups = {}
         for index, (start, _, heading) in enumerate(headings):
             end = headings[index + 1][0] if index + 1 < len(headings) else closing
-            priority = WARNING_HEADINGS.index(heading) + 1 if heading in WARNING_HEADINGS else 0
+            priority = priorities.index(heading) + 1 if heading in priorities else 0
             groups.setdefault(priority, []).append(block[start:end].rstrip())
         if len(groups) <= 1:
             ordered.append((next(iter(groups), 0), block))
@@ -318,9 +324,12 @@ def attach_notices(text, notices):
 def notice_report(text, environment, directory, services, channels, *, preserve_prior=False):
     scope_id = identifier([environment, directory, sorted(services)])
     text, notices = split_notices(text)
-    previous = [block for scope, block in notices if scope == scope_id]
+    # Separate mixed scope blocks before replacing diagnostics; reference warnings survive.
+    _, notices = split_notices(attach_notices('', notices))
+    previous = [block for scope, block in notices if scope == scope_id
+                and not markdown_matches(block, r'^## (参照警告（非ブロッキング）)$')]
     retained = list(dict.fromkeys(line for block in previous for line in block.splitlines() if line.startswith('- '))) if preserve_prior else []
-    notices = [(scope, block) for scope, block in notices if scope != scope_id]
+    notices = [(scope, block) for scope, block in notices if scope != scope_id or block not in previous]
     lines = [f'<!-- issues-notices:{scope_id}:start -->', f'今回の機械診断scope: {environment}／{directory}／{", ".join(sorted(services))}']
     for channel, heading in [('information', '情報'), ('unverified', '未検証範囲'), ('processing_errors', '処理エラー（未検証範囲あり）'), ('warnings', '警告（非ブロッキング）')]:
         values = channels.get(channel, [])

@@ -151,6 +151,8 @@ NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync 
 | `issues-v4::check_notice_fenced_roundtrip` | `check_notice_fenced_roundtrip` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | headerless owner/ID/Gate・backtick/tildeコード例・別scope・normal/notice/save-results解消往復 | Issues residual repair |
 | `issues-v4::check_notice_marker_boundaries` | `check_notice_marker_boundaries` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | scope不一致/未完marker/HTML保持・長いfence・正常notice再接続 | Issues residual repair |
 | `issues-tail::check_notice_tail_order_and_materials` | `check_notice_tail_order_and_materials` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 4 | 通常のみ/警告/参照警告/両方・複数scope混在診断の末尾順序・再保存安定・ID/Human材料/ownership/Gate保全 | Issues末尾警告 |
+| `issues-tail::check_notice_before_service_issues` | `check_notice_before_service_issues` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | 参照警告後のservice見出し/owner marker・補助見出し・前回診断・両fence保全・3回保存・ID/Human材料/ownership/Gate不変 | Issues警告境界 |
+| `issues-tail::check_scoped_reference_notices_survive_refresh` | `check_scoped_reference_notices_survive_refresh` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | 混在scope内の参照警告を診断更新後も保持・複数scope・3回保存安定 | Issues警告境界 |
 
 
 ## Issue 21 issues-lintの検証責務

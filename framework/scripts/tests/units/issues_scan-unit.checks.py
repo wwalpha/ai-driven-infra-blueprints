@@ -629,6 +629,8 @@ def check_notice_marker_boundaries():
     assert split_notices(attach_notices(ordinary, notices))[1] == notices
     longer = '````text\n```\n' + block + '\n````\n'
     assert split_notices(longer) == (longer, [])
+    reference = '## 参照警告（非ブロッキング）\n\n- Warning\n\n' + longer
+    assert split_notices(reference) == ('', [(None, reference.rstrip())])
 
 
 @pytest.mark.parametrize('warnings,references', [(False, False), (True, False), (False, True), (True, True)])
@@ -647,7 +649,8 @@ def check_notice_tail_order_and_materials(tmp_path, warnings, references):
     path.write_text(ordinary + (reference if references else '') + (plain_warning if warnings else ''), encoding='utf-8')
     channels = dict(warnings=['Warning A'], information=['Info A'], unverified=['Not run A'], processing_errors=['Error A']) if warnings else {}
     other = notice_report(path.read_text(encoding='utf-8'), 'dev', 'team', ['sqs'],
-                          dict(warnings=['Outside Warning'], information=['Outside Info'])) if warnings else path.read_text(encoding='utf-8')
+                          dict(warnings=['Outside Warning'], information=['Outside Info'],
+                               unverified=['Outside Not run'], processing_errors=['Outside Error'])) if warnings else path.read_text(encoding='utf-8')
     path.write_text(other, encoding='utf-8')
     clock = Mock()
     clock.now.return_value = real_datetime(2026, 10, 24)
@@ -666,7 +669,10 @@ def check_notice_tail_order_and_materials(tmp_path, warnings, references):
                          text.index('## 処理エラー'), text.index('## 警告（非ブロッキング）')]
             assert positions == sorted(positions)
             assert text.rindex('## 情報') < text.index('## 警告（非ブロッキング）')
-            assert all(text.count('- "' + value + '"') == 1 for value in ['Warning A', 'Info A', 'Not run A', 'Error A', 'Outside Warning', 'Outside Info'])
+            headings = ['情報', '未検証範囲', '処理エラー（未検証範囲あり）', '警告（非ブロッキング）']
+            assert all(text.rindex('## ' + first) < text.index('## ' + second)
+                       for first, second in zip(headings, headings[1:]))
+            assert all(text.count('- "' + value + '"') == 1 for value in ['Warning A', 'Info A', 'Not run A', 'Error A', 'Outside Warning', 'Outside Info', 'Outside Not run', 'Outside Error'])
             assert {scope for scope, _ in split_notices(text)[1] if scope is not None} == {
                 identifier(['dev', 'team', ['s3']]), identifier(['dev', 'team', ['sqs']])}
         if references:
@@ -675,6 +681,74 @@ def check_notice_tail_order_and_materials(tmp_path, warnings, references):
                 assert text.rindex('## 警告（非ブロッキング）') < text.index('## 参照警告（非ブロッキング）')
         if not warnings and not references:
             assert split_notices(text)[1] == [] and '### s3\n\n1. selected issue' in text
+    assert saved[0] == saved[1] == saved[2]
+
+
+@pytest.mark.parametrize('heading', ['### s3', '### S3 findings\n\n<!-- issue-service: s3 -->'])
+def check_notice_before_service_issues(tmp_path, heading):
+    root = tmp_path
+    path = root / 'issues/dev/team/issues.md'
+    path.parent.mkdir(parents=True)
+    preamble = '# 問題一覧\n\nHuman確認済み\n\n## dev／team\n\n'
+    issues = heading + '\n\n1. Actual s3 problem <!-- issue-id: s3-fixed -->\n\n### sqs\n\n1. Actual sqs problem <!-- issue-id: sqs-fixed -->\n'
+    reference = ('## 参照警告（非ブロッキング）\n\n- Reference Warning A\n\n'
+                 '### details\n\n- Auxiliary warning details\n\n'
+                 '### 前回診断（今回未検証・解消未確認）\n\n- Prior warning\n\n'
+                 '````text\n## 参照警告（非ブロッキング）\n### s3\n1. fenced example\n````\n\n'
+                 '~~~text\n## 警告（非ブロッキング）\n### sqs\n1. fenced example\n~~~\n')
+    path.write_text(preamble + issues, encoding='utf-8')
+    materials = existing_materials(root, 'dev', 'team', ['s3', 'sqs'])
+    owners = unresolved_services(root, path)
+    gate = issue_errors(root, {('dev', 'team', 's3'), ('dev', 'team', 'sqs')})
+    path.write_text(preamble + reference + '\n' + issues, encoding='utf-8')
+    ordinary, notices = split_notices(path.read_text(encoding='utf-8'))
+    assert reference.rstrip() == notices[0][1] and issues in ordinary
+    assert len(materials[0]) == 2
+    assert existing_materials(root, 'dev', 'team', ['s3', 'sqs']) == materials
+    assert unresolved_services(root, path) == owners
+    assert issue_errors(root, {('dev', 'team', 's3'), ('dev', 'team', 'sqs')}) == gate
+    clock = Mock()
+    clock.now.return_value = real_datetime(2026, 10, 24)
+    saved = []
+    for _ in range(3):
+        with patch('issues.reports.datetime', clock), patch('issues.publication.save_authority', return_value=[path]):
+            save(root, 'dev', 'team', ['s3', 'sqs'])
+        text = path.read_text(encoding='utf-8')
+        saved.append(text)
+        assert text.endswith(reference) and '未解決issueなし' not in text
+        assert existing_materials(root, 'dev', 'team', ['s3', 'sqs']) == materials
+        assert unresolved_services(root, path) == owners
+        assert issue_errors(root, {('dev', 'team', 's3'), ('dev', 'team', 'sqs')}) == gate
+    assert saved[0] == saved[1] == saved[2]
+
+
+def check_scoped_reference_notices_survive_refresh():
+    ordinary = '# 問題一覧\n\nHuman確認済み\n\n未解決issueなし\n'
+    notices = []
+    for service in ['s3', 'sqs']:
+        scope = identifier(['dev', 'team', [service]])
+        notices.append((scope, f'<!-- issues-notices:{scope}:start -->\n'
+                        f'今回の機械診断scope: dev／team／{service}\n'
+                        f'## 参照警告（非ブロッキング）\n\n- Reference {service}\n'
+                        '### 前回診断（今回未検証・解消未確認）\n- Prior reference\n'
+                        f'## 情報\n\n- Old information {service}\n'
+                        f'<!-- issues-notices:{scope}:end -->'))
+    text = ordinary + '\n\n'.join(block for _, block in notices) + '\n'
+    saved = []
+    for _ in range(3):
+        for service in ['s3', 'sqs']:
+            text = notice_report(text, 'dev', 'team', [service], {'warnings': [service]})
+        saved.append(text)
+        assert split_notices(text)[0].strip() == ordinary.strip()
+        blocks = split_notices(text)[1]
+        for scope, original in notices:
+            reference = next(block for owner, block in blocks if owner == scope and '## 参照警告（非ブロッキング）' in block)
+            assert original.split('## 参照警告（非ブロッキング）')[1].split('## 情報')[0] in reference
+        assert text.rindex('## 警告（非ブロッキング）') < text.index('## 参照警告（非ブロッキング）')
+        headings = re.findall(r'^## (.+)$', text, re.M)
+        assert headings[headings.index('参照警告（非ブロッキング）'):] == ['参照警告（非ブロッキング）'] * 2
+        assert text.count('### 前回診断（今回未検証・解消未確認）') == 2
+        assert 'Old information' not in text
     assert saved[0] == saved[1] == saved[2]
 
 
