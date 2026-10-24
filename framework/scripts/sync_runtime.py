@@ -259,7 +259,7 @@ def generate_views(stage, root, destinations, failures, definitions_root=None, *
 
 
 def _callback_validate_candidates_validate(_state_validate_candidates_260, definitions_root, destinations, root, stage, validation, task_inputs, /, path):
-    with task_reads(root, snapshot=task_inputs), input_context():
+    with input_context(fresh=True), task_reads(root, snapshot=task_inputs):
         try:
             view_scope = _imports_model_importing_scope.view_scope
             identities = {(*file.relative_to(root / 'docs/designs').parts[:2], file.stem) for file in destinations}

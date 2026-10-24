@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import ExitStack
 from datetime import datetime, timezone
 from functools import partial as _bind_framework_callback
 from pathlib import Path
@@ -25,6 +26,7 @@ import support.model_v2_fixtures as _imports_support_model_v2_fixtures
 import sync_files as _imports_sync_files
 from model.format import parse, serialize
 from model.sources import Scope, load_model
+from task_contract_core import selected_task
 
 FRAMEWORK = Path(__file__).resolve().parents[4]
 
@@ -295,7 +297,7 @@ def import_publication_case(monkeypatch, failure, *, workspace=None):
     import_contract = _imports_support_model_v2_fixtures.import_contract
     logs_fixture = _imports_support_model_v2_fixtures.logs_fixture
     monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
-    with (workspace or publication_workspace)() as (root, begin, advance):
+    with (workspace or publication_workspace)() as (root, begin, advance), ExitStack() as selection_scope:
         model = logs_fixture(root)
         if failure == 'bind':
             model.write_text(patch(parse(model.read_text(encoding='utf-8')), {'observed.row.001-001.value': None}), encoding='utf-8')
@@ -314,6 +316,7 @@ def import_publication_case(monkeypatch, failure, *, workspace=None):
             incoming_before = incoming_source.read_bytes()
         relative = model.relative_to(root)
         target, state = begin(root, relative)
+        selection_scope.enter_context(selected_task(target, state['task_file']))
         (target / state['task_file']).write_text(import_contract(state['task_file'], relative), encoding='utf-8')
         path = target / relative
         original = path.read_bytes()

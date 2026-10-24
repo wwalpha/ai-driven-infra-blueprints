@@ -53,6 +53,9 @@ def _callback_check_single_target_cache_validate(root, scope, /, workers=4, cach
     validator.check_project_topology()
     with redirect_stdout(io.StringIO()):
         validator.check_scoped_designs()
+    if cache and not validator.errors:
+        VALIDATOR.verify_contract_reads(root)
+        validator.finalize_service_cache(cache.common_key())
     return validator
 
 
@@ -144,6 +147,8 @@ def _callback_check_template_consumers_validate(directory, root, scope, /):
     with redirect_stdout(io.StringIO()):
         validator.check_scoped_designs()
     assert not validator.errors, validator.errors
+    VALIDATOR.verify_contract_reads(root)
+    validator.finalize_service_cache(validator.cache.common_key())
     return validator
 
 

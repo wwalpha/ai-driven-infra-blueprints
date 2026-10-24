@@ -18,6 +18,9 @@ from deploy import controller, failures, handoff
 from deploy.typing import DeliveryBoundary, Session, StackUnit
 from model.sources import ModelSnapshot
 
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
 MODULES = ('deploy.scheduler', 'deploy.session', 'deploy.controller', 'deploy.handoff', 'deploy.failures',
            'model.sources', 'model.operations', 'model.importing.approval', 'comparison.runner')
 

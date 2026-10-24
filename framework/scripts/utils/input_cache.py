@@ -97,8 +97,8 @@ def input_select(base, pattern="*", *, recursive=False, kinds=None):
 
 
 @contextmanager
-def input_context():
-    if _inputs.get() is not None:
+def input_context(*, fresh=False):
+    if _inputs.get() is not None and not fresh:
         yield
         return
     token = _inputs.set({})

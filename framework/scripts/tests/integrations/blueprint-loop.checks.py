@@ -653,7 +653,7 @@ def check_startup_diagnostics(tmp_path, phase):
                     f"## Allowed paths\n- `{name}`\n")
     untouched = (root / other).read_bytes()
     logs = tmp_path / "日本語 logs"
-    real_read, real_open, real_run = Path.read_text, Path.open, subprocess.run
+    real_read, real_open, real_run = Path.read_bytes, Path.open, subprocess.run
     _state_check_startup_diagnostics_591.injected = False
 
     fail = _bind_framework_callback(_callback_check_startup_diagnostics_fail, _state_check_startup_diagnostics_591, phase)
@@ -665,7 +665,7 @@ def check_startup_diagnostics(tmp_path, phase):
     run = _bind_framework_callback(_callback_check_startup_diagnostics_run, fail, phase, real_run)
 
 
-    expected = {"contract": ("task.contract.read", "pathlib.Path.read_text"),
+    expected = {"contract": ("task.contract.read", "pathlib.Path.read_bytes"),
                 "git": ("git.config", "subprocess.run"), "git-exit": ("git.config", "subprocess.run"),
                 "utf8": ("utf8.subprocess", "subprocess.run"),
                 "print": ("stdout.print", "builtins.print"), "flush": ("stdout.flush", "sys.stdout.flush"),
@@ -676,7 +676,7 @@ def check_startup_diagnostics(tmp_path, phase):
     with patch.object(Path, "cwd", return_value=root), \
          patch.object(MODULE, "active_scope", return_value={"framework"}), \
          patch.object(MODULE, "changed_paths", return_value=set()), \
-         patch.object(Path, "read_text", read), patch.object(Path, "open", open_file), \
+         patch.object(Path, "read_bytes", read), patch.object(Path, "open", open_file), \
          patch.object(MODULE.subprocess, "run", side_effect=run), \
          patch.object(sys, "stdout", Console(phase, fail)), patch.object(sys, "stderr", Console(phase, fail)), \
          patch.object(sys, "argv", [str(runner), "--mode", "task", "--task-file", selected,

@@ -83,7 +83,8 @@ def _callback_check_stage_definition_sources_validate_verify_reference(args, sta
 
 
 def _callback_check_stage_definition_sources_validate(barrier, original_validate, stage, workers, /, *args, **kwargs):
-    assert memo_table() is None, 'candidate must start without expanded Model cache'
+    assert all(not reads.models for reads in memo_table().values()
+               if isinstance(reads, model_sources.FileReads)), 'candidate must start without expanded Model cache'
     workers.add(threading.get_ident())
     if barrier is not None:
         barrier.wait(timeout=30)
@@ -1174,7 +1175,7 @@ def internal_sync_project(tmp_path):
 
 
 def _callback_check_internal_sync_isolation_observed(_state_check_internal_sync_isolation_1166, sync, /, *args, **kwargs):
-    assert memo_table() is None
+    assert memo_table() is not _state_check_internal_sync_isolation_1166.parent_memo
     assert sync_views._saved_design_validation.get() is None
     assert progress._current.get()[0] is not _state_check_internal_sync_isolation_1166.parent_progress
     return sync(*args, **kwargs)
@@ -1182,6 +1183,7 @@ def _callback_check_internal_sync_isolation_observed(_state_check_internal_sync_
 
 def _callback_check_internal_sync_isolation_calls(_state_check_internal_sync_isolation_1166, design, entry, inputs, jobs, memories, observed, original, root, runner, saved, selection, source, /):
     parent = memo_table()
+    _state_check_internal_sync_isolation_1166.parent_memo = parent
     load_model(source)
     parent_snapshot = dict(parent)
     with sync_views.saved_design_validation(root, entry), \

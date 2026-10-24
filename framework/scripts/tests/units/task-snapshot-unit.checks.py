@@ -7,7 +7,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, nullcontext
 from dataclasses import FrozenInstanceError
-from functools import partial
+from functools import partial, partialmethod
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -32,18 +32,21 @@ from validation import runner
 
 from model import prepare_edit, publish_edit
 
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
 READ_BYTES = Path.read_bytes
 READ_TEXT = Path.read_text
 GLOB = Path.glob
 
 
-def counted_read(counts, method, path, *args, **kwargs):
+def counted_read(path, counts, method, *args, **kwargs):
     if path.parent.name == 'tasks':
         counts['reads'] += 1
     return method(path, *args, **kwargs)
 
 
-def counted_glob(counts, path, *args, **kwargs):
+def counted_glob(path, counts, *args, **kwargs):
     if path.name == 'tasks':
         counts['scans'] += 1
     return GLOB(path, *args, **kwargs)
@@ -52,9 +55,9 @@ def counted_glob(counts, path, *args, **kwargs):
 class TaskIO:
     def __init__(self):
         self.counts = Counter()
-        self.patches = [patch.object(Path, 'read_bytes', partial(counted_read, self.counts, READ_BYTES)),
-                        patch.object(Path, 'read_text', partial(counted_read, self.counts, READ_TEXT)),
-                        patch.object(Path, 'glob', partial(counted_glob, self.counts))]
+        self.patches = [patch.object(Path, 'read_bytes', partialmethod(counted_read, self.counts, READ_BYTES)),
+                        patch.object(Path, 'read_text', partialmethod(counted_read, self.counts, READ_TEXT)),
+                        patch.object(Path, 'glob', partialmethod(counted_glob, self.counts))]
 
     def __enter__(self):
         for item in self.patches:
@@ -79,6 +82,18 @@ def make_tasks(root):
     (root / 'tasks').mkdir()
     for name in ('one', 'two', 'three'):
         (root / f'tasks/{name}.md').write_text(task_text(name, state='running' if name == 'one' else 'completed'))
+
+
+def check_fresh_input_context_restores_parent():
+    assert memo_table() is None
+    with input_context():
+        parent = memo_table()
+        parent['sentinel'] = 'parent'
+        with input_context(fresh=True):
+            assert memo_table() == {} and memo_table() is not parent
+            memo_table()['sentinel'] = 'candidate'
+        assert memo_table() is parent and parent == {'sentinel': 'parent'}
+    assert memo_table() is None
 
 
 def check_explicit_single_read(tmp_path):

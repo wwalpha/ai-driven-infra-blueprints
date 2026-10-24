@@ -9,7 +9,6 @@ from validation.loop import argparse as argparse
 from validation.loop import authorize_full_regression as authorize_full_regression
 from validation.loop import changed_paths as changed_paths
 from validation.loop import contextmanager as contextmanager
-from validation.loop import contracts as contracts
 from validation.loop import datetime as datetime
 from validation.loop import definition_root as definition_root
 from validation.loop import failure_reason as failure_reason

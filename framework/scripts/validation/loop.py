@@ -485,7 +485,7 @@ def _run_loop(root, args, final_candidate):
     try:
         diagnostics.record("directory_created", directory=str(directory), pid=os.getpid(), python=sys.executable)
         diff_scope = []
-        with diagnostics.step("task.contract.read", "pathlib.Path.read_text", task=selected_name):
+        with diagnostics.step("task.contract.read", "pathlib.Path.read_bytes", task=selected_name):
             if not regression and not full_validation and selected_name:
                 contract = task_snapshot(root, selected_name).text.splitlines()
                 if "- Task type: `infrastructure`" in contract and any(
