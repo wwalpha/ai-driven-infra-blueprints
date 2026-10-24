@@ -38,6 +38,7 @@ from model.configuration import resource_configuration as resource_configuration
 from model.core import ReferenceResolutionError
 from model.core import entries as entries
 from model.format import owner
+from model.reference_nodes import is_reference, parse
 
 
 def _same(left, right):
@@ -342,8 +343,19 @@ def _self_value(value, reference):
     return value
 
 
+def _operation_reference_leaf(value, pointer):
+    if pointer is None:
+        return value
+    parent, field = _pointer_parent(value, pointer)
+    leaf = value if parent is None else parent[field]
+    if is_reference(leaf):
+        parse(leaf, pointer)
+        return leaf
+    return _dependency_model_references.pointer_leaf(value, pointer)
+
+
 def _pointer_parent(value, pointer):
-    _dependency_model_references.pointer_leaf(value, pointer)
+    _dependency_model_references.pointer_value(value, pointer)
     tokens = [part.replace('~1', '/').replace('~0', '~') for part in pointer.split('/')[1:]]
     if not tokens:
         return None, None
@@ -395,10 +407,15 @@ def _compare_field(before, old_key, after, new_key, references, warnings, usages
         pointer = declaration.pointer
         if structured_left != (pointer is not None):
             raise ValueError('Model reference edit requires an explicit JSON string-leaf pointer')
-        old_leaf = _dependency_model_references.pointer_leaf(left, pointer) if pointer is not None else left
-        new_leaf = _dependency_model_references.pointer_leaf(right, pointer) if pointer is not None else right
-        if not isinstance(old_leaf, str) or not isinstance(new_leaf, str):
-            raise ValueError('Model reference edit requires string leaves')
+        old_leaf = _operation_reference_leaf(left, pointer)
+        new_leaf = _operation_reference_leaf(right, pointer)
+        typed = is_reference(old_leaf) or is_reference(new_leaf)
+        if typed:
+            old_node, new_node = parse(old_leaf), parse(new_leaf)
+            if old_node.attribute != new_node.attribute:
+                raise ValueError('retarget cannot change the Resource attribute')
+        elif not isinstance(old_leaf, str) or not isinstance(new_leaf, str):
+            raise ValueError('Model reference edit requires string leaves or typed references')
         all_previous = [usage for usage in usages_by_path[before.scope.path]
                     if usage.consumer_key == old_key and usage.pointer == pointer]
         all_current = [usage for usage in usages_by_path[after.scope.path]
@@ -427,7 +444,12 @@ def _compare_field(before, old_key, after, new_key, references, warnings, usages
             _warn(warnings, 'saved reference producer differs from the Task declaration', key=new_key,
                   declaredSource=declaration.source, declaredDestination=declaration.destination,
                   previousProducers=sorted(old_addresses), currentProducers=sorted(new_addresses))
-        a, b = _mask_references(old_leaf, previous), _mask_references(new_leaf, current)
+        if typed:
+            if len(previous) != 1 or len(current) != 1 or declaration.source not in old_addresses or declaration.destination not in new_addresses:
+                raise ValueError('typed reference retarget requires proven declared producers')
+            a = b = {'$modelRef': {'attribute': old_node.attribute}}
+        else:
+            a, b = _mask_references(old_leaf, previous), _mask_references(new_leaf, current)
         if not _same(a, b):
             raise ValueError('Model reference edit changed literal affixes or occurrence structure: ' + new_key)
         if pointer is None:

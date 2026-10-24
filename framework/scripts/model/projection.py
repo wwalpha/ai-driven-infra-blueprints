@@ -4,7 +4,9 @@ import json
 import re
 from contextlib import contextmanager
 from contextvars import ContextVar
+from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
 
 import design.document as _dependency_design_document
 import design.policy_tables as _imports_policy_tables
@@ -16,6 +18,7 @@ from design.services.definitions.registry import HIDDEN_PROPERTIES
 from utils.aws_catalogs import catalog_outputs as catalog_outputs
 from utils.input_cache import input_is_file, input_text, memoized
 from utils.json_format import document_sha256, policy_json, validate_aws_document
+from utils.reference_contracts import reference_attribute as reference_attribute
 
 import model.identity as _dependency_model_identity
 import model.identity as _imports_model_identity
@@ -32,12 +35,17 @@ from model.core import (
 from model.format import JSON_LINK as JSON_LINK
 from model.format import REFERENCE_NAME_SUFFIXES as REFERENCE_NAME_SUFFIXES
 from model.format import RESOURCE_LINK as RESOURCE_LINK
+from model.reference_nodes import display_value, nodes, project
 
 ANCHOR = re.compile(r'^<a\s+id="([^"]+)"\s*></a>$')
 
 def json_sha256(path: Path) -> str:
     content = policy_json(input_text(path, encoding="utf-8"))
-    validate_aws_document(content)
+    if any(nodes(content)):
+        _imports_json_intrinsics.project_document(content)
+        validate_aws_document(project(content))
+    else:
+        validate_aws_document(content)
     return document_sha256(content)
 
 
@@ -114,14 +122,6 @@ def is_import_expression(prop: str, raw_value: str, design: Path) -> bool:
         if target.parent != design.parent.resolve() or not input_is_file(target):
             raise ValueError('ImportValue link requires an existing same-target service design: ' + link[2])
     return True
-
-
-def reference_attribute(kind: str, attribute: str) -> str:
-    """Map proven Model attributes to provider attributes, never GetAtt aliases."""
-    # Ref/GetAtt Id return the Secret ARN; ManagedPolicy uses PolicyArn, not Arn.
-    # https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-secretsmanager-secret.html
-    # https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-iam-managedpolicy.html
-    return {"SecretsManager.Secret": "Id", "IAM.ManagedPolicy": "PolicyArn"}.get(kind, attribute) if attribute == "Arn" else attribute
 
 
 def deployment_bucket(reference: str, path: Path, root: Path) -> str:
@@ -234,13 +234,24 @@ def reference_display(values, path, root):
     model_path = (root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties') if path.is_relative_to(root / 'docs/designs') else path
     scope = scope_for(model_path)
     result = dict(values)
+    resolver = _imports_model_identity.Resolver(root, _imports_model_sources._invocation_reads(root))
+    resolver.models[scope.path] = SimpleNamespace(scope=scope, authoritative=values, dependencies={})
     for key, value in values.items():
-        if key.startswith('desired.row.') and key.endswith('.document'):
-            projected = execution_document(policy_json(value), root,
-                property_name=values[key.removesuffix('document') + 'property'], scope=scope,
+        if key.startswith('desired.row.') and key.endswith(('.document', '.value')):
+            raw, structured = _imports_model_references._json(key, value)
+            if not structured or key.endswith('.value') and not any(nodes(raw)):
+                continue
+            projected = execution_document(raw, root,
+                property_name=values[key.rsplit('.', 1)[0] + '.property'], scope=scope,
                 logical_id=values.get(f'desired.resource.{key.split(".")[2].rpartition("-")[0]}.logicalId'))
-            result[key] = json.dumps(projected, ensure_ascii=False)
-            result[key.removesuffix('document') + 'artifactSha256'] = document_sha256(projected)
+            displayed = project(projected, partial(display_value, resolver, scope))
+            result[key] = json.dumps(displayed, ensure_ascii=False)
+            if key.endswith('.value') and isinstance(displayed, str):
+                result[key] = '`' + displayed + '`'
+            elif key.endswith('.value') and value.startswith('`'):
+                result[key] = '`' + result[key] + '`'
+            if key.endswith('.document'):
+                result[key.removesuffix('document') + 'artifactSha256'] = document_sha256(displayed)
     return result
 
 

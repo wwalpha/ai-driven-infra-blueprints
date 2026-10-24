@@ -18,13 +18,14 @@ from model.core import entries, literal
 from model.format import LINKS as LINKS
 from model.format import json_field, owner
 from model.format import link_scope as link_scope
+from model.reference_nodes import is_reference, nodes, parse, resolve
 
 FIELDS = {'consumerKey', 'pointer', 'text', 'occurrence', 'producerKind', 'producerScope',
           'producerId', 'producerLogicalId', 'resourceType', 'format', 'property', 'labelPolicy', 'contextProperty'}
 BASE = {'consumerKey', 'text', 'occurrence', 'producerKind', 'producerScope', 'format', 'labelPolicy'}
 
 
-def pointer_leaf(value, pointer):
+def pointer_value(value, pointer):
     if not isinstance(pointer, str) or (pointer and not pointer.startswith('/')) or re.search(r'~(?![01])', pointer):
         raise ValueError('reference requires an RFC 6901 pointer')
     for token in pointer.split('/')[1:] if pointer else ():
@@ -35,6 +36,11 @@ def pointer_leaf(value, pointer):
             value = value[int(token)]
         else:
             raise ValueError('reference pointer must select an existing string leaf')
+    return value
+
+
+def pointer_leaf(value, pointer):
+    value = pointer_value(value, pointer)
     if not isinstance(value, str):
         raise ValueError('reference pointer must select an existing string leaf')
     return value
@@ -139,6 +145,7 @@ class Usage:
     producer_id: str | None
     metadata_id: str | None = None
     logical_id: str | None = None
+    attribute: str | None = None
 
 
 def _producer(snapshot, address, reads, cache):
@@ -178,7 +185,7 @@ def _callback_usages_fixed(indexes, producer_for, resource_index, /, scope, logi
     return match[0] if match else None
 
 
-def usages(snapshot, read_context=None, *, _cache=None, _producer_scope=None, _coalesce=True):
+def usages(snapshot, read_context=None, *, _cache=None, _producer_scope=None, _coalesce=True, _typed=True):
     """Extract saved Resource links and declared literal dependencies."""
     anchor_index = _imports_model_identity.anchor_index
     parse_reference = _imports_model_identity.parse_reference
@@ -193,6 +200,8 @@ def usages(snapshot, read_context=None, *, _cache=None, _producer_scope=None, _c
 
     fixed = _bind_framework_callback(_callback_usages_fixed, indexes, producer_for, resource_index)
 
+    resolver = _imports_model_identity.Resolver(snapshot.scope.root, reads)
+    resolver.models = cache
     specs = declarations(values)
     for identity, spec in specs.items():
         scope = spec['producerScope']
@@ -213,9 +222,16 @@ def usages(snapshot, read_context=None, *, _cache=None, _producer_scope=None, _c
                 key == 'desired.deployment.templateBucket' or
                 key.startswith('desired.artifact.') and key.endswith('.bucket')):
             continue
+        value, structured = _json(key, raw)
+        for node in nodes(value) if _typed else ():
+            producer, rid, resource, attribute = resolve(node, snapshot.scope, resolver)
+            scope = '/'.join((producer.scope.environment, producer.scope.target, producer.scope.service))
+            if _producer_scope is None or scope == _producer_scope:
+                text = {'$modelRef': {'logicalId': node.logical_id, 'attribute': attribute}}
+                result.append(Usage(key, node.pointer, 0, 0, str(text), scope, 'resource', rid,
+                                    logical_id=node.logical_id, attribute=attribute))
         if key.startswith('desired.row.') and values.get(key.rsplit('.', 1)[0] + '.property', '').endswith('.Description'):
             continue
-        value, structured = _json(key, raw)
         for pointer, leaf in string_leaves(value):
             for match in reference_tokens(leaf):
                 environment, target, service, anchor = parse_reference(match[0], snapshot.scope)
@@ -259,7 +275,15 @@ def diagnose(snapshot, read_context=None, *, _producer_scope=None, errors=None):
     producer_entries = _bind_framework_callback(_callback_diagnose_producer_entries, parsed)
 
     specs = declarations(snapshot.authoritative)
-    for usage in usages(snapshot, reads, _cache=cache, _producer_scope=_producer_scope):
+    try:
+        extracted = usages(snapshot, reads, _cache=cache, _producer_scope=_producer_scope)
+    except _imports_model_core.ReferenceResolutionError as error:
+        warnings.append(error.diagnostic)
+        for producer in cache.values():
+            if producer is not None:
+                dependencies.update(producer.dependencies)
+        return tuple(warnings), dependencies
+    for usage in extracted:
         spec = specs.get(usage.metadata_id, {})
         if usage.producer_kind == 'context':
             env, target = usage.producer_scope.split('/')
@@ -289,6 +313,8 @@ def diagnose(snapshot, read_context=None, *, _producer_scope=None, errors=None):
             continue
         identity = matches[0]
         resource = resources[identity]
+        if usage.attribute is not None:
+            continue
         if spec and resource['resourceType'] != spec['resourceType']:
             _callback_diagnose_warn(usage, warnings, 'producer Resource Type differs')
         if spec.get('format') in {'name', 'identifier'}:
@@ -392,6 +418,8 @@ class Reference:
 
 
 def _recursive_symbolic_tree(leaf, /, key, value, pointer=''):
+    if is_reference(value):
+        return leaf(key, pointer, value)
     if isinstance(value, str):
         return leaf(key, pointer, value)
     if isinstance(value, dict):
@@ -405,6 +433,9 @@ def _callback_symbolic_leaf(grouped, /, key, pointer, value):
     spans = sorted(grouped.get((key, pointer), []), key=lambda item: (item[0], item[1]))
     if not spans:
         return value
+    if is_reference(value):
+        parse(value, pointer)
+        return spans[0][2] if len(spans) == 1 else Reference(None, 'ambiguous')
     merged = []
     for start, end, record in spans:
         if merged and start < merged[-1][1]:
@@ -435,8 +466,8 @@ def symbolic(snapshot, read_context=None):
         if usage.producer_kind != 'context':
             address = None if producer_id is None else '/'.join((address, *(['stack'] if usage.producer_kind == 'stack' else []), producer_id))
         link = LINKS.fullmatch(usage.text)
-        record = Reference(address, usage.producer_kind, spec.get('resourceType'), spec.get('format', 'link'),
-            spec.get('property'), link[1] if link else None, spec.get('labelPolicy'),
+        record = Reference(address, usage.producer_kind, spec.get('resourceType'), 'model' if usage.attribute else spec.get('format', 'link'),
+            usage.attribute or spec.get('property'), link[1] if link else None, spec.get('labelPolicy'),
             spec.get('contextProperty') if usage.producer_kind == 'context' else usage.logical_id if producer_id is None else None)
         grouped.setdefault((usage.consumer_key, usage.pointer), []).append((usage.start, usage.end, record))
 

@@ -15,6 +15,7 @@ import model.projection as _imports_model_projection
 from model.core import entries as entries
 from model.core import literal, resource_row_index
 from model.format import owner
+from model.reference_nodes import nodes
 
 
 def typed_equal(left, right):
@@ -84,7 +85,7 @@ def has_reference(raw):
     except ValueError:
         return False
     linked = _bind_framework_callback(_recursive_has_reference_linked, resource_link)
-    return linked(value)
+    return any(nodes(value)) or linked(value)
 
 
 def selection_records(selection, records, old, new, property_schema, warnings=None, *, matching=None):

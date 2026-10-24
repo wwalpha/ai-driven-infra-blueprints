@@ -12,6 +12,7 @@ import utils.aws_catalogs as _imports_utils_aws_catalogs
 import utils.aws_mappings as _imports_utils_aws_mappings
 import utils.aws_schemas as _imports_utils_aws_schemas
 import utils.cloudformation.schema as _dependency_cloudformation_schema
+from model.reference_nodes import is_reference, parse
 from utils.cloudformation.schema import CloudFormationSchemaCatalog
 from utils.input_cache import input_select, input_text, memoized
 
@@ -57,6 +58,14 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
         return self.required_properties(resource_type) & selected_properties(self.root, resource_type)
 
     def literal_errors(self, resource_type: str, property_path: str, raw_value: str) -> list[str]:
+        if raw_value.lstrip().startswith('{'):
+            try:
+                value = json.loads(raw_value)
+            except ValueError:
+                value = None
+            if is_reference(value):
+                parse(value)
+                return []  # Resolved attribute types are checked by the Model reference validator.
         if resource_type not in self.api_schemas:
             return super().literal_errors(resource_type, property_path, raw_value)
         node = self.property_schema(resource_type, property_path)
@@ -76,6 +85,9 @@ class DesignSchemaCatalog(CloudFormationSchemaCatalog):
                 return []  # An unresolved expression has no proven literal type/value yet.
         node = self._resolve(self.schema(resource_type), node)
         expected = node.get("type")
+        if is_reference(value):
+            parse(value)
+            return []  # This structural layer has no producer scope; do not guess its type.
         types = {"string": str, "integer": int, "boolean": bool, "array": list, "object": dict}
         if expected and type(value) is not types[expected]:
             return [f"{path}: must be {expected}"]

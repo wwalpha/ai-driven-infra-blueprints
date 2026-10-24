@@ -48,6 +48,7 @@ from model.core import (
     properties,
     stack_model,
 )
+from model.reference_nodes import nodes, receiving_property, resolve
 
 NAMING_EXEMPT_PROPERTIES = {
     "Config.ConfigurationRecorder.Name",
@@ -69,13 +70,26 @@ def validate_json_settings(values, model_path, *, warnings=None):
     reference_tokens = _imports_model_identity.reference_tokens
     _json = _imports_model_references._json
     string_leaves = _imports_model_references.string_leaves
+    resolver = None
     for row_id, row in entries(values, 'desired.row.'):
         for field in ('value', 'document'):
             if field not in row:
                 continue
             value, structured = _json(f'desired.row.{row_id}.{field}', row[field])
             if not structured:
+                if any(nodes(value)):
+                    raise ValueError('JSON Model references in .value require the existing JSON backtick notation')
                 continue
+            for node in nodes(value):
+                if resolver is None:
+                    path = Path(model_path)
+                    if path.suffix == '.md' and path.parents[2].name == 'designs':
+                        path = (path.parents[4] / 'model' / path.relative_to(path.parents[4] / 'docs/designs')).with_suffix('.properties')
+                    scope = _imports_model_sources.scope_for(path)
+                    resolver = _imports_model_identity.Resolver(scope.root, _imports_model_sources._invocation_reads(scope.root))
+                    resolver.models[scope.path] = SimpleNamespace(scope=scope, authoritative=values, dependencies={})
+                field_name = receiving_property(row['property'], node.pointer)
+                resolve(node, scope, resolver, field=field_name, property_name=row['property'])
             number = row_id.rpartition('-')[0]
             resource = values.get(f'desired.resource.{number}.logicalId', number)
             for pointer, text in string_leaves(value):

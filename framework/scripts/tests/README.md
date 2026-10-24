@@ -231,3 +231,19 @@ ITは7条件。実CLI→Validator、子プロセス・heartbeat・並列同期�
 モード・引数・authorization・startup診断11条件・Windows guard・snapshot finallyは既存UTへ統合する。
 全assertionの対応先は[Issue 18台帳](CASES.md#issue-18-blueprint-loopの検証責務)を参照。
 ローカルでは関連UTと静的確認のみを実行し、ITのPASSと10秒以内の達成は正式CIで確認する。
+
+## Common Model Reference nodes
+
+`units/model-reference-nodes-unit.checks.py` is the dedicated typed-node UT. It uses only authored
+synthetic properties and the existing catalogs/evaluator/graph. Run with the registered Python
+wrapper and the existing script entrypoint. `integrations/model-reference-nodes.checks.py` adds
+one artifact/Markdown round-trip to the official IT runner; do not run it locally.
+
+Desired stores exactly `{"$modelRef":{"logicalId":"…","attribute":"…"}}`. Producer lookup is
+limited to the Consumer's environment/target and rejects duplicate logical IDs. Design JSON
+retains nodes; Markdown projects confirmed observations, explicitly pending observations or
+`unresolved`. Missing observations and Deploy Session start state do not prove absence.
+The AWS JSON boundary rejects internal nodes, including JSON encoded in strings.
+No automatic migration or AWS execution projection is provided. LLM migration must prove the
+producer and attribute, preserve Resource/logicalId/anchor/Observed and unrelated fields, and
+change only the proved reference expression under a separately authorized Model Task.

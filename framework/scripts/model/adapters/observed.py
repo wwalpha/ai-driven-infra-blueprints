@@ -36,6 +36,8 @@ from model import projection as model_projection
 from model.core import entries, properties, stack_model
 from model.files import read_model, resource_row_index
 from model.identity import Resolver, parse_reference, resource_link
+from model.reference_nodes import nodes
+from model.references import usages
 from model.sources import (
     design_source_digest,
     input_snapshot,
@@ -375,13 +377,20 @@ def propagate_references(root, loaded, changes, identifiers, by_identifier=None)
     incoming = {(*own_key(path, resource)[:3], resource.get('anchor'))
                 for path, values in loaded.items() for _, resource in entries(values, 'desired.resource.')
                 if own_key(path, resource) in identifiers}
-    reads = FileReads()
+    reads, typed_usages = FileReads(), {}
     for path in model_paths(root, read_context=reads) if identifiers else []:
         if path in loaded or path.stem == "cloudformation-stacks":
             continue
         _ = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
         linked = False
-        values = raw_model(path, reads).authoritative
+        snapshot = raw_model(path, reads)
+        values = snapshot.authoritative
+        if any(node for key, value in values.items()
+               if key.startswith('desired.row.') and key.endswith(('.value', '.document'))
+               for node in nodes(value.strip('`'))):
+            typed_usages[path] = [usage for usage in usages(snapshot, reads) if usage.attribute]
+            linked = any((*usage.producer_scope.split('/'), usage.logical_id) in identifiers
+                         for usage in typed_usages[path])
         for key, value in values.items():
             link = resource_link(value) if key.startswith("desired.row.") and key.endswith(".value") else None
             if link:
@@ -390,6 +399,16 @@ def propagate_references(root, loaded, changes, identifiers, by_identifier=None)
             loaded[path] = properties(read_model(path))
     # Include every incoming reference, including out-of-scope ones; reject before any write.
     for path, values in loaded.items():
+        if path not in typed_usages and any(node for key, value in values.items()
+                if key.startswith('desired.row.') and key.endswith(('.value', '.document'))
+                for node in nodes(value.strip('`'))):
+            typed_usages[path] = [usage for usage in usages(raw_model(path, reads), reads) if usage.attribute]
+        for usage in typed_usages.get(path, ()):
+            target = (*usage.producer_scope.split('/'), usage.logical_id)
+            if target in identifiers:
+                changes.setdefault(path, {})
+                if by_identifier is not None:
+                    by_identifier.setdefault(target, {}).setdefault(path, {})
         _ = (root / "docs/designs" / path.relative_to(root / "model")).with_suffix(".md")
         for rid, row in entries(values, "desired.row."):
             link = resource_link(row["value"])
@@ -509,6 +528,7 @@ def destroy_plan(root, environment, directory, stack_names, check_scope=True):
         changes = changes_by_stack[name]
         for anchor in anchors[name]:
             for path, updates in references.get(anchor, {}).items():
+                changes.setdefault(path, {})
                 for key, value in updates.items():
                     changes.setdefault(path, {}).setdefault(key, value)
         if changes:

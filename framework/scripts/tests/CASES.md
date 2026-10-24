@@ -3322,3 +3322,16 @@ Cacheは現行PassCacheの呼出し内限定仕様を維持する。旧67条件�
 ローカルでは関連UT・構文・ASTのparameter展開数・登録・既存PytestReceipt/reachability契約だけを確認する。IT本体・Full IT・cProfile・時間計測は実行しない。既存Framework ITでPASSと実時間を確認するまで10秒以下の達成は未確認。
 
 既存Runner UT `blueprint-loop-unit::check_it_inventory` のincoming IT登録期待値も2→1へ更新し、receipt/reachability実装とpytest入口は変更しない。
+
+## Common Model Reference nodes
+
+| Requirement | Function | Layer | Source | Mode / cases | Responsibility | Notes |
+|---|---|---|---|---|---|---|
+| `model-reference::round-trip` | `main` | IT | [integrations/model-reference-nodes.checks.py](integrations/model-reference-nodes.checks.py) | direct / 1 | Cross-service properties read → design artifact/Markdown generation → artifact-backed policy rendering, observed display changes with unchanged Consumer Desired and JSON/hash, AWS boundary refusal | Authored synthetic fixture; local execution forbidden |
+
+`units/model-reference-nodes-unit.checks.py` owns strict syntax, target-local uniqueness/cache,
+producer/attribute contracts, logical comparison with Ref/GetAtt/Export, ambiguity and missing
+producers, missing parent settings despite unknown children, policy forms and IMPORT protection,
+all display fallbacks, graph/incoming references, explicit Retarget preservation and deletion refusal.
+Existing Markdown-link, external metadata and service-specific equivalence tests remain with their
+existing owners because they test independent contracts rather than typed-node duplicates.

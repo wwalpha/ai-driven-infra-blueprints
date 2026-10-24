@@ -9,9 +9,9 @@ from functools import partial as _bind_framework_callback
 
 from utils.cloudformation.inputs import Blocked, resolve_value
 from utils.iac_values import Expression, ResourceReference, cfn_resource_identity
-
-# Returned attributes whose explicit setting has a different property name.
-RETURN_ATTRIBUTE_PROPERTIES = {('CodeCommit.Repository', 'Name'): 'RepositoryName'}
+from utils.reference_contracts import (
+    RETURN_ATTRIBUTE_PROPERTIES as RETURN_ATTRIBUTE_PROPERTIES,
+)
 
 
 def _callback_Evaluation_evaluate_replace(resolved, seen, self, stack, substitutions, /, match):

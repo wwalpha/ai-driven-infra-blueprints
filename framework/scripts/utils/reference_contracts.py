@@ -2,6 +2,10 @@
 import re
 from functools import lru_cache
 
+# Returned attributes whose explicit setting has a different property name.
+RETURN_ATTRIBUTE_PROPERTIES = {('CodeCommit.Repository', 'Name'): 'RepositoryName'}
+
+
 SUBNET_LIST_PROPERTIES = {
     "ApiGatewayV2.VpcLink.SubnetIds[]",
     "CodeBuild.Project.VpcConfig.Subnets",
@@ -216,3 +220,17 @@ def attributes_for(kind):
     forms.update(field for (target, _), (attribute, _) in ARN_FORMS.items() if target == kind
                  for field in (attribute if isinstance(attribute, dict) else (attribute,)))
     return tuple(sorted(kind + '.' + form for form in forms))
+
+
+def reference_attribute(kind: str, attribute: str) -> str:
+    """Map proven Model attributes to provider attributes, never GetAtt aliases."""
+    mapped = [returned for (resource_type, returned), setting in RETURN_ATTRIBUTE_PROPERTIES.items()
+              if resource_type == kind and setting == attribute]
+    if len(mapped) > 1:
+        raise ValueError('ambiguous returned attribute')
+    if mapped:
+        return mapped[0]
+    # Ref/GetAtt Id return the Secret ARN; ManagedPolicy uses PolicyArn, not Arn.
+    # https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-secretsmanager-secret.html
+    # https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-iam-managedpolicy.html
+    return {"SecretsManager.Secret": "Id", "IAM.ManagedPolicy": "PolicyArn"}.get(kind, attribute) if attribute == "Arn" else attribute

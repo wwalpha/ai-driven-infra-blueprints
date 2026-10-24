@@ -22,6 +22,8 @@ def _recursive_validate_aws_document_visit(value, pointer):
     if isinstance(value, dict):
         for key, child in value.items():
             child_pointer = pointer + '/' + key.replace('~', '~0').replace('/', '~1')
+            if key == '$modelRef':
+                raise AwsDocumentError(child_pointer, {key: child}, 'Model reference requires a confirmed AWS value')
             if key == 'Ref' or key.startswith('Fn::'):
                 raise AwsDocumentError(child_pointer, {key: child},
                                        'CloudFormation intrinsic requires template context')

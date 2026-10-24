@@ -4,8 +4,10 @@ import json
 import posixpath as _imports_posixpath
 import re
 
+import design.catalog as _imports_design_catalog
 import utils.aws_catalogs as _imports_utils_aws_catalogs
 import utils.reference_contracts as _imports_reference_contracts
+from utils.reference_contracts import reference_attribute
 
 import model.importing.scope as _imports_model_importing_scope
 import model.sources as _imports_model_sources
@@ -121,6 +123,8 @@ class Resolver:
     def __init__(self, root, reads=None):
         FileReads = _imports_model_sources.FileReads
         self.root, self.reads, self.models, self.indexes = root, reads or FileReads(), {}, {}
+        self.logical_indexes = {}
+        self.catalog = None
 
     def resolve(self, value, scope):
         Scope = _imports_model_sources.Scope
@@ -139,28 +143,79 @@ class Resolver:
             resource_index(snapshot.authoritative)
             self.models[producer.path] = snapshot
             self.indexes[producer.path] = anchor_index(snapshot.authoritative)
+        if producer.path not in self.indexes:
+            self.indexes[producer.path] = anchor_index(self.models[producer.path].authoritative)
         return self.models[producer.path], *select_anchor(self.indexes[producer.path], anchor, value)
+
+    def resolve_logical(self, logical_id, scope):
+        """Index exactly one environment/target snapshot once, retaining ambiguity."""
+        sources = _imports_model_sources
+        key = scope.environment, scope.target
+        if key not in self.logical_indexes:
+            index = {}
+            scopes = {producer.path: producer for producer in sources.list_models(scope, self.reads)}
+            scopes.update({path: snapshot.scope for path, snapshot in self.models.items() if snapshot is not None
+                           and (snapshot.scope.environment, snapshot.scope.target) == key})
+            for producer in scopes.values():
+                if producer.service == 'cloudformation-stacks':
+                    continue
+                if producer.path not in self.models:
+                    with _imports_model_importing_scope.reference_reader(producer.path):
+                        self.models[producer.path] = sources._source_snapshot(producer, self.reads)
+                snapshot = self.models[producer.path]
+                if snapshot is None:
+                    raise ReferenceResolutionError('producer Model is unreadable', reference=logical_id)
+                for logical, (number, resource) in resource_index(snapshot.authoritative).items():
+                    index.setdefault(logical, []).append((snapshot, number, resource))
+            self.logical_indexes[key] = index
+        matches = self.logical_indexes[key].get(logical_id, ())
+        if len(matches) != 1:
+            raise ReferenceResolutionError('producer logicalId is absent' if not matches else
+                                           'producer logicalId is ambiguous', reference=logical_id)
+        return matches[0]
+
+    def validate_attribute(self, kind, attribute, *, field=None):
+        declared = _imports_reference_contracts.contract(field) if field else {}
+        if declared and kind not in declared:
+            raise ReferenceResolutionError('JSON Resource reference type differs from receiving property')
+        if not isinstance(attribute, str) or not attribute:
+            raise ValueError('JSON Resource attribute must be a nonempty string')
+        if self.catalog is None:
+            self.catalog = _imports_design_catalog.DesignSchemaCatalog(self.root)
+        returned = reference_attribute(kind, attribute)
+        if (declared and attribute not in declared[kind] or
+                (kind, attribute) not in _imports_reference_contracts.ARN_FORMS and
+                kind + '.' + attribute not in _imports_reference_contracts.attributes_for(kind) and
+                attribute not in _imports_utils_aws_catalogs.catalogs_for(self.root).selected(kind) and
+                '/properties/' + returned.replace('.', '/') not in self.catalog.schema(kind).get('readOnlyProperties', ())):
+            raise ReferenceResolutionError('unsupported JSON Resource attribute: ' + kind + '.' + attribute)
+    def validate_reference_type(self, kind, attribute, field):
+        """Typed nodes occupy one complete value; legacy links may select array elements."""
+        returned = reference_attribute(kind, attribute)
+        try:
+            actual = self.catalog.property_schema(kind, returned).get('type')
+        except KeyError:
+            actual = 'string' if (kind, attribute) in _imports_reference_contracts.ARN_FORMS or kind + '.' + attribute in _imports_reference_contracts.attributes_for(kind) else None
+        consumer_kind = '.'.join(field.split('.')[:2])
+        try:
+            expected = self.catalog.property_schema(consumer_kind, field.removeprefix(consumer_kind + '.')).get('type')
+        except KeyError:
+            expected = None
+        actual_types = set(actual if isinstance(actual, list) else [actual])
+        expected_types = set(expected if isinstance(expected, list) else [expected])
+        if (expected is not None and (actual is None or not actual_types <= expected_types) or
+                expected is None and actual is not None and 'string' not in actual_types):
+            raise ReferenceResolutionError('Resource reference type is unproven or differs from receiving property schema')
 
     def operand(self, value, scope, *, attribute=None, field=None):
         """Validate a JSON reference without requiring its physical identifier."""
-        ARN_FORMS = _imports_reference_contracts.ARN_FORMS
-        attributes_for = _imports_reference_contracts.attributes_for
-        contract = _imports_reference_contracts.contract
         snapshot, number, resource = self.resolve(value, scope)
         kind = resource['resourceType']
-        declared = contract(field) if field else {}
-        if declared and kind not in declared:
-            raise ReferenceResolutionError('JSON Resource reference type differs from receiving property', reference=value)
+        declared = _imports_reference_contracts.contract(field) if field else {}
         if attribute is None:
             forms = declared.get(kind, ())
             if len(forms) != 1:
                 raise ReferenceResolutionError('JSON Resource reference requires an explicit attribute', reference=value)
             attribute, = forms
-        if not isinstance(attribute, str) or not attribute:
-            raise ValueError('JSON Resource attribute must be a nonempty string')
-        catalogs_for = _imports_utils_aws_catalogs.catalogs_for
-        if (declared and attribute not in declared[kind] or
-                (kind, attribute) not in ARN_FORMS and kind + '.' + attribute not in attributes_for(kind)
-                and attribute not in catalogs_for(self.root).selected(kind)):
-            raise ReferenceResolutionError('unsupported JSON Resource attribute: ' + kind + '.' + attribute, reference=value)
+        self.validate_attribute(kind, attribute, field=field)
         return snapshot, number, resource, attribute

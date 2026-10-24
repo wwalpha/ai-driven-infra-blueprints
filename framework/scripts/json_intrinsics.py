@@ -4,6 +4,7 @@ import json as _imports_json
 from functools import partial as _bind_framework_callback
 
 import iac_evaluation as _imports_iac_evaluation
+from model.reference_nodes import is_reference, parse
 from utils.cloudformation.format import JSON_INTRINSICS, intrinsic_shape_error
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression
@@ -27,6 +28,9 @@ def _project_document_pending(*args):
 
 
 def _recursive_project_document_syntax(fail, /, value, pointer=''):
+    if is_reference(value):
+        parse(value, pointer)
+        return
     if isinstance(value, dict):
         if intrinsic(value):
             for name, argument in value.items():
@@ -45,6 +49,9 @@ def _recursive_project_document_syntax(fail, /, value, pointer=''):
 
 
 def _recursive_project_document_visit(bound, evaluate, fail, logical_id, model_path, property_name, syntax, template, unresolved, warnings, /, value, pointer='', operand=False):
+    if is_reference(value):
+        parse(value, pointer)
+        return value
     if intrinsic(value):
         name, argument = next((key, child) for key, child in value.items() if key == 'Ref' or key.startswith('Fn::'))
         try:

@@ -1,9 +1,17 @@
 """Select saved literal declarations from the authoritative snapshot, once per service."""
 from design.policy_tables import literal
-from iac_evaluation import RETURN_ATTRIBUTE_PROPERTIES
+from model.identity import Resolver, address
+from model.reference_nodes import (
+    is_reference,
+    nodes,
+    parse,
+    receiving_property,
+    resolve,
+)
 from model.references import declarations, usages
 from utils.cloudformation.inputs import Blocked
-from utils.iac_values import ResourceReference
+from utils.iac_values import Expression, ResourceReference
+from utils.reference_contracts import reference_attribute
 
 
 class ModelReferences:
@@ -11,6 +19,11 @@ class ModelReferences:
         snapshot = inputs.model(service)
         specs = declarations(snapshot.authoritative)
         self.positions = {}
+        self.scope = snapshot.scope
+        if not hasattr(inputs, 'model_reference_resolver'):
+            inputs.model_reference_resolver = Resolver(inputs.root, inputs.model_reads)
+        self.resolver = inputs.model_reference_resolver
+        self.resolver.models.update({item.scope.path: item for item in inputs.models.values()})
         if not specs:
             return
         cache = {model.scope.path: model for model in inputs.models.values()}
@@ -29,7 +42,7 @@ class ModelReferences:
                 except FileNotFoundError:
                     cache[path] = None
         try:
-            for usage in usages(snapshot, inputs.model_reads, _cache=cache):
+            for usage in usages(snapshot, inputs.model_reads, _cache=cache, _typed=False):
                 spec = specs.get(usage.metadata_id)
                 if not spec or spec['producerKind'] != 'resource' or spec['format'] == 'link':
                     continue
@@ -38,8 +51,25 @@ class ModelReferences:
             inputs.retain_reads()
 
     def normalize(self, inputs, key, value, pointer=None):
-        if key not in self.positions:
-            return value
+        if is_reference(value):
+            try:
+                node = parse(value, pointer or '')
+                row = key.rsplit('.', 1)[0]
+                prop = inputs.model(self.scope.service).authoritative[row + '.property']
+                kind = '.'.join(prop.split('.')[:2])
+                field = receiving_property(prop, pointer or '')
+                path = field.removeprefix(kind + '.')
+                producer, number, resource, attribute = resolve(node, self.scope, self.resolver,
+                    field=field, property_name=prop)
+                service = producer.scope.service
+                inputs.model(service)
+                reference = address(producer.scope, resource, consumer_scope=self.scope)
+                symbol = inputs.desired_reference(self.scope.service, reference, kind, path, attribute)
+                return ResourceReference(dict(symbol, **{'$attribute': reference_attribute(resource['resourceType'], symbol['$attribute'])}))
+            except (Blocked, KeyError, OSError, ValueError, TypeError) as error:
+                return Expression('Unverified', [value, str(error)])
+            finally:
+                inputs.retain_reads()
         if isinstance(value, ResourceReference):
             return value
         if isinstance(value, dict):
@@ -47,7 +77,9 @@ class ModelReferences:
                     for name, child in value.items()}
         if isinstance(value, list):
             return [self.normalize(inputs, key, child, (pointer or '') + '/' + str(index)) for index, child in enumerate(value)]
-        records = self.positions[key].get(pointer, ())
+        if isinstance(value, str) and any(nodes(value)):
+            return Expression('Unverified', [value, 'encoded JSON reference needs proven expression evaluation'])
+        records = self.positions.get(key, {}).get(pointer, ())
         if not records:
             return value
         if len(records) != 1:
@@ -68,11 +100,8 @@ class ModelReferences:
         if not spec['property'].startswith(prefix):
             raise Blocked('attribute_format_unproven: producer Property differs')
         attribute = spec['property'][len(prefix):]
-        mapped = [returned for (kind, returned), setting in RETURN_ATTRIBUTE_PROPERTIES.items()
-                  if kind == resource['resourceType'] and setting == attribute]
-        if len(mapped) > 1:
-            raise Blocked('attribute_format_unproven: ambiguous returned attribute')
-        symbol = ResourceReference({'$resource': [service, usage.producer_id], '$attribute': mapped[0] if mapped else attribute})
+        symbol = ResourceReference({'$resource': [service, usage.producer_id],
+                                    '$attribute': reference_attribute(resource['resourceType'], attribute)})
         symbol.saved_property = spec['property']
         symbol.saved_literal = value
         symbol.declared_format = spec['format']

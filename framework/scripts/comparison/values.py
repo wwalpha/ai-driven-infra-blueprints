@@ -7,6 +7,7 @@ from functools import partial as _bind_framework_callback
 import json_intrinsics as _imports_json_intrinsics
 from design.policy_tables import literal
 from model.identity import resource_link
+from model.reference_nodes import is_reference
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import (
     Expression,
@@ -75,6 +76,8 @@ def _callback__desired_value_references_86(desired_reference, evaluate, kind, lo
         except (Blocked, KeyError, OSError, ValueError, ImportError, TypeError, IndexError) as error:
             failures.append((path, pointer, error))
             return Expression('Unverified', [])
+    if is_reference(item):
+        return item
     if isinstance(item, list):
         return [_callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, failures, _default_field, _default_operands, _default_path, _default_context, _default_pointer, child, field, operands, path + '[]', context, pointer + '/' + str(index))
                 for index, child in enumerate(item)]
@@ -114,7 +117,14 @@ def _desired_value(service, row, kind, *, local_comparison, desired_reference, p
             raise Blocked('desired value is unresolved')
         node = property_schema(kind, re.sub(r'\[\d+\]', '[]', row['property'].removeprefix(kind + '.')))
         schema_type = node.get('type')
-        if schema_type != 'string':
+        if isinstance(value, str) and value.lstrip().startswith('{'):
+            try:
+                encoded = strict_json(value)
+            except ValueError:
+                encoded = None
+            if is_reference(encoded):
+                value = encoded
+        if schema_type != 'string' and isinstance(value, str):
             if schema_type is None:
                 raise Blocked('property type is not uniquely determined')
             value = strict_json(value)

@@ -126,7 +126,14 @@ def reference_same(left, right, kind, path, *, local_comparison, forms_for, reso
             allowed = {reference_attribute(refkind, form) for form in forms or ()}
             if left['$resource'] == right['$resource'] and left['$attribute'] in allowed and right['$attribute'] in allowed:
                 return decision(True, equivalent=left['$attribute'] != right['$attribute'])
-            return decision(same(left, right))
+            if left['$resource'] != right['$resource']:
+                return decision(False)
+            if left['$attribute'] == right['$attribute']:
+                return decision(True)
+            try:
+                return decision(same(resolve_literal(left), resolve_literal(right)))
+            except (Blocked, ValueError, KeyError, TypeError, OSError):
+                return unproven('attribute equivalence is unproven')
         other = right if isinstance(left, ResourceReference) else left
         if not isinstance(other, str):
             return unproven('literal versus reference has no proven string contract')

@@ -14,6 +14,9 @@ from pathlib import Path
 import json_intrinsics as _imports_json_intrinsics
 import utils.aws_mappings as _imports_utils_aws_mappings
 from model.core import literal
+from model.identity import Resolver
+from model.reference_nodes import display_value, is_reference, nodes, project
+from model.sources import scope_for
 from utils.input_cache import input_scope
 from utils.json_format import (
     AwsDocumentError,
@@ -195,6 +198,11 @@ def policy_lines(path: Path, policy: Policy) -> list[str]:
     if not isinstance(document, dict):
         raise ValueError(f"policy JSON must be an object: {policy.link}")
     validate_policy_document(document, policy, design=True)
+    if any(nodes(document)):
+        root = path.parents[4]
+        model_path = (root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties')
+        scope = scope_for(model_path)
+        document = project(document, _bind_framework_callback(display_value, Resolver(root), scope))
     return policy_document_lines(document, policy)
 
 
@@ -212,6 +220,8 @@ def validate_policy_document(document, policy, *, design=False):
     pending = _bind_framework_callback(_lambda_validate_policy_document_pending_259, design, intrinsic)
     if pending(document):
         return
+    if is_reference(document):
+        raise ValueError('policy document must be an object; $modelRef represents a string')
     style = POLICY_FORMATS[policy.property_name]
     if style == 'settings':
         if policy.property_name == 'ECR.Repository.LifecyclePolicy' and 'LifecyclePolicyText' in document:
@@ -242,21 +252,21 @@ def validate_policy_document(document, policy, *, design=False):
             continue
         if not isinstance(statement, dict) or set(statement) - set(STATEMENT_KEYS):
             raise ValueError(f'unsupported policy Statement keys: {policy.link}')
-        if policy.property_name == 'IAM.Role.Policies[].PolicyDocument' and 'Sid' in statement and not pending(statement['Sid']):
+        if policy.property_name == 'IAM.Role.Policies[].PolicyDocument' and 'Sid' in statement and not (pending(statement['Sid']) or is_reference(statement['Sid'])):
             if not isinstance(statement['Sid'], str) or len(statement['Sid']) > 16:
                 raise ValueError(f'IAM inline policy Sid must be a string of at most 16 characters: {policy.link}')
-        if not pending(statement.get('Effect')) and statement.get('Effect') not in ('Allow', 'Deny'):
+        if not (pending(statement.get('Effect')) or is_reference(statement.get('Effect'))) and statement.get('Effect') not in ('Allow', 'Deny'):
             raise ValueError(f'invalid policy Statement Effect: {policy.link}')
         for key in ('Resource', 'NotResource'):
             if key in statement:
                 value = statement[key]
-                if not (isinstance(value, str) or pending(value) or isinstance(value, list) and all(isinstance(item, str) or pending(item) for item in value)):
+                if not (isinstance(value, str) or pending(value) or is_reference(value) or isinstance(value, list) and all(isinstance(item, str) or pending(item) or is_reference(item) for item in value)):
                     prefix = '/PolicyDocument' if style == 'wrapped-statement' else ''
                     pointer = prefix + '/Statement' + (f'/{index}' if isinstance(document['Statement'], list) else '') + '/' + key
                     raise AwsDocumentError(pointer, value, f'{key} must be a string or string array')
         for key in ('Principal', 'NotPrincipal'):
             principal = statement.get(key)
-            if pending(principal):
+            if pending(principal) or is_reference(principal):
                 continue
             if isinstance(principal, dict):
                 if not principal:
@@ -268,19 +278,21 @@ def validate_policy_document(document, policy, *, design=False):
             condition = statement['Condition']
             if pending(condition):
                 continue
-            if not isinstance(condition, dict) or not condition:
+            if is_reference(condition) or not isinstance(condition, dict) or not condition:
                 raise ValueError('policy Condition must be a non-empty object')
             if any(not isinstance(entry, dict) or not entry for entry in condition.values()):
                 raise ValueError('policy Condition operator must contain context keys')
 
 
 def raw_policy_lines(document, policy):
+    document = project(document)
     return [f'<a id="{policy.anchor}"></a>', '', f'#### {policy.kind}：{policy.label}', '',
             '```json', json.dumps(document, ensure_ascii=False, indent=2), '```']
 
 
 def policy_document_lines(document, policy):
     """Lossless display conversion; unsupported table shapes retain the entire JSON."""
+    document = project(document)
     original = document
     if not isinstance(document, dict):
         return raw_policy_lines(original, policy)
