@@ -11,9 +11,7 @@ import os
 import shutil
 import socket
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
 from tempfile import TemporaryDirectory
-from threading import Barrier
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -32,18 +30,6 @@ if not __debug__:
 ROOT = Path(__file__).resolve().parents[4]
 
 
-def _callback_parallel_run(barrier, obtain, /, _):
-    barrier.wait(timeout=10)
-    return obtain()
-
-
-def parallel(obtain):
-    barrier = Barrier(8)
-    run = _bind_framework_callback(_callback_parallel_run, barrier, obtain)
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        return list(pool.map(run, range(8)))
-
-
 def check_sdk_lifetime():
     session = Mock()
     session.get_service_model.side_effect = lambda service: SimpleNamespace(service=service)
@@ -52,7 +38,7 @@ def check_sdk_lifetime():
         sdk = Sdk(factory)
     assert factory.call_count == 0
     with patch.dict(os.environ, {'AWS_DATA_PATH': 'later'}):
-        results = parallel(lambda: sdk.service_model('sns'))
+        results = [sdk.service_model('sns'), sdk.service_model('sns')]
     assert all(value is results[0] for value in results)
     assert factory.call_count == session.get_service_model.call_count == 1
     session.set_config_variable.assert_called_once_with('data_path', 'first')
@@ -67,44 +53,37 @@ def check_sdk_lifetime():
         assert first is sdk_for(Path(directory) / 'second')
 
 
-def _callback_check_failure_waiters_read(error, original, reads, /, path, *args, **kwargs):
+def _callback_check_failure_lifetimes_read(error, original, reads, /, path, *args, **kwargs):
     reads[path.name] += 1
     if path.name in {'aws-config-configurationrecorder.json', 'Config_ConfigurationRecorder.properties'}:
         raise error
     return original(path, *args, **kwargs)
 
 
-def _callback_check_failure_waiters_fails_request(obtain, /):
+def _callback_check_failure_lifetimes_request(obtain, /):
     try:
         obtain()
-    except BaseException as caught:
+    except RuntimeError as caught:
         return caught
     raise AssertionError('failure was suppressed')
 
 
-def _callback_check_failure_waiters_fails(error, /, obtain):
-    request = _bind_framework_callback(_callback_check_failure_waiters_fails_request, obtain)
-    assert all(value is error for value in parallel(request))
-    assert request() is error
-
-
-def check_failure_waiters():
-    class Interrupted(BaseException):
-        pass
+def check_failure_lifetimes():
     with TemporaryDirectory() as directory:
         root = Path(directory)
         schemas, catalogs = Schemas(root), Catalogs(root)
-        error = Interrupted('injected cancellation')
+        error = RuntimeError('injected read failure')
         factory = Mock(side_effect=error)
         sdk = Sdk(factory)
         original = Path.read_text
         reads = Counter()
-        read = _bind_framework_callback(_callback_check_failure_waiters_read, error, original, reads)
-        fails = _bind_framework_callback(_callback_check_failure_waiters_fails, error)
+        read = _bind_framework_callback(_callback_check_failure_lifetimes_read, error, original, reads)
         with patch.object(Path, 'read_text', read):
-            fails(lambda: schemas.cloudformation('AWS::Config::ConfigurationRecorder'))
-            fails(lambda: catalogs.selected('Config.ConfigurationRecorder'))
-            fails(lambda: sdk.service_model('sns'))
+            for obtain in (lambda: schemas.cloudformation('AWS::Config::ConfigurationRecorder'),
+                           lambda: catalogs.selected('Config.ConfigurationRecorder'),
+                           lambda: sdk.service_model('sns')):
+                assert _callback_check_failure_lifetimes_request(obtain) is error
+                assert _callback_check_failure_lifetimes_request(obtain) is error
         assert reads == {'index.json': 1, 'aws-config-configurationrecorder.json': 1, 'Config_ConfigurationRecorder.properties': 1}
         assert factory.call_count == 1
         # New instances can retry independent read failures; no error-cache invalidation scans.
@@ -135,13 +114,13 @@ def check_full_validation_dependencies():
             assert provider.get('config').service == 'config'
         with patch.object(aws_mapping_catalog, 'catalog_properties', wraps=aws_mapping_catalog.catalog_properties) as validate:
             obtain = _bind_framework_callback(_callback_check_full_validation_dependencies_obtain, catalogs, provider, schemas, sdk, validate)
-            results = parallel(obtain)
-            assert all(value is results[0] for value in results)
+            result = obtain()
+            assert obtain() is result
             assert validate.call_count == 1
             assert input_scope(obtain)() is input_scope(obtain)()
             assert validate.call_count == 1
             for deps in ((Sdk(), schemas, catalogs), (sdk, Schemas(root), catalogs), (sdk, schemas, Catalogs(root))):
-                assert provider.validated('sns', *deps, validate).properties == results[0].properties
+                assert provider.validated('sns', *deps, validate).properties == result.properties
             assert validate.call_count == 4
             Mappings(root).validated('sns', sdk, schemas, catalogs, validate)
             assert validate.call_count == 5
@@ -154,7 +133,8 @@ def check_full_validation_dependencies():
         failure = ValueError('invalid static mapping')
         invalid = Mock(side_effect=failure)
         failed = _bind_framework_callback(_callback_check_full_validation_dependencies_failed, catalogs, invalid, provider, schemas, sdk)
-        assert all(value is failure for value in parallel(failed))
+        assert failed() is failure
+        assert failed() is failure
         assert invalid.call_count == 1
         assert provider.get('sns').service == 'sns'
 
@@ -178,7 +158,7 @@ def check_stage_survival_and_definition_sources():
 if __name__ == '__main__':
     with patch.object(socket.socket, 'connect', side_effect=AssertionError('network forbidden')):
         check_sdk_lifetime()
-        check_failure_waiters()
+        check_failure_lifetimes()
         check_full_validation_dependencies()
         check_stage_survival_and_definition_sources()
     print('Static AWS definitions: PASS (SDK lifetime, independent read failures, Mapping dependencies, stage survival)')

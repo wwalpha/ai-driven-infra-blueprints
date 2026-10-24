@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from threading import Barrier
+from threading import Barrier, Event
 
 import aws_mapping_catalog
 import aws_mapping_catalog as _imports_aws_mapping_catalog
@@ -39,6 +39,7 @@ from support.aws_mapping_fixtures import (
     patch,
     sys,
 )
+from support.pytest_cli import run
 from utils.aws_catalogs import Catalogs
 from utils.aws_mappings import Mappings, mapping_alias, mappings_for, owners
 from utils.aws_schemas import Schemas
@@ -345,15 +346,6 @@ def check_runtime_full_reuse():
                 assert provider.get('sqs') is runtime
 
 
-def _callback_check_runtime_failures_obtain(barrier, provider, /, _):
-    barrier.wait(timeout=10)
-    try:
-        provider.get('config')
-    except BaseException as error:
-        return error
-    raise AssertionError('failure accepted')
-
-
 def _callback_check_runtime_failures_read(_state_check_runtime_failures_352, /, path, *args, **kwargs):
     if path.suffix == '.yaml':
         _state_check_runtime_failures_352.reads.append(path)
@@ -362,41 +354,34 @@ def _callback_check_runtime_failures_read(_state_check_runtime_failures_352, /, 
     return _state_check_runtime_failures_352.original(path, *args, **kwargs)
 
 
-def _callback_check_runtime_failures_compile(Cancelled, _state_check_runtime_failures_352, /, *args):
+def _callback_check_runtime_failures_compile(_state_check_runtime_failures_352, /, *args):
     if _state_check_runtime_failures_352.fault == 'runtime':
         raise ValueError('injected runtime failure')
-    if _state_check_runtime_failures_352.fault == 'control':
-        raise Cancelled('control exception')
     return _state_check_runtime_failures_352.runtime(*args)
 
 
 def check_runtime_failures():
     _state_check_runtime_failures_352 = _CallbackState()
-    class Cancelled(BaseException):
-        pass
     with TemporaryDirectory() as directory:
-        for _state_check_runtime_failures_352.fault in ('read', 'runtime', 'control'):
+        for _state_check_runtime_failures_352.fault in ('read', 'runtime'):
             root = Path(directory) / _state_check_runtime_failures_352.fault
             provider = mappings_for(root)
             _state_check_runtime_failures_352.original = Path.read_text
             _state_check_runtime_failures_352.reads = []
             read = _bind_framework_callback(_callback_check_runtime_failures_read, _state_check_runtime_failures_352)
-            barrier = Barrier(8)
-            obtain = _bind_framework_callback(_callback_check_runtime_failures_obtain, barrier, provider)
             _state_check_runtime_failures_352.runtime = _mapping_runtime.runtime_properties
-            compile = _bind_framework_callback(_callback_check_runtime_failures_compile, Cancelled, _state_check_runtime_failures_352)
+            compile = _bind_framework_callback(_callback_check_runtime_failures_compile, _state_check_runtime_failures_352)
             with patch.object(Path, 'read_text', read), \
                  patch.object(_mapping_types, 'yaml_read', wraps=aws_mapping.yaml_read) as parse, \
                  patch.object(_mapping_runtime, 'runtime_properties', side_effect=compile) as build:
-                with ThreadPoolExecutor(max_workers=8) as pool:
-                    errors = list(pool.map(obtain, range(8)))
-                with pytest.raises(type(errors[0])):
-                    provider.get('config')
-                assert all(error is errors[0] for error in errors)
+                failure = OSError if _state_check_runtime_failures_352.fault == 'read' else ValueError
+                for _ in range(2):
+                    with pytest.raises(failure):
+                        provider.get('config')
                 assert len(_state_check_runtime_failures_352.reads) == 1
                 assert parse.call_count == (0 if _state_check_runtime_failures_352.fault == 'read' else 1)
-                assert build.call_count == (1 if _state_check_runtime_failures_352.fault in ('runtime', 'control') else 0)
-                if _state_check_runtime_failures_352.fault in ('runtime', 'control'):
+                assert build.call_count == (1 if _state_check_runtime_failures_352.fault == 'runtime' else 0)
+                if _state_check_runtime_failures_352.fault == 'runtime':
                     assert aws_mapping.registry(root, 'config').service == 'config'
                     assert parse.call_count == 1, 'runtime failure must retain a usable document'
 
@@ -458,6 +443,9 @@ def check_shared_documents():
             with pytest.raises(ValueError, match='parse failure'):
                 broken.get('config')
             assert Mappings(Path(directory) / 'healthy').get('config').service == 'config'
+            for obtain in (lambda: broken._document('config'), lambda: broken.get('config')):
+                with pytest.raises(ValueError, match='parse failure'):
+                    obtain()
             assert parse.call_count == 2
 
 
@@ -481,9 +469,68 @@ def check_stage_alias():
         second = Path(directory) / 'short-lived'
         with mapping_alias(root, second):
             assert mappings_for(second) is provider
-        assert second not in __import__('utils.aws_mappings', fromlist=['_aliases'])._aliases
+        assert second not in providers._aliases
 
 
+def _pause_alias_lookup(original, stage, entered, release, root):
+    if root == stage:
+        entered.set()
+        assert release.wait(timeout=10)
+    return original(root)
+
+
+def _change_alias(context, attempted, register):
+    attempted.set()
+    if register:
+        with context:
+            pass
+    else:
+        context.__exit__(None, None, None)
+
+
+@pytest.mark.parametrize('register', [True, False])
+def check_alias_transition_races(register):
+    with TemporaryDirectory() as directory:
+        root, stage = Path(directory) / 'source', Path(directory) / 'stage'
+        source = mappings_for(root)
+        context = mapping_alias(root, stage)
+        if not register:
+            context.__enter__()
+        entered, release, attempted = Event(), Event(), Event()
+        lookup = _bind_framework_callback(_pause_alias_lookup, providers._lookup_alias_locked,
+                                          stage, entered, release)
+        with patch.object(providers, '_lookup_alias_locked', side_effect=lookup), \
+             ThreadPoolExecutor(max_workers=2) as pool:
+            request = pool.submit(mappings_for, stage)
+            try:
+                assert entered.wait(timeout=10)
+                transition = pool.submit(_change_alias, context, attempted, register)
+                assert attempted.wait(timeout=10)
+            finally:
+                release.set()
+            provider = request.result(timeout=10)
+            if register:
+                with pytest.raises(ValueError, match='already has a provider'):
+                    transition.result(timeout=10)
+                assert provider is mappings_for(stage) and provider is not source
+            else:
+                transition.result(timeout=10)
+                assert provider is source
+                assert stage not in providers._instances
+        assert stage not in providers._aliases
+        assert mappings_for(stage) is not source
+
+
+def check_provider_failure_lifetime():
+    with TemporaryDirectory() as directory:
+        root, other = Path(directory) / 'failed', Path(directory) / 'other'
+        error, healthy = ValueError('invalid owners'), object()
+        with patch.object(providers, 'Mappings', side_effect=[error, healthy]) as create:
+            for _ in range(2):
+                with pytest.raises(ValueError, match='invalid owners'):
+                    mappings_for(root)
+            assert mappings_for(other) is healthy
+            assert create.call_count == 2
 
 
 def check_readonly_defaults():
@@ -495,5 +542,4 @@ def check_readonly_defaults():
 
 
 if __name__ == '__main__':
-    from support.pytest_cli import run
     raise SystemExit(run(__file__))

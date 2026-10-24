@@ -1,7 +1,6 @@
 """Process-local static Mapping definitions, shared by exact source/stage roots."""
 
 import re
-from concurrent.futures import Future
 from contextlib import contextmanager
 from copy import deepcopy
 from functools import partial as _bind_framework_callback
@@ -13,6 +12,7 @@ import utils.mapping_runtime as _imports_aws_mapping_catalog
 import utils.mapping_types as _imports_aws_mapping
 from utils.input_cache import input_text
 from utils.json_format import policy_json
+from utils.lazy_definitions import load_once
 
 _lock = Lock()
 _instances = {}
@@ -20,37 +20,13 @@ _aliases = {}
 _documents = {}
 
 
-def _once(table, key, load):
-    with _lock:
-        if table is _instances and key in _aliases:
-            return _aliases[key]
-        future = table.get(key)
-        first = future is None
-        if first:
-            future = table[key] = Future()
-    if first:
-        try:
-            result = load()
-        except BaseException as error:
-            # Complete waiters even for cancellation/interrupt, then propagate it.
-            future.set_exception(error)
-            if table is _documents:
-                with _lock:
-                    if table.get(key) is future:
-                        del table[key]
-            raise
-        else:
-            future.set_result(result)
-    return future.result()
-
-
 def _callback_Mappings__document_load(self, service, /):
     aws_mapping = _imports_aws_mapping
     path = aws_mapping.mapping_path(self._root, service)
     content = input_text(path, encoding='utf-8')
     # Only successful parsing is shared; each provider owns its mutable document.
-    document = deepcopy(_once(_documents, (path, content, aws_mapping.yaml_read),
-                              lambda: aws_mapping.yaml_read(content)))
+    document = deepcopy(load_once(_lock, _documents, (path, content, aws_mapping.yaml_read),
+                                  lambda: aws_mapping.yaml_read(content), evict_on_failure=True))
     expected = {kind for kind, owner in self._owners.items() if owner == service}
     if (not isinstance(document, dict) or document.get('service') != service
             or not isinstance(document.get('resourceTypes'), dict)
@@ -95,12 +71,12 @@ class Mappings:
     def _document(self, service):
         self._require_service(service)
         load = _bind_framework_callback(_callback_Mappings__document_load, self, service)
-        return _once(self._documents, service, load)
+        return load_once(_lock, self._documents, service, load)
 
     def get(self, service):
         self._require_service(service)
         build = _bind_framework_callback(_callback_Mappings_get_build, self, service)
-        return _once(self._runtime, service, build)
+        return load_once(_lock, self._runtime, service, build)
 
     def validated(self, service, sdk, schemas, catalogs, validator):
         """A provider lifetime fixes Mapping/adapter code; dependencies fix definitions.
@@ -110,7 +86,7 @@ class Mappings:
         """
         self._require_service(service)
         build = _bind_framework_callback(_callback_Mappings_validated_build, catalogs, schemas, sdk, self, service, validator)
-        return _once(self._validated, (service, sdk, schemas, catalogs, validator), build)
+        return load_once(_lock, self._validated, (service, sdk, schemas, catalogs, validator), build)
 
 
 def definition_root(root):
@@ -123,9 +99,14 @@ def definition_root(root):
         return root if (root / "framework").is_dir() else Path(__file__).resolve().parents[3]
 
 
+def _lookup_alias_locked(root):
+    return root in _aliases, _aliases.get(root)
+
+
 def mappings_for(root):
     root = Path(root).absolute()
-    return _once(_instances, root, lambda: Mappings(root))
+    return load_once(_lock, _instances, root, lambda: Mappings(root),
+                     lookup_locked=_bind_framework_callback(_lookup_alias_locked, root))
 
 
 def owners(root):

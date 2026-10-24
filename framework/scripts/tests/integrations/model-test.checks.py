@@ -20,7 +20,7 @@ import subprocess
 import tempfile
 from contextlib import redirect_stdout
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import support.repository_fixtures as _imports_support_repository_fixtures
 import task_contract_core as _imports_task_contract
@@ -137,6 +137,14 @@ def check():
         for service, source in sources.items():
             assert generator.generate(root, 'dev', 'cde', service)[0] == source
             compile(source, service + '.py', 'exec')
+            embedded = {}
+            exec(snapshot(source)['engine'], embedded)
+            cache, value = {}, object()
+            load = Mock(return_value=value)
+            lock = embedded['RLock']()
+            assert embedded['load_once'](lock, cache, 'audit', load) is value
+            assert embedded['load_once'](lock, cache, 'audit', load) is value
+            load.assert_called_once_with()
         # Same account, duplicate Alias/service names and another environment stay distinct.
         crossroot = root / 'cross-synthetic'
         crossroot.mkdir()

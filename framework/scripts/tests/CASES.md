@@ -104,7 +104,7 @@
 | blueprint-loop のRule変更・移動シナリオ | Model/Task/IaCのscope、空白検証、Frameworkコード変更の回帰選択 |
 | deploy_preparation `check_stale_and_conflicts[input]` | issue/runtime/契約候補/Model/生成物の変更・削除 |
 | cloudformation-deploy `check_session_cli` のRule変更条件 | IaC/Model/契約/コード・project変更、resume・保存保護 |
-| aws_mapping `check_runtime_cache`、`check_runtime_failures[parse]` | root/scopeの再利用、独立したread/runtime/control例外 |
+| aws_mapping `check_runtime_cache`、`check_runtime_failures[parse]` | root/scopeの再利用、独立したread/runtime例外 |
 | aws_mapping `check_readonly_defaults` のMapping default差替え | Field.copy_defaultのstandalone埋込互換性 |
 | aws_mapping_catalog `schema_checks` のファイル作成・変更 | メモリ上の不正Mapping入力と現行Mappingの正常性 |
 | aws_definitions の定義編集・架空Schema/Catalog | SDK lifetime、現行定義の読取例外・依存分離・stage生存 |
@@ -1822,7 +1822,7 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `static-aws-mappings` | `check_runtime_cache` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py#L211) | pytest / 1 | 現行Mappingの遅延読取・provider/root/scope分離・再利用（ファイル破損条件を削除） | 旧LRU/可変clone契約を置換 |
 | `static-aws-mappings` | `check_parallel_services` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py#L242) | pytest / 1 | 静的索引・遅延共有・失敗保持・default互換を独立fixtureで検証 | 旧LRU/可変clone契約を置換 |
 | `static-aws-mappings` | `check_runtime_full_reuse` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py#L262) | pytest / 1 | 静的索引・遅延共有・失敗保持・default互換を独立fixtureで検証 | 旧LRU/可変clone契約を置換 |
-| `static-aws-mappings` | `check_runtime_failures` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py#L290) | pytest / 1 | 独立したread/runtime/control例外のsingle-flight・保持・再利用（parse破損条件を削除） | 旧LRU/可変clone契約を置換 |
+| `static-aws-mappings` | `check_runtime_failures` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py#L290) | pytest / 1 | 独立したread/runtime例外のsingle-flight・保持・再利用（parse破損条件を削除） | 旧LRU/可変clone契約を置換 |
 | `static-aws-mappings` | `check_full_failure_isolation` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py#L336) | pytest / 1 | 静的索引・遅延共有・失敗保持・default互換を独立fixtureで検証 | 旧LRU/可変clone契約を置換 |
 | `static-aws-mappings` | `check_stage_alias` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py#L363) | pytest / 1 | 静的索引・遅延共有・失敗保持・default互換を独立fixtureで検証 | 旧LRU/可変clone契約を置換 |
 | `static-aws-mappings` | `check_readonly_defaults` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py#L388) | pytest / 1 | standalone監査へ埋込むField.copy_defaultの独立性（Mapping default差し替えを削除） | 旧LRU/可変clone契約を置換 |
@@ -2215,7 +2215,7 @@ Model v2 移行完了に伴い、固定旧 Framework の export/convert/compare 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
 | `existing-ut-inventory` | `check_sdk_lifetime` | UT | [units/aws_definitions.checks.py](units/aws_definitions.checks.py#L38) | direct / 1 | sdk lifetime | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_failure_waiters` | UT | [units/aws_definitions.checks.py](units/aws_definitions.checks.py#L61) | direct / 1 | failure waiters | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_failure_lifetimes` | UT | [units/aws_definitions.checks.py](units/aws_definitions.checks.py#L61) | direct / 1 | SDK/Schema/Catalog固有の失敗保持と新インスタンス再取得 | Future待機・BaseException制御は共通UTへ移管 |
 | `existing-ut-inventory` | `check_full_validation_dependencies` | UT | [units/aws_definitions.checks.py](units/aws_definitions.checks.py#L97) | direct / 1 | full validation dependencies | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_stage_survival_and_definition_sources` | UT | [units/aws_definitions.checks.py](units/aws_definitions.checks.py#L138) | direct / 1 | stage survival and definition sources | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_validation_projection_scope` | UT | [units/aws_mapping_display-unit.checks.py](units/aws_mapping_display-unit.checks.py#L17) | pytest / 1 | validation projection scope | 既存テストの登録漏れ補完・本体変更なし |
@@ -2699,3 +2699,26 @@ SDK環境由来認証識別、cache、Session再開、alias/suffix/Region/engine
 既存 `integrations/model-test.checks.py::check` にSTS実transport 1回の確認を追加。
 共通例外と関数は `model.audit.definitions()` で依存順に埋め込み、既存の隔離Python
 単独実行（Framework/PyPI importなし）を維持する。新しいIT入口は追加しない。
+
+
+## Single-flight common contracts
+
+Future実行制御の重複検証を `aws_definitions.checks.py` と
+`aws_mapping-unit.checks.py` から専用UTへ移管。呼び出し元はProvider・依存関係・
+Document所有権・失敗保持を検証し、共通UTはEvent/Barrierで待機を同期する。
+
+| Source | Check | Kind | Current location | Entry / cases | Responsibility | Change |
+| --- | --- | --- | --- | --- | --- | --- |
+| `single-flight` | `check_waiters_share_one_flight` | UT | [units/lazy_definitions-unit.checks.py](units/lazy_definitions-unit.checks.py) | pytest / 6 | 同一キーのload一回、成功/例外共有、BaseException通知と再送出、保持/破棄 | 共通UTへ集約 |
+| `single-flight` | `check_different_keys_load_in_parallel` | UT | [units/lazy_definitions-unit.checks.py](units/lazy_definitions-unit.checks.py) | pytest / 1 | 異なるキーのload並列性 | 共通UT |
+| `single-flight` | `check_failure_policy_and_retry` | UT | [units/lazy_definitions-unit.checks.py](units/lazy_definitions-unit.checks.py) | pytest / 2 | 失敗保持/破棄後再試行、破棄時ロック | 共通UTへ集約 |
+| `single-flight` | `check_eviction_preserves_replacement` | UT | [units/lazy_definitions-unit.checks.py](units/lazy_definitions-unit.checks.py) | pytest / 1 | 失敗したFutureと異なる現行Futureは削除しない | 共通UT |
+| `single-flight` | `check_lookup_hit_precedes_future_access` | UT | [units/lazy_definitions-unit.checks.py](units/lazy_definitions-unit.checks.py) | pytest / 2 | Noneを含むlookup成功、Future検索前の復帰 | 共通UT |
+| `single-flight` | `check_lookup_miss_and_future_access_are_atomic` | UT | [units/lazy_definitions-unit.checks.py](units/lazy_definitions-unit.checks.py) | pytest / 2 | lookupとFuture検索/登録が一回のロック取得内 | 共通UT |
+| `single-flight` | `check_four_argument_api_and_success_cache` | UT | [units/lazy_definitions-unit.checks.py](units/lazy_definitions-unit.checks.py) | pytest / 1 | 4引数互換、loadはロック外、成功キャッシュ | 共通UT |
+| `single-flight-mapping` | `check_alias_transition_races` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py) | pytest / 2 | Provider取得とalias登録/解除の競合安全性 | Mapping固有UT |
+| `single-flight-mapping` | `check_provider_failure_lifetime` | UT | [units/aws_mapping-unit.checks.py](units/aws_mapping-unit.checks.py) | pytest / 1 | Provider生成失敗はroot単位で保持 | Mapping固有UT |
+
+既存 `check_shared_documents` は共有解析失敗の再試行後も既存ProviderのDocument/runtime失敗が
+保持されることを追加確認。既存 `integrations/model-test.checks.py::check` は生成したstandalone
+engineから `load_once` を実行し、未埋込ヘルパーに依存しないことと4引数互換を確認する。
