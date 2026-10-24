@@ -193,10 +193,10 @@ class Resolver:
         if (declared and not operand and reference_attribute(kind, attribute) not in {reference_attribute(kind, form) for form in declared[kind]} or
                 not (kind in _imports_reference_contracts.ARN_SHAPES and returned == reference_attribute(kind, 'Arn')) and
                 returned != _imports_reference_contracts.REF_ATTRIBUTES.get(kind) and
+                not _imports_reference_contracts.getatt_attribute(kind, returned, self.catalog.schema(kind)) and
                 (kind, attribute) not in _imports_reference_contracts.ARN_FORMS and
                 kind + '.' + attribute not in _imports_reference_contracts.attributes_for(kind) and
-                attribute not in _imports_utils_aws_catalogs.catalogs_for(self.root).selected(kind) and
-                '/properties/' + returned.replace('.', '/') not in self.catalog.schema(kind).get('readOnlyProperties', ())):
+                attribute not in _imports_utils_aws_catalogs.catalogs_for(self.root).selected(kind)):
             raise ReferenceResolutionError('unsupported JSON Resource attribute: ' + kind + '.' + attribute)
     def validate_reference_type(self, kind, attribute, field):
         """Typed nodes occupy one complete value; legacy links may select array elements."""
@@ -204,8 +204,11 @@ class Resolver:
         try:
             actual = self.catalog.property_schema(kind, returned).get('type')
         except KeyError:
-            actual = 'string' if (returned == _imports_reference_contracts.REF_ATTRIBUTES.get(kind)
-                                  or (kind, attribute) in _imports_reference_contracts.ARN_FORMS) or kind + '.' + attribute in _imports_reference_contracts.attributes_for(kind) else None
+            actual = _imports_reference_contracts.RETURN_TYPES.get((kind, returned))
+            if actual is None and (returned == _imports_reference_contracts.REF_ATTRIBUTES.get(kind)
+                                   or (kind, attribute) in _imports_reference_contracts.ARN_FORMS
+                                   or kind + '.' + attribute in _imports_reference_contracts.attributes_for(kind)):
+                actual = 'string'
         consumer_kind = '.'.join(field.split('.')[:2])
         try:
             expected = self.catalog.property_schema(consumer_kind, field.removeprefix(consumer_kind + '.')).get('type')

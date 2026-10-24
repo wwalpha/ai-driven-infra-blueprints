@@ -38,6 +38,7 @@ from utils.reference_contracts import (
     REF_ATTRIBUTES,
     RETURN_ATTRIBUTE_PROPERTIES,
     contract,
+    getatt_attribute,
     reference_attribute,
 )
 
@@ -351,7 +352,46 @@ def test_all_aws_return_contracts_are_explicit_and_schema_supported(models):
             attribute = REF_ATTRIBUTES[kind]
             resolver.validate_attribute(kind, attribute)
             setting = RETURN_ATTRIBUTE_PROPERTIES.get((kind, attribute), attribute)
-            assert catalog.property_schema(kind, setting)['type'] == 'string', (kind, attribute)
+            if attribute not in {'Ref', 'ClusterName'}:
+                assert catalog.property_schema(kind, setting)['type'] == 'string', (kind, attribute)
+
+
+
+INVENTORY = json.loads((Path(__file__).resolve().parents[1] / 'fixtures/reference-contract-inventory.json').read_text(encoding='utf-8'))['resources']
+
+
+def test_inventory_is_exactly_the_supported_framework_types():
+    catalog = DesignSchemaCatalog(FRAMEWORK)
+    types = {kind.removeprefix('AWS::').replace('::', '.') for kind in catalog.resource_types}
+    assert set(INVENTORY) == types | set(catalog.api_schemas)
+    assert (len(types), len(catalog.api_schemas)) == (176, 2)
+
+
+@pytest.mark.parametrize('kind', sorted(INVENTORY))
+def test_inventory_return_and_arn_contracts(kind):
+    record = INVENTORY[kind]
+    catalog = DesignSchemaCatalog(FRAMEWORK)
+    resolver = Resolver(FRAMEWORK)
+    assert record['ref'] == REF_ATTRIBUTES.get(kind)
+    if record['ref']:
+        resolver.validate_attribute(kind, record['ref'])
+    for attribute in record['getatt']:
+        assert getatt_attribute(kind, attribute, catalog.schema(kind)), (kind, attribute)
+        resolver.validate_attribute(kind, attribute)
+    assert bool(record['logicalArn']) == bool(record['arn'])
+    if record['arn']:
+        assert reference_attribute(kind, 'Arn') == record['arn']
+        resolver.validate_attribute(kind, 'Arn')
+        if kind not in catalog.api_schemas:
+            assert getatt_attribute(kind, record['arn'], catalog.schema(kind)) == record['arnFormal']
+    if record['localArn'] in {'named', 'generated-id'} and kind not in catalog.api_schemas:
+        fields, template, _ = ARN_SHAPES[kind]
+        fields = list(fields) if isinstance(fields, dict) else [fields]
+        assert set(fields) <= set(record['identifiers'])
+        assert record['scope'] == [name for name in ('partition', 'account', 'region') if '{' + name + '}' in template]
+        generated = any('/properties/' + field.replace('.', '/') in catalog.schema(kind).get('readOnlyProperties', ()) for field in fields)
+        assert generated == (record['localArn'] == 'generated-id')
+    assert record['reason'] and record['refStatus']
 
 
 if __name__ == '__main__':

@@ -77,7 +77,13 @@ def _callback_reference_same_decision(nested, /, equal, diagnostics=(), equivale
 
 
 def reference_same(left, right, kind, path, *, local_comparison, forms_for, resolve_literal, resource_type, kms_format, diagnostic, evidence=None):
-    if evidence is not None and hasattr(left, "saved_literal"):
+    if evidence is not None and any(isinstance(value, Expression) for value in (left, right)):
+        for source in expressions.references([left, right]):
+            if hasattr(source, 'saved_literal'):
+                verified = evidence(source, source.saved_literal, kind, path)
+                if verified.equal is not True:
+                    return verified
+    if evidence is not None and any(hasattr(value, 'saved_literal') for value in (left, right)):
         return evidence(left, right, kind, path)
     if any(isinstance(value, Expression) and value.operation == 'Unverified' for value in (left, right)):
         return ReferenceDecision(None)
@@ -98,9 +104,10 @@ def reference_same(left, right, kind, path, *, local_comparison, forms_for, reso
     if allowed:
         result, reason = registry.compare_kms_forms(left, right, allowed, resolve_literal=resolve_literal,
                                                     format_of=kms_format)
-        if (result is not None or evidence is None or
+        symbolic = any(isinstance(value, Expression) for value in (left, right)) and all(kms_format(value) in allowed for value in (left, right))
+        if (result is not None or not symbolic and (evidence is None or
                 not (isinstance(left, str) and isinstance(right, (ResourceReference, Expression)) or
-                     isinstance(right, str) and isinstance(left, (ResourceReference, Expression)))):
+                     isinstance(right, str) and isinstance(left, (ResourceReference, Expression))))):
             return decision(result, [diagnostic(left, right, kind, path, reason)] if reason else ())
     if evidence is not None:
         if isinstance(left, str) and isinstance(right, (ResourceReference, Expression)):
@@ -126,6 +133,9 @@ def reference_same(left, right, kind, path, *, local_comparison, forms_for, reso
                 return unproven('expression contains an unresolved reference operand')
         expression, other = (left, right) if isinstance(left, Expression) else (right, left)
         if isinstance(other, (Expression, ResourceReference)):
+            left_refs, right_refs = expressions.references(left), expressions.references(right)
+            if left_refs and right_refs and same([ref['$resource'] for ref in left_refs], [ref['$resource'] for ref in right_refs]) is not True:
+                return unproven('expression Producer correspondence is unproven')
             try:
                 return decision(same(resolve_literal(expression), resolve_literal(other)))
             except (Blocked, ValueError, KeyError, TypeError, OSError):
@@ -182,6 +192,7 @@ def literal_expression(value, *, resolve_literal):
         if value.operation == 'Split' and isinstance(first, str) and first and isinstance(source, str):
             return source.split(first)
         if value.operation == 'Select' and isinstance(source, list) and re.fullmatch(r'\d+', str(first)) and int(first) < len(source):
-            return source[int(first)]
+            selected = source[int(first)]
+            return resolve_literal(selected) if isinstance(selected, (ResourceReference, Expression)) else selected
         raise Blocked('Split/Select requires concrete operands and an in-bounds index')
     return expressions.literal(value, resolve_literal)

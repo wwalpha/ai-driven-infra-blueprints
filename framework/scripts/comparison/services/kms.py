@@ -5,6 +5,8 @@ import re
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, same
 
+from ..expressions import parts
+
 
 def kms_format(value, resources):
     if isinstance(value, ResourceReference):
@@ -13,7 +15,13 @@ def kms_format(value, resources):
         return {('KMS.Key', 'KeyId'): 'KeyId', ('KMS.Key', 'Arn'): 'KeyArn',
                 ('KMS.Alias', 'AliasName'): 'AliasName', ('KMS.Alias', 'AliasArn'): 'AliasArn'}.get((kind, value['$attribute']), 'invalid')
     if isinstance(value, Expression):
-        return None
+        try:
+            tokens = parts(value)
+        except (Blocked, ValueError, KeyError, TypeError):
+            return None
+        if len(tokens) == 1 and isinstance(tokens[0], ResourceReference):
+            return kms_format(tokens[0], resources)
+        return kms_format(''.join(tokens), resources) if all(isinstance(token, str) for token in tokens) else None
     if not isinstance(value, str):
         return 'invalid'
     if '{{resolve:' in value or '${' in value:
@@ -61,7 +69,7 @@ def compare_forms(left, right, allowed, *, resolve_literal, format_of):
         result = same(left, right)
     else:
         try:
-            values = [resolve_literal(value) if isinstance(value, ResourceReference) else value for value in (left, right)]
+            values = [resolve_literal(value) if isinstance(value, (ResourceReference, Expression)) else value for value in (left, right)]
             result = same(*values)
         except (Blocked, ValueError, KeyError, TypeError, OSError):
             result, reason = None, 'same KMS format; physical value is unproven'
