@@ -3584,3 +3584,7 @@ Dは同じ保証の繰返しと、Productionを呼ばず固定Fixture文字列�
 公式CI初回#134ではUT 2 suiteとIT 4 suiteがFAIL。Python 3.12で必要な既存BoundCallbackを復元し、SGのjson importを修正、実Terraform CLI 1.16.1を既存workflowに準備する。
 ManagedPolicyNameの明示証明は現行ARN契約/既存UTに合わせ、Ref return ITの古い未証明期待を補正した。Model DesignのPrincipal.AWS拒否Assertionは保持し、失敗内容を表示して再調査する。
 局所再検証は関連UT 380条件PASS、Framework Validator 611 checks PASS。公式CIの再検証が完了するまでPhase 6は未完了。
+
+公式CI再検証#135は全UT PASS（117.4秒）、IT 67/68 PASS・Model Design 1件FAIL（IT runner全体188.158秒）。
+残るKMSケースはTyped Reference付き旧Viewが変更Modelと不一致のため、account検証より前に正しく停止していた。
+同じ7関数のまま、まずstale View拒否と元Markdown/JSON/Model保持を検証し、その後に未検証Rendererで整合する不正Fixtureを用意して既存Principal.AWS拒否・write/read-only両方の保存保護Assertionへ到達させる。Productionの検証を無効化せず、元Assertionも削除しない。

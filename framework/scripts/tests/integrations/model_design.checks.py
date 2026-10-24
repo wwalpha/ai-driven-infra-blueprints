@@ -12,6 +12,7 @@ from design.document import DesignIndex
 from model.format import FORMAT
 from model.format import INDEX as INDEX_HEADER
 from model.format import PART as PART_PREFIX
+from model.render import generate_markdown
 from model.sources import source_inputs
 from support.model_design_fixtures import (
     ROOT,
@@ -165,6 +166,13 @@ def check_kms_policy_execution_account(root):
     assert SYNC.sync(root, False, "dev", identity, services=["kms"]) == 0
     invalid = {**values, document_key: values[document_key].replace(execution, identity)}
     write_model(source, text(invalid))
+    with pytest.raises(ValueError, match='Markdown differs from Model expected display'):
+        SYNC.sync(root, False, "dev", identity, services=["kms"])
+    assert (path.read_bytes(), artifact.read_bytes()) == saved
+    assert properties(read_model(source)) == properties(text(invalid))
+    # Account rejection needs a matching authored view; stale typed-reference tables stop earlier.
+    path.write_text(generate_markdown(path, load_model(source).values, ROOT), encoding="utf-8")
+    saved = path.read_bytes(), artifact.read_bytes()
     for write in (False, True):
         with pytest.raises(ValueError) as error:
             SYNC.sync(root, write, "dev", identity, services=["kms"])
