@@ -1814,7 +1814,6 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `group-03-input-references.checks.py` | `__module__` | IT | [integrations/group-03-input-references.checks.py](integrations/group-03-input-references.checks.py) | module / 1 |
 | `issue_gate.checks.py` | `main` | IT | [integrations/issue_gate.checks.py](integrations/issue_gate.checks.py#L27) | direct_group / 1 |
 | `lambda_permission.checks.py` | `main` | IT | [integrations/lambda_permission.checks.py](integrations/lambda_permission.checks.py#L29) | direct_group / 1 |
-| `quicksight-display.checks.py` | `check_alias_rows` | UT | [units/quicksight-display-unit.checks.py](units/quicksight-display-unit.checks.py#L33) | pytest / 1 |
 | `regression_guard.checks.py` | `check_install_and_verify` | UT | [units/regression_guard-unit.checks.py](units/regression_guard-unit.checks.py#L49) | pytest / 1 |
 | `resource_mode.checks.py` | `main` | IT | [integrations/resource_mode.checks.py](integrations/resource_mode.checks.py#L50) | direct_group / 1 |
 | `rotation_schedule.checks.py` | `main` | IT | [integrations/rotation_schedule.checks.py](integrations/rotation_schedule.checks.py#L50) | direct_group / 1 |
@@ -3572,12 +3571,12 @@ Dは同じ保証の繰返しと、Productionを呼ばず固定Fixture文字列�
 | 3 | Design/Model/Comparison/Deploy/Validationの入力矩形を既存UTへ移管、間接呼出し解消 | 関連UT PASS後に全UT再検証 |
 | 4 | 残存68Suiteの境界を上表に明記、不要な準備・同一条件の繰返しを除去 | Git/Worktree/Publication/Recoveryの実経路はCIで検証 |
 | 5 | 台帳/Receipt Inventory、構造規約、Ruff、pytest収集と全UT | 最終検証結果はPR/タスク報告に記録 |
-| 6 | 既存Framework IT workflowを使用。新Runner・分類方式・互換Wrapperなし | 公式CI未実測の時点でPASS/性能達成と扱わない |
+| 6 | 既存Framework IT workflowを使用。新Runner・分類方式・互換Wrapperなし | 公式CI #137でUT 90/90・IT 68/68 PASS。10秒目標は未達 |
 
 ローカル開始時UTは90 suite中89 PASS/1 FAIL（53.819秒）。既存model-reference-display-unitのAssertion Guard欠落を修正した。
 この開始時測定は正常baselineではなく、公式CIの同条件Before測定でもない。ローカルITと性能測定は実行しない。
 
-最終ローカル証跡: UT 90 suite PASS (56.140秒)、Ruff/構造規約/Inventory/Assertion Guard PASS、pytest 3,111条件収集、Framework Validator 605 checks PASS。
+最終ローカル証跡: UT 90 suite PASS (56.140秒)、Ruff/構造規約/Inventory/Assertion Guard PASS、pytest 3,111条件収集、Framework Validator 611 checks PASS。
 開始時commitの[公式CI #133](https://github.com/wwalpha/ai-driven-infra-blueprints/actions/runs/40108331559)はUT 122.6秒でFAILし、Assertion Guard違反でIT開始前に停止していたため、BeforeのIT/合計時間は未計測。
 今回の公式CIは[PR #30](https://github.com/wwalpha/ai-driven-infra-blueprints/pull/30)で確認する。
 
@@ -3592,3 +3591,6 @@ ManagedPolicyNameの明示証明は現行ARN契約/既存UTに合わせ、Ref re
 最終監査で、validation_cacheの旧2行が同じCase IDを使う点を照合し、Producer入力6地点の所有先を移管後Attribute Reference ITへ正した。
 Runtime Modelの列挙/読取/Hash/環境隔離は個別の既存IT/UT所有先を記載。入口を全削除した後の空列挙だけを既存Model Files UTへ追加して取りこぼしを防いだ（13条件PASS）。
 CI #136は全UT PASS（183.6秒）、IT 67/68 PASS。stale Viewの入口はwriteであり、read-onlyは先にPrincipal.AWS検証へ進むことを実測し、Fixtureの事前確認をwriteへ修正した。7ケースの元拒否Assertionは維持する。
+
+公式CI [#137](https://github.com/wwalpha/ai-driven-infra-blueprints/actions/runs/40117696173)は実装候補 `455b13f50f02a8118ac55f7ba56adcb7c311cae2` でUT 90/90・IT 68/68 PASS、236登録のReceipt到達性エラー0。UT 137.7秒、IT runner本体236.702秒、UT＋IT 374.402秒（準備時間を除く）。IT 10秒目標は未達で、正常Beforeの欠落により改善率は判定しない。
+QuickSightの既存UT行と移管元行が同じ所有関数を重複登録していたため、既存UT行だけを残した。移管元のAssertion対応は監査表に保持する。最終Headの公式結果はPR checksで確認する。

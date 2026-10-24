@@ -266,3 +266,5 @@ Terraform未導入による正常return/完了Receiptは認めず、実CLIを検
 ローカルは全UT・Ruff・Python構造規約・pytest収集・Inventory/Assertion Guard・scoped Validatorまで。
 Full IT、長時間IT、ITの性能測定をローカルで実行しない。既存GitHub Actions Framework ITの全件PASSで最終検証とする。
 移行の構造整合、公式CIでのUT/IT PASS、IT本体10秒以内は別の判定である。時間未測定・未実行・FAIL・skipは達成扱いにしない。
+
+実装候補の[公式CI #137](https://github.com/wwalpha/ai-driven-infra-blueprints/actions/runs/40117696173)でUT 90/90、IT 68/68、236登録のReceipt到達性エラー0を確認した。IT runner本体236.702秒のため10秒目標は未達。開始基準の公式CIはUT/Guard失敗でIT未起動だったため、有効なBefore/After改善率は算出しない。最終Headの判定は[PR #30](https://github.com/wwalpha/ai-driven-infra-blueprints/pull/30)のchecksを参照する。
