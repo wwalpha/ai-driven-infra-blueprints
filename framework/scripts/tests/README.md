@@ -40,7 +40,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/vali
 python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test_issues_iac.py
 ```
 
-`pytest.ini`は既存のpytest型ファイル、`*-unit.checks.py`、deploy SDK/client/controllerの明示したpytest型suiteを対象にする。全UTがpytest型ではない。`array_display`、`aws_mapping_catalog`、`check-deploy-context`、`cloudformation_schema`、`comparison_core-unit`、`script_loader`、`update-catalog-lock`、`validation-units`には直接実行の入口がある。`validation_checks/*.py`は同じ分類のaggregatorから呼ぶ。`test_issues_iac.py`は既存unittestメソッドをpytestでも収集する。
+`pytest.ini`は既存のpytest型ファイル、`*-unit.checks.py`、deploy SDK/client/controller/observed-recoveryの明示したpytest型suiteを対象にする。全UTがpytest型ではない。`array_display`、`aws_mapping_catalog`、`check-deploy-context`、`cloudformation_schema`、`comparison_core-unit`、`script_loader`、`update-catalog-lock`、`validation-units`には直接実行の入口がある。`validation_checks/*.py`は同じ分類のaggregatorから呼ぶ。`test_issues_iac.py`は既存unittestメソッドをpytestでも収集する。
 
 `blueprint-loop.py` の `task` / `local` はProjectのValidation scopeに従って検証し、Framework回帰UT／ITを自動実行しない。通常TaskではFrameworkを不変として扱い、FrameworkファイルのGit差分から回帰テストを選択しない。`full` / `--all` は `units/**/*.checks.py` と `units/**/test_*.py` の全UTを既存のPython直接実行入口で起動する。`full` は既存のProject Validation scopeを維持し、`--all` はProject全体を検証する。Scope `all` だけではFramework UTを実行しない。`blueprint-loop.py` からFramework ITは実行しない。
 
@@ -140,3 +140,19 @@ Modelの公開編集・描画APIとCLIコマンド実装も機能モジュール
 複数Target事前確認、SDK cacheとSession再開を担当する。
 Model Testは既存ITの隔離Python単独実行とMock STS回数で確認する。
 Profile条件表をITへ追加せず、実AWS接続を行わない。
+
+
+## Deploy controller processing reduction / 1024v4
+
+controller ITは6関数6フロー。Order 10の2Stack配送・成功・実Model反映後にOrder 20を開始する正常系、配送AccessDenied、承認済RemoveのExecute直後中断、Observed公開I/O失敗とpeer drain、Model部分書込からの起動時復旧、署名済外部修復のcleanup中断/再開を通す。複数peerの最終生成物は最終Modelからsync(False)で整合を確認し、古いplanのbytesを最終期待にしない。
+
+`deploy-observed-recovery.checks.py` の1フローは、小さいModel/planとMarkdown/JSONの部分書込journalを使い、実reconcile・所有者検証・publication_lock・復元を通す。controller/AWS/Git/seed/renderer/子processは使わない。小型ITからUTをimportしない。
+
+組み合わせは既存SDK/runtime/observed-resume/handoff UTへ集約し、不足する削除イベント照合、応答喪失と保存状態、guard停止、公開stageのI/O失敗、署名/accept/request/未実行失敗/migrateだけ直接呼出しで補強する。旧66条件の主要assertion対応と各入口/展開数は[対応台帳](CASES.md#deploy-controller-processing-reduction-1024v4)を参照。
+
+seed・Project全生成・Git initは各66→6、初期Gitは330→30、Python子processは100→7の静的見込み。小型ITと新規UTの追加子processは0。既存sleep無効化・skip・xfail・timeout短縮やrunner選別を短縮根拠にしない。Worktree normal/mergeは実checkpoint/child/validation/merge/cleanup/親Task再開とコピー結果・再適用・未記録変更拒否を保持し、追加assertionを共有helperから明示的に呼ぶ。
+
+今回ローカルで実行するのは関連4 UTと、invokeの共通sleep注入を直接利用する既存UTの当該1件のみ。controller IT・小型IT・Worktree ITは修正と静的確認だけとし、IT収集・run_it.py・CI起動・IT時間計測は行わない。将来の正式CIでcontroller単独60秒と関連UT/小型ITを含めた合計を比較する。IT未実行、60秒以内の達成は未計測。
+
+
+追加レビューでは、公開失敗UTのplanに実行証拠を持たせ、stage別I/O失敗後のplan全体保持とdesign既公開候補の不一致拒否を確認する。acceptの再試行は署名付きsessionの実saveを置換前後で中断し、実diskからrestoreして受理済revision・予約・状態を保持する。legacyは実observe_onlyで元tokenを完了まで観測し、Model・定義digest・cleanup intentを保持する。別の直接UTで実migrateとCLI dispatchを確認する。controllerのdesign I/O失敗には初回のpeer RUNNING状態を記録し、完了後のSUCCESSだけでdrainを代用しない。この記録のためのJSON読込は当該faultの初回だけで、通常invokeには追加しない。6 controllerフロー・小型IT1本・子process7回の構成は維持する。

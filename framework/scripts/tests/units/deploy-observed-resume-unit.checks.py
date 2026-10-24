@@ -1,7 +1,9 @@
 """Pure classification/authorization checks for durable observed publication plans."""
 
+import copy
 import json
 import sys
+from contextlib import nullcontext
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
@@ -17,6 +19,8 @@ from cloudformation_inputs import Blocked
 from deploy import handoff, observed
 from deploy import observed_resume as M
 from deploy import session as controller
+from support.cloudformation_deploy_fixtures import Fake, starts
+from support.pytest_cli import run
 from task_contract_core import selected_task
 
 if not __debug__:
@@ -235,7 +239,7 @@ def check_original_failure_retained():
     assert session['observedFailures'][0]['stage'] == 'MODEL_PUBLISHED'
 
 
-@pytest.mark.parametrize('state', ['before', 'after', 'append', 'value', 'empty', 'missing', 'add', 'partial', 'no-proof', 'candidate'])
+@pytest.mark.parametrize('state', ['before', 'after', 'append', 'value', 'empty', 'missing', 'add', 'partial', 'no-proof', 'candidate', 'json-delete'])
 def check_generated_classification(tmp_path, state):
     view = 'docs/designs/dev/team/service.md'
     artifact = 'docs/designs/dev/team/service/policy.json'
@@ -259,6 +263,8 @@ def check_generated_classification(tmp_path, state):
         (tmp_path / artifact).write_bytes(b'{"external":true}')
     if state == 'empty':
         (tmp_path / artifact).write_bytes(b'')
+    if state == 'json-delete':
+        (tmp_path / artifact).unlink()
     if state == 'missing':
         (tmp_path / view).unlink()
     if state == 'add':
@@ -347,7 +353,13 @@ def owned_proposal(proposal):
     task.write_text(text, encoding='utf-8')
     session.update(repository=str(root), taskFile='tasks/deploy.md', taskDigest=M.task_digest(text),
                    inputDigest='inputs', executionDigest='execution', infraManifest={}, unitDigests={'A': 'unit'})
+    state = session['states']['A']
+    state.update(stackStatus='CREATE_COMPLETE', stackId='stack', changeSetId='change',
+                 changeDigest='digest', approvedChangeDigest='digest', clientToken='token',
+                 executionEvidence={'StackId': 'stack', 'ChangeSetId': 'change', 'changeDigest': 'digest',
+                                    'clientToken': 'token', 'inputDigest': 'unit'})
     plan = session['pendingObserved']
+    plan['evidence'] = M.evidence(session['states'], ['A'])
     plan['identity'] = M._identity(root, session, {}, 'dev', 'team')
     plan['generated'] = {'groups': {relative: [relative]}, 'originals': {relative: ''},
                          'outputs': None, 'stage': 'PREPARED'}
@@ -447,6 +459,147 @@ def check_finish_guard_precedes_publication(owned_proposal, stage):
     assert source.read_bytes() == before
 
 
+
+
+
+def read_proposal_source(source, *args):
+    return {source: source.read_bytes()}
+
+
+@pytest.mark.parametrize('stage', ['PREPARED', 'MODEL_PUBLISHED'])
+def check_finish_io_failure(owned_proposal, stage):
+    root, session, source, old, new = owned_proposal
+    plan = session['pendingObserved']
+    plan.update(services=['service'], stage=stage)
+    source.write_text(old if stage == 'PREPARED' else new, encoding='utf-8')
+    session['modelInputManifest'] = plan['beforeManifest' if stage == 'PREPARED' else 'afterManifest']
+    before, proof = copy.deepcopy(plan), copy.deepcopy(session['states']['A']['executionEvidence'])
+    assert proof['clientToken'] and proof['inputDigest'] == session['unitDigests']['A']
+    backend = SimpleNamespace(root=root, session=session, target={}, environment='dev', directory='team',
+                              save=lambda: None, guard=lambda: None)
+    with patch.object(M, 'authority_snapshot', side_effect=_bind_framework_callback(read_proposal_source, source)), \
+         patch.object(observed, 'collect_successful', return_value=({source: new}, ['service'], None)), \
+         patch('model.adapters.observed.publish_observed', side_effect=OSError('model I/O')) as publish, \
+         patch('sync_runtime.generation_context', return_value=nullcontext(None)), \
+         patch('sync_runtime.prepare_generation', side_effect=OSError('generation I/O')) as generate, \
+         patch('sync_runtime.publish_generation') as generated_publish:
+        with pytest.raises(OSError, match='model I/O' if stage == 'PREPARED' else 'generation I/O'):
+            M.finish(backend, [{'name': 'A'}])
+        if stage == 'PREPARED':
+            publish.assert_called_once()
+            generate.assert_not_called()
+        else:
+            publish.assert_not_called()
+            generate.assert_called_once()
+        generated_publish.assert_not_called()
+    assert session['pendingObserved'] == before
+    assert session['states']['A']['executionEvidence'] == proof
+    assert source.read_text() == (old if stage == 'PREPARED' else new)
+
+
+@pytest.mark.parametrize('committed,mismatch', [('model-committed', False),
+                                              ('design-committed', False), ('design-committed', True)])
+def check_finish_committed_stages(owned_proposal, committed, mismatch):
+    root, session, source, old, new = owned_proposal
+    source.write_text(new, encoding='utf-8')
+    plan = session['pendingObserved']
+    plan['services'] = ['service']
+    view = root / next(iter(plan['generated']['originals']))
+    published = {view: 'published design\n'}
+    if committed == 'design-committed':
+        view.write_text(published[view], encoding='utf-8')
+        plan['generated'].update(outputs={view.relative_to(root).as_posix(): published[view]}, stage='CANDIDATE')
+    candidate = {view: 'different candidate\n'} if mismatch else published
+    generation = SimpleNamespace(expected_outputs={'service': candidate}, failures=[], unavailable=[], close=lambda: None)
+    backend = SimpleNamespace(root=root, session=session, target={}, environment='dev', directory='team', save=lambda: None, guard=lambda: None)
+    before, design_before = source.read_bytes(), view.read_bytes()
+    generated_before, proof = copy.deepcopy(plan['generated']), copy.deepcopy(session['states']['A']['executionEvidence'])
+    with patch.object(M, 'authority_snapshot', side_effect=_bind_framework_callback(read_proposal_source, source)), \
+         patch.object(observed, 'collect_successful', return_value=({source: new}, ['service'], None)), \
+         patch('model.adapters.observed.publish_observed') as publish, \
+         patch('sync_runtime.generation_context', return_value=nullcontext(None)), \
+         patch('sync_runtime.prepare_generation', return_value=generation) as prepare, \
+         patch('sync_runtime.validate_generation'), patch('sync_runtime.report_generation'), \
+         patch('sync_runtime.publish_generation', side_effect=_bind_framework_callback(write_generation_candidate, candidate)) as generated_publish:
+        if mismatch:
+            with pytest.raises(Blocked, match='candidate differs from saved session'):
+                M.finish(backend, [{'name': 'A'}])
+        else:
+            assert M.finish(backend, [{'name': 'A'}]) == {source: new}
+    publish.assert_not_called()
+    prepare.assert_called_once()
+    assert source.read_bytes() == before and session['states']['A']['executionEvidence'] == proof
+    if mismatch:
+        generated_publish.assert_not_called()
+        assert view.read_bytes() == design_before and plan['generated'] == generated_before
+    else:
+        generated_publish.assert_called_once_with(generation)
+        assert view.read_bytes() == published[view].encode()
+        assert committed != 'design-committed' or view.read_bytes() == design_before
+        assert plan['generated']['outputs'] == {view.relative_to(root).as_posix(): published[view]}
+        assert plan['generated']['stage'] == 'PUBLISHED'
+
+
+def write_generation_candidate(candidate, generation):
+    for path, text in candidate.items():
+        if path.read_bytes() != text.encode():
+            path.write_text(text, encoding='utf-8')
+
+
+def failing_session_sync(backend, units, states):
+    raise OSError('design publication failed')
+
+
+def check_session_sync_failure_drains_and_resumes():
+    units = [{'name': name, 'deployOrder': order, 'template': 'app.yaml', 'parameters': name + '.json'} for name, order in [('A', 10), ('B', 10), ('D', 10), ('C', 20)]]
+    session = {'states': {'A': {'status': 'SUCCESS', 'executionEvidence': {'clientToken': 'a'}},
+                          'B': {'status': 'RUNNING', 'executionEvidence': {'clientToken': 'b'}},
+                          'D': {'status': 'SUCCESS', 'observedSynced': True}, 'C': {'status': 'NOT_STARTED'}},
+               'pendingObserved': {'stage': 'MODEL_PUBLISHED', 'evidence': {'A': {}}},
+               'metrics': {'observedSyncSeconds': 0}}
+    backend = Fake({'B': ['CREATE_IN_PROGRESS', 'CREATE_COMPLETE']})
+    backend.running.add('B')
+    proof = {name: copy.deepcopy(session['states'][name]['executionEvidence']) for name in ('A', 'B')}
+    with patch.object(controller, 'sync_successful', side_effect=failing_session_sync):
+        assert controller.run_session(units, 2, session, backend, lambda: None, sleep=lambda _: None) == 'STOPPED'
+    assert all(session['states'][name]['status'] == 'SUCCESS' and not session['states'][name].get('observedSynced') for name in proof)
+    assert session['states']['C']['status'] == 'NOT_STARTED' and not starts(backend) and not backend.running
+    assert session['observedFailures'] == [{'stage': 'MODEL_PUBLISHED', 'cause': 'design publication failed'}]
+    assert session['pendingObserved']['evidence'] == {'A': {}}
+    calls = []
+    sync = _bind_framework_callback(_callback_check_pending_plan_drained_peer_barrier_sync, calls, session)
+    with patch.object(controller, 'sync_successful', side_effect=sync):
+        assert controller.run_session(units, 2, session, backend, lambda: None, sleep=lambda _: None) == 'COMPLETE'
+    assert calls == [['A'], ['B'], ['C']] and starts(backend) == ['C']
+    assert {name: session['states'][name]['executionEvidence'] for name in proof} == proof
+    assert 'pendingObserved' not in session and session['observedFailures'][0]['cause'] == 'design publication failed'
+
+
+@pytest.mark.parametrize('pending', [False, True])
+def check_session_without_plan_and_signed_removal(owned_proposal, pending):
+    root, session, _, _, _ = owned_proposal
+    session.update(repository=str(root), taskFile='tasks/deploy.md')
+    if not pending:
+        session.pop('pendingObserved')
+    path = root.parent / (root.name + '-session.json')
+    handoff.bind(root, path, session)
+    handoff.save(path, session)
+    restored = json.loads(path.read_text())
+    restored.pop('pendingObserved', None)
+    if pending:
+        with pytest.raises(Blocked, match='ledger'):
+            handoff.restore(root, path, restored)
+    else:
+        handoff.restore(root, path, restored)
+        assert 'pendingObserved' not in restored and restored['states']['A']['status'] == 'SUCCESS'
+        restored['metrics'] = {'observedSyncSeconds': 0}
+        calls, backend = [], Fake()
+        sync = _bind_framework_callback(_callback_check_pending_plan_drained_peer_barrier_sync, calls, restored)
+        with patch.object(controller, 'sync_successful', side_effect=sync):
+            assert controller.run_session([{'name': 'A', 'deployOrder': 10}], 1, restored, backend,
+                                          lambda: None, sleep=lambda _: None) == 'COMPLETE'
+        assert calls == [['A']] and restored['states']['A']['observedSynced'] and not starts(backend)
+
+
 if __name__ == '__main__':
-    from support.pytest_cli import run
     raise SystemExit(run(__file__))

@@ -21,7 +21,11 @@ from support.deploy_controller_fixtures import (
     child_environment,
     git,
 )
-from support.deploy_repair_fixtures import external_round_trip
+from support.deploy_repair_fixtures import (
+    assert_receipt_rejections,
+    assert_worktree_receipt_extras,
+    external_round_trip,
+)
 from support.worktree_deploy_fixtures import seed
 from task_contract import complete, resume
 from task_contract_core import selected_task, start, suspend
@@ -73,7 +77,10 @@ def validate_parent(parent):
 @pytest.mark.parametrize('boundary', ['normal', 'merge'])
 def check_external_implement_round_trip(tmp_path, monkeypatch, boundary):
     original = deploy_session.run_session, deploy_session.run_group
-    external_round_trip(tmp_path, monkeypatch, boundary, seed=seed, deliver=managed_delivery, validate_parent=validate_parent, controller_helper='worktree_deploy_fixtures.py')
+    context = external_round_trip(tmp_path, monkeypatch, boundary, seed=seed, deliver=managed_delivery,
+        validate_parent=validate_parent, before_resume=assert_receipt_rejections if boundary == 'normal' else None,
+        controller_helper='worktree_deploy_fixtures.py')
+    assert_worktree_receipt_extras(context)
     assert (deploy_session.run_session, deploy_session.run_group) == original
     polls = [call for call in json.loads((tmp_path / 'aws.json').read_text())['calls']
              if call[1] in {'describe_stacks', 'describe_change_set'}]

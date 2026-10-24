@@ -12,6 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import deploy.handoff as _imports_deploy_handoff
 import deploy.s3_delivery as _imports_deploy_s3_delivery
+from botocore.exceptions import ReadTimeoutError
+from deploy import failures
 from deploy.timing import Timing
 from model.adapters.observed import mappings
 from model.core import entries
@@ -1912,6 +1914,106 @@ print(json.dumps([result, states, backend.prepare.call_count, backend.execute.ca
     assert outputs[0] == outputs[1]
     assert outputs[0][0] == 'STOPPED' and outputs[0][2:] == [0, 0, 0, 0]
     assert [s['status'] for s in outputs[0][1].values()] == ['SUCCESS', 'SUCCESS', 'READY']
+
+
+
+def accepted_timeout(**arguments):
+    raise ReadTimeoutError(endpoint_url='https://offline.invalid')
+
+
+class AcceptedExecutionAws(StubAws):
+    def __init__(self, *, timeout=False, change_peer=False):
+        super().__init__()
+        self.timeout, self.change_peer, self.tokens = timeout, change_peer, {}
+        self.stack_status = 'CREATE_COMPLETE'
+
+    def aws(self, operation, **arguments):
+        name = arguments.get('StackName', '').removeprefix('stackid-')
+        if operation == 'execute_change_set':
+            result = super().aws(operation, **arguments)
+            self.tokens[name] = arguments['ClientRequestToken']
+            if self.change_peer:
+                self.paths(units(10, 10)[1])[1].write_text('[{"ParameterKey":"Changed","ParameterValue":"yes"}]')
+            if self.timeout:
+                with patch('utils.aws.client.client', return_value=SimpleNamespace(execute_change_set=accepted_timeout)):
+                    return cfn.execute_change_set(self.connection, **arguments)
+            return result
+        if operation == 'describe_stack_events':
+            self.calls.append((operation, arguments))
+            return {'StackEvents': [{'ResourceType': 'AWS::CloudFormation::Stack',
+                'StackId': 'stackid-' + name, 'ClientRequestToken': self.tokens[name], 'ResourceStatus': self.stack_status}]}
+        if operation == 'describe_stacks' and name in self.tokens:
+            self.calls.append((operation, arguments))
+            return {'Stacks': [{'StackId': 'stackid-' + name, 'StackStatus': self.stack_status}]}
+        return super().aws(operation, **arguments)
+
+
+def check_execute_timeout_keeps_evidence(tmp_path):
+    backend = AcceptedExecutionAws(timeout=True)
+    selected = units(10)
+    unit, state = selected[0], {'status': 'NOT_STARTED', 'clientToken': 'stable-token'}
+    path = tmp_path / 'session.json'
+    backend.save = _bind_framework_callback(_imports_deploy_handoff.save, path, {'states': {'A': state}})
+    backend.load_inputs(unit)
+    assert backend.prepare(unit, state) == 'READY'
+    state['status'] = 'RUNNING'
+    with pytest.raises(AwsError, match='ReadTimeoutError') as caught:
+        backend.execute(unit, state)
+    failures.exception(state, caught.value, 'EXECUTE')
+    assert state['failure']['classification'] == 'SUBMISSION_UNKNOWN' and state['failure']['code'] == 'ReadTimeoutError'
+    evidence = json.loads(json.dumps(state['executionEvidence']))
+    assert evidence['clientToken'] == 'stable-token' and evidence['ChangeSetId'] == state['changeSetId']
+    backend.save()
+    restored = json.loads(path.read_text(encoding='utf-8'))['states']
+    backend.save = _bind_framework_callback(_imports_deploy_handoff.save, path, {'states': restored})
+    backend.stack_status = 'CREATE_IN_PROGRESS'
+    assert backend.poll(unit, restored['A']) == 'CREATE_IN_PROGRESS'
+    assert restored['A']['executionEvidence'] == evidence
+    backend.stack_status = 'CREATE_COMPLETE'
+    assert scheduler.run_group(selected, 1, restored, backend, save=backend.save, sleep=lambda _: None) == 'GROUP_COMPLETE'
+    assert json.loads(path.read_text(encoding='utf-8'))['states'] == restored
+    assert restored['A']['status'] == 'SUCCESS' and restored['A']['executionEvidence'] == evidence
+    assert sum(op == 'create_change_set' for op, _ in backend.calls) == 1
+    assert sum(op == 'execute_change_set' for op, _ in backend.calls) == 1
+
+
+def check_guard_failure_drains_accepted_peer():
+    backend = AcceptedExecutionAws(change_peer=True)
+    selected = units(10, 10, 20)
+    for unit in selected:
+        backend.load_inputs(unit)
+        backend.expected_digests[unit['name']] = backend.input_digest(unit)
+    saved = states(selected)
+    assert scheduler.run_group(selected, 2, saved, backend, sleep=lambda _: None) == 'STOPPED'
+    assert saved['A']['status'] == 'SUCCESS' and saved['A']['executionEvidence']['clientToken']
+    assert saved['B']['status'] == 'BLOCKED' and 'inputs changed' in saved['B']['reason']
+    assert saved['C']['status'] == 'NOT_STARTED'
+    assert [args['StackName'] for op, args in backend.calls if op == 'execute_change_set'] == ['stackid-A']
+
+
+@pytest.mark.parametrize('stage', ['decode', 'review'])
+def check_real_input_failure_details(stage):
+    backend = StubAws()
+    unit, state = units(10)[0], {'status': 'BLOCKED'}
+    if stage == 'decode':
+        backend.paths(unit)[0].write_text('Resources: [invalid')
+        with pytest.raises(M.Blocked) as caught:
+            backend.load_inputs(unit)
+        assert caught.value.deploy_input_kind == 'DECODE'
+        failures.exception(state, caught.value, 'INPUT_DECODE')
+        assert state['failure']['code'] == 'InputDecodeError'
+        assert state['failure']['classification'] == 'INPUT_CANDIDATE'
+    else:
+        response = {'Status': 'FAILED', 'ExecutionStatus': 'UNAVAILABLE',
+                    'StatusReason': 'private value rejected (HandlerErrorCode: InvalidRequest)'}
+        with pytest.raises(M.Blocked) as caught:
+            backend.review_prepared(unit, state, response)
+        failures.exception(state, caught.value, 'CHANGESET_REVIEW')
+        assert state['changeSetFailure']['code'] == 'InvalidRequest'
+        assert state['failure']['operation'] == 'create_change_set'
+        assert state['failure']['classification'] == 'IAC_CANDIDATE'
+        assert 'private value' not in json.dumps(state)
+    assert state['failure']['executionState'] == 'NOT_EXECUTED' and 'executionEvidence' not in state
 
 
 if __name__ == '__main__':

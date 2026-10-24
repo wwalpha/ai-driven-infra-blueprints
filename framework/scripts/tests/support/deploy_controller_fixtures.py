@@ -11,7 +11,6 @@ import os
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable
 from contextlib import ExitStack
 from functools import partial
 from pathlib import Path
@@ -25,14 +24,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import urllib.parse as _imports_urllib_parse
 
 import cloudformation_inputs as _imports_cloudformation_inputs
-import generation_inputs as _imports_generation_inputs
 import model.format as _imports_model_format
 import sync_files as _imports_sync_files
 import sync_runtime
-from botocore.exceptions import ClientError, ReadTimeoutError
+from botocore.exceptions import ClientError
 from cloudformation_inputs import condition_active
-from deploy import handoff, session
+from deploy import session
 from deploy.controller import main
+from model.core import properties, stack_model
 from model.files import read_model
 from project_targets import load_target
 from support.fixture_cases import load_case, materialize_files
@@ -55,13 +54,12 @@ def git(root, *args):
     return subprocess.run(['git', *args], cwd=root, check=True, capture_output=True, text=True).stdout
 
 
-def seed(root, state_path, case='orders', *, same_group=False, generated_artifacts=False):
+def seed(root, state_path, case='orders', *, same_group=False):
     fixture = load_case('deploy_controller', 'orders' if case in {'remove', 'multi-observed'} else case)
-    if same_group:
-        fixture['data']['same_group'] = True
     root.mkdir()
     materialize_files(root, fixture['files'])
-    if case in {'remove', 'multi-observed'}:
+    multi_observed = case in {'multi-observed', 'observed-peers'}
+    if case == 'remove' or multi_observed:
         template = root / 'infra/cloudformation/templates/first.yaml'
         document, errors = decode(template.read_text())
         assert not errors
@@ -77,63 +75,32 @@ def seed(root, state_path, case='orders', *, same_group=False, generated_artifac
             values.update({'desired.resource.003.cfn-logicalId': 'cfn-stack-app-dev-first-VpcFirst',
                 'desired.row.003-001.value': '[vpc](#resource-EC2_VPC_002)',
                 'desired.row.003-002.value': '`10.1.0.0/16`', 'desired.row.003-003.value': '`app-dev-observed-vpc`'})
-            if generated_artifacts:
-                fixture['data']['s3'].update({
-                    'desired.row.001-004.property': 'S3.Bucket.Tags[].Key', 'desired.row.001-004.value': '`Network`',
-                    'desired.row.001-004.comment': '合成参照',
-                    'desired.row.001-005.property': 'S3.Bucket.Tags[].Value',
-                    'desired.row.001-005.value': '[vpc](ec2.md#resource-EC2_VPC_002)',
-                    'desired.row.001-005.comment': '合成参照'})
         template.write_text(json.dumps(document))
-    if fixture['data'].get('bootstrap'):
-        first = root / 'infra/cloudformation/templates/first.yaml'
-        document, errors = decode(first.read_text())
-        assert not errors
-        document['Resources']['Secret'] = {'Type': 'AWS::SecretsManager::Secret', 'Properties': {'Name': 'app-dev-secret'}}
-        document['Outputs'] = {'SecretId': {'Value': {'Ref': 'Secret'}, 'Export': {'Name': 'FixtureSecret'}}}
-        first.write_text(json.dumps(document))
-        second = root / 'infra/cloudformation/templates/second.yaml'
-        document, errors = decode(second.read_text())
-        assert not errors
-        document['Resources']['Consumer'] = {'Type': 'AWS::QuickSight::DataSource', 'Properties': {
-            'AwsAccountId': ACCOUNT, 'DataSourceId': 'app-dev-source', 'Name': 'app-dev-source', 'Type': 'POSTGRESQL',
-            'Credentials': {'CredentialPair': {key: {'Fn::Sub': ['{{resolve:secretsmanager:${Secret}:SecretString:' + key.lower() + '}}',
-                {'Secret': {'Fn::ImportValue': 'FixtureSecret'}}]} for key in ('Username', 'Password')}}}}
-        second.write_text(json.dumps(document))
-    if fixture['data'].get('shared_template'):
-        first = root / 'infra/cloudformation/templates/first.yaml'
-        text = first.read_text().replace('Conditions:\n',
-            "Conditions:\n  First: !Equals [!Ref Instance, first]\n  Second: !Equals [!Ref Instance, second]\n")
-        text = text.replace('    Type:', '    Condition: First\n    Type:').replace('  OtherBucket:\n    Condition: First', '  OtherBucket:')
-        first.write_text('Parameters: {Instance: {Type: String}}\n' + text +
-            '\n  Vpc:\n    Type: AWS::EC2::VPC\n    Condition: Second\n    Properties: {CidrBlock: 10.2.0.0/16}\n')
-        for instance in ('first','second'):
-            (root / f'infra/cloudformation/parameters/dev/{ACCOUNT}/{instance}.json').write_text(
-                json.dumps([{'ParameterKey':'Instance','ParameterValue':instance}]))
-    if fixture['data'].get('dns_series'):
-        fixture['data']['ec2'].update({'desired.row.001-004.property': 'EC2.VPC.EnableDnsSupport',
-            'desired.row.001-004.value': '`true`', 'desired.row.001-004.comment': 'DNS利用'})
-    services = ['s3', 'ec2'] + (['secretsmanager', 'quicksight'] if fixture['data'].get('bootstrap') else [])
+    services = ['s3', 'ec2']
+    fixture['data']['s3'].update(fixture['data'].get('s3_extra', {}))
     model = root / 'model/dev' / ACCOUNT
     stack_values = {'desired.deployment.maxConcurrentStacks': '2'}
-    for number, name in enumerate(('cfn-stack-app-dev-first', 'cfn-stack-app-dev-second'), 1):
-        for key, value in {'name': name, 'template': ('first' if number == 1 else 'second') + '.yaml',
-                           'parameters': ('first' if number == 1 else 'second') + '.json',
-                           'deployOrder': '10' if number == 1 or fixture['data'].get('same_group') else '20'}.items():
+    stacks = fixture['data']['stacks']
+    if same_group or fixture['data'].get('same_group'):
+        for item in stacks:
+            item['order'] = 10
+    for number, item in enumerate(stacks, 1):
+        name = 'cfn-stack-app-dev-' + item['name']
+        for key, value in {'name': name, 'template': item['name'] + '.yaml',
+                           'parameters': item['name'] + '.json', 'deployOrder': str(item['order'])}.items():
             stack_values[f'desired.stack.{number:03}.{key}'] = value
-        if fixture['data'].get('shared_template'):
-            stack_values[f'desired.stack.{number:03}.template'] = 'first.yaml'
         stack_values[f'display.stack.{number:03}.comment'] = '合成Stack'
     if fixture['data'].get('delivery'):
         stack_values.update({'desired.deployment.templateBucket': '[assets](s3.md#resource-S3_Bucket_002)',
                              'desired.deployment.templateKeyPrefix': 'templates/'})
-        for name in ('first', 'second'):
+        for item in stacks:
+            name = item['name']
             template = root / 'infra/cloudformation/templates' / (name + '.yaml')
             template.write_text(template.read_text() + 'Description: ' + 'x' * 52000 + '\n')
     write_model(model / 'cloudformation-stacks.properties', stack_values)
     for service in services:
         values = fixture['data'][service]
-        identities = ['001', '002', '003'] if service == 'ec2' and case == 'multi-observed' else ['001', '002'] if service in ('s3', 'ec2') else ['001']
+        identities = sorted({key.split('.')[2] for key in values if key.startswith('desired.resource.')})
         values.update(allocate_fixture(values, identities))
         values[f'desired.service.{service}.serviceId'] = service
         values[f'desired.service.{service}.ownedCatalogResourceTypes'] = ','.join(sorted({v for k, v in values.items() if k.endswith('.resourceType')} |
@@ -143,7 +110,7 @@ def seed(root, state_path, case='orders', *, same_group=False, generated_artifac
             values[f'display.resource.{identity}.comment'] = '合成resource'
         source = model / (service + '.properties')
         write_model(source, values)
-        if service == 'ec2' and case == 'multi-observed':
+        if service == 'ec2' and multi_observed:
             split = _imports_model_format.split
             save_files = _imports_sync_files.save_files
             save_files(split(source, values, limit=1))
@@ -159,7 +126,7 @@ def seed(root, state_path, case='orders', *, same_group=False, generated_artifac
     contract = ('## Task contract\n- Task type: `infrastructure`\n- Task status: `running`\n'
         '- Infrastructure phase: `deploy`\n- AWS API execution: `allowed`\n- Deploy/apply: `allowed`\n'
         f'- Target environment: `dev`\n- Target AWS account: `{ACCOUNT}`\n'
-        '- Deployment scope: `cfn-stack-app-dev-first`, `cfn-stack-app-dev-second`\n- Authorized delete/replacement: `none`\n'
+        '- Deployment scope: ' + ', '.join('`cfn-stack-app-dev-' + item['name'] + '`' for item in stacks) + '\n- Authorized delete/replacement: `none`\n'
         f'- Runtime recovery: `allowed`\n- External IaC repair: `allowed`\n- Deploy repair session: `{state_path}`\n'
         '## Required changes\n- [R1] Synthetic deployment\n## Acceptance checks\n- [R1] `exists:project.json`\n'
         '## Validation scope\n' + ''.join(f'- `dev/{ACCOUNT}/{s}`\n' for s in [*services, 'cloudformation-stacks']) +
@@ -179,12 +146,24 @@ def seed(root, state_path, case='orders', *, same_group=False, generated_artifac
     return root
 
 
+def stack_names(root):
+    task = root / 'tasks/deploy.md'
+    if not task.is_file():
+        return ['cfn-stack-app-dev-' + item['name'] for item in load_case('deploy_controller', 'orders')['data']['stacks']]
+    scope = next(line for line in task.read_text().splitlines() if line.startswith('- Deployment scope:'))
+    return [part for number, part in enumerate(scope.split('`')) if number % 2]
+
+
+def designed_stacks(root):
+    return [unit for _, unit in stack_model(properties(read_model(root / f'model/dev/{ACCOUNT}/cloudformation-stacks.properties')))[1]]
+
+
 def aws_state(path, **knobs):
     stacks = {}
     if knobs.get('remove'):
         name = 'cfn-stack-app-dev-first'
         stacks[name] = {'status': 'UPDATE_COMPLETE', 'id': f'arn:aws:cloudformation:{REGION}:{ACCOUNT}:stack/{name}/fixture'}
-    path.write_text(json.dumps({'stacks': stacks, 'changes': {}, 'calls': [], 'objects': {}, 'versions': {}, 'knobs': knobs}))
+    path.write_text(json.dumps({'stacks': stacks, 'changes': {}, 'calls': [], 'objects': {}, 'knobs': knobs}))
 
 
 def _callback_clients_client(operations, request, /, context, service):
@@ -206,7 +185,7 @@ def _callback_clients_request_error(operation, persist, /, code, message='', sta
                        'ResponseMetadata': {'HTTPStatusCode': status}}, operation)
 
 
-def _callback_clients_request(aws_path, gate, root, secret, state_path, /, service, operation, **arguments):
+def _callback_clients_request(aws_path, gate, root, state_path, /, service, operation, **arguments):
     with gate:
         state = json.loads(aws_path.read_text())
         knobs = state['knobs']
@@ -223,37 +202,33 @@ def _callback_clients_request(aws_path, gate, root, secret, state_path, /, servi
             result = {'Account': ACCOUNT, 'Arn': f'arn:aws:iam::{ACCOUNT}:user/fixture', 'UserId': 'fixture'}
         elif service == 'cloudformation':
             stack = state['stacks'].get(name)
-            if operation == 'list_exports':
-                result = {'Exports': [{'Name': 'FixtureSecret', 'Value': secret, 'ExportingStackId': state['stacks']['cfn-stack-app-dev-first']['id']}]}
-            elif operation == 'get_template':
+            if operation == 'get_template':
                 result = {'TemplateBody': state['changes'][name]['document']}
             elif operation == 'validate_template':
-                if knobs.get('input_stage') == 'validate_template':
-                    document, errors = decode(arguments.get('TemplateBody', ''))
-                    if document.get('Resources', {}).get('Vpc', {}).get('Properties', {}).get('CidrBlock') == '10.2.0.0/16':
-                        error('ValidationError', 'synthetic invalid property; private details omitted')
                 result = {'Parameters': []}
             elif operation == 'describe_stacks':
                 if stack is None:
                     error('ValidationError', 'Stack with id fixture does not exist')
-                result = {'Stacks': [{'StackId': stack_id, 'StackName': name, 'StackStatus': stack['status'],
-                    **({'Outputs': [{'OutputKey': 'SecretId', 'OutputValue': secret}]} if knobs.get('bootstrap') and name == 'cfn-stack-app-dev-first' else {})}]}
+                result = {'Stacks': [{'StackId': stack_id, 'StackName': name, 'StackStatus': stack['status']}]}
             elif operation == 'create_change_set':
-                if knobs.get('input_stage') == 'create_change_set' and name == 'cfn-stack-app-dev-second':
-                    document, errors = decode(arguments.get('TemplateBody', ''))
-                    if document['Resources']['Vpc']['Properties']['CidrBlock'] == '10.2.0.0/16':
-                        error('ValidationError', 'synthetic invalid property; private details omitted')
                 if arguments.get('ChangeSetType') == 'CREATE':
                     stack_id = f'arn:aws:cloudformation:{REGION}:{ACCOUNT}:stack/{name}/' + arguments['ChangeSetName']
-                if name == 'cfn-stack-app-dev-second' and not knobs.get('same_group'):
-                    saved = json.loads(state_path.read_text())
-                    assert saved['states']['cfn-stack-app-dev-first']['observedSynced']
-                    expected = ('subnet-before' if knobs.get('policy') == 'Retain' or knobs.get('delete_proof') == 'skipped'
-                                else 'PENDING_DEPLOY') if knobs.get('remove') else 'subnet-fixture'
-                    assert expected in read_model(root / f'model/dev/{ACCOUNT}/ec2.properties')
+                designed = designed_stacks(root)
+                current_order = next(int(u['deployOrder']) for u in designed if u['name'] == name)
+                saved = json.loads(state_path.read_text())
+                earlier = [u['name'] for u in designed if int(u['deployOrder']) < current_order]
+                assert all(saved['states'][n]['status'] == 'SUCCESS' and saved['states'][n].get('observedSynced') for n in earlier)
+                values = properties(read_model(root / f'model/dev/{ACCOUNT}/ec2.properties'))
+                if 'cfn-stack-app-dev-first' in earlier:
+                    expected = 'PENDING_DEPLOY' if knobs.get('remove') else 'subnet-fixture'
+                    assert values['observed.row.002-001.value'].strip('`') == expected
+                if 'cfn-stack-app-dev-second' in earlier:
+                    assert values['observed.row.001-001.value'].strip('`') == 'vpc-fixture'
                 if knobs.get('delivery'):
-                    saved = json.loads(state_path.read_text())
-                    assert all(saved['states'][n].get('delivery', {}).get('objects') for n in ('cfn-stack-app-dev-first', 'cfn-stack-app-dev-second'))
+                    group = [u['name'] for u in designed if int(u['deployOrder']) == current_order]
+                    assert all(saved['states'][n].get('delivery', {}).get('objects') for n in group)
+                state.setdefault('barriers', {})[name] = {'earlier': earlier,
+                    'states': {n: saved['states'][n] for n in earlier}, 'observed': values}
                 if 'TemplateBody' in arguments:
                     document, errors = decode(arguments['TemplateBody'])
                 else:
@@ -265,15 +240,11 @@ def _callback_clients_request(aws_path, gate, root, secret, state_path, /, servi
                 change = f'arn:aws:cloudformation:{REGION}:{ACCOUNT}:changeSet/{arguments["ChangeSetName"]}/fixture'
                 state['changes'][name] = {'id': change, 'alias': arguments['ChangeSetName'], 'document': document,
                                            'executed': False, 'stackId': stack_id, 'parameters': arguments.get('Parameters', [])}
-                if knobs.get('input_stage') == 'changeset_review' and name == 'cfn-stack-app-dev-second' and document['Resources']['Vpc']['Properties']['CidrBlock'] == '10.2.0.0/16':
-                    state['changes'][name]['failedReview'] = True
-                    state['stacks'][name] = {'status':'REVIEW_IN_PROGRESS', 'id':stack_id}
                 result = {'Id': change, 'StackId': stack_id}
             elif operation == 'describe_change_set':
                 change = state['changes'][name]
                 assert arguments['ChangeSetName'] in (change['id'], change['alias'])
-                changes = [{'ResourceChange': {'Action': 'Modify' if knobs.get('approval') and name == 'cfn-stack-app-dev-first' else 'Add',
-                    'Replacement': 'True' if knobs.get('approval') and name == 'cfn-stack-app-dev-first' else 'False',
+                changes = [{'ResourceChange': {'Action': 'Add', 'Replacement': 'False',
                     'LogicalResourceId': logical, 'ResourceType': definition['Type']}}
                     for logical, definition in change['document']['Resources'].items() if active(definition, change)]
                 if knobs.get('remove') and name == 'cfn-stack-app-dev-first':
@@ -281,37 +252,25 @@ def _callback_clients_request(aws_path, gate, root, secret, state_path, /, servi
                         change_entry['ResourceChange'].update(Action='Modify', Replacement='False')
                     changes.append({'ResourceChange': {'Action': 'Remove', 'LogicalResourceId': 'Subnet',
                         'ResourceType': 'AWS::EC2::Subnet', 'PhysicalResourceId': 'subnet-before',
-                        'PolicyAction': knobs.get('policy', 'Delete')}})
+                        'PolicyAction': 'Delete'}})
                 result = {'ChangeSetId': change['id'], 'StackId': change['stackId'], 'Status': 'CREATE_COMPLETE',
                           'ExecutionStatus': 'EXECUTE_COMPLETE' if change['executed'] else 'AVAILABLE', 'Changes': changes}
-                if change.get('failedReview'):
-                    result.update(Status='FAILED', ExecutionStatus='UNAVAILABLE', StatusReason='provider input invalid (HandlerErrorCode: InvalidRequest)')
             elif operation == 'execute_change_set':
                 change = state['changes'][name]
                 assert not change['executed'], 'duplicate Execute'
                 assert arguments['ChangeSetName'] == change['id']
                 change.update(executed=True, token=arguments['ClientRequestToken'])
-                properties = change['document'].get('Resources', {}).get('Vpc', {}).get('Properties', {})
-                if isinstance(properties.get('CidrBlock'), dict):
+                vpc_properties = change['document'].get('Resources', {}).get('Vpc', {}).get('Properties', {})
+                if isinstance(vpc_properties.get('CidrBlock'), dict):
                     resolve_value = _imports_cloudformation_inputs.resolve_value
-                    properties = {**properties, 'CidrBlock': resolve_value(properties['CidrBlock'],
+                    vpc_properties = {**vpc_properties, 'CidrBlock': resolve_value(vpc_properties['CidrBlock'],
                         {p['ParameterKey']:p['ParameterValue'] for p in change.get('parameters', [])}, {})}
-                cidr_failure = (knobs.get('repair') and properties.get('CidrBlock') != '10.0.0.0/16') or knobs.get('repeat_cidr')
-                dns_failure = knobs.get('followup_dns') and properties.get('EnableDnsSupport') is not True
-                failed = name == 'cfn-stack-app-dev-second' and (knobs.get('bootstrap') and not any('AWSCURRENT' in v for v in state['versions'].values())
-                    or cidr_failure or dns_failure)
-                change['failureProperty'] = 'EnableDnsSupport' if dns_failure and not cidr_failure else 'CidrBlock'
+                failed = name == 'cfn-stack-app-dev-second' and knobs.get('repair') and vpc_properties.get('CidrBlock') != '10.0.0.0/16'
                 state['stacks'][name] = {'status': 'ROLLBACK_COMPLETE' if failed else 'UPDATE_COMPLETE' if knobs.get('remove') and name == 'cfn-stack-app-dev-first' else 'CREATE_COMPLETE', 'id': stack_id}
                 change['failed'] = failed
-                if knobs.pop('edit_input', False):
-                    template = root / 'infra/cloudformation/templates/second.yaml'
-                    template.write_text(template.read_text() + '# concurrent edit\n')
                 if knobs.pop('crash_execute', False):
                     persist()
                     os._exit(73)
-                if knobs.pop('lost_response', False):
-                    persist()
-                    raise ReadTimeoutError(endpoint_url='https://offline.invalid')
                 result = {}
             elif operation == 'describe_stack_events':
                 change = state['changes'].get(name)
@@ -324,71 +283,35 @@ def _callback_clients_request(aws_path, gate, root, secret, state_path, /, servi
                         'LogicalResourceId': logical, 'ResourceType': definition['Type']} for logical, definition in change['document']['Resources'].items()
                         if active(definition, change))
                 if knobs.get('remove') and change and change['executed'] and name == 'cfn-stack-app-dev-first':
-                    proof = knobs.get('delete_proof', 'complete')
-                    event = {'StackId': stack_id, 'ClientRequestToken': change['token'],
+                    events.append({'StackId': stack_id, 'ClientRequestToken': change['token'],
                         'LogicalResourceId': 'Subnet', 'PhysicalResourceId': 'subnet-before',
-                        'ResourceType': 'AWS::EC2::Subnet', 'ResourceStatus': 'DELETE_SKIPPED' if proof == 'skipped' else 'DELETE_COMPLETE'}
-                    for key, mismatch in [('ClientRequestToken', 'token'), ('StackId', 'stack'), ('PhysicalResourceId', 'physical')]:
-                        if proof == mismatch:
-                            event[key] = 'unrelated'
-                    if proof != 'missing':
-                        events.append(event)
+                        'ResourceType': 'AWS::EC2::Subnet', 'ResourceStatus': 'DELETE_COMPLETE'})
                 if failed:
                     events.append({'StackId': stack_id, 'ClientRequestToken': change['token'], 'ResourceStatus': 'CREATE_FAILED',
-                        'LogicalResourceId': 'Consumer' if knobs.get('bootstrap') else 'Vpc',
-                        'ResourceType': 'AWS::QuickSight::DataSource' if knobs.get('bootstrap') else 'AWS::EC2::VPC',
-                        'ResourceStatusReason': 'AWSCURRENT secret value not found' if knobs.get('bootstrap') else 'invalid ' + change.get('failureProperty', 'CidrBlock')})
+                        'LogicalResourceId': 'Vpc',
+                        'ResourceType': 'AWS::EC2::VPC',
+                        'ResourceStatusReason': 'invalid CidrBlock'})
                 if name == 'cfn-stack-app-dev-second' and events and knobs.pop('defer_peer', False):
                     events[0]['ResourceStatus'] = 'UPDATE_IN_PROGRESS'
                 result = {'StackEvents': events}
             elif operation == 'list_stack_resources':
                 document = state['changes'].get(name, {}).get('document', {})
                 result = {'StackResourceSummaries': [{'LogicalResourceId': logical, 'ResourceType': definition['Type'],
-                    'PhysicalResourceId': secret if logical == 'Secret' else 'app-dev-bucket' if logical == 'Bucket' else 'vpc-first-fixture' if logical == 'VpcFirst' else 'vpc-fixture' if definition['Type'] == 'AWS::EC2::VPC' else 'subnet-fixture' if logical == 'Subnet' else 'integrated-child',
+                    'PhysicalResourceId': 'app-dev-third' if logical == 'ThirdBucket' else 'app-dev-bucket' if logical == 'Bucket' else 'vpc-first-fixture' if logical == 'VpcFirst' else 'vpc-fixture' if definition['Type'] == 'AWS::EC2::VPC' else 'subnet-fixture' if logical == 'Subnet' else 'integrated-child',
                     'ResourceStatus': 'CREATE_COMPLETE'} for logical, definition in document.get('Resources', {}).items()
                     if active(definition, state['changes'][name])]}
-                if stack and stack['status'] in {'ROLLBACK_COMPLETE', 'REVIEW_IN_PROGRESS'}:
+                if stack and stack['status'] == 'ROLLBACK_COMPLETE':
                     result = {'StackResourceSummaries': []}
                 if knobs.get('remove') and name == 'cfn-stack-app-dev-first' and not state['changes'].get(name, {}).get('executed'):
                     result['StackResourceSummaries'].append({'LogicalResourceId': 'Subnet', 'ResourceType': 'AWS::EC2::Subnet',
                         'PhysicalResourceId': 'subnet-before', 'ResourceStatus': 'CREATE_COMPLETE'})
             elif operation == 'delete_stack':
-                assert stack and (stack['status'] == 'ROLLBACK_COMPLETE' or
-                    stack['status'] == 'REVIEW_IN_PROGRESS' and state['changes'][name].get('failedReview') and not state['changes'][name]['executed'])
+                assert stack and stack['status'] == 'ROLLBACK_COMPLETE'
                 state['stacks'].pop(name)
                 if knobs.pop('crash_cleanup', False):
                     persist()
                     os._exit(74)
                 result = {}
-            else:
-                raise AssertionError((service, operation))
-        elif service == 'secretsmanager':
-            assert arguments['SecretId'] == secret
-            versions = state['versions']
-            if operation == 'describe_secret':
-                result = {'ARN': secret, 'Name': 'app-dev-secret', 'VersionIdsToStages': {k: v for k, v in versions.items() if v}}
-            elif operation == 'list_secret_version_ids':
-                result = {'ARN': secret, 'Versions': [{'VersionId': k, 'VersionStages': v} for k, v in versions.items()]}
-            elif operation == 'get_secret_value':
-                current = [k for k, v in versions.items() if 'AWSCURRENT' in v]
-                if not current:
-                    error('ResourceNotFoundException', 'AWSCURRENT not found')
-                assert len(current) == 1
-                result = {'ARN': secret, 'VersionId': current[0], 'VersionStages': versions[current[0]], 'SecretString': 'synthetic'}
-            elif operation == 'put_secret_value':
-                token = arguments['ClientRequestToken']
-                assert token not in versions
-                assert arguments['VersionStages'] == ['BLUEPRINT_BOOTSTRAP_' + token]
-                versions[token] = arguments['VersionStages']
-                if knobs.pop('crash_bootstrap', False):
-                    persist()
-                    os._exit(75)
-                result = {'ARN': secret, 'VersionId': token, 'VersionStages': versions[token]}
-            elif operation == 'update_secret_version_stage':
-                assert 'RemoveFromVersionId' not in arguments
-                assert not any('AWSCURRENT' in v for v in versions.values())
-                versions[arguments['MoveToVersionId']].append('AWSCURRENT')
-                result = {'ARN': secret}
             else:
                 raise AssertionError((service, operation))
         elif service == 's3':
@@ -430,77 +353,35 @@ def _callback_clients_request(aws_path, gate, root, secret, state_path, /, servi
 def clients(root, state_path, aws_path):
     """A finite set of SDK operations; unexpected calls have no network fallback."""
     gate = RLock()
-    secret = f'arn:aws:secretsmanager:{REGION}:{ACCOUNT}:secret:app-dev-secret-abcdef'
 
-    request = _bind_framework_callback(_callback_clients_request, aws_path, gate, root, secret, state_path)
+    request = _bind_framework_callback(_callback_clients_request, aws_path, gate, root, state_path)
 
     operations = {'sts': ['get_caller_identity'], 'cloudformation': ['validate_template', 'describe_stacks',
         'create_change_set', 'describe_change_set', 'execute_change_set', 'describe_stack_events',
-        'list_stack_resources', 'delete_stack', 'get_template', 'list_exports'],
-        'secretsmanager': ['describe_secret', 'list_secret_version_ids', 'get_secret_value', 'put_secret_value', 'update_secret_version_stage'], 's3': ['head_bucket', 'get_bucket_location', 'get_bucket_encryption',
+        'list_stack_resources', 'delete_stack', 'get_template'],
+        's3': ['head_bucket', 'get_bucket_location', 'get_bucket_encryption',
         'get_bucket_policy', 'put_object', 'head_object']}
     client = _bind_framework_callback(_callback_clients_client, operations, request)
     return client
 
 
-def _callback_invoke_write(fail_observed, fault, journal, original_write, root, state_path, /, path, text, *args, **kwargs):
-    model_output = path.is_relative_to(root / 'model') and path.suffix == '.properties' and 'observed.row.' in text
-    if (fail_observed or fault == 'model-io') and model_output:
-        raise OSError('injected observed I/O failure')
+def _callback_invoke_write(fault, journal, original_write, root, state_path, aws_path, witnessed, /, path, text, *args, **kwargs):
     if fault == 'design-io' and path.is_relative_to(root / 'docs/designs'):
+        if not witnessed:
+            saved, provider = json.loads(state_path.read_text()), json.loads(aws_path.read_text())
+            provider['observedFailure'] = {
+                'statuses': {name: state['status'] for name, state in saved['states'].items()},
+                'executionEvidence': {name: state.get('executionEvidence') for name, state in saved['states'].items()},
+                'planEvidence': sorted(saved['pendingObserved']['evidence'])}
+            original_write(aws_path, json.dumps(provider))
+            witnessed.append(True)
         raise OSError('injected design I/O failure')
-    if fault == 'generation-io' and path.suffix == '.md' and not path.is_relative_to(root) and state_path.is_file():
-        if json.loads(state_path.read_text()).get('pendingObserved', {}).get('stage') == 'MODEL_PUBLISHED':
-            raise OSError('injected staged generation I/O failure')
     result = original_write(path, text, *args, **kwargs)
-    if fault == 'model-partial' and model_output:
+    if (fault == 'model-partial' and path.is_relative_to(root / 'model')
+            and path.suffix == '.properties' and 'observed.row.' in text):
         assert journal.is_file()
         os._exit(76)
-    if fault == 'design-partial' and path.is_relative_to(root / 'docs/designs'):
-        assert journal.is_file()
-        os._exit(79)
     return result
-
-
-def _callback_invoke_session_save(
-    fault: str | None, original_save: Callable[..., None], /,
-    path: Path, text: str, **options: object,
-) -> None:
-    saved = json.loads(text)
-    if fault == 'plan-save' and saved.get('pendingObserved'):
-        raise OSError('injected observed plan I/O failure')
-    if fault == 'design-committed' and saved['states']['cfn-stack-app-dev-first'].get('observedSynced'):
-        os._exit(78)
-    original_save(path, text, **options)
-
-
-def _callback_invoke_unlink(fault, journal, original_unlink, /, path, *args, **kwargs):
-    model_commit = (fault == 'model-committed' and path == journal and path.is_file()
-                    and all(p.startswith('model/') for p in json.loads(path.read_text())['originals']))
-    result = original_unlink(path, *args, **kwargs)
-    if model_commit:
-        os._exit(77)
-    return result
-
-
-def _callback_invoke_replace(aws_path, original_replace, state_path, /, path, target):
-    if Path(target) == state_path:
-        candidate = json.loads(path.read_text())
-        data = json.loads(aws_path.read_text())
-        if candidate.get('inputRevision') == 1:
-            for knob, code in (('crash_accept_before', 77), ('crash_accept_after', 78)):
-                if data['knobs'].pop(knob, False):
-                    aws_path.write_text(json.dumps(data))
-                    if knob.endswith('after'):
-                        original_replace(path, target)
-                    os._exit(code)
-    return original_replace(path, target)
-
-
-def _callback_invoke_seal(original_seal, original_write, root, /, snapshot):
-    original_seal(snapshot)
-    path = root / f'docs/designs/dev/{ACCOUNT}/ec2.md'
-    original_write(path, path.read_text() + '\nexternal during generation\n')
 
 
 def fake_sleep(delays, seconds):
@@ -509,34 +390,22 @@ def fake_sleep(delays, seconds):
     delays.append(seconds)
 
 
-def invoke(root, state_path, aws_path, options=(), fail_observed=False, fault=None):
-    original_write, original_replace = Path.write_text, os.replace
-    original_unlink = Path.unlink
+def invoke(root, state_path, aws_path, options=(), fault=None):
     journal = Path(tempfile.gettempdir()) / 'blueprint-model-publication' / (hashlib.sha256(str(root).encode()).hexdigest() + '.json')
-    write = _bind_framework_callback(_callback_invoke_write, fail_observed, fault, journal, original_write, root, state_path)
-    unlink = _bind_framework_callback(_callback_invoke_unlink, fault, journal, original_unlink)
-    replace = _bind_framework_callback(_callback_invoke_replace, aws_path, original_replace, state_path)
+    write = _bind_framework_callback(_callback_invoke_write, fault, journal, Path.write_text, root, state_path, aws_path, [])
     delays = []
     sleep = partial(fake_sleep, delays)
     with ExitStack() as stack:
         stack.enter_context(patch.object(session, 'run_session', partial(session.run_session, sleep=sleep)))
         stack.enter_context(patch.object(session, 'run_group', partial(session.run_group, sleep=sleep)))
-        stack.enter_context(patch.object(os, 'replace', replace))
         stack.enter_context(patch('utils.aws.client.client', clients(root, state_path, aws_path)))
         stack.enter_context(patch('socket.socket.connect', side_effect=AssertionError('network forbidden')))
         stack.enter_context(patch('socket.socket.connect_ex', side_effect=AssertionError('network forbidden')))
-        if fail_observed or fault:
+        if fault:
+            assert fault in {'design-io', 'model-partial'}
             stack.enter_context(patch.object(Path, 'write_text', write))
-            stack.enter_context(patch.object(Path, 'unlink', unlink))
-        if fault in {'plan-save', 'design-committed'}:
-            save = _bind_framework_callback(_callback_invoke_session_save, fault, handoff.atomic_replace_file)
-            stack.enter_context(patch.object(handoff, 'atomic_replace_file', save))
-        if fault == 'design-race':
-            GenerationInputs = _imports_generation_inputs.GenerationInputs
-            original_seal = GenerationInputs.seal
-            seal = _bind_framework_callback(_callback_invoke_seal, original_seal, original_write, root)
-            stack.enter_context(patch.object(GenerationInputs, 'seal', seal))
-        return main(['--environment', 'dev', '--aws-account-id', ACCOUNT, '--stack', 'cfn-stack-app-dev-first', '--stack', 'cfn-stack-app-dev-second',
+        selection = [arg for name in stack_names(root) for arg in ('--stack', name)]
+        return main(['--environment', 'dev', '--aws-account-id', ACCOUNT, *selection,
             '--state', str(state_path), '--timing-log', str(state_path.with_suffix('.timing.jsonl')), *options])
 
 

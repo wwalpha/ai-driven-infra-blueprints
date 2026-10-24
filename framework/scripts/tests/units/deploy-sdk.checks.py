@@ -23,6 +23,7 @@ from support.cloudformation_deploy_fixtures import TARGET as TARGET
 from support.cloudformation_deploy_fixtures import DeliveryAws
 from support.cloudformation_deploy_fixtures import states as states
 from support.cloudformation_deploy_fixtures import units as units
+from support.pytest_cli import run
 from utils.aws.client import AwsError
 
 if not __debug__:
@@ -282,6 +283,54 @@ def check_cleanup_delivery_evidence_is_durable():
     assert 'delivery' not in saved[-1]
 
 
+
+
+
+class DeletionEvents:
+    def __init__(self, event):
+        self.event, self.calls = event, []
+
+    def aws(self, operation, **arguments):
+        self.calls.append((operation, arguments))
+        if operation == 'describe_stack_events':
+            return {'StackEvents': [self.event]}
+        if operation == 'describe_stacks':
+            return {'Stacks': [{'StackStatus': 'UPDATE_COMPLETE'}]}
+        if operation == 'list_stack_resources':
+            return {'StackResourceSummaries': []}
+        raise AssertionError(operation)
+
+
+@pytest.mark.parametrize('mismatch', [None, 'ClientRequestToken', 'StackId', 'PhysicalResourceId'])
+def check_deletion_event_identity(tmp_path, mismatch):
+    state = {'status': 'SUCCESS', 'stackId': 'stack', 'changeSetId': 'change',
+             'changeDigest': 'digest', 'clientToken': 'token'}
+    removal = {'Action': 'Remove', 'LogicalResourceId': 'Old', 'ResourceType': 'AWS::EC2::VPC',
+               'PolicyAction': 'Delete', 'PhysicalResourceId': 'vpc-old'}
+    state['executionEvidence'] = {'StackId': 'stack', 'ChangeSetId': 'change', 'changeDigest': 'digest',
+                                  'clientToken': 'token', 'resources': [removal]}
+    event = {'StackId': 'stack', 'ClientRequestToken': 'token', 'LogicalResourceId': 'Old',
+             'PhysicalResourceId': 'vpc-old', 'ResourceType': 'AWS::EC2::VPC', 'ResourceStatus': 'DELETE_COMPLETE'}
+    if mismatch:
+        event[mismatch] = 'unrelated'
+    backend = DeletionEvents(event)
+    definition = {'Type': 'AWS::EC2::VPC', 'PolicyAction': 'Delete', 'PhysicalResourceId': 'vpc-old'}
+    if mismatch is None:
+        assert observed.deleted_resource(backend, 'A', 'Old', definition, state, {})
+    else:
+        # The real collector must fail before it can propose or publish PENDING_DEPLOY.
+        source = tmp_path / 'model/dev/team/ec2.properties'
+        backend.root, backend.environment, backend.directory = tmp_path, 'dev', 'team'
+        backend.target, backend.templates = TARGET, {'A': ({'Resources': {}}, {})}
+        mapped = {'A': {'Old': (source, '001', {}, [('001-001', {'property': 'EC2.VPC.VpcId'})], {'EC2.VPC.VpcId'})}}
+        with patch.object(observed, 'resolve_resources', return_value=({source: {}}, mapped)), \
+             patch.object(observed, 'publish_observed') as publish:
+            with pytest.raises(ValueError, match='physical destruction is unconfirmed'):
+                observed.sync_successful(backend, [{'name': 'A'}], {'A': state})
+        publish.assert_not_called()
+        assert not state.get('observedSynced') and not source.exists()
+    assert any(op == 'describe_stack_events' for op, _ in backend.calls)
+
+
 if __name__ == '__main__':
-    from support.pytest_cli import run
     raise SystemExit(run(__file__))

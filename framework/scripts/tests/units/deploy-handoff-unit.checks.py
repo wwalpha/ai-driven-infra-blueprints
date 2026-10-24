@@ -4,6 +4,7 @@ import copy
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -11,12 +12,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
 from cloudformation_inputs import Blocked
-from deploy import failures, handoff
+from deploy import controller, failures, handoff, resume
 from deploy import retry_policy as policy
 from deploy.controller import create_runtime
 from deploy.recovery import cleanup_unexecuted
 from deploy_handoff import main
+from support.cloudformation_deploy_fixtures import TARGET, StubAws
 from support.model_sources import allocate_fixture, write_model
+from support.pytest_cli import run
 from task_contract_core import selected_task, set_status, task_digest
 from utils import file_operations
 from utils.aws.client import AwsError
@@ -24,6 +27,7 @@ from utils.aws_mappings import definition_root
 from utils.file_operations import sha
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.json_format import fingerprint as fingerprint
+from utils.sealed_evidence import write_sealed
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -652,6 +656,331 @@ def check_common_cause_progress_requires_repaired_target_success(tmp_path, targe
     assert handoff.diagnose(tmp_path,session,{'revision':1,'problems':[new]}) == ('REPAIR_ALLOWED' if targeted else 'STOPPED')
 
 
+
+
+
+class ReceiptInputs:
+    def __init__(self, root):
+        self.root, self.templates, self.hashes, self.expected_digests = root, {}, {}, {}
+        self.target = TARGET
+
+    def paths(self, unit):
+        return self.root / 'infra' / (unit['name'] + '.yaml'), self.root / 'infra' / 'parameters.json'
+
+    def deployment_input_paths(self, units):
+        return [path for unit in units for path in self.paths(unit)]
+
+    def load_inputs(self, unit):
+        controller.load_inputs(self, unit)
+
+
+@pytest.fixture
+def acceptance(tmp_path):
+    root = tmp_path / 'repo'
+    (root / 'infra').mkdir(parents=True)
+    (root / 'infra/parameters.json').write_text('[]')
+    units = [{'name': name} for name in ('First', 'Second')]
+    backend = ReceiptInputs(root)
+    for unit in units:
+        backend.paths(unit)[0].write_text('Resources: {Vpc: {Type: AWS::EC2::VPC, Properties: {CidrBlock: 10.2.0.0/16}}}')
+    before = {p.relative_to(root).as_posix(): sha(p) for p in backend.deployment_input_paths(units)}
+    effective = handoff.effective(root, units, backend.paths, backend.deployment_input_paths)
+    session = {'repository': str(root), 'taskFile': 'tasks/deploy.md', 'taskDigest': 'task',
+        'inputRevision': 0, 'infraManifest': before, 'unitDigests': {'First': 'first', 'Second': 'second'},
+        'effectiveDigests': effective, 'states': {
+            'First': {'status': 'SUCCESS', 'observedSynced': True, 'executionEvidence': {'clientToken': 'successful'}},
+            'Second': {'status': 'BLOCKED', 'failure': {'classification': 'INPUT_CANDIDATE'}}}}
+    workflow = handoff.workflow(session)
+    workflow.update(reserved=1, attempts={'attempt': {'requestId': 'request', 'stage': 'STATIC_PASSED'}})
+    request_path = tmp_path / 'repair/request.json'
+    request_path.parent.mkdir()
+    request = {'requestId': 'request', 'attemptId': 'attempt', 'workflowId': workflow['workflowId'],
+               'repository': str(root), 'session': str(tmp_path / 'session.json'), 'requestPath': str(request_path),
+               'taskFile': session['taskFile'], 'taskDigest': 'task', 'revision': 0, 'allowedPaths': ['infra/Second.yaml']}
+    session['pendingRequest'] = copy.deepcopy(request)
+    backend.paths(units[1])[0].write_text(backend.paths(units[1])[0].read_text().replace('10.2.', '10.0.'))
+    current = {p.relative_to(root).as_posix(): sha(p) for p in backend.deployment_input_paths(units)}
+    effective_after = handoff.effective(root, units, backend.paths, backend.deployment_input_paths)
+    result = {**request, 'result': 'VALIDATED_CANDIDATE', 'commit': 'commit', 'parentTip': 'parent',
+        'changes': {'infra/Second.yaml': {'before': before['infra/Second.yaml'], 'after': current['infra/Second.yaml']}},
+        'validation': {'snapshot': 'snapshot'}, 'effectiveInputs': {'before': effective, 'after': effective_after}}
+    result_path = request_path.with_name('result.json')
+    write_sealed(root, result_path, result)
+    return root, session, backend, units, current, result_path
+
+
+def receipt_git_output(root, *args):
+    assert args in {('rev-parse', 'HEAD'), ('rev-parse', 'commit^')}
+    return 'commit' if args[-1] == 'HEAD' else 'parent'
+
+
+@pytest.mark.parametrize('shared,status,after_replace', [(True, 'FAILED', False),
+    (False, 'FAILED', False), (False, 'FAILED', True), (False, 'BLOCKED', True)])
+def check_accept_protects_success_and_retries(acceptance, shared, status, after_replace):
+    root, session, backend, units, current, result_path = acceptance
+    if status == 'FAILED':
+        session['states']['Second'].update(status='FAILED', stackStatus='ROLLBACK_COMPLETE',
+            stackId='failed-stack', changeSetId='failed-change', clientToken='failed-token', changeDigest='failed-digest',
+            executionEvidence={'StackId': 'failed-stack', 'ChangeSetId': 'failed-change', 'clientToken': 'failed-token',
+                               'changeDigest': 'failed-digest', 'inputDigest': 'second'},
+            failureTemplateSafety={'Resources': {'Vpc': {'Type': 'AWS::EC2::VPC'}}})
+    if shared:
+        session['declaredConsumers'] = {'Second': ['First']}
+    path = Path(session['pendingRequest']['session'])
+    # Worktree registration and Git provenance are external adapters; the signed save/restore is real.
+    with patch.object(handoff, 'register_workflow'):
+        handoff.bind(root, path, session)
+    handoff.save(path, session)
+    initial = copy.deepcopy(session)
+    current_units = {'First': 'first', 'Second': 'repaired'}
+    with patch.object(resume, 'verify_integration_owner'), \
+         patch.object(resume._dependency_deploy_contracts, 'output', side_effect=receipt_git_output), \
+         patch.object(resume._dependency_deploy_contracts, 'paths', return_value={'infra/Second.yaml'}), \
+         patch.object(resume._dependency_deploy_contracts, 'validation_snapshot', return_value='snapshot'), \
+         patch.object(handoff, 'verify_inputs'):
+        if shared:
+            with pytest.raises(Blocked, match='successful Stack'):
+                resume.accept(root, result_path, session, backend, units, current_units, current)
+            assert session['workflow']['status'] == 'WAITING_HUMAN'
+            assert session['states'] == initial['states'] and session['pendingRequest'] == initial['pendingRequest']
+            assert session['inputRevision'] == 0 and session['workflow']['reserved'] == 1
+            restored = json.loads(path.read_text())
+            handoff.restore(root, path, restored)
+            assert restored == session
+            return
+        with patch.object(handoff, 'effective', side_effect=OSError('before acceptance')):
+            with pytest.raises(OSError, match='before acceptance'):
+                resume.accept(root, result_path, session, backend, units, current_units, current)
+        assert session == initial and json.loads(path.read_text()) == initial
+        resume.accept(root, result_path, session, backend, units, current_units, current)
+        accepted = copy.deepcopy(session)
+        actual_replace = file_operations.os.replace
+        interrupted = _bind_framework_callback(_callback_check_signed_ledger_rejects_rollback_and_recovers_interrupted,
+                                               actual_replace, path, after_replace)
+        with patch.object(file_operations.os, 'replace', side_effect=interrupted), \
+             pytest.raises(OSError, match='injected session replacement'):
+            handoff.save(path, session)
+        on_disk = json.loads(path.read_text())
+        assert on_disk == (accepted if after_replace else initial)
+        intent = handoff.binding_path(root, session['taskFile']).with_suffix('.json.intent')
+        assert intent.is_file()
+        # Restore the actual before/after disk state, then accept the canonical/copied result again.
+        handoff.restore(root, path, on_disk)
+        assert on_disk == accepted and not intent.exists()
+        copied = result_path.with_name('copy.json')
+        copied.write_bytes(result_path.read_bytes())
+        saved_bytes = path.read_bytes()
+        resume.accept(root, copied, on_disk, backend, units, current_units, current)
+        resume.accept(root, result_path, on_disk, backend, units, current_units, current)
+        assert on_disk == accepted and path.read_bytes() == saved_bytes
+        assert accepted['states']['First'] == initial['states']['First']
+        assert accepted['inputRevision'] == 1 and accepted['workflow']['reserved'] == 1
+        assert 'pendingRequest' not in accepted and accepted['workflow']['accepted'] == [str(result_path)]
+        assert accepted['workflow']['attempts']['attempt']['acceptedRevision'] == 1
+        if status == 'FAILED':
+            assert accepted['states']['Second'] == {**initial['states']['Second'],
+                'externalRepair': initial['pendingRequest']['requestId'], 'recoveryPending': True}
+        else:
+            assert accepted['states']['Second']['status'] == 'NOT_STARTED'
+            assert 'executionEvidence' not in accepted['states']['Second']
+
+
+def check_issue_request_stability(tmp_path):
+    session, problem = diagnosis_fixture(tmp_path)
+    handoff.diagnose(tmp_path, session, {'revision': 0, 'problems': [problem]})
+    relative = problem['inputRefs'][0]['path']
+    session.update(repository=str(tmp_path), taskFile='tasks/deploy.md', taskDigest='task', target=TARGET,
+        environment='dev', inputDigest='inputs', designDigest='design', executionDigest='execution',
+        validationScope=['dev/team/ec2'], infraManifest={relative: sha(tmp_path / relative)})
+    task = tmp_path / 'tasks/deploy.md'
+    task.parent.mkdir()
+    task.write_text('## Task contract\n- Task status: `running`\n- External IaC repair: `allowed`\n'
+                    '## Modified files\n- `tasks/deploy.md`\n## Allowed paths\n- `tasks/deploy.md`\n')
+    path = tmp_path.parent / (tmp_path.name + '-request-session.json')
+    problems = session['workflow']['currentProblemIds']
+    expected = [{'stack': 'Stack', 'resourcePath': 'Item', 'operation': 'CREATE', 'status': 'CREATE_COMPLETE'}]
+    with selected_task(tmp_path, 'tasks/deploy.md'):
+        pending = handoff.issue_request(tmp_path, path, session, problems, [relative], expected)
+        restored = json.loads(path.read_text())
+        assert handoff.issue_request(tmp_path, path, restored, problems, [relative], expected) == pending
+        assert restored['pendingRequest'] == pending and restored['workflow']['reserved'] == 1
+        assert len(restored['workflow']['attempts']) == 1
+        changed = copy.deepcopy(expected)
+        changed[0]['status'] = 'UPDATE_COMPLETE'
+        with pytest.raises(Blocked, match='another request'):
+            handoff.issue_request(tmp_path, path, restored, problems, [relative], changed)
+        assert json.loads(path.read_text()) == restored
+
+
+@pytest.mark.parametrize('field', ['executionEvidence', 'approvedChangeDigest', 'pendingObserved', 'metrics'])
+def check_signed_protected_fields(tmp_path, field):
+    root = tmp_path / 'repo'
+    root.mkdir()
+    path = tmp_path / 'session.json'
+    session = {'repository': str(root), 'taskFile': 'tasks/deploy.md',
+        'states': {'A': {'status': 'SUCCESS', 'executionEvidence': {'clientToken': 'token'}, 'approvedChangeDigest': 'digest'}},
+        'pendingObserved': {'stage': 'PREPARED'}, 'metrics': {}}
+    handoff.bind(root, path, session)
+    handoff.save(path, session)
+    restored = json.loads(path.read_text())
+    if field == 'pendingObserved':
+        restored.pop(field)
+    elif field == 'metrics':
+        restored.update(metrics={'historical': 1}, skillStartedAt=1, within120Seconds=False)
+    else:
+        restored['states']['A'][field] = 'tampered'
+    if field == 'metrics':
+        handoff.restore(root, path, restored)
+        assert restored['states'] == session['states'] and restored['pendingObserved'] == session['pendingObserved']
+    else:
+        with pytest.raises(Blocked, match='ledger'):
+            handoff.restore(root, path, restored)
+
+
+def failed_operation_call(actual, failed_operation, runtime, service, operation, arguments):
+    if operation == failed_operation:
+        raise AwsError(service, operation, 'ValidationError')
+    return actual(operation, **arguments)
+
+
+@pytest.mark.parametrize('stage', ['decode', 'validate_template', 'create_change_set', 'review'])
+def check_unexecuted_exception_to_diagnosis(tmp_path, stage):
+    session, problem = diagnosis_fixture(tmp_path)
+    backend = StubAws()
+    unit = {'name': 'Stack', 'template': 'template.yaml', 'parameters': 'parameters.json'}
+    template = tmp_path / problem['inputRefs'][0]['path']
+    parameters = template.with_name('parameters.json')
+    parameters.write_text('[]')
+    backend.root = tmp_path
+    backend.paths = lambda unit: (template, parameters)
+    state = {'status': 'BLOCKED', 'preparationId': 'preparation'}
+    if stage == 'decode':
+        template.write_text('Resources: [invalid')
+        operation = 'decode_input'
+        problem.update(resourcePath='Template', resourceType='AWS::CloudFormation::Stack', property='Template', cause='IAC_SYNTAX')
+        problem['inputRefs'][0]['pointer'] = ''
+        model = tmp_path / 'model/dev/123456789012/cloudformation-stacks.properties'
+        write_model(model, {'desired.stack.001.name': 'Stack', 'desired.stack.001.template': 'template.yaml',
+                            'desired.stack.001.parameters': 'parameters.json', 'desired.stack.001.deployOrder': '10'})
+        model_relative = model.relative_to(tmp_path).as_posix()
+        session['modelInputManifest'][model_relative] = sha(model)
+        problem['modelRefs'] = [{'path': model_relative, 'sha256': sha(model), 'key': 'desired.stack.001.template'}]
+        with pytest.raises(Blocked) as caught:
+            backend.load_inputs(unit)
+    elif stage == 'review':
+        operation = 'create_change_set'
+        with pytest.raises(Blocked) as caught:
+            backend.review_prepared(unit, state, {'Status': 'FAILED', 'ExecutionStatus': 'UNAVAILABLE',
+                'StatusReason': 'CidrBlock failed (HandlerErrorCode: InvalidRequest)'})
+    else:
+        operation = stage
+        backend.load_inputs(unit)
+        call = _bind_framework_callback(failed_operation_call, backend.aws, stage)
+        backend.aws = _bind_framework_callback(controller.aws, backend)
+        with patch.object(controller, 'call', side_effect=call), pytest.raises(Blocked) as caught:
+            backend.begin_prepare(unit, state)
+    failures.exception(state, caught.value, 'INPUT_DECODE' if stage == 'decode' else 'CHANGESET_REVIEW' if stage == 'review' else 'PREPARATION')
+    session['states'] = {'Stack': state}
+    session['failureObservations'] = []
+    session['infraManifest'] = {problem['inputRefs'][0]['path']: sha(template)}
+    handoff.record_stop(session, [unit])
+    observation = session['failureObservations'][0]
+    assert observation['awsState']['failure']['classification'] == ('INPUT_CANDIDATE' if stage == 'decode' else 'IAC_CANDIDATE')
+    assert 'executionEvidence' not in state and 'executionEvidence' not in observation['awsState']
+    problem.update(observationId=observation['observationId'], eventIndices=[], operation=operation)
+    problem['evidenceRefs'] = [{'observationId': observation['observationId'], 'revision': 0, 'eventIndices': []}]
+    problem['inputRefs'][0]['sha256'] = sha(template)
+    assert handoff.diagnose(tmp_path, session, {'revision': 0, 'problems': [problem]}) == 'REPAIR_ALLOWED'
+
+
+@pytest.mark.parametrize('stage', ['REPAIR_INTENT', 'VALIDATING', 'VALIDATED'])
+def check_legacy_resume_migration(tmp_path, stage):
+    root = tmp_path / 'repo'
+    (root / 'tasks').mkdir(parents=True)
+    (root / 'infra/cloudformation/templates').mkdir(parents=True)
+    parameters = root / 'infra/cloudformation/parameters/dev/123456789012'
+    parameters.mkdir(parents=True)
+    (parameters / 'one.json').write_text('[]')
+    template = root / 'infra/cloudformation/templates/one.yaml'
+    template.write_text('Resources: {}')
+    candidate = tmp_path / 'candidate.yaml'
+    candidate.write_bytes(b'DO NOT APPLY')
+    contract = ('## Task contract\n- Task status: `running`\n- Task type: `infrastructure`\n'
+                '- Target environment: `dev`\n- Target AWS account: `123456789012`\n'
+                '- Controlled repair: `allowed`\n## Validation scope\n- `dev/123456789012/ec2`\n'
+                '## Modified files\n- `tasks/deploy.md`\n## Allowed paths\n- `tasks/deploy.md`\n')
+    (root / 'tasks/deploy.md').write_text(contract)
+    unit = {'name': 'Stack', 'template': 'one.yaml', 'parameters': 'one.json'}
+    state = {'status': 'FAILED', 'clientToken': 'original', 'executionEvidence': {'clientToken': 'original'}, 'failureEvents': [],
+             'cleanupStatus': 'DELETE_INTENT', 'cleanupStackId': 'original-cleanup',
+             'repairs': [{'classification': 'AUTO_REPAIRABLE', 'stage': stage, 'candidatePath': str(candidate)}]}
+    legacy = {'version': 3, 'repository': str(root), 'taskFile': 'tasks/deploy.md', 'taskDigest': task_digest(contract),
+              'unitDigests': {'Stack': 'unit'}, 'executionDigest': 'old', 'designDigest': 'design',
+              'modelInputManifest': {}, 'infraManifest': {p.relative_to(root).as_posix(): sha(p) for p in (template, parameters / 'one.json')},
+              'states': {'Stack': state}}
+    args = SimpleNamespace(authorization='explicit Human migration', old_execution_digest='old', new_execution_digest='new', acknowledge_legacy_cycles=1)
+    path = tmp_path / 'session.json'
+    with selected_task(root, 'tasks/deploy.md'), \
+         patch.object(resume._imports_project_targets, 'load_target', return_value=TARGET), \
+         patch.object(resume._imports_deploy_session, 'execution_digest', return_value='new'), \
+         patch.object(resume._imports_deploy_session, 'design_digest', return_value='design'), \
+         patch.object(resume._imports_deploy_session, 'model_input_manifest', return_value={}), \
+         patch.object(resume._imports_deploy_inputs, 'load_units', return_value=(1, [unit])), \
+         patch.object(handoff, 'register_workflow'):
+        migrated = copy.deepcopy(legacy)
+        resume.migrate(root, migrated, args)
+        assert migrated['version'] == 4 and migrated['executionDigest'] == 'new' and migrated['states']['Stack'] == state
+        assert migrated['workflow']['reserved'] == 1 and migrated['workflow']['status'] == 'WAITING_HUMAN'
+        assert migrated['workflow']['legacyUncertain']
+        assert migrated['workflow']['legacyHistory'] == state['repairs']
+        assert candidate.read_bytes() == b'DO NOT APPLY' and template.read_text() == 'Resources: {}'
+        handoff.save(path, legacy)
+        with patch.object(resume, 'migrate', wraps=resume.migrate) as dispatch:
+            assert main(['migrate', '--state', str(path), '--repository-root', str(root),
+                '--authorization', args.authorization, '--old-execution-digest', 'old', '--new-execution-digest', 'new',
+                '--acknowledge-legacy-cycles', '1']) == 0
+        dispatch.assert_called_once()
+        assert json.loads(path.read_text())['states']['Stack'] == state
+
+
+def legacy_observation_aws(calls, operation, **arguments):
+    calls.append((operation, arguments))
+    assert arguments == {'StackName': 'Running'}
+    if operation == 'describe_stack_events':
+        return {'StackEvents': [{'ResourceType': 'AWS::CloudFormation::Stack', 'ClientRequestToken': 'original-token',
+                                 'StackId': 'original-stack', 'ResourceStatus': 'CREATE_COMPLETE'}]}
+    assert operation == 'describe_stacks'
+    return {'Stacks': [{'StackId': 'original-stack', 'StackStatus': 'CREATE_COMPLETE'}]}
+
+
+def check_legacy_observation_only(tmp_path):
+    source = tmp_path / 'model/dev/team/service.properties'
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b'observed bytes must remain unchanged')
+    proof = {'StackId': 'original-stack', 'ChangeSetId': 'original-change', 'clientToken': 'original-token'}
+    failed = {'status': 'FAILED', 'cleanupStatus': 'DELETE_INTENT', 'cleanupStackId': 'failed-stack'}
+    session = {'version': 3, 'executionDigest': 'legacy-definitions', 'states': {
+        'Running': {'status': 'RUNNING', 'clientToken': 'original-token', 'stackId': 'original-stack',
+                    'changeSetId': 'original-change', 'executionEvidence': dict(proof)}, 'Failed': dict(failed)}}
+    path = tmp_path / 'session.json'
+    units = [{'name': name, 'deployOrder': 10} for name in session['states']]
+    backend, calls = create_runtime(tmp_path, 'dev', 'team', TARGET), []
+    backend.aws = _bind_framework_callback(legacy_observation_aws, calls)
+    with pytest.raises(Blocked, match='observe/drain'):
+        resume.migrate(tmp_path, session, SimpleNamespace(authorization='explicit Human migration'))
+    assert resume.observe_only(backend, units, 1, path, session) == 0
+    restored = json.loads(path.read_text())
+    assert restored['version'] == 3 and restored['executionDigest'] == 'legacy-definitions'
+    assert restored['states']['Running']['status'] == 'SUCCESS'
+    assert not restored['states']['Running'].get('observedSynced')
+    assert restored['states']['Running']['executionEvidence'] == proof
+    assert restored['states']['Running']['clientToken'] == 'original-token'
+    assert restored['states']['Failed'] == failed
+    assert source.read_bytes() == b'observed bytes must remain unchanged'
+    assert [operation for operation, _ in calls] == ['describe_stack_events', 'describe_stacks']
+    with pytest.raises(Blocked, match='cannot mutate AWS or publish Models'):
+        backend.guard()
+
+
 if __name__ == '__main__':
-    from support.pytest_cli import run
     raise SystemExit(run(__file__))

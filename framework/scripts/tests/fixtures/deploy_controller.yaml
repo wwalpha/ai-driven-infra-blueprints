@@ -47,6 +47,9 @@ base:
     infra/cloudformation/parameters/dev/123456789012/first.json: '[]'
     infra/cloudformation/parameters/dev/123456789012/second.json: '[]'
   data:
+    stacks:
+      - {name: first, order: 10}
+      - {name: second, order: 20}
     s3:
       desired.resource.001.resourceType: S3.Bucket
       desired.resource.001.cfn-logicalId: cfn-stack-app-dev-first-Bucket
@@ -117,44 +120,34 @@ cases:
             Type: AWS::EC2::VPC
             Properties:
               CidrBlock: 10.2.0.0/16
-  input-syntax:
-    files:
-      infra/cloudformation/templates/second.yaml: 'Resources: [invalid'
-  shared-success:
+  ordered-delivery:
     data:
-      shared_template: true
-  repair-series:
-    files:
-      infra/cloudformation/templates/second.yaml: |
+      delivery: true
+      stacks:
+        - {name: first, order: 10}
+        - {name: second, order: 10}
+        - {name: third, order: 20}
+      s3_extra: &third-bucket
+        desired.resource.003.resourceType: S3.Bucket
+        desired.resource.003.cfn-logicalId: cfn-stack-app-dev-third-ThirdBucket
+        desired.row.003-001.property: S3.Bucket.BucketName
+        desired.row.003-001.value: '`app-dev-third`'
+        desired.row.003-001.comment: 独立Bucket
+        desired.row.003-002.property: S3.Bucket.Region
+        desired.row.003-002.value: '`ap-northeast-1`'
+        desired.row.003-002.comment: 配置Region
+    files: &third-files
+      infra/cloudformation/templates/third.yaml: |
         Resources:
-          Vpc:
-            Type: AWS::EC2::VPC
-            Properties:
-              CidrBlock: 10.2.0.0/16
-              EnableDnsSupport: false
+          ThirdBucket:
+            Type: AWS::S3::Bucket
+            Properties: {BucketName: app-dev-third}
+      infra/cloudformation/parameters/dev/123456789012/third.json: '[]'
+  observed-peers:
     data:
-      dns_series: true
-  bootstrap:
-    data:
-      bootstrap: true
-      secretsmanager:
-        desired.resource.001.resourceType: SecretsManager.Secret
-        desired.resource.001.cfn-logicalId: cfn-stack-app-dev-first-Secret
-        desired.row.001-001.property: SecretsManager.Secret.Name
-        desired.row.001-001.value: '`app-dev-secret`'
-        desired.row.001-001.comment: 管理Secret
-      quicksight:
-        desired.resource.001.resourceType: QuickSight.DataSource
-        desired.resource.001.cfn-logicalId: cfn-stack-app-dev-second-Consumer
-        desired.row.001-001.property: QuickSight.DataSource.AwsAccountId
-        desired.row.001-001.value: '`123456789012`'
-        desired.row.001-001.comment: 実行account
-        desired.row.001-002.property: QuickSight.DataSource.DataSourceId
-        desired.row.001-002.value: '`app-dev-source`'
-        desired.row.001-002.comment: 識別子
-        desired.row.001-003.property: QuickSight.DataSource.Name
-        desired.row.001-003.value: '`app-dev-source`'
-        desired.row.001-003.comment: 名前
-        desired.row.001-004.property: QuickSight.DataSource.Type
-        desired.row.001-004.value: '`POSTGRESQL`'
-        desired.row.001-004.comment: 種別
+      stacks:
+        - {name: first, order: 10}
+        - {name: second, order: 10}
+        - {name: third, order: 20}
+      s3_extra: *third-bucket
+    files: *third-files
