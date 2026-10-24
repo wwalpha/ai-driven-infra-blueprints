@@ -20,8 +20,6 @@ from support import issues_scan_fixtures as fixture
 from support.it_case_receipt import it_case
 from support.model_sources import allocate_fixture as allocate
 from support.validator import load as load
-from utils.cloudformation.inputs import Blocked
-from utils.iac_values import Expression, same
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -160,71 +158,6 @@ def main_checks():
                 template['Resources'][name] = {'Type': 'AWS::KMS::Key', 'Properties': {}}
             athena('[KMS_Key_001](kms.md#resource-KMS_Key_001)', {'Fn::GetAtt': ['Key', 'Arn']}, 'matched')
             comparison, _ = fixture.compare(root, list(models))
-            key = comparison.evaluate(stack, {'Ref': 'Key'})
-            arn = comparison.evaluate(stack, {'Fn::GetAtt': ['Key', 'Arn']})
-            alias = comparison.reference('kms', '[KMS_Alias_001](kms.md#resource-KMS_Alias_001)')
-            for prop, allowed in KMS_COMPARISON_FORMS.items():
-                kind, path = '.'.join(prop.split('.')[:2]), '.'.join(prop.split('.')[2:])
-                callback = _bind_framework_callback(_lambda_main_checks_callback_156, comparison, kind=kind)
-                for form, literal in [('KeyId', key_id), ('KeyArn', key_arn), ('AliasName', 'alias/fixture'), ('AliasArn', alias_arn)]:
-                    assert same(literal, literal, reference=callback, path=path) is (form in allowed), (prop, form)
-                assert same(key, arn, reference=callback, path=path) is False
-                assert same('not-a-key', 'not-a-key', reference=callback, path=path) is False
-                assert same('{{resolve:secretsmanager:key}}', alias_arn if 'AliasArn' in allowed else key_arn,
-                            reference=callback, path=path) is None
-                assert same(key_arn, alias_arn, reference=callback, path=path) is False
-                assert same(alias_arn, key_arn, reference=callback, path=path) is False
-                if allowed == {'KeyArn'}:
-                    with fixture.pytest.raises(Blocked, match='outside receiving property contract'):
-                        comparison.desired_reference('kms', '[KMS_Alias_001](kms.md#resource-KMS_Alias_001)', kind, path)
-                elif allowed <= {'KeyArn', 'AliasArn'}:
-                    symbolic = comparison.desired_reference('kms', '[KMS_Alias_001](kms.md#resource-KMS_Alias_001)', kind, path)
-                    assert symbolic['$attribute'] == 'AliasArn'
-                    assert same(symbolic, arn, reference=callback, path=path) is False
-                    assert same(arn, symbolic, reference=callback, path=path) is False
-                    assert same(symbolic, alias_arn, reference=callback, path=path) is ('AliasArn' in allowed)
-                    assert same(alias_arn, symbolic, reference=callback, path=path) is ('AliasArn' in allowed)
-                    assert same(symbolic, alias_arn.replace('123456789012', '999999999999'), reference=callback, path=path) is False
-                    assert same(symbolic, alias_arn.replace('ap-northeast-1', 'us-east-1'), reference=callback, path=path) is False
-                    assert same(symbolic, alias, reference=callback, path=path) is False
-                    other = comparison.desired_reference('kms', '[KMS_Alias_002](kms.md#resource-KMS_Alias_002)', kind, path)
-                    assert same(symbolic, other, reference=callback, path=path) is False
-                else:
-                    assert same(arn, key_arn, reference=callback, path=path) is None
-                    assert same(key, key_arn, reference=callback, path=path) is False
-                    assert same(key_id, key_id[:-1] + '3', reference=callback, path=path) is False
-
-            # Existing contracts outside this repair are deliberately unchanged.
-            assert comparison.reference_same(alias, alias, 'CloudTrail.Trail', 'KMSKeyId') is True
-            assert comparison.reference_same(key, arn, 'MWAA.Environment', 'KmsKey') is True
-            assert comparison.reference_same(alias, alias, 'SecretsManager.Secret', 'KmsKeyId') is True
-            assert comparison.reference_same(alias, alias, 'S3.Bucket', 'BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID') is True
-
-            for logical, expected in [('Log', 'arn:aws:logs:ap-northeast-1:123456789012:log-group:/fixture/log:*'),
-                                      ('Build', 'arn:aws:codebuild:ap-northeast-1:123456789012:project/fixture-build'),
-                                      ('Rule', 'arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule')]:
-                symbol = comparison.evaluate(stack, {'Fn::GetAtt': [logical, 'Arn']})
-                callback = _bind_framework_callback(_lambda_main_checks_callback_192, comparison)
-                assert same(symbol, expected, reference=callback)
-                assert same(expected, symbol, reference=callback)
-                assert same(symbol, expected + '-wrong', reference=callback) is False
-                expression = Expression('Sub', ['${Resource}', {'Resource': symbol}])
-                assert same(expression, expected, reference=callback)
-            log = comparison.evaluate(stack, {'Fn::GetAtt': ['Log', 'Arn']})
-            expression = Expression('Select', [0, Expression('Split', [':*', log])])
-            assert comparison.reference_same(expression, 'arn:aws:logs:ap-northeast-1:123456789012:log-group:/fixture/log', 'IAM.Role', '') is True
-            assert comparison.reference_same(Expression('Select', [9, Expression('Split', [':*', log])]), 'x', 'IAM.Role', '') is None
-            rule = comparison.evaluate(stack, {'Fn::GetAtt': ['Rule', 'Arn']})
-            comparison.stack_inputs[stack][0]['Resources']['Rule']['Properties']['EventBusName'] = 'other-bus'
-            assert comparison.reference_same(rule, 'arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule', 'Lambda.Permission', 'SourceArn') is None
-            comparison.stack_inputs[stack][0]['Resources']['Build']['Properties'].pop('Name')
-            build = comparison.evaluate(stack, {'Fn::GetAtt': ['Build', 'Arn']})
-            assert comparison.reference_same(build, 'arn:aws:codebuild:ap-northeast-1:123456789012:project/fixture-build', 'IAM.Role', '') is None
-            # Neither a fake Alias GetAtt nor a generated key ARN is synthesized.
-            with fixture.pytest.raises(KeyError, match='KMS.Alias.Arn'):
-                comparison.evaluate(stack, {'Fn::GetAtt': ['Alias', 'Arn']})
-            fixture.expect_error(lambda: comparison.reference_literal(arn), 'explicit name')
-
             template['Resources']['Log']['Properties']['KmsKeyId'] = key_arn
             publish()
             _, records = fixture.compare(root, ['cloudwatch-logs'])

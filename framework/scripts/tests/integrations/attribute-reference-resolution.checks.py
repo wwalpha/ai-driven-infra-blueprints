@@ -5,17 +5,16 @@ import sys
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-import model.sources
+from model.format import FORMAT, INDEX
+from model.sources import source_inputs
 from support.it_case_receipt import it_case
 from support.producer_identifier_reference_fixtures import (
     FileReads,
     Path,
     affected,
-    declarations,
     dependency_hashes,
     design_source_digest,
     json,
@@ -31,6 +30,7 @@ from support.producer_identifier_reference_fixtures import (
     write_model,
 )
 from utils.input_cache import input_scope
+from validation_cache import PassCache
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -112,14 +112,6 @@ def check_pair(root, first, second):
     snapshot = (input_scope)(_bind_framework_callback(_callback_check_pair_snapshot, _state_check_pair_77, changed, original, root))
     snapshot()
     write_model(_state_check_pair_77.producer, original)
-    raw = _state_check_pair_77.producer.read_bytes()
-    _state_check_pair_77.producer.write_bytes(raw + b'desired.row.001-001.value=duplicate\n')
-    rejected_read(root, lambda: load_model(_state_check_pair_77.consumer), 'duplicate')
-    _state_check_pair_77.producer.write_bytes(raw)
-    rejected_read(root, lambda: serialize({**original, 'desired.row.001-001.value': 17}), 'strings')
-    _state_check_pair_77.producer.write_text('# model-format: 99\n')
-    rejected_read(root, lambda: load_model(_state_check_pair_77.consumer), 'unsupported Model format')
-    _state_check_pair_77.producer.write_bytes(raw)
     # Reciprocal saved names have no evaluator and never recurse or rewrite either side.
     _state_check_pair_77.consumer, reciprocal = fixture(root, first, second, derived=True)
     _state_check_pair_77.producer, reverse = fixture(root, second, first, derived=True)
@@ -152,11 +144,6 @@ def check_fixed_label(root):
     assert trace_model(consumer, 'desired.note.link.text')['references']['Other']['labelPolicy'] == 'fixed'
     write_model(consumer, {**values, 'desired.reference.Other.labelPolicy': 'display-name'})
     assert not load_model(consumer).warnings
-    for fields, phrase in [({'producerLogicalId': 'CloudTrail_Trail_999'}, 'absent or ambiguous'),
-                           ({'resourceType': 'IAM.Role'}, 'Type differs')]:
-        write_model(consumer, {**values, **{'desired.reference.Other.' + field: value for field, value in fields.items()}})
-        warning(consumer, phrase)
-    rejected_read(root, lambda: declarations({**values, 'desired.reference.Other.occurrence': '0'}), 'occurrence')
 
 
 def fixture_stack(root):
@@ -198,14 +185,6 @@ def check_stack(root):
     assert load_model(consumer, reads) is pinned and pinned.dependencies[producer] == serialize(original).encode()
     rejected_read(root, reads.verify, 'input changed')
     write_model(producer, original)
-    write_model(consumer, {**values, 'desired.reference.StackName.producerId': '999'})
-    warning(consumer, 'Stack is absent')
-    for fields in ({'resourceType': 'IAM.Role'}, {'format': 'link'}, {'property': 'template'}):
-        rejected_read(root, lambda *, fields=fields: declarations({**values, **{'desired.reference.StackName.' + field: value for field, value in fields.items()}}), 'reference' if 'resourceType' not in fields else 'forbidden')
-    write_model(consumer, values)
-    producer.write_text(serialize({key: value for key, value in original.items() if key != 'desired.stack.001.placementName'}))
-    rejected_read(root, lambda: load_model(consumer), 'placementName')
-    write_model(producer, original)
     # A Stack name that contains a saved Resource reference remains an explicit string.
     reverse = {**original, 'desired.stack.001.name': 's3-original'}
     reverse.update(reference('bucket', 'desired.stack.001.name', 's3-original', 's3', '001', 'S3.Bucket', prop='S3.Bucket.BucketName'))
@@ -216,42 +195,13 @@ def check_stack(root):
     warning(consumer, 'Model is absent')
 
 
-def _callback_check_preparation_cache_snapshot(original, path, /):
-    with patch.object(model.sources, '_read_model', wraps=model.sources._read_model) as parsed:
-        first = load_model(path)
-        assert first.authoritative['desired.row.001-001.value'] == '`first`'
-        path.write_bytes(original.replace(b'`second`', b'`changed`'))
-        second = load_model(path)
-        assert second.authoritative['desired.row.002-001.value'] == '`second`'
-        assert parsed.call_count == 1 and second.dependencies[path] == original
 
 
-@it_case
-def check_preparation_cache(root):
-    prepare(root)
-
-    path = root / 'model/preview/team/iam.properties'
-    values = {}
-    for identity, rid in [('first', '001'), ('second', '002')]:
-        values.update(resource(rid, 'IAM.Role', 'iam-' + rid, [('RoleName', '`' + identity + '`')]))
-    write_model(path, values)
-    original = path.read_bytes()
-    before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
-    snapshot = (input_scope)(_bind_framework_callback(_callback_check_preparation_cache_snapshot, original, path))
-    try:
-        snapshot()
-        assert load_model(path).authoritative['desired.row.002-001.value'] == '`changed`'
-        path.unlink()
-        rejected_read(root, lambda: load_model(path), 'iam.properties')
-    finally:
-        path.write_bytes(original)
-    assert before == {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
 
 
 @it_case
 def check():
-    with tempfile.TemporaryDirectory() as directory:
-        check_preparation_cache(Path(directory))
+    check_producer_inputs()
     with tempfile.TemporaryDirectory() as directory:
         check_stack(Path(directory))
     with tempfile.TemporaryDirectory() as directory:
@@ -259,16 +209,59 @@ def check():
     for pair in [('s3', 'cloudtrail'), ('lambda', 'eventbridge')]:
         with tempfile.TemporaryDirectory() as directory:
             check_pair(Path(directory), *pair)
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        prepare(root)
-        consumer, values = fixture(root, 's3', 'cloudtrail')
-        producer, _ = fixture(root, 'cloudtrail')
-        assert json.loads(load_model(consumer).authoritative['desired.row.001-002.document'])['name'] == 'cloudtrail-original'
-        for fields, phrase in [({'producerLogicalId': 'CloudTrail_Trail_999'}, 'absent or ambiguous'), ({'resourceType': 'IAM.Role'}, 'Type differs')]:
-            write_model(consumer, {**values, **{'desired.reference.Other.' + field: value for field, value in fields.items()}})
-            warning(consumer, phrase)
     print('Attribute references: PASS (reciprocal saved values; exact JSON; Stack fixed placement; warnings; read-only failures; immutable snapshots/cache)')
+
+
+@it_case
+def check_producer_inputs():
+    with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as directory:
+        root = Path(temporary).resolve()
+        setup(root, ('lambda', 'eventbridge', 'cloudtrail', 'sqs'),
+              ('Lambda.Function', 'Events.Rule', 'CloudTrail.Trail', 'SQS.Queue'), environments=('preview', 'release'))
+        paths = {}
+        for environment in ('preview', 'release'):
+            for service, kind in (('lambda', 'Lambda.Function'), ('eventbridge', 'Events.Rule'),
+                                  ('cloudtrail', 'CloudTrail.Trail'), ('sqs', 'SQS.Queue')):
+                path = root / 'model' / environment / 'team' / (service + '.properties')
+                prop = 'FunctionName' if service == 'lambda' else 'QueueName' if service == 'sqs' else 'Name'
+                values = resource('001', kind, service + '-fixture', [(prop, '`fixture`')])
+                if service in ('eventbridge', 'cloudtrail'):
+                    key = 'desired.row.001-002.document'
+                    text = '[Function](lambda.md#lambda-fixture)'
+                    values.update({'desired.row.001-002.property': kind + '.Target',
+                                   'desired.row.001-002.comment': '保存済み参照', 'desired.row.001-002.value': '`document`',
+                                   key: '{"Target":"' + text + '","Enabled":false,"Count":1,"Order":["b","a"]}'})
+                    values.update(reference('target', key, text, 'lambda', '001', 'Lambda.Function', mode='link',
+                                            pointer='/Target', environment=environment, label='fixed'))
+                write_model(path, values)
+                doc = root / 'docs/designs' / environment / 'team' / (service + '.md')
+                doc.parent.mkdir(parents=True, exist_ok=True)
+                doc.write_text('fixture\n')
+                paths[environment, 'team', service] = path
+        producer = paths['preview', 'team', 'lambda']
+        part = producer.with_suffix('') / 'part-001.properties'
+        part.parent.mkdir()
+        part.write_bytes(producer.read_bytes())
+        producer.write_text(FORMAT + '\n' + INDEX + '\n# part: lambda/part-001.properties\n')
+        cache = PassCache(root, directory=directory)
+        before = {entry: cache.service_key(entry) for entry in paths}
+        values = {entry: load_model(path).values for entry, path in paths.items()}
+        digests = {entry: design_source_digest(path) for entry, path in paths.items()}
+        inputs = source_inputs(producer)
+        assert part in inputs
+        assert inputs <= source_inputs(paths['preview', 'team', 'eventbridge'])
+        for source in sorted(inputs):
+            original = source.read_bytes()
+            try:
+                source.write_bytes(original + b'\n')
+                for entry, path in paths.items():
+                    changed = source == root / 'project.json' or entry[2] != 'sqs' and entry[0] == 'preview'
+                    assert (cache.service_key(entry) != before[entry]) == changed, (source, entry)
+                    assert design_source_digest(path) == digests[entry], (source, entry)
+                    assert load_model(path).values == values[entry], (source, entry)
+            finally:
+                source.write_bytes(original)
+        assert {entry: cache.service_key(entry) for entry in paths} == before
 
 
 if __name__ == '__main__':

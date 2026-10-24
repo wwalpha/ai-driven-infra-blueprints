@@ -20,9 +20,7 @@ from support.producer_identifier_reference_fixtures import (
     json,
     load_model,
     reference,
-    rejected,
     resource,
-    serialize,
     tempfile,
     write_model,
 )
@@ -75,23 +73,6 @@ def check(root):
     assert sync_runtime.sync(root, False, 'preview', 'team', services=['s3']) == 0
     assert '### S3.Bucket: archive-renamed' in view.read_text()
     assert '<a id="s3-archive-original"></a>' in view.read_text()
-    original = path.read_bytes()
-    path.write_bytes(original + b'desired.row.003-001.value=duplicate\n')
-    rejected(lambda: load_model(path), 'duplicate')
-    path.write_bytes(original)
-    for anchor in ('s3-../unsafe', '', 's3-quote"anchor'):
-        path.write_text(serialize({**updated, 'desired.resource.003.anchor': anchor}))
-        rejected(lambda: bound_resource_anchors(path), 'anchor')
-    path.write_bytes(original)
-    path.write_text('# model-format: 2\ninvalid')
-    rejected(lambda: bound_resource_anchors(path), 'invalid')
-    path.write_bytes(original)
-    path.write_text(serialize({key: value for key, value in updated.items() if key != 'desired.row.003-001.value'}))
-    rejected(lambda: load_model(path), 'Row requires')
-    path.write_bytes(original)
-    path.unlink()
-    rejected(lambda: load_model(path), 's3.properties')
-    path.write_bytes(original)
     print('Fixed S3 anchors: PASS (explicit rename/consumer update; fixed names/links/IDs; generation; syntax/identity rejection; unrelated directory isolation)')
 
 

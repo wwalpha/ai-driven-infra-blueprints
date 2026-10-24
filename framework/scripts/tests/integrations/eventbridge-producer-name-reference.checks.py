@@ -5,18 +5,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-import pytest
 from support.it_case_receipt import module_complete
 from support.producer_identifier_reference_fixtures import (
     Path,
     affected,
-    declarations,
     dependency_hashes,
     design_source_digest,
     json,
     load_model,
     reference,
-    rejected,
     resource,
     setup,
     source_inputs,
@@ -61,22 +58,7 @@ def check(root, service, kind, property_name):
     assert warning(path, 'differs from saved text').authoritative == snapshot.authoritative
     assert design_source_digest(path) == digest and dependency_hashes(path) != dependencies
     assert affected(root, [producer.relative_to(root)]) == {('preview', 'team', service), ('preview', 'team', 'eventbridge')}
-    for bad, phrase in [
-        ({**original, 'desired.resource.052.resourceType': 'EC2.VPC'}, 'logicalId'),
-        ({key: value for key, value in original.items() if not key.startswith(('desired.resource.052.', 'desired.row.052-'))}, 'absent or ambiguous'),
-        ({**original, 'desired.row.052-001.property': kind + '.Description'}, 'Property is absent'),
-        ({**original, 'desired.row.052-001.value': '``'}, 'differs from saved text'),
-        ({**original, 'desired.row.052-003.property': kind + '.' + property_name, 'desired.row.052-003.value': '`duplicate`', 'desired.row.052-003.comment': '重複'}, 'Property is absent or ambiguous')]:
-        write_model(producer, bad)
-        if any(key in original and key.endswith('.resourceType') and original[key] != value for key, value in bad.items()):
-            with pytest.raises(ValueError, match='ResourceType prefix'):
-                load_model(path)
-        else:
-            assert warning(path, phrase).authoritative == snapshot.authoritative
     write_model(producer, original)
-    rejected(lambda: declarations({**values, 'desired.reference.raw.labelPolicy': 'fixed'}), 'non-link')
-    producer.unlink()
-    assert warning(path, 'Model is absent').authoritative == snapshot.authoritative
 
 
 if __name__ == '__main__':

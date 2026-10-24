@@ -10,7 +10,6 @@ from types import SimpleNamespace as _CallbackState
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import deploy.session as _imports_deploy_session
 import model.adapters.observed as _imports_model_adapters_observed
 import model.files as _imports_model_files
 import model.files as model_files
@@ -19,22 +18,19 @@ import model.sources as model_sources
 import support.repository_fixtures as _fixture_publication_workspace
 from deploy.observed import removed_resources, sync_successful
 from deploy.preparation import candidate
-from deploy.session import design_digest, model_input_manifest
 from model.adapters import observed
 from model.adapters.observed import mappings, preflight, validate_mapping_targets
 from model.format import parse
 from model.format import patch as patch_properties
-from model.sources import authority_snapshot, load_model, model_parts
+from model.sources import load_model, model_parts
 from support import rotation_schedule_fixtures as rotation
 from support.cloudformation_deploy_fixtures import (
-    ROOT,
     TARGET,
     Fake,
     M,
     Path,
     Runtime,
     SimpleNamespace,
-    StubAws,
     copy,
     io,
     json,
@@ -49,7 +45,6 @@ from support.cloudformation_deploy_fixtures import (
     remove_model,
     run,
     snapshot_model,
-    stack_model,
     starts,
     states,
     subprocess,
@@ -61,7 +56,6 @@ from support.model_sources import allocate_fixture as allocate
 from support.model_v2_fixtures import deploy_properties_fixture
 from support.repository_fixtures import fixture, git, start
 from task_contract_core import paths_in, selected_task
-from utils.aws import cloudformation as cfn
 from utils.aws_catalogs import catalog_outputs
 from utils.input_cache import input_scope, memo_table
 
@@ -79,18 +73,6 @@ def check_inputs(tmp_path):
     for i, unit in enumerate(units(20, 10, 10), 1):
         values.update({f"desired.stack.{i:03}.{key}": value for key, value in unit.items()})
         values[f"display.stack.{i:03}.comment"] = "アプリケーションを配置するstack"
-    for field, invalid in (("desired.deployment.maxConcurrentStacks", "0"), ("desired.deployment.maxConcurrentStacks", "-1"),
-                           ("desired.deployment.maxConcurrentStacks", "abc"), ("desired.stack.001.deployOrder", "0"),
-                           ("desired.stack.001.deployOrder", "-1"), ("desired.stack.001.deployOrder", "abc")):
-        rejects(lambda *, field=field, invalid=invalid: stack_model(values | {field: invalid}), "integer >= 1")
-    missing = dict(values)
-    del missing["desired.stack.001.deployOrder"]
-    rejects(lambda: stack_model(missing), "requires only")
-    missing = dict(values)
-    del missing["desired.deployment.maxConcurrentStacks"]
-    assert stack_model(missing)[0] == 1
-    for field in ("dependsOn", "AfterStack", "DependsOnStack", "Dependencies"):
-        rejects(lambda *, field=field: stack_model(values | {"desired.stack.001." + field: "A"}), "requires only")
     root = tmp_path
     (root / 'project.json').write_text(json.dumps({'projectName': 'test', 'targets': [{'environment': 'dev', **TARGET}]}))
     path = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
@@ -108,58 +90,7 @@ def check_inputs(tmp_path):
     contract = root / "tasks/example.md"
     contract.write_text("## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/example.md`\n## Allowed paths\n- `tasks/example.md`\n")
     rejects(lambda: M.session_ops.active_scope(root, ["A"], "dev", TARGET["awsAccountId"]), "infrastructure")
-    assert M.change_sets.import_names({"Fn::ImportValue": {"Fn::Join": ["", [{"Ref": "Prefix"}, "VpcId"]]}}, {"Prefix": "Network"}, {}) == {"NetworkVpcId"}
-    rejects(lambda: M.change_sets.import_names({"Fn::ImportValue": {"Ref": "Resource"}}, {}, {}), "unsupported")
-    conditional = {"Conditions": {
-        "Dev": {"Fn::Equals": [{"Ref": "Environment"}, "dev"]},
-        "Stg": {"Fn::Not": [{"Condition": "Dev"}]},
-        "Active": {"Fn::And": [{"Condition": "Dev"}, {"Fn::Or": [{"Condition": "Dev"}, {"Condition": "Stg"}]}]}},
-        "Resources": {
-            "Mwaa": {"Properties": {"Arn": {"Fn::If": ["Active", {"Fn::ImportValue": "DevBucketArn"},
-                                                                     {"Fn::ImportValue": "StgBucketArn"}]}}},
-            "StgOnly": {"Condition": "Stg", "Properties": {"Arn": {"Fn::ImportValue": "StgRoleArn"}}}},
-        "Outputs": {"StgOnly": {"Condition": "Stg", "Value": {"Fn::ImportValue": "StgOutput"}}}}
-    assert M.change_sets.import_names(conditional, {"Environment": "dev"}, {}) == {"DevBucketArn"}
-    assert M.change_sets.import_names(conditional, {"Environment": "stg"}, {}) == {"StgBucketArn", "StgRoleArn", "StgOutput"}
-    backend = StubAws(["DevBucketArn"])
-    backend.templates["A"] = (conditional, {"Environment": "dev"})
-    assert backend.prepare(units(1)[0], {"clientToken": "dev-only"}) == "READY"
-    backend.templates["A"] = (conditional, {"Environment": "stg"})
-    rejects(lambda: backend.check_imports(units(1)[0]), "missing export")
-    conditional["Conditions"]["Dev"] = {"Condition": "Dev"}
-    rejects(lambda: M.change_sets.import_names(conditional, {"Environment": "dev"}, {}), "cyclic Condition")
-    conditional["Conditions"]["Dev"] = {"Condition": "Missing"}
-    rejects(lambda: M.change_sets.import_names(conditional, {"Environment": "dev"}, {}), "unresolved")
-    conditional["Conditions"]["Dev"] = "true"
-    rejects(lambda: M.change_sets.import_names(conditional, {"Environment": "dev"}, {}), "non-boolean")
-    # Decoder scalars are subclasses; parameter values are plain strings.
-    class MarkedString(str):
-        pass
-    conditional["Conditions"]["Dev"] = {"Fn::Equals": [{"Ref": "Environment"}, MarkedString("dev")]}
-    assert M.change_sets.import_names(conditional, {"Environment": "dev"}, {}) == {"DevBucketArn"}
-    backend = Runtime(ROOT, 'dev', '123456789012', TARGET, 'test')
-    with patch.object(cfn, 'list_exports', return_value={'Exports': []}) as request:
-        backend.aws('list_exports')
-        assert request.call_args.args[0][:3] == ('test', 'ap-northeast-1', '123456789012')
-        configured = {**TARGET, 'awsProfile': 'configured'}
-        for explicit in (None, 'configured'):
-            backend = Runtime(ROOT, 'dev', '123456789012', configured, explicit)
-            assert backend.connection[0] == 'configured'
-        rejects(lambda: Runtime(ROOT, 'dev', '123456789012', configured, 'other'), 'does not match target awsProfile')
-    # Native CFN pseudo parameters describe the stack account, independent of explicit resource IDs.
-    execution = "999999999999"
-    backend = StubAws([execution + "VpcId"])
-    backend.target = {**TARGET, "awsExecutionAccountId": execution}
-    backend.templates["A"] = ({"Fn::ImportValue": {"Fn::Sub": "${AWS::AccountId}VpcId"}}, {})
-    backend.check_imports(units(1)[0])
-    backend.exports = []
-    artifact = {"resource": "Function", "property": "Code", "bucket": "bucket", "keyPrefix": execution + "/"}
-    document = {"Resources": {"Function": {"Type": "AWS::Lambda::Function", "Properties": {
-        "Code": {"S3Bucket": "bucket", "S3Key": {"Fn::Sub": "${AWS::AccountId}/code.zip"}}}}}}
-    assert backend.artifact_bindings({"name": "A", "artifacts": [artifact]}, document, {})[0][0] == artifact
-    assert backend.target["awsAccountId"] == TARGET["awsAccountId"]
-    backend = Runtime(ROOT, 'dev', '123456789012', {**TARGET, 'awsExecutionAccountId': execution})
-    assert backend.connection[2] == execution
+
 
 
 def _callback_observed_collector_seed_resource(values, /, identity, kind, logical, anchor, rows):
@@ -912,59 +843,8 @@ def main():
     return run(__file__, message='CloudFormation controller checks: PASS (scheduler, exact approvals, S3 mappings/uploads, byte limits, checksum/source drift and scoped generation)')
 
 
-@pytest.mark.parametrize('field', ['display', 'reference', 'placement'])
-def check_deploy_digest_covers_all_nonobserved_authority(tmp_path, monkeypatch, field):
-    parse = _imports_model_format.parse
-    patch = _imports_model_format.patch
-    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
-    scope, stacks = deploy_properties_fixture(tmp_path)
-    before = design_digest(tmp_path, scope.environment, scope.target)
-    manifest = model_input_manifest(tmp_path, scope.environment, scope.target)
-    original = scope.path.read_text(encoding='utf-8')
-    scope.path.write_text(patch(parse(original), {'observed.row.007-001.value': 'vpc-observed'}), encoding='utf-8')
-    assert design_digest(tmp_path, scope.environment, scope.target) == before
-    assert model_input_manifest(tmp_path, scope.environment, scope.target) != manifest
-    path, changes = scope.path, {'display.resource.007.label': 'Changed display'}
-    if field == 'placement':
-        path, changes = stacks, {'desired.stack.009.placementName': 'ChangedPlacement'}
-    elif field == 'reference':
-        spec = {'consumerKey': 'desired.row.007-001.value', 'text': parse(original).values['desired.row.007-001.value'], 'occurrence': '1',
-                'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/network', 'producerLogicalId': 'EC2_VPC_001',
-                'resourceType': 'EC2.VPC', 'format': 'link', 'labelPolicy': 'fixed'}
-        changes = {f'desired.reference.stable.{key}': value for key, value in spec.items()}
-    path.write_text(patch(parse(path.read_text(encoding='utf-8')), changes), encoding='utf-8')
-    assert design_digest(tmp_path, scope.environment, scope.target) != before
 
 
-@pytest.mark.parametrize('change', ['observed', 'desired', 'display', 'raw', 'concurrent'])
-def check_deploy_observed_baseline_advances_only_proven_outputs(tmp_path, monkeypatch, change):
-    design_digest = _imports_deploy_session.design_digest
-    model_input_manifest = _imports_deploy_session.model_input_manifest
-    verify_observed_transition = _imports_deploy_session.verify_observed_transition
-    parse = _imports_model_format.parse
-    patch = _imports_model_format.patch
-    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
-    scope, _ = deploy_properties_fixture(tmp_path)
-    before = authority_snapshot(tmp_path, scope.environment, scope.target)
-    intended = design_digest(tmp_path, scope.environment, scope.target)
-    prior_manifest = model_input_manifest(tmp_path, scope.environment, scope.target)
-    original = scope.path.read_text(encoding='utf-8')
-    changes = {'observed.row.007-001.value': 'vpc-new'}
-    if change == 'desired':
-        changes['desired.row.007-001.comment'] = 'unrelated edit'
-    elif change == 'display':
-        changes['display.resource.007.label'] = 'unrelated edit'
-    output = patch(parse(original), changes)
-    if change == 'raw':
-        output += '# unrelated reformat\n'
-    scope.path.write_text(output + ('# concurrent edit\n' if change == 'concurrent' else ''), encoding='utf-8')
-    if change == 'observed':
-        advanced = verify_observed_transition(tmp_path, scope.environment, scope.target, before, {scope.path: output}, intended)
-        assert advanced != prior_manifest
-        assert design_digest(tmp_path, scope.environment, scope.target) == intended
-    else:
-        with pytest.raises((RuntimeError, ValueError), match='non-observed|unrelated|outside authorized'):
-            verify_observed_transition(tmp_path, scope.environment, scope.target, before, {scope.path: output}, intended)
 
 
 def check_deploy_preparation_separates_producer_reads_from_writes(tmp_path, monkeypatch):

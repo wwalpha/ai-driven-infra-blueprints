@@ -15,6 +15,7 @@ from unittest.mock import Mock, patch
 import comparison as issues_iac
 import comparison.references as _imports_comparison_references
 import issues.aggregate as _imports_issues_aggregate
+import pytest
 import utils.json_format as _imports_utils_json_format
 from comparison import registry
 from comparison.values import PreparedValue, desired_value
@@ -22,7 +23,7 @@ from design.catalog import DesignSchemaCatalog
 from model.format import serialize
 from model.sources import Scope
 from utils.cloudformation.inputs import Blocked
-from utils.iac_values import Expression, ResourceReference
+from utils.iac_values import Expression, ResourceReference, same, selected_same
 
 
 def legacy_comparison(root, count=3, services=1, stacks=2):
@@ -571,6 +572,187 @@ class ImportValueResolutionTests(unittest.TestCase):
     bucket = ResourceReference({'$resource': ['s3', '001'], '$attribute': 'Arn'})
     self.assertIs(comparison.reference_decision(bucket, right, 'S3.BucketPolicy', 'PolicyDocument').equal, False)
     self.assertIs(comparison.reference_decision(right, bucket, 'S3.BucketPolicy', 'PolicyDocument').equal, False)
+
+
+
+def reference_comparison(root):
+    comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
+    comparison.root, comparison.environment, comparison.directory = root, 'fixture', 'team'
+    comparison.catalog = DesignSchemaCatalog(Path(__file__).resolve().parents[4])
+    comparison.local_comparison = comparison.reference_models_loaded = True
+    comparison.reference_formats, comparison.symbols, comparison.export_provenance = {}, {}, {}
+    comparison.sensitive_values, comparison._index = set(), None
+    comparison.resources, comparison.rows, comparison.models = {}, {}, {}
+    definitions = {}
+    specifications = [('kms', '001', 'KMS.Key', 'Key', {}),
+        ('kms', '002', 'KMS.Alias', 'Alias', {'AliasName': 'alias/fixture', 'TargetKeyId': {'Ref': 'Key'}}),
+        ('kms', '003', 'KMS.Alias', 'OtherAlias', {'AliasName': 'alias/other', 'TargetKeyId': {'Ref': 'Key'}}),
+        ('kms', '004', 'KMS.Key', 'OtherKey', {}),
+        ('cloudwatch-logs', '001', 'Logs.LogGroup', 'Log', {'LogGroupName': '/fixture/log'}),
+        ('codebuild', '001', 'CodeBuild.Project', 'Build', {'Name': 'fixture-build'}),
+        ('eventbridge', '001', 'Events.Rule', 'Rule', {'Name': 'fixture-rule'}),
+        ('s3', '002', 'S3.Bucket', 'Bucket', {'BucketName': 'bucket-app-dev-data2'})]
+    for service, identity, kind, logical, props in specifications:
+        logical_id = kind.replace('.', '_') + '_' + ('002' if logical in {'OtherAlias', 'OtherKey'} else '001')
+        resource = {'resourceType': kind, 'logicalId': logical_id, 'anchor': 'resource-' + logical_id,
+                    'cfn-logicalId': 'producer-' + logical}
+        comparison.resources.setdefault(service, {})[identity] = resource
+        comparison.rows.setdefault(service, {})[identity] = []
+        definitions[logical] = {'Type': 'AWS::' + kind.replace('.', '::'), 'Properties': props}
+    comparison.resources['s3']['001'] = {'resourceType': 'S3.Bucket', 'logicalId': 'S3_Bucket_001',
+                                        'anchor': 'resource-S3_Bucket_001', 'cfn-logicalId': 'consumer-Bucket'}
+    comparison.resources['s3']['002']['logicalId'] = 'S3_Bucket_002'
+    comparison.resources['s3']['002']['anchor'] = 'resource-S3_Bucket_002'
+    for service, resources in comparison.resources.items():
+        comparison.models[service] = SimpleNamespace(values={f'desired.resource.{identity}.{key}': value
+            for identity, resource in resources.items() for key, value in resource.items()})
+    pseudo = {'AWS::Partition': 'aws', 'AWS::Region': 'ap-northeast-1', 'AWS::AccountId': '123456789012'}
+    comparison.stack_inputs = {'producer': ({'Resources': definitions}, {}, dict(pseudo)),
+        'consumer': ({'Resources': {'Bucket': {'Type': 'AWS::S3::Bucket', 'Properties': {'BucketName': 'bucket-app-dev-data1'}}}}, {}, dict(pseudo))}
+    comparison.templates = lambda: [(name, {'name': name}) for name in comparison.stack_inputs]
+    comparison.stack = lambda unit: (Path(unit['name'] + '.yaml'), comparison.stack_inputs[unit['name']])
+    comparison.exports = {'fixture-BucketArn': [('producer', {'Fn::GetAtt': ['Bucket', 'Arn']})]}
+    comparison.export_failures = []
+    return comparison
+
+
+def _lambda_main_checks_callback_156(comparison, /, a, b, p, *, kind):
+    return comparison.reference_same(a, b, kind, p)
+
+def _lambda_main_checks_callback_192(comparison, /, a, b, p):
+    return comparison.reference_same(a, b, 'IAM.Role', p)
+
+def _lambda_main_checks_callback_76(comparison, /, a, b, path):
+    return comparison.reference_same(a, b, 'IAM.Role', path)
+
+class ReferenceValueTests(unittest.TestCase):
+    def test_kms_forms_and_arn_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            comparison = reference_comparison(Path(directory))
+            stack = 'producer'
+            key_id = '12345678-1234-1234-1234-123456789012'
+            key_arn = 'arn:aws:kms:ap-northeast-1:123456789012:key/' + key_id
+            alias_arn = 'arn:aws:kms:ap-northeast-1:123456789012:alias/fixture'
+            KMS_COMPARISON_FORMS = {key: forms for rules in set(registry.SERVICES.values()) for key, forms in getattr(rules, 'KMS_FORMS', {}).items()}
+            key = comparison.evaluate(stack, {'Ref': 'Key'})
+            arn = comparison.evaluate(stack, {'Fn::GetAtt': ['Key', 'Arn']})
+            alias = comparison.reference('kms', '[KMS_Alias_001](kms.md#resource-KMS_Alias_001)')
+            for prop, allowed in KMS_COMPARISON_FORMS.items():
+                kind, path = '.'.join(prop.split('.')[:2]), '.'.join(prop.split('.')[2:])
+                callback = _bind_framework_callback(_lambda_main_checks_callback_156, comparison, kind=kind)
+                for form, literal in [('KeyId', key_id), ('KeyArn', key_arn), ('AliasName', 'alias/fixture'), ('AliasArn', alias_arn)]:
+                    assert same(literal, literal, reference=callback, path=path) is (form in allowed), (prop, form)
+                assert same(key, arn, reference=callback, path=path) is False
+                assert same('not-a-key', 'not-a-key', reference=callback, path=path) is False
+                assert same('{{resolve:secretsmanager:key}}', alias_arn if 'AliasArn' in allowed else key_arn,
+                            reference=callback, path=path) is None
+                assert same(key_arn, alias_arn, reference=callback, path=path) is False
+                assert same(alias_arn, key_arn, reference=callback, path=path) is False
+                if allowed == {'KeyArn'}:
+                    with pytest.raises(Blocked, match='outside receiving property contract'):
+                        comparison.desired_reference('kms', '[KMS_Alias_001](kms.md#resource-KMS_Alias_001)', kind, path)
+                elif allowed <= {'KeyArn', 'AliasArn'}:
+                    symbolic = comparison.desired_reference('kms', '[KMS_Alias_001](kms.md#resource-KMS_Alias_001)', kind, path)
+                    assert symbolic['$attribute'] == 'AliasArn'
+                    assert same(symbolic, arn, reference=callback, path=path) is False
+                    assert same(arn, symbolic, reference=callback, path=path) is False
+                    assert same(symbolic, alias_arn, reference=callback, path=path) is ('AliasArn' in allowed)
+                    assert same(alias_arn, symbolic, reference=callback, path=path) is ('AliasArn' in allowed)
+                    assert same(symbolic, alias_arn.replace('123456789012', '999999999999'), reference=callback, path=path) is False
+                    assert same(symbolic, alias_arn.replace('ap-northeast-1', 'us-east-1'), reference=callback, path=path) is False
+                    assert same(symbolic, alias, reference=callback, path=path) is False
+                    other = comparison.desired_reference('kms', '[KMS_Alias_002](kms.md#resource-KMS_Alias_002)', kind, path)
+                    assert same(symbolic, other, reference=callback, path=path) is False
+                else:
+                    assert same(arn, key_arn, reference=callback, path=path) is None
+                    assert same(key, key_arn, reference=callback, path=path) is False
+                    assert same(key_id, key_id[:-1] + '3', reference=callback, path=path) is False
+
+            # Existing contracts outside this repair are deliberately unchanged.
+            assert comparison.reference_same(alias, alias, 'CloudTrail.Trail', 'KMSKeyId') is True
+            assert comparison.reference_same(key, arn, 'MWAA.Environment', 'KmsKey') is True
+            assert comparison.reference_same(alias, alias, 'SecretsManager.Secret', 'KmsKeyId') is True
+            assert comparison.reference_same(alias, alias, 'S3.Bucket', 'BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID') is True
+
+            for logical, expected in [('Log', 'arn:aws:logs:ap-northeast-1:123456789012:log-group:/fixture/log:*'),
+                                      ('Build', 'arn:aws:codebuild:ap-northeast-1:123456789012:project/fixture-build'),
+                                      ('Rule', 'arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule')]:
+                symbol = comparison.evaluate(stack, {'Fn::GetAtt': [logical, 'Arn']})
+                callback = _bind_framework_callback(_lambda_main_checks_callback_192, comparison)
+                assert same(symbol, expected, reference=callback)
+                assert same(expected, symbol, reference=callback)
+                assert same(symbol, expected + '-wrong', reference=callback) is False
+                expression = Expression('Sub', ['${Resource}', {'Resource': symbol}])
+                assert same(expression, expected, reference=callback)
+            log = comparison.evaluate(stack, {'Fn::GetAtt': ['Log', 'Arn']})
+            expression = Expression('Select', [0, Expression('Split', [':*', log])])
+            assert comparison.reference_same(expression, 'arn:aws:logs:ap-northeast-1:123456789012:log-group:/fixture/log', 'IAM.Role', '') is True
+            assert comparison.reference_same(Expression('Select', [9, Expression('Split', [':*', log])]), 'x', 'IAM.Role', '') is None
+            rule = comparison.evaluate(stack, {'Fn::GetAtt': ['Rule', 'Arn']})
+            comparison.stack_inputs[stack][0]['Resources']['Rule']['Properties']['EventBusName'] = 'other-bus'
+            assert comparison.reference_same(rule, 'arn:aws:events:ap-northeast-1:123456789012:rule/fixture-rule', 'Lambda.Permission', 'SourceArn') is False
+            comparison.stack_inputs[stack][0]['Resources']['Build']['Properties'].pop('Name')
+            build = comparison.evaluate(stack, {'Fn::GetAtt': ['Build', 'Arn']})
+            assert comparison.reference_same(build, 'arn:aws:codebuild:ap-northeast-1:123456789012:project/fixture-build', 'IAM.Role', '') is None
+            # Neither a fake Alias GetAtt nor a generated key ARN is synthesized.
+            with pytest.raises(KeyError, match='KMS.Alias.Arn'):
+                comparison.evaluate(stack, {'Fn::GetAtt': ['Alias', 'Arn']})
+            with pytest.raises((Blocked, ValueError), match='KMS ARN requires a proven KeyId'):
+                comparison.reference_literal(arn)
+
+
+
+    def test_policy_action_and_expression_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            comparison = reference_comparison(Path(directory))
+            consumer, producer = 'consumer', 'producer'
+            arn = 'arn:aws:s3:::bucket-app-dev-data2'
+            imported = {'Fn::ImportValue': 'fixture-BucketArn'}
+            actual = {'Statement': [{}, {}, {'Resource': {'Fn::Sub': ['${BucketArn}/results/*', {'BucketArn': imported}]}}]}
+            callback = _bind_framework_callback(_lambda_main_checks_callback_76, comparison)
+            action_path = 'Policies[].PolicyDocument.Statement[].Action'
+            for predicate in (same, selected_same):
+                assert predicate('s3:GetObject', ['s3:GetObject'], reference=callback, path=action_path)
+                assert predicate(['s3:GetObject'], 's3:GetObject', reference=callback, path=action_path)
+                for wrong in ([], ['s3:PutObject'], ['s3:GetObject', 's3:GetObject'], [True], [['s3:GetObject']]):
+                    assert predicate('s3:GetObject', wrong, reference=callback, path=action_path) is False
+                assert not predicate(['a', 'b'], ['b', 'a'], reference=callback, path=action_path)
+                for field in ('Tags[].Value', 'Policies[].Action',
+                              'Policies[].PolicyDocument.Statement[].Condition.Action',
+                              'Policies[].PolicyDocument.Statement[].Resource'):
+                    assert not predicate('same', ['same'], reference=callback, path=field)
+                assert not predicate('same', ['same'])
+            for kind, path in [('IAM.Role', 'AssumeRolePolicyDocument.Statement[].Action'),
+                               ('IAM.ManagedPolicy', 'PolicyDocument.Statement[].Action'),
+                               ('IAM.User', action_path)]:
+                assert comparison.reference_same('a', ['a'], kind, path) is True
+            assert comparison.reference_same('a', ['a'], 'S3.BucketPolicy', 'PolicyDocument.Statement[].Action') is NotImplemented
+
+            reference = comparison.evaluate(consumer, imported)
+            assert reference == {'$resource': ['s3', '002'], '$attribute': 'Arn'}
+            assert comparison.reference_literal(reference) == arn
+            sub = comparison.evaluate(consumer, actual['Statement'][2]['Resource'])
+            for symbolic, text in ((reference, arn), (sub, arn + '/results/*')):
+                assert same(symbolic, text, reference=callback)
+                assert same(text, symbolic, reference=callback)
+                for wrong in (text + '-other', text.replace('aws:', 'aws-cn:'), text.replace('data2', 'data1')):
+                    assert same(symbolic, wrong, reference=callback) is False
+            other = comparison.evaluate(consumer, {'Fn::GetAtt': ['Bucket', 'Arn']})
+            assert same(reference, other, reference=callback) is False
+            assert same(reference, dict(reference), reference=callback) is not True
+            escaped = Expression('Sub', ['${BucketArn}/${!literal}/${Tail}', {'BucketArn': reference, 'Tail': 'one'}])
+            assert same(escaped, arn + '/${literal}/one', reference=callback)
+            for unresolved in (Expression('Sub', ['${Missing}', {}]),
+                               Expression('Sub', ['${Value}', {'Value': {'$resource': ['s3', '002'], '$attribute': 'Arn'}}])):
+                assert same(unresolved, arn, reference=callback) is None
+            for different in (Expression('Sub', ['${Value}', {'Value': Expression('Join', ['', [reference, '/*']])}]),
+                               Expression('Join', ['', [reference, '/*']])):
+                assert same(different, arn, reference=callback) is False
+            comparison.stack_inputs[producer][2]['AWS::Partition'] = 'aws-cn'
+            assert same(reference, arn, reference=callback) is False
+            assert same(reference, arn.replace('aws:', 'aws-cn:'), reference=callback)
+
+
 
 
 

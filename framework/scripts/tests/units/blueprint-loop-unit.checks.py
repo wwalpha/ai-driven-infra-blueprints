@@ -543,7 +543,7 @@ def check_it_fixture_isolation(tmp_path):
 def check_it_inventory(tmp_path):
     cases, errors = run_it.inventory(Path(run_it.__file__).parent)
     assert not errors, errors
-    assert cases[('integrations/design_layout.checks.py', 'check_quicksight_group_principal_reference')] == ('pytest', 1)
+    assert cases[('integrations/design_layout.checks.py', 'check_config_firehose_references')] == ('pytest', 1)
     assert cases[('integrations/sync-model.checks.py', 'check_incoming_reference_models')] == ('pytest', 1)
     assert cases[('integrations/model-validation-reuse.checks.py', 'check_sync_mapping_lifetime')] == ('pytest', 4)
     row = '| `origin` | `check_one` | IT | [case](integrations/example.py) | direct / 1 |\n'

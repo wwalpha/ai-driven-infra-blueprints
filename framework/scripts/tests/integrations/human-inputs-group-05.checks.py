@@ -13,7 +13,7 @@ from model.format import serialize
 from model.sources import design_source_digest, load_model
 from support.it_case_receipt import it_case
 from support.model_sources import write_model
-from support.producer_identifier_reference_fixtures import rejected, resource, setup
+from support.producer_identifier_reference_fixtures import resource, setup
 from support.publication_fixtures import publication_repository
 from support.repository_fixtures import fixture, git, start
 
@@ -75,19 +75,6 @@ def check_declared_inputs(service='cloudtrail'):
         raw = path.read_bytes()
         with edit_write_context(target, {('preview', 'team', service)}, name) as context:
             assert publish_edit(prepare_edit(load_model(path, context.snapshot), {path: serialize(changed)}, context), context) == ()
-        assert path.read_bytes() == raw
-        for update, phrase in [
-            ({prefix + 'artifactSha256': 'stale'}, 'unknown Model field'),
-            ({prefix + 'document': '{"x":1,"x":2}'}, 'duplicate JSON'),
-            ({'desired.row.017-002.value': '`[NaN]`'}, 'invalid JSON constant')]:
-            with edit_write_context(target, {('preview', 'team', service)}, name) as context:
-                snapshot = load_model(path, context.snapshot)
-                rejected(lambda *, snapshot=snapshot, update=update: prepare_edit(snapshot, {path: serialize({**changed, **update})}, context), phrase)
-            assert path.read_bytes() == raw and other.read_bytes() == saved
-        candidate = dict(changed)
-        del candidate['desired.row.017-002.comment']
-        with edit_write_context(target, {('preview', 'team', service)}, name) as context:
-            rejected(lambda: prepare_edit(load_model(path, context.snapshot), {path: serialize(candidate)}, context), 'requires property, value and comment')
         assert path.read_bytes() == raw
     print(service + ': PASS (explicit fields/types, identity, derived hash, managed edit/no-op and environment isolation)')
 

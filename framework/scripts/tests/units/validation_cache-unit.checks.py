@@ -9,9 +9,22 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import threading
+from types import SimpleNamespace as _CallbackState
+
+import model.sources as model_sources
 import pytest
+import sync_runtime
+import sync_views
 import task_contract_core as tasks
+import utils.aws_mappings as mapping_state
+import utils.input_cache as input_cache
+from model.files import read_model
+from model.format import FORMAT, INDEX
 from model.importing import scope as import_scope
+from model.sources import load_model
+from support.model_v2_fixtures import format_fixture
+from support.producer_identifier_reference_fixtures import resource, setup
 from support.pytest_cli import run
 from support.validation_cache_fixtures import (
     PassCache,
@@ -22,7 +35,10 @@ from support.validation_cache_fixtures import (
     os,
     sys,
     tempfile,
+    write_model,
 )
+from support.validator import MODULE as validator_module
+from utils.aws_mappings import mapping_alias, mappings_for
 from utils.input_cache import input_context, memoized
 
 if not __debug__:
@@ -229,6 +245,202 @@ def check_service_cache_invalidation(tmp_path, relative):
         target.unlink()
         with input_context(), pytest.raises(ValueError):
             cache.service_key(entry)
+
+
+def check_link_and_part_inputs():
+    with tempfile.TemporaryDirectory() as temporary, tempfile.TemporaryDirectory() as directory:
+        root = Path(temporary).resolve()
+        setup(root, ('sqs', 'kms'), ('SQS.Queue', 'KMS.Key'), environments=('dev',))
+        docs = root / 'docs/designs/dev/team'
+        docs.mkdir(parents=True)
+        design, model = docs / 'sqs.md', root / 'model/dev/team/sqs.properties'
+        design.write_text('[Reference](kms.md#key)\n', encoding='utf-8')
+        (docs / 'kms.md').write_text('<a id="key"></a>\n', encoding='utf-8')
+        write_model(model, resource('001', 'SQS.Queue', 'sqs', [('QueueName', '`first`')]))
+        entry = ('dev', 'team', 'sqs')
+        before = PassCache(root, directory=directory).service_key(entry)
+        (docs / 'kms.md').write_text('<a id="changed"></a>\n', encoding='utf-8')
+        assert PassCache(root, directory=directory).service_key(entry) != before
+        body = model.read_text()
+        part = model.with_suffix('') / 'part-003.properties'
+        part.parent.mkdir()
+        part.write_text(body)
+        model.write_text(FORMAT + '\n' + INDEX + '\n# part: sqs/part-003.properties\n')
+        before = PassCache(root, directory=directory).service_key(entry)
+        part.write_text(body.replace('`first`', '`changed`'))
+        assert PassCache(root, directory=directory).service_key(entry) != before
+    print('validation-cache: PASS (references, stable part names and raw bytes)')
+
+
+def _callback_check_read_scope_lifetime_expand(original, scopes, /, *args):
+    scopes.append(input_cache.memo_table())
+    return original(*args)
+
+
+def _callback_check_read_scope_lifetime_nested(model, scopes, /):
+    scope = input_cache.memo_table()
+    read_model(model)
+    assert scopes[-1] is scope
+    read_model(model)
+    assert input_cache.memo_table() is scope
+
+
+def check_read_scope_lifetime(tmp_path):
+    scope, values = format_fixture(tmp_path)
+    model = scope.path
+    original = model_sources._read_model
+    scopes = []
+    expand = _bind_framework_callback(_callback_check_read_scope_lifetime_expand, original, scopes)
+    with patch.object(model_sources, '_read_model', side_effect=expand):
+        first = read_model(model)
+        assert scopes[-1] is not None
+        assert input_cache.memo_table() is None
+        values['desired.row.007-002.value'] = '`changed-name`'
+        write_model(model, values)
+        assert read_model(model) != first
+        nested = (input_cache.input_scope)(_bind_framework_callback(_callback_check_read_scope_lifetime_nested, model, scopes))
+        nested()
+    assert input_cache.memo_table() is None
+    with patch.object(model_sources, '_read_model', side_effect=ValueError('injected')):
+        with pytest.raises(ValueError, match='injected'):
+            read_model(model)
+    assert input_cache.memo_table() is None
+
+
+def _callback_check_single_and_parallel_threads_validate(barrier, provider, stage, threads, /, *args, **kwargs):
+    assert mappings_for(stage) is provider
+    assert mappings_for(stage).get('iam') is provider.get('iam')
+    threads.append((threading.get_ident(), input_cache.memo_table()))
+    if barrier:
+        barrier.wait(timeout=10)
+
+
+def _callback_check_single_and_parallel_threads_run_candidates(_state_check_single_and_parallel_threads_259, main, paths, root, stage, /):
+    scope = input_cache.memo_table()
+    failures = []
+    with patch.object(sync_views, 'validate_views', side_effect=_state_check_single_and_parallel_threads_259.validate):
+        sync_runtime.validate_candidates(stage, root, {p: [] for p in paths[:_state_check_single_and_parallel_threads_259.count]},
+                                         {p: {} for p in paths[:_state_check_single_and_parallel_threads_259.count]}, failures, 4, False)
+    assert not failures
+    if _state_check_single_and_parallel_threads_259.count == 1:
+        assert _state_check_single_and_parallel_threads_259.threads == [(main, scope)]
+    else:
+        assert len({thread for thread, _ in _state_check_single_and_parallel_threads_259.threads}) == 2
+        assert all(thread != main for thread, _ in _state_check_single_and_parallel_threads_259.threads)
+
+
+def check_single_and_parallel_threads(tmp_path):
+    _state_check_single_and_parallel_threads_259 = _CallbackState()
+    root, stage = tmp_path / 'root', tmp_path / 'stage'
+    provider = mappings_for(root)
+    paths = [root / 'docs/designs/dev/team' / (s + '.md') for s in ('iam', 's3')]
+    main = threading.get_ident()
+    for _state_check_single_and_parallel_threads_259.count in (1, 2):
+        _state_check_single_and_parallel_threads_259.threads = []
+        barrier = threading.Barrier(2) if _state_check_single_and_parallel_threads_259.count == 2 else None
+        _state_check_single_and_parallel_threads_259.validate = _bind_framework_callback(_callback_check_single_and_parallel_threads_validate, barrier, provider, stage, _state_check_single_and_parallel_threads_259.threads)
+        run_candidates = (input_cache.input_scope)(_bind_framework_callback(_callback_check_single_and_parallel_threads_run_candidates, _state_check_single_and_parallel_threads_259, main, paths, root, stage))
+        with mapping_alias(root, stage):
+            run_candidates()
+        assert stage not in mapping_state._aliases and stage not in mapping_state._instances
+
+
+def _callback_check_scoped_validation_threads_and_failures_designs(barrier, seen, /, validator):
+    seen.append((threading.get_ident(), input_cache.memo_table()))
+    if barrier:
+        barrier.wait(timeout=10)
+    validator.check(False, 'synthetic service failure')
+
+
+def _callback_check_scoped_validation_threads_and_failures_validate(_state_check_scoped_validation_threads_and_failures_322, main, tmp_path, /):
+    scope = input_cache.memo_table()
+    validator = validator_module.Validator(tmp_path, _state_check_scoped_validation_threads_and_failures_322.entries)
+    validator.schema_catalog = object()
+    with patch.object(validator_module.Validator, 'design_files', return_value=[]), \
+         patch.object(validator_module.Validator, 'check_design_service_ownership'), \
+         patch.object(validator_module.Validator, 'check_stack_designs'), \
+         patch.object(validator_module.Validator, 'check_generated_service_models'), \
+         patch.object(validator_module.Validator, 'check_designs', _state_check_scoped_validation_threads_and_failures_322.designs), \
+         patch.object(validator_module.Validator, 'check_observed_values'):
+        validator.check_scoped_designs()
+    assert validator.errors == ['synthetic service failure'] * _state_check_scoped_validation_threads_and_failures_322.count
+    if _state_check_scoped_validation_threads_and_failures_322.count == 1:
+        assert _state_check_scoped_validation_threads_and_failures_322.seen == [(main, scope)]
+    else:
+        assert len({thread for thread, _ in _state_check_scoped_validation_threads_and_failures_322.seen}) == 2
+        assert all(thread != main and memo is not scope for thread, memo in _state_check_scoped_validation_threads_and_failures_322.seen)
+
+
+def check_scoped_validation_threads_and_failures(tmp_path):
+    _state_check_scoped_validation_threads_and_failures_322 = _CallbackState()
+    main = threading.get_ident()
+    for _state_check_scoped_validation_threads_and_failures_322.count in (1, 2):
+        _state_check_scoped_validation_threads_and_failures_322.entries = {('dev', 'team', s) for s in ('iam', 's3')[:_state_check_scoped_validation_threads_and_failures_322.count]}
+        _state_check_scoped_validation_threads_and_failures_322.seen = []
+        barrier = threading.Barrier(2) if _state_check_scoped_validation_threads_and_failures_322.count == 2 else None
+        _state_check_scoped_validation_threads_and_failures_322.designs = _bind_framework_callback(_callback_check_scoped_validation_threads_and_failures_designs, barrier, _state_check_scoped_validation_threads_and_failures_322.seen)
+        validate = (input_cache.input_scope)(_bind_framework_callback(_callback_check_scoped_validation_threads_and_failures_validate, _state_check_scoped_validation_threads_and_failures_322, main, tmp_path))
+        validate()
+
+
+def _callback_check_preparation_cache_snapshot(original, path, /):
+    with patch.object(model_sources, '_read_model', wraps=model_sources._read_model) as parsed:
+        first = load_model(path)
+        assert first.authoritative['desired.row.001-001.value'] == '`first`'
+        path.write_bytes(original.replace(b'`second`', b'`changed`'))
+        second = load_model(path)
+        assert second.authoritative['desired.row.002-001.value'] == '`second`'
+        assert parsed.call_count == 1 and second.dependencies[path] == original
+
+
+def check_preparation_cache(tmp_path):
+    root = tmp_path
+    setup(root, ["iam"], ["IAM.Role"])
+
+    path = root / 'model/preview/team/iam.properties'
+    values = {}
+    for identity, rid in [('first', '001'), ('second', '002')]:
+        values.update(resource(rid, 'IAM.Role', 'iam-' + rid, [('RoleName', '`' + identity + '`')]))
+    write_model(path, values)
+    original = path.read_bytes()
+    before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
+    snapshot = (input_scope)(_bind_framework_callback(_callback_check_preparation_cache_snapshot, original, path))
+    try:
+        snapshot()
+        assert load_model(path).authoritative['desired.row.002-001.value'] == '`changed`'
+        path.unlink()
+        with pytest.raises((ValueError, OSError), match='iam.properties'):
+            load_model(path)
+    finally:
+        path.write_bytes(original)
+    assert before == {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
+
+
+def _callback_check_template_snapshot_reuse(original, path, root, /):
+    with patch.object(model_sources, '_read_model', wraps=model_sources._read_model) as parsed:
+        first, second = load_model(path), load_model(path)
+        assert first is second and parsed.call_count == 1
+        with pytest.raises(TypeError):
+            first.files[root / 'foreign'] = 'unrelated'
+        with pytest.raises(TypeError):
+            first.authoritative['desired.row.007-001.value'] = 'changed'
+    path.write_text('invalid')
+    assert load_model(path) is first
+    path.write_bytes(original)
+    assert load_model(path) is first
+
+
+def check_template_snapshot(tmp_path):
+    root = tmp_path
+    scope, _ = format_fixture(root)
+    path = scope.path
+    original = path.read_bytes()
+    reuse = (input_scope)(_bind_framework_callback(_callback_check_template_snapshot_reuse, original, path, root))
+    reuse()
+    path.write_text('invalid')
+    with pytest.raises(ValueError, match='unsupported Model format'):
+        load_model(path)
+    path.write_bytes(original)
 
 
 if __name__ == '__main__':

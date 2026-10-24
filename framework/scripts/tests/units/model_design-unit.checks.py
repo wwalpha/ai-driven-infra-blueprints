@@ -8,9 +8,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import sys
+import tempfile
+from functools import partial as _bind_framework_callback
+from pathlib import Path
+
 import model.render as model_design
 import support.model_design_fixtures as _exports_support_model_design_fixtures
 import sync_runtime
+import sync_views
 import validation.design as design_validation
 import validation.design_tables as design_tables
 from design.array_display import indexed_rows
@@ -27,10 +33,12 @@ from design.layout import (
     stack_deployment_policy,
     stack_design,
 )
+from design.layout_schema import resource_anchor as resource_anchor
 from model.core import entries, stack_model, validate_model_keys
 from model.format import parse, serialize
 from model.identity import resource_index
 from model.projection import resource_rows
+from model.render import markdown_for
 from model.validation import (
     validate_kms_policy_accounts,
     validate_required_properties,
@@ -41,6 +49,7 @@ from support.model_design_fixtures import (
     CODEBUILD_VPC_PROPERTIES,
     HEADER,
     ROOT,
+    STACK_VALUES,
     SUBNET_LIST_PROPERTIES,
     Diagnostics,
     Path,
@@ -65,7 +74,8 @@ from support.model_design_fixtures import (
     sys,
 )
 from support.model_design_fixtures import pytestmark as pytestmark
-from utils.function_wrapper import BoundCallback as _bind_framework_callback
+from support.model_sources import write_model
+from support.rotation_schedule_fixtures import fixture as rotation_fixture
 from utils.iac_values import cfn_resource_identity
 from validation.design_links import check_design_links as validate_design_links
 from validation.findings import Findings
@@ -847,10 +857,11 @@ def check_stack_policy():
         stack_model({key: value for key, value in values.items() if key != 'desired.stack.001.deployOrder'})
     with pytest.raises(ValueError, match='unknown stack design'):
         stack_model(values | {'desired.mapping.001.stack': 'cfn-stack-app-dev-network'})
-    for invalid in ('', 'invalid', 'stack-resource', 'stack-Bad_Id', ' stack-Resource', 'stack-Resource '):
+    for invalid in ('', 'invalid', 'stack-resource', 'stack-Bad_Id', ' stack-Resource', 'stack-Resource ', 'missing', 'stack-lowercase', 'stack-Resource-with-hyphen'):
         with pytest.raises(ValueError):
             cfn_resource_identity(invalid)
     assert cfn_resource_identity('stack-Resource-With-Hyphens') == ('stack-Resource-With', 'Hyphens')
+    assert cfn_resource_identity('cfn-stack-app-dev-ism-DepartmentVpc') == ('cfn-stack-app-dev-ism', 'DepartmentVpc')
 
 
 def check_observed_arn_authority():
@@ -1245,6 +1256,105 @@ def check_candidate_design_diagnostics(tmp_path):
                for error in validator.errors), validator.errors
     validator.check_design_overviews([path])
     assert any('resource overview must appear exactly once' in error for error in validator.errors), validator.errors
+
+
+def rejects(action, *messages):
+    try:
+        action()
+    except ValueError as error:
+        assert all(message in str(error) for message in messages), str(error)
+        return str(error)
+    raise AssertionError(f"invalid input accepted: {messages}")
+
+def check_rotation_inputs():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [
+            {"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
+        ]}) + "\n")
+        path = root / "docs/designs/dev/123456789012/secretsmanager.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        write_model(root / 'model/dev/123456789012/cloudformation-stacks.properties', STACK_VALUES)
+        for count in (1, 2):
+            values = rotation_fixture(count)
+            output = markdown_for(path, values, root)
+            path.write_text(output)
+            _, children = expanded_design(output.splitlines())
+            assert len(children) == count
+            sync_views.validate_views(root, root, [path], {path: values})
+            assert "### SecretsManager.RotationSchedule" not in output
+            assert "app-dev-secret-1_rotate：属性の設定値" in output
+            sync_views.validate_views(root, root, [path], {path: values})
+            assert model_projection.linked_resource(path, "[PENDING_DEPLOY](#" + values["desired.resource.002.anchor"] + ")") == ("SecretsManager.RotationSchedule", "SecretsManager_RotationSchedule_001")
+
+        comments = dict(values)
+        comments["desired.row.002-001.comment"] = "属性：設定値"
+        path.write_text(markdown_for(path, comments, root))
+        path.write_text(output)
+
+        metadata = rotation_fixture()
+        for key in list(metadata):
+            if key.startswith("desired.row.002-"):
+                row, field = key.removeprefix("desired.row.002-").split(".", 1)
+                metadata[f"desired.row.002-{int(row) + 4:03d}.{field}"] = metadata.pop(key)
+        for index, (field, value) in enumerate((("Key", "first"), ("Value", "one"), ("Key", "second"), ("Value", "two")), 1):
+            prefix = f"desired.row.002-{index:03d}."
+            metadata.update({prefix + "property": "SecretsManager.RotationSchedule" + ".ExternalSecretRotationMetadata[]." + field,
+                             prefix + "value": f"`{value}`", prefix + "comment": "外部ローテーションの設定値"})
+        metadata_output = markdown_for(path, metadata, root)
+        path.write_text(metadata_output)
+        for index, (field, value) in enumerate((("Key", "first"), ("Value", "one"), ("Key", "second"), ("Value", "two"))):
+            assert f"| RotationSchedule.ExternalSecretRotationMetadata[{index // 2 + 1}].{field} | `{value}` |" in metadata_output
+        assert "| SecretsManager.RotationSchedule.ExternalSecretRotationMetadata" not in metadata_output
+        sync_views.validate_views(root, root, [path], {path: metadata})
+        path.write_text(output)
+
+        # Both desired metadata and the formal property are authoritative.
+        for field in ("parentReference", "parentProperty"):
+            bad = dict(values)
+            del bad[f"desired.resource.002.{field}"]
+            rejects(lambda *, bad=bad: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_001", field, "SecretsManager.RotationSchedule" + ".SecretId")
+        for reference in ("[Missing](#missing)", "[Secret1](elsewhere.md#secretsmanager-app-dev-secret-1)",
+                          "[SecretsManager_RotationSchedule_001](#resource-SecretsManager_RotationSchedule_001)"):
+            bad = {**values, "desired.resource.002.parentReference": reference}
+            rejects(lambda *, bad=bad: markdown_for(path, bad, root), "parentReference")
+        for key, value in (("desired.resource.002.parentProperty", "SecretsManager.RotationSchedule" + ".Id"),
+                           ("desired.row.002-003.value", "[Secret2](#secretsmanager-app-dev-secret-2)")):
+            bad = {**values, key: value}
+            rejects(lambda *, bad=bad: markdown_for(path, bad, root), "invalid grouped parentProperty" if key.endswith("parentProperty") else "grouped formal row does not match parentReference")
+        for row in ("002-003",):
+            bad = {key: value for key, value in values.items() if not key.startswith((f"desired.row.{row}.", f"observed.row.{row}."))}
+            rejects(lambda *, bad=bad: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_001", ".SecretId")
+        bad = dict(values)
+        for key, value in list(values.items()):
+            if key.startswith("desired.row.002-003."):
+                bad[key.replace("002-003", "002-004")] = value
+        rejects(lambda: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_001", "exactly one formal row")
+        bad = {**values, "desired.resource.004.parentReference": values["desired.resource.002.parentReference"],
+               "desired.row.004-003.value": values["desired.row.002-003.value"]}
+        rejects(lambda: markdown_for(path, bad, root), "SecretsManager_RotationSchedule_002", "too many grouped children", "SecretsManager_Secret_001")
+
+        # Parsing must reject edits independently of model generation.
+        invalid_views = [
+            (output.replace("[app-dev-secret-1](#secretsmanager-app-dev-secret-1)", "[app-dev-secret-2](#secretsmanager-app-dev-secret-2)"), "must reference enclosing"),
+            (output.replace("[app-dev-secret-1](#secretsmanager-app-dev-secret-1)", "[app-dev-secret-1](other.md#secretsmanager-app-dev-secret-1)"), "must reference enclosing"),
+            ("\n".join(line for line in output.splitlines() if "SecretsManager.RotationSchedule" + ".SecretId" not in line), "required property missing"),
+            (output.replace("<!-- logical-id: SecretsManager_RotationSchedule_001 -->", ""), "require anchor and logical ID"),
+            (output.replace("app-dev-secret-1_rotate：", ""), "confirmed display name required"),
+            (output.replace("SecretsManager.Secret:", "S3.Bucket:"), "wrong parent"),
+            (output.replace("<!-- logical-id: SecretsManager_RotationSchedule_002 -->", "<!-- logical-id: SecretsManager_RotationSchedule_001 -->"), "duplicate grouped logical ID"),
+        ]
+        for invalid, message in invalid_views:
+            rejects(lambda *, invalid=invalid: expanded_design(invalid.splitlines()), message)
+        lines = output.splitlines()
+        child_rows = [line for line in lines if "SecretsManager.RotationSchedule" + "." in line][:3]
+        second_child = [line.replace("secret-1_rotate", "secret-3_rotate").replace("SecretsManager_RotationSchedule_001", "SecretsManager_RotationSchedule_003") for line in child_rows]
+        insertion = lines.index(child_rows[-1]) + 1
+        rejects(lambda: expanded_design(lines[:insertion] + second_child + lines[insertion:]), "too many grouped children")
+        path.write_text(output)
+        mismatch = {**values, "desired.resource.002.parentReference": "[Secret2](#secretsmanager-app-dev-secret-2)"}
+        rejects(lambda: markdown_for(path, mismatch, root), "grouped formal row does not match parentReference")
+
 
 
 if __name__ == '__main__':

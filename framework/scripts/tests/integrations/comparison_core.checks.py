@@ -66,14 +66,6 @@ import model.render as model_design, model.core as model_core
 from model.adapters import observed
 assert not hasattr(model_design, 'cfn_resource_identity')
 assert inputs.cfn_resource_identity is observed.cfn_resource_identity is model_core.cfn_resource_identity is values.cfn_resource_identity
-assert values.cfn_resource_identity('cfn-stack-app-dev-ism-DepartmentVpc') == ('cfn-stack-app-dev-ism', 'DepartmentVpc')
-for invalid in ('missing', 'stack-lowercase', 'stack-Resource-with-hyphen'):
-    try:
-        values.cfn_resource_identity(invalid)
-    except ValueError as error:
-        assert 'invalid cfn-logicalId' in str(error)
-    else:
-        raise AssertionError('invalid CFn identity accepted')
 '''
 for order in [('utils.comparison_rows', 'utils.iac_values', 'iac_evaluation'), ('iac_evaluation', 'utils.iac_values', 'utils.comparison_rows')]:
     subprocess.run([sys.executable, '-B', '-c', code, str(Path(__file__).resolve().parents[2]), *order], check=True)

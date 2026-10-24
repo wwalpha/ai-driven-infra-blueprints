@@ -7,7 +7,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-import pytest
 import support.it_fixture_bundle as _imports_support_it_fixture_bundle
 from model.files import trace_model
 from model.format import parse, serialize
@@ -59,25 +58,7 @@ def check(root, alias, service):
     comment, = [key for key in before.authoritative if key.endswith('.comment') and key.startswith('desired.row.')][:1]
     result = proposed({comment: '更新確認 ' + before.authoritative[comment]})
     assert result.authoritative[comment].startswith('更新確認 ')
-    with pytest.raises(ValueError, match='unknown Model field'):
-        proposed({'desired.resource.017.unknown': 'bad'})
-    required = next(key for key in before.authoritative if key.startswith('desired.row.') and key.endswith('.value'))
-    with pytest.raises(ValueError, match='Row requires'):
-        proposed({required: None})
-    with pytest.raises(ValueError, match='duplicate'):
-        load_model(before.scope, CandidateReads(FileReads(), {path: path.read_text() + required + '=duplicate\n'}))
-
-    if service == 'codecommit':
-        key = next(key.removesuffix('.property') + '.value' for key, raw in before.authoritative.items() if raw == 'CodeCommit.Repository.RepositoryDescription')
-        changed = proposed({key: ' 001 \\ " '})
-        assert changed.authoritative[key] == ' 001 \\ " '
-    elif service == 'security-hub':
-        assert any(value == '`SECURITY_CONTROL`' for value in before.authoritative.values())
-        assert any(value == '`true`' for value in before.authoritative.values())
-    elif service == 'datazone':
-        assert len([key for key in before.authoritative if key.endswith('.resourceType')]) == 6
-        assert set(fixed) == {key for key in proposed({}).authoritative if key.startswith('desired.resource.')}
-    elif service == 'athena':
+    if service == 'athena':
         producer = path.with_name('s3.properties')
         assert producer in before.dependencies
         spec, = declarations(before.authoritative).values()
@@ -90,13 +71,6 @@ def check(root, alias, service):
         key = spec['consumerKey']
         after = proposed({key: before.authoritative[key].replace('-one', '-two'), 'desired.reference.result.text': 'fixture-bucket-001-two'}, {producer: changed_producer})
         assert not after.warnings and after.authoritative[key] != before.authoritative[key]
-        with pytest.raises(ValueError, match='logicalId requires ResourceType prefix'):
-            proposed({}, {producer: changed_producer.replace('S3.Bucket', 'IAM.Role')})
-        for invalid in (changed_producer.replace('BucketName', 'Other'),):
-            preserved = proposed({}, {producer: invalid})
-            assert preserved.authoritative == before.authoritative and preserved.warnings
-        missing = proposed({}, {producer: None})
-        assert missing.authoritative == before.authoritative and missing.warnings
     elif service == 'sqs':
         key, = [key for key in before.authoritative if key.endswith('.document')]
         document = json.loads(before.authoritative[key])

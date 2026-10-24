@@ -247,3 +247,22 @@ The AWS JSON boundary rejects internal nodes, including JSON encoded in strings.
 No automatic migration or AWS execution projection is provided. LLM migration must prove the
 producer and attribute, preserve Resource/logicalId/anchor/Observed and unrelated fields, and
 change only the proved reference expression under a separately authorized Model Task.
+
+## Framework IT→UT移行（74252f5）
+
+開始時の実数はIT 76 suite / 313登録 / 431条件、移行後は68 suite / 236登録 / 311条件。
+指定6 suiteに加えてDesign Document/Route53 Import Expressionを削除し、サービス契約13補助登録とValidator補助10登録を整理した。
+値/型/Schema/Enum/比較/警告/Cacheの細かな条件は既存UT内の直接検証に置く。UTファイルやRunnerは新設しない。
+
+[Assertion対応表](IT_UT_MIGRATION.tsv)には、元ケース、元検証地点、ループ/分岐、U/I/D、重複根拠、最終所有関数と統合境界を残す。
+静的監査地点は実行coverageや固有Assertion数ではない。元条件の具体値は開始時commitのFixture/parametrizeも参照する。
+全68残存ITの境界、追加UT、削除根拠、Phase結果は[CASES.md](CASES.md#framework-it-to-ut-migration-74252f5-baseline)に記録する。
+
+ITは実CLI、複数保存Model/環境の参照と依存Snapshot、実Git/Worktree、Task/Controller、Publication/Atomicity/Recoveryを所有する。
+保存前の失敗遮断と旧bytes保持、実複数workerやプロセス間の隔離は、それぞれの実経路で検証する。
+Validatorの入力補助はUnit aggregatorから呼び、framework-input-isolationは消費側Taskの実dispatchだけを呼ぶ。
+Terraform未導入による正常return/完了Receiptは認めず、実CLIを検証できなければFAILとする。
+
+ローカルは全UT・Ruff・Python構造規約・pytest収集・Inventory/Assertion Guard・scoped Validatorまで。
+Full IT、長時間IT、ITの性能測定をローカルで実行しない。既存GitHub Actions Framework ITの全件PASSで最終検証とする。
+移行の構造整合、公式CIでのUT/IT PASS、IT本体10秒以内は別の判定である。時間未測定・未実行・FAIL・skipは達成扱いにしない。

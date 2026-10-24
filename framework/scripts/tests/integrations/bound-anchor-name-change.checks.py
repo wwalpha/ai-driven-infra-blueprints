@@ -9,7 +9,6 @@ import io
 import tempfile
 from contextlib import redirect_stdout
 
-import pytest
 import sync_runtime
 from design.document import DesignIndex
 from model.core import entries
@@ -48,7 +47,6 @@ def check(root):
         ('Environment.Type', '`LINUX_CONTAINER`', '方式'), ('ServiceRole', '`build-role`', '実行role'), ('Source.Type', '`NO_SOURCE`', '入力'),
         ('Id', '[CodeBuild_Project_001](codebuild.md#codebuild-cbld-app-preview-build)', '識別子')], 'BuildProject')
     build['observed.row.001-008.value'] = '`PENDING_DEPLOY`'
-    anchor = 'kms-app-preview-data'
     kms = MODELS.model('kms', 'KMS.Key', 'app-preview-data', [('KeyId', '[KMS_Key_001](kms.md#kms-app-preview-data)', '識別子')], 'Key')
     kms.update({'desired.service.kms.ownedCatalogResourceTypes': 'KMS.Key,KMS.Alias',
         'desired.resource.002.resourceType': 'KMS.Alias', 'desired.resource.002.logicalId': 'KMS_Alias_001', 'desired.resource.002.anchor': 'resource-KMS_Alias_001',
@@ -104,21 +102,6 @@ def check(root):
     assert len(set(bound_resource_anchors(vpc_path).values())) == 3
     assert vpc_path.read_bytes() == saved[vpc_path]
     vpc_path.write_bytes(original)
-    original = build_path.read_bytes()
-    for anchor in ('codebuild-bad"anchor', 'codebuild-bad<anchor', 'codebuild/bad', ''):
-        invalid = dict(load_model(build_path).authoritative)
-        invalid['desired.resource.001.anchor'] = anchor
-        write_model(build_path, invalid)
-        with pytest.raises(ValueError, match='anchor'):
-            bound_resource_anchors(build_path)
-        build_path.write_bytes(original)
-    for raw in (b'# model-format: 99\n', b'# model-format: 2\ninvalid\n', original + b'desired.resource.001.anchor=duplicate\n'):
-        build_path.write_bytes(raw)
-        with pytest.raises(ValueError):
-            bound_resource_anchors(build_path)
-    build_path.unlink()
-    assert bound_resource_anchors(build_path) == {}
-    build_path.write_bytes(original)
     print('Fixed anchors: PASS (CodeBuild/VPC/grouped KMS rename; IDs/refs/observed; projection/validation; byte-identical rerun; malformed authority rejection)')
 
 

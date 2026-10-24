@@ -45,6 +45,16 @@ def main():
     scenario.check_timestamp()
     assert MODULE.CODEX_PROMPT_FILENAME_PATTERN.fullmatch("01_initialize.md")
     assert not MODULE.CODEX_PROMPT_FILENAME_PATTERN.fullmatch("initialize.md")
+    cloudformation.check_cloudformation_stack_design()
+    cloudformation.check_stack_mapping_targets()
+    design.check_description_design_constraints()
+    references.check_identifier_propagation()
+    references.check_array_source_role_links()
+    references.check_s3_bucket_policy_grouping()
+    references.check_subnet_association_overview()
+    references.check_resource_overview()
+    scenario.check_records()
+    task.check_task_type_inputs()
     print("Validator units: PASS")
 
 

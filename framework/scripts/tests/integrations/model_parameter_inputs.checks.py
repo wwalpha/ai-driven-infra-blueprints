@@ -9,17 +9,15 @@ import io
 import json
 from contextlib import redirect_stdout
 
-import pytest
 import support.model_parameter_inputs_fixtures as _exports_support_model_parameter_inputs_fixtures
 import sync_runtime
-from integrations.service_contracts import check
 from model.files import trace_model
 from model.format import serialize
 from model.operations import CandidateReads
 from model.projection import document_sha256 as document_sha256
 from model.references import incoming
 from model.references import usages as usages
-from model.sources import design_source_digest, list_models, load_model
+from model.sources import design_source_digest, load_model
 from support.import_model_fixtures import (
     reference_fields,
     resource_values,
@@ -27,6 +25,7 @@ from support.import_model_fixtures import (
 )
 from support.model_parameter_inputs_fixtures import fixture as fixture
 from support.model_sources import write_model
+from support.service_fixtures import authored_service, topology
 from utils.source_reads import FileReads
 
 if not __debug__:
@@ -65,30 +64,6 @@ def check_human(root):
     assert all(p.read_bytes() == raw for p, raw in original.items())
 
 
-def check_declared_instance_inputs(root):
-    environments, paths = fixture(root)
-    scopes = list_models(root)
-    assert len(scopes) == 4 and {scope.target for scope in scopes} == {'team'}
-    assert not (root / 'model/preview/other').exists()
-    for identity in ('001', '042'):
-        values = service_values('explicit', ['Example.Resource'])
-        values.update(resource_values(identity, 'Example.Resource', 'explicit-' + identity, 'CREATE', [
-            ('Value', '`{"enabled":true,"fixed":"fixed","optional":3,"sequence":[3,1,2],"empty":null}`')]))
-        path = root / 'model/preview/team/explicit.properties'
-        write_model(path, values)
-        snapshot = load_model(path)
-        key = 'desired.row.' + identity + '-001.value'
-        native = json.loads(snapshot.authoritative[key][1:-1])
-        assert native == {'enabled': True, 'fixed': 'fixed', 'optional': 3, 'sequence': [3, 1, 2], 'empty': None}
-        assert type(native['enabled']) is bool and type(native['optional']) is int
-        saved = path.read_bytes()
-        assert load_model(path).authoritative == snapshot.authoritative and path.read_bytes() == saved
-        for field in ('property', 'value', 'comment'):
-            changed = {k: v for k, v in values.items() if k != 'desired.row.' + identity + '-001.' + field}
-            with pytest.raises(ValueError, match='Row requires'):
-                load_model(path, CandidateReads(FileReads(), {path: serialize(changed)}))
-        with pytest.raises(ValueError, match='unknown Model field'):
-            load_model(path, CandidateReads(FileReads(), {path: serialize({**values, 'desired.resource.' + identity + '.definition': 'old'})}))
 
 
 def check_kms_alias(root):
@@ -115,19 +90,10 @@ def check_kms_alias(root):
     before = load_model(path)
     assert not before.warnings and producer in before.dependencies
     assert before.authoritative['desired.row.021-001.value'] == link
-    # A Key's grouped display must never satisfy a raw Key Property reference using its child's name.
-    invalid = {**consumer, 'desired.reference.raw-name.producerLogicalId': 'KMS_Key_011', 'desired.reference.raw-name.resourceType': 'KMS.Key',
-               'desired.reference.raw-name.property': 'KMS.Key.KeyId'}
-    assert load_model(path, CandidateReads(FileReads(), {path: serialize(invalid)})).warnings
     saved, digest = path.read_bytes(), design_source_digest(path)
-    for changed in (producer.read_text().replace('material-one', 'material-two'),
-                    producer.read_text().replace('KMS.Alias.AliasName', 'KMS.Alias.Other')):
+    for changed in (producer.read_text().replace('material-one', 'material-two'),):
         after = load_model(path, CandidateReads(FileReads(), {producer: changed}))
         assert after.authoritative == before.authoritative and after.warnings
-    missing = load_model(path, CandidateReads(FileReads(), {producer: None}))
-    assert missing.warnings and missing.dependencies[producer] is None
-    with pytest.raises(ValueError):
-        load_model(path, CandidateReads(FileReads(), {producer: '# model-format: 2\ninvalid\n'}))
     assert path.read_bytes() == saved and design_source_digest(path) == digest
 
 
@@ -159,17 +125,33 @@ def check_external_instances(root):
     after = load_model(path, CandidateReads(FileReads(), {producer: changed}))
     assert after.authoritative == before.authoritative and after.warnings
     assert load_model(consumers['stg'][0]).authoritative == consumers['stg'][1].authoritative
-    for field, raw in [('producerLogicalId', 'SecretsManager_Secret_999'), ('resourceType', 'Glue.SecurityConfiguration')]:
-        candidate = {**before.authoritative, 'desired.reference.name.' + field: raw}
-        model = load_model(path, CandidateReads(FileReads(), {path: serialize(candidate)}))
-        assert model.warnings and model.authoritative['desired.row.001-001.value'] == '`secret-dev`'
-    for field, raw in [('instance', 'old-selector'), ('producerScope', '../escape')]:
-        with pytest.raises(ValueError):
-            load_model(path, CandidateReads(FileReads(), {path: serialize({**before.authoritative, 'desired.reference.name.' + field: raw})}))
 
 
-def check_service_contracts():
-    check()
+def check_service_contracts(tmp_path):
+    topology(tmp_path, ('dev',))
+    producers = [('lambda', 'Lambda.Function', 'FunctionName', 'fixture'),
+                 ('glue', 'Glue.Job', 'Name', 'fixture-job'), ('iam', 'IAM.Role', 'RoleName', 'fixture-role'),
+                 ('codebuild', 'CodeBuild.Project', 'Name', 'fixture'), ('mwaa', 'MWAA.Environment', 'Name', 'fixture'),
+                 ('cloudtrail', 'CloudTrail.Trail', 'TrailName', 'fixture')]
+    values = service_values('cloudwatch-logs', ['Logs.LogGroup'])
+    values.update(resource_values('001', 'Logs.LogGroup', 'logs', 'CREATE', [('LogGroupName', '`fixture`')]))
+    for service, kind, prop, name in producers:
+        authored_service(tmp_path, 'dev', service, [('001', kind, service, [(prop, '`' + name + '`')])])
+        key = 'desired.note.' + service + '.text'
+        values[key] = name
+        values.update(reference_fields(service, key, name, 'dev/team/' + service + '/001', kind=kind, prop=kind + '.' + prop))
+    path = tmp_path / 'model/dev/team/cloudwatch-logs.properties'
+    write_model(path, values)
+    before = load_model(path)
+    assert not before.warnings
+    for service, _, _, _ in producers:
+        producer = path.with_name(service + '.properties')
+        original = producer.read_bytes()
+        producer.write_bytes(original.replace(b'value=`', b'value=`changed-', 1))
+        after = load_model(path, FileReads())
+        assert after.authoritative == before.authoritative and after.warnings
+        producer.write_bytes(original)
+    assert path.read_bytes() == serialize(before.authoritative).encode('utf-8')
 
 
 if __name__ == '__main__':
