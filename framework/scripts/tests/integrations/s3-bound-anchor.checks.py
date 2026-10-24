@@ -92,10 +92,6 @@ def check(root):
     path.unlink()
     rejected(lambda: load_model(path), 's3.properties')
     path.write_bytes(original)
-    legacy = root / 'model/parameters'
-    legacy.mkdir()
-    assert bound_resource_anchors(path) == {('S3.Bucket', 'S3_Bucket_003'): 's3-archive-original'}
-    assert path.read_bytes() == original
     print('Fixed S3 anchors: PASS (explicit rename/consumer update; fixed names/links/IDs; generation; syntax/identity rejection; unrelated directory isolation)')
 
 

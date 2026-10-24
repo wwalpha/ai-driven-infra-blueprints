@@ -12,7 +12,6 @@ from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 
 import import_guard as _imports_import_guard
-import model.identity as _imports_model_identity
 import model.importing.cli as _imports_model_importing_cli
 import model.importing.scope as _imports_model_importing_scope
 import model.projection as _imports_model_projection
@@ -184,13 +183,11 @@ def stage_inputs(stage, root, destinations, model_paths, markdown_paths, service
 @progress_stage("candidate-generation")
 @resource_row_scope()
 def generate_views(stage, root, destinations, failures, definitions_root=None, *, warnings=None, unavailable=None):
-    Resolver = _imports_model_identity.Resolver
     warnings = warnings if warnings is not None else []
     unavailable = unavailable if unavailable is not None else {}
     definitions_root = definitions_root or definition_root(root)
     total(len(destinations))
     generated = {}
-    resolver = Resolver(root)
     # Render all valid base views before resolving cross-service links.
     for path, values in destinations.items():
         staged = stage / path.relative_to(root)
@@ -215,7 +212,7 @@ def generate_views(stage, root, destinations, failures, definitions_root=None, *
                 if "document" not in row:
                     raise ValueError(f"authoritative JSON document missing: {path.name}: {identity}")
                 execution_document = _imports_model_projection.execution_document
-                document = execution_document(policy_json(row["document"]), root, property_name=row["property"], resolver=resolver,
+                document = execution_document(policy_json(row["document"]), root, property_name=row["property"],
                     scope=model.scope, logical_id=values.get(f'desired.resource.{identity.rpartition("-")[0]}.logicalId'), warnings=warnings)
                 if not isinstance(document, dict):
                     raise ValueError(f"JSON document must be an object: {identity}")

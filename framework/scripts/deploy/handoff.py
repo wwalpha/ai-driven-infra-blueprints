@@ -38,10 +38,8 @@ import deploy.session as _imports_deploy_session
 from deploy import failures, retry_policy
 from deploy.typing import InputPaths, Manifest, PathsFor, Session, StackUnit
 
-# Timing and obsolete measurement metadata are historical, never execution authority.
-HISTORICAL = {'metrics', 'skillStartedAt', 'firstExecuteAcceptedAt', 'within120Seconds',
-              'skillToFirstExecuteSeconds', 'validationStatus', 'validationDigest', 'validationError', 'validationErrors',
-              'workflowBinding'}
+# Metrics and ledger location are not execution authority.
+HISTORICAL = {'metrics', 'workflowBinding'}
 _verified = {}
 
 
@@ -59,7 +57,7 @@ def write_session(path: Path, session: Session) -> None:
 
 def save(path: Path, session: Session) -> None:
     if not session.get('workflowBinding'):
-        # Pure scheduler fixtures and explicitly unmigrated legacy sessions have no ledger.
+        # Pure scheduler fixtures have no workflow ledger.
         write_session(path, session)
         return
     root = Path(session['repository'])
@@ -85,9 +83,7 @@ def restore(root: Path, path: Path, session: Session) -> None:
     """Verify a saved revision or finish its sealed write intent; reject stale copies."""
     proof = binding_path(root, session['taskFile'])
     if not proof.exists():
-        if session.get('workflowBinding'):
-            raise Blocked('workflow ledger missing; never reset history')
-        return  # New/explicitly migrating v3 only; normal v4 callers bind before saving.
+        raise Blocked('workflow ledger missing; never reset history')
     record = read_sealed(root, proof)
     identity = {'session': str(path), 'taskFile': session['taskFile'], 'workflowId': session.get('workflow', {}).get('workflowId')}
     if any(record.get(key) != value for key, value in identity.items()):
@@ -145,26 +141,18 @@ def external(root: Path, path: str | Path) -> Path:
     return path.resolve()
 
 
-def workflow(session: Session) -> JsonObject:
-    if 'workflow' not in session:
-        session['workflow'] = {'workflowId': uuid.uuid4().hex, 'budget': retry_policy.DEFAULT_BUDGET,
-                               'reserved': 0, 'problems': {}, 'attempts': {}, 'accepted': [], 'diagnosisVersion': 1}
-    # v5 stored label fingerprints, which cannot prove common-cause identity.
-    current = session['workflow']
-    if current.get('diagnosisVersion') not in {None, 1}:
-        raise Blocked('unsupported workflow diagnosis version; retain history for explicit migration')
-    if current.get('diagnosisVersion') != 1:
-        if current['problems'] or current['attempts'] or current.get('reserved') or current.get('budgetExtensions'):
-            current['legacyUncertain'] = True
-            current['status'] = 'WAITING_HUMAN'
-        current['diagnosisVersion'] = 1
-    session.setdefault('inputRevision', 0)
-    return session['workflow']
+
+
+def new_workflow() -> JsonObject:
+    return {'workflowId': uuid.uuid4().hex, 'budget': retry_policy.DEFAULT_BUDGET,
+            'reserved': 0, 'problems': {}, 'attempts': {}, 'accepted': [], 'diagnosisVersion': 1}
 
 
 def bind(root: Path, path: Path, session: Session) -> None:
     """One unfinished workflow per Task; replacing/deleting its session is not a reset."""
-    current = workflow(session)
+    current = session['workflow']
+    if current['diagnosisVersion'] != 1:
+        raise Blocked('unsupported workflow diagnosis version')
     if not current['attempts'] and not current.get('reserved') and not current.get('budgetExtensions'):
         current['budget'] = session.get('repairBudget', retry_policy.DEFAULT_BUDGET)
     record_path = binding_path(root, session['taskFile'])
@@ -208,7 +196,7 @@ def effective(root: Path, units: Iterable[StackUnit], paths_for: PathsFor, input
 
 
 def record_stop(session: Session, units: Iterable[StackUnit]) -> None:
-    current = workflow(session)
+    current = session['workflow']
     observed = []
     for unit in units:
         state = session['states'][unit['name']]
@@ -296,7 +284,7 @@ def _lambda__diagnose_target_389(value):
 
 def _diagnose(root, session, diagnosis):
     """Check evidence membership/revisions. The LLM retains semantic responsibility."""
-    current = workflow(session)
+    current = session['workflow']
     if session.get('observedError') or any(s['status'] == 'RUNNING' or s.get('pollError') for s in session['states'].values()):
         raise Blocked('drain/observe and publish successful peers before diagnosis')
     if diagnosis.get('revision') != session['inputRevision'] or not diagnosis.get('problems'):
@@ -409,7 +397,7 @@ def _diagnose(root, session, diagnosis):
             if not previous_ids <= set(related_ids):
                 raise Blocked('NEW must compare all retained prior problems, including other resources')
             known = {signature for p in current['problems'].values() for signature in p.get('failureSignatures', [])}
-            if signatures & known or current.get('legacyUncertain'):
+            if signatures & known:
                 # Reference existence is never proof of semantic difference.
                 uncertain = True
                 continue
@@ -443,8 +431,7 @@ def _diagnose(root, session, diagnosis):
     current['currentProblemIds'] = sorted(identified)
     if diagnosis not in current.setdefault('diagnoses', []):
         current['diagnoses'].append(copy.deepcopy(diagnosis))
-    current['status'] = ('WAITING_HUMAN' if current.get('legacyUncertain') else
-                         'NEEDS_DIAGNOSIS' if uncertain else retry_policy.decision(current, identified))
+    current['status'] = 'NEEDS_DIAGNOSIS' if uncertain else retry_policy.decision(current, identified)
     return current['status']
 
 
@@ -456,7 +443,7 @@ def issue_request(
     allowed_paths: Sequence[str],
     expectation: list[JsonObject],
 ) -> JsonObject:
-    current = workflow(session)
+    current = session['workflow']
     if current.get('status') in {'NEEDS_DIAGNOSIS', 'WAITING_HUMAN', 'STOPPED', 'CLOSED', 'COMPLETE'}:
         raise ValueError('repair policy: ' + current['status'])
     contract = task_snapshot(root).text
@@ -566,7 +553,7 @@ def dependencies(backend: SimpleNamespace, units: Iterable[StackUnit]) -> dict[s
 
 
 def record_outcomes(session: Session) -> None:
-    current = workflow(session)
+    current = session['workflow']
     for attempt in current['attempts'].values():
         if attempt.get('acceptedRevision') is None or attempt['acceptedRevision'] > session.get('inputRevision', 0):
             continue

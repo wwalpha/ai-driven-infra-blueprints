@@ -455,8 +455,6 @@ def check_invalid(root):
     path.unlink()
     rejected(lambda: read_model(path))
     path.write_bytes(original)
-    path.write_text('desired.service.legacy.serviceId=legacy\n')
-    rejected(lambda: read_model(path), 'unsupported Model format')
 
 
 

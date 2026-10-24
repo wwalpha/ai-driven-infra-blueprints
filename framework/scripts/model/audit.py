@@ -17,7 +17,7 @@ import issue_gate as _imports_issue_gate
 import task_contract_core as _imports_task_contract
 import utils.aws_mappings as _imports_utils_aws_mappings
 import utils.file_operations as _imports_utils_file_operations
-import validation_cache as _imports_validation_cache
+import utils.input_cache as _imports_input_cache
 import validation_scope as _imports_validation_scope
 from aws_mapping_compare import comparison
 from design_catalog import DesignSchemaCatalog
@@ -264,7 +264,7 @@ def main(argv=None):
     selected_task = _imports_task_contract.selected_task
     validate_contract = _imports_task_contract.validate_contract
     atomic_files = _imports_utils_file_operations.atomic_files
-    recording_inputs = _imports_validation_cache.recording_inputs
+    recording_inputs = _imports_input_cache.recording_inputs
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repository-root', type=Path, default=Path.cwd())
     parser.add_argument('--environment', required=True)

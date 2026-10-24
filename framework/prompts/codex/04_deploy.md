@@ -258,17 +258,6 @@ with all successful observations synchronized releases overlapping scope. CLOSED
 re-executes. Resume the original session rather than resetting history. Close never
 cleans unknown AWS operations or unfinished children.
 
-The v5 implementation used session v4. This change retains that outer format and adds
-`workflow.diagnosisVersion: 1`. Existing IDs, observations, attempts, budget, consumed
-results, execution tokens and pending child evidence remain intact. A legacy workflow
-with problems/reservations but no relation marker is conservatively `legacyUncertain`
-and WAITING_HUMAN, never a fresh zero-attempt cause. Explicit `migrate` retains session
-format/history migration with Human authorization
-and conservative legacy cycle acknowledgment; the relation marker does not grant
-migration or AWS authority. Framework definitions are treated as immutable during
-Project Tasks and are not monitored by Deploy. No automatic semantic
-reclassification or clearing of legacy uncertainty is provided.
-
 After an interrupted writer exits, retain/review locks using existing ownership rules;
 never delete unknown locks. `deploy_handoff.py recover-session --state <original-path>`
 restores the same Task's latest signed state including cause links/diagnoses and attempts.

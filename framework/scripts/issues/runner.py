@@ -85,7 +85,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
         (ordinary if owner else judgments).append(candidate)
     naming, naming_judgments = naming_materials(comparison)
     judgments.extend(naming_judgments)
-    existing, human = existing_materials(root, environment, directory, services, warnings)
+    existing, human = existing_materials(root, environment, directory, services)
     judgments.extend({'id': item['id'], 'service': item['service'], 'kind': 'existing-issue-correspondence', 'materials': item} for item in existing)
     for service in services:
         doc = root / 'docs/designs' / environment / directory / (service + '.md')

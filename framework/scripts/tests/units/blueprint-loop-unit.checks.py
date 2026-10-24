@@ -154,7 +154,6 @@ def check_regression_discovery(tmp_path):
     assert "service-parameter-inputs.checks.py" not in all_checks
     assert 'git-changes-unit.checks.py' in all_checks
     assert all(p.is_relative_to(root / "framework/scripts/tests/units") for p in MODULE.select_checks(root)[0])
-    assert not any("parameter-migration" in name for name in all_checks)
 
 
 
@@ -183,7 +182,7 @@ def check_unit_dispatch(tmp_path, scope, paths):
          patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")), \
          patch.object(MODULE, "staged_snapshot", return_value=0) as staged, redirect_stdout(io.StringIO()):
         for args in (["--mode", "full"], ["--mode", "task"], ["--mode", "local"],
-                     ["--mode", "task", "--all"], ["--mode", "task", "--affected"]):
+                     ["--mode", "task", "--all"]):
             authorize.reset_mock()
             selection.reset_mock()
             with patch.object(sys, "argv", [str(runner), *args, "--log-dir", str(tmp_path / "logs")]):
@@ -349,7 +348,7 @@ if __name__ == '__main__':
 
     suite.write_text(f"import sys\nsys.path.insert(0, {str(Path(run_it.__file__).parent.parent)!r})\n" + """from support.it_case_receipt import it_case, module_complete
 from unittest.mock import patch
-from validation_cache import input_scope
+from utils.input_cache import input_scope
 import inspect
 @it_case
 @input_scope

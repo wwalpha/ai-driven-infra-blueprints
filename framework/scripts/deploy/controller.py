@@ -302,12 +302,11 @@ def repair(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> bool
     try:
         runtime.guard()
         require_target_no_issues(runtime.root, (runtime.environment, runtime.directory))
-        repair_ops.require_authorized(runtime.root, runtime.session)
+        repair_ops.require_authorized(runtime.root)
         if state.get('stackStatus') not in {'ROLLBACK_COMPLETE', 'UPDATE_ROLLBACK_COMPLETE'}:
             raise Blocked('unsafe rollback state; no automatic delete or ResourcesToSkip')
-        if runtime.session.get('pendingRequest') or any(e.get('classification') == 'AUTO_REPAIRABLE' and
-                e.get('stage') in {'REPAIR_INTENT', 'VALIDATING', 'VALIDATED'} for e in history):
-            raise Blocked('external/legacy IaC repair requires supervising LLM handoff')
+        if runtime.session.get('pendingRequest'):
+            raise Blocked('external IaC repair requires supervising LLM handoff')
         pending = history[-1:] if history and history[-1].get('classification') == 'RUNTIME_BOOTSTRAP' else []
         if pending and pending[0].get('stage') in BOOTSTRAP_STAGES:
             return runtime.bootstrap(unit, state, pending[0])
@@ -379,7 +378,6 @@ def controller_main(argv: Sequence[str] | None = None, root: Path | None = None,
     parser.add_argument("--stack", action="append", required=True, help="exact StackName; repeat for scope")
     parser.add_argument("--state", type=Path, required=True, help="persistent session path outside repository")
     parser.add_argument("--timing-log", type=Path, help="external JSONL phase durations, including authentication and AWS calls")
-    parser.add_argument("--skill-started-at", type=float, help=argparse.SUPPRESS)
     parser.add_argument("--profile")
     parser.add_argument("--approve-change-set", action="append", default=[])
     parser.add_argument("--resume", action="store_true")

@@ -7,7 +7,6 @@ from pathlib import Path
 
 import aws_mapping as _imports_aws_mapping
 import cloudformation_inputs as _imports_cloudformation_inputs
-import reference_contracts as _imports_reference_contracts
 import utils.aws_mappings as _imports_utils_aws_mappings
 from reference_contracts import (
     ARN_FORMS,
@@ -260,15 +259,6 @@ class Resolver:
             raise ReferenceResolutionError('IMPORT matching Model requires a Resource reference: ' + prop)
 
     def verify_tree(self, prop, desired, actual, context, *, require_links=True, location=None):
-        if isinstance(desired, dict) and '$resource' in desired:
-            if set(desired) - {'$resource', '$attribute'} or not _dependency_model_identity.resource_link(desired['$resource']):
-                raise ValueError('invalid structured Resource reference')
-            declared = contract(prop, context)
-            if attribute := desired.get('$attribute'):
-                declared = {kind: (attribute,) for kind, forms in declared.items() if attribute in forms}
-            self.verify(prop, desired['$resource'], actual, context, contracts=declared,
-                        require_links=require_links, location=location)
-            return
         if isinstance(desired, (list, dict)):
             if actual is not _UNOBSERVED and (type(desired) is not type(actual) or (desired.keys() != actual.keys() if isinstance(desired, dict) else len(desired) != len(actual))):
                 raise ValueError('IMPORT reference/observation structure differs: ' + prop)
@@ -310,14 +300,6 @@ class Resolver:
                 except ValueError:
                     context[prop] = literal(raw)
             if properties is not None and prop not in properties:
-                continue
-            scalar_reference = _imports_model_projection.scalar_reference
-            selector = scalar_reference(row)
-            if selector is not None:
-                SCALAR_REFERENCE_PROPERTIES = _imports_reference_contracts.SCALAR_REFERENCE_PROPERTIES
-                kind, attribute = SCALAR_REFERENCE_PROPERTIES[re.sub(r'\[\d+\]', '[]', prop)]
-                self.verify(prop, selector['$resource'], _UNOBSERVED if observed is None else literal(observed),
-                            context, contracts={kind: (attribute,)}, require_links=require_links, location=location)
                 continue
             if prop in CONFIGURATION_PROPERTIES:
                 selector, choices = CONFIGURATION_PROPERTIES[prop]

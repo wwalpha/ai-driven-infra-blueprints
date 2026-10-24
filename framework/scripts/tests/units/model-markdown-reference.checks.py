@@ -113,10 +113,9 @@ def check_receiving_contracts(root):
         errors = []
         diagnose(snapshot._replace(authoritative=candidate), errors=errors)
         assert not errors, errors
-    for link, physical in zip(links, ('physical-connection-001', 'physical-connection-002'), strict=False):
+    for link in links:
         resolver = Resolver(root)
         assert resolver.operand(link, scope, field=prop)[3] == 'Name'
-        assert execution_document([link], root, scope=scope, property_name=prop) == [physical]
     importer = ImportResolver(root, 'dev', 'cde', definitions_root=definitions, read_context=FileReads())
     importer.verify_resource(values, '009', scope=scope, properties={prop})
     assert not importer.warnings, importer.warnings
@@ -184,15 +183,8 @@ def main():
             alternative = snapshot._replace(authoritative={**values, 'desired.row.017-008.value': f'[lmda-venusinf-dev-inbound-detect]({filename}#{anchor})'})
             assert symbolic(alternative) == symbolic(snapshot)
         assert reference_display(values, root / 'docs/designs/dev/cde/lambda.md', root) == values
-        assert execution_document({'$resource': original, '$attribute': 'FunctionName'}, root, scope=scope) == 'physical-function'
         ordinary = {'Description': '[guide](guide.md#section)', 'artifact': '[file](lambda/file.json)'}
         assert execution_document(ordinary, root, scope=scope) == ordinary
-        try:
-            execution_document('resource://dev/cde/lambda/Lambda_Function_002', root, scope=scope)
-        except ReferenceResolutionError:
-            pass
-        else:
-            raise AssertionError('retired internal syntax emitted as an AWS value')
         display_anchor = _imports_model_identity.display_anchor
         try:
             display_anchor({'logicalId': 'Lambda_Function_002'})

@@ -24,7 +24,7 @@ If updating the model fails, do not update Markdown/JSON. The model is authorita
 - CloudFormation stack detailed designs retain each stack's name, template filename, parameter filename, and positive integer `deployOrder` in `desired.stack.*` of `cloudformation-stacks.properties`, and target policy in `desired.deployment.maxConcurrentStacks` (integer 1 or greater). Generate Markdown with the same stem. `DeployOrder` is a formal design value for each stack instance, not template identity or a dependency field. Do not add policy to `project.json`. Generate listing `No.` and retain `Comment` in `display.stack.*.comment`. Do not save stack execution state, StackId/ARN, or values temporarily retrieved from AWS in the model.
 - S3 placement may explicitly approve delegation to bucket default encryption using model-only `desired.resource.<id>.deploymentEncryption=default` on `S3.Bucket`. No other value/resource type is permitted. Omission means explicit encryption headers derived from the selected formal BucketEncryption rows; it never means approval to delegate. Retain confirmed default SSEAlgorithm and, for SSE-KMS, KMSMasterKeyID rows in either mode. Validate this approval directly in the authoritative Model, like model-only CFn identity; do not infer it from Markdown, policy, missing rows, or AWS settings.
 - Catalog properties are authoritative for selectable items; model properties are authoritative for desired and observed values. Markdown and JSON artifacts are generated outputs for display and use.
-- Codex saves confirmed designs in environment-specific properties first through the shared Task-authorized Model APIs. Human properties edits are design inputs. the integrated `blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` generates and validates Markdown/JSON artifacts without overwriting the model; `sync-model.py --write` remains the generation-only compatibility entrypoint.
+- Codex saves confirmed designs in environment-specific properties first through the shared Task-authorized Model APIs. Human properties edits are design inputs. the integrated `blueprint-loop.py --mode task --write --task-file tasks/<task-name>.md` generates and validates Markdown/JSON artifacts without overwriting the model; `sync-model.py --write` remains the generation-only entrypoint.
 - Fail the local loop for Markdown/Model mismatches when reference-complete generation is available. A View retained because of a reference problem is NOT_RUN, not an equality failure. Do not silently adopt either one.
 - Ordinary saves validate the corrected Model and affected consumers through the common candidate guard. Do not require the old Model to load or preserve its fields. Missing/ambiguous final reference targets and invalid reference types/Properties block final save/completion/integration; pending observations and saved-text differences remain diagnostics. Dedicated operation leaves may save intermediate sources, but their parent must pass final candidate validation.
 - After saving authoritative Model inputs, design tasks generate Markdown and JSON artifacts in the same coherent logical change. When selected existing resources were retrieved read-only, also generate required non-ARN current identifiers in `observed.*`.
@@ -272,7 +272,7 @@ desired.resource.005.logicalId=S3_Bucket_001
 desired.service.identity.lastAllocated={"S3.Bucket":1}
 ```
 
-The stack listing is generated from the same-target `cloudformation-stacks.properties`, retaining each fixed Stack ID and placementName. Resource mappings `desired.mapping.*` and generated `## Resource対応` tables are discontinued and rejected when used. When migrating existing models, set StackName and template IDs to human-confirmed values; do not infer them from names.
+The stack listing is generated from the same-target `cloudformation-stacks.properties`, retaining each fixed Stack ID and placementName.
 
 Resource identity uses immutable typed logicalId; saved Resource references use original Markdown links and independent saved anchors. See [Resource logical identity](../docs/model-identity.md) for allocation, references and anchor preservation. Ordinary corrections validate the final entry/Row/Stack IDs and layout; dedicated operations preserve fields outside their explicit authority. Resource anchors are independent saved authority and are used by the common resolver to select producer Resources. Resource declarations select producerLogicalId; Stack/context selectors are unchanged.
 
@@ -298,8 +298,7 @@ identifiers; never invent physical IDs or resolve confirmed literals again. Exis
 producer integrity, change-impact analysis and warnings still apply. Source publication
 and generation reject embedded Resource links with Model, Resource, Property and JSON
 Pointer diagnostics. Do not automatically migrate/overwrite existing Models, introduce
-new reference syntax, or save generated ARNs. Legacy ARN selectors remain readable for
-investigation/comparison only; unsupported replacements require a separate Human decision.
+new reference syntax, or save generated ARNs.
 Ordinary URLs and legitimate non-Resource JSON strings remain valid. Resource links and
 JSON artifact links outside JSON bodies remain supported.
 
@@ -311,13 +310,12 @@ template. The shared execution projection must reject nested `Fn::*`, CloudForma
 strings. These expressions require template/Stack/Export context; do not infer that
 context or persist generated ARNs. Report the Model path, Resource logicalId, Property,
 JSON Pointer, expression and reason, requesting a Model correction with confirmed values.
-Keep existing confirmed Resource operand projection for read/comparison compatibility.
 Generation, policy display and artifact hashes use the same projected document; validate
 the result before any publication. IAM `Resource`/`NotResource` must be strings or arrays
 of strings. Legitimate IAM variables such as `${aws:username}` remain literal strings.
 CloudFormation templates and their IaC comparison evaluator retain their own semantics.
 
-Human-confirmed `display.resource.<番号>.label` for types without name properties is valid as a display name even if it is the same string as the internal logical ID. The validator matches `desired.resource.<番号>.resourceType`, `logicalId`, and explicit label of the same number against corresponding detail headings. Reject reuse of internal IDs without labels or substitution with labels from other resource types or logical IDs. Retain new-format model entry numbers or old-format hidden logical ID markers, saved anchors, and desired/observed namespaces and values. Do not create Name tags, catalog properties, or IaC settings from display labels.
+Human-confirmed `display.resource.<番号>.label` for types without name properties is valid as a display name even if it is the same string as the internal logical ID. The validator matches `desired.resource.<番号>.resourceType`, `logicalId`, and explicit label of the same number against corresponding detail headings. Reject reuse of internal IDs without labels or substitution with labels from other resource types or logical IDs. Retain model entry numbers, saved anchors, and desired/observed namespaces and values. Do not create Name tags, catalog properties, or IaC settings from display labels.
 
 During generation, arrange ordinary properties in catalog row order without changing model row numbers or saved order. Move contiguous groups of the same array while retaining internal element and field order. Track consumption of selected input row IDs in the existing display transformations; allow deliberate multi-row aggregation and exclude Mapping-hidden rows. Reject missing or duplicate consumption without constructing an intermediate Model. Check values and comments with transformation regression tests and saved-output comparison.
 
@@ -373,20 +371,7 @@ Restore CodePipeline `Stages[N]` and `Actions[M]`, including single actions, to 
 
 During display validation, expand the single-row display `CodeBuild.Project.Environment.Variables[N].<Name>` into 3 formal `EnvironmentVariables[].Name`, `Type`, and `Value` rows of the same array element. For literals, use Type=PLAINTEXT and retain Value as-is. For resource links, restore Type from the hidden `codebuild-variable-type` marker at the start of `Source / Comment`. Retain Value resource links, confirmed display-text names/selectors, and literal `:` losslessly; do not convert to identifier output references or separate into observed. Do not save display-only `Variables.<Name>` or Type markers in models.
 
-Legacy local Model → IaC comparison of `CodeBuild.Project.Environment.EnvironmentVariables[].Value`
-with `Type=PLAINTEXT` can read an existing resource/attribute selector such as
-`{"$resource":"[key](kms.md#kms-existing-key)","$attribute":"Arn"}`. Do not create or republish this object in JSON `document` or inline JSON Value rows.
-Keep legacy readers for diagnosis/comparison; no automatic conversion or tracking loss is permitted. The target is an full scoped Model Markdown Resource link; the selector has exactly these two fields. It reuses the common logical
-reference resolver and never stores a generated ARN or queries AWS. KMS Key uses
-`Arn` or `KeyId`; KMS Alias uses `AliasArn` or `AliasName`. `AliasArn` is the existing
-comparison's semantic alias ARN attribute, not a CloudFormation Alias GetAtt attribute.
-IaC GetAtt/Ref/ImportValue/Sub are evaluated using their actual return semantics.
-Alias and Key identities and attributes remain distinct, even for the same underlying
-key. Neither PLAINTEXT nor a variable name ending in `_ARN` selects an ARN attribute.
-Legacy bare S3 links retain `BucketName`; other bare resource links require explicit
-attributes. Unproven targets/attributes/exports remain uncompared. An Export name
-literal is not its exported value. This receiving-property comparison policy does
-not add an IMPORT acquisition contract or permit consumer source changes.
+IaC GetAtt/Ref/ImportValue/Sub use their actual return semantics. Alias and Key identities and attributes remain distinct. Unproven targets, attributes and exports remain uncompared; an Export name literal is not its exported value.
 
 During display validation, restore one-resource-per-row displays of `CodeBuild.Project.VpcConfig.Subnets[N]`/`SecurityGroupIds[N]` to multiple rows of formal `VpcConfig.Subnets`/`VpcConfig.SecurityGroupIds`, respectively, retaining resource links and order. Do not save display-only `N` as a model property.
 
@@ -510,7 +495,7 @@ desired.artifact.001.keyPrefix=lambda/functions/
 - Artifact entries require all 6 fields; reject duplicates for the same stack/resource/property. Multiple entries may use the same source. Explicitly specify different buckets in each entry as well.
 - keyPrefix is a relative prefix ending with `/`. Allow only alphanumeric characters, underscores, and hyphens in segments. Sources are repository-relative files; do not specify build commands, directories, credentials, or status.
 - Mapping tables represent deployment inputs replacing S3 keys/versions with content hashes. Save per-execution hashes and versions only in sessions outside the repository. S3 models are authoritative for S3 bucket configurations/names; stack models have references only.
-- Do not display TemplateBucket/TemplateKeyPrefix tables in generated Markdown; output to hidden `<!-- templateBucket: <value> -->`/`<!-- templateKeyPrefix: <value> -->` only when configured. Generate mapping tables under `## S3配置` and `### 配置ファイル` only if artifact mappings exist. Validate Stack displays structurally and compare saved outputs with generated candidates; local old-format table parsing remains supported. Do not feed Markdown back. Retain existing unconfigured model/Markdown formats.
+- Do not display TemplateBucket/TemplateKeyPrefix tables in generated Markdown; output to hidden `<!-- templateBucket: <value> -->`/`<!-- templateKeyPrefix: <value> -->` only when configured. Generate mapping tables under `## S3配置` and `### 配置ファイル` only if artifact mappings exist. Validate Stack displays structurally and compare saved outputs with generated candidates. Do not feed Markdown back. Retain existing unconfigured model/Markdown formats.
 
 ## Narrow DNS and IMPORT preparation references
 

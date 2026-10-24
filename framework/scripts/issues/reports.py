@@ -259,7 +259,7 @@ def iac_report(environment, directory, services, records, display=None, *, stamp
 
 
 # Notices are scope-stamped machine output, never Human confirmation material.
-NOTICE_MARKER = r'^(<!-- (?:issues-notices:[^ >]+:(?:start|end)|reference-warnings:(?:start|end)) -->)[ \t]*$'
+NOTICE_MARKER = r'^(<!-- issues-notices:[^ >]+:(?:start|end) -->)[ \t]*$'
 
 def without_notices(text):
     return split_notices(text)[0]
@@ -275,7 +275,7 @@ def split_notices(text):
         if closing != marker.replace(':start -->', ':end -->'):
             continue
         ordinary.append(text[offset:start])
-        scope = marker.removeprefix('<!-- issues-notices:').removesuffix(':start -->') if marker.startswith('<!-- issues-notices:') else None
+        scope = marker.removeprefix('<!-- issues-notices:').removesuffix(':start -->')
         notices.append((scope, text[start:end]))
         offset = end
     ordinary.append(text[offset:])
@@ -297,12 +297,6 @@ def notice_report(text, environment, directory, services, channels, *, preserve_
     previous = [block for scope, block in notices if scope == scope_id]
     retained = list(dict.fromkeys(line for block in previous for line in block.splitlines() if line.startswith('- '))) if preserve_prior else []
     notices = [(scope, block) for scope, block in notices if scope != scope_id]
-    # Legacy notices have unknown scope; consolidate without asserting resolution.
-    legacy = [block for scope, block in notices if scope is None]
-    if legacy:
-        legacy_lines = list(dict.fromkeys(line for block in legacy for line in block.splitlines() if line.startswith('- ')))
-        notices = [(scope, block) for scope, block in notices if scope is not None]
-        notices.append((None, '<!-- reference-warnings:start -->\n## 旧警告（scope不明・今回の解消未確認）\n' + '\n'.join(legacy_lines) + '\n<!-- reference-warnings:end -->'))
     lines = [f'<!-- issues-notices:{scope_id}:start -->', f'今回の機械診断scope: {environment}／{directory}／{", ".join(sorted(services))}']
     for channel, heading in [('warnings', '警告（非ブロッキング）'), ('information', '情報'), ('unverified', '未検証範囲'), ('processing_errors', '処理エラー（未検証範囲あり）')]:
         values = channels.get(channel, [])

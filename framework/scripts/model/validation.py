@@ -361,14 +361,7 @@ def _callback_check_model_inputs_literal_check(_state_check_model_inputs_337, ca
     is_service_role_reference = _imports_design_layout.is_service_role_reference
     DESIGN_ONLY_PROPERTIES = _imports_validation_design.DESIGN_ONLY_PROPERTIES
 
-    scalar_reference = _imports_model_projection.scalar_reference
-    scalar_reference_operand = _imports_model_projection.scalar_reference_operand
     prop, value = _state_check_model_inputs_337.row['property'], _state_check_model_inputs_337.row.get('document', _dependency_policy_tables.literal(_state_check_model_inputs_337.row['value']))
-    if scalar_reference(_state_check_model_inputs_337.row) is not None:
-        scope_for = _imports_model_sources.scope_for
-        model_path = (root / 'model' / _state_check_model_inputs_337.view.relative_to(root / 'docs/designs')).with_suffix('.properties')
-        scalar_reference_operand(_state_check_model_inputs_337.row, root, scope_for(model_path))
-        return
     if 'document' not in _state_check_model_inputs_337.row and is_import_expression(prop, _state_check_model_inputs_337.row['value'], _state_check_model_inputs_337.view):
         return
     if 'document' not in _state_check_model_inputs_337.row and _dependency_model_identity.resource_link(_state_check_model_inputs_337.row['value']):

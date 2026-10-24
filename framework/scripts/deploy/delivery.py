@@ -174,9 +174,7 @@ def template_arguments(placement, unit, state, template_data, template_path, wor
                if name in boundary.get('importNames', {}).get(unit['name'], set())}
     if state.get('delivery'):
         record = state['delivery']
-        if imports and 'imports' not in record:
-            raise Blocked('legacy delivery has no Export evidence; explicitly replan before execution')
-        if record.get('imports', imports) != imports:
+        if record['imports'] != imports:
             raise Blocked('required Export destination/value/producer changed; existing delivery cannot execute')
         if input_digest_for(unit) != record['inputDigest']:
             raise Blocked('prepared deployment inputs changed')

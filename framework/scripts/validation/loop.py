@@ -313,7 +313,7 @@ def staged_snapshot(root, args, directory, environment):
         command = [sys.executable, "-X", "utf8", str(definition_root(snapshot) / "framework/scripts/blueprint-loop.py"),
                    "--mode", args.mode, "--jobs", str(args.jobs), "--log-dir", str(directory),
                    "--validation-jobs", str(args.validation_jobs), *(["--fresh"] if args.fresh else []),
-                   *(["--all"] if args.all else []), *(["--affected"] if args.affected else []),
+                   *(["--all"] if args.all else []),
                    *(["--profile"] if args.profile else [])]
         if os.name == "nt":
             # Never dispatch an older staged entrypoint that predates the password gate.
@@ -430,8 +430,6 @@ def _run_loop(root, args, final_candidate):
     fail = __run_loop_fail
     if args.staged and args.write or args.staged != bool(args.base):
         fail('invalid staged/write/base options')
-    if args.affected and (args.mode == 'full' or args.all):
-        fail('--affected cannot narrow full/--all validation')
     if cache_directory := os.environ.get("BLUEPRINT_VALIDATION_CACHE_DIR"):
         cache_path = Path(cache_directory).resolve()
         if cache_path == root or root in cache_path.parents:

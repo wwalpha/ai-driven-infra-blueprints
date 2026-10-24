@@ -44,15 +44,13 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test
 
 `blueprint-loop.py` の `task` / `local` はProjectのValidation scopeに従って検証し、Framework回帰UT／ITを自動実行しない。通常TaskではFrameworkを不変として扱い、FrameworkファイルのGit差分から回帰テストを選択しない。`full` / `--all` は `units/**/*.checks.py` と `units/**/test_*.py` の全UTを既存のPython直接実行入口で起動する。`full` は既存のProject Validation scopeを維持し、`--all` はProject全体を検証する。Scope `all` だけではFramework UTを実行しない。`blueprint-loop.py` からFramework ITは実行しない。
 
-通常Taskの `--affected` は `task` / `local` 用の互換オプションで、Framework回帰テストの選択・実行を行わず、`full` / `--all` とは併用できない。`--staged` と組み合わせても同じで、固定snapshotの入力・stale検出・Task検証は維持する。全UT選択時のWindows認証、UTF-8、診断ログ、失敗伝播を維持する。
 
-[Framework IT](../../../.github/workflows/framework-it.yml) はすべてのPRおよびmain/masterへのpushと手動 `workflow_dispatch` で、変更ファイルによる選別をせず全UT・全ITを実行する。ファイル種別による起動除外も行わない。Python 3.12と既存requirementsを使用し、唯一の公式入口 `python -B framework/scripts/tests/run_it.py` が既存schedulerで全UTを最大2並列、その後 `integrations/**/*.checks.py` を独立プロセスで全件実行する。UT失敗後もITを実行し、いずれかの失敗でCIを失敗させる。既存のpytest・直接実行・トップレベル実行方式と手動baseline計測を維持する。runnerの `--affected`・case選別とSelected IT表示は廃止した。
+[Framework IT](../../../.github/workflows/framework-it.yml) はすべてのPRおよびmain/masterへのpushと手動 `workflow_dispatch` で、変更ファイルによる選別をせず全UT・全ITを実行する。ファイル種別による起動除外も行わない。Python 3.12と既存requirementsを使用し、唯一の公式入口 `python -B framework/scripts/tests/run_it.py` が既存schedulerで全UTを最大2並列、その後 `integrations/**/*.checks.py` を独立プロセスで全件実行する。UT失敗後もITを実行し、いずれかの失敗でCIを失敗させる。既存のpytest・直接実行・トップレベル実行方式と手動baseline計測を維持する。
 
 runnerは共通fixture bundleを1回初期化し、`input_templates`・`typed_services`・`generated_policy`・`import_sources` の4 seedを各1回生成する。共有seedは読み取り専用で、可変データはケースごとのworkspaceへ展開する。Framework定義は既存の定義rootを参照する。新しいFrameworkコピー・symlink/hardlinkは作らない。実プロジェクトのModelやAWS認証情報は使用しない。
 
 登録件数とparameter数は `CASES.md` と実収集から照合する。pytestは既存 `PytestReceipt`、直接実行は正常return後の `@it_case`、module型は末尾の `module_complete(__file__)` で完了を確認する。未登録suite、未実行・未完了ケース、不正receipt、非0終了を失敗とする。件数を合格ノルマにしない。
 
-Model v2 移行専用の10関数・23条件と固定旧Framework checkout・専用Python環境は撤去済み。現行機能の15関数・82条件は既存3 ITへ統合し、ケースID・assertion・parameter matrix・pytest receiptを保持する。
 
 全関数・全行の監視は使用しない。ファイルコピー・子プロセス・fixture生成のauditイベントと、スイート別の時間・終了コード・receiptを維持する。FAIL後も残りのスイートを実行し、結果をActionsログとSummaryに記録する。追加のFull IT実行入口は設けず、`blueprint-loop.py` の回帰はUTのみとする。
 
@@ -96,7 +94,7 @@ loaderのUTは `units/fixture_cases-unit.checks.py`。正式ITと性能の全体
 
 ## Issues v2 / cfn-lint
 
-issuesの正規APIは `issues/`、Model ↔ IaC比較の入口は `comparison.Comparison`。比較の結果・診断・表示差分は `comparison/` が返し、Issuesが1回集約する。旧 `issues_iac.py` / `issues_reports.py` のwrapperは置かず、CLIだけ `issues_scan.py` を維持する。UT追加は `issues-lint-unit.checks.py` の9関数20条件、IT追加は `issues-lint.checks.py` の9関数15条件。正式ITは既存 `Framework IT` / `tests/run_it.py` だけを使う。固定版1.57.2が無い環境で、CLI同等性・状態隔離の検証を実施済みとは扱わない。
+issuesの正規APIは `issues/`、Model ↔ IaC比較の入口は `comparison.Comparison`。比較の結果・診断・表示差分は `comparison/` が返し、Issuesが1回集約する。旧 `issues_iac.py` / `issues_reports.py` のwrapperは置かず、CLIだけ `issues_scan.py` を維持する。UT追加は `issues-lint-unit.checks.py` の9関数20条件、IT追加は `issues-lint.checks.py` の8関数14条件。正式ITは既存 `Framework IT` / `tests/run_it.py` だけを使う。固定版1.57.2が無い環境で、CLI同等性・状態隔離の検証を実施済みとは扱わない。
 
 一時HOME/cwd/config/custom rule/provider schemaを実環境から分離し、本物のHOMEとインストール済みpackageには書き込まない。Framework定義はコピーも読取専用。モデル・template・parametersは独立した可変fixtureを使う。summary/detail/saveはv2の保存済み集計だけを使う。
 
@@ -155,6 +153,4 @@ seed・Project全生成・Git initは各66→6、初期Gitは330→30、Python�
 ローカル検証は変更に関連するUTだけに限定する。invokeの共通sleep注入を変更した場合は、それを直接利用する既存UTも確認する。controller IT・小型IT・Worktree ITは修正と静的確認だけとし、IT収集・run_it.py・CI起動・IT時間計測は行わない。将来の正式CIでcontroller単独60秒と関連UT/小型ITを含めた合計を比較する。IT未実行、60秒以内の達成は未計測。
 
 
-追加レビューでは、公開失敗UTのplanに実行証拠を持たせ、stage別I/O失敗後のplan全体保持とdesign既公開候補の不一致拒否を確認する。acceptの再試行は署名付きsessionの実saveを置換前後で中断し、実diskからrestoreして受理済revision・予約・状態を保持する。legacy移行専用ITは代表条件も削除し、旧workflow履歴移行の専用条件も既存の削減を維持する。旧Observed plan互換は既存署名復旧UTの成功fixtureで確認する。現行の署名・入力・所有者検証、planの不正除去拒否、再試行制限は維持する。controllerのdesign I/O失敗には初回のpeer RUNNING状態を記録し、完了後のSUCCESSだけでdrainを代用しない。この記録のためのJSON読込は当該faultの初回だけで、通常invokeには追加しない。6 controllerフロー・小型IT1本・子process7回の構成とする。
-
-DeployはFramework digest監視を行わない。新規Session/request/Observed identityはexecutionDigestを持たず、旧フィールドを含む署名Session・intentとObserved planは既存復旧UTで扱う。legacy互換だけを目的とするcontroller移行ITは全条件を削除し、代替UT/ITは追加しない。本体の形式・履歴移行処理は維持する。関連UT入口数は不変、controllerは6関数6入口・小型Observed ITは1関数1入口。詳細は [Deploy Framework digest removal](CASES.md#deploy-framework-digest-removal) を参照。ITは静的確認のみで実行・性能測定しない。
+追加レビューでは、公開失敗UTのplanに実行証拠を持たせ、stage別I/O失敗後のplan全体保持とdesign既公開候補の不一致拒否を確認する。acceptの再試行は署名付きsessionの実saveを置換前後で中断し、実diskからrestoreして受理済revision・予約・状態を保持する。controllerのdesign I/O失敗には初回のpeer RUNNING状態を記録し、完了後のSUCCESSだけでdrainを代用しない。この記録のためのJSON読込は当該faultの初回だけで、通常invokeには追加しない。6 controllerフロー・小型IT1本・子process7回の構成とする。

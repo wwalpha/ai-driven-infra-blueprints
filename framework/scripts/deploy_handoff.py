@@ -5,7 +5,6 @@ import argparse
 import json
 from pathlib import Path
 
-import deploy.resume as _imports_deploy_resume
 from cloudformation_inputs import Blocked
 from deploy import handoff
 from task_contract_core import (
@@ -19,7 +18,7 @@ from task_contract_core import (
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('diagnose', 'request', 'budget', 'migrate', 'close', 'recover-session'))
+    parser.add_argument('command', choices=('diagnose', 'request', 'budget', 'close', 'recover-session'))
     parser.add_argument('--state', type=Path, required=True)
     parser.add_argument('--repository-root', type=Path, default=Path.cwd())
     parser.add_argument('--diagnosis', type=Path)
@@ -27,7 +26,6 @@ def main(argv=None):
     parser.add_argument('--path', action='append', default=[])
     parser.add_argument('--expectation', type=Path, help='non-secret structured expected Resource/operation/status')
     parser.add_argument('--additional-cycles', type=int)
-    parser.add_argument('--acknowledge-legacy-cycles', type=int)
     parser.add_argument('--authorization', help='explicit Human decision, without secrets')
     args = parser.parse_args(argv)
     root = args.repository_root.resolve()
@@ -45,54 +43,48 @@ def main(argv=None):
                 raise Blocked('session belongs to a different parent Worktree')
             with selected_task(root, session['taskFile']), task_reads(root, live=True):
                 contract = task_snapshot(root).text
-                if args.command == 'migrate':
-                    migrate = _imports_deploy_resume.migrate
-                    migrate(root, session, args)
-                    handoff.bind(root, path, session)
-                    value = {'result': 'MIGRATED', 'version': session['version']}
+                if task_digest(contract) != session['taskDigest']:
+                    raise Blocked('original Task contract changed')
+                handoff.bind(root, path, session)
+                if args.command in {'diagnose', 'request'}:
+                    handoff.verify_inputs(root, session)
+                if args.command == 'diagnose':
+                    if not args.diagnosis:
+                        raise Blocked('diagnose requires --diagnosis')
+                    result = handoff.diagnose(root, session, json.loads(args.diagnosis.read_text(encoding='utf-8')))
+                    value = {'result': result, 'problemIds': session['workflow'].get('currentProblemIds', [])}
+                elif args.command == 'request':
+                    if not args.expectation:
+                        raise Blocked('request requires a structured --expectation')
+                    expectation = json.loads(args.expectation.read_text(encoding='utf-8'))
+                    if not isinstance(expectation, list) or not expectation:
+                        raise Blocked('expected redeploy observations missing')
+                    for item in expectation:
+                        if set(item) != {'stack', 'resourcePath', 'operation', 'status'} or item['stack'] not in session['states'] or item['status'] not in {'CREATE_COMPLETE', 'UPDATE_COMPLETE', 'IMPORT_COMPLETE', 'SUCCEEDED'}:
+                            raise Blocked('expectation must identify the target operation success')
+                    pending = handoff.issue_request(root, path, session, args.problem, args.path, expectation)
+                    attempt = session['workflow']['attempts'][pending['attemptId']]
+                    if attempt.get('expectation') not in (None, expectation):
+                        raise Blocked('request retry changed expected result')
+                    attempt['expectation'] = expectation
+                    value = {'result': 'REQUESTED', 'requestId': pending['requestId'], 'attemptId': pending['attemptId'],
+                             'next': 'worktree_task.py repair-checkpoint --task-id ' + Path(session['taskFile']).stem + ' --state ' + str(path)}
+                elif args.command == 'budget':
+                    if session['workflow'].get('status') in {'CLOSED', 'COMPLETE'}:
+                        raise Blocked('terminal workflow cannot be reopened by a budget command')
+                    session['workflow']['status'] = 'WAITING_HUMAN'
+                    value = {'result': 'WAITING_HUMAN', 'budget': session['workflow']['budget'],
+                             'reason': 'No externally verified Human budget authorization is available; extension refused'}
                 else:
-                    if task_digest(contract) != session['taskDigest']:
-                        raise Blocked('original Task contract changed')
-                    handoff.bind(root, path, session)
-                    if args.command in {'diagnose', 'request'}:
-                        handoff.verify_inputs(root, session)
-                    if args.command == 'diagnose':
-                        if not args.diagnosis:
-                            raise Blocked('diagnose requires --diagnosis')
-                        result = handoff.diagnose(root, session, json.loads(args.diagnosis.read_text(encoding='utf-8')))
-                        value = {'result': result, 'problemIds': session['workflow'].get('currentProblemIds', [])}
-                    elif args.command == 'request':
-                        if not args.expectation:
-                            raise Blocked('request requires a structured --expectation')
-                        expectation = json.loads(args.expectation.read_text(encoding='utf-8'))
-                        if not isinstance(expectation, list) or not expectation:
-                            raise Blocked('expected redeploy observations missing')
-                        for item in expectation:
-                            if set(item) != {'stack', 'resourcePath', 'operation', 'status'} or item['stack'] not in session['states'] or item['status'] not in {'CREATE_COMPLETE', 'UPDATE_COMPLETE', 'IMPORT_COMPLETE', 'SUCCEEDED'}:
-                                raise Blocked('expectation must identify the target operation success')
-                        pending = handoff.issue_request(root, path, session, args.problem, args.path, expectation)
-                        attempt = session['workflow']['attempts'][pending['attemptId']]
-                        if attempt.get('expectation') not in (None, expectation):
-                            raise Blocked('request retry changed expected result')
-                        attempt['expectation'] = expectation
-                        value = {'result': 'REQUESTED', 'requestId': pending['requestId'], 'attemptId': pending['attemptId'],
-                                 'next': 'worktree_task.py repair-checkpoint --task-id ' + Path(session['taskFile']).stem + ' --state ' + str(path)}
-                    elif args.command == 'budget':
-                        if session['workflow'].get('status') in {'CLOSED', 'COMPLETE'}:
-                            raise Blocked('terminal workflow cannot be reopened by a budget command')
-                        session['workflow']['status'] = 'WAITING_HUMAN'
-                        value = {'result': 'WAITING_HUMAN', 'budget': session['workflow']['budget'],
-                                 'reason': 'No externally verified Human budget authorization is available; extension refused'}
-                    else:
-                        if not args.authorization or any(s['status'] == 'RUNNING' or s.get('cleanupStatus') == 'DELETE_INTENT' or
-                                s['status'] == 'SUCCESS' and not s.get('observedSynced') for s in session['states'].values()):
-                            raise Blocked('explicit close requires drained, synchronized state')
-                        pending = session.pop('pendingRequest', None)
-                        if pending:
-                            session['workflow']['attempts'][pending['attemptId']].update(stage='ABANDONED', closedRequest=pending)
-                        session['workflow']['status'] = 'CLOSED'
-                        # Closing retains unresolved scope ownership and every spent attempt.
-                        value = {'result': 'CLOSED', 'retained': str(path)}
+                    if not args.authorization or any(s['status'] == 'RUNNING' or s.get('cleanupStatus') == 'DELETE_INTENT' or
+                            s['status'] == 'SUCCESS' and not s.get('observedSynced') for s in session['states'].values()):
+                        raise Blocked('explicit close requires drained, synchronized state')
+                    pending = session.pop('pendingRequest', None)
+                    if pending:
+                        session['workflow']['attempts'][pending['attemptId']].update(stage='ABANDONED', closedRequest=pending)
+                    session['workflow']['status'] = 'CLOSED'
+                    # Closing retains unresolved scope ownership and every spent attempt.
+                    value = {'result': 'CLOSED', 'retained': str(path)}
             handoff.save(path, session)
         print(json.dumps(value, indent=2))
         return 2 if args.command == 'budget' else 0

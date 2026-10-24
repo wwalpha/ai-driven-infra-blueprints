@@ -132,10 +132,8 @@ def check_dependency_guards():
         assert cache.common_key()=='memo'
         assert live_common_key(cache)=='live'
         assert input_recorder(Path('/fixture')) is recorder
-    legacy='<!-- reference-warnings:start -->\n## 参照警告\n- old warning\n<!-- reference-warnings:end -->\n'
-    text='# 問題一覧\nhuman confirmation\n'+legacy+legacy
+    text='# 問題一覧\nhuman confirmation\n'
     current=notice_report(text,'dev','team',['s3'],{'warnings':[dict(code='W',message='new warning')]})
-    assert current.count('reference-warnings:start')==1 and 'old warning' in current
     pending=notice_report(current,'dev','team',['s3'],{'unverified':[dict(code='not_run')]},preserve_prior=True)
     assert 'new warning' in pending and '解消未確認' in pending
     again=notice_report(pending,'dev','team',['s3'],{'unverified':[dict(code='not_run')]},preserve_prior=True)

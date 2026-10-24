@@ -18,7 +18,7 @@ import service_rows as _imports_service_rows
 from design_document import DesignIndex
 from design_layout import expanded_display_rows
 from generation_inputs import GenerationInputs
-from import_guard import digest, require_import_changes, resource_config
+from import_guard import require_import_changes, resource_config
 from model.core import entries as entries
 from model.core import literal, resource_row_index
 from model.display import display_rows
@@ -49,6 +49,7 @@ from support.producer_identifier_reference_fixtures import reference
 from task_contract_core import start
 from utils.aws_mappings import owners
 from utils.input_cache import input_context
+from utils.json_format import document_sha256
 from utils.layout_schema import ALIGNMENT, HEADER
 from utils.source_reads import FileReads
 from validation.design_links import check_design_links as _check_design_links
@@ -362,7 +363,6 @@ def check_markdown_roundtrip_keeps_physical_values(tmp_path, kind, name, prop, d
         expected = '[' + literal(observed) + '](s3.md#producer)'
     else:
         expected = 'subnet-confirmed'
-    assert 'resource://' not in first
     assert any(expected in line for line in normalized), normalized
     assert source['desired.row.009-002.value'] == desired
     if kind != 'CodeBuild.Project':
@@ -434,7 +434,7 @@ def check_import_reference_observation_sync_remains_guarded(tmp_path):
     assert not resolver.warnings
     old, new = resource_config(source, '001'), resource_config(updated, '001')
     assert old['rows'] == new['rows'] and old['resource'] == new['resource']
-    assert digest(old) != digest(new)
+    assert document_sha256(old) != document_sha256(new)
     (tmp_path / '.git').mkdir()
     start(tmp_path, 'tasks/sync.md', '## Task contract\n- Task type: `governance`\n- Task status: `running`\n'
           '## Validation scope\n- `framework`\n## Required changes\n- [R1] Synthetic sync guard\n'

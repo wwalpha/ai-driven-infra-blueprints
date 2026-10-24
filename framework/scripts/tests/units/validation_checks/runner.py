@@ -105,7 +105,7 @@ def check_boundaries():
         with patch.object(first, 'check_design_service_ownership') as ownership, \
              patch.object(first, 'check_stack_designs') as stacks, \
              patch.object(MODULE.Validator, 'check_designs', side_effect=RuntimeError('child failed')) as child:
-            first.scope, first.model_check = scope, lambda selected: []
+            first.scope = scope
             try:
                 first.check_scoped_designs()
             except RuntimeError as error:

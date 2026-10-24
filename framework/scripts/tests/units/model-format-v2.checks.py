@@ -16,8 +16,6 @@ import model.references as _imports_model_references
 import model.render as _imports_model_render
 import pytest
 from aws_mapping_compare import value as mapped_value
-from cloudformation_inputs import Blocked
-from deploy.session import require_session_format
 from design_catalog import DesignSchemaCatalog
 from model.core import entries
 from model.format import FORMAT, serialize
@@ -65,17 +63,12 @@ def check_invalid_properties(body):
         parse(FORMAT + '\n' + body + '\n')
 
 
-@pytest.mark.parametrize('header', ['', '# model-format: 1', '# model-format: 3', '# model-template: 1'])
+@pytest.mark.parametrize('header', ['', '# model-format: 3'])
 def check_unsupported_version(header):
     with pytest.raises(ValueError):
         parse(header + '\na=1\n')
 
 
-@pytest.mark.parametrize('version', [None, 1, 2, 3, 3.0, 4.0])
-def check_deploy_rejects_legacy_session_format(version):
-    with pytest.raises(Blocked, match='format is incompatible'):
-        require_session_format({'version': version, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1})
-    require_session_format({'version': 4, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1})
 
 
 def check_observed_insertion_is_local_without_reflow():

@@ -62,7 +62,7 @@ Stack 等の所有 block も分割しません。巨大な単一 Resource は600
 空 part を削除しても他の part を改番しません。観測更新で再分割しません。
 
 reader は入口と全 parts を組み立て、重複キー、未登録 part、欠落、重複登録、symlink、
-パス逸脱、block 分割、未知の形式版を拒否します。通常 reader に旧形式 fallback はありません。
+パス逸脱、block 分割、未知の形式版を拒否します。
 
 ## scalar と JSON
 

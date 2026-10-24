@@ -108,7 +108,7 @@ def model_input_manifest(root: Path, environment: str, directory: str) -> Manife
 def require_session_format(session: Session) -> None:
     expected = {'version': 4, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1}
     if any(type(session.get(key)) is not int or session[key] != value for key, value in expected.items()):
-        raise Blocked('controller session format is incompatible; explicit v3 to v4 migration must retain original identity/history/candidates')
+        raise Blocked('controller session format is incompatible')
 
 
 def verify_observed_transition(
@@ -305,8 +305,7 @@ def run(
             if args.resume:
                 session = json.loads(state_path.read_text(encoding='utf-8'))
                 handoff.restore(root, state_path, session)
-                if not getattr(args, 'observe_only', False):
-                    require_session_format(session)
+                require_session_format(session)
                 if session.get('pendingObserved') and not getattr(args, 'observe_only', False):
                     # Recovery must precede load_units/design_digest and all read-only Model snapshots.
                     sha = _imports_deploy_contracts.sha
@@ -346,15 +345,11 @@ def run(
                 require_session_format(session)
                 if session.get('workflow', {}).get('status') == 'CLOSED':
                     raise Blocked('closed workflow cannot resume AWS execution; unresolved history still owns overlapping scope')
-                if session.get('workflow', {}).get('legacyUncertain'):
-                    raise Blocked('WAITING_HUMAN: legacy repair identity/cycles require diagnosis; no candidate reapplication')
                 if getattr(args, 'repair_result', None):
                     repair_resume.accept(root, args.repair_result, session, backend, units, unit_digests, current_infra)
                 elif session.get('pendingRequest'):
                     raise Blocked('pending external repair requires --resume --repair-result')
-                # Older sessions watched all infra; retain only current execution inputs.
-                previous_infra = {path: digest for path, digest in session.get('infraManifest', current_infra).items()
-                                  if path in current_infra}
+                previous_infra = session['infraManifest']
                 changed_infra = {path for path in previous_infra.keys() | current_infra.keys()
                                  if previous_infra.get(path) != current_infra.get(path)}
                 update_handoff = {path.relative_to(root).as_posix() for unit in units
@@ -378,33 +373,34 @@ def run(
                     if (phase == "deploy" or state["status"] != "NOT_STARTED") and session["unitDigests"][name] != unit_digests[name]:
                         raise Blocked(f"prepared/executed unit IaC changed; cannot resume: {name}")
                 session["unitDigests"] = unit_digests
-                if session.get("designDigest", current_design) != current_design or session.get("profile", backend.profile) != backend.profile:
+                if session["designDigest"] != current_design or session["profile"] != backend.profile:
                     raise Blocked("intended model or AWS profile changed; cannot resume")
             else:
                 if state_path.exists() or args.approve_change_set:
                     raise Blocked("new session requires unused state path and no approvals")
                 session = {"inputDigest": digest, "unitDigests": unit_digests,
+                           "workflow": handoff.new_workflow(), "inputRevision": 0,
                            "states": {unit["name"]: {"status": "NOT_STARTED"} for unit in units}}
-            session.update(version=4, modelFormat=2, snapshotVersion=2, referenceMeaningVersion=1,
-                           designDigest=current_design, profile=backend.profile,
-                           modelInputManifest=model_input_manifest(root, args.environment, directory))
-            session.setdefault('repository', str(root))
-            session.setdefault('taskFile', initial_task.name)
-            session.setdefault('taskDigest', initial_task.task_digest)
-            session.setdefault('infraManifest', current_infra)
-            session.setdefault('unitInputPaths', {u['name']: [p.relative_to(root).as_posix() for p in backend.deployment_input_paths([u])] for u in units})
-            session.setdefault('environment', args.environment)
-            session.setdefault('directory', directory)
-            session.setdefault('target', target)
-            session.setdefault('logicalTarget', [args.environment, directory, target['awsAccountId'], target['awsRegion']])
-            budget_lines = re.findall(r'^- Repair cycle budget: `([0-9]+)`$', initial_task.text, re.M)
-            if budget_lines and (len(budget_lines) != 1 or int(budget_lines[0]) <= 0):
-                raise Blocked('invalid repair cycle budget')
-            session.setdefault('repairBudget', int(budget_lines[0]) if budget_lines else 20)
-            session.setdefault('validationScope', sorted(paths_in(initial_task.text, '## Validation scope')))
+                session.update(version=4, modelFormat=2, snapshotVersion=2, referenceMeaningVersion=1,
+                               designDigest=current_design, profile=backend.profile,
+                               modelInputManifest=model_input_manifest(root, args.environment, directory))
+                session['repository'] = str(root)
+                session['taskFile'] = initial_task.name
+                session['taskDigest'] = initial_task.task_digest
+                session['infraManifest'] = current_infra
+                session['unitInputPaths'] = {u['name']: [p.relative_to(root).as_posix() for p in backend.deployment_input_paths([u])] for u in units}
+                session['environment'] = args.environment
+                session['directory'] = directory
+                session['target'] = target
+                session['logicalTarget'] = [args.environment, directory, target['awsAccountId'], target['awsRegion']]
+                budget_lines = re.findall(r'^- Repair cycle budget: `([0-9]+)`$', initial_task.text, re.M)
+                if budget_lines and (len(budget_lines) != 1 or int(budget_lines[0]) <= 0):
+                    raise Blocked('invalid repair cycle budget')
+                session['repairBudget'] = int(budget_lines[0]) if budget_lines else 20
+                session['validationScope'] = sorted(paths_in(initial_task.text, '## Validation scope'))
+                session['effectiveDigests'] = handoff.effective(root, units, backend.paths, backend.deployment_input_paths)
             if phase == 'update' and args.resume and not getattr(args, 'repair_result', None):
                 session['effectiveDigests'] = handoff.effective(root, units, backend.paths, backend.deployment_input_paths)
-            session.setdefault('effectiveDigests', handoff.effective(root, units, backend.paths, backend.deployment_input_paths))
             handoff.bind(root, state_path, session)
             backend.session = session
             contract = initial_task.text
@@ -448,11 +444,6 @@ def run(
                     handoff.record_stop(session, units)
                     save()
                     raise
-                state = session['states'][unit['name']]
-                if state['status'] not in {'SUCCESS', 'RUNNING', 'FAILED'}:
-                    migrate_delivery = _imports_deploy_contracts.migrate_delivery
-                    if migrate_delivery(root, target, unit, state, backend.templates[unit['name']], backend.file_digest):
-                        session['migration'] = 'v3 SDK delivery arguments; execution identity retained'
             session.setdefault('declaredConsumers', handoff.dependencies(backend, units))
             save()
         except Exception:

@@ -4,29 +4,22 @@ import json
 import re
 from contextlib import contextmanager
 from contextvars import ContextVar
-from functools import partial as _bind_framework_callback
 from pathlib import Path
 
-import design_catalog as _imports_design_catalog
 import design_document as _dependency_design_document
 import json_intrinsics as _imports_json_intrinsics
 import policy_tables as _imports_policy_tables
-import reference_contracts as _imports_reference_contracts
 import utils.json_format as _imports_utils_json_format
 from design_catalog import design_material_files
-from reference_contracts import ARN_FORMS, ARN_SHAPES
 from utils.aws_catalogs import catalog_outputs as catalog_outputs
-from utils.aws_sdk import aws_runtime
 from utils.input_cache import input_is_file, input_text, memoized
 from utils.json_format import document_sha256, policy_json, validate_aws_document
 from utils.layout_schema import HIDDEN_PROPERTIES, RESOURCE
 
 import model.identity as _dependency_model_identity
 import model.identity as _imports_model_identity
-import model.importing.references as _imports_model_importing_references
 import model.importing.sources as _imports_model_importing_sources
 import model.references as _imports_model_references
-import model.render as _imports_model_render
 import model.sources as _imports_model_sources
 from model.core import (
     LINK,
@@ -230,191 +223,48 @@ def resource_display_rows(values: dict[str, str], identity: str, resource: dict[
 
 
 
-def scalar_reference(row):
-    """Decode the existing JSON scalar only at explicitly enabled properties."""
-    SCALAR_REFERENCE_PROPERTIES = _imports_reference_contracts.SCALAR_REFERENCE_PROPERTIES
-
-    resource_link = _imports_model_identity.resource_link
-    _json = _imports_model_references._json
-
-    prop = re.sub(r'\[\d+\]', '[]', row['property'])
-    if prop not in SCALAR_REFERENCE_PROPERTIES or 'document' in row:
-        return None
-    value, structured = _json('desired.row.scalar.value', row['value'])
-    if not structured:
-        return None
-    if (not isinstance(value, dict) or set(value) != {'$resource', '$attribute'} or
-            not resource_link(value['$resource']) or value['$attribute'] != SCALAR_REFERENCE_PROPERTIES[prop][1]):
-        raise ValueError('scalar Resource reference requires a Resource link and explicit Arn: ' + prop)
-    return value
 
 
-def scalar_reference_operand(row, root, scope, *, resolver=None):
-    """Resolve scalar intent without acquiring or deriving any physical value."""
-    SCALAR_REFERENCE_PROPERTIES = _imports_reference_contracts.SCALAR_REFERENCE_PROPERTIES
-
-    Resolver = _imports_model_identity.Resolver
-
-    selector = scalar_reference(row)
-    if selector is None:
-        return None
-    operand = (resolver or Resolver(root)).operand(selector['$resource'], scope,
-        attribute=selector['$attribute'], field=row['property'])
-    snapshot, _, resource, attribute = operand
-    expected = SCALAR_REFERENCE_PROPERTIES[re.sub(r'\[\d+\]', '[]', row['property'])]
-    if ((resource['resourceType'], attribute) != expected or
-            (snapshot.scope.environment, snapshot.scope.target) != (scope.environment, scope.target)):
-        raise ReferenceResolutionError('scalar Arn reference requires a same-target KMS.Key', reference=selector['$resource'])
-    return operand
 
 
-def reference_display(values, path, root, *, definitions_root=None):
+def reference_display(values, path, root):
     """Preserve saved links/anchors and project only execution documents for display."""
-    Resolver = _imports_model_identity.Resolver
     scope_for = _imports_model_sources.scope_for
     model_path = (root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties') if path.is_relative_to(root / 'docs/designs') else path
     scope = scope_for(model_path)
-    resolver = Resolver(root)
     result = dict(values)
     for key, value in values.items():
         if key.startswith('desired.row.') and key.endswith('.document'):
             projected = execution_document(policy_json(value), root,
-                property_name=values[key.removesuffix('document') + 'property'], resolver=resolver, scope=scope,
+                property_name=values[key.removesuffix('document') + 'property'], scope=scope,
                 logical_id=values.get(f'desired.resource.{key.split(".")[2].rpartition("-")[0]}.logicalId'))
             result[key] = json.dumps(projected, ensure_ascii=False)
             result[key.removesuffix('document') + 'artifactSha256'] = document_sha256(projected)
-    for row_id, row in entries(values, 'desired.row.'):
-        operand = scalar_reference_operand(row, root, scope, resolver=resolver)
-        if operand is not None:
-            snapshot, number, resource, _ = operand
-            address = _imports_model_identity.address
-            resource_presentation = _imports_model_render.resource_presentation
-            name, _, _ = resource_presentation(snapshot.values, number, resource,
-                definitions_root or root, scope=snapshot.scope)
-            result[f'desired.row.{row_id}.value'] = address(snapshot.scope, resource, consumer_scope=scope, label=name)
     return result
 
 
-def _callback_document_references_reference(resolve, resolver, scope, /, uri, attribute, field, original):
-    operand = resolver.operand(uri, scope, attribute=attribute, field=field)
-    return resolve(*operand, uri) if resolve else original
 
 
-def _recursive_document_references_visit(reference, /, value, field):
-    if isinstance(value, str):
-        if field and field.rsplit('.', 1)[-1] in {'Description', 'description'}:
-            return value
-        if value.startswith('resource://'):
-            raise ReferenceResolutionError('unsupported saved Resource reference syntax')
-        if _dependency_model_identity.resource_link(value):
-            return reference(value, None, field, value)
-        if any(_dependency_model_identity.reference_tokens(value)):
-            raise ReferenceResolutionError('embedded Resource reference requires an explicit JSON operand')
-        return value
-    if isinstance(value, list):
-        return [_recursive_document_references_visit(reference, item, field + '[]' if field else None) for item in value]
-    if isinstance(value, dict):
-        if '$resource' in value:
-            if (set(value) - {'$resource', '$attribute'} or not _dependency_model_identity.resource_link(value['$resource']) or
-                    '$attribute' in value and (not isinstance(value['$attribute'], str) or not value['$attribute'])):
-                raise ValueError('invalid structured Resource reference')
-            return reference(value['$resource'], value.get('$attribute'), field, value)
-        if '$attribute' in value:
-            raise ValueError('Resource attribute requires $resource')
-        return {key: _recursive_document_references_visit(reference, child, field + '.' + key if field else key) for key, child in value.items()}
-    return value
 
 
-def document_references(document, root, *, property_name=None, resolver=None, scope=None, resolve=None):
-    """One JSON reference walk for semantic validation and execution projection."""
-    resolver = resolver or _dependency_model_identity.Resolver(root)
-
-    reference = _bind_framework_callback(_callback_document_references_reference, resolve, resolver, scope)
-
-    visit = _bind_framework_callback(_recursive_document_references_visit, reference)
-    return visit(document, property_name)
 
 
-def confirmed_property(snapshot, number, kind, attribute, uri, resolver):
-    """Select one authoritative Row before evaluating its desired/observed value."""
-    resource_link = _imports_model_identity.resource_link
-    known = _imports_model_importing_references.known
-    rows = [(rid, row) for rid, row in entries(snapshot.authoritative, 'desired.row.')
-            if rid.rpartition('-')[0] == number and row['property'] == kind + '.' + attribute]
-    if len(rows) == 1:
-        rid, row = rows[0]
-        observed = snapshot.authoritative.get(f'observed.row.{rid}.value')
-        if observed is not None:
-            if not resource_link(row['value']):
-                raise ReferenceResolutionError('JSON observed output requires a logical Resource reference', reference=uri)
-            resolver.resolve(row['value'], snapshot.scope)
-        value = literal(observed if observed is not None else row.get('value', ''))
-        if known(value):
-            return value
-    raise ReferenceResolutionError('JSON Resource reference requires one confirmed output: ' + kind + '.' + attribute, reference=uri)
 
 
-def _callback_execution_document_reference(resolver, root, target_for, /, snapshot, number, resource, attribute, uri):
-    kind = resource['resourceType']
-    if attribute == 'Arn' or (kind, attribute) in ARN_FORMS:
-        if attribute != 'Arn' or kind not in ARN_SHAPES:
-            raise ReferenceResolutionError('JSON Resource ARN form cannot be derived: ' + kind + '.' + attribute, reference=uri)
-        identity, template, patterns = ARN_SHAPES[kind]
-        fields = identity if isinstance(identity, dict) else {identity: 'id'}
-        parts = {group: confirmed_property(snapshot, number, kind, prop, uri, resolver) for prop, group in fields.items()}
-        DesignSchemaCatalog = _imports_design_catalog.DesignSchemaCatalog
-        catalog = DesignSchemaCatalog(root)
-        if any(catalog.literal_errors(kind, prop, parts[group]) for prop, group in fields.items()):
-            raise ReferenceResolutionError('invalid JSON Resource ARN identifier: ' + kind, reference=uri)
-        if any(re.fullmatch(patterns[group], value) is None for group, value in parts.items()):
-            raise ReferenceResolutionError('invalid JSON Resource ARN identifier: ' + kind, reference=uri)
-        if kind == 'S3.Bucket':
-            name = parts['id']
-            if ('..' in name or re.fullmatch(r'[0-9]+(?:\.[0-9]+){3}', name) or
-                    name.startswith(('xn--', 'sthree-', 'amzn-s3-demo-')) or
-                    name.endswith(('-s3alias', '--ol-s3', '.mrap', '--x-s3', '--table-s3'))):
-                raise ReferenceResolutionError('invalid JSON Resource BucketName', reference=uri)
-            for rid, row in entries(snapshot.authoritative, 'desired.row.'):
-                if rid.rpartition('-')[0] != number and row['property'] == 'S3.Bucket.BucketName':
-                    value = snapshot.authoritative.get(f'observed.row.{rid}.value', row['value'])
-                    if literal(value) == name:
-                        raise ReferenceResolutionError('JSON Resource ARN requires a unique BucketName', reference=uri)
-        target, _ = target_for(snapshot.scope, resolver.reads)
-        UnknownRegionError = aws_runtime().UnknownRegionError
-        get_session = aws_runtime().sdk_session
-        session = get_session()
-        try:
-            partition = session.get_partition_for_region(target['awsRegion'])
-        except UnknownRegionError as error:
-            raise ReferenceResolutionError('unknown JSON Resource AWS partition', reference=uri) from error
-        # SDK regex fallbacks also accept invented regions; require a recorded region.
-        if not any(item['partition'] == partition and target['awsRegion'] in item['regions']
-                   for item in session.get_data('endpoints')['partitions']):
-            raise ReferenceResolutionError('JSON Resource ARN requires a confirmed Region', reference=uri)
-        return template.format(partition=partition, region=target['awsRegion'],
-                               account=target.get('awsExecutionAccountId', target['awsAccountId']), **parts)
-    return confirmed_property(snapshot, number, kind, attribute, uri, resolver)
 
 
-def execution_document(document, root, *, property_name=None, resolver=None, scope=None, logical_id=None, warnings=None):
+def execution_document(document, root, *, property_name=None, scope=None, logical_id=None, warnings=None):
     """Project design JSON; unresolved CFn expressions retain their authored structure."""
     POLICY_FORMATS = _imports_policy_tables.POLICY_FORMATS
     Policy = _imports_policy_tables.Policy
     validate_policy_document = _imports_policy_tables.validate_policy_document
     AwsDocumentError = _imports_utils_json_format.AwsDocumentError
 
-    Resolver = _imports_model_identity.Resolver
-    target_for = _imports_model_sources.target_for
-
-    resolver = resolver or Resolver(root)
-
-    reference = _bind_framework_callback(_callback_execution_document_reference, resolver, root, target_for)
-
     try:
         project_document = _imports_json_intrinsics.project_document
         document = project_document(document, warnings=warnings, property_name=property_name,
                                     model_path=scope.path if scope else root, logical_id=logical_id)
-        projected = document_references(document, root, property_name=property_name, resolver=resolver, scope=scope, resolve=reference)
+        projected = document
         if property_name in POLICY_FORMATS:
             validate_policy_document(projected, Policy('', '', '', '', property_name), design=True)
         else:

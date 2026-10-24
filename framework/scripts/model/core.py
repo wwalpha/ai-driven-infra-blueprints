@@ -119,7 +119,7 @@ def stack_model(values: dict[str, str]) -> tuple[int, list[tuple[str, dict[str, 
     allowed = {"name", "template", "parameters", "deployOrder"}
     for identity, stack in stacks:
         if set(stack) not in (allowed, allowed | {'placementName'}):
-            raise ValueError(f"stack {identity} requires only {sorted(allowed)}; explicit DeployOrder migration required")
+            raise ValueError(f"stack {identity} requires only {sorted(allowed)}")
         positive_integer(stack["deployOrder"], "DeployOrder")
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9-]{0,127}", stack["name"]):
             raise ValueError(f"invalid stack name: {stack['name']}")

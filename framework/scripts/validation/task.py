@@ -263,7 +263,7 @@ class TaskValidation:
             service_changed = any(path.startswith(("model/", "docs/designs/", "infra/", "issues/")) for path in self.scope_paths)
             if self.task_type in {"governance", "catalog-maintenance"} and scope is None and not service_changed:
                 scope = set()  # Framework-wide validation does not target consumer services.
-            require_no_issues(self.root, scope, warnings=self.findings.warnings)
+            require_no_issues(self.root, scope)
         except (OSError, ValueError) as error:
             self.check(False, str(error))
 

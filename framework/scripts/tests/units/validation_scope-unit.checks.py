@@ -2,7 +2,6 @@
 """Separated checks; case provenance is recorded in ../CASES.md."""
 
 import sys
-from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -23,9 +22,6 @@ if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
 
 
-def _callback_check_internal_generation_dispatch_hook(selections, /, selected):
-    selections.append(selected)
-    return []
 
 
 @pytest.mark.parametrize('scope', [None, {('stg', 'team', 'config'), ('dev', 'team', 'config')}])
@@ -42,11 +38,6 @@ def check_internal_generation_dispatch(tmp_path, scope, workers):
         empty = VALIDATOR.Validator(tmp_path, set())
         empty.check_generated_service_models()
         assert not empty.errors
-        selections = []
-        hook = _bind_framework_callback(_callback_check_internal_generation_dispatch_hook, selections)
-        hooked = VALIDATOR.Validator(tmp_path, scope, model_check=hook)
-        hooked.check_generated_service_models()
-        assert selections == [scope] and not hooked.errors
 
 def check_active_scope(tmp_path):
     root = tmp_path

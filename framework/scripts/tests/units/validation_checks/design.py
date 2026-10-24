@@ -78,18 +78,12 @@ def check_name_tag_and_identifier_order_contract() -> None:
     name_cases = [
         ('vpc-name', 'EC2.VPC', 'vpc-app-dev',
          [['1', 'EC2.VPC.Name', 'vpc-app-dev', 'Nameタグの値']], None),
-        ('vpc-two-row-name-tag', 'EC2.VPC', 'vpc-app-dev',
-         [['1', 'EC2.VPC.Tags[].Key', 'Name', 'Nameタグのキー'],
-          ['2', 'EC2.VPC.Tags[].Value', 'vpc-app-dev', 'Nameタグの値']], 'one-row property'),
         ('subnet-heading', 'EC2.Subnet', 'SUBNET01',
          [['1', 'EC2.Subnet.Name', 'sbnt-app-dev-private-01', 'Nameタグの値']], 'heading identifier must match'),
         ('subnet-upper-case', 'EC2.Subnet', 'PRIVATE_SUBNET_01',
          [['1', 'EC2.Subnet.Name', 'PRIVATE_SUBNET_01', 'Nameタグの値']], 'lower-kebab-case'),
         ('flowlog-name', 'EC2.FlowLog', 'flowlog-venus-stg-non-cde',
          [['1', 'EC2.FlowLog.Name', 'flowlog-venus-stg-non-cde', 'Nameタグの値']], None),
-        ('flowlog-two-row-name-tag', 'EC2.FlowLog', 'flowlog-venus-stg-non-cde',
-         [['1', 'EC2.FlowLog.Tags[].Key', 'Name', 'Nameタグのキー'],
-          ['2', 'EC2.FlowLog.Tags[].Value', 'flowlog-venus-stg-non-cde', 'Nameタグの値']], 'one-row property'),
         ('api-without-name', 'ApiGatewayV2.Api', 'API01',
          [], None),
     ]

@@ -144,12 +144,6 @@ class Worker:
             self.process = None
             return failure('invalid_protocol')
 
-    def run(self, args, **kwargs):
-        response = self.request(args)
-        if (set(response) != {'returncode','stdout','stderr'} or type(response['returncode']) is not int
-                or not all(isinstance(response[key],str) for key in ('stdout','stderr'))):
-            raise ValueError('cfn-lint worker communication failed')
-        return subprocess.CompletedProcess(args, **response)
 
     def close(self):
         if self.process is None:
@@ -171,25 +165,6 @@ class Worker:
             self.process.stdout.close()
 
 
-@contextmanager
-def scope(backend, units):
-    # Retain the historical compatibility scope, without changing deploy callers.
-    if len(units) < 2 or sys.platform == 'win32':
-        yield
-        return
-    worker = Worker()
-    previous = getattr(backend, 'lint', None)
-    backend.lint = worker.run
-    try:
-        yield
-    finally:
-        try:
-            worker.close()
-        finally:
-            if previous is None:
-                del backend.lint
-            else:
-                backend.lint = previous
 
 
 def failure(code, *, fatal=False):

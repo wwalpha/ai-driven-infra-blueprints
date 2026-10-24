@@ -10,7 +10,6 @@ from model.projection import reference_attribute
 from reference_contracts import (
     REFERENCE_FORMS,
     REFERENCE_PROPERTIES,
-    SCALAR_REFERENCE_PROPERTIES,
 )
 
 from . import registry
@@ -39,8 +38,8 @@ def reference_forms(kind, path, *, local_comparison, property_schema):
     return ({'Arn'} if node.get('pattern', '').startswith('^arn:') or
             node.get('type') == 'string' and path.removesuffix('[]').lower().endswith(('arn', 'arns')) else forms)
 
-def _callback_reference_diagnostic_format_status(explicit, forms, kind, kms_format, local_comparison, path, resource_type, /, value):
-    if explicit or local_comparison and registry.kms_forms(kind, path) is not None:
+def _callback_reference_diagnostic_format_status(forms, kind, kms_format, local_comparison, path, resource_type, /, value):
+    if local_comparison and registry.kms_forms(kind, path) is not None:
         form = kms_format(value)
         return 'unproven' if form is None else 'allowed' if form in forms else 'outside allowed forms'
     if forms is None or not isinstance(value, ResourceReference):
@@ -51,11 +50,10 @@ def _callback_reference_diagnostic_format_status(explicit, forms, kind, kms_form
 
 
 def reference_diagnostic(left, right, kind, path, reason, *, local_comparison, forms_for, kms_format, resource_type, redact):
-    explicit = getattr(left, 'explicit_attribute', False) and kind + '.' + path in SCALAR_REFERENCE_PROPERTIES
-    forms = {'KeyArn'} if explicit else forms_for(kind, path)
+    forms = forms_for(kind, path)
     symbols = all(isinstance(value, ResourceReference) for value in (left, right))
     identity = ('same' if left['$resource'] == right['$resource'] else 'different') if symbols else 'unproven'
-    format_status = _bind_framework_callback(_callback_reference_diagnostic_format_status, explicit, forms, kind, kms_format, local_comparison, path, resource_type)
+    format_status = _bind_framework_callback(_callback_reference_diagnostic_format_status, forms, kind, kms_format, local_comparison, path, resource_type)
     return redact(dict(path=kind + '.' + path, model=redact(left, path),
                               iac=redact(right, path), identity=identity,
                               allowed_forms=sorted(forms) if forms is not None else None,
@@ -97,8 +95,6 @@ def reference_same(left, right, kind, path, *, local_comparison, forms_for, reso
         if result is not NotImplemented:
             return decision(result)
     allowed = registry.kms_forms(kind, path) if local_comparison else None
-    if getattr(left, 'explicit_attribute', False) and kind + '.' + path in SCALAR_REFERENCE_PROPERTIES:
-        allowed = {'KeyArn'}
     if allowed:
         result, reason = registry.compare_kms_forms(left, right, allowed, resolve_literal=resolve_literal,
                                                     format_of=kms_format)

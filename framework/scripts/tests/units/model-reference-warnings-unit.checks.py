@@ -20,13 +20,6 @@ import sync_runtime as runtime
 from design_layout import expanded_display_rows
 from generation_inputs import GenerationInputs
 from import_guard import file_hash
-from issue_gate import (
-    issue_errors,
-    reference_issue_parts,
-    task_issue_errors,
-    unresolved_services,
-)
-from issues.materials import existing_materials
 from model.cli import main
 from model.core import ReferenceResolutionError
 from model.display import display_rows, row_table
@@ -197,18 +190,6 @@ def check_completion_only_waives_reference_not_run(tmp_path):
     assert result.status == 'FAIL' and result.warnings and result.errors
 
 
-def check_legacy_issues_keep_number_and_mixed_error(tmp_path):
-    path = tmp_path / 'issues/dev/target/issues.md'
-    path.parent.mkdir(parents=True)
-    source = '1. broken local parentReference\n'
-    path.write_text(source)
-    warnings = []
-    assert not issue_errors(tmp_path, {('dev', 'target', 'service')}, warnings=warnings)
-    assert warnings and unresolved_services(tmp_path, path)[0][0] == '1'
-    assert path.read_text() == source
-    assert reference_issue_parts('reference timeout differs')[1]
-    path.write_text(source + '   literal timeout differs\n')
-    assert issue_errors(tmp_path, {('dev', 'target', 'service')})
 
 
 
@@ -252,30 +233,6 @@ def check_generation_metadata_reaches_findings(tmp_path, monkeypatch):
 
 
 
-@pytest.mark.parametrize('diagnostic', [
-    'ambiguous/type-mismatched fixed reference target',
-    'unknown external instance reference: service-a/producer',
-    'ambiguous/type-mismatched reference: consumer/Origin: 001',
-    'IMPORT removed resource still has an incoming reference',
-])
-@pytest.mark.parametrize('mixed', [False, True])
-def check_legacy_diagnostic_forms(tmp_path, diagnostic, mixed):
-    path = tmp_path / 'issues/dev/target/issues.md'
-    path.parent.mkdir(parents=True)
-    source = '7. <!-- issue-id: old-7 --> invalid service model: model/dev/target/service.properties: ' + diagnostic + '\n'
-    if mixed:
-        source += '   literal timeout differs\n'
-    path.write_text(source)
-    warnings = []
-    scope = {('dev', 'target', 'service')}
-    assert bool(issue_errors(tmp_path, scope, warnings=warnings)) is mixed
-    assert warnings and all(w['code'] == 'reference.legacy_issue' for w in warnings)
-    assert bool(task_issue_errors(tmp_path, scope, warnings=[])) is mixed
-    references, errors = reference_issue_parts(source)
-    assert references and bool(errors) is mixed
-    items, _ = existing_materials(tmp_path, 'dev', 'target', ['service'], warnings=[])
-    assert bool(items) is mixed
-    assert path.read_text() == source
 
 
 

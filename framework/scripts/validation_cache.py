@@ -1,4 +1,4 @@
-"""Compatibility input-cache exports and invocation-local validation results."""
+"""Invocation-local validation results."""
 
 import hashlib
 import json
@@ -11,25 +11,7 @@ from pathlib import Path
 import model.files as _imports_model_files
 import model.sources as _imports_model_sources
 import utils.aws_mappings as _imports_utils_aws_mappings
-from utils.input_cache import _baselines as _baselines
-from utils.input_cache import _generation_inputs as _generation_inputs
-from utils.input_cache import _inputs as _inputs
-from utils.input_cache import baseline_scope as baseline_scope
-from utils.input_cache import digest_files as digest_files
-from utils.input_cache import input_bytes as input_bytes
-from utils.input_cache import input_context as input_context
-from utils.input_cache import input_exists as input_exists
-from utils.input_cache import input_is_dir as input_is_dir
-from utils.input_cache import input_is_file as input_is_file
-from utils.input_cache import input_is_symlink as input_is_symlink
-from utils.input_cache import input_kind as input_kind
-from utils.input_cache import input_recorder as input_recorder
-from utils.input_cache import input_scope as input_scope
-from utils.input_cache import input_select as input_select
-from utils.input_cache import input_text as input_text
-from utils.input_cache import memo_table as memo_table
-from utils.input_cache import memoized as memoized
-from utils.input_cache import recording_inputs as recording_inputs
+from utils.input_cache import digest_files, input_select, memo_table
 
 
 class PassCache:

@@ -55,17 +55,12 @@ def check_configuration():
         expect('T01', _callback_check_configuration_validate(accounts, root, initialized=True))
         shutil.rmtree(path.parent)
         expect('T02', _callback_check_configuration_validate(accounts, root, initialized=True), True)
-        legacy = root / 'infra/terraform/environments/dev/cde/main.tf'
-        legacy.parent.mkdir(parents=True)
-        write(legacy, original)
-        expect('T03', _callback_check_configuration_validate(accounts, root, initialized=True), True)
         path.parent.mkdir()
         write(path.parent / "terraform.tfvars", 'value = "dev-cde"\n')
         write(path, 'resource "aws_iam_role" "bad" {}\n')
         bad = _callback_check_configuration_validate(accounts, root)
         assert any('not Root' in error for error in bad.errors), bad.errors
         expect('T04', bad, True)
-        shutil.rmtree(root / 'infra/terraform')
         write(path, original)
 
         unknown = root / 'infra/unknown/terraform/dev/main.tf'
@@ -144,10 +139,6 @@ def check_configuration():
                 assert 'The target-directory alias or AWS account ID does not exist in the same environment' in prompt
                 assert 'Stop without changes for missing, invalid, duplicate, or contradictory values.' in prompt
         expect('T15', _callback_check_configuration_validate(accounts, root, initialized=True))
-        legacy.parent.mkdir(parents=True)
-        write(legacy, original)
-        expect('T16', _callback_check_configuration_validate(accounts, root), True)
-        shutil.rmtree(root / 'infra/terraform')
         write(path, original.replace('../modules/iam', '../../../non-cde/terraform/modules/iam'))
         expect('T17', _callback_check_configuration_validate(accounts, root), True)
         write(path, original)
@@ -269,5 +260,5 @@ resource "terraform_data" "valid" { input = var.value }
             validator.accounts = {('custom-environment', alias): {'alias': alias, 'engine': 'terraform'}}
             validator.check_iac_selection()
             assert not validator.errors, validator.errors
-    assert cases == [f'T{i:02}' for i in range(1, 18)], cases
+    assert cases == ['T01', 'T02', 'T04', 'T05', 'T06', 'T07', 'T08', 'T09', 'T10', 'T11', 'T12', 'T13', 'T14', 'T15', 'T17'], cases
     print("Terraform validator inputs: PASS")

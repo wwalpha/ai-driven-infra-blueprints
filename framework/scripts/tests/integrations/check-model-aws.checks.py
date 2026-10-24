@@ -494,7 +494,6 @@ def common_checks(root):
     role = directory / 'iam.properties'
     write_model(role, model_text('IAM.Role', [('IAM.Role.RoleName', '`fixture`')], anchor='iam-fixture'))
     check(resource.resolve_json('[fixture](iam.md#iam-fixture)', 'arn').startswith('arn:' ) is False, 'SDK synthetic ARN used, not constructed')
-    expect(ValueError, lambda: resource.reference('resource://dev/../iam/IAM_Role_001'))
     expect(m.Unresolved, lambda: resource.reference('[missing](iam.md#missing)'))
     # Ordered arrays remain ordered; tags keep Key/Value pairs together.
     check(m.normalize(ctx, 'false', 'boolean') is False and m.normalize(ctx, '60', 'number') == 60, 'typed SDK string values')

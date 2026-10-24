@@ -64,7 +64,7 @@ def stack_markdown(path, values, root, *, definitions_root=None):
     reference_display = _imports_model_projection.reference_display
     limit, stacks = stack_model(values)
     settings, artifacts = deployment_settings(values)
-    displayed = reference_display(values, path, root, definitions_root=definitions_root)
+    displayed = reference_display(values, path, root)
     display_artifacts = dict(entries(displayed, 'desired.artifact.'))
     delivery = []
     if artifacts:
@@ -261,7 +261,7 @@ def render_validated_model(path: Path, values: dict[str, str], root: Path, *, de
     validate_json_settings(values, model_path)
     if path.stem == "cloudformation-stacks":
         return stack_markdown(path, values, root, definitions_root=definitions_root)
-    values = reference_display(values, path, root, definitions_root=definitions_root)
+    values = reference_display(values, path, root)
     service = path.stem
     if values.get(f"desired.service.{service}.serviceId") != service:
         raise ValueError(f"service ID must equal file stem: {path.name}")
@@ -282,7 +282,7 @@ def generate_markdown(path: Path, values: dict[str, str], root: Path) -> str:
     scope_for = _imports_model_sources.scope_for
     validate_json_settings = _imports_model_validation.validate_json_settings
     validate_json_settings(values, (path.parents[4] / 'model' / path.relative_to(path.parents[4] / 'docs/designs')).with_suffix('.properties'))
-    values = reference_display(values, path, path.parents[4], definitions_root=root)
+    values = reference_display(values, path, path.parents[4])
     service = path.stem
     owned = values.get(f"desired.service.{service}.ownedCatalogResourceTypes", "").split(",")
     details = []
@@ -379,12 +379,10 @@ def model_policy_views(values):
 
 def generate_files(path, values, root, *, warnings=None):
     """Generate one service in memory, without validation or dependency publication."""
-    Resolver = _imports_model_identity.Resolver
     safe = _imports_model_sources.safe
     scope_for = _imports_model_sources.scope_for
     validate_json_settings = _imports_model_validation.validate_json_settings
     validate_json_settings(values, (root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties'), warnings=warnings)
-    resolver = Resolver(root)
     artifacts = {}
     for identity, row in entries(values, 'desired.row.'):
         if 'document' not in row:
@@ -398,7 +396,7 @@ def generate_files(path, values, root, *, warnings=None):
         if artifact.parent != path.with_suffix('').resolve():
             raise ValueError('JSON artifact must belong to owning service')
         execution_document = _imports_model_projection.execution_document
-        document = execution_document(policy_json(row['document']), root, property_name=row['property'], resolver=resolver,
+        document = execution_document(policy_json(row['document']), root, property_name=row['property'],
             scope=scope_for((root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties')),
             logical_id=values.get(f'desired.resource.{identity.rpartition("-")[0]}.logicalId'), warnings=warnings)
         content = json.dumps(document, ensure_ascii=False, indent=2) + '\n'

@@ -133,13 +133,6 @@ def main():
         second_child = [line.replace("secret-1_rotate", "secret-3_rotate").replace("SecretsManager_RotationSchedule_001", "SecretsManager_RotationSchedule_003") for line in child_rows]
         insertion = lines.index(child_rows[-1]) + 1
         rejects(lambda: expanded_design(lines[:insertion] + second_child + lines[insertion:]), "too many grouped children")
-        for kind, identity in ((SECRET, "001"), (ROTATION, "002")):
-            legacy = {**values, f"desired.row.{identity}-099.property": kind + ".Id",
-                      f"desired.row.{identity}-099.value": "`PENDING_DEPLOY`",
-                      f"desired.row.{identity}-099.comment": "旧識別子"}
-            rendered = markdown_for(path, legacy, root)
-            assert '| Id |' not in rendered
-            assert legacy[f'desired.row.{identity}-099.value'] == '`PENDING_DEPLOY`'
         path.write_text(output)
         mismatch = {**values, "desired.resource.002.parentReference": "[Secret2](#secretsmanager-app-dev-secret-2)"}
         rejects(lambda: markdown_for(path, mismatch, root), "grouped formal row does not match parentReference")

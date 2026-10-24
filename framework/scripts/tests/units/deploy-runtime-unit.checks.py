@@ -258,7 +258,7 @@ def check_empty_rollback_recreation(tmp_path):
     saved = {name: {'status': 'FAILED', 'stackStatus': 'ROLLBACK_COMPLETE', 'stackId': 'old-' + name,
                    'changeSetId': 'stale', 'clientToken': 'stale', 'delivery': {'stale': True}}
              for name in ('A', 'B')}
-    session = {'states': saved, 'metrics': {'observedSyncSeconds': 0}}
+    session = {'workflow': _imports_deploy_handoff.new_workflow(), 'inputRevision': 0, 'states': saved, 'metrics': {'observedSyncSeconds': 0}}
     synced = _check_empty_rollback_recreation_synced
     with patch.object(M.session_ops, 'sync_successful', side_effect=synced):
         assert M.session_ops.run_session(scoped, 2, session, _state_check_empty_rollback_recreation_180.backend, lambda: None, sleep=lambda _: None) == 'COMPLETE'
@@ -1179,7 +1179,7 @@ def check_parallel_and_restart():
     _state_check_parallel_and_restart_1131 = _CallbackState()
     scoped = units(10, 10, 10, 10, 20, 20, 20, 20)
     sequential = Fake({"B": ["CREATE_FAILED"]})
-    saved = {"states": states(scoped), "metrics": {"observedSyncSeconds": 0}}
+    saved = {"workflow": _imports_deploy_handoff.new_workflow(), "inputRevision": 0, "states": states(scoped), "metrics": {"observedSyncSeconds": 0}}
     with patch.object(M.session_ops, "sync_successful"):
         assert M.session_ops.run_session(scoped, 1, saved, sequential, lambda: None, sleep=lambda _: None) == "STOPPED"
     assert sequential.peak == 1 and starts(sequential) == ["A", "B"]
@@ -1193,7 +1193,7 @@ def check_parallel_and_restart():
     _state_check_parallel_and_restart_1131.backend.poll = parallel_poll
     synced = []
     sync = _bind_framework_callback(_callback_check_parallel_and_restart_sync, synced)
-    session = {"states": state, "metrics": {"observedSyncSeconds": 0}}
+    session = {"workflow": _imports_deploy_handoff.new_workflow(), "inputRevision": 0, "states": state, "metrics": {"observedSyncSeconds": 0}}
     with patch.object(M.session_ops, "sync_successful", side_effect=sync):
         assert M.session_ops.run_session(scoped, 4, session, _state_check_parallel_and_restart_1131.backend, lambda: None, sleep=lambda _: None) == "COMPLETE"
     assert _state_check_parallel_and_restart_1131.backend.peak == 4 and synced == [["A", "B", "C", "D"], ["E", "F", "G", "H"]]
@@ -1236,7 +1236,7 @@ def check_parallel_and_restart():
     state = {"A": {"status": "SUCCESS"}, "B": {"status": "RUNNING"}}
     _state_check_parallel_and_restart_1131.backend = Fake({"B": ["CREATE_IN_PROGRESS", "CREATE_COMPLETE"]})
     _state_check_parallel_and_restart_1131.backend.running = {"B"}
-    session = {"states": state, "metrics": {"observedSyncSeconds": 0}}
+    session = {"workflow": _imports_deploy_handoff.new_workflow(), "inputRevision": 0, "states": state, "metrics": {"observedSyncSeconds": 0}}
     with patch.object(M.session_ops, "sync_successful", side_effect=ValueError("AMBIGUOUS_OBSERVED_MAPPING")):
         assert M.session_ops.run_session(selected, 2, session, _state_check_parallel_and_restart_1131.backend, lambda: None, sleep=lambda _: None) == "STOPPED"
     assert state["B"]["status"] == "SUCCESS" and not _state_check_parallel_and_restart_1131.backend.running and not starts(_state_check_parallel_and_restart_1131.backend)
@@ -1531,7 +1531,7 @@ def _callback_check_secret_runtime_bootstrap_configure_1518(arn, base, consumer_
     for unit in active:
         backend.load_inputs(unit)
     backend.mapping_plan = mappings(root, 'dev', '123456789012', backend.templates, active, target=TARGET)
-    session = {'states': states(active), 'metrics': {'observedSyncSeconds': 0},
+    session = {'workflow': _imports_deploy_handoff.new_workflow(), 'inputRevision': 0, 'states': states(active), 'metrics': {'observedSyncSeconds': 0},
                'unitDigests': {u['name']: backend.input_digest(u) for u in active}}
     session['states']['SecretOwner'].update(status='SUCCESS', stackId=stack_ids['SecretOwner'], observedSynced=True)
     backend.states = session['states']
@@ -1839,7 +1839,7 @@ def check_capacity_drain(tmp_path, limit, count, failure, poll_error, cross_orde
     violation = count > limit or cross_order and count > 1
     # A restored READY peer must not Execute or trigger delivery when a violation exists.
     saved[scoped[-2]['name']].update(status='READY', changeSetId='cs-ready')
-    session = {'states': saved, 'metrics': {'observedSyncSeconds': 0}}
+    session = {'workflow': _imports_deploy_handoff.new_workflow(), 'inputRevision': 0, 'states': saved, 'metrics': {'observedSyncSeconds': 0}}
     snapshots, synced = [], []
     path = tmp_path / 'session.json'
     save = _bind_framework_callback(_capacity_save, path, session, snapshots)
@@ -1882,9 +1882,10 @@ import json
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from deploy.session import run_session
+import deploy.handoff as _imports_deploy_handoff
 units = [{'name': n, 'deployOrder': 10} for n in ('A', 'B', 'C')]
 states = {n: {'status': 'RUNNING' if n != 'C' else 'READY', 'clientToken': n} for n in ('A', 'B', 'C')}
-session = {'states': states, 'metrics': {'observedSyncSeconds': 0}}
+session = {'workflow': _imports_deploy_handoff.new_workflow(), 'inputRevision': 0, 'states': states, 'metrics': {'observedSyncSeconds': 0}}
 backend = SimpleNamespace(poll=Mock(return_value='CREATE_COMPLETE'), prepare=Mock(), execute=Mock(),
                           prepare_delivery_group=Mock(), repair=Mock())
 with patch('deploy.session.sync_successful'):

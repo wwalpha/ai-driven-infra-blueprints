@@ -286,11 +286,7 @@ def check_subnet_association_overview() -> None:
         f"| 3 | {association_type}.SubnetId | [subnet-00000001](#vpc-subnet-1) | 関連付けるSubnet |\n\n"
     )
     valid = metadata + overview + details
-    legacy_overview = overview.replace("| ResourceName | Comment |", "| ResourceName | RouteTableId | Comment |", 1).replace(
-        "| ---: | --- | --- |", "| ---: | --- | --- | --- |", 1
-    )
-    for row in subnet_rows:
-        legacy_overview = legacy_overview.replace(row, row.replace("| Subnetの用途 |", "| [rtb-00000001](#vpc-route) | Subnetの用途 |"), 1)
+    annotated_overview = overview.replace('Subnetの用途', 'Subnetの用途の補足')
     with project() as root:
         design = root / "docs/designs/dev/123456789012/vpc.md"
         design.parent.mkdir(parents=True)
@@ -301,7 +297,7 @@ def check_subnet_association_overview() -> None:
         DesignDocument = _imports_design_document.DesignDocument
         original = DesignDocument(design, design.read_text()).raw.expanded[0]
         # Overview edits leave detail rows and links unchanged.
-        write(design, metadata + legacy_overview + details)
+        write(design, metadata + annotated_overview + details)
         changed = DesignDocument(design, design.read_text()).raw.expanded[0]
         assert tuple(line for line in changed if "| EC2." in line) == tuple(
             line for line in original if "| EC2." in line)
@@ -338,7 +334,6 @@ def check_subnet_association_overview() -> None:
 
         bad_designs = [
             (valid + independent, "types must match"),
-            (metadata + legacy_overview + details, "resource overview must use No."),
             (valid.replace(subnet_rows[0] + "\n", ""), "must list every detail resource exactly once"),
         ]
         for markdown, message in bad_designs:

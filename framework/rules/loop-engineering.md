@@ -74,8 +74,7 @@ Validation scope; do not add `--all` or `--repository-wide-iac` for bounded chec
 Local regression discovers all UTs; caches, worker counts and validation scope are retained.
 Ordinary Project Tasks treat Framework code and definitions as immutable. Deploy does
 not scan/hash Framework definitions or compare them at start, mutation, Observed
-synchronization, handoff or resume. Session format/history migration and Task, Model,
-IaC, ChangeSet, execution evidence and signed journal checks remain required. Task/local
+synchronization, handoff or resume. Task, Model, IaC, ChangeSet, execution evidence and signed journal checks remain required. Task/local
 loops do not select UT/IT from Framework Git differences; they validate the Project's
 Validation scope and Task Contract. Framework development uses dedicated UT entrypoints,
 `run_it.py`, Framework IT CI, or explicit Full. CI changed-file selection and its dependency mapping are removed. Explicit Full uses
@@ -119,7 +118,7 @@ own necessary reference checks and are not normal-path duplication.
 `--mode full` does not expand generation scope. On a nonzero integrated validator exit,
 start no subsequent UT or Git checks; retain diagnostics and suspend the selected Task.
 Read-only loops retain diagnostic aggregation. Without `--write`, the loop and standalone
-validator remain read-only; `sync-model.py --write` remains the generation-only compatibility
+validator remain read-only; `sync-model.py --write` remains the generation-only
 entrypoint. IMPORT's dedicated flow, AWS post-operation verification and independently
 invoked validation remain separate purposes. Follow
 [Selection and publication](task-contract.md#selection-and-publication) for concurrent editing.
@@ -245,11 +244,10 @@ current-run deduplication remains active.
 
 ## Framework regression
 
-Ordinary `task` / `local` loops, including `--affected` and staged snapshots, do not
+Ordinary `task` / `local` loops, including staged snapshots, do not
 automatically run Framework regression for changed files or missing Validation scope.
 Explicit `full` / `--all` runs all UTs and no IT, retaining validator scope and safety
-checks. `--affected` remains a compatibility option for task/local and does not invoke
-the dependency selector. Framework development runs related dedicated UTs and necessary
+checks. Framework development runs related dedicated UTs and necessary
 IT cases under Validation policy. CI always runs all tests.
 
 All UT and IT run in [Framework IT](../../.github/workflows/framework-it.yml) on every pull request,
@@ -257,7 +255,7 @@ push to `main`/`master`, and manual dispatch, using Python 3.12 and the existing
 Its sole entrypoint is `framework/scripts/tests/run_it.py`. CI has no changed-file or case selection
 and no path filters. The existing loop scheduler runs every UT with at most 2 workers,
 then the IT runner executes every registered suite; either failure fails the job, and UT
-failures do not skip IT. The runner's `--affected` and case selection are removed.
+failures do not skip IT.
 Existing pytest/direct entrypoints run in independent processes. It continues after suite failures, records PASS/FAIL and duration,
 and reconciles runtime verification receipts with `tests/CASES.md`. Missing execution,
 skipped pytest bodies, stale registrations and parameter-count mismatches fail the job.
@@ -279,7 +277,6 @@ alone do not enable that setting.
 - The human runs `python -I -B framework/scripts/regression_guard.py --install` at repository root to register a salted PBKDF2-HMAC-SHA256 hash only in the single `.lock` at repo root. Do not use administrator privileges, ProgramData, separate helper installation, or ACL settings. Do not overwrite existing `.lock`.
 - Before each full regression, match input against that repository's `.lock`. For absent registration, invalid format, redirect, noninteractive input, mismatch, or canceled input, do not start validation processes or report PASS. Do not pass passwords through chat, arguments, environment variables, or logs or save unlock flags/tokens/authenticated state. Agents must not register/retrieve actual passwords or bypass guards.
 - `.lock` is local configuration, not a task artifact; exclude only repo-root `.lock` from validator changed task paths. Carry the same registration into staged snapshots; source `.lock` changes also make final results stale. Do not display actual password/hash registration values in completion reports or logs.
-- Copying legacy ProgramData `.lock` to repo root permits use of the same password. The corrected version does not consult ProgramData or delete existing external files. Do not separate it from permissions to change repository files or enable the guard outside Windows.
 
 - When [Validation policy](#validation-policy) requires a scoped loop for design, implement, deploy, update, destroy, scenario/evidence, initialization or target migration, use `python framework/scripts/blueprint-loop.py --mode task`. Retain `validate-blueprint.py` inheriting Validation scope, properties/generated Markdown/JSON equality via its service-scoped `sync-model.py`, active task contracts, task-specific checks, and `git diff --check`.
 - Select final regression under [Validation policy](#validation-policy). A required Full runs specified-scope validation and every `framework/scripts/tests/units/**/*.checks.py` and `units/**/test_*.py` through their existing Python script entrypoints with at most 2 parallel workers, aggregating diagnostics/failure lists in name order. Keep regression fixtures, mocks and fixed catalog inputs separate from ordinary tasks. Service parameter and typed service integration contracts run in CI; their split unit cases remain local. Reject an empty regression discovery or empty required service case selection; script counts are not coverage.
@@ -293,7 +290,6 @@ alone do not enable that setting.
 - Launch with `python -X utf8 framework/scripts/blueprint-loop.py --mode task` is recommended. Even under ordinary launch, the runner restarts in UTF-8 mode and passes `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8` to child processes. Before validation, confirm Japanese file reads/writes and child process output; do not start regression if this fails. Explicitly specify UTF-8 for text I/O.
 - After conflict resolution, stage files to validate and this task's `tasks/<task-name>.md`, then specify `--staged --base <比較元commit>`. Explicitly specify a base commit matching the human's change scope and include incoming changes in the diff against it. Stop on unresolved index conflicts. Ordinary mode continues to validate unstaged/staged/untracked changes.
 - Staged mode fixes the base commit, HEAD, and index tree and expands them into an independent Git repository outside the repository to validate that snapshot's runner, contract, and inputs. Do not include original workspace unstaged/untracked files or rewrite the original index. Setting snapshot HEAD to the base makes contracts, changed paths, and diff checks use the same basis. If original HEAD/index tree changes by completion, exit nonzero as stale; do not treat the old tree's result as a PASS for the latest state. This does not lock subsequent edits.
-- `--affected` in task/local is a compatibility option and does not select or start Framework regression. It cannot be combined with `full` / `--all`. Common validation, task-specific checks, Acceptance checks and diff checks remain mandatory. Framework CI always runs all UT/IT.
 - Every regression test uses explicit synthetic project/Model inputs generated in temporary directories within tests, regardless of repository type or active Validation scope. Do not inspect the executing repository's `project.json` or `model/`, including existence checks, test-case discovery and cache inputs. Necessary framework inputs may be used; do not copy actual consumer issues, projects, models, designs or active tasks into fixtures. This rule does not restrict the selected service validation or ordinary import/issues workflows from reading their authorized inputs. Compare filesystem paths with `Path`; use `as_posix()` only for contract values requiring POSIX notation such as Markdown links.
 - Only independent regression scripts run with at most 2 parallel workers; validators and Git diff checks run serially. `--jobs 1` permits serial comparison. Each check owns its temporary fixture and must not write shared workspaces. Run remaining checks after failure; on interruption, stop running child processes.
 

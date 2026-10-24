@@ -531,9 +531,8 @@ def check_notice_resolution_and_update_series(tmp_path):
     root = tmp_path
     path = root / 'issues/dev/team/issues.md'
     path.parent.mkdir(parents=True)
-    legacy = '<!-- reference-warnings:start -->\n## 旧参照\n- legacy warning\n<!-- reference-warnings:end -->\n'
     ordinary = '# 問題一覧\n\nHuman確認済み\n<!-- human-comment -->\n\n## dev／team\n\n### s3\n\n1. selected issue\n\n### sqs\n\n1. outside issue\n'
-    text = notice_report(ordinary + legacy, 'dev', 'team', ['sqs'], {'warnings': [{'message': 'outside warning'}]})
+    text = notice_report(ordinary, 'dev', 'team', ['sqs'], {'warnings': [{'message': 'outside warning'}]})
     path.write_text(text)
     ids = []
     for index, channels in enumerate(({'warnings': [{'message': 'current warning'}]},
@@ -550,14 +549,14 @@ def check_notice_resolution_and_update_series(tmp_path):
         issues, human = existing_materials(root, 'dev', 'team', ['s3'])
         assert len(issues) == 1 and human == ['Human確認済み', '<!-- human-comment -->']
         ids.append(issues[0]['id'])
-        assert 'legacy warning' in text and 'outside warning' in text
+        assert 'outside warning' in text
         assert text.count('current warning') == int(index < 4) and text.count('not run') <= 1
-        assert 'outside issue' in text and len(split_notices(text)[1]) == 3
+        assert 'outside issue' in text and len(split_notices(text)[1]) == 2
     assert len(set(ids)) == 1
     resolution = dict(id=ids[0], reason='explicit revalidation', evidence='confirmed fixture')
     merged = normal_merge(root, path, 'dev', 'team', ['s3'], [], [], [resolution])
     assert 'selected issue' not in merged and 'outside issue' in merged
-    assert 'legacy warning' in merged and 'outside warning' in merged and '<!-- human-comment -->' in merged
+    assert 'outside warning' in merged and '<!-- human-comment -->' in merged
     # save-results does not invoke notice_report, comparison, lint or aggregation.
     with patch('issues.publication.save_authority', return_value=[path]), \
          patch('issues.publication.atomic_files') as atomic, \
@@ -576,13 +575,10 @@ def check_notice_fenced_roundtrip(tmp_path, fence):
     root = tmp_path
     path = root / 'issues/dev/team/issues.md'
     path.parent.mkdir(parents=True)
-    example = (f'{fence}text\n<!-- reference-warnings:start -->\n## 参照警告\n'
-               '- example\n<!-- reference-warnings:end -->\n'
-               '<!-- issues-notices:sample:start -->\n- scoped example\n<!-- issues-notices:sample:end -->\n'
+    example = (f'{fence}text\n<!-- issues-notices:sample:start -->\n- scoped example\n<!-- issues-notices:sample:end -->\n'
                + ('```\n' if fence.startswith('~') else '~~~\n') + fence + '\n')
-    legacy = '<!-- reference-warnings:start -->\n## 旧参照\n- legacy warning\n<!-- reference-warnings:end -->\n'
     human = 'Human確認済み\n\n' + example + '\nHuman後続\n'
-    old = '<!-- issue-service: s3 -->\n1. existing s3 problem\n\n' + legacy
+    old = '<!-- issue-service: s3 -->\n1. existing s3 problem\n\n'
     path.write_text(old)
     before = unresolved_services(root, path)
     gate = issue_errors(root, {('dev', 'team', 'sqs')})
@@ -598,7 +594,7 @@ def check_notice_fenced_roundtrip(tmp_path, fence):
     path.write_text(human + merged)
     merged = normal_merge(root, path, 'dev', 'team', ['s3'], [], [], [])
     merged = notice_report(merged, 'dev', 'team', ['s3'], {'unverified': ['selected']})
-    assert example in split_notices(merged)[0] and len(split_notices(merged)[1]) == 3
+    assert example in split_notices(merged)[0] and len(split_notices(merged)[1]) == 2
     assert merged.index('Human確認済み') < merged.index(example) < merged.index('Human後続')
     path.write_text(merged)
     with patch('issues.publication.save_authority', return_value=[path]), \
@@ -612,13 +608,13 @@ def check_notice_fenced_roundtrip(tmp_path, fence):
     resolution = dict(id=issues[0]['id'], reason='explicit revalidation', evidence='fixture')
     resolved = normal_merge(root, path, 'dev', 'team', ['s3'], [], [], [resolution])
     assert 'existing s3 problem' not in resolved and example in resolved
-    assert 'legacy warning' in resolved and 'current' in resolved
+    assert 'current' in resolved
 
 
 def check_notice_marker_boundaries():
     human = ('<!-- ordinary comment -->\n<!-- issues-notices:one:start -->\n'
              '- incomplete\n<!-- issues-notices:two:end -->\n'
-             '<!-- reference-warnings:start -->\n- unfinished\n')
+             'ordinary unfinished comment\n')
     assert split_notices(human) == (human, [])
     block = '<!-- issues-notices:scope:start -->\n## Warning\n- valid\n<!-- issues-notices:scope:end -->'
     ordinary, notices = split_notices('before\n' + block + '\nafter\n')

@@ -77,9 +77,6 @@ def hook(kind, name):
     return getattr(rules(kind), name, None)
 
 
-def structured_path(kind, path):
-    predicate = hook(kind, 'structured_path')
-    return bool(predicate and predicate(path))
 
 
 def special_attribute(kind, attribute):

@@ -62,12 +62,10 @@ def check_human(root):
     trace = trace_model(paths['preview'], key)
     assert trace['file'] == str(paths['preview']) and trace['value'] == snapshot.authoritative[key]
     assert root / 'project.json' in snapshot.dependencies
-    assert not (root / 'model/templates').exists() and not (root / 'model/parameters').exists()
     assert all(p.read_bytes() == raw for p, raw in original.items())
 
 
 def check_declared_instance_inputs(root):
-    # The retired Definition/default grammar has no normal-reader fallback.
     environments, paths = fixture(root)
     scopes = list_models(root)
     assert len(scopes) == 4 and {scope.target for scope in scopes} == {'team'}

@@ -8,7 +8,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
 import json
 import socket
 import subprocess
@@ -21,7 +20,6 @@ import pytest
 import support.import_model_fixtures as _imports_support_import_model_fixtures
 import sync_files
 import sync_runtime
-from import_guard import digest
 from model.core import entries, properties
 from model.format import parse, serialize
 from model.identity import COUNTERS, allocate
@@ -55,6 +53,7 @@ from support.model_sources import write_model
 from support.model_v2_fixtures import import_publication_case
 from task_contract_core import selected_task, start
 from utils import sealed_evidence
+from utils.json_format import document_sha256
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -291,7 +290,6 @@ def check_create_definition_reuse(tmp_path):
     assert operation_values(before, '002') == operation_values(after, '002')
     assert after['desired.resource.002.resourceMode'] == 'CREATE'
     assert after['desired.resource.003.resourceMode'] == 'IMPORT'
-    assert not (root / 'model/templates').exists()
 
 
 def check_cli_faults(tmp_path):
@@ -842,7 +840,7 @@ def check_user_selected_overwrite_publication(tmp_path, action, dry_run):
     values.update({'desired.row.001-001.value': m.model_literal(identity), 'desired.row.001-002.value': '`90`'})
     selected = [correspondence(acquired, identity, '001', action)]
     if action in {'replace', 'bind'}:
-        selected[0]['before'] = {'identity': None if action == 'bind' else 'fixture-001', 'model': digest(operation_values(before.authoritative, '001'))}
+        selected[0]['before'] = {'identity': None if action == 'bind' else 'fixture-001', 'model': document_sha256(operation_values(before.authoritative, '001'))}
     stage(root, acquired, {path.relative_to(root).as_posix(): serialize(values)}, selected, exclusions(acquired, selected))
     result = publish_fixture(root, acquired, dry_run=dry_run)
     assert result['status'] == ('dry-run' if dry_run else 'complete')
@@ -912,7 +910,7 @@ def check_replace_warns_incoming_references(tmp_path):
     values.update({'desired.row.001-002.value': '`172.16.0.0/16`', 'desired.row.001-003.value': '`unmanaged`',
                    'observed.row.001-001.value': 'vpc-00000000000000000'})
     selected = [correspondence(acquired, 'vpc-00000000000000000', '001', 'replace')]
-    selected[0]['before'] = {'identity': VPC_ID, 'model': digest(operation_values(before.authoritative, '001'))}
+    selected[0]['before'] = {'identity': VPC_ID, 'model': document_sha256(operation_values(before.authoritative, '001'))}
     stage(root, acquired, {path.relative_to(root).as_posix(): serialize(values)}, selected, exclusions(acquired, selected))
     original = snapshot(root)
     _ = publish_fixture(root, acquired, 'vpc')
@@ -978,7 +976,7 @@ def check_refresh_switches_definition_without_foreign_changes(tmp_path):
     assert load_model(input_file(root, env='stg')).authoritative['desired.row.001-004.value'] == '`STANDARD`'
 
 
-@pytest.mark.parametrize('tamper', ['candidate', 'sources', 'task', 'worktree', 'risk', 'legacy'])
+@pytest.mark.parametrize('tamper', ['candidate', 'sources', 'task', 'worktree', 'risk'])
 def check_approval_bound_save_guard(tmp_path, tamper):
     root, acquired, _ = prepare(tmp_path)
     logs_edit(root, acquired)
@@ -998,9 +996,6 @@ def check_approval_bound_save_guard(tmp_path, tamper):
         if tamper == 'sources':
             name = next(iter(proof['sources']))
             proof['sources'][name] = '0' * 64
-        elif tamper == 'legacy':
-            proof['version'] = 3
-            del proof['reviewBinding']
         else:
             proof['reviewBinding'][{'risk': 'recordsDigest'}.get(tamper, tamper)] = 'forged'
         sealed_evidence.write_sealed(root, import_guard.proof_path(root), proof)

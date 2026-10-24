@@ -9,16 +9,15 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import model.validation as _imports_model_validation
-import pytest
 from comparison import Comparison
 from design_catalog import DesignSchemaCatalog
-from model.core import ReferenceResolutionError, entries
+from model.core import entries
 from model.format import parse, serialize
 from model.format import patch as patch_model
 from model.identity import COUNTERS
 from model.importing.references import Resolver as ImportResolver
 from model.operations import validate_candidates
-from model.projection import reference_display, scalar_reference_operand
+from model.projection import reference_display
 from model.references import incoming
 from model.render import generate_markdown
 from model.sources import Scope, load_model
@@ -39,11 +38,9 @@ ALIAS_LINK = '[alias/fixture-key](kms.md#alias-one)'
 ROW = 'desired.row.001-003.value'
 
 
-def selector(link=KEY_LINK, attribute='Arn'):
-    return '`' + json.dumps({'$resource': link, '$attribute': attribute}) + '`'
 
 
-def fixture(root, kms_value=None):
+def fixture(root):
     (root / 'project.json').write_text(json.dumps({'projectName': 'synthetic', 'targets': [
         {'environment': 'fixture', 'alias': 'team', 'awsAccountId': '123456789012',
          'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}), encoding='utf-8')
@@ -72,7 +69,7 @@ def fixture(root, kms_value=None):
         'display.resource.001.comment': '合成バケット'}
     for rid, prop, value in [('001-001', 'S3.Bucket.BucketName', '`fixture-bucket`'),
             ('001-002', 'S3.Bucket.Region', '`ap-northeast-1`'),
-            ('001-003', PROP, selector() if kms_value is None else kms_value),
+            ('001-003', PROP, ALIAS_LINK),
             ('001-004', PROP.rsplit('.', 1)[0] + '.SSEAlgorithm', '`aws:kms`')]:
         bucket.update({f'desired.row.{rid}.property': prop, f'desired.row.{rid}.value': value,
                        f'desired.row.{rid}.comment': '合成設定'})
@@ -93,9 +90,8 @@ def designs(scope, bucket, kms):
     return result
 
 
-@pytest.mark.parametrize('alias', [False, True])
-def check_authority_display_and_references(project_workspace, alias):
-    scope, bucket, kms = fixture(project_workspace, ALIAS_LINK if alias else None)
+def check_authority_display_and_references(project_workspace):
+    scope, bucket, kms = fixture(project_workspace)
     before = {p: p.read_bytes() for p in scope.path.parent.glob('*.properties')}
     snapshot = load_model(scope)
     assert snapshot.authoritative == bucket
@@ -104,27 +100,16 @@ def check_authority_display_and_references(project_workspace, alias):
     assert load_model(scope, FileReads()).authoritative[ROW] == bucket[ROW]
     check_model_inputs = _imports_model_validation.check_model_inputs
     schema = check_model_inputs(scope.path, bucket, scope.root, definitions_root=FRAMEWORK)
-    if alias:
-        assert not schema.errors, schema.errors
-    else:
-        assert any('JSON setting contains' in error for error in schema.errors), schema.errors
-    uses = incoming(load_model(Scope(scope.root, 'fixture', 'team', 'kms')), '002' if alias else '001')
-    assert any(consumer == scope and usage.consumer_key == ROW and
-               usage.pointer == (None if alias else '/$resource') for consumer, usage in uses)
-    if alias:
-        validate_candidates(scope.root, {'model/fixture/team/s3.properties'}, {}, {('fixture', 'team', 's3')})
-    else:
-        with pytest.raises(ValueError, match='JSON setting contains'):
-            validate_candidates(scope.root, {'model/fixture/team/s3.properties'}, {}, {('fixture', 'team', 's3')})
+    assert not schema.errors, schema.errors
+    uses = incoming(load_model(Scope(scope.root, 'fixture', 'team', 'kms')), '002')
+    assert any(consumer == scope and usage.consumer_key == ROW and usage.pointer is None
+               for consumer, usage in uses)
+    validate_candidates(scope.root, {'model/fixture/team/s3.properties'}, {}, {('fixture', 'team', 's3')})
     with patch('botocore.session.Session.create_client', side_effect=AssertionError('AWS forbidden')):
-        if not alias:
-            with pytest.raises(ValueError, match='JSON setting contains'):
-                designs(scope, bucket, kms)
-        displayed = reference_display(bucket, scope.path, scope.root, definitions_root=FRAMEWORK)
-        # Reconstruct the historical Markdown from its ordinary displayed link.
+        displayed = reference_display(bucket, scope.path, scope.root)
         files = designs(scope, displayed, kms)
     view = scope.root / 'docs/designs/fixture/team/s3.md'
-    expected = ALIAS_LINK if alias else KEY_LINK
+    expected = ALIAS_LINK
     assert expected in files[view] and '$resource' not in files[view]
     assert displayed[ROW] == expected and bucket[ROW] == snapshot.authoritative[ROW]
     findings = Findings(scope.root)
@@ -134,12 +119,6 @@ def check_authority_display_and_references(project_workspace, alias):
     imported = ImportResolver(scope.root, 'fixture', 'team', definitions_root=FRAMEWORK)
     imported.verify_resource(bucket, '001', scope=scope, observed_only=True)
     assert not imported.warnings, imported.warnings
-    if not alias:
-        contracts = {'KMS.Key': ('Arn',)}
-        imported._verify(PROP, KEY_LINK,
-            'arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789abc', contracts=contracts)
-        with pytest.raises(ReferenceResolutionError):
-            imported._verify(PROP, KEY_LINK, '12345678-1234-1234-1234-123456789abc', contracts=contracts)
     catalog = DesignSchemaCatalog(FRAMEWORK)
     with catalog_display():
         validate_tables({view: ('s3', ('S3.Bucket',))}, {'S3.Bucket'},
@@ -153,77 +132,8 @@ def check_authority_display_and_references(project_workspace, alias):
     plan = SimpleNamespace(root=scope.root, read_inputs=before, expected_outputs={view: {view: files[view]}}, failures=[], saved={})
     _compare_generation(plan)
     assert not plan.failures and view in plan.saved
-    if not alias:
-        # A saved link to a different Key cannot satisfy the Model selector.
-        view.write_text(files[view].replace(KEY_LINK, '[other-key](kms.md#key-two)'), encoding='utf-8')
-        _compare_generation(plan)
-        assert len(plan.failures) == 1 and 'stale or missing' in plan.failures[0]
-        changed = Findings(scope.root)
-        validate_links({}, [view], design_sources={view: bucket}, findings=changed,
-                           root=scope.root, scope=None, definitions_root=FRAMEWORK)
-        assert any('Model KMS.Key' in warning['message'] for warning in changed.warnings)
-
-
-@pytest.mark.parametrize('case', ['KeyId', 'AliasName', 'AliasArn', 'Unsupported', 'missing-attribute', 'extra',
-                                 'alias', 'other-type', 'missing', 'ambiguous', 'cross-target'])
-def check_invalid_scalar(project_workspace, case):
-    scope, bucket, kms = fixture(project_workspace)
-    selected = json.loads(bucket[ROW][1:-1])
-    if case in {'KeyId', 'AliasName', 'AliasArn', 'Unsupported'}:
-        selected['$attribute'] = case
-    elif case == 'missing-attribute':
-        del selected['$attribute']
-    elif case == 'extra':
-        selected['extra'] = True
-    elif case == 'alias':
-        selected['$resource'] = ALIAS_LINK
-    elif case == 'other-type':
-        selected['$resource'] = '[bucket](s3.md#bucket)'
-    elif case == 'missing':
-        selected['$resource'] = '[missing](kms.md#missing)'
-    elif case == 'ambiguous':
-        kms['desired.resource.003.anchor'] = 'key-one'
-        write_model(Scope(scope.root, 'fixture', 'team', 'kms').path, kms)
-    else:
-        project = json.loads((scope.root / 'project.json').read_text(encoding='utf-8'))
-        project['targets'].append({**project['targets'][0], 'alias': 'other'})
-        (scope.root / 'project.json').write_text(json.dumps(project), encoding='utf-8')
-        write_model(Scope(scope.root, 'fixture', 'other', 'kms').path, kms)
-        selected['$resource'] = '[key](../other/kms.md#key-one)'
-    bucket[ROW] = '`' + json.dumps(selected) + '`'
-    row = dict(entries(bucket, 'desired.row.'))['001-003']
-    with pytest.raises(ValueError):
-        scalar_reference_operand(row, scope.root, scope)
-    # The ordinary save guard must reject the invalid candidate before publication.
-    with pytest.raises(ValueError):
-        validate_candidates(scope.root, {'model/fixture/team/s3.properties'},
-                            {scope.path: serialize(bucket)}, {('fixture', 'team', 's3')})
-
-
-def check_pending_key_projection(project_workspace):
-    scope, bucket, kms = fixture(project_workspace)
-    kms['observed.row.001-001.value'] = '`PENDING_DEPLOY`'
-    write_model(Scope(scope.root, 'fixture', 'team', 'kms').path, kms)
-    with patch('botocore.session.Session.create_client', side_effect=AssertionError('AWS forbidden')):
-        with pytest.raises(ValueError, match='JSON setting contains'):
-            designs(scope, bucket, kms)
-        displayed = reference_display(bucket, scope.path, scope.root, definitions_root=FRAMEWORK)
-    assert displayed[ROW] == KEY_LINK
-    assert load_model(scope).authoritative[ROW] == selector()
-
-
-@pytest.mark.parametrize('actual,expected', [
-    ({'Fn::GetAtt': ['Key', 'Arn']}, 'matched'), ({'Ref': 'Key'}, 'difference'),
-    ({'Fn::GetAtt': ['OtherKey', 'Arn']}, 'difference'), ({'Ref': 'Alias'}, 'difference'),
-    ({'Fn::GetAtt': ['Alias', 'Arn']}, 'uncompared'),
-    ({'Fn::Sub': 'arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}'}, 'difference'),
-    ({'Fn::Sub': '${Unknown}'}, 'uncompared'),
-    ('12345678-1234-1234-1234-123456789abc', 'difference'),
-    ('alias/fixture-key', 'difference'),
-    ('arn:aws:kms:ap-northeast-1:123456789012:alias/fixture-key', 'difference'),
-    ('arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789abc', 'uncompared'),
-])
-def check_iac_matrix(project_workspace, actual, expected):
+def check_iac_matrix(project_workspace):
+    actual = {'Ref': 'Alias'}
     scope, bucket, kms = fixture(project_workspace)
     for service, values, mappings in [('s3', bucket, {'001': 'Bucket'}),
             ('kms', kms, {'001': 'Key', '002': 'Alias', '003': 'OtherKey'})]:
@@ -249,12 +159,7 @@ def check_iac_matrix(project_workspace, actual, expected):
     comparison = Comparison(scope.root, 'fixture', 'team', ['s3'], catalog=DesignSchemaCatalog(FRAMEWORK))
     results = comparison.run()
     encryption = [item for item in results if item['property'] == 'S3.Bucket.BucketEncryption']
-    assert len(encryption) == 1 and encryption[0]['category'] == expected, results
-    if actual == {'Ref': 'Key'}:
-        assert encryption[0]['reference_diagnostics'][0]['allowed_forms'] == ['KeyArn']
-    symbol = comparison.prepare_value('s3', dict(entries(bucket, 'desired.row.'))['001-003'], 'S3.Bucket').require_value()
-    assert symbol['$resource'] == ['kms', '001'] and symbol['$attribute'] == 'Arn'
-    assert comparison.kms_format(symbol) == 'KeyArn'
+    assert len(encryption) == 1 and encryption[0]['category'] == 'matched', results
     plain = comparison.prepare_value('s3', {'property': PROP, 'value': KEY_LINK}, 'S3.Bucket').require_value()
     assert plain['$attribute'] == 'KeyId'
     assert comparison.reference_same(plain, comparison.evaluate('fixture', {'Fn::GetAtt': ['Key', 'Arn']}),

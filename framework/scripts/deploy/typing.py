@@ -22,7 +22,7 @@ class StackUnit(StackOptions):
     deployOrder: str | int
 
 
-# State and workflow extensions are serialized JSON, including legacy signed fields.
+# State and workflow extensions are serialized JSON, including signed workflow fields.
 StackState: TypeAlias = JsonObject
 States: TypeAlias = dict[str, StackState]
 Target: TypeAlias = dict[str, str]

@@ -4,10 +4,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
 
-import cloudformation_inputs as _imports_cloudformation_inputs
-import model.core as _imports_model_core
 import task_contract_core as _imports_task_contract
 import utils.json_format as _imports_utils_json_format
 from task_contract_core import task_digest as task_digest
@@ -16,7 +13,6 @@ from utils.sealed_evidence import read_sealed
 from worktree_state import output, paths, task_start_commit
 from worktree_state import subprocess_bytes as subprocess_bytes
 
-import deploy.delivery as _imports_deploy_delivery
 import deploy.handoff as _imports_deploy_handoff
 
 
@@ -80,62 +76,6 @@ def accepted_changes(root, contract, changed):
 
 
 
-def migrate_delivery(root, target, unit, state, template_data, file_digest):
-    """Explicit migration of old delivery arguments; preserve execution identity/evidence."""
-    Blocked = _imports_cloudformation_inputs.Blocked
-    condition_active = _imports_cloudformation_inputs.condition_active
-    ARTIFACT_PROPERTIES = _imports_model_core.ARTIFACT_PROPERTIES
-
-    source_path = _imports_deploy_delivery.source_path
-
-
-    record = state.get('delivery')
-    if not record or not isinstance(record.get('arguments'), list):
-        return False
-    arguments = record['arguments']
-    if len(arguments) != 2:
-        raise Blocked('legacy delivery arguments cannot be safely migrated')
-    flag, value = arguments
-    if flag == '--template-body' and value == 'file://' + record['path']:
-        migrated = {'inline': True}
-        template_object = None
-    elif flag == '--template-url' and isinstance(value, str):
-        parsed = urlparse(value)
-        if parsed.scheme != 'https':
-            raise Blocked('legacy template URL is not HTTPS')
-        components = unquote(parsed.path).lstrip('/').split('/', 1)
-        versions = parse_qs(parsed.query).get('versionId', [])
-        candidates = [obj for obj in record['objects'] if components == [obj['bucket'], obj['key']]
-                      and (versions == [obj['version']] if obj.get('version') else not versions)]
-        if len(candidates) != 1:
-            raise Blocked('legacy template URL/object version evidence is ambiguous')
-        template_object = candidates[0]
-        migrated = {'TemplateURL': value}
-    else:
-        raise Blocked('legacy delivery arguments/path identity cannot be migrated')
-    document, parameters = template_data
-    pseudo = {'AWS::StackName': unit['name'], 'AWS::Region': target['awsRegion'],
-              'AWS::AccountId': target.get('awsExecutionAccountId', target['awsAccountId'])}
-    pending = [obj for obj in record['objects'] if obj is not template_object]
-    active = [artifact for artifact in unit.get('artifacts', [])
-              if condition_active(document, parameters, pseudo, document['Resources'][artifact['resource']])]
-    if len(pending) != len(active):
-        raise Blocked('legacy artifact object/consumer identity is incomplete')
-    updates = []
-    for artifact, obj in zip(active, pending, strict=False):
-        path = source_path(root, artifact)
-        expected_key = artifact['keyPrefix'] + file_digest(path) + path.suffix
-        if obj['bucket'] != artifact['bucket'] or obj['key'] != expected_key:
-            raise Blocked('legacy artifact key/source identity changed')
-        kind = document['Resources'][artifact['resource']]['Type']
-        updates.append((obj, bool(ARTIFACT_PROPERTIES[kind, artifact['property']]) and bool(obj.get('version'))))
-    if template_object is not None:
-        updates.append((template_object, bool(template_object.get('version'))))
-    for obj, pinned in updates:
-        obj['consumeVersion'] = pinned
-    state['legacyDeliveryArguments'] = arguments
-    record['arguments'] = migrated
-    return True
 
 
 def validation_snapshot(root):
@@ -147,9 +87,3 @@ def validation_snapshot(root):
         path = safe_path(root, relative)
         result[relative] = sha(path) if path.is_file() else None
     return result
-
-
-def project_snapshot(snapshot):
-    """Compare legacy signed snapshots without rewriting their Framework entries."""
-    return {path: digest for path, digest in snapshot.items()
-            if path != 'framework' and not path.startswith('framework/')}

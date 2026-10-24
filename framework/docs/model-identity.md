@@ -58,14 +58,6 @@ relationships with existing external `desired.reference.*` metadata, `format=ide
 and RFC 6901 JSON Pointers for confirmed non-ARN identifiers. Producer identity, change
 impact and unavailable/changed observations retain the existing checks and warnings.
 
-Do not introduce new `$resource` uses, reference syntax, or automatic Model conversion.
-Legacy operand readers remain for investigation/comparison; source publication and view
-generation reject Resource links inside JSON before saving. Existing ARN operands cannot
-be replaced with generated ARNs: identifier metadata requires a confirmed non-ARN value.
-Retain those sources for a separately authorized correction and report unsupported cases
-without deleting tracking. Ordinary URLs, non-Resource strings and Markdown links outside
-JSON bodies (including JSON artifact links) retain their existing behavior.
-
 `cfn-logicalId` independently retains `<existing StackName>-<existing Resources key>`.
 CloudFormation CREATE with a formal CFn type requires it even when logicalId exists.
 This requirement does not extend to Terraform, IMPORT or design-only types without CFn types.

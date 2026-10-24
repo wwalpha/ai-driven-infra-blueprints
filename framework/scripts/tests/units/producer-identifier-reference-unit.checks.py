@@ -41,7 +41,6 @@ def check_json_settings():
     link = '[vpc](vpc.md#vpc-one)'
     for body, pointer in [
         ({'Condition': {'StringEquals': {'aws:SourceVpc': link}}}, '/Condition/StringEquals/aws:SourceVpc'),
-        ({'Resource': {'$resource': link, '$attribute': 'Arn'}}, '/Resource/$resource'),
         ({'Description': 'prefix ' + link + ' suffix'}, '/Description'),
         ({'a/b~c': [link]}, '/a~1b~0c/0'),
         ({'PolicyText': json.dumps({'Resource': link})}, '/PolicyText'),

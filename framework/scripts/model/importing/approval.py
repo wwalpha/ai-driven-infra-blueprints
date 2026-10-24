@@ -7,7 +7,7 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
 
-import import_guard as _dependency_import_guard
+from utils.json_format import document_sha256
 from utils.type_contracts import JsonObject
 from utils.type_contracts import JsonValue as JsonValue
 
@@ -30,17 +30,17 @@ def review_binding(review: JsonObject, acquisition: JsonObject) -> JsonObject:
     _dependency_model_importing_evidence.require_format(acquisition, 3, 'acquisition')
     _dependency_model_importing_evidence.require_fresh_acquisition(acquisition)
     expected = {'task': acquisition['task'], 'worktree': acquisition['root'],
-                'scope': acquisition['scope'], 'acquisitionDigest': _dependency_import_guard.digest(acquisition),
-                'sourceBaselineDigest': _dependency_import_guard.digest(acquisition['sources'])}
+                'scope': acquisition['scope'], 'acquisitionDigest': document_sha256(acquisition),
+                'sourceBaselineDigest': document_sha256(acquisition['sources'])}
     if any(not _dependency_model_importing_sources.typed_equal(review.get(k), v) for k, v in expected.items()):
         raise ValueError('IMPORT Review belongs to another acquisition/Task/Worktree/baseline')
     if any(item['operation'] == 'unresolved' for item in review['dispositions']):
         raise ValueError('IMPORT all Resource selections must be answered before final approval/publication')
     return verify_review_binding({'version': 2, **FORMAT_FIELDS, **expected, 'reviewDigest': review['reviewDigest'],
-            'recordsDigest': _dependency_import_guard.digest(review['dispositions']), 'selectionDigest': _dependency_import_guard.digest(review['selection']),
-            'referencesDigest': _dependency_import_guard.digest(review['referenceProvenance']),
+            'recordsDigest': document_sha256(review['dispositions']), 'selectionDigest': document_sha256(review['selection']),
+            'referencesDigest': document_sha256(review['referenceProvenance']),
             'proposedValuesDigest': review['proposedValuesDigest'],
-            'impactDigest': _dependency_import_guard.digest(review.get('referenceImpact', {})),
+            'impactDigest': document_sha256(review.get('referenceImpact', {})),
             'acquiredAt': acquisition['acquiredAt'], 'expiresAt': review['expiresAt']})
 
 
@@ -71,7 +71,7 @@ def verify_review_binding(binding: JsonObject) -> JsonObject:
 def checkpoint(acquisition: JsonObject, answers: list[JsonObject]) -> JsonObject:
     """Wrap LLM-owned partial answers; never choose a question, target or default."""
     _dependency_model_importing_evidence.require_format(acquisition, 3, 'acquisition')
-    value = {'version': 2, **FORMAT_FIELDS, 'acquisitionDigest': _dependency_import_guard.digest(acquisition), 'sourceBaselineDigest': _dependency_import_guard.digest(acquisition['sources']),
+    value = {'version': 2, **FORMAT_FIELDS, 'acquisitionDigest': document_sha256(acquisition), 'sourceBaselineDigest': document_sha256(acquisition['sources']),
              'task': acquisition['task'], 'worktree': acquisition['root'], 'scope': acquisition['scope'],
              'answers': answers}
     verify_checkpoint(acquisition, value)
@@ -83,7 +83,7 @@ def verify_checkpoint(acquisition: JsonObject, value: JsonObject) -> list[JsonOb
     _dependency_model_importing_evidence.require_fresh_acquisition(acquisition)
     _dependency_model_importing_evidence.require_format(acquisition, 3, 'acquisition')
     _dependency_model_importing_evidence.require_format(value, 2, 'checkpoint')
-    expected = {'version': 2, **FORMAT_FIELDS, 'acquisitionDigest': _dependency_import_guard.digest(acquisition), 'sourceBaselineDigest': _dependency_import_guard.digest(acquisition['sources']),
+    expected = {'version': 2, **FORMAT_FIELDS, 'acquisitionDigest': document_sha256(acquisition), 'sourceBaselineDigest': document_sha256(acquisition['sources']),
                 'task': acquisition['task'], 'worktree': acquisition['root'], 'scope': acquisition['scope']}
     if (not isinstance(value, dict) or set(value) != {*expected, 'answers'}
             or any(not _dependency_model_importing_sources.typed_equal(value[k], v) for k, v in expected.items())
@@ -234,15 +234,15 @@ def build_review(
                       or rid is not None and w.get('resource') == rid]]})
     review = {'version': 4, 'modelFormat': 2, 'snapshotVersion': 2, 'referenceMeaningVersion': 1, 'task': acquisition['task'], 'worktree': acquisition['root'],
               'scope': acquisition['scope'], 'connection': acquisition['connection'],
-              'acquiredAt': acquisition['acquiredAt'], 'acquisitionDigest': _dependency_import_guard.digest(acquisition),
+              'acquiredAt': acquisition['acquiredAt'], 'acquisitionDigest': document_sha256(acquisition),
               'expiresAt': (datetime.fromisoformat(acquisition['acquiredAt']) + timedelta(days=7)).isoformat(),
-              'sourceBaselineDigest': _dependency_import_guard.digest(acquisition['sources']),
+              'sourceBaselineDigest': document_sha256(acquisition['sources']),
               'inventory': inventory, 'selection': selection,
               'dispositions': dispositions, 'warnings': warnings, 'serviceChanges': service_changes,
               'referenceProvenance': {'before': prior_references, 'after': proposed_references},
               'referenceImpact': reference_impact,
-              'proposedValuesDigest': _dependency_import_guard.digest(proposed), 'approvalBoundary': 'llm-explicit-consent'}
-    return {**review, 'reviewDigest': _dependency_import_guard.digest(review)}
+              'proposedValuesDigest': document_sha256(proposed), 'approvalBoundary': 'llm-explicit-consent'}
+    return {**review, 'reviewDigest': document_sha256(review)}
 
 
 def verify_review(review: JsonObject, expected: JsonObject) -> None:
@@ -250,7 +250,7 @@ def verify_review(review: JsonObject, expected: JsonObject) -> None:
     _dependency_model_importing_evidence.require_format(review, 4, 'Review')
     _dependency_model_importing_evidence.require_format(expected, 4, 'expected Review')
     content = {key: value for key, value in review.items() if key != 'reviewDigest'}
-    if review.get('reviewDigest') != _dependency_import_guard.digest(content) or not _dependency_model_importing_sources.typed_equal(review, expected):
+    if review.get('reviewDigest') != document_sha256(content) or not _dependency_model_importing_sources.typed_equal(review, expected):
         raise ValueError('IMPORT Review changed or stale; present the changed records/values/references/risks again')
 
 

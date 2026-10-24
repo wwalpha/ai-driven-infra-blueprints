@@ -6,9 +6,7 @@ from functools import partial as _bind_framework_callback
 from cloudformation_inputs import Blocked
 from comparison_rows import put_row
 from iac_values import Expression, ResourceReference, same
-from model.identity import resource_link
 from policy_tables import literal
-from utils.json_format import policy_json as strict_json
 
 REF_ATTRIBUTES = {'CodeBuild.Project': 'Name'}
 
@@ -44,31 +42,12 @@ def validate_reference(path, attribute, context, refkind):
         raise Blocked(f'CodeBuild PLAINTEXT reference requires an explicit attribute for {refkind}; only S3.Bucket defaults to BucketName')
 
 
-def structured_path(path):
-    return path == 'Environment.EnvironmentVariables[].Value'
 
 
-def structured_reference(item, context):
-    if (set(item) != {'$resource', '$attribute'} or not context or context.get('Type') != 'PLAINTEXT'
-            or not all(isinstance(part, str) and part for part in item.values()) or not resource_link(item['$resource'])):
-        raise Blocked('Model environment reference requires PLAINTEXT, an explicit resource link and attribute')
-    return item['$resource'], item['$attribute']
 
 
-def validate_attribute(symbol, property_schema):
-    if property_schema.get('type') != 'string':
-        raise Blocked('Model environment reference attribute must be a proven string')
 
 
-def decode_selector(value, path):
-    if structured_path(re.sub(r'\[\d+\]', '[]', path)) and isinstance(value, str) and value.startswith('{'):
-        try:
-            selector = strict_json(value)
-        except ValueError:
-            selector = None
-        if isinstance(selector, dict) and {'$resource', '$attribute'} & selector.keys():
-            return selector, re.sub(r'\[\d+\]', '[]', path)
-    return value, path
 
 
 def _callback_reference_compare_secret_value(path, reference, resolve_literal, resource_type, /, a, b, p):

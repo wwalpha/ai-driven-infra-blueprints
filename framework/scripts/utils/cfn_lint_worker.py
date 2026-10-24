@@ -9,7 +9,6 @@ import os
 import signal
 import sys
 import time
-import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from json import JSONDecodeError
 from pathlib import Path
@@ -43,7 +42,6 @@ try:
     from cfnlint.match import Match
     from cfnlint.rules.errors import ConfigError
     from cfnlint.runner import Runner
-    from cfnlint.runner import main as lint_main
     from cfnlint.schema import PROVIDER_SCHEMA_MANAGER as manager
     from cfnlint.schema._exceptions import ResourceNotFoundError
     from cfnlint.schema.manager import ProviderSchemaManager
@@ -364,23 +362,9 @@ def structured(request, emit=None):
 
 
 def execute(request, emit=None):
-    # Raw CLI compatibility is confined to this branch, with its historical network semantics.
     stdout, stderr = io.StringIO(), io.StringIO()
     with redirect_stdout(stdout), redirect_stderr(stderr):
-        if isinstance(request,dict):
-            return structured(request,emit)
-        sys.argv = request
-        code = 0
-        try:
-            lint_main()
-        except SystemExit as error:
-            code = error.code or 0
-            if not isinstance(code,int):
-                code = 1
-        except BaseException:
-            traceback.print_exc()
-            code = 1
-        return dict(returncode=code, stdout=stdout.getvalue(), stderr=stderr.getvalue())
+        return structured(request, emit)
 
 
 # Strip parser subclasses through the existing JSON diagnostic contract before pickle.

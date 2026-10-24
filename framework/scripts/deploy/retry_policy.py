@@ -20,8 +20,6 @@ def attempts_for(workflow, identity):
 def decision(workflow, problem_ids):
     if workflow.get('status') in {'CLOSED', 'COMPLETE'}:
         return 'WAITING_HUMAN'
-    if workflow.get('legacyUncertain'):
-        return 'WAITING_HUMAN'
     if workflow.get('reserved', 0) >= workflow.get('budget', DEFAULT_BUDGET):
         return 'WAITING_HUMAN'
     for identity in problem_ids:

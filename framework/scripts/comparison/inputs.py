@@ -504,7 +504,7 @@ class Inputs:
             'document' if 'document' in row else 'value', value)) if self.local_comparison and row_id is not None else None
         return values.desired_value(service, row, kind, stack=stack, context=context,
             local_comparison=self.local_comparison, desired_reference=self.desired_reference,
-            resource_type=self.resource_type, property_schema=self.catalog.property_schema,
+            property_schema=self.catalog.property_schema,
             evaluate=self.evaluate, model_path=self.root / 'model' / self.environment / self.directory / (service + '.properties'),
             normalize=normalize)
 

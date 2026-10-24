@@ -10,7 +10,7 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 ## Unresolved issue gate
 
 - issues/<environment>/<alias-or-account>/issues.mdの番号付きissue（1.等）は全て未解決。fileなし/空は未解決なし。修復を明示依頼され、再検証と解消根拠がある項目だけ削除する。履歴はGitに残し、一覧の削除/書換えを解消扱いしない。0件なら「未解決issueなし」を記載できる。
-- owner serviceは### service-id、issue-service comment、同targetのModel properties/詳細設計linkで特定する。AWS表示名から推測しない。owner不明、番号も0件宣言もない不正一覧はtarget全体を停止する。ただし既存のreference-only診断は先に識別しwarningとして保持し、番号/count/Issue Gateに含めない。混在項目の実ERRORは停止する。link keywordだけではwarningにしない。
+- owner serviceは### service-id、issue-service comment、同targetのModel properties/詳細設計linkで特定する。AWS表示名から推測しない。owner不明、番号も0件宣言もない不正一覧はtarget全体を停止する。
 - 該当environment/target/serviceの未解決issueは通常の相談・設計/save・implement・deploy/apply・scenario・migrationの開始/継続を止める。他target/serviceは止めない。複数serviceは全てValidation scopeに明示し、一つでもblockedなら停止する。全体検証scopeと実変更targetを混同しない。Framework-only governance/catalog-maintenanceはservice taskではない。
 - read-only調査、Human明示issue修復、Model deletion例外、save-only例外は許可する。既存Task種別/設計境界/AWS権限は維持する。
 - issue調査/saveはmigration。明示service scopeのissues.md/iac-issues.mdと当TaskだけがAllowed/変更先のsave-onlyは既存issueで停止せず、独立worktree不要。実validation ERRORはFAILと報告する。iac-issues.mdは非blocking Model→IaC比較で未解決issueに数えずIssue remediationも不要。iac stateは保存/削除対象でない。他のmigration/Model/IaC/save/AWS mutationは通常gateを維持する。
@@ -19,12 +19,7 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 ## Reference-only Issues
 
 Apply [Reference diagnostics](model-information.md#reference-diagnostics) to all Model
-operations. Recognize known old machine diagnostic forms before resolving issue ownership;
-reference-only items are nonblocking even with unknown ownership. Keep their text and
-numbering. In mixed items retain the non-reference errors as blocking; a reference/link
-keyword alone never changes classification. Scan artifacts, summary and detail carry
-warnings, without requiring judgement, reassignment or migration saving. Never mark them
-fixed or delete them merely to allow an update. IaC comparisons unable to resolve a Model
+operations. IaC comparisons unable to resolve a Model
 report uncompared plus warnings, not match/verified or category error.
 
 ## Model deletion exception

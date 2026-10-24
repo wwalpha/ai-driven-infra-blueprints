@@ -97,7 +97,7 @@ def proposal(tmp_path):
     listed = '- `tasks/deploy.md`\n- `' + relative + '`\n'
     task.write_text('## Task contract\n- Task status: `running`\n## Modified files\n' + listed + '## Allowed paths\n' + listed)
     before, after = M.manifest({relative: old.encode()}), M.manifest({relative: new.encode()})
-    session = {'modelInputManifest': before, 'states': {'A': {'status': 'SUCCESS'}}, 'pendingObserved': {
+    session = {'workflow': handoff.new_workflow(), 'inputRevision': 0, 'modelInputManifest': before, 'states': {'A': {'status': 'SUCCESS'}}, 'pendingObserved': {
         'identity': {'target': 'pinned'}, 'evidence': M.evidence({'A': {'status': 'SUCCESS'}}, ['A']),
         'beforeManifest': before, 'afterManifest': after, 'outputs': {relative: new},
         'originals': {relative: base64.b64encode(old.encode()).decode()}, 'directories': ['model/dev/team'],
@@ -341,7 +341,6 @@ def owned_proposal(proposal):
     plan = session['pendingObserved']
     plan['evidence'] = M.evidence(session['states'], ['A'])
     plan['identity'] = M._identity(root, session, {}, 'dev', 'team')
-    assert 'executionDigest' not in plan['identity']
     plan['generated'] = {'groups': {relative: [relative]}, 'originals': {relative: ''},
                          'outputs': None, 'stage': 'PREPARED'}
     return root, session, source, old, new
@@ -351,10 +350,6 @@ def owned_proposal(proposal):
                                      'worktree-deleted', 'tampered-session', 'foreign-journal', 'external-model'])
 def check_owned_resume_boundaries(owned_proposal, problem):
     root, session, source, old, new = owned_proposal
-    if problem == 'none':
-        session['executionDigest'] = 'legacy-session-value'
-        session['pendingObserved']['identity'].update(
-            managedTask={'legacy': True}, executionDigest='legacy-plan-value')
     saved_identity = copy.deepcopy(session['pendingObserved']['identity'])
     path = root.parent / (root.name + '-session.json')
     handoff.bind(root, path, session)

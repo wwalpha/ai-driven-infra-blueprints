@@ -188,7 +188,9 @@ def check_signed_ledger_rejects_rollback_and_recovers(tmp_path, after_replace):
     root.mkdir()
     path = tmp_path / 'state.json'
     session = {'repository': str(root), 'taskFile': 'tasks/deploy.md', 'states': {'Stack': {'status': 'NOT_STARTED'}}}
-    session['executionDigest'] = 'legacy-framework-value'
+    session['workflow'] = handoff.new_workflow()
+    session['inputRevision'] = 0
+    session.setdefault('workflow', handoff.new_workflow())
     handoff.bind(root, path, session)
     handoff.save(path, session)
     handoff.restore(root, path, json.loads(path.read_text()))
@@ -201,9 +203,8 @@ def check_signed_ledger_rejects_rollback_and_recovers(tmp_path, after_replace):
     recovered = json.loads(path.read_text())
     handoff.restore(root, path, recovered)
     assert recovered['workflow']['reserved'] == 1
-    assert recovered['executionDigest'] == 'legacy-framework-value'
     altered = json.loads(path.read_text())
-    altered.pop('executionDigest')
+    altered.pop('inputRevision')
     with pytest.raises(Blocked, match='ledger'):
         handoff.restore(root, path, altered)
     path.write_bytes(old)
@@ -212,7 +213,6 @@ def check_signed_ledger_rejects_rollback_and_recovers(tmp_path, after_replace):
     path.unlink()
     final = handoff.recover_session(root, path, 'tasks/deploy.md')
     assert final['workflow']['reserved'] == 1 and final['workflow']['workflowId'] == session['workflow']['workflowId']
-    assert final['executionDigest'] == 'legacy-framework-value'
     with pytest.raises((Blocked, ValueError), match='original session'):
         handoff.recover_session(root, tmp_path / 'new-state.json', 'tasks/deploy.md')
 
@@ -254,7 +254,8 @@ def diagnosis_fixture(tmp_path, peer=False):
                'states': {'Stack': state}, 'unitInputPaths': {'Stack': [relative]},
                'failureObservations': [{'observationId': 'one', 'stack': 'Stack', 'execution': 'token-one', 'revision': 0,
                                         'inputManifest': {relative: sha(template)}, 'awsState': state}]}
-    handoff.workflow(session)['latestObservations'] = ['one']
+    session['workflow'] = handoff.new_workflow()
+    session['workflow']['latestObservations'] = ['one']
     problem = {'relation': 'NEW', 'relatedProblemIds': [],
                'reason': 'The failed CidrBlock differs from the approved Model row in the referenced template.',
                'evidenceRefs': [{'observationId': 'one', 'revision': 0, 'eventIndices': [0]}], 'observationId': 'one', 'eventIndices': [0], 'resourcePath': 'Item', 'resourceType': 'AWS::EC2::VPC',
@@ -581,6 +582,7 @@ def check_budget_text_is_not_human_authority(tmp_path):
     session = {'repository':str(root),'taskFile':'tasks/deploy.md','taskDigest':task_digest(task.read_text()),
                'states':{'Stack':{'status':'NOT_STARTED'}}}
     path = tmp_path / 'state.json'
+    session['workflow'] = handoff.new_workflow()
     handoff.bind(root,path,session)
     session['workflow']['reserved'] = 20
     handoff.save(path,session)
@@ -663,14 +665,13 @@ def acceptance(tmp_path):
         'effectiveDigests': effective, 'states': {
             'First': {'status': 'SUCCESS', 'observedSynced': True, 'executionEvidence': {'clientToken': 'successful'}},
             'Second': {'status': 'BLOCKED', 'failure': {'classification': 'INPUT_CANDIDATE'}}}}
-    workflow = handoff.workflow(session)
+    workflow = session['workflow'] = handoff.new_workflow()
     workflow.update(reserved=1, attempts={'attempt': {'requestId': 'request', 'stage': 'STATIC_PASSED'}})
     request_path = tmp_path / 'repair/request.json'
     request_path.parent.mkdir()
     request = {'requestId': 'request', 'attemptId': 'attempt', 'workflowId': workflow['workflowId'],
                'repository': str(root), 'session': str(tmp_path / 'session.json'), 'requestPath': str(request_path),
-               'taskFile': session['taskFile'], 'taskDigest': 'task', 'revision': 0, 'allowedPaths': ['infra/Second.yaml'],
-               'executionDigest': 'legacy-issued-request'}
+               'taskFile': session['taskFile'], 'taskDigest': 'task', 'revision': 0, 'allowedPaths': ['infra/Second.yaml']}
     session['pendingRequest'] = copy.deepcopy(request)
     backend.paths(units[1])[0].write_text(backend.paths(units[1])[0].read_text().replace('10.2.', '10.0.'))
     current = {p.relative_to(root).as_posix(): sha(p) for p in backend.deployment_input_paths(units)}
@@ -718,6 +719,7 @@ def check_accept_protects_success_and_retries(acceptance, shared, status, after_
     path = Path(session['pendingRequest']['session'])
     # Worktree registration and Git provenance are external adapters; the signed save/restore is real.
     with patch.object(handoff, 'register_workflow'):
+        session.setdefault('workflow', handoff.new_workflow())
         handoff.bind(root, path, session)
     handoff.save(path, session)
     initial = copy.deepcopy(session)
@@ -790,7 +792,6 @@ def check_issue_request_stability(tmp_path):
     expected = [{'stack': 'Stack', 'resourcePath': 'Item', 'operation': 'CREATE', 'status': 'CREATE_COMPLETE'}]
     with selected_task(tmp_path, 'tasks/deploy.md'):
         pending = handoff.issue_request(tmp_path, path, session, problems, [relative], expected)
-        assert 'executionDigest' not in pending
         restored = json.loads(path.read_text())
         assert handoff.issue_request(tmp_path, path, restored, problems, [relative], expected) == pending
         assert restored['pendingRequest'] == pending and restored['workflow']['reserved'] == 1
@@ -810,13 +811,14 @@ def check_signed_protected_fields(tmp_path, field):
     session = {'repository': str(root), 'taskFile': 'tasks/deploy.md',
         'states': {'A': {'status': 'SUCCESS', 'executionEvidence': {'clientToken': 'token'}, 'approvedChangeDigest': 'digest'}},
         'pendingObserved': {'stage': 'PREPARED'}, 'metrics': {}}
+    session.setdefault('workflow', handoff.new_workflow())
     handoff.bind(root, path, session)
     handoff.save(path, session)
     restored = json.loads(path.read_text())
     if field == 'pendingObserved':
         restored.pop(field)
     elif field == 'metrics':
-        restored.update(metrics={'historical': 1}, skillStartedAt=1, within120Seconds=False)
+        restored.update(metrics={'duration': 1})
     else:
         restored['states']['A'][field] = 'tampered'
     if field == 'metrics':

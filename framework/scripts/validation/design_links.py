@@ -11,10 +11,8 @@ from pathlib import Path
 import model.identity as _imports_model_identity
 import model.importing.references as _imports_model_importing_references
 import model.importing.scope as _imports_model_importing_scope
-import model.projection as _imports_model_projection
 import model.references as _imports_model_references
 import model.sources as _imports_model_sources
-import utils.json_format as _imports_utils_json_format
 from aws_mapping_display import validation_lines
 from design_document import DesignIndex
 from design_layout import (
@@ -211,8 +209,6 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                        design_index: DesignIndex | None = None, design_sources=None, findings, root, scope, definitions_root=None,
                        view_reader=None, unavailable_views=None) -> None:
     outside_design = _imports_model_importing_scope.outside_design
-    scope_for = _imports_model_sources.scope_for
-    policy_json = _imports_utils_json_format.policy_json
     definitions_root = definitions_root or root
     design_index = design_index or DesignIndex(definitions_root)
     source_values = {}
@@ -256,8 +252,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                 if rows:
                     row_key = 'desired.row.' + rows.popleft() + '.value'
                     resource_link = _imports_model_identity.resource_link
-                    scalar_reference = _imports_model_projection.scalar_reference
-                    if not resource_link(values[row_key]) and scalar_reference({'property': prop, 'value': values[row_key]}) is None:
+                    if not resource_link(values[row_key]):
                         candidate[row_key] = cells[2]
             relative = source.relative_to(root / 'docs/designs')
             load_model = _imports_model_sources.load_model
@@ -271,39 +266,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             findings.warn(error, source=str(source))
         except (OSError, ValueError) as error:
             findings.check(False, f'invalid IMPORT physical reference: {findings.relative(source)}: {error}')
-    Resolver = _imports_model_identity.Resolver
-    document_references = _imports_model_projection.document_references
-    scalar_reference = _imports_model_projection.scalar_reference
-    scalar_reference_operand = _imports_model_projection.scalar_reference_operand
     authority_values = source_values
-    resolver = Resolver(root)
-    json_links = {source: [] for source in sources}
-    scalar_rows = {source: defaultdict(deque) for source in sources}
-    for source, values in source_values.items():
-        model_path = (root / 'model' / source.relative_to(root / 'docs/designs')).with_suffix('.properties')
-        resource_anchors = {rid: resource.get('anchor') for rid, resource in entries(values or {}, 'desired.resource.')}
-        for row_id, row in entries(values or {}, 'desired.row.'):
-            if re.sub(r'\[\d+\]', '[]', row['property']) == S3_KMS_MASTER_KEY_ID:
-                try:
-                    selector = scalar_reference(row)
-                    scalar_reference_operand(row, root, scope_for(model_path), resolver=resolver)
-                    scalar_rows[source][resource_anchors.get(row_id.rpartition('-')[0])].append(selector)
-                    if selector is not None:
-                        json_links[source].append(selector['$resource'])
-                except ReferenceResolutionError as error:
-                    findings.warn(error, source=str(source), consumerKey='desired.row.' + row_id + '.value')
-                except (OSError, ValueError, KeyError, TypeError) as error:
-                    findings.check(False, f"invalid scalar Resource reference: {findings.relative(source)}: {error}")
-            if 'document' not in row:
-                continue
-            try:
-                document_references(policy_json(row['document']), root, property_name=row['property'],
-                                    resolver=resolver, scope=scope_for(model_path),
-                                    resolve=lambda snapshot, number, resource, attribute, uri, *, source=source: json_links[source].append(uri))
-            except ReferenceResolutionError as error:
-                findings.warn(error, source=str(source), consumerKey='desired.row.' + row_id + '.document')
-            except (OSError, ValueError, KeyError, TypeError) as error:
-                findings.check(False, f"invalid JSON Resource reference: {findings.relative(source)}: {error}")
     references = {path.resolve() for path in sources}
     fragments = {}
     consumers = {}
@@ -317,7 +280,6 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                                     re.sub(r"<!--.*?-->", "", "\n".join(semantic), flags=re.DOTALL))
         except ValueError:
             visible_text[source] = document.visible_text
-        visible_text[source] += '\n' + '\n'.join(json_links[source])
     for source in sources:
         for raw in LINK_PATTERN.findall(visible_text[source]):
             target, separator, fragment = raw.partition("#")
@@ -575,10 +537,7 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                     continue
                 if cells[1] == CODEBUILD_FORMAL_VARIABLE + "Type":
                     variable_type = unquoted(cells[2])
-            scalar = None
-            if len(cells) == 4 and cells[1] == S3_KMS_MASTER_KEY_ID and scalar_rows[source][source_anchor]:
-                scalar = scalar_rows[source][source_anchor].popleft()
-            if source_anchor in imported[source] and scalar is None:
+            if source_anchor in imported[source]:
                 continue
             link = RESOURCE_LINK_PATTERN.fullmatch(cells[2]) if len(cells) == 4 else None
             if not link:
@@ -617,18 +576,6 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
                     f"Security Group VpcId must link to a VPC in the same target: {findings.relative(source)}: {label}",
                 )
             if cells[1] == S3_KMS_MASTER_KEY_ID:
-                if scalar is not None:
-                    parse_reference = _imports_model_identity.parse_reference
-                    Scope = _imports_model_sources.Scope
-                    consumer = Scope(root, *source.parent.parts[-2:], source.stem)
-                    environment, directory, service, anchor = parse_reference(scalar['$resource'], consumer)
-                    findings.warn(
-                        bool(resource and resource[0] == 'KMS.Key' and target.parent == source.parent.resolve()
-                             and (environment, directory) == (consumer.environment, consumer.target)
-                             and target == (source.parent / (service + '.md')).resolve() and fragment == anchor),
-                        f"S3 explicit Arn reference must link to its Model KMS.Key: {findings.relative(source)}: {cells[2]}",
-                    )
-                    continue
                 alias_name = (
                     resource[1].get("KMS.Alias.AliasName") if resource else None
                 )

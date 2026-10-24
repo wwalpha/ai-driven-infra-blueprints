@@ -150,17 +150,6 @@ def check_required_name_tag(
         len(name_rows) == 1 or (mode == "IMPORT" and not name_rows),
         f"required Name property must appear exactly once: {findings.relative(path)}: {property_name}",
     )
-    legacy_name_rows = [
-        row
-        for row in rows
-        if resource_property_path(resource_type, row[1])
-        in {"Tags[].Key", "HostedZoneTags[].Key"}
-        and unquoted(row[2]) == "Name"
-    ]
-    findings.check(
-        not legacy_name_rows,
-        f"Name tag must use one-row property {property_name}: {findings.relative(path)}: {resource_type}",
-    )
     if len(name_rows) != 1:
         return
     findings.check(rows[0] == name_rows[0], f"design-only Name must be the first row: {findings.relative(path)}: {property_name}")

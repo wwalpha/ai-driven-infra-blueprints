@@ -35,7 +35,6 @@ def check_workflow_contract():
     assert rules[ROOT / 'framework/rules/observed-values.md']['text'] == (ROOT / 'framework/rules/observed-values.md').read_text()
     skill = (ROOT / '.agents/skills/deploy/SKILL.md').read_text()
     assert 'in full' in skill and 'UTC epoch' not in skill
-    assert '--skill-started-at' not in text and 'deploy-read-plan' not in text
 
 
 def check_dependencies_and_timing():

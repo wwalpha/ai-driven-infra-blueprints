@@ -12,7 +12,6 @@ from reference_contracts import (
     ARN_FORMS,
     ARN_SHAPES,
     REFERENCE_PROPERTIES,
-    SCALAR_REFERENCE_PROPERTIES,
 )
 from utils.aws_catalogs import catalog_outputs
 
@@ -172,8 +171,6 @@ def compare(inputs, left, right, kind, path):
                 raise Blocked('attribute_format_unproven: alternative allowed literal format')
         concrete = proof.resolve(right)
         allowed = registry.kms_forms(kind, path) if inputs.local_comparison else None
-        if getattr(left, 'explicit_attribute', False) and kind + '.' + path in SCALAR_REFERENCE_PROPERTIES:
-            allowed = {'KeyArn'}
         if allowed:
             result, reason = registry.compare_kms_forms(raw, concrete, allowed,
                 resolve_literal=inputs.reference_literal, format_of=inputs.kms_format)

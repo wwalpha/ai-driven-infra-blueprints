@@ -23,7 +23,7 @@ import support.sync_model_fixtures as _fixture_generated_policy
 import sync_runtime
 import sync_views
 import utils.aws_mappings as mapping_state
-import validation_cache
+import utils.input_cache as input_cache
 from model.files import load_model, read_model
 from support.model_sources import write_model
 from support.pytest_cli import run
@@ -56,12 +56,6 @@ def _callback_trace_validation_init(instrument, original_init, root, /, validato
         instrument(validator, 'saved')
 
 
-def _callback_trace_validation_generate(root, /, scope):
-    try:
-        MODULE.sync(root, False, *ENTRY[:2], [ENTRY[2]], jobs=4)
-        return []
-    except (ValueError, OSError, KeyError, TypeError) as error:
-        return [str(error)]
 
 
 def _callback_trace_validation_record_call(current, original, records, root, /, findings, condition, *args):
@@ -107,7 +101,7 @@ def _callback_trace_validation_instrument(current, records, /, validator, side):
     return validator
 
 
-def trace_validation(root, legacy=False):
+def trace_validation(root):
     records = defaultdict(list)
     current = ContextVar('test_check', default=None)
     original_factory = sync_views.view_validator
@@ -116,13 +110,12 @@ def trace_validation(root, legacy=False):
     record = _bind_framework_callback(_callback_trace_validation_record, current, records, root)
     original_init = validator_module.Validator.__init__
     init = _bind_framework_callback(_callback_trace_validation_init, instrument, original_init, root)
-    generate = _bind_framework_callback(_callback_trace_validation_generate, root)
     with patch.object(sync_views, 'view_validator', factory), \
          patch.object(validator_module.Validator, '__init__', init), \
          patch.object(Findings, 'warn', record(Findings.warn)), \
          patch.object(Findings, 'check', record(Findings.check)), \
          patch.object(Findings, 'check_file', record(Findings.check_file)):
-        validator = validator_module.Validator(root, {ENTRY}, model_check=generate if legacy else None)
+        validator = validator_module.Validator(root, {ENTRY})
         validator.check_project_topology()
         validator.check_scoped_designs()
     return validator, records
@@ -151,18 +144,12 @@ def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
         values['observed.row.001-001.value'] = '`arn:aws:iam::123456789012:role/unexpected`'
         write_model(model, values)
     design.write_text(text, encoding='utf-8')
-    before, old = trace_validation(root, legacy=True)
     after, new = trace_validation(root)
-    assert old['saved', 'other'] == new['saved', 'other'], fault
     for name in COMMON:
-        assert old['saved', name], name
-        assert new['saved', name] == old['saved', name], (fault, name)
+        assert new['saved', name], name
         assert not new['candidate', name], name
-        if fault == 'none':
-            assert old['candidate', name], name
-            assert set(old['candidate', name]) <= set(new['saved', name]), name
-            assert not before.errors and not after.errors, (before.errors, after.errors)
-    assert bool(after.errors) == bool(before.errors), (fault, before.errors, after.errors)
+    if fault == 'none':
+        assert not after.errors, after.errors
     if fault != 'none':
         assert diagnostics(after), fault
         name = {'names': COMMON[0], 'tables': COMMON[1], 'overview': COMMON[2],
@@ -171,16 +158,16 @@ def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
 
 
 def _callback_check_read_scope_lifetime_expand(original, scopes, /, *args):
-    scopes.append(validation_cache.memo_table())
+    scopes.append(input_cache.memo_table())
     return original(*args)
 
 
 def _callback_check_read_scope_lifetime_nested(model, scopes, /):
-    scope = validation_cache.memo_table()
+    scope = input_cache.memo_table()
     read_model(model)
     assert scopes[-1] is scope
     read_model(model)
-    assert validation_cache.memo_table() is scope
+    assert input_cache.memo_table() is scope
 
 
 def check_read_scope_lifetime(generated_policy):
@@ -191,17 +178,17 @@ def check_read_scope_lifetime(generated_policy):
     with patch.object(model_sources, '_read_model', side_effect=expand):
         first = read_model(model)
         assert scopes[-1] is not None
-        assert validation_cache.memo_table() is None
+        assert input_cache.memo_table() is None
         values['desired.row.001-001.value'] = '`changed-role`'
         write_model(model, values)
         assert read_model(model) != first
-        nested = (validation_cache.input_scope)(_bind_framework_callback(_callback_check_read_scope_lifetime_nested, model, scopes))
+        nested = (input_cache.input_scope)(_bind_framework_callback(_callback_check_read_scope_lifetime_nested, model, scopes))
         nested()
-    assert validation_cache.memo_table() is None
+    assert input_cache.memo_table() is None
     with patch.object(model_sources, '_read_model', side_effect=ValueError('injected')):
         with pytest.raises(ValueError, match='injected'):
             read_model(model)
-    assert validation_cache.memo_table() is None
+    assert input_cache.memo_table() is None
 
 
 def _callback_check_deferred_guard_and_cleanup_factory_call_207(seen, _default__name, _default__original, /, *args, _name=_CALLBACK_DEFAULT, _original=_CALLBACK_DEFAULT, **kwargs):
@@ -273,19 +260,19 @@ def check_generation_failures_never_pass(generated_policy, monkeypatch, fault):
         assert sys.argv == argv
     assert validator.errors
     assert sync_views._saved_design_validation.get() is None
-    assert validation_cache.memo_table() is None
+    assert input_cache.memo_table() is None
 
 
 def _callback_check_single_and_parallel_threads_validate(barrier, provider, stage, threads, /, *args, **kwargs):
     assert mappings_for(stage) is provider
     assert mappings_for(stage).get('iam') is provider.get('iam')
-    threads.append((threading.get_ident(), validation_cache.memo_table()))
+    threads.append((threading.get_ident(), input_cache.memo_table()))
     if barrier:
         barrier.wait(timeout=10)
 
 
 def _callback_check_single_and_parallel_threads_run_candidates(_state_check_single_and_parallel_threads_259, main, paths, root, stage, /):
-    scope = validation_cache.memo_table()
+    scope = input_cache.memo_table()
     failures = []
     with patch.object(sync_views, 'validate_views', side_effect=_state_check_single_and_parallel_threads_259.validate):
         sync_runtime.validate_candidates(stage, root, {p: [] for p in paths[:_state_check_single_and_parallel_threads_259.count]},
@@ -308,7 +295,7 @@ def check_single_and_parallel_threads(tmp_path):
         _state_check_single_and_parallel_threads_259.threads = []
         barrier = threading.Barrier(2) if _state_check_single_and_parallel_threads_259.count == 2 else None
         _state_check_single_and_parallel_threads_259.validate = _bind_framework_callback(_callback_check_single_and_parallel_threads_validate, barrier, provider, stage, _state_check_single_and_parallel_threads_259.threads)
-        run_candidates = (validation_cache.input_scope)(_bind_framework_callback(_callback_check_single_and_parallel_threads_run_candidates, _state_check_single_and_parallel_threads_259, main, paths, root, stage))
+        run_candidates = (input_cache.input_scope)(_bind_framework_callback(_callback_check_single_and_parallel_threads_run_candidates, _state_check_single_and_parallel_threads_259, main, paths, root, stage))
         with mapping_alias(root, stage):
             run_candidates()
         assert stage not in mapping_state._aliases and stage not in mapping_state._instances
@@ -327,7 +314,7 @@ def _callback_check_authorization_before_memo_and_publication_authorize(model, /
 
 def _callback_check_authorization_before_memo_and_publication_publish(model, root, /):
     loaded = load_model(model)
-    assert validation_cache.memo_table()
+    assert input_cache.memo_table()
     original = model.read_bytes()
     assert MODULE.sync(root, True, *ENTRY[:2], ['iam']) == 0
     assert load_model(model) is loaded
@@ -337,22 +324,22 @@ def _callback_check_authorization_before_memo_and_publication_publish(model, roo
 def check_authorization_before_memo_and_publication(generated_policy, monkeypatch):
     root, model, _, design, artifact, register = generated_policy
     monkeypatch.setenv('BLUEPRINT_TASK_FILE', register([design, artifact])['BLUEPRINT_TASK_FILE'])
-    authorize = (validation_cache.input_scope)(_bind_framework_callback(_callback_check_authorization_before_memo_and_publication_authorize, model))
+    authorize = (input_cache.input_scope)(_bind_framework_callback(_callback_check_authorization_before_memo_and_publication_authorize, model))
     authorize()
-    publish = (validation_cache.input_scope)(_bind_framework_callback(_callback_check_authorization_before_memo_and_publication_publish, model, root))
+    publish = (input_cache.input_scope)(_bind_framework_callback(_callback_check_authorization_before_memo_and_publication_publish, model, root))
     publish()
 
 
 def _callback_check_scoped_validation_threads_and_failures_designs(barrier, seen, /, validator):
-    seen.append((threading.get_ident(), validation_cache.memo_table()))
+    seen.append((threading.get_ident(), input_cache.memo_table()))
     if barrier:
         barrier.wait(timeout=10)
     validator.check(False, 'synthetic service failure')
 
 
 def _callback_check_scoped_validation_threads_and_failures_validate(_state_check_scoped_validation_threads_and_failures_322, main, tmp_path, /):
-    scope = validation_cache.memo_table()
-    validator = validator_module.Validator(tmp_path, _state_check_scoped_validation_threads_and_failures_322.entries, model_check=lambda _: [])
+    scope = input_cache.memo_table()
+    validator = validator_module.Validator(tmp_path, _state_check_scoped_validation_threads_and_failures_322.entries)
     validator.schema_catalog = object()
     with patch.object(validator_module.Validator, 'design_files', return_value=[]), \
          patch.object(validator_module.Validator, 'check_design_service_ownership'), \
@@ -376,7 +363,7 @@ def check_scoped_validation_threads_and_failures(tmp_path):
         _state_check_scoped_validation_threads_and_failures_322.seen = []
         barrier = threading.Barrier(2) if _state_check_scoped_validation_threads_and_failures_322.count == 2 else None
         _state_check_scoped_validation_threads_and_failures_322.designs = _bind_framework_callback(_callback_check_scoped_validation_threads_and_failures_designs, barrier, _state_check_scoped_validation_threads_and_failures_322.seen)
-        validate = (validation_cache.input_scope)(_bind_framework_callback(_callback_check_scoped_validation_threads_and_failures_validate, _state_check_scoped_validation_threads_and_failures_322, main, tmp_path))
+        validate = (input_cache.input_scope)(_bind_framework_callback(_callback_check_scoped_validation_threads_and_failures_validate, _state_check_scoped_validation_threads_and_failures_322, main, tmp_path))
         validate()
 
 

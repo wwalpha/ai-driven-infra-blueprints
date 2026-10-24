@@ -28,8 +28,6 @@ from support.issues_scan_fixtures import (
     Counter,
     Path,
     aggregate,
-    argparse,
-    benchmark,
     compare,
     detail_payload,
     entries,
@@ -74,7 +72,6 @@ from support.issues_scan_fixtures import (
     task,
     tempfile,
     value_differences,
-    worker,
     write,
     write_model,
     write_report,
@@ -1461,13 +1458,10 @@ def mismatch_display_cases():
     print('IaC mismatch display: PASS (fields/types/arrays/Tags/masks/long values/IDs/data/annotations/pipeline)')
 
 
-def _callback_state_report_cases_snapshot(outputs, state, /):
-    return {file: file.read_bytes() if file.exists() else None for file in [*outputs, state]}
+def _callback_state_report_cases_snapshot(outputs, /):
+    return {file: file.read_bytes() if file.exists() else None for file in outputs}
 
 
-def _callback_state_report_cases_guarded_read(path, read_text, state, /, file, *args, **kwargs):
-    assert file not in {path, state}, 'old IaC text/state read forbidden'
-    return read_text(file, *args, **kwargs)
 
 
 def _callback_state_report_cases_fail_replace(_state_state_report_cases_1418, /, source, destination):
@@ -1485,36 +1479,27 @@ def state_report_cases():
     with tempfile.TemporaryDirectory(prefix='iac-current-run-') as directory:
         root = Path(directory)
         path = root / 'issues/dev/123456789012/iac-issues.md'
-        state = path.with_name('iac-issues.state.json')
         ordinary = path.with_name('issues.md')
         record = dict(category='difference', service='s3', resource='001', property='S3.Bucket.Setting',
                       reason='value mismatch', stack='stack1', desired=1, actual=2, iac={'path': 'infra/shared.yaml'})
         display = {identifier(record): value_differences(1, 2, record['property'])}
         outputs = [ordinary, path]
-        snapshot = _bind_framework_callback(_callback_state_report_cases_snapshot, outputs, state)
+        snapshot = _bind_framework_callback(_callback_state_report_cases_snapshot, outputs)
         with task(root, ['s3', 'sqs']):
             save(root, 'dev', '123456789012', ['s3', 'sqs'],
                  additions=[{'service': 'sqs', 'message': 'human確認: unresolved queue issue'}], iac=[record, dict(record, service='sqs')])
             assert 'sqs / 001' in path.read_text()
-        old_ordinary = ordinary.read_bytes()
-        # Opaque Markdown, embedded JSON, human notes and out-of-scope results are never restored.
-        for old in ('legacy opaque sqs report', '<!-- iac-report-data: {bad} -->\nhuman確認: old note', path.read_text()):
-            for stale in ('{bad', '{}', '{"annotations":["old note"],"digest":"inconsistent"}'):
-                write_report(path, old)
-                write(state, stale)
-                read_text = Path.read_text
-                guarded_read = _bind_framework_callback(_callback_state_report_cases_guarded_read, path, read_text, state)
-                with task(root, ['s3']), patch.object(Path, 'read_text', guarded_read), \
-                     patch.object(Comparison, 'run', side_effect=AssertionError('save comparison forbidden')), \
-                     patch('comparison.inputs.load_model', side_effect=AssertionError('save parse forbidden')), \
-                     patch('socket.socket', side_effect=AssertionError('network forbidden')):
-                    assert save(root, 'dev', '123456789012', ['s3'], iac=[record], display=display, stamp='fixed') == outputs
-                text = path.read_text()
-                assert state.read_text() == stale and 'old note' not in text and 'sqs / 001' not in text
-                assert '今回指定した範囲: dev／123456789012／s3' in text and '対象外Serviceは今回未検証' in text
-                assert 'human確認: unresolved queue issue' in ordinary.read_text()
-                assert not issue_errors(root, {('dev', '123456789012', 's3')})
-                assert issue_errors(root, {('dev', '123456789012', 'sqs')})
+        with task(root, ['s3']), \
+             patch.object(Comparison, 'run', side_effect=AssertionError('save comparison forbidden')), \
+             patch('comparison.inputs.load_model', side_effect=AssertionError('save parse forbidden')), \
+             patch('socket.socket', side_effect=AssertionError('network forbidden')):
+            assert save(root, 'dev', '123456789012', ['s3'], iac=[record], display=display, stamp='fixed') == outputs
+        text = path.read_text()
+        assert 'sqs / 001' not in text
+        assert '今回指定した範囲: dev／123456789012／s3' in text and '対象外Serviceは今回未検証' in text
+        assert 'human確認: unresolved queue issue' in ordinary.read_text()
+        assert not issue_errors(root, {('dev', '123456789012', 's3')})
+        assert issue_errors(root, {('dev', '123456789012', 'sqs')})
         with task(root, ['s3']):
             for _state_state_report_cases_1418.error_type in (OSError, KeyboardInterrupt):
                 for _state_state_report_cases_1418.failed_output in outputs:
@@ -1527,20 +1512,14 @@ def state_report_cases():
                             with pytest.raises(_state_state_report_cases_1418.error_type):
                                 save(root, 'dev', '123456789012', ['s3'], iac=[record], display=display)
                         assert _state_state_report_cases_1418.failed and snapshot() == before
-                        assert set(path.parent.iterdir()) == {*outputs, state}
+                        assert set(path.parent.iterdir()) == set(outputs)
             before = snapshot()
             expect_error(lambda: save(root, 'dev', '123456789012', ['s3'], iac=[record],
                                      guard=lambda: (_ for _ in ()).throw(ValueError('inputs changed'))), 'inputs changed')
             assert snapshot() == before
             save(root, 'dev', '123456789012', ['s3'], iac=[])
             assert '元レコード数: 0' in path.read_text() and 'no compared records' in path.read_text()
-        # State is not an authorized save output, nor a dependency of the new batch.
-        with task(root, ['s3'], allowed=[*map(lambda file: file.relative_to(root).as_posix(), outputs), state.relative_to(root).as_posix()]):
-            before = snapshot()
-            expect_error(lambda: save(root, 'dev', '123456789012', ['s3'], iac=[]), 'save-only exception')
-            assert before == snapshot()
-        assert 'human確認: unresolved queue issue' in ordinary.read_text() and old_ordinary
-    print('IaC current-run publication: PASS (ignored state/old Markdown/partial scope/ordinary retention/rollback)')
+
 
 
 def check_nested_membership(scan_project):
@@ -2453,30 +2432,17 @@ def check_aws_standard_comparison(_network):
         policy = '[IAM_ManagedPolicy_001](iam.md#resource-IAM_ManagedPolicy_001)'
         secret = '[SecretsManager_Secret_001](secrets-manager.md#resource-SecretsManager_Secret_001)'
         bucket = '[S3_Bucket_001](s3.md#s3-bucket-app-dev-data1)'
-        key = '[KMS_Key_001](kms.md#resource-KMS_Key_001)'
-        alias = '[KMS_Alias_001](kms.md#resource-KMS_Alias_001)'
-        vpc = '[EC2_VPC_001](vpc.md#resource-EC2_VPC_001)'
-        key_reference = {'$resource': key, '$attribute': 'Arn'}
-        alias_reference = {'$resource': alias, '$attribute': 'AliasArn'}
         specs = {
             'iam': [('Role', 'IAM.Role', 'role', [('RoleName', '`role`'), ('ManagedPolicyArns', policy)]),
                     ('Policy', 'IAM.ManagedPolicy', 'policy', [('Roles', role)])],
             'secrets-manager': [('Secret', 'SecretsManager.Secret', 'secret', [('Name', '`app/secret`')])],
-            'kms': [('Key', 'KMS.Key', 'key', []), ('Alias', 'KMS.Alias', 'alias', []), ('OtherKey', 'KMS.Key', 'other', [])],
-            'vpc': [('Vpc', 'EC2.VPC', 'vpc', [])],
             'codebuild': [('Project', 'CodeBuild.Project', 'project', [
                 ('Environment.EnvironmentVariables[].Name', '`BUCKET`'),
                 ('Environment.EnvironmentVariables[].Value', bucket),
                 ('Environment.EnvironmentVariables[].Type', '`PLAINTEXT`'),
                 ('Environment.EnvironmentVariables[].Name', '`SECRET`'),
                 ('Environment.EnvironmentVariables[].Value', secret),
-                ('Environment.EnvironmentVariables[].Type', '`SECRETS_MANAGER`'),
-                ('Environment.EnvironmentVariables[].Name', '`KEY_ARN`'),
-                ('Environment.EnvironmentVariables[].Value', '`' + json.dumps(key_reference) + '`'),
-                ('Environment.EnvironmentVariables[].Type', '`PLAINTEXT`'),
-                ('Environment.EnvironmentVariables[].Name', '`ALIAS_ARN`'),
-                ('Environment.EnvironmentVariables[].Value', '`' + json.dumps(alias_reference) + '`'),
-                ('Environment.EnvironmentVariables[].Type', '`PLAINTEXT`')])],
+                ('Environment.EnvironmentVariables[].Type', '`SECRETS_MANAGER`')])],
         }
         for service, resources in specs.items():
             values = {f'desired.service.{service}.serviceId': service}
@@ -2493,35 +2459,15 @@ def check_aws_standard_comparison(_network):
         resources = template['Resources']
         resources['Role']['Properties'] = {'RoleName': 'role', 'ManagedPolicyArns': [{'Ref': 'Policy'}]}
         resources['Secret']['Properties'] = {'Name': 'app/secret'}
-        resources['Alias']['Properties'] = {'AliasName': 'alias/fixture', 'TargetKeyId': {'Ref': 'Key'}}
-        alias_arn = {'Fn::Sub': ['arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:${Alias}', {'Alias': {'Ref': 'Alias'}}]}
-        environment = {'EnvironmentVariables': [{'Name': 'BUCKET', 'Value': {'Ref': 'Bucket'}, 'Type': 'PLAINTEXT'},
-                                                {'Name': 'SECRET', 'Value': 'app/secret', 'Type': 'SECRETS_MANAGER'},
-                                                {'Name': 'KEY_ARN', 'Value': {'Fn::GetAtt': ['Key', 'Arn']}, 'Type': 'PLAINTEXT'},
-                                                {'Name': 'ALIAS_ARN', 'Value': alias_arn, 'Type': 'PLAINTEXT'}]}
+        environment = {'EnvironmentVariables': [
+            {'Name': 'BUCKET', 'Value': {'Ref': 'Bucket'}, 'Type': 'PLAINTEXT'},
+            {'Name': 'SECRET', 'Value': 'app/secret', 'Type': 'SECRETS_MANAGER'}]}
         resources['Project']['Properties']['Environment'] = environment
         mutate_template(root, template)
         comparison, records = compare(root, list(specs))
         tested = {'IAM.Role.ManagedPolicyArns', 'IAM.ManagedPolicy.Roles', 'CodeBuild.Project.Environment'}
         selected = [item for item in records if item['property'] in tested]
         assert len(selected) == 3 and all(item['category'] == 'matched' for item in selected), selected
-        for actual, category in [({'Ref': 'Key'}, 'difference'), ({'Fn::GetAtt': ['OtherKey', 'Arn']}, 'difference'),
-                                 (alias_arn, 'difference'),
-                                 ('arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012', 'uncompared')]:
-            environment['EnvironmentVariables'][2]['Value'] = actual
-            mutate_template(root, template)
-            result = next(item for item in compare(root, ['codebuild'])[1] if item['property'] == 'CodeBuild.Project.Environment')
-            assert result['category'] == category, result
-        environment['EnvironmentVariables'][2]['Value'] = {'Fn::GetAtt': ['Key', 'Arn']}
-        mutate_template(root, template)
-        # Parent Environment JSON and individual Value rows reuse the same context and validation.
-        for value, reason in [(key, 'requires an explicit attribute'), (alias, 'requires an explicit attribute'),
-                              ({'$resource': key, '$attribute': 'Missing'}, 'reference attribute not confirmed'),
-                              ({'$resource': vpc, '$attribute': 'CidrBlockAssociations'}, 'must be a proven string')]:
-            row = {'property': 'CodeBuild.Project.Environment', 'value': '', 'document': json.dumps({
-                'EnvironmentVariables': [{'Name': 'VALUE', 'Type': 'PLAINTEXT', 'Value': value}]})}
-            with pytest.raises(Blocked, match=reason):
-                comparison.prepare_value('codebuild', row, 'CodeBuild.Project', stack=stack).require_value()
         symbol = comparison.reference('iam', policy, 'Arn')
         assert symbol['$attribute'] == 'PolicyArn'
         assert same(symbol, comparison.evaluate(stack, {'Ref': 'Policy'}))
@@ -2593,26 +2539,6 @@ def check_aws_standard_comparison(_network):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--benchmark', action='store_true')
-    parser.add_argument('--log-dir', type=Path)
-    parser.add_argument('--worker', choices=list('ABC'))
-    parser.add_argument('--reference', action='store_true')
-    parser.add_argument('--fixture', type=Path)
-    parser.add_argument('--services')
-    args = parser.parse_args()
-    if args.reference:
-        comparison, records = compare(args.fixture, [args.services])
-        print(json.dumps({'records': records, 'counts': {'model_reads': sum(len(model.files) for model in comparison.models.values()),
-                                                       'model_text_reads': sum(len(model.files) for model in comparison.models.values()), 'model_byte_reads': 0,
-                                                       'model_parses': comparison.metrics['model_parses'], 'template_decodes': comparison.metrics['template_decodes']}}))
-        return
-    if args.worker:
-        print(json.dumps(worker(args.fixture, args.worker, args.services.split(','))))
-        return
-    if args.benchmark:
-        benchmark(args.log_dir or Path(tempfile.mkdtemp(prefix='issues-performance-')))
-        return
     return run(__file__, message='Local issues scan checks: PASS (isolated gate/save/comparison/reuse/concurrency fixtures)')
 
 

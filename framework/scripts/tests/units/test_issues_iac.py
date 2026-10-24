@@ -21,10 +21,11 @@ from comparison import registry
 from comparison.values import PreparedValue
 from design_catalog import DesignSchemaCatalog
 from iac_values import Expression, ResourceReference
+from model.format import serialize
 
 
 def legacy_comparison(root, count=3, services=1, stacks=2):
-  """Synthetic legacy Models and real local templates; no consumer inputs."""
+  """Synthetic current Models and real local templates; no consumer inputs."""
   models, documents, units = {}, [{'Resources': {}} for _ in range(stacks)], []
   for number in range(count):
     service, identity = f'service-{number % services}', f'{number:04d}'
@@ -39,7 +40,7 @@ def legacy_comparison(root, count=3, services=1, stacks=2):
   for service, values in models.items():
     path = root / 'model/fixture/team' / (service + '.properties')
     path.parent.mkdir(parents=True, exist_ok=True)
-    raw = json.dumps(values).encode()
+    raw = serialize(values).encode()
     path.write_bytes(raw)
     loaded[path] = SimpleNamespace(values=values, authoritative=values, dependencies={path: raw}, locations={})
   for number, document in enumerate(documents):
@@ -189,10 +190,8 @@ def _callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attri
 def _callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_desired(comparison, /, logical, attribute=None, name='VALUE', variable_type='PLAINTEXT'):
   service = {'Bucket': 's3', 'Vpc': 'vpc', 'Secret': 'secrets-manager'}.get(logical, 'kms')
   link = f'[resource]({service}.md#existing-{logical})'
-  value = {'$resource': link, '$attribute': attribute} if attribute else link
-  return comparison.prepare_value('codebuild', {
-      'property': 'CodeBuild.Project.Environment.EnvironmentVariables', 'value': '',
-      'document': json.dumps([{'Name': name, 'Type': variable_type, 'Value': value}])}, 'CodeBuild.Project').require_value()[0]['Value']
+  return comparison.desired_reference('codebuild', link, 'CodeBuild.Project',
+      'Environment.EnvironmentVariables[].Value', attribute, {'Type': variable_type})
 
 
 class ImportValueResolutionTests(unittest.TestCase):
@@ -296,14 +295,6 @@ class ImportValueResolutionTests(unittest.TestCase):
       equal = _bind_framework_callback(_callback_ImportValueResolutionTests_test_codebuild_plaintext_resource_attributes_equal, comparison, prop)
       with patch('comparison.inputs.catalog_outputs', return_value=set()):
         key, alias = desired('Key', 'Arn'), desired('Alias', 'AliasArn')
-        for selector in [{'$resource': '[key](kms.md#existing-Key)'},
-                         {'$resource': '[key](kms.md#existing-Key)', '$attribute': 'Arn'}]:
-          policy = {'property': 'IAM.ManagedPolicy.PolicyDocument', 'value': '',
-                    'document': json.dumps({'Statement': [{'Resource': selector}]})}
-          self.assertEqual(comparison.prepare_value('iam', policy, 'IAM.ManagedPolicy').require_value()['Statement'][0]['Resource'], key)
-        policy['document'] = json.dumps({'Statement': [{'Resource': {**selector, 'extra': 1}}]})
-        with self.assertRaises(Blocked):
-          comparison.prepare_value('iam', policy, 'IAM.ManagedPolicy').require_value()
         for model, actual, exported in [
             (key, {'Fn::GetAtt': ['Key', 'Arn']}, 'key-export'), (alias, alias_value, 'alias-export')]:
           self.assertTrue(equal(model, comparison.evaluate('producer', actual)))
@@ -323,13 +314,10 @@ class ImportValueResolutionTests(unittest.TestCase):
         self.assertIsNone(equal(alias, 'arn:aws:kms:ap-northeast-1:123456789012:alias/fixture'))
         definitions['Alias']['Properties']['AliasName'] = 'alias/fixture'
         self.assertTrue(equal(desired('Bucket'), comparison.evaluate('producer', {'Ref': 'Bucket'})))
-        self.assertFalse(equal(desired('Bucket'), desired('Bucket', 'Arn')))
         self.assertEqual(desired('Key', 'KeyId', name='KEY_ARN')['$attribute'], 'KeyId')
         for logical in ['Key', 'Alias']:
           with self.assertRaisesRegex(Blocked, 'requires an explicit attribute for KMS'):
             desired(logical)
-        with self.assertRaisesRegex(Blocked, 'must be a proven string'):
-          desired('Vpc', 'CidrBlockAssociations')
         self.assertEqual(desired('Secret', variable_type='SECRETS_MANAGER'), comparison.evaluate('producer', {'Ref': 'Secret'}))
         for variable_type in [None, 'INVALID', 'PARAMETER_STORE']:
           with self.subTest(variable_type=variable_type), self.assertRaisesRegex(Blocked, 'Type is required'):
@@ -350,16 +338,6 @@ class ImportValueResolutionTests(unittest.TestCase):
         self.assertIsNone(equal(key, Expression('Sub', ['${Unknown}', {}])))
         unknown = Expression('Sub', ['${Unknown}', {}])
         self.assertIsNone(equal(unknown, unknown))
-        row = {'property': 'CodeBuild.Project.' + prop, 'value': '`' + json.dumps({
-            '$resource': '[key](kms.md#existing-Key)', '$attribute': 'Arn'}) + '`'}
-        self.assertEqual(comparison.prepare_value('codebuild', row, 'CodeBuild.Project', context={'Type': 'PLAINTEXT'}).require_value(), key)
-        for selector in [{'$resource': '[key](kms.md#existing-Key)'},
-                         {'$resource': 'key-export', '$attribute': 'Arn'},
-                         {'$resource': '[key](kms.md#existing-Key)', '$attribute': 'Arn', 'extra': 'x'},
-                         {'$resource': '[key](kms.md#existing-Key)', '$attribute': 3}]:
-          row['value'] = '`' + json.dumps(selector) + '`'
-          with self.subTest(selector=selector), self.assertRaises(Blocked):
-            comparison.prepare_value('codebuild', row, 'CodeBuild.Project', context={'Type': 'PLAINTEXT'}).require_value()
 
   def test_formal_pipeline_membership_and_configuration_context(self):
     comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)

@@ -38,9 +38,6 @@ from utils.input_cache import (
     input_scope,
     input_select,
 )
-from utils.json_format import (
-    document_sha256 as digest,  # noqa: F401 - compatibility export used by import fixtures
-)
 
 
 def workflow(root, *, contract_file=None):

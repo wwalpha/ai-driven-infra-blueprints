@@ -88,7 +88,7 @@ def check_tag_scalars():
         for row in rows[4:]:
             value = desired_value("security-group", {"property": row[1], "value": row[2]}, "EC2.SecurityGroup",
                 local_comparison=True, property_schema=context.catalog.property_schema,
-                desired_reference=None, resource_type=None, evaluate=None, model_path=None).value
+                desired_reference=None, evaluate=None, model_path=None).value
             assert same(value, literal(row[2])) is True
         with patch("aws_mapping_display.show", side_effect=lambda prop, root: not prop.endswith("Tags[].Value")):
             hidden = sg_tables(selected_rows(rows), [])

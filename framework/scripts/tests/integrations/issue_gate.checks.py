@@ -83,24 +83,6 @@ def main():
                 instance.task_type, instance.changed_paths = task_type, {changed}
                 instance.check_issue_gate()
                 assert instance.errors, (task_type, allowed, changed)
-        # State is neither a report output nor a save-only deletion target.
-        legacy = "issues/dev/cde/iac-issues.state.json"
-        active.write_text(investigation + f"- `{legacy}`\n")
-        state = root / legacy
-        state.write_text("{}")
-        instance = validator.Validator(root)
-        instance.task_type, instance.changed_paths = "migration", {legacy}
-        instance.check_issue_gate()
-        assert instance.errors  # Existing/created state cannot bypass the ordinary gate.
-        state.unlink()
-        instance = validator.Validator(root)
-        instance.task_type, instance.changed_paths = "migration", {legacy}
-        instance.check_issue_gate()
-        assert instance.errors  # State deletion is outside the report-only exception.
-        instance = validator.Validator(root)
-        instance.task_type, instance.changed_paths = "migration", {"issues/dev/cde/iac-issues.md"}
-        instance.check_issue_gate()
-        assert instance.errors  # A nonexistent, unchanged state path is not an output authorization.
         active.write_text(investigation)
         try:
             sync.sync(root, True, "dev", "cde", services=["ec2"])

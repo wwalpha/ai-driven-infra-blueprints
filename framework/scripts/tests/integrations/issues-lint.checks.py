@@ -21,7 +21,6 @@ from support.pytest_cli import run
 from utils.cfn_lint import (
     Worker,
     lint_session,
-    scope,
     validate_template,
     verify_dependencies,
 )
@@ -176,19 +175,6 @@ class Stateful(CloudFormationLintRule):
     assert process.poll() is not None
 
 
-def check_legacy_worker_scope(tmp_path,monkeypatch):
-    _,cwd=isolated(tmp_path,monkeypatch)
-    template=cwd/'app.yaml'
-    template.write_text('Resources:\n  B:\n    Type: AWS::S3::Bucket\n')
-    backend=type('Backend',(),{})()
-    with pytest.raises(RuntimeError,match='injected'),scope(backend,[1,2]):
-        worker=backend.lint.__self__
-        expected=baseline(template)
-        actual=worker.run(args(template))
-        assert (actual.returncode,actual.stdout,actual.stderr)==(expected.returncode,expected.stdout,expected.stderr)
-        process=worker.process
-        raise RuntimeError('injected')
-    assert not hasattr(backend,'lint') and process.poll()==0
 
 
 @pytest.mark.parametrize('mapping_missing',[False,True])

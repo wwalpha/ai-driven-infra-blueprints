@@ -4,7 +4,7 @@ import json
 import re
 from functools import partial as _bind_framework_callback
 
-import import_guard as _imports_import_guard
+from utils.json_format import document_sha256
 from utils.json_format import strict_json as json_read
 
 import model.core as _imports_model_core
@@ -178,12 +178,11 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
             raise ValueError('IMPORT acquired physical identity is invalid')
         identity_key, collisions = correspondences[record['record']]
         if action == 'bind':
-            digest = _imports_import_guard.digest
 
             operation_values = _imports_model_operations.operation_values
             if rid not in unknown.get(record['kind'], []):
                 raise ValueError('IMPORT bind requires an unobserved/unknown existing physical identity')
-            if not typed_equal(item['before'], {'identity': None, 'model': digest(operation_values(old, rid))}):
+            if not typed_equal(item['before'], {'identity': None, 'model': document_sha256(operation_values(old, rid))}):
                 raise ValueError('IMPORT bind previous Model state differs from the explicit selection')
             if warnings is not None:
                 warnings.append({'record': record['record'], 'resource': rid,
@@ -192,14 +191,13 @@ def selection_records(selection, records, old, new, property_schema, warnings=No
         if action == 'refresh' and collisions != {rid}:
             raise ValueError('IMPORT refresh requires one matching physical identity')
         if action == 'replace':
-            digest = _imports_import_guard.digest
 
             operation_values = _imports_model_operations.operation_values
             prior = [value for (kind, value), ids in owners.items() if kind == record['kind'] and rid in ids]
             if len(prior) != 1 or owners.get((record['kind'], prior[0])) != {rid}:
                 raise ValueError('IMPORT replace requires an unambiguous previous physical identity')
             expected = {'identity': json_read(prior[0]) if record['kind'] in component_properties else prior[0],
-                        'model': digest(operation_values(old, rid))}
+                        'model': document_sha256(operation_values(old, rid))}
             if not typed_equal(item['before'], expected):
                 raise ValueError('IMPORT replace previous identity/Model state differs from the explicit selection')
             if collisions == {rid}:
@@ -265,8 +263,6 @@ def _callback_reference_value_equal_matches(reference_tokens, /, expression, val
 
 def reference_value_equal(left, right):
     """Only reference expression spans may differ; structure and other literals stay exact."""
-    if isinstance(left, dict) and '$resource' in left and not set(left) - {'$resource', '$attribute'}:
-        return reference_value_equal(left['$resource'], right)
     if isinstance(left, dict) and isinstance(right, dict):
         return left.keys() == right.keys() and all(reference_value_equal(v, right[k]) for k, v in left.items())
     if isinstance(left, list) and isinstance(right, list):

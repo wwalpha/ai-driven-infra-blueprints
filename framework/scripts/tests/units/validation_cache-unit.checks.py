@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
 
-import json
 import sys
 from functools import partial as _bind_framework_callback
 from pathlib import Path
@@ -96,10 +95,6 @@ def check_cache_lifetime(tmp_path):
     cache = PassCache(root, directory=directory, definitions_root=definitions)
     with patch.object(Path, 'rglob', _project_rglob), input_context():
         key = cache.key('catalog')
-        # A valid historical disk PASS is still unproved for this Framework version.
-        (directory / f'{key}.json').write_text(json.dumps(
-            {'version': 1, 'key': key, 'result': 'pass', 'checks': 17}))
-        assert cache.load(key) is None
         cache.save(key, 17)
         assert PassCache(root, directory=directory, definitions_root=definitions).load(key) == 17
     framework.write_bytes(b'second version')

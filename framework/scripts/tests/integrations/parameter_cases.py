@@ -41,7 +41,6 @@ def check(root, alias, service):
     before, other_before = load_model(path), load_model(other)
     original = {p: p.read_bytes() for p in (root / 'model').rglob('*') if p.is_file()}
     assert before.authoritative and not before.warnings
-    assert not (root / 'model/templates').exists() and not (root / 'model/parameters').exists()
     fixed = {key: value for key, value in before.authoritative.items() if key.startswith('desired.resource.')}
     digest = design_source_digest(path)
     for key in before.authoritative:

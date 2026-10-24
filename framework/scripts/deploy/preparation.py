@@ -238,7 +238,7 @@ def register(root, path, timing):
             safe_path(base, relative)
             if not (base / relative).is_file() or sha(base / relative) != digest:
                 raise ValueError(f"preparation input changed or deleted; review the change and necessary inputs, then prepare again: {relative}")
-        if plan.get('modelInputPaths') is not None and model_input_paths(root, plan['scope']) != plan['modelInputPaths']:
+        if model_input_paths(root, plan['scope']) != plan['modelInputPaths']:
             raise ValueError('preparation Model dependency file set changed; prepare again')
         contract = Path(plan["contract"]).resolve()
         if contract.is_relative_to(root) or sha(contract) != plan["contractDigest"]:
@@ -265,10 +265,8 @@ def run_controller(root, path):
     plan = json.loads(path.read_text(encoding="utf-8"))
     if plan["repository"] != str(root) or plan["controllerArgv"][:2] != [sys.executable, str(definition_root(root) / "framework/scripts/cloudformation-deploy.py")]:
         raise ValueError("use the prepared repository and Python interpreter")
-    if any(arg == "--repository-root" or arg.startswith("--repository-root=") for arg in plan["controllerArgv"][2:]):
-        raise ValueError("obsolete controller plan; prepare again")
     snapshot = task_snapshot(root, plan["taskFile"])
-    if snapshot.raw_digest != plan.get("registeredContractDigest", plan["contractDigest"]):
+    if snapshot.raw_digest != plan["registeredContractDigest"]:
         raise ValueError("registered contract changed; use existing controller resume procedure")
     if any(os.environ.get(key) != value for key, value in plan["environment"].items() if key in {"PATH", "PYTHONPATH"}):
         raise ValueError("prepared runtime environment changed")
@@ -291,7 +289,6 @@ def main(argv=None):
     parser.add_argument("--stack", action="append")
     parser.add_argument("--service", action="append", help="all owning/referencing service IDs, explicitly reviewed")
     parser.add_argument("--task-file")
-    parser.add_argument("--skill-started-at", type=float, help=argparse.SUPPRESS)
     parser.add_argument("--profile")
     parser.add_argument("--repair-budget", type=int, default=20, help="repair cycles per approval interval, default safety limit 20")
     parser.add_argument("--allow-external-repair", action="store_true", help="explicitly authorize the separate implement repair loop")

@@ -16,7 +16,7 @@ from unittest.mock import patch
 import model.sources as _imports_model_sources
 import pytest
 import task_contract_core as tasks
-import validation_cache as _imports_validation_cache
+import utils.input_cache as _imports_input_cache
 from generation_inputs import GenerationInputs
 from model.importing import scope as import_scope
 from support.import_model_fixtures import dependency_contract
@@ -61,7 +61,7 @@ def _callback_check_live_selection_exercise(one, original, other, tmp_path, two,
     with patch.dict(os.environ, {tasks.SELECTOR: one}):
         assert import_scope.selected(tmp_path) is None
         assert import_scope.selected(tmp_path) is None  # cached negative parsing result
-        memo_table = _imports_validation_cache.memo_table
+        memo_table = _imports_input_cache.memo_table
         assert (import_scope._selection.__wrapped__, (tmp_path, one, original)) in memo_table()
         empty = tmp_path / 'stage-without-contracts'
         empty.mkdir()

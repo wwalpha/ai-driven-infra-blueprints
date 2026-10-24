@@ -253,7 +253,7 @@ def resource_display_name(resource_type: str, rows: list[list[str]], selected_la
 def stack_deployment_policy(path: Path) -> int:
     lines = [line for line in input_text(path, encoding="utf-8").splitlines() if line]
     if len(lines) < 2 or lines[0] != "# CloudFormation stack 詳細設計":
-        raise ValueError("invalid CloudFormation stack design header; explicit DeployOrder migration required")
+        raise ValueError("invalid CloudFormation stack design header")
     match = re.fullmatch(r"<!-- max-concurrent-stacks: (.+) -->", lines[1])
     if not match:
         raise ValueError("invalid CloudFormation deployment policy")
@@ -335,8 +335,6 @@ def stack_design(path: Path) -> list[dict[str, str]]:
     if not result:
         raise ValueError("CloudFormation stack design table must not be empty")
     stack_delivery(path)
-    if "## Resource対応" in lines:
-        raise ValueError("stack resource mapping table is obsolete; use resource cfn-logicalId")
     return result
 
 

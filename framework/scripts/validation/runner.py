@@ -127,7 +127,7 @@ class Validator:
     errors = owned_field("findings", "errors")
     warnings = owned_field("findings", "warnings")
 
-    def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4, model_check=None, iac_paths=None, task_iac_paths=None, write=False, definitions_root: Path | None = None, final_candidate=None) -> None:
+    def __init__(self, root: Path, scope=None, contract_scope=None, *, cache=False, fresh=False, workers=4, iac_paths=None, task_iac_paths=None, write=False, definitions_root: Path | None = None, final_candidate=None) -> None:
         definition_root = _imports_utils_aws_mappings.definition_root
         self.findings = Findings(root)
         self.warn = self.findings.warn
@@ -144,7 +144,6 @@ class Validator:
         self.catalog_key = None
         self.unavailable_views = {}
         self.view_reader = None
-        self.model_check = model_check
         self.cache = PassCache(root, fresh, include_project=scope != set(), definitions_root=definitions_root) if cache else None
         self.relative_paths = self.findings.relative_paths
         self.scope = scope
@@ -318,7 +317,7 @@ class Validator:
             for _, kind, value in self.acceptance_checks:
                 if kind == 'check':
                     self.findings.evaluate(value, self.scope, lambda value=value: self.input_check(snapshot, registered[value]))
-            # Independent invalid candidates retain legacy partial success. Common/contract
+            # Independent invalid candidates retain partial success. Common/contract
             # failures prevent every save; candidate failures are reported after publication.
             if len(self.errors) != candidate_error_count:
                 return
@@ -401,7 +400,7 @@ class Validator:
         missing = self.scope - reused.keys()
         # Generation needs the whole selected consumer scope, even with partial cache hits.
         generation_scope = self.scope - unreadable
-        generator = Validator(self.root, generation_scope, workers=self.workers, model_check=self.model_check, definitions_root=self.definitions_root)
+        generator = Validator(self.root, generation_scope, workers=self.workers, definitions_root=self.definitions_root)
         generator.accounts = self.accounts
         if missing - unreadable:
             generator.check_generated_service_models()
@@ -488,10 +487,6 @@ class Validator:
             return
         self.generated_models_checked = True
         if self.scope == set():
-            return
-        if self.model_check is not None:
-            errors = self.model_check(self.scope)
-            self.check(not errors, "\n".join(errors) or "generated service models match")
             return
 
         context = saved_design_validation(self.root, next(iter(self.scope))) if self.scope is not None and len(self.scope) == 1 else nullcontext()

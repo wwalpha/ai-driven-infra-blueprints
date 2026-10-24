@@ -24,8 +24,8 @@ from unittest.mock import Mock, patch
 
 import support.repository_fixtures as _imports_support_repository_fixtures
 import task_contract_core as _imports_task_contract
+import utils.input_cache as _imports_input_cache
 import validation.scenario as _imports_validation_scenario
-import validation_cache as _imports_validation_cache
 from script_loader import module
 from support.it_case_receipt import it_case
 from support.model_sources import write_model
@@ -166,7 +166,7 @@ def check():
             'desired.row.002-005.value': '`["[Gateway](../other/ec2.md#gateway)","[Gateway](../../prod/cde/ec2.md#gateway)"]`',
             'desired.row.002-005.comment': 'Cloud Control references'})
         write_model(crossroot / 'model/dev/cde/vpc.properties', cross_values)
-        input_context = _imports_validation_cache.input_context
+        input_context = _imports_input_cache.input_context
         with input_context():
             cross = snapshot(generator.generate(crossroot, 'dev', 'cde', 'vpc')[0])
         assert {'dev/cde/vpc', 'dev/other/vpc', 'prod/cde/vpc'} <= cross['models'].keys()
@@ -198,12 +198,6 @@ def check():
                 assert 'producer Model is absent' in str(error)
             else:
                 raise AssertionError('absent producer used another scope')
-            try:
-                consumer.reference('resource://dev/../vpc/EC2_VPC_001')
-            except ValueError as error:
-                assert 'invalid Markdown Resource reference' in str(error)
-            else:
-                raise AssertionError('Model tree escape accepted')
         contract = _imports_support_repository_fixtures.contract
         SELECTOR = _imports_task_contract.SELECTOR
         task_revision = _imports_task_contract.task_revision

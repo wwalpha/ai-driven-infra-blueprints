@@ -9,7 +9,6 @@ from threading import Lock
 
 import model.format as _imports_model_format
 import support.it_workspace as workspace
-from import_guard import digest
 from model.core import entries
 from model.format import owner, serialize
 from model.importing import cli as m
@@ -20,6 +19,7 @@ from model.sources import candidate_sources, json_text, load_model
 from support.import_repository_fixtures import checkpoint
 from support.model_sources import write_model
 from task_contract_core import start
+from utils.json_format import document_sha256
 from utils.source_reads import FileReads
 from utils.yaml_format import yaml_read as yaml_read
 
@@ -252,13 +252,13 @@ def logs_edit(root, acquisition, days=90):
 def review_proof_fixture(root, proof):
     """Authored integrity proof for guard-only tests, never Human authentication."""
 
-    proof['acquisition'] = digest(proof['acquisition'])
-    binding = {name: digest(name) for name in ('sourceBaselineDigest', 'reviewDigest', 'recordsDigest',
+    proof['acquisition'] = document_sha256(proof['acquisition'])
+    binding = {name: document_sha256(name) for name in ('sourceBaselineDigest', 'reviewDigest', 'recordsDigest',
                'selectionDigest', 'referencesDigest', 'proposedValuesDigest', 'impactDigest')}
     binding.update(version=2, **FORMAT_FIELDS, task=proof['task'], worktree=str(root.resolve()), scope=proof['scope'],
                    acquisitionDigest=proof['acquisition'], acquiredAt=proof['acquiredAt'],
                    expiresAt=(datetime.fromisoformat(proof['acquiredAt']) + timedelta(days=7)).isoformat())
-    proof.update(version=6, **FORMAT_FIELDS, reviewBinding=binding, reviewBindingDigest=digest(binding))
+    proof.update(version=6, **FORMAT_FIELDS, reviewBinding=binding, reviewBindingDigest=document_sha256(binding))
 
 
 def review_fixture(root, acquisition, service='cloudwatch-logs', dry_run=False):

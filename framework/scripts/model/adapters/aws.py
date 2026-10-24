@@ -579,18 +579,6 @@ class Resource:
             return [self.resolve_json(item, norm) for item in value]
         if not isinstance(value, dict):
             return value
-        if "$resource" in value:
-            if set(value) - {"$resource", "$attribute"}:
-                raise Unresolved("invalid structured Resource reference")
-            target = self.reference(value["$resource"])
-            attribute = value.get("$attribute", "id")
-            if attribute.lower() in {"id", "name", "arn"}:
-                return target.identity(attribute.lower())
-            target.ctx.require_resource_scope(target)
-            rows = target.rows_for(target.kind + "." + attribute)
-            if len(rows) != 1 or resource_link(rows[0][1].get("value", "")):
-                raise Unresolved("structured reference has no confirmed attribute: " + attribute)
-            return target.value(target.kind + "." + attribute)
         if value == {"Ref": "AWS::AccountId"}:
             return self.ctx.call("sts", "get_caller_identity")["Account"]
         if value == {"Ref": "AWS::Region"}:

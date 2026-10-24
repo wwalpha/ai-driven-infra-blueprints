@@ -29,8 +29,6 @@ LINKED_LIST_PROPERTIES = dict.fromkeys(SUBNET_LIST_PROPERTIES, "EC2.Subnet") | {
 
 S3_KMS_MASTER_KEY_ID = ('S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[]'
                         '.ServerSideEncryptionByDefault.KMSMasterKeyID')
-# Scalar selectors are enabled only for this receiving property.
-SCALAR_REFERENCE_PROPERTIES = {S3_KMS_MASTER_KEY_ID: ('KMS.Key', 'Arn')}
 
 # Documented identifier formats absent from the provider schema's string pattern.
 # Each entry is a property contract, not permission to erase reference attributes.

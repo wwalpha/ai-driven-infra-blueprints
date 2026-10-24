@@ -144,7 +144,6 @@ def check_iam(tmp_path):
     errors = _bind_framework_callback(_callback_check_iam_errors, path, root)
 
     assert not errors(rendered), errors(rendered)
-    assert errors(rendered.replace("| No. | Sid |", "| Statement | Sid |", 1)), "legacy policy column must fail"
     for metadata in ("Property：", "JSON：", "Version：", "Id："):
         assert metadata not in rendered
         assert errors(rendered.replace(START, START + "\n\n" + metadata + "`legacy`", 1))
@@ -363,8 +362,6 @@ def service_policy_checks():
             errors = _bind_framework_callback(_callback_service_policy_checks_errors, path, root)
 
             assert not errors(rendered), (prop, errors(rendered))
-            if style != "settings":
-                assert errors(rendered.replace("| No. | Sid |", "| Statement | Sid |", 1)), "legacy policy column must fail"
             assert errors(original), "missing views must fail"
             assert errors(rendered.replace(START, "", 1)), "missing marker must fail"
             assert errors(rendered.replace(END, "<!-- iam-policy-tables:end -->", 1)), "mixed markers must fail"

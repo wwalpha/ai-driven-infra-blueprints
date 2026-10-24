@@ -8,22 +8,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import math
 import subprocess
 
-import cloudformation_schema
-import iac_values
-import policy_tables
 import pytest
 from utils.json_format import (
     canonical_json,
     document_sha256,
     fingerprint,
-    invalid_constant,
     json_text,
     policy_json,
     strict_json,
-    unique_object,
 )
-
-from model import format, projection, sources
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -80,16 +73,6 @@ def check_output_bytes_and_hashes():
     assert len(document_sha256(float('nan'))) == len(fingerprint(float('nan'))) == 64
 
 
-def check_compatibility_exports():
-
-    assert format.strict_json is sources.json_read is strict_json
-    assert iac_values.strict_json is policy_json
-    assert iac_values.unique_object is policy_tables.unique_object is unique_object
-    assert iac_values.invalid_constant is policy_tables.invalid_constant is invalid_constant
-    assert sources.json_text is json_text
-    assert projection.document_sha256 is document_sha256
-    assert iac_values.fingerprint is fingerprint
-    assert cloudformation_schema.canonical_json is canonical_json
 
 
 @pytest.mark.parametrize('first', ['utils.aws_mappings', 'model.sources', 'model.adapters.aws', 'policy_tables'])

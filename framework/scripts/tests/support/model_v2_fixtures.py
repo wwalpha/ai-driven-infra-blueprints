@@ -27,6 +27,7 @@ import sync_files as _imports_sync_files
 from model.format import parse, serialize
 from model.sources import Scope, load_model
 from task_contract_core import selected_task
+from utils.json_format import document_sha256
 
 FRAMEWORK = Path(__file__).resolve().parents[4]
 
@@ -144,7 +145,6 @@ def source_context(scope, *, imported=False):
 
 def acquisition_fixture(snapshot, *, action='refresh', resource='007'):
 
-    digest = _imports_import_guard.digest
     operation_values = _imports_model_operations.operation_values
     identity = 'vpc-original' if action == 'refresh' else 'vpc-acquired'
     record = {'record': 'record-one', 'kind': 'EC2.VPC', 'identity': identity,
@@ -160,7 +160,7 @@ def acquisition_fixture(snapshot, *, action='refresh', resource='007'):
                 'reason': '合成 fixture の明示的選択', 'basis': ['EC2.VPC.VpcId']}
     if action in {'bind', 'replace'}:
         decision['before'] = {'identity': None if action == 'bind' else 'vpc-original',
-                              'model': digest(operation_values(snapshot.authoritative, resource))}
+                              'model': document_sha256(operation_values(snapshot.authoritative, resource))}
     return value, {'resources': [decision], 'excluded': [], 'unreflected': []}
 
 
@@ -336,10 +336,9 @@ def import_publication_case(monkeypatch, failure, *, workspace=None):
         chosen = {'record': record['record'], 'resource': '001', 'action': action,
             'reason': '合成の明示的な対応選択', 'basis': ['Logs.LogGroup.LogGroupName']}
         if failure in {'bind', 'replace'}:
-            digest = _imports_import_guard.digest
             operation_values = _imports_model_operations.operation_values
             chosen['before'] = {'identity': None if failure == 'bind' else 'fixture-001',
-                'model': digest(operation_values(load_model(path).authoritative, '001'))}
+                'model': document_sha256(operation_values(load_model(path).authoritative, '001'))}
             changes['observed.row.001-001.value'] = '`' + record['identity'] + '`'
         candidate.write_text(patch(parse(original.decode('utf-8')), changes), encoding='utf-8')
         (evidence.parent / 'selection.json').write_text(json.dumps({'resources': [chosen], 'excluded': [], 'unreflected': []}), encoding='utf-8')

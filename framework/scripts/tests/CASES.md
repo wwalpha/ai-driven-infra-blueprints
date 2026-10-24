@@ -57,7 +57,6 @@ NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync 
 | `issues-v2::check_config_exclusion_and_outputs` | `check_config_exclusion_and_outputs` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | config除外・抑制時coverage・output_file非書込・競合 | Issues v2 |
 | `issues-v2::check_noecho_and_dependencies` | `check_noecho_and_dependencies` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | NoEcho mask・HOME/cwd config存在と内容変更 | Issues v2 |
 | `issues-v2::check_rule_schema_state_and_reaping` | `check_rule_schema_state_and_reaping` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | custom rule/schema状態隔離・child異常後継続・回収 | Issues v2 |
-| `issues-v2::check_legacy_worker_scope` | `check_legacy_worker_scope` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | 従来Worker/scope・CLI応答・例外回収 | Issues v2 |
 | `issues-v2::check_offline_schema` | `check_offline_schema` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 2 | provider/schema欠落・offline阻止・not_run | Issues v2 |
 | `issues-v2::check_timeout` | `check_timeout` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | timeoutとhelper/child回収 | Issues v2 |
 | `issues-v2::check_scan_publication_and_missing_view` | `check_scan_publication_and_missing_view` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 2 | scan→review→atomic save・guard/cache順序・共有dedup・stale・欠落/不正UTF-8 Viewと独立lint | Issues v2 |
@@ -66,12 +65,12 @@ NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync 
 | `issues-v2::check_processing_coverage_keeps_matches` | `check_processing_coverage_keeps_matches` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | schema障害時の未完了coverageと通常/未知type診断保持・exit 2 | Issues v2 |
 | `issues-v2::check_failed_model_input_guards` | `check_failed_model_input_guards` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 5 | 欠落入口/part/参照先/不正UTF-8/読取不能の初回観測と保存前guard | Issues v2 |
 | `issues-v2::check_first_model_observation_is_not_replaced` | `check_first_model_observation_is_not_replaced` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | 失敗中のpart追加・矛盾するhashを後追いsnapshotで隠せない | Issues v2 |
-| `issues-v2::check_notice_resolution_and_update_series` | `check_notice_resolution_and_update_series` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | T1〜T4日時/scope・ordinary解消ID・legacy/別scope/Human保全・save-results非再実行 | Issues v2 |
+| `issues-v2::check_notice_resolution_and_update_series` | `check_notice_resolution_and_update_series` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | T1〜T4日時/scope・ordinary解消ID・別scope/Human保全・save-results非再実行 | Issues v2 |
 | `issues-v2::check_view_read_failure_policy` | `check_view_read_failure_policy` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | issues局所View障害・独立service/source診断・実チェック件数・非cache・raw guard・通常Validator伝播 | Issues v2 |
 | `issues-v2::check_corrupt_provider_schema` | `check_corrupt_provider_schema` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 2 | 隔離cacheのJSON/Schema構築障害・通常文字列のresource_typeによる実worker間の診断返却・診断0件/混在保持・未知type/override非誤分類・回収 | Issues v2 |
 | `issues-v4::check_child_builtin_packets_preserve_progress` | `check_child_builtin_packets_preserve_progress` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 2 | JSON組込み型へのIPC正規化・途中例外でも取得済み全channel/dependencies保持 | Issues residual repair |
 | `issues-v4::check_scan_dependency_view_failure` | `check_scan_dependency_view_failure` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 3 | scope外S3のUTF-8/欠落/permission障害・SQS未検証・独立Logs差分と実lint・非cache・raw変更guard・通常Validator伝播 | Issues residual repair |
-| `issues-v4::check_notice_fenced_roundtrip` | `check_notice_fenced_roundtrip` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | headerless owner/ID/Gate・backtick/tildeコード例・legacy/別scope・normal/notice/save-results解消往復 | Issues residual repair |
+| `issues-v4::check_notice_fenced_roundtrip` | `check_notice_fenced_roundtrip` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | headerless owner/ID/Gate・backtick/tildeコード例・別scope・normal/notice/save-results解消往復 | Issues residual repair |
 | `issues-v4::check_notice_marker_boundaries` | `check_notice_marker_boundaries` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | scope不一致/未完marker/HTML保持・長いfence・正常notice再接続 | Issues residual repair |
 
 
@@ -83,14 +82,6 @@ NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync 
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
-| `json-resource-arn::confirmed` | `check_confirmed_identifiers` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 12 | KeyId UUID/mrk・BucketNameのみ、実行account優先/fallback、3 partition、複数参照、表示・hash、既存属性、Modelバイト不変、AWS client禁止 | JSON projection |
-| `json-resource-arn::generation` | `check_generation_and_snapshot_boundary` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 1 | confirmed observed、generate_files/generate_views成果物、anchor保持、正本不変、producer project最終比較 | JSON projection |
-| `json-resource-arn::invalid` | `check_invalid_identifiers` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 35 | 欠落、placeholder、未解決link、不正KeyId/BucketName、Alias ARN、予約名・非Bucket拒否 | JSON projection |
-| `json-resource-arn::ambiguous` | `check_ambiguous_identifiers` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 6 | 同値/異値/UNSETを含む複数候補拒否 | JSON projection |
-| `json-resource-arn::duplicate-bucket` | `check_duplicate_bucket_resource` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 1 | producer内の複数Bucketで同一BucketNameを拒否 | JSON projection |
-| `json-resource-arn::observations` | `check_unconfirmed_observations` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 10 | 未確定/不正observed、観測元link不在・非論理値、producer不在の拒否 | JSON projection |
-| `json-resource-arn::target` | `check_unconfirmed_target` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 20 | producer Region/accountの欠落・不正、SDKにないRegion/partition拒否 | JSON projection |
-| `json-resource-arn::unsupported` | `check_unsupported_references` | UT | [units/json-resource-arn-unit.checks.py](units/json-resource-arn-unit.checks.py) | pytest / 6 | 不在・曖昧anchor、非対応属性/ObjectArn、KMS Alias/他TypeのARN導出拒否 | JSON projection |
 
 ## Independent AWS JSON
 
@@ -240,7 +231,7 @@ remain separate. Dry-run/incomplete/display-failed sessions are retained.
 | `import-chat::check_unanswered_review_cannot_be_approved` | `check_unanswered_review_cannot_be_approved` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 未回答を含むReviewは最終承認に渡せない | Chat approval |
 
 | `import-chat::consent-contract` | `check_conversational_consent_contract` | UT | [units/import-approval-unit.checks.py](units/import-approval-unit.checks.py) | pytest / 1 | 全件Review・明示同意・訂正/取消・曖昧回答・再確認・merge後確認の規約 | Chat consent |
-| `import-chat::save-guard` | `check_approval_bound_save_guard` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L936) | pytest / 6 | 保存後の別候補・source hash・Task/Worktree・risk・旧証跡改ざんを保存guardで拒否（Human認証ではない） | Publication |
+| `import-chat::save-guard` | `check_approval_bound_save_guard` | IT | [integrations/import-model.checks.py](integrations/import-model.checks.py#L936) | pytest / 5 | 保存後の別候補・source hash・Task/Worktree・risk・旧証跡改ざんを保存guardで拒否（Human認証ではない） | Publication |
 
 元パスは分離前の `framework/scripts/tests/` 相対。現在のリンクはこのファイルからの相対。分類は検証責務による。変更不要のケースも掲載。
 
@@ -250,16 +241,14 @@ remain separate. Dry-run/incomplete/display-failed sessions are retained.
 
 | Case ID | Entry | Level | Suite | Runner / cases | Coverage | Boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| `s3-kms-reference::authority` | `check_authority_display_and_references` | UT | [units/s3-kms-reference-unit.checks.py](units/s3-kms-reference-unit.checks.py) | pytest / 2 | Alias/明示Key Arnの保存再読込、schema、Markdown/表示検証、incoming、IMPORT、stale、正本バイト不変・生成ARN非保存 | Synthetic Models |
-| `s3-kms-reference::invalid` | `check_invalid_scalar` | UT | [units/s3-kms-reference-unit.checks.py](units/s3-kms-reference-unit.checks.py) | pytest / 11 | 不正属性/構造、Alias/他Type、不在/曖昧anchor、別targetを解決・最終候補guardで拒否 | Scalar contract |
-| `s3-kms-reference::pending` | `check_pending_key_projection` | UT | [units/s3-kms-reference-unit.checks.py](units/s3-kms-reference-unit.checks.py) | pytest / 1 | 未作成KeyIdのまま既存Key表示名で投影し、ARN導出・AWSを要求しない | Display only |
-| `s3-kms-reference::iac` | `check_iac_matrix` | UT | [units/s3-kms-reference-unit.checks.py](units/s3-kms-reference-unit.checks.py) | pytest / 11 | KeyArn一致、KeyId/別Key/AliasName/AliasArn不一致、未証明式・literal ARN uncompared、従来形式維持 | Synthetic CFn |
+| `s3-kms-reference::authority` | `check_authority_display_and_references` | UT | [units/s3-kms-reference-unit.checks.py](units/s3-kms-reference-unit.checks.py) | pytest / 1 | Aliasリンクの保存再読込、schema、Markdown/表示検証、incoming、IMPORT、stale、正本バイト不変・生成ARN非保存 | Synthetic Models |
+| `s3-kms-reference::iac` | `check_iac_matrix` | UT | [units/s3-kms-reference-unit.checks.py](units/s3-kms-reference-unit.checks.py) | pytest / 1 | Alias参照、通常KeyリンクとCFn Ref/GetAtt比較 | Synthetic CFn |
 | `issues-iac::codecommit-name` | `ImportValueResolutionTests.test_codecommit_name_uses_only_explicit_repository_name` | UT | [units/test_issues_iac.py](units/test_issues_iac.py) | pytest / 1 | Name→RepositoryName、Ref RepositoryId区別、文字列一致/差分、未解決/非文字列/欠落、Condition/Transform/型/Resource・Stack曖昧性を保留、ネットワーク禁止 | Synthetic CFn |
 
 CodeBuild PLAINTEXTの属性参照比較は `units/test_issues_iac.py::ImportValueResolutionTests.test_codebuild_plaintext_resource_attributes`
-（UT / unittest 1 case）で検証する。合成Model identityとCFn定義を使用し、Key ARN/GetAtt、Alias ARN/Subと両Export値の一致、Key/Alias・別対象・別属性の不一致、未確定参照・不正selector、Export名literalの非一致、既存S3 BucketName参照を確認する。実行中repoのproject/Model入力・AWSは使用しない。
+（UT / unittest 1 case）で検証する。合成Model identityとCFn定義を使用し、Key ARN/GetAtt、Alias ARN/Subと両Export値の一致、Key/Alias・別対象・別属性の不一致、未確定参照、Export名literalの非一致、既存S3 BucketName参照を確認する。実行中repoのproject/Model入力・AWSは使用しない。
 
-同UTに非S3属性不足の専用診断、非文字列返却属性、Secret/Typeコンテキスト、IMPORT受け渡し不足と具体値未証明の保留を追加。既存IT `issues_scan::check_reference_property_contract` はCodeCommit名literalのmatched/difference/uncompared、`check_aws_standard_comparison` はS3・Secret・明示Key ARN・Alias ARNの混在と異なる属性/Resource/未証明literal、親Environment JSONの属性不足/不正属性/非文字列を検証する。IT入口数は変更しない。
+同UTに非S3属性不足の専用診断、Secret/Typeコンテキスト、IMPORT受け渡し不足と具体値未証明の保留を追加。既存IT `issues_scan::check_reference_property_contract` はCodeCommit名literalのmatched/difference/uncompared、`check_aws_standard_comparison` はS3・Secret・PolicyとCFn関数の接続を検証する。IT入口数は変更しない。
 
 `units/validation_checks/design.py::check_cidr_pending_deploy` は既存VPC fixtureで識別情報失敗の回帰も検証する。`resource_logical_ids` のValueError、`design_model_values` のOSErrorを単独ファイル／後続正常サービスありの各条件で注入し、元診断・ファイルパスの完全一致、当該ファイルの後続展開停止、正常サービスのName検証到達、集約結果FAILを確認する。CREATE正常／Name欠落、IMPORTのName省略と両展開関数へのmodes伝達も確認する。実Model・AWS・ITは使用しない。
 
@@ -866,7 +855,7 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `integrations/blueprint-loop.checks.py::check_task_service_validation` | L237: 動的 (pstats.Stats(str(profile)).stats)<br>L279: 動的 (sorted(__import__('model.sources', fromlist=['source_inputs']).source_inputs(model))) |
 | `integrations/blueprint-loop.checks.py::check_parallel_and_selection` | L298: 2 ((('a', 'b', 1), ('b', 'a', 0))) |
 | `integrations/blueprint-loop.checks.py::check_staged_snapshot` | L415: 3 ((1, 2, 3)) |
-| `integrations/blueprint-loop.checks.py::check_regression_authorization` | L438: 5 ((('full', set(), []), ('task', {'README.md'}, []), ('local', set(), ['--all']), ('task', {'framework/scripts/shared.py'}, ['--affected']), ('task', {'framework/scripts/tests/units/a.checks.py'}, ['--affected']))) |
+| `integrations/blueprint-loop.checks.py::check_regression_authorization` | task/local/fullと全体指定の認証・実行境界 |
 | `integrations/blueprint-loop.checks.py::check_failure_suspension` | 1（内部パラメータ化なし） |
 | `integrations/blueprint-loop.checks.py::check_startup_diagnostics` | L541: 動的 ((selected, other))<br>L630: 動的 ((directory / 'startup.jsonl').read_text(encoding='utf-8').splitlines()) |
 | `integrations/blueprint-loop.checks.py::check_windows_exit_propagation` | L641: 4 ((0, 2, 7, 130)) |
@@ -1453,7 +1442,6 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/rotation_schedule.checks.py:93` / `main` | IT | `integrations/rotation_schedule.checks.py:93` | `assert model_projection.linked_resource(path, '[PENDING_DEPLOY](#secretsmanager-app-dev-secret-1_rotate)') == (ROTATION, 'Secret1Rotation')` |
 | `unknown/rotation_schedule.checks.py:111` / `main` | IT | `integrations/rotation_schedule.checks.py:111` | `assert f'\| RotationSchedule.ExternalSecretRotationMetadata[{index // 2 + 1}].{field} \| `{value}` \|' in metadata_output` |
 | `unknown/rotation_schedule.checks.py:166` / `main` | IT | `integrations/rotation_schedule.checks.py:166` | `assert '\| Id \|' not in rendered` |
-| `unknown/rotation_schedule.checks.py:167` / `main` | IT | `integrations/rotation_schedule.checks.py:167` | `assert legacy[f'desired.row.{identity}-099.value'] == '`PENDING_DEPLOY`'` |
 | `unknown/security_group_tables.checks.py:104` / `main` | UT | `units/security_group_tables-unit.checks.py:12` | `assert not layout_errors(REPOSITORY)` |
 | `unknown/security_group_tables.checks.py:109` / `main` | UT | `units/security_group_tables-unit.checks.py:17` | `assert LAYOUTS[resource_type]['display'] == 'rule-table'` |
 | `unknown/security_group_tables.checks.py:111` / `main` | UT | `units/security_group_tables-unit.checks.py:19` | `assert selected - {'GroupId'} <= COMMENTS.keys()` |
@@ -1627,7 +1615,7 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `support/import_model_fixtures.py` | check, AwsCli, project_fixture, spec, metadata, binding, declaration, save_service, build_seed, fixture, aws, stage, correspondence, exclusions, logs_edit, publish_fixture, snapshot |
 | `support/issue_gate_fixtures.py` | import/定数/共通fixture |
 | `support/issues_api_only_fixtures.py` | cli_exit |
-| `support/issues_scan_fixtures.py` | write, write_report, render_iac, fixture, task, compare, mutate_template, expect_error, concurrency, legacy_mechanical, required_context, baseline_input, worker, benchmark, summary_fixture, protected_sources, scan_project |
+| `support/issues_scan_fixtures.py` | write, write_report, render_iac, fixture, task, compare, mutate_template, expect_error, concurrency, summary_fixture, protected_sources, scan_project |
 | `support/json_yaml_document_hash_fixtures.py` | import/定数/共通fixture |
 | `support/lambda_permission_fixtures.py` | fixture, rejects |
 | `support/it_fixture_bundle.py` | fingerprint, protect, build, bundle, source |
@@ -1891,7 +1879,7 @@ main/module検証地点の現在配置: integrations=305, units=232。
 
 ## IMPORT Model-only統合・削除と外部証跡
 
-Model操作の値・承認・保存判定は既存UTへ集約する。Worktree側はMergeの最終候補統合と専用Delete Transactionの失敗修復を検証する。旧証跡パスfixtureは外部署名receiptへ変更し、旧パスは移行テストだけに保持する。
+Model操作の値・承認・保存判定は既存UTへ集約する。Worktree側はMergeの最終候補統合と専用Delete Transactionの失敗修復を検証する。
 
 | 元ケース | 現在の関数 | 種別 | 配置 | 入口 / 件数 | 検証責務 | 変更理由 |
 |---|---|---|---|---|---|---|
@@ -2046,7 +2034,7 @@ dirty baseは高コスト解析・commit前に拒否するため、既存テス�
 | `model-v2::check_scalar_spelling_and_patch` | `check_scalar_spelling_and_patch` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py#L17) | pytest / 1 | scalar の原文と部分更新 | Model v2 |
 | `model-v2::check_json_continuation_and_types` | `check_json_continuation_and_types` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py#L29) | pytest / 1 | 明示 JSON 継続・native type・配列順序 | Model v2 |
 | `model-v2::check_invalid_properties` | `check_invalid_properties` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py#L41) | pytest / 12 | 重複キー・不正定数・不正継続・暗黙継続の拒否 | Model v2 |
-| `model-v2::check_unsupported_version` | `check_unsupported_version` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py#L47) | pytest / 4 | 未知形式と旧形式の通常読取拒否 | Model v2 |
+| `model-v2::check_unsupported_version` | `check_unsupported_version` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py#L47) | pytest / 2 | 必須ヘッダと未知形式の入力妥当性 | Model v2 |
 | `model-v2::check_discovery_alias_and_account` | `check_discovery_alias_and_account` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L19) | pytest / 1 | 任意環境・複数 Alias・account・未作成 Model | Model v2 |
 | `model-v2::check_runtime_metadata_is_not_authority` | `check_runtime_metadata_is_not_authority` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L53) | pytest / 1 | 観測 metadata の導出・空・不存在・PENDING_DEPLOY | Model v2 |
 | `model-v2::check_parts_and_large_resource` | `check_parts_and_large_resource` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L68) | pytest / 1 | 所有 block・巨大 Resource・parts 欠番 | Model v2 |
@@ -2059,12 +2047,10 @@ dirty baseは高コスト解析・commit前に拒否するため、既存テス�
 | `model-v2::check_observed_cannot_bypass_import_or_change_authority` | `check_observed_cannot_bypass_import_or_change_authority` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L241) | pytest / 1 | IMPORT 物理 ID 保護・非観測と未登録書込・承認 flag 拒否 | Model v2 |
 | `model-v2::check_declared_and_direct_links_coalesce_or_retain_conflicts` | `check_declared_and_direct_links_coalesce_or_retain_conflicts` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L259) | pytest / 1 | 直接リンク統合・意味競合の保持・incoming・読取非破壊 | Model v2 |
 | `model-v2::check_reference_occurrence_identifies_overlapping_text` | `check_reference_occurrence_identifies_overlapping_text` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L288) | pytest / 1 | 重なりを含む参照断片の厳密な出現位置 | Model v2 |
-| `model-v2::check_deploy_rejects_legacy_session_format` | `check_deploy_rejects_legacy_session_format` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py#L53) | pytest / 6 | 旧 Deploy session の形式・snapshot・意味版の拒否 | Model v2 |
 | `model-v2::check_observed_insertion_is_local_without_reflow` | `check_observed_insertion_is_local_without_reflow` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py#L61) | pytest / 1 | 観測キー追加削除と CRLF・無関係な原文の不変 | Model v2 |
 | `model-v2::check_import_observation_foreign_reference_and_identity_spoof` | `check_import_observation_foreign_reference_and_identity_spoof` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py#L78) | pytest / 1 | IMPORT の外部参照観測更新・自身 ID 保護・偽装リンク拒否 | Model v2 |
 | `model-v2::check_properties_import_review_operations` | `check_properties_import_review_operations` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L306) | pytest / 4 | add/refresh/bind/replace の全件 Review と固定 identity | Model v2 |
 | `model-v2::check_properties_reference_review_after_map_and_ownership` | `check_properties_reference_review_after_map_and_ownership` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L335) | pytest / 4 | 完全 after map・空削除・旧新 owner・非選択保護 | Model v2 |
-| `model-v2::check_properties_import_rejects_legacy_evidence` | `check_properties_import_rejects_legacy_evidence` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L373) | pytest / 4 | 旧 acquisition/Review/checkpoint/receipt の版拒否 | Model v2 |
 | `model-v2::check_runtime_projection_validation_and_metadata_separation` | `check_runtime_projection_validation_and_metadata_separation` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L380) | pytest / 1 | 正本全体と派生投影・Stack metadata の分離 | Model v2 |
 | `model-v2::check_stack_render_cli_uses_only_canonical_modules` | `check_stack_render_cli_uses_only_canonical_modules` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L394) | pytest / 1 | Stack render 別プロセス・model.* の型一貫性 | Model v2 |
 | `model-v2::check_incoming_missing_producer_does_not_match_unrelated_metadata` | `check_incoming_missing_producer_does_not_match_unrelated_metadata` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L430) | pytest / 1 | 不在 producer の incoming が無関係な宣言を含めない | Model v2 |
@@ -2080,12 +2066,6 @@ dirty baseは高コスト解析・commit前に拒否するため、既存テス�
 | `model-v2::check_properties_retarget_keeps_other_fragments_and_reference_ids` | `check_properties_retarget_keeps_other_fragments_and_reference_ids` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L684) | pytest / 6 | retarget の literal 断片・context・format・固定 refid 保持 | Model v2 |
 | `model-v2::check_managed_observation_preserves_exact_authority` | `check_managed_observation_preserves_exact_authority` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L722) | pytest / 8 | 実 Task の Row whitelist・非観測不変・IMPORT 物理 ID 保護 | Model v2 |
 | `model-v2::check_ordinary_properties_edit_uses_real_task_guard` | `check_ordinary_properties_edit_uses_real_task_guard` | IT | [integrations/model-properties-v2.checks.py](integrations/model-properties-v2.checks.py#L810) | pytest / 6 | 通常 design 編集と作成・固定 ID・IMPORT 構成・Task 保護 | Model v2 |
-
-Model v2 の移行では、旧 `parameter_value` の literal 自動 backtick 化だけを廃止し、
-`check_one_way_model_contract` は参照／型／IMPORT 表示の検査を保持したまま、通常 scalar の
-数値風文字列・引用符・backtick を変更しない roundtrip 検査へ置き換えた。
-新 Import 回帰の Review 通過は機械的整合性の証明であり、LLM の全件提示・明示保存同意・
-変更時再提示・取消時未保存を対話で実証したことを意味しない。
 
 旧 check_other_definition_input_dependencies（8 variants）は Model の Definition／optional／choice／default／template owner が廃止されたため終了した。非選択 Resource／環境の値・identity・reference の保持は check_overwrite_does_not_grant_unrelated_edits と新 canonical snapshot/Task/Review 回帰に引き継ぐ。旧 YAML 部分編集ケースは properties の原文保持・native 値・no-op へ移管し、ケースと parameter matrix を保持する。
 
@@ -2171,19 +2151,12 @@ Properties v2 の追加移行対応（model-properties-v2）:
 
 これらは開発中の focused/offline 検査であり、最終 Full／全体 IT／local integration の代用ではない。
 
-Model v2 の原文取得 cache は Model ごとの raw snapshot と参照診断済み投影を分離し、
-同じ入力・permission context 内の producer を再解析しない。incoming は全登録 Model の
-正本構造を検査し、要求 producer に関係する使用箇所だけを解決する。関係のない参照の
-producer を読まず、構文・I/O・scope の不正を WARNING へ握り潰さない。相対 Markdown の
-環境／target／dotted service は固定 scope として保持し、root 外への逸脱を拒否する。
-旧平置き Model/Import の20 module/CLI を廃止した。旧 reader は移行 export の隔離子プロセスだけで使う。
-
 | Case ID | Function | Level | Source | Mode / Count | Responsibility | Group |
 | --- | --- | --- | --- | --- | --- | --- |
 | `model-v2::macie-authority` | `check_macie_renders_current_document_without_artifact_reads` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py#L111) | pytest / 6 | Inline bucketCriteria and missing/stale/broken JSON never overrides the current document or changes properties bytes | Model v2 |
 | `model-v2::display-diagnostics` | `check_shared_display_selection_and_diagnostics` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py#L158) | pytest / 5 | Nameless IMPORT type, root name, explicit fallback label, rule-table and grouped KMS alias share final display selection | Model v2 |
 
-## Shared JSON compatibility
+## Shared JSON contracts
 
 | Case ID | Entry | Class | File | Execution | Responsibility | Origin |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -2216,17 +2189,13 @@ producer を読まず、構文・I/O・scope の不正を WARNING へ握り潰�
 | `existing-ut-inventory` | `check_environment_literals_and_account_context` | UT | [units/model-environment-reference-unit.checks.py](units/model-environment-reference-unit.checks.py) | pytest / 1 | 環境名を含むscalar/JSONの保存値と選択scope、account参照・traceの保持 |
 | `existing-ut-inventory` | `check_retired_declarations_rejected` | UT | [units/model-environment-reference-unit.checks.py](units/model-environment-reference-unit.checks.py) | pytest / 4 | refid非依存でscalar/JSONの旧環境宣言をreader・Review・trace・export比較で拒否、bytes不変 |
 
-移行exportの環境変数は実値のみ。名前・タグ・JSONの環境名を保持し、account・Resource・Stackの参照意味と比較を継続する。retarget fixtureは通常の環境名prefixに加え同一leafのexecutionAccountId参照を持ち、literal断片と他の現役参照の保護を検証する。
-
-Model v2 移行完了に伴い、固定旧 Framework の export/convert/compare と限定移行契約の10関数・23条件を廃止した。現行保存・Import・Deploy・参照更新・rollback の15関数・82条件は、ケースIDとparameter matrixを保ち model-properties-v2（42条件）、cloudformation-deploy（9条件）、import-model（31条件）へ統合する。
-
 ## Required reference input with pending observation
 
 | ケース | 層 | ファイル | 実行 | 検証目的 |
 | --- | --- | --- | --- | --- |
 | `existing-ut-inventory` | `check_pending_reference_is_required_input` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py) | pytest / 1 | 保存済みResource URIは観測値が未配備でも必須入力として保持し、空値・未確定literalは拒否、入力不変 |
 
-| `candidate-model/repair` | `check_repair_invalid_model` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 40 | 不正な旧参照・形式・identity・重複の修正保存、IMPORT固定値変更、候補検証・権限・scope・競合・rollback、旧Model Git展開なし | Added |
+| `candidate-model/repair` | `check_repair_invalid_model` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 40 | 不正な参照・形式・identity・重複の修正保存、IMPORT固定値変更、候補検証・権限・scope・競合・rollback、Git baseline Model展開なし | Added |
 
 ## 残存UTの登録整合
 
@@ -2239,7 +2208,7 @@ Model v2 移行完了に伴い、固定旧 Framework の export/convert/compare 
 | `existing-ut-inventory` | `check_full_validation_dependencies` | UT | [units/aws_definitions.checks.py](units/aws_definitions.checks.py#L97) | direct / 1 | full validation dependencies | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_stage_survival_and_definition_sources` | UT | [units/aws_definitions.checks.py](units/aws_definitions.checks.py#L138) | direct / 1 | stage survival and definition sources | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_validation_projection_scope` | UT | [units/aws_mapping_display-unit.checks.py](units/aws_mapping_display-unit.checks.py#L17) | pytest / 1 | validation projection scope | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_unit_dispatch` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L171) | pytest / 1 | unit dispatch | 既存テストの登録漏れ補完・本体変更なし |
+| `existing-ut-inventory` | `check_unit_dispatch` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L171) | pytest / 15 | unit dispatch | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_ci_workflow` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L214) | pytest / 1 | ci workflow | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_fixed_identity_anchors` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py#L74) | pytest / 1 | fixed identity anchors | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_atomic_bytes` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py#L15) | pytest / 1 | atomic bytes | 既存テストの登録漏れ補完・本体変更なし |
@@ -2307,7 +2276,6 @@ Model v2 移行完了に伴い、固定旧 Framework の export/convert/compare 
 | `existing-ut-inventory` | `check_errors` | UT | [units/json-format.checks.py](units/json-format.checks.py#L35) | pytest / 12 | errors | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_model_overflow_only` | UT | [units/json-format.checks.py](units/json-format.checks.py#L42) | pytest / 3 | model overflow only | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_output_bytes_and_hashes` | UT | [units/json-format.checks.py](units/json-format.checks.py#L50) | pytest / 1 | output bytes and hashes | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_compatibility_exports` | UT | [units/json-format.checks.py](units/json-format.checks.py#L66) | pytest / 1 | compatibility exports | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_isolated_imports_and_standalone_audit` | UT | [units/json-format.checks.py](units/json-format.checks.py#L82) | pytest / 4 | isolated imports and standalone audit | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_success_invalidation_and_scope` | UT | [units/kms-validation-reuse-unit.checks.py](units/kms-validation-reuse-unit.checks.py#L26) | pytest / 1 | success invalidation and scope | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_strict_documents_repeat_failure` | UT | [units/kms-validation-reuse-unit.checks.py](units/kms-validation-reuse-unit.checks.py#L57) | pytest / 6 | strict documents repeat failure | 既存テストの登録漏れ補完・本体変更なし |
@@ -2328,11 +2296,9 @@ Model v2 移行完了に伴い、固定旧 Framework の export/convert/compare 
 | `existing-ut-inventory` | `check_replace_keeps_snapshot_and_reports_impact` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py#L88) | pytest / 1 | replace keeps snapshot and reports impact | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_reference_view_retained_but_io_still_fails` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py#L102) | pytest / 1 | reference view retained but io still fails | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_completion_only_waives_reference_not_run` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py#L133) | pytest / 1 | completion only waives reference not run | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_legacy_issues_keep_number_and_mixed_error` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py#L149) | pytest / 1 | legacy issues keep number and mixed error | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_json_leaf_warning_keeps_sibling_error` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py#L165) | pytest / 1 | json leaf warning keeps sibling error | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_json_cli_warning_success` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py#L176) | pytest / 1 | json cli warning success | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_generation_metadata_reaches_findings` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py#L188) | pytest / 1 | generation metadata reaches findings | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_legacy_diagnostic_forms` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py#L215) | pytest / 8 | legacy diagnostic forms | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_bucket_missing_source_and_real_errors` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py#L236) | pytest / 1 | bucket missing source and real errors | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_link_display_and_readback_classification` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py#L258) | pytest / 1 | link display and readback classification | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_independent_model_validation` | UT | [units/model-reference-warnings-unit.checks.py](units/model-reference-warnings-unit.checks.py#L304) | pytest / 4 | independent model validation | 既存テストの登録漏れ補完・本体変更なし |
@@ -2389,8 +2355,6 @@ Humanが明示許可した例外として `integrations/sync-existing-files.chec
 |---|---|---|---|---|---|---|
 | `json-settings::values` | `check_json_settings` | UT | [units/producer-identifier-reference-unit.checks.py](units/producer-identifier-reference-unit.checks.py) | pytest / 1 | document/inline JSONのResourceリンク拒否、escaped Pointer、URLとJSON外部リンク保持、identifierメタデータ再利用、物理値非解決 | Model |
 | `json-settings::boundaries` | `check_json_boundaries` | UT | [units/producer-identifier-reference-unit.checks.py](units/producer-identifier-reference-unit.checks.py) | pytest / 1 | 共通候補検証、独立Model検証、生成前拒否と正本不変 | Model |
-
-既存 model-identity / json-resource-arn / s3-kms-reference の生成ケースは、JSON内selectorの生成拒否と正本不変を確認する。legacy operandの読取・影響分析・ARN解決・IaC比較は従来assertionを保持。純粋JSONの独立fixtureでArtifact生成を確認し、通常のJSON外部KMS Aliasリンクは引き続き生成・検証する。
 
 import-references のSubnet配列とCodePipeline Configuration生成fixtureは確認済みliteralを使用する。ConfigurationのProjectNameは既存外部name参照とJSON Pointerで追跡し、IMPORTがリンク要求warningを出さず取得値の相違は拒否することを確認。入口/展開数は維持。
 
@@ -2601,7 +2565,7 @@ Model value, rollback and journal cases use `model-operation-publication.checks.
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
-| `sealed-evidence::legacy_bytes` | `check_legacy_bytes` | UT | [units/sealed-evidence-unit.checks.py](units/sealed-evidence-unit.checks.py) | pytest / 1 | 旧形式署名とdigest完全互換 | evidence |
+| `sealed-evidence::legacy_bytes` | `check_legacy_bytes` | UT | [units/sealed-evidence-unit.checks.py](units/sealed-evidence-unit.checks.py) | pytest / 1 | 現行HMAC-SHA256の固定ベクトルとdigest | evidence |
 | `sealed-evidence::rejected_envelopes` | `check_rejected_envelopes` | UT | [units/sealed-evidence-unit.checks.py](units/sealed-evidence-unit.checks.py) | pytest / 8 | 改ざん・別鍵・不正envelope拒否 | evidence |
 | `sealed-evidence::store_and_key` | `check_store_and_key` | UT | [units/sealed-evidence-unit.checks.py](units/sealed-evidence-unit.checks.py) | pytest / 1 | 保存先互換・root分離・32byte鍵 | evidence |
 | `sealed-evidence::symlink_rejection` | `check_symlink_rejection` | UT | [units/sealed-evidence-unit.checks.py](units/sealed-evidence-unit.checks.py) | pytest / 3 | receipt・鍵・保存先symlink拒否 | evidence |
@@ -2794,9 +2758,9 @@ through os.replace, without depending on temporary filenames.
 | --- | --- | --- | --- | --- | --- | --- |
 | `single-file::stage-publish` | `check_stage_and_publish` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py) | pytest / 2 | UTF-8, exact newlines, binary, unique sibling stages, no fsync | Synthetic files |
 | `single-file::failure` | `check_single_failure` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py) | pytest / 4 | Open/write/fsync/replace failures preserve destination and clean stages | Injected I/O errors |
-| `single-file::fsync-newlines` | `check_single_fsync_and_default_newlines` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py) | pytest / 1 | One requested fsync and legacy platform newline translation | Synthetic text |
+| `single-file::fsync-newlines` | `check_single_fsync_and_default_newlines` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py) | pytest / 1 | One requested fsync and platform newline translation | Synthetic text |
 | `single-file::collision` | `check_stage_collision` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py) | pytest / 1 | Exclusive creation retries without clobbering another stage | Fixed UUID collision |
-| `single-file::permissions` | `check_single_permissions` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py) | pytest / 2 | Legacy 0600 and 0666-and-umask creation, also when replacing | POSIX modes; Windows skipped |
+| `single-file::permissions` | `check_single_permissions` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py) | pytest / 2 | 0600 and 0666-and-umask creation, also when replacing | POSIX modes; Windows skipped |
 | `single-file::batch-order` | `check_batch_stages_before_publish` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py) | pytest / 1 | All stages precede publish; rollback adds no fsync | Synthetic two-file batch |
 | `single-file::session-api` | `check_session_save_uses_shared_api` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | Session JSON/shared API/creation mode and save error propagation | Synthetic session |
 | `single-file::journal-order` | `check_journal_precedes_publication` | UT | [units/model_files-unit.checks.py](units/model_files-unit.checks.py) | pytest / 1 | Durable journal precedes Model write; journal failure stops publication | Synthetic journal |
@@ -2836,7 +2800,6 @@ through os.replace, without depending on temporary filenames.
 | legacy_session_without_observed_plan (2) | observed-resume `check_session_without_plan_and_signed_removal`: 正当なplanなしsessionと署名済plan除去を区別 |
 | cleanup_and_repair_process_resume (1)、external_repair_cleanup_recovery (1) | `check_external_repair_cleanup_resumes`: 元の失敗証跡・DELETE_INTENT・単一Delete・成功Stack保護・再実行・公開・結果再適用 |
 | bootstrap_process_resume (2) | 既存runtime `check_secret_runtime_bootstrap`: JSON保存session再読込、同token/単一PUT、外部AWSCURRENT競合 |
-| explicit_legacy_migration (3 → 0) | legacy互換だけを目的とするテストは削除。代替UT/ITは追加しない。本体の形式・履歴移行処理は維持 |
 | external_repair_resumption (12) | request/accept前後はhandoff `check_issue_request_stability` / `check_accept_protects_success_and_retries`、未実行decode/validate/create/reviewは `check_unexecuted_exception_to_diagnosis`、shared-successはaccept UT。repeat/new-problem/regressionは既存 `check_problem_sequences` とcause/relation UT。通常Git receipt境界はcleanup controller IT。専用Worktree normal/mergeのcheckpoint/child/validation/merge/cleanup/親再開および追加assertionを維持 |
 
 66条件 = 1+1+1+1+2+7+1+1+8+1+9+1+11+2+1+1+2+3+12。以下の登録件数はソースのASTから静的確認した値であり、今回ITを収集して得た値ではない。
@@ -2863,9 +2826,6 @@ through os.replace, without depending on temporary filenames.
 | `deploy-reduction::signed_protected_fields` | `check_signed_protected_fields` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 4 | 上の旧条件・主要assertion対応表を参照 | 直接関数・小fixture |
 | `deploy-reduction::unexecuted_exception_to_diagnosis` | `check_unexecuted_exception_to_diagnosis` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 4 | 上の旧条件・主要assertion対応表を参照 | 直接関数・小fixture |
 
-
-関連4 UTはSDK 11関数38条件、runtime 16関数32条件、observed-resume 19関数76条件、handoff 28関数83条件、計229条件（入口数は不変）。前の削減ではlegacy session移行3条件・観測1条件、旧workflow履歴移行2条件、旧Observed plan互換3条件の計9条件と専用helperを削除した。legacy移行専用ITは代表1条件も削除し、代替テストを追加しない。policyのlegacyUncertain専用assertionも削除した。未知のidentityフィールド拒否、planなしsessionと署名済planの不正除去、現行retry・署名・所有者検証を維持する。既存の署名復旧UTとOwned resume成功条件に旧executionDigest fixtureを加え、保存identityを変えず復旧する。新規非生成は初期化・request・identityの既存UTで確認する。既存bootstrap/retry/削除policy条件は再追加していない。
-
 | controller suite内の処理 | 1024v4設計値 | 再構成後の静的呼出構造 |
 |---|---:|---:|
 | full seed / Project全生成 / Git init | 各66 | 各6（6フローにつき1回） |
@@ -2880,15 +2840,9 @@ controllerの親process invokeは6回（正常1・配送失敗1・承認待ち1�
 
 ## Deploy Framework digest removal
 
-DeployのFramework全体走査・executionDigest生成/照合/停止条件と旧新digest CLI引数を廃止した。
-UT `check_session_cli` のAGENTS.md書換え・resume拒否・digest保持ブロック1箇所（既存ループの3構成）と復元処理を削除し、H framework表示も除去した。
-Task snapshot UTの2関数からダミー値/mock、Observed通常fixture・小型ITとrequest fixtureから必須値を除去した。
-UT入口数は増減なし。task-snapshot初期化・request/identity既存UTで新規非生成、署名ledger/保存intentの2条件とOwned resume成功1条件で旧フィールド保持・復旧を確認する。旧発行request→resultの継承は既存accept fixtureで保持する。
-legacy移行専用ITは旧3条件すべてを削除し、代表ケースも代替UT/ITも残さない。IT実行・全UT/IT・性能測定は対象外。Task/対象/Issue/権限、Model/IaC・ChangeSet/実行証拠・署名/公開journalの検証を維持する。
-
 ## Project Framework scan removal
 
-Framework更新検知専用の `check_module_keys`（1 UT、root/runtime各11 module変更）を削除。
+Framework更新検知専用の `check_module_keys`（1 UT、Project入力の変更）を削除。
 永続PASS保存のOSError/JSON bytes専用UT（1）を廃止し、実行寿命の検証へ変更。
 ITの `check_single_target_cache` / `check_template_consumers`（2ケース）は呼出元所有Cache / 変更のないinput_context内で再利用し、ディスクPASS削除を廃止。
 `check_task_service_validation`（1ケース）から別processの永続PASS再利用条件1個と実行1回を削除し、.lock保護は既存fresh/profile実行で確認する。
@@ -2896,7 +2850,7 @@ ITの `check_single_target_cache` / `check_template_consumers`（2ケース）�
 
 | Source | Entry | Kind | Location | Runner / cases | Coverage | Boundary |
 | --- | --- | --- | --- | --- | --- | --- |
-| `project-cache::lifetime` | `check_cache_lifetime` | UT | [units/validation_cache-unit.checks.py](units/validation_cache-unit.checks.py) | pytest / 1 | Framework全件探索禁止、実行内共有、実行を跨ぐPASS失効、旧disk PASS非使用 | Validation Cache |
+| `project-cache::lifetime` | `check_cache_lifetime` | UT | [units/validation_cache-unit.checks.py](units/validation_cache-unit.checks.py) | pytest / 1 | Framework全件探索禁止、実行内共有、実行を跨ぐPASS失効、実行終了後のPASS失効 | Validation Cache |
 | `project-generation::common` | `check_snapshot_project_common_inputs` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 1 | common選択の再利用、Framework/配布README非登録、Project最終照合 | Generation |
 | `repair-snapshot::paths` | `check_validation_snapshot_project_paths` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | Git tracked/untracked取得のFramework pathspec除外、Project hash対象維持 | Repair Snapshot |
 | `project-validation::common` | `check_common_cache_guard` | UT | [units/validation_checks/runner.py](units/validation_checks/runner.py) | direct / 1 | 実Validatorのcommon初回/最終各1回、同一input_contextのCatalog PASS再利用 | Runner |

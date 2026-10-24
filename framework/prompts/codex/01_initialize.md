@@ -158,7 +158,7 @@ Resolve target-directory from the existing alias-or-Account-ID rule. Create only
 Check all targets' `iacEngine` and delete roots of IaC engines selected by no targets.
 
 - If no target selects CloudFormation, delete unused `infra/cloudformation/` scaffolding. If a Terraform target has the valid alias `cloudformation`, preserve its selected `infra/cloudformation/terraform/` subtree.
-- Create `infra/<target-directory>/terraform/` only for target-directories selecting Terraform. Remove unused empty Terraform scaffolding (including legacy `infra/terraform/`) only under the existing deletion guard below.
+- Create `infra/<target-directory>/terraform/` only for target-directories selecting Terraform. Remove unused empty Terraform scaffolding only under the existing deletion guard below.
 - Retain each selected engine’s paths; never generate Terraform structure for an unselected target.
 - If deletion targets contain files other than `.gitkeep`, stop without deleting them as existing implementations.
 

@@ -9,7 +9,7 @@ import aws_mapping_display as _imports_aws_mapping_display
 import design_layout as _imports_design_layout
 import model.identity as _imports_model_identity
 import model.projection as _imports_model_projection
-import validation_cache as _imports_validation_cache
+import utils.input_cache as _imports_input_cache
 from model.core import properties
 from model.format import FORMAT, INDEX, split, strict_json
 from model.sources import load_model, model_parts, scope_for
@@ -88,7 +88,7 @@ def catalog_display():
 
     aws_mapping_display = _imports_aws_mapping_display
     HIDDEN_PROPERTIES = _imports_design_layout.HIDDEN_PROPERTIES
-    memoized = _imports_validation_cache.memoized
+    memoized = _imports_input_cache.memoized
     original = aws_mapping_display.rules
 
     selectable = (memoized)(_bind_framework_callback(_callback_catalog_display_selectable, HIDDEN_PROPERTIES, original))

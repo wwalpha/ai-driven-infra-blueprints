@@ -1,26 +1,15 @@
 """Plan/accept one external input revision, then recover pinned AWS state separately."""
 
 import copy
-import hashlib
 from pathlib import Path
 
-import project_targets as _imports_project_targets
 import worktree_task as _imports_worktree_task
 from cloudformation_inputs import Blocked
-from task_contract_core import (
-    section,
-    task_snapshot,
-)
-from utils.json_format import fingerprint
 from utils.sealed_evidence import read_sealed
 
 import deploy.contracts as _dependency_deploy_contracts
-import deploy.inputs as _imports_deploy_inputs
 import deploy.scheduler as _imports_deploy_scheduler
-import deploy.session as _imports_deploy_session
 from deploy import handoff, recovery
-from deploy.failures import event as safe_event
-from deploy.failures import template_safety
 
 
 def accept(root, result_path, session, backend, units, current_units, current_manifest):
@@ -30,7 +19,7 @@ def accept(root, result_path, session, backend, units, current_units, current_ma
     if read_sealed(root, canonical) != result:
         raise Blocked('result differs from its helper-issued canonical receipt')
     result_path = canonical
-    workflow = handoff.workflow(session)
+    workflow = session['workflow']
     accepted = workflow['accepted']
     if str(result_path) in accepted:
         if accepted[-1] != str(result_path) or session.get('pendingRequest') or result['revision'] + 1 != session['inputRevision']:
@@ -66,7 +55,7 @@ def accept(root, result_path, session, backend, units, current_units, current_ma
             output(root, 'rev-parse', result['commit'] + '^') != result['parentTip'] or
             paths(root, 'diff', '--name-only', '--no-renames', '-z', result['parentTip'], result['commit']) != changed):
         raise Blocked('repair integration history/parent lifecycle mismatch')
-    if _dependency_deploy_contracts.validation_snapshot(root) != _dependency_deploy_contracts.project_snapshot(result['validation']['snapshot']):
+    if _dependency_deploy_contracts.validation_snapshot(root) != result['validation']['snapshot']:
         raise Blocked('validation dependencies or file set changed after child validation')
     handoff.verify_inputs(root, session, child_paths=changed)
     effective = handoff.effective(root, units, backend.paths, backend.deployment_input_paths)
@@ -152,7 +141,7 @@ def verify_integration_owner(root, request, result_path, result):
 
 def recover(backend, unit, state):
     if state.get('preExecutionRecovery'):
-        recovery.require_authorized(backend.root, backend.session)
+        recovery.require_authorized(backend.root)
         recovery.archive_failure(state)
         backend.save()
         recovery.cleanup_unexecuted(backend.aws, backend.save, backend.wait_cleanup, state)
@@ -160,7 +149,7 @@ def recover(backend, unit, state):
         return
     if not state.get('recoveryPending'):
         return
-    recovery.require_authorized(backend.root, backend.session)
+    recovery.require_authorized(backend.root)
     if state.get('cleanupStatus') not in {'DELETE_INTENT', 'DELETE_COMPLETE'} or state.get('cleanupStackId') != state.get('stackId'):
         evidence = state['executionEvidence']
         if state.get('operationStackId') != state.get('stackId') or evidence['StackId'] != state['stackId'] or evidence['clientToken'] != state['clientToken']:
@@ -179,63 +168,6 @@ def recover(backend, unit, state):
     backend.reset_after_cleanup(state)  # New input always discards old delivery and approval.
 
 
-def migrate(root, session, args):
-    """Explicit session/history migration. No candidate reapplication or AWS-state invention."""
-    load_target = _imports_project_targets.load_target
-    if session.get('version') not in {3, 4} or not args.authorization:
-        raise Blocked('migration needs a compatible original session and explicit Human authorization')
-    if any(s['status'] == 'RUNNING' or s.get('pollError') for s in session['states'].values()):
-        raise Blocked('observe/drain in-progress or unknown operations using original identities before migration')
-
-    deployment_input_paths = _imports_deploy_inputs.deployment_input_paths
-    load_units = _imports_deploy_inputs.load_units
-    paths = _imports_deploy_inputs.paths
-    contract = task_snapshot(root).text
-    # The old digest ignored status/approval lines already. Do not call status a failure.
-    legacy_digests = {hashlib.sha256(('\n'.join(line for line in (contract.rstrip('\n') + '\n' * count).splitlines() if not line.startswith(('- Authorized delete/replacement:', '- Task status:')))).encode()).hexdigest() for count in (0, 1, 2)}
-    if session['taskDigest'] not in legacy_digests | {_dependency_deploy_contracts.task_digest(contract)}:
-        raise Blocked('migration cannot accept a changed original Task contract')
-    env = next(line.split('`')[1] for line in section(contract, '## Task contract') if line.startswith('- Target environment:'))
-    account = next(line.split('`')[1] for line in section(contract, '## Task contract') if line.startswith('- Target AWS account:'))
-    alias = next((line.split('`')[1] for line in section(contract, '## Task contract') if line.startswith('- Target alias:')), None)
-    target = load_target(root, env, account, alias)
-    if '- Controlled repair: `allowed`' in contract.splitlines():
-        session['runtimeRecoveryAuthorization'] = 'explicitly-migrated-legacy-runtime'
-    workflow = handoff.workflow(session)
-    legacy = [entry for state in session['states'].values() for entry in state.get('repairs', []) if entry.get('classification') != 'RUNTIME_BOOTSTRAP']
-    if legacy:
-        workflow['legacyHistory'] = copy.deepcopy(legacy)
-        known = len(legacy)
-        if args.acknowledge_legacy_cycles is None or args.acknowledge_legacy_cycles < known:
-            raise Blocked('legacy history needs explicit conservative cycle count; never reset to zero')
-        workflow['reserved'] = max(workflow['reserved'], args.acknowledge_legacy_cycles)
-        workflow['legacyUncertain'] = True
-        # Identity cannot be proven from old string classes alone. Require Human diagnosis.
-        workflow['status'] = 'WAITING_HUMAN'
-    env_directory = alias or account
-    design_digest = _imports_deploy_session.design_digest
-    model_input_manifest = _imports_deploy_session.model_input_manifest
-    if design_digest(root, env, env_directory, contract_file=session['taskFile']) != session['designDigest'] or model_input_manifest(root, env, env_directory) != session['modelInputManifest']:
-        raise Blocked('migration cannot accept changed Model/design dependencies')
-    _, units = load_units(root, env, env_directory, list(session['states']))
-    current_manifest = {p.relative_to(root).as_posix(): _dependency_deploy_contracts.sha(p) for p in deployment_input_paths(root, env, env_directory, target, units)}
-    if current_manifest != session['infraManifest']:
-        raise Blocked('legacy migration cannot accept unrecorded candidate/current IaC bytes')
-    for unit in units:
-        state = session['states'][unit['name']]
-        document, errors = __import__('utils.cloudformation_format', fromlist=['decode']).decode(paths(root, env, env_directory, target, unit)[0].read_bytes())
-        evidence = state.get('executionEvidence', {})
-        if not errors and evidence.get('inputDigest') == session['unitDigests'][unit['name']]:
-            state.setdefault('failureTemplateSafety', template_safety(document))
-        state['failureEvents'] = [safe_event(item, document or {}) for item in state.get('failureEvents', [])]
-    session.update(version=4, taskDigest=_dependency_deploy_contracts.task_digest(contract), environment=env, directory=env_directory, target=target,
-                   logicalTarget=[env, env_directory, target['awsAccountId'], target['awsRegion']],
-                   validationScope=sorted(__import__('task_contract').paths_in(contract, '## Validation scope')),
-                   effectiveDigests=handoff.effective(root, units,
-                       lambda u: paths(root, env, env_directory, target, u),
-                       lambda us: deployment_input_paths(root, env, env_directory, target, us)))
-    session['unitInputPaths'] = {u['name']: [p.relative_to(root).as_posix() for p in deployment_input_paths(root, env, env_directory, target, [u])] for u in units}
-    session.setdefault('migrations', []).append({'authorizationDigest': fingerprint(args.authorization), 'legacyCycles': workflow['reserved']})
 
 
 
@@ -245,7 +177,7 @@ def _observe_only_no_mutation():
 
 
 def observe_only(backend, units, limit, path, session):
-    """Explicit observation of original tokens, even before a session/history migration."""
+    """Explicit observation of original execution tokens."""
     run_group = _imports_deploy_scheduler.run_group
     backend.states, backend.session = session['states'], session
     backend.save = lambda: handoff.save(path, session)

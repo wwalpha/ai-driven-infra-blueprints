@@ -198,9 +198,7 @@ def validate_plan(root, session, target, environment, directory):
     if (plan['originals'].keys() != plan['outputs'].keys()
             or plan['beforeManifest'].keys() != plan['afterManifest'].keys()):
         raise Blocked('observed plan file sets differ')
-    # Compare legacy signed plans without altering their persisted identity.
-    identity = {key: value for key, value in plan['identity'].items() if key not in {'managedTask', 'executionDigest'}}
-    if identity != _identity(root, session, target, environment, directory):
+    if plan['identity'] != _identity(root, session, target, environment, directory):
         raise Blocked('observed plan Task/target/session identity changed')
     if plan['evidence'] != evidence(session['states'], plan['evidence']):
         raise Blocked('observed plan execution evidence changed')

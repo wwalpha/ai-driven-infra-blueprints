@@ -8,7 +8,7 @@ from pathlib import Path
 import import_guard as _imports_import_guard
 import task_contract_core as _imports_task_contract
 import utils.import_evidence as _receipt_storage
-from utils.json_format import json_text
+from utils.json_format import document_sha256, json_text
 from utils.sealed_evidence import evidence_store, read_sealed, write_sealed
 
 import model.importing.approval as _imports_model_importing_approval
@@ -21,7 +21,6 @@ from model.format import require_format as require_format
 
 def read_proof(root, *, contract_file=None):
     base_revision = _imports_import_guard.base_revision
-    digest = _imports_import_guard.digest
     proof_path = _imports_import_guard.proof_path
     workflow = _imports_import_guard.workflow
     safe_path = _imports_task_contract.safe_path
@@ -53,7 +52,7 @@ def read_proof(root, *, contract_file=None):
             safe_path(root, relative)
         verify_review_binding = _imports_model_importing_approval.verify_review_binding
         binding = verify_review_binding(proof['reviewBinding'])
-        if proof['reviewBindingDigest'] != digest(binding):
+        if proof['reviewBindingDigest'] != document_sha256(binding):
             raise ValueError('IMPORT Review binding checksum differs')
         if (binding['task'] != proof['task'] or binding['worktree'] != str(root.resolve())
                 or binding['scope'] != proof['scope'] or binding['acquisitionDigest'] != proof['acquisition']
@@ -67,7 +66,6 @@ def read_proof(root, *, contract_file=None):
 def record_import(root, output, evidence, plan, complete=True, *, review_binding=None):
     """Bind a verified cross-process acquisition and checked candidate to exact bytes."""
     base_revision = _imports_import_guard.base_revision
-    digest = _imports_import_guard.digest
     file_hash = _imports_import_guard.file_hash
     proof_path = _imports_import_guard.proof_path
     text_hash = _imports_import_guard.text_hash
@@ -85,19 +83,19 @@ def record_import(root, output, evidence, plan, complete=True, *, review_binding
     planned = {p.relative_to(root).as_posix(): text for p, text in output.items()}
     if (not isinstance(review_binding, dict) or review_binding.get('task') != acquisition['task']
             or review_binding.get('worktree') != acquisition['root'] or review_binding.get('scope') != acquisition['scope']
-            or review_binding.get('acquisitionDigest') != digest(acquisition)
-            or review_binding.get('sourceBaselineDigest') != digest(acquisition['sources'])
-            or review_binding.get('selectionDigest') != digest(plan.get('selection'))):
+            or review_binding.get('acquisitionDigest') != document_sha256(acquisition)
+            or review_binding.get('sourceBaselineDigest') != document_sha256(acquisition['sources'])
+            or review_binding.get('selectionDigest') != document_sha256(plan.get('selection'))):
         raise ValueError('IMPORT Review binding differs from acquisition/selection/baseline')
     if plan.get('sources') != planned:
         raise ValueError('IMPORT evidence requires the checked candidate sources')
     if proof_path(root).exists():
         raise ValueError('IMPORT Task already published; use display recovery or a new Task')
     sources = source_hashes
-    proof = {'version': 6, **FORMAT_FIELDS, 'reviewBinding': review_binding, 'reviewBindingDigest': digest(review_binding), 'task': workflow(root), 'base': base_revision(root),
+    proof = {'version': 6, **FORMAT_FIELDS, 'reviewBinding': review_binding, 'reviewBindingDigest': document_sha256(review_binding), 'task': workflow(root), 'base': base_revision(root),
              'scope': list(identity), 'sources': sources,
              'before': {p.relative_to(root).as_posix(): file_hash(p) for p in output},
-             'plan': digest(plan), 'acquisition': digest(acquisition),
+             'plan': document_sha256(plan), 'acquisition': document_sha256(acquisition),
              'acquiredAt': acquisition['acquiredAt'], 'ownedArtifacts': plan['ownedArtifacts'],
              'connection': acquisition['connection'], 'complete': complete and acquisition_complete(acquisition),
              'model': 'pending', 'markdown': 'not-run', 'designValidation': 'not-run'}

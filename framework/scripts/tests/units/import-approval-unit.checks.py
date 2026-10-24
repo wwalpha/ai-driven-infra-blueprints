@@ -5,7 +5,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
 import copy
 import json
 from datetime import datetime, timedelta, timezone
@@ -22,6 +21,7 @@ from model.operations import operation_values
 from model.sources import load_model
 from script_loader import module as module
 from support.model_v2_fixtures import value_snapshot as Expansion
+from utils.json_format import document_sha256
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -101,7 +101,7 @@ def check_changed_review_needs_new_review(change):
     else:
         changed[{'baseline': 'sourceBaselineDigest'}.get(change, change)] = 'different'
     # Even recomputing a local digest cannot reuse reviewed content or authorize saving.
-    changed['reviewDigest'] = import_guard.digest({k: v for k, v in changed.items() if k != 'reviewDigest'})
+    changed['reviewDigest'] = document_sha256({k: v for k, v in changed.items() if k != 'reviewDigest'})
     with pytest.raises(ValueError, match='Review changed'):
         approval.verify_review(changed, expected)
 
@@ -316,7 +316,7 @@ def check_preflight_before_any_save(tmp_path, failure):
                 reviewed['sourceBaselineDigest'] = 'forged'
             else:
                 reviewed['referenceProvenance']['after'] = {'fixed': reference_trace('002')}
-            reviewed['reviewDigest'] = import_guard.digest({key: value for key, value in reviewed.items() if key != 'reviewDigest'})
+            reviewed['reviewDigest'] = document_sha256({key: value for key, value in reviewed.items() if key != 'reviewDigest'})
             file.write_text(json.dumps(reviewed), encoding='utf-8')
         elif failure == 'load':
             case.candidate.write_text('invalid properties', encoding='utf-8')
@@ -443,7 +443,7 @@ def check_explicit_bind_preserves_identity(failure):
     acquisition, selection, before, proposed, risks = proposal()
     before.authoritative.pop('observed.row.001-001.value')
     decision = selection['resources'][0]
-    decision.update(action='bind', before={'identity': None, 'model': import_guard.digest(operation_values(before.authoritative, '001'))})
+    decision.update(action='bind', before={'identity': None, 'model': document_sha256(operation_values(before.authoritative, '001'))})
     if failure == 'known':
         before.authoritative['observed.row.001-001.value'] = '`vpc-old`'
     elif failure == 'stale':
@@ -469,7 +469,7 @@ def check_explicit_bind_preserves_identity(failure):
             risks['r2'] = []
             selection['resources'].append({**decision, 'record': 'r2',
                 'resource': '001' if failure == 'duplicate-target' else '002',
-                'before': {'identity': None, 'model': import_guard.digest(operation_values(before.authoritative, '002'))}})
+                'before': {'identity': None, 'model': document_sha256(operation_values(before.authoritative, '002'))}})
     elif failure == 'anchor':
         proposed['desired.resource.001.anchor'] = 'changed'
     elif failure == 'row':
@@ -540,7 +540,7 @@ def check_checkpoint_rejects_stale_or_competing_answers(failure):
         answers.append(copy.deepcopy(answers[0]))
     else:
         acquisition['records'].append({**acquisition['records'][0], 'record': 'r2'})
-        saved['acquisitionDigest'] = import_guard.digest(acquisition)
+        saved['acquisitionDigest'] = document_sha256(acquisition)
         answers.append({**answers[0], 'record': 'r2'})
     with pytest.raises(ValueError):
         approval.verify_checkpoint(acquisition, saved)

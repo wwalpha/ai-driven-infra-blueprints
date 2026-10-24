@@ -31,7 +31,6 @@ from aws_mapping import readonly
 from aws_mapping_compare import comparison
 from aws_mapping_compare import value as mapped_value
 from generation_inputs import GenerationInputs
-from import_guard import digest
 from issue_gate import require_no_issues
 from model.adapters.task import edit_write_context, source_write_context
 from model.cli import main
@@ -88,6 +87,7 @@ from task_contract import complete
 from task_contract_core import model_operation, model_refactor, selected_task
 from utils import sealed_evidence
 from utils.input_cache import input_context
+from utils.json_format import document_sha256
 from utils.source_reads import FileReads
 from utils.yaml_format import yaml_read as yaml_read
 
@@ -1683,7 +1683,7 @@ def check_selected_overwrite(action):
     new = {**old, 'desired.row.001-002.value': '`10.11.0.0/23`', 'observed.row.001-001.value': '`' + physical + '`'}
     picked = selection(action=action)
     if action == 'replace':
-        picked['resources'][0]['before'] = {'identity': 'vpc-confirmed', 'model': digest(operation_values(old, '001'))}
+        picked['resources'][0]['before'] = {'identity': 'vpc-confirmed', 'model': document_sha256(operation_values(old, '001'))}
     chosen = selection_records(picked, [captured], old, new, schema_for)
     assert {item['resource'] for item in verify_values(expansion(old), expansion(new), chosen, schema_for)} == {'001'}
     assert operation_values(old, '002') == operation_values(new, '002')
@@ -1753,7 +1753,7 @@ def check_overwrite_duplicate_selection_and_destination_identity():
     with pytest.raises(ValueError, match='duplicate'):
         selection_records(picked, [record()], old, old, schema_for)
     picked = selection(action='replace')
-    picked['resources'][0]['before'] = {'identity': 'vpc-confirmed', 'model': digest(operation_values(old, '001'))}
+    picked['resources'][0]['before'] = {'identity': 'vpc-confirmed', 'model': document_sha256(operation_values(old, '001'))}
     with pytest.raises(ValueError, match='duplicate identity'):
         selection_records(picked, [record('vpc-other')], old, old, schema_for)
 

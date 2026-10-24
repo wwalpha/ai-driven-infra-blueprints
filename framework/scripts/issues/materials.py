@@ -1,7 +1,6 @@
 
 import json
 
-import issue_gate as _imports_issue_gate
 from design_catalog import selected_properties
 from design_layout import (
     resource_has_name_property,
@@ -141,9 +140,7 @@ def naming_materials(comparison):
             'review_policy': '全名称のpattern/正本component/例外scopeを確認する。human_context_idの注記とrow commentを根拠にし、不足componentを値から推測しない。coverage除外をconvention/値検証除外へ拡大しない。'}, judgments
 
 
-def existing_materials(root, environment, directory, services, warnings=None):
-    reference_issue_parts = _imports_issue_gate.reference_issue_parts
-    warnings = warnings if warnings is not None else []
+def existing_materials(root, environment, directory, services):
     path = root / 'issues' / environment / directory / 'issues.md'
     inventories(root, path)
     if not path.is_file():
@@ -157,10 +154,7 @@ def existing_materials(root, environment, directory, services, warnings=None):
         if service not in services and service is not None:
             continue
         for text in issues:
-            references, errors = reference_issue_parts(text)
-            warnings.extend({'code': 'reference.legacy_issue', 'message': message, 'service': service} for message in references)
-            if errors:
-                items.append({'id': identifier([service, text]), 'service': service, 'message': safe_text('\n'.join(errors)),
-                              'kind': 'existing-unresolved; preserve unless explicitly revalidated'})
+            items.append({'id': identifier([service, text]), 'service': service, 'message': safe_text(text),
+                          'kind': 'existing-unresolved; preserve unless explicitly revalidated'})
     human = [line for line in human_prefix.splitlines() if line.strip() and not line.startswith(('#', '更新日時:', '今回確認した範囲:'))]
     return items, human

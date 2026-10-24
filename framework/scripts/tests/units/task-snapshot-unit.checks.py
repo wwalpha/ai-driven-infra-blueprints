@@ -410,7 +410,6 @@ def check_session_initialization_reuses_task_fields(tmp_path, monkeypatch):
         saved = bind.call_args.args[2]
         assert saved['taskFile'] == 'tasks/one.md' and saved['taskDigest'] == tasks.task_digest(text)
         assert saved['version'] == 4 and saved['repairBudget'] == 7
-        assert 'executionDigest' not in saved
         assert saved['validationScope'] == ['dev/cde/s3']
         assert io == {'reads': 1}
 

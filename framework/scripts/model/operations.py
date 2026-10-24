@@ -28,7 +28,6 @@ import model.identity as _dependency_model_identity
 import model.identity as _imports_model_identity
 import model.impact as _imports_model_impact
 import model.observed as _imports_model_observed
-import model.projection as _imports_model_projection
 import model.references as _dependency_model_references
 import model.sources as _dependency_model_sources
 import model.sources as _imports_model_sources
@@ -841,11 +840,6 @@ def validate_candidates(
         model = load_model(source_scope(root, path), reads)
         validate_json_settings = _imports_model_validation.validate_json_settings
         validate_json_settings(model.authoritative, path, warnings=warnings)
-        Resolver = _imports_model_identity.Resolver
-        scalar_reference_operand = _imports_model_projection.scalar_reference_operand
-        resolver = Resolver(root, reads)
-        for _, row in entries(model.authoritative, 'desired.row.'):
-            scalar_reference_operand(row, root, model.scope, resolver=resolver)
         display_anchor = _imports_model_identity.display_anchor
         anchors = [display_anchor(resource) for _, resource in entries(model.authoritative, 'desired.resource.')]
         if len(anchors) != len(set(anchors)):

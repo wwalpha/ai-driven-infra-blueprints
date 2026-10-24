@@ -52,14 +52,11 @@ def main() -> int:
     parser.add_argument("--write", action="store_true", help="Generate and validate selected Models before remaining checks")
     parser.add_argument("--staged", action="store_true", help="Validate a fixed staged tree in a private repository")
     parser.add_argument("--base", help="Explicit comparison commit for --staged (including incoming changes)")
-    parser.add_argument("--affected", action="store_true", help="Compatibility option for task/local; does not start framework regression")
     args = parser.parse_args()
     if args.staged and args.write:
         parser.error('--staged cannot be combined with --write')
     if args.staged != bool(args.base):
         parser.error('--staged and --base must be specified together')
-    if args.affected and (args.mode == 'full' or args.all):
-        parser.error('--affected cannot narrow full/--all validation')
     return run_loop(Path.cwd().resolve(), args)
 
 if __name__ == "__main__":

@@ -428,7 +428,7 @@ def check_staged_snapshot(tmp_path):
     rejected_logs = tmp_path / "rejected-logs"
     rejected_logs.mkdir()
     args = SimpleNamespace(base=base, mode="task", jobs=2, validation_jobs=4,
-                           fresh=False, all=False, affected=False, profile=False)
+                           fresh=False, all=False, profile=False)
     real_popen = MODULE.subprocess.Popen
 
     git_only = _bind_framework_callback(_callback_check_staged_snapshot_git_only, real_popen)
@@ -456,8 +456,6 @@ def check_staged_snapshot(tmp_path):
     MODULE.git(root, "add", "checks/validate-blueprint.py")
     result = subprocess.run(command, cwd=root, env=environment, capture_output=True, encoding="utf-8")
     assert result.returncode == 1 and "snapshot is stale" in result.stdout, result.stdout + result.stderr
-    rejected = subprocess.run([*command, "--affected", "--all"], cwd=root, capture_output=True, encoding="utf-8")
-    assert rejected.returncode and "cannot narrow" in rejected.stderr
     # write-tree must reject unresolved conflicts before any validation starts.
     blob = MODULE.git(root, "rev-parse", "HEAD:tasks/snapshot.md")
     conflict = "0 " + "0" * len(blob) + "\ttasks/snapshot.md\n"
@@ -504,13 +502,7 @@ def check_regression_authorization(tmp_path):
             assert CLI.main() == 0
         authorize.assert_called_once()
         assert len(run.call_args.args[1]) == 4
-        # Compatibility --affected never starts regression, even for a registered leaf.
-        (scripts / "tests/units/b.checks.py").write_text("# fixture\n", encoding="utf-8")
-        changed.return_value = {"framework/scripts/tests/units/a.checks.py"}
-        authorize.reset_mock()
-        with patch.object(sys, "argv", [str(runner), "--mode", "task", "--affected", "--log-dir", str(logs)]):
-            assert CLI.main() == 0
-        authorize.assert_not_called()
+
 
 
 
@@ -878,7 +870,7 @@ def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
     saved = import_guard.proof_path(root).read_bytes()
     directory = tmp_path / 'logs'
     directory.mkdir()
-    args = SimpleNamespace(base='HEAD', mode='task', jobs=1, validation_jobs=1, fresh=False, all=False, affected=False, profile=False)
+    args = SimpleNamespace(base='HEAD', mode='task', jobs=1, validation_jobs=1, fresh=False, all=False, profile=False)
     assert MODULE.staged_snapshot(root, args, directory, MODULE.utf8_environment()) == result
     snapshot = directory / 'repository'
     assert not sealed_evidence.evidence_store(snapshot, create=False).exists()

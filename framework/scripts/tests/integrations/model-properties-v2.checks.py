@@ -35,7 +35,6 @@ from model.format import FORMAT, INDEX, owner, parse, patch, serialize
 from model.format import split as split
 from model.importing.approval import (
     build_review,
-    require_format,
     review_binding,
     verify_review,
 )
@@ -420,11 +419,6 @@ def check_properties_reference_review_after_map_and_ownership(change):
                 verify_review(review, unchanged)
 
 
-@pytest.mark.parametrize('kind', ['acquisition', 'review', 'binding', 'checkpoint'])
-def check_properties_import_rejects_legacy_evidence(kind):
-    with pytest.raises(ValueError, match='format is incompatible'):
-        require_format({'version': {'acquisition': 2, 'review': 3, 'binding': 1, 'checkpoint': 1}[kind]},
-                       {'acquisition': 3, 'review': 4, 'binding': 2, 'checkpoint': 2}[kind], kind)
 
 
 def check_runtime_projection_validation_and_metadata_separation():

@@ -19,8 +19,8 @@ import pytest
 import sync_progress as progress
 import sync_runtime
 import sync_views
+import utils.input_cache as _imports_input_cache
 import validation.design_links as _imports_validation_design_links
-import validation_cache as _imports_validation_cache
 from design_catalog import property_paths_with_parents
 from script_loader import module
 from support.validator import load
@@ -34,6 +34,7 @@ from utils.input_cache import (
 )
 from validation.findings import CheckResult, Findings
 from validation.task import TaskValidation
+from validation_cache import PassCache
 
 from model import projection
 
@@ -172,10 +173,10 @@ def check_progress_heartbeat_and_waits():
 
 
 def check_snapshot_conflict(tmp_path):
-    input_bytes = _imports_validation_cache.input_bytes
-    input_is_file = _imports_validation_cache.input_is_file
-    input_select = _imports_validation_cache.input_select
-    recording_inputs = _imports_validation_cache.recording_inputs
+    input_bytes = _imports_input_cache.input_bytes
+    input_is_file = _imports_input_cache.input_is_file
+    input_select = _imports_input_cache.input_select
+    recording_inputs = _imports_input_cache.recording_inputs
     snapshot = sync_runtime.GenerationInputs(tmp_path)
     path = tmp_path / 'project.json'
     assert snapshot.read(path) is None
@@ -212,7 +213,7 @@ def check_snapshot_project_common_inputs(tmp_path):
     framework.parent.mkdir()
     framework.write_bytes(b'{}')
     snapshot = sync_runtime.GenerationInputs(root, definitions)
-    cache = _imports_validation_cache.PassCache(root, definitions_root=definitions)
+    cache = PassCache(root, definitions_root=definitions)
     with patch.object(snapshot, 'live_select', wraps=snapshot.live_select) as select:
         cache.common_key(snapshot=snapshot)
         cache.common_key(snapshot=snapshot)

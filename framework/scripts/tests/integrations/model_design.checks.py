@@ -1104,7 +1104,7 @@ def check_stack_policy(root, project):
     write_model(source, text(values))
     with pytest.raises(ValueError) as error:
         SYNC.sync(root, True, "dev", "123456789012")
-    assert "migration required" in str(error.value)
+    assert "requires only" in str(error.value)
     assert path.read_bytes() == saved
     print("Stack policy model checks: PASS (sorting, identity, comments, default 1, invalid policy, legacy fail closed)")
 
