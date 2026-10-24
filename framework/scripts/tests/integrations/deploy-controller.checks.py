@@ -231,8 +231,8 @@ def check_external_repair_cleanup_resumes(tmp_path, monkeypatch):
     saved = json.loads(context['session'].read_text())
     assert_published(context['parent'], context['session'], {name: s['executionEvidence'] for name, s in saved['states'].items()})
     calls = json.loads(context['aws'].read_text())['calls']
-    assert sum(op == 'create_change_set' and args['StackName'] == SECOND for _, op, args in calls) == 2
-    assert sum(op == 'execute_change_set' for _, op, _ in calls) == 3
+    assert sum(op == 'create_change_set' and args['StackName'] == SECOND for _, op, args in calls) == 3
+    assert sum(op == 'execute_change_set' for _, op, _ in calls) == 4
 
 
 if __name__ == '__main__':
