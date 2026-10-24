@@ -1067,7 +1067,7 @@ def check_session_cli(tmp_path, monkeypatch):
     design.write_bytes(saved_design)
     remove_model(bucket_model)
     state_file, argv = saved_state, saved_argv
-    print("Deployment input isolation: PASS (A/B unrelated invalid stg guard/resume; C/D/E target/shared; artifact guard/resume; H framework; I target account/region/profile/engine; target/reference model/contract guards)")
+    print("Deployment input isolation: PASS (A/B unrelated invalid stg guard/resume; C/D/E target/shared; artifact guard/resume; I target account/region/profile/engine; target/reference model/contract guards)")
     assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume", "--approve-change-set", "cs-A"]) == 2
     template.write_text("Resources: {Changed: {}}\n")
     assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 2
@@ -1114,17 +1114,6 @@ def check_session_cli(tmp_path, monkeypatch):
         assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ['--resume']) == 0 and recovered[before:] == [('A', 'stable-bootstrap-token')]
         assert not backends[-1].calls
         runtime_resume[0] = False
-        # Project instructions remain part of the validation input boundary.
-        instructions = root / "AGENTS.md"
-        original_instructions = instructions.read_bytes() if instructions.exists() else None
-        instructions.write_text("validation input " + str(len(orders)))
-        prior = json.loads(state_file.read_text())["executionDigest"]
-        assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--resume"]) == 2 and not backends[-1].calls
-        assert json.loads(state_file.read_text())["executionDigest"] == prior
-        if original_instructions is None:
-            instructions.unlink()
-        else:
-            instructions.write_bytes(original_instructions)
         if limit == 4:
             # Sequential is a session cap, not a design edit or per-stack invocation.
             state_file = base / f"sequential-{len(orders)}.json"

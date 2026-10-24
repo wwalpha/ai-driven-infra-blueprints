@@ -495,7 +495,7 @@ def issue_request(
                'inputDigest': session['inputDigest'], 'revision': session['inputRevision'],
                'problemIds': sorted(problem_ids), 'allowedPaths': sorted(allowed_paths),
                'infraManifest': copy.deepcopy(session['infraManifest']), 'modelInputManifest': copy.deepcopy(session['modelInputManifest']),
-               'designDigest': session['designDigest'], 'executionDigest': session['executionDigest'],
+               'designDigest': session['designDigest'],
                'observations': copy.deepcopy([o for o in session['failureObservations'] if o['observationId'] in current['latestObservations']]),
                'validationScope': session['validationScope']}
     session['pendingRequest'] = pending
@@ -516,7 +516,6 @@ def verify_inputs(
     deployment_input_paths = _imports_deploy_inputs.deployment_input_paths
     load_units = _imports_deploy_inputs.load_units
     design_digest = _imports_deploy_session.design_digest
-    execution_digest = _imports_deploy_session.execution_digest
     model_input_manifest = _imports_deploy_session.model_input_manifest
     environment, directory, target = session['environment'], session['directory'], session['target']
     current = load_target(root, environment, target['awsAccountId'], target.get('alias'))
@@ -530,8 +529,6 @@ def verify_inputs(
     allowed = set(child_paths)
     if actual.keys() != session['infraManifest'].keys() or any(actual[p] != digest for p, digest in session['infraManifest'].items() if p not in allowed):
         raise Blocked('unrecorded IaC changes during handoff')
-    if execution_digest(root, target, sha, session['unitDigests']) != session['executionDigest']:
-        raise Blocked('execution definitions changed; repair-result cannot migrate them')
     return actual
 
 

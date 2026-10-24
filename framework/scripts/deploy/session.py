@@ -23,7 +23,6 @@ from task_contract_core import (
     task_reads,
     task_snapshot,
 )
-from utils.aws_mappings import definition_root
 from utils.json_format import fingerprint
 from utils.source_reads import FileReads
 from utils.type_contracts import JsonValue as JsonValue
@@ -128,23 +127,6 @@ def verify_observed_transition(
     if design_digest(root, environment, directory) != intended_design:
         raise Blocked('observed publication changed intended Model design')
     return model_input_manifest(root, environment, directory)
-
-
-def execution_digest(
-    root: Path,
-    target: Target,
-    file_digest: Callable[[Path], str | None],
-    unit_digests: dict[str, str],
-) -> str: # Reuse is invalidated by controller, validators, rules, catalog/schema and project changes.
-    paths = sorted(path for path in (definition_root(root) / "framework").rglob("*")
-                   if path.is_file() and path.suffix in {".py", ".json", ".md", ".properties", ".sha256"})
-    paths += [root / "AGENTS.md", root / "project.json"]
-    paths += sorted((definition_root(root) / '.agents/skills').rglob('*.md'))
-    paths.append(definition_root(root) / 'framework/scripts/requirements.txt')
-    return fingerprint([target, sys.version,
-        [(str(path.relative_to(root if path.is_relative_to(root) else definition_root(root))), file_digest(path))
-         for path in paths if path.is_file()]])
-
 
 
 def _callback_run_session_sync_once(backend, save, session, units, /):
@@ -263,8 +245,6 @@ def _callback_run_guard(args, backend, context, current_design, directory, infra
             raise Blocked('task contract changed before mutation')
         if any(backend.input_digest(unit) != unit_digests[unit["name"]] for unit in units):
             raise Blocked("deployment inputs changed before mutation")
-        if execution_digest(backend.root, backend.target, backend.file_digest, unit_digests) != session.get("executionDigest"):
-            raise Blocked("execution definitions changed before mutation")
         return snapshot
 
 
@@ -333,8 +313,6 @@ def run(
                     try:
                         if any(sha(root / path) != digest for path, digest in session['infraManifest'].items()):
                             raise Blocked('IaC changed during pending observed publication')
-                        if execution_digest(root, target, sha, session['unitDigests']) != session['executionDigest']:
-                            raise Blocked('execution definitions changed during pending observed publication')
                         observed_resume.reconcile(root, session, target, args.environment, directory)
                     except Exception as error:
                         session['observedRecoveryError'] = str(error)
@@ -370,9 +348,6 @@ def run(
                     raise Blocked('closed workflow cannot resume AWS execution; unresolved history still owns overlapping scope')
                 if session.get('workflow', {}).get('legacyUncertain'):
                     raise Blocked('WAITING_HUMAN: legacy repair identity/cycles require diagnosis; no candidate reapplication')
-                current_execution = execution_digest(root, target, backend.file_digest, unit_digests)
-                if session.get('executionDigest') != current_execution:
-                    raise Blocked('execution definitions changed; explicitly migrate original session first')
                 if getattr(args, 'repair_result', None):
                     repair_resume.accept(root, args.repair_result, session, backend, units, unit_digests, current_infra)
                 elif session.get('pendingRequest'):
@@ -415,7 +390,6 @@ def run(
                            modelInputManifest=model_input_manifest(root, args.environment, directory))
             session.setdefault('repository', str(root))
             session.setdefault('taskFile', initial_task.name)
-            sha = _imports_deploy_contracts.sha
             session.setdefault('taskDigest', initial_task.task_digest)
             session.setdefault('infraManifest', current_infra)
             session.setdefault('unitInputPaths', {u['name']: [p.relative_to(root).as_posix() for p in backend.deployment_input_paths([u])] for u in units})
@@ -431,7 +405,6 @@ def run(
             if phase == 'update' and args.resume and not getattr(args, 'repair_result', None):
                 session['effectiveDigests'] = handoff.effective(root, units, backend.paths, backend.deployment_input_paths)
             session.setdefault('effectiveDigests', handoff.effective(root, units, backend.paths, backend.deployment_input_paths))
-            session.setdefault("executionDigest", execution_digest(root, target, backend.file_digest, unit_digests))
             handoff.bind(root, state_path, session)
             backend.session = session
             contract = initial_task.text
@@ -480,10 +453,6 @@ def run(
                     migrate_delivery = _imports_deploy_contracts.migrate_delivery
                     if migrate_delivery(root, target, unit, state, backend.templates[unit['name']], backend.file_digest):
                         session['migration'] = 'v3 SDK delivery arguments; execution identity retained'
-            current_execution = execution_digest(root, target, backend.file_digest, unit_digests)
-            if args.resume and session.get('executionDigest', current_execution) != current_execution:
-                raise Blocked('execution definitions changed; review and explicitly migrate the same session')
-            session.setdefault('executionDigest', current_execution)
             session.setdefault('declaredConsumers', handoff.dependencies(backend, units))
             save()
         except Exception:

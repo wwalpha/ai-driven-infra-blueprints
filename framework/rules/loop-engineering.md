@@ -72,7 +72,10 @@ Use pytest only for existing pytest suites and an already available dependency; 
 script entrypoints for other suites. The standalone validator uses the contract's explicit
 Validation scope; do not add `--all` or `--repository-wide-iac` for bounded checks.
 Local regression discovers all UTs; caches, worker counts and validation scope are retained.
-Ordinary Project Tasks treat Framework code and definitions as immutable. Task/local
+Ordinary Project Tasks treat Framework code and definitions as immutable. Deploy does
+not scan/hash Framework definitions or compare them at start, mutation, Observed
+synchronization, handoff or resume. Session format/history migration and Task, Model,
+IaC, ChangeSet, execution evidence and signed journal checks remain required. Task/local
 loops do not select UT/IT from Framework Git differences; they validate the Project's
 Validation scope and Task Contract. Framework development uses dedicated UT entrypoints,
 `run_it.py`, Framework IT CI, or explicit Full. CI changed-file selection and its dependency mapping are removed. Explicit Full uses
@@ -338,7 +341,7 @@ Infrastructure phase `destroy` is an independent CloudFormation Stack workflow:
 7. Run `python framework/scripts/blueprint-loop.py --mode task --task-file <task>` once, then complete only after terminal/sync evidence and PASS.
 8. Finish without scenario tests or another task.
 
-Do not require deploy/implement IaC validation in destroy: no cfn-lint, validate-template, change sets, template/parameter/artifact checks, deploy preparation, clean revision check, deploy repair or full infra/framework digest guards. The scoped loop retains model/generated equality, task boundary, issue, catalog/schema and common checks; it skips IaC validation. Framework implementation changes follow [Validation policy](#validation-policy).
+Do not require deploy/implement IaC validation in destroy: no cfn-lint, validate-template, change sets, template/parameter/artifact checks, deploy preparation, clean revision check, deploy repair or deployment input guards. The scoped loop retains model/generated equality, task boundary, issue, catalog/schema and common checks; it skips IaC validation. Framework implementation changes follow [Validation policy](#validation-policy).
 
 ## Scenario-test task completion
 

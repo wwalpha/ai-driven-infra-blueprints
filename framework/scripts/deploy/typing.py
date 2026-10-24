@@ -44,7 +44,6 @@ class Session(TypedDict, total=False):
     taskFile: str
     taskDigest: str
     inputDigest: str
-    executionDigest: str
     designDigest: str
     unitDigests: dict[str, str]
     states: States

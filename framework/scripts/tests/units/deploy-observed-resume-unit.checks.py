@@ -175,7 +175,7 @@ def check_exact_task_bytes_bound(proposal):
     task = root / 'tasks/deploy.md'
     task.write_text(task.read_text().replace('## Task contract', '## Task contract\n- Authorized delete/replacement: `none`'))
     session.update(repository=str(root), taskFile='tasks/deploy.md', taskDigest=M.task_digest(task.read_text()),
-                   inputDigest='inputs', executionDigest='execution', infraManifest={})
+                   inputDigest='inputs', infraManifest={})
     original = M._identity(root, session, {}, 'dev', 'team')
     task.write_text(task.read_text().replace('Authorized delete/replacement: `none`', 'Authorized delete/replacement: `all`'))
     changed = M._identity(root, session, {}, 'dev', 'team')
@@ -332,7 +332,7 @@ def owned_proposal(proposal):
     text = text.replace('## Allowed paths', '## Allowed paths\n- `' + relative + '`')
     task.write_text(text, encoding='utf-8')
     session.update(repository=str(root), taskFile='tasks/deploy.md', taskDigest=M.task_digest(text),
-                   inputDigest='inputs', executionDigest='execution', infraManifest={}, unitDigests={'A': 'unit'})
+                   inputDigest='inputs', infraManifest={}, unitDigests={'A': 'unit'})
     state = session['states']['A']
     state.update(stackStatus='CREATE_COMPLETE', stackId='stack', changeSetId='change',
                  changeDigest='digest', approvedChangeDigest='digest', clientToken='token',
@@ -341,6 +341,7 @@ def owned_proposal(proposal):
     plan = session['pendingObserved']
     plan['evidence'] = M.evidence(session['states'], ['A'])
     plan['identity'] = M._identity(root, session, {}, 'dev', 'team')
+    assert 'executionDigest' not in plan['identity']
     plan['generated'] = {'groups': {relative: [relative]}, 'originals': {relative: ''},
                          'outputs': None, 'stage': 'PREPARED'}
     return root, session, source, old, new
@@ -350,6 +351,11 @@ def owned_proposal(proposal):
                                      'worktree-deleted', 'tampered-session', 'foreign-journal', 'external-model'])
 def check_owned_resume_boundaries(owned_proposal, problem):
     root, session, source, old, new = owned_proposal
+    if problem == 'none':
+        session['executionDigest'] = 'legacy-session-value'
+        session['pendingObserved']['identity'].update(
+            managedTask={'legacy': True}, executionDigest='legacy-plan-value')
+    saved_identity = copy.deepcopy(session['pendingObserved']['identity'])
     path = root.parent / (root.name + '-session.json')
     handoff.bind(root, path, session)
     handoff.save(path, session)
@@ -404,6 +410,8 @@ def check_owned_resume_boundaries(owned_proposal, problem):
         else:
             assert M.reconcile(root, restored, {}, 'dev', 'team') == 'PREPARED'
     assert source.read_bytes() == before
+    assert restored['pendingObserved']['identity'] == saved_identity
+    assert json.loads(path.read_text())['pendingObserved']['identity'] == saved_identity
 
 
 @pytest.mark.parametrize('stage', ['PREPARED', 'MODEL_PUBLISHED'])

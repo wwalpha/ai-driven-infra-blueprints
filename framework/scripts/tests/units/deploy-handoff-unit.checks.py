@@ -188,8 +188,10 @@ def check_signed_ledger_rejects_rollback_and_recovers(tmp_path, after_replace):
     root.mkdir()
     path = tmp_path / 'state.json'
     session = {'repository': str(root), 'taskFile': 'tasks/deploy.md', 'states': {'Stack': {'status': 'NOT_STARTED'}}}
+    session['executionDigest'] = 'legacy-framework-value'
     handoff.bind(root, path, session)
     handoff.save(path, session)
+    handoff.restore(root, path, json.loads(path.read_text()))
     old = path.read_bytes()
     session['workflow']['reserved'] = 1
     actual_replace = file_operations.os.replace
@@ -199,12 +201,18 @@ def check_signed_ledger_rejects_rollback_and_recovers(tmp_path, after_replace):
     recovered = json.loads(path.read_text())
     handoff.restore(root, path, recovered)
     assert recovered['workflow']['reserved'] == 1
+    assert recovered['executionDigest'] == 'legacy-framework-value'
+    altered = json.loads(path.read_text())
+    altered.pop('executionDigest')
+    with pytest.raises(Blocked, match='ledger'):
+        handoff.restore(root, path, altered)
     path.write_bytes(old)
     with pytest.raises((Blocked, ValueError), match='ledger'):
         handoff.restore(root, path, json.loads(path.read_text()))
     path.unlink()
     final = handoff.recover_session(root, path, 'tasks/deploy.md')
     assert final['workflow']['reserved'] == 1 and final['workflow']['workflowId'] == session['workflow']['workflowId']
+    assert final['executionDigest'] == 'legacy-framework-value'
     with pytest.raises((Blocked, ValueError), match='original session'):
         handoff.recover_session(root, tmp_path / 'new-state.json', 'tasks/deploy.md')
 
@@ -661,7 +669,8 @@ def acceptance(tmp_path):
     request_path.parent.mkdir()
     request = {'requestId': 'request', 'attemptId': 'attempt', 'workflowId': workflow['workflowId'],
                'repository': str(root), 'session': str(tmp_path / 'session.json'), 'requestPath': str(request_path),
-               'taskFile': session['taskFile'], 'taskDigest': 'task', 'revision': 0, 'allowedPaths': ['infra/Second.yaml']}
+               'taskFile': session['taskFile'], 'taskDigest': 'task', 'revision': 0, 'allowedPaths': ['infra/Second.yaml'],
+               'executionDigest': 'legacy-issued-request'}
     session['pendingRequest'] = copy.deepcopy(request)
     backend.paths(units[1])[0].write_text(backend.paths(units[1])[0].read_text().replace('10.2.', '10.0.'))
     current = {p.relative_to(root).as_posix(): sha(p) for p in backend.deployment_input_paths(units)}
@@ -755,7 +764,7 @@ def check_issue_request_stability(tmp_path):
     handoff.diagnose(tmp_path, session, {'revision': 0, 'problems': [problem]})
     relative = problem['inputRefs'][0]['path']
     session.update(repository=str(tmp_path), taskFile='tasks/deploy.md', taskDigest='task', target=TARGET,
-        environment='dev', inputDigest='inputs', designDigest='design', executionDigest='execution',
+        environment='dev', inputDigest='inputs', designDigest='design',
         validationScope=['dev/team/ec2'], infraManifest={relative: sha(tmp_path / relative)})
     task = tmp_path / 'tasks/deploy.md'
     task.parent.mkdir()
@@ -766,6 +775,7 @@ def check_issue_request_stability(tmp_path):
     expected = [{'stack': 'Stack', 'resourcePath': 'Item', 'operation': 'CREATE', 'status': 'CREATE_COMPLETE'}]
     with selected_task(tmp_path, 'tasks/deploy.md'):
         pending = handoff.issue_request(tmp_path, path, session, problems, [relative], expected)
+        assert 'executionDigest' not in pending
         restored = json.loads(path.read_text())
         assert handoff.issue_request(tmp_path, path, restored, problems, [relative], expected) == pending
         assert restored['pendingRequest'] == pending and restored['workflow']['reserved'] == 1

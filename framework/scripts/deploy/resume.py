@@ -180,17 +180,16 @@ def recover(backend, unit, state):
 
 
 def migrate(root, session, args):
-    """Explicit v3/definition transition. No candidate reapplication or AWS-state invention."""
+    """Explicit session/history migration. No candidate reapplication or AWS-state invention."""
     load_target = _imports_project_targets.load_target
     if session.get('version') not in {3, 4} or not args.authorization:
         raise Blocked('migration needs a compatible original session and explicit Human authorization')
     if any(s['status'] == 'RUNNING' or s.get('pollError') for s in session['states'].values()):
-        raise Blocked('observe/drain in-progress or unknown operations using original definitions before migration')
+        raise Blocked('observe/drain in-progress or unknown operations using original identities before migration')
 
     deployment_input_paths = _imports_deploy_inputs.deployment_input_paths
     load_units = _imports_deploy_inputs.load_units
     paths = _imports_deploy_inputs.paths
-    execution_digest = _imports_deploy_session.execution_digest
     contract = task_snapshot(root).text
     # The old digest ignored status/approval lines already. Do not call status a failure.
     legacy_digests = {hashlib.sha256(('\n'.join(line for line in (contract.rstrip('\n') + '\n' * count).splitlines() if not line.startswith(('- Authorized delete/replacement:', '- Task status:')))).encode()).hexdigest() for count in (0, 1, 2)}
@@ -200,10 +199,6 @@ def migrate(root, session, args):
     account = next(line.split('`')[1] for line in section(contract, '## Task contract') if line.startswith('- Target AWS account:'))
     alias = next((line.split('`')[1] for line in section(contract, '## Task contract') if line.startswith('- Target alias:')), None)
     target = load_target(root, env, account, alias)
-    current = execution_digest(root, target, _dependency_deploy_contracts.sha, session['unitDigests'])
-    expected_old = session.get('executionDigest') or 'missing'
-    if args.old_execution_digest != expected_old or args.new_execution_digest != current:
-        raise Blocked('explicit execution migration required: saved=' + expected_old + '; current=' + current)
     if '- Controlled repair: `allowed`' in contract.splitlines():
         session['runtimeRecoveryAuthorization'] = 'explicitly-migrated-legacy-runtime'
     workflow = handoff.workflow(session)
@@ -236,12 +231,11 @@ def migrate(root, session, args):
     session.update(version=4, taskDigest=_dependency_deploy_contracts.task_digest(contract), environment=env, directory=env_directory, target=target,
                    logicalTarget=[env, env_directory, target['awsAccountId'], target['awsRegion']],
                    validationScope=sorted(__import__('task_contract').paths_in(contract, '## Validation scope')),
-                   executionDigest=current, effectiveDigests=handoff.effective(root, units,
+                   effectiveDigests=handoff.effective(root, units,
                        lambda u: paths(root, env, env_directory, target, u),
                        lambda us: deployment_input_paths(root, env, env_directory, target, us)))
     session['unitInputPaths'] = {u['name']: [p.relative_to(root).as_posix() for p in deployment_input_paths(root, env, env_directory, target, [u])] for u in units}
-    session.setdefault('migrations', []).append({'fromExecutionDigest': args.old_execution_digest,
-        'toExecutionDigest': current, 'authorizationDigest': fingerprint(args.authorization), 'legacyCycles': workflow['reserved']})
+    session.setdefault('migrations', []).append({'authorizationDigest': fingerprint(args.authorization), 'legacyCycles': workflow['reserved']})
 
 
 
@@ -251,7 +245,7 @@ def _observe_only_no_mutation():
 
 
 def observe_only(backend, units, limit, path, session):
-    """Explicit observation of original tokens, even before an execution-definition migration."""
+    """Explicit observation of original tokens, even before a session/history migration."""
     run_group = _imports_deploy_scheduler.run_group
     backend.states, backend.session = session['states'], session
     backend.save = lambda: handoff.save(path, session)

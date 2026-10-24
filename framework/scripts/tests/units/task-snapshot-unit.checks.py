@@ -204,12 +204,11 @@ def check_deploy_mutation_io_and_live_denial(tmp_path, monkeypatch):
     issues.parent.mkdir(parents=True)
     issues.write_text('未解決issueなし')
     record = {'taskDigest': tasks.task_digest(task_text('one')), 'modelInputManifest': {},
-              'infraManifest': {}, 'executionDigest': 'execution'}
+              'infraManifest': {}}
     runtime = SimpleNamespace(root=tmp_path, environment='dev', directory='cde', guard=partial(mutation_guard, tmp_path, record),
                               timing=SimpleNamespace(phase=lambda *args, **kw: input_context()), connection=object())
     with patch.object(session, 'design_digest', return_value='design'), \
             patch.object(session, 'model_input_manifest', return_value={}), \
-            patch.object(session, 'execution_digest', return_value='execution'), \
             patch.object(guards.SERVICES['s3'], 'put_object', return_value={}), TaskIO() as io:
         for _ in range(10):
             guards.call(runtime, 's3', 'put_object', {})
@@ -404,7 +403,6 @@ def check_session_initialization_reuses_task_fields(tmp_path, monkeypatch):
             patch.object(session._imports_deploy_context, 'check_deploy_context', return_value=target), \
             patch.object(session, 'design_digest', return_value='design'), \
             patch.object(session, 'model_input_manifest', return_value={}), \
-            patch.object(session, 'execution_digest', return_value='execution'), \
             patch.object(session.handoff, 'locked', return_value=nullcontext()), \
             patch.object(session.handoff, 'effective', return_value={}), \
             patch.object(session.handoff, 'bind', side_effect=Blocked('initialized')) as bind, TaskIO() as io:
@@ -412,6 +410,7 @@ def check_session_initialization_reuses_task_fields(tmp_path, monkeypatch):
         saved = bind.call_args.args[2]
         assert saved['taskFile'] == 'tasks/one.md' and saved['taskDigest'] == tasks.task_digest(text)
         assert saved['version'] == 4 and saved['repairBudget'] == 7
+        assert 'executionDigest' not in saved
         assert saved['validationScope'] == ['dev/cde/s3']
         assert io == {'reads': 1}
 

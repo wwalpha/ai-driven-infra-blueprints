@@ -27,8 +27,6 @@ def main(argv=None):
     parser.add_argument('--path', action='append', default=[])
     parser.add_argument('--expectation', type=Path, help='non-secret structured expected Resource/operation/status')
     parser.add_argument('--additional-cycles', type=int)
-    parser.add_argument('--old-execution-digest')
-    parser.add_argument('--new-execution-digest')
     parser.add_argument('--acknowledge-legacy-cycles', type=int)
     parser.add_argument('--authorization', help='explicit Human decision, without secrets')
     args = parser.parse_args(argv)

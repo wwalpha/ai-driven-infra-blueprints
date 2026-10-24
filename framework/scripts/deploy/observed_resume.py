@@ -159,7 +159,7 @@ def _identity(root, session, target, environment, directory):
     return {'repository': str(root), 'taskFile': session['taskFile'], 'taskDigest': task_digest(text),
             'taskBytes': snapshot.raw_digest,
             'environment': environment, 'directory': directory, 'target': target,
-            **{key: session[key] for key in ('inputDigest', 'executionDigest', 'infraManifest')}}
+            **{key: session[key] for key in ('inputDigest', 'infraManifest')}}
 
 
 def prepare(backend, units, outputs, services, views):
@@ -198,8 +198,8 @@ def validate_plan(root, session, target, environment, directory):
     if (plan['originals'].keys() != plan['outputs'].keys()
             or plan['beforeManifest'].keys() != plan['afterManifest'].keys()):
         raise Blocked('observed plan file sets differ')
-    # Old signed plans retain this field; only Worktree metadata is excluded.
-    identity = {key: value for key, value in plan['identity'].items() if key != 'managedTask'}
+    # Compare legacy signed plans without altering their persisted identity.
+    identity = {key: value for key, value in plan['identity'].items() if key not in {'managedTask', 'executionDigest'}}
     if identity != _identity(root, session, target, environment, directory):
         raise Blocked('observed plan Task/target/session identity changed')
     if plan['evidence'] != evidence(session['states'], plan['evidence']):

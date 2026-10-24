@@ -2473,7 +2473,7 @@ observed-resume UTはCIで毎回実行する。IT runnerとGitHub Actionsの入�
 | `external-repair::failure-classes` | `check_failure_classes` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 6 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
 | `external-repair::effective-inputs-and-safe-events` | `check_effective_inputs_and_safe_events` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
 | `external-repair::status-helpers-preserve-task-identity` | `check_status_helpers_preserve_task_identity` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
-| `external-repair::signed-ledger-rejects-rollback-and-recovers` | `check_signed_ledger_rejects_rollback_and_recovers` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 2 | Signed intent recovery before/after session rename and stale-ledger rejection | Synthetic offline inputs |
+| `external-repair::signed-ledger-rejects-rollback-and-recovers` | `check_signed_ledger_rejects_rollback_and_recovers` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 2 | Legacy-field signed Session/intent recovery before/after session rename, field-removal/stale-ledger rejection | Synthetic offline inputs |
 | `external-repair::total-budget-is-not-three-global-failures` | `check_total_budget_is_not_three_global_failures` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
 | `external-repair::ambiguous-new-and-invalid-evidence-rejected` | `check_ambiguous_new_and_invalid_evidence_rejected` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 6 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
 | `external-repair::distinct-property-and-request-id-stability` | `check_distinct_property_and_request_id_stability` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | Policy/evidence/input/ledger boundary; no live AWS | Synthetic offline inputs |
@@ -2825,7 +2825,7 @@ through os.replace, without depending on temporary filenames.
 
 ## Deploy controller processing reduction (1024v4)
 
-旧66条件の主要assertionと、Human指示によるlegacy互換専用条件の除外を以下に記録する。ITの配置変更でUT化せず、直接関数呼出しだけをUTへ補強する。controllerは6関数6入口、小型ITは1関数1入口とする。今回ITは実行・収集・計測しない。
+旧66条件の主要assertionと削減後の保証先を以下に記録する。ITの配置変更でUT化せず、直接関数呼出しだけをUTへ補強する。controllerは7関数7入口（形式・履歴移行のVALIDATED代表1条件を含む）、小型ITは1関数1入口とする。ITは静的確認のみで、実行・収集・計測しない。
 
 | 旧controller条件（件数） | 主要assertion / 保証先 |
 | --- | --- |
@@ -2835,11 +2835,11 @@ through os.replace, without depending on temporary filenames.
 | input_guard_drains_peer (1) | runtime `check_guard_failure_drains_accepted_peer`: guard実例外→新規停止・受理済peer drain |
 | observed_io_resume (1)、observed_publication_process_resume (8)、observed_drains_peer_then_resumes (1) | design I/O/複数peer/後続Order停止は `check_observed_failure_drains_peers_and_resumes`、実Model-partial起動時復旧は `check_pending_observed_recovers_before_model_load`。plan保存失敗は `check_intent_save_failure`、Model/generation I/Oは `check_finish_io_failure`、committed段階は `check_finish_committed_stages`、session同期失敗は `check_session_sync_failure_drains_and_resumes`。生成物journalは小型 `check_generated_journal_recovery_uses_observed_owner`。一般的process death/atomic rollbackは既存 `model-properties-v2.checks.py::check_managed_properties_save[process-death] と model_templates.checks.py::check_transactions` のpublication IT（下記参照） |
 | generated_external_change_rejected (9)、generated_change_during_publication (1) | observed-resume `check_generated_classification`（JSON削除補強）、`check_generated_journal`、`check_generated_plan_snapshot`。公開途中の外部変更は既存 `sync-model.checks.py::check_input_mutation` / `check_publication_boundary` / `check_publication_rechecks_excluded_outputs` のinput snapshot/publication IT。controller往復の重複を削除 |
-| observed_external_change_rejected (11) | observed-resume `check_classification`、`check_plan_validation`、`check_execution_identity`、`check_journal_ownership`、`check_exact_task_bytes_bound`、`check_owned_resume_boundaries`。IaC入力変更・Task/target/定義digestのguardは既存runtime `check_session_cli`。署名evidence/approval/pending改変はhandoff `check_signed_protected_fields` |
+| observed_external_change_rejected (11) | observed-resume `check_classification`、`check_plan_validation`、`check_execution_identity`、`check_journal_ownership`、`check_exact_task_bytes_bound`、`check_owned_resume_boundaries`。IaC入力変更・Task/targetのguardは既存runtime `check_session_cli`。署名evidence/approval/pending改変はhandoff `check_signed_protected_fields` |
 | legacy_session_without_observed_plan (2) | observed-resume `check_session_without_plan_and_signed_removal`: 正当なplanなしsessionと署名済plan除去を区別 |
 | cleanup_and_repair_process_resume (1)、external_repair_cleanup_recovery (1) | `check_external_repair_cleanup_resumes`: 元の失敗証跡・DELETE_INTENT・単一Delete・成功Stack保護・再実行・公開・結果再適用 |
 | bootstrap_process_resume (2) | 既存runtime `check_secret_runtime_bootstrap`: JSON保存session再読込、同token/単一PUT、外部AWSCURRENT競合 |
-| explicit_legacy_migration (3) | Human指示によりlegacy互換専用条件を削除し、保証対象から除外。代替テストは追加しない |
+| explicit_legacy_migration (3 → 1) | `check_explicit_legacy_migration`: VALIDATED代表のみ。REPAIR_INTENT/VALIDATING重複2条件とFramework digest準備・CLI引数・更新assertを廃止。旧形式→v4、observe/drain、同token/SUCCESS/未同期/cleanup、候補不適用・履歴/消費回数・WAITING_HUMANを保持 |
 | external_repair_resumption (12) | request/accept前後はhandoff `check_issue_request_stability` / `check_accept_protects_success_and_retries`、未実行decode/validate/create/reviewは `check_unexecuted_exception_to_diagnosis`、shared-successはaccept UT。repeat/new-problem/regressionは既存 `check_problem_sequences` とcause/relation UT。通常Git receipt境界はcleanup controller IT。専用Worktree normal/mergeのcheckpoint/child/validation/merge/cleanup/親再開および追加assertionを維持 |
 
 66条件 = 1+1+1+1+2+7+1+1+8+1+9+1+11+2+1+1+2+3+12。以下の登録件数はソースのASTから静的確認した値であり、今回ITを収集して得た値ではない。
@@ -2852,6 +2852,7 @@ through os.replace, without depending on temporary filenames.
 | `deploy-reduction::observed_failure_drains_peers_and_resumes` | `check_observed_failure_drains_peers_and_resumes` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 1 | 実design I/O失敗、複数peer drain（初回I/O失敗時にpeerがRUNNINGであることを記録）、後続Order停止、未完同期の別process再開 | 接続境界 |
 | `deploy-reduction::pending_observed_recovers_before_model_load` | `check_pending_observed_recovers_before_model_load` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 1 | 実Model部分書込/journal/pending planからcontroller起動時復旧 | 接続境界 |
 | `deploy-reduction::external_repair_cleanup_resumes` | `check_external_repair_cleanup_resumes` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 1 | 通常Git署名receipt、cleanup中断・単一Delete・修復再実行・結果再適用 | 接続境界 |
+| `deploy-reduction::explicit_legacy_migration` | `check_explicit_legacy_migration` | IT | [integrations/deploy-controller.checks.py](integrations/deploy-controller.checks.py) | pytest / 1 | 旧形式・履歴移行、observe/drain、元token/SUCCESS/未同期/cleanup・消費回数保持、VALIDATED候補不適用 | 既存移行代表を保持 |
 | `deploy-reduction::generated_journal_recovery_uses_observed_owner` | `check_generated_journal_recovery_uses_observed_owner` | IT | [integrations/deploy-observed-recovery.checks.py](integrations/deploy-observed-recovery.checks.py) | pytest / 1 | 所有者検証→実lock/生成物復元、Model/plan/evidence保持 | 接続境界 |
 | `deploy-reduction::deletion_event_identity` | `check_deletion_event_identity` | UT | [units/deploy-sdk.checks.py](units/deploy-sdk.checks.py) | pytest / 4 | 上の旧条件・主要assertion対応表を参照 | 直接関数・小fixture |
 | `deploy-reduction::execute_timeout_keeps_evidence` | `check_execute_timeout_keeps_evidence` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py) | pytest / 1 | SDK wrapperのReadTimeout分類・証拠を実JSONへ保存、再構成後のIN_PROGRESS→SUCCESSを実pollで処理し単一Executeと最終保存を確認 | 直接関数・小fixture |
@@ -2867,15 +2868,24 @@ through os.replace, without depending on temporary filenames.
 | `deploy-reduction::unexecuted_exception_to_diagnosis` | `check_unexecuted_exception_to_diagnosis` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 4 | 上の旧条件・主要assertion対応表を参照 | 直接関数・小fixture |
 
 
-関連4 UTはSDK 11関数38条件、runtime 16関数32条件、observed-resume 19関数76条件、handoff 28関数83条件、計229条件。legacy session移行3条件・観測1条件、旧workflow履歴移行2条件、旧Observed plan互換3条件の計9条件と専用helperを削除した。policyのlegacyUncertain専用assertionも削除した。未知のidentityフィールド拒否は現行planだけで確認し、planなしsessionと署名済planの不正除去、現行retry・署名・所有者検証を維持する。既存bootstrap/retry/削除policy条件は再追加していない。
+関連4 UTはSDK 11関数38条件、runtime 16関数32条件、observed-resume 19関数76条件、handoff 28関数83条件、計229条件（入口数は不変）。前の削減ではlegacy session移行3条件・観測1条件、旧workflow履歴移行2条件、旧Observed plan互換3条件の計9条件と専用helperを削除した。今回の指定に従い、形式・履歴移行ITの代表1条件のみを保持する。policyのlegacyUncertain専用assertionも削除した。未知のidentityフィールド拒否、planなしsessionと署名済planの不正除去、現行retry・署名・所有者検証を維持する。既存の署名復旧UTとOwned resume成功条件に旧executionDigest fixtureを加え、保存identityを変えず復旧する。新規非生成は初期化・request・identityの既存UTで確認する。既存bootstrap/retry/削除policy条件は再追加していない。
 
 | controller suite内の処理 | 1024v4設計値 | 再構成後の静的呼出構造 |
 |---|---:|---:|
-| full seed / Project全生成 / Git init | 各66 | 各6（6フローにつき1回） |
-| 初期Gitコマンド | 330 | 30（seed内5 × 6） |
+| full seed / Project全生成 / Git init | 各66 | 各7（7フローにつき1回） |
+| 初期Gitコマンド | 330 | 35（seed内5 × 7） |
 | Python子process | 100 | 7（Remove 2、Observed peer resume 1、Model partial 2、cleanup 2） |
 | 小型IT / 新規UTに追加するPython子process | — | 0 |
 
-controllerの親process invokeは6回（正常1・配送失敗1・承認待ち1・Observed I/O失敗1・外部修復初回1・完了後結果再適用1）。子process invoke7回と合わせ13回。各責務の再開のみ残し、細かな条件の往復は直接UTへ集約した。seedの初期sync(write=True)6回とは別に、完了内容を検証するsync(False)は正常と必要な復旧の5フローで各1回を保持する。外部修復receiptの通常Git provenance操作とWorktree専用処理はこの初期Git数に含めない。
+controllerの親process invokeは9回（正常1・配送失敗1・承認待ち1・Observed I/O失敗1・外部修復初回1・完了後結果再適用1・旧移行3）。子process invoke7回と合わせ16回。旧移行はoffline migrate CLI関数も1回呼ぶ。各責務の再開のみ残し、細かな条件の往復は直接UTへ集約した。seedの初期sync(write=True)7回とは別に、完了内容を検証するsync(False)は正常と必要な復旧の5フローで各1回を保持する。外部修復receiptの通常Git provenance操作とWorktree専用処理はこの初期Git数に含めない。
 
 これは実処理回数の設計値であり実測時間・速度倍率ではない。既存sleep無効化を新たな削減に算入しない。将来の正式CIでcontroller単独60秒目標と、関連UT・小型ITを含めた合計を計測する。今回IT未実行・未収集、CI未起動、60秒未計測。
+
+
+## Deploy Framework digest removal
+
+DeployのFramework全体走査・executionDigest生成/照合/停止条件と旧新digest CLI引数を廃止した。
+UT `check_session_cli` のAGENTS.md書換え・resume拒否・digest保持ブロック1箇所（既存ループの3構成）と復元処理を削除し、H framework表示も除去した。
+Task snapshot UTの2関数からダミー値/mock、Observed通常fixture・小型ITとrequest fixtureから必須値を除去した。
+UT入口数は増減なし。task-snapshot初期化・request/identity既存UTで新規非生成、署名ledger/保存intentの2条件とOwned resume成功1条件で旧フィールド保持・復旧を確認する。旧発行request→resultの継承は既存accept fixtureで保持する。
+移行ITの旧3条件からVALIDATED代表1条件だけを保持し、REPAIR_INTENT/VALIDATINGの重複2条件をUTへ移設しない。現在の基点では3条件が既に削除済みだったため、差分は既存代表1条件の復元となる。IT実行・全UT/IT・性能測定は対象外。Task/対象/Issue/権限、Model/IaC・ChangeSet/実行証拠・署名/公開journalの検証を維持する。

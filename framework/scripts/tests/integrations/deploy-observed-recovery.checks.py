@@ -68,7 +68,7 @@ def check_generated_journal_recovery_uses_observed_owner(tmp_path, monkeypatch):
              'changeDigest': 'digest', 'executionEvidence': {'StackId': 'stack', 'ChangeSetId': 'change',
              'clientToken': 'token', 'changeDigest': 'digest', 'inputDigest': 'unit'}}
     session = {'repository': str(root), 'taskFile': 'tasks/deploy.md', 'taskDigest': M.task_digest(text),
-               'inputDigest': 'inputs', 'executionDigest': 'execution', 'infraManifest': {},
+               'inputDigest': 'inputs', 'infraManifest': {},
                'unitDigests': {'A': 'unit'}, 'states': {'A': state}, 'modelInputManifest': M.manifest({relative: old})}
     with selected_task(root, 'tasks/deploy.md'):
         session['pendingObserved'] = {'identity': M._identity(root, session, {}, 'dev', 'team'),

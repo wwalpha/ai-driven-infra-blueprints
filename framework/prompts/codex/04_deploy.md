@@ -85,9 +85,9 @@ CloudFormation failure stops new starts, drains accepted peers and synchronizes 
 
 ## Resume
 
-Resume the existing Task/session with --resume and only Human-approved --approve-change-set IDs. Preserve original intent/token, ChangeSet/approval and input evidence. Reacquire boundary AWS data; historical static validation metadata is never execution permission. Unsafe migration stops with its reason, retaining SUCCESS and unsynchronized work. Do not replace a session or rerun successful Stacks merely because modules/transport changed. External changes require --resume --repair-result, signed child validation/integration evidence, unchanged intended Model/scope/execution definitions and the original workflow ledger.
+Resume the existing Task/session with --resume and only Human-approved --approve-change-set IDs. Preserve original intent/token, ChangeSet/approval and input evidence. Reacquire boundary AWS data; historical static validation metadata is never execution permission. Unsafe migration stops with its reason, retaining SUCCESS and unsynchronized work. Do not replace a session or rerun successful Stacks merely because modules/transport changed. External changes require --resume --repair-result, signed child validation/integration evidence, unchanged intended Model/target/scope, verified execution inputs and the original workflow ledger.
 
-For v3/definition migration, use the explicit procedure in [Controller sessions](../../rules/cloudformation.md#controller-sessions-and-execution-timing). --resume --observe-only observes/drains existing identities without mutation, Model publication or accepting new execution definitions.
+For session format/history migration, use the explicit procedure in [Controller sessions](../../rules/cloudformation.md#controller-sessions-and-execution-timing). --resume --observe-only observes/drains existing identities without mutation or Model publication.
 
 ## External IaC repair handoff
 
@@ -169,7 +169,7 @@ uses one cycle. One attempt owns one child Task, including static failures.
 
 Checkpoint validates the parent's permitted differences and observed barrier without
 completing deploy. The sealed request fixes parent Worktree/branch/start/tip, integration
-destination, Task/target/scope, original input/design/execution digests, failure evidence,
+destination, Task/target/scope, original input/design digests, execution/failure evidence,
 problem IDs and exact permitted IaC paths. Create with `--repair-request` starts at that
 suspended parent tip; ordinary Create still uses the configured base. In the returned
 child Worktree register a new infrastructure/implement contract with target fields,
@@ -207,7 +207,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/cloudformation-d
 
 The dedicated result entrance plans and seals one input revision under exclusion before
 AWS recovery/execution. Normal --resume accepts no external IaC change. InputDigest,
-intended design/Model dependencies and executionDigest retain their authority; only
+intended design/Model dependencies and Task/target/scope retain their authority; only
 verified child IaC manifests/unit digests/caches advance. Unknown commits/bytes and
 post-validation dependency changes are rejected. Final parent validation attributes
 only actual ordered before/after child transitions; it does not exempt whole files or
@@ -262,9 +262,11 @@ The v5 implementation used session v4. This change retains that outer format and
 `workflow.diagnosisVersion: 1`. Existing IDs, observations, attempts, budget, consumed
 results, execution tokens and pending child evidence remain intact. A legacy workflow
 with problems/reservations but no relation marker is conservatively `legacyUncertain`
-and WAITING_HUMAN, never a fresh zero-attempt cause. Explicit `migrate` with the existing
-old/new execution digests is still required for changed execution definitions; the
-relation marker does not grant migration or AWS authority. No automatic semantic
+and WAITING_HUMAN, never a fresh zero-attempt cause. Explicit `migrate` retains session
+format/history migration with Human authorization
+and conservative legacy cycle acknowledgment; the relation marker does not grant
+migration or AWS authority. Framework definitions are treated as immutable during
+Project Tasks and are not monitored by Deploy. No automatic semantic
 reclassification or clearing of legacy uncertainty is provided.
 
 After an interrupted writer exits, retain/review locks using existing ownership rules;
