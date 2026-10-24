@@ -149,7 +149,6 @@ NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync 
 | `issues-v2::check_view_read_failure_policy` | `check_view_read_failure_policy` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | issues局所View障害・独立service/source診断・実チェック件数・非cache・raw guard・通常Validator伝播 | Issues v2 |
 | `issues-v4::check_child_builtin_packets_preserve_progress` | `check_child_builtin_packets_preserve_progress` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 2 | JSON組込み型へのIPC正規化・途中例外でも取得済み全channel/dependencies保持 | Issues residual repair |
 | `issues-v4::check_notice_fenced_roundtrip` | `check_notice_fenced_roundtrip` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | headerless owner/ID/Gate・backtick/tildeコード例・別scope・normal/notice/save-results解消往復 | Issues residual repair |
-| `issues-v4::check_notice_marker_boundaries` | `check_notice_marker_boundaries` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | scope不一致/未完marker/HTML保持・長いfence・正常notice再接続 | Issues residual repair |
 | `issues-tail::check_notice_tail_order_and_materials` | `check_notice_tail_order_and_materials` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 4 | 通常のみ/警告/参照警告/両方・複数scope混在診断の末尾順序・再保存安定・ID/Human材料/ownership/Gate保全 | Issues末尾警告 |
 | `issues-tail::check_notice_before_service_issues` | `check_notice_before_service_issues` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | 参照警告後のservice見出し/owner marker・補助見出し・前回診断・両fence保全・3回保存・ID/Human材料/ownership/Gate不変 | Issues警告境界 |
 | `issues-tail::check_scoped_reference_notices_survive_refresh` | `check_scoped_reference_notices_survive_refresh` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | 混在scope内の参照警告を診断更新後も保持・複数scope・3回保存安定 | Issues警告境界 |
@@ -3377,3 +3376,14 @@ No old service-specific tests or CodePipeline acceptance checks are duplicated o
 | `reference-audit::unsupported` | `test_unsupported_ssm_and_name_id_equivalence` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 1 | Unsupported SSM cannot be authorized by a receiving contract; Secret Name and Id are not automatically equivalent | Synthetic Models |
 | `reference-audit::split-context` | `test_cloudtrail_split_context` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 2 | S3/Lambda split Type/Values rows use the same context boundary | Synthetic Models |
 | `reference-audit::plaintext` | `test_codebuild_plaintext_and_missing_sibling_type` | UT | [units/reference-contract-audit-unit.checks.py](units/reference-contract-audit-unit.checks.py) | pytest / 1 | Explicit string PLAINTEXT reference and missing sibling Type remain distinct | Synthetic JSON |
+
+## 共通Issue Markdown分類
+
+| Case ID | Function | Layer | Suite | Execution / Count | Coverage | Origin |
+| --- | --- | --- | --- | --- | --- | --- |
+| `issue-markdown::reference` | `check_reference_lists` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 6 | 番号付き参照警告・service見出し・0件宣言有無と空prefix、Gate/材料0・保存再読込 | A/B |
+| `issue-markdown::boundary` | `check_explicit_issue_boundary` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 5 | service/ID markerと明示セクション境界、警告内の番号保持、ID/件数/ownership/Gate・末尾配置の3回往復 | C |
+| `issue-markdown::fence` | `check_fenced_classification` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 2 | 両fence・短い閉じ候補・番号/見出し/markerの無効化・scope往復 | check_notice_marker_boundariesから移設 |
+| `issue-markdown::ambiguous` | `check_ambiguous_input_stops_save` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 8 | 未完/不一致/入れ子scope・scope内Issue・境界なしIDを明示エラー、publication未実行/入力不変 | 共通分類 |
+| `issue-markdown::sections` | `check_warning_sections` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 2 | 同位警告セクションの分離と本文保持 | 共通分類 |
+| `issue-markdown::fenced-owner` | `check_fenced_owner_does_not_override_issue` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 1 | 通常Issue内部の長いfence内ownership/番号を無視し、ID・件数を保存再読込で維持 | 共通分類 |

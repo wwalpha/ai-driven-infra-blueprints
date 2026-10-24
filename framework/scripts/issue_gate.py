@@ -8,6 +8,7 @@ from pathlib import Path
 import model.files as _dependency_model_files
 import model.importing.repository as repository
 import validation_scope as _dependency_validation_scope
+from issue_markdown import markdown_matches, split_notices
 from task_contract_core import (
     TaskSnapshot,
     model_operation,
@@ -81,19 +82,11 @@ def unresolved_services(root: Path, path: Path) -> list[tuple[str, set[str]]]:
     heading = ""
     block = []
     number = ""
-    fence = ""
-    contents = input_text(path, encoding="utf-8")
+    contents, notices = split_notices(input_text(path, encoding="utf-8"))
 
 
-    for line in contents.splitlines():
-        if match := re.match(r"^\s*(`{3,}|~{3,})", line):
-            if not fence:
-                fence = match[1][0]
-            elif match[1][0] == fence:
-                fence = ""
-            continue
-        if fence:
-            continue
+    lines = markdown_matches(contents, r"^(.*)$")
+    for _, _, line in lines:
         if re.match(r"^#{1,3} ", line):
             _callback_unresolved_services_flush(block, environment, heading, number, path, result, root, target)
             number, block = "", []
@@ -106,7 +99,9 @@ def unresolved_services(root: Path, path: Path) -> list[tuple[str, set[str]]]:
         else:
             block.append(line)
     _callback_unresolved_services_flush(block, environment, heading, number, path, result, root, target)
-    if not result and contents.strip() and "未解決issueなし" not in contents:
+    substantive = [line for _, _, line in lines
+                   if line.strip() and not re.match(r"^#{1,3} ", line)]
+    if not result and contents.strip() and "未解決issueなし" not in contents and (substantive or not notices):
         result.append(("unknown", set()))
     return result
 

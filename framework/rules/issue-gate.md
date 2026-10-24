@@ -16,6 +16,24 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 - issue調査/saveはmigration。明示service scopeのissues.md/iac-issues.mdと当TaskだけがAllowed/変更先のsave-onlyは既存issueで停止せず、独立worktree不要。実validation ERRORはFAILと報告する。iac-issues.mdは非blocking Model→IaC比較で未解決issueに数えずIssue remediationも不要。iac stateは保存/削除対象でない。他のmigration/Model/IaC/save/AWS mutationは通常gateを維持する。
 - standalone import-retargetはproducer/consumer全serviceの通常pre-task/resume/save/generation/final gateを維持する。deletion例外を継承せず、issueの変更/解消扱いは禁止。
 
+## Issue and notice classification
+
+通常Issueの読取、Human確認材料、Issue Gateは共通のMarkdown分類を使う。
+`issues-notices:<scope>:start/end` の対応範囲と、`警告（非ブロッキング）`・
+`参照警告（非ブロッキング）` セクション内は非ブロッキング。コードフェンス内の
+見出し・番号・markerは分類根拠にしない。警告内の `### service` と番号だけの
+項目は警告本文として保持する。警告外の従来のmarkerなしIssueは引き続き認識する。
+
+警告後に通常Issueを置く場合は、同位以上の明示セクション境界、または
+`issue-service` marker／`issue-id` markerを持つserviceセクションで再開する。
+生成側はserviceとIssue IDを明示し、通常Issueを警告に含めない。
+対応しない・入れ子のscope marker、明示scope内部のIssue marker、service境界のない
+警告内のIssue IDは曖昧な入力として読取・保存を停止する。markerを補う際はHumanが
+意図した所有と境界を確認し、推測で通常Issueへ変換しない。
+
+保存時は既存の並び替えを使い、通常Issue、情報、未検証範囲、処理エラー、警告、
+参照警告の順に置く。Issue ID・ownershipと警告本文は保存・再読込で保持する。
+
 ## Reference-only Issues
 
 Apply [Reference diagnostics](model-information.md#reference-diagnostics) to all Model

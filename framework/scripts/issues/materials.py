@@ -9,6 +9,7 @@ from design.layout import (
 )
 from design.policy_tables import literal
 from design.services.definitions.registry import REQUIRED_NAME_TAG_TYPES
+from issue_markdown import without_notices
 from model.validation import (
     NAMING_EXEMPT_PROPERTIES,
     naming_rule_files,
@@ -19,7 +20,7 @@ from utils.aws_catalogs import catalog_outputs
 from utils.aws_mappings import definition_root
 
 from .records import identifier, safe_text
-from .reports import inventories, numbered, owned_blocks, without_notices
+from .reports import inventories, numbered, owned_blocks
 
 
 def rule_section(text, heading):

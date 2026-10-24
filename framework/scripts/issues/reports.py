@@ -9,6 +9,9 @@ from pathlib import Path
 
 import task_contract_core as _exports_task_contract_core
 from issue_gate import unresolved_services
+from issue_markdown import WARNING_HEADINGS, markdown_matches
+from issue_markdown import split_notices as split_notices
+from issue_markdown import without_notices as without_notices
 from task_contract_core import safe_path as safe_path
 from utils.input_cache import memoized
 
@@ -30,23 +33,6 @@ def inventories(root, path):
     return unresolved_services(root, path)
 
 
-def markdown_matches(text, pattern):
-    result, offset, fence = [], 0, None
-    for line in text.splitlines(keepends=True):
-        marker = re.match(r'^ {0,3}(`{3,}|~{3,})(.*)$', line.rstrip('\r\n'))
-        if fence:
-            if marker and marker[1][0] == fence[0] and len(marker[1]) >= fence[1] and not marker[2].strip():
-                fence = None
-        elif marker and (marker[1][0] == '~' or '`' not in marker[2]):
-            fence = (marker[1][0], len(marker[1]))
-        else:
-            match = re.match(pattern, line.rstrip('\r\n'))
-            if match:
-                result.append((offset, offset + match.end(), match.group(1)))
-        offset += len(line)
-    return result
-
-
 def blocks(text):
     """Keep the original preamble and every service block byte-for-byte until merged."""
     starts = markdown_matches(text, r'^### (.+)$')
@@ -54,7 +40,7 @@ def blocks(text):
     result = []
     for i, (start, _end, heading) in enumerate(starts):
         body = text[start: starts[i + 1][0] if i + 1 < len(starts) else len(text)]
-        markers = re.findall(r'<!-- issue-service: ([a-z0-9_-]+) -->', body)
+        markers = [marker for _, _, marker in markdown_matches(body, r'^.*<!-- issue-service: ([a-z0-9_-]+) -->.*$')]
         service = markers[0] if len(set(markers)) == 1 else heading if re.fullmatch(r'[a-z0-9_-]+', heading) else None
         result.append((service, body))
     return preamble, result
@@ -256,47 +242,6 @@ def iac_report(environment, directory, services, records, display=None, *, stamp
                   '```',
                   'offsetを50ずつ進め、total件すべてを確認する。後続の修正タスクは全メンバーを調査・再比較し、未比較を修正完了と扱わない。', ''])
     return '\n'.join(lines)
-
-
-# Notices are scope-stamped machine output, never Human confirmation material.
-NOTICE_MARKER = r'^(<!-- issues-notices:[^ >]+:(?:start|end) -->)[ \t]*$'
-WARNING_HEADINGS = ('警告（非ブロッキング）', '参照警告（非ブロッキング）')
-
-def without_notices(text):
-    return split_notices(text)[0]
-
-
-def split_notices(text):
-    notices, ordinary, offset = [], [], 0
-    markers = markdown_matches(text, NOTICE_MARKER)
-    for index, (start, _, marker) in enumerate(markers[:-1]):
-        if ':start -->' not in marker:
-            continue
-        _, end, closing = markers[index + 1]
-        if closing != marker.replace(':start -->', ':end -->'):
-            continue
-        ordinary.append(text[offset:start])
-        scope = marker.removeprefix('<!-- issues-notices:').removesuffix(':start -->')
-        notices.append((scope, text[start:end]))
-        offset = end
-    ordinary.append(text[offset:])
-    text = ''.join(ordinary)
-    ordinary, offset = [], 0
-    # Only owned, numbered service blocks end notices; auxiliary headings stay inside.
-    service_starts = {start for (start, _, _), (service, body) in
-                      zip(markdown_matches(text, r'^### (.+)$'), blocks(text)[1], strict=False)
-                      if service is not None and numbered(body)[1]}
-    headings = [(start, end, heading) for start, end, heading in markdown_matches(text, r'^#{1,3} (.+)$')
-                if not text.startswith('### ', start) or start in service_starts]
-    for index, (start, _, heading) in enumerate(headings):
-        if heading not in WARNING_HEADINGS:
-            continue
-        end = headings[index + 1][0] if index + 1 < len(headings) else len(text)
-        ordinary.append(text[offset:start])
-        notices.append((None, text[start:end].rstrip()))
-        offset = end
-    ordinary.append(text[offset:])
-    return ''.join(ordinary), notices
 
 
 def attach_notices(text, notices):

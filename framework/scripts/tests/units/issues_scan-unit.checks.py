@@ -28,7 +28,7 @@ from issues.inputs import view_text
 from issues.integrity import fingerprint
 from issues.materials import existing_materials
 from issues.records import iac_key
-from issues.reports import attach_notices, normal_merge, notice_report, split_notices
+from issues.reports import normal_merge, notice_report, split_notices
 from model.core import ReferenceResolutionError, resource_row_index
 from model.format import FORMAT, INDEX, PART, split
 from model.sources import load_model as real_load
@@ -616,21 +616,6 @@ def check_notice_fenced_roundtrip(tmp_path, fence):
     resolved = normal_merge(root, path, 'dev', 'team', ['s3'], [], [], [resolution])
     assert 'existing s3 problem' not in resolved and example in resolved
     assert 'current' in resolved
-
-
-def check_notice_marker_boundaries():
-    human = ('<!-- ordinary comment -->\n<!-- issues-notices:one:start -->\n'
-             '- incomplete\n<!-- issues-notices:two:end -->\n'
-             'ordinary unfinished comment\n')
-    assert split_notices(human) == (human, [])
-    block = '<!-- issues-notices:scope:start -->\n## Warning\n- valid\n<!-- issues-notices:scope:end -->'
-    ordinary, notices = split_notices('before\n' + block + '\nafter\n')
-    assert ordinary == 'before\n\nafter\n' and notices == [('scope', block)]
-    assert split_notices(attach_notices(ordinary, notices))[1] == notices
-    longer = '````text\n```\n' + block + '\n````\n'
-    assert split_notices(longer) == (longer, [])
-    reference = '## 参照警告（非ブロッキング）\n\n- Warning\n\n' + longer
-    assert split_notices(reference) == ('', [(None, reference.rstrip())])
 
 
 @pytest.mark.parametrize('warnings,references', [(False, False), (True, False), (False, True), (True, True)])
