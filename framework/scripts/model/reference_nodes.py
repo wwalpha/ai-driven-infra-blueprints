@@ -59,6 +59,8 @@ def receiving_property(property_name, pointer):
     path = property_name
     for token in pointer.split('/')[1:]:
         token = token.replace('~1', '/').replace('~0', '~')
+        if token.startswith('Fn::'):
+            break
         path += '[]' if token.isdigit() else '.' + token
     return path
 
@@ -82,8 +84,9 @@ def context_at(value, property_name, pointer, context=None):
 
 def resolve(node, scope, resolver, *, field=None, property_name=None, context=None):
     snapshot, number, resource = resolver.resolve_logical(node.logical_id, scope)
-    resolver.validate_attribute(resource['resourceType'], node.attribute, field=field, context=context)
-    if field:
+    operand = any(token.startswith('Fn::') for token in node.pointer.split('/'))
+    resolver.validate_attribute(resource['resourceType'], node.attribute, field=field, context=context, operand=operand)
+    if field and not operand:
         resolver.validate_reference_type(resource['resourceType'], node.attribute, field)
     terminal = node.pointer.rstrip('/').split('/')
     terminal = next((token for token in reversed(terminal) if not token.isdigit()), '')

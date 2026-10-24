@@ -747,7 +747,7 @@ def test_glue_connection_name(expression, expected):
         assert comparison.evaluate('producer', {'Fn::Sub': 'prefix-${Connection}'}) == 'prefix-fixture'
         assert comparison.evaluate('producer', {'Fn::Sub': '${Connection.Name}'}) == 'fixture'
     if expression is None:
-        assert 'explicit name property' in record['reference_diagnostics'][0]['reason']
+        assert record['reference_diagnostics'][0]['reason'] == 'identifier_unobserved: missing or ambiguous identifier Property'
     if expression == {'Ref': 'Connection'}:
         with pytest.raises(Blocked, match='cyclic resource substitution'):
             comparison.evaluate('producer', {'Fn::Sub': '${Connection}'})
@@ -881,7 +881,7 @@ def test_symbolic_setting_classification(fault):
     assert records[0]['category'] == expected, records
 
 
-@pytest.mark.parametrize('fault', [None, 'id', 'unknown', 'intrinsic', 'wrong-pointer'])
+@pytest.mark.parametrize('fault', [None, 'id', 'unknown', 'intrinsic', 'nested-sub'])
 def test_model_policy_links_bind_but_raw_intrinsics_do_not(fault):
     comparison = fixture()
     resource(comparison, 'cloudwatch-logs', '001', 'Logs.LogGroup', 'Log', [])
@@ -894,7 +894,7 @@ def test_model_policy_links_bind_but_raw_intrinsics_do_not(fault):
         model = actual
     elif fault == 'unknown':
         model = {'Fn::Join': ['', [link.replace('#log', '#missing'), ':stream']]}
-    elif fault == 'wrong-pointer':
+    elif fault == 'nested-sub':
         model = {'Fn::Sub': ['${Arn}:stream', {'Arn': {'Fn::Select': [0, {'Fn::Split': [':*', link]}]}}]}
     if fault == 'intrinsic':
         pending = comparison.prepare_value('consumer', {'property': 'IAM.ManagedPolicy.PolicyDocument',
@@ -903,7 +903,7 @@ def test_model_policy_links_bind_but_raw_intrinsics_do_not(fault):
         return
     records = setting(comparison, 'IAM.ManagedPolicy', 'PolicyDocument', {'Statement': [{'Resource': model}]},
                       {'Statement': [{'Resource': actual}]})
-    assert records[0]['category'] == ('matched' if fault is None else 'uncompared'), records
+    assert records[0]['category'] == ('matched' if fault in {None, 'nested-sub'} else 'uncompared'), records
 
 
 @pytest.mark.parametrize('fault', [None, 'off', 'missing', 'unknown'])
@@ -1499,6 +1499,21 @@ def test_import_failure_cause_requires_unique_path(second, kind):
         comparison.evaluate('consumer', {'Fn::ImportValue': 'missing'})
     assert error.value.iac_cause['kind'] == kind
     assert error.value.iac_cause['relationship'] == ('export-search-incomplete' if second == 'same' else 'import')
+
+
+def test_recorded_evidence_survives_nested_expression_and_reversal():
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Key', 'Key', [('KeyId', 'PENDING_DEPLOY', KEY_ID)])
+    expression = {'Fn::Join': ['', [{'Fn::Select': [0, {'Fn::Split': ['|',
+        {'Fn::Sub': ['${Arn}|unused', {'Arn': {'Fn::GetAtt': ['Key', 'Arn']}}]}]}]}, '/suffix']]}
+    actual = exported(comparison, expression)
+    for left, right in [(KEY_ARN + '/suffix', actual), (actual, KEY_ARN + '/suffix')]:
+        decision = comparison.reference_decision(left, right, 'IAM.Role', 'Policies')
+        assert decision.equal is True, decision
+        detail = decision.diagnostics[0]
+        assert detail['current_aws_verified'] is False and detail['evidence_type'] == 'recorded_observed'
+        assert detail['producers'][0]['producer'] == 'kms/001'
+    assert comparison.reference_decision(KEY_ARN + '/other', actual, 'IAM.Role', 'Policies').equal is None
 
 
 if __name__ == '__main__':

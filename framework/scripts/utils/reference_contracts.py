@@ -6,7 +6,103 @@ from utils.comparison_rows import put_row
 
 # Returned attributes whose explicit setting has a different property name.
 RETURN_ATTRIBUTE_PROPERTIES = {('CodeCommit.Repository', 'Name'): 'RepositoryName',
-                               ('Events.Rule', 'RuleName'): 'Name'}
+                               ('Events.Rule', 'RuleName'): 'Name',
+                               ('SNS.Topic', 'TopicName'): 'TopicName',
+                               ('Glue.Connection', 'Name'): 'ConnectionInput.Name',
+                               ('Glue.Database', 'Name'): 'DatabaseInput.Name',
+                               ('Glue.Table', 'Name'): 'TableInput.Name',
+                               ('ECS.Service', 'Name'): 'ServiceName'}
+
+
+# Ref semantics are documented on each resource's CloudFormation Return values page.
+# Composite/conditional/undocumented returns are deliberately not inferred from primaryIdentifier.
+REF_ATTRIBUTES = {
+    'S3.Bucket': 'BucketName', 'Logs.LogGroup': 'LogGroupName', 'SQS.Queue': 'QueueUrl',
+    'SNS.Topic': 'TopicArn', 'KMS.Key': 'KeyId', 'KMS.Alias': 'AliasName',
+    'IAM.Role': 'RoleName', 'IAM.InstanceProfile': 'InstanceProfileName',
+    'IAM.ManagedPolicy': 'PolicyArn', 'IAM.User': 'UserName',
+    'EC2.Subnet': 'SubnetId', 'EC2.VPC': 'VpcId', 'EC2.RouteTable': 'RouteTableId',
+    'EC2.Instance': 'InstanceId', 'EC2.FlowLog': 'Id', 'EC2.InternetGateway': 'InternetGatewayId',
+    'EC2.LaunchTemplate': 'LaunchTemplateId', 'EC2.NatGateway': 'NatGatewayId',
+    'EC2.VPCEndpoint': 'Id', 'EC2.TransitGateway': 'Id',
+    'CodeBuild.Project': 'Name', 'Lambda.Function': 'FunctionName',
+    'Lambda.EventSourceMapping': 'Id', 'CodeCommit.Repository': 'RepositoryId',
+    'CodePipeline.Pipeline': 'Name', 'Route53.HostedZone': 'Id',
+    'Glue.Connection': 'Name', 'Glue.SecurityConfiguration': 'Name', 'Glue.Job': 'Name',
+    'Glue.Crawler': 'Name', 'Glue.Database': 'Name', 'Glue.Table': 'Name', 'Glue.Catalog': 'Arn',
+    'Athena.WorkGroup': 'Name', 'SecretsManager.Secret': 'Id',
+    'CloudTrail.Trail': 'TrailName', 'CloudWatch.Alarm': 'AlarmName',
+    'CloudWatch.Dashboard': 'DashboardName', 'ECR.Repository': 'RepositoryName',
+    'Events.Rule': 'RuleName', 'Events.EventBus': 'Name',
+    'DynamoDB.Table': 'TableName', 'DynamoDB.GlobalTable': 'TableName',
+    'ECS.Cluster': 'ClusterName', 'ECS.CapacityProvider': 'Name',
+    'ECS.Service': 'ServiceArn', 'ECS.TaskDefinition': 'TaskDefinitionArn',
+    'ElasticLoadBalancingV2.Listener': 'ListenerArn',
+    'ElasticLoadBalancingV2.ListenerRule': 'RuleArn',
+    'ElasticLoadBalancingV2.LoadBalancer': 'LoadBalancerArn',
+    'ElasticLoadBalancingV2.TargetGroup': 'TargetGroupArn',
+    'KinesisFirehose.DeliveryStream': 'DeliveryStreamName',
+    'RDS.DBCluster': 'DBClusterIdentifier', 'RDS.DBInstance': 'DBInstanceIdentifier',
+    'RDS.DBClusterParameterGroup': 'DBClusterParameterGroupName',
+    'RDS.DBParameterGroup': 'DBParameterGroupName', 'RDS.DBProxy': 'DBProxyName',
+    'RDS.DBProxyEndpoint': 'DBProxyEndpointName', 'RDS.DBSubnetGroup': 'DBSubnetGroupName',
+    'RDS.OptionGroup': 'OptionGroupName', 'SageMaker.Domain': 'DomainId',
+    'Scheduler.Schedule': 'Name', 'SecurityHub.Hub': 'HubArn',
+    'ApiGateway.ApiKey': 'APIKeyId', 'ApiGateway.Authorizer': 'AuthorizerId',
+    'ApiGateway.Deployment': 'DeploymentId', 'ApiGateway.DomainName': 'DomainName',
+    'ApiGateway.Model': 'Name', 'ApiGateway.RequestValidator': 'RequestValidatorId',
+    'ApiGateway.Resource': 'ResourceId', 'ApiGateway.RestApi': 'RestApiId',
+    'ApiGateway.Stage': 'StageName', 'ApiGateway.UsagePlan': 'Id',
+    'ApiGateway.UsagePlanKey': 'Id', 'ApiGateway.VpcLink': 'VpcLinkId',
+    'ApiGatewayV2.Api': 'ApiId', 'ApiGatewayV2.ApiMapping': 'ApiMappingId',
+    'ApiGatewayV2.Authorizer': 'AuthorizerId', 'ApiGatewayV2.Deployment': 'DeploymentId',
+    'ApiGatewayV2.DomainName': 'DomainName', 'ApiGatewayV2.Integration': 'IntegrationId',
+    'ApiGatewayV2.IntegrationResponse': 'IntegrationResponseId', 'ApiGatewayV2.Route': 'RouteId',
+    'ApiGatewayV2.RouteResponse': 'RouteResponseId', 'ApiGatewayV2.Stage': 'StageName',
+    'ApiGatewayV2.VpcLink': 'VpcLinkId',
+    'AutoScaling.AutoScalingGroup': 'AutoScalingGroupName',
+    'AutoScaling.LifecycleHook': 'LifecycleHookName', 'AutoScaling.ScalingPolicy': 'Arn',
+    'AutoScaling.ScheduledAction': 'ScheduledActionName',
+    'CertificateManager.Certificate': 'CertificateArn', 'CloudFront.CachePolicy': 'Id',
+    'CloudFront.Distribution': 'Id', 'CloudFront.OriginRequestPolicy': 'Id',
+    'CloudFront.ResponseHeadersPolicy': 'Id', 'Config.ConfigRule': 'ConfigRuleName',
+    'Config.ConfigurationRecorder': 'Name', 'Config.DeliveryChannel': 'Name',
+    'DataZone.Domain': 'Id', 'EC2.EIP': 'PublicIp',
+    'EC2.SubnetRouteTableAssociation': 'Id',
+    'EC2.TransitGatewayRouteTable': 'TransitGatewayRouteTableId',
+    'EC2.TransitGatewayVpcAttachment': 'Id', 'EC2.VPCBlockPublicAccessExclusion': 'ExclusionId',
+    'EC2.VPCBlockPublicAccessOptions': 'AccountId', 'FMS.Policy': 'Id',
+    'GuardDuty.Detector': 'Id', 'Logs.ResourcePolicy': 'PolicyName',
+    'Logs.SubscriptionFilter': 'FilterName', 'Macie.Session': 'AwsAccountId',
+    'NetworkFirewall.Firewall': 'FirewallArn', 'NetworkFirewall.FirewallPolicy': 'FirewallPolicyArn',
+    'NetworkFirewall.LoggingConfiguration': 'FirewallArn', 'NetworkFirewall.RuleGroup': 'RuleGroupArn',
+    'Organizations.Policy': 'Id', 'RDS.DBProxyTargetGroup': 'TargetGroupArn',
+    'Route53Resolver.ResolverRuleAssociation': 'ResolverRuleAssociationId',
+    'SSM.MaintenanceWindow': 'WindowId', 'SSM.MaintenanceWindowTarget': 'WindowTargetId',
+    'SSM.MaintenanceWindowTask': 'WindowTaskId', 'SSM.PatchBaseline': 'Id',
+    'SecretsManager.ResourcePolicy': 'Id', 'SecretsManager.RotationSchedule': 'Id',
+    'SecurityHub.FindingAggregator': 'FindingAggregatorArn',
+    'WAFv2.LoggingConfiguration': 'ResourceArn',
+
+}
+# Documented GetAtt attributes omitted from the pinned schema readOnlyProperties.
+GETATT_ATTRIBUTES = {'SNS.Topic': {'TopicName'}, 'Events.EventBus': {'Name'}}
+
+# Model Arn is a semantic alias only; Fn::GetAtt must still use its formal attribute.
+ARN_ATTRIBUTES = {
+    'KMS.Alias': 'AliasArn', 'SNS.Topic': 'TopicArn', 'IAM.ManagedPolicy': 'PolicyArn',
+    'SecretsManager.Secret': 'Id', 'ECS.Service': 'ServiceArn',
+    'ECS.TaskDefinition': 'TaskDefinitionArn',
+    'ElasticLoadBalancingV2.Listener': 'ListenerArn',
+    'ElasticLoadBalancingV2.ListenerRule': 'RuleArn',
+    'ElasticLoadBalancingV2.LoadBalancer': 'LoadBalancerArn',
+    'ElasticLoadBalancingV2.TargetGroup': 'TargetGroupArn',
+    'RDS.DBCluster': 'DBClusterArn', 'RDS.DBInstance': 'DBInstanceArn',
+    'RDS.DBParameterGroup': 'DBParameterGroupArn', 'RDS.DBSubnetGroup': 'DBSubnetGroupArn',
+    'RDS.DBProxy': 'DBProxyArn', 'RDS.DBProxyEndpoint': 'DBProxyEndpointArn',
+    'CloudFront.Function': 'FunctionARN', 'SageMaker.Domain': 'DomainArn', 'SageMaker.Space': 'SpaceArn',
+    'SageMaker.UserProfile': 'UserProfileArn', 'SecurityHub.Hub': 'HubArn',
+}
 
 
 SUBNET_LIST_PROPERTIES = {
@@ -153,6 +249,15 @@ IMPORT_PROPERTIES = {
 IMPORT_PROPERTIES.update({prop: (kind, {'EC2.Subnet': 'SubnetId', 'EC2.SecurityGroup': 'GroupId'}[kind])
                           for prop, kind in LINKED_LIST_PROPERTIES.items()})
 
+# ARN formats: CloudFormation Return values and AWS Service Authorization resource tables.
+# https://docs.aws.amazon.com/service-authorization/latest/reference/list_rds.html
+# https://docs.aws.amazon.com/service-authorization/latest/reference/list_ecs.html
+# https://docs.aws.amazon.com/service-authorization/latest/reference/list_quicksight.html
+# https://docs.aws.amazon.com/service-authorization/latest/reference/list_sagemaker.html
+# https://docs.aws.amazon.com/service-authorization/latest/reference/list_cloudwatch.html
+# https://docs.aws.amazon.com/service-authorization/latest/reference/list_scheduler.html
+# https://docs.aws.amazon.com/glue/latest/dg/glue-specifying-resource-arns.html
+# https://docs.aws.amazon.com/athena/latest/ug/workgroups-access.html
 # AWS documented ARN identities. Parsing and transient projection share these shapes.
 # S3 bucket names are global. Regional/account-scoped identities require context.
 ARN_SHAPES = {
@@ -161,19 +266,72 @@ ARN_SHAPES = {
     'KMS.Alias': ('AliasName', 'arn:{partition}:kms:{region}:{account}:{id}', {'id': r'alias/[A-Za-z0-9:/_-]+'}),
     'Lambda.Function': ('FunctionName', 'arn:{partition}:lambda:{region}:{account}:function:{id}', {'id': r'[A-Za-z0-9_-]{1,64}'}),
     'IAM.Role': ({'RoleName': 'id', 'Path': 'path'}, 'arn:{partition}:iam::{account}:role{path}{id}',
-                 {'path': r'/(?:[^/]+/)*', 'id': r'[A-Za-z0-9_+=,.@-]+'}),
-    'Logs.LogGroup': ('LogGroupName', 'arn:{partition}:logs:{region}:{account}:log-group:{id}', {'id': r'[.\-_/#A-Za-z0-9]{1,512}'}),
+                 {'path': r'/(?:[^/]+/)*', 'id': r'[A-Za-z0-9_+=,.@-]{1,64}'}),
+    'Logs.LogGroup': ('LogGroupName', 'arn:{partition}:logs:{region}:{account}:log-group:{id}:*', {'id': r'[.\-_/#A-Za-z0-9]{1,512}'}),
+    'Glue.Job': ('Name', 'arn:{partition}:glue:{region}:{account}:job/{id}', {'id': r'[\w+=,.@/-]{1,255}'}),
+    'Glue.Crawler': ('Name', 'arn:{partition}:glue:{region}:{account}:crawler/{id}', {'id': r'[\w+=,.@/-]{1,255}'}),
+    'Athena.WorkGroup': ('Name', 'arn:{partition}:athena:{region}:{account}:workgroup/{id}', {'id': r'[A-Za-z0-9._-]{1,128}'}),
+    'SQS.Queue': ('QueueName', 'arn:{partition}:sqs:{region}:{account}:{id}', {'id': r'(?=.{1,80}$)[A-Za-z0-9_-]+(?:\.fifo)?'}),
+    'SNS.Topic': ('TopicName', 'arn:{partition}:sns:{region}:{account}:{id}', {'id': r'(?=.{1,256}$)[A-Za-z0-9_-]+(?:\.fifo)?'}),
+    'ECR.Repository': ('RepositoryName', 'arn:{partition}:ecr:{region}:{account}:repository/{id}', {'id': r'(?=.{2,256}$)[a-z0-9]+(?:(?:[._/-]|__|-+)[a-z0-9]+)*'}),
+    'CloudWatch.Alarm': ('AlarmName', 'arn:{partition}:cloudwatch:{region}:{account}:alarm:{id}', {'id': r'[^:*?\x00-\x1f]{1,255}'}),
+    'CodeCommit.Repository': ('RepositoryName', 'arn:{partition}:codecommit:{region}:{account}:{id}', {'id': r'(?!.*\.git$)[A-Za-z0-9_.-]{1,100}'}),
+    'CodeBuild.Project': ('Name', 'arn:{partition}:codebuild:{region}:{account}:project/{id}', {'id': r'[A-Za-z0-9][A-Za-z0-9_-]{1,254}'}),
+    'CodePipeline.Pipeline': ('Name', 'arn:{partition}:codepipeline:{region}:{account}:{id}', {'id': r'[A-Za-z0-9.@_-]{1,100}'}),
+    'MWAA.Environment': ('Name', 'arn:{partition}:airflow:{region}:{account}:environment/{id}', {'id': r'[A-Za-z][A-Za-z0-9_-]{0,79}'}),
+    'CloudTrail.Trail': ('TrailName', 'arn:{partition}:cloudtrail:{region}:{account}:trail/{id}', {'id': r'[A-Za-z0-9][A-Za-z0-9._-]{2,127}'}),
+    'IAM.InstanceProfile': ({'InstanceProfileName': 'id', 'Path': 'path'}, 'arn:{partition}:iam::{account}:instance-profile{path}{id}', {'path': r'/(?:[^/]+/)*', 'id': r'[A-Za-z0-9_+=,.@-]{1,128}'}),
+    'IAM.ManagedPolicy': ({'ManagedPolicyName': 'id', 'Path': 'path'}, 'arn:{partition}:iam::{account}:policy{path}{id}', {'path': r'/(?:[^/]+/)*', 'id': r'[A-Za-z0-9_+=,.@-]{1,128}'}),
+    'IAM.User': ({'UserName': 'id', 'Path': 'path'}, 'arn:{partition}:iam::{account}:user{path}{id}', {'path': r'/(?:[^/]+/)*', 'id': r'[A-Za-z0-9_+=,.@-]{1,64}'}),
+    'Events.EventBus': ('Name', 'arn:{partition}:events:{region}:{account}:event-bus/{id}', {'id': r'[A-Za-z0-9._-]{1,256}'}),
+    'Events.Rule': ('Name', 'arn:{partition}:events:{region}:{account}:rule/{bus}{id}', {'bus': r'(?:[A-Za-z0-9._-]{1,256}/)?', 'id': r'[A-Za-z0-9._-]{1,64}'}),
+    'DynamoDB.Table': ('TableName', 'arn:{partition}:dynamodb:{region}:{account}:table/{id}', {'id': r'[A-Za-z0-9_.-]{3,255}'}),
+    'DynamoDB.GlobalTable': ('TableName', 'arn:{partition}:dynamodb:{region}:{account}:table/{id}', {'id': r'[A-Za-z0-9_.-]{3,255}'}),
+    'ECS.Cluster': ('ClusterName', 'arn:{partition}:ecs:{region}:{account}:cluster/{id}', {'id': r'[A-Za-z0-9_-]{1,255}'}),
+    'KinesisFirehose.DeliveryStream': ('DeliveryStreamName', 'arn:{partition}:firehose:{region}:{account}:deliverystream/{id}', {'id': r'[A-Za-z0-9_.-]{1,64}'}),
+    'RDS.DBCluster': ('DBClusterIdentifier', 'arn:{partition}:rds:{region}:{account}:cluster:{id}', {'id': r'[a-z][a-z0-9-]{0,62}'}),
+    'RDS.DBInstance': ('DBInstanceIdentifier', 'arn:{partition}:rds:{region}:{account}:db:{id}', {'id': r'[a-z][a-z0-9-]{0,62}'}),
+    'RDS.DBClusterParameterGroup': ('DBClusterParameterGroupName', 'arn:{partition}:rds:{region}:{account}:cluster-pg:{id}', {'id': r'[a-z][a-z0-9-]{0,254}'}),
+    'RDS.DBParameterGroup': ('DBParameterGroupName', 'arn:{partition}:rds:{region}:{account}:pg:{id}', {'id': r'[a-z][a-z0-9-]{0,254}'}),
+    'RDS.DBSubnetGroup': ('DBSubnetGroupName', 'arn:{partition}:rds:{region}:{account}:subgrp:{id}', {'id': r'[a-z][a-z0-9._ -]{0,254}'}),
+    'RDS.OptionGroup': ('OptionGroupName', 'arn:{partition}:rds:{region}:{account}:og:{id}', {'id': r'[a-z][a-z0-9-]{0,254}'}),
+    'SageMaker.Space': ({'DomainId': 'domain', 'SpaceName': 'id'}, 'arn:{partition}:sagemaker:{region}:{account}:space/{domain}/{id}', {'domain': r'd-[a-z0-9]+', 'id': r'[A-Za-z0-9][A-Za-z0-9-]{0,62}'}),
+    'SageMaker.UserProfile': ({'DomainId': 'domain', 'UserProfileName': 'id'}, 'arn:{partition}:sagemaker:{region}:{account}:user-profile/{domain}/{id}', {'domain': r'd-[a-z0-9]+', 'id': r'[A-Za-z0-9][A-Za-z0-9-]{0,62}'}),
+
+    'CloudWatch.Dashboard': ('DashboardName', 'arn:{partition}:cloudwatch::{account}:dashboard/{id}', {'id': r'[A-Za-z0-9_-]{1,255}'}),
+    'CloudFront.Function': ('Name', 'arn:{partition}:cloudfront::{account}:function/{id}', {'id': r'[A-Za-z0-9_-]{1,64}'}),
+    'ECS.CapacityProvider': ('Name', 'arn:{partition}:ecs:{region}:{account}:capacity-provider/{id}', {'id': r'[A-Za-z0-9_-]{1,255}'}),
+    'Scheduler.Schedule': ({'Name': 'id', 'GroupName': 'group'}, 'arn:{partition}:scheduler:{region}:{account}:schedule/{group}/{id}', {'id': r'[A-Za-z0-9_.-]{1,64}', 'group': r'[A-Za-z0-9_.-]{1,64}'}),
+    'SecurityHub.Hub': ({}, 'arn:{partition}:securityhub:{region}:{account}:hub/default', {}),
+    'Glue.Connection': ({'CatalogId': 'account', 'ConnectionInput.Name': 'id'}, 'arn:{partition}:glue:{region}:{account}:connection/{id}', {'account': r'\d{12}', 'id': r'[\w+=,.@-]{1,255}'}),
+    'Glue.Database': ({'CatalogId': 'account', 'DatabaseInput.Name': 'id'}, 'arn:{partition}:glue:{region}:{account}:database/{id}', {'account': r'\d{12}', 'id': r'[a-z0-9_.-]{1,255}'}),
+    'Glue.Table': ({'CatalogId': 'account', 'DatabaseName': 'database', 'TableInput.Name': 'id'}, 'arn:{partition}:glue:{region}:{account}:table/{database}/{id}', {'account': r'\d{12}', 'database': r'[a-z0-9_.-]{1,255}', 'id': r'[a-z0-9_.-]{1,255}'}),
+    'QuickSight.Analysis': ({'AwsAccountId': 'account', 'AnalysisId': 'id'}, 'arn:{partition}:quicksight:{region}:{account}:analysis/{id}', {'account': r'\d{12}', 'id': r'[A-Za-z0-9_-]{1,512}'}),
+    'QuickSight.Dashboard': ({'AwsAccountId': 'account', 'DashboardId': 'id'}, 'arn:{partition}:quicksight:{region}:{account}:dashboard/{id}', {'account': r'\d{12}', 'id': r'[A-Za-z0-9_-]{1,512}'}),
+    'QuickSight.DataSet': ({'AwsAccountId': 'account', 'DataSetId': 'id'}, 'arn:{partition}:quicksight:{region}:{account}:dataset/{id}', {'account': r'\d{12}', 'id': r'[A-Za-z0-9_-]{1,512}'}),
+    'QuickSight.DataSource': ({'AwsAccountId': 'account', 'DataSourceId': 'id'}, 'arn:{partition}:quicksight:{region}:{account}:datasource/{id}', {'account': r'\d{12}', 'id': r'[A-Za-z0-9_-]{1,512}'}),
+    'QuickSight.VPCConnection': ({'AwsAccountId': 'account', 'VPCConnectionId': 'id'}, 'arn:{partition}:quicksight:{region}:{account}:vpcConnection/{id}', {'account': r'\d{12}', 'id': r'[A-Za-z0-9_-]{1,512}'}),
+
 }
+
+
+ARN_DEFAULTS = {('IAM.Role', 'Path'): '/', ('IAM.User', 'Path'): '/',
+                ('IAM.InstanceProfile', 'Path'): '/', ('IAM.ManagedPolicy', 'Path'): '/',
+                ('Scheduler.Schedule', 'GroupName'): 'default'}
 
 
 def _arn_pattern(shape):
     _, template, identity_patterns = shape
-    patterns = {'partition': r'aws(?:-[a-z]+)*', 'region': r'[a-z0-9-]+', 'account': r'\d{12}', **identity_patterns}
-    return template.format(**{name: '(?P<' + name + '>' + pattern + ')' for name, pattern in patterns.items()})
+    patterns = {'partition': r'aws(?:-[a-z]+)*', 'region': r'[a-z]{2}(?:-[a-z]+)+-\d+', 'account': r'\d{12}', **identity_patterns}
+    result = re.escape(template)
+    for name, pattern in patterns.items():
+        result = result.replace(re.escape('{' + name + '}'), '(?P<' + name + '>' + pattern + ')')
+    return result
 
 
-ARN_FORMS = {(kind, 'Arn'): (shape[0], _arn_pattern(shape) + (r'(?::\*)?' if kind == 'Logs.LogGroup' else ''))
-             for kind, shape in ARN_SHAPES.items()}
+ARN_FORMS = {(kind, 'Arn'): (shape[0], (_arn_pattern(shape).removesuffix(re.escape(':*')) + r'(?::\*)?' if kind == 'Logs.LogGroup' else _arn_pattern(shape)))
+             for kind, shape in ARN_SHAPES.items() if kind != 'Events.Rule'}
+ARN_FORMS.update({(kind, ARN_ATTRIBUTES[kind]): form for (kind, _), form in list(ARN_FORMS.items()) if kind in ARN_ATTRIBUTES})
 ARN_IDENTITIES = {kind: ARN_FORMS[kind, 'Arn'] for kind in ('S3.Bucket', 'KMS.Key', 'KMS.Alias')}
 ARN_FORMS['S3.Bucket', 'ObjectArn'] = ('BucketName', ARN_FORMS['S3.Bucket', 'Arn'][1] + r'/(?P<prefix>[^*]*)')
 # DataResource Values selects objects below the bucket, including the required slash.
@@ -319,6 +477,8 @@ def attributes_for(kind):
 
 def reference_attribute(kind: str, attribute: str) -> str:
     """Map proven Model attributes to provider attributes, never GetAtt aliases."""
+    if (kind, attribute) == ('CloudFront.Function', 'FunctionMetadata.FunctionARN'):
+        return 'FunctionARN'
     mapped = [returned for (resource_type, returned), setting in RETURN_ATTRIBUTE_PROPERTIES.items()
               if resource_type == kind and setting == attribute]
     if len(mapped) > 1:
@@ -328,4 +488,4 @@ def reference_attribute(kind: str, attribute: str) -> str:
     # Ref/GetAtt Id return the Secret ARN; ManagedPolicy uses PolicyArn, not Arn.
     # https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-secretsmanager-secret.html
     # https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-iam-managedpolicy.html
-    return {"SecretsManager.Secret": "Id", "IAM.ManagedPolicy": "PolicyArn", "KMS.Alias": "AliasArn"}.get(kind, attribute) if attribute == "Arn" else attribute
+    return ARN_ATTRIBUTES.get(kind, attribute) if attribute == "Arn" else attribute

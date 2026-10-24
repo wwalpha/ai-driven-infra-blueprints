@@ -5,10 +5,6 @@ import re
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, same
 
-REF_ATTRIBUTES = {'KMS.Key': 'KeyId', 'KMS.Alias': 'AliasName'}
-
-
-
 
 def kms_format(value, resources):
     if isinstance(value, ResourceReference):
@@ -30,13 +26,6 @@ def kms_format(value, resources):
             return form
     return 'invalid'
 
-SPECIAL_ATTRIBUTES = {('KMS.Alias', 'AliasArn')}
-SUB_ARN_KINDS = set()
-
-def alias_arn(alias, pseudo):
-    if kms_format(alias, {}) != 'AliasName':
-        raise Blocked('alias ARN requires a valid explicit AliasName')
-    return f"arn:{pseudo['AWS::Partition']}:kms:{pseudo['AWS::Region']}:{pseudo['AWS::AccountId']}:{alias}"
 
 
 IDENTITY_KINDS = {'KMS.Key', 'KMS.Alias'}

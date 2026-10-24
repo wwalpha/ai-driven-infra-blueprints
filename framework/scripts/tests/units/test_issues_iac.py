@@ -257,6 +257,7 @@ class ImportValueResolutionTests(unittest.TestCase):
     with tempfile.TemporaryDirectory() as directory:
       comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
       comparison.export_provenance = {}
+      comparison.sensitive_values = set()
       comparison.root = Path(directory)
       comparison.environment, comparison.directory = 'fixture', 'team'
       comparison.catalog = DesignSchemaCatalog(Path(__file__).resolve().parents[4])

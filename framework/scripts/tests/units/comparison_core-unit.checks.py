@@ -143,7 +143,8 @@ def symbol(stack, logical, attribute):
     return ResourceReference({'$resource': ['vpc-endpoint', '001'], '$attribute': attribute})
 def forbidden(*args):
     raise AssertionError('unexpected import lookup')
-evaluator = Evaluation({'stack': ({}, {}, {})}, resources, lambda kind, path: schemas[path], symbol, forbidden, True)
+evaluator = Evaluation({'stack': ({}, {}, {})}, resources, lambda kind, path: schemas[path], symbol, forbidden, True,
+                       lambda kind: {'readOnlyProperties': ['/properties/' + path for path in schemas]})
 def evaluate(value):
     return evaluator.evaluate('stack', value)
 def getatt(attribute):

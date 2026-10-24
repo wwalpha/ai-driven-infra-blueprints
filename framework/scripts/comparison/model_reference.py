@@ -65,9 +65,11 @@ class ModelReferences:
                 inputs.model(service)
                 symbol = ResourceReference({'$resource': [service, number],
                     '$attribute': reference_attribute(resource['resourceType'], attribute)})
+                if any(token.startswith('Fn::') for token in (pointer or '').split('/')):
+                    return inputs.reference(self.scope.service, symbol, consumer_property=field)
                 return inputs.desired_reference(self.scope.service, symbol, kind, path, symbol['$attribute'], context)
             except (Blocked, KeyError, OSError, ValueError, TypeError) as error:
-                return Expression('Unverified', [value, str(error)])
+                return Expression('Unverified', [value, f'JSON Pointer={pointer or ""!r}; {key}: {error}'])
             finally:
                 inputs.retain_reads()
         if isinstance(value, ResourceReference):

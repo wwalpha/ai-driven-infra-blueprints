@@ -99,26 +99,37 @@ def reference_same(left, right, kind, path, *, local_comparison, forms_for, reso
         result, reason = registry.compare_kms_forms(left, right, allowed, resolve_literal=resolve_literal,
                                                     format_of=kms_format)
         if (result is not None or evidence is None or
-                not (isinstance(left, str) and isinstance(right, (ResourceReference, Expression)))):
+                not (isinstance(left, str) and isinstance(right, (ResourceReference, Expression)) or
+                     isinstance(right, str) and isinstance(left, (ResourceReference, Expression)))):
             return decision(result, [diagnostic(left, right, kind, path, reason)] if reason else ())
-    if evidence is not None and isinstance(left, str) and isinstance(right, (ResourceReference, Expression)):
-        return evidence(left, right, kind, path)
+    if evidence is not None:
+        if isinstance(left, str) and isinstance(right, (ResourceReference, Expression)):
+            return evidence(left, right, kind, path)
+        if isinstance(right, str) and isinstance(left, (ResourceReference, Expression)):
+            return evidence(left, right, kind, path)
     unproven = _bind_framework_callback(_callback_reference_same_unproven, decision, diagnostic, kind, left, path, right)
 
     if isinstance(left, Expression) or isinstance(right, Expression):
         try:
             left_parts, right_parts = expressions.parts(left, resource_type), expressions.parts(right, resource_type)
-            if all(any(isinstance(part, ResourceReference) for part in parts) for parts in (left_parts, right_parts)):
-                return decision(same(left_parts, right_parts, reference=reference, path=path))
+            equal = expressions.symbolic_same(left_parts, right_parts)
+            if equal is not None:
+                return decision(equal)
         except (Blocked, ValueError, KeyError, TypeError):
             pass
-        if isinstance(left, Expression) and isinstance(right, Expression) and left.operation == right.operation:
-            equal = same(left.operands, right.operands, reference=reference, path=path)
+        if (isinstance(left, Expression) and isinstance(right, Expression) and left.operation == right.operation
+                and left.operation in {'Split', 'Select'}):
+            equal = expressions.exact_same(left, right)
             if equal is True:
                 return decision(True)
             if equal is None:
                 return unproven('expression contains an unresolved reference operand')
         expression, other = (left, right) if isinstance(left, Expression) else (right, left)
+        if isinstance(other, (Expression, ResourceReference)):
+            try:
+                return decision(same(resolve_literal(expression), resolve_literal(other)))
+            except (Blocked, ValueError, KeyError, TypeError, OSError):
+                return unproven('expression string equivalence is unproven')
         if not isinstance(other, str):
             return unproven('unresolved expression; reference identity and format cannot be proven')
         try:
@@ -163,25 +174,7 @@ def reference_same(left, right, kind, path, *, local_comparison, forms_for, reso
     return decision(equal, [diagnostic(left, right, kind, path, reason)] if reason else (), equivalent)
 
 
-def _callback_literal_expression_replace(resolve_literal, resource_type, variables, /, match):
-    key = match.group(1)
-    if key.startswith('!'):
-        return '${' + key[1:] + '}'
-    child = variables[key]
-    if isinstance(child, str):
-        return child
-    if isinstance(child, ResourceReference):
-        service, identity = child['$resource']
-        if registry.sub_arn(resource_type(child)) and child['$attribute'] == 'Arn':
-            return resolve_literal(child)
-    if isinstance(child, Expression):
-        resolved = resolve_literal(child)
-        if isinstance(resolved, str):
-            return resolved
-    raise Blocked('Sub variable requires a proven S3 ARN or string')
-
-
-def literal_expression(value, *, resolve_literal, resource_type):
+def literal_expression(value, *, resolve_literal):
     if value.operation in {'Split', 'Select'}:
         first, source = value.operands
         if isinstance(source, (ResourceReference, Expression)):
@@ -191,8 +184,4 @@ def literal_expression(value, *, resolve_literal, resource_type):
         if value.operation == 'Select' and isinstance(source, list) and re.fullmatch(r'\d+', str(first)) and int(first) < len(source):
             return source[int(first)]
         raise Blocked('Split/Select requires concrete operands and an in-bounds index')
-    if value.operation != 'Sub':
-        raise Blocked('expression has no local literal comparison contract')
-    text, variables = value.operands
-    replace = _bind_framework_callback(_callback_literal_expression_replace, resolve_literal, resource_type, variables)
-    return re.sub(r'\$\{([^}]+)\}', replace, text)
+    return expressions.literal(value, resolve_literal)

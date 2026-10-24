@@ -15,8 +15,8 @@ from utils.reference_contracts import (
     REFERENCE_PROPERTIES,
 )
 
-from . import expressions, registry
-from .references import ReferenceDecision, reference_same
+from . import registry
+from .references import ReferenceDecision, literal_expression, reference_same
 
 # Enable recorded ARN derivation only for resource kinds covered by proof tests.
 RECORDED_ARN_KINDS = {'KMS.Key'}
@@ -32,10 +32,7 @@ class Evidence:
     def resolve(self, value):
         inputs = self.inputs
         if isinstance(value, Expression):
-            try:
-                return inputs.reference_literal(value)
-            except Blocked:
-                return expressions.literal(value, self.resolve)
+            return literal_expression(value, resolve_literal=self.resolve)
         service, identity = value['$resource']
         producer = {'producer': service + '/' + identity, 'attribute': value['$attribute']}
         if not any(item['producer'] == producer['producer'] and item['attribute'] == producer['attribute']
@@ -131,6 +128,10 @@ def validate_declaration(inputs, reference):
 
 
 def compare(inputs, left, right, kind, path):
+    original_left, original_right = left, right
+    if (isinstance(right, str) and isinstance(left, (ResourceReference, Expression))
+            and not hasattr(left, 'saved_literal')):
+        left, right = right, left
     declared = getattr(left, 'saved_literal', None)
     raw = declared if declared is not None else left
     if declared is not None:
@@ -146,7 +147,7 @@ def compare(inputs, left, right, kind, path):
                 try:
                     validate_declaration(inputs, left)
                 except Blocked as error:
-                    return ReferenceDecision(None, (inputs.reference_diagnostic(left, right, kind, path, str(error)),))
+                    return ReferenceDecision(None, (inputs.reference_diagnostic(original_left, original_right, kind, path, str(error)),))
             return ReferenceDecision(equal)
         return ReferenceDecision(NotImplemented)
     proof = Evidence(inputs)
@@ -158,15 +159,15 @@ def compare(inputs, left, right, kind, path):
             if saved != raw or (left.declared_format == 'identifier' and raw.startswith('arn:')):
                 raise Blocked('recorded_identifier_mismatch: declaration and saved value differ')
             if isinstance(right, ResourceReference) and left['$resource'] != right['$resource']:
-                return ReferenceDecision(False, (inputs.reference_diagnostic(left, right, kind, path, 'different producer Resources'),))
+                return ReferenceDecision(False, (inputs.reference_diagnostic(original_left, original_right, kind, path, 'different producer Resources'),))
         if isinstance(right, ResourceReference):
             refkind = inputs.resource_type(right)
             contract = REFERENCE_PROPERTIES.get(kind + '.' + path)
             if contract and refkind not in (contract[0] if isinstance(contract[0], tuple) else (contract[0],)):
-                return ReferenceDecision(False, (inputs.reference_diagnostic(left, right, kind, path, 'resource_type_mismatch'),))
+                return ReferenceDecision(False, (inputs.reference_diagnostic(original_left, original_right, kind, path, 'resource_type_mismatch'),))
             forms = inputs.reference_forms(kind, path) if registry.kms_forms(kind, path) is None else None
             if forms and right['$attribute'] not in {reference_attribute(refkind, form) for form in forms}:
-                return ReferenceDecision(False, (inputs.reference_diagnostic(left, right, kind, path, 'attribute_format_mismatch'),))
+                return ReferenceDecision(False, (inputs.reference_diagnostic(original_left, original_right, kind, path, 'attribute_format_mismatch'),))
             if forms and 'Arn' in forms and raw.startswith('arn:') and right['$attribute'] != reference_attribute(refkind, 'Arn'):
                 raise Blocked('attribute_format_unproven: alternative allowed literal format')
         concrete = proof.resolve(right)
@@ -175,7 +176,7 @@ def compare(inputs, left, right, kind, path):
             result, reason = registry.compare_kms_forms(raw, concrete, allowed,
                 resolve_literal=inputs.reference_literal, format_of=inputs.kms_format)
             if reason:
-                return ReferenceDecision(result, (inputs.reference_diagnostic(left, right, kind, path, reason),))
+                return ReferenceDecision(result, (inputs.reference_diagnostic(original_left, original_right, kind, path, reason),))
         if declared is not None and isinstance(right, ResourceReference) and left['$attribute'] != right['$attribute']:
             left_key = (*left['$resource'], left['$attribute'])
             right_key = (*right['$resource'], right['$attribute'])
@@ -189,7 +190,7 @@ def compare(inputs, left, right, kind, path):
             reason = 'recorded_observed' if proof.observed else 'iac_concrete'
     except Blocked as error:
         reason = str(error)
-    detail = inputs.reference_diagnostic(left, right, kind, path, reason)
+    detail = inputs.reference_diagnostic(original_left, original_right, kind, path, reason)
     if declared is not None:
         detail['model_literal'] = inputs.redacted(raw, kind + '.' + path)
     detail.update(local_comparison='matched' if equal is True else 'difference' if equal is False else 'uncompared',

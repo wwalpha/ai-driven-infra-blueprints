@@ -21,6 +21,7 @@ from issues.records import identifier
 from issues.reports import iac_report
 from support import issues_scan_fixtures as fixtures
 from support.it_case_receipt import it_case
+from support.model_sources import catalog_display
 from support.validator import load as load
 from utils.iac_values import Expression, same, selected_same
 
@@ -115,10 +116,11 @@ def main_checks():
             escaped = Expression('Sub', ['${BucketArn}/${!literal}/${Tail}', {'BucketArn': reference, 'Tail': 'one'}])
             assert same(escaped, arn + '/${literal}/one', reference=callback)
             for unresolved in (Expression('Sub', ['${Missing}', {}]),
-                               Expression('Sub', ['${Value}', {'Value': {'$resource': ['s3', '002'], '$attribute': 'Arn'}}]),
-                               Expression('Sub', ['${Value}', {'Value': Expression('Join', ['', [reference, '/*']])}]),
-                               Expression('Join', ['', [reference, '/*']])):
+                               Expression('Sub', ['${Value}', {'Value': {'$resource': ['s3', '002'], '$attribute': 'Arn'}}])):
                 assert same(unresolved, arn, reference=callback) is None
+            for different in (Expression('Sub', ['${Value}', {'Value': Expression('Join', ['', [reference, '/*']])}]),
+                               Expression('Join', ['', [reference, '/*']])):
+                assert same(different, arn, reference=callback) is False
             comparison.stack_inputs[producer][2]['AWS::Partition'] = 'aws-cn'
             assert same(reference, arn, reference=callback) is False
             assert same(reference, arn.replace('aws:', 'aws-cn:'), reference=callback)
@@ -264,7 +266,6 @@ def sqs_policy_artifact_checks():
 
 
 if __name__ == '__main__':
-    from support.model_sources import catalog_display
     with catalog_display():
         main_checks()
         sqs_policy_artifact_checks()

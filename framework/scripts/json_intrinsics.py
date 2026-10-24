@@ -108,7 +108,7 @@ def project_document(document, *, evaluate=None, unresolved=None, warnings=None,
     bound = evaluate is not None
     if evaluate is None:
         pending = _project_document_pending
-        evaluator = Evaluation({'': ({}, {}, {})}, {}, lambda *args: {}, pending, pending, True)
+        evaluator = Evaluation({'': ({}, {}, {})}, {}, lambda *args: {}, pending, pending, True, lambda *args: {})
         evaluate = _bind_framework_callback(_lambda_project_document_evaluate_101, evaluator)
 
     fail = _project_document_fail

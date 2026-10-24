@@ -25,10 +25,17 @@ from utils.cloudformation.inputs import (
     condition_active,
     load_template_inputs,
 )
+from utils.comparison_rows import MISSING, select
 from utils.iac_values import Expression, ResourceReference, cfn_resource_identity, same
 from utils.json_format import policy_json as strict_json
 from utils.project_targets import load_target_directory as load_target
-from utils.reference_contracts import REFERENCE_PROPERTIES, row_contexts
+from utils.reference_contracts import (
+    ARN_SHAPES,
+    ATTRIBUTE_SUFFIXES,
+    GETATT_ATTRIBUTES,
+    REFERENCE_PROPERTIES,
+    row_contexts,
+)
 
 from . import (
     design_link,
@@ -257,7 +264,8 @@ class Inputs:
         expected_attribute = reference_attribute(resource['resourceType'], expected_attribute)
         # The link label is never a physical ID, including PENDING_DEPLOY.
         readonly = schema.get('readOnlyProperties', [])
-        alias_arn = registry.special_attribute(resource['resourceType'], expected_attribute)
+        alias_arn = (resource['resourceType'] in ARN_SHAPES and
+                     expected_attribute == reference_attribute(resource['resourceType'], 'Arn'))
         if (not alias_arn and expected_attribute not in attributes
                 and expected_attribute not in schema.get('identifierOutputs', [])
                 and '/properties/' + expected_attribute not in primary + readonly):
@@ -282,9 +290,9 @@ class Inputs:
             raise Blocked('IMPORT reference requires approved handoff; no physical ID inference')
         return symbol
 
-    def symbol(self, stack, logical, attribute=None):
+    def symbol(self, stack, logical, attribute=None, *, derived=False):
         attribute = str(attribute) if isinstance(attribute, str) else attribute
-        cachekey = stack, logical, attribute
+        cachekey = stack, logical, attribute, derived
         if cachekey in self.symbols:
             if self.symbols[cachekey] is None:
                 raise Blocked(f'cyclic resource reference: {stack}/{logical}')
@@ -321,21 +329,24 @@ class Inputs:
                 attribute = registry.ref_attribute(resource['resourceType'])
             if attribute is None:
                 raise Blocked(f'Ref return attribute is unproven: {resource["resourceType"]}')
-        else:
+        elif not (derived and (attribute == reference_attribute(resource['resourceType'], 'Arn')
+                               and resource['resourceType'] in ARN_SHAPES
+                               or attribute == registry.ref_attribute(resource['resourceType']))):
             try:
                 self.catalog.property_schema(resource['resourceType'], attribute)
             except ValueError as error:
                 if self.local_comparison:
                     raise Blocked(f'unproven resource attribute: {logical}.{attribute}') from error
                 raise
-            if self.local_comparison and '/properties/' + attribute.replace('.', '/') not in self.catalog.schema(resource['resourceType']).get('readOnlyProperties', []):
+            if (self.local_comparison and attribute not in GETATT_ATTRIBUTES.get(resource['resourceType'], ())
+                    and '/properties/' + attribute.replace('.', '/') not in self.catalog.schema(resource['resourceType']).get('readOnlyProperties', [])):
                 raise Blocked(f'unproven GetAtt return attribute: {logical}.{attribute}')
-        result = ResourceReference({'$resource': [path.stem, identity], '$attribute': attribute})
+        result = ResourceReference({'$resource': [path.stem, identity], '$attribute': reference_attribute(resource['resourceType'], attribute)})
         self.symbols[cachekey] = result
         return result
 
     def import_value(self, stack, argument, seen):
-        name = self.evaluate(stack, argument, seen)
+        name = self.evaluate(stack, argument, seen | {('export-name',)})
         if not isinstance(name, str):
             raise Blocked('ImportValue name is not a local string')
         token = ('import', stack, name)
@@ -394,9 +405,13 @@ class Inputs:
     def reference_literal(self, value, *, recorded=None):
         """Resolve local values; an optional comparison proof may use recorded outputs."""
         if isinstance(value, Expression):
-            return references.literal_expression(value, resolve_literal=self.reference_literal, resource_type=self.resource_type)
+            return references.literal_expression(value, resolve_literal=self.reference_literal)
         service, identity = value['$resource']
         resource = self.resources[service][identity]
+        suffix = ATTRIBUTE_SUFFIXES.get((resource['resourceType'], value['$attribute']))
+        if suffix:
+            base = ResourceReference(dict(value, **{'$attribute': suffix[0]}))
+            return self.reference_literal(base, recorded=recorded) + suffix[1]
         imported_arn = registry.hook(resource['resourceType'], 'imported_group_arn')
         if (self.local_comparison and imported_arn and resource['resourceType'] in registry.hook(resource['resourceType'], 'IMPORTED_ARN_KINDS')
                 and resource_mode(resource) == 'IMPORT'
@@ -409,11 +424,8 @@ class Inputs:
             raise Blocked('reference stack correspondence is unproven')
         self.stack(units[0])
         attribute = value['$attribute']
-        if registry.special_attribute(resource['resourceType'], attribute):
-            alias = self.reference_literal(ResourceReference(dict(value, **{'$attribute': 'AliasName'})))
-            return registry.hook(resource['resourceType'], 'alias_arn')(alias, self.stack_inputs[name][2])
         secret_name = (resource['resourceType'], attribute) == registry.hook(resource['resourceType'], 'EXPLICIT_NAME')
-        bound = self.symbol(name, logical, None if secret_name or attribute == registry.ref_attribute(resource['resourceType']) else attribute)
+        bound = self.symbol(name, logical, None if secret_name else attribute, derived=not secret_name)
         if secret_name:
             bound = ResourceReference(dict(bound, **{'$attribute': 'Name'}))
         if not same(bound, value):
@@ -423,20 +435,21 @@ class Inputs:
             raise Blocked('Transform requires external evaluation')
         evaluator = self.evaluator()
         properties = document['Resources'][logical].get('Properties', {})
-        properties = evaluator.setting_properties(resource['resourceType'], attribute, properties)
-        literal_arn = registry.hook(resource['resourceType'], 'literal_arn')
-        if literal_arn and attribute == 'Arn':
-            return registry.literal_arn(resource['resourceType'], resource_mode(resource), properties, pseudo,
-                resolve_attribute=lambda attribute: self.reference_literal(ResourceReference(dict(value, **{'$attribute': attribute}))),
-                substitute=lambda reference: evaluator.substitution(name, reference, frozenset()), reference=value)
-        named_arn = registry.hook(resource['resourceType'], 'NAMED_ARN')
-        if named_arn and attribute == 'Arn':
+        if resource['resourceType'] in ARN_SHAPES and attribute == reference_attribute(resource['resourceType'], 'Arn'):
             if resource_mode(resource) != 'CREATE':
                 raise Blocked('named ARN requires CREATE resource correspondence; IMPORT requires approved handoff')
+            # AWS-generated identifiers are not template settings, including KMS KeyId.
+            if resource['resourceType'] == 'KMS.Key':
+                if recorded is not None:
+                    return recorded(value)
+                raise Blocked('KMS ARN requires a proven KeyId')
             return registry.named_arn(resource['resourceType'], properties, pseudo,
                                       evaluate=lambda value: evaluator.evaluate(name, value))
         setting = RETURN_ATTRIBUTE_PROPERTIES.get((resource['resourceType'], attribute))
-        if (attribute != registry.ref_attribute(resource['resourceType']) and not secret_name and setting is None) or (setting or attribute) not in properties:
+        explicit_path = setting or attribute
+        readonly = '/properties/' + explicit_path.replace('.', '/') in self.catalog.schema(resource['resourceType']).get('readOnlyProperties', ())
+        if ((attribute != registry.ref_attribute(resource['resourceType']) and not secret_name and setting is None)
+                or select(properties, explicit_path) == MISSING or readonly):
             if recorded is not None:
                 return recorded(value)
             raise Blocked('reference has no explicit name property contract')
@@ -461,7 +474,7 @@ class Inputs:
 
     def evaluator(self):
         return evaluation.evaluator(self.stack_inputs, self.resources, self.catalog.property_schema,
-                                    self.symbol, self.import_value, self.local_comparison)
+                                    self.symbol, self.import_value, self.local_comparison, self.catalog.schema)
 
     def evaluate(self, stack, value, seen=frozenset()):
         return self.evaluator().evaluate(stack, value, seen)

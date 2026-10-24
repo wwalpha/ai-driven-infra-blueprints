@@ -3,32 +3,28 @@
 import re
 
 import utils.cloudformation.inputs as _imports_cfn_inputs
+from utils.reference_contracts import ARN_DEFAULTS, ARN_SHAPES, REF_ATTRIBUTES
 
 from .services import (
     athena,
     cloudtrail,
     cloudwatch_logs,
     codebuild,
-    codecommit,
     codepipeline,
     events,
     glue,
     iam,
     kms,
-    lambda_function,
     quicksight,
-    route53,
     s3,
     secrets_manager,
     security_group,
-    sqs,
     vpc,
 )
 
 SERVICES = {
     'S3.Bucket': s3,
     'Logs.LogGroup': cloudwatch_logs,
-    'SQS.Queue': sqs,
     'KMS.Key': kms,
     'KMS.Alias': kms,
     'IAM.Role': iam,
@@ -45,12 +41,12 @@ SERVICES = {
     'EC2.SecurityGroupIngress': security_group,
     'EC2.SecurityGroupEgress': security_group,
     'CodeBuild.Project': codebuild,
-    'Lambda.Function': lambda_function,
-    'CodeCommit.Repository': codecommit,
-    'Route53.HostedZone': route53,
     'Glue.Connection': glue,
     'Glue.SecurityConfiguration': glue,
     'Glue.Job': glue,
+    'Glue.Crawler': glue,
+    'Glue.Database': glue,
+    'Glue.Table': glue,
     'Athena.WorkGroup': athena,
     'SecretsManager.Secret': secrets_manager,
     'CloudTrail.Trail': cloudtrail,
@@ -66,7 +62,7 @@ def rules(kind):
 
 
 def ref_attribute(kind):
-    return getattr(rules(kind), 'REF_ATTRIBUTES', {}).get(kind)
+    return REF_ATTRIBUTES.get(kind)
 
 
 def kms_forms(kind, path):
@@ -79,14 +75,6 @@ def hook(kind, name):
 
 
 
-def special_attribute(kind, attribute):
-    return (kind, attribute) in getattr(rules(kind), 'SPECIAL_ATTRIBUTES', set())
-
-
-def sub_arn(kind):
-    return kind in getattr(rules(kind), 'SUB_ARN_KINDS', set())
-
-
 def import_consumer(prop, kind, attribute):
     return (prop, kind, attribute) == hook(kind, 'IMPORT_CONSUMER')
 
@@ -95,31 +83,37 @@ def kms_format(value, resources):
     return kms.kms_format(value, resources)
 
 
-def literal_arn(kind, mode, properties, pseudo, *, resolve_attribute, substitute, reference):
-    if kind == 'S3.Bucket':
-        return s3.literal_arn(resolve_attribute('BucketName'), pseudo, mode)
-    if kind == 'Lambda.Function':
-        return lambda_function.literal_arn(properties, pseudo, substitute, reference)
-    return NotImplemented
-
-
 def named_arn(kind, properties, pseudo, *, evaluate):
-
+    """Concretize a proven Producer using the shared ARN identity contract."""
     Blocked = _imports_cfn_inputs.Blocked
-    field, pattern, service, prefix, suffix = hook(kind, 'NAMED_ARN')
-    explicit = evaluate(properties.get(field))
-    if (not isinstance(explicit, str) or explicit in {'UNSET', 'PENDING_DEPLOY', 'TBD', 'TODO', '未確定'}
-            or not re.fullmatch(pattern, explicit)):
-        raise Blocked('ARN requires a valid explicit resource name')
-    validator = hook(kind, 'validate_arn_context')
-    if validator:
-        validator(properties, evaluate)
-    for field, pattern in [('Partition', r'aws(?:-[a-z]+)*'),
-                           ('Region', r'[a-z]{2}(?:-[a-z]+)+-\d+'), ('AccountId', r'[0-9]{12}')]:
+    identifier, template, patterns = ARN_SHAPES[kind]
+    fields = identifier if isinstance(identifier, dict) else {identifier: 'id'}
+    components = {}
+    for field, group in fields.items():
+        explicit = properties
+        for token in field.split('.'):
+            explicit = explicit.get(token, ARN_DEFAULTS.get((kind, field))) if isinstance(explicit, dict) else None
+        explicit = evaluate(explicit)
+        if (not isinstance(explicit, str) or explicit in {'UNSET', 'PENDING_DEPLOY', 'TBD', 'TODO', '未確定'}
+                or re.fullmatch(patterns[group], explicit) is None
+                or any(token in explicit for token in ('*', '?', '${', '{{resolve:'))):
+            raise Blocked('ARN requires a valid explicit resource ' + field)
+        components[group] = explicit
+    provider = hook(kind, 'arn_components')
+    if provider:
+        components.update(provider(properties, evaluate))
+    for group, field, pattern in [('partition', 'Partition', r'aws(?:-[a-z]+)*'),
+                                 ('region', 'Region', r'[a-z]{2}(?:-[a-z]+)+-\d+'),
+                                 ('account', 'AccountId', r'[0-9]{12}')]:
+        if '{' + group + '}' not in template:
+            continue
         value = pseudo.get('AWS::' + field)
         if not isinstance(value, str) or re.fullmatch(pattern, value) is None:
             raise Blocked('ARN requires a confirmed ' + field)
-    return f"arn:{pseudo['AWS::Partition']}:{service}:{pseudo['AWS::Region']}:{pseudo['AWS::AccountId']}:{prefix}{explicit}{suffix}"
+        if group in components and components[group] != value:
+            raise Blocked('ARN identifier and confirmed ' + field + ' differ')
+        components[group] = value
+    return template.format(**components)
 
 
 def compare_kms_forms(left, right, allowed, *, resolve_literal, format_of):

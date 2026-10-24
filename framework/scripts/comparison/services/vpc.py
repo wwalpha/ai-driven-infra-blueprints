@@ -3,10 +3,6 @@
 from utils.cloudformation.inputs import Blocked
 from utils.reference_contracts import row_contexts
 
-REF_ATTRIBUTES = {'EC2.Subnet': 'SubnetId', 'EC2.VPC': 'VpcId', 'EC2.RouteTable': 'RouteTableId'}
-
-
-
 NAME_TAG_KINDS = {'EC2.VPC', 'EC2.Subnet', 'EC2.RouteTable', 'EC2.FlowLog'}
 
 

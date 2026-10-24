@@ -6,10 +6,6 @@ from design.policy_tables import POLICY_FORMATS
 from utils.cloudformation.inputs import Blocked, condition_active
 from utils.iac_values import ResourceReference, same, unordered_same
 
-REF_ATTRIBUTES = {'IAM.Role': 'RoleName', 'IAM.InstanceProfile': 'InstanceProfileName', 'IAM.ManagedPolicy': 'PolicyArn'}
-
-
-
 
 def managed_policy_roles(service, identity, stack, direct, *, stack_inputs, evaluate, reference_same, symbol):
     """Combine direct Roles with proven same-stack active Role attachments."""

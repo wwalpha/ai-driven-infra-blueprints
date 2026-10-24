@@ -3,12 +3,8 @@
 from functools import partial as _bind_framework_callback
 
 from utils.cloudformation.inputs import Blocked
-from utils.iac_values import Expression, ResourceReference, same
+from utils.iac_values import ResourceReference, same
 from utils.reference_contracts import contract, row_contexts
-
-REF_ATTRIBUTES = {'CodeBuild.Project': 'Name'}
-
-
 
 
 def contexts(rows):
@@ -59,12 +55,6 @@ def _callback_reference_compare_secret_value(path, reference, resolve_literal, r
 
 def reference_compare(left, right, path, resolve_literal, kms_format, resource_type, reference):
     if path == 'Environment.EnvironmentVariables[].Value':
-        if isinstance(left, Expression) or isinstance(right, Expression):
-            try:
-                values = [resolve_literal(value) if isinstance(value, (Expression, ResourceReference)) else value for value in (left, right)]
-                return same(*values)
-            except (Blocked, ValueError, KeyError, TypeError, OSError):
-                return None
         if isinstance(left, ResourceReference) and isinstance(right, ResourceReference):
             return same(left, right)
         if isinstance(left, ResourceReference) != isinstance(right, ResourceReference):
@@ -84,6 +74,3 @@ def reference_compare(left, right, path, resolve_literal, kms_format, resource_t
     return NotImplemented
 
 DIRECT_ATTRIBUTES = {'CodeBuild.Project.ServiceRole': 'Arn'}
-
-SUB_ARN_KINDS = {'CodeBuild.Project'}
-NAMED_ARN = ('Name', r'[A-Za-z0-9][A-Za-z0-9_-]{1,254}', 'codebuild', 'project/', '')

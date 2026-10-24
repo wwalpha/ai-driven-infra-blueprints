@@ -41,7 +41,7 @@ with patch.object(Path, 'read_text', side_effect=AssertionError('input read')), 
     assert values.Expression.__module__ == "utils.iac_values"
     assert not {"comparison_rows", "iac_values", "script_loader", "aws_sdk_runtime", "project_targets", "reference_contracts"} & sys.modules.keys()
     def forbidden(*args): raise AssertionError('lookup on literal')
-    evaluator = evaluation.Evaluation({'stack': ({}, {}, {})}, {}, forbidden, forbidden, forbidden, True)
+    evaluator = evaluation.Evaluation({'stack': ({}, {}, {})}, {}, forbidden, forbidden, forbidden, True, forbidden)
     assert evaluator.evaluate('stack', {'Fn::Join': [',', ['a', 'b']]}) == 'a,b'
 
 # Orchestrators may read the immutable layout at import, but never project inputs.

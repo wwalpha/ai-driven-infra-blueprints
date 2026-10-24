@@ -174,7 +174,7 @@ class Resolver:
                                            'producer logicalId is ambiguous', reference=logical_id)
         return matches[0]
 
-    def validate_attribute(self, kind, attribute, *, field=None, context=None):
+    def validate_attribute(self, kind, attribute, *, field=None, context=None, operand=False):
         declared = _imports_reference_contracts.contract(field, context) if field else {}
         if field and not declared and _imports_reference_contracts.requires_context(field, context):
             reason = 'CodePipeline ActionTypeId or Configuration' if _imports_reference_contracts.configuration_contract(field, context) is not None else 'reference context or receiving property'
@@ -190,7 +190,9 @@ class Resolver:
         except KeyError as error:
             raise ReferenceResolutionError('Framework unsupported producer ResourceType: ' + kind) from error
         returned = reference_attribute(kind, attribute)
-        if (declared and reference_attribute(kind, attribute) not in {reference_attribute(kind, form) for form in declared[kind]} or
+        if (declared and not operand and reference_attribute(kind, attribute) not in {reference_attribute(kind, form) for form in declared[kind]} or
+                not (kind in _imports_reference_contracts.ARN_SHAPES and returned == reference_attribute(kind, 'Arn')) and
+                returned != _imports_reference_contracts.REF_ATTRIBUTES.get(kind) and
                 (kind, attribute) not in _imports_reference_contracts.ARN_FORMS and
                 kind + '.' + attribute not in _imports_reference_contracts.attributes_for(kind) and
                 attribute not in _imports_utils_aws_catalogs.catalogs_for(self.root).selected(kind) and
@@ -202,7 +204,8 @@ class Resolver:
         try:
             actual = self.catalog.property_schema(kind, returned).get('type')
         except KeyError:
-            actual = 'string' if (kind, attribute) in _imports_reference_contracts.ARN_FORMS or kind + '.' + attribute in _imports_reference_contracts.attributes_for(kind) else None
+            actual = 'string' if (returned == _imports_reference_contracts.REF_ATTRIBUTES.get(kind)
+                                  or (kind, attribute) in _imports_reference_contracts.ARN_FORMS) or kind + '.' + attribute in _imports_reference_contracts.attributes_for(kind) else None
         consumer_kind = '.'.join(field.split('.')[:2])
         try:
             expected = self.catalog.property_schema(consumer_kind, field.removeprefix(consumer_kind + '.')).get('type')

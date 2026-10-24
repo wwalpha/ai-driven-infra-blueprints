@@ -1,5 +1,6 @@
 """Decode CloudFormation JSON/YAML without evaluation or AWS access."""
 
+import re
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
@@ -127,6 +128,9 @@ def intrinsic_shape_error(name, argument):
         valid = (isinstance(argument, str) and '.' in argument or sequence(2) and all(string(v) for v in argument))
     elif name == 'Fn::Sub':
         valid = (isinstance(argument, str) or sequence(2) and isinstance(argument[0], str) and isinstance(argument[1], dict))
+        if valid:
+            text = argument if isinstance(argument, str) else argument[0]
+            valid = '${' not in re.sub(r'\$\{!?[A-Za-z0-9_.:]+\}', '', text)
     elif name in {'Fn::Join', 'Fn::Split', 'Fn::Select'}:
         valid = sequence(2)
         if valid and name == 'Fn::Join':

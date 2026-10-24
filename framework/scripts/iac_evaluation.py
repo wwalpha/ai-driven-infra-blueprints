@@ -7,8 +7,15 @@ AWS/deploy mode deliberately retains its existing narrower evaluation contract.
 import re
 from functools import partial as _bind_framework_callback
 
+from utils.cloudformation.format import intrinsic_shape_error
 from utils.cloudformation.inputs import Blocked, resolve_value
+from utils.comparison_rows import MISSING, select
 from utils.iac_values import Expression, ResourceReference, cfn_resource_identity
+from utils.reference_contracts import (
+    ARN_SHAPES,
+    REF_ATTRIBUTES,
+    reference_attribute,
+)
 from utils.reference_contracts import (
     RETURN_ATTRIBUTE_PROPERTIES as RETURN_ATTRIBUTE_PROPERTIES,
 )
@@ -28,15 +35,19 @@ def _callback_Evaluation_evaluate_replace(resolved, seen, self, stack, substitut
 
 
 class Evaluation:
-    def __init__(self, stack_inputs, resources, property_schema, symbol, import_value, local_comparison):
+    def __init__(self, stack_inputs, resources, property_schema, symbol, import_value, local_comparison, resource_schema):
         self.stack_inputs, self.resources = stack_inputs, resources
         self.property_schema, self.symbol, self.import_value = property_schema, symbol, import_value
         self.local_comparison = local_comparison
+        self.resource_schema = resource_schema
 
     def symbolic_schema(self, value, *, element=False):
         if isinstance(value, ResourceReference):
             service, identity = value['$resource']
             kind = self.resources[service][identity]['resourceType']
+            if not element and (value['$attribute'] == REF_ATTRIBUTES.get(kind) or
+                                kind in ARN_SHAPES and value['$attribute'] == reference_attribute(kind, 'Arn')):
+                return {'type': 'string'}
             return self.property_schema(kind, value['$attribute'] + ('[]' if element else ''))
         if isinstance(value, Expression):
             if value.operation == 'Select':
@@ -59,13 +70,6 @@ class Evaluation:
         return False
 
 
-    @staticmethod
-    def setting_properties(kind, attribute, properties):
-        # Shared with JSON intrinsic projection and comparison's literal lookup.
-        if kind == 'Glue.Connection' and attribute == 'Name':
-            return properties.get('ConnectionInput', {})
-        return properties
-
     def substitution(self, stack, value, seen):
         if isinstance(value, ResourceReference):
             service, identity = value['$resource']
@@ -81,13 +85,18 @@ class Evaluation:
             if document.get('Transform'):
                 raise Blocked('Transform requires external evaluation')
             properties = document['Resources'][logical].get('Properties', {})
-            properties = self.setting_properties(resource['resourceType'], attribute, properties)
             setting = RETURN_ATTRIBUTE_PROPERTIES.get((resource['resourceType'], attribute), attribute)
-            if setting not in properties:
+            explicit = select(properties, setting)
+            readonly = '/properties/' + setting.replace('.', '/') in self.resource_schema(resource['resourceType']).get('readOnlyProperties', ())
+            if explicit == MISSING or self.local_comparison and readonly:
                 if self.string_operand(value):
                     return value
                 raise Blocked(f'resource substitution has no explicit string property: {logical}.{attribute}')
-            resolved = self.evaluate(name, properties[setting], seen | {token})
+            if self.local_comparison:
+                bound = self.symbol(name, logical, None)
+                if bound['$resource'] != value['$resource']:
+                    raise Blocked('resource substitution correspondence is unproven')
+            resolved = self.evaluate(name, explicit, seen | {token})
             if setting != attribute and not self.string_operand(resolved):
                 raise Blocked(f'resource substitution requires a proven string property: {logical}.{setting}')
             return self.substitution(name, resolved, seen | {token})
@@ -115,9 +124,16 @@ class Evaluation:
                 return float(value)
             return value
         if isinstance(value, ResourceReference):
+            if ('export-name',) in seen:
+                raise Blocked('Export name depends on a resource/import')
             return value
+        if any(key == 'Ref' or key.startswith('Fn::') for key in value) and len(value) != 1:
+            raise ValueError('intrinsic must contain exactly one function')
         if len(value) == 1:
             key, arg = next(iter(value.items()))
+            error = intrinsic_shape_error(key, arg)
+            if error:
+                raise ValueError(f'invalid {key}: {error}')
             if ('export-name',) in seen and (key in {'Fn::GetAtt', 'Fn::ImportValue'} or key == 'Ref' and arg not in parameters | pseudo):
                 raise Blocked('Export name depends on a resource/import')
             if key == 'Ref' and arg not in parameters | pseudo:

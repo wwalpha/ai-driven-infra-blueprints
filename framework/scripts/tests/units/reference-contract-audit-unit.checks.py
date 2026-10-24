@@ -31,8 +31,11 @@ from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
 from utils.reference_contracts import (
+    ARN_SHAPES,
     CONTEXT_PROPERTIES,
+    GETATT_ATTRIBUTES,
     IMPORT_PROPERTIES,
+    REF_ATTRIBUTES,
     contract,
     reference_attribute,
 )
@@ -324,6 +327,24 @@ def test_codebuild_plaintext_and_missing_sibling_type(models):
     good, missing = prepared.require_value()['EnvironmentVariables']
     assert isinstance(good['Value'], ResourceReference), good
     assert isinstance(missing['Value'], Expression), missing
+
+
+def test_all_aws_return_contracts_are_explicit_and_schema_supported(models):
+    catalog = DesignSchemaCatalog(models)
+    resolver = Resolver(models)
+    for aws_kind in catalog.resource_types:
+        kind = aws_kind.removeprefix('AWS::').replace('::', '.')
+        schema = catalog.schema(kind)
+        for pointer in schema.get('readOnlyProperties', ()):
+            if '*' not in pointer:
+                attribute = pointer.removeprefix('/properties/').replace('/', '.')
+                resolver.validate_attribute(kind, attribute)
+        for attribute in GETATT_ATTRIBUTES.get(kind, ()):
+            resolver.validate_attribute(kind, attribute)
+        if kind in ARN_SHAPES:
+            resolver.validate_attribute(kind, 'Arn')
+        if kind in REF_ATTRIBUTES:
+            resolver.validate_attribute(kind, REF_ATTRIBUTES[kind])
 
 
 if __name__ == '__main__':

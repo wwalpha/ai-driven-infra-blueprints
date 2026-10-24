@@ -11,6 +11,7 @@ from model.reference_nodes import is_reference
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import (
     Expression,
+    ResourceReference,
     same,
     selected_same,
     unordered_same,
@@ -51,9 +52,7 @@ def desired_value(service, row, kind, *, local_comparison, desired_reference, pr
     try:
         value = _desired_value(service, row, kind, local_comparison=local_comparison,
             desired_reference=desired_reference, property_schema=property_schema,
-            evaluate=evaluate, model_path=model_path, stack=stack, context=context, warnings=warnings, failures=failures)
-        if normalize is not None:
-            value = normalize(value)
+            evaluate=evaluate, model_path=model_path, stack=stack, context=context, warnings=warnings, failures=failures, normalize=normalize)
     except (Blocked, KeyError, ValueError, TypeError) as error:
         return PreparedValue(None, warnings, error, tuple(failures))
     return PreparedValue(value, warnings, failures=tuple(failures))
@@ -77,7 +76,7 @@ def _callback__desired_value_references_86(desired_reference, evaluate, kind, lo
         except (Blocked, KeyError, OSError, ValueError, ImportError, TypeError, IndexError) as error:
             failures.append((path, pointer, error))
             return Expression('Unverified', [])
-    if is_reference(item):
+    if isinstance(item, (ResourceReference, Expression)) or is_reference(item):
         return item
     if isinstance(item, list):
         return [_callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, failures, _default_field, _default_operands, _default_path, _default_context, _default_pointer, child, field, operands, path + '[]', context, pointer + '/' + str(index))
@@ -100,7 +99,7 @@ def _callback__desired_value_references_86(desired_reference, evaluate, kind, lo
     return item
 
 
-def _desired_value(service, row, kind, *, local_comparison, desired_reference, property_schema, evaluate, model_path, stack=None, context=None, warnings, failures):
+def _desired_value(service, row, kind, *, local_comparison, desired_reference, property_schema, evaluate, model_path, stack=None, context=None, warnings, failures, normalize=None):
     raw = row.get('document', row['value'])
     if 'document' in row:
         value = strict_json(raw)
@@ -128,6 +127,8 @@ def _desired_value(service, row, kind, *, local_comparison, desired_reference, p
             if schema_type is None:
                 raise Blocked('property type is not uniquely determined')
             value = strict_json(value)
+    if normalize is not None:
+        value = normalize(value)
     policy = row['property'].rsplit('.', 1)[-1] in {'PolicyDocument', 'AssumeRolePolicyDocument', 'KeyPolicy', 'Policy'}
     references = _bind_framework_callback(_callback__desired_value_references_86, desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, failures, '', False, '', context, '')
     path = row['property'].removeprefix(kind + '.')
