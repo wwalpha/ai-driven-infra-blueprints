@@ -7,6 +7,7 @@ import json
 import re
 from pathlib import Path
 
+import design.document as _design_document
 import model.core as _exports_model_core
 import model.files as _imports_model_files
 from aws_mapping_display import validation_rows
@@ -223,11 +224,12 @@ def check_design_tables(
         lines = resource_heading_lines(input_text(path, encoding="utf-8").splitlines())
         try:
             identities = resource_logical_ids(lines)
-            bound_anchors = bound_resource_anchors(path)
             values = design_model_values(path, design_sources=design_sources, root=root)
+            bound_anchors = bound_resource_anchors(path) if values is None else {}
             bound_anchors.update({(resource['resourceType'], resource['logicalId']): resource['anchor']
                                   for _, resource in entries(values or {}, 'desired.resource.') if resource.get('anchor')})
             modes = resource_modes(lines, values)
+            reference_tables = _design_document.model_reference_tables(path, input_text(path, encoding="utf-8"), tuple((values or {}).items()), definitions_root)
             heading_modes = {}
             anchor = ""
             for line in lines:
@@ -261,8 +263,8 @@ def check_design_tables(
                 cursor += 1
         try:
             lines = security_group_table_lines(lines, definitions_root)
-            _, children = expanded_design(lines, normalized=True, bound_anchors=bound_anchors, root=definitions_root, modes=modes)
-            lines = expanded_display_rows(lines, definitions_root, modes=modes)
+            _, children = expanded_design(lines, normalized=True, bound_anchors=bound_anchors, root=definitions_root, modes=modes, reference_tables=reference_tables)
+            lines = expanded_display_rows(lines, definitions_root, modes=modes, reference_tables=reference_tables)
         except ReferenceResolutionError as error:
             findings.warn(error)
             continue

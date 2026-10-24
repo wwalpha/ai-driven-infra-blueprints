@@ -222,6 +222,8 @@ def check_design_links(identifier_outputs: dict[str, set[str]], paths: list[Path
             except (OSError, ValueError, KeyError, TypeError) as error:
                 findings.check(False, f"invalid reference observations: {findings.relative(source)}: {error}")
                 source_values[source] = {}
+    for source, values in source_values.items():
+        design_index.get(source, values=values)
     sources = list(source_values)
     imported = {}
     for source in sources:

@@ -284,7 +284,7 @@ def validate_candidates(stage, root, generated, destinations, failures, jobs, wr
 
         while generated:
             total(len(generated))
-            _state_validate_candidates_260.design_index = DesignIndex(root)  # A new snapshot after each restore_view phase.
+            _state_validate_candidates_260.design_index = DesignIndex(definitions_root or root)  # A new snapshot after each restore_view phase.
             rejected = []
             _state_validate_candidates_260.context = None
             if validation is not None:

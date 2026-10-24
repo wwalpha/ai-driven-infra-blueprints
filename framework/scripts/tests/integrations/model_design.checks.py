@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import support.model_design_fixtures as fixtures
+from design.document import DesignIndex
 from model.format import FORMAT
 from model.format import INDEX as INDEX_HEADER
 from model.format import PART as PART_PREFIX
@@ -143,6 +144,10 @@ def check_kms_policy_execution_account(root):
     ], "Key", "test-key")
     values.update({"observed.row.001-001.property": "KMS.Key.KeyId", "observed.row.001-001.value": "`PENDING_DEPLOY`",
                    "observed.row.001-001.comment": "キーを識別するID"})
+    values.update({'desired.row.001-003.property': 'KMS.Key.Description',
+                   'desired.row.001-003.value': '`' + json.dumps({'$modelRef': {
+                       'logicalId': 'KMS_Key_001', 'attribute': 'Arn'}}) + '`',
+                   'desired.row.001-003.comment': 'Model参照の生成接続'})
     document_key = "desired.row.001-002.document"
     values[document_key] = json.dumps(policy, separators=(",", ":"))
     (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [target]}) + "\n", encoding="utf-8")
@@ -154,6 +159,10 @@ def check_kms_policy_execution_account(root):
     assert SYNC.sync(root, True, "dev", identity, services=["kms"]) == 0
     artifact = path.with_suffix("") / "test-key-policy.json"
     saved = path.read_bytes(), artifact.read_bytes()
+    assert b'reference-rows' not in saved[0] and b'reference-value' not in saved[0]
+    assert 'pending_deploy' in saved[0].decode('utf-8')
+    assert '$modelRef' in '\n'.join(DesignIndex(root).get(path).raw.display_lines)
+    assert SYNC.sync(root, False, "dev", identity, services=["kms"]) == 0
     invalid = {**values, document_key: values[document_key].replace(execution, identity)}
     write_model(source, text(invalid))
     for write in (False, True):

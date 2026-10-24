@@ -50,7 +50,7 @@ def codebuild_display_row(rows, index, comment, *, mode="CREATE", typed=False):
     return [rows[index][0], prop, value, comment]
 
 
-def codebuild_formal_rows(cells, names, *, mode="CREATE"):
+def codebuild_formal_rows(cells, names, *, mode="CREATE", typed=False):
     name = cells[1].removeprefix(CODEBUILD_VARIABLE)
     if not re.fullmatch(r"[^.\s|]+", name) or name in names:
         raise ValueError(f"invalid or duplicate CodeBuild environment variable name: {name}")
@@ -66,7 +66,7 @@ def codebuild_formal_rows(cells, names, *, mode="CREATE"):
         raise ValueError(f"invalid CodeBuild environment variable Type marker: {name}")
     if linked and not marker:
         raise ValueError(f"CodeBuild resource variable requires a link and Type marker: {name}")
-    if marker and not linked and mode != "IMPORT":
+    if marker and not linked and mode != "IMPORT" and not typed:
         raise ReferenceResolutionError(f"CodeBuild resource variable requires a link and Type marker: {name}")
     if re.match(r"^(PLAINTEXT|PARAMETER_STORE|SECRETS_MANAGER):", raw):
         raise ValueError(f"CodeBuild environment variable must omit the Type prefix: {name}")

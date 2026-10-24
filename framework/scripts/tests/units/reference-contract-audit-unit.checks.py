@@ -11,13 +11,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 from design.catalog import DesignSchemaCatalog
-from design.common import row_table
-from design.layout import expanded_design
+from design.document import DesignIndex, model_reference_tables
 from model.core import entries
-from model.display import display_rows, restored_reference_rows
+from model.display import catalog_display_rows, display_rows, reference_rows
 from model.identity import Resolver
 from model.projection import reference_display
 from model.reference_nodes import parse, resolve
+from model.render import generate_markdown
 from model.validation import validate_json_settings
 from support.model_reference_fixtures import (
     FRAMEWORK,
@@ -174,20 +174,23 @@ def test_common_markdown_projection_and_restoration(models, kind, rows, observed
     save(scope, values)
     original = copy.deepcopy(values)
     shown = reference_display(values, scope.path, models)
-    rendered = display_rows(kind, [[rid, row['property'], row['value'], row['comment']] for rid, row in entries(shown, 'desired.row.')], models)
+    rendered = display_rows(kind, [[rid, row['property'], row['value'], row['comment']] for rid, row in entries(shown, 'desired.row.')], models, references=reference_rows(values)[values['desired.resource.001.logicalId']].reference_ids)
     assert expected in str(rendered) and '$modelRef' not in str(rendered)
-    document = [f'### {kind}: fixture', '', *row_table(rendered)]
-    expanded, _ = expanded_design(document, root=models)
-    restored = [[cell.strip() for cell in line.strip("|").split("|")] for line in expanded if line.startswith("|")][2:]
+    path = models / 'docs/designs/qa/team/receiver.md'
+    markdown = generate_markdown(path, values, models)
+    assert 'reference-rows' not in markdown and 'reference-value' not in markdown
+    assert markdown == generate_markdown(path, values, models)
+    document = DesignIndex(models).get(path, text=markdown, values=values)
+    expanded, _ = document.raw.expanded
+    restored = [[cell.strip() for cell in line.strip("|").split("|")] for line in expanded if line.startswith("|") and ' | ' in line]
+    restored = [row for row in restored if len(row) == 4 and row[0].isdigit()]
     assert [row[1:] for row in restored] == [
-        [row['property'], row['value'], row['comment']] for rid, row in entries(values, 'desired.row.')]
-    assert restored_reference_rows(rendered, kind, models, mode='CREATE')[0] == [
-        [rid, row['property'], row['value'], row['comment']] for rid, row in entries(values, 'desired.row.')]
+        row[1:] for row in catalog_display_rows([[rid, row['property'], row['value'], row['comment']]
+            for rid, row in entries(values, 'desired.row.')], kind, models)]
     assert values == original
-    tampered = copy.deepcopy(rendered)
-    tampered[-1][2] = '`tampered`'
-    with pytest.raises(ValueError):
-        expanded_design([f'### {kind}: fixture', '', *row_table(tampered)], root=models)
+    tampered = markdown.replace(expected, 'tampered', 1)
+    with pytest.raises(ValueError, match='Model expected display'):
+        model_reference_tables(path, tampered, tuple(values.items()), models)
 
 
 @pytest.mark.parametrize('suffix,equal', [('/', True), ('/prefix/', False), ('', False)])

@@ -41,7 +41,7 @@ def broken_design_links(stage: Path, root: Path, paths: list[Path], *, definitio
     if not paths:
         return {}
     validator = view_validator(stage, root, definitions_root)
-    validator.check_design_links(validator.catalog_design_properties()[2], paths, design_index=DesignIndex(root))
+    validator.check_design_links(validator.catalog_design_properties()[2], paths, design_index=DesignIndex(definitions_root or definition_root(root)))
     broken = {}
     for error in [*validator.errors, *(warning['message'] for warning in validator.findings.warnings)]:
         kind, _, reference = error.partition(": ")
@@ -99,9 +99,11 @@ def validate_views(stage: Path, root: Path, paths: list[Path], sources: dict[Pat
         expected = stage / 'docs/designs' / deferred[1][0] / deferred[1][1] / (deferred[1][2] + '.md')
         if root.resolve() != deferred[0] or paths != [expected]:
             raise ValueError('saved design validation requires the selected single service')
-    design_index = design_index or DesignIndex(root)
+    design_index = design_index or DesignIndex(definitions_root or definition_root(root))
     validator = view_validator(stage, root, definitions_root)
     validator.design_sources = {path: sources[root / path.relative_to(stage)] for path in paths}
+    for path, values in validator.design_sources.items():
+        design_index.get(path, values=values)
     validator.scope = {(*p.relative_to(stage / "docs/designs").parts[:2], p.stem) for p in paths}
     if context is not None:
         validator.findings.candidate = context.findings.candidate

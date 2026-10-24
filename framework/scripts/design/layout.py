@@ -420,7 +420,7 @@ def linked_list_property(display: str, resource_type: str, root: Path | None = N
 
 
 @input_scope
-def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=None) -> list[str]:
+def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=None, reference_tables=(), _verified_reference=False) -> list[str]:
     """Restore compact resource rows to their catalog properties."""
     ROOT = _imports_aws_mapping_display.ROOT
     compact_group = _imports_aws_mapping_display.compact_group
@@ -429,6 +429,8 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
     show = _imports_aws_mapping_display.show
     structural = _imports_aws_mapping_display.structural
     root = root or ROOT
+    if any('<!-- reference-rows:' in line or '<!-- reference-value:' in line for line in lines):
+        raise ValueError('obsolete Model reference metadata; regenerate Markdown')
     lines = resource_heading_lines(lines)
     modes = resource_modes(lines) if modes is None else modes
     anchor = ""
@@ -457,7 +459,6 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
         guardduty_names = set()
         cloudtrail_count = 0
         packed_pipeline = False
-        reference_restored = False
         changed = False
         normalized = False
         kind = ""
@@ -469,9 +470,18 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
             stop += 1
         if any(len(row) != 4 for row in source_rows):
             raise ValueError("resource table row must have four cells")
+        table = next((table for table in reference_tables if table.anchor == anchor), None)
+        if table is not None:
+            if tuple(lines[start:stop]) != table.expected:
+                raise ValueError('Markdown table differs from Model expected display: ' + anchor)
+            # Parse the actual, matched display before exposing Model semantic rows.
+            expanded_display_rows([f'<a id="{anchor}"></a>', f'### {resource_type}: reference', *lines[start:stop]],
+                                  root, modes=modes, _verified_reference=True)
+            result.extend(table.semantic)
+            index = stop
+            continue
         restored = _dependency_array_display.restored_rows(source_rows, resource_type, root)
-        if not any(_imports_model_display.REFERENCE_ROWS.match(row[3]) for row in restored):
-            restored = design.services.glue.restored_glue_argument_rows(restored, resource_type)
+        restored = design.services.glue.restored_glue_argument_rows(restored, resource_type)
         if restored != source_rows:
             if [row[0] for row in source_rows] != [str(number) for number in range(1, len(source_rows) + 1)]:
                 raise ValueError("Array table numbering error")
@@ -482,16 +492,6 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
             cells = [cell.strip() for cell in lines[index].strip("|").split("|")]
             if len(cells) != 4:
                 raise ValueError("resource table row must have four cells")
-            if _imports_model_display.REFERENCE_ROWS.match(cells[3]):
-                remaining = [[cell.strip() for cell in line.strip('|').split('|')] for line in lines[index:]
-                             if line.startswith('|')]
-                original, count = _imports_model_display.restored_reference_rows(remaining, resource_type, root, mode=mode)
-                row_numbers.extend(row[0] for row in remaining[:count])
-                rows.extend(original)
-                reference_restored = True
-                index += count
-                changed, kind = True, 'Model reference display'
-                continue
             if '<!-- compact-source:' in cells[3]:
                 marker = COMPACT_SOURCE.match(cells[3])
                 if mode != 'IMPORT' or marker is None:
@@ -553,7 +553,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
             if prop.startswith(CODEBUILD_VARIABLE):
                 changed = True
                 kind = "CodeBuild environment variable"
-                rows.extend(design.services.codebuild.codebuild_formal_rows(cells, codebuild_names, mode=mode))
+                rows.extend(design.services.codebuild.codebuild_formal_rows(cells, codebuild_names, mode=mode, typed=_verified_reference))
             elif item := linked_list_property(display_property, resource_type, root):
                 list_prop, first_index = item
                 expected = linked_list_counts.get(list_prop, 0) + 1
@@ -564,14 +564,14 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
                     raise ValueError("invalid Subnet list source marker")
                 source = json.loads(marker.group(1)) if marker else None
                 items = subnet_list_items(list_prop, source) if source is not None else [cells[2]]
-                if source is not None and list_prop in CODEBUILD_VPC_PROPERTIES and mode != "IMPORT":
+                if source is not None and list_prop in CODEBUILD_VPC_PROPERTIES and mode != "IMPORT" and not _verified_reference:
                     raise ReferenceResolutionError("CodeBuild VpcConfig value must be a resource link", property=prop, reference=cells[2])
                 comment = cells[3][marker.end():] if marker else cells[3]
                 child = CHILD.match(comment)
                 label = CHILD_NAME.match(comment[child.end():]) if child else None
                 # Rotation identity metadata occurs only on the first displayed Subnet.
                 continuation_comment = comment[child.end() + label.end():] if label and list_prop.startswith(ROTATION_SCHEDULE + ".") else comment
-                if source is None and mode != "IMPORT" and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
+                if source is None and mode != "IMPORT" and not _verified_reference and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", cells[2]):
                     raise ReferenceResolutionError("Subnet/Security Group value must be a resource link", property=prop, reference=cells[2])
                 for offset, value in enumerate(items):
                     row = cells
@@ -599,15 +599,15 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
             else:
                 rows.append(cells)
             index += 1
-        if not reference_restored and resource_type == "Lambda.Function" and any(row[1].startswith(LAMBDA_PERMISSION + ".") or "<!-- lambda-permission:" in row[3] for row in rows):
+        if resource_type == "Lambda.Function" and any(row[1].startswith(LAMBDA_PERMISSION + ".") or "<!-- lambda-permission:" in row[3] for row in rows):
             rows = permission_rows(rows)
             changed = True
             kind = "Lambda Permission"
-        if resource_type == "CodePipeline.Pipeline" and not packed_pipeline and not reference_restored:
+        if resource_type == "CodePipeline.Pipeline" and not packed_pipeline:
             rows = design.services.codepipeline.pipeline_display_rows(rows)
             changed = True
             kind = "CodePipeline"
-        if resource_type in REQUIRED_NAME_TAG_TYPES and not reference_restored:
+        if resource_type in REQUIRED_NAME_TAG_TYPES:
             rows = ec2_formal_rows(rows, resource_type)
             changed = True
             kind = resource_type
@@ -631,7 +631,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
 def expanded_design(lines: list[str], *, normalized: bool = False,
                     logical_ids: dict[tuple[str, str], str] | None = None,
                     bound_anchors: dict[tuple[str, str], str] | None = None,
-                    root: Path | None = None, modes=None) -> tuple[list[str], dict[str, dict]]:
+                    root: Path | None = None, modes=None, reference_tables=()) -> tuple[list[str], dict[str, dict]]:
     """Expand identified children for model/link resolution; keep S3's flat model.
 
     Child anchors and logical IDs live in the first row's comment. Visible tables
@@ -641,7 +641,7 @@ def expanded_design(lines: list[str], *, normalized: bool = False,
     lines = [line for line in lines if not RESOURCE_ID.fullmatch(line)]
     if not normalized:
         lines = _dependency_security_group_tables.security_group_table_lines(lines, root)
-    lines = expanded_display_rows(lines, root, modes=modes)
+    lines = expanded_display_rows(lines, root, modes=modes, reference_tables=reference_tables)
     result: list[str] = []
     children: dict[str, dict] = {}
     parent_type = parent_id = parent_anchor = pending_anchor = ""

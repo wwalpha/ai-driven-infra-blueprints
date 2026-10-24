@@ -11,6 +11,7 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 import aws_mapping_display as _imports_aws_mapping_display
+import design.document as _design_document
 import design.layout as _dependency_design_layout
 import design.layout as _imports_design_layout
 import design.policy_tables as _dependency_policy_tables
@@ -298,13 +299,14 @@ def check_resource_names(service_metadata: dict[Path, tuple[str, tuple[str, ...]
         lines = _dependency_design_layout.resource_heading_lines(_dependency_policy_tables.without_policy_tables(input_text(path, encoding="utf-8").splitlines()))
         try:
             identities = _dependency_design_layout.resource_logical_ids(lines)
-            bound_anchors = _dependency_model_projection.bound_resource_anchors(path)
             values = design_model_values(path, design_sources=design_sources, root=root)
+            bound_anchors = _dependency_model_projection.bound_resource_anchors(path) if values is None else {}
             bound_anchors.update({(resource['resourceType'], resource['logicalId']): resource['anchor']
                                   for _, resource in entries(values or {}, 'desired.resource.') if resource.get('anchor')})
             modes = _dependency_design_layout.resource_modes(lines, values)
+            reference_tables = _design_document.model_reference_tables(path, input_text(path, encoding="utf-8"), tuple((values or {}).items()), definitions_root)
             lines = _dependency_security_group_tables.security_group_table_lines(lines, definitions_root)
-            lines = _dependency_design_layout.expanded_display_rows(lines, definitions_root, modes=modes)
+            lines = _dependency_design_layout.expanded_display_rows(lines, definitions_root, modes=modes, reference_tables=reference_tables)
             values = values or {}
             resources = {(resource['resourceType'], resource['logicalId']): (identity, resource)
                          for identity, resource in entries(values, 'desired.resource.')}

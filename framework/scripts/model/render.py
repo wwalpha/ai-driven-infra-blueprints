@@ -191,7 +191,14 @@ def grouped_resources(values, details, by_anchor, *, scope=None):
     return grouped
 
 
-def resource_table_lines(resource, name, rows, children, root):
+def resource_table_lines(resource, name, rows, children, root, *, references=None, formal=False):
+    sources = references or {}
+    source = sources.get(resource.get('logicalId'))
+    if formal:
+        originals = {row[0]: row for item in sources.values() for row in item.rows if row[0] in item.reference_ids}
+        rows = [list(originals.get(row[0], row)) for row in rows]
+        children = [(rid, child, child_name, [list(originals.get(row[0], row)) for row in child_rows])
+                    for rid, child, child_name, child_rows in children]
     expected = Counter(row[0] for row in _dependency_aws_mapping_display.selected_rows(rows, root))
     for _, _, _, child_rows in children:
         expected.update(row[0] for row in _dependency_aws_mapping_display.selected_rows(child_rows, root))
@@ -204,7 +211,11 @@ def resource_table_lines(resource, name, rows, children, root):
         rules = [(child, _dependency_aws_mapping_display.selected_rows(child_rows, root)) for _, child, _, child_rows in children]
         output += _ec2_security_groups.sg_tables(_dependency_aws_mapping_display.selected_rows(rows, root), [(child, rows) for child, rows in rules if rows], root, consumed=consumed)
     else:
-        display = display_rows(kind, rows, root, mode=_dependency_design_layout.resource_mode(resource), consumed=consumed)
+        display = [list(row) for row in _dependency_aws_mapping_display.selected_rows(rows, root)] if formal else display_rows(
+            kind, rows, root, mode=_dependency_design_layout.resource_mode(resource), consumed=consumed,
+            references=source.reference_ids if source else None)
+        if formal:
+            consumed.extend(row[0] for row in display)
         for _, child, child_name, child_rows in children:
             child_rows = _dependency_aws_mapping_display.selected_rows(child_rows, root)
             if not child_rows:
@@ -212,11 +223,17 @@ def resource_table_lines(resource, name, rows, children, root):
             if child["resourceType"] == ROTATION_SCHEDULE:
                 child_rows = [[rid, prop, f'[{name}](#{resource["anchor"]})' if prop == child["parentProperty"] else value, comment]
                               for rid, prop, value, comment in child_rows]
-            child_display = display_rows(kind if child["resourceType"] == ROTATION_SCHEDULE else child["resourceType"], child_rows, root, mode=_dependency_design_layout.resource_mode(child), consumed=consumed)
-            if child["resourceType"] != ROTATION_SCHEDULE:
+            child_source = sources.get(child['logicalId'])
+            child_display = [list(row) for row in child_rows] if formal else display_rows(
+                kind if child["resourceType"] == ROTATION_SCHEDULE else child["resourceType"], child_rows, root,
+                mode=_dependency_design_layout.resource_mode(child), consumed=consumed,
+                references=child_source.reference_ids if child_source else None)
+            if formal:
+                consumed.extend(row[0] for row in child_display)
+            if not formal and child["resourceType"] != ROTATION_SCHEDULE:
                 for row in child_display:
                     row[1] = child["resourceType"] + "." + row[1]
-            if child["resourceType"] == LAMBDA_PERMISSION:
+            if not formal and child["resourceType"] == LAMBDA_PERMISSION:
                 hidden = [row[1:] for row in child_rows if row[1] in {LAMBDA_PERMISSION + ".Id", LAMBDA_PERMISSION + ".FunctionName"}]
                 child_display = [row for row in child_display if row[1] not in {LAMBDA_PERMISSION + ".Id", LAMBDA_PERMISSION + ".FunctionName"}]
                 metadata = json.dumps([child_name, hidden], ensure_ascii=False, separators=(",", ":"))
@@ -226,13 +243,14 @@ def resource_table_lines(resource, name, rows, children, root):
                     row[1] = row[1].removeprefix("Lambda.")
                 child_display[0][3] = f"<!-- lambda-permission: {metadata} --> " + child_display[0][3]
             prefix = f'<a id="{child["anchor"]}"></a><!-- logical-id: {child["logicalId"]} --> '
-            if child["resourceType"] == ROTATION_SCHEDULE:
+            if child["resourceType"] == ROTATION_SCHEDULE or formal and child["resourceType"] == LAMBDA_PERMISSION:
                 prefix += child_name + "："
             comment = child_display[0][3]
             source = SUBNET_LIST_SOURCE.match(comment)
             child_display[0][3] = (source.group(0) if source else "") + prefix + (comment[source.end():] if source else comment)
             display += child_display
-        display = _dependency_array_display.indexed_rows(display, kind, root)
+        if not formal:
+            display = _dependency_array_display.indexed_rows(display, kind, root)
         output += _dependency_model_display.row_table(display)
     if Counter(consumed) != expected:
         raise ValueError("selected display rows were omitted or consumed more than once")
@@ -257,6 +275,7 @@ def render_validated_model(path: Path, values: dict[str, str], root: Path, *, de
     validate_json_settings(values, model_path)
     if path.stem == "cloudformation-stacks":
         return stack_markdown(path, values, root, definitions_root=definitions_root)
+    references = _dependency_model_display.reference_rows(values)
     values = reference_display(values, path, root)
     service = path.stem
     if values.get(f"desired.service.{service}.serviceId") != service:
@@ -268,16 +287,17 @@ def render_validated_model(path: Path, values: dict[str, str], root: Path, *, de
     _dependency_model_validation.validate_resource_identities(path, values, root, resources, definitions_root=definitions_root)
     scope = scope_for((root / 'model' / path.relative_to(root / 'docs/designs')).with_suffix('.properties'))
     details, by_anchor = resource_details(values, definitions_root or root, service, owned, resources, _dependency_model_projection.bound_resource_anchors(path), scope=scope)
-    return render_markdown(path, values, definitions_root or root, owned, details, grouped_resources(values, details, by_anchor, scope=scope))
+    return render_markdown(path, values, definitions_root or root, owned, details, grouped_resources(values, details, by_anchor, scope=scope), references=references)
 
 
 @input_scope
-def generate_markdown(path: Path, values: dict[str, str], root: Path) -> str:
+def generate_markdown(path: Path, values: dict[str, str], root: Path, *, reference_tables=None) -> str:
     """Render the selected service without deciding whether its design is correct."""
     reference_display = _imports_model_projection.reference_display
     scope_for = _imports_model_sources.scope_for
     validate_json_settings = _imports_model_validation.validate_json_settings
     validate_json_settings(values, (path.parents[4] / 'model' / path.relative_to(path.parents[4] / 'docs/designs')).with_suffix('.properties'))
+    references = _dependency_model_display.reference_rows(values)
     values = reference_display(values, path, path.parents[4])
     service = path.stem
     owned = values.get(f"desired.service.{service}.ownedCatalogResourceTypes", "").split(",")
@@ -294,10 +314,11 @@ def generate_markdown(path: Path, values: dict[str, str], root: Path) -> str:
     by_anchor = {item[1]["anchor"]: item for item in details}
     scope = scope_for((path.parents[4] / 'model' / path.relative_to(path.parents[4] / 'docs/designs')).with_suffix('.properties'))
     grouped = grouped_resources(values, details, by_anchor, scope=scope)
-    return render_markdown(path, values, root, owned, details, grouped, model_policy_views(values))
+    return render_markdown(path, values, root, owned, details, grouped, model_policy_views(values),
+                           references=references, reference_tables=reference_tables)
 
 
-def render_markdown(path, values, root, owned, details, grouped, policy_views=None):
+def render_markdown(path, values, root, owned, details, grouped, policy_views=None, *, references=None, reference_tables=None):
     service = path.stem
     children = {item[0] for items in grouped.values() for item in items}
     independent = [item for item in details if item[0] not in children]
@@ -315,7 +336,12 @@ def render_markdown(path, values, root, owned, details, grouped, policy_views=No
         heading = f"### {kind}" if name == kind and _dependency_design_layout.resource_display_name(kind, rows, mode=_dependency_design_layout.resource_mode(resource), root=root) is None else f"### {kind}: {name}"
         output += ["", f'<!-- resource-logical-id: {resource["logicalId"]} -->', f'<a id="{resource["anchor"]}"></a>', "", heading, ""]
         children = grouped.get(identity, [])
-        output += resource_table_lines(resource, name, rows, children, root)
+        table = resource_table_lines(resource, name, rows, children, root, references=references)
+        output += table
+        sources = tuple(references[item['logicalId']] for item in [resource, *(child[1] for child in children)]) if references else ()
+        if reference_tables is not None and any(source.references for source in sources):
+            semantic = resource_table_lines(resource, name, rows, children, root, references=references, formal=True)
+            reference_tables.append(_dependency_model_display.ReferenceTable(resource['anchor'], sources, tuple(table), tuple(semantic)))
         output += (policy_views or {}).get(identity, [])
         if kind == "Macie.ClassificationJob":
             definitions = [row for row in rows if row[1] == kind + ".s3JobDefinition"]
@@ -442,5 +468,5 @@ def view_plan(path, values, root, managed):
 _COMPAT_ROOT = Path(__file__).resolve().parents[3]
 
 
-def display_rows(kind: str, rows: list[list[str]], root: Path=_COMPAT_ROOT, *, mode='CREATE', _counts=None, consumed: list[str] | None=None):
-    return _dependency_model_display.display_rows(kind, rows, root, mode=mode, _counts=_counts, consumed=consumed)
+def display_rows(kind: str, rows: list[list[str]], root: Path=_COMPAT_ROOT, *, mode='CREATE', _counts=None, consumed: list[str] | None=None, references=None):
+    return _dependency_model_display.display_rows(kind, rows, root, mode=mode, _counts=_counts, consumed=consumed, references=references)

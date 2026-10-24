@@ -1,8 +1,8 @@
 """Catalog ordering and common display tables, separate from document assembly."""
 
 import json
-import re
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 
 import aws_mapping_display as _display_aws_mapping_display
@@ -28,48 +28,52 @@ from design.services.ec2.display import ec2_display_rows
 from design.services.guardduty import display_row as guardduty_display_row
 from utils.input_cache import input_scope
 
-from model.core import LINK, ReferenceResolutionError, literal
+import model.files as _display_model_files
+from model.core import LINK, ReferenceResolutionError, entries, literal
 from model.reference_nodes import (
-    display_source,
+    ReferenceNode,
     nodes,
     project_text,
-    read_display_source,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
-REFERENCE_ROWS = re.compile(r'^<!-- reference-rows: ([A-Za-z0-9+/=]+) --> ')
 
 
-def restored_reference_rows(rows, kind, root, *, mode):
-    marker = REFERENCE_ROWS.match(rows[0][3])
-    source = read_display_source(marker[1])
-    if not isinstance(source, list) or len(source) != 3:
-        raise ValueError('invalid reference display source')
-    original, projected, count = source
-    if (not isinstance(original, list) or not original or not isinstance(projected, list) or
-            len(original) != len(projected) or type(count) is not int or not 1 <= count <= len(rows) or
-            any(not isinstance(row, list) or len(row) != 4 or any(not isinstance(cell, str) for cell in row)
-                for row in original + projected)):
-        raise ValueError('invalid reference source rows or count')
-    references = set()
-    for before, after in zip(original, projected, strict=True):
-        if before[:2] != after[:2] or before[3] != after[3]:
-            raise ValueError('reference source identity/property/comment differs')
-        if any(nodes(literal(before[2]))):
-            project_text(before[2])
-            references.add(before[0])
-            if any(nodes(literal(after[2]))):
-                raise ValueError('reference display contains internal nodes')
-        elif before != after:
-            raise ValueError('non-reference source row differs')
-    if not references:
-        raise ValueError('reference source requires typed references')
-    expected = _display_rows(kind, projected, root, mode=mode, _counts=None, consumed=None, references=references)
-    actual = [list(row) for row in rows[:count]]
-    actual[0][3] = actual[0][3][marker.end():]
-    if len(expected) != count or [row[1:] for row in actual] != [row[1:] for row in expected]:
-        raise ValueError('reference display differs from source rows')
-    return original, count
+@dataclass(frozen=True)
+class ReferenceRows:
+    """Original Model rows, captured before display projection for one Resource."""
+
+    logical_id: str
+    kind: str
+    mode: str
+    rows: tuple[tuple[str, ...], ...]
+    references: tuple[tuple[str, tuple[ReferenceNode, ...]], ...]
+
+    @property
+    def reference_ids(self):
+        return frozenset(rid for rid, _ in self.references)
+
+
+@dataclass(frozen=True)
+class ReferenceTable:
+    """A generated expectation and semantic rows; never serialized to Markdown."""
+
+    anchor: str
+    resources: tuple[ReferenceRows, ...]
+    expected: tuple[str, ...]
+    semantic: tuple[str, ...]
+
+
+def reference_rows(values):
+    result = {}
+    rows_by_resource = _display_model_files.resource_row_index(values)
+    for identity, resource in entries(values, 'desired.resource.'):
+        rows = tuple((rid, row['property'], row['value'], row.get('comment', ''))
+                     for rid, row in rows_by_resource[identity])
+        result[resource['logicalId']] = ReferenceRows(resource['logicalId'], resource['resourceType'],
+            resource.get('resourceMode', 'CREATE'), rows,
+            tuple((row[0], references) for row in rows if (references := tuple(nodes(literal(row[2]))))))
+    return result
 
 
 def catalog_display_rows(rows: list[list[str]], kind: str, root: Path) -> list[list[str]]:
@@ -101,26 +105,17 @@ def catalog_display_rows(rows: list[list[str]], kind: str, root: Path) -> list[l
 
 
 @input_scope
-def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="CREATE", _counts=None, consumed: list[str] | None = None) -> list[list[str]]:
+def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="CREATE", _counts=None, consumed: list[str] | None = None, references=None) -> list[list[str]]:
     rows = _display_aws_mapping_display.selected_rows(rows, root)
-    originals, projected, references = [], [], set()
+    references = set(references or ())
+    projected = []
     for row in rows:
-        original, shown = list(row), list(row)
-        marker = re.match(r'^<!-- reference-value: ([A-Za-z0-9+/=]+) --> ', row[3])
-        if marker:
-            original[2] = read_display_source(marker[1])
-            original[3] = shown[3] = row[3][marker.end():]
-        if any(nodes(literal(original[2]))):
+        shown = list(row)
+        if any(nodes(literal(row[2]))):
             references.add(row[0])
-            if not marker:
-                shown[2] = project_text(row[2])
-        originals.append(original)
+            shown[2] = project_text(row[2])
         projected.append(shown)
-    result = _display_rows(kind, projected, root, mode=mode, _counts=_counts, consumed=consumed, references=references)
-    if references and result:
-        source = display_source([originals, projected, len(result)])
-        result[0][3] = '<!-- reference-rows: ' + source + ' --> ' + result[0][3]
-    return result
+    return _display_rows(kind, projected, root, mode=mode, _counts=_counts, consumed=consumed, references=references)
 
 
 def _display_rows(kind, rows, root, *, mode, _counts, consumed, references):
@@ -137,7 +132,7 @@ def _display_rows(kind, rows, root, *, mode, _counts, consumed, references):
         packed = design.compact_rows.packed_compact_rows(rows, index) if mode == 'IMPORT' else None
         if packed is not None:
             block, expanded = packed
-            rendered = display_rows(kind, expanded, root, mode=mode, _counts=counts)
+            rendered = display_rows(kind, expanded, root, mode=mode, _counts=counts, references=references)
             source = json.dumps([[row[1:] for row in block], len(rendered)], ensure_ascii=True)
             for char in '|<>':
                 source = source.replace(char, f'\\u{ord(char):04x}')
