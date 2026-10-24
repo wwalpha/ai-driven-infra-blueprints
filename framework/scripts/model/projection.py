@@ -72,7 +72,7 @@ def bound_resource_anchors(path):
             for _, resource in entries(load_model(path).authoritative, 'desired.resource.')}
 
 
-def linked_resource(path: Path, value: str, *, design_index: _dependency_design_document.DesignIndex | None = None) -> tuple[str, str] | None:
+def linked_resource(path: Path, value: str, *, design_index: "_dependency_design_document.DesignIndex | None" = None) -> tuple[str, str] | None:
     match = RESOURCE_LINK.fullmatch(value)
     if not match:
         return None

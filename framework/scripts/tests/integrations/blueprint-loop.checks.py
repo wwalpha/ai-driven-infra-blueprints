@@ -241,9 +241,10 @@ def check_failure_suspension(tmp_path):
                 '## Validation scope\n- `framework`\n## Modified files\n- `tasks/other.md`\n'
                 '## Allowed paths\n- `tasks/other.md`\n')
     untouched = (root / other).read_bytes()
-    values = dict(load_model(model).authoritative)
-    values['display.resource.001.comment'] = '保存済み設計と異なる説明'
-    write_model(model, values)
+    with tasks.selected_task(root, 'tasks/example.md'):
+        values = dict(load_model(model).authoritative)
+        values['display.resource.001.comment'] = '保存済み設計と異なる説明'
+        write_model(model, values)
     logs = tmp_path / 'logs'
     result = subprocess.run([sys.executable, str(SCRIPT), '--mode', 'task', '--task-file', 'tasks/example.md',
                              '--log-dir', str(logs)], cwd=root, env=MODULE.utf8_environment(),

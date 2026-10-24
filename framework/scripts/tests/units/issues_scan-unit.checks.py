@@ -732,7 +732,7 @@ def check_dependency_view_failure_branches(tmp_path, monkeypatch, failure):
     if failure not in ('missing', 'selected-missing'):
         bad.write_bytes(b'\xff private dependency body')
     if failure == 'permission':
-        monkeypatch.setattr(Path, 'read_bytes', partial(dependency_read_failure, bad, Path.read_bytes))
+        monkeypatch.setattr(Path, 'read_bytes', _bind_framework_callback(dependency_read_failure, bad, Path.read_bytes))
     comparison = SimpleNamespace(root=tmp_path, environment='dev', directory='team', services=['sqs', 'cloudwatch-logs'],
         inputs={tmp_path / 'project.json'}, read_hashes={}, view_errors={}, unreadable_inputs=False,
         warnings=[], catalog=None, models={}, results=[], metrics={}, display_differences={}, redacted=lambda value, prop="": value)

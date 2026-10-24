@@ -4,7 +4,6 @@
 import shutil
 import sys
 from datetime import datetime, timezone
-from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 from unittest.mock import Mock
@@ -43,6 +42,7 @@ from support.pytest_cli import run as pytest_run
 from support.validator import MODULE as validator
 from support.validator import project, schema_validator, write
 from utils import sealed_evidence
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.git_changes import GitWorkingPaths
 
 if not __debug__:

@@ -150,7 +150,7 @@ def acquisition_fixture(snapshot, *, action='refresh', resource='007'):
              'scope': [snapshot.scope.environment, snapshot.scope.target, snapshot.scope.service],
              'sources': {}, 'connection': {}, 'acquiredAt': datetime.now(timezone.utc).isoformat(),
              'records': [record], 'inventory': {'EC2.VPC': {'status': 'complete'}}}
-    decision = {'record': record['record'], 'resource': resource, 'action': 'refresh',
+    decision = {'record': record['record'], 'resource': resource, 'action': action,
                 'reason': '合成 fixture の明示的選択', 'basis': ['EC2.VPC.VpcId']}
     if action in {'bind', 'replace'}:
         decision['before'] = {'identity': None if action == 'bind' else 'vpc-original',

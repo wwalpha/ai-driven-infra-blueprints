@@ -92,6 +92,7 @@ def make_service_loop_fixture(root):
     """Independent copy of the official, already consistent Model/Design seed."""
     make_project_fixture(SCRIPT.parents[2], root)
     populate('generated_policy', root)
+    (root / 'infra/cloudformation/parameters/dev/123456789012').mkdir(parents=True, exist_ok=True)
     model = root / 'model/dev/123456789012/iam.properties'
     design = root / 'docs/designs/dev/123456789012/iam.md'
     subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
