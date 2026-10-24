@@ -26,6 +26,7 @@ from script_loader import module
 from support.pytest_cli import run
 from support.validator import load
 from sync_files import changed_files, markdown_newlines
+from utils.aws_mappings import mapping_alias
 from utils.input_cache import (
     input_bytes,
     input_context,
@@ -38,6 +39,9 @@ from validation.task import TaskValidation
 from validation_cache import PassCache
 
 from model import projection
+from model.format import serialize
+from model.identity import COUNTERS
+from model.sources import runtime_values
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -588,6 +592,57 @@ def check_resource_row_scope_restoration():
             assert sync_runtime.generate_views(Path('/stage'), Path('/root'), {}, [], definitions_root=Path('/definitions')) == {}
         assert projection._resource_row_cache.get() is outer
     assert projection._resource_row_cache.get() is None
+
+
+def check_generate_views_missing_authoritative_json(tmp_path, shared_framework):
+    root, stage = tmp_path / 'root', tmp_path / 'stage'
+    root.mkdir()
+    (root / 'project.json').write_text(
+        '{"targets":[{"environment":"dev","alias":"team","awsAccountId":"111111111111",'
+        '"awsRegion":"ap-northeast-1","iacEngine":"cloudformation"}]}', encoding='utf-8')
+    values = {
+        COUNTERS: '{"IAM.ManagedPolicy":1}',
+        'desired.service.iam.serviceId': 'iam',
+        'desired.service.iam.ownedCatalogResourceTypes': 'IAM.ManagedPolicy',
+        'display.service.title': '# Policy',
+        'desired.resource.009.resourceType': 'IAM.ManagedPolicy',
+        'desired.resource.009.logicalId': 'IAM_ManagedPolicy_001',
+        'desired.resource.009.resourceMode': 'IMPORT',
+        'desired.resource.009.anchor': 'saved-policy',
+        'display.resource.009.comment': 'Policy',
+        'desired.row.009-001.property': 'IAM.ManagedPolicy.ManagedPolicyName',
+        'desired.row.009-001.value': '`confirmed-policy`',
+        'desired.row.009-001.comment': 'Policy name',
+        'desired.row.009-002.property': 'IAM.ManagedPolicy.PolicyDocument',
+        'desired.row.009-002.value': '[Policy](iam/policy.json)',
+        'desired.row.009-002.comment': 'Policy document',
+        'desired.row.009-002.document':
+            '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:ListBucket","Resource":"*"}]}',
+    }
+    design = root / 'docs/designs/dev/team/iam.md'
+    artifact = design.with_suffix('') / 'policy.json'
+    artifact.parent.mkdir(parents=True)
+    design.write_text('# Saved policy\n[Policy](iam/policy.json)\n', encoding='utf-8')
+    artifact.write_text(values['desired.row.009-002.document'] + '\n', encoding='utf-8')
+    del values['desired.row.009-002.document']
+    assert values['desired.row.009-002.value'] == '[Policy](iam/policy.json)'
+    source = root / 'model/dev/team/iam.properties'
+    source.parent.mkdir(parents=True)
+    source.write_text(serialize(values), encoding='utf-8')
+    original = dict(values)
+    before = {path: path.read_bytes() for path in root.rglob('*') if path.is_file()}
+    failures = []
+    with mapping_alias(shared_framework.parent, root):
+        generated = sync_runtime.generate_views(
+            stage, root, {design: runtime_values(values)}, failures,
+            definitions_root=shared_framework.parent)
+    assert generated == {}
+    assert failures == [
+        'docs/designs/dev/team/iam.md: authoritative JSON document missing: iam.md: 009-002']
+    assert {path.relative_to(stage): path.read_bytes() for path in stage.rglob('*') if path.is_file()} == {
+        path.relative_to(root): before[path] for path in (design, artifact)}
+    assert {path: path.read_bytes() for path in root.rglob('*') if path.is_file()} == before
+    assert values == original
 
 
 def check_readonly_stale_views(tmp_path):

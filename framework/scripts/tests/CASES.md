@@ -43,7 +43,8 @@ UTは合成入力と既存関数を直接使用し、Sync/実CLI/Git/全Framewor
 | VPC/Logs/IAM生成・入力不変、IAM保存失敗・JSON/Markdown保持、独立Logs保存 | 残す同名IT。正常生成1回＋IAMのみ失敗注入1回。例外はValueErrorと元のtest IAM write failure、対象はiam.md |
 | 重複Model field・不正LogGroupName・RetentionInDays=31/not-a-number | 既存check_invalid_model、check_loggroup_invalid_values、validation_checks/designのSchema行検証 |
 | read-only stale・欠落/未知row・View/Model非書込 | sync-model UT::check_readonly_stale_views、既存Loop IT::check_task_service_validation |
-| missing JSON・独立serviceの継続、変更sidecar保存失敗/復旧 | sync-model IT::check_multiple_targets_barrier / check_changed_sidecar_publication_rollback / check_workflow、残す部分失敗IT |
+| JSON正本のdocument欠落・既存View/Model保護 | sync-model UT::check_generate_views_missing_authoritative_json。JSONリンクを維持しdocumentだけを削除して実generate_viewsの欠落判定を確認 |
+| 独立serviceの継続、変更sidecar保存失敗/復旧 | sync-model IT::check_multiple_targets_barrier / check_changed_sidecar_publication_rollback / check_workflow、残す部分失敗IT |
 | source/target rename・保持View・既存broken link・参照警告・観測値不変 | 既存model-reference-warnings UTのcheck_reference_view_retained_but_io_still_fails / check_generation_warning_keeps_independent_error、bound-anchor-name-change ITとsync-model IT::check_incoming_reference_models |
 | planning後の入力変更、Task契約、CLI失敗伝播 | 既存sync-model IT::check_publication_boundary / check_input_mutation / check_workflow、sync-model UT::check_snapshot_conflict、task-contract UT |
 | 複数ファイルrollback | 既存sync-model IT::check_changed_sidecar_publication_rollback / check_multiple_targets_barrier。fixture writer自体の再試験は削除 |
@@ -81,6 +82,7 @@ pytest/direct/module completionとreceipt形式は変更しない。下記7 IT�
 | `model-design-17::check_navigation_display_labels` | `check_navigation_display_labels` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#check_navigation_display_labels) | pytest / 4 | 合成入力による直接判定（対応は上表） | 不足分だけ移管 |
 | `model-design-17::check_cfn_identity_inputs` | `check_cfn_identity_inputs` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#check_cfn_identity_inputs) | pytest / 1 | TerraformのCFn ID禁止/なし許可、CFn形式と未宣言Stack拒否の直接判定 | 不足分だけ移管 |
 | `model-design-17::check_readonly_stale_views` | `check_readonly_stale_views` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_readonly_stale_views) | pytest / 1 | 合成入力による直接判定（対応は上表） | 不足分だけ移管 |
+| `model-design-17::check_generate_views_missing_authoritative_json` | `check_generate_views_missing_authoritative_json` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_generate_views_missing_authoritative_json) | pytest / 1 | JSONリンクを保持してdocumentだけを削除、実欠落判定・生成結果なし・新規不正Viewなし・既存Markdown/JSONとModel正本不変 | Issue #17 回帰保証の復元 |
 | `function-wrapper::callback` | `check_callback_binding` | UT | [units/function_wrapper-unit.checks.py](units/function_wrapper-unit.checks.py#check_callback_binding) | pytest / 1 | 既存BoundCallback descriptorのinstance/class/直接呼出し | 既存登録の補完 |
 | `model-design-17::check_path_write_text_binding` | `check_path_write_text_binding` | UT | [units/function_wrapper-unit.checks.py](units/function_wrapper-unit.checks.py#check_path_write_text_binding) | pytest / 1 | 合成入力による直接判定（対応は上表） | 不足分だけ移管 |
 
