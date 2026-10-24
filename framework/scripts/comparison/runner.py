@@ -324,7 +324,19 @@ class Comparison(Inputs):
             settings.result.failure = error
             return settings
 
-    def incomplete_value(self, settings, service, identity, kind, prop, error, source, name, owner, template):
+    def incomplete_value(
+        self,
+        settings: Settings,
+        service: str,
+        identity: str,
+        kind: str,
+        prop: str,
+        error: Exception,
+        source: JsonObject | None,
+        name: str,
+        owner: JsonObject,
+        template: Path,
+    ) -> None:
         details = dict(stack=name, template={'path': template.relative_to(self.root).as_posix()})
         category = 'uncompared' if isinstance(error, (Blocked, KeyError)) else 'error'
         if hasattr(error, 'reference_detail'):
