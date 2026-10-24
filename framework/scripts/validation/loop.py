@@ -32,6 +32,7 @@ from task_contract_core import (
     task_snapshot,
 )
 from utils.aws_mappings import definition_root
+from utils.git_changes import collect_working_paths
 from utils.sealed_evidence import evidence_store
 from validation_scope import active_scope
 
@@ -88,15 +89,7 @@ class StartupDiagnostics:
 
 
 def changed_paths(root: Path) -> set[str]:
-    changed = set()
-    for arguments in (["diff", "--no-renames", "--name-only", "-z"],
-                      ["diff", "--cached", "--no-renames", "--name-only", "-z"],
-                      ["ls-files", "--others", "--exclude-standard", "-z"]):
-        result = subprocess.run(["git", *arguments], cwd=root, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise ValueError("cannot determine changed paths for framework regression")
-        changed.update(path for path in result.stdout.split("\0") if path)
-    return changed
+    return set(collect_working_paths(root).all_paths)
 
 
 def framework_changed(paths: set[str]) -> bool:

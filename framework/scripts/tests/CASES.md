@@ -1,5 +1,22 @@
 # UT / IT 全ケース台帳
 
+## Git変更パス収集の共通化 / 1024
+
+NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync UTの旧NUL解析・Git終了コードMockは削除し、公開git_pathsの委譲と例外伝播だけを残す。Loopの旧subprocess失敗Mockも共通API委譲へ置換する。Issue Gateのworking変更拒否はTask固有の許可判定なので維持する。Worktreeの改行入りディレクトリはidle_gitのbatched出力fallbackを検証するため維持する。
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `git-changes::execution` | `check_readonly_execution` | UT | [units/git-changes-unit.checks.py](units/git-changes-unit.checks.py#check_readonly_execution) | pytest / 1 | cwd・Git環境継承・非グローバル変更・UTF-8/CRLF保持 | 追加 |
+| `git-changes::paths` | `check_read_paths` | UT | [units/git-changes-unit.checks.py](units/git-changes-unit.checks.py#check_read_paths) | pytest / 4 | 空出力・NUL・日本語/空白/改行・重複排除・独立set | sync UTから移管・拡張 |
+| `git-changes::working` | `check_working_paths` | UT | [units/git-changes-unit.checks.py](units/git-changes-unit.checks.py#check_working_paths) | pytest / 1 | 3コマンド引数・分類・統合・元集合からの独立 | 追加 |
+| `git-changes::runner` | `check_collection_runner` | UT | [units/git-changes-unit.checks.py](units/git-changes-unit.checks.py#check_collection_runner) | pytest / 1 | 明示runnerとrootの伝達・既定runner非実行 | 追加 |
+| `git-changes::failure` | `check_fail_closed` | UT | [units/git-changes-unit.checks.py](units/git-changes-unit.checks.py#check_fail_closed) | pytest / 6 | 各コマンド失敗・途中結果非採用・既定/注入runner | sync/Loop UTから移管・拡張 |
+| `git-changes::exception` | `check_exception_propagation` | UT | [units/git-changes-unit.checks.py](units/git-changes-unit.checks.py#check_exception_propagation) | pytest / 4 | runner/path readerからのOSError/ValueError同一例外伝播 | 追加 |
+| `git-changes::readonly` | `check_reject_mutations` | UT | [units/git-changes-unit.checks.py](units/git-changes-unit.checks.py#check_reject_mutations) | pytest / 9 | 書込コマンド・alias・出力指定等を実行前に拒否 | 追加 |
+| `task-git::collection` | `check_scope_git_collection` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_scope_git_collection) | pytest / 4 | baseline/issues/unborn/candidateのfinal対permission・lock除外・存在/symlink・5/3/4/0回・検証間非cache・必須契約確認 | 追加 |
+
+`check_final_git_paths` のbaseline固有4条件は維持。`select_checks` はmasterの全UT収集方式を維持し、既存 `check_regression_discovery` に新規UTの検出確認を追加する。変更ファイル依存マッピングは既に廃止されているため復元しない。`check_idle_git_paths_and_state` の6条件にはWorktree固有の委譲・GIT_*隔離・Blocked維持の確認を追加する。
+
 ## Python structure and callback compatibility
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
@@ -1863,7 +1880,7 @@ main/module検証地点の現在配置: integrations=305, units=232。
 
 | `units/sync-model-unit.checks.py` | `check_stage_dependency_selection` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_stage_dependency_selection) | pytest / 1 | Fake Model file listで入出向き依存と最小stageを選別 | 軽量依存選択 |
 
-| `units/sync-model-unit.checks.py` | `check_git_baseline_fail_closed` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_git_baseline_fail_closed) | pytest / 1 | Fake Gitのmanaged/unborn/故障・NULパス | 軽量差分判定 |
+| `units/sync-model-unit.checks.py` | `check_git_baseline_fail_closed` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_git_baseline_fail_closed) | pytest / 1 | 公開git_pathsの共通reader委譲・同一例外伝播 | NUL解析・終了コード検証は共通UTへ移管 |
 
 ## IMPORT Model-only統合・削除と外部証跡
 
@@ -2618,7 +2635,7 @@ Importの所有境界は `check_import_managed_contract_boundaries` の別Worktr
 retarget `guarded_save[wrong-owner]` は共有factoryの `check_ownership` と
 `check_model_source_context_worktree_boundary[owner]` に責務を集約する。
 HEAD/Task変更、未承認パス、scope/target、非選択データ、保存前後byte、no-opとrollbackの業務assertionは保持する。
-`check_git_baseline_fail_closed` のGitパス判定はsync UT、managed/unborn/故障基準はWorktree guard UT。
+`check_git_baseline_fail_closed` のreader委譲はsync UT、NUL/Git失敗はgit-changes UT、managed/unborn/故障基準はWorktree guard UT。
 controllerの通常cleanup 1条件と、外部修復後のCloudFormation cleanup復旧 1条件は業務側で別々に登録する。
 
 `support/worktree_test_policy.py` はレビュー済みの専用ケースを関数単位で固定し、

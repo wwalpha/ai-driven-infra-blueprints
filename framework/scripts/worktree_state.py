@@ -6,6 +6,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from utils.git_changes import collect_working_paths, read_paths
+
 
 class Blocked(ValueError):
     pass
@@ -67,8 +69,7 @@ def load(where, task_id):
 
 
 def paths(root, *args, runner=None):
-    runner = runner or git
-    return set(runner(root, *args).stdout.rstrip("\0").split("\0")) - {""}
+    return read_paths(root, *args, runner=runner or git)
 
 def task_start_commit(root, task_file):
     """Return the existing managed baseline, failing closed on invalid lifecycle state."""
@@ -113,9 +114,7 @@ def idle_git(root, *, runner=None):
         raise Blocked("unresolved index conflicts; worktree retained")
 
 def changed_paths(root):
-    return (paths(root, "diff", "--no-renames", "--name-only", "-z")
-            | paths(root, "diff", "--cached", "--no-renames", "--name-only", "-z")
-            | paths(root, "ls-files", "--others", "--exclude-standard", "-z"))
+    return set(collect_working_paths(root, runner=git).all_paths)
 
 def task_worktree(root, state):
     target = Path(state["worktree"])

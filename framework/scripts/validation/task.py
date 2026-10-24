@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import re
-import subprocess
 from pathlib import Path
 
 import deploy.contracts as _imports_deploy_contracts
@@ -23,6 +22,7 @@ from task_contract_core import (
     task_snapshot,
 )
 from task_contract_core import TASK_TYPES as TASK_TYPES
+from utils.git_changes import GitWorkingPaths, collect_working_paths, read_paths
 from utils.input_cache import input_text
 from validation_scope import active_scope
 
@@ -54,12 +54,7 @@ class TaskValidation:
         return self.changed_paths if self.permission_paths is None else self.permission_paths
 
     def git_paths(self, args: list[str]) -> set[str]:
-        result = subprocess.run(
-            ["git", *args], cwd=self.root, check=False, capture_output=True, text=True
-        )
-        if result.returncode:
-            raise ValueError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
-        return {path for path in result.stdout.split("\0") if path}
+        return read_paths(self.root, *args)
 
 
     def fix_baseline(self):
@@ -88,15 +83,16 @@ class TaskValidation:
         self.baseline = start  # None explicitly means the empty unborn baseline.
         self.baseline_fixed = True
 
-    def final_paths(self):
+    def final_paths(self, working: GitWorkingPaths | None = None) -> set[str]:
         if self.final_candidate is not None:
             return set(self.final_candidate.changed_paths)
         self.fix_baseline()
-        untracked = self.git_paths(['ls-files', '--others', '--exclude-standard', '-z'])
         if self.issues_only:
-            tracked = (self.git_paths(['diff', '--no-renames', '--name-only', '-z']) |
-                       self.git_paths(['diff', '--cached', '--no-renames', '--name-only', '-z']))
-        elif self.baseline is None:
+            working = working if working is not None else collect_working_paths(self.root, path_reader=self.git_paths)
+            return set(working.all_paths) - {'.lock'}
+        untracked = (working.untracked if working is not None else
+                     self.git_paths(['ls-files', '--others', '--exclude-standard', '-z']))
+        if self.baseline is None:
             tracked = {p for p in self.git_paths(['ls-files', '--cached', '-z'])
                        if (self.root / p).exists() or (self.root / p).is_symlink()}
         else:
@@ -107,15 +103,15 @@ class TaskValidation:
         require_import_changes = _imports_import_guard.require_import_changes
         self.fix_baseline()
         prompt = task_path(self.root, required=False)
-        self.changed_paths = self.final_paths()
-        self.permission_paths = (
-            self.git_paths(['diff', '--no-renames', '--name-only', '-z']) |
-            self.git_paths(['diff', '--cached', '--no-renames', '--name-only', '-z']) |
-            self.git_paths(['ls-files', '--others', '--exclude-standard', '-z'])) - {'.lock'}
-        if self.baseline is not None:
-            self.permission_paths |= self.git_paths(['diff', '--no-renames', '--name-only', '-z', self.baseline, 'HEAD', '--']) - {'.lock'}
         if self.final_candidate is not None:
+            self.changed_paths = self.final_paths()
             self.permission_paths = set(self.final_candidate.changed_paths)
+        else:
+            working = collect_working_paths(self.root, path_reader=self.git_paths)
+            self.changed_paths = self.final_paths(working)
+            self.permission_paths = set(working.all_paths) - {'.lock'}
+            if self.baseline is not None:
+                self.permission_paths |= self.git_paths(['diff', '--no-renames', '--name-only', '-z', self.baseline, 'HEAD', '--']) - {'.lock'}
         if not self.permission_paths and (prompt is None or
                 '- Task type:' not in task_snapshot(self.root).text):
             return

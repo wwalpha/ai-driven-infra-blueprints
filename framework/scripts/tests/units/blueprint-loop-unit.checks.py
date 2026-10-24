@@ -36,6 +36,7 @@ from support.blueprint_loop_fixtures import (
 from support.it_workspace import populate
 from support.validator import MODULE as validator
 from support.validator import project, schema_validator, write
+from utils.git_changes import GitWorkingPaths
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -55,10 +56,18 @@ def check_utf8_restart():
 
 
 def check_changed_paths_error(tmp_path):
-    root = tmp_path
-    with patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", "failure")):
-        with pytest.raises(ValueError):
-            MODULE.changed_paths(root)
+    working = GitWorkingPaths(frozenset({'framework/a.py'}), frozenset(), frozenset())
+    with patch.object(MODULE, 'collect_working_paths', return_value=working) as collect:
+        result = MODULE.changed_paths(tmp_path)
+        collect.assert_called_once_with(tmp_path)
+    assert isinstance(result, set) and result == working.all_paths
+    result.clear()
+    assert MODULE.framework_changed(set(working.all_paths))
+    assert not MODULE.framework_changed({'model/dev/cde/s3.properties'})
+    error = ValueError('cannot read Git paths')
+    with patch.object(MODULE, 'collect_working_paths', side_effect=error), pytest.raises(ValueError) as caught:
+        MODULE.changed_paths(tmp_path)
+    assert caught.value is error
 
 
 
@@ -143,6 +152,7 @@ def check_regression_discovery(tmp_path):
     all_checks = {p.name for p in MODULE.select_checks(root)[0]}
     assert all_checks == {p.name for p in (root / "framework/scripts/tests/units").rglob("*.checks.py")} | {"test_issues_iac.py"}
     assert "service-parameter-inputs.checks.py" not in all_checks
+    assert 'git-changes-unit.checks.py' in all_checks
     assert all(p.is_relative_to(root / "framework/scripts/tests/units") for p in MODULE.select_checks(root)[0])
     assert not any("parameter-migration" in name for name in all_checks)
 

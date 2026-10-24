@@ -23,7 +23,6 @@ import validation.design_links as _imports_validation_design_links
 import validation_cache as _imports_validation_cache
 from design_catalog import property_paths_with_parents
 from script_loader import module
-from support.repository_fixtures import contract
 from support.validator import load
 from sync_files import changed_files, markdown_newlines
 from utils.input_cache import (
@@ -370,19 +369,55 @@ def check_final_git_paths(tmp_path, baseline, final, index, committed):
     assert bool(task.acceptance_results) == ('view.md' in final)
 
 
-def _callback_check_git_baseline_fail_closed_task(tmp_path, /):
-    return TaskValidation(tmp_path, Findings(tmp_path))
-
-
 def check_git_baseline_fail_closed(tmp_path):
-    (tmp_path / 'tasks').mkdir()
-    (tmp_path / 'tasks/example.md').write_text(contract('example', ['file.txt']))
-    task = _bind_framework_callback(_callback_check_git_baseline_fail_closed_task, tmp_path)
-    with patch('validation.task.subprocess.run', return_value=SimpleNamespace(returncode=0, stdout='rename old\0追加 file\0deleted\0', stderr='')):
-        assert task().git_paths(['diff']) == {'rename old', '追加 file', 'deleted'}
-    with patch('validation.task.subprocess.run', return_value=SimpleNamespace(returncode=128, stdout='', stderr='broken')), \
-         pytest.raises(ValueError, match='git diff failed'):
-        task().git_paths(['diff'])
+    task = TaskValidation(tmp_path, Findings(tmp_path))
+    args = ['diff', '--name-only', '-z', 'baseline', '--']
+    with patch('validation.task.read_paths', return_value={'file.txt'}) as read:
+        assert task.git_paths(args) == {'file.txt'}
+    read.assert_called_once_with(tmp_path, *args)
+    error = ValueError('git failed')
+    with patch('validation.task.read_paths', side_effect=error), pytest.raises(ValueError) as caught:
+        task.git_paths(args)
+    assert caught.value is error
+
+
+def _scope_git_paths(args):
+    if args[0] == 'ls-files':
+        return ({'present.txt', 'missing.txt', 'broken-link', '.lock'} if '--cached' in args else
+                {'new.txt', '.lock'})
+    if '--cached' in args:
+        return {'index.txt', '.lock'}
+    if 'HEAD' in args:
+        return {'committed.txt', '.lock'}
+    return {'final.txt', '.lock'} if 'start' in args else {'working.txt', '.lock'}
+
+
+@pytest.mark.parametrize('mode,count,final,permission', [
+    ('baseline', 5, {'final.txt', 'new.txt'}, {'working.txt', 'index.txt', 'new.txt', 'committed.txt'}),
+    ('issues', 3, {'working.txt', 'index.txt', 'new.txt'}, {'working.txt', 'index.txt', 'new.txt'}),
+    ('unborn', 4, {'present.txt', 'broken-link', 'new.txt'}, {'working.txt', 'index.txt', 'new.txt'}),
+    ('candidate', 0, {'candidate.txt', '.lock'}, {'candidate.txt', '.lock'}),
+])
+def check_scope_git_collection(tmp_path, mode, count, final, permission):
+    candidate = SimpleNamespace(base_commit='start', changed_paths=final) if mode == 'candidate' else None
+    task = TaskValidation(tmp_path, Findings(tmp_path), final_candidate=candidate)
+    task.baseline, task.baseline_fixed = ('start' if mode == 'baseline' else None), True
+    task.issues_only = mode == 'issues'
+    (tmp_path / 'present.txt').write_text('exists')
+    with patch.object(task, 'git_paths', side_effect=_scope_git_paths) as paths, \
+         patch.object(Path, 'is_symlink', autospec=True, side_effect=lambda path: path.name == 'broken-link'), \
+         patch('validation.task.task_path', return_value=None):
+        task.check_task_scope()
+        assert paths.call_count == count
+        assert task.changed_paths == final and task.permission_paths == permission
+        assert task.changed_paths is not task.permission_paths
+        assert task.findings.errors == ['selected task contract missing while repository has changes']
+        paths.reset_mock()
+        task.check_task_scope()  # A second validation must collect again.
+        assert paths.call_count == count
+    if mode == 'candidate':
+        task.changed_paths.clear()
+        assert candidate.changed_paths == final and task.permission_paths == permission
 
 
 @pytest.mark.parametrize('scope,contract_scope', [(set(), None), (None, set())])

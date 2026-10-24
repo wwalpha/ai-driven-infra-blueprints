@@ -18,8 +18,10 @@ import subprocess
 from unittest.mock import patch
 
 import pytest
+import worktree_state
 import worktree_task as wt
 from support.worktree_task_fixtures import contract
+from utils.git_changes import GitWorkingPaths
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -155,6 +157,22 @@ def check_cli_failure_diagnostics(tmp_path, capsys):
 @pytest.mark.parametrize('directory', ['plain', 'space 日本語', 'line\nbreak'])
 @pytest.mark.parametrize('linked', [False, True])
 def check_idle_git_paths_and_state(tmp_path, directory, linked):
+    working = GitWorkingPaths(frozenset({'file.txt'}), frozenset(), frozenset())
+    with patch.object(worktree_state, 'collect_working_paths', return_value=working) as collect:
+        changed = worktree_state.changed_paths(tmp_path)
+    collect.assert_called_once_with(tmp_path, runner=worktree_state.git)
+    changed.clear()
+    assert working.all_paths == {'file.txt'}
+    with patch.object(worktree_state, 'read_paths', return_value={'file.txt'}) as read:
+        assert wt.paths(tmp_path, 'ls-files', '-z') == {'file.txt'}
+    read.assert_called_once_with(tmp_path, 'ls-files', '-z', runner=wt.git)
+    with patch.dict(os.environ, {'GIT_INDEX_FILE': '/foreign/index', 'GIT_DIR': '/foreign/git'}), \
+         patch.object(worktree_state.subprocess, 'run', return_value=subprocess.CompletedProcess([], 128, '', 'broken')) as execute, \
+         pytest.raises(wt.Blocked, match='git diff failed: broken'):
+        worktree_state.changed_paths(tmp_path)
+    environment = execute.call_args.kwargs['env']
+    assert environment['GIT_TERMINAL_PROMPT'] == '0'
+    assert 'GIT_INDEX_FILE' not in environment and 'GIT_DIR' not in environment
     root = tmp_path / directory
     root.mkdir()
     wt.git(root, 'init', '-q')
