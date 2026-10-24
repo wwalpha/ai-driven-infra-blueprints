@@ -169,3 +169,17 @@ seed・Project全生成・Git initは各66→6、初期Gitは330→30、Python�
 CloudFormation共通処理は`utils/cloudformation/inputs.py`（入力評価・Blocked）、`schema.py`（Schema/キャッシュ/Lock）、`format.py`（YAML/JSON解析）へ集約する。純粋な入力判定は`cloudformation-inputs-unit`、Comparison証跡は`comparison_core-unit`、解析とSchemaは既存専用UTが担当する。
 
 Design共通処理は `../design/`、サービス固有処理は `../design/services/` に配置する。固定定義の正本は `../design/services/definitions/<service>.py`、統合先は `../design/services/definitions/registry.py`。`units/design-definitions-unit.checks.py` は31 Policy形式と全固定定義の不変性・重複拒否・サービス登録漏れを検証する。既存のDesign関連UT/ITは新しい内部importを使い、公開CLIの入口は従来の2パスを維持する。
+
+## check-model-aws の責務 (Issue #20)
+
+全52 Adapter Resource Type、全supported field、ID/ARN/NameとAPI trace/cache、
+27サービス×4比較状態は `units/check-model-aws-adapter-unit.checks.py` が実Adapterと比較関数で検証する。
+`SchemaOffline` はBotocore Service Modelを実行内再利用し、API名・入力・応答をSDK Schemaで検証する。
+応答はSchemaと既存PATCHESから生成し、MappingのField Pathは生成入力に使わない。
+boto3 Session/Clientは不要。新Fixture自体の拒否条件・分離・cacheは専用fixture UTが検証する。
+既存Offline/Stubberは維持し、ITはcommon/associations/batch/cli/stacks/cfn-identity/coverageの7 callback、
+pytest8条件（consumer条件付き入口を含む）で実コンポーネント間の接続とSDK paginatorを担当する。
+分岐・異常入力・比較値の組合せは既存check-model-aws UTへ移管した。
+assertion移管と重複削除の対応は [CASES.md](CASES.md#issue-20-check-model-aws-responsibility-separation) を参照。
+ローカルでは関連UTとIT構文/import/登録の静的確認だけを行い、IT実行・時間計測は行わない。
+CIの10秒目標は、後続の同一条件測定で判断する。異なる環境のwall時間から改善率を計算しない。

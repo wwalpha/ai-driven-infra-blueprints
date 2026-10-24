@@ -444,9 +444,9 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/blueprint-loop.checks.py:413` | `check_parallel_interruption` | UT | [units/blueprint-loop-unit.checks.py:56](units/blueprint-loop-unit.checks.py#L56) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
 | `unknown/blueprint-loop.checks.py:464` | `check_fixture_independence` | UT | [units/blueprint-loop-unit.checks.py:131](units/blueprint-loop-unit.checks.py#L131) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 配置/共有fixture分離 |
 | `unknown/blueprint-loop.checks.py:1000` | `check_regression_discovery` | UT | [units/blueprint-loop-unit.checks.py:154](units/blueprint-loop-unit.checks.py#L154) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 配置/共有fixture分離 |
-| `units/check-model-aws-unit.checks.py:11` | `check_summary_exit_codes` | UT | [units/check-model-aws-unit.checks.py:11](units/check-model-aws-unit.checks.py#L11) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
-| `units/check-model-aws-unit.checks.py:19` | `check_value_normalization` | UT | [units/check-model-aws-unit.checks.py:19](units/check-model-aws-unit.checks.py#L19) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
-| `units/check-model-aws-unit.checks.py:29` | `check_secret_redaction` | UT | [units/check-model-aws-unit.checks.py:29](units/check-model-aws-unit.checks.py#L29) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
+| `units/check-model-aws-unit.checks.py:11` | `check_summary_exit_codes` | UT | [units/check-model-aws-unit.checks.py:44](units/check-model-aws-unit.checks.py#L44) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
+| `units/check-model-aws-unit.checks.py:19` | `check_value_normalization` | UT | [units/check-model-aws-unit.checks.py:52](units/check-model-aws-unit.checks.py#L52) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
+| `units/check-model-aws-unit.checks.py:29` | `check_secret_redaction` | UT | [units/check-model-aws-unit.checks.py:62](units/check-model-aws-unit.checks.py#L62) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `unknown/cloudformation-deploy.checks.py:98` | `check_scheduler` | UT | [units/cloudformation-deploy-unit.checks.py:11](units/cloudformation-deploy-unit.checks.py#L11) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |
 | `unknown/deploy_preparation.checks.py:334` | `check_workflow_contract` | UT | [units/deploy_preparation-unit.checks.py:11](units/deploy_preparation-unit.checks.py#L11) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 配置/共有fixture分離 |
 | `unknown/deploy_preparation.checks.py:344` | `check_dependencies_and_timing` | UT | [units/deploy_preparation-unit.checks.py:21](units/deploy_preparation-unit.checks.py#L21) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |
@@ -675,17 +675,14 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/blueprint-loop.checks.py:853` | `check_workflow` | IT | [integrations/blueprint-loop.checks.py:648](integrations/blueprint-loop.checks.py#L648) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
 | `integrations/bound-anchor-name-change.checks.py:86` | `check` | IT | [integrations/bound-anchor-name-change.checks.py:86](integrations/bound-anchor-name-change.checks.py#L86) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
 | `integrations/bound-stack-name-change.checks.py:33` | `check` | IT | [integrations/bound-stack-name-change.checks.py:28](integrations/bound-stack-name-change.checks.py#L28) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
-| `unknown/check-model-aws.checks.py:272` | `service_checks` | IT | [integrations/check-model-aws.checks.py:14](integrations/check-model-aws.checks.py#L14) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/check-model-aws.checks.py:345` | `cli_checks` | IT | [integrations/check-model-aws.checks.py:81](integrations/check-model-aws.checks.py#L81) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/check-model-aws.checks.py:439` | `check_cli_service_names` | IT | [integrations/check-model-aws.checks.py:175](integrations/check-model-aws.checks.py#L175) | pytest / 8 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/check-model-aws.checks.py:449` | `batch_checks` | IT | [integrations/check-model-aws.checks.py:186](integrations/check-model-aws.checks.py#L186) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/check-model-aws.checks.py:582` | `common_checks` | IT | [integrations/check-model-aws.checks.py:326](integrations/check-model-aws.checks.py#L326) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/check-model-aws.checks.py:716` | `association_checks` | IT | [integrations/check-model-aws.checks.py:453](integrations/check-model-aws.checks.py#L453) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/check-model-aws.checks.py:812` | `stack_checks` | IT | [integrations/check-model-aws.checks.py:550](integrations/check-model-aws.checks.py#L550) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/check-model-aws.checks.py:841` | `cfn_identity_checks` | IT | [integrations/check-model-aws.checks.py:580](integrations/check-model-aws.checks.py#L580) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/check-model-aws.checks.py:865` | `identity_registry_checks` | IT | [integrations/check-model-aws.checks.py:605](integrations/check-model-aws.checks.py#L605) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
-| `unknown/check-model-aws.checks.py:893` | `fixture_coverage` | IT | [integrations/check-model-aws.checks.py:634](integrations/check-model-aws.checks.py#L634) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/check-model-aws.checks.py:934` | `check_consumer_coverage` | IT | [integrations/check-model-aws.checks.py:676](integrations/check-model-aws.checks.py#L676) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
+| `unknown/check-model-aws.checks.py:345` | `cli_checks` | IT | [integrations/check-model-aws.checks.py:69](integrations/check-model-aws.checks.py#L69) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/check-model-aws.checks.py:449` | `batch_checks` | IT | [integrations/check-model-aws.checks.py:153](integrations/check-model-aws.checks.py#L153) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/check-model-aws.checks.py:582` | `common_checks` | IT | [integrations/check-model-aws.checks.py:216](integrations/check-model-aws.checks.py#L216) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
+| `unknown/check-model-aws.checks.py:716` | `association_checks` | IT | [integrations/check-model-aws.checks.py:268](integrations/check-model-aws.checks.py#L268) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
+| `unknown/check-model-aws.checks.py:812` | `stack_checks` | IT | [integrations/check-model-aws.checks.py:290](integrations/check-model-aws.checks.py#L290) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/check-model-aws.checks.py:841` | `cfn_identity_checks` | IT | [integrations/check-model-aws.checks.py:303](integrations/check-model-aws.checks.py#L303) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
+| `unknown/check-model-aws.checks.py:893` | `fixture_coverage` | IT | [integrations/check-model-aws.checks.py:330](integrations/check-model-aws.checks.py#L330) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
+| `unknown/check-model-aws.checks.py:934` | `check_consumer_coverage` | IT | [integrations/check-model-aws.checks.py:372](integrations/check-model-aws.checks.py#L372) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/cloudformation-deploy.checks.py:229` | `check_sdk_execution` | UT | [units/deploy-runtime-unit.checks.py:14](units/deploy-runtime-unit.checks.py#L14) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
 | `unknown/cloudformation-deploy.checks.py:331` | `check_empty_rollback_recreation` | UT | [units/deploy-runtime-unit.checks.py:116](units/deploy-runtime-unit.checks.py#L116) | pytest / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
 | `unknown/cloudformation-deploy.checks.py:443` | `check_template_validation` | UT | [units/deploy-runtime-unit.checks.py:232](units/deploy-runtime-unit.checks.py#L232) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
@@ -877,7 +874,7 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `integrations/sync-model.checks.py:685` | `check_two_consumer_cli` | IT | [integrations/sync-model.checks.py:1010](integrations/sync-model.checks.py#L1010) | pytest / 1 | sync-performance: two-consumer CLI write/check and invalid scope | 検証本体・assertを保持 |
 | `integrations/sync-model.checks.py:731` | `check_input_mutation` | IT | [integrations/sync-model.checks.py:1058](integrations/sync-model.checks.py#L1058) | pytest / 12 | sync-performance: four source kinds x change/delete/add, output preservation | 検証本体・assertを保持 |
 
-| `integrations/check-model-aws.checks.py:644` | `check_domains` | IT | [integrations/check-model-aws.checks.py:668](integrations/check-model-aws.checks.py#L668) | pytest / 9 | 既存callbackを実行するパラメータ化入口。callbackと重複加算しない | 現在の入口 |
+| `integrations/check-model-aws.checks.py:644` | `check_domains` | IT | [integrations/check-model-aws.checks.py:364](integrations/check-model-aws.checks.py#L364) | pytest / 7 | 既存callbackを実行するパラメータ化入口。callbackと重複加算しない | 現在の入口 |
 
 ### IT 内部パターン
 
@@ -904,17 +901,14 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `integrations/blueprint-loop.checks.py::check_workflow` | L653: 2 (('units/blueprint-loop-unit.checks.py', 'integrations/service-parameter-inputs.checks.py'))<br>L687: 動的 ((failed_directory / 'startup.jsonl').read_text(encoding='utf-8').splitlines())<br>L691: 動的 (startup)<br>L694: 動的 (history)<br>L695: 動的 (ended)<br>L696: 動的 (ended)<br>L699: 動的 (history)<br>L726: 動的 (command)<br>L738: 9 (('framework/scripts/a.py', 'framework/rules/rule.md', 'framework/materials/input.json', 'framework/schema/schema.json', 'framework/catalog/catalog.json', 'framework/prompts/prompt.md', '.agents/skills/example/SKILL.md', 'AGENTS.md', 'README.md')) |
 | `integrations/bound-anchor-name-change.checks.py::check` | L109: 3 ((root / 'model/preview/team/vpc.properties', build_path, kms_path))<br>L?: 2 (('model', 'docs/designs'))<br>L?: 動的 ((root / base).rglob('*'))<br>L?: 動的 (before)<br>L?: 3 (('model', 'model/parameters', 'docs/designs'))<br>L?: 動的 ((root / base).rglob('*'))<br>L?: 動的 (saved.items())<br>L?: 動的 (saved.items())<br>L?: 4 (('definition', 'resources', 'rows', 'labels'))<br>L?: 動的 (entries(after, 'desired.resource.')) |
 | `integrations/bound-stack-name-change.checks.py::check` | L50: 2 ([('017', 'network', 'Network'), ('083', 'empty', 'Empty')])<br>L86: 3 (('-changed', '', '-second'))<br>L120: 4 ([('999', 'cfn-stack-app-preview-unknown', 'exactly'), ('017', 'bad_name', 'invalid fixed stack'), ('083', fixed, 'conflicting'), ('017', None, 'invalid fixed stack')])<br>L?: 動的 (vpc.items())<br>L?: 動的 (load_model(vpc_path).files)<br>L?: 4 ((directory / 'parameters.yaml', directory / 'bindings.json', root / 'docs/designs/preview/team/cloudformation-stacks.md', root / 'docs/designs/preview/team/vpc.md'))<br>L?: 動的 (bindings['instances'].items())<br>L?: 動的 (baseline.items())<br>L?: 動的 (vpc_bytes.items())<br>L?: 動的 (item.items())<br>L?: 2 ([('other', '210987654321'), ('team', '123456789012')]) |
-| `integrations/check-model-aws.checks.py::service_checks` | L16: 動的 (m.SERVICES)<br>L22: 動的 (sorted(mapping.adapter_resource_types))<br>L63: 4 (('match', 'difference', 'missing', 'failed'))<br>L35: 動的 (relevant.items())<br>L42: 2 ((identity.id_path, identity.arn_path))<br>L46: 3 (('id', 'arn', 'name'))<br>L?: 動的 (definitions.items())<br>L?: 動的 (relevant.items())<br>L?: 動的 (results) |
-| `integrations/check-model-aws.checks.py::cli_checks` | L119: 4 ([(FileNotFoundError('secret'), 'FileNotFoundError'), (SimpleNamespace(returncode=255, stdout='', stderr='secret credential failure'), 'AwsCliError'), (SimpleNamespace(returncode=0, stdout='invalid secret', stderr=''), 'JSONDecodeError'), (SimpleNamespace(returncode=0, stdout='[]', stderr=''), 'ValueError')])<br>L129: 2 ([('NoSuchBucket', 'resource_missing'), ('AccessDenied', 'acquisition_failed')])<br>L134: 2 (range(2)) |
-| `integrations/check-model-aws.checks.py::check_cli_service_names` | 1（内部パラメータ化なし） |
-| `integrations/check-model-aws.checks.py::batch_checks` | L306: 3 (((None, 1, 'identifier'), ('missing', 1, 'resource_missing'), ('failed', 2, 'acquisition_failed')))<br>L287: 2 (([], ['--coverage']))<br>L292: 8 (([], ['--all', '--service', 's3'], ['--all', '--environment', 'dev'], ['--all', '--target', ACCOUNT], ['--environment', 'dev', '--target', ACCOUNT], ['--service', 's3'], ['--environment', 'dev', '--service', 's3'], ['--target', ACCOUNT, '--service', 's3']))<br>L251: 動的 (stubbers)<br>L?: 動的 (report['results'])<br>L225: 動的 (requests[service])<br>L?: 2 ({'sts', *services})<br>L?: 動的 (api_calls)<br>L?: 動的 (batch['results'])<br>L230: 動的 (PATCHES.get((service, operation), {}).items())<br>L?: 動的 (batch_items)<br>L?: 動的 (items)<br>L?: 動的 (api_calls)<br>L?: 動的 (report['mappings'])<br>L?: 動的 (run.call_args.args[1])<br>L?: 動的 (api_calls)<br>L?: 動的 (services)<br>L?: 2 (('--service', service)) |
-| `integrations/check-model-aws.checks.py::common_checks` | L393: 2 ((False, True))<br>L427: 3 ((None, 'missing', 'failed'))<br>L?: 動的 (m.compare_resource(ctx, model.resources[0]))<br>L?: 動的 (m.compare_resource(ctx, model.resources[0]))<br>L?: 動的 (m.compare_resource(ctx, resource))<br>L?: 動的 (results) |
-| `integrations/check-model-aws.checks.py::association_checks` | L449: 2 ((False, True))<br>L474: 2 ((False, True))<br>L?: 動的 (values)<br>L?: 動的 (values)<br>L?: 動的 (values)<br>L?: 動的 (values)<br>L?: 動的 (stage_results)<br>L?: 動的 (values)<br>L?: 動的 (stage_results)<br>L?: 動的 (values) |
-| `integrations/check-model-aws.checks.py::stack_checks` | L547: 動的 (cases)<br>L?: 4 ([('CREATE_COMPLETE', 'match'), ('UPDATE_COMPLETE', 'match'), ('IMPORT_COMPLETE', 'match'), ('ROLLBACK_COMPLETE', 'difference')])<br>L?: 3 (({'Stacks': []}, {'Stacks': [{'StackName': 'other', 'StackStatus': 'CREATE_COMPLETE'}]}, {'Stacks': [{'StackName': 'fixture'}, {'StackName': 'fixture'}]}))<br>L?: 2 ([('Stack with id fixture does not exist', 'resource_missing'), ('Invalid StackName', 'acquisition_failed')])<br>L?: 動的 (results) |
-| `integrations/check-model-aws.checks.py::cfn_identity_checks` | L567: 動的 (enumerate(('ism', 'ced', 'sd'), 1))<br>L576: 動的 (enumerate(resources)) |
-| `integrations/check-model-aws.checks.py::identity_registry_checks` | 1（内部パラメータ化なし） |
-| `integrations/check-model-aws.checks.py::fixture_coverage` | L617: 動的 (m.SERVICES)<br>L625: 動的 (enumerate(sorted(mapping.adapter_resource_types), 1))<br>L?: 動的 (report['comparisonResourceTypes'].items())<br>L?: 動的 (sorted(definitions.items())) |
-| `integrations/check-model-aws.checks.py::check_consumer_coverage` | 1（内部パラメータ化なし） |
+| `integrations/check-model-aws.checks.py::cli_checks` | Issue #20: 以下の責務対応表参照。細分条件はUTへ移管 |
+| `integrations/check-model-aws.checks.py::batch_checks` | Issue #20: 以下の責務対応表参照。細分条件はUTへ移管 |
+| `integrations/check-model-aws.checks.py::common_checks` | Issue #20: 以下の責務対応表参照。細分条件はUTへ移管 |
+| `integrations/check-model-aws.checks.py::association_checks` | Issue #20: 以下の責務対応表参照。細分条件はUTへ移管 |
+| `integrations/check-model-aws.checks.py::stack_checks` | Issue #20: 以下の責務対応表参照。細分条件はUTへ移管 |
+| `integrations/check-model-aws.checks.py::cfn_identity_checks` | Issue #20: 以下の責務対応表参照。細分条件はUTへ移管 |
+| `integrations/check-model-aws.checks.py::fixture_coverage` | Issue #20: 以下の責務対応表参照。細分条件はUTへ移管 |
+| `integrations/check-model-aws.checks.py::check_consumer_coverage` | Issue #20: 以下の責務対応表参照。細分条件はUTへ移管 |
 | `units/deploy-runtime-unit.checks.py::check_sdk_execution` | L19: 動的 (scoped)<br>L24: 動的 (backend.calls)<br>L29: 動的 (backend.calls)<br>L46: 動的 (enumerate(backend.calls))<br>L47: 動的 (enumerate(backend.calls))<br>L48: 2 (((['NetworkVpcId'], 'COMPLETE'), ([], 'STOPPED')))<br>L55: 動的 (backend.calls)<br>L64: 動的 (backend.calls)<br>L70: 動的 (state.values())<br>L71: 動的 (backend.calls)<br>L83: 動的 (backend.calls)<br>L89: 動的 (backend.calls)<br>L95: 2 (('True', 'Conditional')) |
 | `units/deploy-runtime-unit.checks.py::check_empty_rollback_recreation` | L127: 動的 (self.current)<br>L159: 2 (('A', 'B'))<br>L160: 動的 (enumerate(backend.calls))<br>L161: 動的 (enumerate(backend.calls))<br>L168: 2 (('A', 'B'))<br>L174: 動的 (items)<br>L179: 動的 (saved.values())<br>L185: 2 (([], [{'ResourceStatus': 'DELETE_COMPLETE'}]))<br>L190: 5 (('CREATE_COMPLETE', 'DELETE_SKIPPED', 'CREATE_FAILED', 'DELETE_FAILED', None))<br>L195: 3 (({'EnableTerminationProtection': True}, {'ParentId': 'parent'}, {'StackId': 'other'}))<br>L210: 3 (('DELETE_IN_PROGRESS', 'DELETE_COMPLETE', None)) |
 | `units/deploy-runtime-unit.checks.py::check_template_validation` | 1（内部パラメータ化なし） |
@@ -1068,7 +1062,7 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `integrations/worktree_task.checks.py::check_human_approved_validation_failure` | 承認付き実Merge・suspend/FAIL保持・承認永続化とcleanup再試行 |
 | `integrations/worktree_task.checks.py::check_real_loop_integration` | 実Loop失敗からTask suspend永続化・finalize停止への接続 |
 
-| `integrations/check-model-aws.checks.py::check_domains` | callback/subdirectory: 9組（services、common、associations、identity-registry、batch、cli、stacks、cfn-identity、coverage） |
+| `integrations/check-model-aws.checks.py::check_domains` | callback/subdirectory: 7組（common、associations、batch、cli、stacks、cfn-identity、coverage） |
 
 ## main / module 直接実行シナリオ明細
 
@@ -2644,8 +2638,8 @@ SDK環境由来認証識別、cache、Session再開、alias/suffix/Region/engine
 | `aws-identity::invalid-account` | `check_invalid_account` | UT | [units/aws-identity-unit.checks.py](units/aws-identity-unit.checks.py) | pytest / 12 | 不正Account、明示execution key不正のfallback禁止 | Pure |
 | `aws-identity::execution` | `check_execution_account` | UT | [units/aws-identity-unit.checks.py](units/aws-identity-unit.checks.py) | pytest / 2 | execution優先、未指定時resource、STS一致 | Pure |
 | `aws-identity::sts-mismatch` | `check_sts_mismatch` | UT | [units/aws-identity-unit.checks.py](units/aws-identity-unit.checks.py) | pytest / 5 | STS不一致/欠落/不正型 | Pure |
-| `aws-identity::context` | `check_identity_delegation_and_sts_reuse` | UT | [units/check-model-aws-unit.checks.py](units/check-model-aws-unit.checks.py) | pytest / 1 | Context比較委譲、IdentityError同一性、検証済みAccount返却、STS transport再利用、拒否後resource API禁止 | Mock |
-| `aws-identity::multi-target` | `check_all_target_profiles_precede_aws` | UT | [units/check-model-aws-unit.checks.py](units/check-model-aws-unit.checks.py) | pytest / 1 | 全Targetの事前判定、拒否時CLI/SDK session未実行 | Mock |
+| `aws-identity::context` | `check_identity_delegation_and_sts_reuse` | UT | [units/check-model-aws-unit.checks.py:68](units/check-model-aws-unit.checks.py#L68) | pytest / 1 | Context比較委譲、IdentityError同一性、検証済みAccount返却、STS transport再利用、拒否後resource API禁止 | Mock |
+| `aws-identity::multi-target` | `check_all_target_profiles_precede_aws` | UT | [units/check-model-aws-unit.checks.py:88](units/check-model-aws-unit.checks.py#L88) | pytest / 1 | 全Targetの事前判定、拒否時CLI/SDK session未実行 | Mock |
 | `aws-identity::import-boundary` | `check_import_profile_mode_delegation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | Import例外引渡し、設定不変、STS維持 | Mock |
 | `aws-identity::preparation` | `check_identity_failure_precedes_preparation` | UT | [units/deploy_preparation-unit.checks.py](units/deploy_preparation-unit.checks.py) | pytest / 1 | 共通判定委譲と準備/AWS前の拒否 | Mock |
 | `aws-identity::runtime` | `check_runtime_identity_delegation` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py) | pytest / 1 | 共通Profile保存、IdentityError同一性、connection作成前の拒否 | Mock |
@@ -2946,3 +2940,50 @@ CloudFormation共通入力判定は `units/cloudformation-inputs-unit.checks.py`
 | `design-definitions::duplicates` | `check_duplicates` | UT | [units/design-definitions-unit.checks.py](units/design-definitions-unit.checks.py) | direct / 1 | 6集合すべての重複登録を拒否 | 小型定義 |
 | `design-definitions::registration` | `check_registration` | UT | [units/design-definitions-unit.checks.py](units/design-definitions-unit.checks.py) | direct / 1 | 25サービスの明示登録・決定順・純粋データ依存 | 固定定義module |
 | `design-layout::import-order` | `check_import_order` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py) | pytest / 4 | Layout・Policy・EC2 SG・Model表示の先頭importで循環初期化を検出 | 独立Python process |
+
+## Issue #20 check-model-aws responsibility separation
+
+既存UTのRegistry構造・Mapping baseline（aws_mapping-unit）、Profile/Account判定
+（aws-identity-unit）、SDK接続分離/ページング（aws-client）、正規化/集計
+（check-model-aws-unit）は既存の検証先を維持する。本番コード、runner、receipt、CIは変更しない。
+
+| 旧assertion群 | 現在の検証先 | 保証 |
+| --- | --- | --- |
+| service_checks 全Resource/Field/Identity/trace | check_service_adapters | 52 Adapter Type、全supported Mapping、ID/ARN/Name、実fetch、27サービス×4状態。SDK schemaから応答を生成 |
+| identity_registry_checks | check_identity_registry | Registry優先、欠落/None、存在確認後Name選択、禁止API、Stack未対応 |
+| check_cli_service_names | check_cli_service_names (UT) | 4コマンド×2 pagination引数 |
+| cli_checks error/引数/cache/redaction | check_cli_errors | CLI例外4種、AWSエラー2種、禁止API、Unicode、pagination cache/失敗 |
+| cli_checks end-to-end | cli_checks (IT) | Model→CLI→Context→比較、profile/region/owner/JSON、STSとcache |
+| batch_checks missing/invalid/duplicate selector | check_batch_selectors | missing入口、8不正selector、all、inventory/CLI/coverage重複排除 |
+| batch_checks SDK integration | batch_checks (IT) | 複数Service/Target、各Target独立Session/Context/STS、成功維持と失敗優先順位、coverage再読込 |
+| common_checks 入力/identity/API account/変換/Stack状態 | check_context_branches | 未定義Mapping、UNSET、影響key集約、禁止API、実行account、API owner、session失敗、配列parse、Stack3状態 |
+| common_checks split/SDK/reference/paginator | common_checks (IT) | split Model source、SDK Stubber、cache/trace、実paginator成功/後続失敗、IAM/KMS/export参照 |
+| association_checks tag/stage/partial/IMPORT | check_association_values | Key/Value結合、stage曖昧性、部分失敗と集約、IMPORT比較 |
+| association_checks KMS parent | association_checks (IT) | 2 Resource間parentReferenceとSDK応答の結合 |
+| stack_checks 状態/name/error9条件 | check_stack_states | trace、metadata、cache、allowlistも旧assertionを維持 |
+| stack_checks Model/CLI接続 | stack_checks (IT) | Stack Model→Context→CLI応答→比較/local metadata |
+| cfn_identity_checks / fixture_coverage | 同名IT | Stack instanceごとのRef解決、全Mapping/Model再読込、consumer条件付き実行 |
+| 新Fixture | check_schema_rejections / check_context_isolation_and_cache | 不正API/入力/応答拒否、未知FieldはMISSING、Context分離、schema再利用、cache/trace、応答の独立性、接続変更拒否 |
+
+重複削除: SDK経路による同一batchのdirect反復と重複selector反復、association末尾の
+ROLLBACK_COMPLETE（check_stack_statesと同一判定）、CLIのdifference（全Adapter4状態）。account/profile拒否のtransport未実行保証と
+CLI/coverageの重複selectorはcheck_cli_errors / check_batch_selectorsへ移管。
+
+IT pytest条件数18→8（check_domains 9→7、CLI名8→UT、consumer 1維持）、
+IT direct登録9→7。対象check-model-aws UT条件数5→22（既存UT19、新Adapter1、Fixture2）。
+内部の全52 Type/全Field/Identity/27×4条件は1 Adapter入口の中で全件実行する。
+新Fixtureはboto3 Client/Sessionを生成せず、immutable SDK Service Modelだけ実行内再利用する。
+実SDK paginatorの挙動は軽量Fixtureで代替せずITに残す。10秒達成は後続同条件CIで判定する。
+
+| Source | Case | Layer | Location | Mode / count | Responsibility | Origin |
+| --- | --- | --- | --- | --- | --- | --- |
+| `issue20::check_cli_service_names` | `check_cli_service_names` | UT | [units/check-model-aws-unit.checks.py:108](units/check-model-aws-unit.checks.py#L108) | pytest / 8 | 上記対応表の保証 | Issue #20移管/fixture契約 |
+| `issue20::check_stack_states` | `check_stack_states` | UT | [units/check-model-aws-unit.checks.py:121](units/check-model-aws-unit.checks.py#L121) | pytest / 1 | 上記対応表の保証 | Issue #20移管/fixture契約 |
+| `issue20::check_identity_registry` | `check_identity_registry` | UT | [units/check-model-aws-unit.checks.py:157](units/check-model-aws-unit.checks.py#L157) | pytest / 1 | 上記対応表の保証 | Issue #20移管/fixture契約 |
+| `issue20::check_cli_errors` | `check_cli_errors` | UT | [units/check-model-aws-unit.checks.py:185](units/check-model-aws-unit.checks.py#L185) | pytest / 1 | 上記対応表の保証 | Issue #20移管/fixture契約 |
+| `issue20::check_batch_selectors` | `check_batch_selectors` | UT | [units/check-model-aws-unit.checks.py:244](units/check-model-aws-unit.checks.py#L244) | pytest / 1 | 上記対応表の保証 | Issue #20移管/fixture契約 |
+| `issue20::check_context_branches` | `check_context_branches` | UT | [units/check-model-aws-unit.checks.py:291](units/check-model-aws-unit.checks.py#L291) | pytest / 1 | 上記対応表の保証 | Issue #20移管/fixture契約 |
+| `issue20::check_association_values` | `check_association_values` | UT | [units/check-model-aws-unit.checks.py:371](units/check-model-aws-unit.checks.py#L371) | pytest / 1 | 上記対応表の保証 | Issue #20移管/fixture契約 |
+| `issue20::check_service_adapters` | `check_service_adapters` | UT | [units/check-model-aws-adapter-unit.checks.py:40](units/check-model-aws-adapter-unit.checks.py#L40) | pytest / 1 | 上記対応表の保証 | Issue #20移管/fixture契約 |
+| `issue20::check_schema_rejections` | `check_schema_rejections` | UT | [units/check-model-aws-fixture-unit.checks.py:29](units/check-model-aws-fixture-unit.checks.py#L29) | pytest / 1 | 上記対応表の保証 | Issue #20移管/fixture契約 |
+| `issue20::check_context_isolation_and_cache` | `check_context_isolation_and_cache` | UT | [units/check-model-aws-fixture-unit.checks.py:48](units/check-model-aws-fixture-unit.checks.py#L48) | pytest / 1 | 上記対応表の保証 | Issue #20移管/fixture契約 |

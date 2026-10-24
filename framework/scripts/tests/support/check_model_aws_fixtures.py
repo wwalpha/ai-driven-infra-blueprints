@@ -30,8 +30,14 @@ if not __debug__:
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from functools import lru_cache, partial
+
 import boto3
+from botocore import xform_name
+from botocore.exceptions import ClientError
+from botocore.session import Session as ModelSession
 from botocore.stub import Stubber
+from botocore.validate import validate_parameters
 from model.adapters import aws as m
 from model.files import model_file_contents
 
@@ -135,6 +141,74 @@ PATCHES = {
     ('cloudformation', 'list_exports'): {'Exports.Name': 'fixture-export', 'Exports.Value': 'confirmed-export-value'},
 }
 
+@lru_cache(maxsize=None)
+def service_model(service):
+    """Share immutable SDK schemas only; never share acquisition/target state."""
+    return ModelSession().get_service_model(service)
+
+
+def operation_model(model, operation):
+    names = {xform_name(name): name for name in model.operation_names}
+    return model.operation_model(names[operation])
+
+
+def sdk_response(model, service, operation, egress=False):
+    response = remove_tokens(shape_value(operation_model(model, operation).output_shape))
+    for name in ('IsTruncated', 'HasMoreResults', 'HasMoreDestinations'):
+        if name in response:
+            response[name] = False
+    if operation == 'describe_delivery_stream':
+        response['DeliveryStreamDescription']['HasMoreDestinations'] = False
+    for path, value in PATCHES.get((service, operation), {}).items():
+        set_path(response, path, copy.deepcopy(value))
+    if operation == 'describe_security_group_rules' and egress:
+        response['SecurityGroupRules'][0]['IsEgress'] = True
+    return response
+
+
+class SchemaClient:
+    def __init__(self, context, service):
+        self.context, self.service = context, service
+        self.model = service_model(service)
+
+    def __getattr__(self, operation):
+        operation_model(self.model, operation)  # Unknown API names fail before invocation.
+        return partial(self.request, operation)
+
+    def can_paginate(self, operation):
+        operation_model(self.model, operation)
+        # SDK paginator behavior belongs to the retained Stubber IT.
+        return False
+
+    def request(self, operation, **inputs):
+        model = operation_model(self.model, operation)
+        if model.input_shape is not None:
+            validate_parameters(inputs, model.input_shape)
+        elif inputs:
+            raise ValueError('operation has no inputs')
+        self.context.request_count += 1
+        fault = self.context.fault
+        fault = fault.get((self.service, operation)) if isinstance(fault, dict) else fault
+        if fault:
+            raise ClientError({'Error': {'Code': 'ResourceNotFoundException' if fault == 'missing' else 'AccessDeniedException',
+                                        'Message': 'synthetic failure'}}, model.name)
+        response = sdk_response(self.model, self.service, operation, self.context.egress)
+        validate_parameters(response, model.output_shape)
+        return response
+
+
+class SchemaOffline(m.Context):
+    """Real Context/adapter/cache; schema transport without boto3 or credentials."""
+    def __init__(self, root, fault=None, target=TARGET):
+        super().__init__(root, target, session=self)
+        self.fault, self.request_count, self.egress = fault, 0, False
+
+    def client(self, service):
+        if service not in self.clients:
+            self.clients[service] = SchemaClient(self, service)
+        return self.clients[service]
+
+
 class Offline(m.Context):
     def __init__(self, root, fault=None, target=TARGET):
         session = boto3.Session(aws_access_key_id='offline', aws_secret_access_key='offline', region_name=TARGET['awsRegion'])
@@ -156,16 +230,7 @@ class Offline(m.Context):
         if fault:
             stub.add_client_error(operation, service_error_code='ResourceNotFoundException' if fault == 'missing' else 'AccessDeniedException', expected_params=inputs)
         else:
-            response = remove_tokens(shape_value(client.meta.service_model.operation_model(client.meta.method_to_api_mapping[operation]).output_shape))
-            for name in ('IsTruncated', 'HasMoreResults', 'HasMoreDestinations'):
-                if name in response:
-                    response[name] = False
-            if operation == 'describe_delivery_stream':
-                response['DeliveryStreamDescription']['HasMoreDestinations'] = False
-            for path, value in PATCHES.get((service, operation), {}).items():
-                set_path(response, path, copy.deepcopy(value))
-            if operation == 'describe_security_group_rules' and self.egress:
-                response['SecurityGroupRules'][0]['IsEgress'] = True
+            response = sdk_response(client.meta.service_model, service, operation, self.egress)
             stub.add_response(operation, response, expected_params=inputs)
         self.request_count += 1
 
@@ -272,4 +337,13 @@ def offline_network():
         yield
 
 
-__all__ = ['ACCOUNT', 'COUNT', 'ExitStack', 'FakeResource', 'Offline', 'PATCHES', 'Path', 'REPRESENTATIVES', 'STACK_MODEL', 'SimpleNamespace', 'Stubber', 'TARGET', 'acquired', 'boto3', 'check', 'copy', 'expect', 'importlib', 'io', 'json', 'm', 'model_file_contents', 'model_text', 'offline_network', 'os', 'patch', 'pytest', 'read_model', 'redirect_stderr', 'redirect_stdout', 'remove_tokens', 'run', 'set_path', 'shape_value', 'socket', 'sys', 'write_model']
+__all__ = ['SchemaOffline', 'SchemaClient', 'service_model', 'sdk_response', 'ACCOUNT', 'COUNT', 'ExitStack', 'FakeResource', 'Offline', 'PATCHES', 'Path', 'REPRESENTATIVES', 'STACK_MODEL', 'SimpleNamespace', 'Stubber', 'TARGET', 'acquired', 'boto3', 'check', 'copy', 'expect', 'importlib', 'io', 'json', 'm', 'model_file_contents', 'model_text', 'offline_network', 'os', 'patch', 'pytest', 'read_model', 'redirect_stderr', 'redirect_stdout', 'remove_tokens', 'run', 'set_path', 'shape_value', 'socket', 'sys', 'write_model']
+
+def _batch_checks_cli(arguments):
+    stdout, stderr = (io.StringIO(), io.StringIO())
+    with patch.object(sys, 'argv', ['check-model-aws.py', *arguments]), redirect_stdout(stdout), redirect_stderr(stderr):
+        try:
+            code = m.main()
+        except SystemExit as error:
+            code = error.code
+    return (code, json.loads(stdout.getvalue()) if stdout.getvalue() else None, stderr.getvalue())
