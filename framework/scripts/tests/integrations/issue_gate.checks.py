@@ -11,7 +11,6 @@ from support.issue_gate_fixtures import (
     json,
     load,
     mock,
-    remediation_scope,
     require_no_issues,
     require_target_no_issues,
     subprocess,
@@ -53,37 +52,8 @@ def main():
         instance.check_issue_gate()
         assert not instance.errors
         active.write_text(contract)
-        for name in ("issues.md", "iac-issues.md"):
-            report = f"issues/dev/cde/{name}"
-            investigation = contract.replace('Task type: `design`', 'Task type: `migration`').split('## Modified files')[0] + ('## Modified files\n- `tasks/example.md`\n' + f'- `{report}`\n## Validation scope\n- `dev/cde/ec2`\n' +
-                f"\n## Allowed paths\n\n- `tasks/example.md`\n- `{report}`\n")
-            active.write_text(investigation)
-            instance = validator.Validator(root)
-            instance.task_type = "migration"
-            instance.changed_paths = {"tasks/example.md", report}
-            instance.check_issue_gate()
-            assert not instance.errors  # Report saving does not require issue remediation.
-            path.write_text("### Unknown service\n\n1. 調査中\n")
-            instance.check_issue_gate()
-            assert not instance.errors  # Unknown ownership must not prevent recording the investigation.
-            path.write_text(original)
-            for task_type, allowed, changed in (
-                ("design", investigation, report),
-                ("infrastructure", investigation, report),
-                ("migration", investigation, "model/dev/cde/ec2.properties"),
-                ("migration", investigation + "- `infra/**`\n", report),
-                ("migration", investigation, "infra/dev/cde/ec2.yaml"),
-                ("migration", investigation, f"issues/prod/cde/{name}"),
-                ("migration", investigation.replace("## Validation scope", "## Missing scope"), report),
-                ("migration", investigation.replace("dev/cde/ec2", "all"), report),
-                ("migration", investigation.replace(report, f"issues/prod/cde/{name}"), report),
-            ):
-                active.write_text(allowed)
-                instance = validator.Validator(root)
-                instance.task_type, instance.changed_paths = task_type, {changed}
-                instance.check_issue_gate()
-                assert instance.errors, (task_type, allowed, changed)
-        active.write_text(investigation)
+
+        active.write_text(contract)
         try:
             sync.sync(root, True, "dev", "cde", services=["ec2"])
         except ValueError as error:
@@ -124,21 +94,6 @@ def main():
                    "--environment", "dev", "--target-directory", "cde", "--service", "ec2"]
         assert subprocess.run(command, capture_output=True).returncode == 1  # A new task cannot inherit a repair waiver.
         assert subprocess.run([*command, "--task"], capture_output=True).returncode == 0
-        for invalid in ("- `dev/cde/s3`", "- `all`", "- `dev/cde/ec2`\n- `dev/cde/ec2`"):
-            active.write_text(contract + "\n## Issue remediation\n\n" + invalid + "\n")
-            try:
-                remediation_scope(root)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError("invalid remediation scope accepted")
-        active.write_text(contract.replace("dev/cde/ec2", "all") + "\n## Issue remediation\n\n- `dev/cde/ec2`\n")
-        try:
-            remediation_scope(root)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("all-scope remediation accepted")
         active.write_text(contract)
         path.write_text("未解決issueなし\n")
         require_no_issues(root, scope)

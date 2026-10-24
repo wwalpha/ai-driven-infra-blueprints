@@ -11,7 +11,6 @@ from support.it_case_receipt import it_case
 from support.json_yaml_document_hash_fixtures import (
     Path,
     affected,
-    copy,
     design_source_digest,
     document_sha256,
     json,
@@ -98,10 +97,6 @@ def check(root):
             assert path.read_bytes() == raw
             assert affected(target, [relative]) == {(environment, 'team', 'vpc-endpoint')}
         assert updated[0] == updated[1]
-        reordered = {'Statement': [copy.deepcopy(dict(reversed(list(document['Statement'][0].items()))))]}
-        assert document_sha256(reordered) == document_sha256(document)
-        reordered['Statement'][0]['Action'].reverse()
-        assert document_sha256(reordered) != document_sha256(document)
     print('JSON document hashes: PASS (canonical types/order; derived-only hash; stale authority rejection; real managed edit/no-op; independent environments)')
 
 

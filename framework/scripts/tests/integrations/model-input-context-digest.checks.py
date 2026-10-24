@@ -12,14 +12,11 @@ from support.it_case_receipt import it_case
 from support.producer_identifier_reference_fixtures import (
     Path,
     affected,
-    declarations,
     dependency_hashes,
     design_source_digest,
     json,
     load_model,
-    rejected,
     resource,
-    serialize,
     setup,
     source_inputs,
     tempfile,
@@ -73,18 +70,7 @@ def check(root):
     changed = warning(path, 'context value differs')
     assert changed.authoritative == model.authoritative and changed.values[key + 'artifactSha256'] == model.values[key + 'artifactSha256']
     assert design_source_digest(path) == digest and dependency_hashes(path) != dependencies
-    for targets in ([], [target, target], [{**target, 'awsExecutionAccountId': 123}], [{**target, 'awsExecutionAccountId': 'bad'}]):
-        project.write_text(json.dumps({'targets': targets}))
-        try:
-            load_model(path)
-        except (ValueError, OSError):
-            pass
-        else:
-            raise AssertionError('invalid topology accepted')
     project.write_text(json.dumps(topology))
-    for fields in ({'producerId': '007'}, {'property': 'Account'}, {'contextProperty': 'awsAccountId'}):
-        bad = {**values, **{'desired.reference.account.' + field: value for field, value in fields.items()}}
-        rejected(lambda *, bad=bad: declarations(bad), 'reference' if 'contextProperty' in fields else 'forbidden')
     # Values and reference text change only in an explicit candidate; hashes remain derived.
     hashes = []
     for account in ('222222222222', '333333333333'):
@@ -99,10 +85,6 @@ def check(root):
         raw = path.read_bytes()
         assert load_model(path).authoritative == current.authoritative and path.read_bytes() == raw
     assert hashes[0] != hashes[1]
-    invalid = dict(candidate)
-    invalid[key + 'artifactSha256'] = 'stale'
-    path.write_text(serialize(invalid))
-    rejected(lambda: load_model(path), 'unknown Model field')
     print('Context/document digest: PASS (project authority; explicit context meaning; types/order; derived hash; snapshot invalidation; no automatic changes)')
 
 

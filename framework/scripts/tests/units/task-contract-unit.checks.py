@@ -15,15 +15,17 @@ from unittest.mock import patch
 
 import model.sources as _imports_model_sources
 import pytest
+import task_contract as transitions
 import task_contract_core as tasks
 import utils.input_cache as _imports_input_cache
 from generation_inputs import GenerationInputs
 from model.importing import scope as import_scope
 from support.import_model_fixtures import dependency_contract
 from support.pytest_cli import run
-from support.repository_fixtures import contract
+from support.repository_fixtures import contract, transition_contract
 from sync_runtime import publish_generation
 from utils.input_cache import input_scope
+from validation_scope import active_scope
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -280,6 +282,112 @@ def check_dependency_detach_contract():
                 text + 'unconsumed junk\n']:
         with pytest.raises(ValueError):
             tasks.model_refactor(bad)
+
+
+def blocked(callback, message):
+    with pytest.raises(ValueError) as error:
+        callback()
+    assert message in str(error.value), str(error.value)
+
+
+def check_completed_legacy_and_paths(tmp_path):
+    with patch.dict(os.environ, {}, clear=True):
+        root = tmp_path
+        old = "tasks/old.md"
+        new = "tasks/new.md"
+        transitions.start(root, old, transition_contract(old, ["README.md", "old.md"]))
+        (root / old).write_text(transition_contract(old, ["README.md", "old.md"], state="completed"))
+        transitions.start(root, new, transition_contract(new, ["README.md"]))
+        assert transitions.task_path(root) == root / new
+        _ = {old, new, "README.md", "old.md", "tasks/removed.md"}
+        for name in (old, new):
+            (root / name).unlink()
+        assert transitions.task_path(root, required=False) is None
+        assert transitions.task_revision(root) == (None, None)
+        blocked(lambda: transitions.task_path(root), "selected task contract required")
+        blocked(lambda: transitions.status("## Task contract\n"), "Task status")
+        for value in ("../escape", "/tmp/escape", "./file", "a//file", "a/../file", "*.md", "a/**", ".git/config", "."):
+            blocked(lambda value=value: transitions.start(root, new, transition_contract(new, [value])), "exact repository-relative path")
+        (root / "linked").symlink_to(root / "elsewhere")
+        blocked(lambda: transitions.start(root, new, transition_contract(new, ["linked/file.md"])), "symlinks")
+        blocked(lambda: transitions.start(root, new, transition_contract(new, [old])), "another contract")
+        blocked(lambda: transitions.start(root, new, transition_contract(new, ["file.md", "file.md"])), "duplicate paths")
+        blocked(lambda: transitions.start(root, new, transition_contract(new, ["file.md"], state="paused")), "Task status")
+
+
+def check_suspend_and_resume(tmp_path):
+    with patch.dict(os.environ, {}, clear=True):
+        root = tmp_path
+        first, second = "tasks/first.md", "tasks/second.md"
+        transitions.start(root, first, transition_contract(first, ["shared.md", "own.md"]))
+        blocked(lambda: transitions.suspend(root, first, " "), "concrete reason")
+        assert transitions.suspend(root, first, "other task: schema failure in model/dev/cde/ec2.properties")
+        saved = (root / first).read_bytes()
+        assert transitions.status(saved.decode()) == "suspend"
+        assert "schema failure in model/dev/cde/ec2.properties" in saved.decode()
+        assert transitions.task_path(root, required=False) is None
+        assert active_scope(root) == set()
+        with patch.dict(os.environ, {transitions.SELECTOR: first}):
+            blocked(lambda: transitions.task_path(root), "suspend task cannot execute")
+        assert transitions.contract_path(root, first) == root / first
+        assert active_scope(root, contract_file=first) == set()
+        blocked(lambda: active_scope(root, task_file=first), "suspend task cannot execute")
+        blocked(lambda: transitions.task_revision(root, first), "suspend task cannot execute")
+        blocked(lambda: transitions.contract_path(root, '../first.md'), "invalid task selector")
+        blocked(lambda: transitions.contract_path(root, 'tasks/missing.md'), "missing")
+        saved = (root / first).read_bytes()
+        (root / 'shared.md').symlink_to(root / 'elsewhere')
+        blocked(lambda: transitions.contract_path(root, first), "symlinks")
+        (root / 'shared.md').unlink()
+        (root / first).write_text(saved.decode().replace('## Modified files', '## Missing files'))
+        blocked(lambda: transitions.contract_path(root, first), "missing or duplicate paths")
+        (root / first).write_bytes(saved)
+        transitions.start(root, second, transition_contract(second, ["shared.md"]))
+        assert transitions.task_path(root) == root / second
+        transitions.resume(root, first)
+        assert "## Suspension reason" not in (root / first).read_text()
+        with patch.dict(os.environ, {transitions.SELECTOR: first}):
+            transitions.task_path(root)
+        transitions.suspend(root, first, "own check failed")
+        saved = (root / first).read_bytes()
+        other = (root / second).read_bytes()
+        assert not transitions.suspend(root, first, "overwrite")
+        assert (root / first).read_bytes() == saved and (root / second).read_bytes() == other
+        transitions.suspend(root, second, "own acceptance check failed: changed:shared.md")
+        transitions.resume(root, first)
+        assert transitions.status((root / first).read_text()) == "running"
+        assert "## Suspension reason" not in (root / first).read_text()
+        transitions.resume(root, second)
+        # Invalid other contracts cannot prevent suspension of the explicitly selected task.
+        (root / second).write_text("invalid contract")
+        assert transitions.suspend(root, first, "invalid contract: tasks/second.md")
+        blocked(lambda: transitions.status(transition_contract(first, ["shared.md"], state="suspend")), "Suspension reason")
+        # A reason is diagnostic text, even if an error contains Markdown headings.
+        (root / second).unlink()
+        transitions.resume(root, first)
+        transitions.suspend(root, first, "error\n## Modified files\n- `unexpected.md`")
+        assert transitions.paths_in((root / first).read_text(), "## Modified files") == {first, "shared.md", "own.md"}
+
+
+def check_admission_selection(tmp_path, monkeypatch):
+    monkeypatch.delenv(transitions.SELECTOR, raising=False)
+    first, second = 'tasks/first.md', 'tasks/second.md'
+    transitions.start(tmp_path, first, transition_contract(first, ['new/file.md']))
+    assert transitions.task_path(tmp_path) == tmp_path / first
+    assert active_scope(tmp_path) == set()
+    before = (tmp_path / first).read_bytes()
+    transitions.start(tmp_path, second, transition_contract(second, ['new/file.md', 'other.md'], kind='design', scope='dev/cde/ec2'))
+    assert (tmp_path / first).read_bytes() == before
+    blocked(lambda: transitions.task_path(tmp_path), 'multiple running tasks')
+    monkeypatch.setenv(transitions.SELECTOR, second)
+    assert active_scope(tmp_path) == {('dev', 'cde', 'ec2')}
+    blocked(lambda: transitions.task_path(tmp_path, 'tasks/missing.md'), 'missing')
+    blocked(lambda: transitions.task_path(tmp_path, '../first.md'), 'invalid task selector')
+    before = (tmp_path / second).read_bytes()
+    transitions.refresh(tmp_path, second)
+    assert (tmp_path / second).read_bytes() == before
+    transitions.complete(tmp_path, first)
+    transitions.complete(tmp_path, second)
 
 
 if __name__ == '__main__':

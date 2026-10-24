@@ -4,20 +4,17 @@
 import sys
 from contextlib import nullcontext
 from pathlib import Path
-from types import SimpleNamespace as _CallbackState
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import subprocess
-import threading
 from collections import defaultdict
 from contextvars import ContextVar
 from unittest.mock import patch
 
 import aws_mapping
 import model.importing.scope as import_scope
-import model.sources as model_sources
 import pytest
 import support.sync_model_fixtures as _fixture_generated_policy
 import sync_runtime
@@ -30,7 +27,7 @@ from support.pytest_cli import run
 from support.sync_model_fixtures import MODULE
 from support.validator import MODULE as validator_module
 from support.validator import diagnostics
-from utils.aws_mappings import definition_root, mapping_alias, mappings_for
+from utils.aws_mappings import definition_root, mappings_for
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from validation.findings import Findings
 
@@ -157,38 +154,10 @@ def check_common_conditions_preserved(generated_policy, monkeypatch, fault):
         assert any(not condition for condition, _ in new['saved', name]), (fault, new['saved', name])
 
 
-def _callback_check_read_scope_lifetime_expand(original, scopes, /, *args):
-    scopes.append(input_cache.memo_table())
-    return original(*args)
 
 
-def _callback_check_read_scope_lifetime_nested(model, scopes, /):
-    scope = input_cache.memo_table()
-    read_model(model)
-    assert scopes[-1] is scope
-    read_model(model)
-    assert input_cache.memo_table() is scope
 
 
-def check_read_scope_lifetime(generated_policy):
-    root, model, values, _, _, _ = generated_policy
-    original = model_sources._read_model
-    scopes = []
-    expand = _bind_framework_callback(_callback_check_read_scope_lifetime_expand, original, scopes)
-    with patch.object(model_sources, '_read_model', side_effect=expand):
-        first = read_model(model)
-        assert scopes[-1] is not None
-        assert input_cache.memo_table() is None
-        values['desired.row.001-001.value'] = '`changed-role`'
-        write_model(model, values)
-        assert read_model(model) != first
-        nested = (input_cache.input_scope)(_bind_framework_callback(_callback_check_read_scope_lifetime_nested, model, scopes))
-        nested()
-    assert input_cache.memo_table() is None
-    with patch.object(model_sources, '_read_model', side_effect=ValueError('injected')):
-        with pytest.raises(ValueError, match='injected'):
-            read_model(model)
-    assert input_cache.memo_table() is None
 
 
 def _callback_check_deferred_guard_and_cleanup_factory_call_207(seen, _default__name, _default__original, /, *args, _name=_CALLBACK_DEFAULT, _original=_CALLBACK_DEFAULT, **kwargs):
@@ -263,42 +232,10 @@ def check_generation_failures_never_pass(generated_policy, monkeypatch, fault):
     assert input_cache.memo_table() is None
 
 
-def _callback_check_single_and_parallel_threads_validate(barrier, provider, stage, threads, /, *args, **kwargs):
-    assert mappings_for(stage) is provider
-    assert mappings_for(stage).get('iam') is provider.get('iam')
-    threads.append((threading.get_ident(), input_cache.memo_table()))
-    if barrier:
-        barrier.wait(timeout=10)
 
 
-def _callback_check_single_and_parallel_threads_run_candidates(_state_check_single_and_parallel_threads_259, main, paths, root, stage, /):
-    scope = input_cache.memo_table()
-    failures = []
-    with patch.object(sync_views, 'validate_views', side_effect=_state_check_single_and_parallel_threads_259.validate):
-        sync_runtime.validate_candidates(stage, root, {p: [] for p in paths[:_state_check_single_and_parallel_threads_259.count]},
-                                         {p: {} for p in paths[:_state_check_single_and_parallel_threads_259.count]}, failures, 4, False)
-    assert not failures
-    if _state_check_single_and_parallel_threads_259.count == 1:
-        assert _state_check_single_and_parallel_threads_259.threads == [(main, scope)]
-    else:
-        assert len({thread for thread, _ in _state_check_single_and_parallel_threads_259.threads}) == 2
-        assert all(thread != main for thread, _ in _state_check_single_and_parallel_threads_259.threads)
 
 
-def check_single_and_parallel_threads(tmp_path):
-    _state_check_single_and_parallel_threads_259 = _CallbackState()
-    root, stage = tmp_path / 'root', tmp_path / 'stage'
-    provider = mappings_for(root)
-    paths = [root / 'docs/designs/dev/team' / (s + '.md') for s in ('iam', 's3')]
-    main = threading.get_ident()
-    for _state_check_single_and_parallel_threads_259.count in (1, 2):
-        _state_check_single_and_parallel_threads_259.threads = []
-        barrier = threading.Barrier(2) if _state_check_single_and_parallel_threads_259.count == 2 else None
-        _state_check_single_and_parallel_threads_259.validate = _bind_framework_callback(_callback_check_single_and_parallel_threads_validate, barrier, provider, stage, _state_check_single_and_parallel_threads_259.threads)
-        run_candidates = (input_cache.input_scope)(_bind_framework_callback(_callback_check_single_and_parallel_threads_run_candidates, _state_check_single_and_parallel_threads_259, main, paths, root, stage))
-        with mapping_alias(root, stage):
-            run_candidates()
-        assert stage not in mapping_state._aliases and stage not in mapping_state._instances
 
 
 def _callback_check_authorization_before_memo_and_publication_authorize(model, /):
@@ -330,42 +267,10 @@ def check_authorization_before_memo_and_publication(generated_policy, monkeypatc
     publish()
 
 
-def _callback_check_scoped_validation_threads_and_failures_designs(barrier, seen, /, validator):
-    seen.append((threading.get_ident(), input_cache.memo_table()))
-    if barrier:
-        barrier.wait(timeout=10)
-    validator.check(False, 'synthetic service failure')
 
 
-def _callback_check_scoped_validation_threads_and_failures_validate(_state_check_scoped_validation_threads_and_failures_322, main, tmp_path, /):
-    scope = input_cache.memo_table()
-    validator = validator_module.Validator(tmp_path, _state_check_scoped_validation_threads_and_failures_322.entries)
-    validator.schema_catalog = object()
-    with patch.object(validator_module.Validator, 'design_files', return_value=[]), \
-         patch.object(validator_module.Validator, 'check_design_service_ownership'), \
-         patch.object(validator_module.Validator, 'check_stack_designs'), \
-         patch.object(validator_module.Validator, 'check_generated_service_models'), \
-         patch.object(validator_module.Validator, 'check_designs', _state_check_scoped_validation_threads_and_failures_322.designs), \
-         patch.object(validator_module.Validator, 'check_observed_values'):
-        validator.check_scoped_designs()
-    assert validator.errors == ['synthetic service failure'] * _state_check_scoped_validation_threads_and_failures_322.count
-    if _state_check_scoped_validation_threads_and_failures_322.count == 1:
-        assert _state_check_scoped_validation_threads_and_failures_322.seen == [(main, scope)]
-    else:
-        assert len({thread for thread, _ in _state_check_scoped_validation_threads_and_failures_322.seen}) == 2
-        assert all(thread != main and memo is not scope for thread, memo in _state_check_scoped_validation_threads_and_failures_322.seen)
 
 
-def check_scoped_validation_threads_and_failures(tmp_path):
-    _state_check_scoped_validation_threads_and_failures_322 = _CallbackState()
-    main = threading.get_ident()
-    for _state_check_scoped_validation_threads_and_failures_322.count in (1, 2):
-        _state_check_scoped_validation_threads_and_failures_322.entries = {('dev', 'team', s) for s in ('iam', 's3')[:_state_check_scoped_validation_threads_and_failures_322.count]}
-        _state_check_scoped_validation_threads_and_failures_322.seen = []
-        barrier = threading.Barrier(2) if _state_check_scoped_validation_threads_and_failures_322.count == 2 else None
-        _state_check_scoped_validation_threads_and_failures_322.designs = _bind_framework_callback(_callback_check_scoped_validation_threads_and_failures_designs, barrier, _state_check_scoped_validation_threads_and_failures_322.seen)
-        validate = (input_cache.input_scope)(_bind_framework_callback(_callback_check_scoped_validation_threads_and_failures_validate, _state_check_scoped_validation_threads_and_failures_322, main, tmp_path))
-        validate()
 
 
 def _callback_check_sync_mapping_lifetime_stage_inputs(fault, original, provider, root, stages, /, stage, source, *args):

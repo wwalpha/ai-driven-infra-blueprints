@@ -7,10 +7,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 from support.quicksight_display_fixtures import (
+    ALIGNMENT,
+    HEADER,
     KIND,
     ROOT,
     Path,
     display_rows,
+    expanded_design,
     sys,
 )
 
@@ -38,6 +41,10 @@ def check_alias_rows():
 
     assert shown == [[identity, prop.removeprefix(KIND + ".").removeprefix("DataSourceParameters."), value, comment]
                      for identity, prop, value, comment in source]
+    restored, children = expanded_design(["### " + KIND + ": datasource", HEADER, ALIGNMENT,
+                                            *("| " + " | ".join(row) + " |" for row in shown)])
+    assert not children
+    assert restored[3:] == ["| " + " | ".join(row) + " |" for row in source]
 
 
 

@@ -5,23 +5,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-import pytest
 from support.it_case_receipt import module_complete
 from support.producer_identifier_reference_fixtures import (
     Path,
     affected,
-    declarations,
     dependency_hashes,
     design_source_digest,
     json,
     load_model,
     reference,
-    rejected,
     resource,
     setup,
     source_inputs,
     tempfile,
-    warning,
     write_model,
 )
 
@@ -68,40 +64,6 @@ def check(root, service, kind, name_property):
     write_model(path, changed_label)
     assert not load_model(path).warnings and design_source_digest(path) != digest
     write_model(path, values)
-    invalid_type = {**original, 'desired.resource.052.resourceType': 'S3.Bucket'}
-    write_model(producer, invalid_type)
-    with pytest.raises(ValueError, match='ResourceType prefix'):
-        load_model(path)
-    missing = {key: value for key, value in original.items() if not key.startswith(('desired.resource.052.', 'desired.row.052-'))}
-    write_model(producer, missing)
-    assert warning(path, 'absent or ambiguous').authoritative == snapshot.authoritative
-    write_model(producer, original)
-    if name_property:
-        for bad in [{**original, 'desired.row.052-001.property': 'IAM.InstanceProfile.Path'},
-                    {**original, 'desired.row.052-001.value': '``'},
-                    {**original, 'desired.row.052-003.property': name_property, 'desired.row.052-003.value': '`duplicate`', 'desired.row.052-003.comment': '重複'}]:
-            write_model(producer, bad)
-            assert not load_model(path).warnings
-        write_model(producer, original)
-    else:
-        # Description and grouped display never become a raw KMS Key name.
-        bad = dict(values)
-        bad['desired.row.021-001.value'] = '`app-preview-one`'
-        for key in list(bad):
-            if key.startswith('desired.reference.producer-021.'):
-                del bad[key]
-        bad.update(reference('producer-021', 'desired.row.021-001.value', 'app-preview-one', service, '052', kind,
-                             prop='KMS.Key.Description'))
-        write_model(path, bad)
-        warning(path, 'not a raw name Property')
-        write_model(path, values)
-        for selected in ('missing', 'app-preview-one'):
-            write_model(path, {**values, 'desired.reference.producer-021.producerLogicalId': selected})
-            warning(path, 'absent or ambiguous')
-        write_model(path, values)
-    rejected(lambda: declarations({**values, 'desired.reference.producer-083.selector': 'first'}), 'fields')
-    producer.unlink()
-    assert warning(path, 'Model is absent').authoritative == snapshot.authoritative
 
 
 if __name__ == '__main__':

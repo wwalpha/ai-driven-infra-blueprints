@@ -10,13 +10,18 @@ from types import SimpleNamespace as _CallbackState
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+
 import deploy.handoff as _imports_deploy_handoff
 import deploy.s3_delivery as _imports_deploy_s3_delivery
+import deploy.session as _imports_deploy_session
+import model.format as _imports_model_format
 from botocore.exceptions import ReadTimeoutError
 from deploy import failures
+from deploy.session import authority_snapshot, design_digest, model_input_manifest
 from deploy.timing import Timing
 from model.adapters.observed import mappings
 from model.core import entries
+from support import cloudformation_destroy_fixtures as destroy
 from support.cloudformation_deploy_fixtures import (
     ROOT,
     TARGET,
@@ -57,6 +62,7 @@ from support.cloudformation_deploy_fixtures import (
     zipfile,
 )
 from support.model_sources import allocate_fixture as allocate
+from support.model_v2_fixtures import deploy_properties_fixture
 from task_contract_core import selected_task
 from utils.aws import cloudformation as cfn
 from utils.aws import secretsmanager as secrets
@@ -2004,6 +2010,185 @@ def check_real_input_failure_details(stage):
         assert state['failure']['classification'] == 'IAC_CANDIDATE'
         assert 'private value' not in json.dumps(state)
     assert state['failure']['executionState'] == 'NOT_EXECUTED' and 'executionEvidence' not in state
+
+
+def _callback_check_order_and_safety_barrier(_state_check_order_and_safety_138, /, name):
+    if name == 'D':
+        assert {'A', 'B', 'C'} <= _state_check_order_and_safety_138.fake.completed
+
+def check_destroy_order_and_safety():
+    _state_check_order_and_safety_138 = _CallbackState()
+    state, _state_check_order_and_safety_138.fake = destroy.execute({'A': 10, 'B': 20, 'C': 30})
+    assert _state_check_order_and_safety_138.fake.deleted == ['C', 'B', 'A'] and state['status'] == 'COMPLETE'
+    print('D02: PASS reverse DeployOrder')
+    state, _state_check_order_and_safety_138.fake = destroy.execute({'A': 30, 'B': 30, 'C': 30, 'D': 20}, limit=2)
+    assert _state_check_order_and_safety_138.fake.maximum == 2 and _state_check_order_and_safety_138.fake.deleted == ['A', 'B', 'C', 'D']
+    _state_check_order_and_safety_138.fake = destroy.Fake(['A', 'B', 'C', 'D'])
+    barrier = _bind_framework_callback(_callback_check_order_and_safety_barrier, _state_check_order_and_safety_138)
+    _state_check_order_and_safety_138.fake.hook = barrier
+    destroy.execute({'A': 30, 'B': 30, 'C': 30, 'D': 20}, 2, _state_check_order_and_safety_138.fake)
+    print('D03: PASS bounded parallelism and group barrier')
+    _, _state_check_order_and_safety_138.fake = destroy.execute({'A': 30, 'B': 30, 'C': 30}, limit=1)
+    assert _state_check_order_and_safety_138.fake.maximum == 1
+    print('D04: PASS sequential')
+    state, _state_check_order_and_safety_138.fake = destroy.execute({'A': 10}, fake=destroy.Fake(['A'], exports={'Vpc': ('A', ['B'])}))
+    assert state['status'] == 'BLOCKED' and (not _state_check_order_and_safety_138.fake.deleted) and ('outside' in state['reason'])
+    print('D05: PASS outside importer stops every delete')
+    state, _state_check_order_and_safety_138.fake = destroy.execute({'A': 10, 'B': 20}, fake=destroy.Fake(['A', 'B'], exports={'Vpc': ('A', ['B'])}))
+    assert state['status'] == 'COMPLETE' and _state_check_order_and_safety_138.fake.deleted == ['B', 'A']
+    for orders in ({'A': 20, 'B': 10}, {'A': 20, 'B': 20}):
+        state, _state_check_order_and_safety_138.fake = destroy.execute(orders, fake=destroy.Fake(['A', 'B'], exports={'Vpc': ('A', ['B'])}))
+        assert not _state_check_order_and_safety_138.fake.deleted and 'actual import dependency conflicts with designed DeployOrder' in state['reason']
+    print('D06: PASS consumer first; conflicting/equal designed orders block')
+    cached = destroy.session({'A': 10, 'B': 20})
+    _state_check_order_and_safety_138.fake = destroy.Fake(['A', 'B'], exports={'Vpc': ('A', ['B'])})
+    destroy.M.preflight(cached, _state_check_order_and_safety_138.fake, 2, lambda: None)
+    destroy.M.dependencies(cached, _state_check_order_and_safety_138.fake, lambda: None)
+    _state_check_order_and_safety_138.fake.export_imports['Vpc'] = ('A', ['B', 'Outside'])
+    destroy.M.preflight(cached, _state_check_order_and_safety_138.fake, 2, lambda: None)
+    destroy.rejects(lambda: destroy.M.dependencies(cached, _state_check_order_and_safety_138.fake, lambda: None), 'outside live destroy scope')
+    assert sum((op == 'list-exports' for op, _ in _state_check_order_and_safety_138.fake.calls)) == 1 and (not _state_check_order_and_safety_138.fake.deleted)
+    for operation in ('list-exports', 'list-imports'):
+        _state_check_order_and_safety_138.fake = destroy.Fake(['A'], exports={'Vpc': ('A', [])})
+        state = destroy.session({'A': 10})
+        destroy.M.preflight(state, _state_check_order_and_safety_138.fake, 1, lambda: None)
+        aws = _state_check_order_and_safety_138.fake.aws
+        with patch.object(_state_check_order_and_safety_138.fake, 'aws', side_effect=lambda op, *args, aws=aws, operation=operation: {} if op == operation else aws(op, *args)):
+            destroy.rejects(lambda *, fake=_state_check_order_and_safety_138.fake, state=state: destroy.M.dependencies(state, fake, lambda: None), 'cannot prove dependencies')
+        assert not _state_check_order_and_safety_138.fake.deleted
+    _state_check_order_and_safety_138.fake = destroy.Fake(['A'])
+    _state_check_order_and_safety_138.fake.overrides['A'] = {'EnableTerminationProtection': True}
+    state, _state_check_order_and_safety_138.fake = destroy.execute({'A': 10}, fake=_state_check_order_and_safety_138.fake)
+    assert state['status'] == 'BLOCKED' and (not _state_check_order_and_safety_138.fake.deleted)
+    print('D07: PASS termination protection')
+    _state_check_order_and_safety_138.fake = destroy.Fake(['A'])
+    _state_check_order_and_safety_138.fake.overrides['A'] = {'ParentId': destroy.stack_id('Parent'), 'RootId': destroy.stack_id('Parent')}
+    state, _state_check_order_and_safety_138.fake = destroy.execute({'A': 10}, fake=_state_check_order_and_safety_138.fake)
+    assert state['status'] == 'BLOCKED' and (not _state_check_order_and_safety_138.fake.deleted)
+    print('D08: PASS nested direct target')
+    _state_check_order_and_safety_138.fake = destroy.Fake(['A', 'B', 'C', 'D'], {'A': ['DELETE_FAILED'], 'B': ['DELETE_IN_PROGRESS'] * 3 + ['DELETE_COMPLETE']})
+    state, _state_check_order_and_safety_138.fake = destroy.execute({'A': 30, 'B': 30, 'C': 30, 'D': 20}, 2, _state_check_order_and_safety_138.fake)
+    assert _state_check_order_and_safety_138.fake.deleted == ['A', 'B'] and (not _state_check_order_and_safety_138.fake.running) and (state['status'] == 'BLOCKED')
+    assert state['states']['A']['status'] == 'DELETE_FAILED' and state['states']['B']['status'] == 'DELETE_COMPLETE'
+    assert all((state['states'][name]['status'] == 'NOT_STARTED' for name in ('C', 'D')))
+    assert not any(('FORCE_DELETE_STACK' in args for _, args in _state_check_order_and_safety_138.fake.calls))
+    _state_check_order_and_safety_138.fake = destroy.Fake(['A'], {'A': ['DELETE_COMPLETE']})
+    _state_check_order_and_safety_138.fake.retained.add('A')
+    retained, _ = destroy.execute({'A': 10}, fake=_state_check_order_and_safety_138.fake)
+    assert retained['states']['A']['retained'][0]['ResourceStatus'] == 'DELETE_SKIPPED'
+    backend = destroy.M.AwsBackend(destroy.ROOT, 'dev', '123456789012', destroy.TARGET)
+    pages = [{'StackEvents': [{'ResourceStatus': 'DELETE_SKIPPED'}], 'NextToken': 'page2'}, {'StackEvents': [{'PhysicalResourceId': destroy.stack_id('A'), 'ResourceType': 'AWS::CloudFormation::Stack', 'ResourceStatus': 'DELETE_IN_PROGRESS'}, {'ResourceStatus': 'DELETE_SKIPPED', 'LogicalResourceId': 'OldHistory'}], 'NextToken': 'oldpage'}]
+    with patch.object(backend, 'aws', side_effect=pages) as events:
+        history = backend.events(destroy.stack_id('A'))
+        assert events.call_count == 2 and len(history) == 2 and ('--no-paginate' in events.call_args.args)
+    print('D09: PASS failure stops starts, drains peers, leaves lower order')
+    for override in ({'StackId': destroy.stack_id('Other')}, {'StackName': 'Other'}, {'StackId': destroy.stack_id('A').replace('123456789012', '999999999999')}, {'StackId': destroy.stack_id('A').replace('ap-northeast-1', 'us-east-1')}):
+        _state_check_order_and_safety_138.fake = destroy.Fake(['A'])
+        _state_check_order_and_safety_138.fake.overrides['A'] = override
+        state, _state_check_order_and_safety_138.fake = destroy.execute({'A': 10}, fake=_state_check_order_and_safety_138.fake)
+        assert not _state_check_order_and_safety_138.fake.deleted and state['status'] == 'BLOCKED'
+
+def check_destroy_unused_export():
+    backend = destroy.M.AwsBackend(destroy.ROOT, 'dev', '123456789012', destroy.TARGET)
+    diagnostic = "An error occurred (ValidationError) when calling the ListImports operation: Export 'Vpc' is not imported by any stack.\n"
+    fake = destroy.Fake(['A'], exports={'Vpc': ('A', [])})
+    state = destroy.session({'A': 10})
+    destroy.M.preflight(state, fake, 1, lambda: None)
+    aws = fake.aws
+    with patch.object(destroy.M.subprocess, 'run', return_value=SimpleNamespace(returncode=255, stdout='', stderr=diagnostic)), patch.object(fake, 'aws', side_effect=lambda op, *args: backend.aws(op, *args) if op == 'list-imports' else aws(op, *args)):
+        destroy.M.dependencies(state, fake, lambda: None)
+        assert state['dependencySnapshot'] == [{'export': 'Vpc', 'producer': 'A', 'importers': []}]
+        assert not fake.deleted
+    for error in (diagnostic.replace('ValidationError', 'AccessDenied'), diagnostic.replace('is not imported by any stack', 'does not exist'), 'An error occurred (ValidationError) when calling the ListImports operation: Invalid export name'):
+        with patch.object(destroy.M.subprocess, 'run', return_value=SimpleNamespace(returncode=255, stdout='', stderr=error)):
+            destroy.rejects(lambda: backend.aws('list-imports', '--export-name', 'Vpc'), 'list-imports:')
+    with patch.object(destroy.M.subprocess, 'run', return_value=SimpleNamespace(returncode=255, stdout='', stderr=diagnostic)):
+        destroy.rejects(lambda: backend.aws('list-exports'), 'list-exports:')
+    with patch.object(destroy.M.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout='{"Imports": []}', stderr='')):
+        assert backend.aws('list-imports', '--export-name', 'Vpc') == {'Imports': []}
+    print('D16: PASS unused export means no dependencies; other AWS errors still block')
+
+def check_destroy_absence():
+    fake = destroy.Fake(['A'], absent=['A'])
+    state = destroy.session({'A': 10})
+    state['states']['A'].update(StackId=destroy.stack_id('A'), status='DELETE_IN_PROGRESS', deleteObserved=True)
+    destroy.M.preflight(state, fake, 1, lambda: None)
+    assert state['states']['A']['status'] == 'DELETE_COMPLETE'
+    assert not fake.deleted
+    print('D10: PASS saved deletion evidence + pinned absence')
+    state = destroy.session({'A': 10})
+    state['states']['A'].update(StackId=destroy.stack_id('A'), status='DELETE_IN_PROGRESS')
+    destroy.M.preflight(state, fake, 1, lambda: None)
+    assert state['states']['A']['status'] == 'DELETE_COMPLETE'
+    for evidence in ({}, {'StackId': destroy.stack_id('A'), 'status': 'DELETE_INTENT'}):
+        state = destroy.session({'A': 10})
+        state['states']['A'].update(evidence)
+        destroy.M.preflight(state, fake, 1, lambda: None)
+        assert state['states']['A']['status'] == 'ALREADY_ABSENT'
+        replacement = destroy.Fake(['A'])
+        destroy.M.preflight(state, replacement, 1, lambda: None)
+        assert state['states']['A']['status'] == 'ALREADY_ABSENT' and (not replacement.calls)
+    print('D11: PASS fresh absence / intent alone do not prove deletion')
+    fake = destroy.Fake(['A'])
+    fake.overrides['A'] = {'StackId': destroy.stack_id('A') + '-replacement'}
+    state = destroy.session({'A': 10})
+    state['states']['A']['StackId'] = destroy.stack_id('A')
+    destroy.rejects(lambda: destroy.M.preflight(state, fake, 1, lambda: None), 'mismatch')
+
+
+@pytest.mark.parametrize('field', ['display', 'reference', 'placement'])
+def check_deploy_digest_covers_all_nonobserved_authority(tmp_path, monkeypatch, field):
+    parse = _imports_model_format.parse
+    patch = _imports_model_format.patch
+    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
+    scope, stacks = deploy_properties_fixture(tmp_path)
+    before = design_digest(tmp_path, scope.environment, scope.target)
+    manifest = model_input_manifest(tmp_path, scope.environment, scope.target)
+    original = scope.path.read_text(encoding='utf-8')
+    scope.path.write_text(patch(parse(original), {'observed.row.007-001.value': 'vpc-observed'}), encoding='utf-8')
+    assert design_digest(tmp_path, scope.environment, scope.target) == before
+    assert model_input_manifest(tmp_path, scope.environment, scope.target) != manifest
+    path, changes = scope.path, {'display.resource.007.label': 'Changed display'}
+    if field == 'placement':
+        path, changes = stacks, {'desired.stack.009.placementName': 'ChangedPlacement'}
+    elif field == 'reference':
+        spec = {'consumerKey': 'desired.row.007-001.value', 'text': parse(original).values['desired.row.007-001.value'], 'occurrence': '1',
+                'producerKind': 'resource', 'producerScope': 'qa-synthetic/team-a/network', 'producerLogicalId': 'EC2_VPC_001',
+                'resourceType': 'EC2.VPC', 'format': 'link', 'labelPolicy': 'fixed'}
+        changes = {f'desired.reference.stable.{key}': value for key, value in spec.items()}
+    path.write_text(patch(parse(path.read_text(encoding='utf-8')), changes), encoding='utf-8')
+    assert design_digest(tmp_path, scope.environment, scope.target) != before
+
+
+@pytest.mark.parametrize('change', ['observed', 'desired', 'display', 'raw', 'concurrent'])
+def check_deploy_observed_baseline_advances_only_proven_outputs(tmp_path, monkeypatch, change):
+    design_digest = _imports_deploy_session.design_digest
+    model_input_manifest = _imports_deploy_session.model_input_manifest
+    verify_observed_transition = _imports_deploy_session.verify_observed_transition
+    parse = _imports_model_format.parse
+    patch = _imports_model_format.patch
+    monkeypatch.delenv('BLUEPRINT_TASK_FILE', raising=False)
+    scope, _ = deploy_properties_fixture(tmp_path)
+    before = authority_snapshot(tmp_path, scope.environment, scope.target)
+    intended = design_digest(tmp_path, scope.environment, scope.target)
+    prior_manifest = model_input_manifest(tmp_path, scope.environment, scope.target)
+    original = scope.path.read_text(encoding='utf-8')
+    changes = {'observed.row.007-001.value': 'vpc-new'}
+    if change == 'desired':
+        changes['desired.row.007-001.comment'] = 'unrelated edit'
+    elif change == 'display':
+        changes['display.resource.007.label'] = 'unrelated edit'
+    output = patch(parse(original), changes)
+    if change == 'raw':
+        output += '# unrelated reformat\n'
+    scope.path.write_text(output + ('# concurrent edit\n' if change == 'concurrent' else ''), encoding='utf-8')
+    if change == 'observed':
+        advanced = verify_observed_transition(tmp_path, scope.environment, scope.target, before, {scope.path: output}, intended)
+        assert advanced != prior_manifest
+        assert design_digest(tmp_path, scope.environment, scope.target) == intended
+    else:
+        with pytest.raises((RuntimeError, ValueError), match='non-observed|unrelated|outside authorized'):
+            verify_observed_transition(tmp_path, scope.environment, scope.target, before, {scope.path: output}, intended)
 
 
 if __name__ == '__main__':

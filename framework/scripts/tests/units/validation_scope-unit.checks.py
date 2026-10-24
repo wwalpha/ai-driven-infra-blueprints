@@ -7,6 +7,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from types import SimpleNamespace
+
 import pytest
 import sync_runtime
 from support.validation_scope_fixtures import (
@@ -17,6 +19,8 @@ from support.validation_scope_fixtures import (
     subprocess,
     sys,
 )
+from validation import project
+from validation.findings import Findings
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -60,6 +64,31 @@ def check_active_scope(tmp_path):
     active.write_text(header + contract)
     assert active_scope(root) == scope
 
+
+
+@pytest.mark.parametrize('entry', [('unknown', 'cde', 'ec2'), ('dev', '999999999999', 'ec2'), ('dev', 'cde', 'missing')])
+def check_unknown_scope_inputs(tmp_path, entry):
+    findings = Findings(tmp_path)
+    with patch.object(project, 'task_impact', return_value=SimpleNamespace(services=set())), \
+         patch.object(project._imports_model_sources, 'model_exists', return_value=False), \
+         patch.object(project._imports_model_sources, 'load_model', side_effect=ValueError('missing model')):
+        project.check_validation_scope({('dev', 'cde'): {}}, set(), None, findings, tmp_path, {entry}, None)
+    assert findings.errors
+    if entry[:2] != ('dev', 'cde'):
+        assert any('validation target is not defined' in error for error in findings.errors)
+
+
+def check_invalid_design_artifact(tmp_path):
+    view = tmp_path / 'docs/designs/dev/cde/ec2.md'
+    view.parent.mkdir(parents=True)
+    view.write_text('# Synthetic view\n')
+    artifact = view.with_suffix('') / 'orphan.json'
+    artifact.parent.mkdir()
+    artifact.write_text('bad JSON')
+    validator = VALIDATOR.Validator(tmp_path, {('dev', 'cde', 'ec2')})
+    validator.accounts = {('dev', 'cde'): {}}
+    validator.check_design_artifacts([view])
+    assert any('invalid design JSON' in error for error in validator.errors)
 
 
 if __name__ == '__main__':

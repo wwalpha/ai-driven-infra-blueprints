@@ -23,6 +23,11 @@ def check_json_hash_types():
     assert json_text(sample)=='{"x":"日本語","n":2,"b":false}'
     assert document_sha256(sample)==hashlib.sha256(json.dumps(sample, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode('utf-8')).hexdigest()
     assert document_sha256({'n':'2'})!=document_sha256({'n':2})
+    document = {'Statement': [{'Action': ['s3:GetObject', 's3:ListBucket'], 'Enabled': False, 'Count': 2}]}
+    reordered = {'Statement': [dict(reversed(list(document['Statement'][0].items())))]}
+    assert document_sha256(reordered) == document_sha256(document)
+    reordered['Statement'][0]['Action'] = list(reversed(reordered['Statement'][0]['Action']))
+    assert document_sha256(reordered) != document_sha256(document)
 
 
 

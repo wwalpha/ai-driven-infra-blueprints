@@ -13,20 +13,16 @@ from support.it_case_receipt import it_case
 from support.producer_identifier_reference_fixtures import (
     Path,
     affected,
-    declarations,
     dependency_hashes,
     design_source_digest,
     json,
     load_model,
     reference,
-    rejected,
     resource,
-    serialize,
     setup,
     source_inputs,
     tempfile,
     trace_model,
-    warning,
     write_model,
 )
 from utils.aws_mappings import mapping_alias
@@ -80,33 +76,6 @@ def check(root):
             assert staged.authoritative == snapshot.authoritative and staged.warnings
             assert staged_producer in staged.dependencies and producer not in staged.dependencies
     assert load_model(path).authoritative == snapshot.authoritative
-    for changed, phrase in [
-        ({**original, 'desired.row.001-002.property': 'EC2.Subnet.SubnetId'}, 'Property is absent'),
-        ({**original, 'desired.row.001-001.property': 'EC2.VPC.VpcId'}, 'Property is absent or ambiguous'),
-        ({key: value for key, value in original.items() if not key.startswith('observed.')}, 'unobserved'),
-        ({**original, 'observed.row.001-002.value': '``'}, 'nonempty non-ARN'),
-        ({**original, 'observed.row.001-002.value': 'arn:aws:fixture'}, 'nonempty non-ARN')]:
-        write_model(producer, changed)
-        assert warning(path, phrase).authoritative == snapshot.authoritative
-    for suffix, raw, _phrase in [('property', 'EC2.Subnet.SubnetId', 'derived'), ('value', False, 'str')]:
-        if suffix == 'property':
-            bad = {**original, 'observed.row.001-002.property': raw}
-            write_model(producer, bad)
-            rejected(lambda: load_model(producer), 'unknown Model field')
-        else:
-            rejected(lambda *, raw=raw: serialize({**original, 'observed.row.001-002.value': raw}), 'str')
-    write_model(producer, original)
-    for change, phrase in [({'producerLogicalId': 'EC2_VPC_002'}, 'absent or ambiguous'),
-        ({'resourceType': 'EC2.Subnet', 'property': 'EC2.Subnet.SubnetId'}, 'Type differs'),
-        ({'property': 'EC2.VPC.Name'}, 'unobserved')]:
-        bad = {**values, **{'desired.reference.vpc-id.' + field: value for field, value in change.items()}}
-        write_model(path, bad)
-        warning(path, phrase)
-    bad = {**values, 'desired.reference.vpc-id.labelPolicy': 'fixed'}
-    rejected(lambda: declarations(bad), 'non-link')
-    write_model(path, values)
-    producer.unlink()
-    warning(path, 'Model is absent')
     print('Producer identifiers: PASS (saved observed authority, pending/empty/absent distinctions, exact JSON, stage dependencies, warnings, schema rejection)')
 
 

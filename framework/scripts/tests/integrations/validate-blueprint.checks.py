@@ -7,11 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from integrations.validation_checks import (
-    cloudformation,
-    design,
-    references,
     runner,
-    scenario,
     scope,
     task,
     terraform,
@@ -24,20 +20,11 @@ if not __debug__:
 
 @it_case
 def main():
-    cloudformation.check_cloudformation_stack_design()
-    cloudformation.check_stack_mapping_targets()
-    design.check_description_design_constraints()
-    references.check_identifier_propagation()
-    references.check_array_source_role_links()
-    references.check_s3_bucket_policy_grouping()
-    references.check_subnet_association_overview()
-    references.check_resource_overview()
     task.check_task_contract()
     task.check_idle_without_active_task()
     task.check_destroy_phase()
     task.check_task_type_dispatch()
     runner.check_module_inputs()
-    scenario.check_records()
     scope.check_deployment_iac_scope()
     terraform.check_cli()
     print("Validator integrations: PASS")

@@ -5,17 +5,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-import pytest
 from support.it_case_receipt import it_case
 from support.producer_identifier_reference_fixtures import (
     Path,
     affected,
-    declarations,
     dependency_hashes,
     design_source_digest,
     load_model,
     reference,
-    rejected,
     resource,
     setup,
     source_inputs,
@@ -62,22 +59,7 @@ def check(root):
     write_model(producer, {key.replace('.052', '.053', 1): value for key, value in original.items()})
     assert not load_model(path).warnings
     write_model(producer, original)
-    for bad, phrase in [
-        ({**original, 'desired.resource.052.resourceType': 'S3.Bucket'}, 'Type differs'),
-        ({**original, 'desired.row.052-001.property': 'EC2.SecurityGroup.GroupDescription'}, 'Property is absent'),
-        ({**original, 'desired.row.052-001.value': '``'}, 'differs from saved text'),
-        ({**original, 'desired.row.052-004.property': 'EC2.SecurityGroup.GroupName', 'desired.row.052-004.value': '`duplicate`', 'desired.row.052-004.comment': '重複'}, 'Property is absent or ambiguous')]:
-        write_model(producer, bad)
-        if any(key in original and key.endswith('.resourceType') and original[key] != value for key, value in bad.items()):
-            with pytest.raises(ValueError, match='ResourceType prefix'):
-                load_model(path)
-        else:
-            assert warning(path, phrase).authoritative == snapshot.authoritative
     write_model(producer, original)
-    bad = {**values, 'desired.reference.security-group-021.occurrence': '0'}
-    rejected(lambda: declarations(bad), 'occurrence')
-    producer.unlink()
-    assert warning(path, 'Model is absent').authoritative == snapshot.authoritative
     print('Security Group references: PASS (GroupName; fixed labels; type/identity warnings; dependency snapshots)')
 
 

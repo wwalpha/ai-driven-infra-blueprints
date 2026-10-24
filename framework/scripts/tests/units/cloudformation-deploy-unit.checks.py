@@ -9,23 +9,32 @@ from types import SimpleNamespace as _CallbackState
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from deploy.scheduler import read_parallel
 from support import deploy_controller_fixtures as controller
 from support.cloudformation_deploy_fixtures import (
+    ROOT,
+    TARGET,
     Fake,
     M,
     Path,
+    Runtime,
+    StubAws,
     finish,
+    rejects,
     run,
     scheduler,
+    stack_model,
     starts,
     states,
     sys,
     units,
 )
+from utils.aws import cloudformation as cfn
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -164,6 +173,79 @@ def check_controller_sleep_injection(tmp_path):
     with pytest.raises(AssertionError, match='did not terminate'):
         controller.fake_sleep(delays, 5)
     assert delays == [5] * 100
+
+
+class MarkedString(str):
+    pass
+
+
+def check_deployment_input_conditions():
+    values = {"desired.deployment.maxConcurrentStacks": "2"}
+    for i, unit in enumerate(units(20, 10, 10), 1):
+        values.update({f"desired.stack.{i:03}.{key}": value for key, value in unit.items()})
+        values[f"display.stack.{i:03}.comment"] = "アプリケーションを配置するstack"
+    for field, invalid in (("desired.deployment.maxConcurrentStacks", "0"), ("desired.deployment.maxConcurrentStacks", "-1"),
+                           ("desired.deployment.maxConcurrentStacks", "abc"), ("desired.stack.001.deployOrder", "0"),
+                           ("desired.stack.001.deployOrder", "-1"), ("desired.stack.001.deployOrder", "abc")):
+        rejects(lambda *, field=field, invalid=invalid: stack_model(values | {field: invalid}), "integer >= 1")
+    missing = dict(values)
+    del missing["desired.stack.001.deployOrder"]
+    rejects(lambda: stack_model(missing), "requires only")
+    missing = dict(values)
+    del missing["desired.deployment.maxConcurrentStacks"]
+    assert stack_model(missing)[0] == 1
+    for field in ("dependsOn", "AfterStack", "DependsOnStack", "Dependencies"):
+        rejects(lambda *, field=field: stack_model(values | {"desired.stack.001." + field: "A"}), "requires only")
+    assert M.change_sets.import_names({"Fn::ImportValue": {"Fn::Join": ["", [{"Ref": "Prefix"}, "VpcId"]]}}, {"Prefix": "Network"}, {}) == {"NetworkVpcId"}
+    rejects(lambda: M.change_sets.import_names({"Fn::ImportValue": {"Ref": "Resource"}}, {}, {}), "unsupported")
+    conditional = {"Conditions": {
+        "Dev": {"Fn::Equals": [{"Ref": "Environment"}, "dev"]},
+        "Stg": {"Fn::Not": [{"Condition": "Dev"}]},
+        "Active": {"Fn::And": [{"Condition": "Dev"}, {"Fn::Or": [{"Condition": "Dev"}, {"Condition": "Stg"}]}]}},
+        "Resources": {
+            "Mwaa": {"Properties": {"Arn": {"Fn::If": ["Active", {"Fn::ImportValue": "DevBucketArn"},
+                                                                     {"Fn::ImportValue": "StgBucketArn"}]}}},
+            "StgOnly": {"Condition": "Stg", "Properties": {"Arn": {"Fn::ImportValue": "StgRoleArn"}}}},
+        "Outputs": {"StgOnly": {"Condition": "Stg", "Value": {"Fn::ImportValue": "StgOutput"}}}}
+    assert M.change_sets.import_names(conditional, {"Environment": "dev"}, {}) == {"DevBucketArn"}
+    assert M.change_sets.import_names(conditional, {"Environment": "stg"}, {}) == {"StgBucketArn", "StgRoleArn", "StgOutput"}
+    backend = StubAws(["DevBucketArn"])
+    backend.templates["A"] = (conditional, {"Environment": "dev"})
+    assert backend.prepare(units(1)[0], {"clientToken": "dev-only"}) == "READY"
+    backend.templates["A"] = (conditional, {"Environment": "stg"})
+    rejects(lambda: backend.check_imports(units(1)[0]), "missing export")
+    conditional["Conditions"]["Dev"] = {"Condition": "Dev"}
+    rejects(lambda: M.change_sets.import_names(conditional, {"Environment": "dev"}, {}), "cyclic Condition")
+    conditional["Conditions"]["Dev"] = {"Condition": "Missing"}
+    rejects(lambda: M.change_sets.import_names(conditional, {"Environment": "dev"}, {}), "unresolved")
+    conditional["Conditions"]["Dev"] = "true"
+    rejects(lambda: M.change_sets.import_names(conditional, {"Environment": "dev"}, {}), "non-boolean")
+    # Decoder scalars are subclasses; parameter values are plain strings.
+    conditional["Conditions"]["Dev"] = {"Fn::Equals": [{"Ref": "Environment"}, MarkedString("dev")]}
+    assert M.change_sets.import_names(conditional, {"Environment": "dev"}, {}) == {"DevBucketArn"}
+    backend = Runtime(ROOT, 'dev', '123456789012', TARGET, 'test')
+    with patch.object(cfn, 'list_exports', return_value={'Exports': []}) as request:
+        backend.aws('list_exports')
+        assert request.call_args.args[0][:3] == ('test', 'ap-northeast-1', '123456789012')
+        configured = {**TARGET, 'awsProfile': 'configured'}
+        for explicit in (None, 'configured'):
+            backend = Runtime(ROOT, 'dev', '123456789012', configured, explicit)
+            assert backend.connection[0] == 'configured'
+        rejects(lambda: Runtime(ROOT, 'dev', '123456789012', configured, 'other'), 'does not match target awsProfile')
+    # Native CFN pseudo parameters describe the stack account, independent of explicit resource IDs.
+    execution = "999999999999"
+    backend = StubAws([execution + "VpcId"])
+    backend.target = {**TARGET, "awsExecutionAccountId": execution}
+    backend.templates["A"] = ({"Fn::ImportValue": {"Fn::Sub": "${AWS::AccountId}VpcId"}}, {})
+    backend.check_imports(units(1)[0])
+    backend.exports = []
+    artifact = {"resource": "Function", "property": "Code", "bucket": "bucket", "keyPrefix": execution + "/"}
+    document = {"Resources": {"Function": {"Type": "AWS::Lambda::Function", "Properties": {
+        "Code": {"S3Bucket": "bucket", "S3Key": {"Fn::Sub": "${AWS::AccountId}/code.zip"}}}}}}
+    assert backend.artifact_bindings({"name": "A", "artifacts": [artifact]}, document, {})[0][0] == artifact
+    assert backend.target["awsAccountId"] == TARGET["awsAccountId"]
+    backend = Runtime(ROOT, 'dev', '123456789012', {**TARGET, 'awsExecutionAccountId': execution})
+    assert backend.connection[2] == execution
 
 
 if __name__ == '__main__':

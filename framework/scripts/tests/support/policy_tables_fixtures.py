@@ -83,3 +83,72 @@ def mapping_cache_checks():
 
 
 __all__ += ['mapping_cache_checks']
+
+
+def iam_fixture(root):
+    path = root / "docs/designs/dev/123456789012/iam.md"
+    path.parent.mkdir(parents=True)
+    artifacts = path.parent / "iam"
+    artifacts.mkdir()
+    trust = {"Version": "2012-10-17", "Statement": [{
+        "Effect": "Allow", "Principal": {"Service": "vpc-flow-logs.amazonaws.com"},
+        "Action": "sts:AssumeRole", "Condition": {
+            "StringEquals": {"aws:SourceAccount": "123456789012"},
+            "ArnLike": {"aws:SourceArn": "arn:aws:ec2:ap-northeast-1:123456789012:vpc-flow-log/*"},
+        },
+    }]}
+    inline = {"Version": "2012-10-17", "Id": "Logging", "Statement": [
+        {"Sid": "Write", "Effect": "Allow", "Action": ["logs:CreateLogStream", "logs:PutLogEvents"], "Resource": ["arn:aws:logs:*:123456789012:log-group:example:*"]},
+        {"Effect": "Deny", "NotAction": ["logs:DescribeLogGroups"], "NotResource": "arn:aws:logs:*:123456789012:log-group:other:*"},
+    ]}
+    text = """# IAM設計書
+
+- Design service ID: `iam`
+- Owned catalog resource types: `IAM.Role`, `IAM.InstanceProfile`
+
+## リソース一覧
+
+### IAM.Role
+
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [RoleA](#iam-rolea) | Flow Logsに使用するRole |
+| 2 | [RoleB](#iam-roleb) | 追加ログを記録するRole |
+
+### IAM.InstanceProfile
+
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [Profile](#iam-profile) | EC2へroleを渡すprofile |
+
+## リソース詳細
+
+"""
+    for logical_id in ("RoleA", "RoleB"):
+        file_id = VALIDATOR.artifact_id(logical_id)
+        for suffix, document in (("trust-policy", trust), ("logging", inline), ("extra", inline)):
+            (artifacts / f"{file_id}-{suffix}.json").write_text(json.dumps(document), encoding="utf-8")
+        text += f'''<a id="iam-{logical_id.lower()}"></a>
+
+### IAM.Role: {logical_id}
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | RoleName | `{logical_id}` | ロールの名前 |
+| 2 | AssumeRolePolicyDocument | [FlowLogsTrust](iam/{file_id}-trust-policy.json) | 信頼ポリシー |
+| 3 | Policies[].PolicyName | `Logging` | ポリシーの名前 |
+| 4 | Policies[].PolicyDocument | [Logging](iam/{file_id}-logging.json) | 権限ポリシー |
+| 5 | Policies[].PolicyName | `Extra` | ポリシーの名前 |
+| 6 | Policies[].PolicyDocument | [Extra](iam/{file_id}-extra.json) | 追加の権限ポリシー |
+
+'''
+    text += '''<a id="iam-profile"></a>
+
+### IAM.InstanceProfile: Profile
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | InstanceProfileName | `example` | インスタンスプロファイルの名前 |
+'''
+    path.write_text(text, encoding="utf-8")
+    return path, artifacts, trust, inline, text

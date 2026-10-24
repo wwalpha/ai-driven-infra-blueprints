@@ -30,10 +30,7 @@ def authored_service(root, environment, service, resources, *, extra=None):
     return path
 
 
-def build_typed_services(root):
-    topology(root, ('dev', 'stg'))
-    for env in ('dev', 'stg'):
-        services = {
+TYPED_SERVICES = {
             'kms': [('001', 'KMS.Key', 'kms-log-key', [('Enabled', '`true`'), ('PendingWindowInDays', '`7`')]),
                     ('002', 'KMS.Alias', 'kms-alias', [('AliasName', '`alias/log-one`')])],
             'security-group': [('001', 'EC2.SecurityGroup', 'security-group-group', [('SecurityGroupIngress[].FromPort', '`443`')])],
@@ -63,6 +60,12 @@ def build_typed_services(root):
                 ('Stages[].Name', '`source`'), ('Stages[].Actions[].Name', '`source`'),
                 ('Stages[].Actions[].Configuration', '`{"BranchName":"main"}`')])],
         }
+
+
+def build_typed_services(root):
+    topology(root, ('dev', 'stg'))
+    for env in ('dev', 'stg'):
+        services = dict(TYPED_SERVICES)
         for name, kind in [('config', 'Config.ConfigurationRecorder'), ('data-firehose', 'KinesisFirehose.DeliveryStream'),
                            ('guardduty', 'GuardDuty.Detector'), ('macie', 'Macie.Session'), ('quicksight', 'QuickSight.DataSource'),
                            ('codebuild', 'CodeBuild.Project'), ('ec2', 'EC2.Instance'), ('mwaa', 'MWAA.Environment'),

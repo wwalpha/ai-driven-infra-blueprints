@@ -23,7 +23,6 @@ from support import issues_scan_fixtures as fixtures
 from support.it_case_receipt import it_case
 from support.model_sources import catalog_display
 from support.validator import load as load
-from utils.iac_values import Expression, same, selected_same
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -82,49 +81,6 @@ def main_checks():
         with patch('socket.socket', side_effect=AssertionError('network forbidden')):
             comparison, result = record(original)
             assert result['category'] == 'matched', result
-            callback = _bind_framework_callback(_lambda_main_checks_callback_76, comparison)
-            action_path = 'Policies[].PolicyDocument.Statement[].Action'
-            for predicate in (same, selected_same):
-                assert predicate('s3:GetObject', ['s3:GetObject'], reference=callback, path=action_path)
-                assert predicate(['s3:GetObject'], 's3:GetObject', reference=callback, path=action_path)
-                for wrong in ([], ['s3:PutObject'], ['s3:GetObject', 's3:GetObject'], [True], [['s3:GetObject']]):
-                    assert predicate('s3:GetObject', wrong, reference=callback, path=action_path) is False
-                assert not predicate(['a', 'b'], ['b', 'a'], reference=callback, path=action_path)
-                for field in ('Tags[].Value', 'Policies[].Action',
-                              'Policies[].PolicyDocument.Statement[].Condition.Action',
-                              'Policies[].PolicyDocument.Statement[].Resource'):
-                    assert not predicate('same', ['same'], reference=callback, path=field)
-                assert not predicate('same', ['same'])
-            for kind, path in [('IAM.Role', 'AssumeRolePolicyDocument.Statement[].Action'),
-                               ('IAM.ManagedPolicy', 'PolicyDocument.Statement[].Action'),
-                               ('IAM.User', action_path)]:
-                assert comparison.reference_same('a', ['a'], kind, path) is True
-            assert comparison.reference_same('a', ['a'], 'S3.BucketPolicy', 'PolicyDocument.Statement[].Action') is NotImplemented
-
-            reference = comparison.evaluate(consumer, imported)
-            assert reference == {'$resource': ['s3', '002'], '$attribute': 'Arn'}
-            assert comparison.reference_literal(reference) == arn
-            sub = comparison.evaluate(consumer, actual['Statement'][2]['Resource'])
-            for symbolic, text in ((reference, arn), (sub, arn + '/results/*')):
-                assert same(symbolic, text, reference=callback)
-                assert same(text, symbolic, reference=callback)
-                for wrong in (text + '-other', text.replace('aws:', 'aws-cn:'), text.replace('data2', 'data1')):
-                    assert same(symbolic, wrong, reference=callback) is False
-            other = comparison.evaluate(consumer, {'Fn::GetAtt': ['Bucket', 'Arn']})
-            assert same(reference, other, reference=callback) is False
-            assert same(reference, dict(reference), reference=callback) is not True
-            escaped = Expression('Sub', ['${BucketArn}/${!literal}/${Tail}', {'BucketArn': reference, 'Tail': 'one'}])
-            assert same(escaped, arn + '/${literal}/one', reference=callback)
-            for unresolved in (Expression('Sub', ['${Missing}', {}]),
-                               Expression('Sub', ['${Value}', {'Value': {'$resource': ['s3', '002'], '$attribute': 'Arn'}}])):
-                assert same(unresolved, arn, reference=callback) is None
-            for different in (Expression('Sub', ['${Value}', {'Value': Expression('Join', ['', [reference, '/*']])}]),
-                               Expression('Join', ['', [reference, '/*']])):
-                assert same(different, arn, reference=callback) is False
-            comparison.stack_inputs[producer][2]['AWS::Partition'] = 'aws-cn'
-            assert same(reference, arn, reference=callback) is False
-            assert same(reference, arn.replace('aws:', 'aws-cn:'), reference=callback)
-
             # Real setting changes still differ, and display does not repeat equivalent fields.
             for field, value in [('Action', ['s3:PutObject']), ('Effect', 'Deny')]:
                 changed = deepcopy(original)
