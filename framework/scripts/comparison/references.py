@@ -102,7 +102,9 @@ def reference_same(left, right, kind, path, *, local_comparison, forms_for, reso
     if allowed:
         result, reason = registry.compare_kms_forms(left, right, allowed, resolve_literal=resolve_literal,
                                                     format_of=kms_format)
-        return decision(result, [diagnostic(left, right, kind, path, reason)] if reason else ())
+        if (result is not None or evidence is None or
+                not (isinstance(left, str) and isinstance(right, (ResourceReference, Expression)))):
+            return decision(result, [diagnostic(left, right, kind, path, reason)] if reason else ())
     if evidence is not None and isinstance(left, str) and isinstance(right, (ResourceReference, Expression)):
         return evidence(left, right, kind, path)
     unproven = _bind_framework_callback(_callback_reference_same_unproven, decision, diagnostic, kind, left, path, right)

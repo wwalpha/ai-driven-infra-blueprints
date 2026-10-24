@@ -8,11 +8,19 @@ from model.adapters.observed import identifier_source
 from model.format import REFERENCE_NAME_SUFFIXES
 from model.projection import reference_attribute
 from policy_tables import literal
-from reference_contracts import REFERENCE_PROPERTIES
+from reference_contracts import (
+    ARN_FORMS,
+    ARN_SHAPES,
+    REFERENCE_PROPERTIES,
+    SCALAR_REFERENCE_PROPERTIES,
+)
 from utils.aws_catalogs import catalog_outputs
 
 from . import expressions, registry
 from .references import ReferenceDecision, reference_same
+
+# Enable recorded ARN derivation only for resource kinds covered by proof tests.
+RECORDED_ARN_KINDS = {'KMS.Key'}
 
 
 class Evidence:
@@ -31,7 +39,8 @@ class Evidence:
                 return expressions.literal(value, self.resolve)
         service, identity = value['$resource']
         producer = {'producer': service + '/' + identity, 'attribute': value['$attribute']}
-        if producer not in self.producers:
+        if not any(item['producer'] == producer['producer'] and item['attribute'] == producer['attribute']
+                   for item in self.producers):
             self.producers.append(producer)
         return inputs.reference_literal(value, recorded=self.recorded)
 
@@ -42,6 +51,8 @@ class Evidence:
         kind, attribute = resource['resourceType'], value['$attribute']
         if resource_mode(resource) == 'IMPORT':
             raise Blocked('attribute_format_unproven: IMPORT requires approved handoff')
+        if kind in RECORDED_ARN_KINDS and attribute == 'Arn':
+            return self.derived_arn(value)
         prop = kind + '.' + attribute
         outputs = catalog_outputs(inputs.root, kind)
         if prop not in outputs:
@@ -68,6 +79,36 @@ class Evidence:
         self.observed = True
         return text
 
+    def derived_arn(self, value):
+        inputs = self.inputs
+        service, identity = value['$resource']
+        resource = inputs.resources[service][identity]
+        kind = resource['resourceType']
+        identifier, template, patterns = ARN_SHAPES[kind]
+        fields = identifier if isinstance(identifier, dict) else {identifier: 'id'}
+        parts = {}
+        for attribute, group in fields.items():
+            source = ResourceReference(dict(value, **{'$attribute': attribute}))
+            text = self.recorded(source)
+            if re.fullmatch(patterns[group], text) is None:
+                raise Blocked('attribute_format_unproven: recorded ARN identifier format')
+            parts[group] = text
+        stack, _ = cfn_resource_identity(resource['cfn-logicalId'])
+        pseudo = inputs.stack_inputs[stack][2]
+        context = {name: pseudo.get('AWS::' + field) for name, field in
+                   [('partition', 'Partition'), ('region', 'Region'), ('account', 'AccountId')]}
+        if any(not isinstance(text, str) or not text for text in context.values()):
+            raise Blocked('attribute_format_unproven: Producer ARN context is unresolved')
+        arn = template.format(**context, **parts)
+        if re.fullmatch(ARN_FORMS[kind, 'Arn'][1], arn) is None:
+            raise Blocked('attribute_format_unproven: Producer ARN context is invalid')
+        for producer in self.producers:
+            if producer['producer'] == service + '/' + identity and producer['attribute'] == 'Arn':
+                producer.update(source_property=','.join(kind + '.' + field for field in fields),
+                                evidence_type='recorded_observed', derived_format=inputs.kms_format(arn),
+                                current_aws_verified=False)
+        return arn
+
 
 def validate_declaration(inputs, reference):
     service, identity = reference['$resource']
@@ -93,6 +134,12 @@ def validate_declaration(inputs, reference):
 def compare(inputs, left, right, kind, path):
     declared = getattr(left, 'saved_literal', None)
     raw = declared if declared is not None else left
+    if declared is not None:
+        baseline = reference_same(raw, right, kind, path, local_comparison=inputs.local_comparison,
+            forms_for=inputs.reference_forms, resolve_literal=inputs.reference_literal,
+            resource_type=inputs.resource_type, kms_format=inputs.kms_format, diagnostic=inputs.reference_diagnostic)
+        if baseline.equal is False:
+            return baseline
     if not isinstance(raw, str) or not isinstance(right, (ResourceReference, Expression)):
         if declared is not None:
             equal = same(raw, right)
@@ -103,12 +150,6 @@ def compare(inputs, left, right, kind, path):
                     return ReferenceDecision(None, (inputs.reference_diagnostic(left, right, kind, path, str(error)),))
             return ReferenceDecision(equal)
         return ReferenceDecision(NotImplemented)
-    if declared is not None:
-        baseline = reference_same(raw, right, kind, path, local_comparison=inputs.local_comparison,
-            forms_for=inputs.reference_forms, resolve_literal=inputs.reference_literal,
-            resource_type=inputs.resource_type, kms_format=inputs.kms_format, diagnostic=inputs.reference_diagnostic)
-        if baseline.equal is False:
-            return baseline
     proof = Evidence(inputs)
     reason, equal = '', None
     try:
@@ -130,6 +171,14 @@ def compare(inputs, left, right, kind, path):
             if forms and 'Arn' in forms and raw.startswith('arn:') and right['$attribute'] != reference_attribute(refkind, 'Arn'):
                 raise Blocked('attribute_format_unproven: alternative allowed literal format')
         concrete = proof.resolve(right)
+        allowed = registry.kms_forms(kind, path) if inputs.local_comparison else None
+        if getattr(left, 'explicit_attribute', False) and kind + '.' + path in SCALAR_REFERENCE_PROPERTIES:
+            allowed = {'KeyArn'}
+        if allowed:
+            result, reason = registry.compare_kms_forms(raw, concrete, allowed,
+                resolve_literal=inputs.reference_literal, format_of=inputs.kms_format)
+            if reason:
+                return ReferenceDecision(result, (inputs.reference_diagnostic(left, right, kind, path, reason),))
         if declared is not None and isinstance(right, ResourceReference) and left['$attribute'] != right['$attribute']:
             left_key = (*left['$resource'], left['$attribute'])
             right_key = (*right['$resource'], right['$attribute'])

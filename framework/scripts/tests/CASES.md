@@ -2791,3 +2791,23 @@ Refactorの重複incoming CLI起動4回、decodingの子Python8回を削除。
 | `worktree-runtime::check_candidate_staleness` | `check_candidate_staleness` | UT | [units/worktree-model-guard-unit.checks.py](units/worktree-model-guard-unit.checks.py) | pytest / 5 | candidate staleness | 不足判定のみ追加・ITの入力反復を廃止 |
 | `worktree-runtime::check_acquired_plan_completion` | `check_acquired_plan_completion` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 3 | acquired plan completion | 不足判定のみ追加・ITの入力反復を廃止 |
 | `worktree-runtime::check_controller_sleep_injection` | `check_controller_sleep_injection` | UT | [units/cloudformation-deploy-unit.checks.py](units/cloudformation-deploy-unit.checks.py) | pytest / 1 | controller sleep injection | 不足判定のみ追加・ITの入力反復を廃止 |
+
+## KMS recorded ARN proof through Export/Import
+
+`reference-evidence-unit.checks.py` は既存36条件に以下150条件を追加。Framework定義とModel保存形式は変更せず、合成Producer/Consumerと保存済み観測だけで検証する。
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `kms-proof::recorded` | `test_kms_recorded_arn_export_import` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 40 | 4受信Property・通常/Multi-Region Key・GetAtt/Sub/Join・観測証拠とExport診断保持・authority不変 | KMS ARN |
+| `kms-proof::identifier` | `test_kms_arn_requires_recorded_key_id` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 11 | 欠落・未設定・PENDING_DEPLOY・不正形式・固定Model ARNからの逆推論禁止 | KMS ARN |
+| `kms-proof::observation-only` | `test_kms_arn_identifier_evidence_comes_from_observation_only` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 1 | desiredやIaCにKeyIdがあっても観測の代用にしない | KMS ARN |
+| `kms-proof::context` | `test_kms_arn_uses_only_producer_context` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 9 | ProducerのPartition/Region/Account欠落・不正・不一致、Consumer contextへのfallback禁止 | KMS ARN |
+| `kms-proof::mismatch` | `test_kms_conflicting_recorded_identifier_is_uncompared` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 1 | 観測不整合を誤matched/確定differenceにしない | KMS ARN |
+| `kms-proof::correspondence` | `test_kms_recorded_arn_preserves_correspondence_and_handoff` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 9 | Resource/Stack欠落・重複対応・型違い・Condition/Transform・IMPORT handoff・重複Property・置換先 | KMS ARN |
+| `kms-proof::expression` | `test_kms_expression_cannot_bypass_allowed_forms` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 4 | Ref/Sub/JoinでKeyId/AliasArnをKeyArn限定契約へ持ち込めない | KMS ARN |
+| `kms-proof::declaration` | `test_kms_declared_literal_cannot_bypass_allowed_forms` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 3 | saved_literalのliteral/Ref/Expression経路でも禁止形式拒否 | KMS ARN |
+| `kms-proof::priority` | `test_key_arn_does_not_override_alias_only_service_contract` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 2 | Glue/CodePipelineのAliasArn専用KMS_FORMS優先を維持 | KMS ARN |
+| `kms-proof::forms` | `test_kms_existing_service_form_matrix` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 64 | 4サービス×KeyId/KeyArn/AliasName/AliasArnの全16組合せ、既存形式・同一性の契約 | KMS ARN |
+| `kms-proof::unresolved` | `test_kms_unresolved_expressions_do_not_gain_symbolic_equality` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 1 | 未解決の同一Expression/未対応Intrinsicを誤matchedにしない | KMS ARN |
+| `kms-proof::diagnostics` | `test_kms_derived_producer_diagnostics_are_unique` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 1 | 導出診断を追加した後も同じProducer/attributeを重複しない | KMS ARN |
+| `kms-proof::rows` | `test_kms_runner_reports_matched_with_recorded_proof` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 4 | 4受信Propertyの本番row比較からmatchedとrecorded_observed診断を返す | KMS ARN |

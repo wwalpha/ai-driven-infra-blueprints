@@ -11,7 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 from cloudformation_inputs import Blocked
 from comparison import Comparison
+from comparison.reference_evidence import Evidence
 from comparison.values import compare_values
+from comparison_rows import put_row
 from design_catalog import DesignSchemaCatalog
 from iac_values import Expression, ResourceReference
 from model.references import declarations
@@ -23,6 +25,14 @@ if not __debug__:
 
 ROOT = Path(__file__).resolve().parents[4]
 VPC = 'vpc-0123456789abcdef0'
+KEY_ID = '12345678-1234-1234-1234-123456789012'
+KEY_ARN = 'arn:aws:kms:ap-northeast-1:123456789012:key/' + KEY_ID
+ATHENA_KMS = 'WorkGroupConfiguration.ResultConfiguration.EncryptionConfiguration.KmsKey'
+KMS_RECEIVERS = [
+    ('Athena.WorkGroup', ATHENA_KMS), ('Lambda.Function', 'KmsKeyArn'),
+    ('Logs.LogGroup', 'KmsKeyId'),
+    ('S3.Bucket', 'BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID'),
+]
 
 
 def stack_input(comparison, unit):
@@ -362,6 +372,207 @@ def test_kms_link_contract_and_id_arn_separation():
     assert comparison.reference_decision(key, arn, 'Athena.WorkGroup', field).equal is False
     assert comparison.reference_decision('arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789012',
                                          key, 'Athena.WorkGroup', field).equal is False
+
+
+@pytest.mark.parametrize('kind,path', KMS_RECEIVERS)
+@pytest.mark.parametrize('key_id', [KEY_ID, 'mrk-' + 'a' * 32])
+@pytest.mark.parametrize('expression', [
+    {'Fn::GetAtt': ['Key', 'Arn']},
+    {'Fn::Sub': '${Key.Arn}'},
+    {'Fn::Join': ['', [{'Fn::GetAtt': ['Key', 'Arn']}]]},
+    {'Fn::Sub': 'arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/${Key}'},
+    {'Fn::Join': ['', ['arn:aws:kms:ap-northeast-1:123456789012:key/', {'Ref': 'Key'}]]},
+])
+def test_kms_recorded_arn_export_import(kind, path, key_id, expression):
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Key', 'Key', [('KeyId', 'PENDING_DEPLOY', key_id)])
+    before = copy.deepcopy(comparison.models['kms'].authoritative)
+    actual = exported(comparison, expression)
+    decision = comparison.reference_decision(KEY_ARN.replace(KEY_ID, key_id), actual, kind, path)
+    assert decision.equal is True, decision
+    detail = decision.diagnostics[0]
+    assert detail['evidence_type'] == 'recorded_observed' and detail['current_aws_verified'] is False
+    assert detail['exports'] == [{'export_name': 'shared', 'export_stack': 'producer'}]
+    if expression == {'Fn::GetAtt': ['Key', 'Arn']}:
+        assert detail['producers'] == [dict(producer='kms/001', attribute='Arn',
+            source_property='KMS.Key.KeyId', evidence_type='recorded_observed',
+            derived_format='KeyArn', current_aws_verified=False)]
+    assert comparison.models['kms'].authoritative == before
+
+
+@pytest.mark.parametrize('observed', [None, '', 'PENDING_DEPLOY', 'UNSET', 'TODO', 'TBD', '未確定',
+                                     'invalid', KEY_ID + '-extra', KEY_ARN, '${KeyId}'])
+def test_kms_arn_requires_recorded_key_id(observed):
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Key', 'Key', [('KeyId', KEY_ARN, observed)])
+    actual = exported(comparison, {'Fn::GetAtt': ['Key', 'Arn']})
+    decision = comparison.reference_decision(KEY_ARN, actual, 'Athena.WorkGroup', ATHENA_KMS)
+    assert decision.equal is None, decision
+    assert any(word in decision.diagnostics[0]['reason'] for word in ('unobserved', 'format_unproven'))
+
+
+def test_kms_arn_identifier_evidence_comes_from_observation_only():
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Key', 'Key', [('KeyId', KEY_ID, None)],
+             properties={'KeyId': KEY_ID})
+    actual = exported(comparison, {'Fn::GetAtt': ['Key', 'Arn']})
+    decision = comparison.reference_decision(KEY_ARN, actual, 'Athena.WorkGroup', ATHENA_KMS)
+    assert decision.equal is None and 'identifier_unobserved' in decision.diagnostics[0]['reason']
+
+
+@pytest.mark.parametrize('field,value', [
+    ('AWS::Partition', None), ('AWS::Region', None), ('AWS::AccountId', None),
+    ('AWS::Partition', 'UNSET'), ('AWS::Region', '${Region}'), ('AWS::AccountId', '123'),
+    ('AWS::Partition', 'aws-cn'), ('AWS::Region', 'us-east-1'), ('AWS::AccountId', '999999999999'),
+])
+def test_kms_arn_uses_only_producer_context(field, value):
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Key', 'Key', [('KeyId', 'PENDING_DEPLOY', KEY_ID)])
+    pseudo = dict(comparison.stack_inputs['producer'][2])
+    pseudo[field] = value
+    document, parameters, _ = comparison.stack_inputs['producer']
+    comparison.stack_inputs['producer'] = document, parameters, pseudo
+    actual = exported(comparison, {'Fn::GetAtt': ['Key', 'Arn']})
+    decision = comparison.reference_decision(KEY_ARN, actual, 'Athena.WorkGroup', ATHENA_KMS)
+    assert decision.equal is None, decision
+    assert decision.diagnostics[0]['current_aws_verified'] is False
+    if value in {'aws-cn', 'us-east-1', '999999999999'}:
+        assert decision.diagnostics[0]['reason'] == 'recorded_identifier_mismatch'
+        assert comparison.reference_decision(KEY_ARN.replace(
+            {'AWS::Partition': 'aws', 'AWS::Region': 'ap-northeast-1', 'AWS::AccountId': '123456789012'}[field],
+            value, 1), actual, 'Athena.WorkGroup', ATHENA_KMS).equal is True
+
+
+def test_kms_conflicting_recorded_identifier_is_uncompared():
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Key', 'Key', [('KeyId', 'PENDING_DEPLOY', KEY_ID)])
+    actual = exported(comparison, {'Fn::GetAtt': ['Key', 'Arn']})
+    decision = comparison.reference_decision(KEY_ARN.replace(KEY_ID, 'mrk-' + 'b' * 32), actual,
+                                             'Athena.WorkGroup', ATHENA_KMS)
+    assert decision.equal is None and decision.diagnostics[0]['reason'] == 'recorded_identifier_mismatch'
+
+
+@pytest.mark.parametrize('fault', ['missing', 'duplicate', 'type', 'condition', 'transform', 'import',
+                                  'duplicate-row', 'missing-stack', 'replacement'])
+def test_kms_recorded_arn_preserves_correspondence_and_handoff(fault):
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Key', 'Key', [('KeyId', 'PENDING_DEPLOY', KEY_ID)])
+    actual = exported(comparison, {'Fn::GetAtt': ['Key', 'Arn']})
+    document = comparison.stack_inputs['producer'][0]
+    if fault == 'missing':
+        del document['Resources']['Key']
+    elif fault == 'duplicate':
+        resource(comparison, 'kms', '002', 'KMS.Key', 'Other', [('KeyId', 'PENDING_DEPLOY', KEY_ID)])
+        comparison.models['kms'].values['desired.resource.002.cfn-logicalId'] = 'producer-Key'
+    elif fault == 'type':
+        document['Resources']['Key']['Type'] = 'AWS::KMS::Alias'
+    elif fault == 'condition':
+        document['Conditions'] = {'No': {'Fn::Equals': ['yes', 'no']}}
+        document['Resources']['Key']['Condition'] = 'No'
+    elif fault == 'transform':
+        document['Transform'] = 'Unresolved'
+    elif fault == 'import':
+        comparison.resources['kms']['001']['resourceMode'] = 'IMPORT'
+    elif fault == 'duplicate-row':
+        comparison.rows['kms']['001'].append(('001-002', dict(comparison.rows['kms']['001'][0][1])))
+    elif fault == 'missing-stack':
+        comparison.templates = lambda: []
+    else:
+        comparison.resources['kms']['001']['cfn-logicalId'] = 'producer-Replacement'
+    comparison.symbols.clear()
+    comparison._index = None
+    decision = comparison.reference_decision(KEY_ARN, actual, 'Athena.WorkGroup', ATHENA_KMS)
+    assert decision.equal is None, decision
+
+
+@pytest.mark.parametrize('actual', [
+    {'Ref': 'Key'},
+    {'Fn::Sub': '${Key}'},
+    {'Fn::Sub': 'arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:alias/fixture'},
+    {'Fn::Join': ['', ['arn:aws:kms:ap-northeast-1:123456789012:alias/fixture']]},
+])
+def test_kms_expression_cannot_bypass_allowed_forms(actual):
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Key', 'Key', [('KeyId', 'PENDING_DEPLOY', KEY_ID)])
+    decision = comparison.reference_decision(KEY_ARN, exported(comparison, actual), 'Athena.WorkGroup', ATHENA_KMS)
+    assert decision.equal is False, decision
+    assert 'KMS format' in decision.diagnostics[0]['reason']
+
+
+@pytest.mark.parametrize('actual', ['literal', 'ref', 'expression'])
+def test_kms_declared_literal_cannot_bypass_allowed_forms(actual):
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Key', 'Key', [('KeyId', 'PENDING_DEPLOY', KEY_ID)])
+    row = consumer(comparison, KEY_ID)
+    declaration(comparison, 'desired.row.010-001.value', KEY_ID, producer='kms', logical='Key',
+                kind='KMS.Key', prop='KMS.Key.KeyId')
+    desired = prepared(comparison, row).require_value()
+    value = KEY_ID if actual == 'literal' else exported(comparison,
+        {'Ref': 'Key'} if actual == 'ref' else {'Fn::Sub': '${Key}'})
+    decision = comparison.reference_decision(desired, value, 'Athena.WorkGroup', ATHENA_KMS)
+    assert decision.equal is False, decision
+
+
+@pytest.mark.parametrize('kind,path', [('Glue.SecurityConfiguration', 'EncryptionConfiguration.S3Encryptions[].KmsKeyArn'),
+                                       ('CodePipeline.Pipeline', 'ArtifactStore.EncryptionKey.Id')])
+def test_key_arn_does_not_override_alias_only_service_contract(kind, path):
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Key', 'Key', [('KeyId', 'PENDING_DEPLOY', KEY_ID)])
+    decision = comparison.reference_decision(KEY_ARN, exported(comparison, {'Fn::GetAtt': ['Key', 'Arn']}), kind, path)
+    assert decision.equal is False and decision.diagnostics[0]['allowed_forms'] == ['AliasArn']
+
+
+@pytest.mark.parametrize('kind,path,allowed', [
+    ('Athena.WorkGroup', ATHENA_KMS, {'KeyArn'}),
+    ('Logs.LogGroup', 'KmsKeyId', {'KeyArn', 'AliasArn'}),
+    ('Glue.SecurityConfiguration', 'EncryptionConfiguration.S3Encryptions[].KmsKeyArn', {'AliasArn'}),
+    ('CodePipeline.Pipeline', 'ArtifactStore.EncryptionKey.Id', {'AliasArn'}),
+])
+@pytest.mark.parametrize('model_form', ['KeyId', 'KeyArn', 'AliasName', 'AliasArn'])
+@pytest.mark.parametrize('iac_form', ['KeyId', 'KeyArn', 'AliasName', 'AliasArn'])
+def test_kms_existing_service_form_matrix(kind, path, allowed, model_form, iac_form):
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Key', 'Key', [('KeyId', 'PENDING_DEPLOY', KEY_ID)])
+    resource(comparison, 'kms', '002', 'KMS.Alias', 'Alias', [('AliasName', 'alias/fixture', None)],
+             properties={'AliasName': 'alias/fixture', 'TargetKeyId': {'Ref': 'Key'}})
+    forms = {form: ResourceReference({'$resource': ['kms', identity], '$attribute': attribute})
+             for form, identity, attribute in [('KeyId', '001', 'KeyId'), ('KeyArn', '001', 'Arn'),
+                 ('AliasName', '002', 'AliasName'), ('AliasArn', '002', 'AliasArn')]}
+    decision = comparison.reference_decision(forms[model_form], forms[iac_form], kind, path)
+    assert decision.equal is (model_form == iac_form and model_form in allowed), decision
+
+
+def test_kms_unresolved_expressions_do_not_gain_symbolic_equality():
+    comparison = fixture()
+    expression = Expression('Sub', ['${Unknown}', {}])
+    assert comparison.reference_decision(expression, expression, 'Athena.WorkGroup', ATHENA_KMS).equal is None
+    assert comparison.reference_decision(KEY_ARN, Expression('Future', []), 'Athena.WorkGroup', ATHENA_KMS).equal is None
+
+
+def test_kms_derived_producer_diagnostics_are_unique():
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Key', 'Key', [('KeyId', 'PENDING_DEPLOY', KEY_ID)])
+    actual = exported(comparison, {'Fn::GetAtt': ['Key', 'Arn']})
+    proof = Evidence(comparison)
+    assert proof.resolve(actual) == proof.resolve(actual) == KEY_ARN
+    assert len(proof.producers) == 1
+
+
+@pytest.mark.parametrize('kind,path', KMS_RECEIVERS)
+def test_kms_runner_reports_matched_with_recorded_proof(kind, path):
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Key', 'Key', [('KeyId', 'PENDING_DEPLOY', KEY_ID)])
+    properties = {}
+    put_row(properties, path, {'Fn::ImportValue': 'shared'})
+    resource(comparison, 'consumer', '010', kind, 'Consumer', [(path, KEY_ARN, None)],
+             properties=properties, stack='consumer')
+    exported(comparison, {'Fn::GetAtt': ['Key', 'Arn']})
+    comparison.services = ['consumer']
+    document = comparison.stack_inputs['consumer'][0]
+    results = comparison.compare_rows('consumer', '010', comparison.resources['consumer']['010'],
+        'consumer', 'Consumer', ROOT / 'synthetic.yaml', document['Resources']['Consumer'], document).records
+    assert [item['category'] for item in results] == ['matched'], results
+    assert results[0]['reference_diagnostics'][0]['evidence_type'] == 'recorded_observed'
 
 
 def test_export_chain_retains_each_handoff():
