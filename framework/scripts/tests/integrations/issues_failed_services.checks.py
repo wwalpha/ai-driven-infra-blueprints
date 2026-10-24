@@ -20,6 +20,7 @@ from support import issues_scan_fixtures as fixture
 from support.it_case_receipt import it_case
 from support.model_sources import allocate_fixture as allocate
 from support.validator import load as load
+from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, same
 
 if not __debug__:
@@ -34,13 +35,13 @@ def _callback_main_checks_publish(models, root, template, /):
     fixture.mutate_template(root, template)
 
 
-def _callback_main_checks_athena(kms, models, publish, root, row, /, model, iac, category):
+def _callback_main_checks_athena(kms, models, publish, root, row, /, model, iac, category, *, property_name='WorkGroupConfiguration'):
     models['athena'][row] = model
     kms['KmsKey'] = iac
     publish()
     current, rows = fixture.compare(root, ['athena'])
-    # WorkGroupConfiguration is compared as one structured property.
-    record = next(r for r in rows if r.get('property') == 'Athena.WorkGroup.WorkGroupConfiguration')
+    # Incomplete references are reported on their authored leaf instead of the parent.
+    record = next(r for r in rows if r.get('property') == 'Athena.WorkGroup.' + property_name)
     assert record['category'] == category, record
     assert next(r for r in rows if r.get('property') == 'Athena.WorkGroup.State')['category'] == 'matched'
     if category == 'uncompared' and record.get('reference_diagnostics'):
@@ -133,7 +134,8 @@ def main_checks():
                     assert diagnostic['allowed_forms'] == ['KeyArn'] and diagnostic['reason'], diagnostic
                     assert diagnostic['format']['model'] == ('allowed' if model == key_arn else 'outside allowed forms')
                     assert diagnostic['format']['iac'] == ('allowed' if iac == key_arn else 'outside allowed forms')
-            athena('[KMS_Alias_001](kms.md#resource-KMS_Alias_001)', {'Fn::GetAtt': ['Key', 'Arn']}, 'difference')
+            _, record = athena('[KMS_Alias_001](kms.md#resource-KMS_Alias_001)', {'Fn::GetAtt': ['Key', 'Arn']}, 'uncompared', property_name=path)
+            assert 'outside receiving property contract' in record['reason'], record
             athena('[KMS_Key_001](kms.md#resource-KMS_Key_001)', key_arn, 'uncompared')
             athena('`' + key_arn + '`', '{{resolve:secretsmanager:key}}', 'uncompared')
             athena('[KMS_Key_001](kms.md#resource-KMS_Key_001)', {'Fn::GetAtt': ['Key', 'Arn']}, 'matched')
@@ -172,7 +174,10 @@ def main_checks():
                             reference=callback, path=path) is None
                 assert same(key_arn, alias_arn, reference=callback, path=path) is False
                 assert same(alias_arn, key_arn, reference=callback, path=path) is False
-                if allowed <= {'KeyArn', 'AliasArn'}:
+                if allowed == {'KeyArn'}:
+                    with fixture.pytest.raises(Blocked, match='outside receiving property contract'):
+                        comparison.desired_reference('kms', '[KMS_Alias_001](kms.md#resource-KMS_Alias_001)', kind, path)
+                elif allowed <= {'KeyArn', 'AliasArn'}:
                     symbolic = comparison.desired_reference('kms', '[KMS_Alias_001](kms.md#resource-KMS_Alias_001)', kind, path)
                     assert symbolic['$attribute'] == 'AliasArn'
                     assert same(symbolic, arn, reference=callback, path=path) is False

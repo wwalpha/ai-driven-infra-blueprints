@@ -1944,7 +1944,7 @@ Model操作の値・承認・保存判定は既存UTへ集約する。Worktree�
 | `import-inventory::check_resource_type_cli_selection` | `check_resource_type_cli_selection` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1150) | pytest / 1 | Context隔離・CLI選択・Identity不明の拒否 | Import Inventory |
 | `import-inventory::check_unknown_acquired_identity_rejected` | `check_unknown_acquired_identity_rejected` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L1158) | pytest / 1 | Context隔離・CLI選択・Identity不明の拒否 | Import Inventory |
 
-Athena ResultConfiguration EncryptionConfiguration.KmsKey regression in `integrations/issues_failed_services.checks.py::main_checks` uses synthetic Model loading, Key Arn selection, GetAtt/ImportValue, same/different keys, rejected KeyId/AliasName/AliasArn on either/both sides, and unresolved form/identity cases. Other KMS contracts retain their existing expectations.
+Athena ResultConfiguration EncryptionConfiguration.KmsKey regression in `integrations/issues_failed_services.checks.py::main_checks` uses synthetic Model loading, Key Arn selection, GetAtt/ImportValue, same/different keys, rejected KeyId/AliasName/AliasArn literals on either/both sides, rejected Alias Model references reported as uncompared on the authored leaf, and unresolved form/identity cases. The KMS matrix expects Alias reference construction to fail for KeyArn-only receiving contracts. Other KMS contracts retain their existing expectations.
 
 ## Atomic Model operation contracts and API boundaries
 
