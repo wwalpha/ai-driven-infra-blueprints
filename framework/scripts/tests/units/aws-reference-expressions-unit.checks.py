@@ -71,6 +71,9 @@ CASES = [
     ('ECS.CapacityProvider', {'Name': 'fixture'}, CONTEXT.format(service='ecs', tail='capacity-provider/fixture')),
     ('Scheduler.Schedule', {'Name': 'fixture'}, CONTEXT.format(service='scheduler', tail='schedule/default/fixture')),
     ('SecurityHub.Hub', {}, CONTEXT.format(service='securityhub', tail='hub/default')),
+    ('Glue.Catalog', {'Name': 'fixture'}, CONTEXT.format(service='glue', tail='catalog/fixture')),
+    ('NetworkFirewall.Firewall', {'FirewallName': 'fixture'}, CONTEXT.format(service='network-firewall', tail='firewall/fixture')),
+    ('NetworkFirewall.FirewallPolicy', {'FirewallPolicyName': 'fixture'}, CONTEXT.format(service='network-firewall', tail='firewall-policy/fixture')),
     ('Glue.Connection', {'CatalogId': '123456789012', 'ConnectionInput': {'Name': 'fixture'}}, CONTEXT.format(service='glue', tail='connection/fixture')),
     ('Glue.Database', {'CatalogId': '123456789012', 'DatabaseInput': {'Name': 'fixture'}}, CONTEXT.format(service='glue', tail='database/fixture')),
     ('Glue.Table', {'CatalogId': '123456789012', 'DatabaseName': 'db', 'TableInput': {'Name': 'fixture'}}, CONTEXT.format(service='glue', tail='table/db/fixture')),
@@ -186,12 +189,20 @@ def test_derived_model_attribute_does_not_authorize_getatt(models, kind, attribu
     ('SQS.Queue', {'QueueName': 'fixture'}, 'QueueUrl', 'Arn'),
     ('CodeCommit.Repository', {'RepositoryName': 'fixture'}, 'RepositoryId', 'Name'),
     ('IAM.Role', {'RoleName': 'fixture'}, 'RoleName', 'Arn'),
+    ('SecurityHub.Hub', {}, 'ARN', 'ARN'),
+    ('Glue.Catalog', {'Name': 'fixture'}, 'ResourceArn', 'ResourceArn'),
+    ('NetworkFirewall.Firewall', {'FirewallName': 'fixture'}, 'FirewallArn', 'FirewallArn'),
+    ('NetworkFirewall.FirewallPolicy', {'FirewallPolicyName': 'fixture'}, 'FirewallPolicyArn', 'FirewallPolicyArn'),
 ])
 def test_formal_ref_and_getatt_semantics(models, kind, props, ref, attribute):
     inputs, _ = producer(models, kind, props)
     assert inputs.evaluate('producer', {'Ref': 'Resource001'})['$attribute'] == ref
     if attribute:
-        assert inputs.evaluate('producer', {'Fn::GetAtt': ['Resource001', attribute]})['$attribute'] == attribute
+        actual = inputs.evaluate('producer', {'Fn::GetAtt': ['Resource001', attribute]})
+        assert actual['$attribute'] == attribute
+        if ref == attribute:
+            assert inputs.reference_same(inputs.evaluate('producer', {'Ref': 'Resource001'}), actual,
+                                         'Glue.Job', 'DefaultArguments') is True
     if kind == 'SNS.Topic':
         assert inputs.evaluate('producer', {'Fn::GetAtt': ['Resource001', 'TopicName']})['$attribute'] == 'TopicName'
 
@@ -278,7 +289,7 @@ def test_unresolved_nodes_keep_their_pointer_and_context(models):
         'CodeBuild.Project.Environment.EnvironmentVariables[].Value')
 
 
-@pytest.mark.parametrize('fault', [None, 'missing', 'duplicate', 'scope'])
+@pytest.mark.parametrize('fault', [None, 'missing', 'duplicate', 'scope', 'incomplete', 'unresolved-name'])
 def test_export_evidence_composes_with_sub_and_join(models, fault):
     inputs, symbol = producer(models, 'S3.Bucket', {'BucketName': 'fixture-bucket'})
     outputs = {'Arn': {'Value': {'Fn::GetAtt': ['Resource001', 'Arn']}, 'Export': {'Name': 'BucketArn'}}}
@@ -288,6 +299,10 @@ def test_export_evidence_composes_with_sub_and_join(models, fault):
     if fault == 'scope':
         inputs.resources['producer']['001']['cfn-logicalId'] = 'elsewhere-Resource001'
         inputs.index().pop(('producer', 'Resource001'))
+    if fault == 'incomplete':
+        inputs.stack_inputs['consumer'][0]['Transform'] = 'Unproven'
+    if fault == 'unresolved-name':
+        outputs['Unknown'] = {'Value': 'other', 'Export': {'Name': {'Fn::Sub': '${Missing}'}}}
     actual = {'Fn::Join': ['', [{'Fn::ImportValue': 'BucketArn'}, '/object']]}
     if fault:
         with pytest.raises((Blocked, ValueError)):
@@ -349,13 +364,19 @@ def test_qualifiers_keys_and_literal_affixes_remain_part_of_the_value(models, ki
     assert inputs.reference_same(expression, 'prefix/' + arn + suffix + '-other', 'Glue.Job', 'DefaultArguments') is False
 
 
-@pytest.mark.parametrize('operation', ['Sub', 'Join', 'Select', 'malformed'])
+@pytest.mark.parametrize('operation', ['Sub', 'Join', 'Select', 'malformed', 'invalid-split', 'empty-select',
+                                       'negative-select', 'nested-invalid-split', 'unknown-operation'])
 def test_unresolved_expression_is_not_equal_to_itself(models, operation):
     inputs, _ = producer(models, 'Glue.Job', {'Name': 'fixture'})
     missing = Expression('Sub', ['${Missing}', {}])
     value = {'Sub': missing, 'Join': Expression('Join', ['', [missing, '/suffix']]),
              'Select': Expression('Select', [0, Expression('Split', ['|', missing])]),
-             'malformed': Expression('Sub', ['${Missing', {}])}[operation]
+             'malformed': Expression('Sub', ['${Missing', {}]),
+             'invalid-split': Expression('Split', ['', 'literal']),
+             'empty-select': Expression('Select', [0, []]),
+             'negative-select': Expression('Select', [-1, ['literal']]),
+             'nested-invalid-split': Expression('Select', [0, Expression('Split', ['', 'literal'])]),
+             'unknown-operation': Expression('Select', [0, Expression('Future', ['literal'])])}[operation]
     assert inputs.reference_same(value, copy.deepcopy(value), 'Glue.Job', 'DefaultArguments') is None
 
 
@@ -370,6 +391,16 @@ def test_template_cannot_supply_aws_generated_return_values(models, kind, attrib
     assert inputs.reference_same(symbol, text, 'Glue.Job', 'DefaultArguments') is None
     expression = inputs.evaluate('producer', {'Fn::Sub': ['pre/${R}', {'R': symbol}]})
     assert inputs.reference_same(expression, 'pre/' + text, 'Glue.Job', 'DefaultArguments') is None
+
+
+@pytest.mark.parametrize('kind,properties,arn', CASES)
+def test_sub_arn_uses_contract_even_with_a_spoofed_template_field(models, kind, properties, arn):
+    inputs, symbol = producer(models, kind, properties)
+    props = inputs.stack_inputs['producer'][0]['Resources']['Resource001']['Properties']
+    props[symbol['$attribute']] = 'spoofed'
+    expression = inputs.evaluate('producer', {'Fn::Sub': ['pre/${R}/suffix', {'R': symbol}]})
+    assert inputs.reference_same(expression, 'pre/' + arn + '/suffix', 'Glue.Job', 'DefaultArguments') is True
+    assert inputs.reference_same(expression, 'pre/spoofed/suffix', 'Glue.Job', 'DefaultArguments') is False
 
 
 if __name__ == '__main__':

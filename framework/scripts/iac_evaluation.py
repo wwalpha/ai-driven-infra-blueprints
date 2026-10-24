@@ -88,7 +88,9 @@ class Evaluation:
             setting = RETURN_ATTRIBUTE_PROPERTIES.get((resource['resourceType'], attribute), attribute)
             explicit = select(properties, setting)
             readonly = '/properties/' + setting.replace('.', '/') in self.resource_schema(resource['resourceType']).get('readOnlyProperties', ())
-            if explicit == MISSING or self.local_comparison and readonly:
+            # Derived ARNs require the shared Producer contract, never a template field.
+            arn = attribute == reference_attribute(resource['resourceType'], 'Arn')
+            if explicit == MISSING or self.local_comparison and (readonly or arn):
                 if self.string_operand(value):
                     return value
                 raise Blocked(f'resource substitution has no explicit string property: {logical}.{attribute}')

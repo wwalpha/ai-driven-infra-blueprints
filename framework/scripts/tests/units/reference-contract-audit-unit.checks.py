@@ -36,6 +36,7 @@ from utils.reference_contracts import (
     GETATT_ATTRIBUTES,
     IMPORT_PROPERTIES,
     REF_ATTRIBUTES,
+    RETURN_ATTRIBUTE_PROPERTIES,
     contract,
     reference_attribute,
 )
@@ -344,7 +345,10 @@ def test_all_aws_return_contracts_are_explicit_and_schema_supported(models):
         if kind in ARN_SHAPES:
             resolver.validate_attribute(kind, 'Arn')
         if kind in REF_ATTRIBUTES:
-            resolver.validate_attribute(kind, REF_ATTRIBUTES[kind])
+            attribute = REF_ATTRIBUTES[kind]
+            resolver.validate_attribute(kind, attribute)
+            setting = RETURN_ATTRIBUTE_PROPERTIES.get((kind, attribute), attribute)
+            assert catalog.property_schema(kind, setting)['type'] == 'string', (kind, attribute)
 
 
 if __name__ == '__main__':

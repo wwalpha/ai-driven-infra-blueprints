@@ -375,7 +375,7 @@ class Inputs:
                     except (Blocked, ValueError, KeyError, TypeError, OSError) as error:
                         self.export_failures.append(error)
         candidates = self.exports.get(name, [])
-        if not candidates and self.export_failures:
+        if self.export_failures:
             error = self.export_failures[0]
             blocked = Blocked(f'ImportValue handoff search incomplete: {error}')
             causes = [getattr(failure, 'iac_cause', None) for failure in self.export_failures]

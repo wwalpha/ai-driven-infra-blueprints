@@ -46,8 +46,14 @@ def exact_same(left, right, path=''):
     """Expression tokens require the same Producer and attribute, without form coercion."""
     if any(isinstance(value, Expression) for value in (left, right)):
         if (not all(isinstance(value, Expression) for value in (left, right))
-                or left.operation != right.operation or left.operation == 'Unverified'):
+                or left.operation != right.operation or left.operation not in {'Sub', 'Join', 'Split', 'Select'}
+                or any(intrinsic_shape_error('Fn::' + value.operation, value.operands) for value in (left, right))):
             return None
+        if left.operation == 'Select':
+            for value in (left, right):
+                index, source = value.operands
+                if isinstance(source, list) and (not re.fullmatch(r'\d+', str(index)) or int(index) >= len(source)):
+                    return None
         if left.operation in {'Sub', 'Join'}:
             try:
                 return symbolic_same(parts(left), parts(right))

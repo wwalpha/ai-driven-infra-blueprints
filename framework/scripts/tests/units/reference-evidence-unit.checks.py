@@ -1109,6 +1109,14 @@ def test_export_isolation_and_substitution_failures(fault):
         with pytest.raises(Blocked, match='cyclic'):
             comparison.evaluate('producer', {'Fn::Sub': '${Bucket}'})
         return
+    if fault != 'conditional-output':
+        # An unreadable stack or Export name cannot prove uniqueness, even with a candidate.
+        with pytest.raises(Blocked, match='search incomplete'):
+            exported(comparison, {'Fn::GetAtt': ['Bucket', 'Arn']})
+        with patch.object(comparison, 'templates', side_effect=AssertionError('repeated export search')):
+            with pytest.raises(Blocked, match='search incomplete'):
+                comparison.evaluate('consumer', {'Fn::ImportValue': 'shared'})
+        return
     assert exported(comparison, {'Fn::GetAtt': ['Bucket', 'Arn']})['$resource'] == ['s3', '001']
     with patch.object(comparison, 'templates', side_effect=AssertionError('repeated export search')):
         assert comparison.evaluate('consumer', {'Fn::ImportValue': 'shared'})['$attribute'] == 'Arn'

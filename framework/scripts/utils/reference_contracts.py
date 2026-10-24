@@ -29,7 +29,7 @@ REF_ATTRIBUTES = {
     'Lambda.EventSourceMapping': 'Id', 'CodeCommit.Repository': 'RepositoryId',
     'CodePipeline.Pipeline': 'Name', 'Route53.HostedZone': 'Id',
     'Glue.Connection': 'Name', 'Glue.SecurityConfiguration': 'Name', 'Glue.Job': 'Name',
-    'Glue.Crawler': 'Name', 'Glue.Database': 'Name', 'Glue.Table': 'Name', 'Glue.Catalog': 'Arn',
+    'Glue.Crawler': 'Name', 'Glue.Database': 'Name', 'Glue.Table': 'Name', 'Glue.Catalog': 'ResourceArn',
     'Athena.WorkGroup': 'Name', 'SecretsManager.Secret': 'Id',
     'CloudTrail.Trail': 'TrailName', 'CloudWatch.Alarm': 'AlarmName',
     'CloudWatch.Dashboard': 'DashboardName', 'ECR.Repository': 'RepositoryName',
@@ -47,7 +47,7 @@ REF_ATTRIBUTES = {
     'RDS.DBParameterGroup': 'DBParameterGroupName', 'RDS.DBProxy': 'DBProxyName',
     'RDS.DBProxyEndpoint': 'DBProxyEndpointName', 'RDS.DBSubnetGroup': 'DBSubnetGroupName',
     'RDS.OptionGroup': 'OptionGroupName', 'SageMaker.Domain': 'DomainId',
-    'Scheduler.Schedule': 'Name', 'SecurityHub.Hub': 'HubArn',
+    'Scheduler.Schedule': 'Name', 'SecurityHub.Hub': 'ARN',
     'ApiGateway.ApiKey': 'APIKeyId', 'ApiGateway.Authorizer': 'AuthorizerId',
     'ApiGateway.Deployment': 'DeploymentId', 'ApiGateway.DomainName': 'DomainName',
     'ApiGateway.Model': 'Name', 'ApiGateway.RequestValidator': 'RequestValidatorId',
@@ -101,7 +101,9 @@ ARN_ATTRIBUTES = {
     'RDS.DBParameterGroup': 'DBParameterGroupArn', 'RDS.DBSubnetGroup': 'DBSubnetGroupArn',
     'RDS.DBProxy': 'DBProxyArn', 'RDS.DBProxyEndpoint': 'DBProxyEndpointArn',
     'CloudFront.Function': 'FunctionARN', 'SageMaker.Domain': 'DomainArn', 'SageMaker.Space': 'SpaceArn',
-    'SageMaker.UserProfile': 'UserProfileArn', 'SecurityHub.Hub': 'HubArn',
+    'SageMaker.UserProfile': 'UserProfileArn', 'SecurityHub.Hub': 'ARN',
+    'Glue.Catalog': 'ResourceArn',
+    'NetworkFirewall.Firewall': 'FirewallArn', 'NetworkFirewall.FirewallPolicy': 'FirewallPolicyArn',
 }
 
 
@@ -258,6 +260,8 @@ IMPORT_PROPERTIES.update({prop: (kind, {'EC2.Subnet': 'SubnetId', 'EC2.SecurityG
 # https://docs.aws.amazon.com/service-authorization/latest/reference/list_scheduler.html
 # https://docs.aws.amazon.com/glue/latest/dg/glue-specifying-resource-arns.html
 # https://docs.aws.amazon.com/athena/latest/ug/workgroups-access.html
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-networkfirewall-firewall.html
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-networkfirewall-firewallpolicy.html
 # AWS documented ARN identities. Parsing and transient projection share these shapes.
 # S3 bucket names are global. Regional/account-scoped identities require context.
 ARN_SHAPES = {
@@ -306,6 +310,9 @@ ARN_SHAPES = {
     'Glue.Connection': ({'CatalogId': 'account', 'ConnectionInput.Name': 'id'}, 'arn:{partition}:glue:{region}:{account}:connection/{id}', {'account': r'\d{12}', 'id': r'[\w+=,.@-]{1,255}'}),
     'Glue.Database': ({'CatalogId': 'account', 'DatabaseInput.Name': 'id'}, 'arn:{partition}:glue:{region}:{account}:database/{id}', {'account': r'\d{12}', 'id': r'[a-z0-9_.-]{1,255}'}),
     'Glue.Table': ({'CatalogId': 'account', 'DatabaseName': 'database', 'TableInput.Name': 'id'}, 'arn:{partition}:glue:{region}:{account}:table/{database}/{id}', {'account': r'\d{12}', 'database': r'[a-z0-9_.-]{1,255}', 'id': r'[a-z0-9_.-]{1,255}'}),
+    'Glue.Catalog': ('Name', 'arn:{partition}:glue:{region}:{account}:catalog/{id}', {'id': r'[a-z0-9_-]{1,255}'}),
+    'NetworkFirewall.Firewall': ('FirewallName', 'arn:{partition}:network-firewall:{region}:{account}:firewall/{id}', {'id': r'[A-Za-z0-9-]{1,128}'}),
+    'NetworkFirewall.FirewallPolicy': ('FirewallPolicyName', 'arn:{partition}:network-firewall:{region}:{account}:firewall-policy/{id}', {'id': r'[A-Za-z0-9-]{1,128}'}),
     'QuickSight.Analysis': ({'AwsAccountId': 'account', 'AnalysisId': 'id'}, 'arn:{partition}:quicksight:{region}:{account}:analysis/{id}', {'account': r'\d{12}', 'id': r'[A-Za-z0-9_-]{1,512}'}),
     'QuickSight.Dashboard': ({'AwsAccountId': 'account', 'DashboardId': 'id'}, 'arn:{partition}:quicksight:{region}:{account}:dashboard/{id}', {'account': r'\d{12}', 'id': r'[A-Za-z0-9_-]{1,512}'}),
     'QuickSight.DataSet': ({'AwsAccountId': 'account', 'DataSetId': 'id'}, 'arn:{partition}:quicksight:{region}:{account}:dataset/{id}', {'account': r'\d{12}', 'id': r'[A-Za-z0-9_-]{1,512}'}),

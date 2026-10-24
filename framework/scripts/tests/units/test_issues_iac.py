@@ -445,7 +445,7 @@ class ImportValueResolutionTests(unittest.TestCase):
 
     self.assertEqual(results[0][1]['cause'], {'kind': 'cloudformation-unsupported', 'resource_type': 'Macie.ClassificationJob', 'implementation_status': 'unverified'})
 
-  def test_import_value_ignores_unrelated_incomplete_stack(self):
+  def test_import_value_requires_a_complete_export_search(self):
     comparison = Mock()
     comparison.evaluate.side_effect = lambda stack, value, seen: (
         "KmsAppKeyAlias-p4x8r2" if isinstance(value, dict) else value
@@ -466,12 +466,12 @@ class ImportValueResolutionTests(unittest.TestCase):
         ),
     ]
     comparison.exports = None
+    comparison.export_failures = []
     comparison.local_comparison = True
     comparison.import_value = issues_iac.Comparison.import_value.__get__(comparison)
 
-    value = comparison.import_value("s3", {"Fn::ImportValue": "KmsAppKeyAlias-p4x8r2"}, frozenset())
-
-    self.assertEqual(value, "alias/app")
+    with self.assertRaisesRegex(Blocked, "search incomplete"):
+      comparison.import_value("s3", {"Fn::ImportValue": "KmsAppKeyAlias-p4x8r2"}, frozenset())
 
   def test_kms_alias_retains_identity_even_with_the_same_parent_key(self):
     comparison = issues_iac.Comparison.__new__(issues_iac.Comparison)
