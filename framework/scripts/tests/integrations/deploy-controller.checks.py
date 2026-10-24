@@ -34,12 +34,12 @@ from support.deploy_repair_fixtures import (
 from support.pytest_cli import run
 from task_contract_core import selected_task
 
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
 FIRST = 'cfn-stack-app-dev-first'
 SECOND = 'cfn-stack-app-dev-second'
 THIRD = 'cfn-stack-app-dev-third'
-
-if not __debug__:
-    raise SystemExit('Focused checks require assertions; run without -O')
 
 
 @pytest.fixture(autouse=True)
