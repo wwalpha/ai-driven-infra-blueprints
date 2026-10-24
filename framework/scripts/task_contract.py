@@ -14,6 +14,7 @@ from task_contract_core import ModelOperation as ModelOperation
 from task_contract_core import Path as Path
 from task_contract_core import PurePosixPath as PurePosixPath
 from task_contract_core import ReferenceChange as ReferenceChange
+from task_contract_core import TaskSnapshot as TaskSnapshot
 from task_contract_core import _bind_framework_callback as _bind_framework_callback
 from task_contract_core import (
     _callback_model_operation_field as _callback_model_operation_field,
@@ -39,6 +40,7 @@ from task_contract_core import contextmanager as contextmanager
 from task_contract_core import contract_path as contract_path
 from task_contract_core import contract_read_scope as contract_read_scope
 from task_contract_core import contract_reads as contract_reads
+from task_contract_core import contract_snapshot as contract_snapshot
 from task_contract_core import contracts as contracts
 from task_contract_core import dataclass as dataclass
 from task_contract_core import digest_files as digest_files
@@ -58,6 +60,7 @@ from task_contract_core import model_refactor as model_refactor
 from task_contract_core import os as os
 from task_contract_core import paths_in as paths_in
 from task_contract_core import re as re
+from task_contract_core import read_task_snapshot as read_task_snapshot
 from task_contract_core import recording_inputs as recording_inputs
 from task_contract_core import replace as replace
 from task_contract_core import resource_address as resource_address
@@ -70,9 +73,13 @@ from task_contract_core import start as start
 from task_contract_core import status as status
 from task_contract_core import suspend as suspend
 from task_contract_core import task_path as task_path
+from task_contract_core import task_read_scope as task_read_scope
+from task_contract_core import task_reads as task_reads
 from task_contract_core import task_revision as task_revision
+from task_contract_core import task_snapshot as task_snapshot
 from task_contract_core import validate_contract as validate_contract
 from task_contract_core import verify_contract_reads as verify_contract_reads
+from task_contract_core import verify_snapshot as verify_snapshot
 
 
 def refresh(root, name, resuming=False):

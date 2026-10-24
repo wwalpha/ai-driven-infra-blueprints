@@ -7,7 +7,10 @@ from pathlib import Path
 import project_targets as _imports_project_targets
 import worktree_task as _imports_worktree_task
 from cloudformation_inputs import Blocked
-from task_contract_core import section, task_path
+from task_contract_core import (
+    section,
+    task_snapshot,
+)
 from utils.json_format import fingerprint
 from utils.sealed_evidence import read_sealed
 
@@ -188,7 +191,7 @@ def migrate(root, session, args):
     load_units = _imports_deploy_inputs.load_units
     paths = _imports_deploy_inputs.paths
     execution_digest = _imports_deploy_session.execution_digest
-    contract = task_path(root).read_text(encoding='utf-8')
+    contract = task_snapshot(root).text
     # The old digest ignored status/approval lines already. Do not call status a failure.
     legacy_digests = {hashlib.sha256(('\n'.join(line for line in (contract.rstrip('\n') + '\n' * count).splitlines() if not line.startswith(('- Authorized delete/replacement:', '- Task status:')))).encode()).hexdigest() for count in (0, 1, 2)}
     if session['taskDigest'] not in legacy_digests | {_dependency_deploy_contracts.task_digest(contract)}:

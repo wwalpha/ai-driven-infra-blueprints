@@ -5,7 +5,6 @@ from contextlib import ExitStack
 from pathlib import Path
 
 import task_contract_core as _imports_task_contract
-from task_contract_core import task_path
 from utils.aws_mappings import definition_root, mapping_alias
 
 
@@ -23,10 +22,19 @@ class GenerationInputs:
         self.sealed = False
         self.lifetime = ExitStack()
         self.stage = None
-        selected_task = task_path(root, selected=task_file, required=False)
-        raw_task = self.read(selected_task) if selected_task is not None else None
-        self.expected_task = (None if selected_task is None else selected_task.relative_to(root).as_posix(),
-                              None if raw_task is None else raw_task.decode('utf-8').replace('\r\n', '\n').replace('\r', '\n'))
+        with _imports_task_contract.task_reads(root) as reads:
+            self.task_snapshot = _imports_task_contract.task_snapshot(root, task_file, required=False)
+            self.task_selector = _imports_task_contract._selector(root)
+            if reads.catalog is not None:
+                for task in reads.catalog.tasks:
+                    self.record(task.path, task.raw)
+                directory = root / 'tasks'
+                self.kind(directory)
+                self.selections[(directory, '*', False, None)] = tuple(task.path for task in reads.catalog.tasks)
+            selected = self.task_snapshot
+            if selected is not None:
+                self.record(selected.path, selected.raw)
+            self.expected_task = (None, None) if selected is None else (selected.name, selected.text)
         name, text = self.expected_task
         if text is not None and status(text) != 'running':
             raise ValueError('completed task cannot write')
@@ -116,6 +124,8 @@ class GenerationInputs:
 
     def verify(self):
         """Exactly one live comparison, before any service saves."""
+        if self.task_selector != _imports_task_contract._selector(self.root):
+            raise ValueError("task selection changed before publication")
         changed = self.conflicts | {p for p, data in self.contents.items()
                    if (p.read_bytes() if p.is_file() else None) != data}
         changed.update(p for p, kind in self.kinds.items() if self.live_kind(p) != kind)

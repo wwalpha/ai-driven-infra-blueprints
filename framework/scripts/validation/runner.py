@@ -31,6 +31,7 @@ from policy_tables import artifact_id as artifact_id
 from policy_tables import rendered_design
 from task_contract_core import SELECTOR as SELECTOR
 from task_contract_core import contract_reads as contract_reads
+from task_contract_core import contract_snapshot, task_reads
 from task_contract_core import verify_contract_reads as verify_contract_reads
 from utils.input_cache import input_is_file, input_scope, recording_inputs
 from utils.layout_schema import STACK_DESIGN
@@ -92,8 +93,8 @@ def _callback_Validator_generate_and_validate_policy_result(plan, self, /):
                'candidate policy validation is FAIL or NOT_RUN for the required scope')
 
 
-def _callback_Validator_check_scoped_designs_validate(self, /, scope):
-    with contract_reads(self.root):
+def _callback_Validator_check_scoped_designs_validate(self, snapshot, /, scope):
+    with task_reads(self.root, snapshot=snapshot):
         validator = Validator(self.root, scope, definitions_root=self.definitions_root)
         validator.accounts = self.accounts
         validator.schema_catalog = self.schema_catalog or DesignSchemaCatalog(self.definitions_root)
@@ -163,6 +164,11 @@ class Validator:
 
     @input_scope
     def run(self) -> int:
+        with contract_reads(self.root, verify=False):
+            result = self._run_with_contracts()
+            return result
+
+    def _run_with_contracts(self) -> int:
         GenerationInputs = _imports_generation_inputs.GenerationInputs
         publication_lock = _imports_model_sources.publication_lock
         definition_root = _imports_utils_aws_mappings.definition_root
@@ -247,6 +253,12 @@ class Validator:
         if self.cache and self.cache.common is not None:
             self.check(self.cache.common == self.cache.common_key(), "framework/project inputs changed during validation")
 
+        verify_contract_reads(self.root)
+        if self.cache and not self.errors:
+            if self.catalog_pending is not None:
+                self.cache.save(*self.catalog_pending)
+                self.catalog_pending = None
+            self.finalize_service_cache(self.cache.common_key())
         return self.report()
 
     def report(self):
@@ -344,7 +356,7 @@ class Validator:
                     self.check(False, error)
                 # The original scope's policy/content result belongs to the old candidate.
                 # Post-save Acceptance observes NOT_RUN/FAIL without invoking handlers.
-            if self.cache and self.catalog_pending is not None and not self.warnings and not plan.unavailable:
+            if self.cache and self.catalog_pending is not None and not self.warnings and not plan.unavailable and not publication_errors:
                 self.cache.save(*self.catalog_pending)
             self.task.changed_paths = self.task.final_paths()
             self.check_task_type_requirements()
@@ -404,13 +416,13 @@ class Validator:
             source_checks = _bind_framework_callback(_callback_Validator_check_scoped_designs_source_checks, _state_check_scoped_designs_351, check_model_inputs, load_model, self)
             self.findings.evaluate('design.model-inputs', {_state_check_scoped_designs_351.entry}, source_checks)
         missing -= skipped
+        captured = contract_snapshot(self.root)
         selected_name, selected_text = task_revision(self.root)
-        validate = (selected_task(self.root, selected_name if selected_text is not None else None))((input_scope)(_bind_framework_callback(_callback_Validator_check_scoped_designs_validate, self)))
+        validate = (selected_task(self.root, selected_name if selected_text is not None else None))((input_scope)(_bind_framework_callback(_callback_Validator_check_scoped_designs_validate, self, captured)))
 
         with ThreadPoolExecutor(max_workers=min(self.workers, len(missing) or 1)) as executor:
             mapper = map if self.workers == 1 or len(missing) == 1 else executor.map
             results = dict(zip(sorted(missing), mapper(validate, [{entry} for entry in sorted(missing)]), strict=False))
-        verify_contract_reads(self.root)
         successful = []
         for _state_check_scoped_designs_351.entry in sorted(self.scope):
             if _state_check_scoped_designs_351.entry in skipped:
@@ -438,8 +450,6 @@ class Validator:
                 if unchanged and _state_check_scoped_designs_351.entry not in reused and not results[_state_check_scoped_designs_351.entry].errors and not generator.errors and not results[_state_check_scoped_designs_351.entry].warnings and not generator.warnings and not results[_state_check_scoped_designs_351.entry].findings.unverified and not unavailable and not (view_errors is not None and self.findings.unverified):
                     successful.append((keys[_state_check_scoped_designs_351.entry], results[_state_check_scoped_designs_351.entry].checks))
         self.service_cache_pending = successful
-        if not defer_cache and self.cache and self.cache.common is not None:
-            self.finalize_service_cache(self.cache.common_key())
         if self.cache:
             print(f"Service validation: {len(missing)} executed, {len(reused)} reused; workers: {self.workers}")
         generation = self.findings.result('framework.generated-service-model', self.scope)
@@ -513,7 +523,7 @@ class Validator:
                 unchanged = self.cache.common == self.cache.common_key()
                 self.check(unchanged, "framework/project inputs changed during catalog validation")
                 if unchanged:
-                    self.cache.save(key, self.checks - before - 1)
+                    self.catalog_pending = (key, self.checks - before - 1)
 
 
     def check_designs(self) -> None:
@@ -801,7 +811,7 @@ def run_validation(root: Path, options, *, final_candidate=None) -> Validator:
         task_file = final_candidate.task_file
     else:
         task_file = options.task_file
-    with selected_task(root, task_file):
+    with selected_task(root, task_file), contract_reads(root, verify=False):
         scope = final_candidate.scope if final_candidate is not None else active_scope(root, options.all, task_file=task_file)
         contract_scope = active_scope(root, task_file=task_file) if options.contract_scope or options.write and options.all else None
         if options.write and (scope == set() or contract_scope == set()):

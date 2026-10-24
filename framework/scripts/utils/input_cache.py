@@ -123,13 +123,13 @@ def memo_table():
     return _inputs.get()
 
 
-def _invoke_memoized(function, /, *args):
+def _invoke_memoized(function, /, *args, **kwargs):
     memo = _inputs.get()
     if memo is None:
-        return function(*args)
-    key = (function, args)
+        return function(*args, **kwargs)
+    key = (function, args, tuple(sorted(kwargs.items()))) if kwargs else (function, args)
     if key not in memo:
-        memo[key] = function(*args)
+        memo[key] = function(*args, **kwargs)
     return memo[key]
 
 

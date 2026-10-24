@@ -1,10 +1,6 @@
 """External Deploy sessions, immutable guards, target locks and observed barriers."""
 from __future__ import annotations
 
-from argparse import Namespace
-from collections.abc import Callable, Iterable, Sequence
-from types import SimpleNamespace
-
 import hashlib
 import json
 import re
@@ -12,16 +8,25 @@ import subprocess
 import sys
 import tempfile
 import time
+from argparse import Namespace
+from collections.abc import Callable, Iterable, Sequence
 from functools import partial as _bind_framework_callback
 from pathlib import Path
+from types import SimpleNamespace
 
 import model.observed as _imports_model_observed
 from cloudformation_inputs import Blocked
 from model.sources import authority_snapshot, load_model, model_paths, source_scope
-from task_contract_core import paths_in, status, task_path
+from task_contract_core import (
+    TaskSnapshot,
+    paths_in,
+    task_reads,
+    task_snapshot,
+)
 from utils.aws_mappings import definition_root
 from utils.json_format import fingerprint
 from utils.source_reads import FileReads
+from utils.type_contracts import JsonValue as JsonValue
 from validation_scope import active_scope as validation_scope
 
 import deploy.context as _imports_deploy_context
@@ -29,11 +34,19 @@ import deploy.contracts as _imports_deploy_contracts
 import deploy.observed as _dependency_deploy_observed
 from deploy import failures, handoff, observed_resume
 from deploy import resume as repair_resume
-from deploy.typing import Manifest, Save, SchedulerBackend, Session, Sleep, StackUnit, States, Target
-from utils.type_contracts import JsonValue as JsonValue
-from deploy.timing import Timing
 from deploy.scheduler import run_group
 from deploy.secret_bootstrap import BOOTSTRAP_STAGES
+from deploy.timing import Timing
+from deploy.typing import (
+    Manifest,
+    Save,
+    SchedulerBackend,
+    Session,
+    Sleep,
+    StackUnit,
+    States,
+    Target,
+)
 
 
 def save_session(path: Path, session: Session) -> None:
@@ -46,10 +59,11 @@ def active_scope(
     environment: str,
     account: str,
     alias: str | None = None,
+    *, snapshot: TaskSnapshot | None = None,
 ) -> str:
-    contract = task_path(root)
-    text = contract.read_text(encoding="utf-8")
-    if status(text) != "running":
+    snapshot = snapshot or task_snapshot(root)
+    text = snapshot.text
+    if snapshot.status != "running":
         raise Blocked("completed task cannot deploy")
     for line in ("- Task type: `infrastructure`", "- AWS API execution: `allowed`", "- Deploy/apply: `allowed`",
                  f"- Target environment: `{environment}`", f"- Target AWS account: `{account}`"):
@@ -233,22 +247,25 @@ def _callback_run_save(invocation_started, metrics, previous_duration, session, 
     save_session(state_path, session)
 
 
-def _callback_run_guard(args, backend, context, current_design, directory, infra_manifest, root, selected, session, target, task_digest, unit_digests, units, /):
-    active_scope(root, args.stack, args.environment, selected["awsAccountId"], args.alias)
-    if context.load_target(root, args.environment, args.aws_account_id, args.alias) != target:
-        raise Blocked("project target changed before mutation")
-    if design_digest(root, args.environment, directory) != current_design:
-        raise Blocked("intended model changed before mutation")
-    if model_input_manifest(root, args.environment, directory) != session['modelInputManifest']:
-        raise Blocked('Model raw inputs or dependency file set changed before mutation')
-    if infra_manifest() != session['infraManifest']:
-        raise Blocked('unauthorized IaC change outside accepted input revision')
-    if task_digest(task_path(root).read_text(encoding='utf-8')) != session['taskDigest']:
-        raise Blocked('task contract changed before mutation')
-    if any(backend.input_digest(unit) != unit_digests[unit["name"]] for unit in units):
-        raise Blocked("deployment inputs changed before mutation")
-    if execution_digest(backend.root, backend.target, backend.file_digest, unit_digests) != session.get("executionDigest"):
-        raise Blocked("execution definitions changed before mutation")
+def _callback_run_guard(args, backend, context, current_design, directory, infra_manifest, root, selected, session, target, unit_digests, units, /) -> TaskSnapshot:
+    with task_reads(root, live=True):
+        snapshot = task_snapshot(root)
+        active_scope(root, args.stack, args.environment, selected["awsAccountId"], args.alias, snapshot=snapshot)
+        if context.load_target(root, args.environment, args.aws_account_id, args.alias) != target:
+            raise Blocked("project target changed before mutation")
+        if design_digest(root, args.environment, directory) != current_design:
+            raise Blocked("intended model changed before mutation")
+        if model_input_manifest(root, args.environment, directory) != session['modelInputManifest']:
+            raise Blocked('Model raw inputs or dependency file set changed before mutation')
+        if infra_manifest() != session['infraManifest']:
+            raise Blocked('unauthorized IaC change outside accepted input revision')
+        if snapshot.task_digest != session['taskDigest']:
+            raise Blocked('task contract changed before mutation')
+        if any(backend.input_digest(unit) != unit_digests[unit["name"]] for unit in units):
+            raise Blocked("deployment inputs changed before mutation")
+        if execution_digest(backend.root, backend.target, backend.file_digest, unit_digests) != session.get("executionDigest"):
+            raise Blocked("execution definitions changed before mutation")
+        return snapshot
 
 
 def _callback_run_after_observed(args, current_design, directory, root, session, /, previous, outputs):
@@ -284,165 +301,166 @@ def run(
             raise Blocked("deployment session must be outside repository; never store AWS status in Git")
         context = _imports_deploy_context
         selected = context.load_target(root, args.environment, args.aws_account_id, args.alias)
-        phase = active_scope(root, args.stack, args.environment, selected["awsAccountId"], args.alias)
-        if args.pause_after_group and phase != "update":
-            raise Blocked("--pause-after-group requires the explicit update phase")
-        context_started = time.perf_counter()
-        with timing.phase("authenticationContext"):
-            target = context.check_deploy_context(root, args.environment, args.aws_account_id, args.alias, args.profile)
-        context_seconds = time.perf_counter() - context_started
-        if target["iacEngine"] != "cloudformation":
-            raise Blocked("controller requires CloudFormation target")
-        lock_target = {key: value for key, value in target.items() if key != "awsProfile"}
-        lock_path = Path(tempfile.gettempdir()) / ("blueprint-cfn-" + fingerprint([args.environment, lock_target]) + ".lock")
-        try:
-            lock = lock_path.open("x")
-        except FileExistsError as error:
-            raise Blocked(f"controller session already active or interrupted; verify no controller is running before removing {lock_path}") from error
-        candidate_lock = handoff.locked(state_path)
-        candidate_lock.__enter__()
-        handoff_lock = candidate_lock
-        directory = args.alias or args.aws_account_id
-        if args.resume:
-            session = json.loads(state_path.read_text(encoding='utf-8'))
-            handoff.restore(root, state_path, session)
-            if not getattr(args, 'observe_only', False):
-                require_session_format(session)
-            if session.get('pendingObserved') and not getattr(args, 'observe_only', False):
-                # Recovery must precede load_units/design_digest and all read-only Model snapshots.
-                sha = _imports_deploy_contracts.sha
-                try:
-                    if any(sha(root / path) != digest for path, digest in session['infraManifest'].items()):
-                        raise Blocked('IaC changed during pending observed publication')
-                    if execution_digest(root, target, sha, session['unitDigests']) != session['executionDigest']:
-                        raise Blocked('execution definitions changed during pending observed publication')
-                    observed_resume.reconcile(root, session, target, args.environment, directory)
-                except Exception as error:
-                    session['observedRecoveryError'] = str(error)
+        initial_task = task_snapshot(root, live=True)
+        with task_reads(root, snapshot=initial_task):
+            phase = active_scope(root, args.stack, args.environment, selected["awsAccountId"], args.alias, snapshot=initial_task)
+            if args.pause_after_group and phase != "update":
+                raise Blocked("--pause-after-group requires the explicit update phase")
+            context_started = time.perf_counter()
+            with timing.phase("authenticationContext"):
+                target = context.check_deploy_context(root, args.environment, args.aws_account_id, args.alias, args.profile)
+            context_seconds = time.perf_counter() - context_started
+            if target["iacEngine"] != "cloudformation":
+                raise Blocked("controller requires CloudFormation target")
+            lock_target = {key: value for key, value in target.items() if key != "awsProfile"}
+            lock_path = Path(tempfile.gettempdir()) / ("blueprint-cfn-" + fingerprint([args.environment, lock_target]) + ".lock")
+            try:
+                lock = lock_path.open("x")
+            except FileExistsError as error:
+                raise Blocked(f"controller session already active or interrupted; verify no controller is running before removing {lock_path}") from error
+            candidate_lock = handoff.locked(state_path)
+            candidate_lock.__enter__()
+            handoff_lock = candidate_lock
+            directory = args.alias or args.aws_account_id
+            if args.resume:
+                session = json.loads(state_path.read_text(encoding='utf-8'))
+                handoff.restore(root, state_path, session)
+                if not getattr(args, 'observe_only', False):
+                    require_session_format(session)
+                if session.get('pendingObserved') and not getattr(args, 'observe_only', False):
+                    # Recovery must precede load_units/design_digest and all read-only Model snapshots.
+                    sha = _imports_deploy_contracts.sha
+                    try:
+                        if any(sha(root / path) != digest for path, digest in session['infraManifest'].items()):
+                            raise Blocked('IaC changed during pending observed publication')
+                        if execution_digest(root, target, sha, session['unitDigests']) != session['executionDigest']:
+                            raise Blocked('execution definitions changed during pending observed publication')
+                        observed_resume.reconcile(root, session, target, args.environment, directory)
+                    except Exception as error:
+                        session['observedRecoveryError'] = str(error)
+                        save_session(state_path, session)
+                        raise
                     save_session(state_path, session)
-                    raise
-                save_session(state_path, session)
-        limit, units = load_units(root, args.environment, directory, args.stack)
-        if args.sequential:
-            limit = 1
-        backend = backend_type(root, args.environment, directory, target, args.profile, args.approve_change_set)
-        backend.timing = timing
-        if phase == "deploy" and not args.resume:
-            paths = sorted({str(path.relative_to(root)) for unit in units for path in backend.paths(unit)})
-            revision = subprocess.run(["git", "status", "--porcelain", "--", *paths], cwd=root,
-                                      capture_output=True, text=True, timeout=30)
-            if revision.returncode or revision.stdout.strip():
-                raise Blocked("deploy template/parameter revision must be clean; cannot deploy uncommitted IaC")
-        digest = fingerprint([str(root), target, args.environment, phase, limit, units])
-        current_design = design_digest(root, args.environment, directory)
-        backend.workdir = state_path.with_name(state_path.name + ".files").resolve()
-        if backend.workdir.is_relative_to(root):
-            raise Blocked("deployment files directory must be outside repository")
-        unit_digests = {unit["name"]: backend.input_digest(unit) for unit in units}
-        infra_manifest = _bind_framework_callback(_callback_run_infra_manifest, backend, root, units)
-        current_infra = infra_manifest()
-        if args.resume:
-            if getattr(args, 'observe_only', False):
-                if session['inputDigest'] != digest or session.get('repository') != str(root) or session.get('taskFile') != task_path(root).relative_to(root).as_posix():
-                    raise Blocked('observation session target/Task identity changed')
-                return repair_resume.observe_only(backend, units, limit, state_path, session)
-            require_session_format(session)
-            if session.get('workflow', {}).get('status') == 'CLOSED':
-                raise Blocked('closed workflow cannot resume AWS execution; unresolved history still owns overlapping scope')
-            if session.get('workflow', {}).get('legacyUncertain'):
-                raise Blocked('WAITING_HUMAN: legacy repair identity/cycles require diagnosis; no candidate reapplication')
-            current_execution = execution_digest(root, target, backend.file_digest, unit_digests)
-            if session.get('executionDigest') != current_execution:
-                raise Blocked('execution definitions changed; explicitly migrate original session first')
-            if getattr(args, 'repair_result', None):
-                repair_resume.accept(root, args.repair_result, session, backend, units, unit_digests, current_infra)
-            elif session.get('pendingRequest'):
-                raise Blocked('pending external repair requires --resume --repair-result')
-            # Older sessions watched all infra; retain only current execution inputs.
-            previous_infra = {path: digest for path, digest in session.get('infraManifest', current_infra).items()
-                              if path in current_infra}
-            changed_infra = {path for path in previous_infra.keys() | current_infra.keys()
-                             if previous_infra.get(path) != current_infra.get(path)}
-            update_handoff = {path.relative_to(root).as_posix() for unit in units
-                       if phase == 'update' and session['states'][unit['name']]['status'] == 'NOT_STARTED'
-                       for path in backend.deployment_input_paths([unit])}
-            if changed_infra - update_handoff:
-                raise Blocked('unauthorized IaC change outside recorded repair; cannot resume')
-            session['infraManifest'] = current_infra
-            if phase == 'deploy':
-                paths = sorted({str(path.relative_to(root)) for path in backend.deployment_input_paths(units)})
-                revision = subprocess.run(['git', 'status', '--porcelain', '--', *paths], cwd=root,
+            limit, units = load_units(root, args.environment, directory, args.stack)
+            if args.sequential:
+                limit = 1
+            backend = backend_type(root, args.environment, directory, target, args.profile, args.approve_change_set)
+            backend.timing = timing
+            if phase == "deploy" and not args.resume:
+                paths = sorted({str(path.relative_to(root)) for unit in units for path in backend.paths(unit)})
+                revision = subprocess.run(["git", "status", "--porcelain", "--", *paths], cwd=root,
                                           capture_output=True, text=True, timeout=30)
                 if revision.returncode or revision.stdout.strip():
-                    raise Blocked('resumed deploy inputs must be committed verified child bytes')
-            require_session_format(session)
-            if session.get('modelInputManifest') != model_input_manifest(root, args.environment, directory):
-                raise Blocked('Model raw inputs or dependency file set changed; cannot resume this session')
-            if session["inputDigest"] != digest:
-                raise Blocked("target, design or scope changed; cannot resume this session")
-            for name, state in session["states"].items():
-                if (phase == "deploy" or state["status"] != "NOT_STARTED") and session["unitDigests"][name] != unit_digests[name]:
-                    raise Blocked(f"prepared/executed unit IaC changed; cannot resume: {name}")
-            session["unitDigests"] = unit_digests
-            if session.get("designDigest", current_design) != current_design or session.get("profile", backend.profile) != backend.profile:
-                raise Blocked("intended model or AWS profile changed; cannot resume")
-        else:
-            if state_path.exists() or args.approve_change_set:
-                raise Blocked("new session requires unused state path and no approvals")
-            session = {"inputDigest": digest, "unitDigests": unit_digests,
-                       "states": {unit["name"]: {"status": "NOT_STARTED"} for unit in units}}
-        session.update(version=4, modelFormat=2, snapshotVersion=2, referenceMeaningVersion=1,
-                       designDigest=current_design, profile=backend.profile,
-                       modelInputManifest=model_input_manifest(root, args.environment, directory))
-        session.setdefault('repository', str(root))
-        session.setdefault('taskFile', task_path(root).relative_to(root).as_posix())
-        sha = _imports_deploy_contracts.sha
-        task_digest = _imports_deploy_contracts.task_digest
-        session.setdefault('taskDigest', task_digest(task_path(root).read_text(encoding='utf-8')))
-        session.setdefault('infraManifest', current_infra)
-        session.setdefault('unitInputPaths', {u['name']: [p.relative_to(root).as_posix() for p in backend.deployment_input_paths([u])] for u in units})
-        session.setdefault('environment', args.environment)
-        session.setdefault('directory', directory)
-        session.setdefault('target', target)
-        session.setdefault('logicalTarget', [args.environment, directory, target['awsAccountId'], target['awsRegion']])
-        budget_lines = re.findall(r'^- Repair cycle budget: `([0-9]+)`$', task_path(root).read_text(), re.M)
-        if budget_lines and (len(budget_lines) != 1 or int(budget_lines[0]) <= 0):
-            raise Blocked('invalid repair cycle budget')
-        session.setdefault('repairBudget', int(budget_lines[0]) if budget_lines else 20)
-        session.setdefault('validationScope', sorted(paths_in(task_path(root).read_text(), '## Validation scope')))
-        if phase == 'update' and args.resume and not getattr(args, 'repair_result', None):
-            session['effectiveDigests'] = handoff.effective(root, units, backend.paths, backend.deployment_input_paths)
-        session.setdefault('effectiveDigests', handoff.effective(root, units, backend.paths, backend.deployment_input_paths))
-        session.setdefault("executionDigest", execution_digest(root, target, backend.file_digest, unit_digests))
-        handoff.bind(root, state_path, session)
-        backend.session = session
-        contract = task_path(root).read_text(encoding='utf-8')
-        if '- External IaC repair: `allowed`' in contract.splitlines() and f'- Deploy repair session: `{state_path}`' not in contract.splitlines():
-            raise Blocked('external repair session path must match task contract')
-        metrics = session.setdefault("metrics", {})
-        for key in ("controllerInvocationCount", "deployOrderCount", "observedSyncSeconds",
-                    "inputLoadSeconds", "totalControllerSeconds", "contextCheckSeconds"):
-            metrics.setdefault(key, 0)
-        metrics["controllerInvocationCount"] += 1
-        metrics["contextCheckSeconds"] += context_seconds
-        for change_id in args.approve_change_set:
-            matches = [state for state in session["states"].values() if state.get("changeSetId") == change_id]
-            if len(matches) != 1 or matches[0]["status"] != "BLOCKED" or not matches[0].get("changeDigest"):
-                raise Blocked("approve only the saved blocked change set after human confirmation")
-        backend.states = session["states"]
-        backend.expected_digests = session["unitDigests"]
-        previous_duration = metrics["totalControllerSeconds"]
-        save = _bind_framework_callback(_callback_run_save, invocation_started, metrics, previous_duration, session, state_path)
-        backend.save = save
-        persist = save
-        guard = _bind_framework_callback(_callback_run_guard, args, backend, context, current_design, directory, infra_manifest, root, selected, session, target, task_digest, unit_digests, units)
-        backend.guard = guard
-        backend.before_observed = lambda: authority_snapshot(root, args.environment, directory)
-        after_observed = _bind_framework_callback(_callback_run_after_observed, args, current_design, directory, root, session)
-        backend.after_observed = after_observed
-        refresh_validation = _bind_framework_callback(_callback_run_refresh_validation, backend, unit_digests)
-        backend.refresh_validation = refresh_validation
-        backend.units = units
+                    raise Blocked("deploy template/parameter revision must be clean; cannot deploy uncommitted IaC")
+            digest = fingerprint([str(root), target, args.environment, phase, limit, units])
+            current_design = design_digest(root, args.environment, directory)
+            backend.workdir = state_path.with_name(state_path.name + ".files").resolve()
+            if backend.workdir.is_relative_to(root):
+                raise Blocked("deployment files directory must be outside repository")
+            unit_digests = {unit["name"]: backend.input_digest(unit) for unit in units}
+            infra_manifest = _bind_framework_callback(_callback_run_infra_manifest, backend, root, units)
+            current_infra = infra_manifest()
+            if args.resume:
+                if getattr(args, 'observe_only', False):
+                    if session['inputDigest'] != digest or session.get('repository') != str(root) or session.get('taskFile') != initial_task.name:
+                        raise Blocked('observation session target/Task identity changed')
+                    return repair_resume.observe_only(backend, units, limit, state_path, session)
+                require_session_format(session)
+                if session.get('workflow', {}).get('status') == 'CLOSED':
+                    raise Blocked('closed workflow cannot resume AWS execution; unresolved history still owns overlapping scope')
+                if session.get('workflow', {}).get('legacyUncertain'):
+                    raise Blocked('WAITING_HUMAN: legacy repair identity/cycles require diagnosis; no candidate reapplication')
+                current_execution = execution_digest(root, target, backend.file_digest, unit_digests)
+                if session.get('executionDigest') != current_execution:
+                    raise Blocked('execution definitions changed; explicitly migrate original session first')
+                if getattr(args, 'repair_result', None):
+                    repair_resume.accept(root, args.repair_result, session, backend, units, unit_digests, current_infra)
+                elif session.get('pendingRequest'):
+                    raise Blocked('pending external repair requires --resume --repair-result')
+                # Older sessions watched all infra; retain only current execution inputs.
+                previous_infra = {path: digest for path, digest in session.get('infraManifest', current_infra).items()
+                                  if path in current_infra}
+                changed_infra = {path for path in previous_infra.keys() | current_infra.keys()
+                                 if previous_infra.get(path) != current_infra.get(path)}
+                update_handoff = {path.relative_to(root).as_posix() for unit in units
+                           if phase == 'update' and session['states'][unit['name']]['status'] == 'NOT_STARTED'
+                           for path in backend.deployment_input_paths([unit])}
+                if changed_infra - update_handoff:
+                    raise Blocked('unauthorized IaC change outside recorded repair; cannot resume')
+                session['infraManifest'] = current_infra
+                if phase == 'deploy':
+                    paths = sorted({str(path.relative_to(root)) for path in backend.deployment_input_paths(units)})
+                    revision = subprocess.run(['git', 'status', '--porcelain', '--', *paths], cwd=root,
+                                              capture_output=True, text=True, timeout=30)
+                    if revision.returncode or revision.stdout.strip():
+                        raise Blocked('resumed deploy inputs must be committed verified child bytes')
+                require_session_format(session)
+                if session.get('modelInputManifest') != model_input_manifest(root, args.environment, directory):
+                    raise Blocked('Model raw inputs or dependency file set changed; cannot resume this session')
+                if session["inputDigest"] != digest:
+                    raise Blocked("target, design or scope changed; cannot resume this session")
+                for name, state in session["states"].items():
+                    if (phase == "deploy" or state["status"] != "NOT_STARTED") and session["unitDigests"][name] != unit_digests[name]:
+                        raise Blocked(f"prepared/executed unit IaC changed; cannot resume: {name}")
+                session["unitDigests"] = unit_digests
+                if session.get("designDigest", current_design) != current_design or session.get("profile", backend.profile) != backend.profile:
+                    raise Blocked("intended model or AWS profile changed; cannot resume")
+            else:
+                if state_path.exists() or args.approve_change_set:
+                    raise Blocked("new session requires unused state path and no approvals")
+                session = {"inputDigest": digest, "unitDigests": unit_digests,
+                           "states": {unit["name"]: {"status": "NOT_STARTED"} for unit in units}}
+            session.update(version=4, modelFormat=2, snapshotVersion=2, referenceMeaningVersion=1,
+                           designDigest=current_design, profile=backend.profile,
+                           modelInputManifest=model_input_manifest(root, args.environment, directory))
+            session.setdefault('repository', str(root))
+            session.setdefault('taskFile', initial_task.name)
+            sha = _imports_deploy_contracts.sha
+            session.setdefault('taskDigest', initial_task.task_digest)
+            session.setdefault('infraManifest', current_infra)
+            session.setdefault('unitInputPaths', {u['name']: [p.relative_to(root).as_posix() for p in backend.deployment_input_paths([u])] for u in units})
+            session.setdefault('environment', args.environment)
+            session.setdefault('directory', directory)
+            session.setdefault('target', target)
+            session.setdefault('logicalTarget', [args.environment, directory, target['awsAccountId'], target['awsRegion']])
+            budget_lines = re.findall(r'^- Repair cycle budget: `([0-9]+)`$', initial_task.text, re.M)
+            if budget_lines and (len(budget_lines) != 1 or int(budget_lines[0]) <= 0):
+                raise Blocked('invalid repair cycle budget')
+            session.setdefault('repairBudget', int(budget_lines[0]) if budget_lines else 20)
+            session.setdefault('validationScope', sorted(paths_in(initial_task.text, '## Validation scope')))
+            if phase == 'update' and args.resume and not getattr(args, 'repair_result', None):
+                session['effectiveDigests'] = handoff.effective(root, units, backend.paths, backend.deployment_input_paths)
+            session.setdefault('effectiveDigests', handoff.effective(root, units, backend.paths, backend.deployment_input_paths))
+            session.setdefault("executionDigest", execution_digest(root, target, backend.file_digest, unit_digests))
+            handoff.bind(root, state_path, session)
+            backend.session = session
+            contract = initial_task.text
+            if '- External IaC repair: `allowed`' in contract.splitlines() and f'- Deploy repair session: `{state_path}`' not in contract.splitlines():
+                raise Blocked('external repair session path must match task contract')
+            metrics = session.setdefault("metrics", {})
+            for key in ("controllerInvocationCount", "deployOrderCount", "observedSyncSeconds",
+                        "inputLoadSeconds", "totalControllerSeconds", "contextCheckSeconds"):
+                metrics.setdefault(key, 0)
+            metrics["controllerInvocationCount"] += 1
+            metrics["contextCheckSeconds"] += context_seconds
+            for change_id in args.approve_change_set:
+                matches = [state for state in session["states"].values() if state.get("changeSetId") == change_id]
+                if len(matches) != 1 or matches[0]["status"] != "BLOCKED" or not matches[0].get("changeDigest"):
+                    raise Blocked("approve only the saved blocked change set after human confirmation")
+            backend.states = session["states"]
+            backend.expected_digests = session["unitDigests"]
+            previous_duration = metrics["totalControllerSeconds"]
+            save = _bind_framework_callback(_callback_run_save, invocation_started, metrics, previous_duration, session, state_path)
+            backend.save = save
+            persist = save
+            guard = _bind_framework_callback(_callback_run_guard, args, backend, context, current_design, directory, infra_manifest, root, selected, session, target, unit_digests, units)
+            backend.guard = guard
+            backend.before_observed = lambda: authority_snapshot(root, args.environment, directory)
+            after_observed = _bind_framework_callback(_callback_run_after_observed, args, current_design, directory, root, session)
+            backend.after_observed = after_observed
+            refresh_validation = _bind_framework_callback(_callback_run_refresh_validation, backend, unit_digests)
+            backend.refresh_validation = refresh_validation
+            backend.units = units
         started = time.perf_counter()
         try:
             for unit in units:

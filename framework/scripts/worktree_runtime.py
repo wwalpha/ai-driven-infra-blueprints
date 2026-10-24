@@ -32,7 +32,7 @@ def prepare_integration(where: Path, task_id: str) -> wt.FinalCandidate:
         if path.with_suffix('.setup-lock').exists() or state.get('python_setup', {}).get('status') != 'ready' or state['merged']:
             raise wt.Blocked('Model integration requires ready unmerged lifecycle state')
         target = wt.task_worktree(root, state)
-        text = (target / state['task_file']).read_text(encoding='utf-8')
+        text = tasks.read_task_snapshot(target, state['task_file'], live=True).text
         if not tasks.final_model_task(text) or tasks.status(text) not in {'running', 'completed'}:
             raise wt.Blocked('Model integration requires a running/completed Model-only task')
         if tasks.section(text, '## Suspension reason'):
@@ -65,7 +65,7 @@ def validate_final_candidate(candidate: wt.FinalCandidate) -> wt._ValidatedCandi
         log_dir=None, profile=False, jobs=2, validation_jobs=4, fresh=True, write=False,
         staged=False, base=None, affected=False)
     if (wt.changed_paths(candidate.root) or wt.output(candidate.root, 'rev-parse', 'HEAD') != candidate.candidate_head or
-            (candidate.root / candidate.task_file).read_text(encoding='utf-8') != candidate.task_text):
+            tasks.read_task_snapshot(candidate.root, candidate.task_file, live=True).text != candidate.task_text):
         raise wt.Blocked('final candidate changed before validation')
     code = run_loop(candidate.root, options, final_candidate=candidate)
     return wt._ValidatedCandidate(candidate, code)
@@ -143,7 +143,7 @@ def deploy_request(where, request_path):
     if (session.get('pendingRequest') != request or session['inputRevision'] != request['revision'] or
             session['workflow']['workflowId'] != request['workflowId']):
         raise wt.Blocked('stale/consumed repair request')
-    text = (parent / request['taskFile']).read_text(encoding='utf-8')
+    text = tasks.read_task_snapshot(parent, request['taskFile'], live=True).text
     normalized = tasks.set_status(text, 'running')
     if task_digest(normalized) != request['taskDigest']:
         raise wt.Blocked('parent contract changed outside suspension/resume')
@@ -167,7 +167,7 @@ def deploy_checkpoint(where, task_id, session_path):
         request = session.get('pendingRequest')
         if not request or request['repository'] != str(target) or request['taskFile'] != state['task_file']:
             raise wt.Blocked('checkpoint needs this parent pending request')
-        text = (target / state['task_file']).read_text(encoding='utf-8')
+        text = tasks.read_task_snapshot(target, state['task_file'], live=True).text
         if tasks.status(text) != 'running' or task_digest(text) != session['taskDigest']:
             raise wt.Blocked('checkpoint requires unchanged running parent Task')
         if session.get('observedError') or any(s['status'] == 'RUNNING' or s.get('pollError') or
@@ -280,7 +280,7 @@ def deploy_validate(where, task_id, request_path):
             if not direct or any(candidate_effective[name] == session['effectiveDigests'][name] or
                     candidate_effective[name] in {o.get('effectiveDigest') for o in session.get('failureObservations', []) if o['stack'] == name and o['observationId'] in previous_ids} for name in direct):
                 candidate_error = 'unchanged or known failed effective inputs for this problem'
-        if outcome.returncode or before != after or candidate_error or (target / state['task_file']).read_text(encoding='utf-8') != text:
+        if outcome.returncode or before != after or candidate_error or tasks.read_task_snapshot(target, state['task_file'], live=True).text != text:
             attempt['staticFailures'] += 1
             attempt['stage'] = 'STATIC_FAILED'
             if attempt['staticRuns'] >= 3:
@@ -309,7 +309,7 @@ def deploy_finalize(where, task_id):
     _, parent_path, parent_state, session, request = wt.deploy_request(target, state['deployRepair'])
     parent = Path(request['repository'])
     with wt.lifecycle_lock(root), handoff.locked(Path(request['session'])):
-        parent_text = (parent / request['taskFile']).read_text(encoding='utf-8')
+        parent_text = tasks.read_task_snapshot(parent, request['taskFile'], live=True).text
         if tasks.status(parent_text) != 'suspend':
             raise wt.Blocked('repair integration requires suspended parent')
         wt.integration_task(target, state)

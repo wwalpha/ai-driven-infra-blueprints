@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from typing import NoReturn
-
 import copy
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from dataclasses import replace as replace
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import MappingProxyType
+from typing import NoReturn
 
 import array_display as _imports_array_display
 import generation_inputs as _imports_generation_inputs
@@ -18,8 +17,12 @@ import import_guard as _imports_import_guard
 import task_contract_core as _imports_task_contract
 import task_contract_core as _imports_task_contract_core
 import utils.input_cache as _imports_utils_input_cache
+from task_contract_core import DependencyDetach, ModelOperation
 from utils.source_reads import CandidateReads as CandidateReads
+from utils.type_contracts import JsonObject
+from utils.type_contracts import JsonValue as JsonValue
 
+import model.adapters.task as _task_adapter
 import model.core as _imports_model_core
 import model.identity as _dependency_model_identity
 import model.identity as _imports_model_identity
@@ -36,10 +39,6 @@ from model.configuration import resource_configuration as resource_configuration
 from model.core import ReferenceResolutionError
 from model.core import entries as entries
 from model.format import owner
-from task_contract_core import DependencyDetach, ModelOperation
-from utils.type_contracts import JsonObject
-from utils.type_contracts import JsonValue as JsonValue
-import model.adapters.task as _task_adapter
 
 
 def _same(left, right):
@@ -243,7 +242,6 @@ def prepare_edit(
 def _verify_published_inputs(context, changes):
     """Only planned bytes/file additions may differ from the input snapshot after a save."""
     GenerationInputs = _imports_generation_inputs.GenerationInputs
-    task_revision = _imports_task_contract.task_revision
     overlay = CandidateReads(context.snapshot, changes)
     for path in tuple(context.snapshot.contents):
         expected = overlay.read(path)
@@ -256,7 +254,7 @@ def _verify_published_inputs(context, changes):
         expected = overlay.select(base, pattern, recursive, kinds)
         if tuple(GenerationInputs.live_select(base, pattern, recursive, kinds)) != expected:
             raise ValueError('Model input file set changed during publication: ' + str(base))
-    if task_revision(context.root, selected=context.snapshot.expected_task[0]) != context.snapshot.expected_task:
+    if context.snapshot.task_selector != _imports_task_contract._selector(context.root):
         raise ValueError('Task changed during Model publication')
 
 

@@ -11,7 +11,14 @@ import sync_runtime as _imports_sync_runtime
 from cloudformation_inputs import Blocked
 from model.observed import verify_observed_outputs
 from model.sources import authority_snapshot, publication_lock, safe
-from task_contract_core import matches, paths_in, task_path, validate_contract
+from task_contract_core import (
+    matches,
+    paths_in,
+    task_read_scope,
+    task_reads,
+    task_snapshot,
+    validate_contract,
+)
 from task_contract_core import task_digest as task_digest
 
 import deploy.observed as _imports_deploy_observed
@@ -87,7 +94,7 @@ def generated_manifests(root, plan):
             or set(originals) != {p for files in groups.values() for p in files}
             or outputs is not None and (not isinstance(outputs, dict) or outputs.keys() != originals.keys())):
         raise Blocked('invalid observed generated-file evidence')
-    task = task_path(root).read_text(encoding='utf-8')
+    task = task_snapshot(root).text
     declared, allowed = paths_in(task, '## Modified files'), paths_in(task, '## Allowed paths')
     for view, files in groups.items():
         if (not view.startswith('docs/designs/') or not view.endswith('.md') or view not in files
@@ -141,15 +148,16 @@ def verify_generated_journal(root, plan, record):
         classify({p: restored[p] for p in files}, {p: before[p] for p in files}, {p: after[p] for p in files})
 
 
+@task_read_scope
 def _identity(root, session, target, environment, directory):
-    task = task_path(root)
-    text = task.read_text(encoding='utf-8')
+    snapshot = task_snapshot(root)
+    task, text = snapshot.path, snapshot.text
     validate_contract(root, task.relative_to(root).as_posix(), text)
     if (session['repository'] != str(root) or session['taskFile'] != task.relative_to(root).as_posix()
             or session['taskDigest'] != task_digest(text)):
         raise Blocked('observed plan Task/repository changed')
     return {'repository': str(root), 'taskFile': session['taskFile'], 'taskDigest': task_digest(text),
-            'taskBytes': hashlib.sha256(task.read_bytes()).hexdigest(),
+            'taskBytes': snapshot.raw_digest,
             'environment': environment, 'directory': directory, 'target': target,
             **{key: session[key] for key in ('inputDigest', 'executionDigest', 'infraManifest')}}
 
@@ -181,6 +189,7 @@ def prepare(backend, units, outputs, services, views):
         backend.save()  # A failed intent save must never reach Model publication.
 
 
+@task_read_scope
 def validate_plan(root, session, target, environment, directory):
     plan = session['pendingObserved']
     if not isinstance(plan, dict) or any(not isinstance(plan.get(key), dict) for key in (
@@ -204,8 +213,8 @@ def validate_plan(root, session, target, environment, directory):
         raise Blocked('unknown observed plan stage')
     before = {}
     outputs = {}
-    declared = paths_in(task_path(root).read_text(encoding='utf-8'), '## Modified files')
-    allowed = paths_in(task_path(root).read_text(encoding='utf-8'), '## Allowed paths')
+    declared = paths_in(task_snapshot(root).text, '## Modified files')
+    allowed = paths_in(task_snapshot(root).text, '## Allowed paths')
     for relative, text in plan['outputs'].items():
         path = root / relative
         safe(root, path)
@@ -242,18 +251,20 @@ def verify_journal(plan, record, current):
 
 # Never let an unrelated transaction or third-party bytes be rolled back.
 def _callback_reconcile_recovery(directory, environment, root, session, target, /, record):
-    # Never let an unrelated transaction or third-party bytes be rolled back.
-    plan = validate_plan(root, session, target, environment, directory)
-    current = {relative: (root / relative).read_bytes() if (root / relative).is_file() else None
-               for relative in plan['beforeManifest']}
-    if record['originals'] and all(p.startswith('docs/designs/') for p in record['originals']):
-        classify(manifest(current), plan['beforeManifest'], plan['afterManifest'])
-        verify_generated_journal(root, plan, record)
-    else:
-        check_generated(root, plan)
-        verify_journal(plan, record, manifest(current))
+    with task_reads(root, live=True):
+        # Never let an unrelated transaction or third-party bytes be rolled back.
+        plan = validate_plan(root, session, target, environment, directory)
+        current = {relative: (root / relative).read_bytes() if (root / relative).is_file() else None
+                   for relative in plan['beforeManifest']}
+        if record['originals'] and all(p.startswith('docs/designs/') for p in record['originals']):
+            classify(manifest(current), plan['beforeManifest'], plan['afterManifest'])
+            verify_generated_journal(root, plan, record)
+        else:
+            check_generated(root, plan)
+            verify_journal(plan, record, manifest(current))
 
 
+@task_read_scope
 def reconcile(root, session, target, environment, directory):
     """Validate recovery before any read-only Model load can encounter a journal."""
     recovery = _bind_framework_callback(_callback_reconcile_recovery, directory, environment, root, session, target)

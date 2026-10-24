@@ -15,7 +15,13 @@ import worktree_state
 from issue_gate import require_no_issues
 from model.core import properties as properties
 from model.impact import task_impact
-from task_contract_core import TASK_NAME, issues_save_only, matches, task_path
+from task_contract_core import (
+    TASK_NAME,
+    issues_save_only,
+    matches,
+    task_path,
+    task_snapshot,
+)
 from task_contract_core import TASK_TYPES as TASK_TYPES
 from utils.input_cache import input_text
 from validation_scope import active_scope
@@ -111,14 +117,14 @@ class TaskValidation:
         if self.final_candidate is not None:
             self.permission_paths = set(self.final_candidate.changed_paths)
         if not self.permission_paths and (prompt is None or
-                '- Task type:' not in input_text(prompt, encoding='utf-8')):
+                '- Task type:' not in task_snapshot(self.root).text):
             return
         if prompt is None:
             self.check(not self.permission_paths,
                        'selected task contract missing while repository has changes')
             return
 
-        self.contract_text = contract_text if contract_text is not None else input_text(prompt, encoding="utf-8")
+        self.contract_text = contract_text if contract_text is not None else task_snapshot(self.root).text
         lines = self.contract_text.splitlines()
         contract = self.section(lines, "## Task contract")
         task_types = []
@@ -275,7 +281,7 @@ class TaskValidation:
             artifacts = {path for path in changed if path.startswith("docs/designs/") and path.endswith(".json")}
             model_files = {path for path in changed if path.startswith("model/") and path.endswith(".properties")}
             design_sources = set(model_files)
-            text = self.contract_text or input_text(task_path(self.root), encoding='utf-8')
+            text = self.contract_text or task_snapshot(self.root).text
             if '- Workflow: `import`' in self.section(text.splitlines(), '## Task contract'):
                 require_import_changes = _imports_import_guard.require_import_changes
                 try:
@@ -301,7 +307,7 @@ class TaskValidation:
                 if iac_changed:
                     accepted_changes = _imports_deploy_contracts.accepted_changes
                     try:
-                        attributed = accepted_changes(self.root, input_text(task_path(self.root), encoding="utf-8"),
+                        attributed = accepted_changes(self.root, task_snapshot(self.root).text,
                                        {path for path in changed if self.under(path, "infra")})
                         self.check(attributed == {path for path in changed if self.under(path, 'infra')},
                                    'infrastructure deploy phase must not change IaC without verified child attribution')

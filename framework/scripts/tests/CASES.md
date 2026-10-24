@@ -2661,3 +2661,15 @@ worktree所有登録/配送の能力境界だけを置換する。Managed state�
 全assert文のASTを変更前後で照合し、削除したassert式は0件。所有者ケースは上記の専用側へ集約し、
 業務parameter matrixのLifecycle条件だけを移動する。実行時guardはworker threadも対象にし、
 静的依存違反をpytest/公式ITの実行前に拒否する。旧baseline計測には現行policyを強制しない。
+
+
+## Task Contract snapshots / master-1024v3
+
+`units/task-snapshot-unit.checks.py` uses three synthetic Tasks and counts Task byte/text
+reads and directory enumeration. Its 20 conditions cover explicit selection (including
+intentional isolation from unrelated malformed Tasks), implicit/catalog reuse, immutable
+worker transfer with independent memo state, live content/status/newline/selector/catalog
+changes, cache publication rejection, Task update invalidation, mutation I/O budgets and
+Import/Model publication revision checks. Existing task-contract, approval, Issue Gate,
+Deploy session and publication suites retain their safety assertions. No Git/worktree
+integration or live AWS operation is used by the new suite.

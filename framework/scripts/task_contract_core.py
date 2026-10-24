@@ -4,7 +4,7 @@ import fnmatch
 import hashlib
 import os
 import re
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from functools import partial as _bind_framework_callback
@@ -15,15 +15,20 @@ import utils.json_format as _imports_utils_json_format
 from utils.file_operations import atomic_files
 from utils.function_wrapper import FunctionWrapper
 from utils.input_cache import (
-    digest_files,
+    digest_files as digest_files,
+)
+from utils.input_cache import (
     input_bytes,
+    input_context,
     input_is_dir,
     input_is_file,
     input_is_symlink,
     input_select,
-    input_text,
     memoized,
     recording_inputs,
+)
+from utils.input_cache import (
+    input_text as input_text,
 )
 from utils.model_addresses import resource_address
 
@@ -75,23 +80,25 @@ def matches(path, pattern):
 
 def issues_save_only(root, *, scope=..., text=None, paths=()):
     """Share the scoped report-only exception between saving, validation and Issue Gate."""
-    prompt = task_path(root, required=False)
-    if prompt is None:
-        return False
-    text = text if text is not None else input_text(prompt, encoding="utf-8")
-    types = [line for line in section(text, "## Task contract") if line.startswith("- Task type:")]
-    if types != ['- Task type: `migration`']:
-        return False
-    if scope is ...:
-        scope = active_scope(root)
-    if not scope:
-        return False
-    reports = {f"issues/{env}/{target}/{name}" for env, target, _ in scope
-               for name in ("issues.md", "iac-issues.md")}
-    permitted = reports | {prompt.relative_to(root).as_posix()}
-    allowed = paths_in(text, "## Allowed paths")
-    return bool(allowed & reports and allowed <= permitted
-                and paths_in(text, "## Modified files") <= permitted and set(paths) <= permitted)
+    with task_reads(root):
+        snapshot = task_snapshot(root, required=False)
+        if snapshot is None:
+            return False
+        prompt = snapshot.path
+        text = text if text is not None else snapshot.text
+        types = [line for line in section(text, "## Task contract") if line.startswith("- Task type:")]
+        if types != ['- Task type: `migration`']:
+            return False
+        if scope is ...:
+            scope = active_scope(root)
+        if not scope:
+            return False
+        reports = {f"issues/{env}/{target}/{name}" for env, target, _ in scope
+                   for name in ("issues.md", "iac-issues.md")}
+        permitted = reports | {prompt.relative_to(root).as_posix()}
+        allowed = paths_in(text, "## Allowed paths")
+        return bool(allowed & reports and allowed <= permitted
+                    and paths_in(text, "## Modified files") <= permitted and set(paths) <= permitted)
 
 
 def safe_path(root, value):
@@ -117,38 +124,146 @@ def selected_text(root, records, name):
     return records[name]
 
 
+@dataclass(frozen=True)
+class TaskSnapshot:
+    name: str
+    root: Path
+    path: Path
+    text: str
+    raw: bytes
+    raw_digest: str
+    selector: tuple[str | None, str | None]
+
+    @property
+    def status(self) -> str:
+        return status(self.text)
+
+    @property
+    def task_digest(self) -> str:
+        return task_digest(self.text)
+
+    @property
+    def scope(self) -> frozenset[tuple[str, str, str]] | None:
+        return _scope(self.text)
+
+
+@dataclass(frozen=True)
+class ContractSnapshot:
+    root: Path
+    tasks: tuple[TaskSnapshot, ...]
+    selector: tuple
+
+
+@dataclass
+class _TaskReads:
+    root: Path
+    tasks: dict[str, TaskSnapshot]
+    catalog: ContractSnapshot | None = None
+    selector: tuple = ()
+    read_depth: int = 0
+
+
 _read_contracts = ContextVar('task_read_contracts', default=None)
 
 
-@contextmanager
-def contract_reads(root):
-    """Pin read-only validation inputs; authority writers must remain outside."""
+def _selector(root: Path) -> tuple:
+    return (_selected_tasks.get().get(root.resolve()), os.environ.get(SELECTOR))
+
+
+def _read_task(root: Path, name: str) -> TaskSnapshot:
+    if not TASK_NAME.fullmatch(name):
+        raise ValueError(f"invalid task selector: {name}")
+    path = safe_path(root, name)
+    if not input_is_file(path):
+        raise ValueError(f"selected task contract missing: {name}")
+    raw = input_bytes(path)
+    text = raw.decode('utf-8').replace('\r\n', '\n').replace('\r', '\n')
+    return TaskSnapshot(name, root, path, text, raw, hashlib.sha256(raw).hexdigest(), _selector(root))
+
+
+def _catalog(root: Path, retained: dict[str, TaskSnapshot] | None = None) -> ContractSnapshot:
+    directory = root / "tasks"
+    if input_is_symlink(directory):
+        raise ValueError("tasks directory must not use symlinks")
+    tasks = []
+    if input_is_dir(directory):
+        for path in input_select(directory):
+            name = path.relative_to(root).as_posix()
+            if not TASK_NAME.fullmatch(name) or input_is_symlink(path) or not input_is_file(path):
+                raise ValueError(f"invalid task contract file: {name}")
+            tasks.append(retained[name] if retained is not None and name in retained else _read_task(root, name))
+    return ContractSnapshot(root, tuple(tasks), _selector(root))
+
+
+def contract_snapshot(root: Path) -> ContractSnapshot:
     current = _read_contracts.get()
-    if current is not None and current[0] == root:
-        yield
+    if current is not None and current.root == root:
+        if current.catalog is None:
+            current.catalog = _catalog(root, current.tasks)
+            current.tasks.update((task.name, task) for task in current.catalog.tasks)
+        return current.catalog
+    return _catalog(root)
+
+
+@contextmanager
+def task_reads(root: Path, *, live: bool = False, snapshot: ContractSnapshot | TaskSnapshot | None = None):
+    """Reuse bytes within one operation; live authorization always starts fresh."""
+    current = _read_contracts.get()
+    if not live and snapshot is None and current is not None and current.root == root:
+        yield current
         return
-    records = _contracts(root)
-    selector = (_selected_tasks.get(), os.environ.get(SELECTOR))
-    paths = [root / name for name in records]
-    digest = digest_files(root, paths, {path: input_bytes(path) for path in paths})
-    token = _read_contracts.set((root, records, {}, selector, digest))
+    if snapshot is not None and snapshot.root != root:
+        raise ValueError('task snapshot belongs to another repository')
+    tasks = snapshot.tasks if isinstance(snapshot, ContractSnapshot) else (() if snapshot is None else (snapshot,))
+    state = _TaskReads(root, {task.name: task for task in tasks}, snapshot if isinstance(snapshot, ContractSnapshot) else None, _selector(root))
+    token = _read_contracts.set(state)
     try:
-        yield
-        verify_contract_reads(root)
+        with input_context(), recording_inputs(None) if live else nullcontext():
+            yield state
     finally:
         _read_contracts.reset(token)
 
 
-def verify_contract_reads(root):
-    current = _read_contracts.get()
-    if current is not None and current[0] == root:
-        if current[3] != (_selected_tasks.get(), os.environ.get(SELECTOR)):
+@contextmanager
+def contract_reads(root: Path, *, snapshot: ContractSnapshot | None = None, verify: bool = True):
+    """Pin the catalog once; workers can bind an immutable parent snapshot."""
+    with task_reads(root, snapshot=snapshot) as current:
+        owner = current.read_depth == 0
+        current.read_depth += 1
+        try:
+            captured = contract_snapshot(root)
+            yield captured
+            if verify and owner:
+                verify_snapshot(captured)
+        finally:
+            current.read_depth -= 1
+
+
+def verify_snapshot(snapshot: TaskSnapshot | ContractSnapshot, *, selector: tuple | None = None) -> None:
+    """Read live bytes once, outside a GenerationInputs recorder."""
+    with recording_inputs(None):
+        if selector is not None and selector != _selector(snapshot.root):
             raise ValueError('task selection changed during validation')
-        # Compare live bytes/file sets even when generation has an input recorder.
-        with recording_inputs(None):
-            records = _contracts(root)
-            if current[1] != records or current[4] != digest_files(root, [root / name for name in records]):
+        if snapshot.selector != _selector(snapshot.root):
+            raise ValueError('task selection changed during validation')
+        if isinstance(snapshot, ContractSnapshot):
+            current = _catalog(snapshot.root)
+            before = tuple((task.name, task.raw_digest) for task in snapshot.tasks)
+            after = tuple((task.name, task.raw_digest) for task in current.tasks)
+            if before != after:
                 raise ValueError('task contracts changed during validation')
+        elif _read_task(snapshot.root, snapshot.name) != snapshot:
+            raise ValueError('task contract changed during validation')
+
+
+def verify_contract_reads(root: Path) -> None:
+    current = _read_contracts.get()
+    if current is not None and current.root == root:
+        if current.catalog is not None:
+            verify_snapshot(current.catalog)
+        else:
+            for snapshot in current.tasks.values():
+                verify_snapshot(snapshot, selector=current.selector)
 
 
 def _invoke_contract_read_scope(function, /, root, *args, **kwargs):
@@ -157,31 +272,27 @@ def _invoke_contract_read_scope(function, /, root, *args, **kwargs):
 
 
 def contract_read_scope(function):
-    wrapped = FunctionWrapper(function, _invoke_contract_read_scope)
-    return wrapped
+    return FunctionWrapper(function, _invoke_contract_read_scope)
+
+
+def _invoke_task_read_scope(function, /, root, *args, **kwargs):
+    with task_reads(root):
+        return function(root, *args, **kwargs)
+
+
+def task_read_scope(function):
+    return FunctionWrapper(function, _invoke_task_read_scope)
 
 
 def contracts(root):
-    current = _read_contracts.get()
-    if current is not None and current[0] == root:
-        return dict(current[1])
-    return _contracts(root)
+    return {task.name: task.text for task in contract_snapshot(root).tasks}
 
 
 def _contracts(root):
-    directory = root / "tasks"
-    if input_is_symlink(directory):
-        raise ValueError("tasks directory must not use symlinks")
-    result = {}
-    if input_is_dir(directory):
-        for path in sorted(input_select(directory)):
-            relative = path.relative_to(root).as_posix()
-            if not TASK_NAME.fullmatch(relative) or input_is_symlink(path) or not input_is_file(path):
-                raise ValueError(f"invalid task contract file: {relative}")
-            result[relative] = input_text(path, encoding="utf-8")
-    return result
+    return {task.name: task.text for task in _catalog(root).tasks}
 
 
+@memoized
 def status(text):
     entries = [line for line in section(text, "## Task contract") if line.startswith("- Task status:")]
     if len(entries) != 1 or entries[0] not in {f"- Task status: `{state}`" for state in ("running", "suspend", "completed")}:
@@ -274,6 +385,7 @@ def _callback_model_operation_field(lines, /, name, required=True):
     return match[1]
 
 
+@memoized
 def model_operation(text: str) -> ModelOperation | None:
     """Parse only reserved operation declarations; never expand or read Model sources."""
     strict_json = _imports_utils_json_format.policy_json
@@ -384,6 +496,7 @@ class DependencyDetach:
     pointer: str | None = None
 
 
+@memoized
 def model_refactor(text: str, *, operation=None) -> tuple[DependencyDetach, ...] | None:
     """Opt-in design declaration, independent of Model operation and ordinary design."""
     strict_json = _imports_utils_json_format.policy_json
@@ -454,68 +567,93 @@ def selected_task(root: Path, task_file: str | None):
         _selected_tasks.reset(token)
 
 
-def _selected_contract(root, selected=None, *, allow_empty=False):
-    selected = selected or _selected_tasks.get().get(root.resolve()) or os.environ.get(SELECTOR)
+def read_task_snapshot(root: Path, name: str, *, live: bool = False) -> TaskSnapshot:
+    """Acquire raw Task data; lifecycle callers retain their own validation boundaries."""
+    if live:
+        with task_reads(root, live=True):
+            return read_task_snapshot(root, name)
     current = _read_contracts.get()
-    records = current[1] if current is not None and current[0] == root else contracts(root)
-    if allow_empty and not records:
+    snapshot = current.tasks.get(name) if current is not None and current.root == root else None
+    if snapshot is None:
+        if current is not None and current.root == root and current.catalog is not None:
+            selected_text(root, {task.name: task.text for task in current.catalog.tasks}, name)
+        snapshot = _read_task(root, name)
+        if current is not None and current.root == root:
+            current.tasks[name] = snapshot
+    return snapshot
+
+
+def task_snapshot(root: Path, selected: str | None = None, *, required: bool = True,
+                  executable: bool = True, check_paths: bool | None = None, live: bool = False) -> TaskSnapshot | None:
+    if live:
+        with task_reads(root, live=True):
+            return task_snapshot(root, selected, required=required, executable=executable, check_paths=check_paths)
+    selected = selected or _selected_tasks.get().get(root.resolve()) or os.environ.get(SELECTOR)
+    if selected:
+        snapshot = read_task_snapshot(root, selected)
+    else:
+        catalog = contract_snapshot(root)
+        path, _ = _select_contract(root, None, {task.name: task.text for task in catalog.tasks})
+        snapshot = next((task for task in catalog.tasks if task.path == path), None)
+    if snapshot is not None:
+        validate_contract(root, snapshot.name, snapshot.text, check_paths=not executable if check_paths is None else check_paths)
+        if executable and snapshot.status == 'suspend':
+            raise ValueError(f"suspend task cannot execute; resume with task_contract.py --task-file {snapshot.name} --resume")
+    elif required:
+        raise ValueError('selected task contract required')
+    return snapshot
+
+
+def _selected_contract(root, selected=None, *, allow_empty=False):
+    if allow_empty and not input_is_dir(root / "tasks"):
         return None, None
-    if current is not None and current[0] == root:
-        if selected not in current[2]:
-            current[2][selected] = _select_contract(root, selected, current[1])
-        return current[2][selected]
-    return _select_contract(root, selected, records)
+    snapshot = task_snapshot(root, selected, required=False, executable=False, check_paths=False)
+    return (snapshot.path, snapshot.text) if snapshot is not None else (None, None)
 
 
 def _select_contract(root, selected, records):
     if selected:
-        selected_text(root, records, selected)
-    states = {name: status(text) for name, text in records.items()}
-    if not selected:
-        running = [name for name, state in states.items() if state == "running"]
+        text = selected_text(root, records, selected)
+    else:
+        running = [name for name, text in records.items() if status(text) == 'running']
         if len(running) > 1:
             raise ValueError(f"multiple running tasks; select a contract with {SELECTOR} or --task-file")
         selected = running[0] if running else None
-    if selected:
-        text = records[selected]
+        text = records[selected] if selected else None
+    if text is not None:
         validate_contract(root, selected, text, check_paths=False)
-        return root / selected, text
-    return None, None
+    return (root / selected, text) if selected else (None, None)
 
 
 def contract_path(root, selected=None, *, required=True):
     """Read a valid contract in any status without granting execution permission."""
-    path, text = _selected_contract(root, selected)
-    if text is not None:
-        validate_contract(root, path.relative_to(root).as_posix(), text)
-    if required and path is None:
-        raise ValueError("selected task contract required")
-    return path
+    snapshot = task_snapshot(root, selected, required=required, executable=False)
+    return snapshot.path if snapshot is not None else None
 
 
 def task_path(root, selected=None, *, required=True):
-    path, text = _selected_contract(root, selected)
-    if text is not None and status(text) == 'suspend':
-        name = path.relative_to(root).as_posix()
-        raise ValueError(f"suspend task cannot execute; resume with task_contract.py --task-file {name} --resume")
-    if required and path is None:
-        raise ValueError("selected task contract required")
-    return path
+    snapshot = task_snapshot(root, selected, required=required)
+    return snapshot.path if snapshot is not None else None
 
 
-def task_revision(root, selected=None):
-    """Pin task planning content so later changes invalidate the plan."""
-    path = task_path(root, selected, required=False)
-    if path is None:
-        return None, None
-    text = path.read_text(encoding="utf-8") if path.is_file() else None
-    return path.relative_to(root).as_posix(), text
+def task_revision(root, selected=None, *, live=False):
+    """Pin the already acquired planning content."""
+    snapshot = task_snapshot(root, selected, required=False, live=live)
+    return (snapshot.name, snapshot.text) if snapshot is not None else (None, None)
+
+
+def invalidate_task_reads(root: Path) -> None:
+    current = _read_contracts.get()
+    if current is not None and current.root == root:
+        current.tasks.clear()
+        current.catalog = None
 
 
 def start(root, name, text):
     if not TASK_NAME.fullmatch(name):
         raise ValueError("new task must use tasks/<task-name>.md")
-    records = contracts(root)
+    with recording_inputs(None):
+        records = _contracts(root)
     if name in records:
         selected_text(root, records, name)
         raise ValueError(f"task contract already exists: {name}")
@@ -525,6 +663,7 @@ def start(root, name, text):
     destination = safe_path(root, name)
     destination.parent.mkdir(exist_ok=True)
     atomic_files({destination: text}, staging_directory=root)
+    invalidate_task_reads(root)
 
 
 
@@ -547,13 +686,15 @@ def suspend(root, name, reason):
     if not TASK_NAME.fullmatch(name):
         raise ValueError(f"invalid task selector: {name}")
     path = safe_path(root, name)
-    text = path.read_text(encoding="utf-8")
+    with recording_inputs(None):
+        text = _read_task(root, name).text
     if status(text) != "running":
         return False
     # Do not inspect other contracts when suspending this task.
     text = set_status(text, "suspend")
     text += "\n## Suspension reason\n\n" + "\n".join(f"    {line}".rstrip() for line in reason.strip().splitlines()) + "\n"
     atomic_files({path: text}, staging_directory=root)
+    invalidate_task_reads(root)
     return True
 
 
@@ -566,12 +707,20 @@ def suspend(root, name, reason):
 def active_scope(root: Path, full: bool = False, *, task_file=None, contract_file=None) -> set[tuple[str, str, str]] | None:
     if full:
         return None
-    path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, selected=task_file, required=False)
-    if path is None:
-        if contracts(root):
-            return set()  # All registered tasks are completed; retain shared idle checks.
-        raise ValueError("validation scope missing: selected task contract; specify scope or --all")
-    lines = input_text(path, encoding="utf-8").splitlines()
+    with task_reads(root):
+        snapshot = task_snapshot(root, contract_file or task_file, required=contract_file is not None,
+                                 executable=contract_file is None)
+        if snapshot is None:
+            if contracts(root):
+                return set()
+            raise ValueError("validation scope missing: selected task contract; specify scope or --all")
+        scope = snapshot.scope
+        return None if scope is None else set(scope)
+
+
+@memoized
+def _scope(text: str) -> frozenset[tuple[str, str, str]] | None:
+    lines = text.splitlines()
     selected = []
     inside = False
     found = False
@@ -595,7 +744,7 @@ def active_scope(root: Path, full: bool = False, *, task_file=None, contract_fil
     if selected == ["framework"]:
         if not any(line in {"- Task type: `governance`", "- Task type: `catalog-maintenance`", "- Task type: `migration`"} for line in lines):
             raise ValueError("framework scope requires a framework task")
-        return set()
+        return frozenset()
     scope = set()
     for value in selected:
         parts = value.split("/")
@@ -604,10 +753,11 @@ def active_scope(root: Path, full: bool = False, *, task_file=None, contract_fil
         scope.add(tuple(parts))
     if len(scope) != len(selected):
         raise ValueError("duplicate validation scope entry")
-    return scope
+    return frozenset(scope)
 
 
 
+@memoized
 def task_digest(text):
     # Human approval updates the existing contract, not deployment inputs/scope.
     text = set_status(text, 'running').rstrip()

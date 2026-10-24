@@ -120,7 +120,7 @@ def create(where, task_id, repair_request=None):
     request = transfer[-1] if transfer else None
     if request:
         parent = Path(request['repository'])
-        if tasks.status((parent / request['taskFile']).read_text()) != 'suspend':
+        if tasks.status(tasks.read_task_snapshot(parent, request['taskFile'], live=True).text) != 'suspend':
             raise Blocked('suspend the original deploy Task before child creation')
         session = transfer[-2]
         attempt = session['workflow']['attempts'][request['attemptId']]
@@ -198,9 +198,9 @@ def setup(where, task_id):
 
 def integration_task(target, state, approval=None):
     # A human-approved Git integration does not turn failed validation into completion.
-    selected = tasks.contract_path(target, selected=state["task_file"])
+    snapshot = tasks.read_task_snapshot(target, state["task_file"], live=True)
     task_start_commit(target, state["task_file"])
-    text = selected.read_text(encoding="utf-8")
+    text = snapshot.text
     current = tasks.status(text)
     approval = approval or state.get("validation_failure_approval")
     if approval is not None and (not isinstance(approval, str) or not approval.strip()):
@@ -319,7 +319,7 @@ def _prepare_commit(root, path, state, target, approval):
     changed = changed_paths(target)
     task_id = state['task_id']
     model_changes = changed | (committed_task_paths(target, state['task_file']) or set())
-    contract = (target / state['task_file']).read_text(encoding='utf-8')
+    contract = tasks.read_task_snapshot(target, state['task_file'], live=True).text
     operation = tasks.final_model_task(contract)
     parsed_operation = tasks.model_operation(contract)
     if approval and (tasks.model_refactor(contract) is not None or parsed_operation is not None and parsed_operation.action in {'import-retarget', 'import-delete'}):
@@ -334,7 +334,7 @@ def _prepare_commit(root, path, state, target, approval):
         before = {p: (target / p).read_bytes() if (target / p).is_file() else None for p in changed}
         _run_model_guard(target, state['task_file'], bool(approval))
         changed = changed_paths(target)
-        current = (target / state['task_file']).read_text(encoding='utf-8')
+        current = tasks.read_task_snapshot(target, state['task_file'], live=True).text
         if output(target, 'diff', '--cached', '--raw', '--no-abbrev', '--no-renames') != index:
             raise Blocked('task index changed during Model guard; retain worktree')
         if current != contract:
@@ -427,7 +427,7 @@ def recover(where, task_id, expected_commit, expected_base, finish=False, repin=
             raise Blocked("recovery requires an unmerged verified task without failure approval")
         if output(base, 'rev-parse', 'HEAD') != expected_base:
             raise Blocked("recovery base changed")
-        text = (target / state['task_file']).read_text(encoding='utf-8')
+        text = tasks.read_task_snapshot(target, state['task_file'], live=True).text
         tasks.validate_contract(target, state['task_file'], text)
         if '- Task type: `governance`' not in tasks.section(text, '## Task contract'):
             raise Blocked("reviewed recovery is limited to governance tasks")
@@ -487,7 +487,7 @@ def finalize(where, task_id, human_approved_validation_failure=None):
         raise Blocked("finish reviewed recovery and rerun validation before finalize")
     if not state['merged'] and human_approved_validation_failure is None and not state.get('validation_failure_approval'):
         target = task_worktree(root, state)
-        text = (target / state['task_file']).read_text(encoding='utf-8')
+        text = tasks.read_task_snapshot(target, state['task_file'], live=True).text
         if tasks.final_model_task(text):
             interpreter, environment = python_env.runtime(target)
             command = [str(interpreter), '-B', '-c',
@@ -513,11 +513,11 @@ def finalize(where, task_id, human_approved_validation_failure=None):
         base = base_worktree(root, state)
         expected = output(target, "rev-parse", "HEAD")
         model_paths = paths(target, 'diff', '--name-only', '--no-renames', '-z', latest, expected)
-        contract = (target / state['task_file']).read_bytes()
+        contract = tasks.read_task_snapshot(target, state['task_file'], live=True).raw
         if any(p.startswith('model/') or p == 'project.json' for p in model_paths) or b'- Workflow: `import`' in contract:
             _run_model_guard(target, state['task_file'], bool(approval), sources=model_paths)
             if (output(target, 'rev-parse', 'HEAD') != expected or changed_paths(target)
-                    or (target / state['task_file']).read_bytes() != contract
+                    or tasks.read_task_snapshot(target, state['task_file'], live=True).raw != contract
                     or output(base, 'rev-parse', 'HEAD') != latest):
                 raise Blocked('validated candidate, Task or base changed before merge; retain worktree')
         git(base, "merge", "--ff-only", "--no-autostash", state["branch"])
@@ -575,13 +575,13 @@ def merge_validated_candidate(result: _ValidatedCandidate) -> dict:
         if paths(target, 'ls-files', '-z', 'tasks'):
             raise Blocked('contracts must remain ignored; no status commit')
         task_path = target / candidate.task_file
-        text = task_path.read_text(encoding='utf-8')
+        text = tasks.read_task_snapshot(target, candidate.task_file, live=True).text
         if text != candidate.task_text:
             raise Blocked('validated task contract changed; no merge')
         completed = tasks.set_status(text, 'completed') if tasks.status(text) == 'running' else text
         if text != completed:
             tasks.atomic_files({task_path: completed}, staging_directory=target)
-        if task_path.read_text(encoding='utf-8') != completed or changed_paths(target) or output(target, 'rev-parse', 'HEAD') != candidate.candidate_head or output(base, 'rev-parse', 'HEAD') != candidate.base_commit:
+        if tasks.read_task_snapshot(target, candidate.task_file, live=True).text != completed or changed_paths(target) or output(target, 'rev-parse', 'HEAD') != candidate.candidate_head or output(base, 'rev-parse', 'HEAD') != candidate.base_commit:
             raise Blocked('validated state changed during task completion; no merge')
         git(base, 'merge', '--ff-only', '--no-autostash', state['branch'])
         if output(base, 'rev-parse', 'HEAD') != candidate.candidate_head or not ancestor(root, candidate.candidate_head, state['base']):
@@ -617,7 +617,7 @@ def deploy_checkpoint(where, task_id, session_path):
 
 
 def deploy_child_contract(target, state, request):
-    text = (target / state['task_file']).read_text(encoding='utf-8')
+    text = tasks.read_task_snapshot(target, state['task_file'], live=True).text
     tasks.validate_contract(target, state['task_file'], text)
     lines = tasks.section(text, '## Task contract')
     for line in ('- Task type: `infrastructure`', '- Infrastructure phase: `implement`',
@@ -662,7 +662,7 @@ def sync_base(where, task_id, expected_base):
     root, _, path, state = load(where, task_id)
     with lifecycle_lock(root):
         target = task_worktree(root, state)
-        text = (target / state['task_file']).read_text(encoding='utf-8')
+        text = tasks.read_task_snapshot(target, state['task_file'], live=True).text
         tasks.validate_contract(target, state['task_file'], text)
         if tasks.status(text) != 'running' or '- Task type: `governance`' not in tasks.section(text, '## Task contract'):
             raise Blocked('base sync requires the running governance Task')

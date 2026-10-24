@@ -2,7 +2,14 @@
 from __future__ import annotations
 
 import model.sources as _imports_model_sources
-from task_contract_core import issues_save_only, paths_in, safe_path, status, task_path
+from task_contract_core import (
+    issues_save_only,
+    paths_in,
+    safe_path,
+    status,
+    task_read_scope,
+    task_snapshot,
+)
 from utils.file_operations import atomic_files
 from utils.input_cache import input_scope
 from validation_scope import active_scope
@@ -14,9 +21,10 @@ from .integrity import verify_inputs
 from .reports import iac_report, normal_merge
 
 
+@task_read_scope
 def save_authority(root, environment, directory, services, filenames):
-    prompt = task_path(root)
-    text = prompt.read_text(encoding='utf-8')
+    snapshot = task_snapshot(root)
+    text = snapshot.text
     scope = active_scope(root)
     selected = {(environment, directory, service) for service in services}
     if status(text) != 'running' or not scope or not selected <= scope:

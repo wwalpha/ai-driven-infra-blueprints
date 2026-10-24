@@ -31,27 +31,24 @@ class EditOperation:
 
 
 @contextmanager
-def edit_write_context(root, scopes, task_file):
+def edit_write_context(root, scopes, task_file, *, snapshot=None):
     if not scopes:
         raise ValueError('ordinary Model editing requires an explicit service set')
-    with _write_context(root, task_file, requested=EditOperation(frozenset(scopes))) as context:
+    with _write_context(root, task_file, requested=EditOperation(frozenset(scopes)), snapshot=snapshot) as context:
         yield context
 
 
 @contextmanager
-def source_write_context(root, task_file):
-    with _write_context(root, task_file) as context:
+def source_write_context(root, task_file, *, snapshot=None):
+    with _write_context(root, task_file, snapshot=snapshot) as context:
         yield context
 
 
 @contextmanager
 def observed_write_context(root, changes, task_file=None):
-
-    task_path = _imports_task_contract.task_path
-
     scope_for = _imports_model_sources.scope_for
     root = Path(root).resolve()
-    name = task_file or task_path(root).relative_to(root).as_posix()
+    task = _imports_task_contract.task_snapshot(root, task_file, live=True)
     scopes, keys = set(), set()
     for path, updates in changes.items():
         scope = scope_for(path)
@@ -61,13 +58,11 @@ def observed_write_context(root, changes, task_file=None):
         keys.update((path, key) for key in updates)
     if not keys:
         raise ValueError('observed publication requires explicit selected Rows')
-    with _write_context(root, name, requested=ObservedOperation(frozenset(scopes), frozenset(keys))) as context:
+    with _write_context(root, task.name, requested=ObservedOperation(frozenset(scopes), frozenset(keys)), snapshot=task) as context:
         yield context
 
 
-def _callback__write_context_require_current(allowed, declared, revision, publication_revision, matches, name, root, safe_path, task_revision, text, writable, /, changes):
-    if task_revision(root, selected=name) != (name, text):
-        raise ValueError('parent task changed before source publication')
+def _callback__write_context_require_current(allowed, declared, revision, publication_revision, matches, name, root, safe_path, writable, /, changes):
     if publication_revision(root, name) != revision:
         raise ValueError('managed worktree revision changed before source publication')
     for file in changes:
@@ -78,7 +73,7 @@ def _callback__write_context_require_current(allowed, declared, revision, public
 
 
 @contextmanager
-def _write_context(root, task_file, *, requested=None):
+def _write_context(root, task_file, *, requested=None, snapshot=None):
     """Authorize one Model-only intermediate save, without running final validation."""
     GenerationInputs = _imports_generation_inputs.GenerationInputs
     publication_revision = _imports_model_importing_repository.publication_revision
@@ -95,7 +90,7 @@ def _write_context(root, task_file, *, requested=None):
     recording_inputs = _imports_validation_cache.recording_inputs
     active_scope = _imports_validation_scope.active_scope
     root = Path(root).resolve()
-    with selected_task(root, task_file):
+    with selected_task(root, task_file), _imports_task_contract.task_reads(root, live=snapshot is None, snapshot=snapshot):
         name, text = task_revision(root, selected=task_file)
         if name != task_file or text is None or status(text) != 'running':
             raise ValueError('source write requires an explicit running parent task')
@@ -159,7 +154,7 @@ def _write_context(root, task_file, *, requested=None):
                         file = root / 'model' / identity[0] / identity[1] / (identity[2] + '.properties')
                         snapshot.read(file)
 
-                require_current = _bind_framework_callback(_callback__write_context_require_current, allowed, declared, revision, publication_revision, matches, name, root, safe_path, task_revision, text, writable)
+                require_current = _bind_framework_callback(_callback__write_context_require_current, allowed, declared, revision, publication_revision, matches, name, root, safe_path, writable)
 
                 context = _dependency_model_sources.SourceWriteContext._authorized(root, snapshot, operation, require_current, frozenset(writable),
                                                          finish=lambda: require_current({}))

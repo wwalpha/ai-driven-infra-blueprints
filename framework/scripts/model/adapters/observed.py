@@ -21,6 +21,7 @@ from task_contract_core import matches as matches
 from task_contract_core import paths_in as paths_in
 from task_contract_core import section as section
 from task_contract_core import task_path as task_path
+from task_contract_core import task_read_scope, task_snapshot
 from utils.aws_catalogs import catalog_outputs
 from utils.input_cache import input_scope
 from utils.layout_schema import CODEBUILD_FORMAL_VARIABLE, GROUPED, HIDDEN_PROPERTIES
@@ -198,6 +199,7 @@ def require_fixed_stack_names(source, selected):
 
 
 @input_scope
+@task_read_scope
 def _mappings(root, environment, directory, templates, units, removed=None, target=None, *, implementation=False, loaded=None, selection=None, identifiers=True):
     """Shared read-only implement/deploy validation; resource-owned IDs never fall back."""
     loaded = models(root, environment, directory) if loaded is None else loaded
@@ -421,14 +423,15 @@ def observed_destinations(root, environment, directory, loaded, changes, check_s
                 views.add((design.parent / match.group(1)).resolve())
     if not check_scope:
         return destinations, views, sync
-    prompt = task_path(root)
-    contract = prompt.read_text(encoding="utf-8")
+    snapshot = task_snapshot(root)
+    contract = snapshot.text
     allowed = paths_in(contract, "## Allowed paths")
     if any(not any(matches(path.relative_to(root).as_posix(), p) for p in allowed) for path in set(destinations) | views):
         raise ValueError("task scope violation: observed model/view output outside Allowed paths")
     return destinations, views, sync
 
 
+@task_read_scope
 def destroy_plan(root, environment, directory, stack_names, check_scope=True):
     """Resolve ownership/identifier propagation without templates, parameters or AWS.
 

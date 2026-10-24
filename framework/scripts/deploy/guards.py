@@ -3,6 +3,7 @@ import re
 
 from cloudformation_inputs import Blocked
 from issue_gate import require_target_no_issues
+from task_contract_core import task_reads
 from utils.aws import cloudformation, kms, s3, secretsmanager, sts
 
 MUTATIONS = {'create_change_set', 'execute_change_set', 'put_object', 'delete_stack',
@@ -13,11 +14,12 @@ SERVICES = {'cloudformation': cloudformation, 's3': s3, 'kms': kms,
 
 def call(runtime, service, operation, arguments):
     if operation in MUTATIONS:
-        runtime.guard()
-        try:
-            require_target_no_issues(runtime.root, (runtime.environment, runtime.directory))
-        except (OSError, ValueError) as error:
-            raise Blocked(str(error)) from error
+        with task_reads(runtime.root, live=True):
+            snapshot = runtime.guard()
+            try:
+                require_target_no_issues(runtime.root, (runtime.environment, runtime.directory), snapshot=snapshot)
+            except (OSError, ValueError) as error:
+                raise Blocked(str(error)) from error
     with runtime.timing.phase('awsApi', service=service, operation=operation.replace('_', '-')):
         return getattr(SERVICES[service], operation)(runtime.connection, **arguments)
 

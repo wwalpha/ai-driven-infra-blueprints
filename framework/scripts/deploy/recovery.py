@@ -8,8 +8,8 @@ from cloudformation_inputs import Blocked
 
 
 def require_authorized(root, session):
-    task_path = _imports_task_contract.task_path
-    contract = task_path(root).read_text(encoding='utf-8')
+    task_snapshot = _imports_task_contract.task_snapshot
+    contract = task_snapshot(root).text
     if '- Runtime recovery: `allowed`' not in contract.splitlines() and not (
             session.get('runtimeRecoveryAuthorization') == 'explicitly-migrated-legacy-runtime' and session.get('migrations')):
         raise Blocked('runtime recovery not authorized in task contract')

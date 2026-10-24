@@ -261,14 +261,14 @@ def register(root, path, timing):
 
 def run_controller(root, path):
     """One subprocess/session for the entire prepared scope; safety stays in the controller."""
-    task_path = _imports_task_contract.task_path
+    task_snapshot = _imports_task_contract.task_snapshot
     plan = json.loads(path.read_text(encoding="utf-8"))
     if plan["repository"] != str(root) or plan["controllerArgv"][:2] != [sys.executable, str(definition_root(root) / "framework/scripts/cloudformation-deploy.py")]:
         raise ValueError("use the prepared repository and Python interpreter")
     if any(arg == "--repository-root" or arg.startswith("--repository-root=") for arg in plan["controllerArgv"][2:]):
         raise ValueError("obsolete controller plan; prepare again")
-    selected = task_path(root, plan["taskFile"])
-    if sha(selected) != plan.get("registeredContractDigest", plan["contractDigest"]):
+    snapshot = task_snapshot(root, plan["taskFile"])
+    if snapshot.raw_digest != plan.get("registeredContractDigest", plan["contractDigest"]):
         raise ValueError("registered contract changed; use existing controller resume procedure")
     if any(os.environ.get(key) != value for key, value in plan["environment"].items() if key in {"PATH", "PYTHONPATH"}):
         raise ValueError("prepared runtime environment changed")

@@ -8,7 +8,13 @@ from pathlib import Path
 import deploy.resume as _imports_deploy_resume
 from cloudformation_inputs import Blocked
 from deploy import handoff
-from task_contract_core import selected_task, task_digest, task_path
+from task_contract_core import (
+    selected_task,
+    task_digest,
+    task_path,
+    task_reads,
+    task_snapshot,
+)
 
 
 def main(argv=None):
@@ -39,8 +45,8 @@ def main(argv=None):
             handoff.restore(root, path, session)
             if session['repository'] != str(root):
                 raise Blocked('session belongs to a different parent Worktree')
-            with selected_task(root, session['taskFile']):
-                contract = task_path(root, required=True).read_text(encoding='utf-8')
+            with selected_task(root, session['taskFile']), task_reads(root, live=True):
+                contract = task_snapshot(root).text
                 if args.command == 'migrate':
                     migrate = _imports_deploy_resume.migrate
                     migrate(root, session, args)

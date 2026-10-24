@@ -8,7 +8,7 @@ from functools import partial as _bind_framework_callback
 import model.adapters.observed as _imports_model_adapters_observed
 import utils.cloudformation_format as _imports_utils_cloudformation_format
 from cloudformation_inputs import Blocked, condition_active, output_value, resolve_value
-from task_contract_core import task_path
+from task_contract_core import task_snapshot
 from validation_scope import active_scope as validation_scope
 
 from deploy.change_sets import import_names
@@ -254,7 +254,7 @@ def bootstrap_current(aws, entry):
 
 def bootstrap(root, states, guard, save, aws, bootstrap_plan, bootstrap_current, finish_repair, unit, state,
         entry=None):
-    contract = task_path(root).read_text(encoding='utf-8')
+    contract = task_snapshot(root).text
     if any(line not in contract.splitlines() for line in ('- AWS API execution: `allowed`', '- Deploy/apply: `allowed`')):
         raise Blocked('runtime bootstrap requires existing deploy mutation authorization')
     plan = bootstrap_plan(unit, state)

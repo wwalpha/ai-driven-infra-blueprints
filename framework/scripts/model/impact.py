@@ -6,6 +6,7 @@ from pathlib import Path
 import import_guard as _imports_import_guard
 import task_contract_core as _imports_task_contract
 import utils.input_cache as _imports_validation_cache
+from task_contract_core import task_read_scope
 
 import model.impact_changes as _imports_model_impact_changes
 import model.impact_graph as _imports_model_impact_graph
@@ -114,6 +115,7 @@ def affected(root, changed, *, before=None, read_context=None, raw=False):
     return set(analyze(root, changed, before=before, read_context=read_context, raw=raw).services)
 
 
+@task_read_scope
 def task_impact(root, changed=None, *, output=None, base=None, contract_file=None, read_context=None):
     """One Task baseline and Candidate overlay shared by save, generation and validation."""
     base_revision = _imports_import_guard.base_revision

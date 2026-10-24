@@ -61,6 +61,7 @@ from sync_progress import (
 )
 from sync_progress import stage as progress_stage
 from task_contract_core import task_path as task_path
+from task_contract_core import task_read_scope, task_reads
 from task_contract_core import task_revision as task_revision
 from utils.aws_mappings import definition_root, mapping_alias
 from utils.input_cache import (
@@ -257,61 +258,65 @@ def generate_views(stage, root, destinations, failures, definitions_root=None, *
     return generated
 
 
-def _callback_validate_candidates_validate(_state_validate_candidates_260, definitions_root, destinations, root, stage, validation, /, path):
-    try:
-        view_scope = _imports_model_importing_scope.view_scope
-        identities = {(*file.relative_to(root / 'docs/designs').parts[:2], file.stem) for file in destinations}
-        if import_selection(root) is not None:
-            identities.add(import_selection(root))
-        with view_scope(identities):
-            return_value = sync_views.validate_views(stage, root, [stage / path.relative_to(root)], destinations, design_index=_state_validate_candidates_260.design_index, definitions_root=definitions_root, **({"context": _state_validate_candidates_260.context} if validation is not None else {}))
-            if validation is not None:
-                validation[path] = return_value
-    except (OSError, ValueError, KeyError, TypeError) as error:
-        return path, f"{path.relative_to(root)}: {error}"
-    return path, None
+def _callback_validate_candidates_validate(_state_validate_candidates_260, definitions_root, destinations, root, stage, validation, task_inputs, /, path):
+    with task_reads(root, snapshot=task_inputs), input_context():
+        try:
+            view_scope = _imports_model_importing_scope.view_scope
+            identities = {(*file.relative_to(root / 'docs/designs').parts[:2], file.stem) for file in destinations}
+            if import_selection(root) is not None:
+                identities.add(import_selection(root))
+            with view_scope(identities):
+                return_value = sync_views.validate_views(stage, root, [stage / path.relative_to(root)], destinations, design_index=_state_validate_candidates_260.design_index, definitions_root=definitions_root, **({"context": _state_validate_candidates_260.context} if validation is not None else {}))
+                if validation is not None:
+                    validation[path] = return_value
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            return path, f"{path.relative_to(root)}: {error}"
+        return path, None
 
 
 @progress_stage("candidate-validation")
 def validate_candidates(stage, root, generated, destinations, failures, jobs, write, validation=None, accounts=None, definitions_root=None):
-    # A rejected view falls back to its saved state; recheck dependent services.
-    _state_validate_candidates_260 = _CallbackState()
-    selected_task = _imports_task_contract.selected_task
-    name, text = task_revision(root)
-    validate = (selected_task(root, name if text is not None else None))(_bind_framework_callback(_callback_validate_candidates_validate, _state_validate_candidates_260, definitions_root, destinations, root, stage, validation))
+    with task_reads(root) as task_inputs:
+        # A rejected view falls back to its saved state; recheck dependent services.
+        _state_validate_candidates_260 = _CallbackState()
+        selected_task = _imports_task_contract.selected_task
+        selected = _imports_task_contract.task_snapshot(root, required=False)
+        captured = task_inputs.catalog or selected
+        name, text = (None, None) if selected is None else (selected.name, selected.text)
+        validate = (selected_task(root, name if text is not None else None))(_bind_framework_callback(_callback_validate_candidates_validate, _state_validate_candidates_260, definitions_root, destinations, root, stage, validation, captured))
 
-    while generated:
-        total(len(generated))
-        _state_validate_candidates_260.design_index = DesignIndex(root)  # A new snapshot after each restore_view phase.
-        rejected = []
-        _state_validate_candidates_260.context = None
-        if validation is not None:
-            _state_validate_candidates_260.context = sync_views.validation_context(stage, root, generated, destinations, accounts, definitions_root=definitions_root)
-            validation[None] = _state_validate_candidates_260.context.findings
-            if _state_validate_candidates_260.context.errors:
-                # Ownership/stack checks concern the fixed whole scope, not repeated services.
-                for error in _state_validate_candidates_260.context.errors:
-                    failures.append(error)
-                rejected = [p for p in generated if any(p.relative_to(root).as_posix() in e for e in _state_validate_candidates_260.context.errors)]
-                if not rejected:
-                    rejected = list(generated)
-                for path in rejected:
-                    del generated[path]
-                    restore_view(stage, root, path)
-                continue
-        # All candidate views are fixed during this read-only phase.
-        with ThreadPoolExecutor(max_workers=1 if write else min(jobs, len(generated))) as executor:
-            mapper = map if write or jobs == 1 or len(generated) == 1 else executor.map
-            for path, error in mapper(validate, sorted(generated)):
-                advance()
-                if error:
-                    failures.append(error)
-                    rejected.append(path)
-        if not rejected:
-            break
-        for path in sorted(set(rejected)):
-            del generated[path]
-            restore_view(stage, root, path)
+        while generated:
+            total(len(generated))
+            _state_validate_candidates_260.design_index = DesignIndex(root)  # A new snapshot after each restore_view phase.
+            rejected = []
+            _state_validate_candidates_260.context = None
+            if validation is not None:
+                _state_validate_candidates_260.context = sync_views.validation_context(stage, root, generated, destinations, accounts, definitions_root=definitions_root)
+                validation[None] = _state_validate_candidates_260.context.findings
+                if _state_validate_candidates_260.context.errors:
+                    # Ownership/stack checks concern the fixed whole scope, not repeated services.
+                    for error in _state_validate_candidates_260.context.errors:
+                        failures.append(error)
+                    rejected = [p for p in generated if any(p.relative_to(root).as_posix() in e for e in _state_validate_candidates_260.context.errors)]
+                    if not rejected:
+                        rejected = list(generated)
+                    for path in rejected:
+                        del generated[path]
+                        restore_view(stage, root, path)
+                    continue
+            # All candidate views are fixed during this read-only phase.
+            with ThreadPoolExecutor(max_workers=1 if write else min(jobs, len(generated))) as executor:
+                mapper = map if write or jobs == 1 or len(generated) == 1 else executor.map
+                for path, error in mapper(validate, sorted(generated)):
+                    advance()
+                    if error:
+                        failures.append(error)
+                        rejected.append(path)
+            if not rejected:
+                break
+            for path in sorted(set(rejected)):
+                del generated[path]
+                restore_view(stage, root, path)
 
 
 def restore_view(stage: Path, root: Path, path: Path) -> None:
@@ -401,20 +406,21 @@ def _sync(
 @contextmanager
 def generation_context(root, write, definitions_root=None):
     """The outer execution owns recording/aliases, including IMPORT preflight reads."""
-    definitions_root = definitions_root or definition_root(root)
-    with ExitStack() as lifetime:
-        lifetime.enter_context(input_context() if write else nullcontext())
-        if definitions_root != root and definition_root(root) != definitions_root:
-            lifetime.enter_context(mapping_alias(definitions_root, root))
-        snapshot = input_recorder(root)
-        if write and snapshot is None and import_selection(root) is None:
-            with publication_lock(root):
-                snapshot = GenerationInputs(root, definitions_root)
-            lifetime.callback(snapshot.close)
-            lifetime.enter_context(recording_inputs(snapshot))
-            PassCache = _imports_validation_cache.PassCache
-            PassCache(root, definitions_root=definitions_root).common_inputs(snapshot)
-        yield snapshot
+    with task_reads(root):
+        definitions_root = definitions_root or definition_root(root)
+        with ExitStack() as lifetime:
+            lifetime.enter_context(input_context() if write else nullcontext())
+            if definitions_root != root and definition_root(root) != definitions_root:
+                lifetime.enter_context(mapping_alias(definitions_root, root))
+            snapshot = input_recorder(root)
+            if write and snapshot is None and import_selection(root) is None:
+                with publication_lock(root):
+                    snapshot = GenerationInputs(root, definitions_root)
+                lifetime.callback(snapshot.close)
+                lifetime.enter_context(recording_inputs(snapshot))
+                PassCache = _imports_validation_cache.PassCache
+                PassCache(root, definitions_root=definitions_root).common_inputs(snapshot)
+            yield snapshot
 
 
 @tracked_sync
@@ -460,6 +466,7 @@ class Generation:
 
 
 @progress_stage("snapshot")
+@task_read_scope
 def prepare_generation(root, scope, *, write=True, environment=None, target_directory=None, snapshot=None, definitions_root=None):
     """Prepare every selected target in a single disposable stage."""
     if scope == set():
@@ -649,6 +656,7 @@ def report_generation(plan):
 
 @input_scope
 @import_scoped
+@task_read_scope
 def run_generation(root, scope, *, write=True, environment=None, target_directory=None, jobs=4, definitions_root=None, snapshot=None):
     plan = prepare_generation(root, scope, write=write, environment=environment, target_directory=target_directory, definitions_root=definitions_root, snapshot=snapshot)
     try:
@@ -681,6 +689,7 @@ def _compare_generation(plan):
             plan.saved[path] = {}
 
 
+@task_read_scope
 def compare_generation(root: Path, scope, *, jobs=4, definitions_root=None, findings=None) -> tuple[str, ...]:
     """Read-only source/view comparison using the existing generation candidates."""
     if import_selection(root) is not None:

@@ -114,13 +114,13 @@ def check_retained_common_key(tmp_path):
     read_cached = (memoized)(_callback_check_retained_common_key_read_cached)
     read = _bind_framework_callback(_callback_check_retained_common_key_read, project, read_cached)
     with tasks.selected_task(project, 'tasks/first.md'), input_context():
-        with patch.object(tasks, '_contracts', wraps=tasks._contracts) as scans, \
-                patch.object(tasks, '_select_contract', wraps=tasks._select_contract) as selections:
+        with patch.object(tasks, '_catalog', wraps=tasks._catalog) as scans, \
+                patch.object(tasks, '_read_task', wraps=tasks._read_task) as selections:
             with tasks.contract_reads(project):
                 for _ in range(1000):
                     assert import_scope.selected(project) == ('dev', 'cde', 'sqs')
                 assert scans.call_count == 1
-                assert selections.call_count == 1
+                assert selections.call_count == 2
                 with tasks.selected_task(project, 'tasks/second.md'):
                     assert import_scope.selected(project) == ('dev', 'cde', 's3')
                 assert import_scope.selected(project) == ('dev', 'cde', 'sqs')

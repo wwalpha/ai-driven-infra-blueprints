@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 import worktree_state as _imports_worktree_state
-from task_contract_core import contract_path, contracts, task_path
+from task_contract_core import task_read_scope, task_snapshot
 
 
 def has_baseline(root):
@@ -26,16 +26,16 @@ def task_start_commit(root, name):
     return start(root, name)
 
 
+@task_read_scope
 def changed_paths(root, *, task_file=None):
     changed_paths = _imports_worktree_state.changed_paths
     paths = _imports_worktree_state.paths
     changed = changed_paths(root)
-    if contracts(root):
-        path = contract_path(root, selected=task_file) if task_file is not None else task_path(root, required=False)
-        if path is not None:
-            start = task_start_commit(root, path.relative_to(root).as_posix())
-            if start is not None:
-                changed |= paths(root, 'diff', '--no-renames', '--name-only', '-z', start, 'HEAD')
+    snapshot = task_snapshot(root, task_file, required=False, executable=task_file is None)
+    if snapshot is not None:
+        start = task_start_commit(root, snapshot.name)
+        if start is not None:
+            changed |= paths(root, 'diff', '--no-renames', '--name-only', '-z', start, 'HEAD')
     return changed
 
 

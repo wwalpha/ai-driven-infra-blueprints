@@ -6,7 +6,7 @@ from contextvars import ContextVar
 
 import task_contract_core as _imports_task_contract
 import task_contract_core as _imports_validation_scope
-from task_contract_core import _selected_contract
+from task_contract_core import _selected_contract, task_read_scope, task_snapshot
 from utils.function_wrapper import FunctionWrapper
 from utils.input_cache import memoized
 
@@ -33,6 +33,7 @@ def reference_reader(path):
         _reference.reset(token)
 
 
+@task_read_scope
 def selected(root, *, contract_file=None):
     if _scope.get() is not None:
         return _scope.get()
@@ -86,8 +87,8 @@ def read_consumers(identities):
         _consumers.reset(token)
 
 
+@task_read_scope
 def readable(root):
-    contracts = _imports_task_contract.contracts
     active_scope = _imports_validation_scope.active_scope
 
     has_baseline = _imports_model_importing_repository.has_baseline
@@ -97,7 +98,7 @@ def readable(root):
     if identity is None:
         return None
 
-    scope = active_scope(root) if has_baseline(root) and contracts(root) else None
+    scope = active_scope(root) if has_baseline(root) and task_snapshot(root, required=False) is not None else None
     return (scope or set()) | {identity}
 
 

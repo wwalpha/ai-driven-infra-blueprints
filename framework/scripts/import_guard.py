@@ -22,7 +22,13 @@ import utils.sealed_evidence as _sealed_evidence
 import validation_scope as _imports_validation_scope
 from model.configuration import resource_configuration
 from sync_files import save_files
-from task_contract_core import contract_path, contracts, section, task_path
+from task_contract_core import (
+    contract_path,
+    section,
+    task_path,
+    task_read_scope,
+    task_snapshot,
+)
 from utils.aws_mappings import definition_root, mapping_alias
 from utils.input_cache import _baselines as _baselines
 from utils.input_cache import baseline_scope as baseline_scope
@@ -31,7 +37,6 @@ from utils.input_cache import (
     input_is_file,
     input_scope,
     input_select,
-    input_text,
 )
 from utils.json_format import (
     document_sha256 as digest,  # noqa: F401 - compatibility export used by import fixtures
@@ -39,8 +44,8 @@ from utils.json_format import (
 
 
 def workflow(root, *, contract_file=None):
-    path = (contract_path(root, selected=contract_file) if contract_file is not None else task_path(root))
-    text = input_text(path, encoding='utf-8')
+    snapshot = task_snapshot(root, contract_file, executable=contract_file is None)
+    path, text = snapshot.path, snapshot.text
     contract = section(text, '## Task contract')
     if '- Task type: `design`' not in contract or contract.count('- Workflow: `import`') != 1:
         raise ValueError('IMPORT configuration changes require the registered design /import workflow')
@@ -60,10 +65,10 @@ def base_revision(root, *, contract_file=None):
     head = working_revision(root)
     if head is None:
         return None
-    if contracts(root):
+    snapshot = task_snapshot(root, contract_file, required=False, executable=contract_file is None)
+    if snapshot is not None:
         task_start_commit = _imports_model_importing_repository.task_start_commit
-        path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, required=False)
-        start = task_start_commit(root, path.relative_to(root).as_posix()) if path is not None else None
+        start = task_start_commit(root, snapshot.name)
         if start is not None:
             return start
     return head
@@ -142,6 +147,7 @@ def snapshots(root, base, output, definitions_root=None, *, detached=False, iden
 
 
 @input_scope
+@task_read_scope
 def require_import_changes(root, supplied=None, output=None, generation=False, *, final_candidate=None, contract_file=None):
     report_reference_warnings = _imports_model_core.report_reference_warnings
     has_baseline = _imports_model_importing_repository.has_baseline
@@ -156,10 +162,11 @@ def require_import_changes(root, supplied=None, output=None, generation=False, *
                if final_candidate is not None else changed_sources(root, supplied, contract_file=contract_file))
     if output:
         sources |= changed_sources(root, {p.relative_to(root).as_posix() for p in output})
-    path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, required=False)
+    snapshot = task_snapshot(root, contract_file, required=False, executable=contract_file is None)
+    path = snapshot.path if snapshot is not None else None
     if path is None and sources:
         raise ValueError('selected task contract required for Model changes')
-    text = '' if path is None else contracts(root)[path.relative_to(root).as_posix()]
+    text = '' if snapshot is None else snapshot.text
     if sources:
         matches = _imports_task_contract.matches
         paths_in = _imports_task_contract.paths_in

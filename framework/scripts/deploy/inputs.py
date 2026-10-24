@@ -10,7 +10,10 @@ from model.core import deployment_settings, properties, stack_model
 from model.files import read_model
 from model.projection import deployment_bucket
 from model.render import markdown_for
-from task_contract_core import section, task_path
+from task_contract_core import (
+    section,
+    task_snapshot,
+)
 from utils.json_format import fingerprint as fingerprint
 
 import deploy.delivery as _imports_deploy_delivery
@@ -74,10 +77,11 @@ def task_deployment_input_paths(root):
     """Resolve deploy/update IaC offline through the controller's authoritative readers."""
     Blocked = _imports_cloudformation_inputs.Blocked
     load_target = _imports_cloudformation_inputs.load_target
-    path = task_path(root, required=False)
+    snapshot = task_snapshot(root, required=False)
+    path = snapshot.path if snapshot is not None else None
     if path is None:
         return None
-    text = path.read_text(encoding="utf-8")
+    text = snapshot.text
     lines = section(text, "## Task contract")
     if "- Task type: `infrastructure`" not in lines or not any(
             f"- Infrastructure phase: `{phase}`" in lines for phase in ("deploy", "update")):

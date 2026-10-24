@@ -212,9 +212,9 @@ def check_alternate_source_guard_rejects_legacy_receipt(tmp_path):
             '## Modified files\n- `tasks/import.md`\n- `model/dev/cde/vpc.properties`\n'
             '## Allowed paths\n- `tasks/import.md`\n- `model/dev/cde/vpc.properties`\n'
             '## Validation scope\n- `dev/cde/vpc`\n')
+    task.parent.mkdir()
+    task.write_text(text)
     with patch.object(import_guard, 'changed_sources', return_value={'model/dev/cde/vpc.properties'}), \
-            patch.object(import_guard, 'task_path', return_value=task), \
-            patch.object(import_guard, 'contracts', return_value={'tasks/import.md': text}), \
             patch.object(import_guard, 'read_proof', side_effect=ValueError('IMPORT change has no verified /import evidence')) as receipt:
         with pytest.raises(ValueError, match='no verified /import evidence'):
             import_guard.require_import_changes(tmp_path, output={tmp_path / 'model/dev/cde/vpc.properties': 'forged'})

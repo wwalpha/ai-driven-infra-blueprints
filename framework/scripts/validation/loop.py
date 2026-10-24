@@ -25,7 +25,12 @@ import import_guard as _imports_import_guard
 import task_contract_core as _imports_task_contract
 import validation.runner as _imports_validation_runner
 from regression_guard import authorize_full_regression
-from task_contract_core import SELECTOR, contracts, suspend, task_path
+from task_contract_core import (
+    SELECTOR,
+    suspend,
+    task_path,
+    task_snapshot,
+)
 from utils.aws_mappings import definition_root
 from utils.sealed_evidence import evidence_store
 from validation_scope import active_scope
@@ -303,8 +308,8 @@ def staged_snapshot(root, args, directory, environment):
     (snapshot / ".git/shallow").write_text(base + "\n", encoding="ascii")
     git(snapshot, "checkout", "--quiet", "--detach", base)
     git(snapshot, "read-tree", "--reset", "-u", tree)
-    selected = task_path(snapshot).relative_to(snapshot).as_posix()
-    import_task = '- Workflow: `import`' in contracts(snapshot).get(selected, '')
+    captured = task_snapshot(snapshot)
+    import_task = '- Workflow: `import`' in captured.text
     try:
         if import_task:
             copy_import_proof = _imports_import_guard.copy_import_proof
@@ -355,7 +360,7 @@ def staged_snapshot(root, args, directory, environment):
     finally:
         if import_task:
             discard_import_proof = _imports_import_guard.discard_import_proof
-            discard_import_proof(snapshot, selected)
+            discard_import_proof(snapshot, captured.name)
             store = evidence_store(snapshot)
             # This freshly created snapshot owns its seal; source evidence is retained.
             (store / 'seal.key').unlink(missing_ok=True)
@@ -482,7 +487,7 @@ def _run_loop(root, args, final_candidate):
         diff_scope = []
         with diagnostics.step("task.contract.read", "pathlib.Path.read_text", task=selected_name):
             if not regression and not full_validation and selected_name:
-                contract = (root / selected_name).read_text(encoding="utf-8").splitlines()
+                contract = task_snapshot(root, selected_name).text.splitlines()
                 if "- Task type: `infrastructure`" in contract and any(
                         f"- Infrastructure phase: `{phase}`" in contract for phase in ("deploy", "update")):
                     diff_scope = ["--", *[f":(top,literal){path}" for path in sorted(changed)]] if changed else ["--", ":(exclude)**"]

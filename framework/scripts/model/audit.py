@@ -273,7 +273,7 @@ def main(argv=None):
     root = args.repository_root.resolve()
     inputs = None
     try:
-        with selected_task(root, args.task_file):
+        with selected_task(root, args.task_file), _imports_task_contract.task_reads(root, live=True):
             require_no_issues = _imports_issue_gate.require_no_issues
             active_scope = _imports_validation_scope.active_scope
             require_no_issues(root, active_scope(root))
@@ -294,8 +294,6 @@ def main(argv=None):
                 previous = inputs.read(output)
             with publication_lock(root):
                 inputs.verify()
-                if task_revision(root, args.task_file) != expected_task:
-                    raise ValueError('task scope changed during audit generation')
                 if previous != source.encode('utf-8'):
                     atomic_files({output: source})
             print(f'Generated: {relative} (syntax OK; AWS not contacted)')

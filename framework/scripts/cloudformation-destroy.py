@@ -21,7 +21,13 @@ from issue_gate import require_target_no_issues
 from model.adapters.observed import destroy_plan, sync_destroyed
 from model.core import stack_model
 from model.files import load_model
-from task_contract_core import matches, paths_in, status, task_path
+from task_contract_core import (
+    matches,
+    paths_in,
+    status,
+    task_read_scope,
+)
+from task_contract_core import task_snapshot as read_task_snapshot
 from utils.json_format import fingerprint
 from validation_scope import active_scope
 
@@ -42,9 +48,11 @@ def local_plan(root, environment, directory, requested, check_scope=True):
     return {"units": units, "maxConcurrentStacks": limit, "observed": observed}
 
 
+@task_read_scope
 def task_snapshot(root, environment, target, requested, plan):
-    path = task_path(root)
-    text = path.read_text(encoding="utf-8")
+    snapshot = read_task_snapshot(root)
+    path = snapshot.path if snapshot is not None else None
+    text = snapshot.text
     if status(text) != "running":
         raise Blocked("destroy requires a running task")
     required = ["- Task type: `infrastructure`", "- Infrastructure phase: `destroy`",
@@ -356,7 +364,7 @@ def _callback_controller_main_persist(session, state_path, /):
 # Only cheap invariants: no templates, infra manifests or validation tree digests.
 def _callback_controller_main_guard(_state_controller_main_355, args, context, contract, contract_path, directory, identity, immutable, issue_digest, root, session, target, /, name, state):
     # Only cheap invariants: no templates, infra manifests or validation tree digests.
-    if contract_path.read_text(encoding="utf-8") != contract or status(contract) != "running":
+    if read_task_snapshot(root, live=True).text != contract or status(contract) != "running":
         raise Blocked("selected active task changed before mutation")
     if context.load_target(root, args.environment, args.aws_account_id, args.alias) != target:
         raise Blocked("project target/account/region/profile changed before mutation")

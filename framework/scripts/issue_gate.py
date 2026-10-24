@@ -11,10 +11,11 @@ import model.files as _dependency_model_files
 import model.importing.repository as repository
 import validation_scope as _dependency_validation_scope
 from task_contract_core import (
-    contract_path,
+    TaskSnapshot,
     model_operation,
     status,
-    task_path,
+    task_read_scope,
+    task_snapshot,
     validate_contract,
 )
 from utils.input_cache import input_is_file, input_select, input_text
@@ -22,13 +23,14 @@ from utils.input_cache import input_is_file, input_select, input_text
 SERVICE = r"[a-z0-9]+(?:[-_][a-z0-9]+)*"
 
 
-def remediation_scope(root: Path, *, task_file=None, contract_file=None) -> set[tuple[str, str, str]]:
-    path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, selected=task_file, required=False)
-    if path is None:
+@task_read_scope
+def remediation_scope(root: Path, *, task_file=None, contract_file=None, snapshot: TaskSnapshot | None = None) -> set[tuple[str, str, str]]:
+    snapshot = snapshot or task_snapshot(root, contract_file or task_file, required=False, executable=contract_file is None)
+    if snapshot is None:
         return set()
     result = set()
     inside = False
-    for line in input_text(path, encoding="utf-8").splitlines():
+    for line in snapshot.text.splitlines():
         if line.startswith("## "):
             inside = line == "## Issue remediation"
         elif inside and line.strip():
@@ -40,7 +42,7 @@ def remediation_scope(root: Path, *, task_file=None, contract_file=None) -> set[
                 raise ValueError("duplicate Issue remediation entry")
             result.add(entry)
     if result:
-        scope = _dependency_validation_scope.active_scope(root, task_file=task_file, contract_file=contract_file)
+        scope = snapshot.scope
         if scope is None or not result <= scope:
             raise ValueError("Issue remediation must be within explicit service Validation scope")
     return result
@@ -186,7 +188,8 @@ def issue_errors(root: Path, scope, *, remediation=(), target=None, warnings=Non
     return errors
 
 
-def task_issue_errors(root: Path, scope, *, target=None, task_file=None, contract_file=None, warnings=None) -> list[str]:
+@task_read_scope
+def task_issue_errors(root: Path, scope, *, target=None, task_file=None, contract_file=None, warnings=None, snapshot: TaskSnapshot | None = None) -> list[str]:
     """Waive existing issues only for explicit scoped deletion/identity rewrite contracts.
 
     contract_file permits the read-only issue check before a suspended task resumes.
@@ -194,14 +197,16 @@ def task_issue_errors(root: Path, scope, *, target=None, task_file=None, contrac
     """
     if task_file is not None and contract_file is not None:
         raise ValueError('select either an executing task or a read-only contract')
-    path = contract_path(root, selected=contract_file) if contract_file is not None else task_path(root, selected=task_file, required=False)
-    if path is not None:
-        text = input_text(path, encoding='utf-8')
+    snapshot = snapshot or task_snapshot(root, contract_file or task_file, required=False, executable=contract_file is None)
+    if snapshot is not None and snapshot.root != root:
+        raise ValueError("task snapshot belongs to another repository")
+    if snapshot is not None:
+        text = snapshot.text
         operation = model_operation(text)
         if operation is not None and operation.action == 'import-delete':
-            name = path.relative_to(root).as_posix()
+            name = snapshot.name
             validate_contract(root, name, text)
-            declared = _dependency_validation_scope.active_scope(root, task_file=task_file, contract_file=contract_file)
+            declared = snapshot.scope
             if (scope is None or declared is None or not operation.scopes <= declared or
                     not scope <= declared or target is not None and not any(entry[:2] == target for entry in scope)):
                 raise ValueError('IMPORT deletion issue exception requires explicit matching service Validation scope')
@@ -212,13 +217,14 @@ def task_issue_errors(root: Path, scope, *, target=None, task_file=None, contrac
                 remaining = scope - operation.source_scopes
                 if not remaining:
                     return []
-                return issue_errors(root, remaining, remediation=remediation_scope(root, task_file=task_file, contract_file=contract_file), target=target, warnings=warnings)
-    return issue_errors(root, scope, remediation=remediation_scope(root, task_file=task_file, contract_file=contract_file), target=target, warnings=warnings)
+                return issue_errors(root, remaining, remediation=remediation_scope(root, task_file=task_file, contract_file=contract_file, snapshot=snapshot), target=target, warnings=warnings)
+    return issue_errors(root, scope, remediation=remediation_scope(root, task_file=task_file, contract_file=contract_file, snapshot=snapshot), target=target, warnings=warnings)
 
 
-def require_no_issues(root: Path, scope, *, target=None, task_file=None, contract_file=None, warnings=None) -> None:
+@task_read_scope
+def require_no_issues(root: Path, scope, *, target=None, task_file=None, contract_file=None, warnings=None, snapshot: TaskSnapshot | None = None) -> None:
     diagnostics = [] if warnings is None else warnings
-    errors = task_issue_errors(root, scope, target=target, task_file=task_file, contract_file=contract_file, warnings=diagnostics)
+    errors = task_issue_errors(root, scope, target=target, task_file=task_file, contract_file=contract_file, warnings=diagnostics, snapshot=snapshot)
     if warnings is None:
         report_reference_warnings = _imports_model_core.report_reference_warnings
         report_reference_warnings(diagnostics)
@@ -226,13 +232,15 @@ def require_no_issues(root: Path, scope, *, target=None, task_file=None, contrac
         raise ValueError("\n- ".join(errors))
 
 
-def require_target_no_issues(root: Path, target: tuple[str, str]) -> None:
+@task_read_scope
+def require_target_no_issues(root: Path, target: tuple[str, str], *, snapshot: TaskSnapshot | None = None) -> None:
     if not input_is_file(root / "issues" / target[0] / target[1] / "issues.md"):
         return
-    scope = _dependency_validation_scope.active_scope(root) if task_path(root, required=False) is not None else None
+    snapshot = snapshot or task_snapshot(root, required=False)
+    scope = snapshot.scope if snapshot is not None else None
     if scope is not None and not any(entry[:2] == target for entry in scope):
         scope = None  # An unrelated contract cannot bypass a target's issues.
-    require_no_issues(root, scope, target=target)
+    require_no_issues(root, scope, target=target, snapshot=snapshot)
 
 
 def main() -> int:
