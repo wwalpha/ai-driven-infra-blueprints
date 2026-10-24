@@ -9,10 +9,22 @@ import datetime
 
 import pytest
 import yaml
-from utils.cloudformation.format import decode, decode_file
+from utils.cloudformation.format import boolean_literal, decode, decode_file
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
+
+
+@pytest.mark.parametrize('raw,expected', [('true', True), ('True', True), ('TRUE', True), ('tRuE', True),
+                                        ('false', False), ('False', False), ('FALSE', False), ('fAlSe', False)])
+def check_boolean_literal(raw, expected):
+    assert boolean_literal(raw) is expected
+
+
+@pytest.mark.parametrize('raw', ['yes', 'no', '1', '0', '', ' true', 'false ', 'null', 'invalid', '"true"', True, False, 1, 0, None])
+def check_invalid_boolean_literal(raw):
+    with pytest.raises(ValueError, match='must be boolean'):
+        boolean_literal(raw)
 
 
 def check_scalars_and_intrinsics(tmp_path):

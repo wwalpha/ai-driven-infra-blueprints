@@ -8,6 +8,7 @@ import json_intrinsics as _imports_json_intrinsics
 from design.policy_tables import literal
 from model.identity import resource_link
 from model.reference_nodes import is_reference
+from utils.cloudformation.format import boolean_literal
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import (
     Expression,
@@ -121,12 +122,12 @@ def _desired_value(service, row, kind, *, local_comparison, desired_reference, p
                 encoded = strict_json(value)
             except ValueError:
                 encoded = None
-            if is_reference(encoded):
+            if is_reference(encoded) or (schema_type == 'boolean' and _imports_json_intrinsics.intrinsic(encoded)):
                 value = encoded
         if schema_type != 'string' and isinstance(value, str):
             if schema_type is None:
                 raise Blocked('property type is not uniquely determined')
-            value = strict_json(value)
+            value = boolean_literal(value) if schema_type == 'boolean' else strict_json(value)
     if normalize is not None:
         value = normalize(value)
     policy = row['property'].rsplit('.', 1)[-1] in {'PolicyDocument', 'AssumeRolePolicyDocument', 'KeyPolicy', 'Policy'}

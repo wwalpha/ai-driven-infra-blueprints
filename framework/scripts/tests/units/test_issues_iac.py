@@ -17,7 +17,7 @@ import comparison.references as _imports_comparison_references
 import issues.aggregate as _imports_issues_aggregate
 import utils.json_format as _imports_utils_json_format
 from comparison import registry
-from comparison.values import PreparedValue
+from comparison.values import PreparedValue, desired_value
 from design.catalog import DesignSchemaCatalog
 from model.format import serialize
 from model.sources import Scope
@@ -58,6 +58,79 @@ def legacy_comparison(root, count=3, services=1, stacks=2):
     comparison = issues_iac.Comparison(root, 'fixture', 'team', models, catalog=catalog)
   comparison.templates = lambda: units
   return comparison
+
+
+class BooleanValueTests(unittest.TestCase):
+  def test_login_profile_boolean_comparison_and_issue_summary(self):
+    prop = 'LoginProfile.PasswordResetRequired'
+    cases = [('False', False, 'matched'), ('false', False, 'matched'),
+             ('True', True, 'matched'), ('true', True, 'matched'),
+             ('True', False, 'difference'), ('False', True, 'difference')]
+    with tempfile.TemporaryDirectory() as directory, patch('socket.socket', side_effect=AssertionError('network forbidden')):
+      for model, actual, expected in cases:
+        with self.subTest(model=model, actual=actual):
+          comparison = legacy_comparison(Path(directory), count=1, stacks=1)
+          comparison.resources['service-0']['0000'].update(resourceType='IAM.User', **{'cfn-logicalId': 'stack0-Log0'})
+          comparison.models['service-0'].values.update({
+              'desired.resource.0000.resourceType': 'IAM.User',
+              'desired.resource.0000.cfn-logicalId': 'stack0-Log0',
+              'desired.row.0000-001.property': 'IAM.User.' + prop,
+              'desired.row.0000-001.value': '`' + model + '`'})
+          row = {'property': 'IAM.User.' + prop, 'value': '`' + model + '`'}
+          comparison.rows['service-0']['0000'] = [('0000-001', row)]
+          _, (document, _, _) = comparison.stack(comparison.templates()[0][1])
+          document['Resources']['Log0'] = {'Type': 'AWS::IAM::User',
+              'Properties': {'LoginProfile': {'PasswordResetRequired': actual}}}
+          self.assertEqual(comparison.catalog.literal_errors('IAM.User', prop, model), [])
+          records = comparison.run()
+          self.assertEqual([item['category'] for item in records], [expected])
+          self.assertIs(type(comparison.prepare_value('service-0', row, 'IAM.User').require_value()), bool)
+          summary = _imports_issues_aggregate.iac_summary(records, 'fixture', 'team', ['service-0'])
+          self.assertEqual(summary['records']['error'], 0)
+          self.assertEqual(summary['records'][expected], 1)
+          self.assertEqual(summary['issue_count'], int(expected == 'difference'))
+
+  def test_other_types_and_union_conversion_stay_unchanged(self):
+    cases = [('string', 'False', 'False'), ('integer', '7', 7), ('number', '1.25', 1.25),
+             ('object', '{"enabled":true}', {'enabled': True}), ('array', '[false,1]', [False, 1]),
+             ('null', 'null', None), (['boolean', 'null'], 'false', False),
+             (['string', 'object'], '{"a":1}', {'a': 1})]
+    schema = Mock()
+    options = dict(local_comparison=True, desired_reference=Mock(), property_schema=schema,
+                   evaluate=Mock(), model_path=Path('/synthetic/model.properties'))
+    for kind, raw, expected in cases:
+      with self.subTest(kind=kind, raw=raw):
+        schema.return_value = {'type': kind}
+        prepared = desired_value('fixture', {'property': 'IAM.User.Value', 'value': '`' + raw + '`'}, 'IAM.User', **options)
+        self.assertEqual(prepared.require_value(), expected)
+        self.assertIs(type(prepared.value), type(expected))
+    for kind, raw, error in [(['boolean', 'null'], 'False', ValueError),
+                             (['string', 'object'], 'plain text', ValueError),
+                             (None, 'false', Blocked), ('boolean', 'yes', ValueError)]:
+      with self.subTest(kind=kind, raw=raw):
+        schema.return_value = {'type': kind}
+        prepared = desired_value('fixture', {'property': 'IAM.User.Value', 'value': raw}, 'IAM.User', **options)
+        self.assertIsInstance(prepared.error, error)
+
+  def test_boolean_model_reference_and_document_bypass_literal_conversion(self):
+    reference = {'$modelRef': {'logicalId': 'Fixture', 'attribute': 'Value'}}
+    options = dict(local_comparison=True, desired_reference=Mock(), property_schema=Mock(return_value={'type': 'boolean'}),
+                   evaluate=Mock(), model_path=Path('/synthetic/model.properties'))
+    for row, expected in [({'value': json.dumps(reference)}, reference),
+                          ({'value': '', 'document': 'false'}, False)]:
+      with self.subTest(row=row):
+        prepared = desired_value('fixture', dict(row, property='IAM.User.LoginProfile.PasswordResetRequired'), 'IAM.User', **options)
+        self.assertEqual(prepared.require_value(), expected)
+        self.assertIs(type(prepared.value), type(expected))
+    expressions = [{'Fn::GetAtt': ['Fixture', 'Value']}, {'Fn::Sub': '${Fixture.Value}'},
+                   {'Fn::Join': ['', ['false']]}, {'Ref': 'Fixture'}]
+    for local in (False, True):
+      for expression in expressions:
+        with self.subTest(local=local, expression=expression):
+          options.update(local_comparison=local, evaluate=Mock(return_value=False), stack='fixture')
+          prepared = desired_value('fixture', {'property': 'IAM.User.LoginProfile.PasswordResetRequired',
+              'value': json.dumps(expression)}, 'IAM.User', **options)
+          self.assertEqual(prepared.require_value(), False if local else expression)
 
 
 class IntrinsicWarningTests(unittest.TestCase):

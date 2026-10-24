@@ -2415,6 +2415,11 @@ import-references のSubnet配列とCodePipeline Configuration生成fixtureは�
 | `deploy-sdk::initialization` | `check_client_concurrency` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 1 | context isolation and serialized Session/client initialization | Fake Session |
 | `deploy-sdk::pagination` | `check_complete_pages` | UT | [units/aws-client.checks.py](units/aws-client.checks.py) | pytest / 5 | complete inventories and invalid-token rejection | SDK pages |
 | `deploy-sdk::decoder` | `check_scalars_and_intrinsics` | UT | [units/cloudformation-format.checks.py](units/cloudformation-format.checks.py) | pytest / 1 | isolated CFn loader, JSON/YAML, intrinsics and existing scalar semantics | Source text/bytes |
+| `boolean-literal::valid` | `check_boolean_literal` | UT | [units/cloudformation-format.checks.py](units/cloudformation-format.checks.py) | pytest / 8 | Model booleanの大文字・小文字・混合表記をPython boolへ変換 | 合成リテラル |
+| `boolean-literal::invalid` | `check_invalid_boolean_literal` | UT | [units/cloudformation-format.checks.py](units/cloudformation-format.checks.py) | pytest / 15 | yes/no・数値・空白・JSON文字列・非文字列をValueErrorで拒否 | 合成リテラル |
+| `boolean-literal::comparison` | `BooleanValueTests.test_login_profile_boolean_comparison_and_issue_summary` | UT | [units/test_issues_iac.py](units/test_issues_iac.py) | pytest / 1 | IAM.Userの6ケースでModel検証とmatched/difference・errorゼロ・Issue件数を確認 | 合成Model/IaCのみ |
+| `boolean-literal::types` | `BooleanValueTests.test_other_types_and_union_conversion_stay_unchanged` | UT | [units/test_issues_iac.py](units/test_issues_iac.py) | pytest / 1 | 文字列・数値・JSON・複数型・型未確定の既存変換を保持 | 合成型スキーマ |
+| `boolean-literal::references` | `BooleanValueTests.test_boolean_model_reference_and_document_bypass_literal_conversion` | UT | [units/test_issues_iac.py](units/test_issues_iac.py) | pytest / 1 | boolean型でもmodelRef・JSON document・Ref/GetAtt/Sub/Joinの処理を保持 | 合成参照 |
 
 
 ## Deploy controller correctness and durable resume (1023v2)

@@ -26,6 +26,12 @@ def main() -> None:
     assert snapshot_errors(root) == []
     catalog = CloudFormationSchemaCatalog(root)
 
+    # Boolean conversion still feeds enum/const checks and the existing diagnostic.
+    catalog.schemas['AWS::Test::Boolean'] = {'properties': {'Value': {'type': 'boolean', 'enum': [False], 'const': False}}}
+    assert catalog.literal_errors('Test.Boolean', 'Value', 'FaLsE') == []
+    assert catalog.literal_errors('Test.Boolean', 'Value', 'yes') == ['must be boolean']
+    assert catalog.literal_errors('Test.Boolean', 'Value', 'True') == ['must be one of [False]', 'must equal False']
+
     for resource_type, property_path, accepted, rejected in (
         ("IAM.Role", "Description",
          ("Role for application logs", "Cafe café ¡ÿ", "tab\tline\nreturn\r", "quotes '\" and ?%\\"),

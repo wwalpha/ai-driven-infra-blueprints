@@ -16,6 +16,7 @@ from typing import Any
 
 import utils.aws_mappings as _imports_utils_aws_mappings
 import utils.aws_schemas as _imports_utils_aws_schemas
+from utils.cloudformation.format import boolean_literal
 from utils.input_cache import input_bytes, input_select, input_text
 from utils.json_format import canonical_json
 
@@ -214,9 +215,7 @@ class CloudFormationSchemaCatalog:
         value: Any = raw_value
         try:
             if expected_type == "boolean":
-                if raw_value.lower() not in {"true", "false"}:
-                    raise ValueError
-                value = raw_value.lower() == "true"
+                value = boolean_literal(raw_value)
             elif expected_type == "integer":
                 if re.fullmatch(r"-?\d+", raw_value) is None:
                     raise ValueError

@@ -10,6 +10,14 @@ import utils.iac_values as _imports_iac_values
 import utils.input_cache as _imports_validation_cache
 
 
+def boolean_literal(raw_value: str) -> bool:
+    """Parse the Model's case-insensitive true/false spellings only."""
+    value = raw_value.lower() if isinstance(raw_value, str) else None
+    if value not in {'true', 'false'}:
+        raise ValueError('must be boolean')
+    return value == 'true'
+
+
 class CloudFormationLoader(yaml.SafeLoader):
     """Isolated CFn tags with the existing YAML scalar and merge interpretation."""
 
