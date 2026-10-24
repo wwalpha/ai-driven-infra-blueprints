@@ -11,14 +11,15 @@ from functools import cached_property
 from pathlib import Path
 from threading import RLock
 
-import design_layout as _dependency_design_layout
 import model.projection as _imports_model_projection
 import model.sources as _imports_model_sources
-import security_group_tables as _dependency_security_group_tables
 import validation_scope as _dependency_validation_scope
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_text
-from utils.layout_schema import ANCHOR
+
+import design.layout as _dependency_design_layout
+import design.services.ec2.security_groups as _dependency_security_group_tables
+from design.layout_schema import ANCHOR
 
 
 @dataclass(frozen=True)

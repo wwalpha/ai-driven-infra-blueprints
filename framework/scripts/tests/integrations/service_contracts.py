@@ -7,7 +7,8 @@ from unittest.mock import patch
 import model.identity as _imports_model_identity
 import pytest
 import support.service_fixtures as _imports_support_service_fixtures
-from design_catalog import DesignSchemaCatalog
+from design.catalog import DesignSchemaCatalog
+from design.services.codepipeline import pipeline_display_rows, pipeline_rows
 from model.core import entries, literal, resource_row_index
 from model.format import serialize
 from model.importing.cli import property_schema
@@ -16,7 +17,6 @@ from model.operations import CandidateReads
 from model.projection import document_sha256
 from model.references import declarations
 from model.sources import list_models, load_model
-from service_rows import pipeline_display_rows, pipeline_rows
 from support.it_case_receipt import it_case
 from utils.input_cache import input_scope
 from utils.source_reads import FileReads

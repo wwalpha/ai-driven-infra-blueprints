@@ -9,7 +9,7 @@ from types import SimpleNamespace as _CallbackState
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import support.design_layout_fixtures as _exports_support_design_layout_fixtures
-from design_layout import is_import_pending_reference
+from design.layout import is_import_pending_reference
 from support.design_layout_fixtures import (
     CODEBUILD,
     GUARDDUTY,

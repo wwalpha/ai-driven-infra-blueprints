@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import os
 import tempfile
 
-from design_catalog import design_material_files
+from design.catalog import design_material_files
 from model.core import entries
 from support.model_sources import write_model
 from utils.input_cache import digest_files, input_scope

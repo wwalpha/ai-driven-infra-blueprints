@@ -1,7 +1,7 @@
 """quicksight comparison contracts and projections."""
 
 import model.importing.references as _imports_model_importing_references
-from policy_tables import literal
+from design.policy_tables import literal
 from utils.cloudformation.inputs import Blocked
 
 IMPORT_CONSUMER = ('QuickSight.DataSource.Permissions[].Principal', 'QuickSight.Group', 'Arn')

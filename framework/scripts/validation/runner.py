@@ -25,16 +25,16 @@ import sync_views as _imports_sync_views
 import task_contract_core as _imports_task_contract
 import utils.aws_mappings as _imports_utils_aws_mappings
 import validation.task as _dependency_validation_task
-from design_catalog import DesignSchemaCatalog
-from design_document import DesignIndex
-from policy_tables import artifact_id as artifact_id
-from policy_tables import rendered_design
+from design.catalog import DesignSchemaCatalog
+from design.document import DesignIndex
+from design.layout_schema import STACK_DESIGN
+from design.policy_tables import artifact_id as artifact_id
+from design.policy_tables import rendered_design
 from task_contract_core import SELECTOR as SELECTOR
 from task_contract_core import contract_reads as contract_reads
 from task_contract_core import contract_snapshot, task_reads
 from task_contract_core import verify_contract_reads as verify_contract_reads
 from utils.input_cache import input_is_file, input_scope, recording_inputs
-from utils.layout_schema import STACK_DESIGN
 from validation import (
     cloudformation,
     design,

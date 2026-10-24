@@ -6,68 +6,98 @@ import json
 import re
 from pathlib import Path
 
-import array_display as _dependency_array_display
 import aws_mapping_display as _imports_aws_mapping_display
-import design_catalog as _imports_design_catalog
 import model.core as _imports_model_core
 import model.display as _imports_model_display
 import model.files as _imports_model_files
 import model.identity as _imports_model_identity
 import model.sources as _imports_model_sources
 import model.validation as _imports_model_validation
-import security_group_tables as _dependency_security_group_tables
-import service_rows as _dependency_service_rows
 import utils.aws_mappings as _imports_utils_aws_mappings
-from design_catalog import design_material_files
-from ec2_display import ec2_formal_rows
-from model.core import ReferenceResolutionError, literal, positive_integer
+from model.core import ReferenceResolutionError, positive_integer
 from utils.aws_catalogs import catalogs_for
 from utils.input_cache import input_scope as input_scope
-from utils.input_cache import input_text, memoized
-from utils.layout_schema import ALIGNMENT as ALIGNMENT
-from utils.layout_schema import ANCHOR as ANCHOR
-from utils.layout_schema import CHILD as CHILD
-from utils.layout_schema import CHILD_NAME as CHILD_NAME
-from utils.layout_schema import CLOUDTRAIL_DATA_RESOURCE as CLOUDTRAIL_DATA_RESOURCE
-from utils.layout_schema import (
-    CLOUDTRAIL_FORMAL_DATA_RESOURCE as CLOUDTRAIL_FORMAL_DATA_RESOURCE,
-)
-from utils.layout_schema import CLOUDTRAIL_RESOURCE_TYPES as CLOUDTRAIL_RESOURCE_TYPES
-from utils.layout_schema import (
-    CODEBUILD_FORMAL_VARIABLE,
-    CODEBUILD_VARIABLE,
-    COMPACT_SOURCE,
-)
-from utils.layout_schema import CODEBUILD_VPC_PROPERTIES as CODEBUILD_VPC_PROPERTIES
-from utils.layout_schema import DETAILS_HEADING as DETAILS_HEADING
-from utils.layout_schema import GROUPED as GROUPED
-from utils.layout_schema import GROUPED_RESOURCE_TYPES as GROUPED_RESOURCE_TYPES
-from utils.layout_schema import GUARDDUTY_FEATURE as GUARDDUTY_FEATURE
-from utils.layout_schema import GUARDDUTY_FORMAL_FEATURE as GUARDDUTY_FORMAL_FEATURE
-from utils.layout_schema import HEADER as HEADER
-from utils.layout_schema import HIDDEN_PROPERTIES as HIDDEN_PROPERTIES
-from utils.layout_schema import (
-    IMPLICIT_GROUPED_PROPERTIES as IMPLICIT_GROUPED_PROPERTIES,
-)
-from utils.layout_schema import LAMBDA_PERMISSION as LAMBDA_PERMISSION
-from utils.layout_schema import LAYOUT_PATH as LAYOUT_PATH
-from utils.layout_schema import LAYOUTS as LAYOUTS
-from utils.layout_schema import PERMISSION_METADATA as PERMISSION_METADATA
-from utils.layout_schema import REQUIRED_NAME_TAG_TYPES as REQUIRED_NAME_TAG_TYPES
-from utils.layout_schema import RESOURCE as RESOURCE
-from utils.layout_schema import RESOURCE_ID as RESOURCE_ID
-from utils.layout_schema import RESOURCE_PROPERTY_PREFIXES as RESOURCE_PROPERTY_PREFIXES
-from utils.layout_schema import (
-    RESOURCE_REFERENCE_PROPERTIES as RESOURCE_REFERENCE_PROPERTIES,
-)
-from utils.layout_schema import ROTATION_SCHEDULE as ROTATION_SCHEDULE
-from utils.layout_schema import SECURITY_GROUP_TYPES as SECURITY_GROUP_TYPES
-from utils.layout_schema import STACK_DESIGN as STACK_DESIGN
-from utils.layout_schema import STACK_HEADER as STACK_HEADER
-from utils.layout_schema import SUBNET_LIST_SOURCE as SUBNET_LIST_SOURCE
-from utils.layout_schema import resource_anchor as resource_anchor
+from utils.input_cache import input_text
 from utils.reference_contracts import LINKED_LIST_PROPERTIES as LINKED_LIST_PROPERTIES
 from utils.reference_contracts import SUBNET_LIST_PROPERTIES as SUBNET_LIST_PROPERTIES
+
+import design.array_display as _dependency_array_display
+import design.catalog as _imports_design_catalog
+import design.services.codebuild
+import design.services.codepipeline
+import design.services.ec2.security_groups as _dependency_security_group_tables
+import design.services.glue
+from design.catalog import design_material_files
+from design.common import catalog_property_order as catalog_property_order
+from design.common import resource_heading_lines as resource_heading_lines
+from design.common import subnet_list_items as subnet_list_items
+from design.layout_schema import ALIGNMENT as ALIGNMENT
+from design.layout_schema import ANCHOR as ANCHOR
+from design.layout_schema import CHILD as CHILD
+from design.layout_schema import CHILD_NAME as CHILD_NAME
+from design.layout_schema import COMPACT_SOURCE
+from design.layout_schema import DETAILS_HEADING as DETAILS_HEADING
+from design.layout_schema import GROUPED as GROUPED
+from design.layout_schema import GROUPED_RESOURCE_TYPES as GROUPED_RESOURCE_TYPES
+from design.layout_schema import HEADER as HEADER
+from design.layout_schema import (
+    IMPLICIT_GROUPED_PROPERTIES as IMPLICIT_GROUPED_PROPERTIES,
+)
+from design.layout_schema import LAYOUT_PATH as LAYOUT_PATH
+from design.layout_schema import LAYOUTS as LAYOUTS
+from design.layout_schema import RESOURCE as RESOURCE
+from design.layout_schema import RESOURCE_ID as RESOURCE_ID
+from design.layout_schema import (
+    RESOURCE_PROPERTY_PREFIXES as RESOURCE_PROPERTY_PREFIXES,
+)
+from design.layout_schema import STACK_DESIGN as STACK_DESIGN
+from design.layout_schema import STACK_HEADER as STACK_HEADER
+from design.layout_schema import SUBNET_LIST_SOURCE as SUBNET_LIST_SOURCE
+from design.layout_schema import resource_anchor as resource_anchor
+from design.services.cloudtrail import formal_rows as cloudtrail_formal_rows
+from design.services.config import config_role_arn as config_role_arn
+from design.services.config import is_import_role_arn as is_import_role_arn
+from design.services.definitions.cloudtrail import (
+    CLOUDTRAIL_DATA_RESOURCE as CLOUDTRAIL_DATA_RESOURCE,
+)
+from design.services.definitions.cloudtrail import (
+    CLOUDTRAIL_FORMAL_DATA_RESOURCE as CLOUDTRAIL_FORMAL_DATA_RESOURCE,
+)
+from design.services.definitions.cloudtrail import (
+    CLOUDTRAIL_RESOURCE_TYPES as CLOUDTRAIL_RESOURCE_TYPES,
+)
+from design.services.definitions.codebuild import (
+    CODEBUILD_FORMAL_VARIABLE,
+    CODEBUILD_VARIABLE,
+)
+from design.services.definitions.codebuild import (
+    CODEBUILD_VPC_PROPERTIES as CODEBUILD_VPC_PROPERTIES,
+)
+from design.services.definitions.ec2 import SECURITY_GROUP_TYPES as SECURITY_GROUP_TYPES
+from design.services.definitions.guardduty import GUARDDUTY_FEATURE as GUARDDUTY_FEATURE
+from design.services.definitions.guardduty import (
+    GUARDDUTY_FORMAL_FEATURE as GUARDDUTY_FORMAL_FEATURE,
+)
+from design.services.definitions.lambda_permission import (
+    LAMBDA_PERMISSION as LAMBDA_PERMISSION,
+)
+from design.services.definitions.lambda_permission import (
+    PERMISSION_METADATA as PERMISSION_METADATA,
+)
+from design.services.definitions.registry import HIDDEN_PROPERTIES as HIDDEN_PROPERTIES
+from design.services.definitions.registry import (
+    REQUIRED_NAME_TAG_TYPES as REQUIRED_NAME_TAG_TYPES,
+)
+from design.services.definitions.registry import (
+    RESOURCE_REFERENCE_PROPERTIES as RESOURCE_REFERENCE_PROPERTIES,
+)
+from design.services.definitions.secrets_manager import (
+    ROTATION_SCHEDULE as ROTATION_SCHEDULE,
+)
+from design.services.ec2.display import ec2_formal_rows, name_tag_display_name
+from design.services.guardduty import formal_rows as guardduty_formal_rows
+from design.services.kms import alias_display_name
+from design.services.lambda_permission import permission_rows as permission_rows
 
 
 def is_service_role_reference(prop: str, value: str) -> bool:
@@ -77,37 +107,12 @@ def is_service_role_reference(prop: str, value: str) -> bool:
     ))
 
 
-def config_role_arn(prop: str, value: str) -> bool:
-    return prop == "Config.ConfigurationRecorder.RoleARN" and bool(re.fullmatch(
-        r"arn:aws(?:-[a-z]+)*:iam::[0-9]{12}:role/(?:[!-~]{1,510}/)?[A-Za-z0-9_+=,.@-]{1,64}",
-        literal(value)))
-
-
-def is_import_role_arn(prop: str, value: str, mode: str) -> bool:
-    return mode == "IMPORT" and config_role_arn(prop, value)
-
-
 def is_import_pending_reference(prop: str, value: str) -> bool:
     return prop in {
         "Config.ConfigurationRecorder.RoleARN",
         "KinesisFirehose.DeliveryStream.S3DestinationConfiguration.BucketARN",
         "KinesisFirehose.DeliveryStream.S3DestinationConfiguration.RoleARN",
     } and value == "Pending"
-
-
-
-
-def resource_heading_lines(lines: list[str]) -> list[str]:
-    """Normalize type-only detail headings; overview type headings stay unchanged."""
-    result = []
-    details = False
-    for line in lines:
-        if line.startswith("## "):
-            details = line == DETAILS_HEADING
-        if details and re.fullmatch(r"### [A-Za-z0-9]+\.[A-Za-z0-9]+", line):
-            line += ": " + line[4:]
-        result.append(line)
-    return result
 
 
 def resource_logical_ids(lines: list[str]) -> dict[str, str]:
@@ -195,41 +200,12 @@ def resource_has_name_property(root: Path, resource_type: str, mode: str = "CREA
 def resource_display_name(resource_type: str, rows: list[list[str]], selected_label: str | None = None, mode: str = "CREATE", *, root: Path = LAYOUT_PATH.parents[2]) -> str | None:
     """Find a selected root name; never invent an AWS name from an internal ID."""
     if resource_type == "KMS.Key":
-        aliases = [row[2].strip("`\"") for row in rows if row[1] == "KMS.Alias.AliasName"]
-        if aliases:
-            if any(not alias.startswith("alias/") or not alias.removeprefix("alias/").strip() for alias in aliases):
-                raise ValueError("KMS Key display requires a confirmed AliasName beginning with alias/")
-            names = {alias.removeprefix("alias/") for alias in aliases}
-            if len(names) == 1:
-                return next(iter(names))
-            if selected_label in names:
-                return selected_label
-            raise ValueError("KMS Key has multiple aliases; select an alias without alias/ in display label")
+        alias = alias_display_name(rows, selected_label)
+        if alias is not None:
+            return alias
     fields = {row[1].removeprefix(resource_type + "."): row[2].strip("`\"") for row in rows}
     if resource_type in REQUIRED_NAME_TAG_TYPES:
-        if mode == "IMPORT":
-            paths = [row[1].removeprefix(resource_type + ".") for row in rows]
-            for index, path in enumerate(paths):
-                if path == "Tags[].Key" and paths[index + 1:index + 2] != ["Tags[].Value"]:
-                    raise ValueError(f"{resource_type} tag requires the corresponding Tags[].Value")
-                if path == "Tags[].Value" and (index == 0 or paths[index - 1] != "Tags[].Key"):
-                    raise ValueError(f"{resource_type} tag requires the corresponding Tags[].Key")
-        keys = [index for index, row in enumerate(rows)
-                if row[1].removeprefix(resource_type + ".") == "Tags[].Key"
-                and row[2].strip("`\"") == "Name"]
-        if mode == "IMPORT" and not keys and "Name" not in fields:
-            return None
-        if "Name" in fields or len(keys) != 1:
-            raise ValueError(f"{resource_type} requires exactly one Tags[].Key=Name; design-only .Name is forbidden")
-        index = keys[0] + 1
-        if index >= len(rows) or rows[index][1].removeprefix(resource_type + ".") != "Tags[].Value":
-            raise ValueError(f"{resource_type} Name tag requires the corresponding Tags[].Value")
-        value = rows[index][2].strip("`\"")
-        if not value.strip() or value.strip().lower() in {
-            "unset", "pending", "pending_deploy", "tbd", "n/a", "none", "not-used", "not used", "unused", "未使用", "未確定",
-        } or value.startswith("[") or "{{" in value:
-            raise ValueError(f"{resource_type} Name tag value must be confirmed and non-empty")
-        return value
+        return name_tag_display_name(resource_type, rows, fields, mode)
     names = configured_name_fields(root, resource_type)
     for field in names:
         if field in fields and not fields[field].startswith("["):
@@ -407,15 +383,9 @@ def layout_errors(root: Path) -> list[str]:
     return errors
 
 
-@memoized
-def catalog_property_order(root: Path, resource_type: str):
-    order = catalogs_for(root).order(resource_type)
-    return None if order is None else dict(order)
-
-
 def catalog_order_errors(resource_type: str, rows: list[list[str]], root: Path | None = None) -> list[str]:
     """Compare visible rows with the selection-list order, within each resource."""
-    root = root or Path(__file__).resolve().parents[2]
+    root = root or Path(__file__).resolve().parents[3]
     cached_order = catalog_property_order(root, resource_type)
     if cached_order is None:
         return [f"display order catalog is missing: {resource_type}"]
@@ -443,20 +413,6 @@ def catalog_order_errors(resource_type: str, rows: list[list[str]], root: Path |
     return []
 
 
-@input_scope
-def formal_property(display: str, resource_type: str, root: Path | None = None) -> str:
-    """Restore the resource type omitted from a detail table's Property column."""
-    ROOT = _imports_aws_mapping_display.ROOT
-    formal_name = _imports_aws_mapping_display.formal_name
-    if resource_type and (formal := formal_name(display, resource_type, root or ROOT)):
-        return formal
-    if resource_type == "Lambda.Function" and display.startswith("Permission."):
-        return "Lambda." + display
-    if display.startswith(RESOURCE_PROPERTY_PREFIXES):
-        return display
-    return resource_type + "." + display if resource_type else display
-
-
 def linked_list_property(display: str, resource_type: str, root: Path | None = None) -> tuple[str, str] | None:
     """Resolve only the final display index; leave enclosing object arrays intact."""
     match = re.fullmatch(r"(.+)\[([^\]]*)\]", display)
@@ -466,71 +422,6 @@ def linked_list_property(display: str, resource_type: str, root: Path | None = N
             if base == prop.removesuffix("[]"):
                 return prop, match.group(2)
     return None
-
-
-def subnet_list_items(prop: str, value: str) -> list[str]:
-    """Split a saved list for display without inferring resource references."""
-    raw = value[1:-1] if value.startswith("`") and value.endswith("`") else value
-    if prop == "SecretsManager.RotationSchedule.HostedRotationLambda.VpcSubnetIds":
-        items = [item.strip() for item in raw.split(",")]
-    elif prop.endswith("[]") and not raw.lstrip().startswith(("[", "{")):
-        items = [raw]
-    else:
-        items = json.loads(raw)
-    if not isinstance(items, list) or not items or any(
-        not isinstance(item, str) or not item.strip() or any(char in item for char in "|\n\r`")
-        for item in items
-    ):
-        raise ValueError(f"{prop}: Subnet list must contain non-empty string elements")
-    return [item if re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", item) else f"`{item}`" for item in items]
-
-
-def permission_rows(rows: list[list[str]]) -> list[list[str]]:
-    """Restore hidden permission rows before the shared grouped-child parser."""
-    result = []
-    index = 0
-    order = catalog_property_order(Path(__file__).resolve().parents[2], LAMBDA_PERMISSION)
-    while index < len(rows):
-        cells = rows[index]
-        if not cells[1].startswith(LAMBDA_PERMISSION + "."):
-            if "<!-- lambda-permission:" in cells[3]:
-                raise ValueError("Lambda Permission metadata must be on Permission.Action")
-            result.append(cells)
-            index += 1
-            continue
-        child = CHILD.match(cells[3])
-        marker = PERMISSION_METADATA.match(cells[3][child.end():]) if child else None
-        if cells[1] != LAMBDA_PERMISSION + ".Action" or not marker:
-            raise ValueError("Permission.Action requires complete identity and Lambda Permission metadata")
-        try:
-            label, hidden = json.loads(marker.group(1))
-            if (not isinstance(label, str) or not CHILD_NAME.fullmatch(label + "：") or
-                    not isinstance(hidden, list) or len(hidden) != 2 or
-                    any(not isinstance(row, list) or len(row) != 3 or
-                        any(not isinstance(cell, str) or any(char in cell for char in "|\n\r<>") for cell in row) for row in hidden) or
-                    [row[0] for row in hidden] != [LAMBDA_PERMISSION + ".Id", LAMBDA_PERMISSION + ".FunctionName"]):
-                raise ValueError("invalid hidden rows")
-        except (ValueError, TypeError) as error:
-            raise ValueError("invalid Lambda Permission metadata") from error
-        block = [[cells[0], *row] for row in hidden]
-        block[0][3] = child.group(0) + label + "：" + block[0][3]
-        cells = cells.copy()
-        cells[3] = cells[3][child.end() + marker.end():]
-        while True:
-            if cells[1] not in order or cells[1] in {row[1] for row in block}:
-                raise ValueError("invalid or duplicate Lambda Permission property")
-            if "<!-- lambda-permission:" in cells[3] or "<!-- logical-id:" in cells[3]:
-                raise ValueError("Lambda Permission identity must be on its first Action row")
-            block.append(cells)
-            index += 1
-            if index == len(rows) or not rows[index][1].startswith(LAMBDA_PERMISSION + ".") or CHILD.match(rows[index][3]):
-                break
-            cells = rows[index]
-        visible = block[2:]
-        if visible != sorted(visible, key=lambda row: order[row[1]]):
-            raise ValueError("Lambda Permission rows must follow catalog file order")
-        result += sorted(block, key=lambda row: order[row[1]])
-    return result
 
 
 @input_scope
@@ -582,7 +473,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
             stop += 1
         if any(len(row) != 4 for row in source_rows):
             raise ValueError("resource table row must have four cells")
-        restored = _dependency_service_rows.restored_glue_argument_rows(_dependency_array_display.restored_rows(source_rows, resource_type, root), resource_type)
+        restored = design.services.glue.restored_glue_argument_rows(_dependency_array_display.restored_rows(source_rows, resource_type, root), resource_type)
         if restored != source_rows:
             if [row[0] for row in source_rows] != [str(number) for number in range(1, len(source_rows) + 1)]:
                 raise ValueError("Array table numbering error")
@@ -654,7 +545,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
             if prop.startswith(CODEBUILD_VARIABLE):
                 changed = True
                 kind = "CodeBuild environment variable"
-                rows.extend(_dependency_service_rows.codebuild_formal_rows(cells, codebuild_names, mode=mode))
+                rows.extend(design.services.codebuild.codebuild_formal_rows(cells, codebuild_names, mode=mode))
             elif item := linked_list_property(display_property, resource_type, root):
                 list_prop, first_index = item
                 expected = linked_list_counts.get(list_prop, 0) + 1
@@ -691,29 +582,12 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
             elif prop.startswith(GUARDDUTY_FEATURE):
                 changed = True
                 kind = "GuardDuty Feature"
-                name = prop.removeprefix(GUARDDUTY_FEATURE)
-                if not re.fullmatch(r"[^.\s|]+", name) or name in guardduty_names:
-                    raise ValueError(f"invalid or duplicate GuardDuty Feature name: {name}")
-                guardduty_names.add(name)
-                status = cells[2]
-                if len(status) >= 2 and status[0] == status[-1] == "`":
-                    status = status[1:-1]
-                for field, field_value in (("Name", name), ("Status", status)):
-                    rows.append([cells[0], GUARDDUTY_FORMAL_FEATURE + field, f"`{field_value}`", cells[3]])
+                rows.extend(guardduty_formal_rows(cells, guardduty_names))
             elif resource_type == "CloudTrail.Trail" and display_property.startswith("EventSelectors.DataResources["):
-                match = CLOUDTRAIL_DATA_RESOURCE.fullmatch(display_property)
-                if not match or int(match.group(1)) != cloudtrail_count + 1:
-                    raise ValueError("CloudTrail DataResources display indexes must start at 1 and be sequential")
-                resource_value = cells[2]
-                if match.group(2) == "S3" and resource_value == "`All current and future S3 buckets`":
-                    resource_value = '`["arn:aws:s3"]`'
-                elif mode != "IMPORT" and not re.fullmatch(r"\[[^\]]+\]\([^)]*#[^)]+\)", resource_value):
-                    raise ReferenceResolutionError("CloudTrail DataResources value must be a resource link or, for S3, `All current and future S3 buckets`", property=prop, reference=cells[2])
+                rows.extend(cloudtrail_formal_rows(cells, display_property, cloudtrail_count, mode))
                 cloudtrail_count += 1
                 changed = True
                 kind = "CloudTrail DataResources"
-                for field, value in (("Type", f"`{CLOUDTRAIL_RESOURCE_TYPES[match.group(2)]}`"), ("Values", resource_value)):
-                    rows.append([cells[0], CLOUDTRAIL_FORMAL_DATA_RESOURCE + field, value, cells[3]])
             else:
                 rows.append(cells)
             index += 1
@@ -722,7 +596,7 @@ def expanded_display_rows(lines: list[str], root: Path | None = None, *, modes=N
             changed = True
             kind = "Lambda Permission"
         if resource_type == "CodePipeline.Pipeline" and not packed_pipeline:
-            rows = _dependency_service_rows.pipeline_display_rows(rows)
+            rows = design.services.codepipeline.pipeline_display_rows(rows)
             changed = True
             kind = "CodePipeline"
         if resource_type in REQUIRED_NAME_TAG_TYPES:
@@ -899,3 +773,17 @@ def expanded_design(lines: list[str], *, normalized: bool = False,
             for number, cells in enumerate(child["rows"], 1):
                 result.append("| " + " | ".join([str(number), *cells[1:]]) + " |")
     return result, children
+
+
+@input_scope
+def formal_property(display: str, resource_type: str, root: Path | None = None) -> str:
+    """Restore the resource type omitted from a detail table's Property column."""
+    ROOT = _imports_aws_mapping_display.ROOT
+    formal_name = _imports_aws_mapping_display.formal_name
+    if resource_type and (formal := formal_name(display, resource_type, root or ROOT)):
+        return formal
+    if resource_type == "Lambda.Function" and display.startswith("Permission."):
+        return "Lambda." + display
+    if display.startswith(RESOURCE_PROPERTY_PREFIXES):
+        return display
+    return resource_type + "." + display if resource_type else display

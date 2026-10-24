@@ -9,7 +9,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import design_layout as _imports_design_layout
+import design.layout as _imports_design_layout
 import model.projection as _imports_model_projection
 import support.model_sources as _imports_support_model_sources
 import sync_runtime as _imports_sync_runtime

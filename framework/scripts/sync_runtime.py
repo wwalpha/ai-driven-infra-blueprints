@@ -21,7 +21,9 @@ import sync_views
 import task_contract_core as _imports_task_contract
 import validation_cache as _imports_validation_cache
 from aws_mapping_display import validate_mappings as validate_mappings
-from design_document import DesignIndex
+from design.document import DesignIndex
+from design.layout_schema import STACK_DESIGN
+from design.policy_tables import rendered_design
 from generation_inputs import GenerationInputs
 from issue_gate import require_no_issues
 from model.core import ReferenceResolutionError, entries
@@ -45,7 +47,6 @@ from model.validation import (
 from model.validation import (
     validate_required_properties as validate_required_properties,
 )
-from policy_tables import rendered_design
 from sync_files import markdown_newlines
 from sync_files import restore_files as restore_files
 from sync_files import save_files as save_files
@@ -74,7 +75,6 @@ from utils.input_cache import (
 )
 from utils.input_cache import memo_table as memo_table
 from utils.json_format import policy_json
-from utils.layout_schema import STACK_DESIGN
 from validation_scope import scoped_files
 
 

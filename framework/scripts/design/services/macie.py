@@ -6,12 +6,12 @@ import json
 import re
 from pathlib import Path
 
-JOB = re.compile(r"^### Macie\.ClassificationJob: ([A-Za-z0-9][A-Za-z0-9_.-]*)$")
-SCOPE = re.compile(r"^\|\s*\d+\s*\|\s*s3JobDefinition\s*\|\s*\[[^\]]+\]\(([^)#]+\.json)\)\s*\|")
-BUCKET_LINK = re.compile(r"^\[([^\]]+)\]\(([^)#]+#[^)]+)\)$")
-HEADER = "| Job | AWS account ID | Bucket |"
-ALIGNMENT = "| --- | --- | --- |"
-HEADING = "#### 対象S3 bucket"
+from design.services.definitions.macie import ALIGNMENT as ALIGNMENT
+from design.services.definitions.macie import BUCKET_LINK as BUCKET_LINK
+from design.services.definitions.macie import HEADER as HEADER
+from design.services.definitions.macie import HEADING as HEADING
+from design.services.definitions.macie import JOB as JOB
+from design.services.definitions.macie import SCOPE as SCOPE
 
 
 def job_bucket_tables(path: Path) -> dict[str, tuple[Path, list[dict]]]:
@@ -97,3 +97,35 @@ def write_job_bucket_definitions(path: Path) -> None:
         value["bucketDefinitions"] = definitions
         artifact.parent.mkdir(parents=True, exist_ok=True)
         artifact.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def job_errors(self, values: dict) -> list[str]:
+    """Cross-property API constraints; call after typed value validation."""
+    errors = []
+    if values.get("jobType") == "SCHEDULED" and "scheduleFrequency" not in values:
+        errors.append("SCHEDULED requires scheduleFrequency")
+    if values.get("jobType") == "ONE_TIME":
+        for prop in ("scheduleFrequency", "initialRun"):
+            if prop in values:
+                errors.append(f"ONE_TIME must omit {prop}")
+    selector = values.get("managedDataIdentifierSelector", "RECOMMENDED")
+    if selector in {"INCLUDE", "EXCLUDE"} and not values.get("managedDataIdentifierIds"):
+        errors.append(f"{selector} requires managedDataIdentifierIds")
+    if selector in {"ALL", "NONE", "RECOMMENDED"} and "managedDataIdentifierIds" in values:
+        errors.append(f"{selector} must omit managedDataIdentifierIds")
+    if selector == "NONE" and not values.get("customDataIdentifierIds"):
+        errors.append("NONE requires customDataIdentifierIds")
+    scoping = values.get("s3JobDefinition", {}).get("scoping", {})
+    for block in scoping.values():
+        for term in block.get("and", []):
+            simple = term.get("simpleScopeTerm", {})
+            key = simple.get("key")
+            if key:
+                operators = {"OBJECT_EXTENSION": {"EQ", "NE"}, "OBJECT_KEY": {"STARTS_WITH"}}.get(
+                    key, {"EQ", "NE", "GT", "GTE", "LT", "LTE"}
+                )
+                if simple.get("comparator") not in operators:
+                    errors.append(f"{key}: invalid comparator")
+                if key in {"OBJECT_SIZE", "OBJECT_LAST_MODIFIED_DATE"} and len(simple.get("values", [])) != 1:
+                    errors.append(f"{key}: requires exactly one value")
+    return errors

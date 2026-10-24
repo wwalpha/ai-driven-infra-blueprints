@@ -2,8 +2,8 @@
 
 import re
 
-from policy_tables import literal
-from service_rows import pipeline_rows
+from design.policy_tables import literal
+from design.services.codepipeline import pipeline_rows
 from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import put_row
 

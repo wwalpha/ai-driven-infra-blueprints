@@ -10,8 +10,8 @@ from pathlib import Path
 import model.core as _exports_model_core
 import model.files as _imports_model_files
 from aws_mapping_display import validation_rows
-from design_catalog import property_paths_with_parents
-from design_layout import (
+from design.catalog import property_paths_with_parents
+from design.layout import (
     SUBNET_LIST_PROPERTIES,
     catalog_order_errors,
     config_role_arn,
@@ -24,23 +24,23 @@ from design_layout import (
     resource_logical_ids,
     resource_modes,
 )
-from macie_bucket_tables import job_bucket_tables
-from model.core import ReferenceResolutionError, literal
-from model.core import entries as entries
-from model.projection import bound_resource_anchors, is_import_expression
-from policy_tables import iam_role_policy_artifact_filename
-from security_group_tables import security_group_table_lines
-from utils.input_cache import input_scope as input_scope
-from utils.input_cache import input_text
-from utils.layout_schema import (
+from design.layout_schema import (
     GROUPED,
     GROUPED_RESOURCE_TYPES,
     IMPLICIT_GROUPED_PROPERTIES,
-    REQUIRED_NAME_TAG_TYPES,
-    SECURITY_GROUP_TYPES,
     resource_anchor,
 )
-from utils.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
+from design.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
+from design.policy_tables import iam_role_policy_artifact_filename
+from design.services.definitions.ec2 import SECURITY_GROUP_TYPES
+from design.services.definitions.registry import REQUIRED_NAME_TAG_TYPES
+from design.services.ec2.security_groups import security_group_table_lines
+from design.services.macie import job_bucket_tables
+from model.core import ReferenceResolutionError, literal
+from model.core import entries as entries
+from model.projection import bound_resource_anchors, is_import_expression
+from utils.input_cache import input_scope as input_scope
+from utils.input_cache import input_text
 
 from .design import (
     ANCHOR_PATTERN,

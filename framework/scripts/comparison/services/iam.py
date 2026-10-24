@@ -2,7 +2,7 @@
 
 import re
 
-from policy_tables import POLICY_FORMATS
+from design.policy_tables import POLICY_FORMATS
 from utils.cloudformation.inputs import Blocked, condition_active
 from utils.iac_values import ResourceReference, same, unordered_same
 

@@ -5,9 +5,10 @@ from pathlib import Path
 from threading import Lock
 from types import MappingProxyType
 
+from design.services.definitions.registry import HIDDEN_PROPERTIES
+
 import utils.aws_mappings as _imports_utils_aws_mappings
 from utils.input_cache import input_select, input_text, memoized
-from utils.layout_schema import HIDDEN_PROPERTIES
 from utils.lazy_definitions import load_once
 
 _lock = Lock()

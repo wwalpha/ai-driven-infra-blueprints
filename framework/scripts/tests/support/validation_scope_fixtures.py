@@ -18,11 +18,11 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 
 import model.projection as model_projection
-from design_catalog import DesignSchemaCatalog
+from design.catalog import DesignSchemaCatalog
+from design.layout_schema import resource_anchor
 from model.files import read_model
 from support.model_sources import write_model
 from support.validator import load
-from utils.layout_schema import resource_anchor
 from validation_cache import PassCache
 from validation_scope import active_scope, scoped_files
 

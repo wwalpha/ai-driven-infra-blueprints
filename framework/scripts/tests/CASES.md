@@ -2937,3 +2937,12 @@ CloudFormation共通入力判定は `units/cloudformation-inputs-unit.checks.py`
 | `check_mismatch_display` | IT維持: `check_scan_publish_mismatch`。重複削除: NoEcho display side-channel/型/Tags/長文/ID/summary/detail/annotationsは既存 `check_mismatch_rendering` / `check_summary_scale` とstack NoEcho UT。 |
 | `check_state_report` | IT維持: scoped current report/対象外ordinary/実2出力Rollbackは `check_save_scope_and_rollback`。UT移設: KeyboardInterrupt×出力×replace前後は `check_report_publication_interruptions`、guard/空/壊れた旧IaC report置換は `check_current_run_report_and_guard`。重複削除: OSError staging/replace/afterは既存file_operations UT。 |
 | `check_glue_secret_reference` | UT移設: Glue/Secret Ref/GetAtt正式属性とwrong Arnは `test_formal_return_attributes`、同名別Secretとnested ConnectionInput比較は `test_glue_secret_identity`、Glue名/自己参照は `test_glue_connection_name`。重複削除: IAM Policy内のsecret同一性は既存test_issues_iacのcontextとreference contract。 |
+
+### Designサービス固定定義Registry
+
+| Case ID | Check | Class | File | Execution | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `design-definitions::values` | `check_values` | UT | [units/design-definitions-unit.checks.py](units/design-definitions-unit.checks.py) | direct / 1 | 移動前の31 Policy形式・参照・非表示・Name Tag・Packed定義を完全維持 | 固定baseline |
+| `design-definitions::duplicates` | `check_duplicates` | UT | [units/design-definitions-unit.checks.py](units/design-definitions-unit.checks.py) | direct / 1 | 6集合すべての重複登録を拒否 | 小型定義 |
+| `design-definitions::registration` | `check_registration` | UT | [units/design-definitions-unit.checks.py](units/design-definitions-unit.checks.py) | direct / 1 | 25サービスの明示登録・決定順・純粋データ依存 | 固定定義module |
+| `design-layout::import-order` | `check_import_order` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py) | pytest / 4 | Layout・Policy・EC2 SG・Model表示の先頭importで循環初期化を検出 | 独立Python process |

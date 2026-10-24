@@ -4,41 +4,27 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 
 import aws_mapping_display as mapping_display
+from model.core import literal
 from utils.input_cache import input_scope
 
-SECURITY_GROUP = "EC2.SecurityGroup"
-DIRECTIONS = {"Inbound": "Ingress", "Outbound": "Egress"}
-TAGS_PREFIX = "<!-- security-group-tags:"
-SECURITY_GROUP_ID_PREFIX = "<!-- security-group-id:"
+from design.common import row_table, table
+from design.layout_schema import ALIGNMENT, HEADER, RESOURCE
+from design.services.definitions.ec2 import COMMENTS as COMMENTS
+from design.services.definitions.ec2 import DIRECTIONS as DIRECTIONS
+from design.services.definitions.ec2 import GROUP_COMMENTS as GROUP_COMMENTS
+from design.services.definitions.ec2 import IDENTITY as IDENTITY
+from design.services.definitions.ec2 import SECURITY_GROUP as SECURITY_GROUP
+from design.services.definitions.ec2 import (
+    SECURITY_GROUP_ID_PREFIX as SECURITY_GROUP_ID_PREFIX,
+)
+from design.services.definitions.ec2 import TAGS_PREFIX as TAGS_PREFIX
+
+ROOT = Path(__file__).resolve().parents[5]
+
 OVERVIEW_COLUMNS = ["No.", "ResourceName", "Comment"]
-RESOURCE = re.compile(r"^### ([A-Za-z0-9]+\.[A-Za-z0-9]+): ([^<>|`\s](?:[^<>|`]*[^<>|`\s])?)$")
-IDENTITY = re.compile(r'^(Inbound|Outbound) <a id="([A-Za-z0-9_.-]+)"></a><!-- logical-id: ([A-Za-z0-9][A-Za-z0-9_.-]*) --><!-- rule-id: ([^<>]+) -->$')
-HEADER = "| No. | Property | Value | Source / Comment |"
-ALIGNMENT = "| ---: | --- | --- | --- |"
-COMMENTS = {
-    "Id": "一意に識別するID",
-    "IpProtocol": "通信を許可するIP protocol",
-    "FromPort": "許可するport範囲の開始値、またはICMP type",
-    "ToPort": "許可するport範囲の終了値、またはICMP code",
-    "CidrIp": "通信を許可するIPv4アドレス範囲",
-    "CidrIpv6": "通信を許可するIPv6アドレス範囲",
-    "SourcePrefixListId": "通信元として許可するPrefix ListのID",
-    "SourceSecurityGroupId": "通信元として許可するSecurity GroupのID",
-    "SourceSecurityGroupOwnerId": "通信元Security Groupを所有するAWS account ID",
-    "DestinationPrefixListId": "通信先として許可するPrefix ListのID",
-    "DestinationSecurityGroupId": "通信先として許可するSecurity GroupのID",
-    "Description": "用途の説明",
-}
-GROUP_COMMENTS = {
-    "Id": "一意に識別するID",
-    "GroupDescription": "用途の説明",
-    "GroupName": "名前",
-    "VpcId": "所属するVPCのID",
-    "Tags[].Key": "付与するタグのキー",
-    "Tags[].Value": "付与するタグの値",
-}
 
 
 def cells(line: str) -> list[str]:
@@ -294,3 +280,64 @@ def security_group_table_lines(lines: list[str], root=None) -> list[str]:
     if seen != groups.keys():
         raise ValueError("Security Group overview rows must have matching rule blocks")
     return result
+
+
+@input_scope
+def sg_tables(rows: list[list[str]], children: list[tuple[dict, list[list[str]]]], root: Path = ROOT, *, consumed: list[str] | None = None) -> list[str]:
+    basic, tags, rules = [], [], []
+    current = None
+    for row in rows:
+        prop = row[1].removeprefix("EC2.SecurityGroup.")
+        if match := re.fullmatch(r"SecurityGroup(Ingress|Egress)\[\]\.(.+)", prop):
+            direction, field = match.groups()
+            if field == "IpProtocol":
+                current = {"Direction": "Inbound" if direction == "Ingress" else "Outbound"}
+                rules.append(current)
+            if current is None or current["Direction"] != ("Inbound" if direction == "Ingress" else "Outbound"):
+                raise ValueError("SG inline rule must start with IpProtocol")
+            current[field] = row[2]
+        elif prop.startswith("Tags[]."):
+            if prop == "Tags[].Key":
+                tags.append({"Key": literal(row[2])})
+            elif prop == "Tags[].Value" and tags and "Value" not in tags[-1]:
+                tags[-1]["Value"] = literal(row[2])
+            else:
+                raise ValueError("SG tags require contiguous Key/Value pairs")
+        else:
+            basic.append([row[0], mapping_display.display_name(row[1], "EC2.SecurityGroup", root), *row[2:]])
+    output = row_table(basic)
+    if tags:
+        if any(set(tag) != {"Key", "Value"} for tag in tags):
+            raise ValueError("incomplete SG tag")
+        # JSON is Markdown metadata, not the Model scalar representation.
+        metadata = json.dumps(tags, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c").replace(">", "\\u003e")
+        output = ["<!-- security-group-tags: " + metadata + " -->", "", *output]
+    for child, child_rows in children:
+        values = {row[1].removeprefix(child["resourceType"] + "."): row[2] for row in child_rows}
+        direction = "Inbound" if child["resourceType"].endswith("Ingress") else "Outbound"
+        identifier = values.pop("Id")
+        values["Direction"] = f'{direction} <a id="{child["anchor"]}"></a><!-- logical-id: {child["logicalId"]} --><!-- rule-id: {identifier} -->'
+        rules.append(values)
+    for rule in rules:
+        first, last = rule.pop("FromPort", None), rule.pop("ToPort", None)
+        if (first is None) != (last is None):
+            raise ValueError("SG FromPort and ToPort must be supplied together")
+        if first is not None:
+            first, last = literal(first), literal(last)
+            protocol = literal(rule["IpProtocol"]).lower()
+            port = f"Type={first}, Code={last}" if protocol in {"icmp", "icmpv6", "1", "58"} else first if first == last else f"{first}-{last}"
+            rule["Port"] = f"`{port}`"
+        for peer in ("SourceSecurityGroupId", "DestinationSecurityGroupId"):
+            if peer in rule:
+                rule["Direction"] += f" <!-- security-group-id: {rule.pop(peer)} -->"
+    if rules:
+        fields = ["Direction", "IpProtocol", "Port", "CidrIp", "CidrIpv6", "SourcePrefixListId", "DestinationPrefixListId", "SourceSecurityGroupOwnerId", "Description"]
+        unknown = set().union(*(rule.keys() for rule in rules)) - set(fields)
+        if unknown:
+            raise ValueError(f"unsupported SG rule fields: {sorted(unknown)}")
+        fields = [field for field in fields if field in {"Direction", "Port"} or any(field in rule for rule in rules)]
+        output += ["", *table(fields, [[rule.get(field, "—") for field in fields] for rule in rules])]
+    if consumed is not None:
+        consumed.extend(row[0] for row in rows)
+        consumed.extend(row[0] for _, child_rows in children for row in child_rows)
+    return output

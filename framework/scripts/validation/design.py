@@ -11,34 +11,29 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 import aws_mapping_display as _imports_aws_mapping_display
-import design_layout as _dependency_design_layout
-import design_layout as _imports_design_layout
+import design.layout as _dependency_design_layout
+import design.layout as _imports_design_layout
+import design.policy_tables as _dependency_policy_tables
+import design.services.ec2.security_groups as _dependency_security_group_tables
 import model.files as _dependency_model_files
 import model.projection as _dependency_model_projection
 import model.render as _imports_model_render
 import model.sources as _dependency_model_sources
 import model.sources as _imports_model_sources
-import policy_tables as _dependency_policy_tables
-import security_group_tables as _dependency_security_group_tables
 import utils.aws_catalogs as _imports_utils_aws_catalogs
 import validation_scope as _dependency_validation_scope
-from design_catalog import (
+from design.catalog import (
     DesignSchemaCatalog,
     api_snapshot_errors,
     design_material_files,
 )
+from design.layout_schema import CHILD, GROUPED, STACK_DESIGN
+from design.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
+from design.services.definitions.ec2 import SECURITY_GROUP_TYPES
+from design.services.definitions.registry import HIDDEN_PROPERTIES, POLICY_FORMATS
 from model.core import ReferenceResolutionError, entries, properties
 from utils.cloudformation.schema import material_files, snapshot_errors
 from utils.input_cache import input_scope, input_text, memoized
-from utils.layout_schema import (
-    CHILD,
-    GROUPED,
-    HIDDEN_PROPERTIES,
-    POLICY_FORMATS,
-    SECURITY_GROUP_TYPES,
-    STACK_DESIGN,
-)
-from utils.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
 from utils.project_targets import LOWER_KEBAB_PATTERN
 
 TABLE_HEADER = "| No. | Property | Value | Source / Comment |"

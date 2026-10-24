@@ -5,12 +5,12 @@ import re
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
-import design_layout as _imports_design_layout
+import design.layout as _imports_design_layout
 import model.adapters.observed as _imports_model_adapters_observed
 import model.core as _imports_model_core
 import model.projection as _imports_model_projection
 import utils.cloudformation.format as _imports_cfn_format
-from design_layout import stack_deployment_policy, stack_design
+from design.layout import stack_deployment_policy, stack_design
 from model.core import properties
 from model.files import read_model
 from model.sources import model_exists

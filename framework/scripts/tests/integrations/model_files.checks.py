@@ -309,7 +309,7 @@ def check_resource_reading(root):
 def main():
     subprocess.run([sys.executable, '-B', '-c',
                     "import sys, model.core, model.files; "
-                    "assert not {'model.render', 'design_layout', 'sync_runtime', 'model_core', 'model_files'} & sys.modules.keys()"],
+                    "assert not {'model.render', 'design.layout', 'sync_runtime', 'model_core', 'model_files'} & sys.modules.keys()"],
                    cwd=ROOT / 'framework/scripts', check=True)
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()

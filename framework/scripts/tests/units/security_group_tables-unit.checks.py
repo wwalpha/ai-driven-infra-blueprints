@@ -12,10 +12,9 @@ from unittest.mock import patch
 import pytest
 from aws_mapping_display import selected_rows
 from comparison.values import desired_value
-from design_catalog import DesignSchemaCatalog
+from design.catalog import DesignSchemaCatalog
+from design.services.ec2.security_groups import cells, sg_tables
 from model.core import literal
-from model.display import sg_tables
-from security_group_tables import cells
 from support.fixture_cases import load_case, load_suite
 from support.security_group_tables_fixtures import (
     COMMENTS,

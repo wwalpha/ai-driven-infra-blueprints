@@ -14,28 +14,27 @@ import model.importing.scope as _imports_model_importing_scope
 import model.references as _imports_model_references
 import model.sources as _imports_model_sources
 from aws_mapping_display import validation_lines
-from design_document import DesignIndex
-from design_layout import (
+from design.document import DesignIndex
+from design.layout import (
     LINKED_LIST_PROPERTIES,
     design_model_values,
     formal_property,
     linked_list_property,
     resource_heading_lines,
 )
-from model.core import LINK, ReferenceResolutionError, entries, literal
-from model.files import resource_row_index
-from security_group_tables import security_group_table_lines
-from utils.input_cache import input_is_file, input_scope, input_select, input_text
-from utils.layout_schema import (
-    CLOUDTRAIL_DATA_RESOURCE,
-    CODEBUILD_FORMAL_VARIABLE,
-    CODEPIPELINE_STAGE,
-    DETAILS_HEADING,
-    GROUPED,
+from design.layout_schema import DETAILS_HEADING, GROUPED
+from design.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
+from design.services.definitions.cloudtrail import CLOUDTRAIL_DATA_RESOURCE
+from design.services.definitions.codebuild import CODEBUILD_FORMAL_VARIABLE
+from design.services.definitions.codepipeline import CODEPIPELINE_STAGE
+from design.services.definitions.registry import (
     REQUIRED_NAME_TAG_TYPES,
     RESOURCE_REFERENCE_PROPERTIES,
 )
-from utils.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
+from design.services.ec2.security_groups import security_group_table_lines
+from model.core import LINK, ReferenceResolutionError, entries, literal
+from model.files import resource_row_index
+from utils.input_cache import input_is_file, input_scope, input_select, input_text
 
 from .design import (
     ANCHOR_PATTERN,

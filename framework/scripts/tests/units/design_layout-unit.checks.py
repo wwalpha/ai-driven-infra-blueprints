@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import design_layout as _imports_design_layout
+import design.layout as _imports_design_layout
 import pytest as _imports_pytest
 import support.design_layout_fixtures as _exports_support_design_layout_fixtures
-from design_layout import resource_display_selection, resource_has_name_property
+from design.layout import resource_display_selection, resource_has_name_property
 from support.design_layout_fixtures import (
     REPOSITORY,
     Path,
@@ -31,6 +32,12 @@ if not __debug__:
 catalog = _exports_support_design_layout_fixtures.catalog
 resource_logical_ids = _exports_support_design_layout_fixtures.resource_logical_ids
 
+
+
+@pytest.mark.parametrize("module", ["design.layout", "design.policy_tables", "design.services.ec2.security_groups", "model.display"])
+def check_import_order(module):
+    result = subprocess.run([sys.executable, "-B", "-c", "import importlib; importlib.import_module(" + repr(module) + ")"], cwd=REPOSITORY / "framework/scripts", capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
 
 
 def check_resource_display_names():

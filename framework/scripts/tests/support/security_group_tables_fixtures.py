@@ -10,8 +10,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import tempfile
 
 import model.projection as model_projection
-from design_layout import expanded_design, layout_errors
-from security_group_tables import (
+from design.layout import expanded_design, layout_errors
+from design.layout_schema import LAYOUTS
+from design.services.ec2.security_groups import (
     COMMENTS,
     DIRECTIONS,
     port_properties,
@@ -19,7 +20,6 @@ from security_group_tables import (
 )
 from support.model_sources import write_model
 from support.validator import load
-from utils.layout_schema import LAYOUTS
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

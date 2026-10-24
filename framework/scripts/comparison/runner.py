@@ -7,14 +7,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeAlias
 
-from design_catalog import DesignSchemaCatalog
-from design_layout import resource_mode
+from design.catalog import DesignSchemaCatalog
+from design.layout import resource_mode
+from design.layout_schema import GROUPED
+from design.services.definitions.registry import HIDDEN_PROPERTIES
 from model.core import ReferenceResolutionError
 from utils.aws_catalogs import catalog_outputs
 from utils.cloudformation.inputs import Blocked, condition_active
 from utils.comparison_rows import Unresolved, put_row, select
 from utils.iac_values import Expression, ResourceReference
-from utils.layout_schema import GROUPED, HIDDEN_PROPERTIES
 from utils.type_contracts import JsonObject, JsonValue
 
 from . import evaluation, registry

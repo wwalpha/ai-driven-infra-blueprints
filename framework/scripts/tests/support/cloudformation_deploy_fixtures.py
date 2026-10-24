@@ -31,7 +31,7 @@ import utils.aws.client as _imports_utils_aws_client
 from deploy import controller as M
 from deploy import scheduler
 from deploy.s3_delivery import ALGORITHM, KEY
-from design_layout import stack_delivery
+from design.layout import stack_delivery
 from model.core import deployment_settings, entries, properties, stack_model
 from model.files import read_model
 from model.format import JSON_LINK

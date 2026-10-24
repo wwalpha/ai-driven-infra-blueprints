@@ -2,7 +2,7 @@
 
 import re
 
-import policy_tables as _imports_policy_tables
+import design.policy_tables as _imports_policy_tables
 from utils.comparison_rows import Unresolved, put_row
 
 

@@ -8,15 +8,19 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 
-import array_display as _dependency_array_display
 import aws_mapping_display as _dependency_aws_mapping_display
 import aws_mapping_display as _imports_aws_mapping_display
-import design_layout as _dependency_design_layout
-import policy_tables as _dependency_policy_tables
-import policy_tables as _imports_policy_tables
-from design_catalog import (
-    DesignSchemaCatalog as DesignSchemaCatalog,
-)
+import design.array_display as _dependency_array_display
+import design.layout as _dependency_design_layout
+import design.policy_tables as _dependency_policy_tables
+import design.policy_tables as _imports_policy_tables
+import design.services.ec2.security_groups as _ec2_security_groups
+from design.catalog import DesignSchemaCatalog as DesignSchemaCatalog
+from design.layout_schema import GROUPED, SUBNET_LIST_SOURCE
+from design.layout_schema import resource_anchor as resource_anchor
+from design.services.definitions.lambda_permission import LAMBDA_PERMISSION
+from design.services.definitions.registry import HIDDEN_PROPERTIES
+from design.services.definitions.secrets_manager import ROTATION_SCHEDULE
 from sync_files import changed_files
 from utils.aws_catalogs import catalog_outputs as catalog_outputs
 from utils.input_cache import (
@@ -28,14 +32,6 @@ from utils.input_cache import (
     recording_inputs,
 )
 from utils.json_format import policy_json
-from utils.layout_schema import (
-    GROUPED,
-    HIDDEN_PROPERTIES,
-    LAMBDA_PERMISSION,
-    ROTATION_SCHEDULE,
-    SUBNET_LIST_SOURCE,
-)
-from utils.layout_schema import resource_anchor as resource_anchor
 
 import model.display as _dependency_model_display
 import model.files as _imports_model_files
@@ -206,7 +202,7 @@ def resource_table_lines(resource, name, rows, children, root):
     kind = resource["resourceType"]
     if kind == "EC2.SecurityGroup":
         rules = [(child, _dependency_aws_mapping_display.selected_rows(child_rows, root)) for _, child, _, child_rows in children]
-        output += _dependency_model_display.sg_tables(_dependency_aws_mapping_display.selected_rows(rows, root), [(child, rows) for child, rows in rules if rows], root, consumed=consumed)
+        output += _ec2_security_groups.sg_tables(_dependency_aws_mapping_display.selected_rows(rows, root), [(child, rows) for child, rows in rules if rows], root, consumed=consumed)
     else:
         display = display_rows(kind, rows, root, mode=_dependency_design_layout.resource_mode(resource), consumed=consumed)
         for _, child, child_name, child_rows in children:

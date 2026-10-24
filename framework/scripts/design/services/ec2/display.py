@@ -3,8 +3,8 @@
 import json
 import re
 
-EC2_BLOCK_DEVICE = "EC2.Instance.BlockDeviceMappings[]."
-EC2_NAME_TAG = re.compile(r"^<!-- ec2-name-tag: (.+?) -->\s*")
+from design.services.definitions.ec2 import EC2_BLOCK_DEVICE as EC2_BLOCK_DEVICE
+from design.services.definitions.ec2 import EC2_NAME_TAG as EC2_NAME_TAG
 
 
 def ec2_display_rows(rows: list[list[str]]) -> list[list[str]]:
@@ -73,3 +73,29 @@ def ec2_formal_rows(rows: list[list[str]], resource_type: str) -> list[list[str]
             prop = EC2_BLOCK_DEVICE + field
         result.append([identity, prop, value, comment])
     return result
+
+
+def name_tag_display_name(resource_type, rows, fields, mode):
+    if mode == "IMPORT":
+        paths = [row[1].removeprefix(resource_type + ".") for row in rows]
+        for index, path in enumerate(paths):
+            if path == "Tags[].Key" and paths[index + 1:index + 2] != ["Tags[].Value"]:
+                raise ValueError(f"{resource_type} tag requires the corresponding Tags[].Value")
+            if path == "Tags[].Value" and (index == 0 or paths[index - 1] != "Tags[].Key"):
+                raise ValueError(f"{resource_type} tag requires the corresponding Tags[].Key")
+    keys = [index for index, row in enumerate(rows)
+            if row[1].removeprefix(resource_type + ".") == "Tags[].Key"
+            and row[2].strip("`\"") == "Name"]
+    if mode == "IMPORT" and not keys and "Name" not in fields:
+        return None
+    if "Name" in fields or len(keys) != 1:
+        raise ValueError(f"{resource_type} requires exactly one Tags[].Key=Name; design-only .Name is forbidden")
+    index = keys[0] + 1
+    if index >= len(rows) or rows[index][1].removeprefix(resource_type + ".") != "Tags[].Value":
+        raise ValueError(f"{resource_type} Name tag requires the corresponding Tags[].Value")
+    value = rows[index][2].strip("`\"")
+    if not value.strip() or value.strip().lower() in {
+        "unset", "pending", "pending_deploy", "tbd", "n/a", "none", "not-used", "not used", "unused", "未使用", "未確定",
+    } or value.startswith("[") or "{{" in value:
+        raise ValueError(f"{resource_type} Name tag value must be confirmed and non-empty")
+    return value

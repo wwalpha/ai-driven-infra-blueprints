@@ -6,8 +6,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import design_layout as _imports_design_layout
-from macie_bucket_tables import job_bucket_tables, write_job_bucket_definitions
+import design.layout as _imports_design_layout
+from design.services.macie import job_bucket_tables, write_job_bucket_definitions
 from support.design_catalog_fixtures import (
     MACIE_JOB,
     ROOT,

@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from functools import partial as _bind_framework_callback
 
-import array_display as _imports_array_display
-import design_document as _imports_design_document
+import design.array_display as _imports_array_display
+import design.document as _imports_design_document
 from support.it_case_receipt import it_case
 from support.validator import (
     MODULE,
@@ -301,7 +301,7 @@ def check_subnet_association_overview() -> None:
         changed = DesignDocument(design, design.read_text()).raw.expanded[0]
         assert tuple(line for line in changed if "| EC2." in line) == tuple(
             line for line in original if "| EC2." in line)
-        normalized, children = __import__("design_layout").expanded_design(details.splitlines())
+        normalized, children = __import__("design.layout", fromlist=["expanded_design"]).expanded_design(details.splitlines())
         assert not children
         assert sum("| EC2.SubnetRouteTableAssociation.RouteTableId |" in line for line in normalized) == 2
         assert any("| EC2.RouteTable.RouteTableId | `rtb-00000001` |" in line for line in normalized)

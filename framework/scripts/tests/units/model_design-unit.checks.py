@@ -13,10 +13,10 @@ import support.model_design_fixtures as _exports_support_model_design_fixtures
 import sync_runtime
 import validation.design as design_validation
 import validation.design_tables as design_tables
-from array_display import indexed_rows
-from design_catalog import DesignSchemaCatalog
-from design_document import DesignIndex
-from design_layout import (
+from design.array_display import indexed_rows
+from design.catalog import DesignSchemaCatalog
+from design.document import DesignIndex
+from design.layout import (
     catalog_order_errors,
     formal_property,
     is_import_pending_reference,
@@ -815,7 +815,7 @@ def check_stack_policy():
     assert '## Deployment設定' not in rendered and '| MaxConcurrentStacks |' not in rendered
     assert '<!-- max-concurrent-stacks: 3 -->' in rendered and '| Deploy<br>Order |' in rendered
     assert 'dependsOn' not in rendered
-    with patch('design_layout.input_text', return_value=rendered):
+    with patch('design.layout.input_text', return_value=rendered):
         assert stack_deployment_policy(path) == limit
         restored = stack_design(path)
     assert [{key: value for key, value in entry.items() if key != 'comment'} for entry in restored] == [entry for _, entry in stacks]

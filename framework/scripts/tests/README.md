@@ -167,3 +167,5 @@ seed・Project全生成・Git initは各66→6、初期Gitは330→30、Python�
 追加レビューでは、公開失敗UTのplanに実行証拠を持たせ、stage別I/O失敗後のplan全体保持とdesign既公開候補の不一致拒否を確認する。acceptの再試行は署名付きsessionの実saveを置換前後で中断し、実diskからrestoreして受理済revision・予約・状態を保持する。controllerのdesign I/O失敗には初回のpeer RUNNING状態を記録し、完了後のSUCCESSだけでdrainを代用しない。この記録のためのJSON読込は当該faultの初回だけで、通常invokeには追加しない。6 controllerフロー・小型IT1本・子process7回の構成とする。
 
 CloudFormation共通処理は`utils/cloudformation/inputs.py`（入力評価・Blocked）、`schema.py`（Schema/キャッシュ/Lock）、`format.py`（YAML/JSON解析）へ集約する。純粋な入力判定は`cloudformation-inputs-unit`、Comparison証跡は`comparison_core-unit`、解析とSchemaは既存専用UTが担当する。
+
+Design共通処理は `../design/`、サービス固有処理は `../design/services/` に配置する。固定定義の正本は `../design/services/definitions/<service>.py`、統合先は `../design/services/definitions/registry.py`。`units/design-definitions-unit.checks.py` は31 Policy形式と全固定定義の不変性・重複拒否・サービス登録漏れを検証する。既存のDesign関連UT/ITは新しい内部importを使い、公開CLIの入口は従来の2パスを維持する。

@@ -11,8 +11,8 @@ import json
 import os
 import tempfile
 
-from array_display import indexed_rows
-from design_catalog import (
+from design.array_display import indexed_rows
+from design.catalog import (
     MACIE_JOB,
     QUICKSIGHT_GROUP,
     DesignSchemaCatalog,

@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import support.policy_tables_fixtures as _retained_fixture_policy_mapping_cache
-from policy_tables import Policy, policy_document_lines, validate_policy_document
+from design.policy_tables import Policy, policy_document_lines, validate_policy_document
 from support.policy_tables_fixtures import (
     Path,
     iam_role_policy_artifact_filename,

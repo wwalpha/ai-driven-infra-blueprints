@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 
 import model.sources as _imports_model_sources
-from design_layout import resource_mode
+from design.layout import resource_mode
 from model.core import entries
 from utils.cfn_lint import POLICY, file_state, lint_session, runtime, validate_template
 from utils.iac_values import cfn_resource_identity

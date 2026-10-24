@@ -2,9 +2,9 @@
 
 import re
 
-import design_layout as _imports_design_layout
+import design.layout as _imports_design_layout
 import utils.cloudformation.inputs as _imports_cfn_inputs
-from design_catalog import DesignSchemaCatalog
+from design.catalog import DesignSchemaCatalog
 from issue_gate import require_target_no_issues
 from model.adapters.observed import (
     active_outputs,

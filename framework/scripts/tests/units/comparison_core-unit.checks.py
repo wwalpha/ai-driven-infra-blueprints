@@ -8,9 +8,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from functools import partial
 from unittest.mock import Mock
 
-from array_display import indexed_rows
 from comparison.resource import inactive_evidence
 from comparison.services.cloudtrail import cloudtrail_rows
+from design.array_display import indexed_rows
 from iac_evaluation import Evaluation
 from support.cloudformation_inputs_fixtures import condition_document
 from utils.cloudformation.inputs import Blocked

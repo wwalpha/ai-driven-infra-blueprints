@@ -6,7 +6,10 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 import sync_runtime as _imports_sync_runtime
-from design_catalog import DesignSchemaCatalog
+from design.catalog import DesignSchemaCatalog
+from design.layout_schema import GROUPED
+from design.services.definitions.codebuild import CODEBUILD_FORMAL_VARIABLE
+from design.services.definitions.registry import HIDDEN_PROPERTIES
 from issue_gate import require_target_no_issues as require_target_no_issues
 from task_contract_core import matches as matches
 from task_contract_core import paths_in as paths_in
@@ -23,7 +26,6 @@ from utils.cloudformation.inputs import (
 )
 from utils.iac_values import cfn_resource_identity
 from utils.input_cache import input_scope
-from utils.layout_schema import CODEBUILD_FORMAL_VARIABLE, GROUPED, HIDDEN_PROPERTIES
 from utils.project_targets import load_target_directory as load_target
 from utils.source_reads import FileReads
 from validation_scope import active_scope

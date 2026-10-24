@@ -26,7 +26,7 @@ import pytest
 import sync_files as _imports_sync_files
 from comparison import Comparison
 from comparison.result import identifier, value_differences
-from design_layout import resource_name_fields
+from design.layout import resource_name_fields
 from issue_gate import issue_errors
 from issues.aggregate import aggregate, iac_dataset, iac_summary
 from issues.artifact import detail_payload, review_payload, summary
@@ -247,7 +247,7 @@ def summary_fixture():
 @pytest.fixture(scope="module", autouse=True)
 def protected_sources():
     protected = [ROOT / 'framework/scripts' / name for name in
-                 ('comparison/runner.py', 'issue_gate.py', 'utils/comparison_rows.py', 'utils/iac_values.py', 'iac_evaluation.py', 'utils/script_loader.py', 'model/render.py', 'policy_tables.py')]
+                 ('comparison/runner.py', 'issue_gate.py', 'utils/comparison_rows.py', 'utils/iac_values.py', 'iac_evaluation.py', 'utils/script_loader.py', 'model/render.py', 'design/policy_tables.py')]
     protected.extend((ROOT / 'framework/scripts/issues').glob('*.py'))
     protected.extend((ROOT / 'framework/scripts/comparison').rglob('*.py'))
     protected.append(ROOT / 'framework/scripts/utils/cfn_lint.py')

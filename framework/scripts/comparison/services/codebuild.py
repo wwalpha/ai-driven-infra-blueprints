@@ -3,7 +3,7 @@
 import re
 from functools import partial as _bind_framework_callback
 
-from policy_tables import literal
+from design.policy_tables import literal
 from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import put_row
 from utils.iac_values import Expression, ResourceReference, same

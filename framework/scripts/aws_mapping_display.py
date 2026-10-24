@@ -7,10 +7,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import aws_mapping as _imports_aws_mapping
-import design_layout as _imports_design_layout
+import design.layout_schema as _imports_design_layout
 import model.display as _imports_model_display
 import model.identity as _imports_model_identity
 import model.projection as _imports_model_projection
+from design.services.definitions.lambda_permission import LAMBDA_PERMISSION
 from model.core import entries
 from utils.aws_mappings import mappings_for, owners
 from utils.input_cache import input_scope, memoized
@@ -114,7 +115,6 @@ def formal_name(display, heading, root=ROOT):
 def structural(prop):
     """These rows supply existing hidden/grouped identity metadata, not ordinary rows."""
     GROUPED = _imports_design_layout.GROUPED
-    LAMBDA_PERMISSION = _imports_design_layout.LAMBDA_PERMISSION
     owner = '.'.join(prop.split('.')[:2])
     group = GROUPED.get(owner, {})
     return prop in {LAMBDA_PERMISSION + '.Id', LAMBDA_PERMISSION + '.FunctionName'} or (
@@ -143,7 +143,6 @@ def compact_group(prop):
 @input_scope
 def selected_rows(rows, root=ROOT):
     GROUPED = _imports_design_layout.GROUPED
-    LAMBDA_PERMISSION = _imports_design_layout.LAMBDA_PERMISSION
     hidden_groups = {compact_group(row[1]) for row in rows if not show(row[1], root)} - {None}
     blocked = set()
     for identity, prop, *_ in rows:

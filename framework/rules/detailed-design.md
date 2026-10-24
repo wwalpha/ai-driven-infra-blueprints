@@ -296,7 +296,7 @@ Besides configuration-table policy JSON links, generate derived displays of JSON
 
 ### Targets and formats
 
-Machine-readable display-format definitions are `POLICY_FORMATS` in `framework/scripts/policy_tables.py`. Register exact-match formal catalog properties and verify types through provider schemas. Do not determine policy documents solely from property-name suffixes. When adding document-format policy properties to catalogs, update display-format registrations and focused checks in the same explicitly scoped task.
+Machine-readable display-format definitions are `POLICY_FORMATS` in `framework/scripts/design/services/definitions/registry.py`. Register exact-match formal catalog properties and verify types through provider schemas. Do not determine policy documents solely from property-name suffixes. When adding document-format policy properties to catalogs, update display-format registrations and focused checks in the same explicitly scoped task.
 
 | Format | Target |
 | --- | --- |
@@ -420,3 +420,5 @@ For Config IMPORT, a valid acquired IAM Role ARN remains complete in formal
 `Config.ConfigurationRecorder.RoleARN` and is displayed under `RoleARN`.
 IAM Role links and permitted service-role names retain `RoleName`; CREATE direct
 ARN literals are forbidden. Validate ResourceMode from the authoritative Model.
+
+Design Pythonの共通実装は `framework/scripts/design/`、AWSサービス固有の表示・復元は `design/services/` に置く。`POLICY_FORMATS` を含むDesign専用固定定義は `design/services/definitions/<service>.py` を正本とし、`design/services/definitions/registry.py` で明示的に統合する。Resource関係の共通契約は引き続き `framework/rules/resource-layout.json` を使う。公開CLIは `framework/scripts/design_catalog.py` と `framework/scripts/policy_tables.py` を維持する。

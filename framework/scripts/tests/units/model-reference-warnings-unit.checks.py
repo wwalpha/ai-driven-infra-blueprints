@@ -17,7 +17,7 @@ import model.references as references
 import model.sources as sources
 import pytest
 import sync_runtime as runtime
-from design_layout import expanded_display_rows
+from design.layout import expanded_display_rows
 from generation_inputs import GenerationInputs
 from import_guard import file_hash
 from model.cli import main

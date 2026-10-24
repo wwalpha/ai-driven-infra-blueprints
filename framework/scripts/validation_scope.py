@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-import design_layout
+import design.layout as design_layout
 import model.sources as _imports_model_sources
 from task_contract_core import active_scope as active_scope
 from utils.input_cache import input_is_file, input_select, input_text

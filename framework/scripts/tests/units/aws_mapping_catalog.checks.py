@@ -24,7 +24,7 @@ from aws_mapping import registry as mapping_registry
 from aws_mapping_catalog import catalog_properties, project
 from aws_mapping_display import MODEL_ONLY, display_name, formal_name
 from botocore.session import get_session
-from design_catalog import design_material_files
+from design.catalog import design_material_files
 from utils.aws_mappings import owners
 from utils.aws_sdk import Sdk, aws_runtime
 from utils.input_cache import input_scope

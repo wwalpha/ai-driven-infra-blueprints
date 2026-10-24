@@ -1,22 +1,22 @@
 
 import json
 
-from design_catalog import selected_properties
-from design_layout import (
+from design.catalog import selected_properties
+from design.layout import (
     resource_has_name_property,
     resource_mode,
     resource_name_fields,
 )
+from design.policy_tables import literal
+from design.services.definitions.registry import REQUIRED_NAME_TAG_TYPES
 from model.validation import (
     NAMING_EXEMPT_PROPERTIES,
     naming_rule_files,
     naming_target_matches,
     naming_targets,
 )
-from policy_tables import literal
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_mappings import definition_root
-from utils.layout_schema import REQUIRED_NAME_TAG_TYPES
 
 from .records import identifier, safe_text
 from .reports import inventories, numbered, owned_blocks, without_notices

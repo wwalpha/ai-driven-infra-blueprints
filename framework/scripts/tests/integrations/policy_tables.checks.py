@@ -7,8 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-import policy_tables as _imports_policy_tables
-from design_layout import expanded_design
+import design.policy_tables as _imports_policy_tables
+from design.layout import expanded_design
 from support import design_layout_fixtures as layout_fixture
 from support.policy_tables_fixtures import (
     ALIGNMENT,

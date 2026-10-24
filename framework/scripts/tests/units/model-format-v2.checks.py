@@ -16,7 +16,7 @@ import model.references as _imports_model_references
 import model.render as _imports_model_render
 import pytest
 from aws_mapping_compare import value as mapped_value
-from design_catalog import DesignSchemaCatalog
+from design.catalog import DesignSchemaCatalog
 from model.core import entries
 from model.format import FORMAT, serialize
 from model.format import parse as parse

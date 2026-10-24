@@ -11,8 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
 
-from array_display import SOURCE, indexed_rows, restored_rows
-from design_catalog import DesignSchemaCatalog, design_material_files
+from design.array_display import SOURCE, indexed_rows, restored_rows
+from design.catalog import DesignSchemaCatalog, design_material_files
 from utils.input_cache import input_scope
 
 if not __debug__:

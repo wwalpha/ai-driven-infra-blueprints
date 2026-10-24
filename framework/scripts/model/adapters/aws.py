@@ -27,8 +27,8 @@ from urllib.parse import unquote
 import aws_mapping_compare as _imports_aws_mapping_compare
 import utils.iac_values as _imports_iac_values
 import utils.project_targets as _imports_project_targets
-from design_catalog import DesignSchemaCatalog, selected_properties
-from policy_tables import literal
+from design.catalog import DesignSchemaCatalog, selected_properties
+from design.policy_tables import literal
 from utils.aws.identity import (
     IdentityError,
     execution_account,

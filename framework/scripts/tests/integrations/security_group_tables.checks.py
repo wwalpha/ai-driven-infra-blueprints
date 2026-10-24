@@ -9,9 +9,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import json
 
+from design.services.ec2.security_groups import cells
 from model.render import markdown_for
 from model.sources import load_model
-from security_group_tables import cells
 from support.fixture_cases import load_case, load_suite
 from support.it_case_receipt import it_case
 from support.security_group_tables_fixtures import (

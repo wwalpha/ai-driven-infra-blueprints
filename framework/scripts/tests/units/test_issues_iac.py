@@ -18,7 +18,7 @@ import issues.aggregate as _imports_issues_aggregate
 import utils.json_format as _imports_utils_json_format
 from comparison import registry
 from comparison.values import PreparedValue
-from design_catalog import DesignSchemaCatalog
+from design.catalog import DesignSchemaCatalog
 from model.format import serialize
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference

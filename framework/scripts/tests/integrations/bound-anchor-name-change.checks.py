@@ -11,7 +11,7 @@ from contextlib import redirect_stdout
 
 import pytest
 import sync_runtime
-from design_document import DesignIndex
+from design.document import DesignIndex
 from model.core import entries
 from model.projection import bound_resource_anchors
 from model.render import markdown_for

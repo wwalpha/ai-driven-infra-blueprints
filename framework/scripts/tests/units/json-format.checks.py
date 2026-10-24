@@ -75,7 +75,7 @@ def check_output_bytes_and_hashes():
 
 
 
-@pytest.mark.parametrize('first', ['utils.aws_mappings', 'model.sources', 'model.adapters.aws', 'policy_tables'])
+@pytest.mark.parametrize('first', ['utils.aws_mappings', 'model.sources', 'model.adapters.aws', 'design.policy_tables'])
 def check_isolated_imports_and_standalone_audit(first, tmp_path):
     scripts = Path(__file__).resolve().parents[2]
     code = f'''

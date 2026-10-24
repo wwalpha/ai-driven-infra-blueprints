@@ -12,7 +12,8 @@ import tempfile
 
 import model.projection as model_projection
 import sync_views
-from design_layout import expanded_design as expanded_design
+from design.layout import expanded_design as expanded_design
+from design.layout_schema import resource_anchor as resource_anchor
 from model.core import properties
 from model.files import read_model
 from model.render import markdown_for
@@ -21,7 +22,6 @@ from support.it_case_receipt import it_case
 from support.model_sources import write_model
 from support.rotation_schedule_fixtures import fixture
 from support.validator import load as load
-from utils.layout_schema import resource_anchor as resource_anchor
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

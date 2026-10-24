@@ -14,7 +14,7 @@ from comparison.reference_evidence import Evidence
 from comparison.resource import inline_owner
 from comparison.services.iam import managed_policy_roles
 from comparison.values import PreparedValue, compare_values
-from design_catalog import DesignSchemaCatalog
+from design.catalog import DesignSchemaCatalog
 from issues.materials import naming_materials
 from model.references import declarations
 from model.sources import ModelSnapshot, Scope

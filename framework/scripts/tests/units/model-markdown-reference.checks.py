@@ -16,8 +16,8 @@ import model.importing.references as _imports_model_importing_references
 import model.render as _imports_model_render
 import model.sources as _imports_model_sources
 import model.validation as _imports_model_validation
-from array_display import indexed_rows, restored_rows
-from design_document import DesignIndex
+from design.array_display import indexed_rows, restored_rows
+from design.document import DesignIndex
 from model.core import (
     ReferenceResolutionError,
     entries,

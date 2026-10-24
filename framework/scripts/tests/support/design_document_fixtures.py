@@ -14,11 +14,11 @@ from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 import aws_mapping_display
-import design_document as documents
+import design.document as documents
 import model.core as model_core
 import model.projection as model_projection
 import model.render as model_design
-from design_document import DesignIndex
+from design.document import DesignIndex
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

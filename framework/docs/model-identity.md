@@ -29,7 +29,7 @@ renumbering a saved Resource.
 The internal fixed identity is typed logicalId. The independent saved
 `desired.resource.<number>.anchor` is the design link destination. Preserve it for name-only changes and dedicated operations; ordinary explicitly authorized
 corrections may repair it along with every affected saved reference. New anchors use the existing
-`design_layout.resource_anchor()` and confirmed naming rules, without speculative suffixes.
+`design.layout.resource_anchor()` and confirmed naming rules, without speculative suffixes.
 
 Save the original Markdown Resource reference, for example
 `[lmda-venusinf-dev-inbound-detect](lambda.md#lambda-lmda-venusinf-dev-inbound-detect)`.

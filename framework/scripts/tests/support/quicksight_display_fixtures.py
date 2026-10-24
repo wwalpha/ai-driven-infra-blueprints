@@ -7,9 +7,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
-from design_layout import expanded_design
+from design.layout import expanded_design
+from design.layout_schema import ALIGNMENT, HEADER
 from model.display import display_rows
-from utils.layout_schema import ALIGNMENT, HEADER
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

@@ -6,15 +6,16 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 
-import design_document as _dependency_design_document
+import design.document as _dependency_design_document
+import design.policy_tables as _imports_policy_tables
 import json_intrinsics as _imports_json_intrinsics
-import policy_tables as _imports_policy_tables
 import utils.json_format as _imports_utils_json_format
-from design_catalog import design_material_files
+from design.catalog import design_material_files
+from design.layout_schema import RESOURCE
+from design.services.definitions.registry import HIDDEN_PROPERTIES
 from utils.aws_catalogs import catalog_outputs as catalog_outputs
 from utils.input_cache import input_is_file, input_text, memoized
 from utils.json_format import document_sha256, policy_json, validate_aws_document
-from utils.layout_schema import HIDDEN_PROPERTIES, RESOURCE
 
 import model.identity as _dependency_model_identity
 import model.identity as _imports_model_identity

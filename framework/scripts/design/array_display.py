@@ -7,10 +7,11 @@ import re
 from pathlib import Path
 
 import aws_mapping_display as _imports_aws_mapping_display
-from design_catalog import DesignSchemaCatalog
 from utils.input_cache import input_scope, memoized
 
-ROOT = Path(__file__).resolve().parents[2]
+from design.catalog import DesignSchemaCatalog
+
+ROOT = Path(__file__).resolve().parents[3]
 SOURCE = re.compile(r"^<!-- array-source: (.+?) --> ")
 ARRAY = re.compile(r"\[\]")
 

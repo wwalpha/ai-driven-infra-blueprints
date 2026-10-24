@@ -38,8 +38,8 @@ import utils.aws_mappings as _imports_utils_aws_mappings
 import utils.aws_schemas as _imports_utils_aws_schemas
 import validation.findings as _imports_validation_findings
 import validation.task as _imports_validation_task
-from design_document import DesignIndex
-from design_layout import expanded_design, stack_deployment_policy, stack_design
+from design.document import DesignIndex
+from design.layout import expanded_design, stack_deployment_policy, stack_design
 from import_guard import snapshots
 from model.files import load_model, read_model
 from model.format import FORMAT, INDEX, serialize

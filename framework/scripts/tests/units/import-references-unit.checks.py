@@ -12,11 +12,13 @@ import json
 from contextlib import closing, contextmanager
 from unittest.mock import patch
 
+import design.services.codebuild as _imports_codebuild
 import model.sources
 import pytest
-import service_rows as _imports_service_rows
-from design_document import DesignIndex
-from design_layout import expanded_display_rows
+from design.document import DesignIndex
+from design.layout import expanded_display_rows
+from design.layout_schema import ALIGNMENT, HEADER
+from design.services.definitions.codebuild import CODEBUILD_FORMAL_VARIABLE
 from generation_inputs import GenerationInputs
 from import_guard import require_import_changes, resource_config
 from model.core import entries as entries
@@ -41,7 +43,6 @@ from model.references import declarations, incoming
 from model.render import generate_markdown
 from model.sources import Scope, candidate_sources, json_text
 from model.sources import load_model as load_for_edit
-from service_rows import CODEBUILD_FORMAL_VARIABLE
 from support.model_sources import write_model
 from support.model_v2_fixtures import value_snapshot as Expansion
 from support.producer_identifier_reference_fixtures import reference
@@ -49,7 +50,6 @@ from task_contract_core import start
 from utils.aws_mappings import owners
 from utils.input_cache import input_context
 from utils.json_format import document_sha256
-from utils.layout_schema import ALIGNMENT, HEADER
 from utils.reference_contracts import contract
 from utils.source_reads import FileReads
 from validation.design_links import check_design_links as _check_design_links
@@ -316,9 +316,9 @@ def check_declared_identifier_forms(tmp_path, prop, kind, attrs, raw, context):
 
 
 def check_import_compact_display_and_create_guards():
-    CODEBUILD_FORMAL_VARIABLE = _imports_service_rows.CODEBUILD_FORMAL_VARIABLE
-    codebuild_display_row = _imports_service_rows.codebuild_display_row
-    codebuild_formal_rows = _imports_service_rows.codebuild_formal_rows
+    CODEBUILD_FORMAL_VARIABLE = _imports_codebuild.CODEBUILD_FORMAL_VARIABLE
+    codebuild_display_row = _imports_codebuild.codebuild_display_row
+    codebuild_formal_rows = _imports_codebuild.codebuild_formal_rows
     prop = 'CodeBuild.Project.VpcConfig.Subnets'
     raw = '`["[private](vpc.md#resource-EC2_Subnet_001)","subnet-external"]`'
     rows = [['001-001', prop, raw, '合成入力']]

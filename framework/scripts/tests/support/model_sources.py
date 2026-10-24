@@ -6,7 +6,7 @@ from functools import partial as _bind_framework_callback
 from unittest.mock import patch
 
 import aws_mapping_display as _imports_aws_mapping_display
-import design_layout as _imports_design_layout
+import design.layout as _imports_design_layout
 import model.identity as _imports_model_identity
 import model.projection as _imports_model_projection
 import utils.input_cache as _imports_input_cache

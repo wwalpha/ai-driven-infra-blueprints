@@ -13,10 +13,10 @@ import socket
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from design.layout_schema import resource_anchor
 from model.render import markdown_for
 from support.model_sources import snapshot_model, write_model
 from sync_views import validate_views
-from utils.layout_schema import resource_anchor
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

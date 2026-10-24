@@ -14,7 +14,7 @@ import model.projection as model_projection
 import model.render as model_design
 import pytest
 import sync_runtime
-from design_layout import (
+from design.layout import (
     SUBNET_LIST_PROPERTIES,
     expanded_design,
     expanded_display_rows,
@@ -23,18 +23,17 @@ from design_layout import (
     resource_display_name,
     resource_logical_ids,
 )
+from design.layout_schema import LAYOUTS, resource_anchor
+from design.policy_tables import resources_in
+from design.services.codepipeline import pipeline_rows
+from design.services.definitions.registry import (
+    HIDDEN_PROPERTIES,
+    RESOURCE_REFERENCE_PROPERTIES,
+)
 from model.display import display_rows, row_table
-from policy_tables import resources_in
-from service_rows import pipeline_rows
 from support.model_sources import write_model
 from support.pytest_cli import run
 from support.validator import load
-from utils.layout_schema import (
-    HIDDEN_PROPERTIES,
-    LAYOUTS,
-    RESOURCE_REFERENCE_PROPERTIES,
-    resource_anchor,
-)
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

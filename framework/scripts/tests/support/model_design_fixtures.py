@@ -22,8 +22,8 @@ import pytest
 import sync_files
 import sync_runtime
 import sync_views
-from design_catalog import DesignSchemaCatalog
-from design_layout import (
+from design.catalog import DesignSchemaCatalog
+from design.layout import (
     SUBNET_LIST_PROPERTIES,
     catalog_order_errors,
     expanded_display_rows,
@@ -32,6 +32,9 @@ from design_layout import (
     stack_deployment_policy,
     stack_design,
 )
+from design.layout_schema import ALIGNMENT, HEADER, resource_anchor
+from design.services.definitions.codebuild import CODEBUILD_VPC_PROPERTIES
+from design.services.ec2.security_groups import COMMENTS, GROUP_COMMENTS
 from model.core import properties, stack_model
 from model.display import catalog_display_rows, display_rows, row_table
 from model.files import load_model, read_model
@@ -45,16 +48,9 @@ from model.validation import (
     naming_targets,
     validate_kms_policy_accounts,
 )
-from security_group_tables import COMMENTS, GROUP_COMMENTS
 from support.model_sources import snapshot_model, write_fixture_files, write_model
 from support.pytest_cli import Diagnostics, run
 from support.validator import load
-from utils.layout_schema import (
-    ALIGNMENT,
-    CODEBUILD_VPC_PROPERTIES,
-    HEADER,
-    resource_anchor,
-)
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

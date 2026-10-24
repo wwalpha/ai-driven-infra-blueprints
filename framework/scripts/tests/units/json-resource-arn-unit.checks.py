@@ -12,7 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from design_catalog import DesignSchemaCatalog
+from design.catalog import DesignSchemaCatalog
+from design.policy_tables import Policy, validate_policy_document
 from generation_inputs import GenerationInputs
 from json_intrinsics import project_document
 from model.format import serialize
@@ -22,7 +23,6 @@ from model.projection import execution_document, json_sha256, reference_display
 from model.render import generate_files
 from model.sources import Scope, SourceWriteContext, load_model, runtime_values
 from model.validation import validate_json_settings
-from policy_tables import Policy, validate_policy_document
 from sync_runtime import generate_views
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.format import decode_file as decode

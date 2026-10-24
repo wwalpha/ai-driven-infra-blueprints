@@ -16,10 +16,11 @@ import aws_mapping_display
 import model.projection as model_projection
 import pytest
 import utils.aws_mappings as _imports_utils_aws_mappings
-from array_display import indexed_rows
-from policy_tables import IAM_END as END
-from policy_tables import IAM_START as START
-from policy_tables import (
+from design.array_display import indexed_rows
+from design.layout_schema import ALIGNMENT, HEADER
+from design.policy_tables import IAM_END as END
+from design.policy_tables import IAM_START as START
+from design.policy_tables import (
     iam_role_policy_artifact_filename,
     main,
     policy_lines,
@@ -30,7 +31,6 @@ from policy_tables import (
 from support.pytest_cli import run
 from support.validator import load
 from utils.input_cache import input_scope
-from utils.layout_schema import ALIGNMENT, HEADER
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

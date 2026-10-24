@@ -1,18 +1,31 @@
 """Catalog ordering and common display tables, separate from document assembly."""
 
 import json
-import re
 from collections import Counter
 from pathlib import Path
 
 import aws_mapping_display as _display_aws_mapping_display
-import design_layout as _display_design_layout
-import design_layout as _imports_design_layout
-import policy_tables as _dependency_policy_tables
-import service_rows as _dependency_service_rows
-from ec2_display import ec2_display_rows
+import design.common as _display_common
+import design.compact_rows
+import design.layout_schema as _display_design_layout
+import design.services.codebuild
+import design.services.codepipeline
+import design.services.config as _imports_design_layout
+import design.services.definitions.registry as _display_definitions
+import design.services.glue
+from design.common import row_table as row_table
+from design.services.cloudtrail import display_row as cloudtrail_display_row
+from design.services.definitions.cloudtrail import (
+    CLOUDTRAIL_FORMAL_DATA_RESOURCE,
+)
+from design.services.definitions.codebuild import (
+    CODEBUILD_FORMAL_VARIABLE,
+    CODEBUILD_VPC_PROPERTIES,
+)
+from design.services.definitions.guardduty import GUARDDUTY_FORMAL_FEATURE
+from design.services.ec2.display import ec2_display_rows
+from design.services.guardduty import display_row as guardduty_display_row
 from utils.input_cache import input_scope
-from utils.layout_schema import CODEBUILD_FORMAL_VARIABLE
 
 from model.core import LINK, ReferenceResolutionError, literal
 
@@ -23,7 +36,7 @@ def catalog_display_rows(rows: list[list[str]], kind: str, root: Path) -> list[l
     """Sort property blocks without separating contiguous array elements."""
     if kind == "EC2.SecurityGroup" or _display_design_layout.GROUPED.get(kind, {}).get("display") == "rule-table":
         return rows  # Horizontal rule tables have their own generation and restoration.
-    order = dict(_display_design_layout.catalog_property_order(root, kind) or {})
+    order = dict(_display_common.catalog_property_order(root, kind) or {})
     if kind == "CodeBuild.Project":
         subnets, groups = kind + ".VpcConfig.Subnets", kind + ".VpcConfig.SecurityGroupIds"
         order[subnets], order[groups] = order[groups], order[subnets]
@@ -61,7 +74,7 @@ def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="C
     while index < len(rows):
         start = index
         identity, prop, value, comment = rows[index]
-        packed = _dependency_service_rows.packed_compact_rows(rows, index) if mode == 'IMPORT' else None
+        packed = design.compact_rows.packed_compact_rows(rows, index) if mode == 'IMPORT' else None
         if packed is not None:
             block, expanded = packed
             rendered = display_rows(kind, expanded, root, mode=mode, _counts=counts)
@@ -74,15 +87,15 @@ def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="C
             index += len(block)
             continue
         if prop == CODEBUILD_FORMAL_VARIABLE + "Name":
-            _, prop, value, comment = _dependency_service_rows.codebuild_display_row(rows, index, comment, mode=mode)
+            _, prop, value, comment = design.services.codebuild.codebuild_display_row(rows, index, comment, mode=mode)
             index += 2
         elif prop in _display_design_layout.LINKED_LIST_PROPERTIES:
             linked = LINK.fullmatch(value)
-            if prop in _display_design_layout.CODEBUILD_VPC_PROPERTIES and not linked and mode != "IMPORT":
+            if prop in CODEBUILD_VPC_PROPERTIES and not linked and mode != "IMPORT":
                 if literal(value).lstrip().startswith(('[', '{')):
-                    _display_design_layout.subnet_list_items(prop, value)
+                    _display_common.subnet_list_items(prop, value)
                 raise ReferenceResolutionError("CodeBuild VpcConfig value must be a resource link", property=prop, reference=value)
-            items = [value] if linked else _display_design_layout.subnet_list_items(prop, value)
+            items = [value] if linked else _display_common.subnet_list_items(prop, value)
             source = ""
             if not linked:
                 encoded = json.dumps(value, ensure_ascii=True)
@@ -96,25 +109,13 @@ def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="C
             processed.extend(row[0] for row in rows[start:index + 1])
             index += 1
             continue
-        elif prop == _display_design_layout.GUARDDUTY_FORMAL_FEATURE + "Name":
-            if index + 1 >= len(rows) or rows[index + 1][1] != _display_design_layout.GUARDDUTY_FORMAL_FEATURE + "Status":
-                raise ValueError("GuardDuty features require contiguous Name/Status rows")
-            prop = "GuardDuty.Detector.Features." + literal(value)
-            value = rows[index + 1][2]
+        elif prop == GUARDDUTY_FORMAL_FEATURE + "Name":
+            prop, value = guardduty_display_row(rows, index)
             index += 1
-        elif prop == _display_design_layout.CLOUDTRAIL_FORMAL_DATA_RESOURCE + "Type":
-            if index + 1 >= len(rows) or rows[index + 1][1] != _display_design_layout.CLOUDTRAIL_FORMAL_DATA_RESOURCE + "Values":
-                raise ValueError("CloudTrail data resources require contiguous Type/Values rows")
-            types = {value: key for key, value in _display_design_layout.CLOUDTRAIL_RESOURCE_TYPES.items()}
-            if literal(value) not in types:
-                raise ValueError("unsupported CloudTrail data resource type")
-            counts["data"] = counts.get("data", 0) + 1
-            prop = f"CloudTrail.Trail.EventSelectors.DataResources[{counts['data']}].{types[literal(value)]}"
-            value = rows[index + 1][2]
-            if literal(value) == '["arn:aws:s3"]' or mode == 'IMPORT' and literal(value) == 'arn:aws:s3':
-                value = "`All current and future S3 buckets`"
+        elif prop == CLOUDTRAIL_FORMAL_DATA_RESOURCE + "Type":
+            prop, value = cloudtrail_display_row(rows, index, counts, mode)
             index += 1
-        elif prop.startswith((CODEBUILD_FORMAL_VARIABLE, _display_design_layout.GUARDDUTY_FORMAL_FEATURE, _display_design_layout.CLOUDTRAIL_FORMAL_DATA_RESOURCE)) and not prop.startswith(_display_design_layout.GUARDDUTY_FORMAL_FEATURE + "AdditionalConfiguration"):
+        elif prop.startswith((CODEBUILD_FORMAL_VARIABLE, GUARDDUTY_FORMAL_FEATURE, CLOUDTRAIL_FORMAL_DATA_RESOURCE)) and not prop.startswith(GUARDDUTY_FORMAL_FEATURE + "AdditionalConfiguration"):
             raise ValueError(f"incomplete compact display group: {prop}")
         # Compact producers own their dynamic names; ordinary rows use Mapping names.
         item = _display_aws_mapping_display.rule(prop, root) if not _display_aws_mapping_display.compact_group(prop) and prop in formal_properties else None
@@ -126,76 +127,11 @@ def display_rows(kind: str, rows: list[list[str]], root: Path = ROOT, *, mode="C
     if Counter(processed) != Counter(row[0] for row in rows):
         raise ValueError("selected display rows were omitted or consumed more than once")
     if kind == "CodePipeline.Pipeline":
-        result = _dependency_service_rows.pipeline_rows(result)
-    elif kind in _display_design_layout.REQUIRED_NAME_TAG_TYPES:
+        result = design.services.codepipeline.pipeline_rows(result)
+    elif kind in _display_definitions.REQUIRED_NAME_TAG_TYPES:
         result = ec2_display_rows(result)
     elif kind == "Glue.Job":
-        result = _dependency_service_rows.glue_argument_rows(result, kind)
+        result = design.services.glue.glue_argument_rows(result, kind)
     if consumed is not None:
         consumed.extend(processed)
     return result
-
-
-def row_table(rows: list[list[str]]) -> list[str]:
-    return [_display_design_layout.HEADER, _display_design_layout.ALIGNMENT, *("| " + " | ".join([str(number), *row[1:]]) + " |" for number, row in enumerate(rows, 1))]
-
-
-@input_scope
-def sg_tables(rows: list[list[str]], children: list[tuple[dict, list[list[str]]]], root: Path = ROOT, *, consumed: list[str] | None = None) -> list[str]:
-    basic, tags, rules = [], [], []
-    current = None
-    for row in rows:
-        prop = row[1].removeprefix("EC2.SecurityGroup.")
-        if match := re.fullmatch(r"SecurityGroup(Ingress|Egress)\[\]\.(.+)", prop):
-            direction, field = match.groups()
-            if field == "IpProtocol":
-                current = {"Direction": "Inbound" if direction == "Ingress" else "Outbound"}
-                rules.append(current)
-            if current is None or current["Direction"] != ("Inbound" if direction == "Ingress" else "Outbound"):
-                raise ValueError("SG inline rule must start with IpProtocol")
-            current[field] = row[2]
-        elif prop.startswith("Tags[]."):
-            if prop == "Tags[].Key":
-                tags.append({"Key": literal(row[2])})
-            elif prop == "Tags[].Value" and tags and "Value" not in tags[-1]:
-                tags[-1]["Value"] = literal(row[2])
-            else:
-                raise ValueError("SG tags require contiguous Key/Value pairs")
-        else:
-            basic.append([row[0], _display_aws_mapping_display.display_name(row[1], "EC2.SecurityGroup", root), *row[2:]])
-    output = row_table(basic)
-    if tags:
-        if any(set(tag) != {"Key", "Value"} for tag in tags):
-            raise ValueError("incomplete SG tag")
-        # JSON is Markdown metadata, not the Model scalar representation.
-        metadata = json.dumps(tags, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c").replace(">", "\\u003e")
-        output = ["<!-- security-group-tags: " + metadata + " -->", "", *output]
-    for child, child_rows in children:
-        values = {row[1].removeprefix(child["resourceType"] + "."): row[2] for row in child_rows}
-        direction = "Inbound" if child["resourceType"].endswith("Ingress") else "Outbound"
-        identifier = values.pop("Id")
-        values["Direction"] = f'{direction} <a id="{child["anchor"]}"></a><!-- logical-id: {child["logicalId"]} --><!-- rule-id: {identifier} -->'
-        rules.append(values)
-    for rule in rules:
-        first, last = rule.pop("FromPort", None), rule.pop("ToPort", None)
-        if (first is None) != (last is None):
-            raise ValueError("SG FromPort and ToPort must be supplied together")
-        if first is not None:
-            first, last = literal(first), literal(last)
-            protocol = literal(rule["IpProtocol"]).lower()
-            port = f"Type={first}, Code={last}" if protocol in {"icmp", "icmpv6", "1", "58"} else first if first == last else f"{first}-{last}"
-            rule["Port"] = f"`{port}`"
-        for peer in ("SourceSecurityGroupId", "DestinationSecurityGroupId"):
-            if peer in rule:
-                rule["Direction"] += f" <!-- security-group-id: {rule.pop(peer)} -->"
-    if rules:
-        fields = ["Direction", "IpProtocol", "Port", "CidrIp", "CidrIpv6", "SourcePrefixListId", "DestinationPrefixListId", "SourceSecurityGroupOwnerId", "Description"]
-        unknown = set().union(*(rule.keys() for rule in rules)) - set(fields)
-        if unknown:
-            raise ValueError(f"unsupported SG rule fields: {sorted(unknown)}")
-        fields = [field for field in fields if field in {"Direction", "Port"} or any(field in rule for rule in rules)]
-        output += ["", *_dependency_policy_tables.table(fields, [[rule.get(field, "—") for field in fields] for rule in rules])]
-    if consumed is not None:
-        consumed.extend(row[0] for row in rows)
-        consumed.extend(row[0] for _, child_rows in children for row in child_rows)
-    return output

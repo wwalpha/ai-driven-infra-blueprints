@@ -1,11 +1,11 @@
 """Local reference proof. Recorded observations never claim current AWS state."""
 import re
 
-from design_layout import resource_mode
+from design.layout import resource_mode
+from design.policy_tables import literal
 from model.adapters.observed import identifier_source
 from model.format import REFERENCE_NAME_SUFFIXES
 from model.projection import reference_attribute
-from policy_tables import literal
 from utils.aws_catalogs import catalog_outputs
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference, cfn_resource_identity, same

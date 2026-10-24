@@ -21,7 +21,7 @@ import sync_runtime
 import sync_views
 import utils.input_cache as _imports_input_cache
 import validation.design_links as _imports_validation_design_links
-from design_catalog import property_paths_with_parents
+from design.catalog import property_paths_with_parents
 from model.format import serialize
 from model.identity import COUNTERS
 from model.sources import runtime_values

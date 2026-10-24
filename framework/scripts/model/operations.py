@@ -11,7 +11,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import NoReturn
 
-import array_display as _imports_array_display
+import design.array_display as _imports_array_display
 import generation_inputs as _imports_generation_inputs
 import import_guard as _imports_import_guard
 import task_contract_core as _imports_task_contract

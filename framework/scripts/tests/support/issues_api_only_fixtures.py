@@ -15,7 +15,7 @@ from collections import Counter
 from unittest.mock import patch
 
 from comparison import Comparison
-from design_catalog import DesignSchemaCatalog
+from design.catalog import DesignSchemaCatalog
 from issues.aggregate import iac_summary
 from issues.artifact import summary
 from issues.cli import main

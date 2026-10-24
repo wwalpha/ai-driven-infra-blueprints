@@ -4,12 +4,13 @@ from __future__ import annotations
 import hashlib
 import re
 
-import array_display as _imports_array_display
+import design.array_display as _imports_array_display
 import model.identity as _imports_model_identity
 import model.sources as _imports_model_sources
 import utils.cloudformation.format as _imports_cfn_format
-from design_catalog import DesignSchemaCatalog
-from design_layout import resource_mode
+from design.catalog import DesignSchemaCatalog
+from design.layout import resource_mode
+from design.policy_tables import literal
 from iac_evaluation import RETURN_ATTRIBUTE_PROPERTIES
 from model.adapters.observed import mapped_resource, resource_index
 from model.core import ReferenceResolutionError, entries, stack_model
@@ -17,7 +18,6 @@ from model.files import load_model, resource_row_index
 from model.identity import anchor_index, parse_reference, select_anchor
 from model.projection import reference_attribute
 from model.sources import _invocation_reads, model_exists, model_paths
-from policy_tables import literal
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_sdk import aws_runtime
 from utils.cloudformation.inputs import (

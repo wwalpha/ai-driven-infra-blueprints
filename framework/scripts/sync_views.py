@@ -8,10 +8,10 @@ from pathlib import Path
 
 import validation_scope as _imports_validation_scope
 from aws_mapping_display import _validation_projection_scope
-from design_document import DesignIndex
+from design.document import DesignIndex
+from design.layout_schema import STACK_DESIGN
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_scope
-from utils.layout_schema import STACK_DESIGN
 
 _saved_design_validation = ContextVar("saved_design_validation", default=None)
 

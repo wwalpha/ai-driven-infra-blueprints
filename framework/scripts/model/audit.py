@@ -20,7 +20,7 @@ import utils.iac_values as _imports_iac_values
 import utils.input_cache as _imports_input_cache
 import validation_scope as _imports_validation_scope
 from aws_mapping_compare import comparison
-from design_catalog import DesignSchemaCatalog
+from design.catalog import DesignSchemaCatalog
 from task_contract_core import SELECTOR as SELECTOR
 from task_contract_core import status as status
 from task_contract_core import task_revision as task_revision
