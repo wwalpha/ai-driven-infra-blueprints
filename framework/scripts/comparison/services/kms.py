@@ -2,8 +2,8 @@
 
 import re
 
-from cloudformation_inputs import Blocked
 from iac_values import Expression, ResourceReference, same
+from utils.cloudformation.inputs import Blocked
 
 REF_ATTRIBUTES = {'KMS.Key': 'KeyId', 'KMS.Alias': 'AliasName'}
 

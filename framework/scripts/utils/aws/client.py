@@ -5,9 +5,8 @@ import os
 import threading
 import time
 
-from cloudformation_inputs import Blocked
-
 from utils.aws_sdk import aws_runtime
+from utils.cloudformation.inputs import Blocked
 
 _lock = threading.RLock()
 _sessions = {}

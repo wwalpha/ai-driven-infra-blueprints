@@ -87,3 +87,12 @@ def load_target(
 
 
 LOWER_KEBAB_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+
+
+def load_target_directory(root, environment, directory):
+    """Reuse topology validation without invoking credential checks or any AWS operation."""
+    try:
+        return load_target(root, environment, directory if directory.isdigit() else None,
+                      None if directory.isdigit() else directory)
+    except DeployContextError as error:
+        raise ValueError(str(error)) from error

@@ -11,18 +11,18 @@ from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
-import cloudformation_inputs as _imports_cloudformation_inputs
 import model.sources as _imports_model_sources
 import project_targets as _imports_project_targets
 import task_contract_core as _imports_task_contract
 import utils.aws_mappings as _imports_utils_aws_mappings
-from cloudformation_inputs import Blocked
+import utils.cloudformation.inputs as _imports_cfn_inputs
 from task_contract_core import (
     safe_path,
     task_snapshot,
 )
 from task_contract_core import task_digest as task_digest
-from utils.cloudformation_format import decode
+from utils.cloudformation.format import decode
+from utils.cloudformation.inputs import Blocked
 from utils.file_operations import atomic_files as atomic_files
 from utils.file_operations import atomic_replace_file
 from utils.file_operations import sha as sha
@@ -521,8 +521,8 @@ def verify_inputs(
 
 def dependencies(backend: SimpleNamespace, units: Iterable[StackUnit]) -> dict[str, list[str]]:
 
-    condition_active = _imports_cloudformation_inputs.condition_active
-    resolve_value = _imports_cloudformation_inputs.resolve_value
+    condition_active = _imports_cfn_inputs.condition_active
+    resolve_value = _imports_cfn_inputs.resolve_value
 
     import_names = _imports_deploy_change_sets.import_names
     producers, imports = {}, {}

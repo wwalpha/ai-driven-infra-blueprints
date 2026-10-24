@@ -9,7 +9,6 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from cloudformation_inputs import Blocked
 from comparison import Comparison
 from comparison.reference_evidence import Evidence
 from comparison.resource import inline_owner
@@ -26,6 +25,7 @@ from iac_values import (
 from issues.materials import naming_materials
 from model.references import declarations
 from model.sources import ModelSnapshot, Scope
+from utils.cloudformation.inputs import Blocked
 from utils.source_reads import FileReads
 
 if not __debug__:

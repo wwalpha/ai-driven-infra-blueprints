@@ -5,7 +5,6 @@ import argparse
 import json
 from pathlib import Path
 
-from cloudformation_inputs import Blocked
 from deploy import handoff
 from task_contract_core import (
     selected_task,
@@ -14,6 +13,7 @@ from task_contract_core import (
     task_reads,
     task_snapshot,
 )
+from utils.cloudformation.inputs import Blocked
 
 
 def main(argv=None):

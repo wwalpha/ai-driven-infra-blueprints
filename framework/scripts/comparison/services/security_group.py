@@ -2,8 +2,8 @@
 
 import re
 
-from cloudformation_inputs import Blocked
 from iac_values import ResourceReference
+from utils.cloudformation.inputs import Blocked
 
 
 def ref_attribute(vpc, resource_type):

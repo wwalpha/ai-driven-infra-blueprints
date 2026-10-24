@@ -2,10 +2,10 @@
 
 import re
 
-from cloudformation_inputs import Blocked
 from comparison_rows import put_row
 from policy_tables import literal
 from service_rows import pipeline_rows
+from utils.cloudformation.inputs import Blocked
 
 KMS_FORMS = {'CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id': {'AliasArn'}}
 

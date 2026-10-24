@@ -22,7 +22,6 @@ import policy_tables as _dependency_policy_tables
 import security_group_tables as _dependency_security_group_tables
 import utils.aws_catalogs as _imports_utils_aws_catalogs
 import validation_scope as _dependency_validation_scope
-from cloudformation_schema import material_files, snapshot_errors
 from design_catalog import (
     DesignSchemaCatalog,
     api_snapshot_errors,
@@ -30,6 +29,7 @@ from design_catalog import (
 )
 from model.core import ReferenceResolutionError, entries, properties
 from project_targets import LOWER_KEBAB_PATTERN
+from utils.cloudformation.schema import material_files, snapshot_errors
 from utils.input_cache import input_scope, input_text, memoized
 from utils.layout_schema import (
     CHILD,

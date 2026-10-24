@@ -23,12 +23,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import urllib.parse as _imports_urllib_parse
 
-import cloudformation_inputs as _imports_cloudformation_inputs
 import model.format as _imports_model_format
 import sync_files as _imports_sync_files
 import sync_runtime
+import utils.cloudformation.inputs as _imports_cfn_inputs
 from botocore.exceptions import ClientError
-from cloudformation_inputs import condition_active
 from deploy import session
 from deploy.controller import main
 from model.core import properties, stack_model
@@ -38,7 +37,8 @@ from support.fixture_cases import load_case, materialize_files
 from support.model_sources import allocate_fixture, write_model
 from support.publication_fixtures import publication_repository
 from task_contract_core import selected_task, start
-from utils.cloudformation_format import decode
+from utils.cloudformation.format import decode
+from utils.cloudformation.inputs import condition_active
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.json_format import fingerprint
 
@@ -262,7 +262,7 @@ def _callback_clients_request(aws_path, gate, root, state_path, /, service, oper
                 change.update(executed=True, token=arguments['ClientRequestToken'])
                 vpc_properties = change['document'].get('Resources', {}).get('Vpc', {}).get('Properties', {})
                 if isinstance(vpc_properties.get('CidrBlock'), dict):
-                    resolve_value = _imports_cloudformation_inputs.resolve_value
+                    resolve_value = _imports_cfn_inputs.resolve_value
                     vpc_properties = {**vpc_properties, 'CidrBlock': resolve_value(vpc_properties['CidrBlock'],
                         {p['ParameterKey']:p['ParameterValue'] for p in change.get('parameters', [])}, {})}
                 failed = name == 'cfn-stack-app-dev-second' and knobs.get('repair') and vpc_properties.get('CidrBlock') != '10.0.0.0/16'

@@ -4,8 +4,8 @@ import hashlib
 import re
 from functools import partial as _bind_framework_callback
 
-import cloudformation_inputs as _imports_cloudformation_inputs
-from cloudformation_inputs import Blocked
+import project_targets as _imports_project_targets
+import utils.cloudformation.inputs as _imports_cfn_inputs
 from model.core import deployment_settings, properties, stack_model
 from model.files import read_model
 from model.projection import deployment_bucket
@@ -14,6 +14,7 @@ from task_contract_core import (
     section,
     task_snapshot,
 )
+from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint as fingerprint
 
 import deploy.delivery as _imports_deploy_delivery
@@ -75,8 +76,8 @@ def _callback_task_deployment_input_paths_value(lines, /, name, optional=False):
 
 def task_deployment_input_paths(root):
     """Resolve deploy/update IaC offline through the controller's authoritative readers."""
-    Blocked = _imports_cloudformation_inputs.Blocked
-    load_target = _imports_cloudformation_inputs.load_target
+    Blocked = _imports_cfn_inputs.Blocked
+    load_target = _imports_project_targets.load_target_directory
     snapshot = task_snapshot(root, required=False)
     path = snapshot.path if snapshot is not None else None
     if path is None:

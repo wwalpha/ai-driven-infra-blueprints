@@ -83,7 +83,7 @@ import sys, importlib, json
 sys.path.insert(0, {str(scripts)!r})
 importlib.import_module({first!r})
 for name in ('model.format', 'model.render', 'model.validation', 'model.importing.inventory',
-             'cloudformation_inputs', 'sync_runtime', 'utils.json_format'):
+             'utils.cloudformation.inputs', 'sync_runtime', 'utils.json_format'):
     importlib.import_module(name)
 from model.audit import definitions
 from pathlib import Path

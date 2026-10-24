@@ -1,7 +1,6 @@
 """Local reference proof. Recorded observations never claim current AWS state."""
 import re
 
-from cloudformation_inputs import Blocked
 from design_layout import resource_mode
 from iac_values import Expression, ResourceReference, cfn_resource_identity, same
 from model.adapters.observed import identifier_source
@@ -14,6 +13,7 @@ from reference_contracts import (
     REFERENCE_PROPERTIES,
 )
 from utils.aws_catalogs import catalog_outputs
+from utils.cloudformation.inputs import Blocked
 
 from . import expressions, registry
 from .references import ReferenceDecision, reference_same

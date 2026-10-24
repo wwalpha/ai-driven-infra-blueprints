@@ -12,7 +12,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from cloudformation_inputs import resolve_value
 from design_catalog import DesignSchemaCatalog
 from generation_inputs import GenerationInputs
 from json_intrinsics import project_document
@@ -26,7 +25,8 @@ from model.validation import validate_json_settings
 from policy_tables import Policy, validate_policy_document
 from sync_runtime import generate_views
 from utils.aws_mappings import mapping_alias
-from utils.cloudformation_format import decode_file as decode
+from utils.cloudformation.format import decode_file as decode
+from utils.cloudformation.inputs import resolve_value
 from utils.json_format import document_sha256, validate_aws_document
 
 if not __debug__:

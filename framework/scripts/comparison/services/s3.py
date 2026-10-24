@@ -2,7 +2,7 @@
 
 import re
 
-from cloudformation_inputs import Blocked
+from utils.cloudformation.inputs import Blocked
 
 REF_ATTRIBUTES = {'S3.Bucket': 'BucketName'}
 

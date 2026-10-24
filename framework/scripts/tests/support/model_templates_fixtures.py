@@ -19,7 +19,6 @@ from unittest.mock import patch
 import model.sources as _exports_model_sources
 import pytest
 import sync_runtime
-from cloudformation_inputs import Blocked
 from model.core import entries, properties
 from model.files import model_file_contents, read_model, trace_model
 from model.format import parse, serialize, split
@@ -34,6 +33,7 @@ from model.sources import (
 from support.model_sources import write_fixture_files as save_files
 from support.model_sources import write_model
 from support.pytest_cli import run
+from utils.cloudformation.inputs import Blocked
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

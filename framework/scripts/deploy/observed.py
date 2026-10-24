@@ -2,9 +2,8 @@
 
 import re
 
-import cloudformation_inputs as _imports_cloudformation_inputs
 import design_layout as _imports_design_layout
-from cloudformation_inputs import Blocked as Blocked
+import utils.cloudformation.inputs as _imports_cfn_inputs
 from design_catalog import DesignSchemaCatalog
 from issue_gate import require_target_no_issues
 from model.adapters.observed import (
@@ -20,6 +19,7 @@ from model.adapters.observed import (
 )
 from model.identity import resource_link
 from model.sources import input_snapshot
+from utils.cloudformation.inputs import Blocked as Blocked
 
 import deploy.observed_resume as _dependency_deploy_observed_resume
 
@@ -45,7 +45,7 @@ def removed_resources(units, states):
 
 def collect_successful(backend, units, states, *, generated_views=None):
     """Resolve exact candidates from fresh successful Stack reads without writing."""
-    condition_active = _imports_cloudformation_inputs.condition_active
+    condition_active = _imports_cfn_inputs.condition_active
     GROUPED = _imports_design_layout.GROUPED
     root, environment, directory = backend.root, backend.environment, backend.directory
     require_target_no_issues(root, (environment, directory))

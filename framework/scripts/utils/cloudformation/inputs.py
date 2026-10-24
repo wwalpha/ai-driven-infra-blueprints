@@ -6,9 +6,7 @@ import re
 from decimal import Decimal, InvalidOperation
 from functools import partial as _bind_framework_callback
 
-import utils.cloudformation_format as _imports_utils_cloudformation_format
-from project_targets import DeployContextError
-from project_targets import load_target as select
+import utils.cloudformation.format as _imports_cfn_format
 from utils.json_format import policy_json
 
 
@@ -161,7 +159,7 @@ def checked_parameters(document, inputs):
 
 def load_template_inputs(template, parameter_file, *, strict_parameters=False, document=None):
     if document is None:
-        decode_file = _imports_utils_cloudformation_format.decode_file
+        decode_file = _imports_cfn_format.decode_file
         document, errors = decode_file(template)
         if errors or not isinstance(document, dict) or document.get("Transform"):
             raise Blocked("invalid/transform template; inputs must be resolvable locally: " + "; ".join(errors))
@@ -195,11 +193,3 @@ def output_value(document, parameters, pseudo, value):
         value = argument[1 if selected else 2]
     return value
 
-
-def load_target(root, environment, directory):
-    """Reuse topology validation without invoking credential checks or any AWS operation."""
-    try:
-        return select(root, environment, directory if directory.isdigit() else None,
-                      None if directory.isdigit() else directory)
-    except DeployContextError as error:
-        raise ValueError(str(error)) from error

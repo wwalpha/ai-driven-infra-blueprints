@@ -73,7 +73,7 @@ Follow [issue-gate](issue-gate.md) for target service stops and exceptions.
 
 `deploy` phase:
 
-1. Decode explicit templates/parameters with `utils/cloudformation_format.py` and monitor their full bytes/file sets; do not build whole-scope resource mappings.
+1. Decode explicit templates/parameters with `utils/cloudformation/format.py` and monitor their full bytes/file sets; do not build whole-scope resource mappings.
 2. Validate template syntax with `aws cloudformation validate-template`. This command alone does not replace property validation.
 3. Create change sets and confirm scope, delete, and replacement.
 4. Do not introduce human review uniformly stopping all change sets. Wait for human confirmation with an explanation according to `framework/prompts/codex/04_deploy.md` only for unapproved delete/replacement.

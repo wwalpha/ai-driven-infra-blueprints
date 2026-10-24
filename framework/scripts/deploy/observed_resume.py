@@ -8,7 +8,6 @@ from functools import partial as _bind_framework_callback
 import generation_inputs as _imports_generation_inputs
 import model.adapters.observed as _imports_model_adapters_observed
 import sync_runtime as _imports_sync_runtime
-from cloudformation_inputs import Blocked
 from model.observed import verify_observed_outputs
 from model.sources import authority_snapshot, publication_lock, safe
 from task_contract_core import (
@@ -20,6 +19,7 @@ from task_contract_core import (
     validate_contract,
 )
 from task_contract_core import task_digest as task_digest
+from utils.cloudformation.inputs import Blocked
 
 import deploy.observed as _imports_deploy_observed
 

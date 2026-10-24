@@ -4,7 +4,7 @@ import copy
 from pathlib import Path
 
 import worktree_task as _imports_worktree_task
-from cloudformation_inputs import Blocked
+from utils.cloudformation.inputs import Blocked
 from utils.sealed_evidence import read_sealed
 
 import deploy.contracts as _dependency_deploy_contracts

@@ -9,8 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote, urlencode
 
-from cloudformation_inputs import Blocked, condition_active, resolve_value
 from model.core import ARTIFACT_PROPERTIES
+from utils.cloudformation.inputs import Blocked, condition_active, resolve_value
 
 from deploy.s3_delivery import preflight, upload_options, verify_encryption
 

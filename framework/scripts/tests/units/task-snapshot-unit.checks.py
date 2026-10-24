@@ -18,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 import sync_runtime
 import task_contract_core as tasks
-from cloudformation_inputs import Blocked
 from deploy import guards, session
 from generation_inputs import GenerationInputs
 from import_guard import workflow
@@ -27,6 +26,7 @@ from model.importing import scope as import_scope
 from model.sources import load_model
 from support.import_model_fixtures import operation_contract, operation_fixture
 from support.pytest_cli import run
+from utils.cloudformation.inputs import Blocked
 from utils.input_cache import input_context, memo_table, recording_inputs
 from validation import runner
 

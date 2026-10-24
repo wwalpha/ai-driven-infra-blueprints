@@ -1,9 +1,9 @@
 """Select saved literal declarations from the authoritative snapshot, once per service."""
-from cloudformation_inputs import Blocked
 from iac_evaluation import RETURN_ATTRIBUTE_PROPERTIES
 from iac_values import ResourceReference
 from model.references import declarations, usages
 from policy_tables import literal
+from utils.cloudformation.inputs import Blocked
 
 
 class ModelReferences:

@@ -6,9 +6,9 @@ from __future__ import annotations
 import re
 
 import utils.markdown_format as _imports_utils_markdown_format
-from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
 from task_contract_core import TASK_TYPES
 from utils.aws_mappings import definition_root
+from utils.cloudformation.schema import CloudFormationSchemaCatalog, snapshot_errors
 from utils.input_cache import input_is_dir, input_is_file, input_select, input_text
 
 REQUIRED_RULES = {

@@ -3,7 +3,7 @@
 import re
 
 import iac_values as _imports_iac_values
-from cloudformation_inputs import Blocked
+from utils.cloudformation.inputs import Blocked
 
 REF_ATTRIBUTES = {'Lambda.Function': 'FunctionName'}
 

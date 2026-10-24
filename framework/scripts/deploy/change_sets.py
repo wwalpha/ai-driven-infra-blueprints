@@ -6,7 +6,7 @@ import uuid
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
-from cloudformation_inputs import Blocked, resolve_value
+from utils.cloudformation.inputs import Blocked, resolve_value
 from utils.json_format import fingerprint
 
 import deploy.failures as _imports_deploy_failures

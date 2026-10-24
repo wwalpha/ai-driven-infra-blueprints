@@ -1,10 +1,10 @@
 """Deploy mutation checks and timing; transport owns no Task or Issue decisions."""
 import re
 
-from cloudformation_inputs import Blocked
 from issue_gate import require_target_no_issues
 from task_contract_core import task_reads
 from utils.aws import cloudformation, kms, s3, secretsmanager, sts
+from utils.cloudformation.inputs import Blocked
 
 MUTATIONS = {'create_change_set', 'execute_change_set', 'put_object', 'delete_stack',
              'put_secret_value', 'update_secret_version_stage'}

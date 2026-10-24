@@ -15,13 +15,13 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from cloudformation_inputs import Blocked
 from deploy import handoff, observed
 from deploy import observed_resume as M
 from deploy import session as controller
 from support.cloudformation_deploy_fixtures import Fake, starts
 from support.pytest_cli import run
 from task_contract_core import selected_task
+from utils.cloudformation.inputs import Blocked
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

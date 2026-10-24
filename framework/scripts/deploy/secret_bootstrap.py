@@ -6,9 +6,14 @@ import uuid
 from functools import partial as _bind_framework_callback
 
 import model.adapters.observed as _imports_model_adapters_observed
-import utils.cloudformation_format as _imports_utils_cloudformation_format
-from cloudformation_inputs import Blocked, condition_active, output_value, resolve_value
+import utils.cloudformation.format as _imports_cfn_format
 from task_contract_core import task_snapshot
+from utils.cloudformation.inputs import (
+    Blocked,
+    condition_active,
+    output_value,
+    resolve_value,
+)
 from validation_scope import active_scope as validation_scope
 
 from deploy.change_sets import import_names
@@ -163,7 +168,7 @@ def bootstrap_plan(root, environment, directory, target, templates, states, mapp
         raise Blocked('Secret owner StackId/account/region/state unconfirmed')
     actual = aws('get_template', StackName=stack_id)['TemplateBody']
     if isinstance(actual, str):
-        decode_str = _imports_utils_cloudformation_format.decode
+        decode_str = _imports_cfn_format.decode
         actual, errors = decode_str(actual)
         if errors:
             raise Blocked('Secret owner template unreadable')

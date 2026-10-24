@@ -51,7 +51,7 @@ python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/vali
 python3 -B framework/scripts/run-python.py -B framework/scripts/tests/units/test_issues_iac.py
 ```
 
-`pytest.ini`は既存のpytest型ファイル、`*-unit.checks.py`、deploy SDK/client/controller/observed-recoveryの明示したpytest型suiteを対象にする。全UTがpytest型ではない。`array_display`、`aws_mapping_catalog`、`check-deploy-context`、`cloudformation_schema`、`comparison_core-unit`、`script_loader`、`update-catalog-lock`、`validation-units`には直接実行の入口がある。`validation_checks/*.py`は同じ分類のaggregatorから呼ぶ。`test_issues_iac.py`は既存unittestメソッドをpytestでも収集する。
+`pytest.ini`は既存のpytest型ファイル、`*-unit.checks.py`、deploy SDK/client/controller/observed-recoveryの明示したpytest型suiteを対象にする。全UTがpytest型ではない。`array_display`、`aws_mapping_catalog`、`check-deploy-context`、`cloudformation_schema`、`comparison_core-unit`、`cloudformation-inputs-unit`、`script_loader`、`update-catalog-lock`、`validation-units`には直接実行の入口がある。`validation_checks/*.py`は同じ分類のaggregatorから呼ぶ。`test_issues_iac.py`は既存unittestメソッドをpytestでも収集する。
 
 `blueprint-loop.py` の `task` / `local` はProjectのValidation scopeに従って検証し、Framework回帰UT／ITを自動実行しない。通常TaskではFrameworkを不変として扱い、FrameworkファイルのGit差分から回帰テストを選択しない。`full` / `--all` は `units/**/*.checks.py` と `units/**/test_*.py` の全UTを既存のPython直接実行入口で起動する。`full` は既存のProject Validation scopeを維持し、`--all` はProject全体を検証する。Scope `all` だけではFramework UTを実行しない。`blueprint-loop.py` からFramework ITは実行しない。
 
@@ -165,3 +165,5 @@ seed・Project全生成・Git initは各66→6、初期Gitは330→30、Python�
 
 
 追加レビューでは、公開失敗UTのplanに実行証拠を持たせ、stage別I/O失敗後のplan全体保持とdesign既公開候補の不一致拒否を確認する。acceptの再試行は署名付きsessionの実saveを置換前後で中断し、実diskからrestoreして受理済revision・予約・状態を保持する。controllerのdesign I/O失敗には初回のpeer RUNNING状態を記録し、完了後のSUCCESSだけでdrainを代用しない。この記録のためのJSON読込は当該faultの初回だけで、通常invokeには追加しない。6 controllerフロー・小型IT1本・子process7回の構成とする。
+
+CloudFormation共通処理は`utils/cloudformation/inputs.py`（入力評価・Blocked）、`schema.py`（Schema/キャッシュ/Lock）、`format.py`（YAML/JSON解析）へ集約する。純粋な入力判定は`cloudformation-inputs-unit`、Comparison証跡は`comparison_core-unit`、解析とSchemaは既存専用UTが担当する。

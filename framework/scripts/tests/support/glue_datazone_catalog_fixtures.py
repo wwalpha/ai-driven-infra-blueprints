@@ -15,8 +15,8 @@ import tempfile
 from contextlib import redirect_stdout
 
 import model.projection as model_projection
-from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
 from support.model_sources import write_model
+from utils.cloudformation.schema import CloudFormationSchemaCatalog, snapshot_errors
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")

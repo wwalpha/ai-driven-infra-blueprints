@@ -12,9 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
 
-from cloudformation_schema import CloudFormationSchemaCatalog, snapshot_errors
 from design_catalog import DesignSchemaCatalog
 from design_layout import resource_display_name, resource_name_fields
+from utils.cloudformation.schema import CloudFormationSchemaCatalog, snapshot_errors
 from utils.layout_schema import LAYOUTS
 
 if not __debug__:

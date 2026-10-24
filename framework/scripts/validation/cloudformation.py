@@ -9,7 +9,7 @@ import design_layout as _imports_design_layout
 import model.adapters.observed as _imports_model_adapters_observed
 import model.core as _imports_model_core
 import model.projection as _imports_model_projection
-import utils.cloudformation_format as _imports_utils_cloudformation_format
+import utils.cloudformation.format as _imports_cfn_format
 from design_layout import stack_deployment_policy, stack_design
 from model.core import properties
 from model.files import read_model
@@ -273,7 +273,7 @@ def check_cloudformation_environment_parameters(root, iac_paths, accounts, stack
             continue
         if not input_is_file(path) or path.suffix.lower() not in {".yaml", ".yml", ".json"}:
             continue
-        decode_file = _imports_utils_cloudformation_format.decode_file
+        decode_file = _imports_cfn_format.decode_file
         document, decode_errors = decode_file(path)
         if decode_errors or not isinstance(document, dict):
             detail = decode_errors[0] if decode_errors else "expected a template object"

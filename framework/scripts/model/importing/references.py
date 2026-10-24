@@ -6,7 +6,7 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 import aws_mapping as _imports_aws_mapping
-import cloudformation_inputs as _imports_cloudformation_inputs
+import project_targets as _imports_project_targets
 import utils.aws_mappings as _imports_utils_aws_mappings
 from reference_contracts import (
     ARN_FORMS,
@@ -174,7 +174,7 @@ class Resolver:
             return None
         parts = match.groupdict()
         if self.context is None:
-            load_target = _imports_cloudformation_inputs.load_target
+            load_target = _imports_project_targets.load_target_directory
             self.context = load_target(self.root, self.environment, self.target)
             self.files[self.root / 'project.json'] = (self.root / 'project.json').read_bytes().decode('utf-8')
             get_session = aws_runtime().sdk_session

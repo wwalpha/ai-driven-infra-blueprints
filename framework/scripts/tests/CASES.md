@@ -2899,7 +2899,13 @@ ITの `check_single_target_cache` / `check_template_consumers`（2ケース）�
 | `issues19::test_run_mode_classification` | `test_run_mode_classification` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1315) | pytest / 4 | run mode classification | 未保証分のみ小入力へ移設 |
 | `issues19::test_import_failure_cause_requires_unique_path` | `test_import_failure_cause_requires_unique_path` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1335) | pytest / 3 | import failure cause requires unique path | 未保証分のみ小入力へ移設 |
 
-`units/comparison_core-unit.checks.py` の既存script入口に、strict parameterの型/制約/不正入力・permissive loader保持、Condition組合せ/不明/循環/型・provenance/default/pseudo/秘匿値の小入力assertionを追加する。既存CloudTrail行順/不足/重複、配列構築、型付き等値、Symbolic String評価のassertionは追加コピーせず再利用する。
+CloudFormation共通入力判定は `units/cloudformation-inputs-unit.checks.py` へ移管した。strict parameterの型/制約/不正入力・permissive loader保持、Condition組合せ/不明/循環/型を専用UTだけで検証する。`units/comparison_core-unit.checks.py` にはComparison固有のprovenance/default/pseudo/秘匿値と評価接続を残す。Condition定義は `support/cloudformation_inputs_fixtures.py` を共有し、同じ判定assertionを複製しない。既存CloudTrail行順/不足/重複、配列構築、型付き等値、Symbolic String評価のassertionも維持する。
+
+| Case ID | Check | Class | File | Execution | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `cloudformation-inputs::parameters` | `check_parameters` | UT | [units/cloudformation-inputs-unit.checks.py](units/cloudformation-inputs-unit.checks.py) | pytest / 1 | 旧Comparison共通判定を移管: 6型/default/明示値、12制約拒否、5不正入力、非厳格値保持 | 小入力/Mock読込 |
+| `cloudformation-inputs::conditions` | `check_conditions` | UT | [units/cloudformation-inputs-unit.checks.py](units/cloudformation-inputs-unit.checks.py) | pytest / 1 | 旧Comparison共通判定を移管: false 4件、true 2件、不明/循環/非boolean/未対応拒否4件 | 共有Condition定義 |
+| `cloudformation-inputs::identity` | `check_import_order_and_blocked_identity` | UT | [units/cloudformation-inputs-unit.checks.py](units/cloudformation-inputs-unit.checks.py) | pytest / 5 | AWS SDK/Comparison/Deploy/Import/Validationの独立import順序とBlocked同一性、旧モジュール非読込 | 独立Python process |
 
 ### 旧24入口のassertion対応
 

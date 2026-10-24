@@ -2,7 +2,7 @@
 
 import re
 
-import cloudformation_inputs as _imports_cloudformation_inputs
+import utils.cloudformation.inputs as _imports_cfn_inputs
 
 from .services import (
     athena,
@@ -105,7 +105,7 @@ def literal_arn(kind, mode, properties, pseudo, *, resolve_attribute, substitute
 
 def named_arn(kind, properties, pseudo, *, evaluate):
 
-    Blocked = _imports_cloudformation_inputs.Blocked
+    Blocked = _imports_cfn_inputs.Blocked
     field, pattern, service, prefix, suffix = hook(kind, 'NAMED_ARN')
     explicit = evaluate(properties.get(field))
     if not isinstance(explicit, str) or not re.fullmatch(pattern, explicit):

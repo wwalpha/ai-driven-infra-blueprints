@@ -10,10 +10,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import utils.aws.client as _imports_utils_aws_client
-from cloudformation_inputs import Blocked, load_template_inputs
 from issue_gate import require_target_no_issues
 from model.core import ARTIFACT_PROPERTIES
 from utils.aws.identity import execution_account, select_profile
+from utils.cloudformation.inputs import Blocked, load_template_inputs
 from utils.json_format import fingerprint
 from utils.type_contracts import JsonObject
 from utils.type_contracts import JsonValue as JsonValue

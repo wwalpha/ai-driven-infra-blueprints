@@ -16,12 +16,12 @@ import comparison as issues_iac
 import comparison.references as _imports_comparison_references
 import issues.aggregate as _imports_issues_aggregate
 import utils.json_format as _imports_utils_json_format
-from cloudformation_inputs import Blocked
 from comparison import registry
 from comparison.values import PreparedValue
 from design_catalog import DesignSchemaCatalog
 from iac_values import Expression, ResourceReference
 from model.format import serialize
+from utils.cloudformation.inputs import Blocked
 
 
 def legacy_comparison(root, count=3, services=1, stacks=2):

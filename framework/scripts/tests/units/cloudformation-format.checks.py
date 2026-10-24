@@ -9,7 +9,7 @@ import datetime
 
 import pytest
 import yaml
-from utils.cloudformation_format import decode, decode_file
+from utils.cloudformation.format import decode, decode_file
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

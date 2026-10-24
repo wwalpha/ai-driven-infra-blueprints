@@ -3,10 +3,10 @@
 import re
 from functools import partial as _bind_framework_callback
 
-from cloudformation_inputs import Blocked
 from comparison_rows import put_row
 from iac_values import Expression, ResourceReference, same
 from policy_tables import literal
+from utils.cloudformation.inputs import Blocked
 
 REF_ATTRIBUTES = {'CodeBuild.Project': 'Name'}
 

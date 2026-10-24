@@ -7,8 +7,8 @@ AWS/deploy mode deliberately retains its existing narrower evaluation contract.
 import re
 from functools import partial as _bind_framework_callback
 
-from cloudformation_inputs import Blocked, resolve_value
 from iac_values import Expression, ResourceReference, cfn_resource_identity
+from utils.cloudformation.inputs import Blocked, resolve_value
 
 # Returned attributes whose explicit setting has a different property name.
 RETURN_ATTRIBUTE_PROPERTIES = {('CodeCommit.Repository', 'Name'): 'RepositoryName'}

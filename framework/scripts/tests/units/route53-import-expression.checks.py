@@ -7,8 +7,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from cloudformation_schema import CloudFormationSchemaCatalog
 from model.projection import is_import_expression
+from utils.cloudformation.schema import CloudFormationSchemaCatalog
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

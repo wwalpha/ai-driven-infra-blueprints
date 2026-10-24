@@ -7,13 +7,7 @@ import re
 import array_display as _imports_array_display
 import model.identity as _imports_model_identity
 import model.sources as _imports_model_sources
-import utils.cloudformation_format as _imports_utils_cloudformation_format
-from cloudformation_inputs import (
-    Blocked,
-    condition_active,
-    load_target,
-    load_template_inputs,
-)
+import utils.cloudformation.format as _imports_cfn_format
 from design_catalog import DesignSchemaCatalog
 from design_layout import resource_mode
 from iac_evaluation import RETURN_ATTRIBUTE_PROPERTIES
@@ -25,9 +19,15 @@ from model.identity import anchor_index, parse_reference, select_anchor
 from model.projection import reference_attribute
 from model.sources import _invocation_reads, model_exists, model_paths
 from policy_tables import literal
+from project_targets import load_target_directory as load_target
 from reference_contracts import REFERENCE_PROPERTIES
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_sdk import aws_runtime
+from utils.cloudformation.inputs import (
+    Blocked,
+    condition_active,
+    load_template_inputs,
+)
 from utils.json_format import policy_json as strict_json
 
 from . import (
@@ -197,7 +197,7 @@ class Inputs:
                                      'relationship': 'stack-input'}
                 raise blocked
         if template not in self.documents:
-            decode_file = _imports_utils_cloudformation_format.decode_file
+            decode_file = _imports_cfn_format.decode_file
             document, errors = decode_file(template, locations=self.template_locations)
             self.metrics['template_decodes'] += 1
             if errors or not isinstance(document, dict):

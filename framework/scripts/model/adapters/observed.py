@@ -6,23 +6,23 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 import sync_runtime as _imports_sync_runtime
-from cloudformation_inputs import (
-    Blocked,
-    condition_active,
-    load_target,
-    load_template_inputs,
-    output_value,
-    resolve_value,
-)
 from design_catalog import DesignSchemaCatalog
 from iac_values import cfn_resource_identity
 from issue_gate import require_target_no_issues as require_target_no_issues
+from project_targets import load_target_directory as load_target
 from task_contract_core import matches as matches
 from task_contract_core import paths_in as paths_in
 from task_contract_core import section as section
 from task_contract_core import task_path as task_path
 from task_contract_core import task_read_scope, task_snapshot
 from utils.aws_catalogs import catalog_outputs
+from utils.cloudformation.inputs import (
+    Blocked,
+    condition_active,
+    load_template_inputs,
+    output_value,
+    resolve_value,
+)
 from utils.input_cache import input_scope
 from utils.layout_schema import CODEBUILD_FORMAL_VARIABLE, GROUPED, HIDDEN_PROPERTIES
 from utils.source_reads import FileReads

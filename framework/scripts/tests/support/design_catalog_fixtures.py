@@ -12,7 +12,6 @@ import os
 import tempfile
 
 from array_display import indexed_rows
-from cloudformation_schema import CloudFormationSchemaCatalog
 from design_catalog import (
     MACIE_JOB,
     QUICKSIGHT_GROUP,
@@ -20,6 +19,7 @@ from design_catalog import (
     api_snapshot_errors,
 )
 from model.display import row_table
+from utils.cloudformation.schema import CloudFormationSchemaCatalog
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')

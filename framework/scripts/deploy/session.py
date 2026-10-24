@@ -15,7 +15,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import model.observed as _imports_model_observed
-from cloudformation_inputs import Blocked
 from model.sources import authority_snapshot, load_model, model_paths, source_scope
 from task_contract_core import (
     TaskSnapshot,
@@ -23,6 +22,7 @@ from task_contract_core import (
     task_reads,
     task_snapshot,
 )
+from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint
 from utils.source_reads import FileReads
 from utils.type_contracts import JsonValue as JsonValue

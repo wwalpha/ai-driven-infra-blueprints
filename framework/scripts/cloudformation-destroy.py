@@ -16,7 +16,6 @@ from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 
 import aws_context as _imports_aws_context
-from cloudformation_inputs import Blocked
 from issue_gate import require_target_no_issues
 from model.adapters.observed import destroy_plan, sync_destroyed
 from model.core import stack_model
@@ -29,6 +28,7 @@ from task_contract_core import (
 )
 from task_contract_core import task_snapshot as read_task_snapshot
 from utils.aws.identity import execution_account, select_profile
+from utils.cloudformation.inputs import Blocked
 from utils.json_format import fingerprint
 from validation_scope import active_scope
 

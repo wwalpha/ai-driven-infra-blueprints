@@ -1,7 +1,7 @@
 """vpc comparison contracts and projections."""
 
-from cloudformation_inputs import Blocked
 from policy_tables import literal
+from utils.cloudformation.inputs import Blocked
 
 REF_ATTRIBUTES = {'EC2.Subnet': 'SubnetId', 'EC2.VPC': 'VpcId', 'EC2.RouteTable': 'RouteTableId'}
 

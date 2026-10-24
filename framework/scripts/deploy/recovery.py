@@ -4,7 +4,7 @@ import copy
 import time
 
 import task_contract_core as _imports_task_contract
-from cloudformation_inputs import Blocked
+from utils.cloudformation.inputs import Blocked
 
 
 def require_authorized(root):

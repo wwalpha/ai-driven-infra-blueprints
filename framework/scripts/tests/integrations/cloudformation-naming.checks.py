@@ -11,13 +11,14 @@ from functools import cache
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from cloudformation_inputs import checked_parameters, load_target, resolve_value
 from model.core import entries, literal
 from model.files import load_model
 from model.sources import model_paths
+from project_targets import load_target_directory as load_target
 from support.it_case_receipt import it_case
 from support.model_sources import write_model
-from utils.cloudformation_format import decode_file as decode
+from utils.cloudformation.format import decode_file as decode
+from utils.cloudformation.inputs import checked_parameters, resolve_value
 from utils.input_cache import input_scope
 
 if not __debug__:

@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial as _bind_framework_callback
 from typing import TypeVar
 
-from cloudformation_inputs import Blocked
+from utils.cloudformation.inputs import Blocked
 from utils.type_contracts import JsonValue as JsonValue
 
 from deploy import failures

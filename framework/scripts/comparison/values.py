@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from functools import partial as _bind_framework_callback
 
 import json_intrinsics as _imports_json_intrinsics
-from cloudformation_inputs import Blocked
 from iac_values import (
     Expression,
     same,
@@ -14,6 +13,7 @@ from iac_values import (
 )
 from model.identity import resource_link
 from policy_tables import literal
+from utils.cloudformation.inputs import Blocked
 from utils.json_format import policy_json as strict_json
 
 from . import registry
