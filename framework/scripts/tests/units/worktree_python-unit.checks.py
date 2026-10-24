@@ -171,7 +171,7 @@ def check_setup_failure_recovery(tmp_path, stage):
          patch.object(py, 'shared_directory', return_value=shared), patch.object(py, 'probe'), \
          patch.object(py, 'run', side_effect=partial(_setup_failure_run, stage)), \
          patch.object(py, 'verify', side_effect=ValueError('fixture verify failed') if stage == 'verify' else None), \
-         patch.object(Path, 'mkdir', mkdir):
+         patch.object(Path, 'mkdir', autospec=True, side_effect=mkdir):
         with patch.object(py, 'setup', side_effect=failure) if stage in {'exception', 'interrupt'} else nullcontext():
             blocked(lambda: wt.setup(tmp_path, 'example'), 'Python setup failed')
         assert json.loads(path.read_text())['python_setup']['status'] == 'failed'

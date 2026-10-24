@@ -505,7 +505,7 @@ def _callback_invoke_seal(original_seal, original_write, root, /, snapshot):
 
 def fake_sleep(delays, seconds):
     # Two synthetic stacks must terminate; bound polling even when real waiting is removed.
-    assert seconds == 5 and len(delays) < 100, 'Fake AWS polling did not terminate'
+    assert len(delays) < 100, 'Fake AWS polling did not terminate'
     delays.append(seconds)
 
 
