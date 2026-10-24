@@ -367,8 +367,10 @@ def check_metadata_storage():
         assert directory.is_dir()
 
 
-def _callback_check_cleanup_failure_and_retry_deny_remove(real_git, /, where, *args, **kwargs):
+def _callback_check_cleanup_failure_and_retry_deny_remove(real_git, /, where, *args, partial_remove=False, **kwargs):
     if args[:2] == ("worktree", "remove"):
+        if partial_remove:
+            shutil.rmtree(Path(args[2]))
         raise wt.Blocked("injected cleanup failure")
     return real_git(where, *args, **kwargs)
 
@@ -392,7 +394,10 @@ def check_cleanup_failure_and_retry():
         assert saved["merged"] and git(root, "rev-parse", "HEAD") == saved["commit"]
         assert target.exists() and wt.branch_exists(root, state["branch"])
         (target / "secret.bin").write_bytes(b"ignored human data")
-        assert "ignored files" in cli(root, "cleanup", success=False)["error"]
+        blocked = cli(root, "cleanup", success=False)
+        assert "ignored files" in blocked['error']
+        assert blocked['cleanup']['phase'] == 'verify_worktree'
+        assert blocked['cleanup']['stop_reason'] == blocked['error']
         assert (target / "secret.bin").read_bytes() == b"ignored human data"
         (target / "secret.bin").rename(root.parent / "saved-secret.bin")
         evidence_store = sealed_evidence.evidence_store
@@ -417,6 +422,26 @@ def check_cleanup_failure_and_retry():
         assert not wt.branch_exists(root, state["branch"])
         assert not own.exists() and other.read_bytes() == other_before
         other.unlink()
+    with fixture() as root:
+        target, state = start(root)
+        other, other_state = start(root, 'other')
+        other_path = wt.load(root, 'other')[2]
+        other_before = other_path.read_bytes()
+        (target / 'file.txt').write_text('task\n')
+        finish_contract(target, state)
+        real_git = wt.git
+        deny_remove = _bind_framework_callback(_callback_check_cleanup_failure_and_retry_deny_remove,
+                                               real_git, partial_remove=True)
+        with patch.object(wt, 'git', side_effect=deny_remove), pytest.raises(wt.Blocked) as caught:
+            wt.finalize(root, 'example')
+        assert caught.value.cleanup['phase'] == 'remove_worktree'
+        assert caught.value.cleanup['remaining'] == dict(worktree=False, git_registration=True, branch=True, task_state=True)
+        assert not target.exists() and any(e.get('prunable') for e in wt.worktrees(root) if Path(e['worktree']) == target)
+        result = cli(root, 'cleanup')
+        assert result['cleaned'] and result['cleanup']['phase'] == 'complete'
+        assert result['cleanup']['remaining'] == dict(worktree=False, git_registration=False, branch=False, task_state=False)
+        assert not wt.branch_exists(root, state['branch']) and not wt.state_path(root, 'example').exists()
+        assert other.is_dir() and other_path.read_bytes() == other_before and wt.branch_exists(root, other_state['branch'])
     print("Cleanup failure/retry/ignored data/merged history preserved: PASS")
 
 

@@ -98,7 +98,7 @@ def committed_task_paths(root, task_file):
     start = task_start_commit(root, task_file)
     return None if start is None else paths(root, 'diff', '--no-renames', '--name-only', '-z', start, 'HEAD')
 
-def idle_git(root, *, runner=None):
+def idle_operations(root, *, runner=None):
     names = ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply", "sequencer")
     arguments = [argument for name in names for argument in ("--git-path", name)]
     resolved = output(root, "rev-parse", "--path-format=absolute", *arguments, runner=runner).splitlines()
@@ -110,6 +110,10 @@ def idle_git(root, *, runner=None):
         path = Path(value)
         if path.exists():
             raise Blocked(f"unfinished Git operation: {name}; worktree retained")
+
+
+def idle_git(root, *, runner=None):
+    idle_operations(root, runner=runner)
     if paths(root, "diff", "--name-only", "--diff-filter=U", "-z", runner=runner):
         raise Blocked("unresolved index conflicts; worktree retained")
 

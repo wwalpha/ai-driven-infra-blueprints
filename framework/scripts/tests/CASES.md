@@ -1,5 +1,15 @@
 # UT / IT 全ケース台帳
 
+## Cleanup途中削除の復旧と状態表示
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `cleanup::missing` | `check_cleanup_missing_worktree` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py#check_cleanup_missing_worktree) | pytest / 15 | 消失checkoutのHEAD/branch/merge/verified・管理領域の一意性/common/index/lock・未完了操作・index差分/読取失敗 | 追加 |
+| `cleanup::safety` | `check_cleanup_stops_before_removal` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py#check_cleanup_stops_before_removal) | pytest / 9 | 未統合/履歴変更/HEAD変更/dirty/setup/リンク/locked/ignored/branch消失で削除前停止、状態と理由を保持 | 追加 |
+| `cleanup::preflight` | `check_cleanup_preflight_diagnostics` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py#check_cleanup_preflight_diagnostics) | pytest / 2 | cleanup/finalizeのpreflight失敗でも残存4項目・停止理由をJSONへ表示 | 追加 |
+
+既存 `check_cli_failure_diagnostics` にcleanup診断の同一引渡しを追加。既存 `check_cleanup_failure_and_retry` の1入口を拡張し、checkout削除後の失敗→Git登録のみ残存→CLI再実行で当該登録/branch/状態を削除、他Taskを保持する実Gitケースを追加する。既存のignored data・branch削除待ち・他Task証跡保持も維持する。ローカルではこの短時間ITだけを選択し、全IT/性能比較は実行しない。
+
 ## Git変更パス収集の共通化 / 1024
 
 NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync UTの旧NUL解析・Git終了コードMockは削除し、公開git_pathsの委譲と例外伝播だけを残す。Loopの旧subprocess失敗Mockも共通API委譲へ置換する。Issue Gateのworking変更拒否はTask固有の許可判定なので維持する。Worktreeの改行入りディレクトリはidle_gitのbatched出力fallbackを検証するため維持する。

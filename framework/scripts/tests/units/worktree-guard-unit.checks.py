@@ -146,12 +146,115 @@ def check_prepare_rejects_before_git_write(tmp_path, violation):
 def check_cli_failure_diagnostics(tmp_path, capsys):
     error = wt.Blocked('child failed')
     error.diagnostics = dict(returncode=23, stdout='output', stderr='error')
+    error.cleanup = dict(phase='remove_branch', stop_reason=str(error))
     with patch.object(sys, 'argv', ['worktree_task.py', 'finalize', '--task-id', 'fixture']), \
          patch.object(wt, 'load', return_value=(tmp_path, None, None, {})), \
          patch.object(wt, 'finalize', side_effect=error):
         assert wt.main() == 1
     result = json.loads(capsys.readouterr().out)
     assert result['status'] == 'blocked' and result['diagnostics'] == error.diagnostics
+    assert result['cleanup'] == error.cleanup
+
+
+def _cleanup_output(common, case, /, root, *args):
+    if args[-1] == '--git-common-dir':
+        return str(common / 'foreign' if case == 'common' and '--git-dir' in args else common)
+    if args[-1] == 'HEAD':
+        return 'changed' if case == 'git_head' else 'tip'
+    if 'diff-index' in args:
+        if case == 'index_error':
+            raise wt.Blocked('cannot read index')
+        return 'staged\0' if case == 'dirty' else ''
+    raise AssertionError(args)
+
+
+@pytest.mark.parametrize('case', ['clean', 'locked', 'branch', 'head', 'merged', 'unverified',
+    'ambiguous', 'missing_index', 'index_link', 'lock', 'common', 'git_head', 'operation', 'index_error', 'dirty'])
+def check_cleanup_missing_worktree(tmp_path, case):
+    target = tmp_path / '.worktrees/example'
+    common = tmp_path / '.git'
+    directory = common / 'worktrees/example'
+    directory.mkdir(parents=True)
+    for name, value in [('gitdir', str(target / '.git') + '\n'), ('HEAD', 'tip'), ('index', 'index')]:
+        (directory / name).write_text(value)
+    state = dict(worktree=str(target), branch='codex/worktree/example', tip='tip', merged='tip', commit='tip', verified=True)
+    entry = dict(worktree=str(target), HEAD='tip', branch='refs/heads/codex/worktree/example', prunable='missing')
+    if case == 'locked':
+        entry['locked'] = ''
+    if case in {'branch', 'head'}:
+        entry['HEAD' if case == 'head' else 'branch'] = 'other'
+    if case == 'merged':
+        state['merged'] = 'other'
+    if case == 'unverified':
+        state['verified'] = False
+    if case == 'ambiguous':
+        duplicate = common / 'worktrees/duplicate'
+        duplicate.mkdir()
+        (duplicate / 'gitdir').write_text(str(target / '.git') + '\n')
+    if case == 'missing_index':
+        (directory / 'index').unlink()
+    if case == 'lock':
+        (directory / 'index.lock').write_text('owned by another process')
+    with patch.object(wt, 'output', side_effect=_bind_framework_callback(_cleanup_output, common, case)), \
+         patch.object(Path, 'is_symlink', autospec=True, side_effect=lambda path: case == 'index_link' and path == directory / 'index'), \
+         patch.object(worktree_state, 'idle_operations', side_effect=wt.Blocked('unfinished operation') if case == 'operation' else None) as idle:
+        if case == 'clean':
+            wt.cleanup_missing_worktree(tmp_path, state, entry)
+            assert idle.call_args.kwargs['runner'].keywords == {'directory': directory}
+        else:
+            with pytest.raises(wt.Blocked):
+                wt.cleanup_missing_worktree(tmp_path, state, entry)
+    assert (directory / 'HEAD').read_text() == 'tip' and not target.exists()
+
+
+@pytest.mark.parametrize('case', ['unmerged', 'rewritten', 'branch_changed', 'dirty', 'setup_busy',
+                                  'symlink', 'locked', 'ignored', 'missing_branch'])
+def check_cleanup_stops_before_removal(tmp_path, case):
+    target = tmp_path / '.worktrees/example'
+    target.mkdir(parents=True)
+    path = tmp_path / 'state.json'
+    path.write_text('preserve state')
+    state = dict(task_id='example', worktree=str(target), branch='codex/worktree/example',
+                 base='main', tip='tip', merged=None if case == 'unmerged' else 'tip', commit='tip', task_file='tasks/example.md')
+    entry = dict(worktree=str(target), HEAD='tip', branch='refs/heads/codex/worktree/example')
+    if case == 'setup_busy':
+        path.with_suffix('.setup-lock').mkdir()
+    with patch.object(wt, 'ancestor', side_effect=[True, False] if case == 'rewritten' else None, return_value=True), \
+         patch.object(wt, 'worktrees', return_value=[entry]), \
+         patch.object(wt, 'task_worktree', side_effect=wt.Blocked('locked worktree') if case == 'locked' else None, return_value=target), \
+         patch.object(Path, 'is_symlink', autospec=True, side_effect=lambda path: case == 'symlink' and path == target), \
+         patch.object(wt, 'integration_task'), \
+         patch.object(wt, 'output', return_value='changed' if case == 'branch_changed' else 'tip'), \
+         patch.object(wt, 'changed_paths', return_value={'dirty'} if case == 'dirty' else set()), \
+         patch.object(wt, 'paths', return_value={'secret.bin'} if case == 'ignored' else set()), \
+         patch.object(wt, 'branch_exists', return_value=case != 'missing_branch'), \
+         patch.object(wt, 'git') as mutate, pytest.raises(wt.Blocked) as caught:
+        wt.cleanup_state(tmp_path, path, state)
+    mutate.assert_not_called()
+    details = caught.value.cleanup
+    assert details['phase'] == ('verify_merge' if case in {'unmerged', 'rewritten'} else 'verify_worktree')
+    assert details['stop_reason'] == str(caught.value)
+    assert details['remaining'] == dict(worktree=True, git_registration=True, branch=case != 'missing_branch', task_state=True)
+    assert details['next_action'] == 'resolve_stop_reason_then_retry'
+    assert details['retry_command'].endswith('cleanup --task-id example')
+    assert path.read_text() == 'preserve state' and target.is_dir()
+
+
+@pytest.mark.parametrize('command', ['cleanup', 'finalize'])
+def check_cleanup_preflight_diagnostics(tmp_path, capsys, command):
+    state = dict(task_id='example', worktree=str(tmp_path / '.worktrees/example'),
+                 branch='codex/worktree/example', merged='tip')
+    path = tmp_path / 'state.json'
+    path.write_text('preserve')
+    with patch.object(sys, 'argv', ['worktree_task.py', command, '--task-id', 'example']), \
+         patch.object(wt, 'load', return_value=(tmp_path, None, path, state)), \
+         patch.object(wt, command, side_effect=wt.Blocked('worktree lifecycle busy')), \
+         patch.object(wt, 'worktrees', return_value=[]), patch.object(wt, 'branch_exists', return_value=True):
+        assert wt.main() == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result['cleanup']['phase'] == 'preflight'
+    assert result['cleanup']['stop_reason'] == result['error'] == 'worktree lifecycle busy'
+    assert result['cleanup']['remaining'] == dict(worktree=False, git_registration=False, branch=True, task_state=True)
 
 
 @pytest.mark.parametrize('directory', ['plain', 'space 日本語', 'line\nbreak'])

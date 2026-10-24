@@ -10,6 +10,7 @@ import sys
 import tempfile
 from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 import task_contract as tasks
@@ -225,37 +226,103 @@ def ancestor(root, commit, branch):
     return git(root, "merge-base", "--is-ancestor", commit, f"refs/heads/{branch}", check=False).returncode == 0
 
 
+def _cleanup_git(root: Path, *args: str, directory: Path):
+    return git(root, '--git-dir', str(directory), *args)
+
+
+def cleanup_missing_worktree(root: Path, state: dict, entry: dict) -> None:
+    """Prove retained Git data is unchanged before removing a missing checkout's registration."""
+    if ('locked' in entry or entry.get('branch') != f"refs/heads/{state['branch']}"
+            or entry.get('HEAD') != state['tip'] or state['merged'] != state['tip']
+            or state['commit'] is not None and not state.get('verified')):
+        raise Blocked('missing worktree registration is locked or differs from the verified merge; cleanup refused')
+    target = Path(state['worktree'])
+    common = Path(output(root, 'rev-parse', '--path-format=absolute', '--git-common-dir'))
+    directories = [directory for directory in (common / 'worktrees').iterdir()
+                   if directory.is_dir() and not directory.is_symlink()
+                   and (directory / 'gitdir').is_file() and not (directory / 'gitdir').is_symlink()
+                   and Path((directory / 'gitdir').read_text(encoding='utf-8').rstrip('\n')) == target / '.git']
+    if len(directories) != 1:
+        raise Blocked('missing worktree Git administration cannot be identified uniquely; cleanup refused')
+    directory = directories[0]
+    if (any(not (directory / name).is_file() or (directory / name).is_symlink() for name in ('HEAD', 'index'))
+            or any(directory.rglob('*.lock'))):
+        raise Blocked('missing worktree Git HEAD/index is unavailable, redirected or locked; cleanup refused')
+    if (Path(output(root, '--git-dir', str(directory), 'rev-parse', '--path-format=absolute', '--git-common-dir')).resolve() != common.resolve()
+            or output(root, '--git-dir', str(directory), 'rev-parse', 'HEAD') != state['tip']):
+        raise Blocked('missing worktree Git identity changed; cleanup refused')
+    worktree_state.idle_operations(root, runner=partial(_cleanup_git, directory=directory))
+    # diff-index reads the retained index without requiring the removed working directory.
+    if output(root, '--git-dir', str(directory), 'diff-index', '--cached', '--name-only', '-z', state['tip'], '--'):
+        raise Blocked('missing worktree index differs from the verified merge; cleanup refused')
+
+
+def cleanup_progress(root: Path, path: Path, state: dict, phase: str, reason: str | None = None) -> dict:
+    target = Path(state['worktree'])
+    return {'phase': phase, 'stop_reason': reason,
+            'remaining': {'worktree': target.exists() or target.is_symlink(),
+                          'git_registration': any(Path(e['worktree']).resolve() == target for e in worktrees(root)),
+                          'branch': branch_exists(root, state['branch']), 'task_state': path.exists()},
+            'retry_command': f"python3 -B framework/scripts/worktree_task.py cleanup --task-id {state['task_id']}",
+            'next_action': 'resolve_stop_reason_then_retry' if reason else 'none'}
+
+
 def cleanup_state(root, path, state):
-    if not state["merged"] or not ancestor(root, state["merged"], state["base"]):
-        raise Blocked("cleanup requires a verified successful merge")
-    if state["commit"] and not ancestor(root, state["commit"], state["base"]):
-        raise Blocked("base no longer contains the task commit; cleanup refused")
-    target = Path(state["worktree"])
-    if target.exists() or any(Path(e["worktree"]).resolve() == target for e in worktrees(root)):
-        target = task_worktree(root, state)
-        integration_task(target, state)
-        if output(target, "rev-parse", "HEAD") != state["tip"]:
-            raise Blocked("task HEAD changed since merge; cleanup refused")
-        if changed_paths(target):
-            raise Blocked("task worktree is dirty; cleanup refused")
+    phase = 'verify_merge'
+    try:
+        if not state["merged"] or not ancestor(root, state["merged"], state["base"]):
+            raise Blocked("cleanup requires a verified successful merge")
+        if state["commit"] and not ancestor(root, state["commit"], state["base"]):
+            raise Blocked("base no longer contains the task commit; cleanup refused")
+        phase = 'verify_worktree'
+        target = Path(state["worktree"])
+        if target.is_symlink():
+            raise Blocked('task worktree path is a symlink; cleanup refused')
         if path.with_suffix(".setup-lock").exists():
             raise Blocked("Python setup busy; cleanup refused")
-        # Preserve user artifacts before removing the owned environment or checkout.
-        ignored = paths(target, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
-        extras = {p for p in ignored if p != state["task_file"]
-                  and not ("__pycache__" in Path(p).parts and p.endswith(".pyc"))}
-        if extras:
-            raise Blocked("ignored files need preservation before cleanup: " + ", ".join(sorted(extras)))
-        git(root, "worktree", "remove", str(target))
-    if branch_exists(root, state["branch"]):
-        tip = output(root, "rev-parse", f"refs/heads/{state['branch']}")
-        if tip != state["tip"] or not ancestor(root, tip, state["base"]):
-            raise Blocked("temporary branch changed or is unmerged; cleanup refused")
-        # -d checks against HEAD when no upstream exists. Use the verified base worktree.
-        git(base_worktree(root, state), "branch", "-d", state["branch"])
-    discard_import_proof(target, state['task_file'])
-    path.unlink()
-    return {**state, "cleaned": True}
+        entries = [e for e in worktrees(root) if Path(e['worktree']).resolve() == target]
+        if target.exists():
+            target = task_worktree(root, state)
+            integration_task(target, state)
+            if output(target, "rev-parse", "HEAD") != state["tip"]:
+                raise Blocked("task HEAD changed since merge; cleanup refused")
+            if changed_paths(target):
+                raise Blocked("task worktree is dirty; cleanup refused")
+            # Preserve user artifacts before removing the owned environment or checkout.
+            ignored = paths(target, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
+            extras = {p for p in ignored if p != state["task_file"]
+                      and not ("__pycache__" in Path(p).parts and p.endswith(".pyc"))}
+            if extras:
+                raise Blocked("ignored files need preservation before cleanup: " + ", ".join(sorted(extras)))
+        elif entries:
+            if len(entries) != 1:
+                raise Blocked('multiple Git registrations for the missing worktree; cleanup refused')
+            cleanup_missing_worktree(root, state, entries[0])
+        if branch_exists(root, state['branch']):
+            tip = output(root, 'rev-parse', f"refs/heads/{state['branch']}")
+            if tip != state['tip'] or not ancestor(root, tip, state['base']):
+                raise Blocked('temporary branch changed or is unmerged; cleanup refused')
+        elif entries:
+            raise Blocked('registered worktree branch is missing; cleanup refused')
+        if target.exists() or entries:
+            phase = 'remove_worktree'
+            git(root, "worktree", "remove", str(target))
+        phase = 'remove_branch'
+        if branch_exists(root, state["branch"]):
+            # -d checks against HEAD when no upstream exists. Use the verified base worktree.
+            git(base_worktree(root, state), "branch", "-d", state["branch"])
+        phase = 'remove_import_proof'
+        discard_import_proof(target, state['task_file'])
+        phase = 'remove_state'
+        path.unlink()
+        return {**state, "cleaned": True, 'cleanup': cleanup_progress(root, path, state, 'complete')}
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
+        error.cleanup = {'phase': phase, 'stop_reason': str(error)}
+        try:
+            error.cleanup = cleanup_progress(root, path, state, phase, str(error))
+        except (OSError, ValueError, KeyError, TypeError) as inspection_error:
+            error.cleanup['inspection_error'] = str(inspection_error)
+        raise
 
 
 def cleanup(where, task_id):
@@ -782,12 +849,16 @@ def main():
     except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
         retained = {}
         try:
-            root, _, _, retained = load(where, args.task_id)
+            root, _, retained_path, retained = load(where, args.task_id)
+            if not hasattr(error, 'cleanup') and (args.command == 'cleanup' or args.command == 'finalize' and retained.get('merged')):
+                error.cleanup = cleanup_progress(root, retained_path, retained, 'preflight', str(error))
             retained = {**retained, "remaining_worktree": retained["worktree"] if Path(retained["worktree"]).exists() else None,
                         "remaining_branch": retained["branch"] if branch_exists(root, retained["branch"]) else None}
         except (OSError, ValueError, KeyError, TypeError):
             pass
-        print(json.dumps({**retained, "status": "blocked", "error": str(error), **({"diagnostics": error.diagnostics} if hasattr(error, "diagnostics") else {})}, ensure_ascii=False))
+        print(json.dumps({**retained, "status": "blocked", "error": str(error),
+                          **({'cleanup': error.cleanup} if hasattr(error, 'cleanup') else {}),
+                          **({"diagnostics": error.diagnostics} if hasattr(error, "diagnostics") else {})}, ensure_ascii=False))
         return 1
 
 
