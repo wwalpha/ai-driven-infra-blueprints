@@ -44,9 +44,9 @@ UTは合成入力と既存関数を直接使用し、Sync/実CLI/Git/全Framewor
 | 重複Model field・不正LogGroupName・RetentionInDays=31/not-a-number | 既存check_invalid_model、check_loggroup_invalid_values、validation_checks/designのSchema行検証 |
 | read-only stale・欠落/未知row・View/Model非書込 | sync-model UT::check_readonly_stale_views、既存Loop IT::check_task_service_validation |
 | JSON正本のdocument欠落・既存View/Model保護 | sync-model UT::check_generate_views_missing_authoritative_json。JSONリンクを維持しdocumentだけを削除して実generate_viewsの欠落判定を確認 |
-| 独立serviceの継続、変更sidecar保存失敗/復旧 | sync-model IT::check_multiple_targets_barrier / check_changed_sidecar_publication_rollback / check_workflow、残す部分失敗IT |
+| 独立serviceの継続、変更sidecar保存失敗/復旧 | sync-model IT::check_multiple_targets_barrier / check_changed_sidecar_publication_rollback / check_required_preflight、残す部分失敗IT |
 | source/target rename・保持View・既存broken link・参照警告・観測値不変 | 既存model-reference-warnings UTのcheck_reference_view_retained_but_io_still_fails / check_generation_warning_keeps_independent_error、bound-anchor-name-change ITとsync-model IT::check_incoming_reference_models |
-| planning後の入力変更、Task契約、CLI失敗伝播 | 既存sync-model IT::check_publication_boundary / check_input_mutation / check_workflow、sync-model UT::check_snapshot_conflict、task-contract UT |
+| planning後の入力変更、Task契約、CLI失敗伝播 | 既存sync-model IT::check_publication_boundary / check_two_consumer_cli、sync-model UT::check_snapshot_conflict、task-contract UT |
 | 複数ファイルrollback | 既存sync-model IT::check_changed_sidecar_publication_rollback / check_multiple_targets_barrier。fixture writer自体の再試験は削除 |
 
 Path.write_textの差替えは既存BoundCallback descriptorを再利用する。汎用descriptorは既存check_callback_binding、実Path/データ/encoding・instance/class呼出し・OSError伝播と旧file保持だけをcheck_path_write_text_bindingに追加する。
@@ -428,22 +428,22 @@ Mappingのinclude/show、命名規則、Schema snapshotの書き換えに依存�
 
 | 種別 | Pythonファイル数 | 台帳登録pytest関数 / 展開数 | 直接関数 |
 |---|---:|---:|---:|
-| UT | 68 | 371 / 933 | 28 |
-| IT | 78 | 234 / 452 | 117 |
-| support | 44 | 0 / 0 | 0 |
+| UT | 93 | 675 / 2081 | 31 |
+| IT | 85 | 174 / 291 | 116 |
+| support | 53 | 0 / 0 | 0 |
 
-supportファイル数は共通fixture/補助のみ。main/moduleの地点数は下表を参照。
+supportファイル数は共通fixture/補助のみ。UT台帳には別途unittest 4メソッドがある。登録数は場所/関数の組で重複を除く静的件数で、全テスト実行の証拠ではない。main/moduleの地点数は下表を参照。
 
 ## IT統合と到達性
 
-公式入口は `run_it.py`。`.checks.py` は68スイートを自動検出する。上表のファイル数には補助Pythonモジュールも含む。
+公式入口は `run_it.py`。`.checks.py` は75スイートを自動検出する。上表のファイル数には補助Pythonモジュールも含む。
 ケース台帳を実行時に読み、pytestの収集・成功した検証本体のパラメータ件数、直接実行関数の呼出記録と照合する。未登録の `check_*`、消えた関数、未実行・skip・パターン不足はFAIL。ケース名だけの存在確認でPASSにしない。
 
-現在のIT台帳は370登録・588入口パターン（pytest 234/452、direct 117、direct_group 13、module 6）。内部動的ループは下表の詳細どおりで、入口パターン数には加算しない。
+現在のIT台帳は309登録・426入口パターン（pytest 174/291、direct 116、direct_group 13、module 6）。内部動的ループは下表の詳細どおりで、入口パターン数には加算しない。
 
-- `check_quicksight_group_principal_reference` 1パターンと `check_incoming_reference_models` のFalse/Trueを通常pytest収集へ復帰。各ITの手書き選択リストも廃止した。
+- `check_quicksight_group_principal_reference` と `check_incoming_reference_models` は通常pytest収集を維持する。incomingのread/write選択の細分化は直接UT、実write接続はITが担当する。各ITの手書き選択リストも廃止した。
 - 全量逆変換の検証は廃止。`design_document.check_snapshot` は局所的な表・リンクsnapshotと正本からの表示・生成物比較を検証する。`validate-blueprint` の `design_document.check_links` 呼出も削除。両検証本体はdesign_documentの通常入口に存在し、同じ実装モジュールを渡して実行するため完全重複。
-- sync-performanceの7関数には完全重複と証明できるものはなく、全21パターンを保持。小規模な権限/選択/進捗の検証のみ既存UTに移管し、実際の生成・保存・CLI・ロック待機はITに保持する。
+- Sync Modelの旧性能回帰は末尾のIssue 15分類へ再編した。実際の生成・保存・CLI・ロック待機をITに保持し、単独判定は既存UTへ集約する。
 - 他ITへの16ロードは0。issues、Model、layout、worktree、blueprint-loopは既存supportを直接再利用。RotationScheduleのデータ生成だけをsupportへ抽出し、検証本体を他ITから呼ばない。
 - runnerがframework・入力テンプレート・typed services・生成済みIAM policyを各1回初期化。生成イベントを実測し、共通bundleは書込禁止かつ前後の内容/modeハッシュで検査する。ケースは独立コピーを変更し、入力テンプレートの参照元のみ読み取り専用で共有する。
 - `check_it_fixture_isolation` は通常/逆順で独立コピーを変更し、隣接ケースと原本の不変、書込禁止、後片付け、強制汚染時のFAILを検証する。
@@ -453,8 +453,6 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 
 | 元ファイル : 行 | Test Case名 | 分類 | 現在の配置 | 入口 / パターン数 | 分類理由 | 変更 |
 |---|---|---|---|---|---|---|
-| `sync-model runner` | `check_internal_sync_isolation` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_internal_sync_isolation) | pytest / 4 | 複数・全体、直列・並列のContext分離と入力再読込、失敗後復元 | 新規 |
-| `sync-model runner` | `check_internal_sync_real_diagnostics` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_internal_sync_real_diagnostics) | pytest / 1 | consumer不足と生成差分の実診断をValidatorへ伝達 | 新規 |
 | `sync-model runner` | `check_internal_sync_concurrent_output` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_internal_sync_concurrent_output) | pytest / 1 | 並行呼び出しのmemo・診断・heartbeat分離と後片付け | 新規 |
 | `sync-model runner` | `check_internal_sync_arguments` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_internal_sync_arguments) | pytest / 4 | help・usage・引数エラーと終了状態、出力漏れ防止 | 新規 |
 | `Validator runner` | `check_internal_generation_dispatch` | UT | [units/validation_scope-unit.checks.py](units/validation_scope-unit.checks.py#check_internal_generation_dispatch) | pytest / 4 | 比較APIへのscope・workers・definitions_root引継ぎ、エラー伝達・重複防止・空scope・hook優先・subprocess禁止 | 新規 |
@@ -586,6 +584,79 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 
 | ファイル / ケース | ループ地点・パターン数・入力 |
 |---|---|
+| `units/validation_cache-unit.checks.py::check_cache_inputs` | L56: 4 (('README.md', 'AGENTS.md', 'project.json', '.agents/project/SKILL.md')) |
+| `units/validation_cache-unit.checks.py::check_cache_location` | 1（内部パラメータ化なし） |
+| `units/validation_cache-unit.checks.py::check_cache_lifetime` | 1（内部パラメータ化なし） |
+| `units/validation_cache-unit.checks.py::check_retained_common_key` | L140: 動的 (range(1000))<br>L169: 5 (('content', 'line-endings', 'addition', 'deletion', 'selector')) |
+| `units/validation_cache-unit.checks.py::check_service_cache_invalidation` | 1（内部パラメータ化なし） |
+| `units/model_design-unit.checks.py::check_design_naming_rules` | L85: 10 (('S3.Bucket', 'EC2.Instance', 'EC2.VPCEndpoint', 'EC2.VPC', 'IAM.Role', 'SecurityHub.Hub', 'SecretsManager.Secret', 'Macie.ClassificationJob', 'SSM.Association', 'CloudFormation.Stack')) |
+| `units/model_design-unit.checks.py::check_subnet_list_display` | L96: 動的 ((ROOT / 'framework/materials/aws').glob('*.properties'))<br>L97: 動的 (path.read_text(encoding='utf-8').splitlines())<br>L98: 動的 (catalog)<br>L101: 動的 (sorted(subnet_lists))<br>L105: 動的 (links)<br>L115: 動的 (inputs)<br>L117: 動的 (shown)<br>L120: 動的 (restored)<br>L121: 動的 (enumerate(rows, 1))<br>L123: 動的 ((document[:-1], [line.replace(field + '[2]', field + '[3]') for line in document], [line.replace(field + '[2]', field + '[1]') for line in document], [line.replace(field + '[1]', field + '[0]') for line in document], [line.replace(field + '[1]', field) for line in document]))<br>L125: 動的 (document)<br>L126: 動的 (document)<br>L127: 動的 (document)<br>L128: 動的 (document)<br>L136: 動的 (([line.replace('\| ' + shown[0][2] + ' \|', '\| `subnet-other` \|') for line in document], [*document[:-1], document[-1].replace(shown[-1][3], '別の説明')]))<br>L137: 動的 (document)<br>L146: 動的 (bad_values) |
+| `units/model_design-unit.checks.py::check_security_naming` | L153: 動的 (naming_rule_files(ROOT))<br>L155: 動的 (text.splitlines())<br>L156: 動的 (line.strip('\|').split('\|'))<br>L160: 動的 (patterns.items())<br>L166: 動的 (variants)<br>L171: 3 ((('application', 'app'), ('environment', 'dev'), ('purpose', 'patching')))<br>L177: 動的 (enumerate(fields, 1))<br>L179: 動的 (rows)<br>L180: 動的 (fields)<br>L184: 3 (('EC2.TransitGateway', 'EC2.TransitGatewayVpcAttachment', 'EC2.TransitGatewayRouteTable')) |
+| `units/model_design-unit.checks.py::check_service_scoped_naming` | L200: 3 (('DataZone.Domain', 'DataZone.Project', 'DataZone.DataSource'))<br>L204: 動的 (selected) |
+| `units/model_design-unit.checks.py::check_naming_target_paths` | L222: 3 (('Stages[].Name', 'Stages[].Actions[].Name', 'Variables[].Name')) |
+| `units/model_design-unit.checks.py::check_security_group_and_glue_catalog_naming` | L235: 動的 (naming_rule_files(ROOT))<br>L240: 5 ((('EC2.SecurityGroup', [('GroupName', 'app-dev-glue-data-sg')]), ('EC2.SecurityGroup', [('GroupName', 'app-dev-glue-data-01-sg')]), ('EC2.SecurityGroup', [('Tags[].Key', 'Name'), ('Tags[].Value', 'app-dev-glue-data-sg')]), ('EC2.SecurityGroup', [('Tags[].Key', 'Name'), ('Tags[].Value', 'app-dev-glue-data-01-sg')]), ('Glue.Catalog', [('Name', 'glct-app-dev-data')])))<br>L247: 動的 (('', kind + '.'))<br>L249: 動的 (enumerate(fields, 1)) |
+| `units/model_design-unit.checks.py::check_naming_coverage` | 1（内部パラメータ化なし） |
+| `units/model_design-unit.checks.py::check_naming_edges` | 1（内部パラメータ化なし） |
+| `units/model_design-unit.checks.py::check_invalid_model` | 1（内部パラメータ化なし） |
+| `units/model_design-unit.checks.py::check_temporary_roots` | L283: 動的 (range(2))<br>L285: 動的 (configs)<br>L287: 動的 (configs)<br>L288: 動的 (paths)<br>L290: 動的 (cleanup) |
+| `units/model_design-unit.checks.py::check_cli_result` | 1（内部パラメータ化なし） |
+| `units/model_design-unit.checks.py::check_one_way_model_contract` | L329: 動的 (('arn:aws:iam::123:role/test', 'arn:aws:iam::123456789012:user/test', 'arn:aws:iam::123456789012:role/', 'arn:aws:iam::123456789012:role/a b', '`' + arn, arn + '`'))<br>L336: 2 (('[role](iam.md#iam-role)', '`AWSServiceRoleForConfig`'))<br>L342: 4 (('value', '`value`', '010', '  quoted "text" ')) |
+| `units/model_design-unit.checks.py::check_pending_reference_is_required_input` | L361: 3 (('PENDING_DEPLOY', '`PENDING_DEPLOY`', '`vpc-current`'))<br>L366: 2 (('', '`PENDING_DEPLOY`')) |
+| `units/model_design-unit.checks.py::check_selected_model_row_consumption` | L382: 動的 (output) |
+| `units/model_design-unit.checks.py::check_glue_argument_display` | L408: 動的 (json.loads(arguments).items())<br>L421: 動的 (output.splitlines())<br>L424: 動的 (invalid)<br>L428: 2 (('`{}`', '`{"--one":"one"}`'))<br>L431: 3 (('`[]`', '`{"--one":true}`', '`{"--one":"first","--one":"second"}`')) |
+| `units/model_design-unit.checks.py::check_ec2_compact_display` | L439: 2 ((1, 5))<br>L441: 動的 (range(1, count + 1))<br>L462: 動的 (range(1, count + 1))<br>L480: 動的 (invalid) |
+| `units/model_design-unit.checks.py::check_vpc_endpoint_name_display` | L506: 2 (('CREATE', 'IMPORT'))<br>L518: 動的 ((output.replace('ec2-name-tag:', 'missing-name-tag:'), output.replace('["\\"Name\\""', '["\\"name\\""'), output.replace('\| Name \|', '\| ServiceName \|'))) |
+| `units/model_design-unit.checks.py::check_athena_configuration_display` | L542: 動的 ((ROOT / 'framework/materials/aws/Athena_WorkGroup.properties').read_text(encoding='utf-8').splitlines())<br>L543: 動的 (enumerate(fields, 1))<br>L549: 動的 (zip(rows, displayed, strict=False)) |
+| `units/model_design-unit.checks.py::check_catalog_display_order` | L576: 動的 (shown)<br>L579: 3 ((('QuickSight.DataSource', ['Type', 'Name', 'DataSourceParameters.AthenaParameters.WorkGroup', 'AwsAccountId', 'DataSourceId']), ('S3.Bucket', ['Tags[].Key', 'Tags[].Value', 'Region', 'BucketName']), ('CodeBuild.Project', ['VpcConfig.VpcId', 'VpcConfig.SecurityGroupIds', 'VpcConfig.Subnets', 'Name'])))<br>L582: 動的 (enumerate(fields))<br>L585: 動的 (shown)<br>L585: 動的 (rows)<br>L587: 動的 (shown[:2]) |
+| `units/model_design-unit.checks.py::check_optional_naming_suffix` | L605: 動的 (patterns)<br>L606: 動的 (naming_rule_files(ROOT, kind.partition('.')[0]))<br>L610: 2 (('', '-aaaaaa')) |
+| `units/model_design-unit.checks.py::check_secret_naming_values` | L619: 動的 (secret_rules)<br>L622: 12 (('`application` as the first level', '`environment` as the second level', 'one or more levels', 'no upper limit on the number of levels', 'do not force distinct purposes into the third level', 'lower-kebab-case', 'CREATE `SecretsManager.Secret.Name` must not end in ASCII `-`', 'Empty components, `//`, and leading or trailing `/` are prohibited', '1–512 characters', 'ASCII letters, numbers, and `/_+=.@-`', 'Do not reject names solely for ending in a hyphen followed by 6 characters', 'IMPORT retains actual/current names'))<br>L631: 5 (('app/dev/credentials-', 'app/dev/snowflake/keypair-', 'app/dev//keypair', '/app/dev/credentials', 'app/dev/credentials/'))<br>L635: 7 (('sample/dev/db-credentials', 'app/dev/credentials', 'app/dev/snowflake/keypair', 'app/dev/snowflake/keypair/lambda', 'app/dev/snowflake/keypair/lambda/rotation', 'app/dev/snowflake/keypair/lambda/rotation/credentials', 'app/dev/snowflake/keypair/lambda-skbm1r'))<br>L639: 2 (('Name', 'SecretsManager.Secret.Name'))<br>L643: 3 (('', 'UNSET', 'PENDING_DEPLOY')) |
+| `units/model_design-unit.checks.py::check_kms_policy_accounts` | L674: 動的 (policy['Statement'])<br>L676: 2 ((0, 1))<br>L679: 2 ((False, True))<br>L685: 動的 (('キーの利用権限', f'cross-account:{root_arn}', f'cross-account:{arn}extra'))<br>L691: 動的 (target.items()) |
+| `units/model_design-unit.checks.py::check_required_resource_names` | L708: 12 (('', '``', '`   `', '`UNSET`', '` UNSET `', '`PENDING_DEPLOY`', '`Pending`', '`TBD`', '`none`', '`未確定`', '`{{application}}`', '[worker](#resource-worker)'))<br>L712: 動的 (invalid)<br>L713: 動的 (('', kind + '.'))<br>L714: 動的 (enumerate(fields, 1)) |
+| `units/model_design-unit.checks.py::check_required_name_tag` | L723: 動的 (enumerate(tags, 1))<br>L735: 12 (('', '``', '`   `', '`UNSET`', '` UNSET `', '`PENDING_DEPLOY`', '`Pending`', '`TBD`', '`none`', '`not-used`', '`{{application}}`', '[worker](#worker)'))<br>L740: 動的 (invalid)<br>L741: 動的 (enumerate(fields, 1)) |
+| `units/model_design-unit.checks.py::check_naming_exclusions` | L753: 11 ((('IAM.ManagedPolicy', 'ManagedPolicyName'), ('IAM.User', 'UserName'), ('IAM.InstanceProfile', 'InstanceProfileName'), ('Config.ConfigurationRecorder', 'Name'), ('Config.DeliveryChannel', 'Name'), ('Glue.Connection', 'ConnectionInput.Name'), ('GuardDuty.Detector', 'Name'), ('Glue.Database', 'DatabaseInput.Name'), ('Glue.Table', 'TableInput.Name'), ('Route53.HostedZone', 'Name'), ('Route53.RecordSet', 'Name')))<br>L760: 動的 (('', kind + '.'))<br>L768: 3 (('', 'UNSET', 'PENDING_DEPLOY'))<br>L775: 4 ((('Config.ConfigurationRecorder', 'Name'), ('SecretsManager.Secret', 'Name'), ('Glue.Database', 'DatabaseInput.Name'), ('Glue.Table', 'TableInput.Name'))) |
+| `units/model_design-unit.checks.py::check_import_pending_properties` | L788: 動的 (rows)<br>L803: 動的 (shown) |
+| `units/model_design-unit.checks.py::check_stack_policy` | L808: 動的 (enumerate((('app-b-01', '20', 'app.yaml'), ('network', '10', 'network.yaml'), ('app-a', '20', 'app.yaml')), 1))<br>L809: 動的 ({'name': 'cfn-stack-app-dev-' + name, 'template': template, 'parameters': name + '.json', 'deployOrder': order, 'placementName': name}.items())<br>L816: 動的 (stacks)<br>L825: 動的 (restored)<br>L825: 動的 (stacks)<br>L825: 動的 (entry.items())<br>L826: 動的 (restored)<br>L827: 動的 (values.items())<br>L828: 6 ((('desired.stack.001.deployOrder', '0'), ('desired.stack.001.deployOrder', '-1'), ('desired.stack.001.deployOrder', 'abc'), ('desired.deployment.maxConcurrentStacks', '0'), ('desired.deployment.maxConcurrentStacks', '-1'), ('desired.deployment.maxConcurrentStacks', '1.5')))<br>L834: 動的 (values.items())<br>L837: 6 (('', 'invalid', 'stack-resource', 'stack-Bad_Id', ' stack-Resource', 'stack-Resource ')) |
+| `units/model_design-unit.checks.py::check_observed_arn_authority` | L849: 2 (('IMPORT', 'CREATE'))<br>L854: 動的 (findings.errors)<br>L859: 動的 (findings.errors) |
+| `units/model_design-unit.checks.py::check_desired_only_identifier_reference` | 1（内部パラメータ化なし） |
+| `units/model_design-unit.checks.py::check_loggroup_invalid_values` | L875: 2 (('31', 'not-a-number')) |
+| `units/model_design-unit.checks.py::check_authoritative_display_identity` | L894: 動的 (enumerate(('BuildProtectionPlan', 'QuarantineProtectionPlan'), 1))<br>L908: 2 (('001', '002'))<br>L910: 動的 (values.items())<br>L911: 4 (('', 'UNSET', 'PENDING_DEPLOY', 'wrong-label'))<br>L915: 2 ((('resourceType', 'GuardDuty.Detector'), ('logicalId', 'OtherPlan')))<br>L920: 動的 (values.items())<br>L922: 動的 (candidates)<br>L932: 動的 (findings.errors) |
+| `units/model_design-unit.checks.py::check_navigation_display_labels` | L949: 動的 ((name, logical, 'wrong-label', 'physical-id', '/service-role/' + name))<br>L959: 動的 (findings.warnings)<br>L963: 動的 (messages) |
+| `units/model_design-unit.checks.py::check_cfn_identity_inputs` | L989: 動的 (values.items())<br>L998: 2 ((('invalid', 'invalid cfn-logicalId'), ('absent-Vpc', 'undeclared stack'))) |
+| `units/model_design-unit.checks.py::check_expanded_design_and_json_digest` | L1104: 動的 (lines) |
+| `units/model_design-unit.checks.py::check_required_datasource_type` | 1（内部パラメータ化なし） |
+| `units/model_design-unit.checks.py::check_implicit_grouped_required_property` | 1（内部パラメータ化なし） |
+| `units/model_design-unit.checks.py::check_required_property_parents` | L1175: 動的 (enumerate(fields, 1))<br>L1177: 動的 (values.items())<br>L1180: 動的 (values.items())<br>L1181: 動的 (rows)<br>L1195: 動的 (validator.errors)<br>L1197: 動的 (validator.errors) |
+| `units/model_design-unit.checks.py::check_candidate_model_metadata` | L1207: 動的 (findings.errors) |
+| `units/model_design-unit.checks.py::check_candidate_design_diagnostics` | L1222: 動的 (findings.errors)<br>L1228: 動的 (validator.errors) |
+| `units/sync-model-unit.checks.py::check_property_path_parents` | 1（内部パラメータ化なし） |
+| `units/sync-model-unit.checks.py::check_markdown_newlines` | 1（内部パラメータ化なし） |
+| `units/sync-model-unit.checks.py::check_internal_sync_concurrent_output` | L109: 動的 (roots)<br>L110: 動的 (futures)<br>L111: 動的 (zip(roots, reversed(roots), results, strict=False))<br>L114: 動的 (reports)<br>L115: 動的 (reports) |
+| `units/sync-model-unit.checks.py::check_internal_sync_arguments` | 1（内部パラメータ化なし） |
+| `units/sync-model-unit.checks.py::check_progress_heartbeat_and_waits` | L174: 7 (['heartbeat', 'items=1/2', 'completed=1/1', 'lock-wait', 'stage-failed', 'remaining=unknown', 'not proof of progress']) |
+| `units/sync-model-unit.checks.py::check_snapshot_conflict` | 1（内部パラメータ化なし） |
+| `units/sync-model-unit.checks.py::check_snapshot_project_common_inputs` | 1（内部パラメータ化なし） |
+| `units/sync-model-unit.checks.py::check_planned_outputs_and_boundary` | 1（内部パラメータ化なし） |
+| `units/sync-model-unit.checks.py::check_stage_dependency_selection` | L286: 動的 (files.items())<br>L309: 動的 (stage.rglob('*')) |
+| `units/sync-model-unit.checks.py::check_linked_attachments` | L332: 動的 (payloads.items())<br>L350: 動的 (payloads.items())<br>L365: 動的 (payloads.items()) |
+| `units/sync-model-unit.checks.py::check_final_git_paths` | L409: 動的 (calls) |
+| `units/sync-model-unit.checks.py::check_git_baseline_fail_closed` | 1（内部パラメータ化なし） |
+| `units/sync-model-unit.checks.py::check_scope_git_collection` | 1（内部パラメータ化なし） |
+| `units/sync-model-unit.checks.py::check_framework_write_does_not_discover` | 1（内部パラメータ化なし） |
+| `units/sync-model-unit.checks.py::check_result_reuse_is_scoped` | 1（内部パラメータ化なし） |
+| `units/sync-model-unit.checks.py::check_resource_row_reuse_and_edits` | L520: 動的 (dict(property='IAM.Role.Description', value='first', comment='fixture').items())<br>L534: 動的 (dict(property='IAM.Role.Path', value='/fixture/', comment='added').items())<br>L540: 動的 (list(values)) |
+| `units/sync-model-unit.checks.py::check_resource_row_legacy_and_invalid_entries` | L567: 3 (('legacy-001', 'legacy-child-001', 'legacyish-001'))<br>L569: 動的 (dict(property='IAM.Role.Description', value=identity, comment='fixture').items())<br>L572: 動的 (rows) |
+| `units/sync-model-unit.checks.py::check_resource_row_scope_restoration` | 1（内部パラメータ化なし） |
+| `units/sync-model-unit.checks.py::check_generate_views_missing_authoritative_json` | L645: 動的 (root.rglob('*'))<br>L654: 動的 (stage.rglob('*'))<br>L655: 動的 ((design, artifact))<br>L656: 動的 (root.rglob('*')) |
+| `units/sync-model-unit.checks.py::check_readonly_stale_views` | L667: 動的 ((expected, expected.replace('`14`', '`31`'), '', expected.replace('RetentionInDays', 'UnknownField')))<br>L669: 動的 ((path, source))<br>L677: 動的 (before) |
+| `units/sync-model-unit.checks.py::check_snapshot_input_differences` | 1（内部パラメータ化なし） |
+| `units/sync-model-unit.checks.py::check_snapshot_symlink_safety` | 1（内部パラメータ化なし） |
+| `units/sync-model-unit.checks.py::check_internal_sync_selection` | L773: 動的 (sync.call_args_list)<br>L775: 動的 (sync.call_args_list) |
+| `units/sync-model-unit.checks.py::check_failure_counts` | L782: 動的 (range(17))<br>L783: 動的 (paths[9:])<br>L784: 動的 (paths[:9])<br>L785: 動的 (paths)<br>L790: 動的 (range(5))<br>L804: 動的 (failures[-2:]) |
+| `units/sync-model-unit.checks.py::check_guard_snapshot_candidates` | L819: 動的 (({}, {project: '{}\n'})) |
+| `units/sync-model-unit.checks.py::check_definition_read_errors` | L848: 動的 (validator.errors) |
+| `units/sync-model-unit.checks.py::check_sidecar_output_difference` | 1（内部パラメータ化なし） |
+| `units/sync-model-unit.checks.py::check_missing_validation_inputs` | L884: 動的 (validator.errors) |
+| `units/sync-model-unit.checks.py::check_generation_input_failures` | 1（内部パラメータ化なし） |
 | `units/aws_mapping-unit.checks.py::check_payload_selection` | L40: 動的 (mapping.properties.items())<br>L48: 動的 (mapping.properties.items())<br>L51: 動的 (mapping.properties.items()) |
 | `units/aws_mapping-unit.checks.py::check_v3_registry` | L61: 動的 (paths)<br>L73: 動的 (document['resourceTypes'].items())<br>L75: 動的 (mapping.getters.items())<br>L76: 動的 (adapter_getters.values())<br>L76: 動的 (resources)<br>L81: 3 (('RESOURCE_TYPES', 'IDENTITIES', 'GETTERS'))<br>L83: 動的 (mapping.identities.items())<br>L92: 3 (('RESOURCE_TYPES', 'IDENTITIES', 'GETTERS'))<br>L108: 動的 (tgw_properties.items())<br>L110: 動的 (actual.items())<br>L111: 動的 (actual.items())<br>L112: 動的 (selected)<br>L119: 動的 ([(baseline_properties, '011c38a46feabd4a28eb4619a3963a3c145f207266dfd757f4a0bbc25a02a463'), (definitions, '345c0f5691eeaf636a27f902e04831de58cd96f5506d1936c67f43edb156944b'), (metadata, '6ddf2190bf6c29c9615b5fad44deb27f8b33007f9fd8b4596be89630da10869b')]) |
 | `units/aws_mapping-unit.checks.py::check_registry_cache` | L134: 動的 ((lambda: setattr(first.identities[RECORDER], 'id_path', 'other'), lambda: first.identities.__setitem__(RECORDER, None), lambda: first.getters['recorder'].__setitem__('resources', ()), lambda: setattr(first, 'service', 'other'))) |
@@ -618,17 +689,6 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `units/issues_scan-unit.checks.py::check_summary_scale` | L157: 4 (('first', 'second', 'confidential', 'arn:aws:'))<br>L159: 4 ([('matched', 'complete match'), ('uncompared', 'partial'), ('excluded', 'no compared records'), ('error', 'error')])<br>L117: 動的 (stats['categories'].items())<br>L122: 2 (('naming', 'judgments'))<br>L?: 動的 (actions)<br>L?: 動的 (actions)<br>L?: 動的 (entries)<br>L?: 動的 (records)<br>L?: 動的 (stats['groups'])<br>L?: 動的 (stats['categories'].items())<br>L?: 動的 (again_actions)<br>L?: 動的 (actions)<br>L?: 動的 (again_actions)<br>L?: 動的 (actions)<br>L?: 動的 (actions)<br>L?: 動的 (actions)<br>L?: 動的 (action['members'])<br>L?: 動的 (range(0, total, 50))<br>L?: 動的 (detail_payload(artifact, section, offset, 50)['items'])<br>L?: 動的 (group['members'])<br>L?: 動的 (group['members'])<br>L?: 動的 (group['members'])<br>L?: 動的 (group['members']) |
 | `units/json-yaml-document-hash-unit.checks.py::check_json_hash_types` | 1（内部パラメータ化なし） |
 | `units/lambda_permission-unit.checks.py::check_permission_catalog` | 1（内部パラメータ化なし） |
-| `units/model_design-unit.checks.py::check_design_naming_rules` | L12: 10 (('S3.Bucket', 'EC2.Instance', 'EC2.VPCEndpoint', 'EC2.VPC', 'IAM.Role', 'SecurityHub.Hub', 'SecretsManager.Secret', 'Macie.ClassificationJob', 'SSM.Association', 'CloudFormation.Stack')) |
-| `units/model_design-unit.checks.py::check_subnet_list_display` | L23: 動的 ((ROOT / 'framework/materials/aws').glob('*.properties'))<br>L24: 動的 (path.read_text(encoding='utf-8').splitlines())<br>L25: 動的 (catalog)<br>L28: 動的 (sorted(subnet_lists))<br>L32: 動的 (links)<br>L40: 動的 (inputs)<br>L42: 動的 (shown)<br>L45: 動的 (restored)<br>L46: 動的 (enumerate(rows, 1))<br>L48: 動的 ((document[:-1], [line.replace(field + '[2]', field + '[3]') for line in document], [line.replace(field + '[2]', field + '[1]') for line in document], [line.replace(field + '[1]', field + '[0]') for line in document], [line.replace(field + '[1]', field) for line in document]))<br>L50: 動的 (document)<br>L51: 動的 (document)<br>L52: 動的 (document)<br>L53: 動的 (document)<br>L61: 動的 (([line.replace('\| ' + shown[0][2] + ' \|', '\| `subnet-other` \|') for line in document], [*document[:-1], document[-1].replace(shown[-1][3], '別の説明')]))<br>L62: 動的 (document)<br>L69: 動的 (bad_values) |
-| `units/model_design-unit.checks.py::check_security_naming` | L77: 動的 (naming_rule_files(ROOT))<br>L79: 動的 (text.splitlines())<br>L80: 動的 (line.strip('\|').split('\|'))<br>L84: 動的 (patterns.items())<br>L87: 動的 ((False, True) if kind == 'Organizations.Policy' else (False,))<br>L89: 3 ((('application', 'app'), ('environment', 'dev'), ('purpose', 'patching')))<br>L93: 動的 (enumerate(fields, 1))<br>L95: 動的 (rows)<br>L96: 動的 (fields)<br>L100: 3 (('EC2.TransitGateway', 'EC2.TransitGatewayVpcAttachment', 'EC2.TransitGatewayRouteTable')) |
-| `units/model_design-unit.checks.py::check_service_scoped_naming` | L110: 3 (('DataZone.Domain', 'DataZone.Project', 'DataZone.DataSource'))<br>L114: 動的 (selected) |
-| `units/model_design-unit.checks.py::check_naming_target_paths` | L135: 3 (('Stages[].Name', 'Stages[].Actions[].Name', 'Variables[].Name')) |
-| `units/model_design-unit.checks.py::check_security_group_and_glue_catalog_naming` | L148: 動的 (naming_rule_files(ROOT))<br>L153: 5 ((('EC2.SecurityGroup', [('GroupName', 'app-dev-glue-data-sg')]), ('EC2.SecurityGroup', [('GroupName', 'app-dev-glue-data-01-sg')]), ('EC2.SecurityGroup', [('Tags[].Key', 'Name'), ('Tags[].Value', 'app-dev-glue-data-sg')]), ('EC2.SecurityGroup', [('Tags[].Key', 'Name'), ('Tags[].Value', 'app-dev-glue-data-01-sg')]), ('Glue.Catalog', [('Name', 'glct-app-dev-data')])))<br>L160: 動的 (('', kind + '.'))<br>L162: 動的 (enumerate(fields, 1)) |
-| `units/model_design-unit.checks.py::check_naming_coverage` | 1（内部パラメータ化なし） |
-| `units/model_design-unit.checks.py::check_naming_edges` | 1（内部パラメータ化なし） |
-| `units/model_design-unit.checks.py::check_invalid_model` | 1（内部パラメータ化なし） |
-| `units/model_design-unit.checks.py::check_temporary_roots` | L196: 動的 (range(2))<br>L198: 動的 (configs)<br>L200: 動的 (configs)<br>L201: 動的 (paths)<br>L203: 動的 (cleanup) |
-| `units/model_design-unit.checks.py::check_cli_result` | 1（内部パラメータ化なし） |
 | `units/model_files-unit.checks.py::check_cfn_selector` | 1（内部パラメータ化なし） |
 | `units/model_parameter_inputs-unit.checks.py::check_yaml_schema` | L13: 4 (['a: 1\na: 2', 'a: {b: 1, b: 2}', 'a: !!python/object:bad {}', 'a: &x {b: 1}\nc: {<<: *x}']) |
 | `units/model_parameter_inputs-unit.checks.py::check_embedded_parameter_type` | 1（内部パラメータ化なし） |
@@ -645,14 +705,10 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `units/resource_mode-unit.checks.py::check_required_name_modes` | L30: 4 (('EC2.VPC', 'EC2.Subnet', 'EC2.RouteTable', 'EC2.FlowLog'))<br>L31: 2 (('CREATE', 'IMPORT'))<br>L32: 2 (([], [['1', kind + '.Name', 'PRIVATE_SUBNET_01', 'Nameタグ']])) |
 | `units/security_group_tables-unit.checks.py::check_rule_catalog` | L15: 動的 (DIRECTIONS.values())<br>L20: 動的 (selected - {'GroupId', 'Id'})<br>L?: 動的 (catalog[1].items()) |
 | `units/security_group_tables-unit.checks.py::check_service_filenames` | L31: 7 ((('ec2.md', 'ec2', ('EC2.SecurityGroup',)), ('ec2.properties', 'ec2', ('EC2.SecurityGroupIngress',)), ('security-group.md', 'security-group', ('EC2.Instance',)), ('security-group.md', 'security-group', ('EC2.SecurityGroup', 'EC2.VPC')), ('security_group.md', 'security_group', ('EC2.SecurityGroup',)), ('security_group.properties', 'security_group', ('EC2.SecurityGroup',)), ('other_service.md', 'other_service', ('S3.Bucket',)))) |
-| `units/sync-model-unit.checks.py::check_property_path_parents` | 1（内部パラメータ化なし） |
-| `units/sync-model-unit.checks.py::check_markdown_newlines` | 1（内部パラメータ化なし） |
 | `units/test_issues_iac.py::ImportValueResolutionTests.test_formal_pipeline_membership_and_configuration_context` | L?: 動的 (enumerate(fields)) |
 | `units/test_issues_iac.py::ImportValueResolutionTests.test_api_managed_resource_remains_unverified_in_cloudformation_comparison` | 1（内部パラメータ化なし） |
 | `units/test_issues_iac.py::ImportValueResolutionTests.test_import_value_ignores_unrelated_incomplete_stack` | 1（内部パラメータ化なし） |
 | `units/test_issues_iac.py::ImportValueResolutionTests.test_kms_alias_retains_identity_even_with_the_same_parent_key` | 1（内部パラメータ化なし） |
-| `units/validation_cache-unit.checks.py::check_cache_inputs` | README.md / AGENTS.md / project.json / .agents の4入力、追加/内容変更/削除 |
-| `units/validation_cache-unit.checks.py::check_cache_location` | 1（内部パラメータ化なし） |
 | `units/validation_checks/cloudformation.py::check_cloudformation_yaml_rules` | L59: 4 (('OtherSuffix', 'ExportVersion', 'NamePart', 'namePart2'))<br>L64: 10 (("Imported:\n        Fn::ImportValue: !Sub 'VpcId${Suffix}'", 'Imported:\n        Fn::ImportValue: !Sub "SubnetId${OtherSuffix}"', "Imported:\n        Fn::ImportValue:\n          # Import name\n          !Sub 'VpcId${NamePart}'", "Imported:\n        'Fn::ImportValue': !Sub 'VpcId${Suffix}'", 'Imported: {"Fn::ImportValue": !Sub "VpcId${Suffix}"}', "Imported: !ImportValue {Fn::Sub: 'VpcId${Suffix}'}", 'Imported: !ImportValue {Fn::Sub: "SubnetId${OtherSuffix}"}', "Imported: !ImportValue {'Fn::Sub': 'VpcId${NamePart}'}", 'Imported: !ImportValue {"Fn::Sub": "VpcId${Suffix}"}', "Imported: !ImportValue {Fn::Sub: ['VpcId${Part}', {Part: !Ref Suffix}]}"))<br>L82: 動的 ((valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", 'JobId:\n        Fn::Select:\n          - 0\n          - Ref: GlueJob'), valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", 'JobId: {Fn::Select: [0, {Ref: GlueJob}]}'), valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId: {'Fn::Select': [0, !Ref GlueJob]}"), valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId: {Fn::Join: ['-', [a, b]]}"), valid.replace("JobId: !Select [0, !Split ['|', !Ref GlueJob]]", "JobId: {Fn::Sub: '${AWS::Region}'}"), valid.replace('Imported: !ImportValue fixed-export', 'Imported:\n        Fn::ImportValue: fixed-export'), valid.replace('Imported: !ImportValue fixed-export', "Imported:\n        Fn::ImportValue: {Fn::Sub: 'VpcId${Suffix}'}"), valid.replace('Imported: !ImportValue fixed-export', "Imported:\n        Fn::ImportValue:\n        Description: !Sub 'VpcId${Suffix}'"), valid.replace('Imported: !ImportValue fixed-export', 'Imported:\n        Fn::ImportValue:\n          Ref: Suffix'), valid.replace('Imported: !ImportValue fixed-export', "Imported: !ImportValue fixed-export # Fn::ImportValue: !Sub 'text'\n      ExtraImport: {Fn::Sub: text}"), valid.replace('Imported: !ImportValue fixed-export', "Imported: 'Fn::ImportValue: !Sub text'\n      ExtraImport: {Fn::Sub: text}"), valid.replace('Imported: !ImportValue fixed-export', "Imported: !ImportValue {Fn::Sub: ['VpcId${Part}', {Part: {Ref: Suffix}}]}"), valid.replace('Imported: !ImportValue fixed-export', "Imported: !ImportValue {Fn::Sub: 'VpcId${Suffix}'}\n      ExtraImport: {Fn::Sub: text}"), valid.replace('Imported: !ImportValue fixed-export', "Imported: '!ImportValue {Fn::Sub: text}'\n      ExtraImport: {Fn::Sub: text}"), valid.replace('Imported: !ImportValue fixed-export', 'Imported: !ImportValue fixed-export # !ImportValue {Fn::Sub: text}\n      ExtraImport: {Fn::Sub: text}')))<br>L112: 動的 ((valid.replace('AssumeRolePolicyDocument:\n', 'AssumeRolePolicyDocument: &sharedTrustPolicy\n', 1), valid.replace('AssumeRolePolicyDocument:\n' + trust_body, 'AssumeRolePolicyDocument: *sharedTrustPolicy\n', 1), valid.replace('AssumeRolePolicyDocument:\n' + trust_body, 'AssumeRolePolicyDocument:\n        <<: {}\n', 1)))<br>L161: 3 (('AWS::EC2::SecurityGroup', 'AWS::Logs::LogGroup', 'AWS::IAM::Role'))<br>L?: 動的 (errors(suffix_import.replace('!Ref Suffix', '{Ref: Suffix}')))<br>L?: 動的 (errors(export_suffix_import.replace('!Ref ExportSuffix', '{Ref: ExportSuffix}')))<br>L?: 動的 (errors(suffix_import.replace('!Ref Suffix', '!Ref Invalid_Name')))<br>L?: 動的 (errors(suffix_import.replace("['',", "['-',")))<br>L?: 動的 (errors(valid.replace('\n  RoleB:', '  RoleB:', 1)))<br>L?: 動的 (errors(block_array))<br>L?: 動的 (errors(join_block_array))<br>L?: 動的 (errors(valid.replace(consumer, '')))<br>L?: 動的 (errors(role_only))<br>L?: 動的 (errors(marker + valid))<br>L?: 動的 (errors('Resources:\n  Logs:\n    Type: AWS::Logs::LogGroup\n'))<br>L?: 動的 (errors('Resources:\n  Role:\n    Type: AWS::IAM::Role\n\n  Logs:\n    Type: AWS::Logs::LogGroup\n'))<br>L?: 動的 (errors('Resources:\n  Filter:\n    Type: AWS::Logs::SubscriptionFilter\n'))<br>L?: 動的 (errors('Resources:\n  Role:\n    Type: AWS::IAM::Role\n\n  Profile:\n    Type: AWS::IAM::InstanceProfile\n'))<br>L?: 動的 (errors('Resources:\n  Group:\n    Type: AWS::EC2::SecurityGroup\n  Ingress:\n    Type: AWS::EC2::SecurityGroupIngress\n'))<br>L?: 動的 (errors(marker + ingress))<br>L?: 動的 (errors(bad))<br>L?: 動的 (errors(forbidden))<br>L?: 動的 (errors(ingress + egress + f'\n  Support:\n    Type: {support}\n')) |
 | `units/validation_checks/cloudformation.py::check_cloudformation_environment_parameters` | L236: 動的 (conditions)<br>L259: 動的 (selectors)<br>L285: 動的 (permitted)<br>L?: 動的 (errors(valid_template.replace('  Environment:\n    Type: String\n', ''), valid_values))<br>L?: 動的 (errors(valid_template, valid_values[1:]))<br>L?: 動的 (errors(valid_template, [{**valid_values[0], 'ParameterValue': 'prod'}, valid_values[1]]))<br>L?: 動的 (errors(valid_template, [valid_values[0], {**valid_values[1], 'ParameterValue': 'app-dev'}]))<br>L?: 動的 (errors(valid_template.replace("!Sub '${NamePrefix}-${Environment}-${AWS::AccountId}-role'", '!Ref NamePrefix'), [{'ParameterKey': 'NamePrefix', 'ParameterValue': 'app-dev-role'}]))<br>L?: 動的 (errors(yaml, valid_values))<br>L?: 動的 (errors(valid_template + loop, valid_values))<br>L?: 動的 (failures)<br>L?: 動的 (validator.errors)<br>L?: 動的 (errors('Resources: [', valid_values))<br>L?: 動的 (failures)<br>L?: 動的 (failures) |
 | `units/validation_checks/contracts.py::check_optional_alias_contract` | L26: 動的 (required.items()) |
@@ -826,18 +882,6 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `support/service_contracts.py:401` | `check` | IT | [integrations/service_contracts.py:400](integrations/service_contracts.py#L400) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `support/service_contracts.py:410` | `check_fixtures` | IT | [integrations/service_contracts.py:409](integrations/service_contracts.py#L409) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `integrations/sync-existing-files.checks.py:30` | `check_failure_safety` | IT | [integrations/sync-existing-files.checks.py:30](integrations/sync-existing-files.checks.py#L30) | direct / 1 | CLI/subprocessまたはGitとの連携 | 変更不要 |
-| `unknown/sync-model.checks.py:81` | `check_publication_boundary` | IT | [integrations/sync-model.checks.py:321](integrations/sync-model.checks.py#L321) | pytest / 6 | source/project/part/consumer/extra/contract変更を保存前拒否、保存ゼロと外部変更保持（mapping条件を削除） | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:129` | `check_unchanged_sidecar` | IT | [integrations/sync-model.checks.py:393](integrations/sync-model.checks.py#L393) | pytest / 2 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:157` | `check_changed_sidecar_publication` | IT | [integrations/sync-model.checks.py:414](integrations/sync-model.checks.py#L414) | pytest / 3 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:177` | `check_publication_rechecks_excluded_outputs` | IT | [integrations/sync-model.checks.py:434](integrations/sync-model.checks.py#L434) | pytest / 6 | 変更なしJSONも入力として保存前照合し、sidecar/source/契約の外部変更を保持して停止 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:203` | `check_changed_sidecar_publication_rollback` | IT | [integrations/sync-model.checks.py:458](integrations/sync-model.checks.py#L458) | pytest / 2 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:238` | `check_unchanged_sidecar_path_safety` | IT | [integrations/sync-model.checks.py:493](integrations/sync-model.checks.py#L493) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:250` | `check_unchanged_sidecar_validation` | IT | [integrations/sync-model.checks.py:505](integrations/sync-model.checks.py#L505) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:330` | `check_failure_counts` | IT | [integrations/sync-model.checks.py:517](integrations/sync-model.checks.py#L517) | pytest / 1 | 候補不採用の部分成功・全体FAIL・保持設計リンクWARN分類を維持 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:376` | `check_incoming_reference_models` | IT | [integrations/sync-model.checks.py:582](integrations/sync-model.checks.py#L582) | pytest / 2 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:402` | `check_required_preflight` | IT | [integrations/sync-model.checks.py:612](integrations/sync-model.checks.py#L612) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:485` | `check_required_property_parents` | IT | [integrations/sync-model.checks.py:692](integrations/sync-model.checks.py#L692) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
-| `unknown/sync-model.checks.py:552` | `check_workflow` | IT | [integrations/sync-model.checks.py:751](integrations/sync-model.checks.py#L751) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/task_contract.checks.py:155` | `check_admission_selection` | IT | [integrations/task_contract.checks.py:169](integrations/task_contract.checks.py#L169) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/task_contract.checks.py:204` | `check_completed_legacy_and_paths` | IT | [integrations/task_contract.checks.py:46](integrations/task_contract.checks.py#L46) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `unknown/task_contract.checks.py:241` | `check_shared_issue_files` | IT | [integrations/task_contract.checks.py:190](integrations/task_contract.checks.py#L190) | pytest / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
@@ -879,10 +923,6 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/worktree_task.checks.py:403` | `check_merge_retry_and_commit_failure` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py#L437) | direct / 1 | 実Merge失敗からの再試行とCommit改変拒否（2経路） | 統合境界のみ |
 | `unknown/worktree_task.checks.py:454` | `check_human_approved_validation_failure` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py#L481) | direct / 1 | 承認付き実Merge・suspend/FAIL保持・承認永続化とcleanup再試行 | 統合境界のみ |
 | `unknown/worktree_task.checks.py:493` | `check_real_loop_integration` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py#L504) | direct / 1 | 実Loop失敗からTask suspend永続化・finalize停止への接続 | 統合境界のみ |
-| `integrations/sync-model.checks.py:638` | `check_publication_lock_wait` | IT | [integrations/sync-model.checks.py:963](integrations/sync-model.checks.py#L963) | pytest / 1 | sync-performance: real publication lock contention and reentrancy | 検証本体・assertを保持 |
-| `integrations/sync-model.checks.py:667` | `check_generation_output_compatibility` | IT | [integrations/sync-model.checks.py:992](integrations/sync-model.checks.py#L992) | pytest / 1 | sync-performance: generated bytes and stdout compatibility | 検証本体・assertを保持 |
-| `integrations/sync-model.checks.py:685` | `check_two_consumer_cli` | IT | [integrations/sync-model.checks.py:1010](integrations/sync-model.checks.py#L1010) | pytest / 1 | sync-performance: two-consumer CLI write/check and invalid scope | 検証本体・assertを保持 |
-| `integrations/sync-model.checks.py:731` | `check_input_mutation` | IT | [integrations/sync-model.checks.py:1058](integrations/sync-model.checks.py#L1058) | pytest / 12 | sync-performance: four source kinds x change/delete/add, output preservation | 検証本体・assertを保持 |
 
 | `integrations/check-model-aws.checks.py:644` | `check_domains` | IT | [integrations/check-model-aws.checks.py:364](integrations/check-model-aws.checks.py#L364) | pytest / 7 | 既存callbackを実行するパラメータ化入口。callbackと重複加算しない | 現在の入口 |
 
@@ -890,6 +930,26 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 
 | ファイル / ケース | ループ地点・パターン数・入力 |
 |---|---|
+| `integrations/sync-model.checks.py::check_stage_definition_sources` | L99: 動的 ((design, artifact))<br>L100: 動的 ((definition_root(root) / 'framework').rglob('*'))<br>L112: 動的 (originals)<br>L123: 動的 (unrelated)<br>L130: 動的 (definitions)<br>L136: 動的 (range(4))<br>L162: 動的 (fields.items())<br>L174: 2 ((1, 4))<br>L179: 動的 (models)<br>L184: 動的 (zip(sources, models, strict=False))<br>L188: 動的 (generated.values())<br>L188: 動的 (files)<br>L198: 動的 (generated.values())<br>L198: 動的 (files)<br>L201: 動的 (models) |
+| `integrations/sync-model.checks.py::check_stage_candidate_isolation` | L209: 動的 ((design, artifact))<br>L222: 動的 (diagnostics(validator))<br>L223: 動的 (validator.errors)<br>L225: 動的 (originals) |
+| `integrations/sync-model.checks.py::check_stage_cloudformation_definitions` | L258: 2 (('iam', 'cloudformation-stacks'))<br>L271: 動的 (metadata.items())<br>L285: 動的 (validator.errors) |
+| `integrations/sync-model.checks.py::check_publication_boundary` | L304: 動的 ((design, artifact))<br>L313: 動的 (originals) |
+| `integrations/sync-model.checks.py::check_normal_writer_contents` | L339: 4 (('check_design_service_ownership', 'check_resource_names', 'check_observed_values', 'check_policy_tables'))<br>L344: 動的 (checks)<br>L354: 動的 (expand.call_args_list)<br>L356: 動的 (counters)<br>L356: 動的 (counters)<br>L359: 7 (('snapshot', 'dependency-model', 'stage-placement', 'candidate-generation', 'candidate-validation', 'publication', 'completed=1/1')) |
+| `integrations/sync-model.checks.py::check_unchanged_sidecar` | 1（内部パラメータ化なし） |
+| `integrations/sync-model.checks.py::check_changed_sidecar_publication` | 1（内部パラメータ化なし） |
+| `integrations/sync-model.checks.py::check_publication_rechecks_excluded_outputs` | 1（内部パラメータ化なし） |
+| `integrations/sync-model.checks.py::check_changed_sidecar_publication_rollback` | L441: 動的 ((design, artifact)) |
+| `integrations/sync-model.checks.py::check_unchanged_sidecar_validation` | L468: 動的 ((design, artifact))<br>L474: 動的 (before) |
+| `integrations/sync-model.checks.py::check_incoming_reference_models` | L490: 2 (('s3', 'kms')) |
+| `integrations/sync-model.checks.py::check_required_preflight` | L527: 動的 (values.items())<br>L535: 2 ((False, True)) |
+| `integrations/sync-model.checks.py::check_required_property_parents` | L580: 動的 (enumerate((('ConnectionInput.Name', '`sample`'), ('Name', '[Connection](#glue-sample)'), ('CatalogId', '`123456789012`'), ('ConnectionInput.ConnectionType', '`JDBC`'), ('ConnectionInput.PhysicalConnectionRequirements.AvailabilityZone', '`ap-northeast-1a`'), ('ConnectionInput.ValidateCredentials', '`true`')), 1))<br>L594: 動的 (values.items()) |
+| `integrations/sync-model.checks.py::check_publication_lock_wait` | 1（内部パラメータ化なし） |
+| `integrations/sync-model.checks.py::check_two_consumer_cli` | L655: 3 ([('init', '-q'), ('add', '.'), ('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'baseline')])<br>L666: 2 (('dev', 'stg'))<br>L676: 動的 (outputs)<br>L679: 動的 (outputs)<br>L686: 動的 ((outputs[0], outputs[2])) |
+| `integrations/sync-model.checks.py::check_internal_sync_isolation` | 1（内部パラメータ化なし） |
+| `integrations/sync-model.checks.py::check_internal_sync_real_diagnostics` | L770: 2 (('dev', 'stg'))<br>L771: 動的 (sorted(scope))<br>L771: 動的 (('--scope', '/'.join(entry)))<br>L784: 動的 (validator.errors) |
+| `integrations/sync-model.checks.py::check_integrated_validator` | L823: 3 (('AGENTS.md', 'README.md', 'docs/system-overview.md'))<br>L827: 3 (('infra/cloudformation/parameters/dev/123456789012', 'tests/scenarios', 'tests/results'))<br>L854: 動的 (expand.call_args_list) |
+| `integrations/sync-model.checks.py::check_integrated_validator_publication_failure` | L867: 動的 ((design, artifact))<br>L872: 3 (('AGENTS.md', 'README.md', 'docs/system-overview.md'))<br>L876: 3 (('infra/cloudformation/parameters/dev/123456789012', 'tests/scenarios', 'tests/results'))<br>L879: 3 ([('init', '-q'), ('add', '.'), ('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Fixture')])<br>L889: 動的 (originals)<br>L890: 動的 (failed.errors)<br>L891: 動的 (failed.acceptance_results) |
+| `integrations/sync-model.checks.py::check_multiple_targets_barrier` | 1（内部パラメータ化なし） |
 | `integrations/attribute-reference-resolution.checks.py::check_pair` | 1（内部パラメータ化なし） |
 | `integrations/attribute-reference-resolution.checks.py::check_fixed_label` | L?: 動的 (root.rglob('*'))<br>L?: 動的 (root.rglob('*'))<br>L?: 動的 (content.splitlines()) |
 | `integrations/attribute-reference-resolution.checks.py::check_stack` | 1（内部パラメータ化なし） |
@@ -1008,18 +1068,6 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `integrations/service_contracts.py::check` | 1（内部パラメータ化なし） |
 | `integrations/service_contracts.py::check_fixtures` | 1（内部パラメータ化なし） |
 | `integrations/sync-existing-files.checks.py::check_failure_safety` | L40: 4 (('framework/a.txt', 'framework/b.txt', 'AGENTS.md', 'README.md'))<br>L53: 動的 (target.rglob('*'))<br>L70: 動的 (target.rglob('*')) |
-| `integrations/sync-model.checks.py::check_publication_boundary` | L325: 動的 ((design, artifact))<br>L345: 動的 (originals) |
-| `integrations/sync-model.checks.py::check_unchanged_sidecar` | 1（内部パラメータ化なし） |
-| `integrations/sync-model.checks.py::check_changed_sidecar_publication` | 1（内部パラメータ化なし） |
-| `integrations/sync-model.checks.py::check_publication_rechecks_excluded_outputs` | 1（内部パラメータ化なし） |
-| `integrations/sync-model.checks.py::check_changed_sidecar_publication_rollback` | L459: 動的 ((design, artifact)) |
-| `integrations/sync-model.checks.py::check_unchanged_sidecar_path_safety` | 1（内部パラメータ化なし） |
-| `integrations/sync-model.checks.py::check_unchanged_sidecar_validation` | L507: 動的 ((design, artifact))<br>L513: 動的 (before) |
-| `integrations/sync-model.checks.py::check_failure_counts` | L526: 動的 (range(17))<br>L537: 動的 (range(5))<br>L540: 動的 (generated)<br>L541: 4 (('design.collections', 'design.ownership', 'design.stacks', 'framework.policy-tables'))<br>L547: 動的 (paths)<br>L548: 6 (('design.names', 'design.tables', 'design.overviews', 'design.links', 'design.artifacts', 'design.observed'))<br>L551: 2 ((False, True))<br>L555: 2 ((False, True)) |
-| `integrations/sync-model.checks.py::check_incoming_reference_models` | L588: 2 (('s3', 'kms')) |
-| `integrations/sync-model.checks.py::check_required_preflight` | L630: 動的 (values.items())<br>L635: 2 ((False, True))<br>L640: 2 ((False, True))<br>L661: 4 (('', '``', '`""`', '`UNSET`'))<br>L665: 動的 (complete.items()) |
-| `integrations/sync-model.checks.py::check_required_property_parents` | L705: 動的 (enumerate((('ConnectionInput.Name', '`sample`'), ('Name', '[Connection](#glue-sample)'), ('CatalogId', '`123456789012`'), ('ConnectionInput.ConnectionType', '`JDBC`'), ('ConnectionInput.PhysicalConnectionRequirements.AvailabilityZone', '`ap-northeast-1a`'), ('ConnectionInput.ValidateCredentials', '`true`')), 1))<br>L719: 動的 (values.items())<br>L737: 2 (('ConnectionInput', 'CatalogId'))<br>L738: 動的 (values.items())<br>L740: 動的 (values.items())<br>L744: 動的 (original.splitlines())<br>L746: 動的 (design_errors(content))<br>L747: 動的 (design_errors(original.replace('`true`', '`not-a-boolean`'))) |
-| `integrations/sync-model.checks.py::check_workflow` | L874: 動的 (lines)<br>L943: 動的 (stack_rows)<br>L945: 動的 (stack_rows)<br>L948: 動的 (stack_rows) |
 | `integrations/task_contract.checks.py::check_admission_selection` | 1（内部パラメータ化なし） |
 | `integrations/task_contract.checks.py::check_completed_legacy_and_paths` | L56: 動的 ((old, new))<br>L69: 9 (('../escape', '/tmp/escape', './file', 'a//file', 'a/../file', '*.md', 'a/**', '.git/config', '.')) |
 | `integrations/task_contract.checks.py::check_shared_issue_files` | L?: 2 (('retained issue', 'second issue')) |
@@ -1826,23 +1874,16 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | Origin | Case | Class | Location | Entry / count | Responsibility | Change |
 | --- | --- | --- | --- | --- | --- | --- |
 | `units/sync-model-unit.checks.py` | `check_snapshot_conflict` | UT | [units/sync-model-unit.checks.py:183](units/sync-model-unit.checks.py#L183) | pytest / 1 | raw bytes矛盾・不存在・seal・列挙のguard | 新仕様の回帰 |
-| `integrations/sync-model.checks.py` | `check_integrated_validator` | IT | [integrations/sync-model.checks.py:1192](integrations/sync-model.checks.py#L1192) | pytest / 2 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
-| `integrations/sync-model.checks.py` | `check_multiple_targets_barrier` | IT | [integrations/sync-model.checks.py:1373](integrations/sync-model.checks.py#L1373) | pytest / 5 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
 | `units/sync-model-unit.checks.py` | `check_framework_write_does_not_discover` | UT | [units/sync-model-unit.checks.py:383](units/sync-model-unit.checks.py#L383) | pytest / 2 | framework writeをModel探索前に拒否 | 新仕様の回帰 |
 | `units/sync-model-unit.checks.py` | `check_result_reuse_is_scoped` | UT | [units/sync-model-unit.checks.py:392](units/sync-model-unit.checks.py#L392) | pytest / 1 | CheckResultの状態・キー・候補scope再利用境界 | 新仕様の回帰 |
 | `units/blueprint-loop-unit.checks.py` | `check_write_validator_stops_followups` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L614) | pytest / 2 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
 | `units/blueprint-loop-unit.checks.py` | `check_staged_write_rejected` | UT | [units/blueprint-loop-unit.checks.py](units/blueprint-loop-unit.checks.py#L629) | pytest / 1 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
-| `integrations/sync-model.checks.py` | `check_normal_writer_contents` | IT | [integrations/sync-model.checks.py:350](integrations/sync-model.checks.py#L350) | pytest / 1 | 同一候補の検証回数・一括入力境界・互換性・rollbackを独立fixtureで確認 | 新仕様の回帰 |
 | `units/validation_cache-unit.checks.py` | `check_retained_common_key` | UT | [units/validation_cache-unit.checks.py:66](units/validation_cache-unit.checks.py#L66) | pytest / 1 | Task読取cacheの選択・権限分離、契約内容/改行/追加/削除/selectorの最終比較 | 新仕様の回帰 |
 
 ## Framework definitions outside sync candidates
 
 | Original | Case | Layer | Current | Execution | Responsibility | Preservation |
 | --- | --- | --- | --- | --- | --- | --- |
-| `integrations/sync-model.checks.py` | `check_stage_definition_sources` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L38) | pytest / 1 | 元FrameworkのSchema/Mapping/Layout/Policyとstage候補で生成・検証・投影がバイト一致し定義を不変に保つ | 新規 |
-| `integrations/sync-model.checks.py` | `check_stage_candidate_isolation` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L183) | pytest / 6 | 元の正常文書を使わずstage Model/names/schema/overview/policy/linkの破損を検出する | 新規 |
-| `integrations/sync-model.checks.py` | `check_stage_definition_errors` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L222) | pytest / 4 | 元FrameworkのSchema/Mapping/Naming/Layout参照エラーを握りつぶさない | 新規 |
-| `integrations/sync-model.checks.py` | `check_stage_cloudformation_definitions` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#L258) | pytest / 1 | CFn生成バイト一致とstage stack authorityの変更を検出し元保存値に戻らない | 新規 |
 
 ## Generation publication boundary assertion mapping
 
@@ -1858,7 +1899,7 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `units/sync-model-unit.checks.py` | `check_planned_outputs_and_boundary` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_planned_outputs_and_boundary) | pytest / 1 | 保存bytesのno-op選別と明示パスTask境界 | 軽量判定 |
 | `units/sync-model-unit.checks.py` | `check_final_git_paths` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_final_git_paths) | pytest / 4 | Fake Gitの固定基準・正味差分とindex許可集合 | 軽量判定 |
 
-| `units/sync-model-unit.checks.py` | `check_stage_dependency_selection` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_stage_dependency_selection) | pytest / 1 | Fake Model file listで入出向き依存と最小stageを選別 | 軽量依存選択 |
+| `units/sync-model-unit.checks.py` | `check_stage_dependency_selection` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_stage_dependency_selection) | pytest / 2 | Fake Model file listで入出向き依存と最小stageを選別 | 軽量依存選択 |
 
 | `units/sync-model-unit.checks.py` | `check_git_baseline_fail_closed` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_git_baseline_fail_closed) | pytest / 1 | 公開git_pathsの共通reader委譲・同一例外伝播 | NUL解析・終了コード検証は共通UTへ移管 |
 
@@ -2853,7 +2894,7 @@ ITの `check_single_target_cache` / `check_template_consumers`（2ケース）�
 | Source | Entry | Kind | Location | Runner / cases | Coverage | Boundary |
 | --- | --- | --- | --- | --- | --- | --- |
 | `project-cache::lifetime` | `check_cache_lifetime` | UT | [units/validation_cache-unit.checks.py](units/validation_cache-unit.checks.py) | pytest / 1 | Framework全件探索禁止、実行内共有、実行を跨ぐPASS失効、実行終了後のPASS失効 | Validation Cache |
-| `project-generation::common` | `check_snapshot_project_common_inputs` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 1 | common選択の再利用、Framework/配布README非登録、Project最終照合 | Generation |
+| `project-generation::common` | `check_snapshot_project_common_inputs` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 2 | common選択の再利用、Framework/配布README非登録、Project最終照合 | Generation |
 | `repair-snapshot::paths` | `check_validation_snapshot_project_paths` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | Git tracked/untracked取得のFramework pathspec除外、Project hash対象維持 | Repair Snapshot |
 | `project-validation::common` | `check_common_cache_guard` | UT | [units/validation_checks/runner.py](units/validation_checks/runner.py) | direct / 1 | 実Validatorのcommon初回/最終各1回、同一input_contextのCatalog PASS再利用 | Runner |
 
@@ -3151,3 +3192,95 @@ ITは10関数・21条件から7関数・7条件へ再構成。外側Loop CLIは3
 通常系・失敗系は同じ `generated_policy` bundleを独立コピーする。ModelとMarkdownは同じModel reader/renderから構築し、本番Validatorを通す。Frameworkのコピー・改変は行わない。
 
 既存design-definitions UTのassertion guardをモジュール先頭へ移動し、全チェックの静的guard検証を通す。定義値・検証assertionは保持する。
+
+## Issue 15 Sync Model ITの責務再編
+
+旧25関数・67 pytest条件のAssertionを全て下表で分類した。現行20関数・27条件。
+対象UT3ファイルの合計は84→136条件（sync 34→68、model_design 46→59、validation_cache 4→9）。
+ケース数は静的展開数であり、IT PASS・速度改善の実測ではない。
+新しいfixture/共通module/runnerは追加せず、本番SyncとFramework定義は変更しない。
+UTはGit init/commit・実Sync・全Model生成・全Frameworkコピーを行わない。
+
+| 旧IT関数 | 旧→現IT条件 | 判断 | 実際のAssertion・既存UT・移管先・維持する接続保証 |
+|---|---|---|---|
+| `check_input_mutation` | 12 → 0 | UTへ移管 | GenerationInputs::check_snapshot_input_differences（entry/part/独立other-modelのchange/delete、重複しない追加先）、check_snapshot_project_common_inputs（project change/delete）。旧other-modelはpartと同一、addのentry/other-model/projectは同一追加先なので統合。公開拒否と成果物保持はpublication_boundary等で実接続を維持。 |
+| `check_internal_sync_isolation` | 4 → 1 | UT＋代表IT | 引数Scope/--all×jobs=1/4はcheck_internal_sync_selection。memo/heartbeat/ContextVarは既存check_internal_sync_concurrent_output、check_resource_row_scope_restoration。実target並列・成功失敗成功・親Context保護はITに維持。 |
+| `check_integrated_validator` | 2 → 1＋失敗IT 1 | 責務分離 | Snapshotはcheck_guard_snapshot_candidates、Cacheは既存check_cache_inputs/check_cache_lifetime＋check_service_cache_invalidation、Git正味差分/permission/Acceptanceは既存check_final_git_paths/check_scope_git_collection/check_result_reuse_is_scoped、Task境界はcheck_planned_outputs_and_boundary、欠落入力はcheck_missing_validation_inputs。正常生成→保存→AcceptanceはIT、保存失敗→Acceptance不成立は別IT。 |
+| `check_stage_candidate_isolation` | 6 → 1 | 直接判定＋接続IT | modelはcheck_candidate_model_metadata、names/schema/overviewはcheck_candidate_design_diagnostics、policyのStatement欠落拒否は既存policy_tables-unit::check_lossless_generation（既存check_required_resource_names等を重複追加しない）。リンク破損を実stageからValidatorへ渡すITと、正常Stage/CFnの別ITを維持。 |
+| `check_stage_definition_errors` | 4 → 0 | UTへ移管 | check_definition_read_errorsがfresh Schema/Mapping/naming/layout readerに読取例外を注入。Framework定義は変更せず、例外伝播/Findingsへの記録を検証。 |
+| `check_publication_boundary` | 6 → 1 | 差分種類をUT集約 | project/part/consumer/extra/taskのbytes・ファイル集合差分はsnapshot UT＋既存check_retained_common_key。実source変更の公開拒否・旧成果物/外部変更保護はIT。 |
+| `check_publication_rechecks_excluded_outputs` | 6 → 2 | 差分種類をUT集約 | source/taskの細分化はsnapshot/contract UT、全no-op/Markdownだけ変更で公開対象外JSONも再照合する2つの接続境界は維持。 |
+| `check_changed_sidecar_publication` | 3 → 1 | 差分判定はUT | stale/missingはcheck_sidecar_output_difference＋check_service_cache_invalidation、実JSON-only公開はModelのPolicy Id更新で保証。 |
+| `check_unchanged_sidecar_path_safety` | 1 → 0 | UTへ移管 | check_snapshot_symlink_safetyで同じGenerationInputs読取APIのsymlink拒否・親種類の競合・外部bytes保護。 |
+| `check_unchanged_sidecar` | 2 → 2 | IT維持 | 全no-op/Markdownだけ変更の実Publication・JSON未再保存とmtime。末尾の重複read-only SyncはCLI write/checkとnormal_writerに統合。 |
+| `check_unchanged_sidecar_validation` | 1 → 1 | IT維持 | 候補Validation失敗時はno-opでも公開しない、全旧成果物を保持。 |
+| `check_changed_sidecar_publication_rollback` | 2 → 2 | IT維持 | 変更済JSONの復元と、公開対象外JSONの外部書込保持は別障害境界。失敗後の実保存成功は保持し、末尾の重複read-only Syncだけ統合。 |
+| `check_failure_counts` | 1 → 0 | UTへ移管 | 旧17モデル×extra_inputs/read-writeの実SyncとMock rendererを廃止。check_failure_countsが実report_generationで8成功/9又は11失敗/診断件数とWARN分離の4組を検証。部分成功の実接続はmultiple_targets_barrier/required_preflightで保持。 |
+| `check_workflow` | 1 → 0 | UTへ移管/既存保証 | expanded_design・VPC/Subnet/S3表示・JSON raw digestはcheck_expanded_design_and_json_digest、Stack表/No/Order/commentは既存check_stack_policy、Scopeは選択UT、Missing authorityはcheck_invalid_model/check_missing_validation_inputs/check_generation_input_failures＋scope/Stage UT。実生成はnormal_writer/CLIを維持。 |
+| `check_required_preflight` | 1 → 1 | 細分化は直接UT | 空Type4種/正常Type/暗黙BucketPolicy親はcheck_required_datasource_type、既存Pending UTを再利用。実preflightのrender/save禁止・renderer自身の必須Property拒否・既存出力保持・複数Service部分成功はIT。 |
+| `check_required_property_parents` | 1 → 1 | 細分化は直接UT | check_required_property_parents UTでConnectionInput/CatalogId欠落・boolean型・正常親推論をModel/Table両方で検証。実Glue生成とTable Validationの正常接続はIT。 |
+| `check_normal_writer_contents` | 1 → 1 | IT維持/統合 | 候補の各Validator handler回数、生成/照合1回、no readback・実保存内容は維持。旧output compatibilityのstdout/progressも同じ実生成で検証。 |
+| `check_generation_output_compatibility` | 1 → 0 | 既存ITへ統合 | normal_writerでstdout/progress、unchanged_sidecarで既存bytes、two_consumer_cliでread/write同値。2回の重複Syncを廃止。 |
+| `check_multiple_targets_barrier` | 5 → 5 | IT維持 | none/input/candidate/io/rollbackを維持。candidateとlate I/Oの部分成功、rollback不能Journal保持→実lock復旧を別々にassert。 |
+| `check_incoming_reference_models` | 2 → 1 | 直接判定＋IT | read-onlyのincoming除外はcheck_stage_dependency_selectionをread/writeに拡張。実write側のincoming Model配置とlink readerへの受渡しはIT。 |
+| `check_stage_definition_sources` | 1 → 1 | IT維持 | 最小Stageの定義source共有、実生成bytes、独立cold workerの参照正本とjobs=1/4の同値、元入力不変。 |
+| `check_stage_cloudformation_definitions` | 1 → 1 | IT維持 | Stage Stackの候補正本とValidator→IaC metadata接続、古い保存Stackへのfallback拒否。 |
+| `check_publication_lock_wait` | 1 → 1 | IT維持 | 実lock競合・再入と通知接続。 |
+| `check_two_consumer_cli` | 1 → 1 | IT維持 | 複数環境CLI write/check・スコープ拒否・出力/完了数の実接続。 |
+| `check_internal_sync_real_diagnostics` | 1 → 1 | IT維持 | 実Runner→Validatorへのconsumer不足/生成drift診断と復旧。 |
+
+Cacheは現行PassCacheの呼出し内限定仕様を維持する。開始時点ですでに別Validatorの生成回数は1を期待しており、0を期待する旧1024v8仕様は存在しなかった。Cache ITの反復は削除し、check_cache_lifetimeの同一context共有/fresh/別context独立と、service keyの正本/Markdown/Sidecar/追加ファイル変更・削除を直接UTに集約した。候補CheckResultのscope/candidate/FAIL/NOT_RUNとAcceptanceへの再利用は既存check_result_reuse_is_scopedが所有する。
+
+実stageの元定義共有・CFn接続・cold workerの直列/並列同値、CLI write/check、候補Validation、Publication、Rollback/Recoveryを残す。27条件は26前後の目安より1多いが、Validator保存失敗→Acceptance拒否を他のPublication障害と同一扱いにしないため独立1条件を維持する。
+
+### 現行IT登録
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `sync-15::check_stage_definition_sources` | `check_stage_definition_sources` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_stage_definition_sources) | pytest / 1 | 元Framework定義を共有した最小stage・同一生成bytes・独立cold workerのKMS参照（jobs=1/4）・元定義不変 | 統合境界 |
+| `sync-15::check_stage_candidate_isolation` | `check_stage_candidate_isolation` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_stage_candidate_isolation) | pytest / 1 | 実stageの壊れたリンクを実Validatorが検出し、元の正常成果物を保持・stage絶対パスを診断に漏らさない | 統合境界 |
+| `sync-15::check_stage_cloudformation_definitions` | `check_stage_cloudformation_definitions` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_stage_cloudformation_definitions) | pytest / 1 | Stage Stack正本・生成・候補Validator・IaCへのmetadata受渡し、古い保存Stackへのfallback禁止 | 統合境界 |
+| `sync-15::check_publication_boundary` | `check_publication_boundary` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_publication_boundary) | pytest / 1 | 候補Validation後の入力変更を公開前に拒否し、Markdown/JSONと外部変更を保護 | 統合境界 |
+| `sync-15::check_normal_writer_contents` | `check_normal_writer_contents` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_normal_writer_contents) | pytest / 1 | 実生成/候補検証/照合各1回・no post-save readback・Markdown/JSON内容・stdoutとprogress接続 | 統合境界 |
+| `sync-15::check_unchanged_sidecar` | `check_unchanged_sidecar` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_unchanged_sidecar) | pytest / 2 | 全no-op/Markdownだけ変更の2境界、候補Validation維持・JSON再保存なし・bytes/mtime保護 | 統合境界 |
+| `sync-15::check_changed_sidecar_publication` | `check_changed_sidecar_publication` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_changed_sidecar_publication) | pytest / 1 | 表示に影響しないPolicy Idだけの更新を実公開し、Markdownは不変・JSON内容は正しい | 統合境界 |
+| `sync-15::check_publication_rechecks_excluded_outputs` | `check_publication_rechecks_excluded_outputs` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_publication_rechecks_excluded_outputs) | pytest / 2 | 全no-op/Markdownだけ変更の2境界で、公開対象外Sidecarの競合を拒否・外部変更保持 | 統合境界 |
+| `sync-15::check_changed_sidecar_publication_rollback` | `check_changed_sidecar_publication_rollback` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_changed_sidecar_publication_rollback) | pytest / 2 | JSON公開後のMarkdown途中失敗の復元／未変更JSONへの外部書込を巻き戻さない独立2境界、再保存成功 | 統合境界 |
+| `sync-15::check_unchanged_sidecar_validation` | `check_unchanged_sidecar_validation` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_unchanged_sidecar_validation) | pytest / 1 | no-opでも候補Validation失敗時は公開せず、元Markdown/JSONを保持 | 統合境界 |
+| `sync-15::check_incoming_reference_models` | `check_incoming_reference_models` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_incoming_reference_models) | pytest / 1 | 実Stageがincoming文書とその正本Modelを配置してリンク検証に渡す | 統合境界 |
+| `sync-15::check_required_preflight` | `check_required_preflight` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_required_preflight) | pytest / 1 | 必須Property不備でrender/save前に停止、read/writeで既存成果物・Model保持、独立Serviceは保存 | 統合境界 |
+| `sync-15::check_required_property_parents` | `check_required_property_parents` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_required_property_parents) | pytest / 1 | Glueの実Sync生成から実Table Validatorへの必須親Property接続、親行の捏造なし・正本保持 | 統合境界 |
+| `sync-15::check_publication_lock_wait` | `check_publication_lock_wait` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_publication_lock_wait) | pytest / 1 | 実lock競合・再入可能性とprogressのlock-wait通知 | 統合境界 |
+| `sync-15::check_two_consumer_cli` | `check_two_consumer_cli` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_two_consumer_cli) | pytest / 1 | 2環境の実CLI write/check・保存bytes・不正Scope拒否・診断チャネルと完了数 | 統合境界 |
+| `sync-15::check_internal_sync_isolation` | `check_internal_sync_isolation` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_internal_sync_isolation) | pytest / 1 | 実Runnerの2 target並列barrier・成功→失敗→成功の再取得、親memo/ContextVar/progress/保存bytes保護 | 統合境界 |
+| `sync-15::check_internal_sync_real_diagnostics` | `check_internal_sync_real_diagnostics` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_internal_sync_real_diagnostics) | pytest / 1 | consumer不足・古い生成物の実Runner診断をValidatorに伝達し、復元後に成功 | 統合境界 |
+| `sync-15::check_integrated_validator` | `check_integrated_validator` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_integrated_validator) | pytest / 1 | 実Validatorから生成・候補検証・照合・Publication・Acceptance3件までの正常接続、各1回とreadback禁止 | 統合境界 |
+| `sync-15::check_integrated_validator_publication_failure` | `check_integrated_validator_publication_failure` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_integrated_validator_publication_failure) | pytest / 1 | 実Validatorの部分書込失敗・Rollback・Acceptance不成立、正本と旧Markdown/JSON保持 | 統合境界 |
+| `sync-15::check_multiple_targets_barrier` | `check_multiple_targets_barrier` | IT | [integrations/sync-model.checks.py](integrations/sync-model.checks.py#check_multiple_targets_barrier) | pytest / 5 | 正常/入力競合/候補不採用/後続I/O/復元不能の独立5境界。部分成功、Recovery Journal保持と次lock時復旧 | 統合境界 |
+
+### 新規UT登録
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `sync-15::check_snapshot_input_differences` | `check_snapshot_input_differences` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_snapshot_input_differences) | pytest / 12 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
+| `sync-15::check_snapshot_symlink_safety` | `check_snapshot_symlink_safety` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_snapshot_symlink_safety) | pytest / 2 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
+| `sync-15::check_internal_sync_selection` | `check_internal_sync_selection` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_internal_sync_selection) | pytest / 4 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
+| `sync-15::check_failure_counts` | `check_failure_counts` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_failure_counts) | pytest / 4 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
+| `sync-15::check_guard_snapshot_candidates` | `check_guard_snapshot_candidates` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_guard_snapshot_candidates) | pytest / 1 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
+| `sync-15::check_definition_read_errors` | `check_definition_read_errors` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_definition_read_errors) | pytest / 4 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
+| `sync-15::check_sidecar_output_difference` | `check_sidecar_output_difference` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_sidecar_output_difference) | pytest / 2 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
+| `sync-15::check_missing_validation_inputs` | `check_missing_validation_inputs` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_missing_validation_inputs) | pytest / 1 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
+| `sync-15::check_expanded_design_and_json_digest` | `check_expanded_design_and_json_digest` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#check_expanded_design_and_json_digest) | pytest / 1 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
+| `sync-15::check_required_datasource_type` | `check_required_datasource_type` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#check_required_datasource_type) | pytest / 5 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
+| `sync-15::check_required_property_parents` | `check_required_property_parents` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#check_required_property_parents) | pytest / 4 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
+| `sync-15::check_candidate_model_metadata` | `check_candidate_model_metadata` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#check_candidate_model_metadata) | pytest / 1 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
+| `sync-15::check_candidate_design_diagnostics` | `check_candidate_design_diagnostics` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#check_candidate_design_diagnostics) | pytest / 1 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
+| `sync-15::check_service_cache_invalidation` | `check_service_cache_invalidation` | UT | [units/validation_cache-unit.checks.py](units/validation_cache-unit.checks.py#check_service_cache_invalidation) | pytest / 5 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
+| `sync-15::check_generation_input_failures` | `check_generation_input_failures` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_generation_input_failures) | pytest / 2 | 不正Model/正本なし文書のprepare_generation失敗分類と既存成果物保持（実生成なし） | ITから移管 |
+| `sync-15::check_implicit_grouped_required_property` | `check_implicit_grouped_required_property` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#check_implicit_grouped_required_property) | pytest / 1 | 暗黙BucketPolicy親の必須Property判定 | ITから移管 |
+
+既存check_snapshot_project_common_inputsはproject change/deleteの2条件、check_stage_dependency_selectionはread/writeの2条件へ拡張。check_snapshot_conflictはraw競合/不存在/sealの既存保証を保持し、未知パス追加の集合検出はcheck_snapshot_input_differencesが所有する。
+
+ローカルでは関連UT・構文・ASTのparameter展開数・登録・既存PytestReceipt/reachability契約だけを確認する。IT本体・Full IT・cProfile・時間計測は実行しない。既存Framework ITでPASSと実時間を確認するまで10秒以下の達成は未確認。
+
+既存Runner UT `blueprint-loop-unit::check_it_inventory` のincoming IT登録期待値も2→1へ更新し、receipt/reachability実装とpytest入口は変更しない。

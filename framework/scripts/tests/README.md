@@ -88,7 +88,12 @@ runnerは共通fixture bundleを1回初期化し、`input_templates`・`typed_se
 
 契約の選択・通常の状態遷移・公開時の変更検出を既存UTで確認する。実Git、Atomic rollback、finalize/cleanupの安全停止は既存ITで検証する。予約と独自worktree identityだけを検証するケースは廃止した。
 
-生成・保存の回数、実stage/IMPORT一時領域、Git正味差分、rollback/recoveryは既存ITで検査する。sync-model UTは22条件、model_templates UTは1条件で、対象UTから実生成・Git初期化・publication/recoveryとFramework全体コピーを除去した。共有generated_policy seedは外部definitions_rootを使い、通常ケースはFrameworkを配置しない。ケースの分類と統合先はCASES.mdを参照。
+Sync Model ITは20関数・27 pytest条件（旧67条件）。実Stage/定義共有・cold並列worker・CLI・複数Service・候補Validation・Publication・Rollback・Recoveryを保持する。
+入力差分、Cache、Git正味差分、Task境界、出力形式、Property判定、集計条件は直接UTへ集約する。対象UT3ファイルは合計84→136条件（sync-model 34→68、model_design 46→59、validation_cache 4→9）。
+UTで実Sync、Git初期化/commit、全Model生成、Framework全体コピーを行わず、既存の小さい合成入力/fixtureを利用する。Framework読取例外はMockで注入し、定義ファイルを変更しない。
+PassCacheは同一呼出し内だけ再利用する。別Validatorの生成省略を期待せず、freshと入力変更後の失効は直接UT、候補結果からAcceptanceへの再利用は既存CheckResult UTが保証する。
+共有generated_policy seedと既存pytest入口・receipt・reachabilityを維持する。旧67条件のAssertion分類、削除/統合理由と各ITの固有保証は [CASES.md](CASES.md#issue-15-sync-model-itの責務再編) を参照。
+ローカルでは関連UTと構文/parameter数/登録を静的確認し、IT本体・時間計測・cProfileは実行しない。13.37秒から10秒以下への達成とIT PASSは、変更後の既存Framework ITでの確認待ち。
 
 Framework定義（Mapping/Schema/Rules/Catalog/Materials等）はテスト中に変更・追加・削除せず、コピーも同じ内容を維持する。定義変更に依存する条件を削除し、現行定義の読取・メモリ上の入力検証・独立した読取例外、Model/Task/生成物の変更と保存保護は維持する。削除・部分削除・Fixture整理と台帳件数の差分は [CASES.md](CASES.md#framework定義不変による削除) を参照。
 

@@ -18,6 +18,7 @@ from design.catalog import DesignSchemaCatalog
 from design.document import DesignIndex
 from design.layout import (
     catalog_order_errors,
+    expanded_design,
     formal_property,
     is_import_pending_reference,
     is_import_role_arn,
@@ -68,6 +69,8 @@ from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.iac_values import cfn_resource_identity
 from validation.design_links import check_design_links as validate_design_links
 from validation.findings import Findings
+
+from model import projection as model_projection
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -995,6 +998,233 @@ def check_cfn_identity_inputs(tmp_path):
             candidate = values | {'desired.resource.001.cfn-logicalId': invalid}
             with pytest.raises(ValueError, match=message):
                 validate_resource_identities(path, candidate, tmp_path, list(entries(candidate, 'desired.resource.')), definitions_root=ROOT)
+
+
+def check_expanded_design_and_json_digest(tmp_path) -> None:
+    root = tmp_path
+    design = root / "docs" / "designs" / "dev" / "123456789012" / "vpc.md"
+    artifact = design.parent / "vpc" / "vpc01-policy.json"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text(
+        '{"Version":"2012-10-17","Action":["s3:GetObject"]}\n',
+        encoding="utf-8",
+    )
+    design.write_text(
+        """# Amazon VPC 詳細設計
+
+- Design service ID: `vpc`
+- Owned catalog resource types: `EC2.VPC`, `EC2.Subnet`
+
+## リソース詳細
+
+<a id="vpc-vpc-app-dev"></a>
+
+### EC2.VPC: vpc-app-dev
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | VpcId | PENDING_DEPLOY | VPCを一意に識別するID |
+| 2 | CidrBlock | 10.1.0.0/16 | VPCで使用するIPv4アドレス範囲 |
+| 3 | Name | vpc-app-dev | VPCを識別するNameタグの値 |
+| 4 | PolicyDocument | [policy](vpc/vpc01-policy.json) | VPCに適用するpolicy文書 |
+
+<a id="vpc-sbnt-app-dev-private-01"></a>
+
+### EC2.Subnet: sbnt-app-dev-private-01
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | SubnetId | PENDING_DEPLOY | Subnetを一意に識別するID |
+| 2 | VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) | Subnetが所属するVPC |
+| 3 | Name | sbnt-app-dev-private-01 | Subnetを識別するNameタグの値 |
+""",
+        encoding="utf-8",
+    )
+    model = "\n".join(expanded_design(design.read_text().splitlines())[0])
+    assert '- Owned catalog resource types: `EC2.VPC`, `EC2.Subnet`' in model
+    assert '### EC2.VPC: vpc-app-dev' in model
+    assert '| EC2.VPC.VpcId | PENDING_DEPLOY |' in model
+    assert '| EC2.VPC.CidrBlock | 10.1.0.0/16 |' in model
+    assert '| EC2.VPC.Name | vpc-app-dev |' in model
+    assert model_projection.json_sha256(artifact)
+    assert '| EC2.Subnet.SubnetId | PENDING_DEPLOY |' in model
+    assert '| EC2.Subnet.VpcId | [PENDING_DEPLOY](#vpc-vpc-app-dev) |' in model
+    assert '| EC2.Subnet.Name | sbnt-app-dev-private-01 |' in model
+    assert "\n".join(expanded_design(design.read_text().splitlines())[0]) == model
+
+    s3_design = design.with_name("s3.md")
+    s3_artifact = s3_design.parent / "s3" / "app-data-bucket-policy.json"
+    s3_artifact.parent.mkdir(parents=True)
+    s3_artifact.write_text(
+        '{"Version":"2012-10-17","Statement":[]}\n', encoding="utf-8"
+    )
+    s3_design.write_text(
+        """# Amazon S3 詳細設計
+
+- Design service ID: `s3`
+- Owned catalog resource types: `S3.Bucket`, `S3.BucketPolicy`
+
+## リソース一覧
+
+### S3.Bucket
+
+| No. | ResourceName | Comment |
+| ---: | --- | --- |
+| 1 | [app-dev-data-123456789012](#s3-app-dev-data-123456789012) | アプリケーションのデータを保管するbucket |
+
+## リソース詳細
+
+<a id="s3-app-dev-data-123456789012"></a>
+
+### S3.Bucket: app-dev-data-123456789012
+
+| No. | Property | Value | Source / Comment |
+| ---: | --- | --- | --- |
+| 1 | BucketName | app-dev-data-123456789012 | application dataを格納するbucketの名前 |
+| 2 | Region | us-east-1 | bucketを配置するAWS region |
+| 3 | BucketEncryption[].KMSMasterKeyID | [alias/app-data](kms.md#kms-appdatakeyalias) | 新規objectのdefault暗号化に使用するKMS key alias |
+| 4 | BucketEncryption[].SSEAlgorithm | aws:kms | 暗号化方式 |
+| 5 | VersioningConfiguration.Status | Enabled | objectのversion保持状態 |
+| 6 | S3.BucketPolicy.PolicyDocument | [app-data-bucket-policy.json](s3/app-data-bucket-policy.json) | bucketへのaccessを制御するpolicy document |
+""",
+        encoding="utf-8",
+    )
+    lines, children = expanded_design(s3_design.read_text().splitlines())
+    s3_model = "\n".join(lines)
+    assert '### S3.Bucket: app-dev-data-123456789012' in s3_model
+    assert not children  # BucketPolicy is an identity-free configuration.
+    assert '| S3.Bucket.BucketName | app-dev-data-123456789012 |' in s3_model
+    assert '| S3.Bucket.Region | us-east-1 |' in s3_model
+    assert '| S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.KMSMasterKeyID | [alias/app-data](kms.md#kms-appdatakeyalias) |' in s3_model
+    assert '| S3.Bucket.BucketEncryption.ServerSideEncryptionConfiguration[].ServerSideEncryptionByDefault.SSEAlgorithm |' in s3_model
+    assert 'S3.BucketPolicy.Bucket |' not in s3_model
+    assert '| S3.BucketPolicy.PolicyDocument |' in s3_model
+    assert model_projection.json_sha256(s3_artifact)
+    assert len([line for line in lines if line.startswith('### S3.Bucket:')]) == 1
+    original_digest = model_projection.json_sha256(artifact)
+    artifact.write_text(
+        '{\r\n  "Action": [\r\n    "s3:GetObject"\r\n  ],\r\n'
+        '  "Version": "2012-10-17"\r\n}',
+        encoding="utf-8",
+        newline="",
+    )
+    assert model_projection.json_sha256(artifact) == original_digest
+    artifact.write_text(
+        '{"Version":"2012-10-17","Action":["s3:PutObject"]}\n',
+        encoding="utf-8",
+    )
+    assert model_projection.json_sha256(artifact) != original_digest
+    artifact.write_text(
+        '{"Version":"2012-10-17","Action":["s3:GetObject"]}\n',
+        encoding="utf-8",
+    )
+    design.write_text(
+        design.read_text(encoding="utf-8")
+        .replace("VpcId | PENDING_DEPLOY", "VpcId | vpc-0123456789abcdef0")
+        .replace("[PENDING_DEPLOY](#vpc-vpc-app-dev)", "[vpc-0123456789abcdef0](#vpc-vpc-app-dev)")
+        .replace("SubnetId | PENDING_DEPLOY", "SubnetId | subnet-0123456789abcdef0"),
+        encoding="utf-8",
+    )
+    deployed = "\n".join(expanded_design(design.read_text().splitlines())[0])
+    assert '| EC2.VPC.VpcId | vpc-0123456789abcdef0 |' in deployed
+    assert '| EC2.Subnet.SubnetId | subnet-0123456789abcdef0 |' in deployed
+    assert '| EC2.Subnet.VpcId | [vpc-0123456789abcdef0](#vpc-vpc-app-dev) |' in deployed
+
+
+
+
+@pytest.mark.parametrize('value', ['', '``', '`""`', '`UNSET`', '`ATHENA`'])
+def check_required_datasource_type(value):
+    values = model('quicksight', 'QuickSight.DataSource', 'source', [
+        ('Name', '`qs-app-dev-athena`', '名前'),
+        ('Credentials.KeyPairCredentials', '[設定](quicksight/credentials.json)', '認証設定')])
+    before = dict(values)
+    with pytest.raises(ValueError, match='QuickSight.DataSource.Type'):
+        validate_required_properties(values, ROOT)
+    complete = values | {'desired.row.001-003.property': 'QuickSight.DataSource.Type',
+                         'desired.row.001-003.value': value, 'desired.row.001-003.comment': '接続方式'}
+    if value == '`ATHENA`':
+        validate_required_properties(complete, ROOT)
+    else:
+        with pytest.raises(ValueError, match='QuickSight.DataSource.Type'):
+            validate_required_properties(complete, ROOT)
+    assert values == before
+
+
+def check_implicit_grouped_required_property():
+    grouped = model('s3', 'S3.Bucket', 'bucket', [('BucketName', '`app-dev-data-123456789012`', '名前'),
+                                                  ('S3.BucketPolicy.PolicyDocument', '', 'ポリシー')])
+    with pytest.raises(ValueError) as error:
+        validate_required_properties(grouped, ROOT)
+    assert 'S3.BucketPolicy.PolicyDocument' in str(error.value)
+    assert 'S3.BucketPolicy.Bucket' not in str(error.value)
+
+
+@pytest.mark.parametrize('missing', [None, 'ConnectionInput', 'CatalogId', 'boolean'])
+def check_required_property_parents(tmp_path, missing):
+    fields = [('ConnectionInput.Name', '`sample`', '接続名'),
+              ('Name', '[Glue_Connection_001](#glue-sample)', '一意に識別するID'),
+              ('CatalogId', '`123456789012`', 'CatalogのID'),
+              ('ConnectionInput.ConnectionType', '`JDBC`', '接続方式'),
+              ('ConnectionInput.PhysicalConnectionRequirements.AvailabilityZone', '`ap-northeast-1a`', '配置先'),
+              ('ConnectionInput.ValidateCredentials', '`true`', '認証確認')]
+    values = model('glue', 'Glue.Connection', 'sample', fields)
+    path = tmp_path / 'docs/designs/dev/team/glue.md'
+    metadata = {path: ('glue', ('Glue.Connection',))}
+    rows = [[str(n), field, value, comment] for n, (field, value, comment) in enumerate(fields, 1)]
+    if missing in {'ConnectionInput', 'CatalogId'}:
+        removed = {key.rsplit('.', 1)[0] for key, value in values.items()
+                   if key.endswith('.property') and (value == 'Glue.Connection.' + missing or
+                                                      value.startswith('Glue.Connection.' + missing + '.'))}
+        values = {key: value for key, value in values.items() if key.rsplit('.', 1)[0] not in removed}
+        rows = [row for row in rows if row[1] != missing and not row[1].startswith(missing + '.')]
+    elif missing == 'boolean':
+        rows[-1][2] = '`not-a-boolean`'
+    document = '\n'.join(['# Glue 詳細設計', '## リソース詳細', '<!-- resource-logical-id: Glue_Connection_001 -->',
+                           '<a id="glue-sample"></a>', '### Glue.Connection: sample', *row_table(rows)])
+    validator = load('validate-blueprint').Validator(tmp_path, definitions_root=ROOT)
+    validator.design_sources = {path: values}
+    validator.schema_catalog = DesignSchemaCatalog(ROOT)
+    with patch('validation.design_tables.input_text', return_value=document), \
+         patch('model.projection.bound_resource_anchors', return_value={}):
+        validator.check_design_tables(metadata, *validator.catalog_design_properties(), [path])
+    if missing in {'ConnectionInput', 'CatalogId'}:
+        with pytest.raises(ValueError, match='required provider schema property missing: Glue.Connection.' + missing):
+            validate_required_properties(values, ROOT)
+        assert any('required provider schema property missing' in error and 'Glue.Connection.' + missing in error for error in validator.errors), validator.errors
+    elif missing == 'boolean':
+        assert any('provider schema violation' in error for error in validator.errors), validator.errors
+    else:
+        validate_required_properties(values, ROOT)
+        assert not validator.errors, validator.errors
+
+
+def check_candidate_model_metadata(tmp_path):
+    findings = Findings(tmp_path)
+    values = {'desired.service.iam.serviceId': 's3', 'desired.service.iam.ownedCatalogResourceTypes': 'IAM.Role'}
+    design_validation.model_service_metadata(tmp_path / 'iam.properties', {'IAM.Role'}, findings=findings, values=values)
+    assert any('inconsistent model service metadata key' in error for error in findings.errors)
+
+
+def check_candidate_design_diagnostics(tmp_path):
+    path = tmp_path / 'docs/designs/dev/team/iam.md'
+    values = model('iam', 'IAM.Role', 'app-dev-role', [('RoleName', '`app-dev-role`', '名前')])
+    anchor = values['desired.resource.001.anchor']
+    metadata = {path: ('iam', ('IAM.Role',))}
+    document = '\n'.join(['<!-- resource-logical-id: IAM_Role_001 -->', f'<a id="{anchor}"></a>',
+                           '### IAM.Role: other-role', *row_table([['1', 'RoleName', '`app-dev-role`', '名前']])])
+    findings = Findings(tmp_path)
+    with patch.object(design_validation, 'input_text', return_value=document), \
+         patch('model.projection.bound_resource_anchors', return_value={}):
+        design_validation.check_resource_names(metadata, [path], findings=findings, root=tmp_path,
+                                              scope=None, definitions_root=ROOT, design_sources={path: values})
+    assert any('resource heading must display resource name' in error for error in findings.errors), findings.errors
+    assert DesignSchemaCatalog(ROOT).literal_errors('IAM.Role', 'MaxSessionDuration', '`app-dev-role`')
+    path.parent.mkdir(parents=True)
+    path.write_text(document, encoding='utf-8')
+    validator = load('validate-blueprint').Validator(tmp_path, definitions_root=ROOT)
+    validator.check_design_overviews([path])
+    assert any('resource overview must appear exactly once' in error for error in validator.errors), validator.errors
 
 
 if __name__ == '__main__':

@@ -15,10 +15,14 @@ import threading
 from contextlib import redirect_stderr
 from unittest.mock import patch
 
+import import_guard
+import model.validation as model_validation
 import pytest
 import sync_progress as progress
 import sync_runtime
 import sync_views
+import utils.aws_mappings as aws_mappings
+import utils.aws_schemas as aws_schemas
 import utils.input_cache as _imports_input_cache
 import validation.design_links as _imports_validation_design_links
 from design.catalog import property_paths_with_parents
@@ -28,7 +32,7 @@ from model.sources import runtime_values
 from support.pytest_cli import run
 from support.validator import load
 from sync_files import changed_files, markdown_newlines
-from utils.aws_mappings import mapping_alias
+from utils.aws_mappings import definition_root, mapping_alias
 from utils.input_cache import (
     input_bytes,
     input_context,
@@ -206,7 +210,8 @@ def check_snapshot_conflict(tmp_path):
     snapshot.close()
 
 
-def check_snapshot_project_common_inputs(tmp_path):
+@pytest.mark.parametrize('mutation', ['change', 'delete'])
+def check_snapshot_project_common_inputs(tmp_path, mutation):
     root, definitions = tmp_path / 'repo', tmp_path / 'definitions'
     project = root / 'project.json'
     project.parent.mkdir()
@@ -228,7 +233,10 @@ def check_snapshot_project_common_inputs(tmp_path):
     assert framework not in snapshot.contents and distributed not in snapshot.contents
     snapshot.seal()
     snapshot.verify()
-    project.write_bytes(b'{"changed": true}')
+    if mutation == 'delete':
+        project.unlink()
+    else:
+        project.write_bytes(b'{"changed": true}')
     with pytest.raises(ValueError, match='inputs changed before publication'):
         snapshot.verify()
     snapshot.close()
@@ -262,7 +270,8 @@ def _callback_check_stage_dependency_selection_loaded(authority, inputs, values,
                            dependencies={authority: input_bytes(authority)})
 
 
-def check_stage_dependency_selection(tmp_path):
+@pytest.mark.parametrize('write', [False, True])
+def check_stage_dependency_selection(tmp_path, write):
 
     root, stage = tmp_path/'root', tmp_path/'stage'
     _ = root/'docs/designs/dev/team/iam.md'
@@ -293,12 +302,15 @@ def check_stage_dependency_selection(tmp_path):
          patch.object(sync_runtime, 'load_model', side_effect=loaded), \
          patch.object(sync_runtime, 'generate_views', return_value={}), \
          patch.object(sync_views, 'broken_design_links', return_value={}):
-        plan = sync_runtime.prepare_generation(root, {('dev', 'team', 'iam')}, snapshot=inputs)
+        plan = sync_runtime.prepare_generation(root, {('dev', 'team', 'iam')}, snapshot=inputs, write=write)
         plan.close()
         assert not close.called
     assert inputs.contents[authority] == b'# model-format: 2\n# required\n'
     present = {p.relative_to(stage).as_posix() for p in stage.rglob('*') if p.is_file()}
-    assert present == {p for p in files if p not in {'docs/designs/dev/team/other.md', 'model/dev/team/unrelated.properties', 'tests/results/unrelated.log'}}
+    excluded = {'docs/designs/dev/team/other.md', 'model/dev/team/unrelated.properties', 'tests/results/unrelated.log'}
+    if not write:
+        excluded.add('docs/designs/dev/team/in.md')
+    assert present == set(files) - excluded
     assert root/'tests/results/unrelated.log' not in inputs.contents
     inputs.close()
 
@@ -667,6 +679,239 @@ def check_readonly_stale_views(tmp_path):
     plan = SimpleNamespace(root=tmp_path, read_inputs={}, expected_outputs={path: {path: expected}}, failures=[], saved={})
     sync_runtime._compare_generation(plan)
     assert plan.failures and not path.exists()
+
+
+
+
+@pytest.mark.parametrize('filename,mutation', [
+    ('entry', 'change'), ('entry', 'delete'), ('part', 'change'), ('part', 'delete'),
+    ('other-model', 'change'), ('other-model', 'delete'),
+    ('part', 'add'), ('other-model', 'add'), ('sidecar', 'add'), ('task', 'add'),
+    ('sidecar', 'change'), ('task', 'change'),
+])
+def check_snapshot_input_differences(tmp_path, filename, mutation):
+    paths = {'entry': 'model/dev/team/iam.properties', 'part': 'model/dev/team/iam/part-001.properties',
+             'other-model': 'model/stg/team/kms.properties', 'project': 'project.json',
+             'sidecar': 'docs/designs/dev/team/iam/policy.json', 'task': 'tasks/concurrent.md'}
+    target = tmp_path / paths[filename]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if mutation != 'add':
+        target.write_bytes(b'## Task contract\n- Task type: `governance`\n- Task status: `running`\n'
+                           b'## Modified files\n- `tasks/concurrent.md`\n'
+                           b'## Allowed paths\n- `tasks/concurrent.md`\n## Validation scope\n- `framework`\n'
+                           if filename == 'task' else b'original\r\n')
+    snapshot = sync_runtime.GenerationInputs(tmp_path)
+    try:
+        original = None if mutation == 'add' else snapshot.read(target)
+        base = tmp_path / ('model' if filename in {'entry', 'part', 'other-model'} else
+                           'docs/designs' if filename == 'sidecar' else 'tasks' if filename == 'task' else '.')
+        snapshot.select(base, '*', recursive=True)
+        snapshot.seal()
+        snapshot.verify()
+        if mutation == 'delete':
+            target.unlink()
+        else:
+            target.write_bytes(b'concurrent\n')
+        with pytest.raises(ValueError, match='inputs changed before publication') as error:
+            snapshot.verify()
+        assert target.relative_to(tmp_path).as_posix() in str(error.value)
+        if mutation == 'add':
+            assert target not in snapshot.contents
+        else:
+            assert snapshot.read(target) == original
+        assert not target.exists() if mutation == 'delete' else target.read_bytes() == b'concurrent\n'
+    finally:
+        snapshot.close()
+
+
+@pytest.mark.parametrize('location', ['file', 'parent'])
+def check_snapshot_symlink_safety(tmp_path, location):
+    external = tmp_path / 'external'
+    external.mkdir()
+    (external / 'policy.json').write_bytes(b'{}\n')
+    directory = tmp_path / 'iam'
+    if location == 'parent':
+        directory.symlink_to(external, target_is_directory=True)
+    else:
+        directory.mkdir()
+        (directory / 'policy.json').symlink_to(external / 'policy.json')
+    path = directory / 'policy.json'
+    snapshot = sync_runtime.GenerationInputs(tmp_path)
+    try:
+        if location == 'file':
+            with pytest.raises(ValueError, match=r'unsafe generation input \(symlink\)'):
+                snapshot.read(path)
+        else:
+            snapshot.read(path)
+            snapshot.seal()
+            directory.unlink()
+            directory.mkdir()
+            path.write_bytes(b'{}\n')
+            with pytest.raises(ValueError, match='inputs changed before publication'):
+                snapshot.verify()
+        assert (external / 'policy.json').read_bytes() == b'{}\n'
+    finally:
+        snapshot.close()
+
+
+@pytest.mark.parametrize('arguments,jobs,all_scope', [
+    (['--scope', 'dev/team/config', '--scope', 'stg/team/config'], 1, False),
+    (['--scope', 'dev/team/config', '--scope', 'stg/team/config'], 4, False),
+    (['--all'], 1, True), (['--all'], 4, True),
+])
+def check_internal_sync_selection(tmp_path, arguments, jobs, all_scope):
+    runner = module('sync-model.py', 'blueprint_sync_model')
+    with patch.object(runner, 'sync', return_value=0) as sync, \
+         patch.object(runner, 'active_scope', return_value=None), \
+         patch('model.impact.task_impact', return_value=SimpleNamespace(services=set())):
+        code, text = runner.run(['--jobs', str(jobs), *arguments], repository_root=tmp_path)
+    assert code == 0, text
+    if all_scope:
+        sync.assert_called_once_with(tmp_path, False, jobs=jobs, definitions_root=None)
+    else:
+        assert sync.call_count == 2
+        assert {(call.args[2], call.args[3], tuple(call.args[4])) for call in sync.call_args_list} == {
+            ('dev', 'team', ('config',)), ('stg', 'team', ('config',))}
+        assert all(call.kwargs['jobs'] == 1 for call in sync.call_args_list)
+
+
+@pytest.mark.parametrize('extra_inputs,write', [(False, False), (False, True), (True, False), (True, True)])
+def check_failure_counts(tmp_path, capsys, extra_inputs, write):
+    docs = tmp_path / 'docs/designs/dev/team'
+    models = tmp_path / 'model/dev/team'
+    paths = [docs / f'service-{n:02d}.md' for n in range(17)]
+    saved = {path: {} for path in paths[9:]}
+    failures = [f'{path.name}: fixture render failure' for path in paths[:9]]
+    model_paths = [models / path.with_suffix('.properties').name for path in paths]
+    if extra_inputs:
+        model_paths.append(models / 'invalid.properties')
+        paths.append(docs / 'orphan.md')
+        failures += ['invalid or duplicate model property', 'properties Model inputs missing']
+    warnings = {f'reference-{n}': paths[9] for n in range(5)} if write else {}
+    plan = SimpleNamespace(root=tmp_path, saved=saved, failures=failures, model_paths=model_paths,
+                           markdown_paths=paths, reference_warnings=[], unavailable={},
+                           warnings=warnings, baseline_links={})
+    with pytest.raises(ValueError) as error:
+        sync_runtime.report_generation(plan)
+    failed = 11 if extra_inputs else 9
+    assert str(error.value).splitlines()[0] == f'8 services succeeded; {failed} services failed; {failed} diagnostics'
+    assert len(str(error.value).splitlines()) == failed + 1
+    assert 'saved reference' not in str(error.value)
+    output = capsys.readouterr()
+    assert output.err.count('saved reference needs repair') == (5 if write else 0)
+    assert output.out.count('Design Markdown sync: PASS') == 8
+    if extra_inputs:
+        assert all(message in str(error.value) for message in failures[-2:])
+
+
+def _snapshot_archive(root, base, paths, destination):
+    assert base == 'baseline' and paths == ['model', 'project.json']
+    (destination / 'project.json').write_bytes(b'baseline project')
+
+
+def check_guard_snapshot_candidates(tmp_path):
+    project = tmp_path / 'project.json'
+    project.write_bytes(b'live project')
+    source = tmp_path / 'model/dev/team/service.properties'
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b'live Model')
+    with patch.object(import_guard, 'archive_sources', side_effect=_snapshot_archive) as archive:
+        for output in ({}, {project: '{}\n'}):
+            with import_guard.snapshots(tmp_path, 'baseline', output) as (before, after):
+                assert before.joinpath('project.json').read_bytes() == b'baseline project'
+                assert (after == tmp_path) == (not output)
+                assert after.joinpath('project.json').read_bytes() == (b'{}\n' if output else b'live project')
+                assert after.joinpath(source.relative_to(tmp_path)).read_bytes() == b'live Model'
+                assert not (before / 'framework').exists() and not (after / 'framework').exists()
+                assert project.read_bytes() == b'live project'
+        assert archive.call_count == 2
+
+
+def _definition_read_failure(source, original, /, path, *args, **kwargs):
+    if path == source:
+        raise FileNotFoundError('unavailable Framework definition')
+    return original(path, *args, **kwargs)
+
+
+@pytest.mark.parametrize('definition', ['schema', 'mapping', 'naming', 'layout'])
+def check_definition_read_errors(tmp_path, definition):
+    definitions = definition_root(tmp_path)
+    source = definitions / 'framework' / {
+        'schema': 'materials/cloudformation-schema/ap-northeast-1/index.json',
+        'mapping': 'mappings/aws/owners.json', 'naming': 'rules/aws-resource-naming.md',
+        'layout': 'rules/resource-layout.json'}[definition]
+    fail = _bind_framework_callback(_definition_read_failure, source, Path.read_text)
+    with input_context(fresh=True), patch.object(Path, 'read_text', fail):
+        if definition == 'layout':
+            validator = load('validate-blueprint').Validator(tmp_path, definitions_root=definitions)
+            validator.check_resource_layout()
+            assert any('unavailable Framework definition' in error for error in validator.errors)
+        else:
+            with pytest.raises(FileNotFoundError, match='unavailable Framework definition'):
+                if definition == 'mapping':
+                    aws_mappings.Mappings(definitions)
+                elif definition == 'schema':
+                    assert aws_schemas.Schemas(definitions).resource_types
+                else:
+                    model_validation.naming_errors(definitions, 'IAM.Role', [['1', 'RoleName', '`app-dev-role`', '名前']])
+
+
+@pytest.mark.parametrize('state', ['stale', 'missing'])
+def check_sidecar_output_difference(tmp_path, state):
+    view, artifact = tmp_path / 'iam.md', tmp_path / 'policy.json'
+    view.write_bytes(b'unchanged\n')
+    if state == 'stale':
+        artifact.write_bytes(b'{}\n')
+    snapshot = sync_runtime.GenerationInputs(tmp_path)
+    try:
+        plan = SimpleNamespace(snapshot=snapshot, expected_outputs={view: {view: 'unchanged\n', artifact: '{"new": true}\n'}})
+        assert sync_runtime.planned_outputs(plan) == {artifact}
+        assert view.read_bytes() == b'unchanged\n'
+    finally:
+        snapshot.close()
+
+
+
+
+
+def check_missing_validation_inputs(tmp_path):
+    (tmp_path / 'project.json').write_text('{"projectName":"test","targets":[{"environment":"dev",'
+                                         '"awsAccountId":"123456789012","awsRegion":"ap-northeast-1",'
+                                         '"iacEngine":"cloudformation"}]}\n')
+    validator = load('validate-blueprint').Validator(tmp_path, {('dev', '123456789012', 'iam')})
+    validator.check_project_topology()
+    validator.check_validation_scope()
+    assert any('validation properties input missing' in error for error in validator.errors), validator.errors
+
+
+
+
+@pytest.mark.parametrize('fault', ['model', 'orphan'])
+def check_generation_input_failures(tmp_path, fault):
+    view = tmp_path / 'docs/designs/dev/123456789012/iam.md'
+    source = tmp_path / 'model/dev/123456789012/iam.properties'
+    view.parent.mkdir(parents=True)
+    source.parent.mkdir(parents=True)
+    view.write_bytes(b'saved Markdown\n')
+    (tmp_path / 'project.json').write_text('{"projectName":"test","targets":[{"environment":"dev",'
+                                         '"awsAccountId":"123456789012","awsRegion":"ap-northeast-1",'
+                                         '"iacEngine":"cloudformation"}]}\n')
+    if fault == 'model':
+        source.write_bytes(b'malformed Model\n')
+    with patch.object(sync_runtime, 'stage_inputs', return_value=([view], {})), \
+         patch.object(sync_runtime, 'generate_views', return_value={}) as generate:
+        plan = sync_runtime.prepare_generation(tmp_path, None, write=False)
+        try:
+            assert not plan.destinations and not plan.generated
+            assert len(plan.failures) == 1 and ('unsupported Model format' if fault == 'model' else
+                                               'properties Model inputs missing') in plan.failures[0], plan.failures
+            generate.assert_called_once()
+            assert generate.call_args.args[2] == {}
+        finally:
+            plan.close()
+    assert view.read_bytes() == b'saved Markdown\n'
+    if fault == 'model':
+        assert source.read_bytes() == b'malformed Model\n'
 
 
 if __name__ == '__main__':

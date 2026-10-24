@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 import task_contract_core as tasks
 from model.importing import scope as import_scope
+from support.pytest_cli import run
 from support.validation_cache_fixtures import (
     PassCache,
     Path,
@@ -88,21 +89,21 @@ def _project_rglob(path, pattern):
 
 def check_cache_lifetime(tmp_path):
     root, definitions, directory = tmp_path / 'repo', tmp_path / 'definitions', tmp_path / 'cache'
-    framework = root / 'framework/validator.py'
-    framework.parent.mkdir(parents=True)
-    framework.write_bytes(b'first version')
+    root.mkdir()
+    source = root / 'source.txt'
+    source.write_bytes(b'fixed input')
     directory.mkdir()
     cache = PassCache(root, directory=directory, definitions_root=definitions)
     with patch.object(Path, 'rglob', _project_rglob), input_context():
         key = cache.key('catalog')
         cache.save(key, 17)
         assert PassCache(root, directory=directory, definitions_root=definitions).load(key) == 17
-    framework.write_bytes(b'second version')
+        assert PassCache(root, fresh=True, directory=directory, definitions_root=definitions).load(key) is None
     with patch.object(Path, 'rglob', _project_rglob), input_context():
         assert cache.load(cache.key('catalog')) is None
         assert PassCache(root, directory=directory, definitions_root=definitions).load(key) is None
     with pytest.raises(ValueError, match='symlink inputs'):
-        (root / 'README.md').symlink_to(framework)
+        (root / 'README.md').symlink_to(source)
         PassCache(root, directory=directory).common_key()
 
 
@@ -195,6 +196,40 @@ def check_retained_common_key(tmp_path):
         assert tasks.contracts(project)['tasks/first.md'] == original
 
 
+
+
+@pytest.mark.parametrize('relative', ['model/dev/team/iam.properties', 'docs/designs/dev/team/iam.md',
+                                       'docs/designs/dev/team/iam/policy.json',
+                                       'docs/designs/dev/team/iam/extra.json', 'model/dev/team/iam/extra.properties'])
+def check_service_cache_invalidation(tmp_path, relative):
+    root, directory = tmp_path / 'repo', tmp_path / 'cache'
+    design = root / 'docs/designs/dev/team/iam.md'
+    source = root / 'model/dev/team/iam.properties'
+    artifact = design.with_suffix('') / 'policy.json'
+    source.parent.mkdir(parents=True)
+    artifact.parent.mkdir(parents=True)
+    (root / 'project.json').write_text('{"targets":[{"environment":"dev","alias":"team",'
+                                       '"awsAccountId":"123456789012","awsRegion":"ap-northeast-1","iacEngine":"cloudformation"}]}\n')
+    source.write_text('# model-format: 2\ndesired.service.iam.serviceId=iam\n'
+                      'desired.service.iam.ownedCatalogResourceTypes=IAM.Role\ndesired.note.001.text=original\n')
+    design.write_text('# Policy\n[policy](iam/policy.json)\n')
+    artifact.write_text('{}\n')
+    cache = PassCache(root, directory=directory)
+    entry = ('dev', 'team', 'iam')
+    target = root / relative
+    original = target.read_bytes() if target.exists() else None
+    with input_context():
+        key = cache.service_key(entry)
+        cache.save(key, 17)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((original or b'') + b'\n')
+        changed = cache.service_key(entry)
+        assert changed != key and cache.load(changed) is None
+    if original is not None:
+        target.unlink()
+        with input_context(), pytest.raises(ValueError):
+            cache.service_key(entry)
+
+
 if __name__ == '__main__':
-    from support.pytest_cli import run
     raise SystemExit(run(__file__))
