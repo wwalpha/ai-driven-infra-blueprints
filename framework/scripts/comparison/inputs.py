@@ -32,8 +32,8 @@ from utils.project_targets import load_target_directory as load_target
 from utils.reference_contracts import (
     ARN_SHAPES,
     ATTRIBUTE_SUFFIXES,
-    GETATT_ATTRIBUTES,
     REFERENCE_PROPERTIES,
+    getatt_attribute,
     row_contexts,
 )
 
@@ -332,15 +332,10 @@ class Inputs:
         elif not (derived and (attribute == reference_attribute(resource['resourceType'], 'Arn')
                                and resource['resourceType'] in ARN_SHAPES
                                or attribute == registry.ref_attribute(resource['resourceType']))):
-            try:
-                self.catalog.property_schema(resource['resourceType'], attribute)
-            except ValueError as error:
-                if self.local_comparison:
-                    raise Blocked(f'unproven resource attribute: {logical}.{attribute}') from error
-                raise
-            if (self.local_comparison and attribute not in GETATT_ATTRIBUTES.get(resource['resourceType'], ())
-                    and '/properties/' + attribute.replace('.', '/') not in self.catalog.schema(resource['resourceType']).get('readOnlyProperties', [])):
+            if self.local_comparison and not getatt_attribute(resource['resourceType'], attribute, self.catalog.schema(resource['resourceType'])):
                 raise Blocked(f'unproven GetAtt return attribute: {logical}.{attribute}')
+            if not self.local_comparison:
+                self.catalog.property_schema(resource['resourceType'], attribute)
         result = ResourceReference({'$resource': [path.stem, identity], '$attribute': reference_attribute(resource['resourceType'], attribute)})
         self.symbols[cachekey] = result
         return result
@@ -352,6 +347,7 @@ class Inputs:
         token = ('import', stack, name)
         if token in seen:
             raise Blocked(f'cyclic ImportValue: {name}')
+        scope = tuple(registry.context_value(self.stack_inputs[stack][2], group) for group in ('partition', 'account', 'region'))
         if self.exports is None:
             # Cache the partial index and failures too: one broken stack is not a
             # reason to discard proven exports or retry the entire search per row.
@@ -368,13 +364,14 @@ class Inputs:
                     try:
                         if 'Export' not in output or not condition_active(document, parameters, pseudo, output):
                             continue
+                        producer_scope = tuple(registry.context_value(pseudo, group) for group in ('partition', 'account', 'region'))
                         export = self.evaluate(unit['name'], output['Export']['Name'], frozenset({('export-name',)}))
                         if not isinstance(export, str):
                             raise Blocked('Export name is not a local string')
-                        self.exports.setdefault(export, []).append((unit['name'], output.get('Value')))
+                        self.exports.setdefault((*producer_scope, export), []).append((unit['name'], output.get('Value')))
                     except (Blocked, ValueError, KeyError, TypeError, OSError) as error:
                         self.export_failures.append(error)
-        candidates = self.exports.get(name, [])
+        candidates = self.exports.get((*scope, name), [])
         if self.export_failures:
             error = self.export_failures[0]
             blocked = Blocked(f'ImportValue handoff search incomplete: {error}')
@@ -424,6 +421,8 @@ class Inputs:
             raise Blocked('reference stack correspondence is unproven')
         self.stack(units[0])
         attribute = value['$attribute']
+        if attribute == 'Ref':
+            raise Blocked('opaque Ref requires the same proven Producer; no local literal contract')
         secret_name = (resource['resourceType'], attribute) == registry.hook(resource['resourceType'], 'EXPLICIT_NAME')
         bound = self.symbol(name, logical, None if secret_name else attribute, derived=not secret_name)
         if secret_name:
@@ -438,13 +437,10 @@ class Inputs:
         if resource['resourceType'] in ARN_SHAPES and attribute == reference_attribute(resource['resourceType'], 'Arn'):
             if resource_mode(resource) != 'CREATE':
                 raise Blocked('named ARN requires CREATE resource correspondence; IMPORT requires approved handoff')
-            # AWS-generated identifiers are not template settings, including KMS KeyId.
-            if resource['resourceType'] == 'KMS.Key':
-                if recorded is not None:
-                    return recorded(value)
-                raise Blocked('KMS ARN requires a proven KeyId')
             return registry.named_arn(resource['resourceType'], properties, pseudo,
-                                      evaluate=lambda value: evaluator.evaluate(name, value))
+                                      evaluate=lambda value: evaluator.evaluate(name, value),
+                                      schema=self.catalog.schema(resource['resourceType']),
+                                      recorded=(lambda field: recorded(ResourceReference(dict(value, **{'$attribute': field})))) if recorded is not None else None)
         setting = RETURN_ATTRIBUTE_PROPERTIES.get((resource['resourceType'], attribute))
         explicit_path = setting or attribute
         readonly = '/properties/' + explicit_path.replace('.', '/') in self.catalog.schema(resource['resourceType']).get('readOnlyProperties', ())
@@ -453,7 +449,7 @@ class Inputs:
             if recorded is not None:
                 return recorded(value)
             raise Blocked('reference has no explicit name property contract')
-        result = evaluator.substitution(name, value, frozenset())
+        result = evaluator.substitution(name, value, frozenset(), preserve=False)
         if not isinstance(result, str):
             raise Blocked('reference name remains symbolic')
         if not result or result in {'UNSET', 'PENDING_DEPLOY', 'TBD', 'TODO', '未確定'}:
@@ -494,6 +490,9 @@ class Inputs:
             local_comparison=self.local_comparison, forms_for=self.reference_forms,
             kms_format=self.kms_format, resource_type=self.resource_type, redact=self.redacted)
         origins = reference_evidence.export_origins(right, getattr(self, 'export_provenance', {}))
+        for origin in reference_evidence.export_origins(left, getattr(self, 'export_provenance', {})):
+            if origin not in origins:
+                origins.append(origin)
         if origins:
             detail['exports'] = self.redacted(origins)
         return detail

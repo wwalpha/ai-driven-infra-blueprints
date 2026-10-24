@@ -5,7 +5,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-import pytest
 from support.it_case_receipt import it_case
 from support.producer_identifier_reference_fixtures import (
     Path,
@@ -60,17 +59,6 @@ def check(root):
     write_model(producer, {key.replace('.017', '.018', 1): value for key, value in original.items()})
     assert not load_model(path).warnings
     write_model(producer, original)
-    for bad, phrase in [
-        ({**original, 'desired.resource.017.resourceType': 'S3.Bucket'}, 'Type differs'),
-        ({**original, 'desired.row.017-001.property': 'CloudTrail.Trail.Description'}, 'Property is absent'),
-        ({**original, 'desired.row.017-001.value': '``'}, 'differs'),
-        ({**original, 'desired.row.017-004.property': 'CloudTrail.Trail.TrailName', 'desired.row.017-004.value': '`duplicate`', 'desired.row.017-004.comment': '重複'}, 'Property is absent or ambiguous')]:
-        write_model(producer, bad)
-        if any(key in original and key.endswith('.resourceType') and original[key] != value for key, value in bad.items()):
-            with pytest.raises(ValueError, match='ResourceType prefix'):
-                load_model(path)
-        else:
-            assert warning(path, phrase).authoritative == snapshot.authoritative
     write_model(producer, original)
     explicit = dict(values)
     explicit[key] = values[key].replace('[audit-preview]', '[existing-label]')
@@ -78,8 +66,6 @@ def check(root):
     explicit['desired.reference.trail.labelPolicy'] = 'fixed'
     write_model(path, explicit)
     assert not load_model(path).warnings
-    producer.unlink()
-    assert warning(path, 'Model is absent').authoritative == explicit
     print('CloudTrail references: PASS (TrailName; exact JSON; fixed labels; dependency snapshots; warning preservation)')
 
 

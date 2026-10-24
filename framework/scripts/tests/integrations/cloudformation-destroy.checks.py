@@ -9,11 +9,9 @@ from types import SimpleNamespace as _CallbackState
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import importlib.util
 import io
 import json
 import os
-import threading
 from collections import Counter
 from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
@@ -26,6 +24,14 @@ from model.adapters import observed
 from model.core import properties
 from model.files import read_model
 from model.render import markdown_for
+from support.cloudformation_destroy_fixtures import (
+    TARGET,
+    Fake,
+    M,
+    rejects,
+    session,
+    stack_id,
+)
 from support.model_sources import allocate_fixture as allocate
 from support.model_sources import snapshot_model, write_model
 from support.pytest_cli import run
@@ -37,241 +43,26 @@ from utils.function_wrapper import BoundCallback as _bind_framework_callback
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
-ROOT = Path(__file__).resolve().parents[4]
-SPEC = importlib.util.spec_from_file_location("destroy", (Path(__file__).resolve().parents[2] / 'cloudformation-destroy.py'))
-M = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(M)
-TARGET = {"awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}
 
 
 
-def rejects(action, fragment):
-    with pytest.raises((ValueError, M.Blocked)) as error:
-        action()
-    assert fragment in str(error.value), str(error.value)
 
 
-def stack_id(name):
-    return f"arn:aws:cloudformation:ap-northeast-1:123456789012:stack/{name}/uuid-{name}"
 
 
-class Fake(M.AwsBackend):
-    def __init__(self, names, outcomes=None, absent=(), exports=None):
-        self.target = dict(TARGET)
-        self.names = names
-        self.calls = []
-        self.deleted = []
-        self.running = set()
-        self.maximum = 0
-        self.outcomes = outcomes or {}
-        self.absent = set(absent)
-        self.export_imports = exports or {}
-        self.overrides = {}
-        self.completed = set()
-        self.lock = threading.Lock()
-        self.profile = None
-        self.polls = Counter()
-        self.retained = set()
-        self.hook = None
-
-    def aws(self, operation, *arguments):
-        with self.lock:
-            self.calls.append((operation, arguments))
-            assert operation in M.AwsBackend.READS | {"delete-stack", "get-caller-identity"}, operation
-            if operation == "get-caller-identity":
-                return {"Account": self.target.get("awsExecutionAccountId", self.target["awsAccountId"])}
-            if operation == "list-exports":
-                return {"Exports": [{"Name": export, "ExportingStackId": stack_id(producer)}
-                                    for export, (producer, _) in self.export_imports.items()]}
-            if operation == "list-imports":
-                return {"Imports": self.export_imports[arguments[1]][1]}
-            identity = arguments[1]
-            name = identity.split("/")[1] if identity.startswith("arn:") else identity
-            if operation == "describe-stacks":
-                if name in self.absent or name in self.completed:
-                    return None
-                actual = "CREATE_COMPLETE"
-                if name in self.running:
-                    self.polls[name] += 1
-                    sequence = self.outcomes.get(name, ["DELETE_IN_PROGRESS", "DELETE_COMPLETE"])
-                    actual = sequence[min(self.polls[name] - 1, len(sequence) - 1)]
-                    if actual == "DELETE_COMPLETE":
-                        self.running.remove(name)
-                        self.completed.add(name)
-                    elif actual == "DELETE_FAILED":
-                        self.running.remove(name)
-                stack = {"StackName": name, "StackId": stack_id(name), "StackStatus": actual,
-                         "EnableTerminationProtection": False, "ParentId": None, "RootId": None,
-                         "Outputs": [{"ExportName": export} for export, (producer, _) in self.export_imports.items() if producer == name]}
-                return {"Stacks": [stack | self.overrides.get(name, {})]}
-            if operation == "delete-stack":
-                assert identity == stack_id(name), "delete must use pinned StackId"
-                assert "--deletion-mode" not in arguments
-                assert name not in self.running
-                self.running.add(name)
-                self.deleted.append(name)
-                self.maximum = max(self.maximum, len(self.running))
-                if self.hook:
-                    self.hook(name)
-                return {}
-            if operation == "describe-stack-events":
-                return {"StackEvents": [{"ResourceStatus": "DELETE_SKIPPED", "LogicalResourceId": "Retained"}] if name in self.retained else []}
-            raise AssertionError(operation)
 
 
-def session(orders):
-    return {"states": {name: {"StackName": name, "DeployOrder": order, "status": "NOT_STARTED",
-                               "observedSynced": False} for name, order in orders.items()}}
 
 
-def execute(orders, limit=1, fake=None):
-    fake = fake or Fake(list(orders))
-    state = session(orders)
-    try:
-        M.preflight(state, fake, limit, lambda: None)
-        M.dependencies(state, fake, lambda: None)
-    except M.Blocked as error:
-        state.update(status="BLOCKED", reason=str(error))
-        return state, fake
-    state["status"] = M.run_session(state, fake, limit, lambda: None, lambda *_: None, sleep=lambda _: None)
-    return state, fake
 
 
-def _callback_check_order_and_safety_barrier(_state_check_order_and_safety_138, /, name):
-    if name == "D":
-        assert {"A", "B", "C"} <= _state_check_order_and_safety_138.fake.completed
 
 
-def check_order_and_safety():
-    _state_check_order_and_safety_138 = _CallbackState()
-    state, _state_check_order_and_safety_138.fake = execute({"A": 10, "B": 20, "C": 30})
-    assert _state_check_order_and_safety_138.fake.deleted == ["C", "B", "A"] and state["status"] == "COMPLETE"
-    print("D02: PASS reverse DeployOrder")
-    state, _state_check_order_and_safety_138.fake = execute({"A": 30, "B": 30, "C": 30, "D": 20}, limit=2)
-    assert _state_check_order_and_safety_138.fake.maximum == 2 and _state_check_order_and_safety_138.fake.deleted == ["A", "B", "C", "D"]
-    # The fake keeps unfinished stacks in running; lower groups must start with no upper peers.
-    _state_check_order_and_safety_138.fake = Fake(["A", "B", "C", "D"])
-    barrier = _bind_framework_callback(_callback_check_order_and_safety_barrier, _state_check_order_and_safety_138)
-    _state_check_order_and_safety_138.fake.hook = barrier
-    execute({"A": 30, "B": 30, "C": 30, "D": 20}, 2, _state_check_order_and_safety_138.fake)
-    print("D03: PASS bounded parallelism and group barrier")
-    _, _state_check_order_and_safety_138.fake = execute({"A": 30, "B": 30, "C": 30}, limit=1)
-    assert _state_check_order_and_safety_138.fake.maximum == 1
-    print("D04: PASS sequential")
-    state, _state_check_order_and_safety_138.fake = execute({"A": 10}, fake=Fake(["A"], exports={"Vpc": ("A", ["B"])}))
-    assert state["status"] == "BLOCKED" and not _state_check_order_and_safety_138.fake.deleted and "outside" in state["reason"]
-    print("D05: PASS outside importer stops every delete")
-    state, _state_check_order_and_safety_138.fake = execute({"A": 10, "B": 20}, fake=Fake(["A", "B"], exports={"Vpc": ("A", ["B"])}))
-    assert state["status"] == "COMPLETE" and _state_check_order_and_safety_138.fake.deleted == ["B", "A"]
-    for orders in ({"A": 20, "B": 10}, {"A": 20, "B": 20}):
-        state, _state_check_order_and_safety_138.fake = execute(orders, fake=Fake(["A", "B"], exports={"Vpc": ("A", ["B"])}))
-        assert not _state_check_order_and_safety_138.fake.deleted and "actual import dependency conflicts with designed DeployOrder" in state["reason"]
-    print("D06: PASS consumer first; conflicting/equal designed orders block")
-    cached = session({"A": 10, "B": 20})
-    _state_check_order_and_safety_138.fake = Fake(["A", "B"], exports={"Vpc": ("A", ["B"])})
-    M.preflight(cached, _state_check_order_and_safety_138.fake, 2, lambda: None)
-    M.dependencies(cached, _state_check_order_and_safety_138.fake, lambda: None)
-    _state_check_order_and_safety_138.fake.export_imports["Vpc"] = ("A", ["B", "Outside"])
-    M.preflight(cached, _state_check_order_and_safety_138.fake, 2, lambda: None)
-    rejects(lambda: M.dependencies(cached, _state_check_order_and_safety_138.fake, lambda: None), "outside live destroy scope")
-    assert sum(op == "list-exports" for op, _ in _state_check_order_and_safety_138.fake.calls) == 1 and not _state_check_order_and_safety_138.fake.deleted
-    for operation in ("list-exports", "list-imports"):
-        _state_check_order_and_safety_138.fake = Fake(["A"], exports={"Vpc": ("A", [])})
-        state = session({"A": 10})
-        M.preflight(state, _state_check_order_and_safety_138.fake, 1, lambda: None)
-        aws = _state_check_order_and_safety_138.fake.aws
-        with patch.object(_state_check_order_and_safety_138.fake, "aws", side_effect=lambda op, *args, aws=aws, operation=operation: {} if op == operation else aws(op, *args)):
-            rejects(lambda *, fake=_state_check_order_and_safety_138.fake, state=state: M.dependencies(state, fake, lambda: None), "cannot prove dependencies")
-        assert not _state_check_order_and_safety_138.fake.deleted
-    _state_check_order_and_safety_138.fake = Fake(["A"])
-    _state_check_order_and_safety_138.fake.overrides["A"] = {"EnableTerminationProtection": True}
-    state, _state_check_order_and_safety_138.fake = execute({"A": 10}, fake=_state_check_order_and_safety_138.fake)
-    assert state["status"] == "BLOCKED" and not _state_check_order_and_safety_138.fake.deleted
-    print("D07: PASS termination protection")
-    _state_check_order_and_safety_138.fake = Fake(["A"])
-    _state_check_order_and_safety_138.fake.overrides["A"] = {"ParentId": stack_id("Parent"), "RootId": stack_id("Parent")}
-    state, _state_check_order_and_safety_138.fake = execute({"A": 10}, fake=_state_check_order_and_safety_138.fake)
-    assert state["status"] == "BLOCKED" and not _state_check_order_and_safety_138.fake.deleted
-    print("D08: PASS nested direct target")
-    _state_check_order_and_safety_138.fake = Fake(["A", "B", "C", "D"], {"A": ["DELETE_FAILED"], "B": ["DELETE_IN_PROGRESS"] * 3 + ["DELETE_COMPLETE"]})
-    state, _state_check_order_and_safety_138.fake = execute({"A": 30, "B": 30, "C": 30, "D": 20}, 2, _state_check_order_and_safety_138.fake)
-    assert _state_check_order_and_safety_138.fake.deleted == ["A", "B"] and not _state_check_order_and_safety_138.fake.running and state["status"] == "BLOCKED"
-    assert state["states"]["A"]["status"] == "DELETE_FAILED" and state["states"]["B"]["status"] == "DELETE_COMPLETE"
-    assert all(state["states"][name]["status"] == "NOT_STARTED" for name in ("C", "D"))
-    assert not any("FORCE_DELETE_STACK" in args for _, args in _state_check_order_and_safety_138.fake.calls)
-    _state_check_order_and_safety_138.fake = Fake(["A"], {"A": ["DELETE_COMPLETE"]})
-    _state_check_order_and_safety_138.fake.retained.add("A")
-    retained, _ = execute({"A": 10}, fake=_state_check_order_and_safety_138.fake)
-    assert retained["states"]["A"]["retained"][0]["ResourceStatus"] == "DELETE_SKIPPED"
-    backend = M.AwsBackend(ROOT, "dev", "123456789012", TARGET)
-    pages = [{"StackEvents": [{"ResourceStatus": "DELETE_SKIPPED"}], "NextToken": "page2"},
-             {"StackEvents": [{"PhysicalResourceId": stack_id("A"), "ResourceType": "AWS::CloudFormation::Stack", "ResourceStatus": "DELETE_IN_PROGRESS"},
-                              {"ResourceStatus": "DELETE_SKIPPED", "LogicalResourceId": "OldHistory"}], "NextToken": "oldpage"}]
-    with patch.object(backend, "aws", side_effect=pages) as events:
-        history = backend.events(stack_id("A"))
-        assert events.call_count == 2 and len(history) == 2 and "--no-paginate" in events.call_args.args
-    print("D09: PASS failure stops starts, drains peers, leaves lower order")
-    for override in ({"StackId": stack_id("Other")}, {"StackName": "Other"},
-                     {"StackId": stack_id("A").replace("123456789012", "999999999999")},
-                     {"StackId": stack_id("A").replace("ap-northeast-1", "us-east-1")}):
-        _state_check_order_and_safety_138.fake = Fake(["A"])
-        _state_check_order_and_safety_138.fake.overrides["A"] = override
-        state, _state_check_order_and_safety_138.fake = execute({"A": 10}, fake=_state_check_order_and_safety_138.fake)
-        assert not _state_check_order_and_safety_138.fake.deleted and state["status"] == "BLOCKED"
 
 
-def check_unused_export():
-    backend = M.AwsBackend(ROOT, "dev", "123456789012", TARGET)
-    diagnostic = "An error occurred (ValidationError) when calling the ListImports operation: Export 'Vpc' is not imported by any stack.\n"
-    fake = Fake(["A"], exports={"Vpc": ("A", [])})
-    state = session({"A": 10})
-    M.preflight(state, fake, 1, lambda: None)
-    aws = fake.aws
-    with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=255, stdout="", stderr=diagnostic)), \
-            patch.object(fake, "aws", side_effect=lambda op, *args: backend.aws(op, *args) if op == "list-imports" else aws(op, *args)):
-        M.dependencies(state, fake, lambda: None)
-        assert state["dependencySnapshot"] == [{"export": "Vpc", "producer": "A", "importers": []}]
-        assert not fake.deleted
-    for error in (diagnostic.replace("ValidationError", "AccessDenied"),
-                  diagnostic.replace("is not imported by any stack", "does not exist"),
-                  "An error occurred (ValidationError) when calling the ListImports operation: Invalid export name"):
-        with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=255, stdout="", stderr=error)):
-            rejects(lambda: backend.aws("list-imports", "--export-name", "Vpc"), "list-imports:")
-    with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=255, stdout="", stderr=diagnostic)):
-        rejects(lambda: backend.aws("list-exports"), "list-exports:")
-    with patch.object(M.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout='{"Imports": []}', stderr="")):
-        assert backend.aws("list-imports", "--export-name", "Vpc") == {"Imports": []}
-    print("D16: PASS unused export means no dependencies; other AWS errors still block")
 
 
-def check_absence():
-    fake = Fake(["A"], absent=["A"])
-    state = session({"A": 10})
-    state["states"]["A"].update(StackId=stack_id("A"), status="DELETE_IN_PROGRESS", deleteObserved=True)
-    M.preflight(state, fake, 1, lambda: None)
-    assert state["states"]["A"]["status"] == "DELETE_COMPLETE"
-    assert not fake.deleted
-    print("D10: PASS saved deletion evidence + pinned absence")
-    state = session({"A": 10})
-    state["states"]["A"].update(StackId=stack_id("A"), status="DELETE_IN_PROGRESS")
-    M.preflight(state, fake, 1, lambda: None)
-    assert state["states"]["A"]["status"] == "DELETE_COMPLETE"
-    for evidence in ({}, {"StackId": stack_id("A"), "status": "DELETE_INTENT"}):
-        state = session({"A": 10})
-        state["states"]["A"].update(evidence)
-        M.preflight(state, fake, 1, lambda: None)
-        assert state["states"]["A"]["status"] == "ALREADY_ABSENT"
-        # A new same-name stack appearing later is outside the pinned session.
-        replacement = Fake(["A"])
-        M.preflight(state, replacement, 1, lambda: None)
-        assert state["states"]["A"]["status"] == "ALREADY_ABSENT" and not replacement.calls
-    print("D11: PASS fresh absence / intent alone do not prove deletion")
-    # Resume never switches to a replacement stack with the same name.
-    fake = Fake(["A"])
-    fake.overrides["A"] = {"StackId": stack_id("A") + "-replacement"}
-    state = session({"A": 10})
-    state["states"]["A"]["StackId"] = stack_id("A")
-    rejects(lambda: M.preflight(state, fake, 1, lambda: None), "mismatch")
+
 
 
 def fixture(root, names, models=False):

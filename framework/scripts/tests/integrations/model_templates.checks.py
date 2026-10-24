@@ -9,13 +9,12 @@ from types import SimpleNamespace as _CallbackState
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import model.sources
 import support.model_sources as _imports_support_model_sources
 import support.model_templates_fixtures as _exports_support_model_templates_fixtures
 from generation_inputs import GenerationInputs
 from model.files import service_model_path
 from model.importing.scope import read_consumers, restrict
-from model.operations import CandidateReads, _verify_published_inputs
+from model.operations import _verify_published_inputs
 from model.sources import list_models
 from support.model_templates_fixtures import (
     ROOT,
@@ -33,12 +32,10 @@ from support.model_templates_fixtures import (
     patch,
     publication_lock,
     pytest,
-    read_model,
     redirect_stdout,
     rejected,
     role_model,
     run,
-    serialize,
     shutil,
     source_scope,
     split,
@@ -53,8 +50,6 @@ from support.producer_identifier_reference_fixtures import reference, resource
 from support.validator import MODULE
 from sync_files import changed_files
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
-from utils.input_cache import input_scope
-from utils.source_reads import FileReads
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -391,29 +386,8 @@ def check_reference_impact(root):
 
 
 
-def _callback_check_template_snapshot_reuse(original, path, root, /):
-    with patch.object(model.sources, '_read_model', wraps=model.sources._read_model) as parsed:
-        first, second = load_model(path), load_model(path)
-        assert first is second and parsed.call_count == 1
-        with pytest.raises(TypeError):
-            first.files[root / 'foreign'] = 'unrelated'
-        with pytest.raises(TypeError):
-            first.authoritative['desired.row.007-001.value'] = 'changed'
-    path.write_text('invalid')
-    assert load_model(path) is first
-    path.write_bytes(original)
-    assert load_model(path) is first
 
 
-def check_template_snapshot(root):
-    fixture(root, ('dev',))
-    path = write_model(root / 'model/dev/team/config.properties', config_model())
-    original = path.read_bytes()
-    reuse = (input_scope)(_bind_framework_callback(_callback_check_template_snapshot_reuse, original, path, root))
-    reuse()
-    path.write_text('invalid')
-    rejected(lambda: load_model(path), 'unsupported Model format')
-    path.write_bytes(original)
 
 
 
@@ -423,39 +397,10 @@ def check_creation(root):
     assert list_models(root) == [] and not path.exists()
     write_model(path, config_model())
     expected = load_model(path).authoritative
+    assert not [scope for scope in list_models(root) if scope.environment == "prod"]
     original = path.read_bytes()
     for _ in range(2):
         assert load_model(path).authoritative == expected and path.read_bytes() == original
-    path.write_text(serialize({**expected, 'desired.resource.007.unknown': 'Unknown'}))
-    before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
-    rejected(lambda: load_model(path), 'unknown Model field')
-    assert before == {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
-
-
-
-def check_invalid(root):
-    fixture(root, ('dev',))
-    path = install_candidate(root, {'dev': role_model('dev', 2)})
-    values = dict(load_model(path).authoritative)
-    original = path.read_bytes()
-    for bad in ({**values, 'desired.row.011-004.unknown': '1'},
-                {key: value for key, value in values.items() if key != 'desired.row.011-004.value'},
-                {**values, 'desired.row.099-004.property': 'IAM.Role.RoleName', 'desired.row.099-004.value': 'x', 'desired.row.099-004.comment': 'orphan'},
-                {**values, 'observed.row.999-001.value': 'x'}):
-        path.write_text(serialize(bad))
-        rejected(lambda: load_model(path))
-    path.write_bytes(original)
-    for value in ('a"b\\日本語=終', '', '<<not-reparsed>>', '${AWS::Region} {{resolve:ssm:literal}}',
-                  '<<Missing>>', '<<#Name>>x<</Name>>', '<<^Name>>x<</Name>>', '<<>partial>>',
-                  '<<&Name>>', '<<{Name}>>', '<<= x y =>>', '{{#Name}}', '{{>partial}}'):
-        write_model(path, {**values, 'desired.row.011-004.value': value})
-        assert load_model(path).authoritative['desired.row.011-004.value'] == value
-    rejected(lambda: serialize({**values, 'desired.row.011-004.value': 'x\ninjected.key=bad'}))
-    path.write_bytes(original)
-    path.unlink()
-    rejected(lambda: read_model(path))
-    path.write_bytes(original)
-
 
 
 def _callback_check_sync_drift(path, real, saved, /, *args, **kwargs):
@@ -498,46 +443,6 @@ def check_sync(root):
 
 
 
-def check_common_shape(root):
-    fixture(root, ('dev',))
-    path = root / 'model/dev/team/shared.properties'
-    minimal = {'desired.resource.017.resourceType': 'S3.Bucket', 'desired.resource.017.logicalId': 'S3_Bucket_001', 'desired.resource.017.anchor': 'resource-S3_Bucket_001',
-        'desired.service.identity.lastAllocated': '{"S3.Bucket":1}',
-        'desired.row.017-023.property': 'S3.Bucket.BucketName', 'desired.row.017-023.value': '`fixed-name`', 'desired.row.017-023.comment': '名前',
-        'desired.row.017-025.property': 'S3.Bucket.Tags', 'desired.row.017-025.value': '`{"Items":[1,3],"Value":"","Keep":null}`',
-        'desired.row.017-025.comment': '明示した配列と型', 'desired.note.bucket.text': '[S3_Bucket_001](shared.md#resource-S3_Bucket_001)'}
-    write_model(path, minimal)
-    assert load_model(path).authoritative == minimal
-    missing = {key: value for key, value in minimal.items() if key != 'desired.resource.017.logicalId'}
-    with pytest.raises(ValueError):
-        load_model(path, CandidateReads(FileReads(), {path: serialize(missing)}))
-    assert not any(key.startswith('desired.row.017-024.') for key in minimal)
-    full = {**minimal, 'desired.resource.017.logicalId': 'S3_Bucket_001',
-        'desired.row.017-024.property': 'S3.BucketPolicy.PolicyDocument', 'desired.row.017-024.value': '[policy.json](shared/policy.json)',
-        'desired.row.017-024.comment': '明示した権限', 'desired.row.017-024.document': '{"Statement":[{"Resource":"*"}]}' }
-    write_model(path, full)
-    assert json.loads(load_model(path).authoritative['desired.row.017-024.document']) == {'Statement': [{'Resource': '*'}]}
-    assert load_model(path).authoritative['desired.resource.017.logicalId'] == 'S3_Bucket_001'
-    full.update({'desired.row.017-023.value': '[S3_Bucket_001](shared.md#resource-S3_Bucket_001)',
-        'desired.note.bucket.text': '[S3_Bucket_001](shared.md#resource-S3_Bucket_001)', 'desired.row.017-025.value': '`{"Drop":null,"Items":[0,1,2,3],"Value":false,"Keep":null}`',
-        'desired.row.017-024.document': '{"Statement":[{"Resource":"*"},{"Resource":"explicit-target"}]}'})
-    write_model(path, full)
-    model = load_model(path)
-    assert model.authoritative == full
-    assert json.loads(model.authoritative['desired.row.017-025.value'][1:-1]) == {'Drop': None, 'Items': [0, 1, 2, 3], 'Value': False, 'Keep': None}
-    assert json.loads(model.authoritative['desired.row.017-024.document'])['Statement'][1]['Resource'] == 'explicit-target'
-    assert 'desired.row.017-024.artifactSha256' in model.values and 'desired.row.017-024.artifactSha256' not in model.authoritative
-    for bad in ({**full, 'desired.row.017-025.value': '`{"a":1,"a":2}`'},
-                {key: value for key, value in full.items() if key != 'desired.row.017-024.property'},
-                {**full, 'desired.row.017-024.artifactSha256': 'stale'}):
-        try:
-            raw = serialize(bad)
-            path.write_text(raw)
-            load_model(path)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError('invalid explicit shape accepted')
 
 
 

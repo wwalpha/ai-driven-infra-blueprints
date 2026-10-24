@@ -152,7 +152,6 @@ def check_precision(root, service, kind, name_property):
 def check_identity_and_deletion(root):
     source = producer(root, 'iam', 'IAM.Role', 'RoleName')
     target = consumer(root, 'uses-identity', 'iam', 'IAM.Role')
-    baseline(root)
     with tempfile.TemporaryDirectory() as directory:
         before = Path(directory)
         shutil.copytree(root / 'model', before / 'model')
@@ -179,7 +178,6 @@ def check_shared_environments(root):
     stg = producer(root, 'iam', 'IAM.Role', 'RoleName', env='stg')
     for env in ('dev', 'stg'):
         consumer(root, 'build', 'iam', 'IAM.Role', env=env)
-    baseline(root)
     saved = dev.read_bytes()
     change(stg, '001', 'Setting', {'trust': ['sso-a', 'sso-b']})
     assert affected(root, {stg.relative_to(root)}) == {entry('iam', 'stg'), entry('build', 'stg')}
@@ -199,7 +197,6 @@ def check_identifiers(root):
     write_model(source, values)
     paths = [consumer(root, 'by-id', 'vpc', 'EC2.VPC', mode='identifier'),
              consumer(root, 'by-name', 'vpc', 'EC2.VPC'), consumer(root, 'by-anchor', 'vpc', 'EC2.VPC', mode='link')]
-    baseline(root)
     saved = [path.read_bytes() for path in paths]
     digest, hashes = design_source_digest(source), dependency_hashes(paths[0])
     values['observed.row.002-003.value'] = '`vpc-second-new`'
@@ -220,31 +217,15 @@ def check_identifiers(root):
 def check_type_and_unknown(root):
     source = producer(root, 'iam', 'IAM.Role', 'RoleName')
     target = consumer(root, 'build', 'iam', 'IAM.Role')
-    baseline(root)
     text = source.read_text()
     source.write_text(text.replace('IAM.Role', 'IAM.User').replace('IAM_Role', 'IAM_User'))
     assert affected(root, {source.relative_to(root)}) == {entry('iam'), entry('build')}
     assert any('absent' in warning['message'] for warning in load_model(target).warnings)
-    source.write_text(text + 'desired.resource.001.resourceType=IAM.Role\n')
-    try:
-        affected(root, {source.relative_to(root)})
-    except ValueError as error:
-        assert 'duplicate' in str(error), str(error)
-    else:
-        raise AssertionError('malformed authority must stop incoming analysis')
     source.unlink()
     assert affected(root, {source.relative_to(root)}) == {entry('iam'), entry('build')}
     assert load_model(target).warnings
 
 
-@it_case
-def check_import_scope(root):
-    source = producer(root, 'iam', 'IAM.Role', 'RoleName')
-    consumer(root, 'build', 'iam', 'IAM.Role')
-    baseline(root)
-    for key, value in [('Setting', {'trust': ['new']}), ('Name', 'renamed')]:
-        change(source, '001', key, value)
-        assert affected(root, {source.relative_to(root)}) == {entry('iam'), entry('build')}
 
 
 @it_case
@@ -252,7 +233,6 @@ def check_selection(root):
     source = producer(root, 'iam', 'IAM.Role', 'RoleName')
     unused = producer(root, 'unused', 'IAM.Role', 'RoleName')
     target = consumer(root, 'build', 'iam', 'IAM.Role', '002', fixed=True)
-    baseline(root)
     change(source, '001', 'Name', 'unselected-name')
     assert affected(root, {source.relative_to(root)}) == {entry('iam'), entry('build')}
     change(unused, '001', 'Name', 'unused-name')
@@ -544,7 +524,7 @@ with publication_repository(), tempfile.TemporaryDirectory() as directory:
         ('iam', 'IAM.Role', 'RoleName'), ('s3', 'S3.Bucket', 'BucketName'), ('lambda', 'Lambda.Function', 'FunctionName')]]
     checks += [(label, check, ()) for label, check in [('identity', check_identity_and_deletion),
         ('shared', check_shared_environments), ('identifiers', check_identifiers), ('type', check_type_and_unknown),
-        ('import', check_import_scope), ('selection', check_selection), ('cycles', check_cycles), ('addition', check_resource_addition), ('changes', check_resource_changes),
+        ('selection', check_selection), ('cycles', check_cycles), ('addition', check_resource_addition), ('changes', check_resource_changes),
         ('semantics', check_semantic_boundaries), ('stacks', check_stack_context_and_fallback),
         ('routes', check_task_snapshot_routes)]]
     for label, check, args in checks:

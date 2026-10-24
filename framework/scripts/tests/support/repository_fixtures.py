@@ -75,3 +75,25 @@ def publication_workspace(request):
         name = 'tasks/' + getattr(request, 'param', 'observation-fixture') + '.md'
         with selected_task(root, name):
             yield root
+
+
+def transition_contract(name, files, state="running", kind="governance", scope="framework"):
+    paths = [name, *files]
+    listed = "\n".join(f"- `{path}`" for path in paths)
+    return f"""# Task
+## Task contract
+- Task type: `{kind}`
+- Task status: `{state}`
+- Target: test
+- Goal: test
+## Validation scope
+- `{scope}`
+## Required changes
+- [R1] Test
+## Acceptance checks
+- [R1] `changed:{files[0]}`
+## Modified files
+{listed}
+## Allowed paths
+{listed}
+"""

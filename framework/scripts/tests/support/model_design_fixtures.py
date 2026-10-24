@@ -96,6 +96,11 @@ def text(values):
             values[key.removesuffix('.document')+'.artifactSha256'] = model_projection.document_sha256(document)
     return "# model-format: 2\n# Runtime projection for fixture comparison; write_model strips derived fields.\n" + "".join(f"{key}={value}\n" for key, value in sorted(values.items()))
 
+STACK_VALUES = {'desired.stack.001.name': 'fixture', 'desired.stack.001.placementName': 'fixture',
+                'desired.stack.001.template': 'fixture.yaml', 'desired.stack.001.parameters': 'fixture.json',
+                'desired.stack.001.deployOrder': '1', 'display.stack.001.comment': '合成Stack'}
+
+
 def roundtrip(path, values, root):
     path.parent.mkdir(parents=True, exist_ok=True)
     project_root = path.parents[4]

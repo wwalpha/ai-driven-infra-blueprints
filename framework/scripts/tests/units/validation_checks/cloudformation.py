@@ -7,7 +7,8 @@ import json
 from functools import partial as _bind_framework_callback
 from types import SimpleNamespace as _CallbackState
 
-from support.validator import MODULE
+import model.render as _imports_model_render
+from support.validator import MODULE, SCRIPT
 from support.validator import project as project
 from support.validator import write as write
 
@@ -309,3 +310,121 @@ Resources:
         assert any("must not branch" in failure for failure in validator.errors)
         assert any("invalid CloudFormation template" in failure for failure in errors("Resources: [", valid_values))
     print("CloudFormation Environment checks: PASS (AST control-flow/selectors, naming/composition, JSON)")
+
+
+def _callback_check_cloudformation_stack_design_errors(root, /):
+    validator = MODULE.Validator(root)
+    validator.accounts[("dev", "123456789012")] = {
+        "account": "123456789012", "region": "ap-northeast-1", "alias": "", "engine": "cloudformation"
+    }
+    validator.check_stack_designs()
+    validator.check_cloudformation_environment_parameters()
+    return validator.errors
+
+
+def check_cloudformation_stack_design() -> None:
+    with project() as root:
+        target = root / "docs" / "designs" / "dev" / "123456789012"
+        target.mkdir(parents=True)
+        write(target / "glue.md",
+            '<a id="glue-job01"></a>\n### Glue.Job: Job01\n<a id="glue-job02"></a>\n### Glue.Job: Job02\n'
+        )
+        stack_file = target / "cloudformation-stacks.md"
+        write(stack_file,
+            """# CloudFormation stack 詳細設計
+
+<!-- max-concurrent-stacks: 2 -->
+
+## Stack一覧
+| No. | Deploy<br>Order | StackName | Template | Parameters | Comment |
+| ---: | ---: | --- | --- | --- | --- |
+| 1 | 10 | stack-job-01 | job.yaml | job-01.json | 日次jobを配置するstack |
+| 2 | 10 | stack-job-02 | job.yaml | job-02.json | 月次jobを配置するstack |
+"""
+        )
+        template = root / "infra" / "cloudformation" / "templates" / "job.yaml"
+        template.parent.mkdir(parents=True)
+        write(template,
+            "Parameters:\n  Environment:\n    Type: String\nResources:\n  Job:\n    Type: AWS::Glue::Job\n    Properties:\n      Name: !Ref Environment\n"
+        )
+        parameter_dir = root / "infra" / "cloudformation" / "parameters" / "dev" / "123456789012"
+        parameter_dir.mkdir(parents=True)
+        for name in ("job-01", "job-02"):
+            write(parameter_dir / f"{name}.json",
+                '[{"ParameterKey":"Environment","ParameterValue":"dev"}]\n'
+            )
+
+        errors = _bind_framework_callback(_callback_check_cloudformation_stack_design_errors, root)
+
+        assert not errors(), errors()
+        original = stack_file.read_text(encoding="utf-8")
+        for old, replacement in (("<!-- max-concurrent-stacks: 2 -->", "<!-- max-concurrent-stacks: 0 -->"),
+                                 ("<!-- max-concurrent-stacks: 2 -->", "<!-- max-concurrent-stacks: -1 -->"),
+                                 ("| 1 | 10 |", "| 1 | 0 |"), ("| 1 | 10 |", "| 1 | -1 |"),
+                                 ("| 1 | 10 |", "| 1 | abc |")):
+            write(stack_file, original.replace(old, replacement))
+            assert any("integer >= 1" in error for error in errors()), errors()
+        write(stack_file, original)
+        for old, replacement, message in (
+            ('| 2 | 10 | stack-job-02 | job.yaml', '| 2 | 10 | stack-job-01 | job.yaml', 'duplicate stack name'),
+            ('job-02.json', 'job-01.json', 'parameter file belongs to multiple stacks'),
+            ('| job.yaml |', '| ../job.yaml |', 'invalid stack template filename'),
+            ('| No. | Deploy<br>Order | StackName | Template | Parameters | Comment |', '| StackName | Template | Parameters |', 'invalid CloudFormation stack design header'),
+            ('| 2 | 10 | stack-job-02', '| 3 | 10 | stack-job-02', 'No. must be sequential'),
+            ('| 月次jobを配置するstack |', '| |', 'invalid CloudFormation stack design row'),
+            ('月次jobを配置するstack', 'monthly job', 'stack Comment must describe its purpose in Japanese'),
+        ):
+            write(stack_file, original.replace(old, replacement, 1))
+            assert any(message in error for error in errors()), (message, errors())
+        write(stack_file, original)
+        write(parameter_dir / "job-02.json", "[]\n")
+        assert any("must equal target environment" in error for error in errors())
+        write(parameter_dir / "job-02.json",
+            '[{"ParameterKey":"Environment","ParameterValue":"dev"}]\n'
+        )
+
+
+def _callback_check_stack_mapping_targets_errors(root, /):
+    validator = MODULE.Validator(root)
+    validator.accounts[("dev", "123456789012")] = {"account": "123456789012", "region": "ap-northeast-1", "alias": "", "engine": "cloudformation"}
+    validator.check_stack_designs()
+    return validator.errors
+
+
+def check_stack_mapping_targets():
+
+    markdown_for = _imports_model_render.markdown_for
+    with project() as root:
+        write(root / 'project.json', __import__('json').dumps({'targets': [{'environment': 'dev', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}]}) + '\n')
+        model_dir = root / "model/dev/123456789012"
+        model_dir.mkdir(parents=True)
+        target = root / "docs/designs/dev/123456789012"
+        target.mkdir(parents=True)
+        values = {"desired.stack.001.name": "cfn-stack-app-dev-ism", "desired.stack.001.template": "department.yaml",
+                  "desired.stack.001.parameters": "ism.json", "desired.stack.001.deployOrder": "10", "display.stack.001.comment": "部署用リソースを配置するstack",
+                  }
+        source = model_dir / "cloudformation-stacks.properties"
+        write(source, "\n".join(k + "=" + v for k, v in values.items()))
+        path = target / "cloudformation-stacks.md"
+        write(path, markdown_for(path, values, root))
+        model = model_dir / "ec2.properties"
+        write(model, "desired.resource.001.resourceType=EC2.VPC\ndesired.resource.001.logicalId=EC2_VPC_001\ndesired.service.identity.lastAllocated={\"EC2.VPC\":1}\ndesired.resource.001.cfn-logicalId=cfn-stack-app-dev-ism-DepartmentVpc\n")
+        assert not _callback_check_stack_mapping_targets_errors(root), _callback_check_stack_mapping_targets_errors(root)
+        write(model, __import__("model.files", fromlist=["read_model"]).read_model(model) + "desired.resource.001.resourceMode=IMPORT\n")
+        assert any("CREATE" in error for error in _callback_check_stack_mapping_targets_errors(root)), _callback_check_stack_mapping_targets_errors(root)
+        write(model, __import__("model.files", fromlist=["read_model"]).read_model(model).replace("cfn-stack-app-dev-ism-DepartmentVpc", "absent-DepartmentVpc").replace("desired.resource.001.resourceMode=IMPORT\n", ""))
+        assert any("undeclared stack" in error for error in _callback_check_stack_mapping_targets_errors(root)), _callback_check_stack_mapping_targets_errors(root)
+    with project() as root:
+        write(root / "project.json", __import__("json").dumps({"targets": [{"environment": "dev", "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n")
+        path = root / "docs/designs/dev/123456789012/iam.md"
+        path.parent.mkdir(parents=True)
+        write(path, '<a id="iam-confirmed-role"></a>\n')
+        model = root / "model/dev/123456789012/iam.properties"
+        model.parent.mkdir(parents=True)
+        write(model, 'desired.resource.007.resourceType=IAM.Role\ndesired.resource.007.logicalId=IAM_Role_001\ndesired.service.identity.lastAllocated={"IAM.Role":1}\n')
+        validator = MODULE.Validator(root)
+        validator.check_markdown_iam_policy_artifacts(path, "IAM_Role_001", [["1", "AssumeRolePolicyDocument", "[Trust](iam/iam-role-001-trust-policy.json)", "信頼ポリシー"]])
+        assert not validator.errors, validator.errors
+    prompt = (SCRIPT.parents[2] / "framework/prompts/codex/03_implement.md").read_text(encoding="utf-8")
+    assert "framework/scripts/model/cli.py observed --environment" in prompt
+    assert "After generation/changes as well" in prompt and "Do not automatically fill missing identifier rows" in prompt

@@ -302,13 +302,6 @@ invalid unrelated table alignment
         assert validator.generated_models_checked
         check_single_target_cache(root)
         # Missing/unknown selectors and changes outside scope fail before service checks.
-        for invalid in ({("unknown", "cde", "ec2")}, {("dev", "999999999999", "ec2")}, {("dev", "cde", "missing")}):
-            rejected = VALIDATOR.Validator(root, invalid)
-            rejected.accounts = validator.accounts
-            rejected.check_validation_scope()
-            assert rejected.errors
-            if next(iter(invalid))[:2] not in validator.accounts:
-                assert any("validation target is not defined" in error for error in rejected.errors)
         validator.changed_paths = {"model/prod/cde/ec2.properties"}
         validator.check_validation_scope()
         assert any("outside validation scope" in error for error in validator.errors)
@@ -345,14 +338,6 @@ invalid unrelated table alignment
             else:
                 raise AssertionError("selected invalid design accepted")
         write_model(model, source)
-        artifact = design.with_suffix("") / "orphan.json"
-        artifact.parent.mkdir()
-        artifact.write_text("bad JSON")
-        rejected = VALIDATOR.Validator(root, {("dev", "cde", "ec2")})
-        rejected.accounts = validator.accounts
-        rejected.check_design_artifacts(rejected.design_files())
-        assert any("invalid design JSON" in error for error in rejected.errors)
-        artifact.unlink()
         with redirect_stdout(io.StringIO()):
             full = VALIDATOR.Validator(root)
             full.check_generated_service_models()

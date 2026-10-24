@@ -440,7 +440,9 @@ def test_kms_arn_uses_only_producer_context(field, value):
     pseudo[field] = value
     document, parameters, _ = comparison.stack_inputs['producer']
     comparison.stack_inputs['producer'] = document, parameters, pseudo
-    actual = exported(comparison, {'Fn::GetAtt': ['Key', 'Arn']})
+    with pytest.raises(Blocked, match='confirmed|handoff matches=0'):
+        exported(comparison, {'Fn::GetAtt': ['Key', 'Arn']})
+    actual = comparison.evaluate('producer', {'Fn::GetAtt': ['Key', 'Arn']})
     decision = comparison.reference_decision(KEY_ARN, actual, 'Athena.WorkGroup', ATHENA_KMS)
     assert decision.equal is None, decision
     assert decision.diagnostics[0]['current_aws_verified'] is False
@@ -588,7 +590,7 @@ def test_export_chain_retains_each_handoff():
     vpc(comparison)
     exported(comparison, {'Ref': 'Vpc'}, name='base')
     comparison.stack_inputs['relay'] = ({'Resources': {}, 'Outputs': {
-        'Relay': {'Value': {'Fn::ImportValue': 'base'}, 'Export': {'Name': 'shared'}}}}, {}, {})
+        'Relay': {'Value': {'Fn::ImportValue': 'base'}, 'Export': {'Name': 'shared'}}}}, {}, dict(comparison.stack_inputs['producer'][2]))
     comparison.exports = None
     actual = comparison.evaluate('consumer', {'Fn::ImportValue': 'shared'})
     decision = comparison.reference_decision(VPC, actual, 'EC2.Subnet', 'VpcId')
@@ -744,8 +746,8 @@ def test_glue_connection_name(expression, expected):
     record = records[0]
     assert record['category'] == expected, record
     if expected == 'matched':
-        assert comparison.evaluate('producer', {'Fn::Sub': 'prefix-${Connection}'}) == 'prefix-fixture'
-        assert comparison.evaluate('producer', {'Fn::Sub': '${Connection.Name}'}) == 'fixture'
+        assert comparison.reference_literal(comparison.evaluate('producer', {'Fn::Sub': 'prefix-${Connection}'})) == 'prefix-fixture'
+        assert comparison.reference_literal(comparison.evaluate('producer', {'Fn::Sub': '${Connection.Name}'})) == 'fixture'
     if expression is None:
         assert record['reference_diagnostics'][0]['reason'] == 'identifier_unobserved: missing or ambiguous identifier Property'
     if expression == {'Ref': 'Connection'}:
@@ -1522,6 +1524,76 @@ def test_recorded_evidence_survives_nested_expression_and_reversal():
         assert detail['current_aws_verified'] is False and detail['evidence_type'] == 'recorded_observed'
         assert detail['producers'][0]['producer'] == 'kms/001'
     assert comparison.reference_decision(KEY_ARN + '/other', actual, 'IAM.Role', 'Policies').equal is None
+
+
+
+@pytest.mark.parametrize('fault', [None, 'missing', 'stale'])
+def test_saved_literal_evidence_is_checked_in_both_directions(fault):
+    comparison = fixture()
+    vpc(comparison)
+    row = consumer(comparison)
+    declaration(comparison, 'desired.row.010-001.value', VPC)
+    desired = prepared(comparison, row).require_value()
+    actual = exported(comparison, {'Ref': 'Vpc'})
+    if fault == 'missing':
+        comparison.models['vpc'].authoritative.pop('observed.row.001-001.value')
+    elif fault == 'stale':
+        comparison.models['vpc'].authoritative['observed.row.001-001.value'] = '`vpc-other`'
+    compound = Expression('Join', ['', ['pre/', desired]])
+    evaluated = Expression('Sub', ['pre/${R}', {'R': actual}])
+    for left, right in [(desired, actual), (actual, desired), (desired, VPC), (VPC, desired),
+                        (compound, evaluated), (evaluated, compound)]:
+        assert comparison.reference_decision(left, right, 'EC2.Subnet', 'VpcId').equal is (True if fault is None else None)
+
+
+
+@pytest.mark.parametrize('field,replacement', [('AWS::Partition', 'aws-cn'), ('AWS::AccountId', '999999999999'),
+                                             ('AWS::Region', 'us-east-1'), ('AWS::Partition', None)])
+def test_cached_exports_are_bound_to_the_consumer_scope(field, replacement):
+    comparison = fixture()
+    vpc(comparison)
+    original = exported(comparison, {'Ref': 'Vpc'})
+    assert comparison.reference_same(VPC, original, 'EC2.Subnet', 'VpcId') is True
+    document, parameters, pseudo = comparison.stack_inputs['consumer']
+    comparison.stack_inputs['consumer'] = document, parameters, dict(pseudo, **{field: replacement})
+    with pytest.raises(Blocked, match='handoff matches=0|confirmed'):
+        comparison.evaluate('consumer', {'Fn::ImportValue': 'shared'})
+
+
+
+@pytest.mark.parametrize('kind,attribute,identifier,properties,arn', [
+    ('EC2.VPC', 'VpcId', VPC, {}, 'arn:aws:ec2:ap-northeast-1:123456789012:vpc/' + VPC),
+    ('EC2.EIP', 'AllocationId', 'eipalloc-0123456789abcdef0', {}, 'arn:aws:ec2:ap-northeast-1:123456789012:elastic-ip/eipalloc-0123456789abcdef0'),
+    ('CloudFront.Distribution', 'Id', 'E123ABC', {}, 'arn:aws:cloudfront::123456789012:distribution/E123ABC'),
+    ('SSM.MaintenanceWindow', 'WindowId', 'mw-0123456789abcdef0', {}, 'arn:aws:ssm:ap-northeast-1:123456789012:maintenancewindow/mw-0123456789abcdef0'),
+    ('SSM.MaintenanceWindowTarget', 'WindowTargetId', KEY_ID, {}, 'arn:aws:ssm:ap-northeast-1:123456789012:windowtarget/' + KEY_ID),
+    ('ApiGateway.Authorizer', 'AuthorizerId', 'abc123', {'RestApiId': 'def456'}, 'arn:aws:apigateway:ap-northeast-1::/restapis/def456/authorizers/abc123'),
+    ('Route53.HostedZone', 'Id', 'Z123XYZ', {}, 'arn:aws:route53:::hostedzone/Z123XYZ'),
+])
+@pytest.mark.parametrize('fault', [None, 'missing', 'import', 'inactive'])
+def test_shared_recorded_arn_proof(kind, attribute, identifier, properties, arn, fault):
+    comparison = fixture()
+    resource(comparison, 'producer', '001', kind, 'Resource', [(attribute, 'PENDING_DEPLOY', identifier)],
+             properties=dict(properties, **{attribute: 'forged-template-id'}))
+    symbol = ResourceReference({'$resource': ['producer', '001'], '$attribute': 'Arn'})
+    if fault == 'missing':
+        comparison.models['producer'].authoritative.pop('observed.row.001-001.value')
+    elif fault == 'import':
+        comparison.resources['producer']['001']['resourceMode'] = 'IMPORT'
+    elif fault == 'inactive':
+        comparison.stack_inputs['producer'][0]['Conditions'] = {'Off': False}
+        comparison.stack_inputs['producer'][0]['Resources']['Resource']['Condition'] = 'Off'
+    for left, right in [(symbol, arn), (arn, symbol)]:
+        decision = comparison.reference_decision(left, right, 'IAM.Role', 'Policies[].PolicyDocument.Statement[].Resource')
+        assert decision.equal is (True if fault is None else None), decision
+        if fault is None:
+            assert decision.diagnostics[0]['evidence_type'] == 'recorded_observed'
+            assert decision.diagnostics[0]['current_aws_verified'] is False
+    if fault is None:
+        for different in (arn + '-other', arn.replace('arn:aws:', 'arn:aws-cn:'), arn.replace('123456789012', '999999999999')):
+            if different != arn:
+                assert comparison.reference_same(symbol, different, 'IAM.Role', '') is None
+
 
 
 if __name__ == '__main__':

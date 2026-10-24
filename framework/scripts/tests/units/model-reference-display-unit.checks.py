@@ -30,6 +30,9 @@ from utils.aws_mappings import mapping_alias
 from utils.input_cache import input_context
 from validation.findings import Findings
 
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
 
 @pytest.fixture
 def pipeline(tmp_path):

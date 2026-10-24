@@ -14,6 +14,7 @@ from utils.iac_values import Expression, ResourceReference, cfn_resource_identit
 from utils.reference_contracts import (
     ARN_SHAPES,
     REF_ATTRIBUTES,
+    RETURN_TYPES,
     reference_attribute,
 )
 from utils.reference_contracts import (
@@ -45,6 +46,8 @@ class Evaluation:
         if isinstance(value, ResourceReference):
             service, identity = value['$resource']
             kind = self.resources[service][identity]['resourceType']
+            if (kind, value['$attribute']) in RETURN_TYPES and not element:
+                return {'type': RETURN_TYPES[kind, value['$attribute']]}
             if not element and (value['$attribute'] == REF_ATTRIBUTES.get(kind) or
                                 kind in ARN_SHAPES and value['$attribute'] == reference_attribute(kind, 'Arn')):
                 return {'type': 'string'}
@@ -70,7 +73,7 @@ class Evaluation:
         return False
 
 
-    def substitution(self, stack, value, seen):
+    def substitution(self, stack, value, seen, *, preserve=True):
         if isinstance(value, ResourceReference):
             service, identity = value['$resource']
             attribute = value['$attribute']
@@ -88,9 +91,9 @@ class Evaluation:
             setting = RETURN_ATTRIBUTE_PROPERTIES.get((resource['resourceType'], attribute), attribute)
             explicit = select(properties, setting)
             readonly = '/properties/' + setting.replace('.', '/') in self.resource_schema(resource['resourceType']).get('readOnlyProperties', ())
-            # Derived ARNs require the shared Producer contract, never a template field.
+            # Local comparison retains Producer evidence until the shared literal resolver runs.
             arn = attribute == reference_attribute(resource['resourceType'], 'Arn')
-            if explicit == MISSING or self.local_comparison and (readonly or arn):
+            if explicit == MISSING or self.local_comparison and (readonly or preserve and arn):
                 if self.string_operand(value):
                     return value
                 raise Blocked(f'resource substitution has no explicit string property: {logical}.{attribute}')
@@ -101,7 +104,8 @@ class Evaluation:
             resolved = self.evaluate(name, explicit, seen | {token})
             if setting != attribute and not self.string_operand(resolved):
                 raise Blocked(f'resource substitution requires a proven string property: {logical}.{setting}')
-            return self.substitution(name, resolved, seen | {token})
+            result = self.substitution(name, resolved, seen | {token}, preserve=preserve)
+            return value if self.local_comparison and preserve else result
         if isinstance(value, Expression) and self.string_operand(value):
             return value
         if type(value) in (int, float):

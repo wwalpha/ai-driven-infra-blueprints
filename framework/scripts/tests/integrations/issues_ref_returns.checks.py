@@ -80,7 +80,7 @@ def main_checks():
                     assert not same(direct, 'same-name')
                     assert not same(direct, dict(direct, **{'$attribute': 'ManagedPolicyName'}))
                     assert not same(direct, dict(direct, **{'$attribute': 'Arn'}))
-                    fixtures.expect_error(lambda *, direct=direct: comparison.reference_literal(direct), 'no explicit name property contract')
+                    assert comparison.reference_literal(direct) == 'arn:aws:iam::123456789012:policy/same-name'
                 else:
                     assert comparison.reference_literal(direct) == 'same-name'
     print('Ref return checks: PASS (3 types, local exports/imports, distinct resources, unsupported Ref, no primary/name inference)')

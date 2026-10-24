@@ -16,6 +16,8 @@ from validation.terraform import module_directory as module_directory
 def check_cli():
     terraform = shutil.which('terraform')
 
+    if not terraform:
+        raise RuntimeError('Terraform CLI unavailable: integration verification did not run')
     if terraform:
         with project() as root, tempfile.TemporaryDirectory() as data:
             module = root / 'infra/system/terraform/modules/example'

@@ -8,6 +8,7 @@ from utils.comparison_rows import put_row
 RETURN_ATTRIBUTE_PROPERTIES = {('CodeCommit.Repository', 'Name'): 'RepositoryName',
                                ('Events.Rule', 'RuleName'): 'Name',
                                ('SNS.Topic', 'TopicName'): 'TopicName',
+                               ('SQS.Queue', 'QueueName'): 'QueueName',
                                ('Glue.Connection', 'Name'): 'ConnectionInput.Name',
                                ('Glue.Database', 'Name'): 'DatabaseInput.Name',
                                ('Glue.Table', 'Name'): 'TableInput.Name',
@@ -83,10 +84,44 @@ REF_ATTRIBUTES = {
     'SecretsManager.ResourcePolicy': 'Id', 'SecretsManager.RotationSchedule': 'Id',
     'SecurityHub.FindingAggregator': 'FindingAggregatorArn',
     'WAFv2.LoggingConfiguration': 'ResourceArn',
+    'Route53.RecordSet': 'Name',
+    'EC2.TransitGatewayRouteTablePropagation': 'TransitGatewayRouteTableId',
+    'ECS.ClusterCapacityProviderAssociations': 'ClusterName',
+    # Ref is an opaque Framework attribute, never GetAtt or an alias for one component.
+    'ApiGateway.Method': 'Ref', 'EC2.Route': 'Ref', 'EC2.SecurityGroupEgress': 'Ref',
+    'EC2.TransitGatewayRoute': 'Ref', 'EC2.TransitGatewayRouteTableAssociation': 'Ref',
+    'EC2.VPCGatewayAttachment': 'Ref', 'Lambda.EventInvokeConfig': 'Ref', 'SNS.Subscription': 'Ref',
+    'DataZone.Connection': 'Ref', 'DataZone.DataSource': 'Ref', 'DataZone.Environment': 'Ref',
+    'DataZone.EnvironmentBlueprintConfiguration': 'Ref', 'DataZone.EnvironmentProfile': 'Ref',
+    'DataZone.Owner': 'Ref', 'DataZone.Project': 'Ref', 'DataZone.ProjectMembership': 'Ref',
+    'DataZone.ProjectProfile': 'Ref', 'LakeFormation.PrincipalPermissions': 'Ref',
+    'SSO.Assignment': 'Ref', 'SSO.PermissionSet': 'Ref',
+    'SageMaker.Space': 'Ref', 'SageMaker.UserProfile': 'Ref',
+    'WAFv2.IPSet': 'Ref', 'WAFv2.RuleGroup': 'Ref', 'WAFv2.WebACL': 'Ref',
+    'WAFv2.WebACLAssociation': 'Ref',
 
 }
 # Documented GetAtt attributes omitted from the pinned schema readOnlyProperties.
-GETATT_ATTRIBUTES = {'SNS.Topic': {'TopicName'}, 'Events.EventBus': {'Name'}}
+GETATT_ATTRIBUTES = {
+    'SNS.Topic': {'TopicName'}, 'SQS.Queue': {'QueueName'}, 'Events.EventBus': {'Name'},
+    'Config.ConfigurationRecorder': {'ResourceARN'},
+    'EC2.SecurityGroup': {'VpcId'},
+    'EC2.Subnet': {'AvailabilityZone', 'AvailabilityZoneId', 'CidrBlock', 'OutpostArn', 'VpcId'},
+    'EC2.VPC': {'CidrBlock'}, 'ElasticLoadBalancingV2.LoadBalancer': {'SecurityGroups'},
+    'NetworkFirewall.Firewall': {'NumberOfAssociations'},
+    'RDS.DBInstance': {'DBSystemId'}, 'RDS.DBParameterGroup': {'DBParameterGroupName'},
+    'Route53Resolver.ResolverEndpoint': {'Direction', 'Name'},
+    'Route53Resolver.ResolverRule': {'DomainName', 'Name', 'ResolverEndpointId', 'TargetIps'},
+    'Route53Resolver.ResolverRuleAssociation': {'Name', 'ResolverRuleId', 'VPCId'},
+}
+# Documented output types absent from the pinned provider schema.
+RETURN_TYPES = {('Config.ConfigurationRecorder', 'ResourceARN'): 'string',
+                ('NetworkFirewall.Firewall', 'NumberOfAssociations'): 'integer'}
+
+
+def getatt_attribute(kind, attribute, schema):
+    return (attribute in GETATT_ATTRIBUTES.get(kind, ()) or
+            '/properties/' + attribute.replace('.', '/') in schema.get('readOnlyProperties', ()))
 
 # Model Arn is a semantic alias only; Fn::GetAtt must still use its formal attribute.
 ARN_ATTRIBUTES = {
@@ -104,6 +139,19 @@ ARN_ATTRIBUTES = {
     'SageMaker.UserProfile': 'UserProfileArn', 'SecurityHub.Hub': 'ARN',
     'Glue.Catalog': 'ResourceArn',
     'NetworkFirewall.Firewall': 'FirewallArn', 'NetworkFirewall.FirewallPolicy': 'FirewallPolicyArn',
+    'NetworkFirewall.RuleGroup': 'RuleGroupArn',
+    'ApiGateway.DomainName': 'DomainNameArn', 'ApiGatewayV2.DomainName': 'DomainNameArn',
+    'AutoScaling.AutoScalingGroup': 'AutoScalingGroupARN',
+    'CertificateManager.Certificate': 'CertificateArn',
+    'EC2.TransitGateway': 'TransitGatewayArn',
+    'Lambda.EventSourceMapping': 'EventSourceMappingArn',
+    'RDS.DBProxyTargetGroup': 'TargetGroupArn',
+    'SecurityHub.FindingAggregator': 'FindingAggregatorArn',
+    'SSO.PermissionSet': 'PermissionSetArn',
+    'Config.ConfigurationRecorder': 'ResourceARN',
+    'NetworkFirewall.LoggingConfiguration': 'FirewallArn',
+    'WAFv2.LoggingConfiguration': 'ResourceArn',
+    'SecretsManager.ResourcePolicy': 'Id', 'SecretsManager.RotationSchedule': 'Id',
 }
 
 
@@ -318,6 +366,63 @@ ARN_SHAPES = {
     'QuickSight.DataSet': ({'AwsAccountId': 'account', 'DataSetId': 'id'}, 'arn:{partition}:quicksight:{region}:{account}:dataset/{id}', {'account': r'\d{12}', 'id': r'[A-Za-z0-9_-]{1,512}'}),
     'QuickSight.DataSource': ({'AwsAccountId': 'account', 'DataSourceId': 'id'}, 'arn:{partition}:quicksight:{region}:{account}:datasource/{id}', {'account': r'\d{12}', 'id': r'[A-Za-z0-9_-]{1,512}'}),
     'QuickSight.VPCConnection': ({'AwsAccountId': 'account', 'VPCConnectionId': 'id'}, 'arn:{partition}:quicksight:{region}:{account}:vpcConnection/{id}', {'account': r'\d{12}', 'id': r'[A-Za-z0-9_-]{1,512}'}),
+    # API Gateway management ARNs have no account component; execute-api is a different value.
+    # https://docs.aws.amazon.com/apigateway/latest/developerguide/arn-format-reference.html
+    'ApiGateway.Stage': ({'RestApiId': 'api', 'StageName': 'id'}, 'arn:{partition}:apigateway:{region}::/restapis/{api}/stages/{id}', {'api': r'[a-z0-9]+', 'id': r'[A-Za-z0-9_-]{1,128}'}),
+    'ApiGateway.DomainName': ('DomainName', 'arn:{partition}:apigateway:{region}::/domainnames/{id}', {'id': r'[a-z0-9.-]+'}),
+    'ApiGatewayV2.DomainName': ('DomainName', 'arn:{partition}:apigateway:{region}::/domainnames/{id}', {'id': r'[a-z0-9.-]+'}),
+    'ApiGatewayV2.Stage': ({'ApiId': 'api', 'StageName': 'id'}, 'arn:{partition}:apigateway:{region}::/apis/{api}/stages/{id}', {'api': r'[a-z0-9]+', 'id': r'(?:\$default|[A-Za-z0-9_-]{1,128})'}),
+    'ApiGateway.BasePathMapping': ({'DomainName': 'domain', 'BasePath': 'id'}, 'arn:{partition}:apigateway:{region}::/domainnames/{domain}/basepathmappings/{id}', {'domain': r'[A-Za-z0-9.-]+', 'id': r'[A-Za-z0-9_.-]+'}),
+    'ApiGateway.GatewayResponse': ({'RestApiId': 'api', 'ResponseType': 'id'}, 'arn:{partition}:apigateway:{region}::/restapis/{api}/gatewayresponses/{id}', {'api': r'[a-z0-9]+', 'id': r'[A-Z][A-Z0-9_]+'}),
+    'ApiGateway.Method': ({'RestApiId': 'api', 'ResourceId': 'resource', 'HttpMethod': 'id'}, 'arn:{partition}:apigateway:{region}::/restapis/{api}/resources/{resource}/methods/{id}', {'api': r'[a-z0-9]+', 'resource': r'[a-z0-9]+', 'id': r'[A-Z]+'}),
+    'ApiGateway.Model': ({'RestApiId': 'api', 'Name': 'id'}, 'arn:{partition}:apigateway:{region}::/restapis/{api}/models/{id}', {'api': r'[a-z0-9]+', 'id': r'[A-Za-z0-9]+'}),
+    'NetworkFirewall.RuleGroup': ('RuleGroupName', 'arn:{partition}:network-firewall:{region}:{account}:{type}-rulegroup/{id}', {'id': r'[A-Za-z0-9-]{1,128}', 'type': r'(?:stateful|stateless)'}),
+    # Generated identifiers define logical ARN semantics, never writable template values.
+    # AWS Service Authorization Reference: EC2, CloudFront, Route53 and API Gateway.
+    'EC2.EIP': ('AllocationId', 'arn:{partition}:ec2:{region}:{account}:elastic-ip/{id}', {'id': '[a-z0-9-]+'}),
+    'EC2.FlowLog': ('Id', 'arn:{partition}:ec2:{region}:{account}:vpc-flow-log/{id}', {'id': '[a-z0-9-]+'}),
+    'EC2.Instance': ('InstanceId', 'arn:{partition}:ec2:{region}:{account}:instance/{id}', {'id': '[a-z0-9-]+'}),
+    'EC2.InternetGateway': ('InternetGatewayId', 'arn:{partition}:ec2:{region}:{account}:internet-gateway/{id}', {'id': '[a-z0-9-]+'}),
+    'EC2.LaunchTemplate': ('LaunchTemplateId', 'arn:{partition}:ec2:{region}:{account}:launch-template/{id}', {'id': '[a-z0-9-]+'}),
+    'EC2.NatGateway': ('NatGatewayId', 'arn:{partition}:ec2:{region}:{account}:natgateway/{id}', {'id': '[a-z0-9-]+'}),
+    'EC2.RouteTable': ('RouteTableId', 'arn:{partition}:ec2:{region}:{account}:route-table/{id}', {'id': '[a-z0-9-]+'}),
+    'EC2.SecurityGroup': ('GroupId', 'arn:{partition}:ec2:{region}:{account}:security-group/{id}', {'id': '[a-z0-9-]+'}),
+    'EC2.Subnet': ('SubnetId', 'arn:{partition}:ec2:{region}:{account}:subnet/{id}', {'id': '[a-z0-9-]+'}),
+    'EC2.TransitGatewayRouteTable': ('TransitGatewayRouteTableId', 'arn:{partition}:ec2:{region}:{account}:transit-gateway-route-table/{id}', {'id': '[a-z0-9-]+'}),
+    'EC2.TransitGatewayVpcAttachment': ('Id', 'arn:{partition}:ec2:{region}:{account}:transit-gateway-attachment/{id}', {'id': '[a-z0-9-]+'}),
+    'EC2.VPC': ('VpcId', 'arn:{partition}:ec2:{region}:{account}:vpc/{id}', {'id': '[a-z0-9-]+'}),
+    'EC2.VPCBlockPublicAccessExclusion': ('ExclusionId', 'arn:{partition}:ec2:{region}:{account}:vpc-block-public-access-exclusion/{id}', {'id': '[a-z0-9-]+'}),
+    'EC2.VPCEndpoint': ('Id', 'arn:{partition}:ec2:{region}:{account}:vpc-endpoint/{id}', {'id': '[a-z0-9-]+'}),
+    'CloudFront.CachePolicy': ('Id', 'arn:{partition}:cloudfront::{account}:cache-policy/{id}', {'id': '[A-Za-z0-9-]+'}),
+    'CloudFront.Distribution': ('Id', 'arn:{partition}:cloudfront::{account}:distribution/{id}', {'id': '[A-Za-z0-9-]+'}),
+    'CloudFront.OriginAccessControl': ('Id', 'arn:{partition}:cloudfront::{account}:origin-access-control/{id}', {'id': '[A-Za-z0-9-]+'}),
+    'CloudFront.OriginRequestPolicy': ('Id', 'arn:{partition}:cloudfront::{account}:origin-request-policy/{id}', {'id': '[A-Za-z0-9-]+'}),
+    'CloudFront.ResponseHeadersPolicy': ('Id', 'arn:{partition}:cloudfront::{account}:response-headers-policy/{id}', {'id': '[A-Za-z0-9-]+'}),
+    'Route53.HostedZone': ('Id', 'arn:{partition}:route53:::hostedzone/{id}', {'id': '[A-Z0-9]+'}),
+    'ApiGateway.ApiKey': ('APIKeyId', 'arn:{partition}:apigateway:{region}::/apikeys/{id}', {'id': '[a-z0-9]+'}),
+    'ApiGateway.RestApi': ('RestApiId', 'arn:{partition}:apigateway:{region}::/restapis/{id}', {'id': '[a-z0-9]+'}),
+    'ApiGateway.VpcLink': ('VpcLinkId', 'arn:{partition}:apigateway:{region}::/vpclinks/{id}', {'id': '[a-z0-9]+'}),
+    'ApiGateway.Authorizer': ({'RestApiId': 'api', 'AuthorizerId': 'id'}, 'arn:{partition}:apigateway:{region}::/restapis/{api}/authorizers/{id}', {'api': '[a-z0-9]+', 'id': '[a-z0-9]+'}),
+    'ApiGateway.Deployment': ({'RestApiId': 'api', 'DeploymentId': 'id'}, 'arn:{partition}:apigateway:{region}::/restapis/{api}/deployments/{id}', {'api': '[a-z0-9]+', 'id': '[a-z0-9]+'}),
+    'ApiGateway.RequestValidator': ({'RestApiId': 'api', 'RequestValidatorId': 'id'}, 'arn:{partition}:apigateway:{region}::/restapis/{api}/requestvalidators/{id}', {'api': '[a-z0-9]+', 'id': '[a-z0-9]+'}),
+    'ApiGateway.Resource': ({'RestApiId': 'api', 'ResourceId': 'id'}, 'arn:{partition}:apigateway:{region}::/restapis/{api}/resources/{id}', {'api': '[a-z0-9]+', 'id': '[a-z0-9]+'}),
+    'ApiGateway.UsagePlan': ('Id', 'arn:{partition}:apigateway:{region}::/usageplans/{id}', {'id': '[a-z0-9]+'}),
+    'ApiGateway.UsagePlanKey': ({'UsagePlanId': 'plan', 'KeyId': 'id'}, 'arn:{partition}:apigateway:{region}::/usageplans/{plan}/keys/{id}', {'plan': '[a-z0-9]+', 'id': '[A-Za-z0-9]+'}),
+    'ApiGatewayV2.Api': ('ApiId', 'arn:{partition}:apigateway:{region}::/apis/{id}', {'id': '[a-z0-9]+'}),
+    'ApiGatewayV2.VpcLink': ('VpcLinkId', 'arn:{partition}:apigateway:{region}::/vpclinks/{id}', {'id': '[a-z0-9]+'}),
+    'ApiGatewayV2.Authorizer': ({'ApiId': 'api', 'AuthorizerId': 'id'}, 'arn:{partition}:apigateway:{region}::/apis/{api}/authorizers/{id}', {'api': '[a-z0-9]+', 'id': '[a-z0-9]+'}),
+    'ApiGatewayV2.Deployment': ({'ApiId': 'api', 'DeploymentId': 'id'}, 'arn:{partition}:apigateway:{region}::/apis/{api}/deployments/{id}', {'api': '[a-z0-9]+', 'id': '[a-z0-9]+'}),
+    'ApiGatewayV2.Integration': ({'ApiId': 'api', 'IntegrationId': 'id'}, 'arn:{partition}:apigateway:{region}::/apis/{api}/integrations/{id}', {'api': '[a-z0-9]+', 'id': '[a-z0-9]+'}),
+    'ApiGatewayV2.Route': ({'ApiId': 'api', 'RouteId': 'id'}, 'arn:{partition}:apigateway:{region}::/apis/{api}/routes/{id}', {'api': '[a-z0-9]+', 'id': '[a-z0-9]+'}),
+    'ApiGatewayV2.ApiMapping': ({'DomainName': 'domain', 'ApiMappingId': 'id'}, 'arn:{partition}:apigateway:{region}::/domainnames/{domain}/apimappings/{id}', {'domain': '[A-Za-z0-9.-]+', 'id': '[a-z0-9]+'}),
+    'ApiGatewayV2.IntegrationResponse': ({'ApiId': 'api', 'IntegrationResponseId': 'id'}, 'arn:{partition}:apigateway:{region}::/apis/{api}/integrationresponses/{id}', {'api': '[a-z0-9]+', 'id': '[a-z0-9]+'}),
+    'ApiGatewayV2.RouteResponse': ({'ApiId': 'api', 'RouteId': 'route', 'RouteResponseId': 'id'}, 'arn:{partition}:apigateway:{region}::/apis/{api}/routes/{route}/routeresponses/{id}', {'api': '[a-z0-9]+', 'route': '[a-z0-9]+', 'id': '[a-z0-9]+'}),
+    'GuardDuty.Detector': ('Id', 'arn:{partition}:guardduty:{region}:{account}:detector/{id}', {'id': r'[a-f0-9]{32}'}),
+    'SSM.Association': ('AssociationId', 'arn:{partition}:ssm:{region}:{account}:association/{id}', {'id': r'[a-f0-9-]+'}),
+    'SSM.MaintenanceWindow': ('WindowId', 'arn:{partition}:ssm:{region}:{account}:maintenancewindow/{id}', {'id': r'mw-[a-f0-9]+'}),
+    'SSM.MaintenanceWindowTarget': ('WindowTargetId', 'arn:{partition}:ssm:{region}:{account}:windowtarget/{id}', {'id': r'[a-f0-9-]+'}),
+    'SSM.MaintenanceWindowTask': ('WindowTaskId', 'arn:{partition}:ssm:{region}:{account}:windowtask/{id}', {'id': r'[a-f0-9-]+'}),
+    'SSM.PatchBaseline': ('Id', 'arn:{partition}:ssm:{region}:{account}:patchbaseline/{id}', {'id': r'pb-[a-f0-9]+'}),
 
 }
 
@@ -336,10 +441,10 @@ def _arn_pattern(shape):
     return result
 
 
-ARN_FORMS = {(kind, 'Arn'): (shape[0], (_arn_pattern(shape).removesuffix(re.escape(':*')) + r'(?::\*)?' if kind == 'Logs.LogGroup' else _arn_pattern(shape)))
-             for kind, shape in ARN_SHAPES.items() if kind != 'Events.Rule'}
+# Shapes with service-specific components cannot infer Producer identity from a name alone.
+ARN_FORMS = {(kind, 'Arn'): (shape[0], _arn_pattern(shape))
+             for kind, shape in ARN_SHAPES.items() if kind not in {'Events.Rule', 'NetworkFirewall.RuleGroup', 'ApiGateway.DomainName'}}
 ARN_FORMS.update({(kind, ARN_ATTRIBUTES[kind]): form for (kind, _), form in list(ARN_FORMS.items()) if kind in ARN_ATTRIBUTES})
-ARN_IDENTITIES = {kind: ARN_FORMS[kind, 'Arn'] for kind in ('S3.Bucket', 'KMS.Key', 'KMS.Alias')}
 ARN_FORMS['S3.Bucket', 'ObjectArn'] = ('BucketName', ARN_FORMS['S3.Bucket', 'Arn'][1] + r'/(?P<prefix>[^*]*)')
 # DataResource Values selects objects below the bucket, including the required slash.
 ATTRIBUTE_SUFFIXES = {('S3.Bucket', 'ObjectArn'): ('Arn', '/')}

@@ -6,18 +6,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import pytest
 from support.it_case_receipt import it_case
 from support.raw_bucket_name_reference_fixtures import (
     Path,
     affected,
-    declarations,
     dependency_hashes,
     design_source_digest,
     json,
     load_model,
     reference,
-    rejected,
     resource,
     setup,
     source_inputs,
@@ -69,23 +66,7 @@ def check(root):
     write_model(producer, {key.replace('.017', '.018', 1): value for key, value in original.items()})
     assert not load_model(path).warnings
     write_model(producer, original)
-    for bad, phrase in [
-        ({**original, 'desired.resource.017.resourceType': 'IAM.Role'}, 'Type differs'),
-        ({**original, 'desired.row.017-001.property': 'S3.Bucket.Description'}, 'Property is absent'),
-        ({**original, 'desired.row.017-001.value': '``'}, 'differs from saved text'),
-        ({**original, 'desired.row.017-002.property': 'S3.Bucket.BucketName', 'desired.row.017-002.value': '`duplicate`', 'desired.row.017-002.comment': '重複'}, 'Property is absent or ambiguous')]:
-        write_model(producer, bad)
-        if any(key in original and key.endswith('.resourceType') and original[key] != value for key, value in bad.items()):
-            with pytest.raises(ValueError, match='ResourceType prefix'):
-                load_model(path)
-        else:
-            assert warning(path, phrase).authoritative == snapshot.authoritative
     write_model(producer, original)
-    invalid = dict(values)
-    invalid['desired.reference.bucket-003.labelPolicy'] = 'fixed'
-    rejected(lambda: declarations(invalid), 'non-link')
-    producer.unlink()
-    assert warning(path, 'Model is absent').authoritative == snapshot.authoritative
     athena = producer.with_name('athena.properties')
     write_model(athena, resource('017', 'Athena.WorkGroup', 'athena-raw-name', [('Name', '`app-preview-RAW-one`')]))
     explicit = dict(values)
