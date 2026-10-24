@@ -265,6 +265,8 @@ def run_controller(root, path):
     plan = json.loads(path.read_text(encoding="utf-8"))
     if plan["repository"] != str(root) or plan["controllerArgv"][:2] != [sys.executable, str(definition_root(root) / "framework/scripts/cloudformation-deploy.py")]:
         raise ValueError("use the prepared repository and Python interpreter")
+    if any(argument.split('=', 1)[0] == '--repository-root' for argument in plan['controllerArgv'][2:]):
+        raise ValueError("controller repository must come from the prepared working directory")
     snapshot = task_snapshot(root, plan["taskFile"])
     if snapshot.raw_digest != plan["registeredContractDigest"]:
         raise ValueError("registered contract changed; use existing controller resume procedure")

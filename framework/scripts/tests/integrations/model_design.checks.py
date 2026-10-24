@@ -220,6 +220,7 @@ def check_config_typed_anchors(root):
                        ("002", "config-default"), ("002", recorder_anchor)):
         correct = values[f'desired.resource.{key}.anchor']
         assert failures(output.replace(correct, wrong)), (correct, wrong)
+    path.write_text(output, encoding="utf-8")
 
     hub = model("securityhub", "SecurityHub.Hub", "securityhub.hub", [
         ("EnableDefaultStandards", "`true`", "標準を有効にする設定"),
@@ -244,7 +245,7 @@ def check_stack_mapping_roundtrip(root):
     values.update({"observed.row.001-002.property": "EC2.VPC.VpcId",
                    "observed.row.001-002.value": "`PENDING_DEPLOY`",
                    "observed.row.001-002.comment": "ネットワークのID"})
-    (root / "project.json").write_text(json.dumps({"targets": [{"environment": "dev",
+    (root / "project.json").write_text(json.dumps({"projectName": "test", "targets": [{"environment": "dev",
         "awsAccountId": "123456789012", "awsRegion": "ap-northeast-1", "iacEngine": "cloudformation"}]}) + "\n", encoding="utf-8")
     values["desired.resource.001.cfn-logicalId"] = "cfn-stack-app-dev-ism-DepartmentVpc"
     stack_source = root / "model/dev/123456789012/cloudformation-stacks.properties"

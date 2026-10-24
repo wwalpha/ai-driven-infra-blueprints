@@ -1348,9 +1348,10 @@ def check_integrated_validator(generated_policy, initial):
         with TemporaryDirectory() as cache, patch.dict(os.environ, {**env, 'BLUEPRINT_VALIDATION_CACHE_DIR': cache}):
             cold = validator_module.Validator(root, scope, cache=True)
             assert cold.run() == 0, cold.errors
-            with patch.object(sync_runtime, 'generate_views', side_effect=AssertionError('warm cache regenerated')):
+            with patch.object(sync_runtime, 'generate_views', wraps=sync_runtime.generate_views) as generate:
                 warm = validator_module.Validator(root, scope, cache=True)
                 assert warm.run() == 0, warm.errors
+                assert generate.call_count == 1  # PASS results belong to one invocation.
             with patch.object(sync_runtime, 'generate_views', wraps=sync_runtime.generate_views) as generate:
                 fresh = validator_module.Validator(root, scope, cache=True, fresh=True)
                 assert fresh.run() == 0, fresh.errors

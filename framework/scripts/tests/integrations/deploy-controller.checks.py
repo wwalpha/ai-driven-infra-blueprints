@@ -187,7 +187,9 @@ def check_observed_failure_drains_peers_and_resumes(tmp_path, monkeypatch):
     assert at_failure['planEvidence'] == [FIRST]
     assert {name: at_failure['executionEvidence'][name] for name in evidence} == evidence
     failure = saved['observedFailures'][0]
-    assert failure == {'stage': 'MODEL_PUBLISHED', 'cause': 'injected design I/O failure'}
+    assert failure == {'stage': 'MODEL_PUBLISHED', 'cause':
+        '0 services succeeded; 1 services failed; 1 diagnostics\n'
+        f'- docs/designs/dev/{ACCOUNT}/ec2.md: injected design I/O failure'}
     resumed = child_run(root, session, aws, ['--resume'])
     assert resumed.returncode == 0, resumed.stdout + resumed.stderr
     after = json.loads(session.read_text())

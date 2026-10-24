@@ -85,6 +85,7 @@ def check_sync_base_preserves_candidate():
 def _callback_check_deploy_workflow_cross_task_reset_rejected_initial(target, /, root, state):
     return {'repository':str(root), 'taskFile':state['task_file'], 'target':target,
             'taskDigest':task_digest((root / state['task_file']).read_text()),
+            'workflow': handoff.new_workflow(),
             'states':{'Stack':{'status':'NOT_STARTED'}}}
 
 

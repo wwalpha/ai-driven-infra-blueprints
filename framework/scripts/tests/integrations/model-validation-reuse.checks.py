@@ -344,6 +344,7 @@ def _callback_check_scoped_validation_threads_and_failures_validate(_state_check
     with patch.object(validator_module.Validator, 'design_files', return_value=[]), \
          patch.object(validator_module.Validator, 'check_design_service_ownership'), \
          patch.object(validator_module.Validator, 'check_stack_designs'), \
+         patch.object(validator_module.Validator, 'check_generated_service_models'), \
          patch.object(validator_module.Validator, 'check_designs', _state_check_scoped_validation_threads_and_failures_322.designs), \
          patch.object(validator_module.Validator, 'check_observed_values'):
         validator.check_scoped_designs()

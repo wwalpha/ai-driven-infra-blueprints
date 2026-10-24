@@ -85,14 +85,14 @@ def check_inputs(tmp_path):
         rejects(lambda *, field=field, invalid=invalid: stack_model(values | {field: invalid}), "integer >= 1")
     missing = dict(values)
     del missing["desired.stack.001.deployOrder"]
-    rejects(lambda: stack_model(missing), "migration required")
+    rejects(lambda: stack_model(missing), "requires only")
     missing = dict(values)
     del missing["desired.deployment.maxConcurrentStacks"]
     assert stack_model(missing)[0] == 1
     for field in ("dependsOn", "AfterStack", "DependsOnStack", "Dependencies"):
         rejects(lambda *, field=field: stack_model(values | {"desired.stack.001." + field: "A"}), "requires only")
     root = tmp_path
-    (root / 'project.json').write_text(json.dumps({'targets': [{'environment': 'dev', **TARGET}]}))
+    (root / 'project.json').write_text(json.dumps({'projectName': 'test', 'targets': [{'environment': 'dev', **TARGET}]}))
     path = root / "docs/designs/dev/123456789012/cloudformation-stacks.md"
     path.parent.mkdir(parents=True)
     path.write_text(markdown_for(path, values, root))
@@ -894,14 +894,14 @@ def check_secretsmanager_arn_identifiers(publication_workspace):
     outputs[0]["OutputValue"] = actual[2]["PhysicalResourceId"] = "key-current"
     assert before == {path: path.read_bytes() for path in before}
     # The real collector completes the barrier before the next DeployOrder starts.
-    session = {"states": states(selected), "metrics": {"observedSyncSeconds": 0}}
+    session = {"workflow": M.session_ops.handoff.new_workflow(), "states": states(selected), "metrics": {"observedSyncSeconds": 0}}
     assert M.session_ops.run_session(selected, 1, session, backend, lambda: None, sleep=lambda _: None) == "COMPLETE"
     assert session["metrics"]["deployOrderCount"] == 2 and starts(backend) == ["A", "B"]
     failed = Fake()
     for field in ("root", "environment", "directory", "target", "templates", "mapping_plan", "aws"):
         setattr(failed, field, getattr(backend, field))
     outputs[0]["OutputValue"] = "wrong-key"
-    session = {"states": states(selected), "metrics": {"observedSyncSeconds": 0}}
+    session = {"workflow": M.session_ops.handoff.new_workflow(), "states": states(selected), "metrics": {"observedSyncSeconds": 0}}
     assert M.session_ops.run_session(selected, 1, session, failed, lambda: None, sleep=lambda _: None) == "STOPPED"
     assert starts(failed) == ["A"] and session["states"]["B"]["status"] == "NOT_STARTED"
     assert "disagree" in session["observedError"]

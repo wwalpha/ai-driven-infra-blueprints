@@ -146,6 +146,7 @@ def recover(backend, unit, state):
         backend.save()
         recovery.cleanup_unexecuted(backend.aws, backend.save, backend.wait_cleanup, state)
         backend.reset_after_cleanup(state)
+        backend.load_inputs(unit)
         return
     if not state.get('recoveryPending'):
         return
@@ -166,6 +167,7 @@ def recover(backend, unit, state):
     backend.cleanup_failed_create(unit, state)  # Reads ORIGINAL template safety, never corrected policy.
     state.pop('recoveryPending', None)
     backend.reset_after_cleanup(state)  # New input always discards old delivery and approval.
+    backend.load_inputs(unit)
 
 
 

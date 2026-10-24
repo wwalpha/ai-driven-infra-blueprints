@@ -157,7 +157,8 @@ def check_cloudtrail_comparison(tmp_path):
               ('EventSelectors[].DataResources[].Values', '`["arn:aws:s3:::fixture/","arn:aws:s3:::fixture/"]`')]
     for number, (prop, value) in enumerate(fields, 1):
         model.update({f'desired.row.001-{number:03d}.property': kind + '.' + prop,
-                      f'desired.row.001-{number:03d}.value': value})
+                      f'desired.row.001-{number:03d}.value': value,
+                      f'desired.row.001-{number:03d}.comment': '合成Trailの設定'})
     write_model(root / 'model/dev/123456789012/cloudtrail.properties', model)
     template['Resources'] = {'Trail': {'Type': 'AWS::CloudTrail::Trail', 'Properties': {'IsLogging': True,
         'EventSelectors': [{'IncludeManagementEvents': False, 'DataResources': [
@@ -173,7 +174,8 @@ def check_cross_service_reference(tmp_path):
     values, template = fixture(root, stacks=2, services=['cloudwatch-logs'])
     model = values['cloudwatch-logs']
     model.update({'desired.row.001-010.property': 'Logs.LogGroup.KmsKeyId',
-                  'desired.row.001-010.value': '[Key](kms.md#resource-KMS_Key_001)'})
+                  'desired.row.001-010.value': '[Key](kms.md#resource-KMS_Key_001)',
+                  'desired.row.001-010.comment': '暗号化に使用するKMS Key'})
     write_model(root / 'model/dev/123456789012/cloudwatch-logs.properties', model)
     kms = {'desired.service.kms.serviceId': 'kms', 'desired.resource.001.resourceType': 'KMS.Key',
            'desired.resource.001.cfn-logicalId': 'cfn-stack-app-dev-data2-Key'}
