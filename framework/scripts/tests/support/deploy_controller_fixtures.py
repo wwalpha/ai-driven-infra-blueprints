@@ -496,6 +496,12 @@ def _callback_invoke_seal(original_seal, original_write, root, /, snapshot):
     original_write(path, path.read_text() + '\nexternal during generation\n')
 
 
+def fake_sleep(delays, seconds):
+    # Two synthetic stacks must terminate; bound polling even when real waiting is removed.
+    assert seconds == 5 and len(delays) < 100, 'Fake AWS polling did not terminate'
+    delays.append(seconds)
+
+
 def invoke(root, state_path, aws_path, options=(), fail_observed=False, fault=None):
     original_write, original_replace = Path.write_text, Path.replace
     original_unlink = Path.unlink
@@ -503,9 +509,11 @@ def invoke(root, state_path, aws_path, options=(), fail_observed=False, fault=No
     write = _bind_framework_callback(_callback_invoke_write, fail_observed, fault, journal, original_write, root, state_path)
     unlink = _bind_framework_callback(_callback_invoke_unlink, fault, journal, original_unlink)
     replace = _bind_framework_callback(_callback_invoke_replace, aws_path, original_replace, state_path)
+    delays = []
+    sleep = partial(fake_sleep, delays)
     with ExitStack() as stack:
-        stack.enter_context(patch.object(session, 'run_session', partial(session.run_session, sleep=lambda _: None)))
-        stack.enter_context(patch.object(session, 'run_group', partial(session.run_group, sleep=lambda _: None)))
+        stack.enter_context(patch.object(session, 'run_session', partial(session.run_session, sleep=sleep)))
+        stack.enter_context(patch.object(session, 'run_group', partial(session.run_group, sleep=sleep)))
         stack.enter_context(patch.object(Path, 'replace', replace))
         stack.enter_context(patch('utils.aws.client.client', clients(root, state_path, aws_path)))
         stack.enter_context(patch('socket.socket.connect', side_effect=AssertionError('network forbidden')))

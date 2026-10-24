@@ -9,7 +9,11 @@ from types import SimpleNamespace as _CallbackState
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from unittest.mock import patch
+
+import pytest
 from deploy.scheduler import read_parallel
+from support import deploy_controller_fixtures as controller
 from support.cloudformation_deploy_fixtures import (
     Fake,
     M,
@@ -137,6 +141,29 @@ def check_scheduler():
     assert len(results) == 2 and all(error and snapshot['readEvidence'] == unit['name']
                                   for unit, snapshot, _, error in results)
     assert all('readEvidence' not in item for item in _state_check_scheduler_42.state.values())
+
+
+def _controller_sleep_only(options):
+    controller.session.run_session.keywords['sleep'](5)
+    controller.session.run_group.keywords['sleep'](5)
+    assert controller.session.run_session.keywords['sleep'].args[0] == [5, 5]
+    return 0
+
+
+def check_controller_sleep_injection(tmp_path):
+    original = controller.session.run_session, controller.session.run_group
+    with patch.object(controller, 'main', side_effect=_controller_sleep_only):
+        assert controller.invoke(tmp_path, tmp_path / 'session.json', tmp_path / 'aws.json') == 0
+    assert (controller.session.run_session, controller.session.run_group) == original
+    with patch.object(controller, 'main', side_effect=ValueError('controller failed')), pytest.raises(ValueError):
+        controller.invoke(tmp_path, tmp_path / 'session.json', tmp_path / 'aws.json')
+    assert (controller.session.run_session, controller.session.run_group) == original
+    delays = []
+    for _ in range(100):
+        controller.fake_sleep(delays, 5)
+    with pytest.raises(AssertionError, match='did not terminate'):
+        controller.fake_sleep(delays, 5)
+    assert delays == [5] * 100
 
 
 if __name__ == '__main__':

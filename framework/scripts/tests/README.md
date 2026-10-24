@@ -24,6 +24,12 @@ pytestと公式IT runnerには実操作/管理書込の実行時guardもある�
 read-only discoveryは許可する。公開Reviewの `worktree` フィールドは証跡の入力データとして保持する。
 分類・移動先・assertion対応は [CASES.md](CASES.md#worktree-dependency-separation-master-1024v2) を参照。
 
+Worktree関連5 ITは27関数・29入口。実Git/Worktree、CLI連携、状態の永続化、失敗復旧、独立プロセス間Lockだけを検証する。
+入力条件は既存Import/Model/Worktree UTへ集約し、Python decodingとglobal wrapperのIT関数は廃止した。
+実venv初回生成・再利用とプロセス間排他を保持する。Fake AWSは既存sleep注入で実時間待機せず、1 controller invokeで100回までの上限・poll・終了・Patch復元を検証する。
+削除した内部パターン数、既存UT対応、各IT固有の保証は[削減一覧](CASES.md#worktree-it-runtime-reduction-master-1024v4)を参照。
+ローカルで長時間ITや性能比較を再実行しない。関連短時間UT・構文・登録静的整合性を確認し、ITと時間測定は既存Framework ITに委ねる。30%以上の時間削減は実測前には達成扱いにしない。
+
 ## 実行入口
 
 リポジトリルートから実行する。管理worktreeでは登録済みPython環境のwrapperを使う。

@@ -34,4 +34,13 @@ def blocked(call, text):
         raise AssertionError("expected failure: " + text)
 
 
-__all__ = ['Path', 'blocked', 'checks', 'importlib', 'json', 'patch', 'py', 'spec', 'sys', 'tempfile', 'wt']
+__all__ = ['Path', 'blocked', 'fake_run', 'checks', 'importlib', 'json', 'patch', 'py', 'spec', 'sys', 'tempfile', 'wt']
+
+
+def fake_run(command, root, env=None):
+    if "venv" in command:
+        directory = Path(command[-1])
+        (directory / "pyvenv.cfg").write_text("home = fixture\n")
+        py.python_path(directory).parent.mkdir(exist_ok=True)
+        py.python_path(directory).touch()
+    return ""

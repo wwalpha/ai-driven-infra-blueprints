@@ -41,8 +41,7 @@ def _callback_check_one_parent_merge_and_failed_candidate_repair_final_check(nam
     return 0
 
 
-@pytest.mark.parametrize('repair', [False, True])
-def check_one_parent_merge_and_failed_candidate_repair(repair):
+def check_one_parent_merge_and_failed_candidate_repair():
     with git_fixture() as root:
         sources = fixture(root, True)
         git(root, 'add', 'model', 'project.json')
@@ -62,29 +61,24 @@ def check_one_parent_merge_and_failed_candidate_repair(repair):
         final_check = _bind_framework_callback(_callback_check_one_parent_merge_and_failed_candidate_repair_final_check, name)
         original_git = wt.git
         with mapping_alias(Path(__file__).resolve().parents[4], target), patch.object(wt, 'git', wraps=original_git) as calls, patch('validation.loop.run_loop', side_effect=final_check) as validation:
-            first_head = None
-            if repair:
-                path = target / 'model/stg/cde/service-a.properties'
-                original = path.read_text()
-                values = dict(load_model(path).authoritative)
-                values['observed.row.006-001.value'] = 'unauthorized'
-                write_model(path, values)
-                candidate = wt.prepare_integration(target, 'parent')
-                result = wt.validate_final_candidate(candidate)
-                assert result.returncode == 1
-                with pytest.raises(wt.Blocked, match='no merge'):
-                    wt.merge_validated_candidate(result)
-                first_head = git(target, 'rev-parse', 'HEAD')
-                assert git(root, 'rev-parse', 'HEAD') == candidate.base_commit
-                assert target.is_dir()
-                path.write_text(original)
+            path = target / 'model/stg/cde/service-a.properties'
+            original = path.read_text()
+            values = dict(load_model(path).authoritative)
+            values['observed.row.006-001.value'] = 'unauthorized'
+            write_model(path, values)
+            candidate = wt.prepare_integration(target, 'parent')
+            result = wt.validate_final_candidate(candidate)
+            assert result.returncode == 1
+            with pytest.raises(wt.Blocked, match='no merge'):
+                wt.merge_validated_candidate(result)
+            first_head = git(target, 'rev-parse', 'HEAD')
+            assert git(root, 'rev-parse', 'HEAD') == candidate.base_commit
+            assert target.is_dir()
+            path.write_text(original)
             wt._integrate_model(target, 'parent')
             assert sum(call.args[1:2] == ('merge',) for call in calls.call_args_list) == 1
-            expected = 1
-            if repair:
-                expected = 2
-                assert git(target, 'rev-parse', 'HEAD^') == first_head
-            assert validation.call_count == expected
+            assert git(target, 'rev-parse', 'HEAD^') == first_head
+            assert validation.call_count == 2
             assert tasks.status((target / name).read_text()) == 'completed'
             assert git(root, 'rev-parse', 'HEAD') == git(target, 'rev-parse', 'HEAD')
         wt.cleanup(root, 'parent')

@@ -7,7 +7,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-import json
 import socket
 from contextlib import contextmanager
 
@@ -42,15 +41,6 @@ def source_files(root):
     return {p.relative_to(root): p.read_bytes() for p in (root / 'model').rglob('*') if p.is_file()}
 
 
-
-
-
-
-
-
-
-
-
 def fixture(root):
     path = import_fixture(root)
     git(root, 'init', '-q')
@@ -77,21 +67,6 @@ def publication_workspace():
         yield root, begin, advance
 
 
-
-
-
-
-
-def _callback_check_import_managed_contract_boundaries_workspace_invalidate(boundary, root, /, target):
-    path = wt.state_path(root, 'example')
-    state = json.loads(path.read_text())
-    if boundary == 'base':
-        state['start'] = git(target, 'commit-tree', 'HEAD^{tree}', '-m', 'unrelated baseline')
-    else:
-        state['worktree'] = str(root)
-    wt.save(path, state)
-
-
 def _callback_check_import_managed_contract_boundaries_workspace_reviewed(review, root, /, *args, **kwargs):
     result = review(*args, **kwargs)
     other, state = start(root, task_id='other', files=('model/qa-synthetic/team-a/cloudwatch-logs.properties',))
@@ -104,26 +79,19 @@ def _callback_check_import_managed_contract_boundaries_workspace_reviewed(review
     return result
 
 
-def _callback_check_import_managed_contract_boundaries_workspace(boundary, monkeypatch, /):
+def _callback_check_import_managed_contract_boundaries_workspace(monkeypatch):
     with publication_workspace() as (root, begin, advance):
-        invalidate = _bind_framework_callback(_callback_check_import_managed_contract_boundaries_workspace_invalidate, boundary, root)
-        if boundary == 'other-worktree':
-            review = m.review_acquisition
-            reviewed = _bind_framework_callback(_callback_check_import_managed_contract_boundaries_workspace_reviewed, review, root)
-            monkeypatch.setattr(m, 'review_acquisition', reviewed)
-        yield root, begin, invalidate
+        reviewed = _bind_framework_callback(_callback_check_import_managed_contract_boundaries_workspace_reviewed, m.review_acquisition, root)
+        monkeypatch.setattr(m, 'review_acquisition', reviewed)
+        yield root, begin, advance
 
 
-@pytest.mark.parametrize('boundary', ['task', 'post-task', 'base', 'owner', 'other-worktree'])
-def check_import_managed_contract_boundaries(monkeypatch, boundary):
-    if boundary in {'task', 'post-task'}:
-        import_publication_case(monkeypatch, boundary, workspace=publication_workspace)
-        return
-    workspace = (contextmanager)(_bind_framework_callback(_callback_check_import_managed_contract_boundaries_workspace, boundary, monkeypatch))
-    import_publication_case(monkeypatch, 'none' if boundary == 'other-worktree' else 'head', workspace=workspace)
+def check_import_managed_contract_boundaries(monkeypatch):
+    workspace = contextmanager(_bind_framework_callback(_callback_check_import_managed_contract_boundaries_workspace, monkeypatch))
+    import_publication_case(monkeypatch, 'none', workspace=workspace)
 
 
-@pytest.mark.parametrize('boundary', ['none', 'head', 'task', 'owner'])
+@pytest.mark.parametrize('boundary', ['none', 'owner'])
 def check_model_source_context_worktree_boundary(monkeypatch, boundary):
 
     with worktree_fixture() as root:
@@ -144,11 +112,7 @@ def check_model_source_context_worktree_boundary(monkeypatch, boundary):
             model = load_model(path, context.snapshot)
             candidate = original.decode('utf-8') + '# intermediate save\n'
             plan = prepare_edit(model, {path: candidate}, context)
-            if boundary == 'head':
-                git(target, 'commit', '--allow-empty', '-qm', 'changed Task head')
-            elif boundary == 'task':
-                task.write_text(text + '\n## Notes\nconcurrent contract edit\n')
-            elif boundary == 'owner':
+            if boundary == 'owner':
                 invalid = dict(state, worktree=str(root))
                 wt.save(wt.state_path(root, 'example'), invalid)
             if boundary == 'none':

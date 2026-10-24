@@ -247,6 +247,78 @@ def check_repin_rejects_before_state_write(tmp_path, violation):
     assert state == original
 
 
+@pytest.mark.parametrize('status,approval,accepted', [
+    ('running', None, False), ('suspend', None, False), ('completed', None, True),
+    ('running', 'accepted failure', False), ('suspend', ' ', False), ('suspend', 'accepted failure', True),
+])
+def check_integration_status(tmp_path, status, approval, accepted):
+    task = tmp_path / 'tasks/example.md'
+    task.parent.mkdir()
+    task.write_text(contract('example', ['file.txt']).replace('`running`', '`' + status + '`') + ('\n## Suspension reason\nfixture validation failure\n' if status == 'suspend' else ''))
+    with patch.object(wt, 'task_start_commit', return_value='base'):
+        if accepted:
+            wt.integration_task(tmp_path, {'task_file': 'tasks/example.md'}, approval)
+        else:
+            with pytest.raises(wt.Blocked):
+                wt.integration_task(tmp_path, {'task_file': 'tasks/example.md'}, approval)
+
+
+@pytest.mark.parametrize('setup', [None, {}])
+def check_finalize_requires_setup(tmp_path, setup):
+    task = tmp_path / 'tasks/example.md'
+    task.parent.mkdir()
+    task.write_text(contract('example', ['file.txt']).replace('`running`', '`completed`'))
+    state = dict(task_file='tasks/example.md', merged=None)
+    if setup is not None:
+        state['python_setup'] = setup
+    with patch.object(wt, 'load', return_value=(tmp_path, None, tmp_path / 'state.json', state)), \
+         patch.object(wt, 'task_worktree', return_value=tmp_path), \
+         patch.object(wt, 'lifecycle_lock', return_value=nullcontext()), \
+         patch.object(wt, '_prepare_commit', side_effect=AssertionError('setup must precede commit')):
+        with pytest.raises(wt.Blocked, match='Python setup is incomplete'):
+            wt.finalize(tmp_path, 'example')
+
+
+@pytest.mark.parametrize('explicit,remote,branches,expected', [
+    ('master', 'refs/remotes/origin/main', {'master', 'main'}, 'master'),
+    ('', 'refs/remotes/origin/release', {'release', 'main'}, 'release'),
+    ('', '', {'main', 'master'}, 'main'), ('', '', {'master'}, 'master'),
+    ('missing', '', {'main'}, None), ('', '', {'feature'}, None),
+])
+def check_base_selection(tmp_path, explicit, remote, branches, expected):
+    with patch.object(wt, 'git', side_effect=[SimpleNamespace(stdout=explicit), SimpleNamespace(stdout=remote)]), \
+         patch.object(wt, 'branch_exists', side_effect=lambda root, name: name in branches):
+        if expected:
+            assert wt.base_branch(tmp_path) == expected
+        else:
+            with pytest.raises(wt.Blocked):
+                wt.base_branch(tmp_path)
+
+
+@pytest.mark.parametrize('relative', ['.other/example', '.worktrees/other', '.worktrees/example/extra', '.git/worktrees/example', '.worktree/example'])
+def check_lifecycle_layout(tmp_path, relative):
+    state = dict(task_id='example', branch='codex/worktree/example', task_file='tasks/example.md',
+                 primary=str(tmp_path), worktree=str(tmp_path / relative))
+    path = tmp_path / '.worktrees/.blueprint/tasks/example.json'
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(state))
+    with patch.object(wt.worktree_state, 'repository', return_value=(tmp_path, None, tmp_path)):
+        with pytest.raises(wt.Blocked, match='state does not match'):
+            wt.load(tmp_path, 'example')
+
+
+@pytest.mark.parametrize('relative', ['.worktrees', '.worktrees/.blueprint', '.worktrees/.blueprint/tasks'])
+def check_metadata_symlinks(tmp_path, relative):
+    external = tmp_path / 'external'
+    external.mkdir()
+    link = tmp_path / relative
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(external, target_is_directory=True)
+    with pytest.raises(wt.Blocked, match='metadata must not use symlinks'):
+        wt.metadata_directory(tmp_path)
+    assert link.is_symlink() and not list(external.iterdir())
+
+
 if __name__ == '__main__':
     from support.pytest_cli import run
     raise SystemExit(run(__file__))

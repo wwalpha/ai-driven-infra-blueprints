@@ -15,6 +15,7 @@ import tempfile
 
 import pytest
 import worktree_task as wt
+from deploy import session as deploy_session
 from support.deploy_controller_fixtures import (
     ACCOUNT,
     child_environment,
@@ -71,7 +72,12 @@ def validate_parent(parent):
 
 @pytest.mark.parametrize('boundary', ['normal', 'merge'])
 def check_external_implement_round_trip(tmp_path, monkeypatch, boundary):
+    original = deploy_session.run_session, deploy_session.run_group
     external_round_trip(tmp_path, monkeypatch, boundary, seed=seed, deliver=managed_delivery, validate_parent=validate_parent, controller_helper='worktree_deploy_fixtures.py')
+    assert (deploy_session.run_session, deploy_session.run_group) == original
+    polls = [call for call in json.loads((tmp_path / 'aws.json').read_text())['calls']
+             if call[1] in {'describe_stacks', 'describe_change_set'}]
+    assert 0 < len(polls) < 1000
 
 
 

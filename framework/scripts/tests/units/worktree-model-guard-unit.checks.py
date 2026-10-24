@@ -59,14 +59,15 @@ def check_finalize_rejects_incomplete_leaves(tmp_path):
             wt.prepare_integration(tmp_path, 'parent')
 
 
-def check_model_finalize_cannot_bypass_candidate(tmp_path):
+@pytest.mark.parametrize('action', ['import-retarget', 'import-delete'])
+def check_model_finalize_cannot_bypass_candidate(tmp_path, action):
     state = {'task_file': 'tasks/retarget.md', 'task_id': 'retarget'}
     task = tmp_path / state['task_file']
     task.parent.mkdir()
-    task.write_text('- Model operation: `import-retarget`\n')
+    task.write_text('- Model operation: `' + action + '`\n')
     with patch.object(wt, 'changed_paths', return_value=set()), \
          patch.object(wt, 'committed_task_paths', return_value=set()), \
-         patch.object(wt.tasks, 'model_operation', return_value=SimpleNamespace(action='import-retarget')):
+         patch.object(wt.tasks, 'model_operation', return_value=SimpleNamespace(action=action)):
         with pytest.raises(wt.Blocked, match='successful final candidate'):
             wt._prepare_commit(tmp_path, tmp_path / 'unused-state.json', state, tmp_path, 'approval cannot bypass')
 
@@ -113,6 +114,30 @@ def check_issue_gate_rejects_foreign_managed_task(tmp_path):
     with patch.object(worktree_state, 'task_start_commit', side_effect=ValueError('selected task does not match managed task_file')):
         with pytest.raises(ValueError, match='managed task_file'):
             require_no_issues(tmp_path, {('stg', 'cde', 'vpc')}, task_file=name)
+
+
+@pytest.mark.parametrize('change', ['base', 'head', 'task', 'dirty', 'completion'])
+def check_candidate_staleness(tmp_path, change):
+    target, base = tmp_path / 'task', tmp_path / 'base'
+    target.mkdir()
+    (target / 'tasks').mkdir()
+    name = 'tasks/example.md'
+    text = repository_contract('example', ['file.txt'])
+    (target / name).write_text(text + ('\nchanged' if change == 'task' else ''))
+    candidate = wt.FinalCandidate(target, target, name, text, 'base', 'head', frozenset({'file.txt'}), frozenset())
+    state = dict(task_file=name, branch='task', base='main')
+    result = wt._ValidatedCandidate(candidate, 0)
+    heads = iter(['head', 'base', 'changed', 'base'])
+    with patch.object(wt, 'load', return_value=(tmp_path, None, tmp_path / 'state.json', state)), \
+         patch.object(wt, 'lifecycle_lock', return_value=nullcontext()), \
+         patch.object(wt, 'task_worktree', return_value=target), patch.object(wt, 'base_worktree', return_value=base), \
+         patch.object(wt, 'changed_paths', return_value={'file.txt'} if change == 'dirty' else set()), \
+         patch.object(wt, 'paths', return_value=set()), \
+         patch.object(wt, 'output', side_effect=lambda root, *args: next(heads) if change == 'completion' else
+                      ('changed' if change == 'base' and root == base or change == 'head' and root == target else 'base' if root == base else 'head')), \
+         patch.object(wt, 'git', side_effect=AssertionError('stale candidate must not merge')):
+        with pytest.raises(wt.Blocked, match='changed'):
+            wt.merge_validated_candidate(result)
 
 
 if __name__ == '__main__':

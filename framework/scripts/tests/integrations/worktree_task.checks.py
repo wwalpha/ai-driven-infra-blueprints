@@ -3,7 +3,6 @@
 
 import shutil
 import sys
-from datetime import datetime, timedelta, timezone
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
@@ -23,7 +22,7 @@ import support.import_model_fixtures as _imports_support_import_model_fixtures
 import validation.loop as _imports_validation_loop
 from deploy import handoff
 from deploy_handoff import main as handoff_cli
-from import_guard import require_import_changes, source_write_context
+from import_guard import require_import_changes
 from model.adapters.task import edit_write_context
 from model.sources import load_model
 from support import blueprint_loop_fixtures as loop_checks
@@ -175,65 +174,38 @@ def check_success_and_empty():
 
 @it_case
 def check_finalize_line_endings():
-    for newline in (b"\n", b"\r\n"):
-        for staged in (False, True):
-            for suffix in (b"", b"  ", b"\t"):
-                with fixture() as root:
-                    git(root, "config", "core.whitespace", "blank-at-eol,blank-at-eof,space-before-tab")
-                    target, state = start(root)
-                    content = b"task" + suffix + newline
-                    (target / "file.txt").write_bytes(content)
-                    if staged:
-                        git(target, "add", "file.txt")
-                    finish_contract(target, state)
-                    before = git(root, "rev-parse", "HEAD")
-                    result = cli(root, "finalize", success=not suffix)
-                    if suffix:
-                        assert "trailing whitespace" in result["error"]
-                        retained(root, target, state, before)
-                        assert git(target, "rev-parse", "HEAD") == state["start"]
-                    else:
-                        assert result["cleaned"]
-                        assert (root / "file.txt").read_bytes() == content
-                    assert git(root, "config", "core.whitespace") == "blank-at-eol,blank-at-eof,space-before-tab"
-    print("LF/CRLF integration and real trailing whitespace rejection: PASS")
+    for content, staged, accepted in ((b"task\r\n", False, True), (b"task  \n", True, False)):
+        with fixture() as root:
+            git(root, "config", "core.whitespace", "blank-at-eol,blank-at-eof,space-before-tab")
+            target, state = start(root)
+            (target / "file.txt").write_bytes(content)
+            if staged:
+                git(target, "add", "file.txt")
+            finish_contract(target, state)
+            before = git(root, "rev-parse", "HEAD")
+            result = cli(root, "finalize", success=accepted)
+            if accepted:
+                assert result["cleaned"] and (root / "file.txt").read_bytes() == content
+            else:
+                assert "trailing whitespace" in result["error"]
+                retained(root, target, state, before)
+                assert git(target, "rev-parse", "HEAD") == state["start"]
+            assert git(root, "config", "core.whitespace") == "blank-at-eol,blank-at-eof,space-before-tab"
 
 
 @it_case
 def check_incomplete_and_git_safety():
-    for mode in ("running", "suspend", "unexpected-commit", "git-conflict",
-                 "missing-python-setup", "missing-python-status"):
-        with fixture() as root:
-            target, state = start(root)
-            (target / "file.txt").write_text("task\n")
-            before = git(root, "rev-parse", "HEAD")
-            task_head = git(target, "rev-parse", "HEAD")
-            if mode == "suspend":
-                tasks.suspend(target, state["task_file"], "validation/local loop failure: file.txt")
-            elif mode in ("missing-python-setup", "missing-python-status"):
-                finish_contract(target, state)
-                _, _, path, record = wt.load(root, "example")
-                if mode == "missing-python-setup":
-                    record.pop("python_setup")
-                else:
-                    record["python_setup"].pop("status")
-                wt.save(path, record)
-            elif mode in ("unexpected-commit", "git-conflict"):
-                finish_contract(target, state)
-                if mode == "unexpected-commit":
-                    git(target, "add", "file.txt")
-                    git(target, "commit", "-qm", "manual commit")
-                    task_head = git(target, "rev-parse", "HEAD")
-                else:
-                    (Path(git(target, "rev-parse", "--absolute-git-dir")) / "MERGE_HEAD").write_text(before + "\n")
-            result = cli(root, "finalize", success=False)
-            if mode in ("missing-python-setup", "missing-python-status"):
-                assert "Python setup is incomplete" in result["error"], mode
-            retained(root, target, state, before)
-            assert git(target, "rev-parse", "HEAD") == task_head, mode
-            assert (target / "file.txt").read_text() == "task\n"
-            cli(root, "cleanup", success=False)
-    print("Incomplete/suspended/conflict guards: PASS")
+    with fixture() as root:
+        target, state = start(root)
+        (target / "file.txt").write_text("task\n")
+        finish_contract(target, state)
+        before = git(root, "rev-parse", "HEAD")
+        (Path(git(target, "rev-parse", "--absolute-git-dir")) / "MERGE_HEAD").write_text(before + "\n")
+        assert "unfinished Git operation" in cli(root, "finalize", success=False)["error"]
+        retained(root, target, state, before)
+        assert git(target, "rev-parse", "HEAD") == state["start"]
+        assert (target / "file.txt").read_text() == "task\n"
+        cli(root, "cleanup", success=False)
 
 
 @it_case
@@ -261,76 +233,68 @@ def check_dirty_base_and_retry():
 
 @it_case
 def check_ahead_and_rebase_conflict():
-    for conflict in (False, True):
-        with fixture() as root:
-            target, state = start(root)
-            (target / "file.txt").write_text("task\n")
-            finish_contract(target, state)
-            updated = root / ("file.txt" if conflict else "base.txt")
-            updated.write_text("base update\n")
-            git(root, "add", updated.name)
-            git(root, "commit", "-qm", "base ahead")
-            latest = git(root, "rev-parse", "HEAD")
-            result = cli(root, "finalize", success=not conflict)
-            if conflict:
-                assert "aborted" in result["error"]
-                retained(root, target, state, latest)
-                assert git(target, "rev-parse", "HEAD") == result["commit"]
-                assert (target / "file.txt").read_text() == "task\n"
-                wt.idle_git(target)
-                assert git(target, "status", "--porcelain") == ""
-                pytest = _imports_pytest
-                old = result['commit']
-                with pytest.raises(wt.Blocked, match='commit changed'):
-                    wt.recover(root, 'example', '0' * 40, latest)
-                with pytest.raises(wt.Blocked, match='base changed'):
-                    wt.recover(root, 'example', old, '0' * 40)
-                with pytest.raises(wt.Blocked, match='aborted'):
-                    wt.recover(root, 'example', old, latest)
-                assert tasks.status((target / state['task_file']).read_text()) == 'running'
-                assert 'finish reviewed recovery' in cli(root, 'finalize', success=False)['error']
-                assert wt.git(target, 'rebase', latest, check=False).returncode
-                (target / 'file.txt').write_text('base update\ntask\n')
-                git(target, 'add', 'file.txt')
-                git(target, 'rebase', '--continue')
-                (target / 'file.txt').write_text('dirty\n')
-                with pytest.raises(wt.Blocked, match='dirty'):
-                    wt.recover(root, 'example', old, latest, finish=True)
-                (target / 'file.txt').write_text('base update\ntask\n')
-                candidate = git(target, 'rev-parse', 'HEAD')
-                previous_receipt = wt.load(root, 'example')[3]['recovery']
-                (root / 'base.txt').write_text('concurrent base advancement\n')
-                git(root, 'add', 'base.txt')
-                git(root, 'commit', '-qm', 'base advanced during reviewed recovery')
-                advanced = git(root, 'rev-parse', 'HEAD')
-                with pytest.raises(wt.Blocked, match='base changed'):
-                    wt.recover(root, 'example', old, latest, finish=True)
-                with pytest.raises(wt.Blocked, match='differs from expected commit'):
-                    wt.recover(root, 'example', old, advanced, repin=True)
-                repinned = wt.recover(root, 'example', candidate, advanced, repin=True)
-                assert repinned['recovery']['previous'] == previous_receipt
-                assert repinned['recovery']['commit'] == candidate
-                assert repinned['recovery']['base'] == advanced
-                assert git(target, 'rev-parse', 'HEAD') == candidate
-                assert 'finish reviewed recovery' in cli(root, 'finalize', success=False)['error']
-                with pytest.raises(wt.Blocked, match='unexpected history'):
-                    wt.recover(root, 'example', candidate, advanced, finish=True)
-                git(target, 'rebase', advanced)
-                recovered = wt.recover(root, 'example', candidate, advanced, finish=True)
-                latest = advanced
-                assert recovered['tip'] == git(target, 'rev-parse', 'HEAD')
-                assert 'recovery' not in recovered
-                assert recovered['start'] == state['start']
-                assert wt.task_start_commit(target, state['task_file']) == latest
-                finish_contract(target, state)
-                assert cli(root, 'finalize')['cleaned']
-                assert (root / 'file.txt').read_text() == 'base update\ntask\n'
-            else:
-                assert git(root, "rev-parse", "HEAD^") == latest
-                assert (root / "base.txt").read_text() == "base update\n"
-                assert (root / "file.txt").read_text() == "task\n"
-                assert not wt.branch_exists(root, state["branch"])
-    print("Latest local base/rebase abort/ff-only integration: PASS")
+    with fixture() as root:
+        target, state = start(root)
+        (target / "file.txt").write_text("task\n")
+        finish_contract(target, state)
+        updated = root / "file.txt"
+        updated.write_text("base update\n")
+        git(root, "add", updated.name)
+        git(root, "commit", "-qm", "base ahead")
+        latest = git(root, "rev-parse", "HEAD")
+        result = cli(root, "finalize", success=False)
+        assert "aborted" in result["error"]
+        retained(root, target, state, latest)
+        assert git(target, "rev-parse", "HEAD") == result["commit"]
+        assert (target / "file.txt").read_text() == "task\n"
+        wt.idle_git(target)
+        assert git(target, "status", "--porcelain") == ""
+        pytest = _imports_pytest
+        old = result['commit']
+        with pytest.raises(wt.Blocked, match='commit changed'):
+            wt.recover(root, 'example', '0' * 40, latest)
+        with pytest.raises(wt.Blocked, match='base changed'):
+            wt.recover(root, 'example', old, '0' * 40)
+        with pytest.raises(wt.Blocked, match='aborted'):
+            wt.recover(root, 'example', old, latest)
+        assert tasks.status((target / state['task_file']).read_text()) == 'running'
+        assert 'finish reviewed recovery' in cli(root, 'finalize', success=False)['error']
+        assert wt.git(target, 'rebase', latest, check=False).returncode
+        (target / 'file.txt').write_text('base update\ntask\n')
+        git(target, 'add', 'file.txt')
+        git(target, 'rebase', '--continue')
+        (target / 'file.txt').write_text('dirty\n')
+        with pytest.raises(wt.Blocked, match='dirty'):
+            wt.recover(root, 'example', old, latest, finish=True)
+        (target / 'file.txt').write_text('base update\ntask\n')
+        candidate = git(target, 'rev-parse', 'HEAD')
+        previous_receipt = wt.load(root, 'example')[3]['recovery']
+        (root / 'base.txt').write_text('concurrent base advancement\n')
+        git(root, 'add', 'base.txt')
+        git(root, 'commit', '-qm', 'base advanced during reviewed recovery')
+        advanced = git(root, 'rev-parse', 'HEAD')
+        with pytest.raises(wt.Blocked, match='base changed'):
+            wt.recover(root, 'example', old, latest, finish=True)
+        with pytest.raises(wt.Blocked, match='differs from expected commit'):
+            wt.recover(root, 'example', old, advanced, repin=True)
+        repinned = wt.recover(root, 'example', candidate, advanced, repin=True)
+        assert repinned['recovery']['previous'] == previous_receipt
+        assert repinned['recovery']['commit'] == candidate
+        assert repinned['recovery']['base'] == advanced
+        assert git(target, 'rev-parse', 'HEAD') == candidate
+        assert 'finish reviewed recovery' in cli(root, 'finalize', success=False)['error']
+        with pytest.raises(wt.Blocked, match='unexpected history'):
+            wt.recover(root, 'example', candidate, advanced, finish=True)
+        git(target, 'rebase', advanced)
+        recovered = wt.recover(root, 'example', candidate, advanced, finish=True)
+        latest = advanced
+        assert recovered['tip'] == git(target, 'rev-parse', 'HEAD')
+        assert 'recovery' not in recovered
+        assert recovered['start'] == state['start']
+        assert wt.task_start_commit(target, state['task_file']) == latest
+        finish_contract(target, state)
+        assert cli(root, 'finalize')['cleaned']
+        assert (root / 'file.txt').read_text() == 'base update\ntask\n'
 
 
 @it_case
@@ -352,18 +316,6 @@ def check_collisions_and_base_selection():
         assert "stale" in cli(root, "create", "stale", success=False)["error"]
         assert moved.exists()
         assert any(Path(e["worktree"]) == stale for e in wt.worktrees(root))
-    with fixture("master") as root:
-        assert wt.base_branch(root) == "master"
-        git(root, "branch", "main")
-        assert wt.base_branch(root) == "main"
-        git(root, "config", "blueprint.baseBranch", "master")
-        assert wt.base_branch(root) == "master"
-        git(root, "config", "blueprint.baseBranch", "missing")
-        assert "does not exist" in cli(root, "create", success=False)["error"]
-        assert not wt.branch_exists(root, "missing")
-    with fixture("feature") as root:
-        assert "no configured base" in cli(root, "create", success=False)["error"]
-    print("Branch/path/stale collisions and configured/main/master base: PASS")
 
 
 @it_case
@@ -375,24 +327,6 @@ def check_directory_layout():
         git(root, "commit", "-qm", "missing worktree ignore")
         assert "/.worktrees/ must be ignored" in cli(root, "create", success=False)["error"]
         assert not wt.branch_exists(root, "codex/worktree/example")
-    with fixture() as root:
-        target, state = start(root)
-        _, _, path, _ = wt.load(root, "example")
-        for invalid in (root / ".other/example", root / ".worktrees/other",
-                        root / ".worktrees/example/extra", root / ".git/worktrees/example"):
-            wt.save(path, {**state, "worktree": str(invalid)})
-            assert "state does not match" in cli(root, "setup", success=False)["error"]
-        wt.save(path, state)
-        legacy = root / ".worktree/example"
-        legacy.parent.mkdir()
-        git(root, "worktree", "move", target, legacy)
-        state["worktree"] = str(legacy)
-        wt.save(path, state)
-        for command in ("setup", "finalize", "cleanup"):
-            assert "state does not match" in cli(legacy, command, success=False)["error"]
-        assert legacy.is_dir() and (root / "file.txt").read_text() == "original\n"
-        assert wt.branch_exists(root, state["branch"])
-    print("Repo-root .worktrees creation/ignore, invalid paths and unsupported .worktree rejection: PASS")
 
 
 @it_case
@@ -431,16 +365,6 @@ def check_metadata_storage():
         finish_contract(other, second)
         assert cli(root, "finalize", "two")["cleaned"]
         assert directory.is_dir()
-    for relative in (".worktrees", ".worktrees/.blueprint", ".worktrees/.blueprint/tasks"):
-        with fixture() as root:
-            external = root.parent / "external"
-            external.mkdir()
-            link = root / relative
-            link.parent.mkdir(parents=True, exist_ok=True)
-            link.symlink_to(external, target_is_directory=True)
-            assert "metadata must not use symlinks" in cli(root, "create", success=False)["error"]
-            assert not wt.branch_exists(root, "codex/worktree/example")
-    print("Shared .worktrees/.blueprint state/locks, no old-location fallback, sibling retention and symlink guards: PASS")
 
 
 def _callback_check_cleanup_failure_and_retry_deny_remove(real_git, /, where, *args, **kwargs):
@@ -512,29 +436,27 @@ def _callback_check_merge_retry_and_commit_failure_deny_merge(_state_check_merge
 @it_case
 def check_merge_retry_and_commit_failure():
     _state_check_merge_retry_and_commit_failure_505 = _CallbackState()
-    for empty in (False, True):
-        with fixture() as root:
-            target, state = start(root)
-            if not empty:
-                (target / "file.txt").write_text("task\n")
-            finish_contract(target, state)
-            (root / "base.txt").write_text("ahead\n")
-            git(root, "add", "base.txt")
-            git(root, "commit", "-qm", "ahead")
-            latest = git(root, "rev-parse", "HEAD")
-            _state_check_merge_retry_and_commit_failure_505.real_git = wt.git
-            deny_merge = _bind_framework_callback(_callback_check_merge_retry_and_commit_failure_deny_merge, _state_check_merge_retry_and_commit_failure_505)
-            with patch.object(wt, "git", side_effect=deny_merge):
-                try:
-                    wt.finalize(root, "example")
-                except wt.Blocked as error:
-                    assert "merge failure" in str(error)
-                else:
-                    raise AssertionError("merge failure must be reported")
-            retained(root, target, state, latest)
-            result = cli(root, "finalize")
-            assert result["cleaned"] and bool(result["commit"]) != empty
-            assert git(root, "rev-list", "--count", "HEAD") == ("2" if empty else "3")
+    with fixture() as root:
+        target, state = start(root)
+        (target / "file.txt").write_text("task\n")
+        finish_contract(target, state)
+        (root / "base.txt").write_text("ahead\n")
+        git(root, "add", "base.txt")
+        git(root, "commit", "-qm", "ahead")
+        latest = git(root, "rev-parse", "HEAD")
+        _state_check_merge_retry_and_commit_failure_505.real_git = wt.git
+        deny_merge = _bind_framework_callback(_callback_check_merge_retry_and_commit_failure_deny_merge, _state_check_merge_retry_and_commit_failure_505)
+        with patch.object(wt, "git", side_effect=deny_merge):
+            try:
+                wt.finalize(root, "example")
+            except wt.Blocked as error:
+                assert "merge failure" in str(error)
+            else:
+                raise AssertionError("merge failure must be reported")
+        retained(root, target, state, latest)
+        result = cli(root, "finalize")
+        assert result["cleaned"] and result["commit"]
+        assert git(root, "rev-list", "--count", "HEAD") == "3"
     with fixture() as root:
         target, state = start(root)
         (target / "file.txt").write_text("task\n")
@@ -552,41 +474,30 @@ def check_merge_retry_and_commit_failure():
         retained(root, target, state, latest)
         assert "verification failed" in cli(root, "finalize", success=False)["error"]
         retained(root, target, state, latest)
-    print("Failed merge retries, zero-change rebase, altered commit rejection: PASS")
+    print("Failed merge retry and altered commit rejection: PASS")
 
 
 @it_case
 def check_human_approved_validation_failure():
     approval = "Human approves commit and merge despite file.txt trailing whitespace validation failure"
-    for mode in ("accepted", "running", "git-conflict", "blank"):
-        with fixture() as root:
-            target, state = start(root)
-            (target / "file.txt").write_text("task  \n")
-            before = git(root, "rev-parse", "HEAD")
-            if mode != "running":
-                tasks.suspend(target, state["task_file"], "Local loop failed: file.txt trailing whitespace")
-            if mode == "git-conflict":
-                (Path(git(target, "rev-parse", "--absolute-git-dir")) / "MERGE_HEAD").write_text(before + "\n")
-            if mode != "accepted":
-                cli(root, "finalize", success=False, approval=" " if mode == "blank" else approval)
-                retained(root, target, state, before)
-                assert git(target, "rev-parse", "HEAD") == state["start"], mode
-                continue
-            cli(root, "finalize", success=False)  # No approval still blocks before commit.
-            assert git(target, "rev-parse", "HEAD") == state["start"]
-            (target / "secret.bin").write_bytes(b"keep suspended contract for inspection")
-            result = cli(root, "finalize", success=False, approval=approval)
-            assert "ignored files" in result["error"] and result["merged"]
-            assert result["validation_failure_approval"] == approval
-            text = (target / state["task_file"]).read_text()
-            assert tasks.status(text) == "suspend" and "Local loop failed" in text
-            assert git(root, "log", "-1", "--format=%s") == "task(example): human-approved validation failure"
-            assert approval in git(root, "log", "-1", "--format=%b")
-            assert (root / "file.txt").read_text() == "task  \n"
-            (target / "secret.bin").unlink()
-            assert cli(root, "cleanup")["cleaned"]  # Stored approval survives cleanup retry.
-            assert not wt.branch_exists(root, state["branch"])
-    print("Explicit human approval, retained FAIL/suspend, Git guards and cleanup retry: PASS")
+    with fixture() as root:
+        target, state = start(root)
+        (target / "file.txt").write_text("task  \n")
+        tasks.suspend(target, state["task_file"], "Local loop failed: file.txt trailing whitespace")
+        cli(root, "finalize", success=False)  # No approval still blocks before commit.
+        assert git(target, "rev-parse", "HEAD") == state["start"]
+        (target / "secret.bin").write_bytes(b"keep suspended contract for inspection")
+        result = cli(root, "finalize", success=False, approval=approval)
+        assert "ignored files" in result["error"] and result["merged"]
+        assert result["validation_failure_approval"] == approval
+        text = (target / state["task_file"]).read_text()
+        assert tasks.status(text) == "suspend" and "Local loop failed" in text
+        assert git(root, "log", "-1", "--format=%s") == "task(example): human-approved validation failure"
+        assert approval in git(root, "log", "-1", "--format=%b")
+        assert (root / "file.txt").read_text() == "task  \n"
+        (target / "secret.bin").unlink()
+        assert cli(root, "cleanup")["cleaned"]  # Stored approval survives cleanup retry.
+        assert not wt.branch_exists(root, state["branch"])
 
 
 @it_case
@@ -601,31 +512,18 @@ def check_real_loop_integration():
         git(root, "commit", "-qm", "Project fixture")
         target, state = start(root, files=("docs/system-overview.md",))
         overview = target / "docs/system-overview.md"
-        overview.write_text("# Fixture changed\n")
+        overview.write_text("# Trailing whitespace  \n")
         loop = SCRIPT.with_name("blueprint-loop.py")
         environment = {**os.environ, tasks.SELECTOR: state["task_file"], "PYTHONDONTWRITEBYTECODE": "1"}
-        result = subprocess.run([sys.executable, "-B", str(loop), "--mode", "task", "--task-file", state["task_file"]],
-                                cwd=target, env=environment, capture_output=True, encoding="utf-8")
-        assert result.returncode == 0, result.stdout + result.stderr
-        assert "Blueprint local loop: PASS" in result.stdout
-        finish_contract(target, state)
-        cli(root, "finalize")
-        assert (root / "docs/system-overview.md").read_text() == "# Fixture changed\n"
-        target, state = start(root, "failed-loop", files=("docs/system-overview.md",))
-        (target / "docs/system-overview.md").write_text("# Trailing whitespace  \n")
         result = subprocess.run([sys.executable, "-B", str(loop),
                                  "--mode", "task", "--task-file", state["task_file"]],
                                 cwd=target, env=environment, capture_output=True, encoding="utf-8")
         assert result.returncode != 0 and "FAIL" in result.stdout, result.stdout + result.stderr
         assert tasks.status((target / state["task_file"]).read_text()) == "suspend"
         before = git(root, "rev-parse", "HEAD")
-        cli(root, "finalize", "failed-loop", success=False)
+        cli(root, "finalize", "example", success=False)
         retained(root, target, state, before)
         assert git(target, "rev-parse", "HEAD") == state["start"]
-        result = cli(root, "finalize", "failed-loop", approval="Human approves commit and merge despite trailing whitespace loop failure")
-        assert result["cleaned"] and result["validation_failure_approval"]
-        assert (root / "docs/system-overview.md").read_text() == "# Trailing whitespace  \n"
-    print("Real Task Contract + child local loop success/failure/approved failure integration: PASS")
 
 
 def _callback_check_final_candidate_staleness_validate(state, /, root, options, *, final_candidate):
@@ -639,55 +537,37 @@ def check_final_candidate_staleness():
     operation_candidate = _imports_support_import_model_fixtures.operation_candidate
     operation_contract = _imports_support_import_model_fixtures.operation_contract
     operation_fixture = _imports_support_import_model_fixtures.operation_fixture
-    for change in ('base', 'head', 'task', 'dirty', 'none'):
-        with fixture() as root:
-            operation_fixture(root)
-            git(root, 'add', 'model', 'project.json')
-            git(root, 'commit', '-qm', 'model fixture')
-            with tempfile.TemporaryDirectory() as temporary:
-                candidate = Path(temporary) / 'candidate'
-                sources = operation_candidate(root, candidate)
-                target, state = start(root, files=tuple(sorted(sources)))
-                text = operation_contract()
-                for heading in ('Modified files', 'Allowed paths'):
-                    text += '\n## ' + heading + '\n' + ''.join('- `' + value + '`\n' for value in sorted(sources | {state['task_file']}))
-                text += '\n## Validation scope\n- `dev/cde/vpc`\n- `stg/cde/vpc`\n'
-                (target / state['task_file']).write_text(text)
-                for name in sources:
-                    shutil.copyfile(candidate / name, target / name)
-                (root / 'unrelated.txt').write_text('new base\n')
-                git(root, 'add', 'unrelated.txt')
-                git(root, 'commit', '-qm', 'unrelated base')
-                latest = git(root, 'rev-parse', 'HEAD')
-                final = wt.prepare_integration(root, 'example')
-                assert final.base_commit == latest and 'unrelated.txt' not in final.changed_paths
-                assert not wt.changed_paths(target) and final.changed_paths == sources
-                validate = _bind_framework_callback(_callback_check_final_candidate_staleness_validate, state)
-                with patch.object(loop, 'run_loop', side_effect=validate) as checked:
-                    result = wt.validate_final_candidate(final)
-                    checked.assert_called_once()
-                if change == 'base':
-                    (root / 'unrelated.txt').write_text('advanced\n')
-                    git(root, 'add', 'unrelated.txt')
-                    git(root, 'commit', '-qm', 'advance')
-                elif change == 'head':
-                    git(target, 'commit', '--allow-empty', '-qm', 'unexpected')
-                elif change == 'task':
-                    file = target / state['task_file']
-                    file.write_text(file.read_text() + '\n## Goal\nchanged\n')
-                elif change == 'dirty':
-                    (target / 'file.txt').write_text('changed\n')
-                base_head = git(root, 'rev-parse', 'HEAD')
-                if change != 'none':
-                    try:
-                        wt.merge_validated_candidate(result)
-                        raise AssertionError('stale candidate merged')
-                    except ValueError:
-                        retained(root, target, state, base_head)
-                else:
-                    assert wt.merge_validated_candidate(result)['merged'] == final.candidate_head
-                    assert tasks.status((target / state['task_file']).read_text()) == 'completed'
-                    assert wt.cleanup(root, 'example')['cleaned']
+    with fixture() as root:
+        operation_fixture(root)
+        git(root, 'add', 'model', 'project.json')
+        git(root, 'commit', '-qm', 'model fixture')
+        with tempfile.TemporaryDirectory() as temporary:
+            candidate = Path(temporary) / 'candidate'
+            sources = operation_candidate(root, candidate)
+            target, state = start(root, files=tuple(sorted(sources)))
+            text = operation_contract()
+            for heading in ('Modified files', 'Allowed paths'):
+                text += '\n## ' + heading + '\n' + ''.join('- `' + value + '`\n' for value in sorted(sources | {state['task_file']}))
+            text += '\n## Validation scope\n- `dev/cde/vpc`\n- `stg/cde/vpc`\n'
+            (target / state['task_file']).write_text(text)
+            for name in sources:
+                shutil.copyfile(candidate / name, target / name)
+            (root / 'unrelated.txt').write_text('new base\n')
+            git(root, 'add', 'unrelated.txt')
+            git(root, 'commit', '-qm', 'unrelated base')
+            latest = git(root, 'rev-parse', 'HEAD')
+            final = wt.prepare_integration(root, 'example')
+            assert final.base_commit == latest and 'unrelated.txt' not in final.changed_paths
+            assert not wt.changed_paths(target) and final.changed_paths == sources
+            validate = _bind_framework_callback(_callback_check_final_candidate_staleness_validate, state)
+            with patch.object(loop, 'run_loop', side_effect=validate) as checked:
+                result = wt.validate_final_candidate(final)
+                checked.assert_called_once()
+            git(target, 'commit', '--allow-empty', '-qm', 'unexpected')
+            base_head = git(root, 'rev-parse', 'HEAD')
+            with pytest.raises(ValueError, match='candidate/base changed'):
+                wt.merge_validated_candidate(result)
+            retained(root, target, state, base_head)
 
 
 @it_case
@@ -695,8 +575,7 @@ def check_approved_model_reads():
 
     approval = 'Human accepts fixture validation failure for Git integration'
     relative = 'model/stg/cde/vpc.properties'
-    for mode in ('preserved', 'changed-import', 'proof', 'missing', 'tampered', 'expired',
-                 'wrong-task', 'wrong-base', 'wrong-scope', 'incomplete', 'wrong-sources'):
+    for mode in ('changed-import', 'missing'):
         with fixture() as root:
             operation_fixture(root)
             git(root, 'add', 'model', 'project.json')
@@ -713,23 +592,6 @@ def check_approved_model_reads():
                 contract = target / state['task_file']
                 text = contract.read_text().replace('- Task type: `design`', '- Task type: `design`\n- Workflow: `import`')
                 contract.write_text(text.replace('- `framework`', '- `stg/cde/vpc`\n- `dev/cde/vpc`'))
-                with tasks.selected_task(target, state['task_file']):
-                    proof = dict(version=3, task=state['task_file'], base=state['start'],
-                                 scope=['stg', 'cde', 'vpc'], acquisition='fixture-receipt',
-                                 sources={relative: guard.file_hash(source)}, plan='fixture-plan',
-                                 complete=mode != 'incomplete', model='reflected', markdown='failed',
-                                 ownedArtifacts=[], acquiredAt=datetime.now(timezone.utc).isoformat())
-                    if mode == 'expired':
-                        proof['acquiredAt'] = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
-                    if mode.startswith('wrong-'):
-                        key = mode.removeprefix('wrong-')
-                        proof[key] = {'task': 'tasks/other.md', 'base': 'wrong',
-                            'scope': ['dev', 'cde', 'vpc'], 'sources': {relative: '0' * 64}}[key]
-                    receipt = guard.proof_path(target)
-                    if mode != 'missing':
-                        sealed_evidence.write_sealed(target, receipt, proof)
-                    if mode == 'tampered':
-                        receipt.write_text(receipt.read_text().replace('fixture-plan', 'modified-plan'))
             tasks.suspend(target, state['task_file'], 'Synthetic validation FAIL: properties')
             saved = (target / state['task_file']).read_bytes()
             before = git(root, 'rev-parse', 'HEAD')
@@ -752,13 +614,13 @@ def check_approved_model_reads():
                     assert wt.cleanup(root, 'example')['cleaned']
                     assert not target.exists() and not wt.branch_exists(root, state['branch'])
                 else:
-                    with pytest.raises(ValueError) as error:
+                    with pytest.raises(ValueError, match='no verified') as error:
                         wt.finalize(root, 'example', approval)
                     assert 'suspend task cannot execute' not in str(error.value)
                     retained(root, target, state, before)
                     assert git(target, 'rev-parse', 'HEAD') == state['start']
                     assert (target / state['task_file']).read_bytes() == saved
-    print('Approved suspended Model comparison and sealed IMPORT evidence guards: PASS')
+    print('Approved suspended Model Git integration and missing IMPORT evidence rejection: PASS')
 
 
 
@@ -827,14 +689,29 @@ atexit.register(lambda: Path(os.environ['GUARD_PROBE']).write_text(json.dumps(co
 
 
 def main():
-    for check in (check_sync_base_preserves_candidate, check_deploy_workflow_cross_task_reset_rejected, check_model_refactor_integration, check_final_candidate_staleness, check_model_operation_integration, check_success_and_empty, check_finalize_line_endings, check_incomplete_and_git_safety,
-                  check_dirty_base_and_retry, check_ahead_and_rebase_conflict,
-                  check_collisions_and_base_selection, check_directory_layout, check_metadata_storage,
-                  check_cleanup_failure_and_retry,
-                  check_merge_retry_and_commit_failure,
-                  check_human_approved_validation_failure, check_approved_model_reads, check_registered_normal_model_guard, check_real_loop_integration):
+    for check in (
+        check_sync_base_preserves_candidate,
+        check_deploy_workflow_cross_task_reset_rejected,
+        check_success_and_empty,
+        check_finalize_line_endings,
+        check_incomplete_and_git_safety,
+        check_dirty_base_and_retry,
+        check_ahead_and_rebase_conflict,
+        check_collisions_and_base_selection,
+        check_directory_layout,
+        check_metadata_storage,
+        check_cleanup_failure_and_retry,
+        check_merge_retry_and_commit_failure,
+        check_human_approved_validation_failure,
+        check_real_loop_integration,
+        check_final_candidate_staleness,
+        check_approved_model_reads,
+        check_registered_normal_model_guard,
+        check_model_operation_integration,
+        check_model_refactor_integration,
+    ):
         check()
-    print("worktree-task: PASS (isolated lifecycle and failure retention)")
+    print("worktree-task: PASS (Git integration and failure recovery)")
 
 
 def _callback_check_model_operation_integration_validate(require_import_changes, /, root, options, *, final_candidate):
@@ -850,66 +727,35 @@ def check_model_operation_integration():
     operation_candidate = _imports_support_import_model_fixtures.operation_candidate
     operation_contract = _imports_support_import_model_fixtures.operation_contract
     operation_fixture = _imports_support_import_model_fixtures.operation_fixture
-    for action, corrupt, approved in (("import-merge", False, False), ("import-delete", False, False),
-                                      ("import-merge", True, False), ("import-merge", False, True),
-                                      ("import-delete", False, True), ("import-merge", True, True)):
-        with fixture() as root:
-            operation_fixture(root)
-            git(root, "add", "model", "project.json")
-            git(root, "commit", "-qm", "model fixture")
-            with tempfile.TemporaryDirectory() as directory:
-                candidate = Path(directory) / "candidate"
-                sources = operation_candidate(root, candidate, action)
-                target, state = start(root, files=tuple(sorted(sources)))
-                text = operation_contract(action)
-                for heading in ("Modified files", "Allowed paths"):
-                    text += "\n## " + heading + "\n" + "".join("- `" + name + "`\n" for name in sorted(sources | {state['task_file']}))
-                text += "\n## Validation scope\n- `dev/cde/vpc`\n- `stg/cde/vpc`\n"
-                (target / state['task_file']).write_text(text)
-                tasks.refresh(target, state['task_file'])
-                for name in sources:
-                    shutil.copyfile(candidate / name, target / name)
-                with mapping_alias(SCRIPT.parents[2], target), patch.object(wt.python_env, 'runtime', return_value=(Path(sys.executable), wt.python_env.environment(Path(sys.prefix)))):
-                    if not approved:
-                        finish_contract(target, state)
-                    if corrupt:
-                        file = target / 'model/stg/cde/vpc.properties'
-                        file.write_text(file.read_text().replace('10.9.0.0/16', '10.8.0.0/16'))
-                    base_head = git(root, 'rev-parse', 'HEAD')
-                    if approved:
-                        pytest = _imports_pytest
-                        tasks.suspend(target, state['task_file'], 'Synthetic validation FAIL')
-                        if action == 'import-delete':
-                            with pytest.raises(wt.Blocked, match='requires successful final candidate validation'):
-                                wt.finalize(root, 'example', 'Human accepts fixture validation FAIL')
-                            retained(root, target, state, base_head)
-                            assert git(target, 'rev-parse', 'HEAD') == state['start']
-                        elif corrupt:
-                            with pytest.raises(ValueError, match='undeclared value/type'):
-                                wt.finalize(root, 'example', 'Human accepts fixture validation FAIL')
-                            retained(root, target, state, base_head)
-                            assert git(target, 'rev-parse', 'HEAD') == state['start']
-                        else:
-                            assert wt.finalize(root, 'example', 'Human accepts fixture validation FAIL')['cleaned']
-                        continue
-                    final = wt.prepare_integration(root, 'example')
-                    require_import_changes = _imports_import_guard.require_import_changes
-                    loop = _imports_validation_loop
-                    validate = _bind_framework_callback(_callback_check_model_operation_integration_validate, require_import_changes)
-                    with patch.object(loop, 'run_loop', side_effect=validate):
-                        if corrupt:
-                            try:
-                                wt.validate_final_candidate(final)
-                                raise AssertionError('corrupted merge was accepted')
-                            except ValueError as error:
-                                assert 'undeclared value/type' in str(error)
-                            retained(root, target, state, base_head)
-                        else:
-                            result = wt.validate_final_candidate(final)
-                            assert wt.merge_validated_candidate(result)['merged'] == final.candidate_head
-                            assert wt.cleanup(root, 'example')['cleaned']
-                            assert not target.exists()
-    print('Model-only merge/delete integration and post-completion guard: PASS')
+    action = 'import-merge'
+    with fixture() as root:
+        operation_fixture(root)
+        git(root, "add", "model", "project.json")
+        git(root, "commit", "-qm", "model fixture")
+        with tempfile.TemporaryDirectory() as directory:
+            candidate = Path(directory) / "candidate"
+            sources = operation_candidate(root, candidate, action)
+            target, state = start(root, files=tuple(sorted(sources)))
+            text = operation_contract(action)
+            for heading in ("Modified files", "Allowed paths"):
+                text += "\n## " + heading + "\n" + "".join("- `" + name + "`\n" for name in sorted(sources | {state['task_file']}))
+            text += "\n## Validation scope\n- `dev/cde/vpc`\n- `stg/cde/vpc`\n"
+            (target / state['task_file']).write_text(text)
+            tasks.refresh(target, state['task_file'])
+            for name in sources:
+                shutil.copyfile(candidate / name, target / name)
+            with mapping_alias(SCRIPT.parents[2], target), patch.object(wt.python_env, 'runtime', return_value=(Path(sys.executable), wt.python_env.environment(Path(sys.prefix)))):
+                finish_contract(target, state)
+                final = wt.prepare_integration(root, 'example')
+                require_import_changes = _imports_import_guard.require_import_changes
+                loop = _imports_validation_loop
+                validate = _bind_framework_callback(_callback_check_model_operation_integration_validate, require_import_changes)
+                with patch.object(loop, 'run_loop', side_effect=validate):
+                    result = wt.validate_final_candidate(final)
+                    assert wt.merge_validated_candidate(result)['merged'] == final.candidate_head
+                    assert wt.cleanup(root, 'example')['cleaned']
+                    assert not target.exists()
+    print('Model-only merge final-candidate integration: PASS')
 
 
 def _callback_check_model_refactor_integration_validate(calls, /, root, options, *, final_candidate):
@@ -926,67 +772,43 @@ def check_model_refactor_integration():
     dependency_fixture = _imports_support_import_model_fixtures.dependency_fixture
     dependency_refactor = _imports_support_import_model_fixtures.dependency_refactor
 
-    for advance in (False, True):
-        with fixture() as root, tempfile.TemporaryDirectory() as directory:
-            dependency_fixture(root)
-            git(root, 'add', 'model', 'project.json')
-            git(root, 'commit', '-qm', 'generic Model fixture')
-            candidate = Path(directory) / 'candidate'
-            sources = dependency_refactor(root, candidate)
-            target, state = start(root, files=tuple(sorted(sources)))
-            text = dependency_contract()
-            for heading in ('Modified files', 'Allowed paths'):
-                text += '\n## ' + heading + '\n' + ''.join('- `' + name + '`\n' for name in sorted(sources | {state['task_file']}))
-            text += '\n## Validation scope\n- `dev/cde/service-a`\n- `dev/cde/service-b`\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n'
-            (target / state['task_file']).write_text(text)
-            tasks.refresh(target, state['task_file'])
-            with mapping_alias(SCRIPT.parents[2], target), tasks.selected_task(target, state['task_file']):
-                # Refactors use ordinary design publication, never intermediate operation saves.
-                try:
-                    with source_write_context(target, state['task_file']):
-                        raise AssertionError('refactor entered intermediate operation writer')
-                except ValueError as error:
-                    assert 'Model-only update operation' in str(error)
-                output = {target / name: (candidate / name).read_text() for name in sources}
-                original = {path: path.read_bytes() for path in output}
-                bad = {p: value.replace('same-name-stg', 'changed') for p, value in output.items()}
-                scope = {('stg', 'cde', 'service-b')}
-                with edit_write_context(target, scope, state['task_file']) as context:
-                    path = next(iter(bad))
-                    plan = prepare_edit(load_model(path, context.snapshot), bad, context)
-                    with pytest.raises(ValueError, match='changed a saved native value'):
-                        publish_edit(plan, context)
-                assert all(path.read_bytes() == raw for path, raw in original.items())
-                with edit_write_context(target, scope, state['task_file']) as context:
-                    path = next(iter(output))
-                    publish_edit(prepare_edit(load_model(path, context.snapshot), output, context), context)
-                require_import_changes(target)
-                assert load_model(target / 'model/stg/cde/service-b.properties').values['desired.row.002-001.value'] == 'same-name-stg'
-                for identity in ('001', '999'):
-                    result = subprocess.run([sys.executable, '-B', str(SCRIPT.parent / 'model/cli.py'),
-                        'incoming', str(target / 'model/stg/cde/service-a.properties'), identity],
-                        capture_output=True, text=True)
-                    assert result.returncode == 0, result.stderr + result.stdout
-                    response = json.loads(result.stdout)
-                    assert response == {'status': 'complete', 'references': [], 'warnings': []}
-                if advance:
-                    file = root / 'model/stg/cde/service-a.properties'
-                    file.write_text(file.read_text().replace('same-name-stg', 'advanced-name'))
-                    git(root, 'add', file)
-                    git(root, 'commit', '-qm', 'advance producer on base')
-                latest = git(root, 'rev-parse', 'HEAD')
-                final = wt.prepare_integration(root, 'example')
-                assert final.base_commit == latest
-                calls = []
-                validate = _bind_framework_callback(_callback_check_model_refactor_integration_validate, calls)
-                with patch.object(loop, 'run_loop', side_effect=validate):
-                    with redirect_stderr(io.StringIO()) as warnings:
-                        result = wt.validate_final_candidate(final)
-                    assert 'producer name/identifier differs from saved text' not in warnings.getvalue()
-                    assert wt.merge_validated_candidate(result)['merged'] == final.candidate_head
-                    assert wt.cleanup(root, 'example')['cleaned']
-                assert calls == [final.candidate_head]
-    print('Generic refactor publication and actual post-rebase candidate guard: PASS')
+    with fixture() as root, tempfile.TemporaryDirectory() as directory:
+        dependency_fixture(root)
+        git(root, 'add', 'model', 'project.json')
+        git(root, 'commit', '-qm', 'generic Model fixture')
+        candidate = Path(directory) / 'candidate'
+        sources = dependency_refactor(root, candidate)
+        target, state = start(root, files=tuple(sorted(sources)))
+        text = dependency_contract()
+        for heading in ('Modified files', 'Allowed paths'):
+            text += '\n## ' + heading + '\n' + ''.join('- `' + name + '`\n' for name in sorted(sources | {state['task_file']}))
+        text += '\n## Validation scope\n- `dev/cde/service-a`\n- `dev/cde/service-b`\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n'
+        (target / state['task_file']).write_text(text)
+        tasks.refresh(target, state['task_file'])
+        with mapping_alias(SCRIPT.parents[2], target), tasks.selected_task(target, state['task_file']):
+            output = {target / name: (candidate / name).read_text() for name in sources}
+            scope = {('stg', 'cde', 'service-b')}
+            with edit_write_context(target, scope, state['task_file']) as context:
+                path = next(iter(output))
+                publish_edit(prepare_edit(load_model(path, context.snapshot), output, context), context)
+            require_import_changes(target)
+            assert load_model(target / 'model/stg/cde/service-b.properties').values['desired.row.002-001.value'] == 'same-name-stg'
+            file = root / 'model/stg/cde/service-a.properties'
+            file.write_text(file.read_text().replace('same-name-stg', 'advanced-name'))
+            git(root, 'add', file)
+            git(root, 'commit', '-qm', 'advance producer on base')
+            latest = git(root, 'rev-parse', 'HEAD')
+            final = wt.prepare_integration(root, 'example')
+            assert final.base_commit == latest
+            calls = []
+            validate = _bind_framework_callback(_callback_check_model_refactor_integration_validate, calls)
+            with patch.object(loop, 'run_loop', side_effect=validate):
+                with redirect_stderr(io.StringIO()) as warnings:
+                    result = wt.validate_final_candidate(final)
+                assert 'producer name/identifier differs from saved text' not in warnings.getvalue()
+                assert wt.merge_validated_candidate(result)['merged'] == final.candidate_head
+                assert wt.cleanup(root, 'example')['cleaned']
+            assert calls == [final.candidate_head]
 
 if __name__ == "__main__":
     main()

@@ -745,6 +745,29 @@ def check_external_completion_proof(tmp_path, monkeypatch, failure):
 
 
 
+@pytest.mark.parametrize('failure', ['incomplete', 'unplanned', 'hash'])
+def check_acquired_plan_completion(tmp_path, monkeypatch, failure):
+    relative = 'model/stg/cde/vpc.properties'
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True)
+    path.write_text('source bytes')
+    name = 'tasks/example.md'
+    text = _imports_support_repository_fixtures.contract('example', [relative]).replace(
+        '- Task type: `governance`', '- Task type: `design`\n- Workflow: `import`')
+    proof = dict(sources={relative: hashlib.sha256(b'source bytes').hexdigest()}, model='reflected', complete=failure != 'incomplete')
+    if failure == 'unplanned':
+        proof['sources'] = {}
+    if failure == 'hash':
+        proof['sources'][relative] = '0' * 64
+    monkeypatch.setattr('model.importing.repository.has_baseline', lambda root: True)
+    monkeypatch.setattr(import_guard, 'task_snapshot', lambda *a, **k: SimpleNamespace(path=tmp_path / name, text=text))
+    monkeypatch.setattr(_imports_task_contract, 'validate_contract', lambda *a: None)
+    monkeypatch.setattr(import_guard, 'read_proof', lambda *a, **k: proof)
+    expected = {'incomplete': 'incomplete', 'unplanned': 'no acquired change plan', 'hash': 'differs from acquired'}
+    with pytest.raises(ValueError, match=expected[failure]):
+        import_guard.require_import_changes(tmp_path, supplied={relative}, contract_file=name)
+
+
 def check_snapshot_proof_resigning_and_cleanup(tmp_path, monkeypatch):
     root, snapshot = tmp_path / 'repository', tmp_path / 'snapshot'
     root.mkdir()
