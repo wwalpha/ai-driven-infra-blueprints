@@ -4,7 +4,6 @@
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
-from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -33,6 +32,7 @@ from support.pytest_cli import run
 from support.validator import load
 from sync_files import changed_files, markdown_newlines
 from utils.aws_mappings import definition_root, mapping_alias
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import (
     input_bytes,
     input_context,

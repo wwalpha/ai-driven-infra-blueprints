@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 import pytest
 import task_contract as tasks
+from design.policy_tables import rendered_design
 from model.files import read_model
 from model.render import markdown_for
 from model.sources import load_model
@@ -93,6 +94,7 @@ def make_service_loop_fixture(root):
     make_project_fixture(SCRIPT.parents[2], root)
     populate('generated_policy', root)
     (root / 'infra/cloudformation/parameters/dev/123456789012').mkdir(parents=True, exist_ok=True)
+    (root / '.gitignore').write_text('tasks/**\n', encoding='utf-8')
     model = root / 'model/dev/123456789012/iam.properties'
     design = root / 'docs/designs/dev/123456789012/iam.md'
     subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
@@ -121,4 +123,5 @@ def make_service_loop_fixture(root):
     values['display.resource.001.comment'] = '実行権限の説明を更新'
     write_model(model, values)
     design.write_text(markdown_for(design, load_model(model).values, root), encoding='utf-8')
+    design.write_text(rendered_design(design), encoding='utf-8')
     return model
