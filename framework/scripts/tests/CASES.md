@@ -3435,7 +3435,7 @@ Service契約は既存Model Parameter Inputs UTでサービスごとの小さい
 
 元データは開始時commit `74252f50d16ea252b66ab5bfddd477e6861fa0ac`。参考1024v12の312/430に対し、実コードは313登録/431条件だった。
 最終ITは68 suite・236登録・311条件（補助登録込み）。Suite内のループ条件は登録条件数とは別に監査表に記録する。
-監査表は全313旧登録を含む4,687行（I 3,275 / U 1,346 / D 66）。同じHelperを異なる登録から呼ぶ地点も含むため、固有Assertion件数や実行coverage値ではない。
+監査表は全313旧登録を含む4,687行（I 3,281 / U 1,329 / D 77）。同じHelperを異なる登録から呼ぶ地点も含むため、固有Assertion件数や実行coverage値ではない。
 元検証地点は開始時commitの行番号。入力条件欄・元関数/callback・元ケースを合わせて参照し、変数で渡すFixtureやparametrizeの内容は同commitの該当定義で確認できる。
 最終所有先の全ファイル/関数の存在を静的確認する。登録到達性/完了Receiptの最終証拠は公式CIに委ねる。
 
@@ -3588,3 +3588,7 @@ ManagedPolicyNameの明示証明は現行ARN契約/既存UTに合わせ、Ref re
 公式CI再検証#135は全UT PASS（117.4秒）、IT 67/68 PASS・Model Design 1件FAIL（IT runner全体188.158秒）。
 残るKMSケースはTyped Reference付き旧Viewが変更Modelと不一致のため、account検証より前に正しく停止していた。
 同じ7関数のまま、まずstale View拒否と元Markdown/JSON/Model保持を検証し、その後に未検証Rendererで整合する不正Fixtureを用意して既存Principal.AWS拒否・write/read-only両方の保存保護Assertionへ到達させる。Productionの検証を無効化せず、元Assertionも削除しない。
+
+最終監査で、validation_cacheの旧2行が同じCase IDを使う点を照合し、Producer入力6地点の所有先を移管後Attribute Reference ITへ正した。
+Runtime Modelの列挙/読取/Hash/環境隔離は個別の既存IT/UT所有先を記載。入口を全削除した後の空列挙だけを既存Model Files UTへ追加して取りこぼしを防いだ（13条件PASS）。
+CI #136は全UT PASS（183.6秒）、IT 67/68 PASS。stale Viewの入口はwriteであり、read-onlyは先にPrincipal.AWS検証へ進むことを実測し、Fixtureの事前確認をwriteへ修正した。7ケースの元拒否Assertionは維持する。

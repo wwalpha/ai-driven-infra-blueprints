@@ -316,6 +316,9 @@ def check_discovery_alias_and_account():
         assert load_model(first).scope.path != load_model(second).scope.path
         assert all('999999999999' not in str(scope.path) for scope in list_models(root))
         assert load_model(third).scope.target == '222222222222'
+        for scope in (first, second, third):
+            scope.path.unlink()
+        assert list_models(root) == []
     for environment in ('templates', 'parameters'):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

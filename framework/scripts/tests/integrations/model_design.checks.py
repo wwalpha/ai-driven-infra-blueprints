@@ -167,7 +167,7 @@ def check_kms_policy_execution_account(root):
     invalid = {**values, document_key: values[document_key].replace(execution, identity)}
     write_model(source, text(invalid))
     with pytest.raises(ValueError, match='Markdown differs from Model expected display'):
-        SYNC.sync(root, False, "dev", identity, services=["kms"])
+        SYNC.sync(root, True, "dev", identity, services=["kms"])
     assert (path.read_bytes(), artifact.read_bytes()) == saved
     assert properties(read_model(source)) == properties(text(invalid))
     # Account rejection needs a matching authored view; stale typed-reference tables stop earlier.
