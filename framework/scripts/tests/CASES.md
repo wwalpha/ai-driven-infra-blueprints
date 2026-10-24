@@ -140,25 +140,53 @@ NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync 
 | `issues-v2::check_deferred_cache_finalization` | `check_deferred_cache_finalization` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | 最終入力確認まで候補保留・変更時不採用 | Issues v2 |
 | `issues-v2::check_scan_cache_guard_order` | `check_scan_cache_guard_order` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | 集計→live guard→cache確定・stale/例外/中断時の不採用 | Issues v2 |
 | `issues-v2::check_worker_protocol_and_fatal` | `check_worker_protocol_and_fatal` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | protocol拒否・共通runtime失敗後not_run | Issues v2 |
-| `issues-v2::check_cli_equivalence` | `check_cli_equivalence` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 4 | 固定版CLIのRule/Severity/Path/位置/Message同等性 | Issues v2 |
-| `issues-v2::check_config_exclusion_and_outputs` | `check_config_exclusion_and_outputs` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | config除外・抑制時coverage・output_file非書込・競合 | Issues v2 |
-| `issues-v2::check_noecho_and_dependencies` | `check_noecho_and_dependencies` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | NoEcho mask・HOME/cwd config存在と内容変更 | Issues v2 |
-| `issues-v2::check_rule_schema_state_and_reaping` | `check_rule_schema_state_and_reaping` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | custom rule/schema状態隔離・child異常後継続・回収 | Issues v2 |
-| `issues-v2::check_offline_schema` | `check_offline_schema` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 2 | provider/schema欠落・offline阻止・not_run | Issues v2 |
-| `issues-v2::check_timeout` | `check_timeout` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | timeoutとhelper/child回収 | Issues v2 |
-| `issues-v2::check_scan_publication_and_missing_view` | `check_scan_publication_and_missing_view` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 2 | scan→review→atomic save・guard/cache順序・共有dedup・stale・欠落/不正UTF-8 Viewと独立lint | Issues v2 |
-
+| `issues-v2::check_cli_equivalence` | `check_cli_equivalence` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 2 | 固定版CLIの正常/異常代表各1入力、Rule/Level/Location/MessageとRegion一致 | Issues v2 |
 | `issues-v2::check_plan_without_stack` | `check_plan_without_stack` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 4 | IMPORT/API-only先行分類・混在CREATE未検証・Stack loader回数 | Issues v2 |
-| `issues-v2::check_processing_coverage_keeps_matches` | `check_processing_coverage_keeps_matches` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | schema障害時の未完了coverageと通常/未知type診断保持・exit 2 | Issues v2 |
+| `issues-v2::check_processing_coverage_keeps_matches` | `check_processing_coverage_keeps_matches` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 2 | schema障害時の診断0件/混在の未完了coverageと通常/未知type診断保持・exit 2 | Issues v2 |
 | `issues-v2::check_failed_model_input_guards` | `check_failed_model_input_guards` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 5 | 欠落入口/part/参照先/不正UTF-8/読取不能の初回観測と保存前guard | Issues v2 |
 | `issues-v2::check_first_model_observation_is_not_replaced` | `check_first_model_observation_is_not_replaced` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | 失敗中のpart追加・矛盾するhashを後追いsnapshotで隠せない | Issues v2 |
 | `issues-v2::check_notice_resolution_and_update_series` | `check_notice_resolution_and_update_series` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | T1〜T4日時/scope・ordinary解消ID・別scope/Human保全・save-results非再実行 | Issues v2 |
 | `issues-v2::check_view_read_failure_policy` | `check_view_read_failure_policy` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | issues局所View障害・独立service/source診断・実チェック件数・非cache・raw guard・通常Validator伝播 | Issues v2 |
-| `issues-v2::check_corrupt_provider_schema` | `check_corrupt_provider_schema` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 2 | 隔離cacheのJSON/Schema構築障害・通常文字列のresource_typeによる実worker間の診断返却・診断0件/混在保持・未知type/override非誤分類・回収 | Issues v2 |
 | `issues-v4::check_child_builtin_packets_preserve_progress` | `check_child_builtin_packets_preserve_progress` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 2 | JSON組込み型へのIPC正規化・途中例外でも取得済み全channel/dependencies保持 | Issues residual repair |
-| `issues-v4::check_scan_dependency_view_failure` | `check_scan_dependency_view_failure` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 3 | scope外S3のUTF-8/欠落/permission障害・SQS未検証・独立Logs差分と実lint・非cache・raw変更guard・通常Validator伝播 | Issues residual repair |
 | `issues-v4::check_notice_fenced_roundtrip` | `check_notice_fenced_roundtrip` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | headerless owner/ID/Gate・backtick/tildeコード例・別scope・normal/notice/save-results解消往復 | Issues residual repair |
 | `issues-v4::check_notice_marker_boundaries` | `check_notice_marker_boundaries` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | scope不一致/未完marker/HTML保持・長いfence・正常notice再接続 | Issues residual repair |
+
+
+## Issue 21 issues-lintの検証責務
+
+現行登録は **4関数・5 pytest条件**（CLI同等性2、設定隔離1、schema復旧1、Timeout回収1）。
+開始時の9関数・17条件の全assertionを次表に対応づける。重複条件は再追加しない。
+
+| 旧IT（条件数） | 元のassertionが保証した内容 | 現在の保証先 |
+| --- | --- | --- |
+| check_cli_equivalence (4) | 正常/属性異常/YAML不正/非object、診断tuple・要求/実効Region・依存hash | 正常/属性異常の各代表1件は同名IT、YAML/非objectと抑制後decode不完全はcheck_config_input_branches UT。依存guardは既存check_dependency_guards |
+| check_config_exclusion_and_outputs (1) | config除外、ignore_bad/E0000抑制でも未検証、output非書込、deployment_files競合 | 分岐はcheck_config_input_branches UT、実output非書込・config再読込はcheck_worker_config_isolation IT |
+| check_noecho_and_dependencies (1) | NoEcho秘密値非漏洩、依存入力照合、HOME候補追加/config変更のstale拒否 | 実redactionは設定隔離IT、Default/parameter検出はcheck_noecho_redaction UT、候補追加/内容/HOME変更は既存check_dependency_guards UT |
+| check_rule_schema_state_and_reaping (1) | custom globalを要求間で持越さない、registry/override再設定、Worker正常終了、異常child後の継続/回収 | 設定隔離ITの4連続要求。異常childはschema復旧ITでfatal/not_runと回収を確認し、再使用せず新Workerへ。終了の分岐はshutdown UT |
+| check_offline_schema (2) | mapping/schema欠落でschema_unavailable、fatal/not_run、ネットワークで修復しない | 代表の実schema障害/非書換えはcheck_schema_failure_recovery IT、欠落組合せはcheck_schema_failure_classification、通信/書込拒否はcheck_offline_and_write_guards UT |
+| check_timeout (1) | Timeout結果とWorker終了 | check_timeout_reaping ITへ強化。30秒sleepを廃止し、起動確認後0.2秒の要求期限で実fork childのTERM無視・KILL・join・group消滅を検証。起動確認はfixture内だけでproduction IPC追加なし。Windowsは実onceのkill/wait/pipe解放 |
+| check_scan_publication_and_missing_view (2) | Scan→Lint→Artifact→Review→Save、cache guard順序、共有template一度decode、再集計禁止、review/stale拒否、欠落/UTF-8 Viewでも独立ServiceとLint継続 | 実接続は既存issues_scan::check_scan_publish_mismatch、cache順序は既存check_scan_cache_guard_order、review拒否は既存check_save_review_rejections、View/source独立性は既存check_view_read_failure_policyとcheck_dependency_view_failure_branches UT |
+| check_corrupt_provider_schema (2) | JSON/構築障害分類、通常文字列resource_type、通常/未知type診断とdecode/dependencies保持、fatal/not_run、0診断でも未完了、override非誤分類、子回収 | 実IPCと混在診断/dependenciesはschema復旧IT。分岐はschema分類UT、0/混在診断のcoverageは拡張check_processing_coverage_keeps_matches、組込み型と途中例外保持は既存check_child_builtin_packets_preserve_progress UT |
+| check_scan_dependency_view_failure (3) | scope外依存ViewのUTF-8/欠落/PermissionError分類、consumer、独立Logs差分/Lint、非Cache、チェック件数、秘密本文非漏洩、stale/読取不能保存拒否、通常Validator伝播 | 3分岐の未保証分はcheck_dependency_view_failure_branches UT。通常Validatorと独立Model/source検証は既存check_view_read_failure_policy UT。実Scan/Lint接続は既存check_scan_publish_mismatch IT |
+
+削除したScanケースを別ITへ移動しない。Issuesのproduction Scan/Hash/Cache/保存処理は変更しない。
+本番変更はWorkerの要求期限、既存progress packetの中継と読み取り、fatal時の再使用禁止、終了と回収だけ。
+10秒目標の検証はGitHub Actionsの実測で行う。ローカルIT・Full IT・時間測定は実行しない。
+
+| ID | Function | Kind | Source | Mode / Count | Guarantee | Provenance |
+| --- | --- | --- | --- | --- | --- | --- |
+| `issues21::check_child_shutdown_escalation` | `check_child_shutdown_escalation` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 3 | 終了済child非terminate・TERM後終了/残存だけKILL・join/close | Issue 21 |
+| `issues21::check_config_input_branches` | `check_config_input_branches` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 6 | 実固定版config/decoderの直接呼出し・除外/ignore_bad/ignore_checks/deployment競合/壊れたYAML/非object、Workerなし | Issue 21 |
+| `issues21::check_noecho_redaction` | `check_noecho_redaction` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | NoEcho Default/parameter上書き検出・nested診断redaction・Rule保持 | Issue 21 |
+| `issues21::check_offline_and_write_guards` | `check_offline_and_write_guards` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 1 | socket.connectとoutput書込のaudit拒否、実ネットワークなし | Issue 21 |
+| `issues21::check_schema_failure_classification` | `check_schema_failure_classification` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 7 | mapping/schema欠落・JSON/構築エラー・未知/removed/registry typeの非誤分類とfatal | Issue 21 |
+| `issues21::check_windows_once_contract` | `check_windows_once_contract` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 4 | Windows --once継続・timeout/異常終了/protocol不正の途中診断保持と再使用禁止 | Issue 21 |
+| `issues21::check_worker_deadline_and_response` | `check_worker_deadline_and_response` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 6 | 単調時計期限・断片stdout/無応答/異常JSON/EOF・途中診断保持・再使用禁止・session起動 | Issue 21 |
+| `issues21::check_worker_shutdown_escalation` | `check_worker_shutdown_escalation` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py) | pytest / 5 | 正常EOF待機と強制回収の分離・TERM後残存だけKILL・終了済leaderの残存group・pipe閉鎖・二重close | Issue 21 |
+| `issues21::check_dependency_view_failure_branches` | `check_dependency_view_failure_branches` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 4 | 選択View欠落とUTF-8/欠落/PermissionError依存View分類・consumer重複排除・独立Service/lint継続・非Cache・raw変更/読取不能保存guard、Workerなし | Issue 21 |
+| `issues21::check_schema_failure_recovery` | `check_schema_failure_recovery` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | 実cfn-lintの壊れたschemaと正常/未知type診断保持・fatal/not_run・新Worker復旧・異常child再使用禁止・offline/回収 | Issue 21 |
+| `issues21::check_timeout_reaping` | `check_timeout_reaping` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | 実OSの短いTimeout・POSIX実serve/forkとTERM無視childのkill/join・専用group消滅・pipe解放・Windows実onceプロセス回収 | Issue 21 |
+| `issues21::check_worker_config_isolation` | `check_worker_config_isolation` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py) | pytest / 1 | 実HOME/cwd設定・4連続要求のcustom rule/registry/override状態隔離と再読込・NoEcho非漏洩・output非書込・正常終了 | Issue 21 |
 
 
 ## Ordinary receiving-property reference contracts
@@ -2900,7 +2928,7 @@ CloudFormation共通入力判定は `units/cloudformation-inputs-unit.checks.py`
 | `naming_target_scope_cases` | UT移設: materialへのroot Name選択とnested除外は `test_naming_materials_mode_and_root_targets`。重複削除: path/pattern判定そのものは既存 `model_design-unit::check_naming_target_paths`。 |
 | `checks` | IT維持: Scan/Lint/naming/Artifact/Save・非blocking差分・content stale guardは `check_scan_publish_mismatch`、共有decode/独立Stack評価は `check_cross_service_reference`、scope/ordinary保持は `check_save_scope_and_rollback`。UT移設: strict/missing/template report、CRLF入口/parts・位置/row indexは `check_model_part_bytes_and_legacy_rows` / `check_missing_template_report`、input/revision独立・review/Task拒否・guard/現run IaC置換はIssues UT。重複削除: typed/Tags/secretはcomparison_core、source/reference/cacheは既存 `check_operation_pass_cache` / `check_failed_model_input_guards`、scope Gate/既存注記は `check_notice_resolution_and_update_series`、OSErrorのstaging/replaceはfile_operations UT。 |
 | `resource_cases` | UT移設: IMPORT/Terraform/未宣言Stackは `test_run_mode_classification`。重複削除: duplicate/type/explicit CFn identityは `test_issues_iac::ExplicitIdentityTests`、Ref/GetAtt/recorded/PENDING/handoffはreference-evidence UT、Select/Splitはcomparison_core。 |
-| `extended_cases` | UT移設: inline childの所属/欠落/多重/JSONエラー/配列順は `test_inline_policy_ownership` / `test_inline_policy_document`、独立KMS Aliasのimplicit parentReferenceは `test_grouped_parent_reference`、IMPORT実名/CREATE必須名はnaming UT、NoEcho/partitionは `test_stack_partition_and_noecho`。重複削除: singleton schema arrayは `test_receiver_contracts` と既存型判定、Fn/NoValueは既存test_issues_iac/core、Properties parserはmodel_design UT、View driftはissues-lint IT、CLI Scan exit=0はissues_api_only IT。 |
+| `extended_cases` | UT移設: inline childの所属/欠落/多重/JSONエラー/配列順は `test_inline_policy_ownership` / `test_inline_policy_document`、独立KMS Aliasのimplicit parentReferenceは `test_grouped_parent_reference`、IMPORT実名/CREATE必須名はnaming UT、NoEcho/partitionは `test_stack_partition_and_noecho`。重複削除: singleton schema arrayは `test_receiver_contracts` と既存型判定、Fn/NoValueは既存test_issues_iac/core、Properties parserはmodel_design UT、View driftはissues_scan ITとissues_scan-unitのView障害判定、CLI Scan exit=0はissues_api_only IT。 |
 | `check_nested_membership` | 重複削除: 既存 `comparison_core-unit` のexplicit/implicit配列構築・順序/重複と `test_issues_iac::test_formal_pipeline_membership_and_configuration_context` の親子context/独立property比較に集約。 |
 | `check_cloudtrail_membership` | IT維持: 実Model/TemplateのEventSelectors比較は `check_cloudtrail_comparison`。UT移設: 親移動/重複不足/余分parent/type変更・不完全配列と独立IsLogging差分は `test_cloudtrail_membership_comparison`。重複削除: 行順不変/不足・重複rowは既存comparison_core。 |
 | `check_condition_diagnostics` | IT維持: parameter-file→false→行/key/cause→集計/Report/Detailは `check_condition_provenance`。UT移設: true/default/And/Or/Not/If/Sub・missing/cycle/non-boolean/unknown・NoEcho/名前secret/numeric・Region/StackName provenanceはcomparison_core、inline child条件は `test_inactive_inline_policy_provenance`、偽resultのproven cause拒否は `check_causal_report_grouping`。 |

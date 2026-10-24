@@ -7,8 +7,10 @@ import json
 import os
 import runpy
 import select
+import signal
 import subprocess
 import sys
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -105,65 +107,114 @@ def decode_response(stdout, *, timeout=False, abnormal=False):
 
 
 class Worker:
-    """One single-threaded import helper; never fork the scan/validation process."""
+    """One single-threaded import helper in its own POSIX session."""
     def __init__(self):
         self.process = None
+        self.failed = False
 
     def request(self, request, timeout=120):
+        if self.failed:
+            return dict(failure('lint.runtime_unavailable', fatal=True), status='not_run')
+        deadline = time.monotonic() + timeout
         if sys.platform == 'win32':
             try:
                 result = subprocess.run([sys.executable, '-B', str(Path(__file__).with_name('cfn_lint_worker.py').resolve()), '--once'],
                     input=json.dumps(request), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                    text=True, encoding='utf-8', timeout=timeout)
+                    text=True, encoding='utf-8', timeout=max(0, deadline-time.monotonic()))
             except subprocess.TimeoutExpired as error:
-                return decode_response(error.stdout,timeout=True)
+                self.failed = True
+                return dict(decode_response(error.stdout, timeout=True), fatal=True)
             except OSError:
-                return failure('launch_failure',fatal=True)
+                self.failed = True
+                return failure('launch_failure', fatal=True)
             if result.returncode:
-                return decode_response(result.stdout,abnormal=True)
-            return decode_response(result.stdout)
+                self.failed = True
+                return dict(decode_response(result.stdout, abnormal=True), fatal=True)
+            decoded = decode_response(result.stdout)
+            self.failed = decoded.get('fatal', False) or any(e.get('code') == 'invalid_protocol' for e in decoded.get('processing_errors', []))
+            if self.failed:
+                decoded['fatal'] = True
+            return decoded
         if self.process is None:
             try:
                 self.process = subprocess.Popen([sys.executable, '-B', str(Path(__file__).with_name('cfn_lint_worker.py').resolve())],
-                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding='utf-8')
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                    start_new_session=True)
             except OSError:
-                return failure('launch_failure',fatal=True)
+                self.failed = True
+                return failure('launch_failure', fatal=True)
+        partial, pending = {}, b''
+        code = 'invalid_protocol'
         try:
-            self.process.stdin.write(json.dumps(request)+'\n')
+            self.process.stdin.write((json.dumps(request)+'\n').encode('utf-8'))
             self.process.stdin.flush()
-            if not select.select([self.process.stdout], [], [], timeout+5)[0]:
-                self.close()
-                self.process = None
-                return failure('timeout')
-            result = json.loads(self.process.stdout.readline())
-            if not isinstance(result, dict):
-                raise ValueError('protocol')
-            return result
-        except (OSError, ValueError, TypeError):
-            self.close()
-            self.process = None
-            return failure('invalid_protocol')
+            while True:
+                remaining = deadline-time.monotonic()
+                if remaining <= 0 or not select.select([self.process.stdout], [], [], remaining)[0]:
+                    code = 'timeout'
+                    break
+                chunk = os.read(self.process.stdout.fileno(), 65536)
+                if not chunk:
+                    code = 'child_abnormal_exit'
+                    break
+                pending += chunk
+                while b'\n' in pending:
+                    line, pending = pending.split(b'\n', 1)
+                    packet = json.loads(line)
+                    if not isinstance(packet, dict):
+                        raise ValueError('protocol')
+                    if 'progress' in packet:
+                        merge_progress(partial, packet)
+                    else:
+                        self.failed = packet.get('fatal', False)
+                        return packet
+        except (OSError, ValueError, TypeError, KeyError):
+            pass
+        self.failed = True
+        self.close(force=True)
+        return interrupted(partial, code, fatal=True)
 
-
-    def close(self):
-        if self.process is None:
+    def close(self, *, force=False):
+        process, self.process = self.process, None
+        if process is None:
             return
         try:
-            self.process.stdin.close()
-        except OSError:
-            pass
-        try:
-            self.process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            self.process.terminate()
             try:
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait()
+                process.stdin.close()
+            except OSError:
+                pass
+            if not force:
+                try:
+                    process.wait(timeout=0.5)
+                except subprocess.TimeoutExpired:
+                    force = True
+            if force:
+                signal_group(process.pid, signal.SIGTERM)
+                try:
+                    process.wait(timeout=0.5)
+                except subprocess.TimeoutExpired:
+                    signal_group(process.pid, signal.SIGKILL)
+                    process.wait()
+            # A dead group leader can still leave a child holding pipes open.
+            if signal_group(process.pid, 0):
+                signal_group(process.pid, signal.SIGTERM)
+                if signal_group(process.pid, 0):
+                    signal_group(process.pid, signal.SIGKILL)
         finally:
-            self.process.stdout.close()
+            for stream in (process.stdin, process.stdout):
+                try:
+                    stream.close()
+                except OSError:
+                    pass
 
+
+def signal_group(pid, signum):
+    """Only called with a Worker PID created by start_new_session=True."""
+    try:
+        os.killpg(pid, signum)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 
@@ -190,7 +241,9 @@ class LintSession:
                        or not isinstance(match.get('Location'),dict) or not isinstance(match.get('Message'),str) for match in result.get('matches', []))
                 or any(not isinstance(result.get(key,[]),list) or any(not isinstance(v,dict) for v in result.get(key,[]))
                        for key in ('processing_errors','unverified','decode'))):
-            result = failure('invalid_protocol')
+            result = failure('invalid_protocol', fatal=True)
+            self.worker.failed = True
+            self.worker.close(force=True)
         self.fatal = result.get('fatal', False)
         return result
 

@@ -2,7 +2,11 @@
 """Pure lint planning/classification, artifact indexing and deferred-cache boundaries."""
 
 import hashlib
+import io
+import signal
+import subprocess
 import sys
+from contextlib import ExitStack
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
@@ -15,6 +19,8 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
+import utils.cfn_lint as adapter
+import utils.cfn_lint_worker as lint_worker
 from issues.aggregate import aggregate
 from issues.aggregate import aggregate as real_aggregate
 from issues.artifact import detail_payload, scan_exit_code, summary, validate_artifact
@@ -175,7 +181,7 @@ def check_deferred_cache_finalization():
 
 
 def check_worker_protocol_and_fatal():
-    with patch('utils.cfn_lint.subprocess.Popen',side_effect=OSError('launch unavailable')):
+    with patch('utils.cfn_lint.sys.platform', 'linux'), patch('utils.cfn_lint.subprocess.Popen',side_effect=OSError('launch unavailable')):
         assert Worker().request({})['processing_errors'][0]['code']=='launch_failure'
     packet={'progress':{'match':{'Rule':{'Id':'E3002'},'Level':'Error','Message':'<masked>'},'state':{'decode_complete':True}}}
     partial=decode_response(json.dumps(packet)+'\n',timeout=True)
@@ -185,6 +191,7 @@ def check_worker_protocol_and_fatal():
     session=LintSession(Path.cwd())
     with patch.object(session.worker,'request',return_value={'matches':{},'completed':True}):
         assert session.validate(Path('explicit.yaml'),'ap-northeast-1')['processing_errors'][0]['code']=='invalid_protocol'
+    session = LintSession(Path.cwd())
     with patch.object(session.worker,'request',return_value=dict(matches=[],completed=False,fatal=True,status='processing_error')) as request:
         assert session.validate(Path('explicit.yaml'),'ap-northeast-1')['fatal']
         assert session.validate(Path('other.yaml'),'ap-northeast-1')['status']=='not_run'
@@ -318,10 +325,13 @@ def check_plan_without_stack(kinds, needs_stack):
     assert all(item['reason'] for item in coverage)
 
 
-def check_processing_coverage_keeps_matches():
+@pytest.mark.parametrize('with_matches', [False, True])
+def check_processing_coverage_keeps_matches(with_matches):
     failure = dict(code='schema_unavailable', resource_type='AWS::S3::Bucket')
     matches = [{'Rule': {'Id': 'E3002'}, 'Level': 'Error', 'Message': 'property error'},
                {'Rule': {'Id': 'E3006'}, 'Level': 'Error', 'Message': 'unknown resource'}]
+    if not with_matches:
+        matches = []
     result = dict(status='processing_error', completed=True, decode_complete=True, matches=matches,
                   processing_errors=[failure], unverified=[], dependencies={})
     job = dict(id='job', template='/fixture/template.yaml', region='ap-northeast-1', status='planned')
@@ -331,9 +341,200 @@ def check_processing_coverage_keeps_matches():
          patch('issues.cfn_lint.owner', return_value=('s3', False)):
         lint = run_lint(comparison)
     assert lint['status'] == 'incomplete' and lint['coverage'][0]['status'] == 'unverified'
-    assert len(lint['ordinary']) == 2 and lint['processing_errors'][0]['code'] == 'schema_unavailable'
+    assert len(lint['ordinary']) == (2 if with_matches else 0) and lint['processing_errors'][0]['code'] == 'schema_unavailable'
     assert len(lint['unverified']) == 1
     assert scan_exit_code(dict(ordinary=lint['ordinary'], processing_errors=lint['processing_errors'])) == 2
+
+
+@pytest.mark.parametrize('packets,clock,expected', [
+    ([b'{"progress":{"state":{"decode_complete":true}}}\n', b'{"status":'], [0, 0.01, 0.02, 0.1], 'timeout'),
+    (None, [0, 0.01], 'timeout'),
+    ([b'[]\n'], [0, 0.01], 'invalid_protocol'),
+    ([b'garbage\n'], [0, 0.01], 'invalid_protocol'),
+    ([b''], [0, 0.01], 'child_abnormal_exit'),
+    ([b'{"completed":true}\n'], [0, 0.01], None),
+])
+def check_worker_deadline_and_response(packets, clock, expected):
+    process = Mock(stdin=io.BytesIO(), stdout=Mock(), pid=12345)
+    process.wait.return_value = 0
+    worker = Worker()
+    with patch.object(adapter.sys, 'platform', 'linux'), \
+         patch.object(adapter.subprocess, 'Popen', return_value=process) as launch, \
+         patch.object(adapter.time, 'monotonic', side_effect=clock), \
+         patch.object(adapter.select, 'select', return_value=([process.stdout] if packets is not None else [], [], [])) as ready, \
+         patch.object(adapter.os, 'read', side_effect=packets or []), patch.object(adapter.os, 'killpg', create=True, side_effect=[None, ProcessLookupError()] if expected else [ProcessLookupError()]) as kill:
+        result = worker.request({}, timeout=0.1)
+        assert launch.call_args.kwargs['start_new_session'] is True
+        assert all(0 < call.args[3] <= 0.1 for call in ready.call_args_list)
+        if expected:
+            assert result['processing_errors'][-1]['code'] == expected and result['fatal']
+            assert worker.process is None and worker.request({})['status'] == 'not_run'
+            assert kill.call_args_list[0].args == (process.pid, signal.SIGTERM)
+            assert process.stdin.closed
+            process.stdout.close.assert_called_once()
+            if packets and len(packets) > 1:
+                assert result['decode_complete']
+        else:
+            assert result == {'completed': True} and worker.process is process
+            worker.close()
+            assert all(call.args[1] == 0 for call in kill.call_args_list)
+
+
+@pytest.mark.parametrize('force,stubborn,orphan', [(False, False, False), (False, True, False), (True, False, False), (True, True, False), (True, False, True)])
+def check_worker_shutdown_escalation(force, stubborn, orphan):
+    process = Mock(stdin=io.BytesIO(), stdout=Mock(), pid=12345)
+    process.wait.side_effect = ([subprocess.TimeoutExpired('worker', 0.5)] * (1 if force else 2) + [0]) if stubborn else [0]
+    worker = Worker()
+    worker.process = process
+    signals = [None, None, None, None, None] if orphan else [None] * (2 if stubborn else 1 if force else 0) + [ProcessLookupError()]
+    with patch.object(adapter.os, 'killpg', create=True, side_effect=signals) as kill, patch.object(adapter.signal, 'SIGKILL', 9, create=True):
+        worker.close(force=force)
+        worker.close()
+    assert worker.process is None and process.stdin.closed
+    process.stdout.close.assert_called_once()
+    assert [call.args[1] for call in kill.call_args_list if call.args[1]] == ([signal.SIGTERM, signal.SIGTERM, 9] if orphan else [signal.SIGTERM, 9] if stubborn else [signal.SIGTERM] if force else [])
+
+
+@pytest.mark.parametrize('running,alive', [(False, False), (True, False), (True, True)])
+def check_child_shutdown_escalation(running, alive):
+    process = Mock(pid=12345)
+    process.is_alive.side_effect = [running, alive]
+    lint_worker.reap_child(process)
+    assert process.terminate.called is running
+    assert process.kill.called is alive
+    assert process.join.call_count == (2 if running else 1)
+    process.close.assert_called_once()
+
+
+@pytest.mark.parametrize('outcome', ['timeout', 'abnormal', 'invalid', 'completed'])
+def check_windows_once_contract(outcome):
+    progress = json.dumps({'progress': {'match': {'Rule': {'Id': 'E3002'}}}}) + '\n'
+    returned = SimpleNamespace(returncode=7 if outcome == 'abnormal' else 0,
+        stdout='invalid' if outcome == 'invalid' else progress + json.dumps({'completed': True}))
+    with patch.object(adapter.sys, 'platform', 'win32'), \
+         patch.object(adapter.subprocess, 'run', side_effect=subprocess.TimeoutExpired('worker', 0.1, output=progress.encode()) if outcome == 'timeout' else None,
+                      return_value=returned) as invoke:
+        worker = Worker()
+        result = worker.request({}, timeout=0.1)
+        assert invoke.call_args.args[0][-1] == '--once'
+        assert 0 <= invoke.call_args.kwargs['timeout'] <= 0.1
+        if outcome != 'completed':
+            assert result['fatal']
+            if outcome != 'invalid':
+                assert result['matches'][0]['Rule']['Id'] == 'E3002'
+            assert worker.request({})['status'] == 'not_run' and invoke.call_count == 1
+        else:
+            assert result['completed']
+
+
+@pytest.mark.parametrize('mapping,kind,cause,removed,registry,expected', [
+    (False, 'AWS::S3::Bucket', None, False, False, True),
+    (True, 'AWS::S3::Bucket', 'missing', False, False, True),
+    (True, 'AWS::S3::Bucket', 'json', False, False, True),
+    (True, 'AWS::S3::Bucket', 'schema', False, False, True),
+    (True, 'AWS::Fixture::Absent', None, False, False, False),
+    (True, 'AWS::S3::Bucket', None, True, False, False),
+    (True, 'AWS::S3::Bucket', None, False, True, False),
+])
+def check_schema_failure_classification(tmp_path, mapping, kind, cause, removed, registry, expected):
+    response = dict(processing_errors=[], fatal=False)
+    offline = _bind_framework_callback(lint_worker._callback_structured_offline, response)
+    manager = Mock(_providers_dir=tmp_path, _resources_dir=tmp_path, _registry_schemas={kind} if registry else {},
+        _removed_types={kind} if removed else {})
+    manager._normalize_resource_type.side_effect = lambda value: value
+    manager._load_provider_module.return_value = {kind: 'schema'} if cause else {}
+    if mapping:
+        (tmp_path / 'us-east-1.json').write_text('{}')
+    if cause not in (None, 'missing'):
+        (tmp_path / 'schema.json').write_text('{}')
+    original = Mock(return_value={})
+    if cause in ('json', 'schema'):
+        error = lint_worker.ResourceNotFoundError(kind, 'ap-northeast-1')
+        error.__cause__ = json.JSONDecodeError('private schema body', '', 0) if cause == 'json' else ValueError('private schema body')
+        original.side_effect = error
+    track, progress = Mock(), Mock()
+    if not mapping:
+        with pytest.raises(lint_worker.OfflineError):
+            lint_worker._callback_structured_provider(offline, Mock(), track, manager, 'ap-northeast-1')
+    else:
+        try:
+            lint_worker._callback_structured_schema(lint_worker.ResourceNotFoundError, offline, original,
+                progress, response, track, manager, 'ap-northeast-1', kind)
+        except (lint_worker.OfflineError, lint_worker.ResourceNotFoundError):
+            pass
+    assert bool(response['processing_errors']) is expected and response['fatal'] is expected
+    assert all(e['code'] == 'schema_unavailable' for e in response['processing_errors'])
+    assert 'private schema body' not in json.dumps(response)
+    if cause in ('json', 'schema'):
+        assert response['processing_errors'][0]['exception'] == ('JSONDecodeError' if cause == 'json' else 'ValueError')
+
+
+def run_config_fixture(request, emit):
+    # Restore the process-only pinned API changes without launching a Worker.
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(lint_worker.sys, 'addaudithook'))
+        stack.enter_context(patch.dict(lint_worker.manager.__dict__, clear=False))
+        for target, names in (
+            (lint_worker.ProviderSchemaManager, ('update', '_load_provider_module', 'get_resource_schema')),
+            (lint_worker.ConfigMixIn, ('_glob_filenames', 'parameters', 'set_template_args')),
+            (lint_worker.cfn_yaml, ('load',)), (lint_worker.cfn_json, ('load',)),
+            (lint_worker.manager_module, ('get_url_content', 'get_url_metadata', 'get_url_retrieve', 'url_has_newer_version')),
+            (lint_worker.helpers, ('get_url_content', 'get_url_metadata', 'get_url_retrieve', 'url_has_newer_version')),
+        ):
+            for name in names:
+                if hasattr(target, name):
+                    stack.enter_context(patch.object(target, name, getattr(target, name)))
+        return lint_worker.structured(request, emit)
+
+
+@pytest.mark.parametrize('setting', ['excluded', 'ignore_bad', 'ignore_rule', 'deployment', 'syntax', 'root'])
+def check_config_input_branches(tmp_path, monkeypatch, setting):
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.setenv('USERPROFILE', str(tmp_path))
+    monkeypatch.setenv('XDG_CACHE_HOME', str(tmp_path / '.cache'))
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path / 'AppData/Local'))
+    monkeypatch.chdir(tmp_path)
+    template = tmp_path / 'app.yaml'
+    template.write_text('- not-an-object\n' if setting == 'root' else 'Resources: [broken')
+    settings = {'excluded': {'ignore_templates': [str(template)]}, 'ignore_bad': {'ignore_bad_template': True},
+        'ignore_rule': {'ignore_checks': ['E0000']}, 'deployment': {'deployment_files': ['other.json']}, 'syntax': {}, 'root': {}}[setting]
+    (tmp_path / '.cfnlintrc').write_text(json.dumps(settings))
+    result = run_config_fixture(dict(cwd=str(tmp_path), template=str(template), region='ap-northeast-1'), None)
+    if setting == 'deployment':
+        assert result['processing_errors'] and not result['completed']
+    elif setting == 'excluded':
+        assert result['status'] == 'excluded_by_config' and not result['completed'] and result['unverified']
+    else:
+        assert result['completed'] and not result['decode_complete'] and result['unverified'] and not result['processing_errors'], result
+        assert bool(result['matches']) is (setting in ('syntax', 'root'))
+        assert all(m['Message'] == 'Template decode incomplete; see Rule and Location' for m in result['matches'])
+
+
+def check_noecho_redaction():
+    secret = 'fixture-private-value'
+    response, sensitive, noecho = dict(decode=[]), set(), set()
+    loader = Mock(return_value={'Parameters': {'Input': {'NoEcho': True, 'Default': secret}}})
+    loader.__module__ = 'fixture'
+    lint_worker._callback_structured_observe_load(Mock(), Mock(), loader, noecho, response, sensitive, 'app.yaml')
+    assert noecho == {'Input'} and sensitive == {secret}
+    parameters = SimpleNamespace(fget=Mock(return_value=[SimpleNamespace(parameters={'Input': secret+'-override'})]))
+    lint_worker._callback_structured_parameters(noecho, parameters, sensitive, Mock())
+    matches = {'Rule': {'Id': 'E3002'}, 'Level': 'Error', 'Location': {'Path': ['Parameters']},
+        'Message': secret, 'nested': [secret+'-override']}
+    redacted = lint_worker._recursive_structured_redact(sensitive, matches)
+    assert secret not in json.dumps(redacted) and redacted['Rule'] == matches['Rule']
+
+
+
+def check_offline_and_write_guards(tmp_path):
+    response = dict(processing_errors=[])
+    state = SimpleNamespace(busy=False)
+    with pytest.raises(lint_worker.OfflineError):
+        lint_worker._callback_structured_audit(state, response, Mock(), 'socket.connect', ())
+    assert response['processing_errors'] == [dict(code='schema_unavailable')]
+    with pytest.raises(lint_worker.OfflineError):
+        lint_worker._callback_structured_audit(state, response, Mock(), 'open', (str(tmp_path / 'output'), 'w', 0))
+
 
 if __name__=='__main__':
     raise SystemExit(run(__file__))

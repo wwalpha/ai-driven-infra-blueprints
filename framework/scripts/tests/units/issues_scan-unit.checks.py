@@ -703,6 +703,78 @@ def check_view_read_failure_policy(tmp_path):
         verify_inputs(root, artifact, cache=SimpleNamespace(common_key=lambda: 'common'))
 
 
+def dependency_read_failure(bad, original, path):
+    if path == bad:
+        raise PermissionError('private dependency body')
+    return original(path)
+
+
+def compare_with_unreadable_view(comparison, bad, source, validator, dependent):
+    if dependent:
+        assert view_text(comparison, bad, phase='design-links-reference', consumer=source) is None
+        # Repeated consumers are deduplicated while the independent service continues.
+        view_text(comparison, bad, phase='design-links-reference', consumer=source)
+        validator.findings.unverified.append(dict(code='design.links_unavailable', service='sqs'))
+    return [dict(category='difference', service='cloudwatch-logs', resource='001', property='Setting',
+                 reason='value mismatch', desired=1, actual=2)]
+
+
+@pytest.mark.parametrize('failure', ['utf8', 'missing', 'permission', 'selected-missing'])
+def check_dependency_view_failure_branches(tmp_path, monkeypatch, failure):
+    docs = tmp_path / 'docs/designs/dev/team'
+    docs.mkdir(parents=True)
+    dependent = failure != 'selected-missing'
+    bad, source = docs / ('s3.md' if dependent else 'sqs.md'), docs / 'sqs.md'
+    if dependent:
+        source.write_text('')
+    (docs / 'cloudwatch-logs.md').write_text('')
+    (tmp_path / 'project.json').write_text('{}')
+    if failure not in ('missing', 'selected-missing'):
+        bad.write_bytes(b'\xff private dependency body')
+    if failure == 'permission':
+        monkeypatch.setattr(Path, 'read_bytes', partial(dependency_read_failure, bad, Path.read_bytes))
+    comparison = SimpleNamespace(root=tmp_path, environment='dev', directory='team', services=['sqs', 'cloudwatch-logs'],
+        inputs={tmp_path / 'project.json'}, read_hashes={}, view_errors={}, unreadable_inputs=False,
+        warnings=[], catalog=None, models={}, results=[], metrics={}, display_differences={}, redacted=lambda value, prop="": value)
+    comparison.track = partial(Inputs.track, comparison)
+    comparison.retain_hash = partial(Inputs.retain_hash, comparison)
+    cache = SimpleNamespace(common=None, common_key=Mock(return_value='common'), save=Mock())
+    validator = SimpleNamespace(checks=3, check=Mock(), cache=cache, service_cache_pending=[('pending', 3)] if dependent else [],
+        findings=SimpleNamespace(unverified=[], result=Mock(return_value=SimpleNamespace(metadata={}))))
+    validator.finalize_service_cache = partial(Validator.finalize_service_cache, validator)
+    comparison.run = partial(compare_with_unreadable_view, comparison, bad, source, validator, dependent)
+    lint = dict(jobs=[dict(completed=True)], coverage=[], status='checked', lint_dependencies={},
+        **{name: [] for name in ('ordinary', 'judgments', 'warnings', 'information', 'unverified', 'processing_errors')})
+    with patch.object(scan_runner, 'Comparison', return_value=comparison), \
+         patch.object(scan_runner, 'PassCache', return_value=cache), \
+         patch.object(scan_runner, 'mechanical', side_effect=partial(mechanical_result, validator)), \
+         patch.object(scan_runner, 'naming_materials', return_value=({'names': []}, [])), \
+         patch.object(scan_runner, 'existing_materials', return_value=([], [])), \
+         patch('issues.cfn_lint.run_lint', return_value=lint) as lint_call:
+        artifact = scan_runner.scan(tmp_path, 'dev', 'team', comparison.services)
+    errors = artifact['processing_errors']
+    if dependent:
+        assert len(errors) == 1 and errors[0]['code'] == 'mechanical.view_read'
+        assert errors[0]['exception'] == {'utf8': 'UnicodeDecodeError', 'missing': 'FileNotFoundError', 'permission': 'PermissionError'}[failure]
+        assert errors[0]['phase'] == 'design-links-reference' and errors[0]['consumers'] == ['docs/designs/dev/team/sqs.md']
+        assert any(e['code'] == 'design.links_unavailable' and e['service'] == 'sqs' for e in artifact['unverified'])
+    else:
+        assert not errors
+        assert any(e['code'] == 'mechanical.view_missing' and e['service'] == 'sqs' for e in artifact['unverified'])
+    assert artifact['iac'][0]['service'] == 'cloudwatch-logs' and artifact['cfn_lint']['jobs'][0]['completed']
+    assert lint_call.call_count == 1 and not cache.save.called and not validator.service_cache_pending
+    assert artifact['validation_status'] == ('ERROR' if dependent else 'INCOMPLETE') and artifact['checks'] == 3
+    assert 'private dependency body' not in json.dumps(artifact)
+    if failure == 'permission':
+        with pytest.raises(ValueError, match='freshness unprovable'):
+            verify_inputs(tmp_path, artifact, cache=cache)
+    else:
+        verify_inputs(tmp_path, artifact, cache=cache)
+        bad.write_bytes(b'changed dependency')
+        with pytest.raises(ValueError, match='stale scan'):
+            verify_inputs(tmp_path, artifact, cache=cache)
+
+
 def interrupt_comparison(comparison, exception):
     comparison.sensitive_values.add('exception-secret')
     for index in range(5):

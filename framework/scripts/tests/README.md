@@ -105,7 +105,22 @@ loaderのUTは `units/fixture_cases-unit.checks.py`。正式ITと性能の全体
 
 ## Issues v2 / cfn-lint
 
-issuesの正規APIは `issues/`、Model ↔ IaC比較の入口は `comparison.Comparison`。比較の結果・診断・表示差分は `comparison/` が返し、Issuesが1回集約する。旧 `issues_iac.py` / `issues_reports.py` のwrapperは置かず、CLIだけ `issues_scan.py` を維持する。UT追加は `issues-lint-unit.checks.py` の9関数20条件、IT追加は `issues-lint.checks.py` の8関数14条件。正式ITは既存 `Framework IT` / `tests/run_it.py` だけを使う。固定版1.57.2が無い環境で、CLI同等性・状態隔離の検証を実施済みとは扱わない。
+issuesの正規APIは `issues/`、Model ↔ IaC比較の入口は `comparison.Comparison`。比較の結果・診断・表示差分は `comparison/` が返し、Issuesが1回集約する。旧 `issues_iac.py` / `issues_reports.py` のwrapperは置かず、CLIだけ `issues_scan.py` を維持する。現行 `issues-lint-unit.checks.py` は18関数56条件、`issues-lint.checks.py` は4関数5条件（変更前9関数17条件）。正式ITは既存 `Framework IT` / `tests/run_it.py` だけを使う。固定版1.57.2が無い環境で、CLI同等性・状態隔離の検証を実施済みとは扱わない。
+
+ITは固定版CLI一致（正常/異常の各代表1件）、Worker設定隔離、schema障害と新Worker復旧、実OS Timeout回収の4契約。
+設定隔離の4連続要求でHOME/cwd設定、custom ruleの状態、registry/overrideの再読込、NoEcho、output非書込をまとめる。
+Scan→Lint→Review→Saveとstale拒否の実接続は既存 `issues_scan::check_scan_publish_mismatch` に一本化し、重いケースを他suiteへ追加しない。
+View障害別分類・独立Service継続・非Cache・依存変更拒否は `issues_scan-unit`、設定/入力/schema分類・期限/protocol/fatal・終了エスカレーションは `issues-lint-unit` が受け持つ。
+全旧assertionと削除/移管先は [Issue 21対応表](CASES.md#issue-21-issues-lintの検証責務) を参照。
+
+要求は `time.monotonic()` の一つの期限で管理し、固定5秒猶予と無期限readlineを使わない。
+既存progress packetを中継し、断片stdoutでも期限を守り、取得済み診断をTimeout/異常終了後も保持する。
+正常EOF終了待ちと強制回収を分け、専用sessionのWorker/childだけをTERM→残存時KILLで回収、join/wait後にpipe/handleを閉じる。
+IT fixtureは30秒sleepを廃止し、起動確認後0.2秒の要求期限でTERMを無視する実childも回収する。起動確認はfixtureだけでproduction protocolは追加しない。
+Windowsは既存 `--once` と実OS subprocessのtimeout/回収、UTのprogress/protocol契約を維持する。
+
+Issue 21のローカル確認は関連UT・構文・collect-only・登録/参照の静的整合性だけ。IT/Full IT・AWS・Actions手動起動は禁止。
+51.079秒から10秒以内の目標はGitHub Actionsの実測待ちであり、未測定の時間やIT PASSを報告しない。
 
 一時HOME/cwd/config/custom rule/provider schemaを実環境から分離し、本物のHOMEとインストール済みpackageには書き込まない。Framework定義はコピーも読取専用。モデル・template・parametersは独立した可変fixtureを使う。summary/detail/saveはv2の保存済み集計だけを使う。
 

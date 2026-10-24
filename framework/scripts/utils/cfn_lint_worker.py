@@ -377,6 +377,7 @@ def _callback_child_send(partial, sender, /, packet):
 
 
 def child(request, sender):
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
     partial = {}
     send = _bind_framework_callback(_callback_child_send, partial, sender)
     try:
@@ -390,51 +391,59 @@ def child(request, sender):
 
 
 def _serve_terminate(signum, frame):
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
     raise SystemExit(1)
+
+
+def reap_child(process):
+    if process.pid is None:
+        return
+    try:
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=0.1)
+            if process.is_alive():
+                process.kill()
+        process.join()
+    finally:
+        process.close()
 
 
 def serve():
     context = multiprocessing.get_context('fork')
-    terminate = _serve_terminate
-    signal.signal(signal.SIGTERM,terminate)
+    signal.signal(signal.SIGTERM, _serve_terminate)
     for line in sys.stdin:
-        receiver,sender = context.Pipe(duplex=False)
-        process = context.Process(target=child,args=(json.loads(line),sender))
+        receiver, sender = context.Pipe(duplex=False)
+        process = context.Process(target=child, args=(json.loads(line), sender))
         try:
             process.start()
             sender.close()
             partial = {}
             deadline = time.monotonic()+120
             while True:
-                remaining = max(0,deadline-time.monotonic())
+                remaining = max(0, deadline-time.monotonic())
                 if not receiver.poll(remaining):
-                    result = interrupted(partial,'timeout')
+                    result = interrupted(partial, 'timeout', fatal=True)
                     break
                 try:
                     packet = receiver.recv()
                 except EOFError:
-                    result = interrupted(partial,'child_abnormal_exit')
+                    result = interrupted(partial, 'child_abnormal_exit', fatal=True)
                     break
-                if isinstance(packet,dict) and 'progress' in packet:
-                    merge_progress(partial,packet)
+                if isinstance(packet, dict) and 'progress' in packet:
+                    merge_progress(partial, packet)
+                    emit_packet(sys.stdout, packet)
                 else:
                     result = packet
                     break
-            process.join(timeout=1)
-            if process.exitcode not in (None,0):
-                result = interrupted(partial,'child_abnormal_exit')
-            print(json.dumps(result),flush=True)
+            process.join(timeout=0.1)
+            if process.exitcode not in (None, 0):
+                result = interrupted(partial, 'child_abnormal_exit', fatal=True)
         finally:
-            if process.pid is not None:
-                if process.is_alive():
-                    process.terminate()
-                    process.join(timeout=5)
-                    if process.is_alive():
-                        process.kill()
-                process.join()
-                process.close()
+            reap_child(process)
             receiver.close()
             sender.close()
+        emit_packet(sys.stdout, result)
 
 
 def emit_packet(protocol, packet):
