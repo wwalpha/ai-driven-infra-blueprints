@@ -510,13 +510,13 @@ adding the workflow does not configure branch protection.
 
 ### Fixed snapshot validation after conflict resolution
 
-Read [Conflict resolution and reproducible validation](framework/rules/loop-engineering.md#conflict-resolution-and-reproducible-validation) before staging/resolving conflicts or selecting affected checks. Stage this task's inputs/contract and specify a comparison-base commit matching the requested scope:
+Read [Conflict resolution and reproducible validation](framework/rules/loop-engineering.md#conflict-resolution-and-reproducible-validation) before staging/resolving conflicts or running staged validation. Stage this task's inputs/contract and specify a comparison-base commit matching the requested scope:
 
 ```console
-python -X utf8 framework/scripts/blueprint-loop.py --mode task --staged --base <比較元commit> --affected
+python -X utf8 framework/scripts/blueprint-loop.py --mode task --staged --base <比較元commit>
 ```
 
-The disposable snapshot excludes original unstaged/untracked inputs and preserves the source index. Changed source inputs make the result stale. `--affected` is a compatibility option for `task` / `local`: it does not select or run Framework UT/IT, including with `--staged`, and cannot combine with `full` / `--all`. Snapshot input isolation, stale detection and Task validation remain unchanged. Framework CI runs all UT and IT on every PR, main/master push and manual dispatch through `run_it.py`, without changed-file selection. Framework task completion follows the classified [Validation policy](framework/rules/loop-engineering.md#validation-policy). See [Validation cache](framework/rules/loop-engineering.md#validation-cache) before reuse; cache success never replaces dynamic Task/issue/permission checks.
+The disposable snapshot excludes original unstaged/untracked inputs and preserves the source index. Changed source inputs make the result stale. `task` mode validates the selected Task contract and Validation scope; it does not select or run Framework UT/IT, including with `--staged`. Framework CI runs all UT and IT on every PR, main/master push and manual dispatch through `run_it.py`, without changed-file selection. Framework task completion follows the classified [Validation policy](framework/rules/loop-engineering.md#validation-policy). See [Validation cache](framework/rules/loop-engineering.md#validation-cache) before reuse; cache success never replaces dynamic Task/issue/permission checks.
 
 ### Local loop timing measurement
 
