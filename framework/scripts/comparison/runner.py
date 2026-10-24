@@ -23,7 +23,7 @@ from . import resource as resource_rules
 from . import rows as row_rules
 from .inputs import Inputs
 from .result import RowResult, record, setting_result
-from .values import compare_values
+from .values import ValueDecision, compare_values, unverified
 
 ComparisonValue: TypeAlias = JsonValue | Expression | ResourceReference | tuple[str, str] | list['ComparisonValue'] | dict[str, 'ComparisonValue']
 
@@ -305,26 +305,15 @@ class Comparison(Inputs):
                         parent = re.split(r'\.(?:Configuration|Values)(?:\[|\.|$)', short)[0]
                         prepared = self.prepare_value(service, row, kind, row_id=rid, stack=name, context=contexts.get(rid, contexts.get(parent)))
                         settings.result.warnings.extend(prepared.warnings)
+                        for path, pointer, error in prepared.failures:
+                            self.incomplete_value(settings, service, identity, kind, kind + '.' + path, error,
+                                dict(source or {}, pointer=pointer), name, owner, template)
                         if prepared.error is not None:
                             raise prepared.error
                         value = prepared.value
-                    except (Blocked, KeyError, ValueError, TypeError) as error:
-                        details = {}
-                        category = 'uncompared' if isinstance(error, (Blocked, KeyError)) else 'error'
-                        if hasattr(error, 'reference_detail'):
-                            symbol, field = error.reference_detail
-                            try:
-                                actual = self.evaluate(name, select(owner.get('Properties', {}), field))
-                                reason = 'Model attribute is outside allowed property forms; comparison remains deferred'
-                            except (Blocked, KeyError, ValueError, TypeError, IndexError) as actual_error:
-                                actual = {'unresolved': self.redacted(str(actual_error))}
-                                reason = 'Model attribute is outside allowed property forms; IaC reference evaluation also failed'
-                            details = dict(reference_diagnostics=[self.reference_diagnostic(symbol, actual, kind, field, reason)],
-                                           stack=name, template={'path': template.relative_to(self.root).as_posix()})
-                        item = self.make_record(category, service, identity, prop, str(error), source=source, **details)
-                        settings.result.records.append(item)
-                        settings.incomplete.setdefault(re.sub(r'\[\d*\]', '', short.split('.', 1)[0]), []).append(self.redacted(item))
-                        continue
+                    except (Blocked, KeyError, OSError, ValueError, ImportError, TypeError, IndexError) as error:
+                        self.incomplete_value(settings, service, identity, kind, prop, error, source, name, owner, template)
+                        value = Expression('Unverified', [])
                 if '.' not in short and not short.endswith('[]'):
                     settings.exact.add(short)
                 put_row(settings.desired, short, value)
@@ -334,6 +323,23 @@ class Comparison(Inputs):
         except (Blocked, KeyError, OSError, ValueError, ImportError, TypeError) as error:
             settings.result.failure = error
             return settings
+
+    def incomplete_value(self, settings, service, identity, kind, prop, error, source, name, owner, template):
+        details = dict(stack=name, template={'path': template.relative_to(self.root).as_posix()})
+        category = 'uncompared' if isinstance(error, (Blocked, KeyError)) else 'error'
+        if hasattr(error, 'reference_detail'):
+            symbol, field = error.reference_detail
+            try:
+                actual = self.evaluate(name, select(owner.get('Properties', {}), field))
+                reason = 'Model attribute is outside allowed property forms; comparison remains deferred'
+            except (Blocked, KeyError, ValueError, TypeError, IndexError) as actual_error:
+                actual = {'unresolved': self.redacted(str(actual_error))}
+                reason = 'Model attribute is outside allowed property forms; IaC reference evaluation also failed'
+            details['reference_diagnostics'] = [self.reference_diagnostic(symbol, actual, kind, field, reason)]
+        item = self.make_record(category, service, identity, prop, str(error), source=source, **details)
+        settings.result.records.append(item)
+        key = re.sub(r'\[\d*\]', '', prop.removeprefix(kind + '.').split('.', 1)[0])
+        settings.incomplete.setdefault(key, []).append(self.redacted(item))
 
     def compare_setting(
         self,
@@ -349,28 +355,20 @@ class Comparison(Inputs):
     ) -> RowResult:
         prop = kind + '.' + key
         sources = settings.sources[key]
-        if key in settings.incomplete:
-            children = settings.incomplete[key]
-            return RowResult([self.make_record('uncompared', service, identity, prop,
-                'incomplete nested input; whole setting comparison deferred', stack=name, source=sources[0],
-                template={'path': template.relative_to(self.root).as_posix()}, deferred_children=children,
-                reference_diagnostics=[d for child in children for d in child.get('reference_diagnostics', [])])])
         iac_source = {'path': template.relative_to(self.root).as_posix()}
         marks = self.template_locations.get(id(owner.get('Properties', {})), {})
         if line := marks.get(key, self.template_locations.get(id(owner), {}).get(None)):
             iac_source['line'] = line
         actual = owner.get('Properties', {}).get(key)
         inverse = self.local_comparison and (kind, key) == registry.hook(kind, 'INVERSE_ROLES')
-        if key not in owner.get('Properties', {}) and not inverse:
-            return RowResult([self.make_record('difference', service, identity, prop, 'property missing',
-                desired=value, stack=name, source=sources[0], template=iac_source, model_sources=sources)])
+        missing = 'property missing' if key not in owner.get('Properties', {}) and not inverse else None
         warnings, actual_error = [], None
         try:
             if inverse:
                 actual = registry.hook(kind, 'managed_policy_roles')(service, identity, name,
                     owner.get('Properties', {}).get(key, []), stack_inputs=self.stack_inputs,
                     evaluate=self.evaluate, reference_same=self.reference_same, symbol=self.symbol)
-            else:
+            elif not missing:
                 try:
                     actual = self.evaluate(name, actual)
                 except (Blocked, KeyError) as error:
@@ -386,12 +384,16 @@ class Comparison(Inputs):
             return RowResult([self.make_record(category, service, identity, prop, str(error), source=sources[0],
                 template=iac_source, cause=getattr(error, 'iac_cause', None))], warnings)
         if actual == {'$noValue': True}:
-            return RowResult([self.make_record('difference', service, identity, prop,
-                'property omitted by AWS::NoValue', value, None, name, sources[0], iac_source)], warnings)
+            missing = 'property omitted by AWS::NoValue'
         reference = (lambda a, b, path: self.reference_decision(a, b, kind, path)) if self.local_comparison else None
-        decision = compare_values(value, actual, key, exact=key in settings.exact, unordered=inverse, reference=reference)
+        decision = (ValueDecision(False, (), False) if missing else
+                    compare_values(value, actual, key, exact=key in settings.exact, unordered=inverse, reference=reference))
+        if (key in settings.incomplete and decision.equal is None and actual_error is None and not decision.diagnostics
+                and not list(unverified(value)) and not list(unverified(actual))):
+            return RowResult(warnings=warnings)
         batch = setting_result(service, identity, prop, value, actual, decision, name, sources, iac_source,
             exact=key in settings.exact, actual_error=actual_error, redact=self.redacted, reference=reference,
-            default_source=self.source(service, f'desired.resource.{identity}.resourceType'))
+            default_source=self.source(service, f'desired.resource.{identity}.resourceType'), missing=missing,
+            deferred_children=settings.incomplete.get(key, []))
         batch.warnings.extend(warnings)
         return batch

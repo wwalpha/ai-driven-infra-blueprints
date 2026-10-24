@@ -87,7 +87,7 @@ def _recursive_value_differences_walk(add, child, exact, formatted, missing, pre
         add(path, shown_left, shown_right)
 
 
-def value_differences(desired, actual, property_name='', *, exact=False, redact=safe_value, reference=None):
+def value_differences(desired, actual, property_name='', *, exact=False, redact=safe_value, reference=None, missing_actual=False):
     """Display only: use the detector's predicate, then redact the differing leaves."""
     missing = object()
     differences = []
@@ -102,7 +102,8 @@ def value_differences(desired, actual, property_name='', *, exact=False, redact=
     walk = _bind_framework_callback(_recursive_value_differences_walk, add, child, exact, formatted, missing, predicate, property_name, reference)
 
     name = property_name.rsplit('.', 1)[-1]
-    walk(desired, actual, redact(desired, property_name), redact(actual, property_name), name if isinstance(desired, list) else '', name)
+    walk(desired, missing if missing_actual else actual, redact(desired, property_name),
+         missing if missing_actual else redact(actual, property_name), name if isinstance(desired, list) else '', name)
     return differences
 
 def redacted(value, prop='', *, sensitive_values=()):
@@ -139,7 +140,7 @@ class RowResult:
 
 
 def setting_result(service, identity, prop, desired, actual, decision, stack, sources, template, *,
-                   exact, actual_error, redact, reference, default_source=None):
+                   exact, actual_error, redact, reference, default_source=None, missing=None, deferred_children=()):
     unverified = _imports_comparison_values.unverified
     source = sources[0] or default_source
     if decision.equal is None:
@@ -155,7 +156,9 @@ def setting_result(service, identity, prop, desired, actual, decision, stack, so
             source=source, template=template, redact=redact,
             **({"reference_diagnostics": list(decision.diagnostics)} if decision.diagnostics else {}))])
     details = {'model_sources': sources}
-    reason = 'value mismatch'
+    if deferred_children:
+        details['deferred_children'] = list(deferred_children)
+    reason = missing or 'value mismatch'
     if decision.diagnostics:
         details['reference_diagnostics'] = list(decision.diagnostics)
         errors = [item['reason'] for item in decision.diagnostics if item['reason'].startswith('KMS format')
@@ -164,11 +167,11 @@ def setting_result(service, identity, prop, desired, actual, decision, stack, so
             reason = '; '.join(dict.fromkeys(errors))
     # The predicate sees raw values; masking is applied only to emitted evidence.
     differences = value_differences(desired, actual, prop, exact=exact, redact=redact,
-        reference=(lambda a, b, path: reference(a, b, path).equal) if reference else None)
-    item = record('difference', service, identity, prop, reason, desired, actual, stack, source, template,
+        reference=(lambda a, b, path: reference(a, b, path).equal) if reference else None, missing_actual=bool(missing))
+    item = record('difference', service, identity, prop, reason, desired, None if missing else actual, stack, source, template,
                   redact=redact, **details)
     records = [item]
-    for pointer in sorted(set(unverified(desired)) | set(unverified(actual))):
+    for pointer in sorted(set(unverified(desired)) | (set() if missing else set(unverified(actual)))):
         records.append(record('uncompared', service, identity, prop + '#' + pointer,
             'unresolved/unverified intrinsic; JSON Pointer=' + repr(pointer), stack=stack,
             source=source, template=template, redact=redact))

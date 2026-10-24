@@ -2942,7 +2942,7 @@ ITの `check_single_target_cache` / `check_template_consumers`（2ケース）�
 | `issues19::test_codebuild_secret_context` | `test_codebuild_secret_context` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1131) | pytest / 4 | codebuild secret context | 未保証分のみ小入力へ移設 |
 | `issues19::test_policy_statement_bijection` | `test_policy_statement_bijection` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1148) | pytest / 7 | policy statement bijection | 未保証分のみ小入力へ移設 |
 | `issues19::test_unordered_augmenting_paths` | `test_unordered_augmenting_paths` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1170) | pytest / 1 | unordered augmenting paths | 未保証分のみ小入力へ移設 |
-| `issues19::test_nested_diagnostics_retain_format_and_failures` | `test_nested_diagnostics_retain_format_and_failures` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1181) | pytest / 2 | nested diagnostics retain format and failures | 未保証分のみ小入力へ移設 |
+| `issues19::test_nested_diagnostics_retain_format_and_failures` | `test_nested_diagnostics_retain_format_and_failures` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1181) | pytest / 2 | 確定差分とネスト診断・参照失敗・位置・秘匿化を併存 | 未保証分のみ小入力へ移設 |
 | `issues19::test_naming_materials_mode_and_root_targets` | `test_naming_materials_mode_and_root_targets` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1213) | pytest / 1 | naming materials mode and root targets | 未保証分のみ小入力へ移設 |
 | `issues19::test_stack_partition_and_noecho` | `test_stack_partition_and_noecho` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1246) | pytest / 6 | stack partition and noecho | 未保証分のみ小入力へ移設 |
 | `issues19::test_inactive_inline_policy_provenance` | `test_inactive_inline_policy_provenance` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L1268) | pytest / 1 | inactive inline policy provenance | 未保証分のみ小入力へ移設 |
@@ -2998,6 +2998,17 @@ CloudFormation共通入力判定は `units/cloudformation-inputs-unit.checks.py`
 | `design-definitions::duplicates` | `check_duplicates` | UT | [units/design-definitions-unit.checks.py](units/design-definitions-unit.checks.py) | direct / 1 | 6集合すべての重複登録を拒否 | 小型定義 |
 | `design-definitions::registration` | `check_registration` | UT | [units/design-definitions-unit.checks.py](units/design-definitions-unit.checks.py) | direct / 1 | 25サービスの明示登録・決定順・純粋データ依存 | 固定定義module |
 | `design-layout::import-order` | `check_import_order` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py) | pytest / 4 | Layout・Policy・EC2 SG・Model表示の先頭importで循環初期化を検出 | 独立Python process |
+
+## Incomplete Model settings and confirmed IaC differences
+
+| Case ID | Function | Layer | Source | Execution / Count | Contract | Scope |
+| --- | --- | --- | --- | --- | --- | --- |
+| `incomplete::missing-structure` | `test_incomplete_codebuild_missing_structure` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 2 | 属性未指定KMS.Aliasを含む変数・親欠落をdifference一件と未比較一件で保持 | CodeBuild合成 |
+| `incomplete::presence-siblings` | `test_incomplete_setting_presence_and_siblings` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 14 | 既知兄弟差分・追加IaC許容・存在不明・null/false/空値・NoValue・Conditionを分離 | 共通設定比較 |
+| `incomplete::all-failed` | `test_all_children_failed_preserve_parent_and_categories` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 2 | 全子準備失敗でも親存在確認、errorとuncomparedの区別、matched防止 | 共通設定比較 |
+| `incomplete::processing-errors` | `test_preparation_error_retains_confirmed_difference` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 5 | 値準備の実例外と確定欠落を併存 | 例外分類 |
+| `incomplete::artifact` | `check_incomplete_setting_artifact` | IT | [integrations/issues_failed_services.checks.py](integrations/issues_failed_services.checks.py) | direct / 1 | 合成Model読込→比較→集計→artifact詳細→iac-issues、位置・秘匿化・件数・欠落表示 | Frameworkのみ |
+| `incomplete::json-children` | `test_incomplete_json_preserves_declared_children` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 8 | JSON全体行の子参照失敗でもフィールド・要素・値差分とPointerを保持、require_valueは失敗を返す | 共通設定比較 |
 
 ## Issue #20 check-model-aws responsibility separation
 

@@ -1177,6 +1177,28 @@ def reference_for(comparison, kind, left, right, path):
     return comparison.reference_same(left, right, kind, path)
 
 
+@pytest.mark.parametrize('actual', [{'EnvironmentVariables': []}, None])
+def test_incomplete_codebuild_missing_structure(actual):
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Alias', 'Alias', [])
+    rows = [('Environment.EnvironmentVariables[1].Name', 'RELEASE_BUCKET_KMS_KEY_ID', None),
+            ('Environment.EnvironmentVariables[1].Type', 'PLAINTEXT', None),
+            ('Environment.EnvironmentVariables[1].Value', '[alias](kms.md#alias)', None)]
+    resource(comparison, 'codebuild', '001', 'CodeBuild.Project', 'Build', rows,
+             properties={} if actual is None else {'Environment': actual})
+    document = comparison.stack_inputs['producer'][0]
+    result = comparison.compare_rows('codebuild', '001', comparison.resources['codebuild']['001'],
+        'producer', 'Build', ROOT / 'synthetic.yaml', document['Resources']['Build'], document)
+    assert result.failure is None
+    differences = [item for item in result.records if item['category'] == 'difference']
+    assert len(differences) == 1, result.records
+    unresolved = [item for item in result.records if item['category'] == 'uncompared']
+    assert len(unresolved) == 1 and 'explicit attribute' in unresolved[0]['reason'], result.records
+    assert not any(item['category'] in {'error', 'matched'} for item in result.records)
+    shown = json.dumps(result.display_differences)
+    assert 'RELEASE_BUCKET_KMS_KEY_ID' in shown and 'Environment' in shown
+
+
 @pytest.mark.parametrize('deferred', [False, True])
 def test_nested_diagnostics_retain_format_and_failures(deferred):
     comparison = fixture()
@@ -1194,13 +1216,13 @@ def test_nested_diagnostics_retain_format_and_failures(deferred):
         'producer', 'WorkGroup', ROOT / 'synthetic.yaml', document['Resources']['WorkGroup'], document).records
     record = next(item for item in result if item['property'] == 'Athena.WorkGroup.WorkGroupConfiguration')
     if deferred:
-        assert record['category'] == 'uncompared' and len(record['deferred_children']) == 2
+        assert record['category'] == 'difference' and len(record['deferred_children']) == 2
         assert {child['property'] for child in record['deferred_children']} == {
             'Athena.WorkGroup.WorkGroupConfiguration.ExecutionRole',
             'Athena.WorkGroup.WorkGroupConfiguration.ResultConfiguration.ExpectedBucketOwner'}
         assert all(child['reason'] for child in record['deferred_children'])
+        assert {child['category'] for child in record['deferred_children']} == {'uncompared'}
         assert 'private' not in json.dumps(result)
-        return
     assert record['category'] == 'difference', result
     diagnostic = record['reference_diagnostics'][0]
     assert diagnostic['path'] == 'Athena.WorkGroup.' + ATHENA_KMS
@@ -1208,6 +1230,140 @@ def test_nested_diagnostics_retain_format_and_failures(deferred):
     assert diagnostic['model']['$attribute'] == 'Arn' and diagnostic['iac']['$attribute'] == 'KeyId'
     assert len(record.get('deferred_children', [])) == (2 if deferred else 0)
     assert 'private' not in json.dumps(result)
+
+
+@pytest.mark.parametrize('scenario', [
+    'same', 'siblings', 'null', 'false', 'empty-string', 'empty-array',
+    'no-value', 'condition-unknown', 'condition-present', 'condition-absent',
+    'value-null', 'value-false', 'value-empty-string', 'value-empty-array',
+])
+def test_incomplete_setting_presence_and_siblings(scenario):
+    comparison = fixture()
+    comparison.stack_inputs['producer'][2]['AWS::NoValue'] = {'$noValue': True}
+    resource(comparison, 'kms', '001', 'KMS.Alias', 'Alias', [])
+    prefix = 'Environment.EnvironmentVariables[1].'
+    rows = [(prefix + 'Name', 'RELEASE_BUCKET_KMS_KEY_ID', None),
+            (prefix + 'Type', 'PLAINTEXT', None), (prefix + 'Value', '[alias](kms.md#alias)', None)]
+    variable = {'Name': 'RELEASE_BUCKET_KMS_KEY_ID', 'Type': 'PLAINTEXT', 'Value': 'unknown'}
+    environment = {'EnvironmentVariables': [variable], 'Extra': 'allowed'}
+    if scenario == 'siblings':
+        variable['Type'] = 'PARAMETER_STORE'
+        rows += [('Environment.Image', 'image', None),
+                 ('Environment.EnvironmentVariables[2].Name', 'SECOND', None)]
+    empty_values = {'null': None, 'false': False, 'empty-string': '', 'empty-array': []}
+    if scenario in empty_values:
+        environment = empty_values[scenario]
+    if scenario.startswith('value-'):
+        variable['Value'] = empty_values[scenario.removeprefix('value-')]
+    if scenario == 'no-value':
+        environment = {'Ref': 'AWS::NoValue'}
+    if scenario.startswith('condition-'):
+        environment = {'Fn::If': ['Present', environment, {'Ref': 'AWS::NoValue'}]}
+        if scenario != 'condition-unknown':
+            comparison.stack_inputs['producer'][0]['Conditions'] = {'Present': scenario == 'condition-present'}
+    resource(comparison, 'codebuild', '001', 'CodeBuild.Project', 'Build', rows,
+             properties={'Environment': environment})
+    document = comparison.stack_inputs['producer'][0]
+    batch = comparison.compare_rows('codebuild', '001', comparison.resources['codebuild']['001'],
+        'producer', 'Build', ROOT / 'synthetic.yaml', document['Resources']['Build'], document)
+    assert batch.failure is None
+    differences = [item for item in batch.records if item['category'] == 'difference']
+    expected = scenario in {*empty_values, 'siblings', 'no-value', 'condition-absent'}
+    assert len(differences) == int(expected), batch.records
+    assert not any(item['category'] in {'matched', 'error'} for item in batch.records), batch.records
+    children = [item for item in batch.records if item['property'].endswith('[1].Value')]
+    assert len(children) == 1 and children[0]['category'] == 'uncompared'
+    assert 'explicit attribute' in children[0]['reason'] and children[0]['iac']['path'] == 'synthetic.yaml'
+    if scenario == 'siblings':
+        fields = next(iter(batch.display_differences.values()))
+        paths = {field['path'] for field in fields}
+        assert paths == {'Image', 'EnvironmentVariables[0].Type', 'EnvironmentVariables[1]'}, fields
+        assert any('SECOND' in field['model'] for field in fields)
+    elif scenario in empty_values:
+        assert differences[0]['reason'] == 'value mismatch'
+        assert differences[0]['actual'] == empty_values[scenario]
+        assert next(iter(batch.display_differences.values()))[0]['iac'] != '欠落'
+    elif scenario in {'no-value', 'condition-absent'}:
+        assert differences[0]['reason'] == 'property omitted by AWS::NoValue'
+        assert differences[0]['actual'] is None
+        assert next(iter(batch.display_differences.values()))[0]['iac'] == '欠落'
+    elif scenario == 'condition-unknown':
+        assert any(item['property'] == 'CodeBuild.Project.Environment' and item['category'] == 'uncompared'
+                   for item in batch.records)
+
+
+@pytest.mark.parametrize('present', [False, True])
+def test_all_children_failed_preserve_parent_and_categories(present):
+    comparison = fixture()
+    rows = [('Environment.Image', '[missing](kms.md#missing)', None),
+            ('Environment.PrivilegedMode', 'invalid-json', None)]
+    resource(comparison, 'codebuild', '001', 'CodeBuild.Project', 'Build', rows,
+             properties={'Environment': {'Image': 'image', 'PrivilegedMode': False}} if present else {})
+    document = comparison.stack_inputs['producer'][0]
+    batch = comparison.compare_rows('codebuild', '001', comparison.resources['codebuild']['001'],
+        'producer', 'Build', ROOT / 'synthetic.yaml', document['Resources']['Build'], document)
+    assert batch.failure is None
+    assert sorted(item['category'] for item in batch.records) == (
+        ['error', 'uncompared'] if present else ['difference', 'error', 'uncompared']), batch.records
+    if not present:
+        parent = next(item for item in batch.records if item['category'] == 'difference')
+        assert parent['property'] == 'CodeBuild.Project.Environment' and parent['reason'] == 'property missing'
+        assert {item['category'] for item in parent['deferred_children']} == {'error', 'uncompared'}
+
+
+@pytest.mark.parametrize('document_row', [False, True])
+@pytest.mark.parametrize('scenario', ['missing-element', 'missing-field', 'same', 'mismatch'])
+def test_incomplete_json_preserves_declared_children(document_row, scenario):
+    comparison = fixture()
+    resource(comparison, 'kms', '001', 'KMS.Alias', 'Alias', [])
+    desired = {'EnvironmentVariables': [dict(Name='RELEASE_BUCKET_KMS_KEY_ID', Type='PLAINTEXT',
+                                           Value='[alias](kms.md#alias)')]}
+    actual = copy.deepcopy(desired)
+    actual['EnvironmentVariables'][0]['Value'] = 'unproven-value'
+    if scenario == 'missing-element':
+        actual['EnvironmentVariables'] = []
+    elif scenario == 'missing-field':
+        del actual['EnvironmentVariables'][0]['Type']
+    elif scenario == 'mismatch':
+        actual['EnvironmentVariables'][0]['Type'] = 'PARAMETER_STORE'
+    rows = resource(comparison, 'codebuild', '001', 'CodeBuild.Project', 'Build',
+                    [('Environment', json.dumps(desired), None)], properties={'Environment': actual})
+    if document_row:
+        rows[0][1]['document'] = json.dumps(desired)
+    prepared = comparison.prepare_value('codebuild', rows[0][1], 'CodeBuild.Project', stack='producer')
+    with pytest.raises(Blocked, match='explicit attribute'):
+        prepared.require_value()
+    document = comparison.stack_inputs['producer'][0]
+    batch = comparison.compare_rows('codebuild', '001', comparison.resources['codebuild']['001'],
+        'producer', 'Build', ROOT / 'synthetic.yaml', document['Resources']['Build'], document)
+    assert batch.failure is None
+    assert sorted(item['category'] for item in batch.records) == (
+        ['uncompared'] if scenario == 'same' else ['difference', 'uncompared']), batch.records
+    unresolved = next(item for item in batch.records if item['category'] == 'uncompared')
+    assert unresolved['property'].endswith('EnvironmentVariables[].Value')
+    assert unresolved['model']['pointer'] == '/EnvironmentVariables/0/Value'
+    assert 'explicit attribute' in unresolved['reason']
+
+
+def fail_image_preparation(error, original, service, row, kind, **kwargs):
+    if row['property'].endswith('.Image'):
+        raise error('synthetic preparation failure')
+    return original(service, row, kind, **kwargs)
+
+
+@pytest.mark.parametrize('error', [ValueError, TypeError, OSError, ImportError, IndexError])
+def test_preparation_error_retains_confirmed_difference(error):
+    comparison = fixture()
+    resource(comparison, 'codebuild', '001', 'CodeBuild.Project', 'Build',
+             [('Environment.Image', 'image', None), ('Environment.Type', 'LINUX_CONTAINER', None)],
+             properties={'Environment': {}})
+    comparison.prepare_value = partial(fail_image_preparation, error, comparison.prepare_value)
+    document = comparison.stack_inputs['producer'][0]
+    batch = comparison.compare_rows('codebuild', '001', comparison.resources['codebuild']['001'],
+        'producer', 'Build', ROOT / 'synthetic.yaml', document['Resources']['Build'], document)
+    assert batch.failure is None
+    assert sorted(item['category'] for item in batch.records) == ['difference', 'error'], batch.records
+    assert any(item['reason'] == 'synthetic preparation failure' for item in batch.records)
 
 
 def test_naming_materials_mode_and_root_targets():

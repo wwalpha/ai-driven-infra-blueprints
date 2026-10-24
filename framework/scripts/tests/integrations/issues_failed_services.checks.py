@@ -12,8 +12,10 @@ import tempfile
 from unittest.mock import patch
 
 from comparison.registry import SERVICES
-from issues.aggregate import iac_actions
+from issues.aggregate import aggregate, iac_actions
+from issues.artifact import detail_payload, summary
 from issues.records import identifier
+from issues.reports import iac_report
 from support import issues_scan_fixtures as fixture
 from support.it_case_receipt import it_case
 from support.model_sources import allocate_fixture as allocate
@@ -242,7 +244,55 @@ def main_checks():
     print('Failed service comparison: PASS (scoped forms, alias ownership, physical uncertainty, ARN expressions, valid/invalid GetAtt, unchanged other services)')
 
 
+@it_case
+def check_incomplete_setting_artifact():
+    with tempfile.TemporaryDirectory(prefix='incomplete-comparison-') as temporary:
+        root = Path(temporary)
+        _, template = fixture.fixture(root, services=('s3',))
+        models = {}
+        stack = 'cfn-stack-app-dev-data1'
+        resource = _bind_framework_callback(_callback_main_checks_resource, models, stack, template)
+        resource('kms', 'Alias', 'KMS.Alias', {'AliasName': 'alias/fixture'}, [('AliasName', '`alias/fixture`')])
+        resource('codebuild', 'Build', 'CodeBuild.Project', {}, [
+            ('Environment.EnvironmentVariables[1].Name', '`RELEASE_BUCKET_KMS_KEY_ID`'),
+            ('Environment.EnvironmentVariables[1].Type', '`PLAINTEXT`'),
+            ('Environment.EnvironmentVariables[1].Value', '[alias](kms.md#resource-KMS_Alias_001)'),
+            ('Environment.EnvironmentVariables[2].Name', '`SECRET_TOKEN`'),
+            ('Environment.EnvironmentVariables[2].Value', '`fixture-sensitive-value`'),
+            ('Environment.PrivilegedMode', '`invalid-json`')])
+        publish = _bind_framework_callback(_callback_main_checks_publish, models, root, template)
+        for missing_parent in (False, True):
+            template['Resources']['Build']['Properties'] = {} if missing_parent else {'Environment': {'EnvironmentVariables': []}}
+            publish()
+            with patch('socket.socket', side_effect=AssertionError('network forbidden')):
+                comparison, records = fixture.compare(root, ['codebuild'])
+            data = aggregate(records, 'dev', '123456789012', ['codebuild'], comparison.display_differences,
+                             redact=comparison.redacted)
+            artifact = dict(version=2, **data)
+            counts = data['overview']['records']
+            assert counts == dict(difference=1, uncompared=1, error=1, matched=0, excluded=0), records
+            assert summary(artifact)['iac_differences'] == 1 and summary(artifact)['iac_errors'] == 1
+            detail = detail_payload(artifact, 'iac')['items']
+            difference = next(item for item in detail if item['category'] == 'difference')
+            unresolved = next(item for item in detail if item['category'] == 'uncompared')
+            assert difference['property'] == 'CodeBuild.Project.Environment'
+            assert difference['model']['path'] == 'model/dev/123456789012/codebuild.properties'
+            assert difference['model']['line'] > 0 and difference['iac']['line'] > 0
+            assert difference['iac']['path'] == 'infra/cloudformation/templates/shared.yaml'
+            assert 'explicit attribute' in unresolved['reason']
+            assert unresolved['model']['line'] > 0 and unresolved['iac']['path'].endswith('shared.yaml')
+            assert {child['category'] for child in difference['deferred_children']} == {'error', 'uncompared'}
+            assert difference['value_differences'] and all(field['iac'] == '欠落' for field in difference['value_differences'])
+            report = iac_report('dev', '123456789012', ['codebuild'], data['iac'], artifact=artifact)
+            assert '差分 1件 / 未比較 1項目 / 処理エラー 1項目' in report
+            assert '相違項目:' in report and 'Environment' in report and 'RELEASE_BUCKET_KMS_KEY_ID' in report
+            serialized = json.dumps(artifact, ensure_ascii=False) + report
+            assert 'fixture-sensitive-value' not in serialized and '$operands' not in serialized
+            print('Incomplete fixture:', json.dumps(counts), difference['reason'], difference['value_differences'])
+
+
 if __name__ == '__main__':
     from support.model_sources import catalog_display
     with catalog_display():
         main_checks()
+        check_incomplete_setting_artifact()

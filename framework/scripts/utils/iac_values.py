@@ -39,6 +39,8 @@ def safe_value(value, property_name=''):
     if re.search(r'password|secretstring|secretbinary|token|credential|privatekey', property_name, re.I):
         return '<masked>'
     if isinstance(value, Expression):
+        if value.operation == 'Unverified' and not value.operands:
+            return '<unresolved>'
         return {'$expression': value.operation, '$operands': safe_value(value.operands, property_name)}
     if isinstance(value, str):
         if '{{resolve:' in value or re.search(r'arn:aws[a-z-]*:', value, re.I):
@@ -55,14 +57,14 @@ def safe_value(value, property_name=''):
 
 
 def comparison_result(values, *, any_match=False):
-    """A confirmed difference wins over uncertainty; a match must prove every leaf."""
+    """A difference wins; consume all leaves to retain diagnostic callbacks."""
     decisive = True if any_match else False
-    uncertain = False
+    uncertain = decided = False
     for value in values:
         if value is decisive:
-            return decisive
+            decided = True
         uncertain |= value is None
-    return None if uncertain else not decisive
+    return decisive if decided else None if uncertain else not decisive
 
 
 def same(left, right, *, reference=None, path=''):
@@ -74,11 +76,12 @@ def same(left, right, *, reference=None, path=''):
     if type(left) is not type(right):
         return False
     if isinstance(left, dict):
-        return left.keys() == right.keys() and comparison_result(
-            same(left[key], right[key], reference=reference, path=f'{path}.{key}' if path else key) for key in left)
+        return comparison_result([left.keys() == right.keys(), *(
+            same(left[key], right[key], reference=reference, path=f'{path}.{key}' if path else key)
+            for key in left if key in right)])
     if isinstance(left, list):
-        return len(left) == len(right) and comparison_result(
-            same(a, b, reference=reference, path=path + '[]') for a, b in zip(left, right, strict=False))
+        return comparison_result([len(left) == len(right), *(
+            same(a, b, reference=reference, path=path + '[]') for a, b in zip(left, right, strict=False))])
     return left == right
 
 
@@ -121,9 +124,9 @@ def selected_same(desired, actual, property_name='', *, reference=None, path='')
     if type(desired) is not type(actual):
         return False
     if isinstance(desired, dict):
-        return desired.keys() <= actual.keys() and comparison_result(
+        return comparison_result([desired.keys() <= actual.keys(), *(
             selected_same(item, actual[key], key, reference=reference, path=f'{path}.{key}' if path else key)
-            for key, item in desired.items())
+            for key, item in desired.items() if key in actual)])
     if isinstance(desired, list):
         if property_name in {'Tags', 'HostedZoneTags'} and all(isinstance(item, dict) and 'Key' in item for item in desired):
             keys = [item['Key'] for item in desired]
@@ -133,6 +136,6 @@ def selected_same(desired, actual, property_name='', *, reference=None, path='')
             return comparison_result(comparison_result(
                 (selected_same(item, candidate, reference=reference, path=path + '[]') for candidate in selected), any_match=True)
                 for item in desired)
-        return len(desired) == len(actual) and comparison_result(
-            selected_same(a, b, reference=reference, path=path + '[]') for a, b in zip(desired, actual, strict=False))
+        return comparison_result([len(desired) == len(actual), *(
+            selected_same(a, b, reference=reference, path=path + '[]') for a, b in zip(desired, actual, strict=False))])
     return desired == actual

@@ -27,10 +27,13 @@ class PreparedValue:
     value: object
     warnings: list
     error: Exception | None = None
+    failures: tuple = ()
 
     def require_value(self):
         if self.error is not None:
             raise self.error
+        if self.failures:
+            raise self.failures[0][2]
         return self.value
 
 
@@ -42,19 +45,19 @@ class ValueDecision:
 
 
 def desired_value(service, row, kind, *, local_comparison, desired_reference, property_schema, evaluate, model_path, stack=None, context=None, normalize=None):
-    warnings = []
+    warnings, failures = [], []
     try:
         value = _desired_value(service, row, kind, local_comparison=local_comparison,
             desired_reference=desired_reference, property_schema=property_schema,
-            evaluate=evaluate, model_path=model_path, stack=stack, context=context, warnings=warnings)
+            evaluate=evaluate, model_path=model_path, stack=stack, context=context, warnings=warnings, failures=failures)
         if normalize is not None:
             value = normalize(value)
     except (Blocked, KeyError, ValueError, TypeError) as error:
-        return PreparedValue(None, warnings, error)
-    return PreparedValue(value, warnings)
+        return PreparedValue(None, warnings, error, tuple(failures))
+    return PreparedValue(value, warnings, failures=tuple(failures))
 
 
-def _callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, _default_field, _default_operands, _default_path, _default_context, _default_pointer, /, item, field=_CALLBACK_DEFAULT, operands=_CALLBACK_DEFAULT, path=_CALLBACK_DEFAULT, context=_CALLBACK_DEFAULT, pointer=_CALLBACK_DEFAULT):
+def _callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, failures, _default_field, _default_operands, _default_path, _default_context, _default_pointer, /, item, field=_CALLBACK_DEFAULT, operands=_CALLBACK_DEFAULT, path=_CALLBACK_DEFAULT, context=_CALLBACK_DEFAULT, pointer=_CALLBACK_DEFAULT):
     if field is _CALLBACK_DEFAULT:
         field = _default_field
     if operands is _CALLBACK_DEFAULT:
@@ -67,16 +70,20 @@ def _callback__desired_value_references_86(desired_reference, evaluate, kind, lo
         pointer = _default_pointer
     if isinstance(item, str) and resource_link(item):
         attribute = 'Arn' if policy and field in {'Resource', 'NotResource', 'AWS'} else None
-        return desired_reference(service, item, kind, path, attribute, context)
+        try:
+            return desired_reference(service, item, kind, path, attribute, context)
+        except (Blocked, KeyError, OSError, ValueError, ImportError, TypeError, IndexError) as error:
+            failures.append((path, pointer, error))
+            return Expression('Unverified', [])
     if isinstance(item, list):
-        return [_callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, _default_field, _default_operands, _default_path, _default_context, _default_pointer, child, field, operands, path + '[]', context, pointer + '/' + str(index))
+        return [_callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, failures, _default_field, _default_operands, _default_path, _default_context, _default_pointer, child, field, operands, path + '[]', context, pointer + '/' + str(index))
                 for index, child in enumerate(item)]
     if isinstance(item, dict):
         if local_comparison:
             intrinsic = _imports_json_intrinsics.intrinsic
             project_document = _imports_json_intrinsics.project_document
             if intrinsic(item) and not operands:
-                expression = {key: _callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, _default_field, _default_operands, _default_path, _default_context, _default_pointer, child, field, True, path, context, pointer + '/' + key)
+                expression = {key: _callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, failures, _default_field, _default_operands, _default_path, _default_context, _default_pointer, child, field, True, path, context, pointer + '/' + key)
                               for key, child in item.items()}
                 return project_document(expression,
                     evaluate=(lambda value: evaluate(stack, value)) if stack is not None else None,
@@ -85,12 +92,12 @@ def _callback__desired_value_references_86(desired_reference, evaluate, kind, lo
                     model_path=model_path, pointer=pointer)
         if path.endswith(('.Actions[]', '.DataResources[]', '.EnvironmentVariables[]')):
             context = item
-        return {key: _callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, _default_field, _default_operands, _default_path, _default_context, _default_pointer, child, field if operands else key, operands, path + '.' + key, context,
+        return {key: _callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, failures, _default_field, _default_operands, _default_path, _default_context, _default_pointer, child, field if operands else key, operands, path + '.' + key, context,
                                 pointer + '/' + key.replace('~', '~0').replace('/', '~1')) for key, child in item.items()}
     return item
 
 
-def _desired_value(service, row, kind, *, local_comparison, desired_reference, property_schema, evaluate, model_path, stack=None, context=None, warnings):
+def _desired_value(service, row, kind, *, local_comparison, desired_reference, property_schema, evaluate, model_path, stack=None, context=None, warnings, failures):
     raw = row.get('document', row['value'])
     if 'document' in row:
         value = strict_json(raw)
@@ -112,7 +119,7 @@ def _desired_value(service, row, kind, *, local_comparison, desired_reference, p
                 raise Blocked('property type is not uniquely determined')
             value = strict_json(value)
     policy = row['property'].rsplit('.', 1)[-1] in {'PolicyDocument', 'AssumeRolePolicyDocument', 'KeyPolicy', 'Policy'}
-    references = _bind_framework_callback(_callback__desired_value_references_86, desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, '', False, '', context, '')
+    references = _bind_framework_callback(_callback__desired_value_references_86, desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, failures, '', False, '', context, '')
     path = row['property'].removeprefix(kind + '.')
     return references(value, path=path)
 
@@ -135,7 +142,9 @@ def compare_values(desired, actual, key, *, exact=False, unordered=False, refere
 
 def unverified(value, pointer=''):
     if isinstance(value, Expression) and value.operation == 'Unverified':
-        yield pointer
+        # Empty operands mark a preparation failure already reported at its Model row.
+        if value.operands:
+            yield pointer
     elif isinstance(value, dict):
         for key, child in value.items():
             yield from unverified(child, pointer + '/' + key.replace('~', '~0').replace('/', '~1'))
