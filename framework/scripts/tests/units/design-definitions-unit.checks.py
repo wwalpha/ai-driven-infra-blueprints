@@ -13,6 +13,10 @@ from design.array_display import ROOT
 from design.layout_schema import LAYOUT_PATH
 from design.services.definitions import registry
 
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
+
 EXPECTED = {'COMPACT_FIELDS': {'CloudTrail.Trail.EventSelectors[].DataResources[].Type': [['Type', 'Values'], 'Values'],
                     'CodeBuild.Project.Environment.EnvironmentVariables[].Name': [['Name', 'Type', 'Value'],
                                                                                   None]},
@@ -106,8 +110,6 @@ def check_registration():
 
 
 if __name__ == "__main__":
-    if not __debug__:
-        raise SystemExit("Focused checks require assertions; run without -O")
     check_values()
     check_duplicates()
     check_registration()

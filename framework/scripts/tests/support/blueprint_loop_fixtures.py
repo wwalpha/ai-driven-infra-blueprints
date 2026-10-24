@@ -20,6 +20,9 @@ from unittest.mock import patch
 import pytest
 import task_contract as tasks
 from model.files import read_model
+from model.render import markdown_for
+from model.sources import load_model
+from support.it_workspace import populate
 from support.model_sources import snapshot_model, write_fixture_files, write_model
 from support.pytest_cli import run
 from utils.script_loader import module
@@ -83,3 +86,38 @@ raise SystemExit(cli.main())
 
 
 __all__ = ['CLI', 'MODULE', 'Path', 'SCRIPT', 'SimpleNamespace', 'annotations', 'events', 'importlib', 'io', 'json', 'make_project_fixture', 'make_loop_fixture', 'os', 'patch', 'pytest', 'read_model', 'redirect_stdout', 'run', 'shutil', 'snapshot_model', 'subprocess', 'sys', 'tasks', 'write_fixture_files', 'write_model']
+
+
+def make_service_loop_fixture(root):
+    """Independent copy of the official, already consistent Model/Design seed."""
+    make_project_fixture(SCRIPT.parents[2], root)
+    populate('generated_policy', root)
+    model = root / 'model/dev/123456789012/iam.properties'
+    design = root / 'docs/designs/dev/123456789012/iam.md'
+    subprocess.run(['git', 'init', '-q'], cwd=root, check=True)
+    subprocess.run(['git', 'add', '.'], cwd=root, check=True)
+    subprocess.run(['git', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                    'commit', '-qm', 'fixture'], cwd=root, check=True)
+    name = 'tasks/example.md'
+    paths = [name, model.relative_to(root).as_posix(), design.relative_to(root).as_posix()]
+    listed = '\n'.join(f'- `{path}`' for path in paths)
+    tasks.start(root, name, f"""## Task contract
+- Task type: `design`
+- Task status: `running`
+## Validation scope
+- `dev/123456789012/iam`
+## Required changes
+- [R1] 権限の説明を更新する。
+## Acceptance checks
+- [R1] `changed:{paths[1]}`
+- [R1] `changed:{paths[2]}`
+## Modified files
+{listed}
+## Allowed paths
+{listed}
+""")
+    values = dict(load_model(model).authoritative)
+    values['display.resource.001.comment'] = '実行権限の説明を更新'
+    write_model(model, values)
+    design.write_text(markdown_for(design, load_model(model).values, root), encoding='utf-8')
+    return model

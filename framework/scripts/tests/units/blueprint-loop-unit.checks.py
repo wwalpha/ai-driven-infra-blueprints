@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Separated checks; case provenance is recorded in ../CASES.md."""
 
+import shutil
 import sys
+from datetime import datetime, timezone
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
@@ -10,10 +12,13 @@ from unittest.mock import Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import import_guard
 import run_it
 import support.model_design_fixtures as _imports_support_model_design_fixtures
 import utils.aws_mappings as _imports_utils_aws_mappings
 import yaml
+from model.importing import evidence
+from model.importing.evidence import FORMAT_FIELDS
 from support import it_fixture_bundle as fixtures
 from support.blueprint_loop_fixtures import (
     CLI,
@@ -29,13 +34,15 @@ from support.blueprint_loop_fixtures import (
     patch,
     pytest,
     redirect_stdout,
-    run,
     subprocess,
     sys,
+    tasks,
 )
 from support.it_workspace import populate
+from support.pytest_cli import run as pytest_run
 from support.validator import MODULE as validator
 from support.validator import project, schema_validator, write
+from utils import sealed_evidence
 from utils.git_changes import GitWorkingPaths
 
 if not __debug__:
@@ -93,6 +100,17 @@ def check_process_interruption(tmp_path):
         assert MODULE.run_commands(root, [command], environment, logs) == 130
     assert events(logs)[-1]["status"] == "interrupted"
 
+
+
+    with patch.object(MODULE.subprocess, "Popen") as popen, redirect_stdout(io.StringIO()):
+        process = Mock(pid=123, returncode=0)
+        process.wait.return_value = 0
+        popen.side_effect = [OSError("cannot start"), process]
+        assert MODULE.run_commands(root, [command, command], environment, logs) == 1
+    ended = [event for event in events(logs) if event["event"] == "step_end"]
+    assert [event["status"] for event in ended] == ["error", "pass"]
+    assert ended[0]["error"] == "cannot start"
+    assert events(logs)[-1]["status"] == "fail"
 
 
 def check_parallel_interruption(tmp_path):
@@ -182,11 +200,13 @@ def check_unit_dispatch(tmp_path, scope, paths):
          patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")), \
          patch.object(MODULE, "staged_snapshot", return_value=0) as staged, redirect_stdout(io.StringIO()):
         for args in (["--mode", "full"], ["--mode", "task"], ["--mode", "local"],
-                     ["--mode", "task", "--all"]):
+                     ["--mode", "task", "--all"], ["--mode", "task", "--fresh", "--profile", "--validation-jobs", "1"]):
+            saved_logs = {path: path.read_bytes() for path in (tmp_path / "logs").rglob("*.jsonl")}
             authorize.reset_mock()
             selection.reset_mock()
             with patch.object(sys, "argv", [str(runner), *args, "--log-dir", str(tmp_path / "logs")]):
                 assert CLI.main() == 0
+            assert all(path.read_bytes() == content for path, content in saved_logs.items())
             commands = dispatch.call_args.args[1]
             full = "full" in args or "--all" in args
             assert [Path(command[1]).name for command in commands[1:-2]] == (["a.checks.py", "test_extra.py"] if full else [])
@@ -201,9 +221,15 @@ def check_unit_dispatch(tmp_path, scope, paths):
             else:
                 authorize.assert_not_called()
                 selection.assert_not_called()
+            assert ',cr-at-eol' in commands[-2][2]
             assert commands[-2][-1] == '--check' and '--cached' in commands[-1]
             dispatch.call_args.kwargs['validation_call']()
             options = validate.call_args.args[1]
+            assert options.fresh == (full or "--fresh" in args)
+            if "--validation-jobs" in args:
+                assert options.jobs == 1
+            if "--profile" in args:
+                assert list((tmp_path / "logs").glob("*/validate-blueprint.prof"))
             assert options.repository_wide_iac == full
             assert options.all == ('--all' in args or scope is None)
             assert options.contract_scope == (args[1] in {'task', 'full'} and scope is not None and '--all' not in args)
@@ -571,6 +597,267 @@ def check_staged_write_rejected():
     assert error.value.code == 2
 
 
+def check_regression_authorization(tmp_path):
+    root = tmp_path / "repository"
+    scripts = root / "framework/scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "tests/units").mkdir(parents=True, exist_ok=True)
+    runner = scripts / SCRIPT.name
+    runner.write_text("# fixture\n", encoding="utf-8")
+    (scripts / "tests/units/a.checks.py").write_text("# fixture\n", encoding="utf-8")
+    with patch.object(Path, "cwd", return_value=root), \
+         patch.object(MODULE, "active_scope", return_value={"framework"}), \
+         patch.object(MODULE, "changed_paths", return_value=set()) as changed, \
+         patch.object(MODULE, "authorize_full_regression", side_effect=ValueError("fixture locked")) as authorize, \
+         patch.object(MODULE, "run_commands", return_value=0) as run, \
+         patch.object(MODULE, "utf8_preflight"), \
+         redirect_stdout(io.StringIO()), patch.object(sys, "stderr", io.StringIO()):
+        logs = tmp_path / "logs"
+        for mode, paths, extra in (("full", set(), []), ("local", set(), ["--all"])):
+            changed.return_value = paths
+            with patch.object(sys, "argv", [str(runner), "--mode", mode, "--log-dir", str(logs), *extra]):
+                assert CLI.main() == 2
+            run.assert_not_called()
+        authorize.side_effect = KeyboardInterrupt()
+        with patch.object(sys, "argv", [str(runner), "--mode", "full", "--log-dir", str(logs)]):
+            assert CLI.main() == 130
+        run.assert_not_called()
+
+def _callback_check_startup_diagnostics_run(fail, phase, real_run, /, command, *args, **kwargs):
+    if command[:3] == ["git", "config", "--get"]:
+        if phase in {"git", "unexpected"}:
+            fail()
+        if phase == "git-exit":
+            return subprocess.CompletedProcess(command, 7, "", "fixture git error")
+    if phase == "utf8" and "-c" in command:
+        fail()
+    if "-c" in command:
+        Path(command[-1]).write_text("日本語", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, "日本語", "")
+    return subprocess.CompletedProcess(command, 0, "", "")
+
+
+def _callback_check_startup_diagnostics_fail(_state_check_startup_diagnostics_591, phase, /):
+    pass
+    _state_check_startup_diagnostics_591.injected = True
+    if phase == "unexpected":
+        raise RuntimeError("unexpected fixture failure")
+    error = OSError(22, "Invalid argument", "日本語-input")
+    error.winerror = 87
+    raise error
+
+
+def _callback_check_startup_diagnostics_read(_state_check_startup_diagnostics_591, fail, logs, phase, real_read, root, selected, /, path, *args, **kwargs):
+    if phase == "contract" and path == root / selected and logs.exists() and not _state_check_startup_diagnostics_591.injected:
+        fail()
+    return real_read(path, *args, **kwargs)
+
+
+def _callback_check_startup_diagnostics_open_file(_state_check_startup_diagnostics_591, fail, phase, real_open, /, path, *args, **kwargs):
+    if (not _state_check_startup_diagnostics_591.injected and phase == "timing" and path.name == "timing.jsonl" or
+            phase == "diagnostic-open" and path.name == "startup.jsonl"):
+        fail()
+    return real_open(path, *args, **kwargs)
+
+
+class Console(io.StringIO):
+    banner = False
+
+    def __init__(self, phase, fail):
+        super().__init__()
+        self.phase = phase
+        self.fail = fail
+
+    def write(self, text):
+        if "Local loop logs:" in text:
+            self.banner = True
+        if self.phase == "print" or self.phase == "banner-print" and self.banner:
+            self.fail()
+        return super().write(text)
+
+    def flush(self):
+        if self.phase == "flush" or self.phase == "banner-flush" and self.banner:
+            self.fail()
+        return super().flush()
+
+
+
+@pytest.mark.parametrize("phase", ["contract", "git", "git-exit", "utf8", "print", "flush",
+                                  "banner-print", "banner-flush", "timing", "diagnostic-open", "unexpected"])
+def check_startup_diagnostics(tmp_path, phase):
+    _state_check_startup_diagnostics_591 = _CallbackState()
+    root = tmp_path / "repository"
+    scripts = root / "framework/scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "tests/units").mkdir(parents=True, exist_ok=True)
+    runner = scripts / SCRIPT.name
+    runner.write_text("# fixture\n", encoding="utf-8")
+    selected, other = "tasks/first.md", "tasks/other.md"
+    for name in (selected, other):
+        tasks.start(root, name, f"## Task contract\n- Task type: `governance`\n- Task status: `running`\n"
+                    f"## Validation scope\n- `framework`\n## Modified files\n- `{name}`\n"
+                    f"## Allowed paths\n- `{name}`\n")
+    untouched = (root / other).read_bytes()
+    logs = tmp_path / "日本語 logs"
+    real_read, real_open, real_run = Path.read_bytes, Path.open, subprocess.run
+    _state_check_startup_diagnostics_591.injected = False
+
+    fail = _bind_framework_callback(_callback_check_startup_diagnostics_fail, _state_check_startup_diagnostics_591, phase)
+
+    read = _bind_framework_callback(_callback_check_startup_diagnostics_read, _state_check_startup_diagnostics_591, fail, logs, phase, real_read, root, selected)
+
+    open_file = _bind_framework_callback(_callback_check_startup_diagnostics_open_file, _state_check_startup_diagnostics_591, fail, phase, real_open)
+
+    run = _bind_framework_callback(_callback_check_startup_diagnostics_run, fail, phase, real_run)
+
+
+    expected = {"contract": ("task.contract.read", "pathlib.Path.read_bytes"),
+                "git": ("git.config", "subprocess.run"), "git-exit": ("git.config", "subprocess.run"),
+                "utf8": ("utf8.subprocess", "subprocess.run"),
+                "print": ("stdout.print", "builtins.print"), "flush": ("stdout.flush", "sys.stdout.flush"),
+                "banner-print": ("stdout.print", "builtins.print"), "banner-flush": ("stdout.flush", "sys.stdout.flush"),
+                "timing": ("timing.open", "pathlib.Path.open"),
+                "diagnostic-open": ("diagnostics.start", "pathlib.Path.open"),
+                "unexpected": ("git.config", "subprocess.run")}
+    with patch.object(Path, "cwd", return_value=root), \
+         patch.object(MODULE, "active_scope", return_value={"framework"}), \
+         patch.object(MODULE, "changed_paths", return_value=set()), \
+         patch.object(Path, "read_bytes", read), patch.object(Path, "open", open_file), \
+         patch.object(MODULE.subprocess, "run", side_effect=run), \
+         patch.object(sys, "stdout", Console(phase, fail)), patch.object(sys, "stderr", Console(phase, fail)), \
+         patch.object(sys, "argv", [str(runner), "--mode", "task", "--task-file", selected,
+                                    "--log-dir", str(logs)]), \
+         patch.dict(os.environ, {tasks.SELECTOR: selected}):
+        assert CLI.main() == 2
+    directory, = logs.iterdir()
+    details = json.loads((directory / "startup-error.json").read_text(encoding="utf-8"))
+    assert (details["step"], details["api"]) == expected[phase], details
+    assert details["cwd"] == str(root)
+    assert details["location"]["line"] > 0 and details["location"]["filename"]
+    assert "Traceback (most recent call last)" in details["traceback"]
+    assert str(Path(MODULE.__file__)) in details["traceback"]
+    if phase not in {"git-exit", "unexpected"}:
+        assert details["errno"] == 22 and details["winerror"] == 87
+        assert details["filename"] == "日本語-input"
+    if phase in {"git", "git-exit", "unexpected"}:
+        assert details["command"] == ["git", "config", "--get", "core.whitespace"]
+    if phase == "git-exit":
+        assert details["returncode"] == 7
+    if phase == "utf8":
+        assert details["command"][:3] == [sys.executable, "-X", "utf8"]
+    if phase != "diagnostic-open":
+        history = [json.loads(line) for line in (directory / "startup.jsonl").read_text(encoding="utf-8").splitlines()]
+        assert history[-1]["event"] == "error"
+    text = (root / selected).read_text(encoding="utf-8")
+    assert tasks.status(text) == "suspend" and str(directory / "startup-error.json") in text
+    assert (root / other).read_bytes() == untouched
+
+
+
+
+def _snapshot_evidence_git(source, root, *args, **kwargs):
+    if args[0] == 'init':
+        (root / '.git').mkdir()
+    elif args[0] == 'read-tree':
+        shutil.copytree(source, root, dirs_exist_ok=True)
+    return 'synthetic-revision'
+
+
+def _snapshot_evidence_pack(command, **kwargs):
+    assert command[:2] in (['git', 'pack-objects'], ['git', 'index-pack'])
+    return SimpleNamespace(returncode=0)
+
+
+@pytest.mark.parametrize('result', [0, 1])
+def check_import_snapshot_evidence(tmp_path, monkeypatch, result):
+
+    root = tmp_path / 'source'
+    scripts = root / 'framework/scripts'
+    scripts.mkdir(parents=True)
+    (root / 'tasks').mkdir()
+    selected = 'tasks/snapshot.md'
+    (root / selected).write_text('## Task contract\n- Task type: `design`\n- Task status: `running`\n- Workflow: `import`\n## Modified files\n- `tasks/snapshot.md`\n## Allowed paths\n- `tasks/snapshot.md`\n')
+    monkeypatch.setenv('BLUEPRINT_TASK_FILE', selected)
+    monkeypatch.setattr(import_guard.tempfile, 'gettempdir', lambda: str(tmp_path))
+    monkeypatch.setattr(import_guard, 'require_import_changes', lambda root: None)
+    monkeypatch.setattr(evidence, 'read_proof', lambda root: sealed_evidence.read_sealed(root, import_guard.proof_path(root)))
+    # Authorization is covered by Import IT; this fixture runs the real staged copy/finally boundary.
+    (scripts / 'blueprint-loop.py').write_text('raise SystemExit(' + str(result) + ')\n')
+    monkeypatch.setattr(MODULE, 'git', _bind_framework_callback(_snapshot_evidence_git, root))
+    monkeypatch.setattr(MODULE, 'index_tree', lambda *args: 'synthetic-tree')
+    monkeypatch.setattr(MODULE.subprocess, 'run', _snapshot_evidence_pack)
+    proof = {'version': 6, **FORMAT_FIELDS, 'task': selected, 'acquiredAt': datetime.now(timezone.utc).isoformat()}
+    sealed_evidence.write_sealed(root, import_guard.proof_path(root), proof)
+    saved = import_guard.proof_path(root).read_bytes()
+    directory = tmp_path / 'logs'
+    directory.mkdir()
+    args = SimpleNamespace(base='HEAD', mode='task', jobs=1, validation_jobs=1, fresh=False, all=False, profile=False)
+    with patch.object(MODULE.subprocess, 'Popen') as child:
+        child.return_value.wait.return_value = result
+        assert MODULE.staged_snapshot(root, args, directory, MODULE.utf8_environment()) == result
+        child.assert_called_once()
+    snapshot = directory / 'repository'
+    assert not sealed_evidence.evidence_store(snapshot, create=False).exists()
+    assert import_guard.proof_path(root).read_bytes() == saved
+    assert not (root / '.blueprint').exists() and not (snapshot / '.blueprint').exists()
+    import_guard.discard_import_proof(root, selected)
+
+
+
+
+@pytest.mark.parametrize('change', ['head', 'index', 'lock', 'windows'])
+def check_snapshot_guards(tmp_path, monkeypatch, change):
+    root = tmp_path / 'source'
+    root.mkdir()
+    selected = 'tasks/snapshot.md'
+    (root / 'tasks').mkdir()
+    (root / selected).write_text('## Task contract\n- Task type: `governance`\n- Task status: `running`\n## Modified files\n- `tasks/snapshot.md`\n## Allowed paths\n- `tasks/snapshot.md`\n')
+    monkeypatch.setenv(tasks.SELECTOR, selected)
+    directory = tmp_path / 'logs'
+    directory.mkdir()
+    lock = root / '.lock'
+    lock.write_bytes(b'original')
+    args = SimpleNamespace(base='HEAD', mode='task', jobs=1, validation_jobs=1, fresh=False, all=False, profile=False)
+    git_call = _bind_framework_callback(_snapshot_guard_git, root, change)
+    with patch.object(MODULE, 'git', side_effect=git_call), \
+         patch.object(MODULE, 'index_tree', side_effect=['tree', 'changed' if change == 'index' else 'tree']), \
+         patch.object(MODULE.subprocess, 'run', side_effect=_snapshot_evidence_pack), \
+         patch.object(MODULE.subprocess, 'Popen') as child:
+        child.return_value.wait.side_effect = _bind_framework_callback(_snapshot_guard_wait, lock, change)
+        if change == 'windows':
+            with patch.object(MODULE, 'os', SimpleNamespace(name='nt', environ=os.environ)), \
+                 pytest.raises(ValueError, match='current runner and regression guard'):
+                MODULE.staged_snapshot(root, args, directory, {})
+            child.assert_not_called()
+        else:
+            assert MODULE.staged_snapshot(root, args, directory, {}) == 1
+            assert not json.loads((directory / 'snapshot.json').read_text())['source_unchanged']
+
+
+def _snapshot_guard_git(source, change, root, *args, **kwargs):
+    if args == ('rev-parse', 'HEAD'):
+        return 'changed' if change == 'head' and (root / 'finished').exists() else 'head'
+    return _snapshot_evidence_git(source, root, *args, **kwargs)
+
+
+def _snapshot_guard_wait(lock, change):
+    if change == 'lock':
+        lock.write_bytes(b'finished')
+    elif change == 'head':
+        lock.with_name('finished').touch()
+    return 0
+
+
+def check_log_directory_rejected(tmp_path):
+    with patch.object(Path, 'cwd', return_value=tmp_path), \
+         patch.object(MODULE, 'active_scope', return_value={'framework'}), \
+         patch.object(MODULE, 'changed_paths', return_value=set()), \
+         patch.object(MODULE, 'run_commands') as dispatch, \
+         patch.object(sys, 'argv', [str(SCRIPT), '--mode', 'task', '--log-dir', str(tmp_path / 'logs')]):
+        with pytest.raises(ValueError, match='outside the repository'):
+            CLI.main()
+    dispatch.assert_not_called()
+
+
 if __name__ == '__main__':
-    from support.pytest_cli import run
-    raise SystemExit(run(__file__))
+    raise SystemExit(pytest_run(__file__))

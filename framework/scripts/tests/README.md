@@ -183,3 +183,11 @@ pytest8条件（consumer条件付き入口を含む）で実コンポーネン�
 assertion移管と重複削除の対応は [CASES.md](CASES.md#issue-20-check-model-aws-responsibility-separation) を参照。
 ローカルでは関連UTとIT構文/import/登録の静的確認だけを行い、IT実行・時間計測は行わない。
 CIの10秒目標は、後続の同一条件測定で判断する。異なる環境のwall時間から改善率を計算しない。
+
+## Blueprint Loopの責務
+
+ITは7条件。実CLI→Validator、子プロセス・heartbeat・並列同期、対象Taskだけのsuspend、実Git staged snapshotの隔離・stale拒否、失敗後の後続と診断を保証する。
+正常Model/Designと失敗時の入力は共有generated_policy seedの独立コピーを使い、Sync CLIを起動しない。
+モード・引数・authorization・startup診断11条件・Windows guard・snapshot finallyは既存UTへ統合する。
+全assertionの対応先は[Issue 18台帳](CASES.md#issue-18-blueprint-loopの検証責務)を参照。
+ローカルでは関連UTと静的確認のみを実行し、ITのPASSと10秒以内の達成は正式CIで確認する。

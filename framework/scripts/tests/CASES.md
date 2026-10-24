@@ -663,16 +663,16 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/aws_mapping.checks.py:141` | `check_config` | IT | [integrations/aws_mapping.checks.py:14](integrations/aws_mapping.checks.py#L14) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
 | `unknown/aws_mapping_compare.checks.py:32` | `mapping_checks` | IT | [integrations/aws_mapping_compare.checks.py:12](integrations/aws_mapping_compare.checks.py#L12) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
 | `unknown/aws_mapping_display.checks.py:50` | `check` | IT | [integrations/aws_mapping_display.checks.py:15](integrations/aws_mapping_display.checks.py#L15) | direct / 1 | 現行Logsの生成・再生成一致・検証・Model不変、CodeCommit非表示IDの正本保持 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:41` | `check_running_and_interruption` | IT | [integrations/blueprint-loop.checks.py:11](integrations/blueprint-loop.checks.py#L11) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:108` | `check_deploy_scope_isolation` | IT | [integrations/blueprint-loop.checks.py:52](integrations/blueprint-loop.checks.py#L52) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 別タスク差分の除外期待を廃止。既存のScope・JSON・空白検証を保持 |
-| `unknown/blueprint-loop.checks.py:235` | `check_task_service_validation` | IT | [integrations/blueprint-loop.checks.py:147](integrations/blueprint-loop.checks.py#L147) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:382` | `check_parallel_and_selection` | IT | [integrations/blueprint-loop.checks.py:292](integrations/blueprint-loop.checks.py#L292) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:493` | `check_staged_snapshot` | IT | [integrations/blueprint-loop.checks.py:320](integrations/blueprint-loop.checks.py#L320) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:602` | `check_regression_authorization` | IT | [integrations/blueprint-loop.checks.py:423](integrations/blueprint-loop.checks.py#L423) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:651` | `check_failure_suspension` | IT | [integrations/blueprint-loop.checks.py:471](integrations/blueprint-loop.checks.py#L471) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 予約由来の未登録変更preflightだけ削除。失敗時suspendと他契約不変を保持 |
-| `unknown/blueprint-loop.checks.py:723` | `check_startup_diagnostics` | IT | [integrations/blueprint-loop.checks.py:531](integrations/blueprint-loop.checks.py#L531) | pytest / 11 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/blueprint-loop.checks.py:41` | `check_running_and_interruption` | IT | [case](integrations/blueprint-loop.checks.py) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 実CLI・実Git・子プロセスの代表統合保証 |
+| `unknown/blueprint-loop.checks.py:108` | `check_deploy_scope_isolation` | IT | [case](integrations/blueprint-loop.checks.py) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 実CLI・実Git・子プロセスの代表統合保証 |
+| `unknown/blueprint-loop.checks.py:235` | `check_task_service_validation` | IT | [case](integrations/blueprint-loop.checks.py) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 実CLI・実Git・子プロセスの代表統合保証 |
+| `unknown/blueprint-loop.checks.py:382` | `check_parallel_and_selection` | IT | [case](integrations/blueprint-loop.checks.py) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 実CLI・実Git・子プロセスの代表統合保証 |
+| `unknown/blueprint-loop.checks.py:493` | `check_staged_snapshot` | IT | [case](integrations/blueprint-loop.checks.py) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 実CLI・実Git・子プロセスの代表統合保証 |
+| `issue-18` | `check_regression_authorization` | UT | [case](units/blueprint-loop-unit.checks.py) | pytest / 1 | diagnostics / authorization / finally | 実プロセス・Gitなし |
+| `unknown/blueprint-loop.checks.py:651` | `check_failure_suspension` | IT | [case](integrations/blueprint-loop.checks.py) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 実CLI・実Git・子プロセスの代表統合保証 |
+| `issue-18` | `check_startup_diagnostics` | UT | [case](units/blueprint-loop-unit.checks.py) | pytest / 11 | diagnostics / authorization / finally | 実プロセス・Gitなし |
 | `unknown/blueprint-loop.checks.py:831` | `check_windows_exit_propagation` | UT | [units/worktree_python-unit.checks.py](units/worktree_python-unit.checks.py) | pytest / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
-| `unknown/blueprint-loop.checks.py:853` | `check_workflow` | IT | [integrations/blueprint-loop.checks.py:648](integrations/blueprint-loop.checks.py#L648) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
+| `unknown/blueprint-loop.checks.py:853` | `check_workflow` | IT | [case](integrations/blueprint-loop.checks.py) | pytest / 1 | CLI/subprocessまたはGitとの連携 | 実CLI・実Git・子プロセスの代表統合保証 |
 | `integrations/bound-anchor-name-change.checks.py:86` | `check` | IT | [integrations/bound-anchor-name-change.checks.py:86](integrations/bound-anchor-name-change.checks.py#L86) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
 | `integrations/bound-stack-name-change.checks.py:33` | `check` | IT | [integrations/bound-stack-name-change.checks.py:28](integrations/bound-stack-name-change.checks.py#L28) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
 | `unknown/check-model-aws.checks.py:345` | `cli_checks` | IT | [integrations/check-model-aws.checks.py:69](integrations/check-model-aws.checks.py#L69) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
@@ -889,16 +889,6 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `integrations/aws_mapping.checks.py::check_config` | L38: 動的 (['framework/mappings/aws/config.yaml', 'framework/mappings/aws/owners.json', schema + 'index.json', *[schema + index['AWS::' + kind.replace('.', '::')] for kind in (RECORDER, CHANNEL)], *['framework/materials/aws/' + kind.replace('.', '_') + '.properties' for kind in (RECORDER, CHANNEL)]])<br>L39: 動的 ((RECORDER, CHANNEL))<br>L40: 動的 ((RECORDER, CHANNEL))<br>L52: 動的 ([('001', RECORDER, recorder), ('002', CHANNEL, channel)])<br>L54: 動的 ({'resourceType': kind, 'resourceMode': 'IMPORT', 'logicalId': kind.replace('.', '_') + '_001'}.items())<br>L56: 動的 (enumerate(BASELINE[kind].items(), 1))<br>L67: 動的 ({'property': kind + '.' + prop, 'value': raw, 'comment': 'fixture'}.items())<br>L90: 動的 (m.compare_resource(ctx, resource))<br>L90: 動的 (model.resources)<br>L91: 動的 (model.resources)<br>L92: 動的 (range(2))<br>L94: 動的 (calls)<br>L98: 動的 (match)<br>L99: 動的 (match)<br>L100: 動的 (difference)<br>L103: 動的 ([(RECORDER, 'recorder', recorder), (CHANNEL, 'channel', channel)])<br>L107: 動的 (normalized)<br>L110: 動的 (normalized)<br>L110: 動的 (record['properties'].values())<br>L113: 動的 (model.resources)<br>L126: 動的 ((RECORDER, CHANNEL)) |
 | `integrations/aws_mapping_compare.checks.py::mapping_checks` | L24: 動的 (cases)<br>L56: 2 (({'projects': [{}]}, {'projects': [{'webhook': None}]})) |
 | `integrations/aws_mapping_display.checks.py::check` | 1（内部パラメータ化なし） |
-| `integrations/blueprint-loop.checks.py::check_running_and_interruption` | L24: 動的 (history)<br>L25: 動的 (history)<br>L30: 動的 (history)<br>L46: 動的 (events(logs))<br>L47: 動的 (ended) |
-| `integrations/blueprint-loop.checks.py::check_deploy_scope_isolation` | L59: 動的 ([*(scripts / 'tests').rglob('*.checks.py'), *(scripts / 'tests/units').rglob('test_*.py')])<br>L65: 2 (('dev', 'stg'))<br>L70: 2 (('dev', 'stg'))<br>L74: 動的 ((models[env], designs[env], parameters[env]))<br>L86: 2 ((('dev', 'deploy'), ('stg', 'update')))<br>L91: 動的 (files)<br>L132: 2 ((False, True)) |
-| `integrations/blueprint-loop.checks.py::check_task_service_validation` | L237: 動的 (pstats.Stats(str(profile)).stats)<br>L279: 動的 (sorted(__import__('model.sources', fromlist=['source_inputs']).source_inputs(model))) |
-| `integrations/blueprint-loop.checks.py::check_parallel_and_selection` | L298: 2 ((('a', 'b', 1), ('b', 'a', 0))) |
-| `integrations/blueprint-loop.checks.py::check_staged_snapshot` | L415: 3 ((1, 2, 3)) |
-| `integrations/blueprint-loop.checks.py::check_regression_authorization` | task/local/fullと全体指定の認証・実行境界 |
-| `integrations/blueprint-loop.checks.py::check_failure_suspension` | 1（内部パラメータ化なし） |
-| `integrations/blueprint-loop.checks.py::check_startup_diagnostics` | L541: 動的 ((selected, other))<br>L630: 動的 ((directory / 'startup.jsonl').read_text(encoding='utf-8').splitlines()) |
-| `integrations/blueprint-loop.checks.py::check_windows_exit_propagation` | L641: 4 ((0, 2, 7, 130)) |
-| `integrations/blueprint-loop.checks.py::check_workflow` | L653: 2 (('units/blueprint-loop-unit.checks.py', 'integrations/service-parameter-inputs.checks.py'))<br>L687: 動的 ((failed_directory / 'startup.jsonl').read_text(encoding='utf-8').splitlines())<br>L691: 動的 (startup)<br>L694: 動的 (history)<br>L695: 動的 (ended)<br>L696: 動的 (ended)<br>L699: 動的 (history)<br>L726: 動的 (command)<br>L738: 9 (('framework/scripts/a.py', 'framework/rules/rule.md', 'framework/materials/input.json', 'framework/schema/schema.json', 'framework/catalog/catalog.json', 'framework/prompts/prompt.md', '.agents/skills/example/SKILL.md', 'AGENTS.md', 'README.md')) |
 | `integrations/bound-anchor-name-change.checks.py::check` | L109: 3 ((root / 'model/preview/team/vpc.properties', build_path, kms_path))<br>L?: 2 (('model', 'docs/designs'))<br>L?: 動的 ((root / base).rglob('*'))<br>L?: 動的 (before)<br>L?: 3 (('model', 'model/parameters', 'docs/designs'))<br>L?: 動的 ((root / base).rglob('*'))<br>L?: 動的 (saved.items())<br>L?: 動的 (saved.items())<br>L?: 4 (('definition', 'resources', 'rows', 'labels'))<br>L?: 動的 (entries(after, 'desired.resource.')) |
 | `integrations/bound-stack-name-change.checks.py::check` | L50: 2 ([('017', 'network', 'Network'), ('083', 'empty', 'Empty')])<br>L86: 3 (('-changed', '', '-second'))<br>L120: 4 ([('999', 'cfn-stack-app-preview-unknown', 'exactly'), ('017', 'bad_name', 'invalid fixed stack'), ('083', fixed, 'conflicting'), ('017', None, 'invalid fixed stack')])<br>L?: 動的 (vpc.items())<br>L?: 動的 (load_model(vpc_path).files)<br>L?: 4 ((directory / 'parameters.yaml', directory / 'bindings.json', root / 'docs/designs/preview/team/cloudformation-stacks.md', root / 'docs/designs/preview/team/vpc.md'))<br>L?: 動的 (bindings['instances'].items())<br>L?: 動的 (baseline.items())<br>L?: 動的 (vpc_bytes.items())<br>L?: 動的 (item.items())<br>L?: 2 ([('other', '210987654321'), ('team', '123456789012')]) |
 | `integrations/check-model-aws.checks.py::cli_checks` | Issue #20: 以下の責務対応表参照。細分条件はUTへ移管 |
@@ -1876,7 +1866,7 @@ Model操作の値・承認・保存判定は既存UTへ集約する。Worktree�
 | `import-resource-consolidation::check_external_completion_proof` | `check_external_completion_proof` | UT | [units/import-model-unit.checks.py:682](units/import-model-unit.checks.py#L682) | pytest / 7 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
 | `import-resource-consolidation::check_snapshot_proof_resigning_and_cleanup` | `check_snapshot_proof_resigning_and_cleanup` | UT | [units/import-model-unit.checks.py:746](units/import-model-unit.checks.py#L746) | pytest / 1 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
 | `import-resource-consolidation::check_model_only_publication` | `check_model_only_publication` | IT | [integrations/model-operation-publication.checks.py:36](integrations/model-operation-publication.checks.py#L36) | pytest / 6 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
-| `import-resource-consolidation::check_import_snapshot_evidence` | `check_import_snapshot_evidence` | IT | [integrations/blueprint-loop.checks.py:785](integrations/blueprint-loop.checks.py#L785) | pytest / 2 | GitなしのModel-only統合・削除・通常編集、共有Consumer不変性、実保存とrollback | IMPORT統合・削除 |
+| `issue-18` | `check_import_snapshot_evidence` | UT | [case](units/blueprint-loop-unit.checks.py) | pytest / 2 | diagnostics / authorization / finally | 実プロセス・Gitなし |
 | `import-resource-consolidation::check_model_operation_integration` | `check_model_operation_integration` | IT | [integrations/worktree_task.checks.py](integrations/worktree_task.checks.py#L725) | direct / 1 | Import Mergeの実candidate検証・一意HEADのMergeとcleanup（Deleteは専用Transaction IT） | 統合境界のみ |
 
 | `sync attachment staging` | `check_linked_attachments` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#check_linked_attachments) | pytest / 2 | ローカル添付のバイト保持、欠落リンク失敗、復元と入力変更検出 | 新規 |
@@ -2987,3 +2977,150 @@ IT direct登録9→7。対象check-model-aws UT条件数5→22（既存UT19、�
 | `issue20::check_service_adapters` | `check_service_adapters` | UT | [units/check-model-aws-adapter-unit.checks.py:40](units/check-model-aws-adapter-unit.checks.py#L40) | pytest / 1 | 上記対応表の保証 | Issue #20移管/fixture契約 |
 | `issue20::check_schema_rejections` | `check_schema_rejections` | UT | [units/check-model-aws-fixture-unit.checks.py:29](units/check-model-aws-fixture-unit.checks.py#L29) | pytest / 1 | 上記対応表の保証 | Issue #20移管/fixture契約 |
 | `issue20::check_context_isolation_and_cache` | `check_context_isolation_and_cache` | UT | [units/check-model-aws-fixture-unit.checks.py:48](units/check-model-aws-fixture-unit.checks.py#L48) | pytest / 1 | 上記対応表の保証 | Issue #20移管/fixture契約 |
+
+| `issue-18` | `check_snapshot_guards` | UT | [case](units/blueprint-loop-unit.checks.py) | pytest / 4 | staged guard / CLIエラー | Fake境界で確認 |
+| `issue-18` | `check_log_directory_rejected` | UT | [case](units/blueprint-loop-unit.checks.py) | pytest / 1 | staged guard / CLIエラー | Fake境界で確認 |
+
+## Issue 18 Blueprint Loopの検証責務
+
+ITは10関数・21条件から7関数・7条件へ再構成。外側Loop CLIは38回から7回、Sync CLIは2回から0回。stagedの子Loopは別に旧3回→2回。未解決indexは実Git `index_tree` の直接検証を保持する。実行時間は正式CIで確認する。
+
+| 旧ケース・assertion（変更前の行） | 変更後の検証先 | 対応 |
+|---|---|---|
+| `check_running_and_interruption:69` history[0]['jobs'] == 1 and history[0]['python_version'] == sys.version | IT `check_running_and_interruption` | 維持 |
+| `check_running_and_interruption:70` history[0]['hash_seed'] == environment.get('PYTHONHASHSEED') | IT `check_running_and_interruption` | 維持 |
+| `check_running_and_interruption:71` next((event for event in history if event['event'] == 'step_start'))['command'] == command | IT `check_running_and_interruption` | 維持 |
+| `check_running_and_interruption:72` any((event['event'] == 'heartbeat' for event in history)) | IT `check_running_and_interruption` | 維持 |
+| `check_running_and_interruption:73` 'RUNNING slow.py' in output.getvalue() | IT `check_running_and_interruption` | 維持 |
+| `check_running_and_interruption:74` 'before wait' in (logs / '01-slow.py.log').read_text(encoding='utf-8') | IT `check_running_and_interruption` | 維持 |
+| `check_running_and_interruption:75` history[-1]['status'] == 'pass' | IT `check_running_and_interruption` | 維持 |
+| `check_running_and_interruption:76` history[-1]['duration_seconds'] >= 0.15 | IT `check_running_and_interruption` | 維持 |
+| `check_running_and_interruption:78` running['pid'] > 0 | IT `check_running_and_interruption` | 維持 |
+| `check_running_and_interruption:89` [event['status'] for event in ended] == ['error', 'pass'] | UT `blueprint-loop-unit::check_process_interruption` | 不足OSErrorのみ統合 |
+| `check_running_and_interruption:90` ended[0]['error'] == 'cannot start' | UT `blueprint-loop-unit::check_process_interruption` | 不足OSErrorのみ統合 |
+| `check_running_and_interruption:91` events(logs)[-1]['status'] == 'fail' | UT `blueprint-loop-unit::check_process_interruption` | 不足OSErrorのみ統合 |
+| `check_running_and_interruption:67` MODULE.run_commands(root, [command], environment, logs, heartbeat_seconds=0.03) == 0 | IT `check_running_and_interruption` | 維持 |
+| `check_running_and_interruption:87` MODULE.run_commands(root, [command, command], environment, logs) == 1 | UT `blueprint-loop-unit::check_process_interruption` | 不足OSErrorのみ統合 |
+| `check_deploy_scope_isolation:172` result.returncode != 0 and 'outside Deployment scope' in result.stdout | IT `check_deploy_scope_isolation` | 維持 |
+| `check_deploy_scope_isolation:173` 'invalid CloudFormation parameter JSON' not in result.stdout | IT `check_deploy_scope_isolation` | 維持 |
+| `check_deploy_scope_isolation:175` result.returncode != 0 and 'invalid CloudFormation parameter JSON' in result.stdout | IT `validation_checks/scope::check_deployment_iac_scope`（Scope/JSON）、UT `blueprint-loop-unit::check_unit_dispatch`（2種diff・CRLF設定）、IT `worktree_task`（実Git whitespace） | 重複削除 |
+| `check_deploy_scope_isolation:188` result.returncode != 0 and 'FAIL git-diff-check' in result.stdout | IT `validation_checks/scope::check_deployment_iac_scope`（Scope/JSON）、UT `blueprint-loop-unit::check_unit_dispatch`（2種diff・CRLF設定）、IT `worktree_task`（実Git whitespace） | 重複削除 |
+| `check_deploy_scope_isolation:182` result.returncode != 0 and 'FAIL git-diff-check' in result.stdout | IT `validation_checks/scope::check_deployment_iac_scope`（Scope/JSON）、UT `blueprint-loop-unit::check_unit_dispatch`（2種diff・CRLF設定）、IT `worktree_task`（実Git whitespace） | 重複削除 |
+| `check_deploy_scope_isolation:184` result.returncode != 0 and 'FAIL git-diff-check' in result.stdout | IT `validation_checks/scope::check_deployment_iac_scope`（Scope/JSON）、UT `blueprint-loop-unit::check_unit_dispatch`（2種diff・CRLF設定）、IT `worktree_task`（実Git whitespace） | 重複削除 |
+| `check_deploy_scope_isolation:186` result.returncode != 0 and 'FAIL git-diff-check' in result.stdout | IT `validation_checks/scope::check_deployment_iac_scope`（Scope/JSON）、UT `blueprint-loop-unit::check_unit_dispatch`（2種diff・CRLF設定）、IT `worktree_task`（実Git whitespace） | 重複削除 |
+| `_callback_check_task_service_validation_run:195` 'START validate-blueprint.py' in result.stdout | IT `_callback_check_task_service_validation_run` | 維持 |
+| `_callback_check_task_service_validation_run:196` 'validation scope: dev/123456789012/logs' in result.stdout or result.returncode != 0 | IT `check_task_service_validation`（正常接続）＋UT `check_unit_dispatch`（fresh/profile、cache/workerオプション）＋UT `issue_gate-unit::check_ordinary_issue_gate_restored`（Issue Gate）＋IT `validation_scope`（scope mismatch / 対象外不正入力） | 重複削除 |
+| `_callback_check_task_service_validation_run:197` 'START git-diff-check' in result.stdout | IT `_callback_check_task_service_validation_run` | 維持 |
+| `_callback_check_task_service_validation_run:198` 'framework regression: skipped' in result.stdout | IT `_callback_check_task_service_validation_run` | 維持 |
+| `_callback_check_task_service_validation_run:199` 'START blueprint-loop-unit.checks.py' not in result.stdout | IT `check_task_service_validation`（正常接続）＋UT `check_unit_dispatch`（fresh/profile、cache/workerオプション）＋UT `issue_gate-unit::check_ordinary_issue_gate_restored`（Issue Gate）＋IT `validation_scope`（scope mismatch / 対象外不正入力） | 重複削除 |
+| `check_task_service_validation:239` result.returncode == 0 | IT `check_task_service_validation` | 維持 |
+| `check_task_service_validation:275` result.returncode == 0 and 'PASS (0 framework regression scripts)' in result.stdout | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
+| `check_task_service_validation:280` fresh.returncode == 0 and '1 executed, 0 reused; workers: 1' in fresh.stdout | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
+| `check_task_service_validation:281` list((tmp_path / 'logs').glob('*/validate-blueprint.prof')) | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
+| `check_task_service_validation:283` any((Path(file).name == 'sync_runtime.py' for file, _, _ in pstats.Stats(str(profile)).stats)) | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
+| `check_task_service_validation:288` blocked.returncode and 'unresolved issue blocks task' in blocked.stdout | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
+| `check_task_service_validation:289` tasks.status(active.read_text()) == 'suspend' | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
+| `check_task_service_validation:290` 'unresolved issue blocks task' in '\n'.join(tasks.section(active.read_text(), '## Suspension reason')) | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
+| `check_task_service_validation:297` result.returncode != 0 and 'changed design path is outside validation scope' in result.stdout | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
+| `check_task_service_validation:311` result.returncode == 0 | IT `check_task_service_validation` | 維持 |
+| `check_task_service_validation:315` result.returncode != 0 and 'generated Markdown is stale' in result.stdout | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
+| `check_task_service_validation:316` design.read_text(encoding='utf-8') == good_design | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
+| `check_task_service_validation:320` result.returncode != 0 and 'ec2' in result.stdout | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
+| `check_task_service_validation:321` 'Validation: all' in result.stdout and 'framework regression: skipped' in result.stdout | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
+| `check_task_service_validation:330` result.returncode == 0 | IT `check_task_service_validation` | 維持 |
+| `check_task_service_validation:331` not subprocess.check_output(['git', 'diff', '--', str(design.relative_to(root))], cwd=root) | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
+| `check_task_service_validation:332` design.read_text(encoding='utf-8') == good_design | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
+| `check_parallel_and_selection:355` output.getvalue().index('diagnostic-a') < output.getvalue().index('diagnostic-b') | IT `check_parallel_and_selection` | 維持 |
+| `check_parallel_and_selection:359` parallel == events(logs)[-1]['failed_steps'] == ['a.checks.py'] | IT `check_parallel_and_selection`（同期・失敗集約）、UT `check_parallel_interruption` / `check_process_interruption`（停止）、UT `check_unit_dispatch`（選択） | 重複削除 |
+| `check_parallel_and_selection:354` MODULE.run_commands(root, commands, MODULE.utf8_environment(), logs, jobs=2) == 1 | IT `check_parallel_and_selection` | 維持 |
+| `check_parallel_and_selection:358` MODULE.run_commands(root, commands, MODULE.utf8_environment(), logs, jobs=1) == 1 | IT `check_parallel_and_selection`（同期・失敗集約）、UT `check_parallel_interruption` / `check_process_interruption`（停止）、UT `check_unit_dispatch`（選択） | 重複削除 |
+| `_callback_check_staged_snapshot_git_only:365` command[0] == 'git' | UT `blueprint-loop-unit::check_snapshot_guards`（Windows / HEAD / index / .lock別条件）＋IT `check_staged_snapshot`（実Git stale / write-tree拒否） | 細分条件はFake UTへ統合 |
+| `check_staged_snapshot:417` result.returncode == 0 and '日本語 snapshot' in result.stdout | IT `check_staged_snapshot` | 維持 |
+| `check_staged_snapshot:418` 'snapshot regression assertion executed' not in result.stdout | IT `check_staged_snapshot` | 維持 |
+| `check_staged_snapshot:419` 'PASS (0 framework regression scripts)' in result.stdout | IT `check_staged_snapshot` | 維持 |
+| `check_staged_snapshot:420` index.read_bytes() == saved_index | IT `check_staged_snapshot` | 維持 |
+| `check_staged_snapshot:421` active.read_text(encoding='utf-8') == 'dirty workspace contract' | IT `check_staged_snapshot` | 維持 |
+| `check_staged_snapshot:423` metadata['base'] == base and metadata['source_unchanged'] | IT `check_staged_snapshot` | 維持 |
+| `check_staged_snapshot:450` result.returncode == 1 and 'HEAD/index/.lock changed' in result.stdout | IT `check_staged_snapshot` | 維持 |
+| `check_staged_snapshot:458` result.returncode == 1 and 'snapshot is stale' in result.stdout | UT `blueprint-loop-unit::check_snapshot_guards`（Windows / HEAD / index / .lock別条件）＋IT `check_staged_snapshot`（実Git stale / write-tree拒否） | 細分条件はFake UTへ統合 |
+| `check_staged_snapshot:466` result.returncode != 0 and 'START validate-blueprint.py' not in result.stdout | UT `blueprint-loop-unit::check_snapshot_guards`（Windows / HEAD / index / .lock別条件）＋IT `check_staged_snapshot`（実Git stale / write-tree拒否） | 細分条件はFake UTへ統合 |
+| `check_staged_snapshot:441` 'current runner and regression guard' in str(error.value) | UT `blueprint-loop-unit::check_snapshot_guards`（Windows / HEAD / index / .lock別条件）＋IT `check_staged_snapshot`（実Git stale / write-tree拒否） | 細分条件はFake UTへ統合 |
+| `check_regression_authorization:500` len(run.call_args.args[1]) == 3 | UT `blueprint-loop-unit::check_regression_authorization` / `check_unit_dispatch` | 失敗のみ移管、成功重複削除 |
+| `check_regression_authorization:504` len(run.call_args.args[1]) == 4 | UT `blueprint-loop-unit::check_regression_authorization` / `check_unit_dispatch` | 失敗のみ移管、成功重複削除 |
+| `check_regression_authorization:492` CLI.main() == 130 | UT `blueprint-loop-unit::check_regression_authorization` / `check_unit_dispatch` | 失敗のみ移管、成功重複削除 |
+| `check_regression_authorization:498` CLI.main() == 0 | UT `blueprint-loop-unit::check_regression_authorization` / `check_unit_dispatch` | 失敗のみ移管、成功重複削除 |
+| `check_regression_authorization:502` CLI.main() == 0 | UT `blueprint-loop-unit::check_regression_authorization` / `check_unit_dispatch` | 失敗のみ移管、成功重複削除 |
+| `check_regression_authorization:488` CLI.main() == 2 | UT `blueprint-loop-unit::check_regression_authorization` / `check_unit_dispatch` | 失敗のみ移管、成功重複削除 |
+| `check_failure_suspension:546` result.returncode == 1 and 'Task suspended' in result.stdout | IT `check_failure_suspension` | 維持 |
+| `check_failure_suspension:548` tasks.status(text) == 'suspend' and 'schema mismatch' in text | IT `check_failure_suspension`（実Validator失敗・他Task保持）＋既存IT `task_contract::check_suspend_and_resume`（resume / 複数理由） | 重複削除 |
+| `check_failure_suspension:549` (root / other).read_bytes() == untouched | IT `check_failure_suspension` | 維持 |
+| `check_failure_suspension:550` 'PASS own.checks.py' in result.stdout | IT `check_failure_suspension`（実Validator失敗・他Task保持）＋既存IT `task_contract::check_suspend_and_resume`（resume / 複数理由） | 重複削除 |
+| `check_failure_suspension:554` tasks.status((root / first).read_text()) == 'running' | IT `check_failure_suspension`（実Validator失敗・他Task保持）＋既存IT `task_contract::check_suspend_and_resume`（resume / 複数理由） | 重複削除 |
+| `check_failure_suspension:558` result.returncode == 0 | IT `check_failure_suspension` | 維持 |
+| `check_failure_suspension:559` tasks.status((root / first).read_text()) == 'running' | IT `check_failure_suspension`（実Validator失敗・他Task保持）＋既存IT `task_contract::check_suspend_and_resume`（resume / 複数理由） | 重複削除 |
+| `check_failure_suspension:567` result.returncode == 1 and tasks.status(text) == 'suspend' | IT `check_failure_suspension`（実Validator失敗・他Task保持）＋既存IT `task_contract::check_suspend_and_resume`（resume / 複数理由） | 重複削除 |
+| `check_failure_suspension:568` 'own.checks.py' in text and 'missing required field' in text | IT `check_failure_suspension`（実Validator失敗・他Task保持）＋既存IT `task_contract::check_suspend_and_resume`（resume / 複数理由） | 重複削除 |
+| `check_failure_suspension:569` (root / other).read_bytes() == untouched | IT `check_failure_suspension` | 維持 |
+| `check_startup_diagnostics:678` (details['step'], details['api']) == expected[phase] | UT `blueprint-loop-unit::check_startup_diagnostics`（全11条件、実diagnostics/Task、subprocessのみFake） | 移管 |
+| `check_startup_diagnostics:679` details['cwd'] == str(root) | UT `blueprint-loop-unit::check_startup_diagnostics`（全11条件、実diagnostics/Task、subprocessのみFake） | 移管 |
+| `check_startup_diagnostics:680` details['location']['line'] > 0 and details['location']['filename'] | UT `blueprint-loop-unit::check_startup_diagnostics`（全11条件、実diagnostics/Task、subprocessのみFake） | 移管 |
+| `check_startup_diagnostics:681` 'Traceback (most recent call last)' in details['traceback'] | UT `blueprint-loop-unit::check_startup_diagnostics`（全11条件、実diagnostics/Task、subprocessのみFake） | 移管 |
+| `check_startup_diagnostics:682` str(Path(MODULE.__file__)) in details['traceback'] | UT `blueprint-loop-unit::check_startup_diagnostics`（全11条件、実diagnostics/Task、subprocessのみFake） | 移管 |
+| `check_startup_diagnostics:696` tasks.status(text) == 'suspend' and str(directory / 'startup-error.json') in text | UT `blueprint-loop-unit::check_startup_diagnostics`（全11条件、実diagnostics/Task、subprocessのみFake） | 移管 |
+| `check_startup_diagnostics:697` (root / other).read_bytes() == untouched | IT `check_startup_diagnostics` | 維持 |
+| `check_startup_diagnostics:675` CLI.main() == 2 | UT `blueprint-loop-unit::check_startup_diagnostics`（全11条件、実diagnostics/Task、subprocessのみFake） | 移管 |
+| `check_startup_diagnostics:684` details['errno'] == 22 and details['winerror'] == 87 | UT `blueprint-loop-unit::check_startup_diagnostics`（全11条件、実diagnostics/Task、subprocessのみFake） | 移管 |
+| `check_startup_diagnostics:685` details['filename'] == '日本語-input' | UT `blueprint-loop-unit::check_startup_diagnostics`（全11条件、実diagnostics/Task、subprocessのみFake） | 移管 |
+| `check_startup_diagnostics:687` details['command'] == ['git', 'config', '--get', 'core.whitespace'] | UT `blueprint-loop-unit::check_startup_diagnostics`（全11条件、実diagnostics/Task、subprocessのみFake） | 移管 |
+| `check_startup_diagnostics:689` details['returncode'] == 7 | UT `blueprint-loop-unit::check_startup_diagnostics`（全11条件、実diagnostics/Task、subprocessのみFake） | 移管 |
+| `check_startup_diagnostics:691` details['command'][:3] == [sys.executable, '-X', 'utf8'] | UT `blueprint-loop-unit::check_startup_diagnostics`（全11条件、実diagnostics/Task、subprocessのみFake） | 移管 |
+| `check_startup_diagnostics:694` history[-1]['event'] == 'error' | UT `blueprint-loop-unit::check_startup_diagnostics`（全11条件、実diagnostics/Task、subprocessのみFake） | 移管 |
+| `check_workflow:714` normal.returncode != 0 and 'AssertionError: normal check body reached' in normal.stderr | IT `check_workflow`（-O失敗・後続・ログ）、UT `check_it_assertion_guards`（静的全走査・最適化拒否）、UT `check_unit_dispatch`（複数実行でも既存ログ不変）、UT `check_log_directory_rejected` | 重複削除 |
+| `check_workflow:734` result.returncode != 0 | IT `check_workflow` | 維持 |
+| `check_workflow:735` 'AssertionError: assertions must run' in result.stdout | IT `check_workflow` | 維持 |
+| `check_workflow:736` 'validate-blueprint.py, a.checks.py' in result.stdout | IT `check_workflow` | 維持 |
+| `check_workflow:737` (root / 'continued').read_text(encoding='utf-8') == 'yes' | IT `check_workflow` | 維持 |
+| `check_workflow:740` startup[0]['event'] == 'directory_created' | IT `check_workflow` | 維持 |
+| `check_workflow:741` {'task.contract.read', 'git.config', 'commands.prepare', 'utf8.subprocess', 'utf8.output', 'utf8.cleanup', 'stdout.print', 'stdout.flush', 'timing.open'} <= {event['step'] for event in startup if event['event'] == 'end'} | IT `check_workflow` | 維持 |
+| `check_workflow:745` history[0]['event'] == 'loop_start' and history[0]['step_count'] == 5 | IT `check_workflow` | 維持 |
+| `check_workflow:747` [event['returncode'] for event in ended] == [1, 1, 0, 0, 0] | IT `check_workflow` | 維持 |
+| `check_workflow:748` all((event['duration_seconds'] >= 0 for event in ended)) | IT `check_workflow` | 維持 |
+| `check_workflow:749` history[-1]['event'] == 'loop_end' and history[-1]['status'] == 'fail' | IT `check_workflow` | 維持 |
+| `check_workflow:750` history[-1]['failed_steps'] == ['validate-blueprint.py', 'a.checks.py'] | IT `check_workflow` | 維持 |
+| `check_workflow:751` all(('timestamp' in event for event in history)) | IT `check_workflow` | 維持 |
+| `check_workflow:752` 'AssertionError' in (failed_directory / '02-a.checks.py.log').read_text(encoding='utf-8') | IT `check_workflow` | 維持 |
+| `check_workflow:757` result.returncode == 0 | IT `check_workflow` | 維持 |
+| `check_workflow:758` 'PASS (2 framework regression scripts)' in result.stdout | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:760` len(directories) == 2 | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:761` events((directories - {failed_directory}).pop())[-1]['status'] == 'pass' | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:762` events(failed_directory)[-1]['status'] == 'fail' | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:764` rejected.returncode != 0 and 'outside the repository' in rejected.stderr | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:780` result.returncode == 0 and 'PASS (0 framework regression scripts)' in result.stdout | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:784` result.returncode == 0 and 'Validation: active scope' in result.stdout | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:788` result.returncode == 0 and 'PASS (2 framework regression scripts)' in result.stdout | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:794` not MODULE.framework_changed({'model/dev/cde/ec2.properties', 'docs/designs/dev/cde/ec2.md', 'tasks/example.md'}) | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:798` result.returncode == 0 and 'PASS (0 framework regression scripts)' in result.stdout | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:799` not (root / 'continued').exists() | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:804` result.returncode == 0 | IT `check_workflow` | 維持 |
+| `check_workflow:805` model.read_bytes() == b'design change\r\nCRLF line\r\n' | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:808` result.returncode == 0 | IT `check_workflow` | 維持 |
+| `check_workflow:812` result.returncode != 0 and 'indent with spaces' in result.stdout | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:817` result.returncode != 0 and 'FAIL git-diff-check' in result.stdout | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:821` result.returncode != 0 and 'FAIL git-diff-check' in result.stdout | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:825` result.returncode and 'validation scope missing' in result.stderr | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:826` set(log_parent.glob('blueprint-loop-*')) == before | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:829` result.returncode and 'validation scope missing' in result.stderr | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:830` set(log_parent.glob('blueprint-loop-*')) == before | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `check_workflow:709` rejected.returncode != 0 and 'Focused checks require assertions' in rejected.stderr | IT `check_workflow`（-O失敗・後続・ログ）、UT `check_it_assertion_guards`（静的全走査・最適化拒否）、UT `check_unit_dispatch`（複数実行でも既存ログ不変）、UT `check_log_directory_rejected` | 重複削除 |
+| `check_workflow:793` MODULE.framework_changed({path}) | UT `check_unit_dispatch`（full/task/local/all・diff 2種・CRLF）、UT `check_changed_paths_error`（Framework選択）、UT `validation_scope-unit::check_active_scope`（不完全scope拒否） | 重複削除 |
+| `_snapshot_evidence_pack:846` command[:2] in (['git', 'pack-objects'], ['git', 'index-pack']) | UT `blueprint-loop-unit::check_import_snapshot_evidence`（finally 0/1）＋`import-model-unit::check_snapshot_proof_resigning_and_cleanup` | finally境界のみ移管 |
+| `check_import_snapshot_evidence:874` MODULE.staged_snapshot(root, args, directory, MODULE.utf8_environment()) == result | UT `blueprint-loop-unit::check_import_snapshot_evidence`（finally 0/1）＋`import-model-unit::check_snapshot_proof_resigning_and_cleanup` | finally境界のみ移管 |
+| `check_import_snapshot_evidence:876` not sealed_evidence.evidence_store(snapshot, create=False).exists() | UT `blueprint-loop-unit::check_import_snapshot_evidence`（finally 0/1）＋`import-model-unit::check_snapshot_proof_resigning_and_cleanup` | finally境界のみ移管 |
+| `check_import_snapshot_evidence:877` import_guard.proof_path(root).read_bytes() == saved | UT `blueprint-loop-unit::check_import_snapshot_evidence`（finally 0/1）＋`import-model-unit::check_snapshot_proof_resigning_and_cleanup` | finally境界のみ移管 |
+| `check_import_snapshot_evidence:878` not (root / '.blueprint').exists() and (not (snapshot / '.blueprint').exists()) | UT `blueprint-loop-unit::check_import_snapshot_evidence`（finally 0/1）＋`import-model-unit::check_snapshot_proof_resigning_and_cleanup` | finally境界のみ移管 |
+
+`--profile`は本番callbackがprofileを書き出すことをUTで確認する。旧ITのSync内部ファイル名への依存は、CLIの統合契約ではないため再追加しない。Cache内容・無効化は既存 `validation_cache-unit` とIT `validation_scope::check_single_target_cache` が保証する。
+
+通常系・失敗系は同じ `generated_policy` bundleを独立コピーする。ModelとMarkdownは同じModel reader/renderから構築し、本番Validatorを通す。Frameworkのコピー・改変は行わない。
+
+既存design-definitions UTのassertion guardをモジュール先頭へ移動し、全チェックの静的guard検証を通す。定義値・検証assertionは保持する。
