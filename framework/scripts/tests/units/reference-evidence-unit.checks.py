@@ -153,7 +153,7 @@ def test_recorded_ref_export_import(kind, output, attribute, fixed, receiving, p
     before = copy.deepcopy(comparison.models['network'].authoritative)
     decision = comparison.reference_decision(fixed, actual, receiving, path)
     assert actual['$attribute'] == attribute
-    assert decision.equal is True
+    assert decision.equal is None and not decision.equivalent
     detail = decision.diagnostics[0]
     assert detail['evidence_type'] == 'recorded_observed' and detail['current_aws_verified'] is False
     assert detail['exports'] == [{'export_name': 'shared', 'export_stack': 'producer'}]
@@ -185,8 +185,8 @@ def test_declared_scalar_and_no_reparsing_or_snapshot_reload():
     assert isinstance(first, ResourceReference) and first == second
     actual = exported(comparison, {'Ref': 'Vpc'})
     assert comparison.reference_decision(first, actual, 'EC2.Subnet', 'VpcId').equal is True
-    assert comparison.reference_decision(first, VPC, 'EC2.Subnet', 'VpcId').equal is True
-    assert comparison.reference_decision(first, 'vpc-different', 'EC2.Subnet', 'VpcId').equal is False
+    assert comparison.reference_decision(first, VPC, 'EC2.Subnet', 'VpcId').equal is None
+    assert comparison.reference_decision(first, 'vpc-different', 'EC2.Subnet', 'VpcId').equal is None
 
 
 def test_declared_name_checks_producer_model_and_return_attribute_mapping():
@@ -236,7 +236,7 @@ def test_composite_arn_requires_all_literal_affixes(expression):
     vpc(comparison)
     actual = exported(comparison, expression)
     fixed = 'arn:aws:ec2:ap-northeast-1:123456789012:vpc/' + VPC
-    assert comparison.reference_decision(fixed, actual, 'IAM.Role', '').equal is True
+    assert comparison.reference_decision(fixed, actual, 'IAM.Role', '').equal is None
     assert comparison.reference_decision(fixed.replace('123456789012', '999999999999'), actual, 'IAM.Role', '').equal is None
     comparison.models['vpc'].authoritative['observed.row.001-001.value'] = '`PENDING_DEPLOY`'
     assert comparison.reference_decision(fixed, actual, 'IAM.Role', '').equal is None
@@ -397,7 +397,7 @@ def test_kms_recorded_arn_export_import(kind, path, key_id, expression):
     before = copy.deepcopy(comparison.models['kms'].authoritative)
     actual = exported(comparison, expression)
     decision = comparison.reference_decision(KEY_ARN.replace(KEY_ID, key_id), actual, kind, path)
-    assert decision.equal is True, decision
+    assert decision.equal is None and not decision.equivalent, decision
     detail = decision.diagnostics[0]
     assert detail['evidence_type'] == 'recorded_observed' and detail['current_aws_verified'] is False
     assert detail['exports'] == [{'export_name': 'shared', 'export_stack': 'producer'}]
@@ -447,10 +447,10 @@ def test_kms_arn_uses_only_producer_context(field, value):
     assert decision.equal is None, decision
     assert decision.diagnostics[0]['current_aws_verified'] is False
     if value in {'aws-cn', 'us-east-1', '999999999999'}:
-        assert decision.diagnostics[0]['reason'] == 'recorded_identifier_mismatch'
+        assert decision.diagnostics[0]['reason'].startswith('recorded_identifier_mismatch')
         assert comparison.reference_decision(KEY_ARN.replace(
             {'AWS::Partition': 'aws', 'AWS::Region': 'ap-northeast-1', 'AWS::AccountId': '123456789012'}[field],
-            value, 1), actual, 'Athena.WorkGroup', ATHENA_KMS).equal is True
+            value, 1), actual, 'Athena.WorkGroup', ATHENA_KMS).equal is None
 
 
 def test_kms_conflicting_recorded_identifier_is_uncompared():
@@ -459,7 +459,7 @@ def test_kms_conflicting_recorded_identifier_is_uncompared():
     actual = exported(comparison, {'Fn::GetAtt': ['Key', 'Arn']})
     decision = comparison.reference_decision(KEY_ARN.replace(KEY_ID, 'mrk-' + 'b' * 32), actual,
                                              'Athena.WorkGroup', ATHENA_KMS)
-    assert decision.equal is None and decision.diagnostics[0]['reason'] == 'recorded_identifier_mismatch'
+    assert decision.equal is None and decision.diagnostics[0]['reason'].startswith('recorded_identifier_mismatch')
 
 
 @pytest.mark.parametrize('fault', ['missing', 'duplicate', 'type', 'condition', 'transform', 'import',
@@ -569,7 +569,7 @@ def test_kms_derived_producer_diagnostics_are_unique():
 
 
 @pytest.mark.parametrize('kind,path', KMS_RECEIVERS)
-def test_kms_runner_reports_matched_with_recorded_proof(kind, path):
+def test_kms_runner_reports_uncompared_with_recorded_proof(kind, path):
     comparison = fixture()
     resource(comparison, 'kms', '001', 'KMS.Key', 'Key', [('KeyId', 'PENDING_DEPLOY', KEY_ID)])
     properties = {}
@@ -581,7 +581,7 @@ def test_kms_runner_reports_matched_with_recorded_proof(kind, path):
     document = comparison.stack_inputs['consumer'][0]
     results = comparison.compare_rows('consumer', '010', comparison.resources['consumer']['010'],
         'consumer', 'Consumer', ROOT / 'synthetic.yaml', document['Resources']['Consumer'], document).records
-    assert [item['category'] for item in results] == ['matched'], results
+    assert [item['category'] for item in results] == ['uncompared'], results
     assert results[0]['reference_diagnostics'][0]['evidence_type'] == 'recorded_observed'
 
 
@@ -594,7 +594,7 @@ def test_export_chain_retains_each_handoff():
     comparison.exports = None
     actual = comparison.evaluate('consumer', {'Fn::ImportValue': 'shared'})
     decision = comparison.reference_decision(VPC, actual, 'EC2.Subnet', 'VpcId')
-    assert decision.equal is True
+    assert decision.equal is None and not decision.equivalent
     assert decision.diagnostics[0]['exports'] == [
         {'export_name': 'shared', 'export_stack': 'relay'}, {'export_name': 'base', 'export_stack': 'producer'}]
 
@@ -611,7 +611,7 @@ def test_runner_keeps_recorded_evidence_and_does_not_write_authority():
     results = comparison.compare_rows('consumer', '010', comparison.resources['consumer']['010'],
         'consumer', 'Consumer', ROOT / 'synthetic.yaml', document['Resources']['Consumer'], document).records
     assert [item['category'] for item in results] == ['matched'], results
-    assert results[0]['reference_diagnostics'][0]['evidence_type'] == 'recorded_observed'
+    assert results[0]['reference_diagnostics'][0]['evidence_type'] == 'logical_reference'
     assert {service: model.authoritative for service, model in comparison.models.items()} == before
 
 
@@ -1519,7 +1519,7 @@ def test_recorded_evidence_survives_nested_expression_and_reversal():
     actual = exported(comparison, expression)
     for left, right in [(KEY_ARN + '/suffix', actual), (actual, KEY_ARN + '/suffix')]:
         decision = comparison.reference_decision(left, right, 'IAM.Role', 'Policies')
-        assert decision.equal is True, decision
+        assert decision.equal is None and not decision.equivalent, decision
         detail = decision.diagnostics[0]
         assert detail['current_aws_verified'] is False and detail['evidence_type'] == 'recorded_observed'
         assert detail['producers'][0]['producer'] == 'kms/001'
@@ -1543,7 +1543,7 @@ def test_saved_literal_evidence_is_checked_in_both_directions(fault):
     evaluated = Expression('Sub', ['pre/${R}', {'R': actual}])
     for left, right in [(desired, actual), (actual, desired), (desired, VPC), (VPC, desired),
                         (compound, evaluated), (evaluated, compound)]:
-        assert comparison.reference_decision(left, right, 'EC2.Subnet', 'VpcId').equal is (True if fault is None else None)
+        assert comparison.reference_decision(left, right, 'EC2.Subnet', 'VpcId').equal is (True if fault is None and not isinstance(left, str) and not isinstance(right, str) else None)
 
 
 
@@ -1553,7 +1553,7 @@ def test_cached_exports_are_bound_to_the_consumer_scope(field, replacement):
     comparison = fixture()
     vpc(comparison)
     original = exported(comparison, {'Ref': 'Vpc'})
-    assert comparison.reference_same(VPC, original, 'EC2.Subnet', 'VpcId') is True
+    assert comparison.reference_same(VPC, original, 'EC2.Subnet', 'VpcId') is None
     document, parameters, pseudo = comparison.stack_inputs['consumer']
     comparison.stack_inputs['consumer'] = document, parameters, dict(pseudo, **{field: replacement})
     with pytest.raises(Blocked, match='handoff matches=0|confirmed'):
@@ -1585,7 +1585,7 @@ def test_shared_recorded_arn_proof(kind, attribute, identifier, properties, arn,
         comparison.stack_inputs['producer'][0]['Resources']['Resource']['Condition'] = 'Off'
     for left, right in [(symbol, arn), (arn, symbol)]:
         decision = comparison.reference_decision(left, right, 'IAM.Role', 'Policies[].PolicyDocument.Statement[].Resource')
-        assert decision.equal is (True if fault is None else None), decision
+        assert decision.equal is None and not decision.equivalent, decision
         if fault is None:
             assert decision.diagnostics[0]['evidence_type'] == 'recorded_observed'
             assert decision.diagnostics[0]['current_aws_verified'] is False
@@ -1958,3 +1958,93 @@ def test_recorded_reference_processing_errors_are_not_missing_proof(declared, er
     with patch('comparison.reference_evidence.catalog_outputs', side_effect=error('synthetic catalog read failure')):
         with pytest.raises(error, match='synthetic catalog read failure'):
             comparison.reference_decision(desired, actual, 'EC2.Subnet', 'VpcId')
+
+
+@pytest.mark.parametrize('operation', ['Arn', 'Sub', 'Join', 'SplitSelect'])
+def test_replacement_and_old_observed_cannot_prove_physical_identity(operation):
+    comparison = fixture()
+    resource(comparison, 'vpc', '001', 'EC2.VPC', 'Vpc', [
+        ('CidrBlock', '10.0.0.0/16', None), ('VpcId', 'PENDING_DEPLOY', VPC)],
+        properties={'CidrBlock': '10.99.0.0/16'})
+    arn = 'arn:aws:ec2:ap-northeast-1:123456789012:vpc/' + VPC
+    symbol = ResourceReference({'$resource': ['vpc', '001'], '$attribute': 'Arn'})
+    value = {'Arn': symbol, 'Sub': Expression('Sub', ['${R}', {'R': symbol}]),
+             'Join': Expression('Join', ['', [symbol]]),
+             'SplitSelect': Expression('Select', [0, Expression('Split', ['|', symbol])])}[operation]
+    for left, right in [(value, arn), (arn, value)]:
+        decision = comparison.reference_decision(left, right, 'IAM.Role', 'Policies')
+        assert decision.equal is None and not decision.equivalent
+        assert decision.diagnostics[0]['evidence_type'] == 'recorded_observed'
+        assert 'cannot prove' in decision.diagnostics[0]['reason']
+    assert comparison.reference_decision(value, copy.deepcopy(value), 'IAM.Role', 'Policies').equal is True
+    other = ResourceReference({'$resource': ['vpc', '001'], '$attribute': 'VpcId'})
+    assert comparison.reference_decision(symbol, other, 'IAM.Role', 'Policies').equal is not True
+    vpc(comparison, '002', 'OtherVpc')
+    different = ResourceReference({'$resource': ['vpc', '002'], '$attribute': 'Arn'})
+    assert comparison.reference_decision(symbol, different, 'IAM.Role', 'Policies').equal is False
+
+
+@pytest.mark.parametrize('bus,tail', [(None, ''), ('default', ''), ('custom', 'custom/'),
+    ('arn:aws:events:ap-northeast-1:123456789012:event-bus/default', ''),
+    ('arn:aws:events:ap-northeast-1:123456789012:event-bus/custom', 'custom/'),
+    ({'Ref': 'Bus'}, 'custom/'), ({'Fn::GetAtt': ['Bus', 'Arn']}, 'custom/'),
+    ({'Fn::Sub': '${Bus.Arn}'}, 'custom/')])
+def test_eventbridge_bus_name_arn_and_proven_reference(bus, tail):
+    comparison = fixture()
+    resource(comparison, 'events', '001', 'Events.EventBus', 'Bus', [], properties={'Name': 'custom'})
+    properties = {'Name': 'fixture-rule'}
+    if bus is not None:
+        properties['EventBusName'] = bus
+    resource(comparison, 'events', '002', 'Events.Rule', 'Rule', [], properties=properties)
+    symbol = comparison.evaluate('producer', {'Fn::GetAtt': ['Rule', 'Arn']})
+    arn = 'arn:aws:events:ap-northeast-1:123456789012:rule/' + tail + 'fixture-rule'
+    assert comparison.reference_literal(symbol) == arn
+    for left, right in [(arn, symbol), (symbol, arn)]:
+        assert comparison.reference_decision(left, right, 'IAM.Role', 'Policies').equal is True
+
+
+@pytest.mark.parametrize('bus', [
+    'arn:aws:events:ap-northeast-1:999999999999:event-bus/custom',
+    'arn:aws:events:us-east-1:123456789012:event-bus/custom',
+    'arn:aws-cn:events:ap-northeast-1:123456789012:event-bus/custom',
+    'arn:aws:events:ap-northeast-1:123456789012:rule/custom',
+    'arn:aws:sns:ap-northeast-1:123456789012:event-bus/custom',
+    'arn:aws:events:ap-northeast-1:123:event-bus/custom',
+    'arn:aws:events:ap-northeast-1:123456789012:event-bus/',
+    'arn:aws:events:ap-northeast-1:123456789012:event-bus/custom/suffix',
+    'arn:aws:events:ap-northeast-1:123456789012:event-bus/*',
+    '', 'UNSET', {'Ref': 'Missing'}, {'Fn::GetAtt': ['Bus', 'Arn']}, {'Fn::GetAtt': ['Rule', 'Arn']}])
+def test_eventbridge_unproven_or_conflicting_bus_is_uncompared(bus):
+    comparison = fixture()
+    resource(comparison, 'events', '001', 'Events.EventBus', 'Bus', [], properties={})
+    resource(comparison, 'events', '002', 'Events.Rule', 'Rule', [],
+             properties={'Name': 'fixture-rule', 'EventBusName': bus})
+    symbol = comparison.evaluate('producer', {'Fn::GetAtt': ['Rule', 'Arn']})
+    for left, right in [(symbol, 'arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule'),
+                        ('arn:aws:events:ap-northeast-1:123456789012:rule/custom/fixture-rule', symbol)]:
+        decision = comparison.reference_decision(left, right, 'IAM.Role', 'Policies')
+        assert decision.equal is None and not decision.equivalent
+
+
+@pytest.mark.parametrize('transform', ['same', 'suffix', 'select', 'delimiter'])
+def test_route53_composite_export_uses_shared_nested_setting_comparison(transform):
+    comparison = fixture()
+    resource(comparison, 'endpoint', '001', 'EC2.VPCEndpoint', 'Endpoint', [], stack='consumer',
+             properties={'VpcEndpointType': 'Interface'})
+    expression = {'Fn::Select': [0, {'Fn::Split': [':', {'Fn::Select': [0,
+        {'Fn::GetAtt': ['Endpoint', 'DnsEntries']}]}]}]}
+    comparison.stack_inputs['consumer'][0]['Outputs']['Dns'] = {'Value': expression, 'Export': {'Name': 'EndpointDns'}}
+    imported = {'Fn::ImportValue': 'EndpointDns'}
+    desired = {'DNSName': imported, 'HostedZoneId': 'Z123'}
+    actual = copy.deepcopy(desired)
+    if transform == 'suffix':
+        actual['DNSName'] = {'Fn::Join': ['', [imported, '.other']]}
+    elif transform in {'select', 'delimiter'}:
+        desired['DNSName'] = {'Fn::Select': [0, {'Fn::Split': ['|', imported]}]}
+        actual['DNSName'] = {'Fn::Select': [1 if transform == 'select' else 0,
+            {'Fn::Split': ['|' if transform == 'select' else ',', imported]}]}
+    results = setting(comparison, 'Route53.RecordSet', 'AliasTarget', desired, actual)
+    assert [item['category'] for item in results] == ['matched' if transform == 'same' else 'uncompared'], results
+    details = results[0].get('reference_diagnostics', [])
+    if transform != 'select':
+        assert details and details[0]['exports'][0]['unproven'].startswith('Select bounds are unproven')

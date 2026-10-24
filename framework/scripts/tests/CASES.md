@@ -2810,13 +2810,13 @@ through os.replace, without depending on temporary filenames.
 | `single-file::batch-order` | `check_batch_stages_before_publish` | UT | [units/file_operations-unit.checks.py](units/file_operations-unit.checks.py#L155) | pytest / 1 | All stages precede publish; rollback adds no fsync | Synthetic two-file batch |
 | `single-file::session-api` | `check_session_save_uses_shared_api` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py#L164) | pytest / 1 | Session JSON/shared API/creation mode and save error propagation | Synthetic session |
 | `single-file::journal-order` | `check_journal_precedes_publication` | UT | [units/model_files-unit.checks.py](units/model_files-unit.checks.py#L66) | pytest / 1 | Durable journal precedes Model write; journal failure stops publication | Synthetic journal |
-## KMS recorded ARN proof through Export/Import
+## KMS recorded ARN history through Export/Import
 
 `reference-evidence-unit.checks.py` は既存36条件に以下150条件を追加。Framework定義とModel保存形式は変更せず、合成Producer/Consumerと保存済み観測だけで検証する。
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
-| `kms-proof::recorded` | `test_kms_recorded_arn_export_import` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L394) | pytest / 40 | 4受信Property・通常/Multi-Region Key・GetAtt/Sub/Join・観測証拠とExport診断保持・authority不変 | KMS ARN |
+| `kms-proof::recorded` | `test_kms_recorded_arn_export_import` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L394) | pytest / 40 | 4受信Property・通常/Multi-Region Key・GetAtt/Sub/Joinで保存Observed単独はuncompared、Export診断保持・authority不変 | KMS ARN |
 | `kms-proof::identifier` | `test_kms_arn_requires_recorded_key_id` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L413) | pytest / 11 | 欠落・未設定・PENDING_DEPLOY・不正形式・固定Model ARNからの逆推論禁止 | KMS ARN |
 | `kms-proof::observation-only` | `test_kms_arn_identifier_evidence_comes_from_observation_only` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L422) | pytest / 1 | desiredやIaCにKeyIdがあっても観測の代用にしない | KMS ARN |
 | `kms-proof::context` | `test_kms_arn_uses_only_producer_context` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L436) | pytest / 9 | ProducerのPartition/Region/Account欠落・不正・不一致、Consumer contextへのfallback禁止 | KMS ARN |
@@ -2828,7 +2828,7 @@ through os.replace, without depending on temporary filenames.
 | `kms-proof::forms` | `test_kms_existing_service_form_matrix` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L541) | pytest / 64 | 4サービス×KeyId/KeyArn/AliasName/AliasArnの全16組合せ、既存形式・同一性の契約 | KMS ARN |
 | `kms-proof::unresolved` | `test_kms_unresolved_expressions_do_not_gain_symbolic_equality` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L553) | pytest / 1 | 未解決の同一Expression/未対応Intrinsicを誤matchedにしない | KMS ARN |
 | `kms-proof::diagnostics` | `test_kms_derived_producer_diagnostics_are_unique` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L560) | pytest / 1 | 導出診断を追加した後も同じProducer/attributeを重複しない | KMS ARN |
-| `kms-proof::rows` | `test_kms_runner_reports_matched_with_recorded_proof` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L570) | pytest / 4 | 4受信Propertyの本番row比較からmatchedとrecorded_observed診断を返す | KMS ARN |
+| `kms-proof::rows` | `test_kms_runner_reports_uncompared_with_recorded_proof` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py#L570) | pytest / 4 | 4受信Propertyのrow比較で保存Observed単独をuncomparedとし、recorded_observed診断を保持 | KMS ARN |
 
 ## Deploy controller processing reduction (1024v4)
 
@@ -3631,3 +3631,16 @@ QuickSightの既存UT行と移管元行が同じ所有関数を重複登録し�
 | `issues-change::authority` | `check_save_authority_limits_real_destinations` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py#L718) | pytest / 3 | 実Issue契約の対象report保存先のみ許可・別名/親経路への保存拒否 | Issue変更監視廃止 |
 | `issues-change::mechanical-contracts` | `check_mechanical_accepts_contract_catalog_changes` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py#L292) | pytest / 1 | Issue機械診断中の他Task追加で停止しない | Issue変更監視廃止 |
 | `issues-change::validation-contracts` | `check_issue_validation_ignores_contract_catalog_changes` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L562) | pytest / 1 | Issue ValidatorのTask一覧変更許容・実Acceptance検証・PASS cacheなし | Issue変更監視廃止 |
+
+## Reference comparison residual safety (1025v2)
+
+既存の178型監査台帳・ARN契約・Sub/Join比較を再利用する。保存Observedは履歴値であり物理同一性を証明しない。同一Producer/属性と、scope・一意性が証明された同一Export/変換式は論理同一性として比較する。Selectの具体値評価はbounds未証明のまま停止する。
+
+| Origin | Case | Level | Entry | Execution | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `reference-residual::observed` | `test_replacement_and_old_observed_cannot_prove_physical_identity` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 4 | VPC CIDR変更と旧ObservedはArn/Sub/Join/Split/Selectと逆方向でuncompared、論理同一性を維持 | Synthetic Models |
+| `reference-residual::eventbus` | `test_eventbridge_bus_name_arn_and_proven_reference` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 8 | 省略/default/custom名・ARN・Ref/GetAtt/Subから正しいRule ARN | Synthetic Models |
+| `reference-residual::eventbus-invalid` | `test_eventbridge_unproven_or_conflicting_bus_is_uncompared` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 14 | scope不一致・不正ARN・欠落・循環・未証明参照をuncompared | Synthetic Models |
+| `reference-residual::route53` | `test_route53_composite_export_uses_shared_nested_setting_comparison` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 4 | ネストしたRoute53 settingの同一Export比較と異なる変換のuncompared | Synthetic Models |
+| `reference-residual::export-expression` | `test_export_retains_symbolic_dns_expression_and_transform` | UT | [units/aws-reference-expressions-unit.checks.py](units/aws-reference-expressions-unit.checks.py) | pytest / 8 | 同一scope/Export/変換のみmatched、Select boundsとProducer/属性/由来を保持 | Synthetic Models |
+| `reference-residual::export-invalid` | `test_symbolic_export_keeps_scope_uniqueness_and_invalid_input_guards` | UT | [units/aws-reference-expressions-unit.checks.py](units/aws-reference-expressions-unit.checks.py) | pytest / 8 | Export不在・重複・探索不完全・scope不一致・範囲外・不正式の拒否 | Synthetic Models |

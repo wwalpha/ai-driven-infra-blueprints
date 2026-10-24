@@ -120,6 +120,15 @@ def compare(inputs, left, right, kind, path):
     if not isinstance(raw, str) or not isinstance(right, (ResourceReference, Expression)):
         if declared is not None:
             equal = same(raw, right)
+            if left.declared_format != 'name':
+                try:
+                    validate_declaration(inputs, left)
+                except Blocked as error:
+                    return ReferenceDecision(None, (inputs.reference_diagnostic(original_left, original_right, kind, path, str(error)),))
+                detail = inputs.reference_diagnostic(original_left, original_right, kind, path,
+                    'recorded_observed cannot prove current or next-deploy physical identity')
+                detail.update(evidence_type='recorded_observed', current_aws_verified=False, local_comparison='uncompared')
+                return ReferenceDecision(None, (detail,))
             if equal:
                 try:
                     validate_declaration(inputs, left)
@@ -161,19 +170,23 @@ def compare(inputs, left, right, kind, path):
             right_key = (*right['$resource'], right['$attribute'])
             if not proof.properties.get(left_key) or proof.properties[left_key] != proof.properties.get(right_key):
                 raise Blocked('attribute_format_unproven: declared attribute differs')
-        equal = raw == concrete
-        if not equal and proof.observed:
-            equal = None
-            reason = 'recorded_identifier_mismatch'
+        logical = (declared is not None and isinstance(right, ResourceReference)
+                   and left['$resource'] == right['$resource'])
+        equal = True if logical else None if proof.observed else raw == concrete
+        if logical:
+            reason = 'logical_reference'
+        elif proof.observed:
+            reason = ('recorded_observed cannot prove current or next-deploy physical identity' if raw == concrete
+                      else 'recorded_identifier_mismatch: historical value cannot prove an IaC difference')
         else:
-            reason = 'recorded_observed' if proof.observed else 'iac_concrete'
+            reason = 'iac_concrete'
     except Blocked as error:
         reason = str(error)
     detail = inputs.reference_diagnostic(original_left, original_right, kind, path, reason)
     if declared is not None:
         detail['model_literal'] = inputs.redacted(raw, kind + '.' + path)
     detail.update(local_comparison='matched' if equal is True else 'difference' if equal is False else 'uncompared',
-                  evidence_type='recorded_observed' if proof.observed else 'local_evaluation',
+                  evidence_type='logical_reference' if reason == 'logical_reference' else 'recorded_observed' if proof.observed else 'local_evaluation',
                   current_aws_verified=False, producers=proof.producers)
     return ReferenceDecision(equal, (inputs.redacted(detail),), equal is True)
 

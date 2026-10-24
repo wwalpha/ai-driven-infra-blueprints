@@ -36,11 +36,12 @@ def _callback_Evaluation_evaluate_replace(resolved, seen, self, stack, substitut
 
 
 class Evaluation:
-    def __init__(self, stack_inputs, resources, property_schema, symbol, import_value, local_comparison, resource_schema):
+    def __init__(self, stack_inputs, resources, property_schema, symbol, import_value, local_comparison, resource_schema, defer_select=None):
         self.stack_inputs, self.resources = stack_inputs, resources
         self.property_schema, self.symbol, self.import_value = property_schema, symbol, import_value
         self.local_comparison = local_comparison
         self.resource_schema = resource_schema
+        self.defer_select = defer_select
 
     def symbolic_schema(self, value, *, element=False):
         if isinstance(value, ResourceReference):
@@ -173,7 +174,12 @@ class Evaluation:
                     if 'maxItems' in node and index >= node['maxItems']:
                         raise ValueError(f'invalid Select operands: index {index} exceeds schema maxItems {node["maxItems"]}')
                     if index >= node.get('minItems', 0):
-                        raise Blocked(f'Select bounds are unproven: index {index}, symbolic array minItems={node.get("minItems", 0)}')
+                        if ('expression-identity',) not in seen:
+                            reason = f'Select bounds are unproven: index {index}, symbolic array minItems={node.get("minItems", 0)}'
+                            retained = self.defer_select(stack, Expression('Select', [index, items]), reason) if self.defer_select else None
+                            if retained is not None:
+                                return retained
+                            raise Blocked(reason)
                     return Expression('Select', [index, items])
                 if isinstance(items, Expression) and items.operation == 'Split':
                     if index != 0:

@@ -576,3 +576,69 @@ def test_same_producer_different_attributes_cannot_be_proven_by_equal_template_f
 
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-q']))
+
+
+def endpoint_export(inputs):
+    expression = {'Fn::Select': [0, {'Fn::Split': [':', {'Fn::Select': [0,
+        {'Fn::GetAtt': ['Resource001', 'DnsEntries']}]}]}]}
+    inputs.stack_inputs['producer'][0]['Outputs'] = {'Dns': {'Value': expression, 'Export': {'Name': 'EndpointDns'}}}
+    return expression
+
+
+@pytest.mark.parametrize('transform', ['identity', 'SubJoin', 'same-select', 'Select', 'Split', 'prefix', 'suffix', 'other-export'])
+def test_export_retains_symbolic_dns_expression_and_transform(models, transform):
+    inputs, _ = producer(models, 'EC2.VPCEndpoint', {'VpcEndpointType': 'Interface'})
+    expression = endpoint_export(inputs)
+    with pytest.raises(Blocked, match='Select bounds are unproven'):
+        inputs.evaluate('producer', expression)
+    imported = {'Fn::ImportValue': 'EndpointDns'}
+    left = inputs.evaluate('consumer', imported)
+    if transform == 'SubJoin':
+        left = inputs.evaluate('consumer', {'Fn::Sub': ['pre/${Dns}/post', {'Dns': imported}]})
+        payload = {'Fn::Join': ['', ['pre/', imported, '/post']]}
+    elif transform == 'same-select':
+        payload = {'Fn::Select': [1, {'Fn::Split': ['|', imported]}]}
+        left = inputs.evaluate('consumer', payload)
+    elif transform in {'Select', 'Split'}:
+        left = inputs.evaluate('consumer', {'Fn::Select': [0, {'Fn::Split': ['|', imported]}]})
+        payload = {'Fn::Select': [1 if transform == 'Select' else 0,
+            {'Fn::Split': ['|' if transform == 'Select' else ',', imported]}]}
+    elif transform in {'prefix', 'suffix'}:
+        payload = {'Fn::Join': ['', ['pre/', imported] if transform == 'prefix' else [imported, '/post']]}
+    elif transform == 'other-export':
+        inputs.stack_inputs['producer'][0]['Outputs']['Other'] = {'Value': expression, 'Export': {'Name': 'OtherDns'}}
+        inputs.exports = None
+        payload = {'Fn::ImportValue': 'OtherDns'}
+    else:
+        payload = imported
+    right = inputs.evaluate('consumer', payload)
+    for a, b in [(left, right), (right, left)]:
+        decision = inputs.reference_decision(a, b, 'Route53.RecordSet', 'AliasTarget.DNSName')
+        assert decision.equal is (True if transform in {'identity', 'SubJoin', 'same-select'} else None), decision
+        assert decision.diagnostics[-1]['exports'][0]['unproven'].startswith('Select bounds are unproven')
+        assert decision.diagnostics[-1]['evidence_type'] == 'export_expression' or transform == 'other-export'
+    assert inputs.reference_same(left, 'historical-dns.example', 'Route53.RecordSet', 'AliasTarget.DNSName') is None
+    with pytest.raises(Blocked):
+        inputs.reference_literal(left)
+
+
+@pytest.mark.parametrize('fault', ['missing', 'duplicate', 'incomplete', 'partition', 'account', 'region', 'out-of-bounds', 'invalid'])
+def test_symbolic_export_keeps_scope_uniqueness_and_invalid_input_guards(models, fault):
+    inputs, _ = producer(models, 'EC2.VPCEndpoint', {'VpcEndpointType': 'Interface'})
+    endpoint_export(inputs)
+    if fault == 'missing':
+        inputs.stack_inputs['producer'][0]['Outputs'] = {}
+    elif fault == 'duplicate':
+        inputs.stack_inputs['consumer'][0]['Outputs'] = copy.deepcopy(inputs.stack_inputs['producer'][0]['Outputs'])
+    elif fault == 'incomplete':
+        inputs.stack_inputs['consumer'][0]['Transform'] = 'Unresolved'
+    elif fault in {'partition', 'account', 'region'}:
+        document, parameters, pseudo = inputs.stack_inputs['consumer']
+        field, value = {'partition': ('Partition', 'aws-cn'), 'account': ('AccountId', '999999999999'),
+                        'region': ('Region', 'us-east-1')}[fault]
+        inputs.stack_inputs['consumer'] = document, parameters, dict(pseudo, **{'AWS::' + field: value})
+    else:
+        inputs.stack_inputs['producer'][0]['Outputs']['Dns']['Value'] = (
+            {'Fn::Select': [2, ['only']]} if fault == 'out-of-bounds' else {'Fn::Split': ['', 'value']})
+    with pytest.raises((Blocked, ValueError)):
+        inputs.evaluate('consumer', {'Fn::ImportValue': 'EndpointDns'})

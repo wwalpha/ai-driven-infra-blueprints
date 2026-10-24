@@ -9,8 +9,8 @@ from utils.iac_values import Expression, ResourceReference
 from .values import PreparedValue
 
 
-def evaluator(stack_inputs, resources, property_schema, symbol, import_value, local_comparison, resource_schema):
-    return Evaluation(stack_inputs, resources, property_schema, symbol, import_value, local_comparison, resource_schema)
+def evaluator(stack_inputs, resources, property_schema, symbol, import_value, local_comparison, resource_schema, defer_select=None):
+    return Evaluation(stack_inputs, resources, property_schema, symbol, import_value, local_comparison, resource_schema, defer_select)
 
 
 def project_actual(value, *, evaluate, property_name, model_path, desired=None, exact=True):

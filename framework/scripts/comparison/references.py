@@ -80,7 +80,7 @@ def reference_same(left, right, kind, path, *, local_comparison, forms_for, reso
     if evidence is not None and any(isinstance(value, Expression) for value in (left, right)):
         for source in expressions.references([left, right]):
             if hasattr(source, 'saved_literal'):
-                verified = evidence(source, source.saved_literal, kind, path)
+                verified = evidence(source, ResourceReference(source), kind, path)
                 if verified.equal is not True:
                     return verified
     if evidence is not None and any(hasattr(value, 'saved_literal') for value in (left, right)):

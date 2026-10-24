@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from functools import partial
 
 import design.array_display as _imports_array_display
 import model.identity as _imports_model_identity
@@ -385,28 +386,43 @@ class Inputs:
             raise blocked
         producer, value = candidates[0]
         try:
-            result = self.evaluate(producer, value, seen | {token})
+            deferred = None
+            try:
+                result = self.evaluate(producer, value, seen | {token})
+            except Blocked as error:
+                if not str(error).startswith('Select bounds are unproven:'):
+                    raise
+                # Preserve expression identity only; concrete Select evaluation still fails closed.
+                deferred = str(error)
+                result = self.evaluate(producer, value, seen | {token, ('expression-identity',)})
             if isinstance(result, (ResourceReference, Expression)):
                 # Keep provenance on this import occurrence without mutating cached symbols.
                 origins = reference_evidence.export_origins(result, self.export_provenance)
                 result = ResourceReference(result) if isinstance(result, ResourceReference) else Expression(result.operation, result.operands)
-                self.export_provenance[id(result)] = (result, [{'export_name': name, 'export_stack': producer}, *origins])
+                origin = {'export_name': name, 'export_stack': producer}
+                if deferred:
+                    origin.update(scope=scope, unproven=deferred)
+                self.export_provenance[id(result)] = (result, [origin, *origins])
             return result
         except Blocked as error:
             if not getattr(error, 'iac_cause', None):
                 error.iac_cause = {'kind': 'import-unresolved', 'export': name, 'relationship': 'import', 'consumer_stack': stack}
             raise
 
-    def reference_literal(self, value, *, recorded=None):
+    def reference_literal(self, value, *, recorded=None, seen=frozenset()):
         """Resolve local values; an optional comparison proof may use recorded outputs."""
         if isinstance(value, Expression):
-            return references.literal_expression(value, resolve_literal=self.reference_literal)
+            return references.literal_expression(value, resolve_literal=partial(self.reference_literal, recorded=recorded, seen=seen))
         service, identity = value['$resource']
+        token = (service, identity, value['$attribute'])
+        if token in seen:
+            raise Blocked('cyclic reference literal dependency')
+        seen = seen | {token}
         resource = self.resources[service][identity]
         suffix = ATTRIBUTE_SUFFIXES.get((resource['resourceType'], value['$attribute']))
         if suffix:
             base = ResourceReference(dict(value, **{'$attribute': suffix[0]}))
-            return self.reference_literal(base, recorded=recorded) + suffix[1]
+            return self.reference_literal(base, recorded=recorded, seen=seen) + suffix[1]
         imported_arn = registry.hook(resource['resourceType'], 'imported_group_arn')
         if (self.local_comparison and imported_arn and resource['resourceType'] in registry.hook(resource['resourceType'], 'IMPORTED_ARN_KINDS')
                 and resource_mode(resource) == 'IMPORT'
@@ -436,7 +452,7 @@ class Inputs:
             if resource_mode(resource) != 'CREATE':
                 raise Blocked('named ARN requires CREATE resource correspondence; IMPORT requires approved handoff')
             return registry.named_arn(resource['resourceType'], properties, pseudo,
-                                      evaluate=lambda value: evaluator.evaluate(name, value),
+                                      evaluate=partial(self.reference_component, name, recorded=recorded, seen=seen),
                                       schema=self.catalog.schema(resource['resourceType']),
                                       recorded=(lambda field: recorded(ResourceReference(dict(value, **{'$attribute': field})))) if recorded is not None else None)
         setting = RETURN_ATTRIBUTE_PROPERTIES.get((resource['resourceType'], attribute))
@@ -454,6 +470,10 @@ class Inputs:
             raise Blocked('reference name is unresolved')
         return result
 
+    def reference_component(self, stack, value, *, recorded=None, seen=frozenset()):
+        value = self.evaluate(stack, value)
+        return self.reference_literal(value, recorded=recorded, seen=seen) if isinstance(value, (ResourceReference, Expression)) else value
+
     def parameter_keys(self, unit):
         path = self.root / 'infra/cloudformation/parameters' / self.environment / self.directory / unit['parameters']
         self.track(path)
@@ -468,7 +488,17 @@ class Inputs:
 
     def evaluator(self):
         return evaluation.evaluator(self.stack_inputs, self.resources, self.catalog.property_schema,
-                                    self.symbol, self.import_value, self.local_comparison, self.catalog.schema)
+                                    self.symbol, self.import_value, self.local_comparison, self.catalog.schema, self.defer_select)
+
+    def defer_select(self, stack, value, reason):
+        origins = reference_evidence.export_origins(value.operands[1], self.export_provenance)
+        if not origins:
+            return None
+        scope = tuple(registry.context_value(self.stack_inputs[stack][2], group) for group in ('partition', 'account', 'region'))
+        if any(origin.get('scope', scope) != scope for origin in origins):
+            return None
+        self.export_provenance[id(value)] = (value, [dict(origin, scope=scope, unproven=reason) for origin in origins])
+        return value
 
     def evaluate(self, stack, value, seen=frozenset()):
         return self.evaluator().evaluate(stack, value, seen)
@@ -496,10 +526,26 @@ class Inputs:
         return detail
 
     def reference_decision(self, left, right, kind, path):
-        return references.reference_same(left, right, kind, path, local_comparison=self.local_comparison,
+        left_origins = reference_evidence.export_origins(left, getattr(self, 'export_provenance', {}))
+        right_origins = reference_evidence.export_origins(right, getattr(self, 'export_provenance', {}))
+        deferred = (any(isinstance(value, (ResourceReference, Expression)) for value in (left, right))
+                    and any('unproven' in origin for origin in left_origins + right_origins))
+        if deferred and (not left_origins or not right_origins or left_origins != right_origins):
+            detail = self.reference_diagnostic(left, right, kind, path,
+                'Export expression identity is unproven; Select bounds remain unproven')
+            detail.update(evidence_type='export_expression', current_aws_verified=False)
+            return references.ReferenceDecision(None, (detail,))
+        result = references.reference_same(left, right, kind, path, local_comparison=self.local_comparison,
             forms_for=self.reference_forms, resolve_literal=self.reference_literal,
             resource_type=self.resource_type, kms_format=self.kms_format, diagnostic=self.reference_diagnostic,
             evidence=self.reference_evidence if self.local_comparison else None)
+        if deferred:
+            detail = self.reference_diagnostic(left, right, kind, path,
+                'same Export expression' if result.equal is True else 'Export transformation equivalence is unproven')
+            detail.update(evidence_type='export_expression', current_aws_verified=False)
+            return references.ReferenceDecision(True if result.equal is True else None, (*result.diagnostics, detail),
+                                                result.equal is True and result.equivalent)
+        return result
 
     def reference_evidence(self, left, right, kind, path):
         return reference_evidence.compare(self, left, right, kind, path)
