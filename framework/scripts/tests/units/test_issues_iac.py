@@ -321,9 +321,11 @@ class ImportValueResolutionTests(unittest.TestCase):
           with self.assertRaisesRegex(Blocked, 'requires an explicit attribute for KMS'):
             desired(logical)
         self.assertEqual(desired('Secret', variable_type='SECRETS_MANAGER'), comparison.evaluate('producer', {'Ref': 'Secret'}))
-        for variable_type in [None, 'INVALID', 'PARAMETER_STORE']:
-          with self.subTest(variable_type=variable_type), self.assertRaisesRegex(Blocked, 'Type is required'):
+        for variable_type in [None, 'INVALID']:
+          with self.subTest(variable_type=variable_type), self.assertRaisesRegex(Blocked, 'reference context or receiving property contract unproven'):
             desired('Bucket', variable_type=variable_type)
+        with self.assertRaisesRegex(Blocked, 'reference attribute not confirmed: Name'):
+          desired('Bucket', variable_type='PARAMETER_STORE')
         comparison.resources['kms']['001']['resourceMode'] = 'IMPORT'
         comparison.models['kms'].values['desired.resource.001.resourceMode'] = 'IMPORT'
         comparison.reference_anchor_indexes.pop('kms')

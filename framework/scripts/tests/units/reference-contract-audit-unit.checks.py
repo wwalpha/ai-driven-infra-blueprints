@@ -37,6 +37,9 @@ from utils.reference_contracts import (
     reference_attribute,
 )
 
+if not __debug__:
+    raise SystemExit('Focused checks require assertions; run without -O')
+
 
 @pytest.fixture
 def models(tmp_path):
