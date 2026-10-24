@@ -3333,6 +3333,9 @@ Cacheは現行PassCacheの呼出し内限定仕様を維持する。旧67条件�
 producer/attribute contracts, logical comparison with Ref/GetAtt/Export, ambiguity and missing
 producers, missing parent settings despite unknown children, policy forms and IMPORT protection,
 all display fallbacks, graph/incoming references, explicit Retarget preservation and deletion refusal.
+The same UT owns CodePipeline CodeCommit/CodeBuild/S3 Action contracts, exact JSON and indexed-row
+context isolation, typed Configuration reconstruction and display, and the connected comparison path.
+Context-dependent CodeBuild variables and CloudTrail DataResources use the same traversal checks.
 Existing Markdown-link, external metadata and service-specific equivalence tests remain with their
 existing owners because they test independent contracts rather than typed-node duplicates.
 

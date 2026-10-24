@@ -174,8 +174,10 @@ class Resolver:
                                            'producer logicalId is ambiguous', reference=logical_id)
         return matches[0]
 
-    def validate_attribute(self, kind, attribute, *, field=None):
-        declared = _imports_reference_contracts.contract(field) if field else {}
+    def validate_attribute(self, kind, attribute, *, field=None, context=None):
+        declared = _imports_reference_contracts.contract(field, context) if field else {}
+        if field and _imports_reference_contracts.configuration_contract(field, context) == {}:
+            raise ReferenceResolutionError('CodePipeline ActionTypeId or Configuration reference contract unproven')
         if declared and kind not in declared:
             raise ReferenceResolutionError('JSON Resource reference type differs from receiving property')
         if not isinstance(attribute, str) or not attribute:
@@ -183,7 +185,7 @@ class Resolver:
         if self.catalog is None:
             self.catalog = _imports_design_catalog.DesignSchemaCatalog(self.root)
         returned = reference_attribute(kind, attribute)
-        if (declared and attribute not in declared[kind] or
+        if (declared and reference_attribute(kind, attribute) not in {reference_attribute(kind, form) for form in declared[kind]} or
                 (kind, attribute) not in _imports_reference_contracts.ARN_FORMS and
                 kind + '.' + attribute not in _imports_reference_contracts.attributes_for(kind) and
                 attribute not in _imports_utils_aws_catalogs.catalogs_for(self.root).selected(kind) and

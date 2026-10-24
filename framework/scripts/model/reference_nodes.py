@@ -8,7 +8,7 @@ from design.services.definitions.registry import POLICY_FORMATS
 from iac_evaluation import RETURN_ATTRIBUTE_PROPERTIES
 from utils.aws_catalogs import catalog_outputs
 from utils.json_format import strict_json, validate_aws_document
-from utils.reference_contracts import reference_attribute
+from utils.reference_contracts import reference_attribute, reference_context
 
 from model.core import ReferenceResolutionError, entries, literal, resource_link
 
@@ -62,9 +62,26 @@ def receiving_property(property_name, pointer):
     return path
 
 
-def resolve(node, scope, resolver, *, field=None, property_name=None):
+def context_at(value, property_name, pointer, context=None):
+    """Select context by the exact JSON position, with zero-based pointer indexes."""
+    path = property_name
+    for token in pointer.split('/')[1:]:
+        token = token.replace('~1', '/').replace('~0', '~')
+        if isinstance(value, str):
+            value = strict_json(value)
+        if isinstance(value, dict):
+            context = reference_context(path, value, context)
+            value = value[token]
+            path += '.' + token
+        else:
+            value = value[int(token)]
+            path += '[]'
+    return context
+
+
+def resolve(node, scope, resolver, *, field=None, property_name=None, context=None):
     snapshot, number, resource = resolver.resolve_logical(node.logical_id, scope)
-    resolver.validate_attribute(resource['resourceType'], node.attribute, field=field)
+    resolver.validate_attribute(resource['resourceType'], node.attribute, field=field, context=context)
     if field:
         resolver.validate_reference_type(resource['resourceType'], node.attribute, field)
     terminal = node.pointer.rstrip('/').split('/')

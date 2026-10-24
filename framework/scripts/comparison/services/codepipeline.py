@@ -1,15 +1,12 @@
 """codepipeline comparison contracts and projections."""
 
-import re
-
-from design.policy_tables import literal
 from design.services.codepipeline import pipeline_rows
 from utils.cloudformation.inputs import Blocked
-from utils.comparison_rows import put_row
+from utils.reference_contracts import action_contexts, configuration_contract
+
+contexts = action_contexts
 
 KMS_FORMS = {'CodePipeline.Pipeline.ArtifactStore.EncryptionKey.Id': {'AliasArn'}}
-
-
 
 
 def prepare_rows(rows, *, index_rows):
@@ -31,24 +28,14 @@ def prepare_rows(rows, *, index_rows):
     return prepared
 
 
-def contexts(rows):
-    contexts = {}
-    for _, row in rows:
-        prop = row['property'].removeprefix('CodePipeline.Pipeline.')
-        action = re.fullmatch(r'(.*\.Actions\[\d+\])\.ActionTypeId\.(Category|Owner|Provider|Version)', prop)
-        if action:
-            put_row(contexts.setdefault(action[1], {}), 'ActionTypeId.' + action[2], literal(row['value']))
-    return contexts
-
-
 def reference_contract(path, attribute, context):
     if not path.startswith('Stages[].Actions[].Configuration.'):
         return NotImplemented
-    action = context.get('ActionTypeId', {})
-    field = path.removeprefix('Stages[].Actions[].Configuration.')
-    contracts = {'RepositoryName': ('Source', 'CodeCommit', 'CodeCommit.Repository', 'Name'),
-                 'ProjectName': ('Build', 'CodeBuild', 'CodeBuild.Project', 'Name')}
-    contract = contracts.get(field)
-    if not contract or action != dict(Category=contract[0], Owner='AWS', Provider=contract[1], Version='1'):
-        raise Blocked(f'CodePipeline {field} reference contract unproven: ActionTypeId={action}')
-    return contract[2], contract[3]
+    contract = configuration_contract('CodePipeline.Pipeline.' + path, context)
+    if not contract:
+        raise Blocked(f'CodePipeline {path} reference contract unproven: ActionTypeId={context.get("ActionTypeId")}')
+    kind, = contract
+    expected, = contract[kind]
+    if attribute is not None and attribute != expected:
+        raise Blocked(f'CodePipeline {path} reference attribute must be {expected}')
+    return kind, expected

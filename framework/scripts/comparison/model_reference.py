@@ -1,6 +1,6 @@
 """Select saved literal declarations from the authoritative snapshot, once per service."""
 from design.policy_tables import literal
-from model.identity import Resolver, address
+from model.identity import Resolver
 from model.reference_nodes import (
     is_reference,
     nodes,
@@ -11,7 +11,7 @@ from model.reference_nodes import (
 from model.references import declarations, usages
 from utils.cloudformation.inputs import Blocked
 from utils.iac_values import Expression, ResourceReference
-from utils.reference_contracts import reference_attribute
+from utils.reference_contracts import reference_attribute, reference_context
 
 
 class ModelReferences:
@@ -50,7 +50,7 @@ class ModelReferences:
         finally:
             inputs.retain_reads()
 
-    def normalize(self, inputs, key, value, pointer=None):
+    def normalize(self, inputs, key, value, pointer=None, context=None):
         if is_reference(value):
             try:
                 node = parse(value, pointer or '')
@@ -60,12 +60,12 @@ class ModelReferences:
                 field = receiving_property(prop, pointer or '')
                 path = field.removeprefix(kind + '.')
                 producer, number, resource, attribute = resolve(node, self.scope, self.resolver,
-                    field=field, property_name=prop)
+                    field=field, property_name=prop, context=context)
                 service = producer.scope.service
                 inputs.model(service)
-                reference = address(producer.scope, resource, consumer_scope=self.scope)
-                symbol = inputs.desired_reference(self.scope.service, reference, kind, path, attribute)
-                return ResourceReference(dict(symbol, **{'$attribute': reference_attribute(resource['resourceType'], symbol['$attribute'])}))
+                symbol = ResourceReference({'$resource': [service, number],
+                    '$attribute': reference_attribute(resource['resourceType'], attribute)})
+                return inputs.desired_reference(self.scope.service, symbol, kind, path, symbol['$attribute'], context)
             except (Blocked, KeyError, OSError, ValueError, TypeError) as error:
                 return Expression('Unverified', [value, str(error)])
             finally:
@@ -73,10 +73,12 @@ class ModelReferences:
         if isinstance(value, ResourceReference):
             return value
         if isinstance(value, dict):
-            return {name: self.normalize(inputs, key, child, (pointer or '') + '/' + name.replace('~', '~0').replace('/', '~1'))
+            prop = inputs.model(self.scope.service).authoritative.get(key.rsplit('.', 1)[0] + '.property', '')
+            context = reference_context(receiving_property(prop, pointer or ''), value, context)
+            return {name: self.normalize(inputs, key, child, (pointer or '') + '/' + name.replace('~', '~0').replace('/', '~1'), context)
                     for name, child in value.items()}
         if isinstance(value, list):
-            return [self.normalize(inputs, key, child, (pointer or '') + '/' + str(index)) for index, child in enumerate(value)]
+            return [self.normalize(inputs, key, child, (pointer or '') + '/' + str(index), context) for index, child in enumerate(value)]
         if isinstance(value, str) and any(nodes(value)):
             return Expression('Unverified', [value, 'encoded JSON reference needs proven expression evaluation'])
         records = self.positions.get(key, {}).get(pointer, ())

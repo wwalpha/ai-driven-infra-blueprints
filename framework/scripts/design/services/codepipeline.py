@@ -4,6 +4,7 @@ import json
 import re
 
 from model.core import LINK, literal
+from model.reference_nodes import is_reference, parse
 from utils.json_format import policy_json
 
 from design.services.definitions.codepipeline import (
@@ -57,20 +58,26 @@ def pipeline_rows(rows: list[list[str]]) -> list[list[str]]:
             result.append([identity, prefix + field, value, comment])
             continue
         config = policy_json(literal(value))
-        if not isinstance(config, dict) or not config or any(not isinstance(item, str) for item in config.values()):
-            raise ValueError("CodePipeline Configuration must be a non-empty string object")
+        if not isinstance(config, dict) or not config:
+            raise ValueError("CodePipeline Configuration must be a non-empty string/reference object")
+        for item in config.values():
+            if is_reference(item):
+                parse(item)
+            elif not isinstance(item, str) or not item.strip():
+                raise ValueError("CodePipeline Configuration values must be non-empty strings or Model references")
         comments = dict(part.split(": ", 1) for part in comment.split(" / ") if ": " in part)
         if set(comments) != set(config):
             raise ValueError("CodePipeline Configuration requires a comment for each key")
         for key, item in config.items():
-            result.append([identity, prefix + "Configuration." + key, item if LINK.fullmatch(item) else f"`{item}`", comments[key]])
+            value = json.dumps(item, ensure_ascii=False, separators=(",", ":")) if is_reference(item) else item
+            result.append([identity, prefix + "Configuration." + key, value if LINK.fullmatch(value) else f"`{value}`", comments[key]])
     return result + trailing
 
 
 def pipeline_display_rows(rows: list[list[str]]) -> list[list[str]]:
     """Restore indexed stages/actions and key rows to the selected catalog fields."""
     stages: dict[int, dict[int, bool]] = {}
-    configurations: dict[tuple[int, int], dict[str, str]] = {}
+    configurations: dict[tuple[int, int], dict[str, object]] = {}
     configuration_rows: dict[tuple[int, int], list[str]] = {}
     fields: set[tuple[int, int, str]] = set()
     result = []
@@ -127,8 +134,11 @@ def pipeline_display_rows(rows: list[list[str]]) -> list[list[str]]:
         if not linked:
             if len(value) >= 2 and value[0] == value[-1] == "`":
                 value = value[1:-1]
-            if value.startswith(("{", "[", "!")) or "Fn::" in value or "](" in value or "\n" in value:
-                raise ValueError("CodePipeline Configuration value must be a literal or a resource link, without CFN intrinsics")
+            if value.startswith("{"):
+                value = policy_json(value)
+                parse(value)
+            elif not value.strip() or value.startswith(("[", "!")) or "Fn::" in value or "](" in value or "\n" in value:
+                raise ValueError("CodePipeline Configuration value must be a literal, Model reference or resource link, without CFN intrinsics")
         values[key] = value
         if identity not in configuration_rows:
             row[1] = CODEPIPELINE_CONFIGURATION

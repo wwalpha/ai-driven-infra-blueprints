@@ -6,7 +6,7 @@ from pathlib import Path
 from comparison import Comparison
 from model.format import serialize
 from model.identity import COUNTERS
-from model.sources import Scope
+from model.sources import Scope, load_model
 
 FRAMEWORK = Path(__file__).resolve().parents[4]
 
@@ -70,3 +70,46 @@ def comparison(root, services=('iam', 'kms')):
         'consumer': ({'Resources': {'Policy': {'Type': 'AWS::IAM::ManagedPolicy'}}}, {}, pseudo)}
     result._templates = [(name, {'name': name}) for name in result.stack_inputs]
     return result
+
+
+def pipeline(root):
+    producers = [('codecommit', 'CodeCommit.Repository', 'RepositoryName', 'Source', 'CodeCommit', 'RepositoryName', 'Name'),
+                 ('codebuild', 'CodeBuild.Project', 'Name', 'Build', 'CodeBuild', 'ProjectName', 'Name'),
+                 ('s3', 'S3.Bucket', 'BucketName', 'Source', 'S3', 'S3Bucket', 'BucketName')]
+    actions = []
+    for service, kind, setting, category, provider, key, attribute in producers:
+        scope, first = resource(root, service, kind, attribute=setting, observed='PENDING_DEPLOY')
+        _, second = resource(root, service, kind, attribute=setting, number='002', observed='PENDING_DEPLOY')
+        first.update(second)
+        first['desired.row.001-001.value'] = '`synthetic-' + service + '-a`'
+        first['desired.row.002-001.value'] = '`synthetic-' + service + '-b`'
+        save(scope, first)
+        actions.append({'Name': provider, 'ActionTypeId': dict(Category=category, Owner='AWS', Provider=provider, Version='1'),
+                        'Configuration': {key: reference(kind.replace('.', '_') + '_001', attribute)}})
+    stages = [{'Name': 'First', 'Actions': actions[:2]}, {'Name': 'Second', 'Actions': actions[2:]}]
+    scope, values = resource(root, 'codepipeline', 'CodePipeline.Pipeline', attribute='Name')
+    values.update({'desired.row.001-001.value': '`synthetic-pipeline`',
+                   'desired.row.001-002.property': 'CodePipeline.Pipeline.Stages',
+                   'desired.row.001-002.value': '`' + json.dumps(stages) + '`',
+                   'desired.row.001-002.comment': '合成Stages'})
+    save(scope, values)
+    pseudo = {'AWS::Region': 'ap-northeast-1', 'AWS::AccountId': '123456789012', 'AWS::Partition': 'aws'}
+    stack_inputs = {}
+    for service, kind, setting, *_ in producers:
+        producer_scope = Scope(root, 'qa', 'team', service)
+        from_values = load_model(producer_scope).authoritative
+        authored = dict(from_values)
+        definitions = {}
+        for number in ('001', '002'):
+            authored['desired.resource.' + number + '.cfn-logicalId'] = service + '-Resource' + number
+            definitions['Resource' + number] = {'Type': 'AWS::' + kind.replace('.', '::'),
+                'Properties': {setting: 'synthetic-' + service + '-' + ('a' if number == '001' else 'b')}}
+        save(producer_scope, authored)
+        document = {'Resources': definitions}
+        if service == 'codecommit':
+            document['Outputs'] = {'Name': {'Value': {'Fn::GetAtt': ['Resource001', 'Name']}, 'Export': {'Name': 'RepositoryName'}}}
+        stack_inputs[service] = (document, {}, pseudo)
+    result = comparison(root, ('codepipeline', 'codecommit', 'codebuild', 's3'))
+    result.stack_inputs = stack_inputs
+    result._templates = [(name, {'name': name}) for name in stack_inputs]
+    return result, scope, values, stages

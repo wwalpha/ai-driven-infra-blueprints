@@ -9,9 +9,11 @@ from types import SimpleNamespace
 from types import SimpleNamespace as _CallbackState
 
 import aws_mapping_display as _imports_aws_mapping_display
+import design.array_display as _imports_array_display
 import design.layout as _dependency_design_layout
 import design.layout as _imports_design_layout
 import design.policy_tables as _dependency_policy_tables
+import design.services.codepipeline as _imports_codepipeline
 import json_intrinsics as _imports_json_intrinsics
 import utils.aws_catalogs as _compat_utils_aws_catalogs
 import validation.design as _imports_validation_design
@@ -29,6 +31,7 @@ from utils.aws_mappings import definition_root
 from utils.input_cache import input_is_file, memoized
 from utils.input_cache import input_scope as input_scope
 from utils.json_format import policy_json
+from utils.reference_contracts import action_contexts
 
 import model.core as _imports_model_core
 import model.files as _imports_model_files
@@ -48,7 +51,7 @@ from model.core import (
     properties,
     stack_model,
 )
-from model.reference_nodes import nodes, receiving_property, resolve
+from model.reference_nodes import context_at, nodes, receiving_property, resolve
 
 NAMING_EXEMPT_PROPERTIES = {
     "Config.ConfigurationRecorder.Name",
@@ -63,6 +66,19 @@ NAMING_EXEMPT_PROPERTIES = {
     "Route53.HostedZone.Name",
     "Route53.RecordSet.Name",
 }
+
+
+def configuration_context(values, row_id, root):
+    """Use the existing lossless Stage/Action projection for split Model rows."""
+    number = row_id.rpartition('-')[0]
+    kind = 'CodePipeline.Pipeline'
+    rows = [[rid, row['property'].removeprefix(kind + '.'), row['value'], row.get('comment', '')]
+            for rid, row in entries(values, 'desired.row.') if rid.rpartition('-')[0] == number]
+    indexed = _imports_array_display.indexed_rows(_imports_codepipeline.pipeline_rows(rows), kind, root)
+    contexts = action_contexts([(rid, {'property': prop, 'value': value}) for rid, prop, value, _ in indexed])
+    properties = {rid: prop for rid, prop, _, _ in indexed}
+    parent = properties[row_id].split('.Configuration.', 1)[0]
+    return contexts.get(parent, {})
 
 
 def validate_json_settings(values, model_path, *, warnings=None):
@@ -89,7 +105,10 @@ def validate_json_settings(values, model_path, *, warnings=None):
                     resolver = _imports_model_identity.Resolver(scope.root, _imports_model_sources._invocation_reads(scope.root))
                     resolver.models[scope.path] = SimpleNamespace(scope=scope, authoritative=values, dependencies={})
                 field_name = receiving_property(row['property'], node.pointer)
-                resolve(node, scope, resolver, field=field_name, property_name=row['property'])
+                context = configuration_context(values, row_id, scope.root) if row['property'].startswith(
+                    'CodePipeline.Pipeline.Stages[].Actions[].Configuration') else None
+                context = context_at(value, row['property'], node.pointer, context)
+                resolve(node, scope, resolver, field=field_name, property_name=row['property'], context=context)
             number = row_id.rpartition('-')[0]
             resource = values.get(f'desired.resource.{number}.logicalId', number)
             for pointer, text in string_leaves(value):

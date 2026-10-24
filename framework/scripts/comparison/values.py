@@ -16,6 +16,7 @@ from utils.iac_values import (
     unordered_same,
 )
 from utils.json_format import policy_json as strict_json
+from utils.reference_contracts import reference_context
 
 from . import registry
 
@@ -93,8 +94,7 @@ def _callback__desired_value_references_86(desired_reference, evaluate, kind, lo
                     unresolved=lambda value: Expression('Unverified', [value]),
                     warnings=warnings, property_name=row['property'],
                     model_path=model_path, pointer=pointer)
-        if path.endswith(('.Actions[]', '.DataResources[]', '.EnvironmentVariables[]')):
-            context = item
+        context = reference_context(path, item, context)
         return {key: _callback__desired_value_references_86(desired_reference, evaluate, kind, local_comparison, model_path, policy, row, service, stack, warnings, failures, _default_field, _default_operands, _default_path, _default_context, _default_pointer, child, field if operands else key, operands, path + '.' + key, context,
                                 pointer + '/' + key.replace('~', '~0').replace('/', '~1')) for key, child in item.items()}
     return item

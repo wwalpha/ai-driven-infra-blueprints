@@ -11,7 +11,7 @@ from . import registry
 
 def desired_reference(service, value, kind, path, attribute=None, context=None, *, local_comparison, reference, resource_type, forms_for):
     path = re.sub(r'\[\d+\]', '[]', path)
-    if local_comparison and registry.kms_forms(kind, path) is not None:
+    if local_comparison and not isinstance(value, ResourceReference) and registry.kms_forms(kind, path) is not None:
         symbol = reference(service, value)
         refservice, identity = symbol['$resource']
         refkind = resource_type(symbol)
@@ -27,7 +27,9 @@ def desired_reference(service, value, kind, path, attribute=None, context=None, 
         consumer = registry.hook(kind, 'reference_contract')
         override = consumer(path, attribute, context) if consumer else NotImplemented
         if override is not NotImplemented:
-            expected_kind, attribute = override
+            expected_kind, default_attribute = override
+            if not isinstance(value, ResourceReference):
+                attribute = default_attribute
         elif contract:
             expected_kind, default_attribute = contract
             if attribute is None:

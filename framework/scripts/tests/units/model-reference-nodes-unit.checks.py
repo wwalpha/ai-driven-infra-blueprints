@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import model.sources as sources
 import pytest
+from comparison.services.codepipeline import contexts as action_contexts
 from comparison.values import compare_values
 from design.catalog import DesignSchemaCatalog
 from design.policy_tables import (
@@ -21,6 +22,7 @@ from design.policy_tables import (
     raw_policy_lines,
     validate_policy_document,
 )
+from design.services.codepipeline import pipeline_display_rows, pipeline_rows
 from json_intrinsics import project_document
 from model.adapters.observed import observed_destinations, propagate_references
 from model.core import entries
@@ -32,11 +34,13 @@ from model.projection import execution_document, observed_value, reference_displ
 from model.reference_nodes import nodes, parse, resolve
 from model.reference_nodes import project as display
 from model.references import Usage, incoming, symbolic, usages
+from model.render import generate_markdown
 from model.sources import load_model
 from model.validation import validate_json_settings
 from support.model_reference_fixtures import (
     FRAMEWORK,
     comparison,
+    pipeline,
     project,
     reference,
     resource,
@@ -407,6 +411,251 @@ def check_returned_array_attribute_types(tmp_path, models):
     assert resolve(node, consumer, resolver, field='Test.Receiver.Values')[3] == 'NameServers'
     with pytest.raises(ValueError, match='type'):
         resolve(node, consumer, resolver, field='Lambda.Function.Description')
+
+
+def check_pipeline_context_and_name_proof(tmp_path, models):
+    inputs, scope, values, stages = pipeline(tmp_path)
+    validate_json_settings(values, scope.path)
+    row = dict(entries(values, 'desired.row.'))['001-002']
+    desired = inputs.prepare_value('codepipeline', row, 'CodePipeline.Pipeline', row_id='001-002').require_value()
+    for stage, wanted in zip(desired, stages, strict=True):
+        for action, original in zip(stage['Actions'], wanted['Actions'], strict=True):
+            key, = original['Configuration']
+            symbol = action['Configuration'][key]
+            assert isinstance(symbol, ResourceReference), symbol
+            assert symbol['$attribute'] == original['Configuration'][key]['$modelRef']['attribute']
+    # The same proof with a row-level context must work without a JSON Action parent.
+    action = stages[0]['Actions'][1]
+    row['property'] = 'CodePipeline.Pipeline.Stages[1].Actions[2].Configuration'
+    row['value'] = '`' + json.dumps(action['Configuration']) + '`'
+    values['desired.row.001-002.property'] = row['property']
+    values['desired.row.001-002.value'] = row['value']
+    save(scope, values)
+    inputs = comparison(tmp_path, ('codepipeline', 'codebuild'))
+    desired = inputs.prepare_value('codepipeline', row, 'CodePipeline.Pipeline', row_id='001-002', context=action).require_value()
+    assert isinstance(desired['ProjectName'], ResourceReference), desired
+    # Typed proof does not relax the legacy Markdown output/identifier guard.
+    resolver = Resolver(tmp_path)
+    resolver.validate_attribute('CodeBuild.Project', 'Name')
+    with pytest.raises(Blocked, match='reference attribute not confirmed: Name'):
+        inputs.reference('codepipeline', '[arbitrary label](codebuild.md#saved-001)', 'Name')
+
+
+@pytest.mark.parametrize('service,key,expression', [
+    ('codebuild', 'ProjectName', {'Ref': 'Resource001'}),
+    ('codecommit', 'RepositoryName', {'Fn::GetAtt': ['Resource001', 'Name']}),
+    ('s3', 'S3Bucket', {'Ref': 'Resource001'}),
+])
+def check_pipeline_comparison_outcomes(tmp_path, models, service, key, expression):
+    inputs, _, values, _ = pipeline(tmp_path)
+    inputs.stack = partial(stack, inputs)
+    row = dict(entries(values, 'desired.row.'))['001-002']
+    prepared = inputs.prepare_value('codepipeline', row, 'CodePipeline.Pipeline', row_id='001-002')
+    desired = prepared.require_value()
+    symbols = [action['Configuration'][key] for stage in desired for action in stage['Actions'] if key in action['Configuration']]
+    symbol, = symbols
+    path = 'Stages[].Actions[].Configuration.' + key
+    actual = inputs.evaluate(service, expression)
+    assert inputs.reference_same(symbol, actual, 'CodePipeline.Pipeline', path) is True
+    different = copy.deepcopy(expression)
+    if 'Ref' in different:
+        different['Ref'] = 'Resource002'
+    else:
+        different['Fn::GetAtt'][0] = 'Resource002'
+    assert inputs.reference_same(symbol, inputs.evaluate(service, different), 'CodePipeline.Pipeline', path) is False
+    wrong = ResourceReference(dict(actual, **{'$attribute': 'Arn'}))
+    assert inputs.reference_same(symbol, wrong, 'CodePipeline.Pipeline', path) is not True
+    assert not prepared.warnings and not inputs.warnings
+    if service == 'codecommit':
+        imported = inputs.evaluate('s3', {'Fn::ImportValue': 'RepositoryName'})
+        assert inputs.reference_same(symbol, imported, 'CodePipeline.Pipeline', path) is True
+        inputs.stack_inputs['codecommit'][0]['Outputs'].clear()
+        inputs.exports = None
+        with pytest.raises(Blocked):
+            inputs.evaluate('s3', {'Fn::ImportValue': 'MissingExport'})
+    inputs.stack_inputs[service][0]['Resources']['Resource001']['Properties'].clear()
+    assert inputs.reference_same(symbol, 'unproven-physical-name', 'CodePipeline.Pipeline', path) is None
+
+
+@pytest.mark.parametrize('scenario,category', [('same', 'matched'), ('different', 'difference'), ('invalid', 'uncompared')])
+def check_pipeline_connected_comparison(tmp_path, models, scenario, category):
+    inputs, _, values, stages = pipeline(tmp_path)
+    inputs.stack = partial(stack, inputs)
+    if scenario == 'invalid':
+        stages[0]['Actions'][1]['ActionTypeId']['Owner'] = 'ThirdParty'
+        values['desired.row.001-002.value'] = '`' + json.dumps(stages) + '`'
+    actual = copy.deepcopy(stages)
+    for stage in actual:
+        for action in stage['Actions']:
+            key, = action['Configuration']
+            expression = {'Fn::GetAtt': ['Resource001', 'Name']} if key == 'RepositoryName' else {'Ref': 'Resource001'}
+            if scenario == 'different' and key == 'S3Bucket':
+                expression = {'Ref': 'Resource002'}
+            action['Configuration'][key] = inputs.evaluate(action['ActionTypeId']['Provider'].lower(), expression)
+    definition = {'Type': 'AWS::CodePipeline::Pipeline', 'Properties': {'Stages': actual}}
+    inputs.rows['codepipeline']['001'] = [('001-002', dict(entries(values, 'desired.row.'))['001-002'])]
+    result = inputs.compare_rows('codepipeline', '001', inputs.resources['codepipeline']['001'],
+                                'codebuild', 'Pipeline', tmp_path / 'synthetic.yaml', definition, {})
+    assert result.failure is None and not result.warnings
+    assert [row['category'] for row in result.records] == [category], result
+
+
+@pytest.mark.parametrize('kind,prop,container,logical,attribute,good,bad', [
+    ('CodeBuild.Project', 'Environment', 'EnvironmentVariables', 'SecretsManager_Secret_001', 'Id',
+     'SECRETS_MANAGER', 'PARAMETER_STORE'),
+    ('CodeBuild.Project', 'Environment', 'EnvironmentVariables', 'SecretsManager_Secret_001', 'Name',
+     'SECRETS_MANAGER', 'PARAMETER_STORE'),
+    ('CloudTrail.Trail', 'EventSelectors', 'DataResources', 'Lambda_Function_001', 'Arn',
+     'AWS::Lambda::Function', 'AWS::S3::Object'),
+])
+def check_other_context_dependent_references(tmp_path, models, kind, prop, container, logical, attribute, good, bad):
+    resource(tmp_path, 'secrets-manager', 'SecretsManager.Secret', attribute='Id')
+    resource(tmp_path, 'lambda', 'Lambda.Function')
+    service = 'codebuild' if kind == 'CodeBuild.Project' else 'cloudtrail'
+    scope, values = resource(tmp_path, service, kind, attribute='Name')
+    payload = [{'Type': good, 'Value' if prop == 'Environment' else 'Values': reference(logical, attribute)},
+               {'Type': bad, 'Value' if prop == 'Environment' else 'Values': reference(logical, attribute)}]
+    if prop != 'Environment':
+        for item in payload:
+            item['Values'] = [item['Values']]
+    data = {container: payload} if prop == 'Environment' else [{container: payload}]
+    values.update({'desired.row.001-002.property': kind + '.' + prop,
+                   'desired.row.001-002.value': '`' + json.dumps(data) + '`', 'desired.row.001-002.comment': '合成'})
+    save(scope, values)
+    inputs = comparison(tmp_path, (service, 'secrets-manager', 'lambda'))
+    row = dict(entries(values, 'desired.row.'))['001-002']
+    desired = inputs.prepare_value(service, row, kind, row_id='001-002').require_value()
+    items = desired[container] if prop == 'Environment' else desired[0][container]
+    field = 'Value' if prop == 'Environment' else 'Values'
+    good_value = items[0][field] if prop == 'Environment' else items[0][field][0]
+    bad_value = items[1][field] if prop == 'Environment' else items[1][field][0]
+    assert isinstance(good_value, ResourceReference), items
+    assert isinstance(bad_value, Expression), items
+
+
+@pytest.mark.parametrize('fault', ['missing', 'Category', 'Owner', 'Provider', 'Version', 'version-type',
+                                  'attribute', 'logical-missing', 'logical-duplicate', 'producer-type', 'import'])
+def check_pipeline_rejects_unproven(tmp_path, models, fault):
+    inputs, scope, values, stages = pipeline(tmp_path)
+    action = stages[0]['Actions'][1]
+    if fault == 'missing':
+        action.pop('ActionTypeId')
+    elif fault in {'Category', 'Owner', 'Provider', 'Version'}:
+        action['ActionTypeId'][fault] = 'wrong'
+    elif fault == 'version-type':
+        action['ActionTypeId']['Version'] = 1
+    elif fault == 'attribute':
+        action['Configuration']['ProjectName'] = reference('CodeBuild_Project_001', 'DoesNotExist')
+    elif fault == 'logical-missing':
+        action['Configuration']['ProjectName'] = reference('CodeBuild_Project_999', 'Name')
+    elif fault == 'logical-duplicate':
+        resource(tmp_path, 'duplicate', 'CodeBuild.Project', attribute='Name')
+    elif fault == 'producer-type':
+        action['Configuration']['ProjectName'] = reference('S3_Bucket_001', 'BucketName')
+    elif fault == 'import':
+        model = inputs.models['codebuild']
+        producer = dict(model.authoritative)
+        producer['desired.resource.001.resourceMode'] = 'IMPORT'
+        producer.pop('desired.resource.001.cfn-logicalId')
+        save(model.scope, producer)
+    values['desired.row.001-002.value'] = '`' + json.dumps(stages) + '`'
+    save(scope, values)
+    inputs = comparison(tmp_path, ('codepipeline', 'codebuild', 'codecommit', 's3'))
+    row = dict(entries(values, 'desired.row.'))['001-002']
+    desired = inputs.prepare_value('codepipeline', row, 'CodePipeline.Pipeline', row_id='001-002').require_value()
+    invalid = desired[0]['Actions'][1]['Configuration']['ProjectName']
+    assert isinstance(invalid, Expression) and invalid.operation == 'Unverified', invalid
+    assert invalid.operands[1]
+    if fault == 'import':
+        assert 'IMPORT reference' in invalid.operands[1]
+    assert inputs.reference_same(invalid, invalid, 'CodePipeline.Pipeline', 'Stages[].Actions[].Configuration.ProjectName') is None
+    if fault != 'logical-duplicate':
+        assert isinstance(desired[0]['Actions'][0]['Configuration']['RepositoryName'], ResourceReference)
+        assert isinstance(desired[1]['Actions'][0]['Configuration']['S3Bucket'], ResourceReference)
+
+
+def check_pipeline_context_order_and_repeated_producer(tmp_path, models):
+    inputs, scope, values, stages = pipeline(tmp_path)
+    # The same Build reference in the wrong Action must not reuse a proven context.
+    stages[0]['Actions'][0]['Configuration']['ProjectName'] = reference('CodeBuild_Project_001', 'Name')
+    stages[1]['Actions'].append(copy.deepcopy(stages[0]['Actions'][1]))
+    reversed_actions = copy.deepcopy(stages)
+    for stage in reversed_actions:
+        stage['Actions'].reverse()
+    for ordered in (stages, list(reversed(stages)), reversed_actions):
+        values['desired.row.001-002.value'] = '`' + json.dumps(ordered) + '`'
+        row = dict(entries(values, 'desired.row.'))['001-002']
+        desired = inputs.prepare_value('codepipeline', row, 'CodePipeline.Pipeline', row_id='001-002').require_value()
+        for stage in desired:
+            for action in stage['Actions']:
+                if 'ProjectName' in action['Configuration']:
+                    expected = ResourceReference if action['ActionTypeId']['Provider'] == 'CodeBuild' else Expression
+                    assert isinstance(action['Configuration']['ProjectName'], expected)
+
+
+@pytest.mark.parametrize('observed,expected', [(None, 'unresolved'), ('PENDING_DEPLOY', 'pending_deploy'), ('confirmed-build', 'confirmed-build')])
+def check_pipeline_configuration_display_and_roundtrip(tmp_path, models, observed, expected):
+    inputs, scope, values, stages = pipeline(tmp_path)
+    design_before = execution_document(stages, tmp_path, scope=scope)
+    producer = inputs.models['codebuild']
+    authored = dict(producer.authoritative)
+    if observed is None:
+        authored.pop('observed.row.001-001.value')
+    else:
+        authored['observed.row.001-001.value'] = '`' + observed + '`'
+    save(producer.scope, authored)
+    values.pop('desired.row.001-002.value')
+    values.pop('desired.row.001-002.property')
+    formal = []
+    for stage in stages:
+        for action in stage['Actions']:
+            for field, item in action['ActionTypeId'].items():
+                formal.append(['', 'Stages[].Actions[].ActionTypeId.' + field, '`' + item + '`', '合成'])
+            config = {**action['Configuration'], 'Extra': 'ordinary'}
+            formal.append(['', 'Stages[].Actions[].Configuration', '`' + json.dumps(config) + '`',
+                           ' / '.join(key + ': 合成' for key in config)])
+            formal.append(['', 'Stages[].Actions[].Name', '`' + action['Name'] + '`', '合成'])
+        formal.append(['', 'Stages[].Name', '`' + stage['Name'] + '`', '合成'])
+    for number, row in enumerate(formal, 2):
+        row[0] = '001-' + str(number).zfill(3)
+        for field, item in zip(('property', 'value', 'comment'), row[1:], strict=True):
+            values['desired.row.' + row[0] + '.' + field] = ('CodePipeline.Pipeline.' if field == 'property' else '') + item
+    save(scope, values)
+    original = copy.deepcopy(values)
+    validate_json_settings(values, scope.path)
+    invalid = dict(values)
+    owner_key = next(key for key, value in values.items() if key.endswith('.property') and value.endswith('.ActionTypeId.Owner'))
+    invalid[owner_key.removesuffix('property') + 'value'] = '`ThirdParty`'
+    with pytest.raises(ValueError, match='ActionTypeId'):
+        validate_json_settings(invalid, scope.path)
+    restored = pipeline_display_rows(pipeline_rows(formal))
+    assert [(row[1], json.loads(row[2].strip('`')), row[3]) for row in restored if row[1].endswith('.Configuration')] == [
+        ('CodePipeline.Pipeline.' + row[1], json.loads(row[2].strip('`')), row[3]) for row in formal if row[1].endswith('.Configuration')]
+    assert [(row[1], row[2], row[3]) for row in restored if not row[1].endswith('.Configuration')] == [
+        ('CodePipeline.Pipeline.' + row[1], row[2], row[3]) for row in formal if not row[1].endswith('.Configuration')]
+    view = tmp_path / 'docs/designs/qa/team/codepipeline.md'
+    markdown = generate_markdown(view, values, tmp_path)
+    assert '$modelRef' not in markdown
+    assert any('Configuration.ProjectName' in line and '`' + expected + '`' in line for line in markdown.splitlines())
+    assert execution_document(stages, tmp_path, scope=scope) == design_before
+    assert values == original
+    assert execution_document({'ProjectName': reference('CodeBuild_Project_001', 'Name')}, tmp_path, scope=scope) == {'ProjectName': reference('CodeBuild_Project_001', 'Name')}
+    # Comparison uses the same formal row indexes and each Action's own context.
+    inputs = comparison(tmp_path, ('codepipeline', 'codebuild', 'codecommit', 's3'))
+    rows = inputs.project_rows('CodePipeline.Pipeline', inputs.rows['codepipeline']['001'])
+    from_contexts = action_contexts(rows)
+    for rid, row in rows:
+        if row['property'].endswith('.Configuration'):
+            parent = row['property'].removeprefix('CodePipeline.Pipeline.').removesuffix('.Configuration')
+            prepared = inputs.prepare_value('codepipeline', row, 'CodePipeline.Pipeline', row_id=rid, context=from_contexts[parent])
+            result = prepared.require_value()
+            assert all(isinstance(item, ResourceReference) for key, item in result.items() if key != 'Extra'), result
+
+
+@pytest.mark.parametrize('value', [{}, {'ProjectName': {}}, {'ProjectName': []}, {'ProjectName': ''}, {'ProjectName': None}, {'ProjectName': {'$modelRef': {'logicalId': 'x'}}}])
+def check_pipeline_configuration_invalid(value):
+    with pytest.raises(ValueError):
+        pipeline_rows([['001-001', 'Stages[].Actions[].Configuration', '`' + json.dumps(value) + '`', 'ProjectName: 合成']])
 
 
 if __name__ == '__main__':

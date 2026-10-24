@@ -2,6 +2,8 @@
 import re
 from functools import lru_cache
 
+from utils.comparison_rows import put_row
+
 # Returned attributes whose explicit setting has a different property name.
 RETURN_ATTRIBUTE_PROPERTIES = {('CodeCommit.Repository', 'Name'): 'RepositoryName'}
 
@@ -186,21 +188,63 @@ CONTEXT_PROPERTIES = {
         'CloudTrail.Trail.EventSelectors[].DataResources[].Type',
         {'AWS::S3::Object': ('S3.Bucket', 'ObjectArn'), 'AWS::Lambda::Function': ('Lambda.Function', 'Arn')}),
 }
-CONFIGURATION_PROPERTIES = {
-    'CodePipeline.Pipeline.Stages[].Actions[].Configuration': (
-        'CodePipeline.Pipeline.Stages[].Actions[].ActionTypeId.Provider',
-        {('CodeCommit', 'RepositoryName'): ('CodeCommit.Repository', 'RepositoryName'),
-         ('CodeBuild', 'ProjectName'): ('CodeBuild.Project', 'Name')}),
+ACTION_CONFIGURATION = 'CodePipeline.Pipeline.Stages[].Actions[].Configuration'
+ACTION_CONFIGURATION_CONTRACTS = {
+    ('Source', 'AWS', 'CodeCommit', '1', 'RepositoryName'): ('CodeCommit.Repository', 'Name'),
+    ('Build', 'AWS', 'CodeBuild', '1', 'ProjectName'): ('CodeBuild.Project', 'Name'),
+    ('Source', 'AWS', 'S3', '1', 'S3Bucket'): ('S3.Bucket', 'BucketName'),
 }
+CONFIGURATION_PROPERTIES = {
+    ACTION_CONFIGURATION: (ACTION_CONFIGURATION.removesuffix('Configuration') + 'ActionTypeId.Provider',
+        {(provider, key): (kind, RETURN_ATTRIBUTE_PROPERTIES.get((kind, attribute), attribute))
+         for (_, _, provider, _, key), (kind, attribute) in ACTION_CONFIGURATION_CONTRACTS.items()}),
+}
+
+
+def action_contexts(rows):
+    contexts = {}
+    for _, row in rows:
+        prop = row['property'].removeprefix('CodePipeline.Pipeline.')
+        action = re.fullmatch(r'(.*\.Actions\[\d+\])\.ActionTypeId\.(Category|Owner|Provider|Version)', prop)
+        if action:
+            value = row['value']
+            value = value[1:-1] if value.startswith('`') and value.endswith('`') else value
+            put_row(contexts.setdefault(action[1], {}), 'ActionTypeId.' + action[2], value)
+    return contexts
+
+
+def reference_context(path, value, context):
+    """Bind context to its containing object, never a sibling or a previous traversal."""
+    path = re.sub(r'\[\d+\]', '[]', path)
+    if path.endswith(('.Actions[]', '.DataResources[]', '.EnvironmentVariables[]')):
+        return value
+    return context
+
+
+def configuration_contract(prop, context=None):
+    prop = re.sub(r'\[\d+\]', '[]', prop)
+    if not prop.startswith(ACTION_CONFIGURATION + '.'):
+        return None
+    action = (context or {}).get('ActionTypeId')
+    if not isinstance(action, dict) or set(action) != {'Category', 'Owner', 'Provider', 'Version'}:
+        return {}
+    parts = [action[key] for key in ('Category', 'Owner', 'Provider', 'Version')]
+    if not all(isinstance(value, str) for value in parts):
+        return {}
+    found = ACTION_CONFIGURATION_CONTRACTS.get((*parts, prop.removeprefix(ACTION_CONFIGURATION + '.')))
+    return {found[0]: (found[1],)} if found else {}
 
 
 def contract(prop, context=None):
     prop = re.sub(r'\[[0-9]+\]', '[]', prop)
+    configuration = configuration_contract(prop, context)
+    if configuration is not None:
+        return configuration
     # Mapping represents terminal list scalars with or without [].
     found = IMPORT_PROPERTIES.get(prop) or IMPORT_PROPERTIES.get(prop + '[]')
     if found is None and prop in CONTEXT_PROPERTIES:
         selector, choices = CONTEXT_PROPERTIES[prop]
-        value = (context or {}).get(selector)
+        value = (context or {}).get(selector, (context or {}).get(selector.rsplit('.', 1)[-1]))
         found = choices.get(value) if isinstance(value, str) else None
     if found is None:
         return {}
