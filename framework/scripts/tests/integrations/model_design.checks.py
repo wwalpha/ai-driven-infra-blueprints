@@ -168,7 +168,7 @@ def check_kms_policy_execution_account(root):
     for write in (False, True):
         with pytest.raises(ValueError) as error:
             SYNC.sync(root, write, "dev", identity, services=["kms"])
-        assert "Principal.AWS" in str(error.value) and execution in str(error.value)
+        assert "Principal.AWS" in str(error.value) and execution in str(error.value), str(error.value)
         assert (path.read_bytes(), artifact.read_bytes()) == saved
         assert properties(read_model(source)) == properties(text(invalid))
 

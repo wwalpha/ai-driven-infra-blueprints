@@ -10,7 +10,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import sys
 import tempfile
-from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 import model.render as model_design
@@ -76,6 +75,7 @@ from support.model_design_fixtures import (
 from support.model_design_fixtures import pytestmark as pytestmark
 from support.model_sources import write_model
 from support.rotation_schedule_fixtures import fixture as rotation_fixture
+from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.iac_values import cfn_resource_identity
 from validation.design_links import check_design_links as validate_design_links
 from validation.findings import Findings

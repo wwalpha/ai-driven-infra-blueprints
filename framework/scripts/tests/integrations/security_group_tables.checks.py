@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Saved SecurityGroup properties → grouped renderer, preserving authoritative bytes."""
+import json
 import sys
 from pathlib import Path
 
@@ -14,7 +15,6 @@ from support.security_group_tables_fixtures import (
     REPOSITORY,
     VALIDATOR,
     VPC_DESIGN,
-    json,
     tempfile,
     write_model,
 )

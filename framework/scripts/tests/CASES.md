@@ -3435,7 +3435,7 @@ Service契約は既存Model Parameter Inputs UTでサービスごとの小さい
 
 元データは開始時commit `74252f50d16ea252b66ab5bfddd477e6861fa0ac`。参考1024v12の312/430に対し、実コードは313登録/431条件だった。
 最終ITは68 suite・236登録・311条件（補助登録込み）。Suite内のループ条件は登録条件数とは別に監査表に記録する。
-監査表は全313旧登録を含む4,687行（I 3,276 / U 1,348 / D 63）。同じHelperを異なる登録から呼ぶ地点も含むため、固有Assertion件数や実行coverage値ではない。
+監査表は全313旧登録を含む4,687行（I 3,275 / U 1,346 / D 66）。同じHelperを異なる登録から呼ぶ地点も含むため、固有Assertion件数や実行coverage値ではない。
 元検証地点は開始時commitの行番号。入力条件欄・元関数/callback・元ケースを合わせて参照し、変数で渡すFixtureやparametrizeの内容は同commitの該当定義で確認できる。
 最終所有先の全ファイル/関数の存在を静的確認する。登録到達性/完了Receiptの最終証拠は公式CIに委ねる。
 
@@ -3444,7 +3444,7 @@ Service契約は既存Model Parameter Inputs UTでサービスごとの小さい
 - Validator補助17登録のうち10を既存Unit aggregatorへ移管し、7をITに保持。未インストールTerraformを正常returnで完了扱いにせず、実CLIがなければ明示FAILにする。
 - Model Impactの同じSetting/Name→incoming集合を重ねたcheck_import_scopeを廃止。実Git Snapshot/Task接続は残す。baselineを読まない6経路のGit初期化を削除（cyclesは実Snapshotを保持）。
 - `parameter_cases.py`はAthena/S3とSQS/contextの2統合経路だけが利用。CodeCommit spelling、SecurityHub scalar、DataZoneの固定Fixture件数、共通未知field/重複/欠落条件を繰り返さない。
-- 元Model Design 7関数は変更しない。Worktree専用Fixtureを業務ITへ再導入しない。
+- 元Model Design 7関数の構成とAssertion predicateは維持（CIの実エラー表示だけを追加）。Worktree専用Fixtureを業務ITへ再導入しない。
 - 旧ITの期待値2箇所は現実装と既存UTに合わせて補正した。custom EventBusが証明可能ならdefault-bus ARNはFalse、KMS KeyArn未証明の例外理由は`KMS ARN requires a proven KeyId`。Production比較ロジックは変更しない。
 
 Dは同じ保証の繰返しと、Productionを呼ばず固定Fixture文字列だけを確認する地点を区別して根拠欄に記載する。
@@ -3576,3 +3576,11 @@ Dは同じ保証の繰返しと、Productionを呼ばず固定Fixture文字列�
 
 ローカル開始時UTは90 suite中89 PASS/1 FAIL（53.819秒）。既存model-reference-display-unitのAssertion Guard欠落を修正した。
 この開始時測定は正常baselineではなく、公式CIの同条件Before測定でもない。ローカルITと性能測定は実行しない。
+
+最終ローカル証跡: UT 90 suite PASS (56.140秒)、Ruff/構造規約/Inventory/Assertion Guard PASS、pytest 3,111条件収集、Framework Validator 605 checks PASS。
+開始時commitの[公式CI #133](https://github.com/wwalpha/ai-driven-infra-blueprints/actions/runs/40108331559)はUT 122.6秒でFAILし、Assertion Guard違反でIT開始前に停止していたため、BeforeのIT/合計時間は未計測。
+今回の公式CIは[PR #30](https://github.com/wwalpha/ai-driven-infra-blueprints/pull/30)で確認する。
+
+公式CI初回#134ではUT 2 suiteとIT 4 suiteがFAIL。Python 3.12で必要な既存BoundCallbackを復元し、SGのjson importを修正、実Terraform CLI 1.16.1を既存workflowに準備する。
+ManagedPolicyNameの明示証明は現行ARN契約/既存UTに合わせ、Ref return ITの古い未証明期待を補正した。Model DesignのPrincipal.AWS拒否Assertionは保持し、失敗内容を表示して再調査する。
+局所再検証は関連UT 380条件PASS、Framework Validator 611 checks PASS。公式CIの再検証が完了するまでPhase 6は未完了。

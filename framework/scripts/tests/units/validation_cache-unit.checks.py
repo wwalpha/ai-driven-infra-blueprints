@@ -39,6 +39,7 @@ from support.validation_cache_fixtures import (
 )
 from support.validator import MODULE as validator_module
 from utils.aws_mappings import mapping_alias, mappings_for
+from utils.function_wrapper import BoundCallback
 from utils.input_cache import input_context, memoized
 
 if not __debug__:
@@ -290,7 +291,7 @@ def check_read_scope_lifetime(tmp_path):
     model = scope.path
     original = model_sources._read_model
     scopes = []
-    expand = _bind_framework_callback(_callback_check_read_scope_lifetime_expand, original, scopes)
+    expand = BoundCallback(_callback_check_read_scope_lifetime_expand, original, scopes)
     with patch.object(model_sources, '_read_model', side_effect=expand):
         first = read_model(model)
         assert scopes[-1] is not None
@@ -298,7 +299,7 @@ def check_read_scope_lifetime(tmp_path):
         values['desired.row.007-002.value'] = '`changed-name`'
         write_model(model, values)
         assert read_model(model) != first
-        nested = (input_cache.input_scope)(_bind_framework_callback(_callback_check_read_scope_lifetime_nested, model, scopes))
+        nested = (input_cache.input_scope)(BoundCallback(_callback_check_read_scope_lifetime_nested, model, scopes))
         nested()
     assert input_cache.memo_table() is None
     with patch.object(model_sources, '_read_model', side_effect=ValueError('injected')):
@@ -338,8 +339,8 @@ def check_single_and_parallel_threads(tmp_path):
     for _state_check_single_and_parallel_threads_259.count in (1, 2):
         _state_check_single_and_parallel_threads_259.threads = []
         barrier = threading.Barrier(2) if _state_check_single_and_parallel_threads_259.count == 2 else None
-        _state_check_single_and_parallel_threads_259.validate = _bind_framework_callback(_callback_check_single_and_parallel_threads_validate, barrier, provider, stage, _state_check_single_and_parallel_threads_259.threads)
-        run_candidates = (input_cache.input_scope)(_bind_framework_callback(_callback_check_single_and_parallel_threads_run_candidates, _state_check_single_and_parallel_threads_259, main, paths, root, stage))
+        _state_check_single_and_parallel_threads_259.validate = BoundCallback(_callback_check_single_and_parallel_threads_validate, barrier, provider, stage, _state_check_single_and_parallel_threads_259.threads)
+        run_candidates = (input_cache.input_scope)(BoundCallback(_callback_check_single_and_parallel_threads_run_candidates, _state_check_single_and_parallel_threads_259, main, paths, root, stage))
         with mapping_alias(root, stage):
             run_candidates()
         assert stage not in mapping_state._aliases and stage not in mapping_state._instances
@@ -378,8 +379,8 @@ def check_scoped_validation_threads_and_failures(tmp_path):
         _state_check_scoped_validation_threads_and_failures_322.entries = {('dev', 'team', s) for s in ('iam', 's3')[:_state_check_scoped_validation_threads_and_failures_322.count]}
         _state_check_scoped_validation_threads_and_failures_322.seen = []
         barrier = threading.Barrier(2) if _state_check_scoped_validation_threads_and_failures_322.count == 2 else None
-        _state_check_scoped_validation_threads_and_failures_322.designs = _bind_framework_callback(_callback_check_scoped_validation_threads_and_failures_designs, barrier, _state_check_scoped_validation_threads_and_failures_322.seen)
-        validate = (input_cache.input_scope)(_bind_framework_callback(_callback_check_scoped_validation_threads_and_failures_validate, _state_check_scoped_validation_threads_and_failures_322, main, tmp_path))
+        _state_check_scoped_validation_threads_and_failures_322.designs = BoundCallback(_callback_check_scoped_validation_threads_and_failures_designs, barrier, _state_check_scoped_validation_threads_and_failures_322.seen)
+        validate = (input_cache.input_scope)(BoundCallback(_callback_check_scoped_validation_threads_and_failures_validate, _state_check_scoped_validation_threads_and_failures_322, main, tmp_path))
         validate()
 
 
@@ -404,7 +405,7 @@ def check_preparation_cache(tmp_path):
     write_model(path, values)
     original = path.read_bytes()
     before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
-    snapshot = (input_scope)(_bind_framework_callback(_callback_check_preparation_cache_snapshot, original, path))
+    snapshot = (input_scope)(BoundCallback(_callback_check_preparation_cache_snapshot, original, path))
     try:
         snapshot()
         assert load_model(path).authoritative['desired.row.002-001.value'] == '`changed`'
@@ -435,7 +436,7 @@ def check_template_snapshot(tmp_path):
     scope, _ = format_fixture(root)
     path = scope.path
     original = path.read_bytes()
-    reuse = (input_scope)(_bind_framework_callback(_callback_check_template_snapshot_reuse, original, path, root))
+    reuse = (input_scope)(BoundCallback(_callback_check_template_snapshot_reuse, original, path, root))
     reuse()
     path.write_text('invalid')
     with pytest.raises(ValueError, match='unsupported Model format'):
