@@ -4,10 +4,18 @@ import re
 from collections.abc import Mapping
 
 
+class IdentityError(ValueError):
+    """A pure authentication failure, retaining its code for CLI reports."""
+
+    def __init__(self, message: str, code: str = "InvalidIdentity") -> None:
+        super().__init__(message)
+        self.code = code
+
+
 def validate_profile(value: object) -> str:
     if (not isinstance(value, str) or not value or value != value.strip()
             or value == "UNSET" or any(char in value for char in "\r\n\0")):
-        raise ValueError("target AWS profile is invalid")
+        raise IdentityError("target AWS profile is invalid")
     return value
 
 
@@ -15,7 +23,7 @@ def select_profile(target: Mapping[str, object], profile: object = None) -> str 
     configured = validate_profile(target["awsProfile"]) if "awsProfile" in target else None
     explicit = validate_profile(profile) if profile is not None else None
     if configured is not None and explicit is not None and explicit != configured:
-        raise ValueError("explicit AWS profile does not match target awsProfile")
+        raise IdentityError("explicit AWS profile does not match target awsProfile")
     return configured if configured is not None else explicit
 
 
@@ -27,7 +35,7 @@ def import_profile(target: Mapping[str, object], *, no_profile: bool = False) ->
 
 def validate_account_id(value: object, field: str = "AWS account ID") -> str:
     if not isinstance(value, str) or re.fullmatch(r"[0-9]{12}", value) is None:
-        raise ValueError(f"{field} is invalid")
+        raise IdentityError(f"{field} is invalid")
     return value
 
 
@@ -40,5 +48,5 @@ def execution_account(target: Mapping[str, object]) -> str:
 def verify_account(target: Mapping[str, object], caller_account: object) -> str:
     expected = execution_account(target)
     if caller_account != expected:
-        raise ValueError(f"AWS account mismatch: expected {expected}, actual {caller_account or 'unknown'}")
+        raise IdentityError(f"AWS account mismatch: expected {expected}, actual {caller_account or 'unknown'}", "AccountMismatch")
     return expected

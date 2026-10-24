@@ -13,7 +13,7 @@ import model.sources as _imports_model_sources
 import sync_progress as _imports_sync_progress
 from model.impact import affected, scope_diagnostic, task_impact
 from project_targets import LOWER_KEBAB_PATTERN as LOWER_KEBAB_PATTERN
-from utils.aws.identity import select_profile, validate_account_id
+from utils.aws.identity import IdentityError, select_profile, validate_account_id
 from utils.input_cache import input_is_dir, input_is_file, input_text
 
 from .terraform import root_directory
@@ -161,7 +161,7 @@ def check_project_topology(accounts, findings, root, template_mode, *, scope_imp
                     select_profile(target_values)
                 else:
                     validate_account_id(target_values[field])
-            except ValueError:
+            except IdentityError:
                 findings.check(False, f"invalid AWS {label}: {target}")
             else:
                 findings.check(True, f"invalid AWS {label}: {target}")

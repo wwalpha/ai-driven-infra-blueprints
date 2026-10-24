@@ -18,6 +18,7 @@ from support.deploy_preparation_fixtures import (
     sys,
     tempfile,
 )
+from utils.aws.identity import IdentityError
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -103,9 +104,9 @@ def check_identity_failure_precedes_preparation(tmp_path):
     target = {'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'cloudformation'}
     timing = M.Timing(tmp_path / 'repository', tmp_path / 'timing.jsonl')
     with patch.object(M, 'environment', return_value={}), patch.object(M, 'load_target', return_value=target), \
-            patch.object(M, 'select_profile', side_effect=ValueError('identity rejected')) as select, \
+            patch.object(M, 'select_profile', side_effect=IdentityError('identity rejected')) as select, \
             patch.object(M, 'candidate') as candidate, patch.object(M.subprocess, 'run') as aws:
-        with pytest.raises(ValueError, match='identity rejected'):
+        with pytest.raises(IdentityError, match='identity rejected'):
             M.prepare(tmp_path / 'repository', args, tmp_path / 'run', timing)
         select.assert_called_once_with(target, 'explicit')
         candidate.assert_not_called()

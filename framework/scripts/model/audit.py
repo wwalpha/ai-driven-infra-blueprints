@@ -215,7 +215,7 @@ def generate(root, environment, selector, service):
     engine += definitions(scripts / 'model/identity.py', ['parse_reference', 'anchor_index', 'select_anchor']).replace('    from model.references import link_scope\n', '')
     engine += definitions(scripts / 'model/format.py', ['link_scope'])
     engine += definitions(scripts / 'utils/aws/identity.py',
-                          ['validate_profile', 'select_profile', 'validate_account_id', 'execution_account', 'verify_account'])
+                          ['IdentityError', 'validate_profile', 'select_profile', 'validate_account_id', 'execution_account', 'verify_account'])
     engine += definitions(scripts / 'utils/lazy_definitions.py', ['load_once'])
     engine += definitions(scripts / 'utils/json_format.py', ['unique_object', 'invalid_constant', 'policy_json'])
     engine += definitions(scripts / 'iac_values.py', ['cfn_resource_identity'])

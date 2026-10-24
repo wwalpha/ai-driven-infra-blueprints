@@ -13,7 +13,12 @@ from pathlib import Path
 from issue_gate import require_target_no_issues
 from project_targets import DeployContextError as DeployContextError
 from project_targets import load_target as load_target
-from utils.aws.identity import execution_account, select_profile, verify_account
+from utils.aws.identity import (
+    IdentityError,
+    execution_account,
+    select_profile,
+    verify_account,
+)
 
 
 def check_deploy_context(
@@ -30,11 +35,8 @@ def check_deploy_context(
             require_target_no_issues(root, (environment, alias or target["awsAccountId"]))
         except (OSError, ValueError) as error:
             raise DeployContextError(str(error)) from error
-    try:
-        profile = select_profile(target, profile)
-        execution_account(target)
-    except ValueError as error:
-        raise DeployContextError(str(error)) from error
+    profile = select_profile(target, profile)
+    execution_account(target)
     required_commands = ["aws"]
     if not read_only and target["iacEngine"] == "terraform":
         required_commands.append("terraform")
@@ -67,10 +69,7 @@ def check_deploy_context(
         caller_account = json.loads(result.stdout).get("Account")
     except (json.JSONDecodeError, AttributeError) as error:
         raise DeployContextError("AWS caller identity response is invalid") from error
-    try:
-        verify_account(target, caller_account)
-    except ValueError as error:
-        raise DeployContextError(str(error)) from error
+    verify_account(target, caller_account)
     return target
 
 
@@ -98,7 +97,7 @@ def main() -> int:
             args.profile,
             read_only=args.read_only,
         )
-    except DeployContextError as error:
+    except (DeployContextError, IdentityError) as error:
         print(f"Deploy context: FAIL: {error}", file=sys.stderr)
         return 1
 

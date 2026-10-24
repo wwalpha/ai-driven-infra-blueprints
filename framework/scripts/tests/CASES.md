@@ -1134,29 +1134,31 @@ supportファイル数は共通fixture/補助のみ。main/moduleの地点数は
 | `unknown/array_display.checks.py:108` / `main` | UT | `units/array_display.checks.py:108` | `assert restored_rows(output, kind) == original, (kind, prop)` |
 | `unknown/array_display.checks.py:101` / `main` | UT | `units/array_display.checks.py:101` | `assert len(output) == 2 and output[0][1].endswith('[1]') and output[1][1].endswith('[2]'), (kind, prop)` |
 | `unknown/array_display.checks.py:102` / `main` | UT | `units/array_display.checks.py:84` | `assert restored_rows(output, kind) == original` |
-| `aws-context::main:69` / `main` | UT | `units/check-deploy-context.checks.py:69` | `assert target == {'alias': 'cde', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'terraform'}` |
-| `aws-context::main:75` / `main` | UT | `units/check-deploy-context.checks.py:75` | `assert run.call_args.args[0][:3] == ['/mock/aws', '--profile', 'deploy']` |
-| `aws-context::main:76` / `main` | UT | `units/check-deploy-context.checks.py:76` | `assert run.call_args.args[0][3:5] == ['--region', 'ap-northeast-1']` |
-| `aws-context::main:89` / `main` | UT | `units/check-deploy-context.checks.py:89` | `assert commands == ['aws']` |
-| `aws-context::main:90` / `main` | UT | `units/check-deploy-context.checks.py:90` | `assert '--profile' not in run.call_args.args[0]` |
-| `aws-context::main:105` / `main` | UT | `units/check-deploy-context.checks.py:105` | `assert commands == ['aws']` |
-| `aws-context::main:110` / `main` | UT | `units/check-deploy-context.checks.py:110` | `assert 'topology target must exist exactly once' in str(error)` |
-| `aws-context::main:112` / `main` | UT | `units/check-deploy-context.checks.py:112` | `raise AssertionError('aliased target was selected without its alias')` |
-| `aws-context::main:125` / `main` | UT | `units/check-deploy-context.checks.py:125` | `assert target['awsProfile'] == 'stg-cde'` |
-| `aws-context::main:126` / `main` | UT | `units/check-deploy-context.checks.py:126` | `assert run.call_args.args[0][:3] == ['/mock/aws', '--profile', 'stg-cde']` |
-| `aws-context::main:132` / `main` | UT | `units/check-deploy-context.checks.py:132` | `assert str(error) == 'identity rejected'` |
-| `aws-context::main:134` / `main` | UT | `units/check-deploy-context.checks.py:134` | `raise AssertionError('identity rejection ignored')` |
-| `aws-context::main:141` / `main` | UT | `units/check-deploy-context.checks.py:141` | `assert 'profile not found' in str(error)` |
-| `aws-context::main:143` / `main` | UT | `units/check-deploy-context.checks.py:143` | `raise AssertionError('failed configured profile was accepted')` |
-| `aws-context::main:144` / `main` | UT | `units/check-deploy-context.checks.py:144` | `assert run.call_count == 1` |
-| `aws-context::main:145` / `main` | UT | `units/check-deploy-context.checks.py:145` | `assert run.call_args.args[0][2] == 'stg-cde'` |
-| `aws-context::main:156` / `main` | UT | `units/check-deploy-context.checks.py:156` | `assert target['awsAccountId'] == '123456789012'` |
-| `aws-context::main:157` / `main` | UT | `units/check-deploy-context.checks.py:157` | `assert target['awsExecutionAccountId'] == '999999999999'` |
-| `aws-context::main:162` / `main` | UT | `units/check-deploy-context.checks.py:162` | `assert str(error) == 'identity rejected'` |
-| `aws-context::main:164` / `main` | UT | `units/check-deploy-context.checks.py:164` | `raise AssertionError('STS identity rejection ignored')` |
-| `aws-context::main:167` / `main` | UT | `units/check-deploy-context.checks.py:167` | `assert MODULE.load_target(root, 'production', account_id='210987654321')['awsAccountId'] == '210987654321'` |
-| `aws-context::main:173` / `main` | UT | `units/check-deploy-context.checks.py:173` | `assert 'AWS region ID is invalid' in str(error)` |
-| `aws-context::main:175` / `main` | UT | `units/check-deploy-context.checks.py:175` | `raise AssertionError('invalid AWS region ID was accepted')` |
+| `aws-context::main:70` / `main` | UT | `units/check-deploy-context.checks.py:70` | `assert target == {'alias': 'cde', 'awsAccountId': '123456789012', 'awsRegion': 'ap-northeast-1', 'iacEngine': 'terraform'}` |
+| `aws-context::main:76` / `main` | UT | `units/check-deploy-context.checks.py:76` | `assert run.call_args.args[0][:3] == ['/mock/aws', '--profile', 'deploy']` |
+| `aws-context::main:77` / `main` | UT | `units/check-deploy-context.checks.py:77` | `assert run.call_args.args[0][3:5] == ['--region', 'ap-northeast-1']` |
+| `aws-context::main:90` / `main` | UT | `units/check-deploy-context.checks.py:90` | `assert commands == ['aws']` |
+| `aws-context::main:91` / `main` | UT | `units/check-deploy-context.checks.py:91` | `assert '--profile' not in run.call_args.args[0]` |
+| `aws-context::main:106` / `main` | UT | `units/check-deploy-context.checks.py:106` | `assert commands == ['aws']` |
+| `aws-context::main:111` / `main` | UT | `units/check-deploy-context.checks.py:111` | `assert 'topology target must exist exactly once' in str(error)` |
+| `aws-context::main:113` / `main` | UT | `units/check-deploy-context.checks.py:113` | `raise AssertionError('aliased target was selected without its alias')` |
+| `aws-context::main:126` / `main` | UT | `units/check-deploy-context.checks.py:126` | `assert target['awsProfile'] == 'stg-cde'` |
+| `aws-context::main:127` / `main` | UT | `units/check-deploy-context.checks.py:127` | `assert run.call_args.args[0][:3] == ['/mock/aws', '--profile', 'stg-cde']` |
+| `aws-context::main:134` / `main` | UT | `units/check-deploy-context.checks.py:134` | `assert error is failure` |
+| `aws-context::main:136` / `main` | UT | `units/check-deploy-context.checks.py:136` | `raise AssertionError('identity rejection ignored')` |
+| `aws-context::main:143` / `main` | UT | `units/check-deploy-context.checks.py:143` | `assert 'profile not found' in str(error)` |
+| `aws-context::main:145` / `main` | UT | `units/check-deploy-context.checks.py:145` | `raise AssertionError('failed configured profile was accepted')` |
+| `aws-context::main:146` / `main` | UT | `units/check-deploy-context.checks.py:146` | `assert run.call_count == 1` |
+| `aws-context::main:147` / `main` | UT | `units/check-deploy-context.checks.py:147` | `assert run.call_args.args[0][2] == 'stg-cde'` |
+| `aws-context::main:158` / `main` | UT | `units/check-deploy-context.checks.py:158` | `assert target['awsAccountId'] == '123456789012'` |
+| `aws-context::main:159` / `main` | UT | `units/check-deploy-context.checks.py:159` | `assert target['awsExecutionAccountId'] == '999999999999'` |
+| `aws-context::main:164` / `main` | UT | `units/check-deploy-context.checks.py:164` | `assert error is failure` |
+| `aws-context::main:166` / `main` | UT | `units/check-deploy-context.checks.py:166` | `raise AssertionError('STS identity rejection ignored')` |
+| `aws-context::main:169` / `main` | UT | `units/check-deploy-context.checks.py:169` | `assert MODULE.load_target(root, 'production', account_id='210987654321')['awsAccountId'] == '210987654321'` |
+| `aws-context::main:175` / `main` | UT | `units/check-deploy-context.checks.py:175` | `assert 'AWS region ID is invalid' in str(error)` |
+| `aws-context::main:177` / `main` | UT | `units/check-deploy-context.checks.py:177` | `raise AssertionError('invalid AWS region ID was accepted')` |
+| `aws-context::main:182` / `main` | UT | `units/check-deploy-context.checks.py:182` | `assert MODULE.main() == 1` |
+| `aws-context::main:183` / `main` | UT | `units/check-deploy-context.checks.py:183` | `assert 'Deploy context: FAIL: identity rejected' in errors.getvalue()` |
 | `unknown/cloudformation_schema.checks.py:21` / `main` | UT | `units/cloudformation_schema.checks.py:21` | `assert snapshot_errors(root) == []` |
 | `unknown/cloudformation_schema.checks.py:40` / `main` | UT | `units/cloudformation_schema.checks.py:40` | `assert catalog.literal_errors('EC2.SecurityGroup', 'Tags[].Value', '日本語') == []` |
 | `unknown/cloudformation_schema.checks.py:41` / `main` | UT | `units/cloudformation_schema.checks.py:41` | `assert catalog.literal_errors('EC2.SecurityGroupIngress', 'Description', '日本語') == []` |
@@ -2667,6 +2669,10 @@ integration or live AWS operation is used by the new suite.
 ## AWS Profile / Identity common authority
 
 Profile/Accountの判定条件は `units/aws-identity-unit.checks.py` だけで管理する。
+共通判定の失敗は `utils.aws.identity.IdentityError`（ValueError派生）を直接伝播する。
+各機能UTは元の例外オブジェクトの同一性とCLIでの捕捉を確認し、
+DeployContextError/Blocked/AcquisitionErrorへのIdentity例外ラップを行わない。
+STS不一致の `AccountMismatch` コードは共通例外が所有し、既存レポート分類を維持する。
 既存UTの入口は削除せず、check-deploy-contextとvalidation topologyの不正入力表
 （Profile各8、execution account各9、計34展開）を削除した。通常Account不正1入力、
 AWS Client内のDeploy Profile選択/競合2条件、ImportのAccount不一致1条件も移管した。
@@ -2684,12 +2690,12 @@ SDK環境由来認証識別、cache、Session再開、alias/suffix/Region/engine
 | `aws-identity::invalid-account` | `check_invalid_account` | UT | [units/aws-identity-unit.checks.py](units/aws-identity-unit.checks.py) | pytest / 12 | 不正Account、明示execution key不正のfallback禁止 | Pure |
 | `aws-identity::execution` | `check_execution_account` | UT | [units/aws-identity-unit.checks.py](units/aws-identity-unit.checks.py) | pytest / 2 | execution優先、未指定時resource、STS一致 | Pure |
 | `aws-identity::sts-mismatch` | `check_sts_mismatch` | UT | [units/aws-identity-unit.checks.py](units/aws-identity-unit.checks.py) | pytest / 5 | STS不一致/欠落/不正型 | Pure |
-| `aws-identity::context` | `check_identity_delegation_and_sts_reuse` | UT | [units/check-model-aws-unit.checks.py](units/check-model-aws-unit.checks.py) | pytest / 1 | Context比較委譲、検証済みAccount返却、STS transport再利用、拒否後resource API禁止 | Mock |
+| `aws-identity::context` | `check_identity_delegation_and_sts_reuse` | UT | [units/check-model-aws-unit.checks.py](units/check-model-aws-unit.checks.py) | pytest / 1 | Context比較委譲、IdentityError同一性、検証済みAccount返却、STS transport再利用、拒否後resource API禁止 | Mock |
 | `aws-identity::multi-target` | `check_all_target_profiles_precede_aws` | UT | [units/check-model-aws-unit.checks.py](units/check-model-aws-unit.checks.py) | pytest / 1 | 全Targetの事前判定、拒否時CLI/SDK session未実行 | Mock |
 | `aws-identity::import-boundary` | `check_import_profile_mode_delegation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 1 | Import例外引渡し、設定不変、STS維持 | Mock |
 | `aws-identity::preparation` | `check_identity_failure_precedes_preparation` | UT | [units/deploy_preparation-unit.checks.py](units/deploy_preparation-unit.checks.py) | pytest / 1 | 共通判定委譲と準備/AWS前の拒否 | Mock |
-| `aws-identity::runtime` | `check_runtime_identity_delegation` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py) | pytest / 1 | 共通Profile保存、connection作成前の拒否 | Mock |
+| `aws-identity::runtime` | `check_runtime_identity_delegation` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py) | pytest / 1 | 共通Profile保存、IdentityError同一性、connection作成前の拒否 | Mock |
 
 既存 `integrations/model-test.checks.py::check` にSTS実transport 1回の確認を追加。
-共通関数は `model.audit.definitions()` で依存順に埋め込み、既存の隔離Python
+共通例外と関数は `model.audit.definitions()` で依存順に埋め込み、既存の隔離Python
 単独実行（Framework/PyPI importなし）を維持する。新しいIT入口は追加しない。

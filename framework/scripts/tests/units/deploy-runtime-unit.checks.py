@@ -59,6 +59,7 @@ from task_contract_core import selected_task
 from utils.aws import cloudformation as cfn
 from utils.aws import secretsmanager as secrets
 from utils.aws.client import AwsError
+from utils.aws.identity import IdentityError
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -907,10 +908,12 @@ def check_runtime_identity_delegation(tmp_path):
         runtime = M.create_runtime(tmp_path, 'dev', 'test', TARGET, 'explicit')
         select.assert_called_once_with(TARGET, 'explicit')
         assert runtime.profile == runtime.connection[0] == 'selected'
-    with patch.object(M, 'select_profile', side_effect=ValueError('identity rejected')), \
+    failure = IdentityError('identity rejected')
+    with patch.object(M, 'select_profile', side_effect=failure), \
             patch.object(M._imports_utils_aws_client, 'connection_context') as connection:
-        with pytest.raises(M.Blocked, match='identity rejected'):
+        with pytest.raises(IdentityError, match='identity rejected') as caught:
             M.create_runtime(tmp_path, 'dev', 'test', TARGET, 'explicit')
+        assert caught.value is failure
         connection.assert_not_called()
 
 def check_session_cli(tmp_path, monkeypatch):
@@ -965,7 +968,7 @@ def check_session_cli(tmp_path, monkeypatch):
     mutation = [None]
     run_session = _bind_framework_callback(_callback_check_session_cli_run_session, execution_limits, mutation, session_runner)
     last_output = []
-    with patch('deploy.context.select_profile', side_effect=ValueError('identity rejected')) as select:
+    with patch('deploy.context.select_profile', side_effect=IdentityError('identity rejected')) as select:
         assert _callback_check_session_cli_invoke(argv, backend_factory, base, contract, last_output, root, run_session, state_file, ["--profile", "explicit"]) == 2
         select.assert_called_once_with(dict(TARGET, awsProfile='dev-profile'), 'explicit')
     assert not backends

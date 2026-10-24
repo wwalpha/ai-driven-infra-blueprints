@@ -15,10 +15,7 @@ def select_target(topology, environment, account_id=None, alias=None):
     if bool(account_id) == bool(alias):
         raise DeployContextError("exactly one of AWS account ID or alias is required")
     if account_id:
-        try:
-            validate_account_id(account_id)
-        except ValueError as error:
-            raise DeployContextError("AWS account ID must be 12 digits") from error
+        validate_account_id(account_id)
     if alias and (
         not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", alias)
         or re.fullmatch(r"\d{12}", alias)
@@ -48,12 +45,9 @@ def select_target(topology, environment, account_id=None, alias=None):
     resolved_account_id = target.get("awsAccountId")
     region = target.get("awsRegion")
     engine = target.get("iacEngine")
-    try:
-        validate_account_id(resolved_account_id, "target AWS account ID")
-        execution_account(target)
-        select_profile(target)
-    except ValueError as error:
-        raise DeployContextError(str(error)) from error
+    validate_account_id(resolved_account_id, "target AWS account ID")
+    execution_account(target)
+    select_profile(target)
     if not isinstance(region, str) or not region:
         raise DeployContextError("target AWS region is missing")
     if not re.fullmatch(r"[a-z]{2,}(?:-[a-z0-9]+)+-[1-9][0-9]*", region):

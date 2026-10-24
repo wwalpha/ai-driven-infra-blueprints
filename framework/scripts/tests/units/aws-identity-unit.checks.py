@@ -32,17 +32,17 @@ def check_valid_profile(profile):
 @pytest.mark.parametrize('value', [None, 123, False, [], {}, '', ' ', '\t', ' padded ', 'UNSET',
                                  '\nprofile', 'bad\nprofile', 'bad\rprofile', 'bad\0profile'])
 def check_invalid_profile(value):
-    with pytest.raises(ValueError, match='profile is invalid'):
+    with pytest.raises(identity.IdentityError, match='profile is invalid'):
         identity.validate_profile(value)
     # Neither an explicit valid profile nor Import's exception hides invalid configuration.
-    with pytest.raises(ValueError, match='profile is invalid'):
+    with pytest.raises(identity.IdentityError, match='profile is invalid'):
         identity.select_profile({'awsProfile': value}, 'valid')
-    with pytest.raises(ValueError, match='profile is invalid'):
+    with pytest.raises(identity.IdentityError, match='profile is invalid'):
         identity.import_profile({'awsProfile': value}, no_profile=True)
     if value is not None:  # None is the CLI/API's omitted argument, not an explicit string.
-        with pytest.raises(ValueError, match='profile is invalid'):
+        with pytest.raises(identity.IdentityError, match='profile is invalid'):
             identity.select_profile({}, value)
-        with pytest.raises(ValueError, match='profile is invalid'):
+        with pytest.raises(identity.IdentityError, match='profile is invalid'):
             identity.select_profile({'awsProfile': 'valid'}, value)
 
 
@@ -55,7 +55,7 @@ def check_profile_selection(target, explicit, expected):
 
 
 def check_profile_conflict():
-    with pytest.raises(ValueError, match='explicit AWS profile does not match target awsProfile'):
+    with pytest.raises(identity.IdentityError, match='explicit AWS profile does not match target awsProfile'):
         identity.select_profile({'awsProfile': 'configured'}, 'other')
 
 
@@ -77,13 +77,13 @@ def check_valid_account(account):
 @pytest.mark.parametrize('value', [None, 123456789012, False, [], {}, '', 'UNSET', '123', '1234567890123',
                                  ' 123456789012', '123456789012\n', '１２３４５６７８９０１２'])
 def check_invalid_account(value):
-    with pytest.raises(ValueError, match='account ID is invalid'):
+    with pytest.raises(identity.IdentityError, match='account ID is invalid'):
         identity.validate_account_id(value)
-    with pytest.raises(ValueError, match='target AWS account ID is invalid'):
+    with pytest.raises(identity.IdentityError, match='target AWS account ID is invalid'):
         identity.execution_account({'awsAccountId': value})
-    with pytest.raises(ValueError, match='target AWS execution account ID is invalid'):
+    with pytest.raises(identity.IdentityError, match='target AWS execution account ID is invalid'):
         identity.execution_account({'awsAccountId': ACCOUNT, 'awsExecutionAccountId': value})
-    with pytest.raises(ValueError, match='account ID is invalid'):
+    with pytest.raises(identity.IdentityError, match='account ID is invalid'):
         identity.verify_account({'awsAccountId': value}, ACCOUNT)
 
 
@@ -99,8 +99,10 @@ def check_execution_account(target, expected):
 @pytest.mark.parametrize('caller', [ACCOUNT, None, 999999999999, 'bad', '９９９９９９９９９９９９'])
 def check_sts_mismatch(caller):
     target = {'awsAccountId': ACCOUNT, 'awsExecutionAccountId': EXECUTION}
-    with pytest.raises(ValueError, match='AWS account mismatch: expected ' + EXECUTION):
+    with pytest.raises(identity.IdentityError, match='AWS account mismatch: expected ' + EXECUTION) as caught:
         identity.verify_account(target, caller)
+    assert caught.value.code == 'AccountMismatch'
+    assert caught.value.__cause__ is None
 
 
 if __name__ == '__main__':

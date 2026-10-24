@@ -11,6 +11,7 @@ import model.importing.scope as _imports_model_importing_scope
 from support.validator import MODULE, SCRIPT
 from support.validator import project as project
 from support.validator import write as write
+from utils.aws.identity import IdentityError
 
 
 def check_optional_alias_targets() -> None:
@@ -101,7 +102,7 @@ def check_optional_alias_targets() -> None:
         validator.check_project_topology()
         assert any("must contain only projectName and targets" in error for error in validator.errors), validator.errors
 
-        with patch('validation.project.select_profile', side_effect=ValueError('identity rejected')) as select:
+        with patch('validation.project.select_profile', side_effect=IdentityError('identity rejected')) as select:
             write(root / "project.json", json.dumps(topology) + "\n")
             validator = MODULE.Validator(root)
             validator.check_project_topology()

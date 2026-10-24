@@ -133,7 +133,7 @@ def audit(snapshot, profile=None, cli_runner=None):
         ctx = m.Context(m.ROOT, target, cli_runner=cli_runner)
         account = ctx.verify()
     except Exception as error:
-        reason = error.code if isinstance(error, m.AcquisitionError) else str(error) if isinstance(error, (m.Unresolved, ValueError)) else type(error).__name__
+        reason = error.code if isinstance(error, (m.AcquisitionError, m.IdentityError)) else str(error) if isinstance(error, (m.Unresolved, ValueError)) else type(error).__name__
         if ctx is None:
             ctx = m.Context(m.ROOT, snapshot['target'], cli_runner=cli_runner)
         # Account/credential failure stops all resource APIs, but records every attribute.

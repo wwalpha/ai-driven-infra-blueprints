@@ -297,11 +297,12 @@ def check_create_definition_reuse(tmp_path):
 def check_cli_faults(tmp_path):
     root = tmp_path / 'case'
     fixture(root, register=False)
-    for cli, code in [(AwsCli(account='999999999999'), 'AccountMismatch'),
-                      (AwsCli(fail='An error occurred (AccessDenied) when calling STS: PRIVATE-CREDENTIAL'), 'AccessDenied')]:
+    for cli, error_type, code in [(AwsCli(account='999999999999'), m.comparator().IdentityError, 'AccountMismatch'),
+                                  (AwsCli(fail='An error occurred (AccessDenied) when calling STS: PRIVATE-CREDENTIAL'), m.comparator().AcquisitionError, 'AccessDenied')]:
         before = snapshot(root)
-        with pytest.raises(m.comparator().AcquisitionError, match=code):
+        with pytest.raises(error_type) as caught:
             m.acquire(root, 'dev', 'cloudwatch-logs', TARGET, True, cli, resource_types=['Logs.LogGroup'])
+        assert caught.value.code == code
         assert snapshot(root) == before and len(cli.calls) == 1
     for payload in ({}, {'logGroups': None}, {'logGroups': 'invalid'}):
         cli = aws()

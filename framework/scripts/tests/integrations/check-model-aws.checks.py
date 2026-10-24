@@ -439,7 +439,7 @@ def common_checks(root):
     expect(ValueError, lambda: unverified.call('s3', 'list_buckets'))
     bad = dict(TARGET, awsAccountId='999999999999')
     ctx2 = Offline(root, target=bad)
-    expect(m.AcquisitionError, ctx2.verify)
+    expect(m.IdentityError, ctx2.verify)
     check(not ctx2.verified and set(ctx2.clients) == {'sts'}, 'account mismatch stops all service APIs')
     split = Offline(root, target=dict(TARGET, awsAccountId='999999999999', awsExecutionAccountId=ACCOUNT))
     split.verify()
@@ -451,7 +451,7 @@ def common_checks(root):
           'live CFN Ref pseudo account uses verified execution account')
     split.finish()
     wrong_execution = Offline(root, target=dict(TARGET, awsExecutionAccountId='999999999999'))
-    expect(m.AcquisitionError, wrong_execution.verify)
+    expect(m.IdentityError, wrong_execution.verify)
     check(not wrong_execution.verified and set(wrong_execution.clients) == {'sts'}, 'execution mismatch stops all service APIs')
     # Implicit API account contexts use execution IDs; explicit model values stay untouched.
     execution = '999999999999'

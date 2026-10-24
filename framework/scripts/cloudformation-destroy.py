@@ -88,10 +88,7 @@ class AwsBackend:
 
     def __init__(self, root, environment, directory, target, profile=None, timing_log=None):
         self.root, self.environment, self.directory, self.target = root, environment, directory, target
-        try:
-            self.profile = select_profile(target, profile)
-        except ValueError as error:
-            raise Blocked(str(error)) from error
+        self.profile = select_profile(target, profile)
         self.timing_log = timing_log
         self.env = os.environ.copy()  # Freeze the invocation's credential chain; never persist credentials.
 

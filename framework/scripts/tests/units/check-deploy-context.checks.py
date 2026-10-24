@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
 
+import io
 import json
 import os
 import subprocess
@@ -125,11 +126,12 @@ def main() -> None:
             assert target["awsProfile"] == "stg-cde"
             assert run.call_args.args[0][:3] == ["/mock/aws", "--profile", "stg-cde"]
             run.reset_mock()
-            with mock.patch.object(MODULE, "select_profile", side_effect=ValueError("identity rejected")) as select:
+            failure = MODULE.IdentityError("identity rejected")
+            with mock.patch.object(MODULE, "select_profile", side_effect=failure) as select:
                 try:
                     MODULE.check_deploy_context(root, "stg", alias="cde", profile="explicit")
-                except MODULE.DeployContextError as error:
-                    assert str(error) == "identity rejected"
+                except MODULE.IdentityError as error:
+                    assert error is failure
                 else:
                     raise AssertionError("identity rejection ignored")
                 select.assert_called_once_with(target, "explicit")
@@ -155,11 +157,11 @@ def main() -> None:
                 verify.assert_called_once_with(target, "999999999999")
                 assert target["awsAccountId"] == "123456789012"
                 assert target["awsExecutionAccountId"] == "999999999999"
-            with mock.patch.object(MODULE, "verify_account", side_effect=ValueError("identity rejected")):
+            with mock.patch.object(MODULE, "verify_account", side_effect=failure):
                 try:
                     MODULE.check_deploy_context(root, "stg", alias="cde", read_only=True)
-                except MODULE.DeployContextError as error:
-                    assert str(error) == "identity rejected"
+                except MODULE.IdentityError as error:
+                    assert error is failure
                 else:
                     raise AssertionError("STS identity rejection ignored")
         topology["targets"][0]["awsExecutionAccountId"] = "999999999999"
@@ -173,6 +175,12 @@ def main() -> None:
             assert "AWS region ID is invalid" in str(error)
         else:
             raise AssertionError("invalid AWS region ID was accepted")
+        with mock.patch.object(MODULE, "check_deploy_context", side_effect=failure), \
+                mock.patch.object(MODULE.Path, "cwd", return_value=root), \
+                mock.patch.object(sys, "argv", ["check-deploy-context", "--environment", "stg", "--alias", "cde"]), \
+                mock.patch.object(sys, "stderr", new_callable=io.StringIO) as errors:
+            assert MODULE.main() == 1
+            assert "Deploy context: FAIL: identity rejected" in errors.getvalue()
     print("check-deploy-context: PASS")
 
 

@@ -127,6 +127,8 @@ Modelの公開編集・描画APIとCLIコマンド実装も機能モジュール
 ## AWS Profile / Identity
 
 純粋な判定条件は `units/aws-identity-unit.checks.py` の49ケースに集約する。
+失敗はIdentity専用の `IdentityError` を直接伝播し、呼び出し側で再ラップしない。
+既存のValueError捕捉、CLI終了処理とAccountMismatchレポート分類を維持する。
 既存のpytest収集規則 `*-unit.checks.py` と直接入口で実行できる。
 各機能UTは共通判定の呼び出しとAWS前の停止、Import例外引き渡し、
 複数Target事前確認、SDK cacheとSession再開を担当する。

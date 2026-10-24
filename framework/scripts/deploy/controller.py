@@ -46,11 +46,8 @@ def create_runtime(
     approvals: Iterable[str] = (),
 ) -> SimpleNamespace:
     connection_context = _imports_utils_aws_client.connection_context
-    try:
-        selected = select_profile(target, profile)
-        account = execution_account(target)
-    except ValueError as error:
-        raise Blocked(str(error)) from error
+    selected = select_profile(target, profile)
+    account = execution_account(target)
     runtime = SimpleNamespace(root=root, environment=environment, directory=directory, target=target,
         profile=selected, approvals=set(approvals), timing=Timing(root), templates={},
         expected_digests={}, workdir=None, states={}, save=lambda: None, guard=lambda: None,

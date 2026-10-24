@@ -59,9 +59,11 @@ def check_identity_delegation_and_sts_reuse(tmp_path):
         verify.assert_called_with(target, '123456789012')
     assert runner.call_count == 1
     rejected = m.Context(tmp_path, target, cli_runner=runner, services=(), import_mode=True)
-    with patch.object(m, 'verify_account', side_effect=ValueError('identity rejected')):
-        with pytest.raises(m.AcquisitionError, match='AccountMismatch'):
+    failure = m.IdentityError('identity rejected', 'AccountMismatch')
+    with patch.object(m, 'verify_account', side_effect=failure):
+        with pytest.raises(m.IdentityError, match='identity rejected') as caught:
             rejected.verify()
+        assert caught.value is failure
     with pytest.raises(ValueError, match='account has not been verified'):
         rejected.call('cloudcontrol', 'list_resources', TypeName='AWS::DataZone::Domain')
     assert runner.call_count == 2
@@ -71,9 +73,9 @@ def check_all_target_profiles_precede_aws(tmp_path):
     targets = [dict(awsAccountId='123456789012', awsRegion='ap-northeast-1', directory=name) for name in ('first', 'second')]
     items = [(target, tmp_path / 'vpc.properties') for target in targets]
     factory = Mock()
-    with patch.object(m, 'select_profile', side_effect=[None, ValueError('identity rejected')]) as select, \
+    with patch.object(m, 'select_profile', side_effect=[None, m.IdentityError('identity rejected')]) as select, \
             patch.object(m.subprocess, 'run') as process:
-        with pytest.raises(ValueError, match='identity rejected'):
+        with pytest.raises(m.IdentityError, match='identity rejected'):
             m.run(tmp_path, items, profile='explicit', session_factory=factory)
         assert [call.args for call in select.call_args_list] == [(target, 'explicit') for target in targets]
     factory.assert_not_called()

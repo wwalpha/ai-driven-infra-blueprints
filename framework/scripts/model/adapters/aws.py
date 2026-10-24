@@ -30,7 +30,12 @@ import project_targets as _imports_project_targets
 from comparison_rows import MISSING, Unresolved, put_row, select
 from design_catalog import DesignSchemaCatalog, selected_properties
 from policy_tables import literal
-from utils.aws.identity import execution_account, select_profile, verify_account
+from utils.aws.identity import (
+    IdentityError,
+    execution_account,
+    select_profile,
+    verify_account,
+)
 from utils.aws_catalogs import catalog_outputs
 from utils.aws_sdk import aws_runtime
 from utils.input_cache import input_scope
@@ -353,10 +358,7 @@ class Context:
         select_profile(self.target)
         execution_account(self.target)
         response = self.call("sts", "get_caller_identity")
-        try:
-            account = verify_account(self.target, response.get("Account"))
-        except ValueError as error:
-            raise AcquisitionError("sts.get_caller_identity", "AccountMismatch") from error
+        account = verify_account(self.target, response.get("Account"))
         self.verified = True
         return account
 
@@ -920,7 +922,7 @@ def run(root, items, profile=None, session_factory=None):
         ctx = contexts[connection]
         if isinstance(ctx, Exception):
             results.append({**prefix, "resource": None, "propertiesKey": None, "status": "acquisition_failed",
-                            "reason": ctx.code if isinstance(ctx, AcquisitionError) else type(ctx).__name__,
+                            "reason": ctx.code if isinstance(ctx, (AcquisitionError, IdentityError)) else type(ctx).__name__,
                             "affectedKeys": [row["property"] for _, row in entries(properties(read_model(path)), "desired.row.")],
                             "scope": "entire service; account/credentials were not verified", "apis": [{"api": "sts.get_caller_identity"}]})
             continue
@@ -954,7 +956,7 @@ def main(argv=None):
         result = coverage(root, items) if args.coverage else run(root, items, args.profile)
         code = (2 if result["problems"] else 0) if args.coverage else result["exitCode"]
     except Exception as error:
-        result, code = {"status": "incomplete", "reason": str(error) if type(error) is ValueError else type(error).__name__}, 2
+        result, code = {"status": "incomplete", "reason": str(error) if type(error) in (ValueError, IdentityError) else type(error).__name__}, 2
     text = json.dumps(result, ensure_ascii=False, indent=2, default=str, allow_nan=False) + "\n"
     if args.output:
         output = args.output.resolve()
