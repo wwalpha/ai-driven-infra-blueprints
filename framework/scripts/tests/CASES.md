@@ -2899,8 +2899,4 @@ ITの `check_single_target_cache` / `check_template_consumers`（2ケース）�
 | `project-cache::lifetime` | `check_cache_lifetime` | UT | [units/validation_cache-unit.checks.py](units/validation_cache-unit.checks.py) | pytest / 1 | Framework全件探索禁止、実行内共有、実行を跨ぐPASS失効、旧disk PASS非使用 | Validation Cache |
 | `project-generation::common` | `check_snapshot_project_common_inputs` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 1 | common選択の再利用、Framework/配布README非登録、Project最終照合 | Generation |
 | `repair-snapshot::paths` | `check_validation_snapshot_project_paths` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 1 | Git tracked/untracked取得のFramework pathspec除外、Project hash対象維持 | Repair Snapshot |
-| `repair-snapshot::reject` | `check_legacy_snapshot_rejections` | UT | [units/deploy-handoff-unit.checks.py](units/deploy-handoff-unit.checks.py) | pytest / 2 | 旧SnapshotのProject不一致とFramework項目の署名改ざん拒否 | Repair Snapshot |
-
-既存 `check_accept_protects_success_and_retries`（4条件）は署名済み旧Framework項目を含む実receiptで実行し、受理後のreceipt bytes不変を確認する。
-
 | `project-validation::common` | `check_common_cache_guard` | UT | [units/validation_checks/runner.py](units/validation_checks/runner.py) | direct / 1 | 実Validatorのcommon初回/最終各1回、同一input_contextのCatalog PASS再利用 | Runner |

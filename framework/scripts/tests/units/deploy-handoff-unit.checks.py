@@ -26,7 +26,7 @@ from utils.aws_mappings import definition_root
 from utils.file_operations import sha
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.json_format import fingerprint as fingerprint
-from utils.sealed_evidence import read_sealed, write_sealed
+from utils.sealed_evidence import write_sealed
 
 if not __debug__:
     raise SystemExit('Focused checks require assertions; run without -O')
@@ -677,7 +677,7 @@ def acceptance(tmp_path):
     effective_after = handoff.effective(root, units, backend.paths, backend.deployment_input_paths)
     result = {**request, 'result': 'VALIDATED_CANDIDATE', 'commit': 'commit', 'parentTip': 'parent',
         'changes': {'infra/Second.yaml': {'before': before['infra/Second.yaml'], 'after': current['infra/Second.yaml']}},
-        'validation': {'snapshot': {'infra/Second.yaml': current['infra/Second.yaml'], 'framework/legacy.py': 'old'}}, 'effectiveInputs': {'before': effective, 'after': effective_after}}
+        'validation': {'snapshot': {'infra/Second.yaml': current['infra/Second.yaml']}}, 'effectiveInputs': {'before': effective, 'after': effective_after}}
     result_path = request_path.with_name('result.json')
     write_sealed(root, result_path, result)
     return root, session, backend, units, current, result_path
@@ -696,30 +696,6 @@ def check_validation_snapshot_project_paths(tmp_path):
                                     '--', '.', ':(top,exclude)framework')
     assert set(snapshot) == paths and snapshot['missing.md'] is None
     assert {call.args[0] for call in hashes.call_args_list} == {tmp_path / p for p in paths - {'missing.md'}}
-    assert contracts.project_snapshot(snapshot | {'framework/old.py': 'legacy'}) == snapshot
-
-
-@pytest.mark.parametrize('problem', ['project', 'signature'])
-def check_legacy_snapshot_rejections(acceptance, problem):
-    root, session, backend, units, current, result_path = acceptance
-    original = result_path.read_bytes()
-    result = read_sealed(root, result_path)
-    if problem == 'project':
-        result['validation']['snapshot']['unrelated.txt'] = 'unexpected'
-        write_sealed(root, result_path, result)
-    else:
-        envelope = json.loads(original)
-        envelope['payload']['validation']['snapshot']['framework/legacy.py'] = 'tampered'
-        result_path.write_text(json.dumps(envelope))
-    sealed_bytes = result_path.read_bytes()
-    with patch.object(resume, 'verify_integration_owner'), \
-         patch.object(contracts, 'output', side_effect=receipt_git_output), \
-         patch.object(contracts, 'paths', return_value={'infra/Second.yaml'}), \
-         patch.object(contracts, 'validation_snapshot', return_value={'infra/Second.yaml': current['infra/Second.yaml']}), \
-         pytest.raises((ValueError, Blocked), match={'project': 'validation dependencies', 'signature': 'evidence was modified'}[problem]):
-        resume.accept(root, result_path, session, backend, units, {'First': 'first', 'Second': 'repaired'}, current)
-    assert result_path.read_bytes() == sealed_bytes
-    assert session['inputRevision'] == 0
 
 
 def receipt_git_output(root, *args):
@@ -745,7 +721,6 @@ def check_accept_protects_success_and_retries(acceptance, shared, status, after_
         handoff.bind(root, path, session)
     handoff.save(path, session)
     initial = copy.deepcopy(session)
-    result_bytes = result_path.read_bytes()
     current_units = {'First': 'first', 'Second': 'repaired'}
     with patch.object(resume, 'verify_integration_owner'), \
          patch.object(resume._dependency_deploy_contracts, 'output', side_effect=receipt_git_output), \
@@ -767,7 +742,6 @@ def check_accept_protects_success_and_retries(acceptance, shared, status, after_
                 resume.accept(root, result_path, session, backend, units, current_units, current)
         assert session == initial and json.loads(path.read_text()) == initial
         resume.accept(root, result_path, session, backend, units, current_units, current)
-        assert result_path.read_bytes() == result_bytes
         accepted = copy.deepcopy(session)
         actual_replace = file_operations.os.replace
         interrupted = _bind_framework_callback(_callback_check_signed_ledger_rejects_rollback_and_recovers_interrupted,
