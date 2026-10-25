@@ -26,6 +26,9 @@ from support.model_reference_fixtures import (
 from support.pytest_cli import run
 from utils.aws_mappings import mapping_alias
 
+if not __debug__:
+    raise SystemExit("Focused checks require assertions; run without -O")
+
 
 @pytest.fixture
 def models(tmp_path):
