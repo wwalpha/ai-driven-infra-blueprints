@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 from design.document import DesignIndex
 from design.policy_tables import Policy, policy_document_lines, rendered_design
+from model.core import ModelNeedsFixError
 from model.identity import COUNTERS
 from model.reference_presentation import Position, Presentation
 from model.render import generate_files, generate_markdown
@@ -152,15 +153,17 @@ def test_no_guessed_destination(models, fault):
         "DefaultArguments",
         {"--input": reference(logical, attribute)},
     )
-    presentation = Presentation(values, path, models)
-    ref = presentation.references[Position(rid, "value", "/--input")]
-    assert ref.link is None
-    if fault == "pending":
-        assert ref.value == "pending_deploy"
     if fault in {"missing", "duplicate", "invalid-attribute"}:
-        with pytest.raises(ValueError):
+        with pytest.raises(ModelNeedsFixError):
+            Presentation(values, path, models)
+        with pytest.raises(ModelNeedsFixError):
             generate_markdown(path, values, FRAMEWORK)
     else:
+        presentation = Presentation(values, path, models)
+        ref = presentation.references[Position(rid, "value", "/--input")]
+        assert ref.link is None
+        if fault == "pending":
+            assert ref.value == "pending_deploy"
         markdown = generate_markdown(path, values, FRAMEWORK)
         assert "[shared-name]" not in markdown
 

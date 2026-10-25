@@ -26,6 +26,7 @@ from model.identity import Resolver
 from model.projection import generated_document, reference_resolver
 from model.reference_nodes import parse
 from model.reference_values import reference_value
+from model.render import generate_markdown
 from model.sources import load_model
 from model.validation import check_model_inputs as model_inputs
 from model.validation import validate_json_settings
@@ -84,21 +85,21 @@ def models(tmp_path):
         document["Statement"][6]["Resource"] = reference("KMS_Key_004")
         role.update(
             {
-                "desired.row.070-002.property": "IAM.Role.Policies[].PolicyName",
-                "desired.row.070-002.value": "`synthetic-policy`",
-                "desired.row.070-002.comment": "合成",
-                "desired.row.070-003.property": "IAM.Role.Policies[].PolicyDocument",
-                "desired.row.070-003.value": "[Policy](iam/iam-role-070-synthetic-policy.json)",
+                "desired.row.070-003.property": "IAM.Role.Policies[].PolicyName",
+                "desired.row.070-003.value": "`synthetic-policy`",
                 "desired.row.070-003.comment": "合成",
-                "desired.row.070-003.document": json.dumps(document),
+                "desired.row.070-004.property": "IAM.Role.Policies[].PolicyDocument",
+                "desired.row.070-004.value": "[Policy](iam/iam-role-070-synthetic-policy.json)",
+                "desired.row.070-004.comment": "合成",
+                "desired.row.070-004.document": json.dumps(document),
             }
         )
         role.update(
             {
-                "desired.row.070-004.property": "IAM.Role.AssumeRolePolicyDocument",
-                "desired.row.070-004.value": "[Trust](iam/iam-role-070-trust-policy.json)",
-                "desired.row.070-004.comment": "合成",
-                "desired.row.070-004.document": json.dumps(
+                "desired.row.070-002.property": "IAM.Role.AssumeRolePolicyDocument",
+                "desired.row.070-002.value": "[Trust](iam/iam-role-070-trust-policy.json)",
+                "desired.row.070-002.comment": "合成",
+                "desired.row.070-002.document": json.dumps(
                     {
                         "Version": "2012-10-17",
                         "Statement": [
@@ -124,7 +125,7 @@ def materialize(consumer, role, document):
         scope=consumer,
         logical_id="IAM_Role_070",
         property_name="IAM.Role.Policies[].PolicyDocument",
-        model_key="desired.row.070-003.document",
+        model_key="desired.row.070-004.document",
     )
 
 
@@ -169,7 +170,7 @@ def test_invalid_reference_has_origin_code_and_position(models, fault, code):
         "model"
     ] == str(consumer.path)
     assert (
-        diagnostic["modelKey"] == "desired.row.070-003.document"
+        diagnostic["modelKey"] == "desired.row.070-004.document"
         and diagnostic["action"]
     )
     assert not isinstance(caught.value, ReferenceResolutionError)
@@ -275,12 +276,18 @@ def test_pending_resolves_without_altering_authority(models):
     )
     key["observed.row.004-001.value"] = "`12345678-1234-1234-1234-123456789abc`"
     save(producer, key)
+    producer_view = consumer.root / "docs/designs/qa/team/kms.md"
+    producer_view.parent.mkdir(parents=True, exist_ok=True)
+    producer_view.write_text(
+        generate_markdown(producer_view, load_model(producer).values, FRAMEWORK),
+        encoding="utf-8",
+    )
     result = materialize(consumer, role, document)
     assert (
         result["Statement"][6]["Resource"]
         == "arn:aws:kms:ap-northeast-1:123456789012:key/12345678-1234-1234-1234-123456789abc"
     )
-    assert document == original and "$modelRef" in role["desired.row.070-003.document"]
+    assert document == original and "$modelRef" in role["desired.row.070-004.document"]
     plan = sync_runtime.prepare_generation(
         consumer.root, {("qa", "team", "iam")}, write=False, definitions_root=FRAMEWORK
     )
@@ -324,7 +331,7 @@ def test_unknown_exceptions_never_become_reference_waits(models, error):
 def test_issues_use_structured_codes_and_stable_identity(models):
     _, _, consumer, role, document = models
     document["Statement"][6]["Resource"] = reference("KMS_Key_999")
-    role["desired.row.070-003.document"] = json.dumps(document)
+    role["desired.row.070-004.document"] = json.dumps(document)
     save(consumer, role)
     # Validate source references through the same Findings path used by the scan.
     findings = Findings(consumer.root)
@@ -353,7 +360,7 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, inval
     _, _, consumer, role, document = models
     if invalid:
         document["Statement"][0]["Resource"] = reference("KMS_Key_999")
-        role["desired.row.070-003.document"] = json.dumps(document)
+        role["desired.row.070-004.document"] = json.dumps(document)
         save(consumer, role)
     good_scope, good_values = resource(
         consumer.root, "s3", "S3.Bucket", attribute="BucketName"
@@ -454,7 +461,7 @@ def test_real_generation_and_issues_v3_keep_reference_categories(models, invalid
     _, _, consumer, role, document = models
     if invalid:
         document["Statement"][0]["Resource"] = reference("KMS_Key_999")
-        role["desired.row.070-003.document"] = json.dumps(document)
+        role["desired.row.070-004.document"] = json.dumps(document)
         save(consumer, role)
     plan = sync_runtime.prepare_generation(
         consumer.root, {("qa", "team", "iam")}, write=False, definitions_root=FRAMEWORK
