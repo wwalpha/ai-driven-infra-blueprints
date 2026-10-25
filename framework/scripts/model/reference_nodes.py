@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from utils.json_format import strict_json
 from utils.reference_contracts import reference_context
 
-from model.core import literal
+from model.core import ModelNeedsFixError, literal
 from model.reference_values import reference_value
 from model.reference_values import resolve as resolve
 
@@ -24,40 +24,66 @@ def is_reference(value):
 
 
 def parse(value, pointer=""):
+    body = value.get("$modelRef") if isinstance(value, dict) else None
+    details = {"pointer": pointer}
+    if isinstance(body, dict):
+        for source, name in (
+            ("logicalId", "targetLogicalId"),
+            ("attribute", "attribute"),
+        ):
+            if isinstance(body.get(source), str):
+                details[name] = body[source]
     if not is_reference(value) or set(value) != {"$modelRef"}:
-        raise ValueError(f"invalid $modelRef object: JSON Pointer={pointer!r}")
+        raise ModelNeedsFixError(
+            f"invalid $modelRef object: JSON Pointer={pointer!r}",
+            code="MODEL_REF_INVALID_SYNTAX",
+            **details,
+        )
     body = value["$modelRef"]
     if not isinstance(body, dict) or set(body) != {"logicalId", "attribute"}:
-        raise ValueError(
-            f"$modelRef requires exactly logicalId and attribute: JSON Pointer={pointer!r}"
+        raise ModelNeedsFixError(
+            f"$modelRef requires exactly logicalId and attribute: JSON Pointer={pointer!r}",
+            code="MODEL_REF_INVALID_SYNTAX",
+            **details,
         )
     for key in ("logicalId", "attribute"):
         if (
             not isinstance(body[key], str)
             or re.fullmatch(r"[A-Za-z][A-Za-z0-9_.:-]*", body[key]) is None
         ):
-            raise ValueError(f"invalid $modelRef {key}: JSON Pointer={pointer!r}")
+            raise ModelNeedsFixError(
+                f"invalid $modelRef {key}: JSON Pointer={pointer!r}",
+                code="MODEL_REF_INVALID_SYNTAX",
+                **details,
+            )
     return ReferenceNode(body["logicalId"], body["attribute"], pointer)
 
 
-def nodes(value, pointer=""):
+def nodes(value, pointer="", *, errors=None):
     """Enumerate atomic nodes, including JSON encoded inside a string."""
     if is_reference(value):
-        yield parse(value, pointer)
+        try:
+            yield parse(value, pointer)
+        except ModelNeedsFixError as error:
+            if errors is None:
+                raise
+            errors.extend(error.diagnostics)
     elif isinstance(value, dict):
         for key, child in value.items():
             yield from nodes(
-                child, pointer + "/" + key.replace("~", "~0").replace("/", "~1")
+                child,
+                pointer + "/" + key.replace("~", "~0").replace("/", "~1"),
+                errors=errors,
             )
     elif isinstance(value, list):
         for index, child in enumerate(value):
-            yield from nodes(child, pointer + "/" + str(index))
+            yield from nodes(child, pointer + "/" + str(index), errors=errors)
     elif isinstance(value, str) and value.lstrip().startswith(("{", "[")):
         try:
             encoded = strict_json(value)
         except ValueError:
             return
-        yield from nodes(encoded, pointer)
+        yield from nodes(encoded, pointer, errors=errors)
 
 
 def receiving_property(property_name, pointer):

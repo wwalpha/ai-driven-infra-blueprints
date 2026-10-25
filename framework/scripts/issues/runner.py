@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import re
 import time
@@ -176,6 +177,67 @@ def codebuild_plaintext_diagnostics(message, comparison):
     return result
 
 
+def reference_issues(findings, comparison, services):
+    """Use the existing stable identifier on Model position/code, independent of prose."""
+    records = {}
+    for diagnostic in findings.reference_errors:
+        if diagnostic["category"] != "MODEL_NEEDS_FIX":
+            continue
+        model = diagnostic.get("model")
+        owner = next(
+            (
+                service
+                for service in services
+                if model and model.endswith("/" + service + ".properties")
+            ),
+            None,
+        )
+        if owner is None:
+            continue
+        identity = [
+            diagnostic.get(field)
+            for field in (
+                "code",
+                "model",
+                "resourceLogicalId",
+                "modelKey",
+                "pointer",
+                "targetLogicalId",
+                "attribute",
+            )
+        ]
+        key = identifier(
+            [
+                value.replace(str(comparison.root) + "/", "")
+                if isinstance(value, str)
+                else value
+                for value in identity
+            ]
+        )
+        records[key] = dict(
+            id=key,
+            key=key,
+            service=owner,
+            severity="ERROR",
+            message=safe_text(
+                comparison.redacted(json.dumps(diagnostic, ensure_ascii=False))
+            ),
+            diagnostic=comparison.redacted(diagnostic),
+            verification_targets=[
+                dict(
+                    service=owner,
+                    rule=diagnostic["code"],
+                    check_id="model.references",
+                    resource=diagnostic.get("resourceLogicalId") or "*",
+                    property=diagnostic.get("property")
+                    or diagnostic.get("modelKey")
+                    or "*",
+                )
+            ],
+        )
+    return list(records.values())
+
+
 @input_scope
 def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     started = time.perf_counter()
@@ -218,10 +280,15 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     mechanical_seconds = time.perf_counter() - begin
     ordinary, judgments = [], []
     validator = validators[0]
+    ordinary.extend(reference_issues(validator.findings, comparison, services))
+    reference_messages = {
+        json.dumps(d, ensure_ascii=False) for d in validator.findings.reference_errors
+    }
     seen = set()
     diagnostic_messages = [
         (message, diagnostic)
         for message in dict.fromkeys(errors)
+        if message not in reference_messages
         for diagnostic in codebuild_plaintext_diagnostics(message, comparison)
     ]
     for message, diagnostic in diagnostic_messages:

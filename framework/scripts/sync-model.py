@@ -15,6 +15,7 @@ from pathlib import Path
 import import_guard as _imports_import_guard
 import model.impact as _imports_model_impact
 import model.importing.scope as _imports_model_importing_scope
+from model.core import ReferenceResolutionError
 from sync_progress import consumers, diagnostics, output_file, phase, reported_main
 from sync_runtime import generation_context, run_generation, sync
 from validation_scope import active_scope
@@ -59,7 +60,7 @@ def _callback_main_generate(args, definitions_root, groups, root, /, item):
             definitions_root=definitions_root,
         )
     except (OSError, ValueError, KeyError, TypeError) as error:
-        return str(error)
+        return error
     return None
 
 
@@ -214,8 +215,21 @@ def main(argv=None, *, definitions_root=None) -> int:
                             error for future in futures if (error := future.result())
                         ]
             if failures:
-                raise ValueError("\n- ".join(failures))
+                message = "\n- ".join(str(error) for error in failures)
+                if all(
+                    isinstance(error, ReferenceResolutionError) for error in failures
+                ):
+                    raise ReferenceResolutionError(
+                        message,
+                        diagnostics=[
+                            d for error in failures for d in error.diagnostics
+                        ],
+                    )
+                raise ValueError(message)
             return 0
+    except ReferenceResolutionError as error:
+        print(f"Design Markdown sync: NOT_RUN\n- {error}", file=output_file(error=True))
+        return 2
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"Design Markdown sync: FAIL\n- {error}", file=output_file(error=True))
         return 1

@@ -12,17 +12,78 @@ from utils.json_format import document_sha256, strict_json
 from model.format import parse
 
 
-class ReferenceResolutionError(ValueError):
-    """A semantic reference failure, distinct from invalid source data or I/O."""
+class ReferenceDiagnosticError(ValueError):
+    """A classified reference cause, with context retained across callers."""
 
-    def __init__(self, message, *, code="reference.unresolved", **details):
+    category = "FRAMEWORK_UNSUPPORTED"
+    default_code = None
+    action = "Review the Framework reference contract and implementation."
+
+    def __init__(self, message, *, code=None, diagnostics=None, **details):
         super().__init__(message)
         self.diagnostic = {
-            "code": code,
+            "category": self.category,
+            "code": code or self.default_code or self.category,
             "message": message,
-            "status": "unresolved",
+            "status": "NOT_RUN"
+            if isinstance(self, ReferenceResolutionError)
+            else "FAIL",
+            "action": self.action,
             **details,
         }
+        self.diagnostics = diagnostics if diagnostics is not None else [self.diagnostic]
+
+    def __str__(self):
+        return (
+            super().__str__() + "; " + json.dumps(self.diagnostics, ensure_ascii=False)
+        )
+
+
+class ModelNeedsFixError(ReferenceDiagnosticError):
+    category = "MODEL_NEEDS_FIX"
+    action = "Correct the Model reference or the invalid producer field."
+
+
+class FrameworkUnsupportedError(ReferenceDiagnosticError):
+    pass
+
+
+class ReferenceResolutionError(ReferenceDiagnosticError):
+    """A proven reference wait, independent of invalid Model data."""
+
+    default_code = "reference.unresolved"
+    category = "REFERENCE_UNRESOLVED"
+    action = "Confirm the missing reference value, then regenerate."
+
+
+def require_reference_diagnostics(diagnostics):
+    """Retain individual causes while giving errors precedence over waits."""
+    if not diagnostics:
+        return
+    if any(
+        d["category"]
+        not in {
+            "MODEL_NEEDS_FIX",
+            "FRAMEWORK_UNSUPPORTED",
+            "REFERENCE_PENDING_DEPLOY",
+            "REFERENCE_UNRESOLVED",
+        }
+        for d in diagnostics
+    ):
+        raise FrameworkUnsupportedError(
+            "Unrecognized reference diagnostic category",
+            originalDiagnostics=diagnostics,
+        )
+    for category, error in (
+        ("MODEL_NEEDS_FIX", ModelNeedsFixError),
+        ("FRAMEWORK_UNSUPPORTED", FrameworkUnsupportedError),
+        ("REFERENCE_PENDING_DEPLOY", ReferenceResolutionError),
+        ("REFERENCE_UNRESOLVED", ReferenceResolutionError),
+    ):
+        primary = next((d for d in diagnostics if d["category"] == category), None)
+        if primary is not None:
+            raise error(**primary, diagnostics=diagnostics)
+    raise FrameworkUnsupportedError("Unrecognized reference diagnostic category")
 
 
 def reference_warning(error, **details):
@@ -32,7 +93,7 @@ def reference_warning(error, **details):
 def report_reference_warnings(warnings):
     for warning in warnings:
         print(
-            "WARNING ["
+            ("ERROR [" if warning.get("status") == "FAIL" else "WARNING [")
             + warning["code"]
             + "] "
             + json.dumps(warning, ensure_ascii=False),
@@ -438,7 +499,13 @@ def resource_index(values):
         prefixes[head] = kind
         serial = sequence(kind, logical)
         if logical in result:
-            raise ValueError("duplicate logicalId: " + logical)
+            raise ModelNeedsFixError(
+                "duplicate logicalId: " + logical,
+                code="MODEL_REF_TARGET_AMBIGUOUS",
+                targetLogicalId=logical,
+                resourceLogicalId=logical,
+                modelKey=f"desired.resource.{number}.logicalId",
+            )
         if state.get(kind, -1) < serial:
             raise ValueError("lastAllocated is missing or behind logicalId: " + logical)
         result[logical] = (number, resource)

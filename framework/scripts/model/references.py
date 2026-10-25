@@ -14,7 +14,7 @@ import model.format as _imports_model_projection
 import model.identity as _imports_model_identity
 import model.importing.scope as _imports_model_importing_scope
 import model.sources as source_models
-from model.core import entries, literal
+from model.core import ReferenceDiagnosticError, entries, literal
 from model.format import LINKS as LINKS
 from model.format import json_field, owner
 from model.format import link_scope as link_scope
@@ -280,6 +280,7 @@ def usages(
     _producer_scope=None,
     _coalesce=True,
     _typed=True,
+    _diagnostics=None,
 ):
     """Extract saved Resource links and declared literal dependencies."""
     anchor_index = _imports_model_identity.anchor_index
@@ -353,8 +354,25 @@ def usages(
         ):
             continue
         value, structured = _json(key, raw)
-        for node in nodes(value) if _typed else ():
-            producer, rid, resource, attribute = resolve(node, snapshot.scope, resolver)
+        diagnostics = []
+        for node in nodes(value, errors=diagnostics) if _typed else ():
+            try:
+                producer, rid, resource, attribute = resolve(
+                    node, snapshot.scope, resolver
+                )
+            except ReferenceDiagnosticError as error:
+                if _diagnostics is None:
+                    raise
+                diagnostics.extend(
+                    dict(
+                        d,
+                        pointer=node.pointer,
+                        targetLogicalId=node.logical_id,
+                        attribute=node.attribute,
+                    )
+                    for d in error.diagnostics
+                )
+                continue
             scope = "/".join(
                 (
                     producer.scope.environment,
@@ -380,6 +398,17 @@ def usages(
                         attribute=attribute,
                     )
                 )
+        for diagnostic in diagnostics:
+            diagnostic.update(model=str(snapshot.scope.path), modelKey=key)
+            if key.startswith("desired.row."):
+                number = key.split(".")[2].rpartition("-")[0]
+                diagnostic["property"] = values.get(key.rsplit(".", 1)[0] + ".property")
+                diagnostic["resourceLogicalId"] = values.get(
+                    f"desired.resource.{number}.logicalId"
+                )
+            if _diagnostics is None:
+                _imports_model_core.require_reference_diagnostics([diagnostic])
+            _diagnostics.append(diagnostic)
         if key.startswith("desired.row.") and values.get(
             key.rsplit(".", 1)[0] + ".property", ""
         ).endswith(".Description"):
@@ -460,7 +489,11 @@ def diagnose(snapshot, read_context=None, *, _producer_scope=None, errors=None):
     specs = declarations(snapshot.authoritative)
     try:
         extracted = usages(
-            snapshot, reads, _cache=cache, _producer_scope=_producer_scope
+            snapshot,
+            reads,
+            _cache=cache,
+            _producer_scope=_producer_scope,
+            _diagnostics=warnings,
         )
     except _imports_model_core.ReferenceResolutionError as error:
         warnings.append(error.diagnostic)

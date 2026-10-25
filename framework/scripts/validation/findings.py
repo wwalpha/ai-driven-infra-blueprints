@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from model.core import ReferenceResolutionError
+from model.core import ReferenceDiagnosticError
 
 
 @dataclass
@@ -35,6 +35,7 @@ class Findings:
         self.warnings = []
         self.unverified = []
         self.processing_errors = []
+        self.reference_errors = []
         self.checks = 0
         self.results = {}
         self.candidate = object()
@@ -70,7 +71,7 @@ class Findings:
         )
         try:
             metadata = handler()
-        except ReferenceResolutionError as error:
+        except ReferenceDiagnosticError as error:
             self.warn(error)
             result.metadata = {
                 "complete": False,
@@ -130,20 +131,41 @@ class Findings:
         self.unverified.append(dict(failure, complete=False))
         self.check(False, failure["message"])
         result = self.result(check_id, scope)
-        result.status = "NOT_RUN"
+        result.status = "FAIL"
         result.metadata = dict(complete=False, reason="processing")
 
     def warn(self, condition, message=None, *, code="reference.validation", **details):
+        if isinstance(condition, ReferenceDiagnosticError):
+            for diagnostic in condition.diagnostics:
+                self.warn(diagnostic, **details)
+            return
+        if isinstance(condition, dict) and condition.get("category") in {
+            "MODEL_NEEDS_FIX",
+            "FRAMEWORK_UNSUPPORTED",
+        }:
+            diagnostic = {**condition, **details}
+            if diagnostic not in self.reference_errors:
+                self.reference_errors.append(diagnostic)
+                message = json.dumps(diagnostic, ensure_ascii=False)
+                if diagnostic["category"] == "FRAMEWORK_UNSUPPORTED":
+                    self.processing_errors.append(
+                        dict(diagnostic, phase="reference", message=message)
+                    )
+                self.check(False, message)
+            return
         if message is not None:
             self.checks += 1
             if condition:
                 return
             warning = {"code": code, "message": message, **details}
-        elif isinstance(condition, ReferenceResolutionError):
-            self.unverified.append({**condition.diagnostic, **details})
-            warning = {**condition.diagnostic, **details}
         elif isinstance(condition, dict):
             warning = {**condition, **details}
+            if (
+                warning.get("category")
+                in {"REFERENCE_PENDING_DEPLOY", "REFERENCE_UNRESOLVED"}
+                and warning not in self.unverified
+            ):
+                self.unverified.append(warning)
         else:
             warning = {"code": code, "message": str(condition), **details}
         if warning not in self.warnings:

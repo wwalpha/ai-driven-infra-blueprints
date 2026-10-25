@@ -31,7 +31,12 @@ from design.layout_schema import CHILD, GROUPED, STACK_DESIGN
 from design.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
 from design.services.definitions.ec2 import SECURITY_GROUP_TYPES
 from design.services.definitions.registry import HIDDEN_PROPERTIES, POLICY_FORMATS
-from model.core import ReferenceResolutionError, entries, properties
+from model.core import (
+    ReferenceDiagnosticError,
+    ReferenceResolutionError,
+    entries,
+    properties,
+)
 from utils.cloudformation.schema import material_files, snapshot_errors
 from utils.input_cache import input_scope, input_text, memoized
 from utils.project_targets import LOWER_KEBAB_PATTERN
@@ -86,8 +91,8 @@ def check_model_files(findings, root, scope) -> None:
                 raise ValueError("missing service model")
             for warning in analysis.warnings:
                 findings.warn(warning)
-        except ReferenceResolutionError as error:
-            findings.warn(error)
+        except ReferenceDiagnosticError as error:
+            findings.warn(error, model=str(path))
         except (OSError, ValueError) as error:
             findings.check(
                 False, f"invalid service model: {findings.relative(path)}: {error}"

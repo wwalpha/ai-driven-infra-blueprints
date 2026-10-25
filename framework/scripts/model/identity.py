@@ -12,7 +12,12 @@ from utils.reference_contracts import reference_attribute
 import model.importing.scope as _imports_model_importing_scope
 import model.sources as _imports_model_sources
 from model.core import COUNTERS as COUNTERS
-from model.core import ReferenceResolutionError, entries
+from model.core import (
+    FrameworkUnsupportedError,
+    ModelNeedsFixError,
+    ReferenceResolutionError,
+    entries,
+)
 from model.core import counters as counters
 from model.core import prefix as prefix
 from model.core import resource_index as resource_index
@@ -208,8 +213,8 @@ class Resolver:
                         )
                 snapshot = self.models[producer.path]
                 if snapshot is None:
-                    raise ReferenceResolutionError(
-                        "producer Model is unreadable", reference=logical_id
+                    raise FrameworkUnsupportedError(
+                        "producer Model is unreadable", targetLogicalId=logical_id
                     )
                 for logical, (number, resource) in resource_index(
                     snapshot.authoritative
@@ -218,11 +223,14 @@ class Resolver:
             self.logical_indexes[key] = index
         matches = self.logical_indexes[key].get(logical_id, ())
         if len(matches) != 1:
-            raise ReferenceResolutionError(
+            raise ModelNeedsFixError(
                 "producer logicalId is absent"
                 if not matches
                 else "producer logicalId is ambiguous",
-                reference=logical_id,
+                code="MODEL_REF_TARGET_MISSING"
+                if not matches
+                else "MODEL_REF_TARGET_AMBIGUOUS",
+                targetLogicalId=logical_id,
             )
         return matches[0]
 
@@ -243,19 +251,23 @@ class Resolver:
                 is not None
                 else "reference context or receiving property"
             )
-            raise ReferenceResolutionError(reason + " contract unproven: " + field)
+            raise FrameworkUnsupportedError(reason + " contract unproven: " + field)
         if declared and kind not in declared:
-            raise ReferenceResolutionError(
-                "JSON Resource reference type differs from receiving property"
+            raise ModelNeedsFixError(
+                "JSON Resource reference type differs from receiving property",
+                code="MODEL_REF_TYPE_MISMATCH",
             )
         if not isinstance(attribute, str) or not attribute:
-            raise ValueError("JSON Resource attribute must be a nonempty string")
+            raise ModelNeedsFixError(
+                "JSON Resource attribute must be a nonempty string",
+                code="MODEL_REF_INVALID_ATTRIBUTE",
+            )
         if self.catalog is None:
             self.catalog = _imports_design_catalog.DesignSchemaCatalog(self.root)
         try:
             self.catalog.schema(kind)
         except KeyError as error:
-            raise ReferenceResolutionError(
+            raise FrameworkUnsupportedError(
                 "Framework unsupported producer ResourceType: " + kind
             ) from error
         returned = reference_attribute(kind, attribute)
@@ -278,8 +290,9 @@ class Resolver:
             and attribute
             not in _imports_utils_aws_catalogs.catalogs_for(self.root).selected(kind)
         ):
-            raise ReferenceResolutionError(
-                "unsupported JSON Resource attribute: " + kind + "." + attribute
+            raise ModelNeedsFixError(
+                "unsupported JSON Resource attribute: " + kind + "." + attribute,
+                code="MODEL_REF_INVALID_ATTRIBUTE",
             )
 
     def validate_reference_type(self, kind, attribute, field):
@@ -312,8 +325,15 @@ class Resolver:
             and actual is not None
             and "string" not in actual_types
         ):
-            raise ReferenceResolutionError(
-                "Resource reference type is unproven or differs from receiving property schema"
+            raise (
+                FrameworkUnsupportedError
+                if actual is None or expected is None
+                else ModelNeedsFixError
+            )(
+                "Resource reference type is unproven or differs from receiving property schema",
+                code="FRAMEWORK_UNSUPPORTED"
+                if actual is None or expected is None
+                else "MODEL_REF_TYPE_MISMATCH",
             )
 
     def operand(self, value, scope, *, attribute=None, field=None):

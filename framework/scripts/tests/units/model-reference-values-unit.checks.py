@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import model.sources as sources
 import pytest
 import sync_runtime
+from model.core import ModelNeedsFixError
 from model.identity import Resolver
 from model.impact_graph import Graph
 from model.projection import generated_document, reference_display, reference_resolver
@@ -106,8 +107,13 @@ def test_explicit_pending(fixture, mode, expected):
     values["desired.row.001-002.comment"] = "合成"
     values["observed.row.001-002.value"] = "`PENDING_DEPLOY`"
     save(producer, values)
-    value = result(consumer)
-    assert value.status == expected and value.reason
+    if mode == "IMPORT":
+        with pytest.raises(ModelNeedsFixError) as error:
+            result(consumer)
+        assert error.value.diagnostic["code"] == "MODEL_REF_INVALID_PENDING_STATE"
+    else:
+        value = result(consumer)
+        assert value.status == expected and value.reason
 
 
 @pytest.mark.parametrize(
@@ -134,14 +140,18 @@ def test_refuses_unproven_values(fixture, fault):
             values["desired.row.001-002.comment"] = "合成"
             values["observed.row.001-002.value"] = "`arn:aws:s3:::different-bucket`"
         save(producer, values)
-    value = result(consumer, logical, attribute)
-    assert value.status == "unresolved" and value.reason
-    assert (
+    if fault in {"conflict", "arn-conflict"}:
+        # Desired/Observed drift is not a contradiction of confirmed observations.
+        value = result(consumer, logical, attribute)
+        assert value.status == "unresolved" and value.category == "REFERENCE_UNRESOLVED"
+        return
+    with pytest.raises(ModelNeedsFixError) as error:
+        result(consumer, logical, attribute)
+    assert error.value.diagnostic["category"] == "MODEL_NEEDS_FIX"
+    with pytest.raises(ModelNeedsFixError):
         display_value(
             Resolver(consumer.root), consumer, parse(reference(logical, attribute))
         )
-        == "unresolved"
-    )
 
 
 def test_generated_json_and_hash_keep_authority(fixture):
@@ -284,10 +294,10 @@ def test_generated_json_reports_every_unresolved_pointer(fixture):
     for expected in (
         "KMS_Key_001",
         "S3_Bucket_999",
-        "attribute=Arn",
+        '"attribute": "Arn"',
         "/a~1b~0/0",
         "/a~1b~0/1",
-        "status=unresolved",
+        "REFERENCE_UNRESOLVED",
         "KeyId",
         "producer logicalId is absent",
     ):
@@ -324,8 +334,8 @@ def test_sync_failure_retains_service_and_continues(fixture, tmp_path):
             unavailable=unavailable,
         )
     assert list(generated) == [good]
-    assert len(failures) == 1 and "KMS_Key_001" in failures[0]
-    assert "/Statement/0/Resource" in failures[0] and not unavailable
+    assert not failures and bad in unavailable
+    assert unavailable[bad]["status"] == "NOT_RUN"
     assert {path: path.read_bytes() for path in original} == original
     assert {(stage / path.relative_to(root)).read_bytes() for path in original} == set(
         original.values()

@@ -72,9 +72,11 @@ def owned_field(owner, name):
 
 
 def _callback_Validator_generate_and_validate_generated(plan, self, snapshot, /):
-    self.warnings.extend(plan.reference_warnings)
+    for diagnostic in plan.reference_warnings:
+        self.findings.warn(diagnostic)
     for error in plan.failures:
-        self.check(False, error)
+        if error not in plan.reference_failures:
+            self.check(False, error)
     for findings in plan.validation.values():
         if findings is not None:
             self.checks += findings.checks
@@ -83,7 +85,7 @@ def _callback_Validator_generate_and_validate_generated(plan, self, snapshot, /)
         "inputs": snapshot,
         "candidates": plan.expected_outputs,
         "validation": plan.validation,
-        "complete": not plan.unavailable,
+        "complete": not plan.unavailable and not plan.failures,
         "reference_unavailable": plan.unavailable,
     }
 
@@ -144,7 +146,11 @@ def _callback_Validator_check_scoped_designs_source_checks(
         / _state_check_scoped_designs_351.entry[1]
         / (_state_check_scoped_designs_351.entry[2] + ".properties")
     )
-    analysis = load_model(path)
+    try:
+        analysis = load_model(path)
+    except _imports_model_core.ReferenceDiagnosticError as error:
+        self.findings.warn(error, model=str(path))
+        return
     independent = check_model_inputs(
         path, analysis.authoritative, self.root, definitions_root=self.definitions_root
     )
@@ -154,7 +160,9 @@ def _callback_Validator_check_scoped_designs_source_checks(
         for error in independent.errors
         if not any(error in existing for existing in self.errors)
     )
-    self.warnings.extend((*analysis.warnings, *independent.warnings))
+    self.findings.reference_errors.extend(independent.reference_errors)
+    for diagnostic in (*analysis.warnings, *independent.warnings):
+        self.findings.warn(diagnostic)
     self.checks += independent.checks
 
 
@@ -638,6 +646,7 @@ class Validator:
                 generator.check_generated_service_models,
                 isolate=True,
             )
+            self.findings.reference_errors.extend(generator.findings.reference_errors)
             self.errors.extend(generator.errors)
             self.warnings.extend(generator.warnings)
             self.findings.processing_errors.extend(generator.findings.processing_errors)
@@ -716,6 +725,9 @@ class Validator:
             else:
                 validator = results[_state_check_scoped_designs_351.entry]
                 self.checks += validator.checks
+                self.findings.reference_errors.extend(
+                    validator.findings.reference_errors
+                )
                 self.errors.extend(validator.errors)
                 self.warnings.extend(validator.warnings)
                 self.findings.unverified.extend(validator.findings.unverified)

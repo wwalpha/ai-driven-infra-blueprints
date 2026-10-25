@@ -26,7 +26,7 @@ from design.policy_tables import (
 from design.services.codepipeline import pipeline_display_rows, pipeline_rows
 from json_intrinsics import project_document
 from model.adapters.observed import observed_destinations, propagate_references
-from model.core import entries
+from model.core import ModelNeedsFixError, entries
 from model.identity import Resolver
 from model.impact_graph import Graph
 from model.importing.sources import has_reference
@@ -623,16 +623,12 @@ def check_scalar_value_and_json_are_stable(tmp_path, models):
         == design_json
     )
     assert policy[key] == "`" + json.dumps(reference("EC2_VPC_001", "VpcId")) + "`"
-    # An IMPORT pending marker describes unobserved acquisition, not confirmed AWS absence.
+    # IMPORT cannot use a CREATE deployment marker as an acquired value.
     values["desired.resource.001.resourceMode"] = "IMPORT"
     values.pop("desired.resource.001.cfn-logicalId")
     save(producer, values)
-    assert (
-        "unresolved"
-        in reference_display(policy, consumer.path, tmp_path)[
-            "desired.row.001-002.document"
-        ]
-    )
+    with pytest.raises(ModelNeedsFixError, match="MODEL_REF_INVALID_PENDING_STATE"):
+        reference_display(policy, consumer.path, tmp_path)
 
 
 def check_other_target_only_never_resolves(tmp_path, models):

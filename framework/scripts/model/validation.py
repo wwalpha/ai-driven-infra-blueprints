@@ -46,9 +46,11 @@ import model.render as _imports_model_render
 import model.sources as _imports_model_sources
 from model.core import (
     LINK,
+    ReferenceDiagnosticError,
     ReferenceResolutionError,
     entries,
     properties,
+    require_reference_diagnostics,
     stack_model,
 )
 from model.reference_nodes import context_at, nodes, receiving_property, resolve
@@ -129,6 +131,7 @@ def validate_json_settings(
     _json = _imports_model_references._json
     string_leaves = _imports_model_references.string_leaves
     resolver = None
+    diagnostics = []
     for row_id, row in entries(values, "desired.row."):
         for field in ("value", "document"):
             if field not in row:
@@ -140,7 +143,8 @@ def validate_json_settings(
                         "JSON Model references in .value require the existing JSON backtick notation"
                     )
                 continue
-            for node in nodes(value):
+            row_diagnostics = []
+            for node in nodes(value, errors=row_diagnostics):
                 if (row_id, field, node.pointer) in excluded_references:
                     continue
                 if resolver is None:
@@ -162,14 +166,37 @@ def validate_json_settings(
                 context = reference_context_for(
                     values, row_id, row, value, node.pointer, scope.root
                 )
-                resolve(
-                    node,
-                    scope,
-                    resolver,
-                    field=field_name,
-                    property_name=row["property"],
-                    context=context,
+                try:
+                    resolve(
+                        node,
+                        scope,
+                        resolver,
+                        field=field_name,
+                        property_name=row["property"],
+                        context=context,
+                    )
+                except ReferenceDiagnosticError as error:
+                    row_diagnostics.extend(
+                        dict(
+                            d,
+                            pointer=node.pointer,
+                            targetLogicalId=node.logical_id,
+                            attribute=node.attribute,
+                        )
+                        for d in error.diagnostics
+                    )
+            for diagnostic in row_diagnostics:
+                diagnostic.update(
+                    model=str(model_path),
+                    modelKey=f"desired.row.{row_id}.{field}",
+                    property=row["property"],
+                    resourceLogicalId=values.get(
+                        f"desired.resource.{row_id.rpartition('-')[0]}.logicalId"
+                    ),
                 )
+            diagnostics.extend(row_diagnostics)
+            if row_diagnostics:
+                continue
             number = row_id.rpartition("-")[0]
             resource = values.get(f"desired.resource.{number}.logicalId", number)
             for pointer, text in string_leaves(value):
@@ -189,6 +216,8 @@ def validate_json_settings(
                 logical_id=resource,
                 property_name=row["property"],
             )
+
+    require_reference_diagnostics(diagnostics)
 
 
 @memoized

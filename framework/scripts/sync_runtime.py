@@ -25,11 +25,18 @@ from design.document import DesignIndex
 from design.layout_schema import STACK_DESIGN
 from design.policy_tables import rendered_design
 from generation_inputs import GenerationInputs
-from model.core import ReferenceResolutionError, entries
+from model.core import (
+    ReferenceDiagnosticError,
+    ReferenceResolutionError,
+    entries,
+    require_reference_diagnostics,
+)
 from model.format import JSON_LINK
 from model.importing.scope import scoped as import_scoped
 from model.importing.scope import selected as import_selection
 from model.projection import design_target, resource_row_scope
+from model.reference_nodes import nodes
+from model.references import _json as model_json
 from model.render import generate_files as generate_files
 from model.render import render_validated_model as markdown_for
 from model.sources import (
@@ -258,9 +265,11 @@ def generate_views(
     *,
     warnings=None,
     unavailable=None,
+    reference_failures=None,
 ):
     warnings = warnings if warnings is not None else []
     unavailable = unavailable if unavailable is not None else {}
+    reference_failures = reference_failures if reference_failures is not None else set()
     definitions_root = definitions_root or definition_root(root)
     total(len(destinations))
     generated = {}
@@ -283,17 +292,15 @@ def generate_views(
                 for warning in (*model.warnings, *independent.warnings)
                 if warning not in warnings
             )
-            if independent.errors:
-                if independent.unverified or model.warnings:
-                    unavailable[path] = {
-                        "reason": "reference",
-                        "status": "NOT_RUN",
-                        "retainedView": str(path.relative_to(root))
-                        if input_is_file(path)
-                        else None,
-                    }
-                raise ValueError("\n- ".join(independent.errors))
-            validate_kms_policy_accounts(values, design_target(staged, stage))
+            if independent.errors and (independent.unverified or model.warnings):
+                unavailable[path] = dict(
+                    reason="reference",
+                    status="NOT_RUN",
+                    retainedView=str(path.relative_to(root))
+                    if input_is_file(path)
+                    else None,
+                )
+            diagnostics = list(getattr(independent, "reference_errors", ()))
             resolver = _imports_model_projection.reference_resolver(
                 values, model.scope, root
             )
@@ -304,22 +311,52 @@ def generate_views(
                         raise ValueError(
                             f"JSON document requires an artifact link: {identity}"
                         )
+                    raw, structured = model_json(
+                        f"desired.row.{identity}.value", row["value"]
+                    )
+                    node_errors = []
+                    if structured and (
+                        any(nodes(raw, errors=node_errors)) or node_errors
+                    ):
+                        try:
+                            _imports_model_projection.generated_document(
+                                raw,
+                                root,
+                                property_name=row["property"],
+                                scope=model.scope,
+                                resolver=resolver,
+                                logical_id=values.get(
+                                    f"desired.resource.{identity.rpartition('-')[0]}.logicalId"
+                                ),
+                                model_key=f"desired.row.{identity}.value",
+                                context=_imports_model_validation.reference_context_for(
+                                    values, identity, row, raw, "", root
+                                ),
+                                warnings=warnings,
+                            )
+                        except ReferenceDiagnosticError as error:
+                            diagnostics.extend(error.diagnostics)
                     continue
                 if "document" not in row:
                     raise ValueError(
                         f"authoritative JSON document missing: {path.name}: {identity}"
                     )
-                document = _imports_model_projection.generated_document(
-                    policy_json(row["document"]),
-                    root,
-                    property_name=row["property"],
-                    scope=model.scope,
-                    resolver=resolver,
-                    logical_id=values.get(
-                        f"desired.resource.{identity.rpartition('-')[0]}.logicalId"
-                    ),
-                    warnings=warnings,
-                )
+                try:
+                    document = _imports_model_projection.generated_document(
+                        policy_json(row["document"]),
+                        root,
+                        property_name=row["property"],
+                        scope=model.scope,
+                        resolver=resolver,
+                        logical_id=values.get(
+                            f"desired.resource.{identity.rpartition('-')[0]}.logicalId"
+                        ),
+                        model_key=f"desired.row.{identity}.document",
+                        warnings=warnings,
+                    )
+                except ReferenceDiagnosticError as error:
+                    diagnostics.extend(error.diagnostics)
+                    continue
                 if not isinstance(document, dict):
                     raise ValueError(f"JSON document must be an object: {identity}")
                 artifact = (staged.parent / match.group(1)).resolve()
@@ -333,6 +370,21 @@ def generate_views(
                         f"conflicting authoritative JSON documents: {artifact.name}"
                     )
                 artifacts[artifact] = content
+            reference_messages = {
+                json.dumps(d, ensure_ascii=False)
+                for d in getattr(independent, "reference_errors", ())
+            }
+            other_errors = [
+                error for error in independent.errors if error not in reference_messages
+            ]
+            if other_errors and diagnostics:
+                failures.append(
+                    f"{path.relative_to(root)}: " + "\n- ".join(other_errors)
+                )
+            require_reference_diagnostics(diagnostics)
+            if other_errors:
+                raise ValueError("\n- ".join(other_errors))
+            validate_kms_policy_accounts(values, design_target(staged, stage))
             save_files(artifacts)
             staged.parent.mkdir(parents=True, exist_ok=True)
             staged.write_text(
@@ -341,15 +393,24 @@ def generate_views(
                 newline="",
             )
             generated[path] = [*artifacts, staged]
-        except ReferenceResolutionError as error:
-            warnings.append({**error.diagnostic, "source": str(path.relative_to(root))})
-            unavailable[path] = {
-                "reason": "reference",
-                "status": "NOT_RUN",
-                "retainedView": str(path.relative_to(root))
-                if input_is_file(path)
-                else None,
-            }
+        except ReferenceDiagnosticError as error:
+            warnings.extend(
+                {**diagnostic, "source": str(path.relative_to(root))}
+                for diagnostic in error.diagnostics
+            )
+            if not isinstance(error, ReferenceResolutionError):
+                message = f"{path.relative_to(root)}: {error}"
+                failures.append(message)
+                reference_failures.add(message)
+            if any(d["status"] == "NOT_RUN" for d in error.diagnostics):
+                unavailable[path] = {
+                    "reason": "reference",
+                    "status": "NOT_RUN",
+                    "diagnostics": error.diagnostics,
+                    "retainedView": str(path.relative_to(root))
+                    if input_is_file(path)
+                    else None,
+                }
             generated.pop(path, None)
             restore_view(stage, root, path)
         except (OSError, ValueError, KeyError, TypeError) as error:
@@ -365,15 +426,24 @@ def generate_views(
                     encoding="utf-8",
                     newline="",
                 )
-        except ReferenceResolutionError as error:
-            warnings.append({**error.diagnostic, "source": str(path.relative_to(root))})
-            unavailable[path] = {
-                "reason": "reference",
-                "status": "NOT_RUN",
-                "retainedView": str(path.relative_to(root))
-                if input_is_file(path)
-                else None,
-            }
+        except ReferenceDiagnosticError as error:
+            warnings.extend(
+                {**diagnostic, "source": str(path.relative_to(root))}
+                for diagnostic in error.diagnostics
+            )
+            if not isinstance(error, ReferenceResolutionError):
+                message = f"{path.relative_to(root)}: {error}"
+                failures.append(message)
+                reference_failures.add(message)
+            if any(d["status"] == "NOT_RUN" for d in error.diagnostics):
+                unavailable[path] = {
+                    "reason": "reference",
+                    "status": "NOT_RUN",
+                    "diagnostics": error.diagnostics,
+                    "retainedView": str(path.relative_to(root))
+                    if input_is_file(path)
+                    else None,
+                }
             generated.pop(path, None)
             restore_view(stage, root, path)
         except (OSError, ValueError, KeyError, TypeError) as error:
@@ -699,6 +769,7 @@ class Generation:
     expected_outputs: dict = field(default_factory=dict)
     warnings: dict = field(default_factory=dict)
     reference_warnings: list = field(default_factory=list)
+    reference_failures: set = field(default_factory=set)
     unavailable: dict = field(default_factory=dict)
     candidate: object = field(default_factory=object)
     accounts: object = None
@@ -789,7 +860,13 @@ def prepare_generation(
                 if not write:
                     plan.read_inputs.update(loaded.dependencies)
             except (OSError, ValueError, KeyError, TypeError) as error:
-                plan.failures.append(f"{path.relative_to(root)}: {error}")
+                message = f"{path.relative_to(root)}: {error}"
+                if isinstance(error, ReferenceDiagnosticError):
+                    plan.reference_warnings.extend(
+                        dict(d, model=str(path)) for d in error.diagnostics
+                    )
+                    plan.reference_failures.add(message)
+                plan.failures.append(message)
         for path in sorted(
             set(markdown_paths)
             - {(docs / p.relative_to(models)).with_suffix(".md") for p in model_paths}
@@ -827,6 +904,7 @@ def prepare_generation(
             definitions_root=definitions_root,
             warnings=plan.reference_warnings,
             unavailable=plan.unavailable,
+            reference_failures=plan.reference_failures,
         )
         return plan
     except BaseException:
@@ -1012,7 +1090,13 @@ def publish_generation(plan):
 
 def generation_metadata(plan):
     return {
-        "complete": not plan.unavailable,
+        "complete": not plan.unavailable and not plan.failures,
+        "status": "FAIL"
+        if plan.failures
+        else "NOT_RUN"
+        if plan.unavailable
+        else "PASS",
+        "failures": list(plan.failures),
         "generated": sorted("/".join(scope) for scope in plan.generated_scope),
         "unverified": {
             "/".join(
@@ -1027,7 +1111,7 @@ def generation_metadata(plan):
 def report_generation(plan):
     for warning in plan.reference_warnings:
         print(
-            "WARNING ["
+            ("ERROR [" if warning.get("status") == "FAIL" else "WARNING [")
             + warning["code"]
             + "] "
             + json.dumps(warning, ensure_ascii=False),
@@ -1079,8 +1163,24 @@ def report_generation(plan):
                 for path in sorted(not_run)
             ),
         ]
-        raise ValueError(
-            f"{summary}; {len(diagnostics)} diagnostics\n- " + "\n- ".join(diagnostics)
+        message = f"{summary}; {len(diagnostics)} diagnostics\n- " + "\n- ".join(
+            diagnostics
+        )
+        if plan.failures:
+            raise ValueError(message)
+        causes = [
+            diagnostic
+            for info in plan.unavailable.values()
+            for diagnostic in info.get("diagnostics", ())
+        ]
+        category = (
+            "REFERENCE_PENDING_DEPLOY"
+            if causes
+            and all(d["category"] == "REFERENCE_PENDING_DEPLOY" for d in causes)
+            else "REFERENCE_UNRESOLVED"
+        )
+        raise ReferenceResolutionError(
+            message, category=category, code=category, diagnostics=causes or None
         )
     print(
         f"Design Markdown sync: PASS ({len(plan.saved)} services)", file=output_file()
@@ -1168,6 +1268,10 @@ def compare_generation(
             findings.result("framework.generated-service-model", scope).metadata.update(
                 generation_metadata(plan)
             )
-        return tuple(plan.failures)
+        return tuple(
+            error
+            for error in plan.failures
+            if findings is None or error not in plan.reference_failures
+        )
     finally:
         plan.close()

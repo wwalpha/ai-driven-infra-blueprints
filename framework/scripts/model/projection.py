@@ -27,9 +27,11 @@ import model.references as _imports_model_references
 import model.sources as _imports_model_sources
 from model.core import (
     LINK,
+    ReferenceDiagnosticError,
     ReferenceResolutionError,
     entries,
     literal,
+    require_reference_diagnostics,
     validate_bucket_reference,
 )
 from model.format import JSON_LINK as JSON_LINK
@@ -429,34 +431,40 @@ def generated_document(
     scope,
     property_name=None,
     logical_id=None,
+    model_key=None,
+    context=None,
     warnings=None,
 ):
     """Materialize confirmed Model references only in the generated artifact."""
-    resolutions, failures = {}, []
-    for node in nodes(document):
-        result = reference_value(
-            resolver,
-            scope,
-            node,
-            field=receiving_property(property_name, node.pointer)
-            if property_name
-            else None,
-            property_name=property_name,
-            context=context_at(document, property_name, node.pointer)
-            if property_name
-            else None,
-        )
+    resolutions, diagnostics = {}, []
+    for node in nodes(document, errors=diagnostics):
+        try:
+            result = reference_value(
+                resolver,
+                scope,
+                node,
+                field=receiving_property(property_name, node.pointer)
+                if property_name
+                else None,
+                property_name=property_name,
+                context=context_at(document, property_name, node.pointer, context)
+                if property_name
+                else None,
+            )
+        except ReferenceDiagnosticError as error:
+            diagnostics.extend(error.diagnostics)
+            continue
         resolutions[node] = result
         if result.status != "resolved":
-            failures.append(
-                f"Producer logicalId={node.logical_id}, attribute={node.attribute}, "
-                f"JSON Pointer={node.pointer!r}, status={result.status}: {result.reason}"
-            )
-    if failures:
-        raise ValueError(
-            f"Model={scope.path}, Resource logicalId={logical_id}, Property={property_name}; "
-            + "; ".join(failures)
+            diagnostics.append(result.diagnostic)
+    for diagnostic in diagnostics:
+        diagnostic.update(
+            model=str(scope.path),
+            resourceLogicalId=logical_id,
+            property=property_name,
+            modelKey=model_key,
         )
+    require_reference_diagnostics(diagnostics)
     resolved = project(document, partial(_resolved_document_value, resolutions))
     return execution_document(
         resolved,

@@ -206,7 +206,7 @@ def check_boundaries():
                 and "child failed" in error["message"]
                 for error in first.findings.processing_errors
             )
-            assert first.findings.result("design.service", scope).status == "NOT_RUN"
+            assert first.findings.result("design.service", scope).status == "FAIL"
             ownership.assert_called_once()
             stacks.assert_called_once()
             child.assert_called_once_with()

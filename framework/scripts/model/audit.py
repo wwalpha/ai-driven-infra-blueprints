@@ -341,7 +341,13 @@ def generate(root, environment, selector, service):
     engine += definitions(scripts / "utils/iac_values.py", ["cfn_resource_identity"])
     engine += definitions(
         scripts / "model/core.py",
-        ["ReferenceResolutionError", "resource_link", "entries", "literal"],
+        [
+            "ReferenceDiagnosticError",
+            "ReferenceResolutionError",
+            "resource_link",
+            "entries",
+            "literal",
+        ],
     )
     engine += definitions(
         scripts / "utils/comparison_rows.py", ["Unresolved", "select", "put_row"]

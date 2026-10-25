@@ -1,7 +1,7 @@
 """Resolve typed references from confirmed Model values without changing authority."""
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Literal
 
@@ -12,7 +12,7 @@ from utils.aws_catalogs import catalog_outputs
 from utils.aws_sdk import aws_runtime
 from utils.cloudformation.inputs import Blocked
 from utils.comparison_rows import put_row
-from utils.json_format import strict_json, validate_aws_document
+from utils.json_format import AwsDocumentError, strict_json, validate_aws_document
 from utils.reference_contracts import (
     ARN_DEFAULTS,
     ARN_SHAPES,
@@ -21,7 +21,15 @@ from utils.reference_contracts import (
     reference_attribute,
 )
 
-from model.core import ReferenceResolutionError, entries, literal, resource_link
+from model.core import (
+    FrameworkUnsupportedError,
+    ModelNeedsFixError,
+    ReferenceDiagnosticError,
+    ReferenceResolutionError,
+    entries,
+    literal,
+    resource_link,
+)
 
 
 @dataclass(frozen=True)
@@ -29,10 +37,11 @@ class ReferenceValue:
     status: Literal["resolved", "pending_deploy", "unresolved"]
     value: object = None
     reason: str = ""
+    diagnostic: dict = field(default_factory=dict)
 
-
-class PendingDeploy(ValueError):
-    pass
+    @property
+    def category(self):
+        return self.diagnostic.get("category", "RESOLVED")
 
 
 def resolve(node, scope, resolver, *, field=None, property_name=None, context=None):
@@ -63,8 +72,9 @@ def resolve(node, scope, resolver, *, field=None, property_name=None, context=No
         and reference_attribute(resource["resourceType"], node.attribute)
         != reference_attribute(resource["resourceType"], "Arn")
     ):
-        raise ReferenceResolutionError(
-            "policy Resource/Principal requires the ARN attribute"
+        raise ModelNeedsFixError(
+            "policy Resource/Principal requires the ARN attribute",
+            code="MODEL_REF_INVALID_ATTRIBUTE",
         )
     return snapshot, number, resource, node.attribute
 
@@ -86,9 +96,14 @@ def confirmed(value):
         or resource_link(value)
     ):
         return None
-    validate_aws_document(value)
+    try:
+        validate_aws_document(value)
+    except AwsDocumentError as error:
+        raise ModelNeedsFixError(str(error), code="MODEL_REF_INVALID_VALUE") from error
     if "${" in value:
-        raise ValueError("reference requires a confirmed literal")
+        raise ModelNeedsFixError(
+            "reference requires a confirmed literal", code="MODEL_REF_INVALID_VALUE"
+        )
     return value
 
 
@@ -107,6 +122,9 @@ class ProducerValues:
             if rid.rpartition("-")[0] == number
         ]
         self.schema = resolver.catalog.schema(self.kind)
+        self.pending_fields = set()
+        self.observed_fields = set()
+        self.drift_fields = set()
 
     def value(self, field, *, recorded=False):
         rows = [
@@ -117,29 +135,70 @@ class ProducerValues:
         if not rows:
             return None
         if len(rows) != 1:
-            raise ValueError("ambiguous Producer property: " + field)
+            raise ModelNeedsFixError(
+                "ambiguous Producer property: " + field, code="MODEL_REF_VALUE_CONFLICT"
+            )
         rid, row = rows[0]
-        desired = confirmed(literal(row["value"]))
+        desired_raw = literal(row["value"])
+        if desired_raw == "PENDING_DEPLOY":
+            raise ModelNeedsFixError(
+                "PENDING_DEPLOY belongs only to CREATE observations: " + field,
+                code="MODEL_REF_INVALID_PENDING_STATE",
+            )
+        desired = confirmed(desired_raw)
         observed = self.snapshot.authoritative.get(f"observed.row.{rid}.value")
         if observed is not None:
             observed = literal(observed)
             if observed == "PENDING_DEPLOY":
-                if self.resource.get("resourceMode", "CREATE") == "CREATE":
-                    raise PendingDeploy("explicit PENDING_DEPLOY: " + field)
-                raise ValueError(
-                    "PENDING_DEPLOY is not a confirmed IMPORT value: " + field
+                if self.resource.get("resourceMode", "CREATE") != "CREATE":
+                    raise ModelNeedsFixError(
+                        "PENDING_DEPLOY is not a confirmed IMPORT value: " + field,
+                        code="MODEL_REF_INVALID_PENDING_STATE",
+                    )
+                self.pending_fields.add(field)
+                observed = None
+            else:
+                observed = confirmed(observed)
+                if observed is not None:
+                    self.observed_fields.add(field)
+        for source, value in (("desired", desired), ("observed", observed)):
+            if value is None:
+                continue
+            shape = ARN_SHAPES.get(self.kind)
+            if shape:
+                identifier, _, patterns = shape
+                group = (
+                    identifier.get(field)
+                    if isinstance(identifier, dict)
+                    else "id"
+                    if field == identifier
+                    else None
                 )
-            observed = confirmed(observed)
+                if group and re.fullmatch(patterns[group], str(value)) is None:
+                    raise ModelNeedsFixError(
+                        "invalid ARN identifier: " + field,
+                        code="MODEL_REF_INVALID_VALUE",
+                        modelKey=f"{source}.row.{rid}.value",
+                    )
+            errors = self.resolver.catalog.literal_errors(self.kind, field, value)
+            if errors:
+                raise ModelNeedsFixError(
+                    "invalid Producer property " + field + ": " + "; ".join(errors),
+                    code="MODEL_REF_INVALID_VALUE",
+                    model=str(self.snapshot.scope.path),
+                    modelKey=f"{source}.row.{rid}.value",
+                )
         if desired is not None and observed is not None and desired != observed:
-            raise ValueError("desired and observed conflict: " + field)
-        value = observed if observed is not None else None if recorded else desired
+            self.drift_fields.add(field)
+        value = (
+            observed
+            if observed is not None
+            else None
+            if recorded or field in self.pending_fields
+            else desired
+        )
         if value is None:
             return None
-        errors = self.resolver.catalog.literal_errors(self.kind, field, value)
-        if errors:
-            raise ValueError(
-                "invalid Producer property " + field + ": " + "; ".join(errors)
-            )
         node = self.resolver.catalog.property_schema(self.kind, field)
         expected = node.get("type")
         return (
@@ -151,6 +210,23 @@ class ProducerValues:
         )
 
     def pending(self):
+        for rid, row in self.rows:
+            desired = literal(row["value"])
+            observed = literal(
+                self.snapshot.authoritative.get(f"observed.row.{rid}.value", "")
+            )
+            if desired == "PENDING_DEPLOY" or (
+                observed == "PENDING_DEPLOY"
+                and self.resource.get("resourceMode", "CREATE") != "CREATE"
+            ):
+                raise ModelNeedsFixError(
+                    "invalid Producer PENDING_DEPLOY state",
+                    code="MODEL_REF_INVALID_PENDING_STATE",
+                    model=str(self.snapshot.scope.path),
+                    modelKey=f"desired.row.{rid}.value"
+                    if desired == "PENDING_DEPLOY"
+                    else f"observed.row.{rid}.value",
+                )
         outputs = catalog_outputs(self.resolver.root, self.kind)
         states = [
             literal(self.snapshot.authoritative.get(f"observed.row.{rid}.value", ""))
@@ -207,62 +283,110 @@ class ProducerValues:
         if direct is not None:
             matched = re.fullmatch(_arn_pattern(ARN_SHAPES[self.kind]), direct)
             if matched is None:
-                raise ValueError("invalid recorded ARN: " + attribute)
+                raise ModelNeedsFixError(
+                    "invalid recorded ARN: " + attribute, code="MODEL_REF_INVALID_VALUE"
+                )
             components = matched.groupdict()
             for field, group in fields.items():
                 if (
                     values[field] is not None
                     and str(values[field]) != components[group]
                 ):
-                    raise ValueError("desired/observed ARN identity conflict: " + field)
+                    if (attribute in self.observed_fields) == (
+                        field in self.observed_fields
+                    ):
+                        raise ModelNeedsFixError(
+                            "confirmed ARN identity conflict: " + field,
+                            code="MODEL_REF_VALUE_CONFLICT",
+                        )
+                    self.drift_fields.add(field)
             for group in ("partition", "region", "account"):
                 if (
                     group in components
                     and context_value(pseudo, group) != components[group]
                 ):
-                    raise ValueError(
-                        "recorded ARN and confirmed " + group + " conflict"
+                    raise ModelNeedsFixError(
+                        "recorded ARN and confirmed " + group + " conflict",
+                        code="MODEL_REF_VALUE_CONFLICT",
                     )
-            if any(value is None for value in values.values()):
-                return direct
-        assembled = named_arn(
-            self.kind,
-            properties,
-            pseudo,
-            evaluate=confirmed,
-            schema=self.schema,
-            recorded=values.get,
-        )
-        if direct is not None and direct != assembled:
-            raise ValueError("desired and observed ARN conflict")
+            return direct
+        missing = [field for field, value in values.items() if value is None]
+        if missing:
+            raise ReferenceResolutionError(
+                "no confirmed ARN components: " + ", ".join(missing)
+            )
+        try:
+            assembled = named_arn(
+                self.kind,
+                properties,
+                pseudo,
+                evaluate=confirmed,
+                schema=self.schema,
+                recorded=values.get,
+            )
+        except Blocked as error:
+            raise FrameworkUnsupportedError(str(error)) from error
         return assembled
 
 
 def reference_value(resolver, scope, node, **contract):
+    producer = None
     try:
         snapshot, number, resource, attribute = resolve(
             node, scope, resolver, **contract
         )
         producer = ProducerValues(snapshot, number, resource, resolver)
-        if producer.pending():
-            raise PendingDeploy("explicit Producer output PENDING_DEPLOY")
+        pending = producer.pending()
         attribute = reference_attribute(resource["resourceType"], attribute)
-        value = (
-            producer.arn(attribute)
-            if resource["resourceType"] in ARN_SHAPES
-            and attribute == reference_attribute(resource["resourceType"], "Arn")
-            else producer.value(
-                RETURN_ATTRIBUTE_PROPERTIES.get(
-                    (resource["resourceType"], attribute), attribute
+        try:
+            value = (
+                producer.arn(attribute)
+                if resource["resourceType"] in ARN_SHAPES
+                and attribute == reference_attribute(resource["resourceType"], "Arn")
+                else producer.value(
+                    RETURN_ATTRIBUTE_PROPERTIES.get(
+                        (resource["resourceType"], attribute), attribute
+                    )
                 )
             )
-        )
-        if value is None:
-            return ReferenceValue(
-                "unresolved", reason="no confirmed desired or observed value"
+        except ReferenceResolutionError as error:
+            value = None
+            reason = error.diagnostic["message"]
+        else:
+            reason = "no confirmed desired or observed value"
+        if pending or producer.pending_fields:
+            raise ReferenceResolutionError(
+                "explicit CREATE Producer output PENDING_DEPLOY",
+                category="REFERENCE_PENDING_DEPLOY",
+                code="REFERENCE_PENDING_DEPLOY",
+                action="Deploy the CREATE producer, synchronize observations, then regenerate.",
             )
+        if producer.drift_fields:
+            raise ReferenceResolutionError(
+                "Desired and Observed differ: "
+                + ", ".join(sorted(producer.drift_fields)),
+                action="Confirm the intended and observed producer identity before regenerating.",
+            )
+        if value is None:
+            raise ReferenceResolutionError(reason)
         return ReferenceValue("resolved", value)
-    except PendingDeploy as error:
-        return ReferenceValue("pending_deploy", reason=str(error))
-    except (Blocked, ValueError, KeyError) as error:
-        return ReferenceValue("unresolved", reason=str(error))
+    except ReferenceDiagnosticError as error:
+        if "modelKey" in error.diagnostic:
+            error.diagnostic["producerModelKey"] = error.diagnostic.pop("modelKey")
+        error.diagnostic.update(
+            model=str(scope.path),
+            targetLogicalId=node.logical_id,
+            attribute=node.attribute,
+            pointer=node.pointer,
+        )
+        if producer is not None:
+            error.diagnostic["producerModel"] = str(producer.snapshot.scope.path)
+        if not isinstance(error, ReferenceResolutionError):
+            raise
+        return ReferenceValue(
+            "pending_deploy"
+            if error.diagnostic["category"] == "REFERENCE_PENDING_DEPLOY"
+            else "unresolved",
+            reason=error.diagnostic["message"],
+            diagnostic=error.diagnostic,
+        )

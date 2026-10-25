@@ -732,6 +732,7 @@ def check_scan_accepts_input_changes(tmp_path, input_name):
     validator = SimpleNamespace(
         checks=1,
         findings=SimpleNamespace(
+            reference_errors=[],
             processing_errors=[],
             unverified=[],
             results={},
@@ -832,7 +833,11 @@ def check_view_read_failure_policy(tmp_path):
     )
     validator.cache = cache
     generated = []
-    source_checks = Mock(return_value=SimpleNamespace(errors=[], warnings=[], checks=7))
+    source_checks = Mock(
+        return_value=SimpleNamespace(
+            errors=[], warnings=[], reference_errors=[], checks=7
+        )
+    )
     ownership = _bind_framework_callback(
         _callback_check_view_read_failure_policy_ownership, bad
     )
@@ -961,6 +966,7 @@ def check_dependency_view_failure_branches(tmp_path, monkeypatch, failure):
         cache=cache,
         service_cache_pending=[("pending", 3)] if dependent else [],
         findings=SimpleNamespace(
+            reference_errors=[],
             processing_errors=[],
             unverified=[],
             results={},
@@ -1237,7 +1243,7 @@ def check_scan_stage_failures(tmp_path, stage):
     assert artifact["processing_errors"]
     assert artifact["unverified"]
     assert any(
-        result["status"] == "NOT_RUN" and not result["complete"]
+        result["status"] == "FAIL" and not result["complete"]
         for result in artifact["check_results"]
     )
     assert any(record["category"] == "matched" for record in artifact["iac"])
@@ -1329,7 +1335,11 @@ def check_service_worker_isolation(tmp_path, failure):
     validator = Validator(tmp_path, scope, workers=2)
     validator.cache = SimpleNamespace(service_key=str, load=lambda _: None)
     original = validation_runner._callback_Validator_check_scoped_designs_validate
-    source = Mock(return_value=SimpleNamespace(errors=[], warnings=[], checks=3))
+    source = Mock(
+        return_value=SimpleNamespace(
+            errors=[], warnings=[], reference_errors=[], checks=3
+        )
+    )
     with (
         patch.object(Validator, "check_design_service_ownership"),
         patch.object(Validator, "check_stack_designs", return_value={}),
@@ -1358,7 +1368,7 @@ def check_service_worker_isolation(tmp_path, failure):
     assert validator.findings.unverified and not validator.service_cache_pending
     assert (
         validator.findings.result("design." + failure, {("dev", "team", "s3")}).status
-        == "NOT_RUN"
+        == "FAIL"
     )
 
 
