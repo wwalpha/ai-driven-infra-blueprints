@@ -7,7 +7,6 @@ from functools import partial as _bind_framework_callback
 from pathlib import Path
 
 import generation_inputs as _imports_generation_inputs
-import issue_gate as _imports_issue_gate
 import task_contract_core as _imports_task_contract
 import utils.input_cache as _imports_validation_cache
 import validation_scope as _imports_validation_scope
@@ -102,7 +101,6 @@ def _write_context(root, task_file, *, requested=None, snapshot=None):
     """Authorize one Model-only intermediate save, without running final validation."""
     GenerationInputs = _imports_generation_inputs.GenerationInputs
     publication_revision = _imports_model_importing_repository.publication_revision
-    require_no_issues = _imports_issue_gate.require_no_issues
     matches = _imports_task_contract.matches
     model_operation = _imports_task_contract.model_operation
     paths_in = _imports_task_contract.paths_in
@@ -174,11 +172,6 @@ def _write_context(root, task_file, *, requested=None, snapshot=None):
                         raise ValueError(
                             "source write requires exact service Validation scope"
                         )
-                    require_no_issues(
-                        root,
-                        scope if operation.action == "import-retarget" else required,
-                        task_file=name,
-                    )
                     declared, allowed = (
                         paths_in(text, "## Modified files"),
                         paths_in(text, "## Allowed paths"),

@@ -6,10 +6,6 @@ Use this prompt for Codex to confirm necessary initialization values with the hu
 
 Do not ask the human to create/edit JSON. Complete questions, answers, normalization, and file creation within this initialization task.
 
-## Unresolved issue gate
-
-Apply [issue-gate](../../rules/issue-gate.md) for target service stop decisions and exceptions before start/resume/mutation.
-
 ## First response
 
 In the first response after prompt execution, ask only Project name without changing files.
@@ -27,8 +23,7 @@ Project nameを入力してください。
 2. [task-contract](../../rules/task-contract.md)
 3. Existing `project.json` (if present)
 4. [project-configuration](../../rules/project-configuration.md)
-5. [issue-gate](../../rules/issue-gate.md)
-6. [Local loop](../../rules/loop-engineering.md#local-loop), [Validation scope](../../rules/loop-engineering.md#validation-scope), and [Other task completion](../../rules/loop-engineering.md#other-task-completion)
+5. [Local loop](../../rules/loop-engineering.md#local-loop), [Validation scope](../../rules/loop-engineering.md#validation-scope), and [Other task completion](../../rules/loop-engineering.md#other-task-completion)
 
 Follow AGENTS.md “How to read required rules” for specified section read ranges and conditional rules.
 

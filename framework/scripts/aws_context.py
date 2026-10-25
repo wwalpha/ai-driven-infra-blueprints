@@ -10,7 +10,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-from issue_gate import print_warning, require_target_no_issues
 from utils.aws.identity import (
     IdentityError,
     execution_account,
@@ -30,13 +29,6 @@ def check_deploy_context(
     read_only: bool = False,
 ) -> dict[str, str]:
     target = load_target(root, environment, account_id, alias)
-    if not read_only:
-        try:
-            require_target_no_issues(
-                root, (environment, alias or target["awsAccountId"]), warn=print_warning
-            )
-        except (OSError, ValueError) as error:
-            raise DeployContextError(str(error)) from error
     profile = select_profile(target, profile)
     execution_account(target)
     required_commands = ["aws"]

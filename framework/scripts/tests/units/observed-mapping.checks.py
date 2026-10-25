@@ -204,7 +204,6 @@ def _check_static_exports_share_mapping_and_skip_observed_unexpected(*args, **kw
 
 def check_static_exports_share_mapping_and_skip_observed(mapping_inputs, monkeypatch):
     root, loaded, invoke = mapping_inputs
-    monkeypatch.setattr(deploy_observed, "require_target_no_issues", lambda *args: None)
     unexpected = _check_static_exports_share_mapping_and_skip_observed_unexpected
     monkeypatch.setattr(observed, "mapped_resource", unexpected)
     monkeypatch.setattr(observed, "publish_observed", unexpected)
@@ -473,7 +472,6 @@ def check_static_export_preserves_removal_guards(mapping_inputs, monkeypatch):
                     removed=removed,
                     implementation=implementation,
                 )
-    monkeypatch.setattr(deploy_observed, "require_target_no_issues", lambda *args: None)
     backend = SimpleNamespace(
         root=root,
         environment="dev",

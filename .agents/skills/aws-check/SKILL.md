@@ -9,7 +9,7 @@ Read the environment-specific properties through `model.sources.load_model` and
 only within the selected Task; authorized observations change only the selected
 `observed.row.<id>.value`. Record the entry and actual parts, required incoming
 consumers and generated paths in the Task. Read dependencies grant no write scope.
-Retain this skill's deployment target, issue gate and AWS permission boundary.
+Retain this skill's deployment target and AWS permission boundary.
 
 
 # AWS API checks
@@ -18,10 +18,10 @@ The common authority is maintained in the `ai-driven-infra-blueprints` repositor
 
 ## Scope and execution permission
 
-- Read `AGENTS.md`, [issue-gate](../../../framework/rules/issue-gate.md), [Model authority](../../../framework/rules/model-information.md#model-authority), and [Properties format](../../../framework/rules/model-information.md#properties-format); target only the requested environment/target/service/resource. Use the `project.json` alias as target directory, or `awsAccountId` without an alias. Ask if the scope is unclear; do not expand it by inference.
+- Read `AGENTS.md`, [Model authority](../../../framework/rules/model-information.md#model-authority), and [Properties format](../../../framework/rules/model-information.md#properties-format); target only the requested environment/target/service/resource. Use the `project.json` alias as target directory, or `awsAccountId` without an alias. Ask if the scope is unclear; do not expand it by inference.
 - For read-only investigation and chat reporting alone, do not start a repository task; save comparison JSON to a temporary file outside the repository as needed. Execute only list/get/describe-equivalent APIs and caller identity validation authorized by the AWS check request; do not perform AWS mutation.
 - Use the existing comparator to validate `project.json` `awsProfile`, region, and execution account (`awsExecutionAccountId`, or `awsAccountId` when unspecified). Stop for an explicit profile differing from the configured profile, caller account mismatch, or authentication failure; do not fall back to another profile/account.
-- If issue-list saving/updating is also explicitly requested, before AWS retrieval, record the investigation scope and read-only API permission in a `migration` contract following [issues saving and updating](../issues/SKILL.md#saving-and-updating). Limit Allowed paths/Modified files to this contract and the target issues.md; perform investigation, saving, and final validation under [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy) in the same contract. Retain read-only issue investigation operations and save-only task exemption conditions even when unresolved issues exist.
+- If issue-list saving/updating is also explicitly requested, before AWS retrieval, record the investigation scope and read-only API permission in a `migration` contract following [issues saving and updating](../issues/SKILL.md#saving-and-updating). Limit Allowed paths/Modified files to this contract and the target issues.md; perform investigation, saving, and final validation under [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy) in the same contract.
 
 ## Investigation starting from AWS CLI comparison
 
@@ -44,7 +44,7 @@ The common authority is maintained in the `ai-driven-infra-blueprints` repositor
 - Only when saving is also requested, use the formats/update rules in [issues saving and updating](../issues/SKILL.md#saving-and-updating) and [Output](../issues/SKILL.md#output) to save already retrieved results/investigation evidence in the same task. Do not rerun AWS APIs from issues.
 - Do not change model desired/observed, design, or IaC; do not proceed to deploy/apply, scenarios, or another task.
 
-Follow AGENTS.md “How to read required rules” for reading rules. Read [project-configuration](../../../framework/rules/project-configuration.md) for target determination and account/profile validation, and [issue-gate](../../../framework/rules/issue-gate.md) for stop and investigation/repair/save exception decisions. Only for repository changes, additionally read [task-contract](../../../framework/rules/task-contract.md), [Local loop](../../../framework/rules/loop-engineering.md#local-loop), [Validation scope](../../../framework/rules/loop-engineering.md#validation-scope), and [Other task completion](../../../framework/rules/loop-engineering.md#other-task-completion).
+Follow AGENTS.md “How to read required rules” for reading rules. Read [project-configuration](../../../framework/rules/project-configuration.md) for target determination and account/profile validation. Only for repository changes, additionally read [task-contract](../../../framework/rules/task-contract.md), [Local loop](../../../framework/rules/loop-engineering.md#local-loop), [Validation scope](../../../framework/rules/loop-engineering.md#validation-scope), and [Other task completion](../../../framework/rules/loop-engineering.md#other-task-completion).
 
 Only for framework changes, additionally read [Framework regression](../../../framework/rules/loop-engineering.md#framework-regression).
 

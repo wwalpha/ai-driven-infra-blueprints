@@ -12,7 +12,6 @@ from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 
 import utils.json_format as _imports_utils_json_format
-from issue_inventory import unresolved_services
 from utils.file_operations import atomic_files
 from utils.function_wrapper import FunctionWrapper
 from utils.input_cache import (
@@ -84,7 +83,7 @@ def matches(path, pattern):
 
 
 def issues_save_only(root, *, scope=..., text=None, paths=()):
-    """Share the scoped report-only exception between saving, validation and Issue Gate."""
+    """Identify scoped report-only saving and validation."""
     with task_reads(root):
         snapshot = task_snapshot(root, required=False)
         if snapshot is None:
@@ -373,83 +372,11 @@ def status(text):
     return entries[0].split("`")[1]
 
 
-@memoized
-def issue_remediation_scope(text):
-    """Parse the existing service declaration once for every permission boundary."""
-    if "## Issue remediation" not in text.splitlines():
-        return frozenset()
-    entries = paths_in(text, "## Issue remediation")
-    result = set()
-    for entry in entries:
-        if not re.fullmatch(
-            r"[a-z0-9]+(?:[-_][a-z0-9]+)*(?:/[a-z0-9]+(?:[-_][a-z0-9]+)*){2}", entry
-        ):
-            raise ValueError(f"invalid Issue remediation entry: {entry}")
-        result.add(tuple(entry.split("/")))
-    scope = _scope(text)
-    if scope is None or not result <= scope:
-        raise ValueError(
-            "Issue remediation must be within explicit service Validation scope"
-        )
-    return frozenset(result)
-
-
-def require_issue_remediation(name, text, paths=()):
-    """Restrict declarations and actual changes; the Issue Gate grants no write rights."""
-    scope = issue_remediation_scope(text)
-    if not scope:
-        return
-    if model_operation(text) is not None or model_refactor(text) is not None:
-        raise ValueError(
-            "Issue remediation forbids Model operations and Model refactor"
-        )
-    lines = section(text, "## Task contract")
-    for field, value in (
-        ("Task type", "design"),
-        ("Workflow", "update"),
-        ("AWS API execution", "forbidden"),
-        ("deploy/apply", "forbidden"),
-    ):
-        if [
-            line
-            for line in lines
-            if re.match(r"-\s*" + re.escape(field) + r"\s*:", line, re.I)
-        ] != [f"- {field}: `{value}`"]:
-            raise ValueError(f"Issue remediation requires {field}: `{value}`")
-    mutations = [
-        line for line in lines if re.match(r"-\s*AWS mutation\s*:", line, re.I)
-    ]
-    if mutations and mutations != ["- AWS mutation: `forbidden`"]:
-        raise ValueError("Issue remediation forbids AWS mutation")
-    if any(re.match(r"-\s*Infrastructure phase\s*:", line, re.I) for line in lines):
-        raise ValueError("Issue remediation forbids infrastructure phases")
-    for value in sorted(
-        paths_in(text, "## Allowed paths")
-        | paths_in(text, "## Modified files")
-        | set(paths)
-    ):
-        # Exact paths prevent globs from granting future Framework or IaC write rights.
-        relative_path(value)
-        permitted = value == name or any(
-            value == f"model/{env}/{target}/{service}.properties"
-            or value.startswith(f"model/{env}/{target}/{service}/")
-            and value.endswith(".properties")
-            or value == f"docs/designs/{env}/{target}/{service}.md"
-            or value.startswith(f"docs/designs/{env}/{target}/{service}/")
-            and value.endswith(".json")
-            or value == f"issues/{env}/{target}/issues.md"
-            for env, target, service in scope
-        )
-        if not permitted:
-            raise ValueError(f"Issue remediation forbidden path: {value}")
-
-
 def validate_contract(root, name, text, *, check_paths=True):
     """Validate the selected contract declaration."""
     status(text)
     model_operation(text)
     model_refactor(text)
-    require_issue_remediation(name, text)
     files = paths_in(text, "## Modified files")
     allowed = paths_in(text, "## Allowed paths")
     if name not in files:
@@ -980,20 +907,6 @@ def start(root, name, text):
     if status(text) != "running":
         raise ValueError("new task must have running status")
     validate_contract(root, name, text)
-    for env, target, service in sorted(issue_remediation_scope(text)):
-        inventory = root / "issues" / env / target / "issues.md"
-        issues = (
-            unresolved_services(root, inventory) if input_is_file(inventory) else []
-        )
-        if (
-            not issues
-            or any(not services for _, services in issues)
-            or not any(service in services for _, services in issues)
-        ):
-            raise ValueError(
-                "Issue remediation requires an unresolved ordinary issue: "
-                + "/".join((env, target, service))
-            )
     destination = safe_path(root, name)
     destination.parent.mkdir(exist_ok=True)
     atomic_files({destination: text}, staging_directory=root)

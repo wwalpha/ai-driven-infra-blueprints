@@ -5,7 +5,6 @@ import re
 import design.layout as _imports_design_layout
 import utils.cloudformation.inputs as _imports_cfn_inputs
 from design.catalog import DesignSchemaCatalog
-from issue_gate import require_target_no_issues
 from model.adapters.observed import (
     active_outputs,
     ambiguous,
@@ -55,7 +54,6 @@ def collect_successful(backend, units, states, *, generated_views=None):
     condition_active = _imports_cfn_inputs.condition_active
     GROUPED = _imports_design_layout.GROUPED
     root, environment, directory = backend.root, backend.environment, backend.directory
-    require_target_no_issues(root, (environment, directory))
     removed = removed_resources(units, states)
     selected = {}
     grouped = {

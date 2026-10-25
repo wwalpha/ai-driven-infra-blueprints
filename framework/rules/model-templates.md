@@ -7,7 +7,7 @@ Model correction does not require the old Model to be valid or unchanged. IMPORT
 For `/import`, [IMPORT configuration authority](model-information.md#import-configuration-authority)
 and [08_import](../prompts/codex/08_import.md) own acquisition, full Review, explicit
 conversational save consent and separate Model/display transactions. Ordinary Import
-never adds issue/naming/global-design/generated-equality/local-loop/UT/IT gates.
+never adds naming/global-design/generated-equality/local-loop/UT/IT gates.
 Framework development checks are separate.
 
 ## Authority and layout

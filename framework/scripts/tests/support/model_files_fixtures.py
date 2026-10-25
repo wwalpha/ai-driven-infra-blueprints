@@ -16,7 +16,6 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 
 import sync_files
-from issue_gate import unresolved_services
 from model.core import properties
 from model.files import (
     load_model,
@@ -68,7 +67,6 @@ __all__ = [
     "sync_files",
     "sys",
     "tempfile",
-    "unresolved_services",
     "write_model",
 ]
 

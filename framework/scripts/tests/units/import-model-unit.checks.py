@@ -19,7 +19,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import import_guard
-import issue_gate as _imports_issue_gate
 import model.format as _imports_model_format
 import model.sources as _imports_model_sources
 import pytest
@@ -31,7 +30,6 @@ from aws_mapping import readonly
 from aws_mapping_compare import comparison
 from aws_mapping_compare import value as mapped_value
 from generation_inputs import GenerationInputs
-from issue_gate import require_no_issues
 from model.adapters.task import edit_write_context, source_write_context
 from model.cli import main
 from model.format import owner, serialize
@@ -984,24 +982,6 @@ def check_model_operation_preserves_consumers(tmp_path, action):
     before, after = tmp_path / "before", tmp_path / "after"
     operation_fixture(before)
     sources = operation_candidate(before, after, action)
-    if action == "import-delete":
-        issue_errors = _imports_issue_gate.issue_errors
-        require_no_issues = _imports_issue_gate.require_no_issues
-        selected_task = _imports_task_contract.selected_task
-        start = _imports_task_contract.start
-        name = "tasks/deletion.md"
-        text = (
-            operation_contract(action)
-            + "## Validation scope\n- `stg/cde/vpc`\n"
-            + f"## Modified files\n- `{name}`\n## Allowed paths\n- `{name}`\n"
-        )
-        start(after, name, text)
-        issues = after / "issues/stg/cde/issues.md"
-        issues.parent.mkdir(parents=True)
-        issues.write_text("### vpc\n1. 削除前の既存Issue\n", encoding="utf-8")
-        with selected_task(after, name):
-            assert issue_errors(after, {("stg", "cde", "vpc")})
-            require_no_issues(after, {("stg", "cde", "vpc")})
     verify_model_operation(
         before, after, model_operation(operation_contract(action)), sources
     )
@@ -2883,7 +2863,6 @@ def check_issues_never_waive_delete_reference_safety(tmp_path, broken_type):
         values["desired.reference.origin.resourceType"] = "ServiceA.Other"
         write_model(file, values)
     with selected_task(tmp_path, name):
-        require_no_issues(tmp_path, {("stg", "cde", "service-a")})
         warnings = []
         assert incoming(
             load_model(tmp_path / "model/stg/cde/service-a.properties"),
@@ -3490,7 +3469,12 @@ def check_repair_invalid_model(tmp_path, old_error, failure):
         if old_error == "encoding":
             broken = "\udcff invalid old UTF-8\n"
         path.write_bytes(broken.encode("utf-8", errors="surrogateescape"))
-        git(root, "add", "model", "project.json")
+        report = root / "issues/stg/cde/issues.md"
+        report.parent.mkdir(parents=True)
+        report.write_text(
+            "### service-b\n1. Existing validation issue\n", encoding="utf-8"
+        )
+        git(root, "add", "model", "project.json", "issues")
         git(root, "commit", "-qm", "broken baseline")
         target, state = start(root, files=(relative,))
         path = target / relative
@@ -3562,6 +3546,75 @@ def check_repair_invalid_model(tmp_path, old_error, failure):
         assert (root / relative).read_bytes().decode(
             "utf-8", errors="surrogateescape"
         ) == broken
+
+
+@pytest.fixture
+def generation_model_guard(tmp_path, monkeypatch):
+    dependency_fixture(tmp_path)
+    model = tmp_path / "model/stg/cde/service-b.properties"
+    values = dict(load_model(model).authoritative)
+    issues = tmp_path / "issues/stg/cde/issues.md"
+    issues.parent.mkdir(parents=True)
+    issues.write_text("### service-b\n1. 既存のIssue\n", encoding="utf-8")
+    git = _bind_framework_callback(_imports_support_repository_fixtures.git, tmp_path)
+    git("init", "--quiet", "--initial-branch=master")
+    git("add", ".")
+    git(
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.test",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--quiet",
+        "-m",
+        "initial",
+    )
+    name = "tasks/generation.md"
+    sources = {p.relative_to(tmp_path).as_posix() for p in load_model(model).files}
+    listed = "".join(f"- `{p}`\n" for p in sorted(sources | {name}))
+    text = (
+        "## Task contract\n- Task type: `design`\n- Task status: `running`\n"
+        "- Workflow: `update`\n## Validation scope\n"
+        "- `stg/cde/service-a`\n- `stg/cde/service-b`\n"
+        "## Modified files\n" + listed + "## Allowed paths\n" + listed
+    )
+    _imports_task_contract.start(tmp_path, name, text)
+    monkeypatch.setenv(_imports_task_contract.SELECTOR, name)
+    values["display.resource.002.comment"] = "生成対象の変更"
+    write_model(model, values)
+    changed = import_guard.changed_sources(tmp_path)
+    assert changed and changed <= sources
+    assert set(git("diff", "--name-only").splitlines()) == changed
+    return tmp_path / name, model, values, issues
+
+
+@pytest.mark.parametrize("failure", ["allowed", "scope", "reference"])
+def check_generation_preserves_model_guards(generation_model_guard, failure):
+    path, model, values, issues = generation_model_guard
+    root = path.parent.parent
+    original = issues.read_bytes()
+    if failure == "allowed":
+        path.write_text(
+            path.read_text(encoding="utf-8").split("## Allowed paths")[0]
+            + f"## Allowed paths\n- `{path.relative_to(root).as_posix()}`\n",
+            encoding="utf-8",
+        )
+        diagnostic = "Modified file is outside Allowed paths"
+    elif failure == "scope":
+        path.write_text(
+            path.read_text(encoding="utf-8").replace("- `stg/cde/service-b`\n", ""),
+            encoding="utf-8",
+        )
+        diagnostic = "Model changes require all affected services in Validation scope"
+    elif failure == "reference":
+        values["desired.reference.origin.producerLogicalId"] = "ServiceA_Resource_999"
+        write_model(model, values)
+        diagnostic = "invalid candidate reference"
+    with pytest.raises(ValueError, match=diagnostic):
+        import_guard.require_import_changes(root, generation=True)
+    assert issues.read_bytes() == original
 
 
 if __name__ == "__main__":

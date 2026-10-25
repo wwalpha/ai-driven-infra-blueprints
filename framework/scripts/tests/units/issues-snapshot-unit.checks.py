@@ -14,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from issue_gate import issue_errors
 from issues.artifact import summary
 from issues.integrity import target_services
 from issues.publication import render_snapshot, save_scan
@@ -128,8 +127,6 @@ def check_snapshot_replaces_inventory(tmp_path):
         and "old Human prose" not in text
         and "latest finding" in text
     )
-    assert issue_errors(tmp_path, {("dev", "123456789012", "s3")})
-    assert not issue_errors(tmp_path, {("dev", "123456789012", "sqs")})
     snapshot = review_snapshot(data, review_for(data))
     first = render_snapshot(tmp_path, snapshot)
     assert first == render_snapshot(tmp_path, snapshot)
@@ -140,7 +137,6 @@ def check_snapshot_replaces_inventory(tmp_path):
     with task(tmp_path, data["services"]):
         save_scan(tmp_path, data, review_for(data))
     assert "latest finding" not in outputs[0].read_text()
-    assert not issue_errors(tmp_path, {("dev", "123456789012", "s3")})
     assert original["ordinary"][0]["message"] == "latest finding"
 
 
@@ -159,7 +155,6 @@ def check_human_exception_and_conflict(tmp_path):
     assert "human.confirmation_conflict" in outputs[0].read_text()
     assert "latest naming diagnostic" in outputs[0].read_text()
     assert "検証: 未完了" in outputs[0].read_text()
-    assert issue_errors(tmp_path, {("dev", "123456789012", "s3")})
     assert path.read_bytes() == original
 
 
@@ -280,7 +275,6 @@ def check_human_cleanup_preserves_facts(tmp_path):
     ]
     assert human_confirmations(tmp_path, "dev", "123456789012") == expected
     assert data["human_confirmations"]["confirmations"][0]["related_issues"]
-    assert issue_errors(tmp_path, {("dev", "123456789012", "s3")})
 
 
 @pytest.mark.parametrize(
@@ -544,7 +538,6 @@ def check_incomplete_is_not_pass(tmp_path, kind):
     if kind == "service":
         assert "今回の判定: partial" in outputs[1].read_text()
         assert summary(json.loads(snapshot.data))["iac_status"] == "partial"
-    assert not issue_errors(tmp_path, {("dev", "123456789012", "s3")})
 
 
 @pytest.mark.parametrize(

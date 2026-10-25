@@ -6,10 +6,6 @@ Use this prompt to validate application behavior and update current results as a
 
 Follow [Credentials and account](../../rules/project-configuration.md#credentials-and-account) for common account/profile selection and apply [Policy account selection](../../rules/detailed-design.md#policy-account-selection) for policy-specific conditions.
 
-## Unresolved issue gate
-
-Apply [issue-gate](../../rules/issue-gate.md) for target service stop decisions and exceptions before start/resume/mutation.
-
 ## User input
 
 - Scenario ID: `{{lower-kebab-case ID}}`
@@ -37,7 +33,7 @@ Do not execute scenarios requiring AWS mutation or destructive operations until 
 7. Target `tests/results/<scenario-id>/<environment>/<target-directory>/`
 8. [Model authority](../../rules/model-information.md#model-authority), [Resource management mode](../../rules/model-information.md#resource-management-mode), [Properties format](../../rules/model-information.md#properties-format). For generation, add [Properties-first updates and display generation](../../rules/model-information.md#properties-first-updates-and-display-generation); for CloudFormation, add [CloudFormation deployment policy](../../rules/model-information.md#cloudformation-deployment-policy).
 9. Read necessary runtime Models through logical `model/<environment>/<target-directory>/<service-id>.properties` selectors as read-only design input
-- [project-configuration](../../rules/project-configuration.md) and [issue-gate](../../rules/issue-gate.md).
+- [project-configuration](../../rules/project-configuration.md).
 
 Obtain design values from `desired.*` and necessary current identifiers from `observed.*`. Check entry indexes, locate needed properties/identifiers with existing `model/cli.py find`, and partially read only target resources and necessary referenced resources with `model/cli.py resource`. For split models, load only relevant portions of required parts into LLM context; do not preread generated `docs/designs/**` Markdown bodies as ordinary design input.
 

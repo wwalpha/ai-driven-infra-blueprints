@@ -26,7 +26,6 @@ from comparison.deferral import (
     ImportReferenceDeferred,
 )
 from comparison.inputs import Inputs
-from issue_gate import unresolved_services
 from issues.aggregate import MAX_GROUPS, comparison_status, iac_actions
 from issues.artifact import scan_exit_code, validate_artifact
 from issues.cli import main as issues_main
@@ -2207,12 +2206,6 @@ def check_deferred_artifact_summary_report_and_gate(tmp_path):
         and "--record-category deferred" in report
     )
     assert "要調査" not in report and "deferred" not in report.split("## 想定内保留")[0]
-    # Ordinary Issue Gate consumes only issues.md; the comparison report stays nonblocking.
-    path = tmp_path / "issues/dev/team/issues.md"
-    path.parent.mkdir(parents=True)
-    path.write_text("未解決issueなし\n", encoding="utf-8")
-    path.with_name("iac-issues.md").write_text(report, encoding="utf-8")
-    assert unresolved_services(tmp_path, path) == []
 
 
 @pytest.mark.parametrize("count", [1, 2])

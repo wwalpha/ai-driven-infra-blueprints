@@ -291,7 +291,6 @@ def deploy_checkpoint(where, task_id, session_path):
             check = TaskValidation(target, findings)
             check.check_task_scope()
             check.check_task_type_requirements()
-            check.check_issue_gate()
             if findings.errors:
                 raise wt.Blocked(
                     "parent change authority: " + "; ".join(findings.errors)

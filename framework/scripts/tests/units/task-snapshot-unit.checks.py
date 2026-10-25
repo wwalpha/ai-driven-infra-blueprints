@@ -401,7 +401,6 @@ def check_parent_rejects_changes_before_success_cache(tmp_path, monkeypatch, cha
         "check_project_topology",
         "check_validation_scope",
         "check_model_files",
-        "check_issue_gate",
         "check_initialized_paths",
         "check_resource_layout",
         "check_iac_selection",

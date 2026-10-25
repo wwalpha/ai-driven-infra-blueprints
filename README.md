@@ -151,30 +151,9 @@ py -3 -B framework/scripts/run-python.py -B framework/scripts/export-design-pdf.
 
 The DLL path is an example; use the directory containing your installed DLLs. A Python venv does not install these native OS dependencies. If `--info` fails (including `libgobject-2.0-0` / `0x7e`), repair the PDF environment before export. PDF-free tasks require no DLL setup or PATH change.
 
-## Task stops due to unresolved issues
-
-For a validated `Task type: infrastructure` / `Infrastructure phase: deploy` contract,
-the Issue Gate is diagnostic and reporting only. Regardless of Issue severity, cause,
-content, ownership, count or diagnostic/read failure, it never stops Deploy execution,
-resume, Observed synchronization or Task completion. Report non-blocking WARNINGs at
-meaningful boundaries and in final validation; leave `issues.md` unchanged. Contract,
-Validation scope, AWS identity/permissions, input snapshots, deletion/replacement
-approval, atomic publication and AWS API failures retain their existing safety checks.
-Other Task types and infrastructure phases retain their ordinary Issue Gate.
-
-Treat [issue gate](framework/rules/issue-gate.md) as authoritative for stop conditions and repair/save-only task exceptions.
-
-Model → Markdown/JSON generation is independent of unresolved Issues. Standalone
-`sync-model.py --write` and integrated validator generation attempt every selected
-service and retain successful publications; failed services keep their saved artifacts.
-Reports distinguish generation failures and reference NOT_RUN from successful services.
-The integrated validator saves valid outputs before evaluating the Task Issue Gate;
-unresolved Issues still fail non-Deploy Task validation/completion. Deploy uses the
-reporting-only policy above; other Model/IaC changes and AWS mutation retain their gates. Generation never edits or resolves `issues.md`.
-
 ## Local issues scan
 
-issues uses [Scoped scan/Python saving](framework/rules/issues-investigation.md). Check existing validator diagnostics and minimal naming materials for all resources; separately save ordinary issues to `issues.md` and non-blocking model→IaC differences to `iac-issues.md`. `diff.md` remains for environment comparison. The issue gate reads only `issues.md`. Both reports are whole-target current snapshots; existing state and old notes are not carried forward.
+issues uses [Scoped scan/Python saving](framework/rules/issues-investigation.md). Check existing validator diagnostics and minimal naming materials for all resources; separately save ordinary issues to `issues.md` and non-blocking model→IaC differences to `iac-issues.md`. `diff.md` remains for environment comparison. Both reports are whole-target current snapshots; existing state and old notes are not carried forward.
 
 ```console
 python3 framework/scripts/issues_scan.py scan --environment <environment> --target-directory <alias-or-account-id> --service <service-id> --artifact /tmp/issues-scan.json

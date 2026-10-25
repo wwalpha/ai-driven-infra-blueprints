@@ -9,7 +9,6 @@ Operate this repository in Codex with the repository root as the working directo
 - Execute only the active prompt scope; do not automatically proceed to the next phase or another task. Do not infer unconfirmed resources, parameters, or mappings.
 - During generation, validation and publication, do not concurrently edit inputs, Task contracts or outputs in the same worktree. Concurrent read-only review is allowed; use a separate worktree for parallel edits. Retain the publication lock and stop all saves if the final input comparison detects changes.
 - Register this contract before repository changes. Preserve other tasks' contracts and uncommitted changes.
-- Apply unresolved-issue stop decisions and the exceptions for explicit repair and save-only tasks.
 - Perform AWS mutation and deploy/apply only within the permission scope explicitly stated by the infrastructure contract. Limit design AWS APIs to read-only retrieval of explicitly specified existing resources.
 - `framework/materials/aws/` is an immutable catalog that ordinary tasks do not change. `docs/system-overview.md` is a background reference; do not uniformly treat `UNSET` as a blocker.
 - Follow [service Model sources](framework/rules/model-templates.md): environment-specific properties v2 are authoritative. Validate the corrected Resource/Row/Stack identity, placementName and references; ordinary corrections do not require old identity or layout invariance. Dedicated operations and observation writers preserve fields outside their authority. Runtime values are derived projections; never save them as authority. Generate Markdown/JSON through the shared guarded APIs; do not persist generated ARNs.
@@ -20,14 +19,13 @@ Operate this repository in Codex with the repository root as the working directo
 
 Follow [Selection and publication](framework/rules/task-contract.md#selection-and-publication) for same-worktree editing and generation/validation.
 
-For changes, register `tasks/<task-name>.md` according to the [task contract](framework/rules/task-contract.md). Read-only investigation and chat-only consultation require no contract. Separately confirm the [issue gate](framework/rules/issue-gate.md) applicability conditions.
+For changes, register `tasks/<task-name>.md` according to the [task contract](framework/rules/task-contract.md). Read-only investigation and chat-only consultation require no contract.
 
 ## How to read required rules
 
 The following guides you to authoritative sources; it is not a list of files to read in full. Read only the mandatory sections specified by the skill/workflow Read section and conditional sections applicable to the phase/resource. Read a specified section from its heading to immediately before the next heading of the same or higher level (including child sections). If only a file is specified, read it in full. Do not omit specific rules, exceptions, or necessary references; stop if anything is missing or a reference is unclear. Do not reduce mandatory checks or Validation scope because you have not read the body.
 
 - [task-contract](framework/rules/task-contract.md): Contracts for repository changes, Task boundary, Acceptance contract
-- [issue-gate](framework/rules/issue-gate.md): Service-targeted task start, resume, saving, AWS mutation, and investigation/repair/save exceptions
 - [project-configuration](framework/rules/project-configuration.md): target directory, topology, profile, and account determination/validation
 - [model-information](framework/rules/model-information.md): Authoritative model, format, generation
 - [detailed-design](framework/rules/detailed-design.md): Target resource design/display

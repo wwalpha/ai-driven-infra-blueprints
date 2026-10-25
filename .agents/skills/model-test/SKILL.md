@@ -13,14 +13,14 @@ Require all three selectors, for example:
 ```
 
 Apply [AGENTS](../../../AGENTS.md), [Task contract](../../../framework/rules/task-contract.md),
-[Issue gate](../../../framework/rules/issue-gate.md), [Model source authority](../../../framework/rules/model-templates.md),
+[Model source authority](../../../framework/rules/model-templates.md),
 [Project configuration](../../../framework/rules/project-configuration.md), and
 [Validation policy](../../../framework/rules/loop-engineering.md#validation-policy).
 Use the [worktree workflow](../worktree/SKILL.md) for repository changes.
 
 Register a `migration` contract listing only this contract and
 `tests/<environment>/<alias-or-account-id>/<service>.py`. Include the selected service
-in Validation scope and apply its issue gate. For framework implementation tasks,
+in Validation scope. For framework implementation tasks,
 framework-only governance scope remains available under the existing rules.
 
 Run from repository root with the managed Python launcher:

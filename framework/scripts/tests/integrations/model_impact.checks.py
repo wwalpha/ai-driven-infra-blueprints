@@ -14,7 +14,6 @@ import subprocess
 import tempfile
 
 import import_guard as _imports_import_guard
-import issue_gate as _imports_issue_gate
 import model.adapters.task as _imports_model_adapters_task
 import model.format as _imports_model_format
 import model.impact_graph as _imports_model_impact_graph
@@ -746,30 +745,6 @@ def check_task_snapshot_routes(root):
             edit_base = _imports_model_sources.edit_base
             snapshot = edit_base(source, context.snapshot)
             publish_edit(prepare_edit(snapshot, output, context), context)
-        saved_bytes = source.read_bytes()
-        write(
-            target / name,
-            text.replace(
-                "- `dev/team/iam`\n", "- `dev/team/iam`\n- `dev/team/secretsmanager`\n"
-            ),
-        )
-        try:
-            with edit_write_context(target, {entry("iam")}, name) as context:
-                snapshot = edit_base(source, context.snapshot)
-                publish_edit(
-                    prepare_edit(
-                        snapshot,
-                        {source: source.read_text() + "# extra declared scope\n"},
-                        context,
-                    ),
-                    context,
-                )
-        except ValueError as error:
-            assert "issue" in str(error).lower()
-        else:
-            raise AssertionError("save must gate the full declared scope")
-        assert source.read_bytes() == saved_bytes
-        write(target / name, text)
         for stage in ("unstaged", "staged", "committed"):
             if stage == "staged":
                 git(target, "add", "model")
@@ -820,21 +795,6 @@ def check_task_snapshot_routes(root):
                         )
                     assert generation.call_args.args[:2] == (target, {entry("iam")})
                     assert include.call_count == 2 and archive.call_count == 1
-            require_no_issues = _imports_issue_gate.require_no_issues
-            require_no_issues(target, {entry("iam")})
-            try:
-                require_no_issues(target, {entry("iam"), entry("secretsmanager")})
-            except ValueError as error:
-                assert "issue" in str(error).lower()
-            else:
-                raise AssertionError("declared extra scope must retain its Issue Gate")
-        write(target / "issues/dev/team/issues.md", "### iam\n1. Related role issue\n")
-        try:
-            with edit_write_context(target, {entry("iam")}, name):
-                raise AssertionError("related Issue must stop save authority")
-        except ValueError as error:
-            assert "issue" in str(error).lower()
-        write(target / "issues/dev/team/issues.md", "未解決issueなし\n")
         # Final-candidate base is explicit and agrees with the registered Task baseline.
         final = SimpleNamespace(
             base_commit=state["start"],

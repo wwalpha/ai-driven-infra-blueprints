@@ -9,7 +9,7 @@ Inspect environment-specific properties; use `model.sources.edit_base` for an in
 only within the selected Task; authorized observations change only the selected
 `observed.row.<id>.value`. Record the entry and actual parts, required incoming
 consumers and generated paths in the Task. Read dependencies grant no write scope.
-Retain this skill's deployment target, issue gate and AWS permission boundary.
+Retain this skill's deployment target and AWS permission boundary.
 
 
 Read `framework/prompts/codex/05_update.md` at the repository root in full and execute only its contents as the authoritative text. Treat input following the Skill invocation as human input to the workflow. Do not duplicate, reinterpret, or extend the prompt body. If the prompt file does not exist, stop without changing the repository.
@@ -22,13 +22,11 @@ The Model-only branch composes model-transfer, model-retarget and model-delete u
 one parent Task; each leaf's own skill is its procedure authority. Worktree finalization
 owns the post-rebase final validation/completion/merge sequence.
 
-For an explicit Human one-or-more-Resource deletion request, follow the prompt's pre-contract
-exception: register and validate the `import-delete` parent before the task-aware Issue
-Gate. Waive existing-issue stops only for its registered deletion source services; retain non-reference
-Model safety checks, forbidden AWS/deploy and unchanged issue inventories. Apply
-[Reference diagnostics](../../../framework/rules/model-information.md#reference-diagnostics)
-to read-only analysis. Final ordinary candidates must resolve their references; an invalid old Model is never a repair/save/finalization blocker. Merge,
-ordinary updates and later Tasks retain the ordinary pre-task gate.
+For an explicit Human one-or-more-Resource deletion request, register and validate the
+`import-delete` parent. Retain Model safety checks, forbidden AWS/deploy and unchanged
+issue inventories. Apply [Reference diagnostics](../../../framework/rules/model-information.md#reference-diagnostics)
+to read-only analysis. Final candidates must resolve their references; an invalid old
+Model is never a repair/save/finalization blocker.
 
 The separate value-preserving branch uses the shared read-only reference API only for
 an explicitly authorized detach; neither ordering nor detach completion gates deletion. It uses an
@@ -40,7 +38,7 @@ Resource or require an earlier repair Merge before deletion.
 
 For an explicit standalone reference-only request, use the separate `import-retarget`
 branch in 05_update and the standalone Task contract. Call only model-retarget, saving
-all declarations together; retain both producers and the ordinary Issue Gate. No merge
+all declarations together; retain both producers. No merge
 pair, transfer/delete or value-preserving detach authority is implied. Generate through
 the existing APIs and finalize the running parent on the latest-base candidate.
 

@@ -4637,7 +4637,7 @@ def check_deploy_observed_baseline_advances_only_proven_outputs(
             )
 
 
-def check_issue_policy_mutation_and_recovery(tmp_path, monkeypatch, capsys):
+def check_mutation_and_recovery_with_issues(tmp_path, monkeypatch, capsys):
     task = tmp_path / "tasks/deploy.md"
     task.parent.mkdir()
     task.write_text(
@@ -4659,7 +4659,7 @@ def check_issue_policy_mutation_and_recovery(tmp_path, monkeypatch, capsys):
         assert mutation.call_count == 2
         assert (
             not capsys.readouterr().err
-        )  # Guards do not repeat boundary warnings per AWS call.
+        )  # Issue reports do not produce execution warnings.
         with patch.object(
             backend, "guard", side_effect=ValueError("input snapshot changed")
         ):
@@ -4670,7 +4670,7 @@ def check_issue_policy_mutation_and_recovery(tmp_path, monkeypatch, capsys):
     with patch.object(backend, "cleanup_failed_create", return_value=True) as cleanup:
         assert backend.repair({"name": "A"}, state)
         cleanup.assert_called_once()
-    assert "WARNING (non-blocking)" in capsys.readouterr().err
+    assert not capsys.readouterr().err
     state = {"stackStatus": "DELETE_FAILED"}
     assert not backend.repair({"name": "A"}, state)
     assert "unsafe rollback state" in state["reason"]

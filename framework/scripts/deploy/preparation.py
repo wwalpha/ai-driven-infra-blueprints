@@ -17,7 +17,6 @@ import tempfile
 import time
 from pathlib import Path
 
-import issue_gate as _imports_issue_gate
 import model.core as _imports_model_core
 import model.sources as _imports_model_sources
 import task_contract_core as _imports_task_contract
@@ -142,26 +141,6 @@ def candidate(root, task, env, directory, target, stacks, services):
     return "\n".join(lines), sources, scope, generated_views
 
 
-def report_issues(root, task, text, scope):
-    raw = text.encode("utf-8")
-    snapshot = _imports_task_contract.TaskSnapshot(
-        name=task,
-        root=root,
-        path=root / task,
-        text=text,
-        raw=raw,
-        raw_digest=hashlib.sha256(raw).hexdigest(),
-        selector=(None, None),
-    )
-    _imports_task_contract.validate_contract(root, task, text)
-    _imports_issue_gate.require_no_issues(
-        root,
-        {tuple(value.split("/")) for value in scope},
-        snapshot=snapshot,
-        warn=_imports_issue_gate.print_warning,
-    )
-
-
 def prepare(root, args, run, timing):
     TASK_NAME = _imports_task_contract.TASK_NAME
     contracts = _imports_task_contract.contracts
@@ -229,7 +208,6 @@ def prepare(root, args, run, timing):
         if args.task_file in records:
             raise ValueError("task already exists; resume the existing task/session")
         contract = run / "contract.md"
-        report_issues(root, args.task_file, text, scope)
         contract.write_text(text, encoding="utf-8")
     with timing.phase("documentRead"):
         prompt = definition_root(root) / "framework/prompts/codex/04_deploy.md"
@@ -438,9 +416,6 @@ def register(root, path, timing):
         if contract.is_relative_to(root) or sha(contract) != plan["contractDigest"]:
             raise ValueError("contract candidate changed; prepare again")
     with timing.phase("contractRegistration"):
-        report_issues(
-            root, plan["taskFile"], contract.read_text(encoding="utf-8"), plan["scope"]
-        )
         result = subprocess.run(
             [
                 sys.executable,

@@ -13,23 +13,6 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 
 [task-contract](task-contract.md) is the authority for contracts, stopping, and resuming.
 
-## Unresolved issue gate
-
-For a validated `Task type: infrastructure` / `Infrastructure phase: deploy` contract,
-the Issue Gate is diagnostic and reporting only. Regardless of Issue severity, cause,
-content, ownership, count or diagnostic/read failure, it never stops Deploy execution,
-resume, Observed synchronization or Task completion. Report non-blocking WARNINGs at
-meaningful boundaries and in final validation; leave `issues.md` unchanged. Contract,
-Validation scope, AWS identity/permissions, input snapshots, deletion/replacement
-approval, atomic publication and AWS API failures retain their existing safety checks.
-Other Task types and infrastructure phases retain their ordinary Issue Gate.
-
-Follow [issue-gate](issue-gate.md) for stop decisions, investigation/repair/save-only task exceptions, and rechecks.
-Model → Markdown/JSON generation is independent of Issues. Integrated write validation
-publishes valid services before the Task Issue Gate; Issues still fail non-Deploy Tasks' final
-result and completion. Deploy uses the reporting policy above; other Model/IaC changes
-and AWS mutation retain their gates.
-
 ## Local loop
 
 The OS-independent entrypoint is `framework/scripts/blueprint-loop.py`. In command examples, `python` means an available Python 3 launcher; use `py -3` on Windows when only Python Launcher is available, or `python3` on Unix-like OSes when only `python3` is available.
@@ -50,7 +33,7 @@ AGENTS, Skills, Prompts and task completion sections. Their local-loop instructi
 when the classification requires a loop. Choose from actual dependencies and behavior,
 not directory names alone; inspect callers, imports, shared fixtures, registered template
 consumers and affected outputs before narrowing. Use the broadest applicable row for a
-mixed change. Task contracts, Acceptance requirements, issue gates and
+mixed change. Task contracts, Acceptance requirements, and
 phase-specific schema, generation, IaC, AWS and approval checks remain mandatory where
 applicable; a lightweight documentation check is not evidence that these runtime checks ran.
 Generated design Markdown/JSON is validated with its authoritative Model inputs, not
@@ -123,10 +106,7 @@ selected contract once under the publication lock, and saves only changed valida
 Unresolved Issues do not block this generation/publication. Preserve each successful
 service's outputs alongside failed services' saved artifacts; report actual generation
 failures and reference NOT_RUN separately, with neither treated as complete generation
-success. The subsequent non-Deploy Task Issue Gate can fail validation without discarding successful
-publications or counting Issues as generation failures. Common integrity failures still
-stop all saves; Model/IaC modification gates remain unchanged except for the Deploy
-reporting policy above.
+success. Common integrity failures still stop all saves; Model/IaC checks remain required.
 It then refreshes Git changed paths once for output-dependent Task conditions and
 `changed`/`exists`/`absent` Acceptance. Registered content checks reuse their exact
 scope/candidate PASS or FAIL; NOT_RUN checks run before publication. Unknown check IDs
@@ -151,7 +131,7 @@ When running a local loop, retain the following checks in its applicable scope. 
 
 - When changes exist, an active task prompt and valid Task type exist. An unchanged idle state may lack this task's `tasks/<task-name>.md`
 - Changed paths are within the Task type boundary and Allowed paths
-- For the explicit service-scoped issues report-only `migration` exception in [Issue Gate](issue-gate.md#unresolved-issue-gate), use `issues_save_only()` without Git change discovery or diff checks. HEAD/commit, worktree/index/untracked and input changes never stop Issue scan, publication or completion. Retain contract/service scope/Acceptance, whole-target Snapshot coverage and actual output Allowed paths (including only explicitly authorized Human related-record cleanup); never attribute another Task's edits to the Issue Task. Other Tasks retain baseline/commit/input checks.
+- For the explicit service-scoped issues report-only `migration` described in [Snapshot and publication](issues-investigation.md#snapshot-and-publication), use `issues_save_only()` without Git change discovery or diff checks. HEAD/commit, worktree/index/untracked and input changes never stop Issue scan, publication or completion. Retain contract/service scope/Acceptance, whole-target Snapshot coverage and actual output Allowed paths (including only explicitly authorized Human related-record cleanup); never attribute another Task's edits to the Issue Task. Other Tasks retain baseline/commit/input checks.
 - `tasks/` contains only contracts in `<task-name>.md` format. In idle state, `tasks/` itself may be omitted.
 - `framework/materials/aws/` matches `framework/materials/catalog.sha256`
 - The Tokyo region CloudFormation provider schema snapshot matches its lock and resolves every property path in `framework/materials/aws/`
@@ -238,7 +218,7 @@ and referenced models/displays in the key. Read reference-target content only fo
 invalidation decisions; do not add out-of-scope service schema validation. Do not decide
 by mtime alone. Issue scans and report-only Issue validation execute diagnostics without PASS-cache reuse or input-change guards; artifacts retain execution time and confirmed/unverified scope, with no input fingerprint.
 
-For new inputs, changed contents, added/deleted files, missing cache entries, unknown dependencies, or symlinks, do not reuse successful results; revalidate within explicit scope. For ordinary Tasks, input changes during validation are FAIL; do not save that service's result. Issue scans do not stop for input changes and publish no PASS cache records. Run task contracts, Requirement/Acceptance, issue gates, change scope, project topology, model part structure, scope-wide resource ownership/stack duplication, IaC/deploy safety checks, and Git diff checks every time. Do not infer scope from changed paths or fall back to out-of-scope overall validation. Caches do not replace current AWS values, change sets, plans, or account/region confirmation.
+For new inputs, changed contents, added/deleted files, missing cache entries, unknown dependencies, or symlinks, do not reuse successful results; revalidate within explicit scope. For ordinary Tasks, input changes during validation are FAIL; do not save that service's result. Issue scans do not stop for input changes and publish no PASS cache records. Run task contracts, Requirement/Acceptance, change scope, project topology, model part structure, scope-wide resource ownership/stack duplication, IaC/deploy safety checks, and Git diff checks every time. Do not infer scope from changed paths or fall back to out-of-scope overall validation. Caches do not replace current AWS values, change sets, plans, or account/region confirmation.
 
 `--fresh` disables successful-result reuse. `--mode full` and `--all` also validate fresh. Invocation-local Model rows and input/path reuse is used even in fresh runs and does not carry over to the next execution.
 
@@ -434,5 +414,5 @@ The same Model-only final-candidate composition applies to
 Source saves already prove the complete declared retarget and preservation; final
 TaskValidation independently proves latest base→candidate after rebase, without transfer
 or deletion requirements. Generation uses existing APIs and does not decide meaning.
-Retain classified final validation, Issue Gate and exact-HEAD merge checks. Do not add
+Retain classified final validation, exact-HEAD merge checks. Do not add
 IT as a requirement of this operation, or automatically regenerate/retry on failure.

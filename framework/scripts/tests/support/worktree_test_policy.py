@@ -39,7 +39,6 @@ WORKTREE_CASES = {
         "check_finalize_rejects_incomplete_leaves",
         "check_model_finalize_cannot_bypass_candidate",
         "check_git_baseline_fail_closed",
-        "check_issue_gate_rejects_foreign_managed_task",
         "check_candidate_staleness",
     ),
     "integrations/worktree_task.checks.py": (

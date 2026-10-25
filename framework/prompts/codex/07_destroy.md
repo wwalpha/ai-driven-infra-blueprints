@@ -15,8 +15,7 @@ Resolve environment and alias (or 12-digit awsAccountId) from human input and `p
 5. [Topology](../../rules/project-configuration.md#topology), [Credentials and account](../../rules/project-configuration.md#credentials-and-account).
 6. [Explicit Stack destroy](../../rules/cloudformation.md#explicit-stack-destroy).
 7. [Destroy synchronization](../../rules/observed-values.md#destroy-synchronization).
-8. [Unresolved issue gate](../../rules/issue-gate.md#unresolved-issue-gate), [Check timing](../../rules/issue-gate.md#check-timing).
-9. [Infrastructure destroy completion](../../rules/loop-engineering.md#infrastructure-destroy-completion), [Validation scope](../../rules/loop-engineering.md#validation-scope).
+8. [Infrastructure destroy completion](../../rules/loop-engineering.md#infrastructure-destroy-completion), [Validation scope](../../rules/loop-engineering.md#validation-scope).
 
 Read specified sections including child sections through the next equal/higher heading. Do not read target template/parameter bodies, generated detailed-design/service Markdown bodies, deploy preparation documents, ZIPs, scenarios, or unrelated service model bodies. The controller/helper resolves ownership, identifiers and incoming references mechanically; AI does not sequentially read service models. Local loop/model generation remain machine checks. Only an explicitly requested defect investigation may read necessary affected portions.
 
@@ -56,7 +55,7 @@ python framework/scripts/cloudformation-destroy.py --environment <environment> -
 
 Use one new unused state path; add `--resume` to continue that same session. Resume retains exact target/profile/scope/ownership/order/limit and StackIds. For a suspended task, explicitly resume its contract with task_contract.py first. Do not launch remaining stacks in an outer loop after failure. No per-stack STS, issue scans or confirmation.
 
-The controller owns one read-only AWS context/STS check, identity/protection/nested preflight, export/import checks, issue check immediately before first mutation, lightweight guards, standard DeleteStack by pinned StackId, terminal polling, failure drain and one batch observed sync. Do not invoke cloudformation-deploy.py or check-deploy-context.py separately. Termination protection requires a Human action in a separate scope; no automatic disable. External importers or actual dependencies conflicting with DeployOrder block all new deletes. DELETE_FAILED records reasons/events, stops new deletes, drains running peers and leaves lower orders unstarted; no repairs/force delete.
+The controller owns one read-only AWS context/STS check, identity/protection/nested preflight, export/import checks, lightweight guards, standard DeleteStack by pinned StackId, terminal polling, failure drain and one batch observed sync. Do not invoke cloudformation-deploy.py or check-deploy-context.py separately. Termination protection requires a Human action in a separate scope; no automatic disable. External importers or actual dependencies conflicting with DeployOrder block all new deletes. DELETE_FAILED records reasons/events, stops new deletes, drains running peers and leaves lower orders unstarted; no repairs/force delete.
 
 Fresh absence is ALREADY_ABSENT, with no observed reset. Saved StackId plus DELETE_IN_PROGRESS/accepted deletion evidence permits DELETE_COMPLETE when that ID disappears on resume. DELETE_INTENT alone is insufficient. Report DELETE_SKIPPED/retained resources and diagnostic read errors explicitly.
 

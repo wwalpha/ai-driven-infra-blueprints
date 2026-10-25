@@ -213,14 +213,7 @@ def _callback_check_controller_mutate(
     _state_check_controller_338, original, task, /, name
 ):
     if name == "A":
-        if _state_check_controller_338.drift == "task":
-            task.write_text(original + "\n")
-        else:
-            path = (
-                _state_check_controller_338.root / "issues/dev/123456789012/issues.md"
-            )
-            path.parent.mkdir(parents=True)
-            path.write_text("### cloudformation-stacks\n1. 未解決問題\n")
+        task.write_text(original + "\n")
 
 
 def check_controller(tmp_path):
@@ -416,13 +409,9 @@ def check_controller(tmp_path):
             patch.object(M.time, "sleep", lambda _: None),
             patch.object(Path, "read_text", checked_read),
             patch.object(Path, "rglob", checked_glob),
-            patch.object(
-                M, "require_target_no_issues", wraps=M.require_target_no_issues
-            ) as issue_check,
             redirect_stdout(io.StringIO()),
         ):
             assert M.controller_main(argv, _state_check_controller_338.root) == 0
-            assert issue_check.call_count == 1
         counts = Counter(op for op, _ in _state_check_controller_338.fake.calls)
         assert _state_check_controller_338.fake.deleted == ["A", "B", "C"]
         assert (
@@ -430,12 +419,12 @@ def check_controller(tmp_path):
             and counts["delete-stack"] == 3
         )
         print(
-            "D14: PASS 3 real-guard deletes: STS=1, exports=1, issue check=1, full tree/body scans=0"
+            "D14: PASS 3 real-guard deletes: STS=1, exports=1, full tree/body scans=0"
         )
-        # A relevant issue/task change after the first delete blocks subsequent starts.
+        # A Task change after the first delete blocks subsequent starts.
         task = _state_check_controller_338.root / "tasks/destroy.md"
         original = task.read_text()
-        for _state_check_controller_338.drift in ("task", "issue"):
+        for _state_check_controller_338.drift in ("task",):
             state_path = base / "multi.json"
             state_path.unlink()
             _state_check_controller_338.fake = Fake(["A", "B", "C"])

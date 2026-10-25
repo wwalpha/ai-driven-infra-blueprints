@@ -42,7 +42,7 @@ IMPORT and other authority writers retain their dedicated publication checks and
 ### Common transitions
 
 - Issues saves retain Scope checks and indivisible atomic publication/rollback. Saving ignores existing `iac-issues.state.json` without updating or deleting it.
-- The explicit service-scoped, report-only issues `migration` described in [Issue Gate](issue-gate.md#unresolved-issue-gate) runs without a worktree. Identify it with `issues_save_only()`; do not collect or compare HEAD/commit, worktree, index or untracked changes for its validation/completion or attribute other Tasks' changes to it. Retain contract/scope/Acceptance, actual report destination Allowed paths, whole-target Snapshot/Review integrity and atomic publication/rollback. Explicitly authorized Human related-record cleanup may join the same transaction; confirmed facts remain immutable. Input changes during or after a scan do not stop execution or require rescan/review. Ordinary Tasks and worktree integration retain their Git and input safety rules.
+- The explicit service-scoped, report-only issues `migration` described in [Snapshot and publication](issues-investigation.md#snapshot-and-publication) runs without a worktree. Identify it with `issues_save_only()`; do not collect or compare HEAD/commit, worktree, index or untracked changes for its validation/completion or attribute other Tasks' changes to it. Retain contract/scope/Acceptance, actual report destination Allowed paths, whole-target Snapshot/Review integrity and atomic publication/rollback. Explicitly authorized Human related-record cleanup may join the same transaction; confirmed facts remain immutable. Input changes during or after a scan do not stop execution or require rescan/review. Ordinary Tasks and worktree integration retain their Git and input safety rules.
 
 - Generated views whose publication bytes are unchanged are excluded from publication. Retain candidate validation and the single all-target input comparison in Selection and publication; publish only the validated changed bytes.
 - For isolated worktree Git integration only, explicit human approval of concrete validation failures may permit commit/rebase/merge/cleanup through `worktree_task.py finalize --human-approved-validation-failure "<approval and accepted failures>"`. Keep the task `suspend` and its current Suspension reason; do not use `--complete` or claim validation PASS. All requested work/inputs must otherwise be finished; scope errors, Git safety blocks, and AWS permission boundaries remain in force. See [worktree skill](../../.agents/skills/worktree/SKILL.md).
@@ -76,13 +76,6 @@ IMPORT and other authority writers retain their dedicated publication checks and
   docs/designs through the shared guarded APIs, then finish after classified validation.
   AWS acquisition and acquired add/refresh/bind/replace remain exclusive to /import; explicit ordinary IMPORT corrections use the guarded Model edit API.
   Do not proceed to IaC, AWS mutation or scenarios.
-- Any Task with `## Issue remediation` also follows the stricter
-  [Issue remediation boundary](issue-gate.md#issue-remediation): design/update only,
-  explicit forbidden AWS API execution/deploy/apply, exact scoped Model/view/ordinary
-  issue/own-Task paths, no Framework or IaC changes. Registration, refresh, snapshots,
-  actual change validation and completion share this check. Allowed paths and an
-  Issue Gate exception cannot expand this authority. Ordinary Tasks without this
-  declaration retain their existing boundaries.
 - `infrastructure`: Read the approved design, perform only explicitly authorized IaC,
   checks and deploy/apply, then synchronize permitted observations/generated views after
   success. Independent destroy changes only explicit designed Stacks, post-success
@@ -140,8 +133,8 @@ retained same-target resource. Optional `Model refactor: value-preserving` plus 
 Model dependency detach records may coexist only with import-delete. Each detach must
 name a deleted producer and a retained consumer. Register the exact relevant fields;
 unrelated properties/resources, identities and observations remain immutable.
-The normalized delete_sources, source_scopes and scopes are shared by authorization,
-Issue Gate and final checks; the normalized operation carries all delete_sources.
+The normalized delete_sources, source_scopes and scopes are shared by authorization
+and final checks; the normalized operation carries all delete_sources.
 The LLM orders and executes one resource leaf at a time, inspecting each result.
 One Parent Task = one Worktree = one transaction. Leaves may save unfinished raw sources,
 but never generate final views, validate the parent, complete, commit, rebase, merge or
@@ -175,8 +168,8 @@ Explicit Human `/update` authorization may use a running design Task with
 `Model operation: import-retarget`, forbidden AWS API execution and deploy/apply.
 This independent operation has no merge pairs,
 setting transfer, deletion, producer reevaluation or Subnet association changes.
-Keep the ordinary Issue Gate (including every producer/consumer service), naming,
-Validation scope, exact Modified files/Allowed paths and managed-worktree ownership.
+Keep every producer/consumer service in Validation scope. Retain naming checks,
+exact Modified files/Allowed paths and managed-worktree ownership.
 It grants no permission to acquire/refresh/replace IMPORT values or to change IaC/AWS.
 Do not disguise a retarget as a merge or combine it with value-preserving refactoring.
 
@@ -260,8 +253,7 @@ invalid JSON, mixed operations and unconsumed lines. All named Resources must ex
 Report missing-before, remaining-after and undeclared reference differences as warnings;
 none makes the original Model operation incomplete. Non-reference changes remain prohibited.
 
-Keep ordinary Modified files, Allowed paths, service Validation scope, naming and
-issue gates. Include directly changed consumers and their required reference impact scope.
+Keep ordinary Modified files, Allowed paths, service Validation scope and naming. Include directly changed consumers and their required reference impact scope.
 The guard compares all effective Resource/Property values and types, fixed Resource/Row
 composition, resourceMode/type, anchors/Logical IDs, structural metadata,
 observations and unchanged consumers across those targets/environments. CREATE

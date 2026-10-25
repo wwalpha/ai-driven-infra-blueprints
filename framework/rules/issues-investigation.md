@@ -5,7 +5,7 @@
 Use `framework/scripts/issues_scan.py` for local diagnostics. Models, designs, IaC,
 comparison semantics and AWS resources are read-only. Retain mechanical diagnosis,
 all-name review, Model/View validation, current IaC comparison, offline cfn-lint,
-masking and the existing Issue Gate. Never repair Model/IaC, call AWS, deploy or
+masking. Never repair Model/IaC, call AWS, deploy or
 start another phase from issues execution.
 
 Reports belong to an environment/target, not an individual service. Discover target
@@ -125,7 +125,7 @@ identity against the immutable reviewed removal and preserving raw facts even wh
 masked values. Both reports and the necessary Human file share `atomic_files()` and
 full rollback on failure. Without cleanup the Human file is never rewritten.
 Ordinary Human fact creation/edit/deletion requires a separately Human-authorized
-independent Task with its ordinary permissions and Issue Gate.
+independent Task with its ordinary permissions.
 
 ## Commands and complete Review
 
@@ -199,12 +199,12 @@ rendering → atomic replacement. The frozen Snapshot stores serialized values a
 an immutable tuple of reviewed Human record removals; caller mutations cannot alter
 it. Its execution time comes from Scan, never the save clock. Ordinary Issue IDs are
 deterministic from the current service/diagnostic; service headings and numbered
-lists retain Issue Gate ownership and counting.
+lists retain explicit service ownership and deterministic Issue IDs.
 
 Neither report is read as an input, merged or used for state decisions. All ordinary
 Issues, information, unverified scope, processing errors and warnings come from this
 Scan/Review only. A zero Issue count with incomplete coverage says検証未完了. Warning
-sections stay nonblocking, and only current numbered Issues enter the existing Gate.
+sections remain separate from ordinary numbered Issues.
 The generated reports hold no confirmed Human facts as authority and no old IDs,
 resolved history, service blocks or verification-target restoration metadata.
 
@@ -277,7 +277,7 @@ Aggregation runs once over finished comparison records, using dictionaries and d
 
 All comparison records (including matched/excluded), unchanged `iac_key` identities, masked field-display information and deterministic Issue-to-record membership belong to the execution's temporary artifact outside the repository. `iac_issues[].members` indexes the original `iac` list. `detail` retrieves category/Issue filters before offset/limit pagination without source reads or comparison. No persistent sidecar, embedded JSON, record restoration, old-result merge, or Markdown digest check.
 
-`iac-issues.md` is replaced from the current valid artifact only. Never restore old results, human annotations, embedded JSON or out-of-scope Services. Existing `iac-issues.state.json` is ignored even if stale, malformed or inconsistent; do not read, write, migrate or automatically delete it. Do not replace state with another persistent file/cache. Both Markdown reports belong to the indivisible save batch; an explicitly authorized Human related-record cleanup joins that same rollback-protected batch. Preserve destination authority, atomic writes and rollback of all outputs on failure. Saving performs no comparison, lint, full regrouping or input freshness checks. Ordinary Issue Gate and CREATE/IMPORT logic remain unchanged.
+`iac-issues.md` is replaced from the current valid artifact only. Never restore old results, human annotations, embedded JSON or out-of-scope Services. Existing `iac-issues.state.json` is ignored even if stale, malformed or inconsistent; do not read, write, migrate or automatically delete it. Do not replace state with another persistent file/cache. Both Markdown reports belong to the indivisible save batch; an explicitly authorized Human related-record cleanup joins that same rollback-protected batch. Preserve destination authority, atomic writes and rollback of all outputs on failure. Saving performs no comparison, lint, full regrouping or input freshness checks. Ordinary CREATE/IMPORT logic remain unchanged.
 
 
 ## Offline cfn-lint and coverage
@@ -296,7 +296,7 @@ the installed package. Never persist config/parameter/secret bodies.
 
 A known provider mapping whose schema cannot be read/parsed/constructed is a processing error even when the library absorbs its chained loader exception and yields no matches. Keep acquired matches and incomplete coverage; unknown types and intentional override exclusions retain their ordinary diagnostic provenance.
 
-Normal Error is an ordinary candidate only when ownership is proven. E0000 is ordinary only with concrete parser/scanner/CfnParse/JSON/Unicode/root-type provenance from observing existing YAML/JSON loader calls; keep fallback and Match construction unchanged. I/O/internal/unproven decode failures are processing errors, including suppressed failures. E0001 defaults to processing (transform cause unproven); E0002/E0003, unknown severity and protocol/launch/timeout failures are processing. Iterator completion does not prove downstream rules ran; retain suppressed decode and transform coverage as unverified without promoting suppressed input diagnostics to exit 1/2. Warning/Informational remain separate non-numbered channels and never enter Issue Gate.
+Normal Error is an ordinary candidate only when ownership is proven. E0000 is ordinary only with concrete parser/scanner/CfnParse/JSON/Unicode/root-type provenance from observing existing YAML/JSON loader calls; keep fallback and Match construction unchanged. I/O/internal/unproven decode failures are processing errors, including suppressed failures. E0001 defaults to processing (transform cause unproven); E0002/E0003, unknown severity and protocol/launch/timeout failures are processing. Iterator completion does not prove downstream rules ran; retain suppressed decode and transform coverage as unverified without promoting suppressed input diagnostics to exit 1/2. Warning/Informational remain separate non-numbered channels and remain outside ordinary numbered issues.
 
 Use diagnostic Resources/logical-ID paths plus explicit origins to prove one selected owner. Common/multiple/unknown owner Errors require judgment and explicit diagnostic_assignments; selected cloudformation-stacks may own common errors. Proven outside-resource findings remain scope-external diagnostics. Never assign to the first service by convenience or confuse a scope-wide failure with an outside resource finding. Retain Rule ID, severity, path, position and provenance. Merge NoEcho defaults/effective parameters and known comparison/Model secrets into redaction before final artifact construction; malformed decode text is withheld. Mask before shortening; reports/detail never restore secret text.
 

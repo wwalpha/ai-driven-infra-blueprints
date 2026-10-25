@@ -27,7 +27,6 @@ import sync_files as _imports_sync_files
 from comparison import Comparison
 from comparison.result import identifier, value_differences
 from design.layout import resource_name_fields
-from issue_gate import issue_errors
 from issues.aggregate import aggregate, iac_dataset, iac_summary
 from issues.artifact import detail_payload, review_payload, summary
 from issues.materials import naming_materials
@@ -446,7 +445,6 @@ def protected_sources():
         ROOT / "framework/scripts" / name
         for name in (
             "comparison/runner.py",
-            "issue_gate.py",
             "utils/comparison_rows.py",
             "utils/iac_values.py",
             "iac_evaluation.py",
@@ -493,7 +491,6 @@ __all__ = [
     "iac_summary",
     "identifier",
     "input_scope",
-    "issue_errors",
     "json",
     "load_model",
     "markdown_for",

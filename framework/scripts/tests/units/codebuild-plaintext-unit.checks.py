@@ -15,7 +15,6 @@ import validation.design_tables as design_tables
 from design.catalog import DesignSchemaCatalog
 from design.document import model_reference_tables
 from design.services.codebuild import codebuild_display_row, codebuild_formal_rows
-from issue_gate import issue_errors, unresolved_services
 from issues.artifact import scan_exit_code, validate_artifact
 from issues.cli import main as issues_main
 from issues.publication import save_scan
@@ -910,12 +909,8 @@ def test_scan_save_owns_codebuild_and_deduplicates(
                 assert markers == previous_markers
             previous_markers = markers
             assert REASON in report
-            assert sum(
-                "codebuild" in owners
-                for _, owners in unresolved_services(tmp_path, paths[0])
-            ) == sum(item["service"] == "codebuild" for item in diagnostics), report
+            assert report.count("<!-- issue-id:") == len(diagnostics), report
             assert "### codebuild" in report
-            assert issue_errors(tmp_path, {("dev", "123456789012", "codebuild")})
 
 
 @pytest.mark.parametrize("mode", ["CREATE", "IMPORT"])

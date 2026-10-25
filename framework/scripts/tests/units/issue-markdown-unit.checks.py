@@ -8,7 +8,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from issue_gate import issue_errors, unresolved_services
 from issue_markdown import markdown_matches, split_notices
 from support.pytest_cli import run
 
@@ -17,7 +16,6 @@ if not __debug__:
 
 REFERENCE = "## 参照警告（非ブロッキング）\n\n"
 PREAMBLE = "# 問題一覧\n\n## dev／team\n\n"
-SCOPE = {("dev", "team", "s3")}
 
 
 @pytest.mark.parametrize(
@@ -34,9 +32,9 @@ def check_reference_lists(tmp_path, body, preamble):
     original = preamble + REFERENCE + body
     path.write_text(original, encoding="utf-8")
     for _ in range(2):
-        assert (
-            unresolved_services(tmp_path, path) == issue_errors(tmp_path, SCOPE) == []
-        )
+        ordinary, notices = split_notices(path.read_text(encoding="utf-8"))
+        assert not markdown_matches(ordinary, r"^ {0,3}(\d+)[.)] +")
+        assert notices
         assert path.read_text(encoding="utf-8").endswith(REFERENCE + body)
 
 
@@ -55,11 +53,15 @@ def check_explicit_issue_boundary(tmp_path, issue):
     path.parent.mkdir(parents=True)
     reference = REFERENCE + "- Reference Warning A\n\n### s3\n\n1. Reference details\n"
     path.write_text(PREAMBLE + issue, encoding="utf-8")
-    owners = unresolved_services(tmp_path, path)
+    ordinary = split_notices(path.read_text(encoding="utf-8"))[0]
     path.write_text(PREAMBLE + reference + "\n" + issue, encoding="utf-8")
     for _ in range(3):
-        assert unresolved_services(tmp_path, path) == owners == [("1", {"s3"})]
-        assert len(issue_errors(tmp_path, SCOPE)) == 1
+        current = split_notices(path.read_text(encoding="utf-8"))[0]
+        assert (
+            [item[2] for item in markdown_matches(current, r"^ {0,3}(\d+)[.)] +")]
+            == [item[2] for item in markdown_matches(ordinary, r"^ {0,3}(\d+)[.)] +")]
+            == ["1"]
+        )
 
 
 @pytest.mark.parametrize("fence", ["````", "~~~~"])
@@ -92,16 +94,12 @@ def check_fenced_classification(fence):
         REFERENCE + "### s3\n1. warning\n2. actual <!-- issue-id: actual -->\n",
     ],
 )
-def check_ambiguous_input_stops_gate(tmp_path, body):
+def check_ambiguous_notice_input(tmp_path, body):
     path = tmp_path / "issues/dev/team/issues.md"
     path.parent.mkdir(parents=True)
     path.write_text(body, encoding="utf-8")
-    for read in [
-        lambda: split_notices(body),
-        lambda: issue_errors(tmp_path, SCOPE),
-    ]:
-        with pytest.raises(ValueError, match="ambiguous"):
-            read()
+    with pytest.raises(ValueError, match="ambiguous"):
+        split_notices(body)
     assert path.read_text(encoding="utf-8") == body
 
 
@@ -126,7 +124,12 @@ def check_fenced_owner_does_not_override_issue(tmp_path):
         "````text\n```\n<!-- issue-service: sqs -->\n1. fake\n````\n"
     )
     path.write_text(PREAMBLE + issue, encoding="utf-8")
-    assert unresolved_services(tmp_path, path) == [("1", {"s3"})]
+    assert [
+        item[2]
+        for item in markdown_matches(
+            split_notices(path.read_text())[0], r"^ {0,3}(\d+)[.)] +"
+        )
+    ] == ["1"]
 
 
 if __name__ == "__main__":

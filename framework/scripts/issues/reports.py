@@ -170,7 +170,7 @@ def iac_report(
             if unverified_services
             else "なし（IaC比較の未比較・保留・処理エラーは別集計）"
         ),
-        "今回のTarget全Serviceの結果。未実施・失敗は未検証。通常issue gateの停止対象外。",
+        "今回のTarget全Serviceの結果。未実施・失敗は未検証。",
         f"問題: {summary['issue_count']}件（原因・必要対応単位）",
         f"影響: 差分 {counts['difference']}件 / 未比較 {counts['uncompared']}項目 / 処理エラー {counts['error']}項目",
         f"元レコード数: {summary['record_count']}（一致 {counts['matched']} / 想定内保留 {counts['deferred']} / 除外 {counts['excluded']}）",

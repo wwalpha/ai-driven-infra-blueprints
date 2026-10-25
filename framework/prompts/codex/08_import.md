@@ -26,7 +26,6 @@ Never edit generated Markdown/JSON directly, including during display recovery.
 ## Read first
 
 Read AGENTS.md, [Task transition](../../rules/task-contract.md#task-transition),
-[Import issue-gate boundary](../../rules/issue-gate.md#dedicated-import-boundary),
 [project-configuration](../../rules/project-configuration.md),
 [IMPORT configuration authority](../../rules/model-information.md#import-configuration-authority),
 [Model sources](../../rules/model-templates.md), and
@@ -36,9 +35,9 @@ Task boundary, Acceptance and retry reads. Reuse unchanged rules already read.
 Read the full selected service with model.load_model or the single Model CLI. It returns
 full properties authority separately from runtime projections and actual source locations.
 Read required producer/incoming resources through the same APIs, without generated-view fallback.
-Do not import /update's IaC changes, AWS mutation or issue gate.
+Do not import /update's IaC changes or AWS mutation.
 
-Ordinary Import adds no Issue Gate, naming preflight, design-wide constraints,
+Ordinary Import adds no naming preflight, design-wide constraints,
 generated equality, whole-Model/whole-Markdown comparison, local loop or UT/IT.
 Type, syntax, scope, evidence, identity, acquired-value checks and nonselected preservation
 are mandatory. Framework implementation tests remain a separate development responsibility.
@@ -229,7 +228,7 @@ Semantic reference warnings do not excuse structural errors or silently change v
 
 Prepare selected-service views in memory before source save; structural/JSON errors stop.
 Reference-only inability reports WARNING and retained/not-generated display status.
-Do not add ordinary Import issue/naming/design-wide/generated-equality/loop/test gates.
+Do not add ordinary Import naming/design-wide/generated-equality/loop/test gates.
 All Model commands use the shared prepare/publish API, lock, journal and rollback.
 Model and receipt roll back on source transaction failure. No partial Resource save.
 

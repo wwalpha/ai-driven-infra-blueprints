@@ -11,6 +11,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import os
+import subprocess
 from unittest.mock import patch
 
 import model.sources as _imports_model_sources
@@ -19,12 +20,16 @@ import task_contract as transitions
 import task_contract_core as tasks
 import utils.input_cache as _imports_input_cache
 from generation_inputs import GenerationInputs
+from issues.publication import save_scan
 from model.importing import scope as import_scope
 from support.import_model_fixtures import dependency_contract
+from support.issues_scan_fixtures import review_for, snapshot_artifact
 from support.pytest_cli import run
 from support.repository_fixtures import contract, transition_contract
 from sync_runtime import publish_generation
 from utils.input_cache import input_scope
+from validation.findings import Findings
+from validation.task import TaskValidation
 from validation_scope import active_scope
 
 if not __debug__:
@@ -536,6 +541,122 @@ def check_admission_selection(tmp_path, monkeypatch):
     assert (tmp_path / second).read_bytes() == before
     transitions.complete(tmp_path, first)
     transitions.complete(tmp_path, second)
+
+
+def _callback_check_report_commit_independence_git(tmp_path, /, *args):
+    return subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.test",
+            *args,
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+@pytest.mark.parametrize("kind", ["reports", "migration", "design"])
+def check_report_commit_independence(tmp_path, monkeypatch, kind):
+    name = "tasks/investigation.md"
+    reports = {"issues/dev/cde/issues.md", "issues/dev/cde/iac-issues.md"}
+    permitted = reports | {name}
+    text = (
+        "## Task contract\n- Task type: `"
+        + ("design" if kind == "design" else "migration")
+        + "`\n- Task status: `running`\n## Validation scope\n- `dev/cde/s3`\n"
+        "## Required changes\n- [R1] Save reports\n## Acceptance checks\n"
+        + "".join(f"- [R1] `exists:{path}`\n" for path in sorted(reports))
+        + "## Modified files\n"
+        + "".join(f"- `{path}`\n" for path in sorted(permitted))
+        + "## Allowed paths\n"
+        + "".join(f"- `{path}`\n" for path in sorted(permitted))
+    )
+    if kind == "migration":
+        text += "- `infra/**`\n"  # An ordinary migration must retain its Git baseline.
+    git = _bind_framework_callback(
+        _callback_check_report_commit_independence_git, tmp_path
+    )
+    git("init", "--quiet", "--initial-branch=master")
+    for path in reports | {"outside.txt"}:
+        destination = tmp_path / path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text("")
+    git("add", ".")
+    git("commit", "--quiet", "-m", "initial")
+    baseline = git("rev-parse", "HEAD")
+    tasks.start(tmp_path, name, text)
+    monkeypatch.setenv(tasks.SELECTOR, name)
+    findings = Findings(tmp_path)
+    task = TaskValidation(tmp_path, findings)
+    with patch(
+        "model.importing.repository.task_start_commit", return_value=baseline
+    ) as start:
+        task.fix_baseline()
+        assert start.call_count == (0 if kind == "reports" else 1)
+        git("commit", "--quiet", "--allow-empty", "-m", "advance HEAD")
+        if kind == "reports":
+            artifact = snapshot_artifact(tmp_path, target="cde")
+            save_scan(tmp_path, artifact, review_for(artifact))
+        else:
+            for path in reports:
+                (tmp_path / path).write_text("ordinary Task change")
+        task.check_task_scope()
+        assert not findings.errors, findings.errors
+        (tmp_path / "committed.txt").write_text("unrelated committed input")
+        git("add", "committed.txt")
+        git("commit", "--quiet", "-m", "unrelated change")
+        assert git("rev-parse", "HEAD") != baseline
+        task.check_task_scope()
+    assert active_scope(tmp_path) == {("dev", "cde", "s3")}
+    assert (tmp_path / name).read_text() == text  # No suspension or replacement Task.
+    for state in ("unstaged", "staged", "untracked"):
+        outside = tmp_path / (
+            "untracked.txt" if state == "untracked" else "outside.txt"
+        )
+        outside.write_text(state)
+        if state == "staged":
+            git("add", "outside.txt")
+            outside.write_text("")
+        blocked = TaskValidation(tmp_path, Findings(tmp_path))
+        blocked.check_task_scope()
+        if kind == "reports":
+            assert not blocked.findings.errors, blocked.findings.errors
+            assert blocked.changed_paths == blocked.scope_paths == set()
+        else:
+            assert any(
+                f"outside task scope: {outside.name}" in error
+                for error in blocked.findings.errors
+            )
+    (tmp_path / "outside.txt").write_text("")
+    git("add", "outside.txt")
+    (tmp_path / "untracked.txt").unlink()
+    if kind != "reports":
+        assert any(
+            "outside task scope: committed.txt" in error for error in findings.errors
+        )
+        assert "committed.txt" in task.changed_paths and task.baseline == baseline
+        return
+    assert not findings.errors, findings.errors
+    assert task.changed_paths == task.scope_paths == set()
+    task.check_acceptance_checks({})
+    assert not findings.errors, findings.errors
+    # Preserve independent index changes, including a file restored only in the worktree.
+    git("add", "issues/dev/cde/issues.md")
+    (tmp_path / "issues/dev/cde/issues.md").write_text("")
+    assert task.final_paths() == set()
+    task.check_task_scope()
+    assert not findings.errors, findings.errors
+    with patch(
+        "model.importing.repository.task_start_commit",
+        side_effect=AssertionError("report completion used a baseline"),
+    ):
+        transitions.complete(tmp_path, name)
+    assert tasks.status((tmp_path / name).read_text()) == "completed"
 
 
 if __name__ == "__main__":

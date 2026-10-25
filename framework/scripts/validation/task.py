@@ -1,9 +1,8 @@
-"""Task boundary, issue gate and Acceptance state."""
+"""Task boundary and Acceptance state."""
 
 from __future__ import annotations
 
 import re
-from functools import partial
 from pathlib import Path
 
 import deploy.contracts as _imports_deploy_contracts
@@ -11,22 +10,18 @@ import import_guard as _imports_import_guard
 import model.importing.repository as repository
 import model.observed as _imports_model_observed
 import worktree_state
-from issue_gate import require_no_issues
 from model.core import properties as properties
 from model.impact import task_impact
 from task_contract_core import (
     TASK_NAME,
-    issue_remediation_scope,
     issues_save_only,
     matches,
-    require_issue_remediation,
     task_path,
     task_snapshot,
 )
 from task_contract_core import TASK_TYPES as TASK_TYPES
 from utils.git_changes import GitWorkingPaths, collect_working_paths, read_paths
 from utils.input_cache import input_text
-from validation_scope import active_scope
 
 
 class TaskValidation:
@@ -78,7 +73,6 @@ class TaskValidation:
             repository.task_start_commit(
                 self.root,
                 prompt.relative_to(self.root).as_posix(),
-                required=bool(issue_remediation_scope(task_snapshot(self.root).text)),
             )
             if prompt is not None
             else None
@@ -313,14 +307,6 @@ class TaskValidation:
         if self.task_type not in TASK_TYPES:
             return
         prompt_path = self.relative(prompt)
-        try:
-            require_issue_remediation(
-                prompt_path,
-                self.contract_text or "",
-                self.changed_paths if paths is None else paths,
-            )
-        except (OSError, ValueError) as error:
-            self.check(False, str(error))
         for changed in sorted(self.changed_paths if paths is None else paths):
             if self.task_type == "design":
                 forbidden = self.under(changed, "infra") or self.under(changed, "tests")
@@ -364,35 +350,6 @@ class TaskValidation:
                     not forbidden,
                     f"{self.task_type} task boundary violation: {changed}",
                 )
-
-    def check_issue_gate(self, scope=...) -> None:
-        if not self.task_type:
-            return
-        try:
-            scope = active_scope(self.root) if scope is ... else scope
-            if self.task_type == "migration" and issues_save_only(
-                self.root, scope=scope, text=self.contract_text, paths=self.scope_paths
-            ):
-                return  # Report-only saves may continue; model saves and AWS guards still apply.
-            service_changed = any(
-                path.startswith(("model/", "docs/designs/", "infra/", "issues/"))
-                for path in self.scope_paths
-            )
-            if (
-                self.task_type in {"governance", "catalog-maintenance"}
-                and scope is None
-                and not service_changed
-            ):
-                scope = (
-                    set()
-                )  # Framework-wide validation does not target consumer services.
-            require_no_issues(
-                self.root,
-                scope,
-                warn=partial(self.findings.warn, code="deploy.issue_gate"),
-            )
-        except (OSError, ValueError) as error:
-            self.check(False, str(error))
 
     def check_task_type_requirements(self) -> None:
         changed = {path for path in self.changed_paths if not TASK_NAME.fullmatch(path)}

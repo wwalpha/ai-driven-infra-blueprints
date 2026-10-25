@@ -9,7 +9,6 @@ selected-row consumption checks, including intentional aggregation and hidden ro
 
 - Follow [Credentials and account](project-configuration.md#credentials-and-account) for account/profile/target selection.
 
-Follow [issue-gate](issue-gate.md) for target-service stops and exceptions.
 
 ## Authoritative sources and update order
 

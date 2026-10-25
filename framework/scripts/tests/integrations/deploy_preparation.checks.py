@@ -144,7 +144,6 @@ def check_preparation():
         assert "readingCharacters" not in plan and "readingStages" not in plan
         assert all("readCharacters" not in doc for doc in plan["documents"])
         assert "framework/rules/task-contract.md" in documents
-        assert "framework/rules/issue-gate.md" in documents
         assert "framework/rules/project-configuration.md" in documents
         assert (
             "framework/rules/terraform.md" not in documents
@@ -265,7 +264,6 @@ def check_preparation():
 @it_case
 def check_stale_and_conflicts():
     for reason in (
-        "issue",
         "runtime",
         "candidate",
         "model",
@@ -298,10 +296,6 @@ def check_stale_and_conflicts():
             elif reason == "model":
                 source = root / "model/dev/123456789012/iam.properties"
                 write_model(source, read_model(source) + "# changed\n")
-            elif reason == "issue":
-                issue = root / "issues/dev/123456789012/issues.md"
-                issue.parent.mkdir(parents=True)
-                issue.write_text("### ec2\n1. 未解決\n", encoding="utf-8")
             elif reason == "candidate":
                 (run / "contract.md").write_text("changed", encoding="utf-8")
             with (
@@ -312,10 +306,13 @@ def check_stale_and_conflicts():
                 result = invoke(
                     ["--repository-root", str(root), "--register", str(path)]
                 )
-                assert result == (0 if reason == "issue" else 1), reason
-            assert json.loads((run / "timing.jsonl").read_text().splitlines()[-1])[
-                "result"
-            ] == ("PASS" if reason == "issue" else "FAIL")
+                assert result == 1, reason
+            assert (
+                json.loads((run / "timing.jsonl").read_text().splitlines()[-1])[
+                    "result"
+                ]
+                == "FAIL"
+            )
 
 
 def _callback_check_generated_boundaries_load_with_artifacts(real_load, /, *args):

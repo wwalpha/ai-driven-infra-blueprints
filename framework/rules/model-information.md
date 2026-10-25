@@ -15,7 +15,6 @@ from Markdown is not required and must not be used as a publication gate.
 The field/identity/display rules below apply to canonical Models, runtime projections and generated views.
 
 
-
 If updating the model fails, do not update Markdown/JSON. The model is authoritative for design values, names, and descriptions.
 
 - Follow [Topology](project-configuration.md#topology) for target directories.
@@ -149,7 +148,7 @@ These dedicated-operation constraints do not restrict the separately authorized 
 
 Import verifies target/profile/account/Region, acquisition success and scope, resource
 identity, secrets, source ownership, concurrent edits and atomic publication. It does
-not decide design correctness or run issue gates, naming/schema constraints, whole-service
+not decide design correctness or run naming/schema constraints, whole-service
 design reference validation, whole-repository candidate copies, generated equality or
 local loops. Selected-resource physical references are acquisition consistency checks under [Selected-resource references](../prompts/codex/08_import.md#selected-resource-references),
 using declared receiving contracts and exact same-target producer identities.
@@ -350,7 +349,7 @@ Create/update explicit properties candidates through the shared Model save API. 
 ## Formal properties and display verification
 
 - CloudFormation string properties use common dynamic-reference validation, including embedded/multiple references. Validate `secretsmanager`, `ssm` and `ssm-secure` syntax before deferring resolved-value constraints (`minLength`, `maxLength`, `pattern`, `enum`, `const`) to deployment. Preserve ordinary literal constraints, property/type/structure checks, and SSM secure-property restrictions in the local utils/cloudformation/schema.py constant. Reject malformed/unknown references and EC2 UserData usage. API-only properties do not acquire CloudFormation reference semantics.
-- Offline validation never retrieves secret/parameter values or proves their existence, access permissions or resolved-value constraints. Keep existing Model/property checks and authorized AWS ValidateTemplate; this does not certify all template-level property constraints. This policy does not change source authority, IMPORT guards, issue gates or publication checks.
+- Offline validation never retrieves secret/parameter values or proves their existence, access permissions or resolved-value constraints. Keep existing Model/property checks and authorized AWS ValidateTemplate; this does not certify all template-level property constraints. This policy does not change source authority, IMPORT guards, publication checks.
 
 The following local display normalizations support table, schema and link validation. They do not reconstruct the whole Model or compare it with authoritative inputs. Do not use Markdown as design input or overwrite formal properties rows in ordinary tasks.
 

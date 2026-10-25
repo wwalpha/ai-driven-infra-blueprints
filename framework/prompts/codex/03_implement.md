@@ -17,15 +17,6 @@ Use this prompt for an `infrastructure` task converting authoritative model prop
 
 Follow [Credentials and account](../../rules/project-configuration.md#credentials-and-account) for common account/profile selection and apply [Policy account selection](../../rules/detailed-design.md#policy-account-selection) for policy-specific conditions.
 
-## Unresolved issue gate
-
-Apply [issue-gate](../../rules/issue-gate.md) for target service stop decisions and exceptions before start/resume/mutation.
-This ordinary infrastructure/implement Task cannot declare or inherit Issue remediation.
-For Model-to-IaC differences, implement only after Human independently requests the
-IaC correction using approved design; retain the ordinary Issue Gate. Ordinary issue
-repairs use the separate Model-only boundary in issue-gate and cannot authorize IaC
-or Framework changes. Never automatically start a follow-up Task.
-
 ## User input
 
 - Target environment: `{{project.jsonのenvironment}}`
@@ -59,7 +50,7 @@ Present only environment, alias, and AWS account candidates belonging to the sam
 11. [Local loop](../../rules/loop-engineering.md#local-loop), [Validation scope](../../rules/loop-engineering.md#validation-scope). [Infrastructure task completion](../../rules/loop-engineering.md#infrastructure-task-completion)
 12. `framework/materials/aws/*.properties`, `framework/materials/api/*.properties`, and same-named API design schemas relevant to target resources
 13. For CloudFormation, `framework/materials/cloudformation-schema/ap-northeast-1/index.json` and target resource provider schemas
-- [project-configuration](../../rules/project-configuration.md) and [issue-gate](../../rules/issue-gate.md). For naming checks, [aws-resource-naming](../../rules/aws-resource-naming.md).
+- [project-configuration](../../rules/project-configuration.md). For naming checks, [aws-resource-naming](../../rules/aws-resource-naming.md).
 
 For naming rules, additionally read only service files corresponding to target resource type catalog namespaces from the common entry's Service rule lookup. Even for multiple services, read only target namespaces, not the whole naming rule directory at once. Match Catalog resource types/Naming target and patterns in selected service files.
 
@@ -87,7 +78,7 @@ Add [Framework regression](../../rules/loop-engineering.md#framework-regression)
 
 ## Read-only implementation preflight
 
-After User input and issue gate confirmation, before active contract creation or IaC generation, perform all Check implementation support, Resolve implementation units, and existing IaC matching below read-only. Do not execute AWS APIs, IaC generation, or deploy. Reuse existing schema validation and dependency checks; do not add new validation engines or approval steps.
+After User input, before active contract creation or IaC generation, perform all Check implementation support, Resolve implementation units, and existing IaC matching below read-only. Do not execute AWS APIs, IaC generation, or deploy. Reuse existing schema validation and dependency checks; do not add new validation engines or approval steps.
 
 1. From target resource authoritative properties, confirm CREATE/IMPORT, formal CFn types, required properties, and unconfirmed values. Reuse schema validation applicable to properties such as existing `model.validation.validate_required_properties` and `DesignSchemaCatalog.literal_errors` to check type, enum, pattern, length, range, and supplemented AWS character constraints. Do not reuse previous task Validation scope; validate explicit target services and necessary references. Distinguish Japanese display Comments from formal property values; do not automatically translate/replace invalid values.
 2. Follow resource/property references in properties, confirm necessary dependency properties, anchors, logical/current identifiers, and handoff values; apply the same schema validation to used properties. Use properties-based reference resolution below and dependency checks in Resolve implementation units; read only necessary resources/properties at reference targets. Do not automatically expand change scope or all-service validation during dependency investigation.

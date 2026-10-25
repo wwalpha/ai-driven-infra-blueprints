@@ -14,11 +14,7 @@ forbidden AWS/deploy, and the exact requested subset of its normalized operation
 A missing parent or a record differing from the parent returns input failure; do not
 create a child contract or infer authority, IDs, properties or reference locations.
 
-Use the common task-aware Issue Gate for the selected parent. A valid `import-delete`
-parent waives only existing-issue stops within its explicit Validation scope; do not
-require Issue remediation or change issues.md. An `import-merge` parent retains the
-ordinary gate for non-reference Issues. Reference-only Issues and diagnostics are warnings
-under [Reference diagnostics](../../../framework/rules/model-information.md#reference-diagnostics).
+Follow [Reference diagnostics](../../../framework/rules/model-information.md#reference-diagnostics).
 
 Read the old authority with `model.sources.raw_model`; inspect raw fields, source
 locations and bytes without requiring old semantic validity. Required operation fields
@@ -34,7 +30,7 @@ sources or import-delete delete_sources). The parent LLM invokes the next leaf o
 after inspecting this result; multiple resources share the same Task and Worktree.
 Inspect declared references, Property/JSON/parentReference and direct Markdown links
 in all real Models of the same environment/target. Keep a before snapshot so deleted
-producer anchors remain known; service.md and ./service.md resolve identically.
+producer anchors remain known; service.md./service.md resolve identically.
 
 Before editing, call `model.references.incoming(snapshot, fixed_id, read_context)`.
 The read-only CLI is `model/cli.py incoming <service.properties> <fixed-ID>`, run

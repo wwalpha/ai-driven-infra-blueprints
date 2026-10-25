@@ -12,13 +12,11 @@ from pathlib import Path
 
 import aws_mapping as _imports_aws_mapping
 import generation_inputs as _imports_generation_inputs
-import issue_gate as _imports_issue_gate
 import task_contract_core as _imports_task_contract
 import utils.aws_mappings as _imports_utils_aws_mappings
 import utils.file_operations as _imports_utils_file_operations
 import utils.iac_values as _imports_iac_values
 import utils.input_cache as _imports_input_cache
-import validation_scope as _imports_validation_scope
 from aws_mapping_compare import comparison
 from design.catalog import DesignSchemaCatalog
 from task_contract_core import SELECTOR as SELECTOR
@@ -466,9 +464,6 @@ def main(argv=None):
             selected_task(root, args.task_file),
             _imports_task_contract.task_reads(root, live=True),
         ):
-            require_no_issues = _imports_issue_gate.require_no_issues
-            active_scope = _imports_validation_scope.active_scope
-            require_no_issues(root, active_scope(root))
             expected_task = task_revision(root, args.task_file)
             name, text = expected_task
             if text is None or status(text) != "running":

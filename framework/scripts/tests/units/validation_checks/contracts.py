@@ -183,13 +183,6 @@ def _callback_check_update_flow_prompt_validate(prompt):
         "variable input",
     ):
         assert token in scope, token
-    issue = commands(sections["Unresolved issue gate"])
-    assert len(issue) == 1 and issue[0][1].endswith("/issue_gate.py")
-    assert issue[0].count("--service") == 2, (
-        "repeatable services must share one process example"
-    )
-    assert "--task" in sections["Unresolved issue gate"]
-
     deploy = sections["Preflight and deploy"]
     dependency = engine(deploy, "CloudFormation read-only dependency check")
     for token in (
@@ -213,7 +206,6 @@ def _callback_check_update_flow_prompt_validate(prompt):
         "responsible for final preflight",
         "account",
         "region",
-        "issue gate",
         "immutable input",
         "SDK",
         "validate-template",

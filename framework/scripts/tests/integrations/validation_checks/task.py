@@ -214,7 +214,6 @@ def check_destroy_phase() -> None:
                 "check_project_topology",
                 "check_validation_scope",
                 "check_model_files",
-                "check_issue_gate",
                 "check_task_type_requirements",
                 "check_initialized_paths",
                 "check_catalog",

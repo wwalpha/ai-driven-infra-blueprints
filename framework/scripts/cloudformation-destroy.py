@@ -17,7 +17,6 @@ from pathlib import Path
 from types import SimpleNamespace as _CallbackState
 
 import aws_context as _imports_aws_context
-from issue_gate import require_target_no_issues
 from model.adapters.observed import destroy_plan, sync_destroyed
 from model.core import stack_model
 from model.files import load_model
@@ -104,11 +103,6 @@ def task_snapshot(root, environment, target, requested, plan):
     ):
         raise Blocked("destroy observed outputs outside Allowed paths")
     return path, text
-
-
-def issue_snapshot(root, environment, directory):
-    path = root / "issues" / environment / directory / "issues.md"
-    return fingerprint(path.read_text(encoding="utf-8") if path.exists() else None)
 
 
 class AwsBackend:
@@ -542,7 +536,6 @@ def _callback_controller_main_guard(
     directory,
     identity,
     immutable,
-    issue_digest,
     root,
     session,
     target,
@@ -561,8 +554,6 @@ def _callback_controller_main_guard(
         != target
     ):
         raise Blocked("project target/account/region/profile changed before mutation")
-    if issue_snapshot(root, args.environment, directory) != issue_digest:
-        raise Blocked("issue gate snapshot changed before mutation")
     if fingerprint(session["identity"]) != immutable or name not in identity["scope"]:
         raise Blocked("session scope changed before mutation")
     if state["StackId"] != _state_controller_main_355.pinned.get(name):
@@ -726,7 +717,6 @@ def controller_main(argv=None, root=None):
             "region": target["awsRegion"],
             "profile": backend.profile,
         }
-        issue_digest = issue_snapshot(root, args.environment, directory)
         _state_controller_main_355.pinned = {}
         guard = _bind_framework_callback(
             _callback_controller_main_guard,
@@ -738,7 +728,6 @@ def controller_main(argv=None, root=None):
             directory,
             identity,
             immutable,
-            issue_digest,
             root,
             session,
             target,
@@ -749,11 +738,6 @@ def controller_main(argv=None, root=None):
                 name: state.get("StackId") for name, state in session["states"].items()
             }
             dependencies(session, backend, save)
-            require_target_no_issues(
-                root, (args.environment, directory)
-            )  # Once before the first mutation.
-            if issue_snapshot(root, args.environment, directory) != issue_digest:
-                raise Blocked("issue list changed during preflight")
             session.pop("reason", None)
             session["status"] = run_session(session, backend, limit, save, guard)
         except Exception as error:

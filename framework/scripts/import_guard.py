@@ -8,7 +8,6 @@ import tempfile
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
-import issue_gate as _imports_issue_gate
 import model.adapters.task as _compat_model_adapters_task
 import model.core as _imports_model_core
 import model.impact as _imports_model_impact
@@ -365,14 +364,6 @@ def require_import_changes(
         scope = active_scope(root, contract_file=contract_file)
         if final_candidate is not None:
             scope = set(final_candidate.scope)
-        if (
-            not generation
-            and operation is None
-            and refactor is None
-            and scope is not None
-        ):
-            require_no_issues = _imports_issue_gate.require_no_issues
-            require_no_issues(root, scope, contract_file=contract_file)
         warnings.extend(
             validate_candidates(
                 root,

@@ -70,8 +70,8 @@ under the next Model-only branch, not an independently finalized refactor.
 
 Use this independent branch only for an explicit Human reference-only request under
 [Standalone Model reference retarget](../../rules/task-contract.md#standalone-model-reference-retarget).
-Read that section, Task transition/boundary/Acceptance, issue-gate, Model sources and
-IMPORT authority before execution. Check ordinary issues for every producer and consumer;
+Read that section, Task transition/boundary/Acceptance, Model sources and
+IMPORT authority before execution. Include every producer and consumer in Validation scope;
 register a running design/update `import-retarget` parent with forbidden AWS/deploy,
 exact reference records, source/view paths and service Validation scope. Inspect
 `model.references` and raw authoritative sources; never infer identities from names
@@ -91,22 +91,15 @@ conflicts remain errors; retain the candidate on actual failure. No IT requireme
 Use this branch for an explicit human Model-only request. Register one running design
 Task with Workflow update, Model operation import-merge/import-delete, forbidden AWS
 and deploy/apply. Read [Task transition, boundary and Acceptance](../../rules/task-contract.md),
-[issue gate](../../rules/issue-gate.md), [Model sources](../../rules/model-templates.md)
+[Model sources](../../rules/model-templates.md)
 and [IMPORT authority](../../rules/model-information.md#import-configuration-authority).
 The [Model-only contract](../../rules/task-contract.md#model-only-import-operation-contract)
 defines exact pair/reference syntax and compatibility. Do not infer IDs or require pre-edits.
 
-For an explicit Human deletion request, skip the ordinary pre-contract Issue Gate stop
-and first register and validate the `import-delete` contract. After registration use
-the common task-aware Issue Gate (`require_no_issues` or `issue_gate.py --task` with the
-same selector), including on resume and before saves/final validation. Only existing
-issue stops for registered deletion source services are waived; do not require remediation
-or edit issues.md. Non-reference Model/operation/storage errors still stop deletion.
-Known reference-only Issues are warnings for every Model operation; other ordinary Issues retain their gate.
 
 The selected managed worktree is the transaction boundary. Keep the same parent Task
 selector through every operation; include all planned source/view paths and required
-direct consumers in its scope. Apply the common task-aware issue decision. The parent owns sequencing and
+direct consumers in its scope. The parent owns sequencing and
 stopping; the following leaves own their exact editing procedures:
 
 1. For an overall merge request, call [model-transfer](../../../.agents/skills/model-transfer/SKILL.md)
@@ -149,46 +142,15 @@ Do not enter the infrastructure branch below. /import separately permits acquire
 
 ## Check applicability and finish point first
 
-First determine requested environment/target/services, properties and ordinary issues
-to repair. Issue remediation ends at Model/view repair and revalidation; only ordinary
-independently authorized update/implement Tasks may target IaC or AWS reflection.
-Do not ask again about explicitly requested scope; confirm only missing decisions.
-
-- Use the ordinary update procedure below only for requests to reflect human manual model diffs into AWS. Do not add preflight, change sets/plans, or deploy/apply to requests ending at IaC.
-- For Human-requested ordinary `issues.md` repairs, follow
-  [Issue remediation](../../rules/issue-gate.md#issue-remediation). Register design/update,
-  explicit forbidden AWS API execution/deploy/apply, service Validation scope and
-  Issue remediation, without individual Issue IDs. Allow only necessary scoped
-  Model/reference corrections, guarded generated views, static validation and proven
-  ordinary issue updates. Do not require manual Model diffs or same-value IaC rewrites.
-- Matching existing IaC may be confirmation evidence. For `iac-issues.md` differences,
-  present both values, impact and Model/IaC correction options for Human decision;
-  leave the mismatch unchanged. Continue only independent ordinary repairs. Never use
-  IaC as automatic Model authority or register repair solely for an IaC mismatch.
-- Framework causes require file/function identification, impact and correction advice
-  to Human while retaining unresolved issues. Repair Tasks cannot change Framework,
-  Skills, rules, mappings, schemas, IaC or parameters, call AWS APIs or deploy/apply.
-  Do not extend the repair contract or automatically create/execute another Task.
-  Any later Human-authorized update/implement uses its normal gate and permissions
-  without the remediation exception.
-
-Limit repair Required changes and exact Allowed paths to necessary Model/view/ordinary
-issue/own-Task changes. Run service generation, existing local static validation and
-classified final validation, then finish. Do not enter the infrastructure procedure
-below. Do not reuse ordinary update AWS authorization for repairs or omit applicable
-Task checks and Issue Gate.
+First determine the requested environment/target/services and properties. Model/view
+corrections use a design/update contract with exact source/view paths, service Validation
+scope and forbidden AWS API execution/deploy/apply. Run scoped generation and classified
+validation, then finish. Reflecting approved design into IaC or AWS requires the separately
+requested implement or infrastructure update scope. Do not infer that scope from an Issue.
+For Model/IaC differences, present both values and their impact; obtain the Human's
+correction direction before changing either authority. Do not create another Task automatically.
 
 Follow [Credentials and account](../../rules/project-configuration.md#credentials-and-account) for common account/profile selection and apply [Policy account selection](../../rules/detailed-design.md#policy-account-selection) for policy-specific conditions.
-
-## Unresolved issue gate
-
-Apply [issue-gate](../../rules/issue-gate.md) and check every related service in one process.
-
-```console
-python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id> [--service <service-id> ...]
-```
-
-Issue-gate is authoritative for stops/repair exceptions. Immediately before AWS mutation, also recheck the same services with `--task`; retain controller task/issue guards.
 
 ## Optional user input
 
@@ -226,7 +188,7 @@ Do not automatically interpret existing StackName deletions/renames in stack des
 11. [Local loop](../../rules/loop-engineering.md#local-loop), [Validation scope](../../rules/loop-engineering.md#validation-scope). [Infrastructure task completion](../../rules/loop-engineering.md#infrastructure-task-completion)
 12. `framework/materials/aws/*.properties`, `framework/materials/api/*.properties`, and same-named API design schemas relevant to target resources
 13. For CloudFormation, target resource provider schemas
-- [project-configuration](../../rules/project-configuration.md) and [issue-gate](../../rules/issue-gate.md). For naming checks, [aws-resource-naming](../../rules/aws-resource-naming.md).
+- [project-configuration](../../rules/project-configuration.md). For naming checks, [aws-resource-naming](../../rules/aws-resource-naming.md).
 
 For naming rules, additionally read only service files corresponding to target resource type catalog namespaces from the common entry's Service rule lookup. Even for multiple services, read only target namespaces, not the whole naming rule directory at once. Match Catalog resource types/Naming target and patterns in selected service files.
 
@@ -296,7 +258,7 @@ Match actual Export names, values, and ExportingStackId in the same account/regi
 
 ### CloudFormation controller
 
-`cloudformation-deploy.py` is responsible for final preflight. The controller uses `deploy/context.py` SDK checks to confirm AWS identity, project targets, profiles, accounts, regions, engines, and necessary commands, enforcing task scope, issue gates, and immutable inputs. The Agent must not first run the same final deploy-context check standalone. Match explicit account/region against the same project target and pass explicit profiles to controller `--profile`. Stop for mismatches or missing credentials/permissions. Launch the controller from the registered Python environment.
+`cloudformation-deploy.py` is responsible for final preflight. The controller uses `deploy/context.py` SDK checks to confirm AWS identity, project targets, profiles, accounts, regions, engines, and necessary commands, enforcing task scope and immutable inputs. The Agent must not first run the same final deploy-context check standalone. Match explicit account/region against the same project target and pass explicit profiles to controller `--profile`. Stop for mismatches or missing credentials/permissions. Launch the controller from the registered Python environment.
 
 ```console
 python framework/scripts/cloudformation-deploy.py --environment <environment> --alias <alias> --stack <StackName> [--stack <StackName> ...] --state <repository外の同task専用session.json> [--profile <profile>]

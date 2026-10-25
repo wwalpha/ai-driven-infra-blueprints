@@ -735,7 +735,6 @@ def check_issue_task_ignores_other_task_git_changes(tmp_path):
             ),
         ):
             task.check_task_scope()
-            task.check_issue_gate()
             task.check_acceptance_checks({})
             assert task.changed_paths == task.permission_paths == set()
             assert not task.findings.errors, task.findings.errors
@@ -804,7 +803,7 @@ def check_framework_write_does_not_discover(tmp_path, scope, contract_scope):
 
 @pytest.mark.parametrize("inventory", ["### iam\n1. 未解決Issue\n", "未解決issueなし"])
 @pytest.mark.parametrize("outcome", ["success", "partial", "not_run", "common"])
-def check_integrated_generation_before_issue_gate(tmp_path, inventory, outcome, capsys):
+def check_integrated_generation_with_issues(tmp_path, inventory, outcome, capsys):
     good = tmp_path / "docs/designs/dev/123456789012/iam.md"
     rejected = good.with_name("kms.md")
     good.parent.mkdir(parents=True)
@@ -892,12 +891,7 @@ def check_integrated_generation_before_issue_gate(tmp_path, inventory, outcome, 
             )
             patches.enter_context(patch.object(sync_runtime, "validate_generation"))
             result = validator._run(snapshot)
-        assert result == int(outcome != "success" or "未解決Issue" in inventory), (
-            validator.errors
-        )
-        assert any("unresolved issue" in error for error in validator.errors) == (
-            "未解決Issue" in inventory
-        )
+        assert result == int(outcome != "success"), validator.errors
         assert good.read_bytes() == (
             b"old IAM\n" if outcome == "common" else b"new IAM\n"
         )
@@ -908,7 +902,7 @@ def check_integrated_generation_before_issue_gate(tmp_path, inventory, outcome, 
         assert issue.read_text(encoding="utf-8") == inventory
         assert (
             issue not in snapshot.contents
-        )  # Task eligibility is outside the sealed generation inputs.
+        )  # Issue reports are outside the sealed generation inputs.
         output = capsys.readouterr().out
         if outcome == "success":
             assert (

@@ -4,8 +4,6 @@ import argparse as argparse
 from functools import wraps as wraps
 
 import import_guard as _imports_import_guard
-import issue_gate as _imports_issue_gate
-import model.importing.repository as _imports_model_repository
 from task_contract_core import SELECTOR as SELECTOR
 from task_contract_core import TASK_NAME as TASK_NAME
 from task_contract_core import ContextVar as ContextVar
@@ -54,11 +52,7 @@ from task_contract_core import input_is_file as input_is_file
 from task_contract_core import input_is_symlink as input_is_symlink
 from task_contract_core import input_select as input_select
 from task_contract_core import input_text as input_text
-from task_contract_core import (
-    invalidate_task_reads,
-    issue_remediation_scope,
-    require_issue_remediation,
-)
+from task_contract_core import invalidate_task_reads
 from task_contract_core import issues_save_only as issues_save_only
 from task_contract_core import matches as matches
 from task_contract_core import memoized as memoized
@@ -100,9 +94,6 @@ def refresh(root, name, resuming=False):
             raise ValueError("completed task cannot resume")
         validate_contract(root, name, text)
         return
-    if resuming and model_operation(text) is not None:
-        require_no_issues = _imports_issue_gate.require_no_issues
-        require_no_issues(root, snapshot.scope, contract_file=name, snapshot=snapshot)
     text = set_status(text, "running")
     validate_contract(root, name, text)
     if text != snapshot.text:
@@ -117,14 +108,6 @@ def complete(root, name):
     with task_reads(root, snapshot=snapshot):
         if status(text) != "running":
             raise ValueError("only a running task can complete")
-        if issue_remediation_scope(text):
-            require_issue_remediation(
-                name,
-                text,
-                _imports_model_repository.changed_paths(
-                    root, task_file=name, require_baseline=True
-                ),
-            )
         require_import_changes = _imports_import_guard.require_import_changes
         previous = os.environ.get(SELECTOR)
         try:

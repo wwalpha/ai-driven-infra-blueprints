@@ -33,7 +33,7 @@ Allowed paths に追加してはいけません。
 `SourceWriteContext(...)`、`EditPlan(...)` の公開 constructor は保存権限を発行しません。
 policy 名、`approved=True`、ResourceMode の書き換えで権限を作れません。
 既存 Task adapter が running Task、管理 worktree、未統合状態、HEAD、scope、
-Modified files／Allowed paths、必要な issue gate を照合し、context を発行します。
+Modified files／Allowed paths を照合し、context を発行します。
 
 通常の design/update は `model.adapters.task.edit_write_context`、
 限定 Model-only 操作は `source_write_context` を使います。

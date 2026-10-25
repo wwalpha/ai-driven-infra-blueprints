@@ -122,7 +122,7 @@ pytest/direct/module completionとreceipt形式は変更しない。下記7 IT�
 
 ## Git変更パス収集の共通化 / 1024
 
-NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync UTの旧NUL解析・Git終了コードMockは削除し、公開git_pathsの委譲と例外伝播だけを残す。Loopの旧subprocess失敗Mockも共通API委譲へ置換する。Issue Gateのworking変更拒否はTask固有の許可判定なので維持する。Worktreeの改行入りディレクトリはidle_gitのbatched出力fallbackを検証するため維持する。
+NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync UTの旧NUL解析・Git終了コードMockは削除し、公開git_pathsの委譲と例外伝播だけを残す。Loopの旧subprocess失敗Mockも共通API委譲へ置換する。Worktreeの改行入りディレクトリはidle_gitのbatched出力fallbackを検証するため維持する。
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
@@ -529,7 +529,6 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `import-agent-sources::check_new_anchor_and_reference_preservation` | `check_new_anchor_and_reference_preservation` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L490) | pytest / 1 | 取得・追加候補・不変性の単体判定 | Append-only Import |
 | `import-agent-sources::check_authored_vpc_append_candidate` | `check_authored_vpc_append_candidate` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L511) | pytest / 2 | 取得・追加候補・不変性の単体判定 | Append-only Import |
 | `import-agent-sources::check_foreign_candidate_scope` | `check_foreign_candidate_scope` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py#L548) | pytest / 7 | 取得・追加候補・不変性の単体判定 | Append-only Import |
-| `unknown/issue_gate.checks.py:27` | `check_inventory_parser` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py#L270) | pytest / 1 | 変換・比較・入力検証。合成fixture内で完結 | 関数内抽出 |
 | `integrations/issues_api_only.checks.py:62` | `check_api_type_rejection` | UT | [units/issues_api_only-unit.checks.py](units/issues_api_only-unit.checks.py#L24) | pytest / 1 | Framework内部定義・入力制約の単体判定 | 関数内抽出 |
 | `unknown/issues_scan.checks.py:1622` | `check_mismatch_rendering` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 関数内抽出 |
 | `unknown/issues_scan.checks.py:1823` | `check_summary_scale` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | 単一責務を既存Fake/Mockまたは合成入力で確認 | 配置/共有fixture分離 |
@@ -703,7 +702,6 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `units/design_layout-unit.checks.py::check_pipeline_expansion` | L?: 動的 (expanded.splitlines())<br>L?: 動的 (pipeline_rows(formal_rows))<br>L?: 動的 (enumerate(rows, 1))<br>L?: 動的 (line.strip('\|').split('\|')) |
 | `units/framework-input-isolation-unit.checks.py::check_framework_input_guards` | L?: 動的 (consumer.errors) |
 | `units/glue_datazone_catalog-unit.checks.py::check_catalog_schema` | L14: 4 (('Glue.Catalog', 'DataZone.Domain', 'DataZone.Project', 'DataZone.DataSource')) |
-| `units/issue_gate-unit.checks.py::check_inventory_parser` | L42: 3 (('### ec2\n1. 差分\n', 'invalid inventory; 999 differences', '')) |
 | `units/issues_api_only-unit.checks.py::check_api_type_rejection` | L13: 動的 (catalog.api_schemas) |
 | `units/issues_scan-unit.checks.py::check_mismatch_rendering` | L27: 4 ([(None, False, 'null', 'false'), (True, 1, 'true', '1'), (1, '1', '1', '"1"'), (False, 'false', 'false', '"false"')])<br>L?: 動的 (fields({'a': 1, 'b': 2}, {'a': 3, 'b': 4}))<br>L?: 動的 (records)<br>L?: 5 (range(5))<br>L?: 動的 (duplicates)<br>L?: 動的 (entries)<br>L?: 動的 (original)<br>L?: 動的 (entries)<br>L?: 動的 (original) |
 | `units/issues_scan-unit.checks.py::check_summary_scale` | L157: 4 (('first', 'second', 'confidential', 'arn:aws:'))<br>L159: 4 ([('matched', 'complete match'), ('uncompared', 'partial'), ('excluded', 'no compared records'), ('error', 'error')])<br>L117: 動的 (stats['categories'].items())<br>L122: 2 (('naming', 'judgments'))<br>L?: 動的 (actions)<br>L?: 動的 (actions)<br>L?: 動的 (entries)<br>L?: 動的 (records)<br>L?: 動的 (stats['groups'])<br>L?: 動的 (stats['categories'].items())<br>L?: 動的 (again_actions)<br>L?: 動的 (actions)<br>L?: 動的 (again_actions)<br>L?: 動的 (actions)<br>L?: 動的 (actions)<br>L?: 動的 (actions)<br>L?: 動的 (action['members'])<br>L?: 動的 (range(0, total, 50))<br>L?: 動的 (detail_payload(artifact, section, offset, 50)['items'])<br>L?: 動的 (group['members'])<br>L?: 動的 (group['members'])<br>L?: 動的 (group['members'])<br>L?: 動的 (group['members']) |
@@ -733,7 +731,7 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `units/validation_checks/cloudformation.py::check_cloudformation_environment_parameters` | L236: 動的 (conditions)<br>L259: 動的 (selectors)<br>L285: 動的 (permitted)<br>L?: 動的 (errors(valid_template.replace('  Environment:\n    Type: String\n', ''), valid_values))<br>L?: 動的 (errors(valid_template, valid_values[1:]))<br>L?: 動的 (errors(valid_template, [{**valid_values[0], 'ParameterValue': 'prod'}, valid_values[1]]))<br>L?: 動的 (errors(valid_template, [valid_values[0], {**valid_values[1], 'ParameterValue': 'app-dev'}]))<br>L?: 動的 (errors(valid_template.replace("!Sub '${NamePrefix}-${Environment}-${AWS::AccountId}-role'", '!Ref NamePrefix'), [{'ParameterKey': 'NamePrefix', 'ParameterValue': 'app-dev-role'}]))<br>L?: 動的 (errors(yaml, valid_values))<br>L?: 動的 (errors(valid_template + loop, valid_values))<br>L?: 動的 (failures)<br>L?: 動的 (validator.errors)<br>L?: 動的 (errors('Resources: [', valid_values))<br>L?: 動的 (failures)<br>L?: 動的 (failures) |
 | `units/validation_checks/contracts.py::check_optional_alias_contract` | L26: 動的 (required.items()) |
 | `units/validation_checks/contracts.py::check_implementation_preflight_prompt` | L37: 17 (('before active contract creation or IaC generation', 'Do not execute AWS APIs, IaC generation, or deploy', 'model.validation.validate_required_properties', 'DesignSchemaCatalog.literal_errors', 'necessary dependency properties', 'authoritative stack registration', 'template/parameter mappings', 'dependency cycle', '対象file \| resource（logical ID）/stack \| property/parameter \| 不足・違反理由', 'together in one response', 'do not end the report at the first deficiency', 'If deficiencies exist, do not implement', 'without requiring additional approval', 'Do not automatically expand change scope or all-service validation', 'Japanese display Comments', 'do not automatically translate/replace invalid values', 'Do not repair designs/models/IaC here or automatically create/execute another task'))<br>L48: 18 (('Implement design inputs are only authoritative model properties', 'Do not require the Agent to compare properties and generated Markdown twice in advance', 'Do not read generated `docs/designs/<environment>/<target-directory>/*.md` bodies (including `cloudformation-stacks.md`) at Implement start, IaC generation, or reference resolution', 'Retain Markdown/JSON generation/saving and local loop consistency validation as before', 'treat them as scope selectors', 'Without reading bodies', 'path/file stem', 'If corresponding models cannot be uniquely identified, stop without guessing', 'python3 -B framework/scripts/run-python.py -B framework/scripts/model/cli.py resource model/<environment>/<target-directory>/<service>.properties <resource-selector>', 'resource number', 'Selectors require exact matches for resource number (fixed entry, such as `001`) or immutable typed logicalId', 'single files and split entry indexes', 'parents, children, and siblings in the same group required by existing specifications, and service metadata/notes', 'Service-wide scope may use entire service properties', '対象accountの承認済み設計すべて', 'Reading all target Markdown as fallback is prohibited', 'desired values, resources, references, stack assignments, or human decisions', 'stop because a design task is required'))<br>L58: 動的 (reading.splitlines())<br>L61: 8 (("read only the target's runtime Model through the logical `model/<environment>/<target-directory>/cloudformation-stacks.properties`", 'desired.stack.*.name', '`.template`', '`.parameters`', '`.deployOrder`', 'desired.deployment.maxConcurrentStacks', 'effective MaxConcurrentStacks remains 1 under the existing contract', 'do not read it as Implement input'))<br>L65: 9 (('Use only authoritative model properties', '`desired.row.*`', '`.document`', 'saved Markdown Resource links', 'common parser/resolver', 'referenced Model groups', 'parentReference', 'Resolve through producer Model saved anchors, never names, cfn-logicalId or generated Markdown', 'never emit an unresolved Resource link, PENDING_DEPLOY or an inferred physical value to IaC'))<br>L69: 7 (('blueprint-loop.py --mode task', 'read-only `sync-model.py`', 'mismatches are FAIL', 'check_design_tables', 'check_design_links', 'check_stack_designs', 'do not omit/weaken these validations')) |
-| `units/validation_checks/contracts.py::check_update_flow_prompt` | L85: 動的 (re.findall('(?:^\|`)(python\\\\s+framework/scripts/[^`\\\\n]+)', body, re.M))<br>L85: 動的 (shlex.split(line))<br>L89: 7 (('authoritative model properties', 'desired.row.*.document', 'Do not read generated Markdown bodies or generated JSON artifacts as input', 'model/cli.py resource', 'parentReference', 'saved Markdown Resource links', 'required parts'))<br>L92: 動的 (reading.splitlines())<br>L95: 動的 (instructions)<br>L99: 8 (('desired.stack.*.name', '.template', '.parameters', '.deployOrder', 'desired.deployment.maxConcurrentStacks', 'workspace', 'backend', 'variable input'))<br>L109: 7 (('--read-only', 'describe-stacks', 'list-exports', 'ExportingStackId', 'NOT_STARTED', '--pause-after-group', 'do not run it in ordinary CloudFormation update'))<br>L115: 5 (('--environment', '--alias', '--stack', '--state', '--profile'))<br>L117: 10 (('responsible for final preflight', 'account', 'region', 'issue gate', 'immutable input', 'SDK', 'validate-template', 'MaxConcurrentStacks', 'COMPLETE', '--resume'))<br>L122: 動的 (tf_commands)<br>L125: 7 (('terraform fmt -check', 'terraform validate', 'terraform plan -out=', 'terraform apply', 'saved plan binary', 'partial apply', 'AWS_PROFILE'))<br>L132: 7 (('owned by the controller', 'model.adapters.observed', 'IDENTIFIER_OUTPUT', 'PhysicalResourceId', 'all references', 'must not rerun', 'AMBIGUOUS_OBSERVED_MAPPING'))<br>L135: 動的 (cfn_post.splitlines())<br>L137: 7 (('Terraform output', 'state', 'non-sensitive', 'IDENTIFIER_OUTPUT', 'all references', 'PENDING_DEPLOY', 'sync-model.py --write'))<br>L141: 7 (('unexecuted', 'wait for human confirmation', '--approve-change-set', 'CREATE_COMPLETE/AVAILABLE', 'fingerprint', 'Do not execute with only partial approval', 'Do not reuse prior approval'))<br>L149: 7 (('Validation scope', 'Acceptance checks', 'read-only', 'mismatches are FAIL', 'validation cache', 'service parallelism', 'do not add all framework regression'))<br>L162: 動的 (enumerate(regressions, 1)) |
+| `units/validation_checks/contracts.py::check_update_flow_prompt` | L85: 動的 (re.findall('(?:^\|`)(python\\\\s+framework/scripts/[^`\\\\n]+)', body, re.M))<br>L85: 動的 (shlex.split(line))<br>L89: 7 (('authoritative model properties', 'desired.row.*.document', 'Do not read generated Markdown bodies or generated JSON artifacts as input', 'model/cli.py resource', 'parentReference', 'saved Markdown Resource links', 'required parts'))<br>L92: 動的 (reading.splitlines())<br>L95: 動的 (instructions)<br>L99: 8 (('desired.stack.*.name', '.template', '.parameters', '.deployOrder', 'desired.deployment.maxConcurrentStacks', 'workspace', 'backend', 'variable input'))<br>L109: 7 (('--read-only', 'describe-stacks', 'list-exports', 'ExportingStackId', 'NOT_STARTED', '--pause-after-group', 'do not run it in ordinary CloudFormation update'))<br>L115: 5 (('--environment', '--alias', '--stack', '--state', '--profile'))<br>L117: 10 (('responsible for final preflight', 'account', 'region', 'immutable input', 'SDK', 'validate-template', 'MaxConcurrentStacks', 'COMPLETE', '--resume'))<br>L122: 動的 (tf_commands)<br>L125: 7 (('terraform fmt -check', 'terraform validate', 'terraform plan -out=', 'terraform apply', 'saved plan binary', 'partial apply', 'AWS_PROFILE'))<br>L132: 7 (('owned by the controller', 'model.adapters.observed', 'IDENTIFIER_OUTPUT', 'PhysicalResourceId', 'all references', 'must not rerun', 'AMBIGUOUS_OBSERVED_MAPPING'))<br>L135: 動的 (cfn_post.splitlines())<br>L137: 7 (('Terraform output', 'state', 'non-sensitive', 'IDENTIFIER_OUTPUT', 'all references', 'PENDING_DEPLOY', 'sync-model.py --write'))<br>L141: 7 (('unexecuted', 'wait for human confirmation', '--approve-change-set', 'CREATE_COMPLETE/AVAILABLE', 'fingerprint', 'Do not execute with only partial approval', 'Do not reuse prior approval'))<br>L149: 7 (('Validation scope', 'Acceptance checks', 'read-only', 'mismatches are FAIL', 'validation cache', 'service parallelism', 'do not add all framework regression'))<br>L162: 動的 (enumerate(regressions, 1)) |
 | `units/validation_checks/contracts.py::check_design_handoff_prompt` | 1（内部パラメータ化なし） |
 | `units/validation_checks/contracts.py::check_rule_reading_contract` | L196: 動的 (sources)<br>L198: 動的 (markdown_prose(text))<br>L199: 動的 (re.findall('(?<!!)\\\\[[^\\\\]]+\\\\]\\\\(([^)]+)\\\\)', prose))<br>L212: 6 (('framework/scripts/deploy_preparation.py', 'framework/scripts/validation_cache.py', 'framework/scripts/validation/framework_contracts.py', 'README.md', '.agents/skills/worktree/SKILL.md', 'framework/rules/loop-engineering.md')) |
 | `units/validation_checks/design.py::check_catalog_inputs` | 1（内部パラメータ化なし） |
@@ -1093,7 +1091,7 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `integrations/validation_checks/scope.py::check_deployment_iac_scope` | L41: 2 (('dev', 'stg'))<br>L46: 2 ((('dev', 'deploy'), ('stg', 'update')))<br>L54: 動的 (values.items())<br>L86: 2 (('dev', 'stg'))<br>L97: 動的 (validator.errors)<br>L100: 動的 (validator.errors)<br>L107: 動的 (validator.errors)<br>L111: 動的 (validator.errors)<br>L114: 動的 (validator.errors) |
 | `integrations/validation_checks/task.py::check_task_contract` | L?: 動的 (validator.errors) |
 | `integrations/validation_checks/task.py::check_idle_without_active_task` | L?: 動的 (validator.errors) |
-| `integrations/validation_checks/task.py::check_destroy_phase` | L143: 16 (('check_structure', 'check_task_scope', 'check_tasks', 'check_project_topology', 'check_validation_scope', 'check_model_files', 'check_issue_gate', 'check_task_type_requirements', 'check_initialized_paths', 'check_catalog', 'check_resource_layout', 'check_scoped_designs', 'check_designs', 'check_observed_values', 'check_acceptance_checks', *banned))<br>L?: 動的 (validator.errors)<br>L?: 動的 (validator.errors)<br>L?: 動的 (validator.errors) |
+| `integrations/validation_checks/task.py::check_destroy_phase` | L143: 16 (('check_structure', 'check_task_scope', 'check_tasks', 'check_project_topology', 'check_validation_scope', 'check_model_files', 'check_task_type_requirements', 'check_initialized_paths', 'check_catalog', 'check_resource_layout', 'check_scoped_designs', 'check_designs', 'check_observed_values', 'check_acceptance_checks', *banned))<br>L?: 動的 (validator.errors)<br>L?: 動的 (validator.errors)<br>L?: 動的 (validator.errors) |
 | `integrations/validation_checks/task.py::check_task_type_dispatch` | L160: 2 ((('vpc', 'EC2.VPC', 'Name'), ('cloudwatch-logs', 'Logs.LogGroup', 'LogGroupName'))) |
 | `integrations/validation_checks/task.py::check_task_type_cases` | L180: 動的 (valid.items())<br>L223: 6 (({'model/parameters/dev/cde/cloudwatch-logs/parameters.yaml'}, {'model/templates/cde/cloudwatch-logs.properties.tpl'}, {'model/parameters/dev/cde/cloudwatch-logs/parameters.yaml', 'model/parameters/dev/cde/vpc/parameters.yaml', 'docs/designs/dev/cde/vpc.md'}, {'docs/designs/dev/cde/vpc.md'}, {'docs/designs/dev/cde/iam/role01-policy.json'}, set()))<br>L?: 動的 (validator.errors)<br>L?: 動的 (changed) |
 | `integrations/validation_checks/terraform.py::check_cli` | L37: 2 (('dev', 'stg'))<br>L42: 4 ((['fmt'], ['fmt', '-check'], ['init', '-backend=false', '-input=false'], ['validate'])) |
@@ -1360,45 +1358,6 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `unknown/glue_datazone_catalog.checks.py:152` / `main` | IT | `integrations/glue_datazone_catalog.checks.py:41` | `assert original == {path: path.read_bytes() for path in (glue, datazone)}` |
 | `unknown/glue_datazone_catalog.checks.py:151` / `main` | IT | `integrations/glue_datazone_catalog.checks.py:40` | `raise AssertionError('legacy model with internal-ID headings was silently adopted')` |
 | `unknown/glue_datazone_catalog.checks.py:149` / `main` | IT | `integrations/glue_datazone_catalog.checks.py:38` | `assert 'anchor must be unique and match its name' in str(error)` |
-| `unknown/issue_gate.checks.py:27` / `main` | UT | `units/issue_gate-unit.checks.py:15` | `assert not issue_errors(root, scope)` |
-| `unknown/issue_gate.checks.py:32` / `main` | UT | `units/issue_gate-unit.checks.py:20` | `assert len(issue_errors(root, scope)) == 1` |
-| `unknown/issue_gate.checks.py:33` / `main` | UT | `units/issue_gate-unit.checks.py:21` | `assert not issue_errors(root, {('prod', 'cde', 'ec2')})` |
-| `unknown/issue_gate.checks.py:34` / `main` | UT | `units/issue_gate-unit.checks.py:22` | `assert not issue_errors(root, {('dev', 'non-cde', 'ec2')})` |
-| `unknown/issue_gate.checks.py:35` / `main` | UT | `units/issue_gate-unit.checks.py:23` | `assert not issue_errors(root, {('dev', 'cde', 's3')})` |
-| `unknown/issue_gate.checks.py:36` / `main` | UT | `units/issue_gate-unit.checks.py:24` | `assert not issue_errors(root, set())` |
-| `unknown/issue_gate.checks.py:37` / `main` | UT | `units/issue_gate-unit.checks.py:25` | `assert issue_errors(root, None)` |
-| `unknown/issue_gate.checks.py:39` / `main` | UT | `units/issue_gate-unit.checks.py:27` | `assert len(issue_errors(root, scope)) == 2` |
-| `unknown/issue_gate.checks.py:41` / `main` | UT | `units/issue_gate-unit.checks.py:29` | `assert issue_errors(root, scope)` |
-| `unknown/issue_gate.checks.py:42` / `main` | UT | `units/issue_gate-unit.checks.py:23` | `assert not issue_errors(root, {('dev', 'cde', 's3')})` |
-| `unknown/issue_gate.checks.py:44` / `main` | UT | `units/issue_gate-unit.checks.py:32` | `assert 'ambiguous' in issue_errors(root, {('dev', 'cde', 's3')})[0]` |
-| `unknown/issue_gate.checks.py:45` / `main` | UT | `units/issue_gate-unit.checks.py:33` | `assert issue_errors(root, scope, remediation=scope)` |
-| `unknown/issue_gate.checks.py:47` / `main` | UT | `units/issue_gate-unit.checks.py:29` | `assert issue_errors(root, scope)` |
-| `unknown/issue_gate.checks.py:49` / `main` | UT | `units/issue_gate-unit.checks.py:15` | `assert not issue_errors(root, scope)` |
-| `unknown/issue_gate.checks.py:51` / `main` | UT | `units/issue_gate-unit.checks.py:15` | `assert not issue_errors(root, scope)` |
-| `unknown/issue_gate.checks.py:53` / `main` | UT | `units/issue_gate-unit.checks.py:15` | `assert not issue_errors(root, scope)` |
-| `unknown/issue_gate.checks.py:58` / `main` | UT | `units/issue_gate-unit.checks.py:29` | `assert issue_errors(root, scope)` |
-| `unknown/issue_gate.checks.py:59` / `main` | UT | `units/issue_gate-unit.checks.py:23` | `assert not issue_errors(root, {('dev', 'cde', 's3')})` |
-| `unknown/issue_gate.checks.py:72` / `main` | IT | `integrations/issue_gate.checks.py:32` | `assert instance.errors` |
-| `unknown/issue_gate.checks.py:77` / `main` | IT | `integrations/issue_gate.checks.py:37` | `assert not instance.errors` |
-| `unknown/issue_gate.checks.py:117` / `main` | IT | `integrations/issue_gate.checks.py:32` | `assert instance.errors` |
-| `unknown/issue_gate.checks.py:122` / `main` | IT | `integrations/issue_gate.checks.py:32` | `assert instance.errors` |
-| `unknown/issue_gate.checks.py:126` / `main` | IT | `integrations/issue_gate.checks.py:32` | `assert instance.errors` |
-| `unknown/issue_gate.checks.py:167` / `main` | IT | `integrations/issue_gate.checks.py:126` | `assert subprocess.run(command, capture_output=True).returncode == 1` |
-| `unknown/issue_gate.checks.py:168` / `main` | IT | `integrations/issue_gate.checks.py:127` | `assert subprocess.run([*command, '--task'], capture_output=True).returncode == 0` |
-| `unknown/issue_gate.checks.py:56` / `main` | UT | `units/issue_gate-unit.checks.py:15` | `assert not issue_errors(root, scope)` |
-| `unknown/issue_gate.checks.py:88` / `main` | IT | `integrations/issue_gate.checks.py:37` | `assert not instance.errors` |
-| `unknown/issue_gate.checks.py:91` / `main` | IT | `integrations/issue_gate.checks.py:37` | `assert not instance.errors` |
-| `unknown/issue_gate.checks.py:133` / `main` | IT | `integrations/issue_gate.checks.py:93` | `raise AssertionError('model save bypassed issues')` |
-| `unknown/issue_gate.checks.py:183` / `main` | IT | `integrations/issue_gate.checks.py:142` | `raise AssertionError('all-scope remediation accepted')` |
-| `unknown/issue_gate.checks.py:108` / `main` | IT | `integrations/issue_gate.checks.py:68` | `assert instance.errors, (task_type, allowed, changed)` |
-| `unknown/issue_gate.checks.py:131` / `main` | IT | `integrations/issue_gate.checks.py:91` | `assert 'unresolved issue blocks task' in str(error)` |
-| `unknown/issue_gate.checks.py:148` / `main` | IT | `integrations/issue_gate.checks.py:107` | `raise AssertionError('deploy preflight bypassed issues')` |
-| `unknown/issue_gate.checks.py:149` / `main` | IT | `integrations/issue_gate.checks.py:108` | `run.assert_not_called()` |
-| `unknown/issue_gate.checks.py:176` / `main` | IT | `integrations/issue_gate.checks.py:135` | `raise AssertionError('invalid remediation scope accepted')` |
-| `unknown/issue_gate.checks.py:146` / `main` | IT | `integrations/issue_gate.checks.py:105` | `assert 'unresolved issue' in str(error)` |
-| `unknown/issue_gate.checks.py:158` / `main` | IT | `integrations/issue_gate.checks.py:117` | `raise AssertionError('AWS mutation bypassed issues')` |
-| `unknown/issue_gate.checks.py:159` / `main` | IT | `integrations/issue_gate.checks.py:108` | `run.assert_not_called()` |
-| `unknown/issue_gate.checks.py:156` / `main` | IT | `integrations/issue_gate.checks.py:105` | `assert 'unresolved issue' in str(error)` |
 | `unknown/lambda_permission.checks.py:93` / `main` | UT | `units/lambda_permission-unit.checks.py:12` | `assert not layout_errors(ROOT)` |
 | `unknown/lambda_permission.checks.py:94` / `main` | UT | `units/lambda_permission-unit.checks.py:13` | `assert formal_property('Permission.Action', FUNCTION) == PERMISSION + '.Action'` |
 | `unknown/lambda_permission.checks.py:149` / `main` | IT | `integrations/lambda_permission.checks.py:66` | `assert properties(read_model(source)) == properties(HELPERS.text(values))` |
@@ -1662,7 +1621,6 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `support/framework_input_isolation_fixtures.py` | import/定数/共通fixture |
 | `support/glue_datazone_catalog_fixtures.py` | write_designs |
 | `support/import_model_fixtures.py` | check, AwsCli, project_fixture, spec, metadata, binding, declaration, save_service, build_seed, fixture, aws, stage, correspondence, exclusions, logs_edit, publish_fixture, snapshot |
-| `support/issue_gate_fixtures.py` | import/定数/共通fixture |
 | `support/issues_api_only_fixtures.py` | cli_exit |
 | `support/issues_scan_fixtures.py` | write, write_report, render_iac, fixture, task, compare, mutate_template, expect_error, concurrency, summary_fixture, protected_sources, scan_project |
 | `support/json_yaml_document_hash_fixtures.py` | import/定数/共通fixture |
@@ -1712,10 +1670,6 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `integrations/glue_datazone_catalog.checks.py:29` | 2: `((glue, glue_model), (datazone, datazone_model))` |
 | `integrations/group-03-input-references.checks.py:128` | 2: `[('iam', 'IAM.InstanceProfile', 'IAM.InstanceProfile.InstanceProfileName'), ('kms', 'KMS.Key', None)]` |
 | `integrations/human-inputs-group-05.checks.py:289` | 動的: `sorted(SERVICES)` |
-| `integrations/issue_gate.checks.py:39` | 3: `('issues.md', 'iac-issues.md', 'diff.md')` |
-| `integrations/issue_gate.checks.py:128` | 3: `('- `dev/cde/s3`', '- `all`', '- `dev/cde/ec2`\n- `dev/cde/ec2`')` |
-| `integrations/issue_gate.checks.py:53` | 9: `(('design', investigation, report), ('infrastructure', investigation, report), ('migration', investigation, 'model/dev/cde/ec2.properties'), ('migration', investigation + '- `infra/**`\n', report), ('migration', investigation, 'infra/dev/cde/ec2.yaml'), ('migration', investigation, f'issues/prod/cde/{name}'), ('migration', investigation.replace('## Validation scope', '## Missing scope'), report), ('migration', investigation.replace('dev/cde/ec2', 'all'), report), ('migration', investigation.replace(report, f'issues/prod/cde/{name}'), report))` |
-| `integrations/issue_gate.checks.py:111` | 2: `('create-change-set', 'execute-change-set')` |
 | `integrations/lambda_permission.checks.py:20` | 4: `((1, 0, False), (1, 1, False), (2, 2, False), (2, 2, True))` |
 | `integrations/lambda_permission.checks.py:38` | 2: `('parentProperty', 'parentReference')` |
 | `integrations/lambda_permission.checks.py:48` | 10: `((output.replace('Permission.Action', 'Permission.Id', 1), 'must not be displayed'), (output.replace('Permission.Action', 'Permission.FunctionName', 1), 'must not be displayed'), (output.replace('<!-- lambda-permission: [', '<!-- lambda-permission: broken[', 1), 'invalid Lambda Permission metadata'), (output.replace('Permission.Action', 'Lambda.Permission.Action', 1), 'Permission.*'), (output.replace('<!-- lambda-permission:', '<!-- invalid-permission:', 1), 'complete identity'), (output.replace('<!-- logical-id: Invoke1_1 -->', '', 1), 'complete identity'), (output.replace('<!-- logical-id: Invoke1_2 -->', '<!-- logical-id: Invoke1_1 -->', 1), 'duplicate grouped'), (output.replace('Permission.Principal', 'Permission.Action', 1), 'duplicate Lambda Permission'), (output.replace('[Worker1]\\u0028#lambda-app-dev-worker-1\\u0029', '[Wrong]\\u0028#lambda-wrong\\u0029', 1), 'must reference enclosing'), (output.replace('"Lambda.Permission.Id"', '"Wrong.Id"', 1), 'invalid Lambda Permission metadata'))` |
@@ -1829,7 +1783,6 @@ main/module検証地点の現在配置: integrations=305, units=232。
 | `export-design-pdf.checks.py` | `main` | IT | [integrations/export-design-pdf.checks.py](integrations/export-design-pdf.checks.py#L41) | direct_group / 1 |
 | `glue_datazone_catalog.checks.py` | `main` | IT | [integrations/glue_datazone_catalog.checks.py](integrations/glue_datazone_catalog.checks.py#L26) | direct_group / 1 |
 | `group-03-input-references.checks.py` | `__module__` | IT | [integrations/group-03-input-references.checks.py](integrations/group-03-input-references.checks.py) | module / 1 |
-| `issue_gate.checks.py` | `main` | IT | [integrations/issue_gate.checks.py](integrations/issue_gate.checks.py#L27) | direct_group / 1 |
 | `lambda_permission.checks.py` | `main` | IT | [integrations/lambda_permission.checks.py](integrations/lambda_permission.checks.py#L29) | direct_group / 1 |
 | `regression_guard.checks.py` | `check_install_and_verify` | UT | [units/regression_guard-unit.checks.py](units/regression_guard-unit.checks.py#L49) | pytest / 1 |
 | `resource_mode.checks.py` | `main` | IT | [integrations/resource_mode.checks.py](integrations/resource_mode.checks.py#L50) | direct_group / 1 |
@@ -2036,7 +1989,6 @@ partial-cache validation spies on compare_generation with the full consumer scop
 ## Resource Delete parent transaction units
 
 `units/resource-delete-unit.checks.py` retains source deletion, identity/raw-value preservation,
-reference detach/retarget, warnings, Issue Gate and failed-leaf rollback assertions.
 Its authored Model helpers are shared by `support/resource_delete_fixtures.py`.
 The pre-commit incomplete-leaf assertion is in Worktree guard UT; actual failed-candidate
 repair, one final check, one ff-only merge and cleanup are in Worktree operation IT.
@@ -2297,16 +2249,6 @@ Properties v2 の追加移行対応（model-properties-v2）:
 | `existing-ut-inventory` | `check_configuration_index_reuses_scans_and_keeps_raw_fields` | UT | [units/import-references-unit.checks.py](units/import-references-unit.checks.py#L802) | pytest / 1 | configuration index reuses scans and keeps raw fields | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_configuration_index_preserves_exception_priority` | UT | [units/import-references-unit.checks.py](units/import-references-unit.checks.py#L833) | pytest / 1 | configuration index preserves exception priority | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_observation_index_keeps_every_legacy_prefix` | UT | [units/import-references-unit.checks.py](units/import-references-unit.checks.py#L848) | pytest / 1 | observation index keeps every legacy prefix | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_deletion_gate_and_task_validation` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py#L134) | pytest / 1 | deletion gate and task validation | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_ordinary_issue_gate_restored` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py#L152) | pytest / 5 | ordinary issue gate restored | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_deletion_contract_fail_closed` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py#L180) | pytest / 9 | deletion contract fail closed | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_deletion_scope_fail_closed` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py#L190) | pytest / 4 | deletion scope fail closed | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_deletion_task_selection` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py#L196) | pytest / 1 | deletion task selection | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_remediation_still_requires_explicit_scope` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py#L206) | pytest / 1 | remediation still requires explicit scope | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_deletion_cli_requires_task_opt_in` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py#L219) | pytest / 2 | deletion cli requires task opt in | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_resume_issue_gate` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py#L228) | pytest / 2 | resume issue gate | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_generation_ignores_issues` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py) | pytest / 8 | 実Model Git差分とIssueを配置し、実require_import_changes経由のCLI/runtime生成は未解決・他サービス・所有不明Issueで停止せず、生成エラーは伝播しIssue本文を保持 | 既存UT更新 |
-| `generation-import-issue-gate` | `check_generation_preserves_model_guards` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py) | pytest / 4 | 実Model Git差分と未解決Issueでgeneration=FalseはGate停止、generation=TrueもAllowed paths・Validation scope・参照不整合を実Guardで拒否 | 追加。部分保存とTask最終Gateは既存sync-model-unitのcheck_integrated_generation_before_issue_gateが所有 |
 | `existing-ut-inventory` | `check_parse` | UT | [units/json-format.checks.py](units/json-format.checks.py#L32) | pytest / 4 | parse | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_errors` | UT | [units/json-format.checks.py](units/json-format.checks.py#L45) | pytest / 12 | errors | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_model_overflow_only` | UT | [units/json-format.checks.py](units/json-format.checks.py#L52) | pytest / 3 | model overflow only | 既存テストの登録漏れ補完・本体変更なし |
@@ -2373,7 +2315,6 @@ Properties v2 の追加移行対応（model-properties-v2）:
 | `existing-ut-inventory` | `check_fifth_save_failure_retains_first_four` | UT | [units/resource-delete-unit.checks.py](units/resource-delete-unit.checks.py#L165) | pytest / 2 | fifth save failure retains first four | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_finalize_rejects_incomplete_leaves` | UT | [units/worktree-model-guard-unit.checks.py](units/worktree-model-guard-unit.checks.py#L48) | pytest / 1 | finalize rejects incomplete leaves | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_related_retarget` | UT | [units/resource-delete-unit.checks.py](units/resource-delete-unit.checks.py#L199) | pytest / 1 | related retarget | 既存テストの登録漏れ補完・本体変更なし |
-| `existing-ut-inventory` | `check_delete_issue_exception_is_service_scoped` | UT | [units/resource-delete-unit.checks.py](units/resource-delete-unit.checks.py#L216) | pytest / 1 | delete issue exception is service scoped | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_one_parent_merge_and_failed_candidate_repair` | IT | [integrations/worktree-model-operation.checks.py](integrations/worktree-model-operation.checks.py#L44) | pytest / 1 | 複数serviceの削除Transaction、失敗candidate保持・修復・1 Merge・cleanup | 統合境界のみ |
 | `existing-ut-inventory` | `check_batch_operation_contract` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py#L227) | pytest / 1 | batch operation contract | 既存テストの登録漏れ補完・本体変更なし |
 | `existing-ut-inventory` | `check_idle_git_paths_and_state` | UT | [units/worktree-guard-unit.checks.py](units/worktree-guard-unit.checks.py#L262) | pytest / 6 | idle git paths and state | 既存テストの登録漏れ補完・本体変更なし |
@@ -2616,7 +2557,6 @@ import-model/import-cli/Worktree/Full IT、cProfile、性能用追加実行は�
 | `resource-impact::changes` | `check_resource_changes` | IT | [integrations/model_impact.checks.py](integrations/model_impact.checks.py#L293) | direct / 1 | 更新・削除・旧新参照・Resource連鎖・複数Service和集合 | Resource impact |
 | `resource-impact::semantics` | `check_semantic_boundaries` | IT | [integrations/model_impact.checks.py](integrations/model_impact.checks.py#L323) | direct / 1 | コメント・表示・採番・Observed・project変更 | Resource impact |
 | `resource-impact::fallback` | `check_stack_context_and_fallback` | IT | [integrations/model_impact.checks.py](integrations/model_impact.checks.py#L361) | direct / 1 | Stack・Context・不明参照・不正旧Model修復 | Resource impact |
-| `resource-impact::routes` | `check_task_snapshot_routes` | IT | [integrations/model_impact.checks.py](integrations/model_impact.checks.py#L425) | direct / 1 | 実managed保存・Candidate・stage/commit・最終Validation・Issue Gate・Snapshot/graph回数 | Resource impact |
 | `resource-impact::internal-ids` | `check_internal_ids_and_comments` | UT | [units/model-impact-unit.checks.py](units/model-impact-unit.checks.py#L40) | pytest / 1 | Resource/Row/Reference番号・表示と意味的差分 | Resource impact |
 | `resource-impact::cycles` | `check_minimal_fallback_and_cycles` | UT | [units/model-impact-unit.checks.py](units/model-impact-unit.checks.py#L54) | pytest / 1 | Resource/Service境界と循環停止 | Resource impact |
 | `resource-impact::invalid` | `check_invalid_baseline_and_counter` | UT | [units/model-impact-unit.checks.py](units/model-impact-unit.checks.py#L67) | pytest / 1 | 不正旧Modelと不明採番の局所fallback | Resource impact |
@@ -2647,7 +2587,6 @@ import-model/import-cli/Worktree/Full IT、cProfile、性能用追加実行は�
 | A | worktree_task / worktree_python / guard / managed Import boundary | 所有・Task基準・専用Python・create/merge/finalize/cleanup・中断復旧を専用ケースで検証 |
 | A | Deploy managed delivery 2条件、Delete parent integration | 実checkpoint→child登録→static検証→親FF→cleanupとその証跡・再開を専用ITへ移動。normal/mergeの異なる統合境界を保持し、Deleteは失敗修復に一本化 |
 | B | Model properties/repair、Impact、CloudFormation deploy/destroy、group05、JSON hash、explicit values、Import process 5条件、Deploy request/acceptance/retry/CFN cleanup 13条件 | `repository_fixtures`の通常Git候補へ変更。実Task・Model・生成・保存・rollback・プロセス終了/復旧を保持 |
-| C | Import repository、Model intermediate save、retarget、sync/Issue Gate baseline | 合成所有者/worktree/mergedレコードを撤去。業務側はpublication revision能力と通常のTask Git基準を渡す。所有者・未完leaf・finalize承認・managed基準の拒否は専用UT/IT |
 | D | Git init/commit/diff、Reviewの公開worktreeフィールド、Framework参照整合性 | 通常Git・証跡データの検証でありLifecycleではないため保持 |
 
 Importの所有境界は `check_import_managed_contract_boundaries` の別Worktree拒否、
@@ -2667,7 +2606,6 @@ publication能力だけを渡し、管理状態を生成・Mockしない。既�
 |---|---|---|---|---|---|---|
 | `worktree-separation::candidate` | `check_model_finalize_cannot_bypass_candidate` | UT | [units/worktree-model-guard-unit.checks.py](units/worktree-model-guard-unit.checks.py#L63) | pytest / 2 | retarget/Delete承認による最終候補検証迂回を拒否 | Worktree integration |
 | `worktree-separation::baseline` | `check_git_baseline_fail_closed` | UT | [units/worktree-model-guard-unit.checks.py](units/worktree-model-guard-unit.checks.py#L83) | pytest / 1 | managed基準・unborn・故障伝播 | Worktree integration |
-| `worktree-separation::issue-owner` | `check_issue_gate_rejects_foreign_managed_task` | UT | [units/worktree-model-guard-unit.checks.py](units/worktree-model-guard-unit.checks.py#L108) | pytest / 1 | Issue Gateがmanaged Task不一致を伝播 | Worktree integration |
 | `worktree-separation::policy` | `check_repository_policy` | UT | [units/worktree-test-policy-unit.checks.py](units/worktree-test-policy-unit.checks.py#L23) | pytest / 1 | 全UT/IT/supportの非専用依存0 | Recurrence |
 | `worktree-separation::dependencies` | `check_direct_and_indirect` | UT | [units/worktree-test-policy-unit.checks.py](units/worktree-test-policy-unit.checks.py#L34) | pytest / 5 | 直接/間接/Mock/dynamic fixture依存とLifecycle形状のfixtureを拒否 | Recurrence |
 | `worktree-separation::rename` | `check_filename_grants_no_authority` | UT | [units/worktree-test-policy-unit.checks.py](units/worktree-test-policy-unit.checks.py#L43) | pytest / 1 | 改名による許可拡大を拒否 | Recurrence |
@@ -2691,7 +2629,6 @@ reads and directory enumeration. Its 20 conditions cover explicit selection (inc
 intentional isolation from unrelated malformed Tasks), implicit/catalog reuse, immutable
 worker transfer with independent memo state, live content/status/newline/selector/catalog
 changes, cache publication rejection, Task update invalidation, mutation I/O budgets and
-Import/Model publication revision checks. Existing task-contract, approval, Issue Gate,
 Deploy session and publication suites retain their safety assertions. No Git/worktree
 integration or live AWS operation is used by the new suite.
 
@@ -3106,18 +3043,16 @@ ITは10関数・21条件から7関数・7条件へ再構成。外側Loop CLIは3
 | `check_deploy_scope_isolation:184` result.returncode != 0 and 'FAIL git-diff-check' in result.stdout | IT `validation_checks/scope::check_deployment_iac_scope`（Scope/JSON）、UT `blueprint-loop-unit::check_unit_dispatch`（2種diff・CRLF設定）、IT `worktree_task`（実Git whitespace） | 重複削除 |
 | `check_deploy_scope_isolation:186` result.returncode != 0 and 'FAIL git-diff-check' in result.stdout | IT `validation_checks/scope::check_deployment_iac_scope`（Scope/JSON）、UT `blueprint-loop-unit::check_unit_dispatch`（2種diff・CRLF設定）、IT `worktree_task`（実Git whitespace） | 重複削除 |
 | `_callback_check_task_service_validation_run:195` 'START validate-blueprint.py' in result.stdout | IT `_callback_check_task_service_validation_run` | 維持 |
-| `_callback_check_task_service_validation_run:196` 'validation scope: dev/123456789012/logs' in result.stdout or result.returncode != 0 | IT `check_task_service_validation`（正常接続）＋UT `check_unit_dispatch`（fresh/profile、cache/workerオプション）＋UT `issue_gate-unit::check_ordinary_issue_gate_restored`（Issue Gate）＋IT `validation_scope`（scope mismatch / 対象外不正入力） | 重複削除 |
+| `_callback_check_task_service_validation_run:196` 'validation scope: dev/123456789012/logs' in result.stdout or result.returncode != 0 | IT `check_task_service_validation`（正常接続）＋UT `check_unit_dispatch`（fresh/profile、cache/workerオプション）＋IT `validation_scope`（scope mismatch / 対象外不正入力） | 重複削除 |
 | `_callback_check_task_service_validation_run:197` 'START git-diff-check' in result.stdout | IT `_callback_check_task_service_validation_run` | 維持 |
 | `_callback_check_task_service_validation_run:198` 'framework regression: skipped' in result.stdout | IT `_callback_check_task_service_validation_run` | 維持 |
-| `_callback_check_task_service_validation_run:199` 'START blueprint-loop-unit.checks.py' not in result.stdout | IT `check_task_service_validation`（正常接続）＋UT `check_unit_dispatch`（fresh/profile、cache/workerオプション）＋UT `issue_gate-unit::check_ordinary_issue_gate_restored`（Issue Gate）＋IT `validation_scope`（scope mismatch / 対象外不正入力） | 重複削除 |
+| `_callback_check_task_service_validation_run:199` 'START blueprint-loop-unit.checks.py' not in result.stdout | IT `check_task_service_validation`（正常接続）＋UT `check_unit_dispatch`（fresh/profile、cache/workerオプション）＋IT `validation_scope`（scope mismatch / 対象外不正入力） | 重複削除 |
 | `check_task_service_validation:239` result.returncode == 0 | IT `check_task_service_validation` | 維持 |
 | `check_task_service_validation:275` result.returncode == 0 and 'PASS (0 framework regression scripts)' in result.stdout | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
 | `check_task_service_validation:280` fresh.returncode == 0 and '1 executed, 0 reused; workers: 1' in fresh.stdout | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
 | `check_task_service_validation:281` list((tmp_path / 'logs').glob('*/validate-blueprint.prof')) | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
 | `check_task_service_validation:283` any((Path(file).name == 'sync_runtime.py' for file, _, _ in pstats.Stats(str(profile)).stats)) | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
-| `check_task_service_validation:288` blocked.returncode and 'unresolved issue blocks task' in blocked.stdout | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
 | `check_task_service_validation:289` tasks.status(active.read_text()) == 'suspend' | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
-| `check_task_service_validation:290` 'unresolved issue blocks task' in '\n'.join(tasks.section(active.read_text(), '## Suspension reason')) | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
 | `check_task_service_validation:297` result.returncode != 0 and 'changed design path is outside validation scope' in result.stdout | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
 | `check_task_service_validation:311` result.returncode == 0 | IT `check_task_service_validation` | 維持 |
 | `check_task_service_validation:315` result.returncode != 0 and 'generated Markdown is stale' in result.stdout | UT `sync-model-unit::check_readonly_stale_views`（一致・不一致・無書込）＋IT `validation_scope`（対象外不正入力 / allの対象選択）＋UT `check_unit_dispatch`（all伝達） | 重複削除 |
@@ -3307,8 +3242,7 @@ Cacheは現行PassCacheの呼出し内限定仕様を維持する。旧67条件�
 | `sync-15::check_snapshot_symlink_safety` | `check_snapshot_symlink_safety` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L798) | pytest / 2 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
 | `sync-15::check_internal_sync_selection` | `check_internal_sync_selection` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L832) | pytest / 4 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
 | `sync-15::check_failure_counts` | `check_failure_counts` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 8 | 成功/失敗/NOT_RUN件数、独立エラー優先、診断と保存済み参照WARNの分離 | 既存UT更新 |
-| `generation-issue-gate::integrated` | `check_integrated_generation_before_issue_gate` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 8 | Issue有無×正常/部分失敗/NOT_RUN/共通整合性失敗。候補生成検証はMock、実publication・Task Gate・成功保存・失敗View保持・seal後のIssue判定を検証 | 追加 |
-| `generation-issue-gate::not-run` | `check_reference_not_run_is_not_generation_pass` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 1 | 参照NOT_RUNのみの生成結果を完全成功にしない | 追加 |
+| `generation-publication::issues` | `check_integrated_generation_with_issues` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 8 | Issue有無×正常/部分失敗/NOT_RUN/共通整合性失敗。候補生成検証はMock、実publication・成功保存・失敗View保持・Issue原文保全を検証 | 追加 |
 | `sync-15::check_guard_snapshot_candidates` | `check_guard_snapshot_candidates` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L882) | pytest / 1 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
 | `sync-15::check_definition_read_errors` | `check_definition_read_errors` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L907) | pytest / 4 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
 | `sync-15::check_sidecar_output_difference` | `check_sidecar_output_difference` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py#L930) | pytest / 2 | 直接APIの判定・変換（上表の移管対応） | ITから移管 |
@@ -3387,10 +3321,10 @@ No old service-specific tests or CodePipeline acceptance checks are duplicated o
 
 | Case ID | Function | Layer | Suite | Execution / Count | Coverage | Origin |
 | --- | --- | --- | --- | --- | --- | --- |
-| `issue-markdown::reference` | `check_reference_lists` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 6 | 番号付き参照警告・service見出し・0件宣言有無と空prefix、Gate/材料0・保存再読込 | A/B |
-| `issue-markdown::boundary` | `check_explicit_issue_boundary` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 5 | service/ID markerと明示セクション境界、警告内の番号保持、ID/件数/ownership/Gate・末尾配置の3回往復 | C |
+| `issue-markdown::reference` | `check_reference_lists` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 6 | 番号付き参照警告・service見出し・0件宣言有無と空prefix、材料0・保存再読込 | A/B |
+| `issue-markdown::boundary` | `check_explicit_issue_boundary` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 5 | service/ID markerと明示セクション境界、警告内の番号保持、ID/件数・末尾配置の3回往復 | C |
 | `issue-markdown::fence` | `check_fenced_classification` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 2 | 両fence・短い閉じ候補・番号/見出し/markerの無効化・scope往復 | check_notice_marker_boundariesから移設 |
-| `issue-markdown::ambiguous` | `check_ambiguous_input_stops_gate` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 8 | 未完/不一致/入れ子scope・scope内Issue・境界なしIDを明示エラー、publication未実行/入力不変 | 共通分類 |
+| `issue-markdown::ambiguous` | `check_ambiguous_notice_input` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 8 | 未完/不一致/入れ子scope・scope内Issue・境界なしIDを明示エラー、publication未実行/入力不変 | 共通分類 |
 | `issue-markdown::sections` | `check_warning_sections` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 2 | 同位警告セクションの分離と本文保持 | 共通分類 |
 | `issue-markdown::fenced-owner` | `check_fenced_owner_does_not_override_issue` | UT | [units/issue-markdown-unit.checks.py](units/issue-markdown-unit.checks.py) | pytest / 1 | 通常Issue内部の長いfence内ownership/番号を無視し、ID・件数を保存再読込で維持 | 共通分類 |
 
@@ -3511,8 +3445,6 @@ Dは同じ保証の繰返しと、Productionを呼ばず固定Fixture文字列�
 | --- | --- | --- | --- | --- | --- | --- |
 | `it-ut-migration::cloudformation-deploy-unit.checks::check_deployment_input_conditions` | `check_deployment_input_conditions` | UT | [units/cloudformation-deploy-unit.checks.py](units/cloudformation-deploy-unit.checks.py#L182) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
 | `it-ut-migration::design_layout-unit.checks::check_config_firehose_references` | `check_config_firehose_references` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py#L1104) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::issue_gate-unit.checks::check_investigation_report_conditions` | `check_investigation_report_conditions` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py#L315) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::issue_gate-unit.checks::check_remediation_scope_inputs` | `check_remediation_scope_inputs` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py#L357) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
 | `it-ut-migration::issues_api_only-unit.checks::check_api_record_classification` | `check_api_record_classification` | UT | [units/issues_api_only-unit.checks.py](units/issues_api_only-unit.checks.py#L52) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
 | `it-ut-migration::lambda_permission-unit.checks::check_permission_inputs` | `check_permission_inputs` | UT | [units/lambda_permission-unit.checks.py](units/lambda_permission-unit.checks.py#L46) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
 | `it-ut-migration::model-format-v2.checks::check_context_topology_inputs` | `check_context_topology_inputs` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py#L711) | pytest / 4 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
@@ -3575,7 +3507,6 @@ Dは同じ保証の繰返しと、Productionを呼ばず固定Fixture文字列�
 | [import-cli.checks.py](integrations/import-cli.checks.py) | 実Import CLI→Git/Task境界→Review/保存/終了コードと変更検知 |
 | [import-model.checks.py](integrations/import-model.checks.py) | Acquire/Review/Task→Publication/再読込、rollback/recoveryと他Resource/環境保持 |
 | [import-worktree-contract.checks.py](integrations/import-worktree-contract.checks.py) | 実Worktree/Task変更権限→Model Source/Import契約境界 |
-| [issue_gate.checks.py](integrations/issue_gate.checks.py) | 実Task/Issue→Validator/Sync/preflight/AWS mutation guard、CLI waiver隔離 |
 | [issues-lint.checks.py](integrations/issues-lint.checks.py) | 実CLI/比較器→Lint入力/終了コード、原本保護と複数service境界 |
 | [issues_api_only.checks.py](integrations/issues_api_only.checks.py) | 実Model/IaC→Comparison→集計/Issue CLIとexit、API-only代表経路 |
 | [issues_failed_services.checks.py](integrations/issues_failed_services.checks.py) | 実Model/IaC/Export→Comparison→理由/位置/マスク付きIssue artifact |
@@ -3773,45 +3704,6 @@ The existing CodeBuild scan/save UT also checks Issues v4 ordinary policy errors
 | `direct-pending::reports` | `check_direct_pending_deploy_reports_and_dedup` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | 異property独立件数・親子重複排除・IMPORT件数維持・Artifact v4・issues/reportのIssue0 | Synthetic records |
 | `direct-pending::artifact` | `check_direct_pending_deploy_artifact_rejects_invalid_causes` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 8 | 原因schema・分類・除外件数の不整合を拒否、互換分岐なし | Synthetic Artifact v4 |
 
-## 1025v9 Issue remediation authority regressions
-
-| Boundary | Owner | Coverage |
-| --- | --- | --- |
-| F1 | `units/issue_gate-unit.checks.py::check_remediation_write_scope` / `check_remediation_forbidden_declarations` | Validation-only S3 and target inventory writes rejected; two declared repair services allowed |
-| F2 | `units/issue_gate-unit.checks.py::check_remediation_registration_inventory` / `check_remediation_completion_and_resume` | Ordinary Issues per declared service at registration; IaC-only, absent, notice-only and ambiguous rejected; resolved inventory permits refresh/resume/complete |
-| F3 | `units/issue_gate-unit.checks.py::check_remediation_model_operation_mix` | Delete/merge/retarget/refactor rejected with remediation; standalone contracts unchanged |
-| F4 | `units/worktree-model-guard-unit.checks.py::check_git_baseline_fail_closed` | Required Task baseline and committed forbidden path collection; ordinary baseline fallback retained |
-| F4 Git/Worktree | `integrations/worktree_task.checks.py::check_incomplete_and_git_safety` | Existing case extended: committed Framework, staged IaC, unstaged Skill, untracked Framework, unmanaged baseline rejection and resolved ordinary Issue completion |
-| F5 | `units/issue_gate-unit.checks.py::check_remediation_authority_fields` | Six authority fields reject case variants, duplicates and conflicting values |
-
-
-## Deploy Issue Gate reporting policy
-
-Common policy conditions belong to UT; existing IT cases exercise real component connections.
-
-| Origin | Case | Level | Entry | Execution | Contract | Inputs |
-| --- | --- | --- | --- | --- | --- | --- |
-| `deploy-issues::policy` | `check_deploy_issue_policy` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py) | pytest / 5 | ERROR・複数重大度・所有不明・不正inventory・Issueなし、件数/番号とWARNING、原文保全、最終Findings非ERROR | Synthetic inventory |
-| `deploy-issues::diagnostics` | `check_deploy_diagnostic_failure` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py) | pytest / 3 | 読取り・文字コード・parser障害はWARNINGで継続 | Injected diagnostic failures |
-| `deploy-issues::others` | `check_other_tasks_keep_issue_gate` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py) | pytest / 6 | implement/update/destroy/design/migration/governanceの停止維持 | Synthetic contracts |
-| `deploy-issues::contracts` | `check_deploy_contract_errors_remain_blocking` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py) | pytest / 9 | type/phase/section重複・欠落・不整合、all/欠落scopeを拒否 | Synthetic invalid contracts |
-| `deploy-issues::scope` | `check_deploy_scope_errors_remain_blocking` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py) | pytest / 4 | 不一致/空/allのscopeと異なるtargetを拒否 | Synthetic scope |
-| `deploy-issues::cli` | `check_deploy_cli` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py) | pytest / 6 | --taskのWARNING/通常CLIのFAIL、IssueなしPASS、文字コード障害 | CLI main with synthetic argv |
-| `deploy-issues::cli-scope` | `check_deploy_cli_invalid_scope` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py) | pytest / 1 | CLIの対象外scopeは非0終了 | Synthetic argv |
-| `deploy-issues::preparation` | `check_preparation_delegates_issue_policy` | UT | [units/deploy_preparation-unit.checks.py](units/deploy_preparation-unit.checks.py) | pytest / 1 | 準備候補の検証済みSnapshotとscope・警告出力を共通Policyへ委譲 | Synthetic candidate |
-| `deploy-issues::runtime` | `check_issue_policy_mutation_and_recovery` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py) | pytest / 1 | mutation継続・APIごとの警告重複なし・recovery継続、入力guard/危険rollback状態は停止 | Mock SDK / real policy |
-
-Existing IT `deploy_preparation::check_preparation` now prepares/registers with an ERROR
-Issue present; `check_stale_and_conflicts` permits only Issue additions and retains the
-other input guards. Existing `deploy-controller::check_ordered_delivery_and_observed`
-retains ERROR/unknown-owner Issues throughout the real controller, AWS SDK boundary,
-Observed collection/publication, generated-view synchronization, warning validation and
-Task completion. Other controller failures and resumable publication checks stay unchanged.
-
-The existing `task-snapshot::check_deploy_mutation_io_and_live_denial` UT retains its
-Task-read budget and all live status/permission/scope/account/snapshot denials. Issue
-changes alone now permit the eleventh mutation without an additional Task read.
-
 ## Immutable issues Snapshot v4
 
 旧inventory merge・旧ID/Service block/Human文面保持・continuing/resolved/unverified状態遷移・
@@ -3821,7 +3713,7 @@ verification_targets復元・resolved互換ProjectionのUTを削除した。部�
 
 | Origin | Case | Level | Entry | Execution | Contract | Inputs |
 | --- | --- | --- | --- | --- | --- | --- |
-| `issues-snapshot::check_snapshot_replaces_inventory` | `check_snapshot_replaces_inventory` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 1 | 旧Markdownを読まない全置換、決定性、immutable値、解消後のGate | Synthetic v4 |
+| `issues-snapshot::check_snapshot_replaces_inventory` | `check_snapshot_replaces_inventory` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 1 | 旧Markdownを読まない全置換、決定性、immutable値、解消後の最新Snapshot | Synthetic v4 |
 | `issues-snapshot::check_human_exception_and_conflict` | `check_human_exception_and_conflict` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 1 | Human例外の除外と矛盾時のIssue/未検証保持、Review後status | Synthetic v4 |
 | `issues-snapshot::check_exclusion_scope` | `check_exclusion_scope` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 15 | Human id/Service/Resource/Property/Rule/診断ID/根拠/例外の一致、欠落・wildcard・公開アクセス誤除外拒否 | Synthetic v4 |
 | `issues-snapshot::check_human_cleanup_preserves_facts` | `check_human_cleanup_preserves_facts` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 1 | Task許可付き関連Issue記録削除、raw確定事実・他項目保持 | Synthetic v4 |
@@ -3837,3 +3729,9 @@ verification_targets復元・resolved互換ProjectionのUTを削除した。部�
 | `issues-snapshot::check_reviewed_sources_are_not_reread` | `check_reviewed_sources_are_not_reread` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 1 | Scan後の入力変更を監視せずScan時根拠行のまま保存・Git非参照 | Synthetic v4 |
 | `issues-snapshot::check_snapshot_rejects_invalid_current_values` | `check_snapshot_rejects_invalid_current_values` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 6 | 範囲外診断/IaC、timezone、根拠path/line、未確認Serviceの保存前拒否 | Synthetic v4 |
 | `issues-f6::cleanup-authority` | `check_cleanup_authority` | UT | [units/issues-snapshot-unit.checks.py](units/issues-snapshot-unit.checks.py) | pytest / 6 | Human依頼の対象ID/環境/Target/構造と現在の関連記録実在、拒否時は保存なし | F6 synthetic only |
+
+| `resource-impact::routes` | `check_task_snapshot_routes` | IT | [integrations/model_impact.checks.py](integrations/model_impact.checks.py#L425) | direct / 1 | 実managed保存・Candidate・stage/commit・最終Validation・Snapshot/graph回数 | Resource impact |
+| `deploy-runtime::issues` | `check_mutation_and_recovery_with_issues` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py) | pytest / 1 | mutation継続・Issue警告なし・recovery継続、入力guard/危険rollback状態は停止 | Mock SDK / real guards |
+
+| `report-task::git` | `check_report_commit_independence` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 3 | Report-only保存は他TaskのGit変更を保持し、通常Taskは変更範囲を検証 | Synthetic Git |
+| `generation-model::guards` | `check_generation_preserves_model_guards` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 3 | IssueがあってもAllowed paths・Validation scope・参照整合性エラーは拒否 | Synthetic Models |

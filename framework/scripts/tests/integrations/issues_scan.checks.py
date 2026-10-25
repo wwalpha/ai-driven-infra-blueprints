@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
 from comparison import Comparison
-from issue_gate import issue_errors
 from issues.aggregate import aggregate, iac_dataset, iac_summary
 from issues.artifact import detail_payload, summary
 from issues.records import identifier
@@ -119,7 +118,6 @@ def check_scan_publish_mismatch(tmp_path):
         == artifact["iac_display"][identifier(mismatch)]
     )
     assert summary(artifact)["iac_differences"] == 1
-    assert not issue_errors(root, {("dev", "123456789012", "s3")})
 
     # A real failed View check is removed only after that same check succeeds.
     view = root / "docs/designs/dev/123456789012/s3.md"
@@ -131,7 +129,6 @@ def check_scan_publish_mismatch(tmp_path):
     assert broken["ordinary"]
     with task(root, ["cloudformation-stacks", "s3"]):
         save_scan(root, broken, review_for(broken))
-    assert issue_errors(root, {("dev", "123456789012", "s3")})
     view.write_bytes(original)
     repaired = scan(
         root, "dev", "123456789012", ["cloudformation-stacks", "s3"], fresh=True, jobs=1
@@ -141,7 +138,6 @@ def check_scan_publish_mismatch(tmp_path):
         save_scan(root, repaired, review_for(repaired))
     ordinary = (root / "issues/dev/123456789012/issues.md").read_text()
     assert "未解決issueなし" in ordinary
-    assert not issue_errors(root, {("dev", "123456789012", "s3")})
 
 
 def fail_second_report(state, original, source, destination):

@@ -2,17 +2,6 @@
 
 - Follow [Credentials and account](project-configuration.md#credentials-and-account) for account/profile/target selection.
 
-Follow [issue-gate](issue-gate.md) for target service stops and exceptions.
-
-For a validated `Task type: infrastructure` / `Infrastructure phase: deploy` contract,
-the Issue Gate is diagnostic and reporting only. Regardless of Issue severity, cause,
-content, ownership, count or diagnostic/read failure, it never stops Deploy execution,
-resume, Observed synchronization or Task completion. Report non-blocking WARNINGs at
-meaningful boundaries and in final validation; leave `issues.md` unchanged. Contract,
-Validation scope, AWS identity/permissions, input snapshots, deletion/replacement
-approval, atomic publication and AWS API failures retain their existing safety checks.
-Other Task types and infrastructure phases retain their ordinary Issue Gate.
-
 
 - Create, change, and execute CloudFormation only in `infrastructure` tasks.
 - Infrastructure task design inputs are approved authoritative model properties entries and required parts/referenced models. Obtain design values from `desired.row.*`, JSON bodies from `desired.row.*.document`, identity/references from metadata such as `desired.resource.*`, and current non-ARN identifiers from `observed.*`. In ordinary deploy, do not additionally read generated service Markdown/service-owned JSON bodies. Resolve saved Markdown Resource links using the common Model resolver and consumer scope; stop for unknown, unmatched, or ambiguous mappings, without generated Markdown body fallback.
@@ -140,7 +129,6 @@ to 20. No externally verifiable Human budget approval is available: budget exten
 fails closed with WAITING_HUMAN. Close/new Task cannot bypass unresolved history.
 
 
-
 Before redeploy reject unchanged effective inputs and known failed inputs using the existing CFn decoder, parameter content and artifact hashes. No generic intrinsic evaluator or semantic-equivalence engine is added. Before cleanup archive original failures/execution evidence, verify original failed-input Retain/Custom/nested safety and live identity/token; a corrected template cannot authorize deleting old resources. begin_prepare's unchanged-input empty-shell cleanup retains delivery and reacquires Import/Export and delivery conditions at its new boundary. External changed-input acceptance invalidates old delivery/preparation/approval, including declared consumers. Preserve unaffected SUCCESS/observed; impact on SUCCESS waits for scope confirmation. Runtime recovery remains separate and may legitimately keep IaC unchanged.
 
 ## Delete and replacement confirmation
@@ -194,7 +182,6 @@ executorにHeadBucket/Location/Encryption/Policy、ListBucket、GetObject（固�
 Keep one session for the exact target/scope, numeric DeployOrder and designed concurrency (or explicit sequential limit 1). Successful Stacks never execute again. On stop, drain RUNNING peers. AWS SUCCESS is independent of observedSynced: unresolved owner/reference/deletion evidence leaves SUCCESS unsynchronized, stops new starts, and replans only unsynchronized work on resume.
 
 Session v4 retains ChangeSet/token, SUCCESS/unsynchronized observations, cleanup intent, repair evidence and counters. infraManifest/unitDigests describe IaC; inputDigest fixes root/target/scope/execution conditions; designDigest/modelInputManifest retain approved design and only proven observed transitions. Historical static PASS grants no execution permission. Signed workflow/save intents reject stale session copies and reserve cycles exactly once.
-
 
 
 Ordinary Project Tasks treat Framework as immutable; Deploy does not scan or hash Framework definitions. Observed plan comparison validates the complete saved identity, Task/target/taskBytes, execution inputs/evidence, manifests and journal ownership. Authentication, imports, object conditions/HEAD and the latest ChangeSet remain fresh boundary reads. `--resume --observe-only` observes the current Session's original operations without AWS mutation or Model publication.

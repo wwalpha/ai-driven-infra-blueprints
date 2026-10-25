@@ -2,14 +2,6 @@
 
 ## Normal startup
 
-For a validated `Task type: infrastructure` / `Infrastructure phase: deploy` contract,
-the Issue Gate is diagnostic and reporting only. Regardless of Issue severity, cause,
-content, ownership, count or diagnostic/read failure, it never stops Deploy execution,
-resume, Observed synchronization or Task completion. Report non-blocking WARNINGs at
-meaningful boundaries and in final validation; leave `issues.md` unchanged. Contract,
-Validation scope, AWS identity/permissions, input snapshots, deletion/replacement
-approval, atomic publication and AWS API failures retain their existing safety checks.
-Other Task types and infrastructure phases retain their ordinary Issue Gate.
 
 Human指定のenvironment/alias、resource/execution account、Region/profile、StackNameとservice IDsを確定する。未確定ならenvironment→複数target時のalias→account→scopeの順に一問ずつ確認し、同じproject.json targetの候補だけ示す。唯一targetにaliasを要求しない。configured awsProfileを使い、未設定時のみ明示profile/default chainを使う。不一致・認証失敗で別credentialへ切り替えない。
 
@@ -45,7 +37,7 @@ aliasなしは--aws-account-id。preparation.jsonのdocuments（<=6,000文字/ch
 11. [Local loop](../../rules/loop-engineering.md#local-loop), [Validation scope](../../rules/loop-engineering.md#validation-scope). [Infrastructure task completion](../../rules/loop-engineering.md#infrastructure-task-completion)
 12. Target IaC files, stack-specific parameters, and declared execution inputs
 
-- [project-configuration](../../rules/project-configuration.md) and [issue-gate](../../rules/issue-gate.md).
+- [project-configuration](../../rules/project-configuration.md).
 
 Read mandatory documents per file/specified section. If tool output limits are exceeded, split the same file by line ranges or 6,000-character chunks described below, reviewing the specified range without omissions. Do not concatenate multiple large files into one output. Only necessary ranges actually reviewed during the same preparation need not be reread if content hashes match. Do not treat unread sections as reviewed merely from matching hashes. On changes/additions/deletions, review changes and necessary input ranges and prepare again. Do not require full rereads due to generated artifact changes.
 
@@ -273,7 +265,7 @@ restores the same Task's latest signed state including cause links/diagnoses and
 
 ## Terraform
 
-Use project.json target, existing roots/workspaces/backend/variable inputs and the same Task/Issue/account/Region/profile checks. Run check-deploy-context.py with environment and alias (or aws-account-id) and optional profile. Retain Terraform fmt/init/validate/plan with a saved binary under terraform.md; explain and seek approval only for unapproved destruction/replacement. Apply only that identical authorized plan. A failed apply may be partial: inspect state/AWS read-only and stop. After success collect non-sensitive outputs, use read-only state attributes only if outputs are absent, and require agreement if both exist. Update permitted observations/references with the existing publication guard and generation.
+Use project.json target, existing roots/workspaces/backend/variable inputs and the same Task/account/Region/profile checks. Run check-deploy-context.py with environment and alias (or aws-account-id) and optional profile. Retain Terraform fmt/init/validate/plan with a saved binary under terraform.md; explain and seek approval only for unapproved destruction/replacement. Apply only that identical authorized plan. A failed apply may be partial: inspect state/AWS read-only and stop. After success collect non-sensitive outputs, use read-only state attributes only if outputs are absent, and require agreement if both exist. Update permitted observations/references with the existing publication guard and generation.
 
 ## Verify and finish
 

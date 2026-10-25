@@ -1,11 +1,9 @@
-"""Deploy mutation checks and timing; transport owns no Task or Issue decisions."""
+"""Deploy mutation checks and timing."""
 
 import re
 
-from issue_gate import require_target_no_issues
 from task_contract_core import task_reads
 from utils.aws import cloudformation, kms, s3, secretsmanager, sts
-from utils.cloudformation.inputs import Blocked
 
 MUTATIONS = {
     "create_change_set",
@@ -27,15 +25,7 @@ SERVICES = {
 def call(runtime, service, operation, arguments):
     if operation in MUTATIONS:
         with task_reads(runtime.root, live=True):
-            snapshot = runtime.guard()
-            try:
-                require_target_no_issues(
-                    runtime.root,
-                    (runtime.environment, runtime.directory),
-                    snapshot=snapshot,
-                )
-            except (OSError, ValueError) as error:
-                raise Blocked(str(error)) from error
+            runtime.guard()
     with runtime.timing.phase(
         "awsApi", service=service, operation=operation.replace("_", "-")
     ):

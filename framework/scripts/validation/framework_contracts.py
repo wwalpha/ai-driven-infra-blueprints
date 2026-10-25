@@ -12,7 +12,6 @@ from utils.input_cache import input_is_dir, input_is_file, input_select, input_t
 
 REQUIRED_RULES = {
     "task-contract.md",
-    "issue-gate.md",
     "project-configuration.md",
     "aws-resource-naming.md",
     "cloudformation.md",
@@ -195,13 +194,11 @@ def check_framework_rule_readings(findings, root):
                     root / "framework/rules" / name
                     for name in (
                         "task-contract.md",
-                        "issue-gate.md",
                         "project-configuration.md",
                     )
                 }
                 readings = rule_readings(root, source, reading)
                 if source.name == "08_import.md":
-                    required.remove(root / "framework/rules/issue-gate.md")
                     worktree = root / ".agents/skills/worktree/SKILL.md"
                     if worktree in readings:
                         delegated = markdown_sections(readings[worktree]["text"]).get(

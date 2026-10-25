@@ -10,7 +10,6 @@ from design.catalog import DesignSchemaCatalog
 from design.layout_schema import GROUPED
 from design.services.definitions.codebuild import CODEBUILD_FORMAL_VARIABLE
 from design.services.definitions.registry import HIDDEN_PROPERTIES
-from issue_gate import require_target_no_issues as require_target_no_issues
 from task_contract_core import matches as matches
 from task_contract_core import paths_in as paths_in
 from task_contract_core import section as section

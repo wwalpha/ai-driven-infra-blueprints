@@ -12,7 +12,6 @@ from unittest.mock import patch
 
 import pytest
 import task_contract_core as tasks
-from issue_gate import task_issue_errors
 from model.adapters.task import source_write_context
 from model.core import entries
 from model.operations import verify_model_operation
@@ -331,27 +330,6 @@ def check_related_retarget(tmp_path):
             tasks.model_operation(contract(["stg/cde/service-a/001"])),
             changed(before, after),
         )
-
-
-def check_delete_issue_exception_is_service_scoped(tmp_path):
-    sources = fixture(tmp_path, True)
-    name = "tasks/parent.md"
-    text = contract(sources) + (
-        "## Validation scope\n- `stg/cde/service-a`\n- `stg/cde/service-b`\n- `stg/cde/service-c`\n"
-        "## Modified files\n- `" + name + "`\n## Allowed paths\n- `" + name + "`\n"
-    )
-    tasks.start(tmp_path, name, text)
-    issues = tmp_path / "issues/stg/cde/issues.md"
-    issues.parent.mkdir(parents=True)
-    issues.write_text(
-        "### service-a\n1. Existing failure\n### service-b\n2. Existing failure\n### service-c\n3. Ordinary failure\n"
-    )
-    selected = {("stg", "cde", "service-a"), ("stg", "cde", "service-b")}
-    assert task_issue_errors(tmp_path, selected, task_file=name) == []
-    errors = task_issue_errors(
-        tmp_path, selected | {("stg", "cde", "service-c")}, task_file=name
-    )
-    assert len(errors) == 1 and "service-c" in errors[0]
 
 
 if __name__ == "__main__":

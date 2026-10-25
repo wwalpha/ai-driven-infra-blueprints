@@ -27,8 +27,7 @@ Require its full record set in one source save; no merge pair or comparison-sour
 substitution is allowed. Both producers must remain untouched. This standalone branch
 permits value/document configuration references only, including explicit JSON scalar
 pointers and numbered array Properties. No Subnet associations, parentReference,
-D→D reevaluation, observed edits or new source structure. The ordinary Issue
-Gate applies to every producer and consumer. The save guard resolves and proves the
+D→D reevaluation, observed edits or new source structure. The save guard resolves and proves the
 non-reference before/candidate preservation before publication. Semantic reference
 ambiguity, mismatch or incompleteness is warning-only, including at source save. It uses the same one-use context and final
 snapshot comparison. Return to the parent for generation/finalize; do not perform them here.
