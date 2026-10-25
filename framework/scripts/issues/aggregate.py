@@ -2,8 +2,8 @@
 import json
 from pathlib import Path
 
-from utils.iac_values import safe_value
 from comparison.deferral import CATEGORIES
+from utils.iac_values import safe_value
 
 from .records import brief, condition_disabled, iac_key, identifier, safe_text
 
@@ -12,6 +12,12 @@ IAC_CLASSES = ('要修正', '要対応', '要判断', '比較未完了', 'CFn非
 MAX_GROUPS = 16
 MAX_EXAMPLES = 10
 MAX_FIELDS = 10
+
+def pending_deploy_count(records):
+    # Parent/child propagation of one consumer/producer cause is one exclusion.
+    return len({(item['service'], item['resource'], identifier(item['cause'])) for item in records
+                if item['category'] == 'excluded' and item.get('cause', {}).get('kind') == 'import-reference-excluded'
+                and item['cause']['phase'] == 'pending_deploy'})
 
 def iac_actions(entries, environment, directory):
     """O(N) grouping by proven cause/repair target/action; unknowns remain separate."""
@@ -230,6 +236,7 @@ def iac_summary(records, environment, directory, services, display=None, *, incl
     visible_ids = {group['examples'][0]['issue_id'] for group in visible}
     raw = {kind: sum(item['category'] == kind for item in records) for kind in CATEGORIES}
     return dict(issue_count=len(actions), categories=counts, record_count=len(records), records=raw,
+                pending_deploy_excluded=pending_deploy_count(records),
                 comparison_incomplete=any(item.get('comparison_incomplete') for item in records),
                 **({'index': [{key: group[key] for key in ('id', 'category', 'problem', 'cause', 'remedy', 'target', 'repair_direction', 'records', 'services')}
                               for group in ordered]} if include_index else {}),

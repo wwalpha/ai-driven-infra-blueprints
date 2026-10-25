@@ -3680,3 +3680,23 @@ QuickSightの既存UT行と移管元行が同じ所有関数を重複登録し�
 | `arn-projection::getatt` | `test_alias_arn_projection_does_not_authorize_getatt` | UT | [units/arn-projection-unit.checks.py](units/arn-projection-unit.checks.py) | pytest / 1 | AliasArn導出とCFn未対応GetAttを分離 | Synthetic Models |
 | `arn-projection::shared` | `test_normalizer_reuses_a_non_kms_shape_without_enabling_a_service` | UT | [units/arn-projection-unit.checks.py](units/arn-projection-unit.checks.py) | pytest / 1 | サービス非依存の正規化は既存ARN_SHAPESを再利用 | Fixed contracts |
 | `arn-projection::pipeline` | `test_alias_arn_sub_import_ref_pipeline_preserves_export_evidence` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 1 | Model AliasArn→Sub→ImportValue→Export→Ref AliasName→matchedとExport証跡維持 | Synthetic Models |
+
+## IMPORT参照のPENDING_DEPLOY正常除外
+
+既存の6分類と参照契約検証を利用する。PENDING_DEPLOYはexcludedであり、Issue・未比較・partialには含めない。分類行の専用件数はIssue分類とは分離し、同じConsumer/Producer原因の親子伝播を重複排除する。通常Markdownは件数のみ、Artifactと明示detail CLIは原因を保持する。他のdeferred状態は既存判定を維持する。
+
+| Origin | Case | Level | Entry | Execution | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `import-wait::category` | `test_normal_wait` | UT | [units/import-reference-deferred-unit.checks.py](units/import-reference-deferred-unit.checks.py) | pytest / 3 | pending_deployだけexcluded・構造化cause種類、他2状態deferred | Synthetic observations |
+| `import-wait::failures` | `test_other_failures_are_not_normal_waits` | UT | [units/import-reference-deferred-unit.checks.py](units/import-reference-deferred-unit.checks.py) | pytest / 1 | 既存エラー分類・6分類・不正cause拒否 | Synthetic exceptions |
+| `import-wait::authority` | `test_phase_selection_uses_authoritative_observations` | UT | [units/import-reference-deferred-unit.checks.py](units/import-reference-deferred-unit.checks.py) | pytest / 3 | observed正本で状態選択・形式検証維持 | Synthetic observations |
+| `import-wait::propagation` | `test_import_wait_propagates_without_parent_issue` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 15 | link/JSON/modelRef/intrinsicの原因保持・Issue 0・pendingだけpartialなし | Synthetic Models |
+| `import-wait::invalid` | `test_import_invalid_contract_or_identifier_stays_an_issue` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 16 | pendingでも欠落・曖昧・型/属性/Consumer違反を除外しない、不正観測値もIssue | Synthetic Models |
+| `import-wait::siblings` | `test_import_wait_preserves_known_json_difference` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 8 | JSON/配列の一部除外と独立差分の保持、通常詳細に除外子を混入しない | Synthetic Models |
+| `import-wait::actual` | `test_actual_wait_retains_pointer_and_known_siblings` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 6 | IaC側の構造化原因・Pointer・独立差分を維持 | Synthetic evaluator |
+| `import-wait::resource` | `test_resource_failure_uses_shared_classification` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 5 | Resource例外も共有分類を利用 | Synthetic comparison |
+| `import-wait::operands` | `test_deferred_intrinsic_does_not_hide_other_operand_failures` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 4 | pending/unobservedが他operandの不正参照・式違反を隠さない | Synthetic intrinsic |
+| `pending-excluded::report` | `check_pending_deploy_is_count_only_exclusion` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | 1/2件の専用分類行・Issue 0・通常詳細なし・Artifact/明示detail原因保持 | Synthetic records |
+| `pending-excluded::status` | `check_pending_deploy_does_not_change_comparison_status` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 6 | pending単独/一致/差分/未比較/エラー/他deferredの全体判定・Issue件数分離 | Synthetic records |
+| `pending-excluded::dedup` | `check_pending_deploy_parent_child_count_and_issue_separation` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 1 | 親子同原因を1件・別Consumerを独立集計・CFn非対応とIssue分類を維持 | Synthetic records |
+| `import-wait::artifact` | `check_artifact_v3_rejects_invalid_indexes` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 24 | deferred/excludedのcause/category/count/index整合性検証、旧分類互換なし | Synthetic Artifact |

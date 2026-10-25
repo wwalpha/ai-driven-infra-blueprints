@@ -1,4 +1,4 @@
-"""Normal IMPORT waits and the six comparison categories, independent of Issue status."""
+"""IMPORT waits and normal exclusions within the six comparison categories."""
 
 from design.policy_tables import literal
 from utils.cloudformation.inputs import Blocked
@@ -13,15 +13,16 @@ class ImportReferenceDeferred(Blocked):
     def __init__(self, phase, service, identity, resource_type, attribute, consumer_property):
         if phase not in PHASES:
             raise ValueError('invalid IMPORT deferral phase')
-        self.iac_cause = dict(kind='import-reference-deferred', phase=phase,
+        self.iac_cause = dict(kind='import-reference-excluded' if phase == 'pending_deploy' else 'import-reference-deferred', phase=phase,
             producer=dict(service=service, resource=identity, resourceType=resource_type, attribute=attribute),
             consumer_property=consumer_property)
-        super().__init__('IMPORT reference comparison deferred: ' + phase + '; approved handoff required')
+        super().__init__('IMPORT reference comparison excluded: pending_deploy' if phase == 'pending_deploy' else
+                         'IMPORT reference comparison deferred: ' + phase + '; approved handoff required')
 
 
 def failure_category(error):
     if isinstance(error, ImportReferenceDeferred):
-        return 'deferred'
+        return 'excluded' if error.iac_cause['phase'] == 'pending_deploy' else 'deferred'
     return 'uncompared' if isinstance(error, (Blocked, KeyError)) else 'error'
 
 
@@ -47,10 +48,11 @@ def defer_import_reference(inputs, symbol, resource, consumer_property):
 
 
 def validate_cause(cause):
-    if (not isinstance(cause, dict) or cause.get('kind') != 'import-reference-deferred'
+    if (not isinstance(cause, dict)
+            or cause.get('kind') != ('import-reference-excluded' if cause.get('phase') == 'pending_deploy' else 'import-reference-deferred')
             or cause.get('phase') not in PHASES
             or not isinstance(cause.get('consumer_property'), str) or not cause['consumer_property']
             or not isinstance(cause.get('producer'), dict)
             or any(not isinstance(cause['producer'].get(key), str) or not cause['producer'][key]
                    for key in ('service', 'resource', 'resourceType', 'attribute'))):
-        raise ValueError('invalid IMPORT deferral cause')
+        raise ValueError('invalid IMPORT comparison cause')

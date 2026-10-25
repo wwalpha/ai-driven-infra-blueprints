@@ -21,8 +21,8 @@ from utils.type_contracts import JsonObject, JsonValue
 from . import evaluation, registry
 from . import resource as resource_rules
 from . import rows as row_rules
-from .inputs import Inputs
 from .deferral import ImportReferenceDeferred, failure_category
+from .inputs import Inputs
 from .result import RowResult, record, setting_result
 from .values import ValueDecision, compare_values, unverified
 
@@ -429,7 +429,7 @@ class Comparison(Inputs):
         batch = setting_result(service, identity, prop, value, actual, decision, name, sources, iac_source,
             exact=key in settings.exact, actual_error=actual_error, redact=self.redacted, reference=reference,
             default_source=self.source(service, f'desired.resource.{identity}.resourceType'), missing=missing,
-            deferred_children=[item for item in settings.incomplete.get(key, []) if item['category'] != 'deferred'])
+            deferred_children=[item for item in settings.incomplete.get(key, []) if item['category'] not in {'deferred', 'excluded'}])
         batch.records.extend(failures)
         batch.warnings.extend(warnings)
         return batch

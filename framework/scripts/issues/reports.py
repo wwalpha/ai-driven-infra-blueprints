@@ -177,7 +177,8 @@ def iac_report(environment, directory, services, records, display=None, *, stamp
         f'問題: {summary["issue_count"]}件（原因・必要対応単位）',
         f'影響: 差分 {counts["difference"]}件 / 未比較 {counts["uncompared"]}項目 / 処理エラー {counts["error"]}項目',
         f'元レコード数: {summary["record_count"]}（一致 {counts["matched"]} / 想定内保留 {counts["deferred"]} / 除外 {counts["excluded"]}）',
-        '分類: ' + ' / '.join(f'{category} {count}件' for category, count in summary['categories'].items()),
+        '分類: ' + ' / '.join(f'{category} {count}件' for category, count in summary['categories'].items())
+        + f' / PENDING_DEPLOY（比較対象外） {summary["pending_deploy_excluded"]}件',
         f'表示{len(summary["groups"])}／全{summary["issue_count"]}対応単位、未表示{summary["omitted_issues"]}',
         '未表示の分類: ' + ' / '.join(f'{category} {count}件' for category, count in summary['omitted_categories'].items()),
         '未表示の影響: ' + ' / '.join(f'{kind} {count}件' for kind, count in summary['omitted_record_categories'].items()), '']
@@ -233,23 +234,25 @@ def iac_report(environment, directory, services, records, display=None, *, stamp
         if group['omitted_examples']:
             lines.append(f'省略代表例: {group["omitted_examples"]}レコード')
         lines.append('')
-    lines.extend(['## 想定内保留（Issue対象外）', '',
-                  f'想定内保留件数: {counts["deferred"]}件。比較状態: {status}。保留は一致・比較完了には含めない。', ''])
     waits = [item for item in records if item['category'] == 'deferred']
-    reasons = {'unobserved': '識別子が未観測', 'pending_deploy': '識別子がPENDING_DEPLOY',
-               'awaiting_handoff': '識別子の形式は検証済み、承認済みhandoff待ち'}
-    for item in waits[:MAX_EXAMPLES]:
-        cause = item['cause']
-        producer = cause['producer']
-        lines.extend([f'- Service: {brief(item["service"])} / Resource: {brief(item["resource"])} / Property: {brief(item["property"])}',
-            f'  - Producer Resource: {brief(producer["service"])}/{brief(producer["resource"])} ({brief(producer["resourceType"])}) / 参照属性: {brief(producer["attribute"])}',
-            '  - 保留理由: ' + reasons[cause['phase']],
-            '  - 保留解除条件: 識別子の観測・形式検証と既存契約による承認済みhandoffの確認後に再比較する。',
-            '  - 比較状態: deferred（比較保留）'])
-    if len(waits) > MAX_EXAMPLES:
-        lines.append(f'保留表示省略: {len(waits) - MAX_EXAMPLES}件（全レコードはArtifactに保存）')
-    lines.extend(['', '保留の全レコード取得（offsetを50ずつ進める）:', '```console',
-        'python3 framework/scripts/issues_scan.py detail --artifact <path> --section iac --record-category deferred --offset 0 --limit 50', '```', '',
+    if waits:
+        lines.extend(['## 想定内保留（Issue対象外）', '',
+                      f'想定内保留件数: {counts["deferred"]}件。比較状態: {status}。保留は一致・比較完了には含めない。', ''])
+        reasons = {'unobserved': '識別子が未観測',
+                   'awaiting_handoff': '識別子の形式は検証済み、承認済みhandoff待ち'}
+        for item in waits[:MAX_EXAMPLES]:
+            cause = item['cause']
+            producer = cause['producer']
+            lines.extend([f'- Service: {brief(item["service"])} / Resource: {brief(item["resource"])} / Property: {brief(item["property"])}',
+                f'  - Producer Resource: {brief(producer["service"])}/{brief(producer["resource"])} ({brief(producer["resourceType"])}) / 参照属性: {brief(producer["attribute"])}',
+                '  - 保留理由: ' + reasons[cause['phase']],
+                '  - 保留解除条件: 識別子の観測・形式検証と既存契約による承認済みhandoffの確認後に再比較する。',
+                '  - 比較状態: deferred（比較保留）'])
+        if len(waits) > MAX_EXAMPLES:
+            lines.append(f'保留表示省略: {len(waits) - MAX_EXAMPLES}件（全レコードはArtifactに保存）')
+        lines.extend(['', '保留の全レコード取得（offsetを50ずつ進める）:', '```console',
+            'python3 framework/scripts/issues_scan.py detail --artifact <path> --section iac --record-category deferred --offset 0 --limit 50', '```', ''])
+    lines.extend([
         '## 全メンバー取得', '',
                   '代表例は修正対象の上限ではない。同じscanの一時artifactから一覧のIssue IDで全メンバーを取得する。',
                   '```console',

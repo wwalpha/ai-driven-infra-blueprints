@@ -7,7 +7,13 @@ from unittest.mock import Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import pytest
-from comparison.deferral import CATEGORIES, ImportReferenceDeferred, defer_import_reference, failure_category, validate_cause
+from comparison.deferral import (
+    CATEGORIES,
+    ImportReferenceDeferred,
+    defer_import_reference,
+    failure_category,
+    validate_cause,
+)
 from utils.cloudformation.inputs import Blocked
 
 if not __debug__:
@@ -17,8 +23,9 @@ if not __debug__:
 @pytest.mark.parametrize('phase', ['unobserved', 'pending_deploy', 'awaiting_handoff'])
 def test_normal_wait(phase):
     error = ImportReferenceDeferred(phase, 'vpc', '004', 'EC2.Subnet', 'SubnetId', 'CodeBuild.Project.VpcConfig.Subnets[]')
-    assert isinstance(error, Blocked) and failure_category(error) == 'deferred'
-    assert error.iac_cause == dict(kind='import-reference-deferred', phase=phase,
+    category = 'excluded' if phase == 'pending_deploy' else 'deferred'
+    assert isinstance(error, Blocked) and failure_category(error) == category
+    assert error.iac_cause == dict(kind='import-reference-excluded' if phase == 'pending_deploy' else 'import-reference-deferred', phase=phase,
         producer=dict(service='vpc', resource='004', resourceType='EC2.Subnet', attribute='SubnetId'),
         consumer_property='CodeBuild.Project.VpcConfig.Subnets[]')
     validate_cause(error.iac_cause)

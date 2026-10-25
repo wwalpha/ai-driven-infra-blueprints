@@ -2,12 +2,13 @@
 
 import re
 from collections import Counter
+
 from comparison.deferral import CATEGORIES, validate_cause
 
 import issues.aggregate as _imports_issues_aggregate
 
+from .aggregate import IAC_CATEGORIES, pending_deploy_count
 from .records import brief, identifier
-from .aggregate import IAC_CATEGORIES
 
 CHANNELS = ('warnings', 'information', 'unverified', 'processing_errors')
 
@@ -46,7 +47,8 @@ def summary(artifact):
     return dict(ordinary_candidates=len(artifact.get('ordinary', [])), judgment_items=len(artifact.get('judgments', [])),
                 naming_items=len(artifact.get('naming', {}).get('names', [])),
                 iac_differences=counts['difference'], iac_uncompared=counts['uncompared'], iac_errors=counts['error'],
-                iac_matched=counts['matched'], iac_deferred=counts['deferred'], iac_excluded=counts['excluded'], iac_status=comparison_status(counts),
+                iac_matched=counts['matched'], iac_deferred=counts['deferred'], iac_excluded=counts['excluded'],
+                iac_pending_deploy_excluded=view['pending_deploy_excluded'], iac_status=comparison_status(counts),
                 validation_status=validation_status(artifact), review_required=True,
                 processing_stages=len({item.get('job_id') or item.get('id') or item.get('code','unknown') for item in artifact.get('processing_errors', [])}),
                 comparison_incomplete=view['comparison_incomplete'], checks=artifact.get('checks'),
@@ -132,10 +134,15 @@ def validate_artifact(artifact):
         if item.get('category') not in CATEGORIES:
             raise ValueError('invalid comparison category')
         counts[item['category']] += 1
-        if item['category'] == 'deferred':
+        cause = item.get('cause', {})
+        if item['category'] == 'deferred' or cause.get('kind') in {'import-reference-excluded', 'import-reference-deferred'}:
             validate_cause(item.get('cause'))
+            if item['category'] != ('excluded' if cause['phase'] == 'pending_deploy' else 'deferred'):
+                raise ValueError('invalid IMPORT comparison category')
     if counts != artifact['overview']['records'] or artifact['overview']['issue_count'] != len(artifact['iac_issues']):
         raise ValueError('invalid artifact comparison counts')
+    if artifact['overview']['pending_deploy_excluded'] != pending_deploy_count(records):
+        raise ValueError('invalid artifact PENDING_DEPLOY count')
     seen, issue_ids = set(), set()
     for group in artifact['iac_issues']:
         if group['id'] in issue_ids or not group['members'] or len(group['members']) != group['compact']['records']:
