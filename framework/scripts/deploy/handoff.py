@@ -974,8 +974,12 @@ def record_outcomes(session: Session) -> None:
         }
         if unresolved:
             current["status"] = "NEEDS_DIAGNOSIS"
-        elif session.get("result") == "COMPLETE" and not any(
-            "schedulerError" in state for state in session["states"].values()
+        elif (
+            session.get("result") == "COMPLETE"
+            and not session.get("pendingGeneration")
+            and not any(
+                "schedulerError" in state for state in session["states"].values()
+            )
         ):
             current["status"] = "COMPLETE"
         elif current.get("status") not in {

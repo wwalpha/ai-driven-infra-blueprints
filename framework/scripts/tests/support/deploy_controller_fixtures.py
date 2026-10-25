@@ -714,7 +714,12 @@ def _callback_invoke_write(
                     name: state.get("executionEvidence")
                     for name, state in saved["states"].items()
                 },
-                "planEvidence": sorted(saved["pendingObserved"]["evidence"]),
+                "observedSynced": sorted(
+                    name
+                    for name, state in saved["states"].items()
+                    if state.get("observedSynced")
+                ),
+                "pendingGeneration": sorted(saved["pendingGeneration"]),
             }
             original_write(aws_path, json.dumps(provider))
             witnessed.append(True)

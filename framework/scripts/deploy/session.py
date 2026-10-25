@@ -30,7 +30,7 @@ from utils.type_contracts import JsonValue as JsonValue
 import deploy.context as _imports_deploy_context
 import deploy.contracts as _imports_deploy_contracts
 import deploy.observed as _dependency_deploy_observed
-from deploy import handoff, observed_resume
+from deploy import generation_resume, handoff, observed_resume
 from deploy import resume as repair_resume
 from deploy.model_cache import SessionModels
 from deploy.scheduler import run_group
@@ -111,32 +111,48 @@ def require_session_format(session: Session) -> None:
 
 
 def _callback_run_session_sync_once(backend, save, session, units, /):
+    if getattr(backend, "sync_failed", False):
+        return False
     unsynced = [
         u
         for u in units
         if session["states"][u["name"]]["status"] == "SUCCESS"
         and not session["states"][u["name"]].get("observedSynced")
     ]
-    if not unsynced:
+    if not unsynced and not session.get("pendingGeneration"):
         return True
     started = time.perf_counter()
     try:
         if hasattr(backend, "guard"):
             backend.guard()
-        outputs = sync_successful(backend, unsynced, session["states"])
-        if hasattr(backend, "after_observed"):
-            backend.after_observed(outputs or {})
-        session.pop("pendingObserved", None)
+        if unsynced and any(
+            record["generated"]["outputs"] is not None
+            for record in session.get("pendingGeneration", {}).values()
+        ):
+            # Finish an interrupted candidate before another Model transaction changes inputs.
+            generation_resume.run(backend)
+        if unsynced:
+            outputs = sync_successful(backend, unsynced, session["states"])
+            if hasattr(backend, "after_observed"):
+                backend.after_observed(outputs or {})
+            session.pop("pendingObserved", None)
+        if session.get("pendingGeneration"):
+            generation_resume.run(backend)
+        session.pop("generationError", None)
         session.pop("observedError", None)
         session.pop("observedRecoveryError", None)
         return True
     except Exception as error:
-        for unit in unsynced:
-            session["states"][unit["name"]].pop("observedSynced", None)
+        backend.sync_failed = True
+        if session.get("pendingGeneration"):
+            session["generationError"] = str(error)
         session.setdefault("observedError", str(error))
         session["observedRecoveryError"] = str(error)
         failure = {
-            "stage": session.get("pendingObserved", {}).get("stage", "PLANNING"),
+            "stage": session.get("pendingObserved", {}).get(
+                "stage",
+                "GENERATION" if session.get("pendingGeneration") else "PLANNING",
+            ),
             "cause": str(error),
         }
         failures = session.setdefault("observedFailures", [])
@@ -169,6 +185,7 @@ def run_session(
     sleep: Sleep = time.sleep,
 ) -> str:
     """Observed synchronization is an idempotent, persisted barrier between groups."""
+    backend.sync_failed = False
     sync_once = _bind_framework_callback(
         _callback_run_session_sync_once, backend, save, session, units
     )
@@ -209,11 +226,13 @@ def run_session(
             if pause_after_group:
                 if not sync_completed():
                     return "STOPPED"
-                return (
-                    "COMPLETE"
-                    if all(s["status"] == "SUCCESS" for s in session["states"].values())
-                    else "GROUP_COMPLETE"
-                )
+                if generation_resume.complete(session):
+                    return "COMPLETE"
+                if all(s["status"] == "SUCCESS" for s in session["states"].values()):
+                    session["generationError"] = generation_resume.describe(session)
+                    save()
+                    return "STOPPED"
+                return "GROUP_COMPLETE"
             continue
         if result == "STOPPED":
             # Do not abandon successful peers' observed values after another stack fails.
@@ -235,6 +254,10 @@ def run_session(
                 save()
                 if repaired:
                     continue
+        if result == "COMPLETE" and not generation_resume.complete(session):
+            session["generationError"] = generation_resume.describe(session)
+            save()
+            return "STOPPED"
         return result
 
 
@@ -422,6 +445,15 @@ def run(
                         save_session(state_path, session)
                         raise
                     save_session(state_path, session)
+            if (
+                args.resume
+                and session.get("pendingGeneration")
+                and not getattr(args, "observe_only", False)
+            ):
+                generation_resume.reconcile(
+                    root, session, target, args.environment, directory
+                )
+                save_session(state_path, session)
             if session is None:
                 session = {"modelInputManifest": {}}
             models = SessionModels(root, session)

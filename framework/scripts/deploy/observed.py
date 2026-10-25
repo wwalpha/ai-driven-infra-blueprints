@@ -286,10 +286,10 @@ def collect_successful(backend, units, states, *, generated_views=None):
 
 
 def sync_successful(backend, units, states):
-    """Keep successful AWS state while the Model and generated views cross their barrier."""
+    """Confirm the Model barrier; generated views have their own durable queue."""
     if getattr(backend, "session", {}).get("pendingObserved"):
+        names = list(backend.session["pendingObserved"]["evidence"])
         destinations = _dependency_deploy_observed_resume.finish(backend, units)
-        names = backend.session["pendingObserved"]["evidence"]
     else:
         views = set()
         destinations, services, sync = collect_successful(

@@ -7,7 +7,6 @@ from functools import partial as _bind_framework_callback
 
 import generation_inputs as _imports_generation_inputs
 import model.adapters.observed as _imports_model_adapters_observed
-import sync_runtime as _imports_sync_runtime
 from model.observed import verify_observed_outputs
 from model.sources import load_model, publication_lock, safe, source_scope
 from task_contract_core import (
@@ -22,6 +21,7 @@ from task_contract_core import task_digest as task_digest
 from utils.cloudformation.inputs import Blocked
 
 import deploy.observed as _imports_deploy_observed
+from deploy import generation_resume
 from model import dependency_index
 
 
@@ -498,7 +498,6 @@ def reconcile(root, session, target, environment, directory):
 
 
 def finish(backend, units):
-    sync_runtime = _imports_sync_runtime
     publish_observed = _imports_model_adapters_observed.publish_observed
 
     collect_successful = _imports_deploy_observed.collect_successful
@@ -538,70 +537,11 @@ def finish(backend, units):
             != "MODEL_PUBLISHED"
         ):
             raise Blocked("observed publication did not produce the exact candidate")
+    backend.guard()
+    generation_resume.enqueue(backend, plan)
+    # The ledger saves the Model barrier and generation ownership in one revision.
+    for name in plan["evidence"]:
+        session["states"][name]["observedSynced"] = True
+    session.pop("pendingObserved")
     backend.save()
-    backend.guard()
-    # Keep journal recovery owned across preparation and the existing atomic publication.
-    with publication_lock(root, read_only=True):
-        reconcile(root, session, backend.target, backend.environment, backend.directory)
-        with sync_runtime.generation_context(root, True) as snapshot:
-            generation = sync_runtime.prepare_generation(
-                root,
-                {
-                    (backend.environment, backend.directory, service)
-                    for service in plan["services"]
-                },
-                snapshot=snapshot,
-            )
-            try:
-                sync_runtime.validate_generation(generation)
-                if generation.failures or generation.unavailable:
-                    raise Blocked(
-                        "observed generation failed: "
-                        + str(generation.failures or generation.unavailable)
-                    )
-                candidate = {
-                    p.relative_to(root).as_posix(): text
-                    for files in generation.expected_outputs.values()
-                    for p, text in files.items()
-                }
-                generated = plan["generated"]
-                if candidate.keys() != generated["originals"].keys():
-                    raise Blocked("observed generated candidate file set changed")
-                if (
-                    generated["outputs"] is not None
-                    and candidate != generated["outputs"]
-                ):
-                    raise Blocked(
-                        "observed generated candidate differs from saved session"
-                    )
-                check_generated(root, plan)
-                generated["outputs"], generated["stage"] = candidate, "CANDIDATE"
-                backend.save()  # Persist exact candidates before the first generated-file write.
-                backend.guard()
-                reconcile(
-                    root,
-                    session,
-                    backend.target,
-                    backend.environment,
-                    backend.directory,
-                )
-                sync_runtime.publish_generation(
-                    generation
-                )  # Verifies the consumed input/output snapshot under lock.
-                sync_runtime.report_generation(generation)
-                if check_generated(root, plan) != manifest(
-                    {p: text.encode("utf-8") for p, text in candidate.items()}
-                ):
-                    raise Blocked(
-                        "observed generated publication did not produce the saved candidate"
-                    )
-                generated["stage"] = "PUBLISHED"
-            finally:
-                generation.close()
-    if (
-        reconcile(root, session, backend.target, backend.environment, backend.directory)
-        != "MODEL_PUBLISHED"
-    ):
-        raise Blocked("Model changed during observed design generation")
-    backend.guard()
     return outputs

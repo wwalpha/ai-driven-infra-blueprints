@@ -281,12 +281,11 @@ def check_observed_failure_drains_peers_and_resumes(tmp_path, monkeypatch):
     aws_state(aws, defer_peer=True)
     assert invoke(root, session, aws, fault="design-io") == 2
     saved = json.loads(session.read_text())
-    assert set(saved["pendingObserved"]["evidence"]) == {FIRST}
-    assert all(
-        saved["states"][name]["status"] == "SUCCESS"
-        and not saved["states"][name].get("observedSynced")
-        for name in (FIRST, SECOND)
-    )
+    assert "pendingObserved" not in saved
+    assert saved["pendingGeneration"]
+    assert all(saved["states"][name]["status"] == "SUCCESS" for name in (FIRST, SECOND))
+    assert saved["states"][FIRST]["observedSynced"]
+    assert not saved["states"][SECOND].get("observedSynced")
     assert saved["states"][THIRD]["status"] == "NOT_STARTED"
     assert THIRD not in json.loads(aws.read_text())["changes"]
     evidence = {
@@ -298,13 +297,14 @@ def check_observed_failure_drains_peers_and_resumes(tmp_path, monkeypatch):
         SECOND: "RUNNING",
         THIRD: "NOT_STARTED",
     }
-    assert at_failure["planEvidence"] == [FIRST]
+    assert at_failure["observedSynced"] == [FIRST]
+    assert at_failure["pendingGeneration"] == [f"docs/designs/dev/{ACCOUNT}/ec2.md"]
     assert {
         name: at_failure["executionEvidence"][name] for name in evidence
     } == evidence
     failure = saved["observedFailures"][0]
     assert failure == {
-        "stage": "MODEL_PUBLISHED",
+        "stage": "GENERATION",
         "cause": "0 services succeeded; 1 services failed; 0 services NOT_RUN; 1 diagnostics\n"
         f"- docs/designs/dev/{ACCOUNT}/ec2.md: injected design I/O failure",
     }

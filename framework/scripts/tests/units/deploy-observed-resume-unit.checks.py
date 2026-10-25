@@ -3,7 +3,6 @@
 import copy
 import json
 import sys
-from contextlib import nullcontext
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 
@@ -716,69 +715,47 @@ def check_finish_io_failure(owned_proposal, stage):
         patch(
             "model.adapters.observed.publish_observed", side_effect=OSError("model I/O")
         ) as publish,
-        patch("sync_runtime.generation_context", return_value=nullcontext(None)),
-        patch(
-            "sync_runtime.prepare_generation", side_effect=OSError("generation I/O")
-        ) as generate,
-        patch("sync_runtime.publish_generation") as generated_publish,
+        patch("sync_runtime.prepare_generation") as generate,
     ):
-        with pytest.raises(
-            OSError, match="model I/O" if stage == "PREPARED" else "generation I/O"
-        ):
-            M.finish(backend, [{"name": "A"}])
         if stage == "PREPARED":
+            with pytest.raises(OSError, match="model I/O"):
+                M.finish(backend, [{"name": "A"}])
             publish.assert_called_once()
-            generate.assert_not_called()
+            assert session["pendingObserved"] == before
         else:
+            assert M.finish(backend, [{"name": "A"}]) == {source: new}
             publish.assert_not_called()
-            generate.assert_called_once()
-        generated_publish.assert_not_called()
-    assert session["pendingObserved"] == before
+            assert "pendingObserved" not in session
+            assert session["states"]["A"]["observedSynced"]
+            assert session["pendingGeneration"]
+        generate.assert_not_called()
     assert session["states"]["A"]["executionEvidence"] == proof
     assert source.read_text() == (old if stage == "PREPARED" else new)
 
 
-@pytest.mark.parametrize(
-    "committed,mismatch",
-    [
-        ("model-committed", False),
-        ("design-committed", False),
-        ("design-committed", True),
-    ],
-)
-def check_finish_committed_stages(owned_proposal, committed, mismatch):
-    root, session, source, old, new = owned_proposal
+@pytest.mark.parametrize("committed", ["model-committed", "design-committed"])
+def check_finish_transfers_v16_candidates(owned_proposal, committed):
+    root, session, source, _, new = owned_proposal
     source.write_text(new, encoding="utf-8")
     plan = session["pendingObserved"]
     plan["services"] = ["service"]
     view = root / next(iter(plan["generated"]["originals"]))
-    published = {view: "published design\n"}
     if committed == "design-committed":
-        view.write_text(published[view], encoding="utf-8")
+        view.write_text("published design\n", encoding="utf-8")
         plan["generated"].update(
-            outputs={view.relative_to(root).as_posix(): published[view]},
+            outputs={view.relative_to(root).as_posix(): "published design\n"},
             stage="CANDIDATE",
         )
-    candidate = {view: "different candidate\n"} if mismatch else published
-    generation = SimpleNamespace(
-        expected_outputs={"service": candidate},
-        failures=[],
-        unavailable=[],
-        close=lambda: None,
-    )
+    generated = copy.deepcopy(plan["generated"])
+    saved = []
     backend = SimpleNamespace(
         root=root,
         session=session,
         target={},
         environment="dev",
         directory="team",
-        save=lambda: None,
+        save=lambda: saved.append(copy.deepcopy(session)),
         guard=lambda: None,
-    )
-    before, design_before = source.read_bytes(), view.read_bytes()
-    generated_before, proof = (
-        copy.deepcopy(plan["generated"]),
-        copy.deepcopy(session["states"]["A"]["executionEvidence"]),
     )
     with (
         patch.object(
@@ -792,45 +769,17 @@ def check_finish_committed_stages(owned_proposal, committed, mismatch):
             return_value=({source: new}, ["service"], None),
         ),
         patch("model.adapters.observed.publish_observed") as publish,
-        patch("sync_runtime.generation_context", return_value=nullcontext(None)),
-        patch("sync_runtime.prepare_generation", return_value=generation) as prepare,
-        patch("sync_runtime.validate_generation"),
-        patch("sync_runtime.report_generation"),
-        patch(
-            "sync_runtime.publish_generation",
-            side_effect=_bind_framework_callback(write_generation_candidate, candidate),
-        ) as generated_publish,
+        patch("sync_runtime.prepare_generation") as prepare,
     ):
-        if mismatch:
-            with pytest.raises(Blocked, match="candidate differs from saved session"):
-                M.finish(backend, [{"name": "A"}])
-        else:
-            assert M.finish(backend, [{"name": "A"}]) == {source: new}
+        assert M.finish(backend, [{"name": "A"}]) == {source: new}
     publish.assert_not_called()
-    prepare.assert_called_once()
+    prepare.assert_not_called()
+    assert len(saved) == 1 and "pendingObserved" not in saved[0]
+    assert saved[0]["states"]["A"]["observedSynced"]
     assert (
-        source.read_bytes() == before
-        and session["states"]["A"]["executionEvidence"] == proof
+        saved[0]["pendingGeneration"][view.relative_to(root).as_posix()]["generated"]
+        == generated
     )
-    if mismatch:
-        generated_publish.assert_not_called()
-        assert (
-            view.read_bytes() == design_before and plan["generated"] == generated_before
-        )
-    else:
-        generated_publish.assert_called_once_with(generation)
-        assert view.read_bytes() == published[view].encode()
-        assert committed != "design-committed" or view.read_bytes() == design_before
-        assert plan["generated"]["outputs"] == {
-            view.relative_to(root).as_posix(): published[view]
-        }
-        assert plan["generated"]["stage"] == "PUBLISHED"
-
-
-def write_generation_candidate(candidate, generation):
-    for path, text in candidate.items():
-        if path.read_bytes() != text.encode():
-            path.write_text(text, encoding="utf-8")
 
 
 def failing_session_sync(backend, units, states):

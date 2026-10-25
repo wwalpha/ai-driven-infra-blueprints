@@ -53,6 +53,8 @@ class Session(TypedDict, total=False):
     modelInputManifest: Manifest
     infraManifest: Manifest
     inputIdentities: dict[str, list[int]]
+    pendingGeneration: dict[str, JsonObject]
+    generationError: str
     pendingObserved: JsonObject
     workflow: JsonObject
     workflowBinding: str
