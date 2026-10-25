@@ -16,7 +16,6 @@ from issue_gate import issue_errors, unresolved_services
 from issues.artifact import scan_exit_code, validate_artifact
 from issues.cli import main as issues_main
 from issues.publication import save_scan
-from issues.reports import generated_content, issue_key
 from issues.runner import codebuild_plaintext_diagnostics, scan
 from model.core import entries
 from model.display import display_rows
@@ -416,7 +415,9 @@ def test_scan_save_owns_codebuild_and_deduplicates(
         )
         if unreadable_view:
             view.write_bytes(b"\xff")
-        services = ["s3", "codebuild"]
+        services = ["s3", "codebuild", "cloudformation-stacks"] + (
+            ["iam"] if typed else []
+        )
         previous_markers = set()
         for _iteration in range(2):
             if typed:
@@ -433,10 +434,11 @@ def test_scan_save_owns_codebuild_and_deduplicates(
                         "dev",
                         "--target-directory",
                         "123456789012",
-                        "--service",
-                        "s3",
-                        "--service",
-                        "codebuild",
+                        *(
+                            value
+                            for service in services
+                            for value in ("--service", service)
+                        ),
                         "--jobs",
                         "2",
                         "--artifact",
@@ -495,6 +497,7 @@ def test_scan_save_owns_codebuild_and_deduplicates(
                     REASON in item["message"]
                     or "generated Markdown is stale or missing" in item["message"]
                     for item in artifact["ordinary"]
+                    if item["service"] == "codebuild"
                 ), artifact["ordinary"]
             assert all(item["service"] == "codebuild" for item in errors)
             assert not any(
@@ -549,11 +552,7 @@ def test_scan_save_owns_codebuild_and_deduplicates(
                     for item in artifact[channel]
                 )
             )
-            assert not any(
-                REASON in str(item)
-                for item in artifact["judgments"]
-                if item.get("kind") != "existing-issue-correspondence"
-            )
+            assert not any(REASON in str(item) for item in artifact["judgments"])
             unowned = [item for item in artifact["judgments"] if "message" in item]
             diagnostics = [
                 *artifact["ordinary"],
@@ -566,44 +565,21 @@ def test_scan_save_owns_codebuild_and_deduplicates(
                 reviewed_judgments=[item["id"] for item in artifact["judgments"]],
                 diagnostic_assignments={item["id"]: "codebuild" for item in unowned},
                 issues=[],
-                resolved=[],
-            )
-            review["existing_issue_judgments"] = [
-                dict(
-                    id=item["materials"]["id"],
-                    service="codebuild",
-                    status="continuing",
-                    reason="同じ禁止違反を今回のModel検証でも検出",
-                    verification="local",
-                    diagnostic_id=diagnostic["id"],
-                    evidence=[
-                        dict(kind="scan", section="ordinary", id=diagnostic["id"])
-                    ],
-                )
-                for item in artifact["judgments"]
-                if item.get("kind") == "existing-issue-correspondence"
-                for diagnostic in diagnostics
-                if (
-                    "<!-- issue-generated:start --> "
-                    + generated_content(
-                        tmp_path,
-                        tmp_path / "issues/dev/123456789012/issues.md",
-                        diagnostic,
+                reviewed_confirmations=[],
+                diagnostic_decisions=[
+                    dict(
+                        id=item["id"],
+                        outcome="issue",
+                        reason="Current diagnostic confirmed",
                     )
-                    + " <!-- issue-generated:end -->"
-                )
-                in item["materials"]["message"]
-            ]
+                    for item in diagnostics
+                ],
+                confirmation_cleanup=[],
+                unverified=[],
+            )
             with task(tmp_path, services):
-                paths = save_scan(tmp_path, artifact, review)
+                paths, snapshot = save_scan(tmp_path, artifact, review)
             report = paths[0].read_text(encoding="utf-8")
-            if not _iteration:
-                report = report.replace(
-                    "<!-- issue-id: " + issue_key(tmp_path, errors[0]) + " -->",
-                    "<!-- issue-id: retained-policy-id -->",
-                )
-                write(paths[0], report)
-            assert "<!-- issue-id: retained-policy-id -->" in report
             markers = set(re.findall(r"<!-- issue-id: (\S+) -->", report))
             if _iteration:
                 assert markers == previous_markers
@@ -612,7 +588,7 @@ def test_scan_save_owns_codebuild_and_deduplicates(
             assert sum(
                 "codebuild" in owners
                 for _, owners in unresolved_services(tmp_path, paths[0])
-            ) == len(diagnostics), report
+            ) == sum(item["service"] == "codebuild" for item in diagnostics), report
             assert "### codebuild" in report
             assert issue_errors(tmp_path, {("dev", "123456789012", "codebuild")})
 

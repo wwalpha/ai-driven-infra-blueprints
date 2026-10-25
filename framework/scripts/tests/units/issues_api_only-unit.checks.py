@@ -73,7 +73,7 @@ def check_api_record_classification():
             stats["categories"]["処理エラー"] == stats["categories"]["原因未確定"] == 0
         )
         artifact = dict(
-            version=3,
+            version=4,
             ordinary=[],
             judgments=[],
             naming={"names": []},
@@ -95,7 +95,7 @@ def check_api_record_classification():
             failure["category"] == "error"
             and failure.get("cause", {}).get("kind") != "cloudformation-unsupported"
         )
-        artifact = dict(version=3, **aggregate(records, "dev", "123456789012", ["s3"]))
+        artifact = dict(version=4, **aggregate(records, "dev", "123456789012", ["s3"]))
         assert summary(artifact)["iac_status"] == "error"
 
 

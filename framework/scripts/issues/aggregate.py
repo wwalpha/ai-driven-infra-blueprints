@@ -638,12 +638,12 @@ def iac_summary(
     )
 
 
-def comparison_status(counts):
+def comparison_status(counts, *, incomplete=False):
     return (
         "error"
         if counts["error"]
         else "partial"
-        if counts["uncompared"] or counts["deferred"]
+        if incomplete or counts["uncompared"] or counts["deferred"]
         else "differences"
         if counts["difference"]
         else "complete match"

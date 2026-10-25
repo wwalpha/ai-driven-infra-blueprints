@@ -14,7 +14,8 @@ from unittest.mock import patch
 
 import pytest
 import task_contract as tasks
-from issues.publication import save
+from issues.publication import save_scan
+from support.issues_scan_fixtures import review_for, snapshot_artifact
 from support.pytest_cli import run
 from support.repository_fixtures import transition_contract as contract
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
@@ -115,26 +116,12 @@ def check_shared_issue_files(tmp_path, monkeypatch):
         second,
         contract(second, [report], kind="migration", scope="dev/cde/s3"),
     )
-    monkeypatch.setenv(tasks.SELECTOR, first)
-    save(
-        tmp_path,
-        "dev",
-        "cde",
-        ["ec2"],
-        additions=[{"service": "ec2", "message": "retained issue"}],
-    )
-    monkeypatch.setenv(tasks.SELECTOR, second)
-    save(
-        tmp_path,
-        "dev",
-        "cde",
-        ["s3"],
-        additions=[{"service": "s3", "message": "second issue"}],
-    )
-    assert all(
-        value in (tmp_path / report).read_text()
-        for value in ("retained issue", "second issue")
-    )
+    artifact = snapshot_artifact(tmp_path, services=["ec2", "s3"], target="cde")
+    for name in (first, second):
+        monkeypatch.setenv(tasks.SELECTOR, name)
+        with pytest.raises(ValueError, match="explicit service scope"):
+            save_scan(tmp_path, artifact, review_for(artifact))
+    assert not (tmp_path / report).exists()
 
 
 if __name__ == "__main__":

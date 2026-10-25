@@ -19,10 +19,10 @@ import issues.cfn_lint as _imports_issues_cfn_lint
 
 from .aggregate import aggregate
 from .inputs import Comparison, view_text
-from .integrity import selected_scope
-from .materials import existing_materials, naming_materials
+from .integrity import selected_scope, target_services
+from .materials import naming_materials
 from .records import identifier, safe_text
-from .reports import issue_key
+from .review import human_confirmations
 
 
 @task_read_scope
@@ -107,20 +107,6 @@ def review_materials(comparison, service):
     ]
 
 
-def check_targets(result):
-    return [
-        dict(
-            service=entry[2],
-            check_id=result.check_id,
-            rule=result.check_id,
-            resource="*",
-            property="*",
-            scope="/".join(entry),
-        )
-        for entry in sorted(result.scope or [])
-    ]
-
-
 def codebuild_plaintext_diagnostics(message, comparison):
     """Identify only this policy across its Model and saved-View error wrappers."""
     reason = reference_error(
@@ -195,6 +181,8 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     started = time.perf_counter()
     scope = selected_scope(environment, directory, services)
     scan_id = uuid.uuid4().hex
+    all_services = target_services(root, environment, directory)
+    human = human_confirmations(root, environment, directory)
     comparison = Comparison(root, environment, directory, services)
     stages = Findings(root)
     for service in services:
@@ -245,7 +233,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             service
             for service in services
             if re.search(
-                r"/" + re.escape(service) + r"(?:\.md|\.properties|/)", message
+                r"/" + re.escape(service) + r"(?:\.md|\.properties|/)", diagnostic
             )
         ]
         owner = (
@@ -262,13 +250,6 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             "service": owner,
             "message": safe_text(comparison.redacted(diagnostic)),
             "key": key,
-            "verification_targets": [
-                target
-                for result in validator.findings.results.values()
-                if message in result.errors
-                for target in check_targets(result)
-                if target["service"] == owner
-            ],
         }
         (ordinary if owner else judgments).append(candidate)
     naming = {"names": [], "rules": {}}
@@ -285,18 +266,6 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
                 if key not in {"names", "rules"}
             )
             judgments.extend(naming_judgments)
-    human = []
-    with scan_stage(stages, "materials.existing-issues", scope):
-        existing, human = existing_materials(root, environment, directory, services)
-        judgments.extend(
-            {
-                "id": item["id"],
-                "service": item["service"],
-                "kind": "existing-issue-correspondence",
-                "materials": item,
-            }
-            for item in existing
-        )
     for service in services:
         with scan_stage(
             stages, "materials.review-prose", {(environment, directory, service)}
@@ -390,19 +359,6 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     ordinary.extend(lint.pop("ordinary"))
     judgments.extend(lint.pop("judgments"))
     warnings.extend(lint.pop("warnings"))
-    current = {}
-    for record in ordinary:
-        with scan_stage(
-            stages,
-            "materials.correspondence",
-            {(environment, directory, record["service"])},
-        ):
-            current.setdefault(issue_key(root, record), []).append(record["id"])
-    for item in judgments:
-        if item.get("kind") == "existing-issue-correspondence":
-            item["materials"]["current_diagnostic_ids"] = current.get(
-                item["materials"].get("marker"), []
-            )
     naming_context = comparison.redacted(
         {key: value for key, value in naming.items() if key != "names"}
     )
@@ -469,7 +425,11 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     )
     aggregation_seconds = time.perf_counter() - begin
     artifact = dict(
-        version=3,
+        version=4,
+        target_services=all_services,
+        service_results=[
+            dict(service=service, status="scanned") for service in sorted(set(services))
+        ],
         root=str(root),
         scan_id=scan_id,
         naming_context_id=context_id,
@@ -482,7 +442,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
         naming=naming,
         judgments=judgments,
         warnings=warnings,
-        human_confirmations=[safe_text(line) for line in human],
+        human_confirmations=human,
         information=lint.pop("information"),
         unverified=unverified,
         processing_errors=processing,
@@ -514,7 +474,6 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             and result.metadata.get("complete") is not False
             and not result.metadata.get("unverified"),
             checks=result.checks,
-            verification_targets=check_targets(result),
         )
         for result in [*validator.findings.results.values(), *stages.results.values()]
     ]

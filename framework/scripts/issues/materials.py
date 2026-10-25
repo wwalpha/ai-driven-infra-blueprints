@@ -8,7 +8,6 @@ from design.layout import (
 )
 from design.policy_tables import literal
 from design.services.definitions.registry import REQUIRED_NAME_TAG_TYPES
-from issue_markdown import without_notices
 from model.validation import (
     NAMING_EXEMPT_PROPERTIES,
     naming_rule_files,
@@ -19,7 +18,6 @@ from utils.aws_catalogs import catalog_outputs
 from utils.aws_mappings import definition_root
 
 from .records import identifier, safe_text
-from .reports import inventories, issue_marker, issue_targets, numbered, owned_blocks
 
 
 def rule_section(text, heading):
@@ -281,42 +279,3 @@ def naming_materials(comparison, *, service=None):
         "names": names,
         "review_policy": "全名称のpattern/正本component/例外scopeを確認する。human_context_idの注記とrow commentを根拠にし、不足componentを値から推測しない。coverage除外をconvention/値検証除外へ拡大しない。",
     }, judgments
-
-
-def existing_materials(root, environment, directory, services):
-    path = root / "issues" / environment / directory / "issues.md"
-    inventories(root, path)
-    if not path.is_file():
-        return [], []
-    preamble, sections = owned_blocks(
-        root, path, without_notices(path.read_text(encoding="utf-8"))
-    )
-    items = []
-    preamble = without_notices(preamble)
-    human_prefix, unowned = numbered(preamble)
-    groups = [(None, unowned)] + [
-        (service, numbered(body)[1]) for service, body in sections
-    ]
-    for service, issues in groups:
-        if service not in services and service is not None:
-            continue
-        for text in issues:
-            items.append(
-                {
-                    "id": identifier([service, text]),
-                    "service": service,
-                    "message": safe_text(text),
-                    "kind": "existing-unresolved; current state decision required",
-                    "marker": issue_marker(text),
-                    "verification_targets": issue_targets(text),
-                    "ownership_reason": "Service ownership cannot be established from the existing heading, markers or evidence links"
-                    if service is None
-                    else None,
-                }
-            )
-    human = [
-        line
-        for line in human_prefix.splitlines()
-        if line.strip() and not line.startswith(("#", "更新日時:", "今回確認した範囲:"))
-    ]
-    return items, human

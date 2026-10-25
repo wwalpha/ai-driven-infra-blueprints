@@ -107,7 +107,11 @@ def issues_save_only(root, *, scope=..., text=None, paths=()):
             for env, target, _ in scope
             for name in ("issues.md", "iac-issues.md")
         }
-        permitted = reports | {prompt.relative_to(root).as_posix()}
+        confirmations = {
+            f"issues/{env}/{target}/human-confirmations.yaml"
+            for env, target, _ in scope
+        }
+        permitted = reports | confirmations | {prompt.relative_to(root).as_posix()}
         allowed = paths_in(text, "## Allowed paths")
         return bool(
             allowed & reports

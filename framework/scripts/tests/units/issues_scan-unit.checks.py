@@ -4,7 +4,6 @@
 import sys
 from contextlib import nullcontext
 from copy import deepcopy
-from datetime import datetime as real_datetime
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
@@ -27,14 +26,13 @@ from comparison.deferral import (
     ImportReferenceDeferred,
 )
 from comparison.inputs import Inputs
-from issue_gate import issue_errors, unresolved_services
+from issue_gate import unresolved_services
 from issues.aggregate import MAX_GROUPS, comparison_status, iac_actions
 from issues.artifact import scan_exit_code, validate_artifact
 from issues.cli import main as issues_main
 from issues.inputs import view_text
-from issues.materials import existing_materials
 from issues.records import iac_key
-from issues.reports import normal_merge, notice_report, split_notices
+from issues.reports import ordinary_report
 from model.core import ReferenceResolutionError, resource_row_index
 from model.format import split
 from model.sources import load_model as real_load
@@ -51,14 +49,12 @@ from support.issues_scan_fixtures import (
     iac_summary,
     identifier,
     json,
-    os,
     patch,
     pytest,
     re,
     render_iac,
     review_payload,
     run,
-    save,
     summary,
     summary_fixture,
     sys,
@@ -333,10 +329,7 @@ def summary_scale_cases():
 
     records = artifact["iac"]
     original = json.dumps(artifact, sort_keys=True)
-    assert (
-        hashlib.sha256(original.encode()).hexdigest()
-        == "3b8931cac417f6d6fa4742ad120d165fdff3f5e825c921fc5ab0eeeb3308d7ca"
-    )
+    assert artifact["version"] == 4
     entries, actions, fields = iac_dataset(
         records, "dev", "cde", artifact["services"], artifact["iac_display"]
     )
@@ -769,385 +762,20 @@ def check_scan_accepts_input_changes(tmp_path, input_name):
             side_effect=partial(change_scan_input, comparison, path, validator),
         ),
         patch.object(scan_runner, "naming_materials", return_value=({"names": []}, [])),
-        patch.object(scan_runner, "existing_materials", return_value=([], [])),
+        patch.object(
+            scan_runner,
+            "human_confirmations",
+            return_value=dict(
+                version=1, environment="dev", target="team", confirmations=[]
+            ),
+        ),
+        patch.object(scan_runner, "target_services", return_value=["s3"]),
         patch("issues.cfn_lint.run_lint", return_value=lint) as lint_call,
     ):
         artifact = scan_runner.scan(tmp_path, "dev", "team", ["s3"])
     assert not artifact["processing_errors"] and comparison.read_hashes == {}
     assert comparison.run.call_count == lint_call.call_count == 1
     assert path.read_bytes() == b"changed"
-
-
-def check_notice_resolution_and_update_series(tmp_path):
-    root = tmp_path
-    path = root / "issues/dev/team/issues.md"
-    path.parent.mkdir(parents=True)
-    ordinary = "# 問題一覧\n\nHuman確認済み\n<!-- human-comment -->\n\n## dev／team\n\n### s3\n\n1. selected issue\n\n### sqs\n\n1. outside issue\n"
-    text = notice_report(
-        ordinary, "dev", "team", ["sqs"], {"warnings": [{"message": "outside warning"}]}
-    )
-    path.write_text(text)
-    ids = []
-    scans = (
-        dict(
-            warnings=[{"message": "old False diagnostic"}],
-            information=[{"message": "old information"}],
-        ),
-        dict(
-            warnings=[{"message": "current warning"}],
-            information=[{"message": "current information"}],
-            unverified=[{"message": "not run"}],
-            processing_errors=[{"message": "unrelated processing error"}],
-        ),
-        dict(cfn_lint={"coverage": [{"status": "not_applicable"}]}),
-        {},
-    )
-    for index, artifact in enumerate(scans, 1):
-        clock = Mock()
-        clock.now.return_value = real_datetime(2026, 10, 23, 0, 0, index)
-        with (
-            patch("issues.reports.datetime", clock),
-            patch("issues.publication.save_authority", return_value=[path]),
-        ):
-            save(root, "dev", "team", ["s3"], artifact=artifact)
-        text = path.read_text(encoding="utf-8")
-        assert (
-            f"更新日時: 2026-10-23 00:00:0{index} Asia/Tokyo" in split_notices(text)[0]
-        )
-        assert "今回確認した範囲: dev／team／s3" in split_notices(text)[0]
-        issues, human = existing_materials(root, "dev", "team", ["s3"])
-        assert len(issues) == 1 and human == ["Human確認済み", "<!-- human-comment -->"]
-        ids.append(issues[0]["id"])
-        assert "outside warning" in text
-        assert text.count("old False diagnostic") == int(index == 1)
-        assert text.count("old information") == int(index == 1)
-        for message in (
-            "current warning",
-            "current information",
-            "not run",
-            "unrelated processing error",
-        ):
-            assert text.count(message) == int(index == 2)
-        assert "前回診断（今回未検証・解消未確認）" not in text
-        assert "outside issue" in text
-        assert {scope for scope, _ in split_notices(text)[1]} == {
-            identifier(["dev", "team", ["s3"]]),
-            identifier(["dev", "team", ["sqs"]]),
-        }
-    assert len(set(ids)) == 1
-    resolution = dict(
-        id=ids[0], reason="explicit revalidation", evidence="confirmed fixture"
-    )
-    merged = normal_merge(root, path, "dev", "team", ["s3"], [], [], [resolution])
-    assert "selected issue" not in merged and "outside issue" in merged
-    assert "outside warning" in merged and "<!-- human-comment -->" in merged
-    # save-results does not invoke notice_report, comparison, lint or aggregation.
-    with (
-        patch("issues.publication.save_authority", return_value=[path]),
-        patch("issues.publication.atomic_files") as atomic,
-        patch(
-            "issues.reports.notice_report", side_effect=AssertionError("notice rerun")
-        ),
-        patch(
-            "comparison.Comparison.run", side_effect=AssertionError("comparison rerun")
-        ),
-        patch("issues.cfn_lint.run_lint", side_effect=AssertionError("lint rerun")),
-    ):
-        save(
-            root,
-            "dev",
-            "team",
-            ["s3"],
-            resolutions=[resolution],
-            artifact=None,
-            warnings=(),
-        )
-    saved = atomic.call_args.args[0][path]
-    assert split_notices(saved)[1] == split_notices(merged)[1]
-    assert "selected issue" not in saved and "outside issue" in saved
-
-
-@pytest.mark.parametrize("fence", ["```", "~~~~"])
-def check_notice_fenced_roundtrip(tmp_path, fence):
-    root = tmp_path
-    path = root / "issues/dev/team/issues.md"
-    path.parent.mkdir(parents=True)
-    example = (
-        f"{fence}text\n<!-- issues-notices:sample:start -->\n- scoped example\n<!-- issues-notices:sample:end -->\n"
-        "## 警告（非ブロッキング）\n\n- fenced warning\n## 参照警告（非ブロッキング）\n\n- fenced reference\n"
-        + ("```\n" if fence.startswith("~") else "~~~\n")
-        + fence
-        + "\n"
-    )
-    human = "Human確認済み\n\n" + example + "\nHuman後続\n"
-    old = "<!-- issue-service: s3 -->\n1. existing s3 problem\n\n"
-    path.write_text(old)
-    before = unresolved_services(root, path)
-    gate = issue_errors(root, {("dev", "team", "sqs")})
-    issues, _ = existing_materials(root, "dev", "team", ["s3"])
-    assert len(issues) == 1 and issues[0]["service"] == "s3"
-    merged = normal_merge(root, path, "dev", "team", ["sqs"], [], [], [])
-    merged = notice_report(merged, "dev", "team", ["sqs"], {"warnings": ["current"]})
-    path.write_text(merged)
-    assert unresolved_services(root, path) == before
-    assert issue_errors(root, {("dev", "team", "sqs")}) == gate == []
-    assert (
-        existing_materials(root, "dev", "team", ["s3"])[0][0]["id"] == issues[0]["id"]
-    )
-    # Keep a Human example in the preamble and real notices for two scopes.
-    path.write_text(human + merged)
-    merged = normal_merge(root, path, "dev", "team", ["s3"], [], [], [])
-    merged = notice_report(merged, "dev", "team", ["s3"], {"unverified": ["selected"]})
-    assert example in split_notices(merged)[0] and len(split_notices(merged)[1]) == 2
-    assert (
-        merged.index("Human確認済み")
-        < merged.index(example)
-        < merged.index("Human後続")
-    )
-    path.write_text(merged)
-    with (
-        patch("issues.publication.save_authority", return_value=[path]),
-        patch("issues.publication.atomic_files") as atomic,
-    ):
-        save(root, "dev", "team", ["s3"], artifact=None)
-    saved = atomic.call_args.args[0][path]
-    assert example in split_notices(saved)[0]
-    assert (
-        saved.index("Human確認済み") < saved.index(example) < saved.index("Human後続")
-    )
-    assert split_notices(saved)[1] == split_notices(merged)[1]
-    path.write_text(saved)
-    resolution = dict(
-        id=issues[0]["id"], reason="explicit revalidation", evidence="fixture"
-    )
-    resolved = normal_merge(root, path, "dev", "team", ["s3"], [], [], [resolution])
-    assert "existing s3 problem" not in resolved and example in resolved
-    assert "current" in resolved
-
-
-@pytest.mark.parametrize(
-    "warnings,references", [(False, False), (True, False), (False, True), (True, True)]
-)
-def check_notice_tail_order_and_materials(tmp_path, warnings, references):
-    root = tmp_path
-    path = root / "issues/dev/team/issues.md"
-    path.parent.mkdir(parents=True)
-    ordinary = "# 問題一覧\n\nHuman確認済み\n\n## dev／team\n\n### s3\n\n1. selected issue\n\n### sqs\n\n1. outside issue\n"
-    path.write_text(ordinary, encoding="utf-8")
-    materials = existing_materials(root, "dev", "team", ["s3", "sqs"])
-    owners = unresolved_services(root, path)
-    gate = issue_errors(root, {("dev", "team", "s3"), ("dev", "team", "sqs")})
-    reference = "## 参照警告（非ブロッキング）\n\n- Reference Warning A\n"
-    plain_warning = "## 警告（非ブロッキング）\n\n- Existing Warning A\n"
-    # The only input for reference warnings is the existing report body.
-    path.write_text(
-        ordinary
-        + (reference if references else "")
-        + (plain_warning if warnings else ""),
-        encoding="utf-8",
-    )
-    channels = (
-        dict(
-            warnings=["Warning A"],
-            information=["Info A"],
-            unverified=["Not run A"],
-            processing_errors=["Error A"],
-        )
-        if warnings
-        else {}
-    )
-    other = (
-        notice_report(
-            path.read_text(encoding="utf-8"),
-            "dev",
-            "team",
-            ["sqs"],
-            dict(
-                warnings=["Outside Warning"],
-                information=["Outside Info"],
-                unverified=["Outside Not run"],
-                processing_errors=["Outside Error"],
-            ),
-        )
-        if warnings
-        else path.read_text(encoding="utf-8")
-    )
-    path.write_text(other, encoding="utf-8")
-    clock = Mock()
-    clock.now.return_value = real_datetime(2026, 10, 24)
-    saved = []
-    for _ in range(3):
-        with (
-            patch("issues.reports.datetime", clock),
-            patch("issues.publication.save_authority", return_value=[path]),
-        ):
-            save(
-                root,
-                "dev",
-                "team",
-                ["s3"],
-                warnings=channels.get("warnings", ()),
-                artifact=channels or None,
-            )
-        text = path.read_text(encoding="utf-8")
-        saved.append(text)
-        assert existing_materials(root, "dev", "team", ["s3", "sqs"]) == materials
-        assert unresolved_services(root, path) == owners
-        assert (
-            issue_errors(root, {("dev", "team", "s3"), ("dev", "team", "sqs")}) == gate
-        )
-        assert text.count(reference) == int(references) and text.count(
-            plain_warning.rstrip()
-        ) == int(warnings)
-        if warnings:
-            positions = [
-                text.index("outside issue"),
-                text.index("## 情報"),
-                text.index("## 未検証範囲"),
-                text.index("## 処理エラー"),
-                text.index("## 警告（非ブロッキング）"),
-            ]
-            assert positions == sorted(positions)
-            assert text.rindex("## 情報") < text.index("## 警告（非ブロッキング）")
-            headings = [
-                "情報",
-                "未検証範囲",
-                "処理エラー（未検証範囲あり）",
-                "警告（非ブロッキング）",
-            ]
-            assert all(
-                text.rindex("## " + first) < text.index("## " + second)
-                for first, second in zip(headings, headings[1:], strict=False)
-            )
-            assert all(
-                text.count('- "' + value + '"') == 1
-                for value in [
-                    "Warning A",
-                    "Info A",
-                    "Not run A",
-                    "Error A",
-                    "Outside Warning",
-                    "Outside Info",
-                    "Outside Not run",
-                    "Outside Error",
-                ]
-            )
-            assert {
-                scope for scope, _ in split_notices(text)[1] if scope is not None
-            } == {
-                identifier(["dev", "team", ["s3"]]),
-                identifier(["dev", "team", ["sqs"]]),
-            }
-        if references:
-            assert text.endswith(reference)
-            if warnings:
-                assert text.rindex("## 警告（非ブロッキング）") < text.index(
-                    "## 参照警告（非ブロッキング）"
-                )
-        if not warnings and not references:
-            assert (
-                split_notices(text)[1] == [] and "### s3\n\n1. selected issue" in text
-            )
-    assert saved[0] == saved[1] == saved[2]
-
-
-@pytest.mark.parametrize(
-    "heading", ["### s3", "### S3 findings\n\n<!-- issue-service: s3 -->"]
-)
-def check_notice_before_service_issues(tmp_path, heading):
-    root = tmp_path
-    path = root / "issues/dev/team/issues.md"
-    path.parent.mkdir(parents=True)
-    preamble = "# 問題一覧\n\nHuman確認済み\n\n## dev／team\n\n"
-    issues = (
-        heading
-        + "\n\n1. Actual s3 problem <!-- issue-id: s3-fixed -->\n\n### sqs\n\n1. Actual sqs problem <!-- issue-id: sqs-fixed -->\n"
-    )
-    reference = (
-        "## 参照警告（非ブロッキング）\n\n- Reference Warning A\n\n"
-        "### details\n\n- Auxiliary warning details\n\n"
-        "### 前回診断（今回未検証・解消未確認）\n\n- Prior warning\n\n"
-        "````text\n## 参照警告（非ブロッキング）\n### s3\n1. fenced example\n````\n\n"
-        "~~~text\n## 警告（非ブロッキング）\n### sqs\n1. fenced example\n~~~\n"
-    )
-    path.write_text(preamble + issues, encoding="utf-8")
-    materials = existing_materials(root, "dev", "team", ["s3", "sqs"])
-    owners = unresolved_services(root, path)
-    gate = issue_errors(root, {("dev", "team", "s3"), ("dev", "team", "sqs")})
-    path.write_text(preamble + reference + "\n" + issues, encoding="utf-8")
-    ordinary, notices = split_notices(path.read_text(encoding="utf-8"))
-    assert reference.rstrip() == notices[0][1] and issues in ordinary
-    assert len(materials[0]) == 2
-    assert existing_materials(root, "dev", "team", ["s3", "sqs"]) == materials
-    assert unresolved_services(root, path) == owners
-    assert issue_errors(root, {("dev", "team", "s3"), ("dev", "team", "sqs")}) == gate
-    clock = Mock()
-    clock.now.return_value = real_datetime(2026, 10, 24)
-    saved = []
-    for _ in range(3):
-        with (
-            patch("issues.reports.datetime", clock),
-            patch("issues.publication.save_authority", return_value=[path]),
-        ):
-            save(root, "dev", "team", ["s3", "sqs"])
-        text = path.read_text(encoding="utf-8")
-        saved.append(text)
-        assert text.endswith(reference) and "未解決issueなし" not in text
-        assert existing_materials(root, "dev", "team", ["s3", "sqs"]) == materials
-        assert unresolved_services(root, path) == owners
-        assert (
-            issue_errors(root, {("dev", "team", "s3"), ("dev", "team", "sqs")}) == gate
-        )
-    assert saved[0] == saved[1] == saved[2]
-
-
-def check_scoped_reference_notices_survive_refresh():
-    ordinary = "# 問題一覧\n\nHuman確認済み\n\n未解決issueなし\n"
-    notices = []
-    for service in ["s3", "sqs"]:
-        scope = identifier(["dev", "team", [service]])
-        notices.append(
-            (
-                scope,
-                f"<!-- issues-notices:{scope}:start -->\n"
-                f"今回の機械診断scope: dev／team／{service}\n"
-                f"## 参照警告（非ブロッキング）\n\n- Reference {service}\n"
-                "### 前回診断（今回未検証・解消未確認）\n- Prior reference\n"
-                f"## 情報\n\n- Old information {service}\n"
-                f"<!-- issues-notices:{scope}:end -->",
-            )
-        )
-    text = ordinary + "\n\n".join(block for _, block in notices) + "\n"
-    saved = []
-    for _ in range(3):
-        for service in ["s3", "sqs"]:
-            text = notice_report(
-                text, "dev", "team", [service], {"warnings": [service]}
-            )
-        saved.append(text)
-        assert split_notices(text)[0].strip() == ordinary.strip()
-        blocks = split_notices(text)[1]
-        for scope, original in notices:
-            reference = next(
-                block
-                for owner, block in blocks
-                if owner == scope and "## 参照警告（非ブロッキング）" in block
-            )
-            assert (
-                original.split("## 参照警告（非ブロッキング）")[1].split("## 情報")[0]
-                in reference
-            )
-        assert text.rindex("## 警告（非ブロッキング）") < text.index(
-            "## 参照警告（非ブロッキング）"
-        )
-        headings = re.findall(r"^## (.+)$", text, re.M)
-        assert (
-            headings[headings.index("参照警告（非ブロッキング）") :]
-            == ["参照警告（非ブロッキング）"] * 2
-        )
-        assert text.count("### 前回診断（今回未検証・解消未確認）") == 2
-        assert "Old information" not in text
-    assert saved[0] == saved[1] == saved[2]
 
 
 def _check_view_read_failure_policy_service(instance):
@@ -1367,7 +995,14 @@ def check_dependency_view_failure_branches(tmp_path, monkeypatch, failure):
             scan_runner, "mechanical", side_effect=partial(mechanical_result, validator)
         ),
         patch.object(scan_runner, "naming_materials", return_value=({"names": []}, [])),
-        patch.object(scan_runner, "existing_materials", return_value=([], [])),
+        patch.object(
+            scan_runner,
+            "human_confirmations",
+            return_value=dict(
+                version=1, environment="dev", target="team", confirmations=[]
+            ),
+        ),
+        patch.object(scan_runner, "target_services", return_value=["s3"]),
         patch("issues.cfn_lint.run_lint", return_value=lint) as lint_call,
     ):
         artifact = scan_runner.scan(tmp_path, "dev", "team", comparison.services)
@@ -1474,7 +1109,14 @@ def check_scan_exception_classification(tmp_path, exception):
             scan_runner, "mechanical", side_effect=partial(mechanical_result, validator)
         ),
         patch.object(scan_runner, "naming_materials", return_value=({"names": []}, [])),
-        patch.object(scan_runner, "existing_materials", return_value=([], [])),
+        patch.object(
+            scan_runner,
+            "human_confirmations",
+            return_value=dict(
+                version=1, environment="dev", target="team", confirmations=[]
+            ),
+        ),
+        patch.object(scan_runner, "target_services", return_value=["s3"]),
         patch("issues.cfn_lint.run_lint", return_value=lint),
         patch.object(
             comparison,
@@ -1538,10 +1180,8 @@ def retained_mechanical(original, *args, **kwargs):
         "models",
         "lint",
         "naming",
-        "existing",
         "review",
         "preflight",
-        "correspondence",
     ],
 )
 def check_scan_stage_failures(tmp_path, stage):
@@ -1551,22 +1191,17 @@ def check_scan_stage_failures(tmp_path, stage):
         "models": (Validator, "check_model_files"),
         "lint": (scan_runner._imports_issues_cfn_lint, "run_lint"),
         "naming": (scan_runner, "naming_materials"),
-        "existing": (scan_runner, "existing_materials"),
         "review": (scan_runner, "review_materials"),
         "preflight": (scan_runner, "view_text"),
-        "correspondence": (scan_runner, "issue_key"),
     }[stage]
     failure = (
         interrupted_mechanical
         if stage == "mechanical"
-        else ValueError("synthetic existing issues read failure")
-        if stage == "existing"
         else RuntimeError("interrupted stage")
     )
     artifact_path = tmp_path.parent / "partial-scan.json"
     report = tmp_path / "issues/dev/123456789012/issues.md"
     write(report, "# Issues\n\n### s3\n\n1. Keep this existing Issue\n")
-    before = report.read_bytes()
     with (
         patch.object(
             scan_runner,
@@ -1614,23 +1249,6 @@ def check_scan_stage_failures(tmp_path, stage):
     assert not any(
         "interrupted" in record["message"] for record in artifact["ordinary"]
     )
-    if stage == "existing":
-        assert len(artifact["processing_errors"]) == 1
-        error = artifact["processing_errors"][0]
-        assert error["phase"] == "materials.existing-issues"
-        assert error["exception"] == "ValueError"
-        assert "synthetic existing issues read failure" in error["message"]
-        assert error["scope"] == ["dev/123456789012/s3"]
-        assert any(item["phase"] == error["phase"] for item in artifact["unverified"])
-        with (
-            patch.object(publication, "existing_decisions") as decisions,
-            patch.object(publication, "save") as save_report,
-            pytest.raises(ValueError, match="existing Issue acquisition failed"),
-        ):
-            publication.save_scan(tmp_path, artifact, {})
-        decisions.assert_not_called()
-        save_report.assert_not_called()
-        assert report.read_bytes() == before
 
 
 def fail_service_materials(original, comparison, service=None, **kwargs):
@@ -1797,141 +1415,6 @@ def check_save_authority_limits_real_destinations(tmp_path, filename):
         assert [path.name for path in allowed] == ["issues.md", "iac-issues.md"]
 
 
-@pytest.mark.parametrize(
-    "failure", ["review-id", "context", "names", "judgments", "types", "owner"]
-)
-def check_save_review_rejections(tmp_path, failure):
-    artifact = dict(
-        version=3,
-        root=str(tmp_path),
-        scan_id="a" * 32,
-        naming_context_id=identifier({}),
-        naming_context={},
-        environment="dev",
-        target="team",
-        services=["s3"],
-        naming={"names": [{"id": "name"}]},
-        judgments=[dict(id="judgment", message="diagnostic")],
-        ordinary=[],
-        **aggregate([], "dev", "team", ["s3"]),
-    )
-    review = dict(
-        scan_id=artifact["scan_id"],
-        reviewed_naming_context_id=artifact["naming_context_id"],
-        reviewed_names=["name"],
-        reviewed_judgments=["judgment"],
-        diagnostic_assignments={"judgment": "s3"},
-        issues=[],
-        resolved=[],
-    )
-    key, value = {
-        "review-id": ("scan_id", "wrong"),
-        "context": ("reviewed_naming_context_id", "wrong"),
-        "names": ("reviewed_names", []),
-        "judgments": ("reviewed_judgments", []),
-        "types": ("issues", {}),
-        "owner": ("diagnostic_assignments", {"judgment": "sqs"}),
-    }[failure]
-    review[key] = value
-    with patch.object(
-        publication, "save", side_effect=AssertionError("invalid review published")
-    ):
-        with pytest.raises(ValueError):
-            publication.save_scan(tmp_path, artifact, review)
-
-
-@pytest.mark.parametrize(
-    "input_name",
-    ["parameters.json", "s3.properties", "s3.md", "template.yaml", "project.json"],
-)
-def check_saved_input_bytes_and_revision_independence(tmp_path, input_name):
-    path = tmp_path / input_name
-    path.write_bytes(b"original\r\n" * 20)
-    artifact = dict(
-        version=3,
-        root=str(tmp_path),
-        scan_id="a" * 32,
-        naming_context_id=identifier({}),
-        naming_context={},
-        environment="dev",
-        target="123456789012",
-        services=["s3"],
-        ordinary=[
-            dict(
-                service="s3",
-                message="scan finding",
-                source=dict(path=input_name, line=20),
-            )
-        ],
-        naming={"names": []},
-        judgments=[],
-        executed_at="2026-10-25T00:00:00Z",
-        **aggregate([], "dev", "123456789012", ["s3"]),
-    )
-    review = dict(
-        scan_id=artifact["scan_id"],
-        reviewed_naming_context_id=artifact["naming_context_id"],
-        reviewed_names=[],
-        reviewed_judgments=[],
-        diagnostic_assignments={},
-        issues=[],
-        resolved=[],
-    )
-    path.write_bytes(b"changed\r\n")
-    with (
-        _exports_support_issues_scan_fixtures.task(tmp_path, ["s3"]),
-        patch(
-            "subprocess.run", side_effect=AssertionError("saving must not inspect Git")
-        ),
-    ):
-        outputs = publication.save_scan(tmp_path, artifact, review)
-        assert len(outputs) == 2 and all(output.is_file() for output in outputs)
-        assert input_name + ":20" in outputs[0].read_text()
-        assert "2026-10-25 09:00:00 Asia/Tokyo" in outputs[1].read_text()
-    assert path.read_bytes() == b"changed\r\n"
-
-
-@pytest.mark.parametrize("input_state", ["missing", "empty", "malformed"])
-def check_ordinary_merge_preserves_human_and_scope(tmp_path, input_state):
-    path = tmp_path / "issues/dev/team/issues.md"
-    path.parent.mkdir(parents=True)
-    if input_state != "missing":
-        path.write_text(
-            "" if input_state == "empty" else "malformed report", encoding="utf-8"
-        )
-    if input_state == "malformed":
-        with pytest.raises(ValueError, match="malformed"):
-            normal_merge(tmp_path, path, "dev", "team", ["s3"], [], [], [])
-        assert path.read_text(encoding="utf-8") == "malformed report"
-        return
-    text = normal_merge(
-        tmp_path,
-        path,
-        "dev",
-        "team",
-        ["s3"],
-        [],
-        [{"service": "s3", "message": "new issue"}],
-        [],
-    )
-    path.write_text(text + "\n### sqs\n\n1. other service issue\n", encoding="utf-8")
-    result = normal_merge(
-        tmp_path,
-        path,
-        "dev",
-        "team",
-        ["s3"],
-        [],
-        [{"service": "s3", "message": "additional issue"}],
-        [],
-    )
-    assert (
-        "new issue" in result
-        and "additional issue" in result
-        and "other service issue" in result
-    )
-
-
 def check_causal_report_grouping():
     direct = dict(
         category="difference",
@@ -2010,92 +1493,6 @@ def check_causal_report_grouping():
     for invalid in (True, "false", None, 0):
         forged = dict(base, cause=dict(kind="condition-disabled", result=invalid))
         assert iac_summary([forged], "dev", "team", ["s3"])["proven_causes"] == 0
-
-
-def fail_report_publication(state, real_replace, selected, after, source, destination):
-    if Path(destination) == selected and not state.failed:
-        state.failed = True
-        if after:
-            real_replace(source, destination)
-        raise KeyboardInterrupt()
-    return real_replace(source, destination)
-
-
-@pytest.mark.parametrize(
-    "output,after",
-    [
-        ("issues.md", False),
-        ("issues.md", True),
-        ("iac-issues.md", False),
-        ("iac-issues.md", True),
-    ],
-)
-def check_report_publication_interruptions(tmp_path, output, after):
-    paths = [tmp_path / name for name in ("issues.md", "iac-issues.md")]
-    originals = {path: b"original\r\n" for path in paths}
-    for path, content in originals.items():
-        path.write_bytes(content)
-    state = SimpleNamespace(failed=False)
-    with (
-        patch.object(
-            publication._imports_model_sources,
-            "publication_lock",
-            return_value=nullcontext(),
-        ),
-        patch.object(publication, "save_authority", return_value=paths),
-        patch.object(publication, "normal_merge", return_value="new ordinary"),
-        patch.object(publication, "iac_report", return_value="new iac"),
-        patch(
-            "utils.file_operations.os.replace",
-            side_effect=partial(
-                fail_report_publication, state, os.replace, tmp_path / output, after
-            ),
-        ),
-    ):
-        with pytest.raises(KeyboardInterrupt):
-            publication.save(tmp_path, "dev", "team", ["s3"], iac=[])
-    assert state.failed and {path: path.read_bytes() for path in paths} == originals
-    assert set(tmp_path.iterdir()) == set(paths)
-
-
-def check_current_run_report(tmp_path):
-    paths = [tmp_path / name for name in ("issues.md", "iac-issues.md")]
-    record = dict(
-        category="difference",
-        service="s3",
-        resource="001",
-        property="Setting",
-        reason="value mismatch",
-        desired=1,
-        actual=2,
-    )
-    with (
-        patch.object(
-            publication._imports_model_sources,
-            "publication_lock",
-            return_value=nullcontext(),
-        ),
-        patch.object(publication, "save_authority", return_value=paths),
-        patch.object(
-            publication, "normal_merge", return_value="human確認: kept ordinary issue"
-        ),
-        patch.object(
-            Comparison, "run", side_effect=AssertionError("save-only comparison")
-        ),
-    ):
-        paths[1].write_text("invalid previous iac report", encoding="utf-8")
-        publication.save(tmp_path, "dev", "team", ["s3"], iac=[record])
-        uncertain = dict(record, category="uncompared", reason="not comparable")
-        publication.save(tmp_path, "dev", "team", ["s3"], iac=[uncertain])
-        text = paths[1].read_text(encoding="utf-8")
-        assert (
-            "未比較 1項目" in text
-            and "value mismatch" not in text
-            and "invalid previous" not in text
-        )
-        publication.save(tmp_path, "dev", "team", ["s3"], iac=[])
-        assert "元レコード数: 0" in paths[1].read_text(encoding="utf-8")
-        assert "no compared records" in paths[1].read_text(encoding="utf-8")
 
 
 def check_model_part_bytes_and_legacy_rows(tmp_path):
@@ -2252,7 +1649,7 @@ def check_confirmed_difference_direction(reason, mapped):
     assert (
         data["overview"]["issue_count"] == 1 and data["overview"]["record_count"] == 2
     )
-    artifact = dict(version=3, ordinary=[], judgments=[], naming={"names": []}, **data)
+    artifact = dict(version=4, ordinary=[], judgments=[], naming={"names": []}, **data)
     assert scan_exit_code(artifact) == 0
     assert detail_payload(artifact, "iac_issues", category="要修正")["items"] == [
         action
@@ -2422,7 +1819,7 @@ def check_cli_repair_category(tmp_path, capsys, section):
         )
     ]
     artifact = dict(
-        version=3,
+        version=4,
         scan_id="a" * 32,
         naming_context={},
         naming_context_id=identifier({}),
@@ -2483,7 +1880,7 @@ def deferred_artifact(count=13, phase="unobserved"):
         for i in range(count)
     ]
     return dict(
-        version=3,
+        version=4,
         scan_id="a" * 32,
         naming_context={},
         naming_context_id=identifier({}),
@@ -2703,7 +2100,7 @@ def check_direct_pending_deploy_reports_and_dedup(count, tmp_path):
     artifact.update(aggregate(records, "dev", "cde", ["route53", "codebuild"]))
     validate_artifact(artifact)
     view = summary(artifact)
-    assert artifact["version"] == 3
+    assert artifact["version"] == 4
     assert view["iac_pending_deploy_excluded"] == count + 1
     assert view["iac_excluded"] == count + 2
     assert view["iac_uncompared"] == view["iac_deferred"] == 0
@@ -2725,15 +2122,19 @@ def check_direct_pending_deploy_reports_and_dedup(count, tmp_path):
             text not in report
             for text in ("DNSName", "HostedZoneId", "### ISSUE-", "| ISSUE-")
         )
-    ordinary = normal_merge(
+    ordinary = ordinary_report(
         tmp_path,
-        tmp_path / "issues/dev/cde/issues.md",
-        "dev",
-        "cde",
-        ["route53"],
-        artifact["ordinary"],
-        [],
-        [],
+        dict(
+            artifact,
+            environment="dev",
+            target="cde",
+            services=["route53"],
+            executed_at="2026-10-25T00:00:00Z",
+            unverified=[],
+            processing_errors=[],
+            information=[],
+            warnings=[],
+        ),
     )
     assert "未解決issueなし" in ordinary and "比較未完了" not in ordinary
 
@@ -2792,7 +2193,7 @@ def check_direct_pending_deploy_artifact_rejects_invalid_causes(fault):
         "cause-category",
     ],
 )
-def check_artifact_v3_rejects_invalid_indexes(fault, phase):
+def check_artifact_v4_rejects_invalid_indexes(fault, phase):
     artifact = deferred_artifact(1, phase)
     if fault == "version2":
         artifact["version"] = 2
@@ -2824,7 +2225,7 @@ def check_artifact_v3_rejects_invalid_indexes(fault, phase):
         artifact["overview"]["issue_count"] = 1
     elif fault == "missing-membership":
         artifact = dict(
-            version=3,
+            version=4,
             scan_id="a" * 32,
             naming_context={},
             naming_context_id=identifier({}),

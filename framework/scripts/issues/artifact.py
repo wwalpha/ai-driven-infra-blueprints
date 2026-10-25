@@ -9,7 +9,6 @@ import issues.aggregate as _imports_issues_aggregate
 
 from .aggregate import IAC_CATEGORIES, pending_deploy_count
 from .records import brief, identifier
-from .review import existing_issues
 
 CHANNELS = ("warnings", "information", "unverified", "processing_errors")
 
@@ -24,8 +23,9 @@ def has_processing_errors(artifact):
 def validation_status(artifact):
     if has_processing_errors(artifact):
         return "ERROR"
-    if artifact.get("ordinary") or any(
-        "message" in item for item in artifact.get("judgments", [])
+    if artifact.get("ordinary") or (
+        not artifact.get("reviewed")
+        and any("message" in item for item in artifact.get("judgments", []))
     ):
         return "FAIL"
     if artifact.get("unverified"):
@@ -54,8 +54,8 @@ def channel_summary(values, section):
 
 
 def summary(artifact):
-    if artifact.get("version") != 3:
-        raise ValueError("unsupported scan artifact version; version 3 required")
+    if artifact.get("version") != 4:
+        raise ValueError("unsupported scan artifact version; version 4 required")
     comparison_status = _imports_issues_aggregate.comparison_status
     view = artifact["overview"]
     counts = view["records"]
@@ -70,9 +70,15 @@ def summary(artifact):
         iac_deferred=counts["deferred"],
         iac_excluded=counts["excluded"],
         iac_pending_deploy_excluded=view["pending_deploy_excluded"],
-        iac_status=comparison_status(counts),
+        iac_status=comparison_status(
+            counts,
+            incomplete=any(
+                item["status"] == "unverified"
+                for item in artifact.get("service_results", [])
+            ),
+        ),
         validation_status=validation_status(artifact),
-        review_required=True,
+        review_required=not artifact.get("reviewed", False),
         processing_stages=len(
             {
                 item.get("job_id") or item.get("id") or item.get("code", "unknown")
@@ -93,6 +99,13 @@ def review_payload(artifact, artifact_path):
     return dict(
         summary=summary(artifact),
         scope={key: artifact[key] for key in ("environment", "target", "services")},
+        publication_scope=dict(
+            target_services=artifact["target_services"],
+            missing_services=sorted(
+                set(artifact["target_services"]) - set(artifact["services"])
+            ),
+            complete=artifact["services"] == artifact["target_services"],
+        ),
         scan_id=artifact.get("scan_id"),
         naming_context_id=artifact.get("naming_context_id"),
         executed_at=artifact.get("executed_at"),
@@ -101,13 +114,15 @@ def review_payload(artifact, artifact_path):
         review_required=dict(
             names=len(artifact["naming"]["names"]),
             judgments=len(artifact["judgments"]),
-            existing_issues=len(existing_issues(artifact)),
-            policy="naming_contextとnaming/judgmentsの全IDを確認し、既存Issueごとにexisting_issue_judgmentsで継続・解消・未検証と今回の証拠を確定する。",
+            policy="naming_contextとnaming/judgmentsの全IDを確認し、全Human確定情報と今回の診断を確認し、今回のIssue／除外／矛盾を根拠とともに確定する。",
         ),
         human_confirmations=dict(
-            total=len(artifact["human_confirmations"]),
-            items=[brief(line) for line in artifact["human_confirmations"][:3]],
-            omitted=max(0, len(artifact["human_confirmations"]) - 3),
+            total=len(artifact["human_confirmations"]["confirmations"]),
+            items=[
+                brief(line)
+                for line in artifact["human_confirmations"]["confirmations"][:3]
+            ],
+            omitted=max(0, len(artifact["human_confirmations"]["confirmations"]) - 3),
         ),
         cfn_lint=dict(
             status=artifact.get("cfn_lint", {}).get("status", "not_run"),
@@ -129,7 +144,7 @@ def detail_payload(
     issue_id=None,
     record_category=None,
 ):
-    if artifact.get("version") != 3:
+    if artifact.get("version") != 4:
         raise ValueError("unsupported scan artifact version")
     if offset < 0 or limit < 1:
         raise ValueError("invalid detail range")
@@ -206,6 +221,8 @@ def detail_payload(
         content = artifact["cfn_lint"]["coverage"]
     elif section == "check_results":
         content = artifact.get(section, [])
+    elif section == "human_confirmations":
+        content = artifact[section]["confirmations"]
     else:
         content = artifact[section]
     page = content[offset : offset + limit]
@@ -220,13 +237,12 @@ def detail_payload(
 
 def validate_artifact(artifact):
     """Validate the saved six-category index without reclassification or regrouping."""
-    if artifact.get("version") != 3:
+    if artifact.get("version") != 4:
         raise ValueError("unsupported scan artifact version")
     if not re.fullmatch(r"[0-9a-f]{32}", artifact.get("scan_id", "")):
         raise ValueError("invalid scan_id")
     if identifier(artifact["naming_context"]) != artifact["naming_context_id"]:
         raise ValueError("invalid naming_context_id")
-    existing_issues(artifact)
     records, meta = artifact["iac"], artifact["record_meta"]
     if len(records) != len(meta) or artifact["overview"]["record_count"] != len(
         records

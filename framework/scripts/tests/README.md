@@ -128,9 +128,9 @@ Model/stack/template/Markdown生成、mock、assertion、状態変更の流れ�
 loaderのUTは `units/fixture_cases-unit.checks.py`。正式ITと性能の全体比較は
 既存Framework ITの `baseline_ref` を使い、未実行のITをPASSとしない。
 
-## Issues Artifact v3 / cfn-lint
+## Issues Artifact v4 / Immutable Snapshot / cfn-lint
 
-issuesの正規APIは `issues/`、Model ↔ IaC比較の入口は `comparison.Comparison`。比較の結果・診断・表示差分は `comparison/` が返し、Issuesが1回集約する。旧 `issues_iac.py` / `issues_reports.py` のwrapperは置かず、CLIだけ `issues_scan.py` を維持する。現行 `issues-lint-unit.checks.py` は18関数56条件、`issues-lint.checks.py` は4関数5条件（変更前9関数17条件）。正式ITは既存 `Framework IT` / `tests/run_it.py` だけを使う。固定版1.57.2が無い環境で、CLI同等性・状態隔離の検証を実施済みとは扱わない。
+issuesの正規APIは `issues/`、Model ↔ IaC比較の入口は `comparison.Comparison`。比較の結果・診断・表示差分は `comparison/` が返し、Issuesが1回集約する。旧 `issues_iac.py` / `issues_reports.py` のwrapperは置かず、CLIだけ `issues_scan.py` を維持する。現行 `issues-lint-unit.checks.py` はlint/Artifact境界を、`issues-lint.checks.py` は4関数5条件の接続を検証する。旧report notice保持UTはSnapshot UTへ置換した。正式ITは既存 `Framework IT` / `tests/run_it.py` だけを使う。固定版1.57.2が無い環境で、CLI同等性・状態隔離の検証を実施済みとは扱わない。
 
 ITは固定版CLI一致（正常/異常の各代表1件）、Worker設定隔離、schema障害と新Worker復旧、実OS Timeout回収の4契約。
 設定隔離の4連続要求でHOME/cwd設定、custom ruleの状態、registry/overrideの再読込、NoEcho、output非書込をまとめる。
@@ -287,3 +287,9 @@ Full IT、長時間IT、ITの性能測定をローカルで実行しない。既
 移行の構造整合、公式CIでのUT/IT PASS、IT本体10秒以内は別の判定である。時間未測定・未実行・FAIL・skipは達成扱いにしない。
 
 実装候補の[公式CI #137](https://github.com/wwalpha/ai-driven-infra-blueprints/actions/runs/40117696173)でUT 90/90、IT 68/68、236登録のReceipt到達性エラー0を確認した。IT runner本体236.702秒のため10秒目標は未達。開始基準の公式CIはUT/Guard失敗でIT未起動だったため、有効なBefore/After改善率は算出しない。最終Headの判定は[PR #30](https://github.com/wwalpha/ai-driven-infra-blueprints/pull/30)のchecksを参照する。
+
+Issues Snapshot UTは旧inventory merge/state-transition UTを置換する。Scanは必須の
+Human確定情報YAMLと今回の診断だけを入力にし、全Target coverageのReviewから
+immutable Snapshotを作る。旧Markdown読取り禁止、決定性、Human例外/矛盾、
+関連記録だけの許可付き削除、部分Scope拒否、2 report/任意Human cleanupの
+Atomic Rollbackを検証する。旧部分保存CLIとそのUT/ITは削除する。

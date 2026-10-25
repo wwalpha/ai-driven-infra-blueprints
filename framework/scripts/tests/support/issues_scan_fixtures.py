@@ -31,8 +31,8 @@ from issue_gate import issue_errors
 from issues.aggregate import aggregate, iac_dataset, iac_summary
 from issues.artifact import detail_payload, review_payload, summary
 from issues.materials import naming_materials
-from issues.publication import save, save_scan
-from issues.reports import blocks, iac_report, numbered
+from issues.publication import save_scan
+from issues.reports import iac_report
 from issues.runner import mechanical, scan
 from model.core import entries, properties
 from model.files import load_model, model_file_contents, read_model, resource_row_index
@@ -41,8 +41,7 @@ from model.sources import model_parts
 from model.validation import naming_target_matches, naming_targets
 from support.model_sources import snapshot_model, write_fixture_files, write_model
 from support.pytest_cli import run
-from task_contract import refresh
-from task_contract_core import SELECTOR, status
+from task_contract_core import SELECTOR
 from utils.iac_values import same, selected_same, strict_json
 from utils.input_cache import input_scope
 from utils.script_loader import module
@@ -89,6 +88,12 @@ def render_iac(root, path, environment, directory, services, records, display=No
 
 def fixture(root, stacks=1, services=("s3", "cloudwatch-logs", "sqs"), parts=False):
     # Only synthetic Project data is created here.
+    write(
+        root / "issues/dev/123456789012/human-confirmations.yaml",
+        json.dumps(
+            dict(version=1, environment="dev", target="123456789012", confirmations=[])
+        ),
+    )
     target = {
         "environment": "dev",
         "awsAccountId": "123456789012",
@@ -313,58 +318,6 @@ def expect_error(function, phrase=None):
     assert phrase is None or phrase in str(error.value), str(error.value)
 
 
-def sequential_reports(root):
-    # Successive report writes merge the latest contents.
-    commands = []
-    contexts = []
-    names = []
-    for service in ("s3", "sqs"):
-        context = task(root, [service], name="parallel-" + service)
-        context.__enter__()
-        contexts.append(context)
-        name = "tasks/parallel-" + service + ".md"
-        names.append(name)
-        refresh(root, name)
-        result = root.parent / ("results-" + service + ".json")
-        write(
-            result,
-            json.dumps(
-                {"issues": [{"service": service, "message": "concurrent-" + service}]}
-            ),
-        )
-        commands.append(
-            [
-                sys.executable,
-                "-B",
-                str(ROOT / "framework/scripts/issues_scan.py"),
-                "--repository-root",
-                str(root),
-                "--task-file",
-                name,
-                "save-results",
-                "--environment",
-                "dev",
-                "--target-directory",
-                "123456789012",
-                "--service",
-                service,
-                "--results",
-                str(result),
-            ]
-        )
-    try:
-        report = "issues/dev/123456789012/issues.md"
-        for command in commands:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=30)
-            assert result.returncode == 0, result.stderr
-        assert status((root / names[1]).read_text()) == "running"
-        text = (root / report).read_text()
-        assert "concurrent-s3" in text and "concurrent-sqs" in text
-    finally:
-        for context in reversed(contexts):
-            context.__exit__(None, None, None)
-
-
 def summary_fixture():
     identifier = _imports_issues_records.identifier
     unknown = [
@@ -452,17 +405,20 @@ def summary_fixture():
     ]
     context = dict(rules={}, target_context={}, review_policy="review all")
     artifact = dict(
-        version=3,
+        version=4,
         scan_id="a" * 32,
         naming_context=context,
         naming_context_id=identifier(context),
         environment="dev",
         target="cde",
         services=["glue", "iam", "s3"],
+        target_services=["glue", "iam", "s3"],
         ordinary=[],
         naming=dict(names=names),
         judgments=judgments,
-        human_confirmations=[],
+        human_confirmations=dict(
+            version=1, environment="dev", target="cde", confirmations=[]
+        ),
         checks=1,
         executed_at="2026-10-08T00:00:00Z",
         **aggregate(records, "dev", "cde", ["glue", "iam", "s3"], display),
@@ -511,9 +467,7 @@ __all__ = [
     "ROOT",
     "SELECTOR",
     "argparse",
-    "blocks",
     "compare",
-    "sequential_reports",
     "contextmanager",
     "detail_payload",
     "entries",
@@ -536,7 +490,6 @@ __all__ = [
     "naming_materials",
     "naming_target_matches",
     "naming_targets",
-    "numbered",
     "os",
     "patch",
     "properties",
@@ -552,7 +505,6 @@ __all__ = [
     "review_payload",
     "run",
     "same",
-    "save",
     "save_scan",
     "scan",
     "scan_project",
@@ -590,5 +542,64 @@ def review_for(artifact):
         reviewed_judgments=[item["id"] for item in artifact["judgments"]],
         diagnostic_assignments={},
         issues=[],
-        resolved=[],
+        reviewed_confirmations=[
+            item["id"] for item in artifact["human_confirmations"]["confirmations"]
+        ],
+        diagnostic_decisions=[
+            dict(id=item["id"], outcome="issue", reason="Current diagnostic confirmed")
+            for item in [
+                *artifact["ordinary"],
+                *(item for item in artifact["judgments"] if "message" in item),
+            ]
+        ],
+        confirmation_cleanup=[],
+        unverified=[],
     )
+
+
+def snapshot_artifact(
+    root, services=("s3",), records=(), ordinary=(), target="123456789012"
+):
+    """A complete synthetic Scan boundary, with no validators or real Project reads."""
+    services = sorted(services)
+    return dict(
+        version=4,
+        root=str(root),
+        scan_id="a" * 32,
+        naming_context_id=identifier({}),
+        naming_context={},
+        environment="dev",
+        target=target,
+        services=services,
+        target_services=services,
+        service_results=[
+            dict(service=service, status="scanned") for service in services
+        ],
+        ordinary=list(ordinary),
+        naming={"names": []},
+        judgments=[],
+        executed_at="2026-10-25T00:00:00Z",
+        human_confirmations=dict(
+            version=1, environment="dev", target=target, confirmations=[]
+        ),
+        warnings=[],
+        information=[],
+        unverified=[],
+        processing_errors=[],
+        check_results=[
+            dict(
+                id="check",
+                check_id="mechanical.models",
+                status="PASS",
+                complete=True,
+                scope=[f"dev/{target}/{service}" for service in services],
+            )
+        ],
+        **aggregate(list(records), "dev", target, services),
+    )
+
+
+def forbid_report_text(original, path, *args, **kwargs):
+    if path.name in {"issues.md", "iac-issues.md"}:
+        raise AssertionError("old Markdown read")
+    return original(path, *args, **kwargs)

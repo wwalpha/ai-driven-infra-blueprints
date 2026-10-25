@@ -174,7 +174,7 @@ reporting-only policy above; other Model/IaC changes and AWS mutation retain the
 
 ## Local issues scan
 
-issues uses [Scoped scan/Python saving](framework/rules/issues-investigation.md). Check existing validator diagnostics and minimal naming materials for all resources; separately save ordinary issues to `issues.md` and non-blocking model→IaC differences to `iac-issues.md`. `diff.md` remains for environment comparison. The issue gate reads only `issues.md`. IaC reports contain only the latest selected scope; existing state and old IaC notes are not carried forward.
+issues uses [Scoped scan/Python saving](framework/rules/issues-investigation.md). Check existing validator diagnostics and minimal naming materials for all resources; separately save ordinary issues to `issues.md` and non-blocking model→IaC differences to `iac-issues.md`. `diff.md` remains for environment comparison. The issue gate reads only `issues.md`. Both reports are whole-target current snapshots; existing state and old notes are not carried forward.
 
 ```console
 python3 framework/scripts/issues_scan.py scan --environment <environment> --target-directory <alias-or-account-id> --service <service-id> --artifact /tmp/issues-scan.json
@@ -182,7 +182,15 @@ python3 framework/scripts/issues_scan.py --task-file tasks/<task-name>.md save -
 python3 framework/scripts/blueprint-loop.py --mode local --task-file tasks/<task-name>.md
 ```
 
-Repeat `--service` for multiple services. Use `save-results` for already saved results alone without reinvestigation. Follow the linked document for all-name/remaining-judgment review, save-only contracts, partial/error handling, and supported/unsupported CloudFormation scope.
+Before switching a target, explicitly register confirmed Human facts in the required
+`issues/<environment>/<target>/human-confirmations.yaml` (an empty confirmations list
+is permitted). No automatic Markdown migration exists. Only artifact v4 and the new
+complete Review contract are accepted. Scan → Review → immutable Snapshot → atomic
+replacement of both reports; authorized obsolete Human related-record cleanup joins
+that same rollback-protected batch. Ordinary issues run in the selected checkout
+without a worktree; Framework maintenance uses its separate workflow.
+
+Repeat `--service` for every Human-authorized service in the target before publication. Partial scans report missing services and cannot overwrite the target reports. External evidence can join the complete Scan Review. Follow the linked document for all-name/remaining-judgment review, save-only contracts, partial/error handling, and supported/unsupported CloudFormation scope.
 
 Model ↔ IaC comparison lives in `framework/scripts/comparison/`: `runner.py` assembles tracked input acquisition (`inputs.py`), resource/row preparation, Model links, reference/expression evaluation, typed value decisions and result/display evidence. `services/` owns service rules selected by the explicit resource-type registry, including separate EC2 service classifications. `Comparison.run()` performs the existing full local comparison; bounded repair uses `compare_rows()` and its returned records without running a scan. Issues owns View review, Issue aggregation, artifacts, publication and final fresh checks. Shared `utils/comparison_rows.py`, `utils/iac_values.py`, `utils/reference_contracts.py` and `iac_evaluation.py` retain common row algorithms, symbolic types, comparison algorithms, contracts and the evaluator used by JSON projection and audit generation. AWS CLI JSON retrieval, response reconstruction and AWS normalization remain in `model.adapters.aws`. Normal AWS checks require AWS CLI v2 on PATH; the comparator retains read-only API restrictions, configured profile/region, STS account verification and full collection pagination.
 

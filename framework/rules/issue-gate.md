@@ -19,10 +19,9 @@ approval, atomic publication and AWS API failures retain their existing safety c
 Other Task types and infrastructure phases retain their ordinary Issue Gate.
 
 - Every numbered issue (such as `1.`) in `issues/<environment>/<alias-or-account>/issues.md`
-  is unresolved. A missing or empty file means there are no unresolved issues. Remove an
-  item when revalidation provides evidence of resolution within a Human-requested
-  issues Scan, or after explicitly requested repair. Scan saving requires a current
-  state decision for every existing scoped Issue; it grants no repair authority.
+  is unresolved. A missing or empty file means there are no unresolved issues. A Human-requested whole-target issues Scan replaces the report from current
+  diagnostics and complete Review only; old inventory is not a Scan input. Explicit
+  repair retains its separate evidence boundary. Scan grants no repair authority.
   Keep history in Git; deleting or rewriting the inventory does not resolve issues. When the count is zero, the report may state `未解決issueなし`.
 - Identify the owning service from `### service-id`, an `issue-service` comment, or a
   link to Model properties or a detailed design for the same target. Do not infer it
@@ -38,7 +37,7 @@ Other Task types and infrastructure phases retain their ordinary Issue Gate.
   exception and the save-only exception are permitted. Retain the existing Task type,
   design boundaries and AWS permissions.
 - Issue investigation and saving use `migration`. A save-only task whose Allowed paths
-  and changes contain only the explicitly service-scoped `issues.md`/`iac-issues.md` and
+  and changes contain only the explicitly service-scoped `issues.md`/`iac-issues.md` and explicitly authorized human-confirmations.yaml related-record cleanup plus
   its own Task is not stopped by existing issues and needs no independent worktree.
   Report actual validation ERRORs as FAIL. `iac-issues.md` contains nonblocking
   Model-to-IaC comparisons, does not count as unresolved issues and needs no Issue
@@ -85,9 +84,10 @@ inside an explicit notice scope, and an Issue ID inside a warning without a serv
 boundary are ambiguous input: stop reading and saving. Before adding markers, confirm
 the Human's intended ownership and boundaries; do not infer ordinary issues.
 
-When saving, reuse the existing ordering: ordinary issues, information, unverified
-scope, processing errors, warnings, then reference warnings. Preserve Issue IDs,
-ownership and warning content across saving and reloading.
+Snapshot rendering uses this ordering: ordinary issues, information, unverified
+scope, processing errors, warnings, then reference warnings. Generate deterministic current Issue IDs and explicit ownership; warning content
+comes only from the current Scan. The Gate still reads saved Markdown and retains
+its fence-aware classification and malformed-input stops.
 
 ## Reference-only Issues
 

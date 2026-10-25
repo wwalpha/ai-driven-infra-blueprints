@@ -15,7 +15,7 @@ import pytest
 import sync_runtime
 import task_contract as tasks
 from issue_gate import remediation_scope
-from issues.publication import save
+from issues.publication import save_scan
 from model.sources import load_model
 from support.import_model_fixtures import (
     dependency_contract,
@@ -31,6 +31,7 @@ from support.issue_gate_fixtures import (
     subprocess,
     sys,
 )
+from support.issues_scan_fixtures import review_for, snapshot_artifact
 from support.model_sources import write_model
 from support.validator import MODULE as validator
 from utils.script_loader import module
@@ -99,7 +100,8 @@ def check_report_commit_independence(tmp_path, monkeypatch, kind):
         assert start.call_count == (0 if kind == "reports" else 1)
         git("commit", "--quiet", "--allow-empty", "-m", "advance HEAD")
         if kind == "reports":
-            save(tmp_path, "dev", "cde", ["s3"], iac=[])
+            artifact = snapshot_artifact(tmp_path, target="cde")
+            save_scan(tmp_path, artifact, review_for(artifact))
         else:
             for path in reports:
                 (tmp_path / path).write_text("ordinary Task change")

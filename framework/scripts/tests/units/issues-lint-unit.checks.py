@@ -26,7 +26,6 @@ from issues.artifact import detail_payload, scan_exit_code, summary, validate_ar
 from issues.cfn_lint import classify, owner, plan, run_lint
 from issues.publication import save_scan
 from issues.records import identifier
-from issues.reports import notice_report, without_notices
 from issues.runner import scan
 from support.pytest_cli import run
 from utils.cfn_lint import (
@@ -149,7 +148,7 @@ def artifact_fixture(count=150):
         for i in range(count)
     ]
     artifact = dict(
-        version=3,
+        version=4,
         root="/fixture",
         scan_id="a" * 32,
         naming_context_id=identifier({}),
@@ -206,44 +205,8 @@ def check_artifact_index_and_status():
         detail_payload(unsupported, "iac")
     with pytest.raises(ValueError, match="unsupported scan artifact version"):
         validate_artifact(unsupported)
-    with pytest.raises(ValueError, match="invalid scan artifact/root"):
+    with pytest.raises(ValueError, match="unsupported scan artifact version"):
         save_scan(Path("/fixture"), unsupported, {})
-    with pytest.raises(ValueError, match="scan_id"):
-        save_scan(
-            Path("/fixture"),
-            artifact,
-            dict(
-                scan_id="other",
-                reviewed_naming_context_id=artifact["naming_context_id"],
-                reviewed_names=[],
-                reviewed_judgments=[],
-                diagnostic_assignments={},
-                issues=[],
-                resolved=[],
-            ),
-        )
-
-
-def check_pending_notices_replace_warnings():
-    text = "# 問題一覧\nhuman confirmation\n"
-    current = notice_report(
-        text,
-        "dev",
-        "team",
-        ["s3"],
-        {"warnings": [dict(code="W", message="new warning")]},
-    )
-    pending = notice_report(
-        current, "dev", "team", ["s3"], {"unverified": [dict(code="not_run")]}
-    )
-    assert "new warning" not in pending and "解消未確認" not in pending
-    again = notice_report(
-        pending, "dev", "team", ["s3"], {"unverified": [dict(code="not_run")]}
-    )
-    assert again == pending and again.count("not_run") == 1
-    assert "warning" not in without_notices(
-        again
-    ) and "human confirmation" in without_notices(again)
 
 
 def check_deferred_cache_finalization():
@@ -503,7 +466,13 @@ def check_scan_changes_without_cache():
                 patch(
                     "issues.runner.naming_materials", return_value=({"names": []}, [])
                 ),
-                patch("issues.runner.existing_materials", return_value=([], [])),
+                patch(
+                    "issues.runner.human_confirmations",
+                    return_value=dict(
+                        version=1, environment="dev", target="team", confirmations=[]
+                    ),
+                ),
+                patch("issues.runner.target_services", return_value=["codepipeline"]),
                 patch("issues.cfn_lint.run_lint", side_effect=lint),
                 patch("issues.runner.aggregate", side_effect=aggregation),
             ):
@@ -524,7 +493,7 @@ def check_scan_changes_without_cache():
                         "team",
                         ["codepipeline"],
                     )
-                    assert result["version"] == 3 and result["checks"] == 20
+                    assert result["version"] == 4 and result["checks"] == 20
                     assert bool(result["processing_errors"]) == (
                         _state_check_scan_cache_guard_order_256.failure == "exception"
                     )

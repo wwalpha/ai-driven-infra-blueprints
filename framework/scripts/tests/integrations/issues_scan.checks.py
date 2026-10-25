@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seven real Issues boundaries; branch matrices live in the existing unit suites."""
+"""Six real Issues boundaries; branch matrices live in the existing unit suites."""
 
 import json
 import os
@@ -24,11 +24,12 @@ from support.issues_scan_fixtures import (
     ROOT,
     compare,
     fixture,
+    forbid_report_text,
     mutate_template,
     review_for,
-    save,
     save_scan,
     scan,
+    snapshot_artifact,
     task,
     write,
 )
@@ -49,14 +50,28 @@ def check_scan_publish_mismatch(tmp_path):
     _, template = fixture(root, services=["s3"])
     template["Resources"]["Bucket"]["Properties"]["BucketName"] = "changed-bucket"
     mutate_template(root, template)
-    with patch("socket.socket", side_effect=AssertionError("network forbidden")):
+    write(root / "issues/dev/123456789012/issues.md", "obsolete malformed report")
+    write(root / "issues/dev/123456789012/iac-issues.md", "obsolete comparison")
+    with (
+        patch("socket.socket", side_effect=AssertionError("network forbidden")),
+        patch.object(Path, "read_text", partial(forbid_report_text, Path.read_text)),
+    ):
         artifact = json.loads(
-            json.dumps(scan(root, "dev", "123456789012", ["s3"], fresh=True, jobs=1))
+            json.dumps(
+                scan(
+                    root,
+                    "dev",
+                    "123456789012",
+                    ["cloudformation-stacks", "s3"],
+                    fresh=True,
+                    jobs=1,
+                )
+            )
         )
     mismatch = next(
         item for item in artifact["iac"] if item["reason"] == "value mismatch"
     )
-    assert artifact["version"] == 3 and artifact["checks"] > 0
+    assert artifact["version"] == 4 and artifact["checks"] > 0
     assert artifact["cfn_lint"]["status"] == "checked"
     assert (
         len(artifact["cfn_lint"]["jobs"]) == 1
@@ -65,7 +80,7 @@ def check_scan_publish_mismatch(tmp_path):
     assert artifact["metrics"]["template_decodes"] == 1
     assert not artifact["ordinary"] and not artifact["processing_errors"]
     assert {item["service"] for item in artifact["naming"]["names"]} == {"s3"}
-    with task(root, ["s3"]):
+    with task(root, ["cloudformation-stacks", "s3"]):
         contract = (root / "tasks/save.md").read_bytes()
         with (
             patch.object(
@@ -80,7 +95,7 @@ def check_scan_publish_mismatch(tmp_path):
                 side_effect=AssertionError("save must not aggregate"),
             ),
         ):
-            paths = save_scan(root, artifact, review_for(artifact))
+            paths, snapshot = save_scan(root, artifact, review_for(artifact))
         assert all(path.is_file() for path in paths)
         assert (root / "tasks/save.md").read_bytes() == contract
         before = {path: path.read_bytes() for path in paths}
@@ -107,50 +122,20 @@ def check_scan_publish_mismatch(tmp_path):
     view = root / "docs/designs/dev/123456789012/s3.md"
     original = view.read_bytes()
     view.write_bytes(original + b"\nStale saved View prose.\n")
-    broken = scan(root, "dev", "123456789012", ["s3"], fresh=True, jobs=1)
+    broken = scan(
+        root, "dev", "123456789012", ["cloudformation-stacks", "s3"], fresh=True, jobs=1
+    )
     assert broken["ordinary"]
-    with task(root, ["s3"]):
+    with task(root, ["cloudformation-stacks", "s3"]):
         save_scan(root, broken, review_for(broken))
     assert issue_errors(root, {("dev", "123456789012", "s3")})
     view.write_bytes(original)
-    repaired = scan(root, "dev", "123456789012", ["s3"], fresh=True, jobs=1)
-    materials = [
-        item
-        for item in repaired["judgments"]
-        if item.get("kind") == "existing-issue-correspondence"
-    ]
-    assert materials and not repaired["ordinary"]
-    check = next(
-        item
-        for item in repaired["check_results"]
-        if item["check_id"] == "framework.generated-service-model"
+    repaired = scan(
+        root, "dev", "123456789012", ["cloudformation-stacks", "s3"], fresh=True, jobs=1
     )
-    assert check["status"] == "PASS" and check["complete"]
-    review = dict(
-        review_for(repaired),
-        existing_issue_judgments=[
-            dict(
-                id=item["id"],
-                service="s3",
-                status="resolved",
-                verification="local",
-                reason="The saved View now matches generation from the Model",
-                evidence=[
-                    dict(
-                        kind="scan",
-                        section="check_results",
-                        id=check["id"],
-                        subject="s3 saved View equality",
-                        details="The same failed generation check now passed",
-                    )
-                ],
-            )
-            for item in materials
-        ],
-    )
-    assert review["resolved"] == []
-    with task(root, ["s3"]):
-        save_scan(root, repaired, review)
+    assert not repaired["ordinary"]
+    with task(root, ["cloudformation-stacks", "s3"]):
+        save_scan(root, repaired, review_for(repaired))
     ordinary = (root / "issues/dev/123456789012/issues.md").read_text()
     assert "未解決issueなし" in ordinary
     assert not issue_errors(root, {("dev", "123456789012", "s3")})
@@ -166,91 +151,27 @@ def fail_second_report(state, original, source, destination):
 
 def check_save_scope_and_rollback(tmp_path):
     root = tmp_path / "project"
-    record = dict(
-        category="difference",
-        service="s3",
-        resource="001",
-        property="S3.Bucket.Setting",
-        reason="value mismatch",
-        stack="stack1",
-        desired=1,
-        actual=2,
-    )
+    artifact = snapshot_artifact(root, services=["s3", "sqs"])
     with task(root, ["s3", "sqs"]):
-        outputs = save(
-            root,
-            "dev",
-            "123456789012",
-            ["s3", "sqs"],
-            additions=[
-                {"service": "sqs", "message": "human確認: unresolved queue issue"}
-            ],
-            iac=[record, dict(record, service="sqs")],
-        )
-    with task(root, ["s3"]):
-        save(root, "dev", "123456789012", ["s3"], iac=[record])
-        report = outputs[1].read_text(encoding="utf-8")
-        assert "sqs / 001" not in report and "対象外Serviceは今回未検証" in report
-        assert issue_errors(root, {("dev", "123456789012", "sqs")})
-        assert not issue_errors(root, {("dev", "123456789012", "s3")})
+        outputs, snapshot = save_scan(root, artifact, review_for(artifact))
         before = {path: path.read_bytes() for path in outputs}
+        partial_scan = dict(
+            artifact,
+            services=["s3"],
+            service_results=[dict(service="s3", status="scanned")],
+        )
+        with pytest.raises(ValueError, match="missing services: sqs"):
+            save_scan(root, partial_scan, review_for(partial_scan))
+        artifact["ordinary"] = [dict(id="current", service="s3", message="new issue")]
         state = SimpleNamespace(failed=False)
         with patch(
             "utils.file_operations.os.replace",
             side_effect=partial(fail_second_report, state, os.replace),
         ):
             with pytest.raises(OSError, match="publication failure"):
-                save(
-                    root,
-                    "dev",
-                    "123456789012",
-                    ["s3"],
-                    additions=[{"service": "s3", "message": "new issue"}],
-                    iac=[],
-                )
+                save_scan(root, artifact, review_for(artifact))
         assert state.failed and {path: path.read_bytes() for path in outputs} == before
         assert set(outputs[0].parent.iterdir()) == set(outputs)
-    assert "human確認: unresolved queue issue" in outputs[0].read_text(encoding="utf-8")
-
-
-def check_cli_save_results(tmp_path):
-    root = tmp_path / "project"
-    for service in ("s3", "sqs"):
-        result_file = tmp_path / (service + ".json")
-        write(
-            result_file,
-            json.dumps({"issues": [{"service": service, "message": "cli-" + service}]}),
-        )
-        with task(root, [service], name="save-" + service):
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-B",
-                    str(ROOT / "framework/scripts/issues_scan.py"),
-                    "--repository-root",
-                    str(root),
-                    "--task-file",
-                    "tasks/save-" + service + ".md",
-                    "save-results",
-                    "--environment",
-                    "dev",
-                    "--target-directory",
-                    "123456789012",
-                    "--service",
-                    service,
-                    "--results",
-                    str(result_file),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            assert result.returncode == 0, result.stderr + result.stdout
-            assert "`running`" in (root / ("tasks/save-" + service + ".md")).read_text(
-                encoding="utf-8"
-            )
-    report = (root / "issues/dev/123456789012/issues.md").read_text(encoding="utf-8")
-    assert "cli-s3" in report and "cli-sqs" in report
 
 
 def check_detail_cli(tmp_path):
@@ -270,7 +191,7 @@ def check_detail_cli(tmp_path):
         for i in range(3)
     ]
     artifact = dict(
-        version=3,
+        version=4,
         environment="dev",
         target="team",
         services=["s3"],
@@ -475,7 +396,7 @@ def check_condition_provenance(tmp_path):
     _, actions, _ = iac_dataset(records, "dev", "123456789012", ["s3"])
     assert actions[0]["classification"] == "ConditionによるCREATE無効化"
     artifact = dict(
-        version=3,
+        version=4,
         environment="dev",
         target="123456789012",
         services=["s3"],

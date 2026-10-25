@@ -1,4 +1,4 @@
-"""Compatibility CLI with subcommand-specific runtime imports."""
+"""Current Scan, Review detail and immutable snapshot publication."""
 
 import argparse
 import json
@@ -9,7 +9,6 @@ from pathlib import Path
 from comparison.deferral import CATEGORIES
 
 import issues.artifact as _imports_issues_artifact
-import issues.integrity as _imports_issues_integrity
 import issues.publication as _imports_issues_publication
 import issues.runner as _imports_issues_runner
 
@@ -82,11 +81,6 @@ def main():
     saveparser = commands.add_parser("save")
     saveparser.add_argument("--artifact", type=Path, required=True)
     saveparser.add_argument("--review", type=Path, required=True)
-    results = commands.add_parser("save-results")
-    results.add_argument("--environment", required=True)
-    results.add_argument("--target-directory", required=True)
-    results.add_argument("--service", action="append", required=True)
-    results.add_argument("--results", type=Path, required=True)
     args = parser.parse_args()
     root = args.repository_root.resolve()
     if args.task_file:
@@ -140,38 +134,16 @@ def main():
                 outside(root, args.artifact).read_text(encoding="utf-8")
             )
             review = json.loads(outside(root, args.review).read_text(encoding="utf-8"))
-            paths = save_scan(root, artifact, review)
-        else:
-            selected_scope = _imports_issues_integrity.selected_scope
-            save = _imports_issues_publication.save
-            selected_scope(args.environment, args.target_directory, args.service)
-            results = json.loads(
-                outside(root, args.results).read_text(encoding="utf-8")
-            )
-            if set(results) - {"issues", "resolved"}:
-                raise ValueError(
-                    "save-results accepts acquired ordinary results only; no automatic comparison"
-                )
-            paths = save(
-                root,
-                args.environment,
-                args.target_directory,
-                args.service,
-                additions=results.get("issues", []),
-                resolutions=results.get("resolved", []),
-            )
-        saved_summary = summary(artifact) if args.command == "save" else None
+            paths, snapshot = save_scan(root, artifact, review)
+            artifact = json.loads(snapshot.data)
+        saved_summary = summary(artifact)
         print(
             json.dumps(
                 {
                     "publication_status": "SAVED",
-                    "validation_status": saved_summary["validation_status"]
-                    if saved_summary
-                    else "not_run",
+                    "validation_status": saved_summary["validation_status"],
                     "saved": [path.relative_to(root).as_posix() for path in paths],
-                    "summary": saved_summary
-                    if saved_summary
-                    else "acquired results saved; no rescan",
+                    "summary": saved_summary,
                     "post_save_validation": "required: blueprint-loop.py --mode local",
                 },
                 ensure_ascii=False,

@@ -1,8 +1,8 @@
-"""Ordinary issue merge, current-run IaC display and atomic scoped publication."""
+"""Validate one reviewed whole-target snapshot and atomically replace its reports."""
 
-from __future__ import annotations
+import json
 
-import model.sources as _imports_model_sources
+import model.sources as model_sources
 from task_contract_core import (
     issues_save_only,
     paths_in,
@@ -12,14 +12,12 @@ from task_contract_core import (
     task_snapshot,
 )
 from utils.file_operations import atomic_files
-from utils.input_cache import input_scope
 from validation_scope import active_scope
 
-import issues.artifact as _imports_issues_artifact
-import issues.reports as _imports_issues_reports
-
-from .reports import iac_report, normal_merge
-from .review import existing_decisions
+from .artifact import validate_artifact
+from .integrity import whole_target
+from .reports import iac_report, ordinary_report
+from .review import human_confirmations, review_snapshot
 
 
 @task_read_scope
@@ -41,146 +39,62 @@ def save_authority(root, environment, directory, services, filenames):
         safe_path(root, f"issues/{environment}/{directory}/{name}")
         for name in filenames
     ]
-    if any(path.relative_to(root).as_posix() not in allowed for path in paths):
-        raise ValueError("report is outside Allowed paths")
+    if any(
+        path.relative_to(root).as_posix() not in allowed
+        or path.relative_to(root).as_posix() not in paths_in(text, "## Modified files")
+        for path in paths
+    ):
+        raise ValueError("report is outside Allowed paths or Modified files")
     return paths
 
 
-@input_scope
-def save(
-    root,
-    environment,
-    directory,
-    services,
-    candidates=(),
-    additions=(),
-    resolutions=(),
-    iac=None,
-    display=None,
-    stamp=None,
-    warnings=(),
-    artifact=None,
-    decisions=(),
-):
-    publication_lock = _imports_model_sources.publication_lock
-    with publication_lock(root, read_only=True):
-        names = ["issues.md"] + (["iac-issues.md"] if iac is not None else [])
-        paths = save_authority(root, environment, directory, services, names)
-        contents = {
-            paths[0]: normal_merge(
-                root,
-                paths[0],
-                environment,
-                directory,
-                services,
-                candidates,
-                additions,
-                resolutions,
-                decisions=decisions,
-            )
-        }
-        notice_report = _imports_issues_reports.notice_report
-        channels = (
-            {
-                name: artifact.get(name, [])
-                for name in (
-                    "warnings",
-                    "information",
-                    "unverified",
-                    "processing_errors",
-                )
-            }
-            if artifact
-            else {"warnings": list(warnings)}
-        )
-        if artifact is not None or warnings:
-            contents[paths[0]] = notice_report(
-                contents[paths[0]], environment, directory, services, channels
-            )
-        if iac is not None:
-            contents[paths[1]] = iac_report(
-                environment,
-                directory,
-                services,
-                iac,
-                display,
-                stamp=stamp,
-                artifact=artifact,
-            )
-        atomic_files(contents)
-        return paths
+def render_snapshot(root, snapshot):
+    data = json.loads(snapshot.data)
+    return (
+        ordinary_report(root, data),
+        iac_report(
+            data["environment"],
+            data["target"],
+            data["services"],
+            data["iac"],
+            data.get("iac_display"),
+            stamp=data["executed_at"],
+            artifact=data,
+        ),
+    )
 
 
 def save_scan(root, artifact, review):
-    if artifact.get("version") != 3 or artifact.get("root") != str(root):
+    if artifact.get("root") != str(root):
         raise ValueError("invalid scan artifact/root")
-    validate_artifact = _imports_issues_artifact.validate_artifact
     validate_artifact(artifact)
-    if any(
-        item.get("phase") == "materials.existing-issues"
-        for item in artifact.get("processing_errors", [])
-    ):
-        raise ValueError(
-            "existing Issue acquisition failed; report publication forbidden"
+    whole_target(artifact)
+    snapshot = review_snapshot(artifact, review)
+    data = json.loads(snapshot.data)
+    reports = render_snapshot(root, snapshot)
+    names = ["issues.md", "iac-issues.md"]
+    if snapshot.cleanup:
+        names.append("human-confirmations.yaml")
+    with model_sources.publication_lock(root, read_only=True):
+        paths = save_authority(
+            root, data["environment"], data["target"], data["services"], names
         )
-    required = {
-        "scan_id",
-        "reviewed_naming_context_id",
-        "reviewed_names",
-        "reviewed_judgments",
-        "diagnostic_assignments",
-        "issues",
-        "resolved",
-    }
-    if (
-        not required <= review.keys()
-        or review["scan_id"] != artifact["scan_id"]
-        or review["reviewed_naming_context_id"] != artifact["naming_context_id"]
-    ):
-        raise ValueError(
-            "review scan_id/naming_context_id mismatch; review this scan completely"
-        )
-    if not all(
-        isinstance(review[key], list)
-        for key in ("reviewed_names", "reviewed_judgments", "issues", "resolved")
-    ) or not isinstance(review["diagnostic_assignments"], dict):
-        raise ValueError("malformed review")
-    names = {item["id"] for item in artifact["naming"]["names"]}
-    judgments = {item["id"] for item in artifact["judgments"]}
-    if (
-        set(review.get("reviewed_names", [])) != names
-        or set(review.get("reviewed_judgments", [])) != judgments
-        or len(review["reviewed_names"]) != len(names)
-        or len(review["reviewed_judgments"]) != len(judgments)
-    ):
-        raise ValueError(
-            "all naming and remaining judgment materials need explicit review; no representative sampling"
-        )
-    assignments = review.get("diagnostic_assignments", {})
-    additions = list(review.get("issues", []))
-    ordinary = list(artifact["ordinary"])
-    for item in artifact["judgments"]:
-        if "message" in item:
-            owner = assignments.get(item["id"])
-            if owner not in artifact["services"]:
-                raise ValueError("diagnostic requires scoped service assignment")
-            ordinary.append(dict(item, service=owner))
-    decisions, resolutions, consumed = existing_decisions(
-        dict(artifact, ordinary=ordinary), review
-    )
-    paths = save(
-        root,
-        artifact["environment"],
-        artifact["target"],
-        artifact["services"],
-        [item for item in ordinary if item.get("id") not in consumed],
-        additions,
-        resolutions,
-        artifact["iac"],
-        display=artifact.get("iac_display"),
-        stamp=artifact.get("executed_at"),
-        warnings=artifact.get("warnings", []),
-        artifact=artifact,
-        decisions=decisions,
-    )
-    return paths
+        contents = dict(zip(paths[:2], reports, strict=True))
+        if snapshot.cleanup:
+            # Apply only reviewed record removals to the current file, retaining raw Human facts.
+            human = human_confirmations(root, data["environment"], data["target"])
+            pending = set(snapshot.cleanup)
+            for confirmation in human["confirmations"]:
+                records = []
+                for record in confirmation["related_issues"]:
+                    key = (confirmation["id"], record["id"])
+                    if key in pending:
+                        pending.remove(key)
+                    else:
+                        records.append(record)
+                confirmation["related_issues"] = records
+            if pending:
+                raise ValueError("reviewed Human related record is no longer present")
+            contents[paths[2]] = json.dumps(human, ensure_ascii=False, indent=2) + "\n"
+        atomic_files(contents)
+    return paths, snapshot
