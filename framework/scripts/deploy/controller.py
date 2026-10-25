@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import utils.aws.client as _imports_utils_aws_client
-from issue_gate import require_target_no_issues
+from issue_gate import print_warning, require_target_no_issues
 from model.core import ARTIFACT_PROPERTIES
 from utils.aws.identity import execution_account, select_profile
 from utils.cloudformation.inputs import Blocked, load_template_inputs
@@ -503,7 +503,9 @@ def repair(runtime: SimpleNamespace, unit: StackUnit, state: StackState) -> bool
     history = state.setdefault("repairs", [])
     try:
         runtime.guard()
-        require_target_no_issues(runtime.root, (runtime.environment, runtime.directory))
+        require_target_no_issues(
+            runtime.root, (runtime.environment, runtime.directory), warn=print_warning
+        )
         repair_ops.require_authorized(runtime.root)
         if state.get("stackStatus") not in {
             "ROLLBACK_COMPLETE",

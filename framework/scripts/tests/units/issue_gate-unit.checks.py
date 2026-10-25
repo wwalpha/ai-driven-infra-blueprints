@@ -219,8 +219,11 @@ def check_ordinary_issue_gate_restored(deletion_gate, kind):
         path.unlink()
     if kind != "missing":
         path.write_text(text)
-    with pytest.raises(ValueError):
+    if kind == "deploy":
         require_no_issues(path.parent.parent, scope)
+    else:
+        with pytest.raises(ValueError):
+            require_no_issues(path.parent.parent, scope)
 
 
 @pytest.mark.parametrize(
@@ -934,6 +937,194 @@ def check_remediation_authority_fields(remediation_task, field, value, variant):
         text = text.replace("## Task contract\n", "## Task contract\n" + changed + "\n")
     with pytest.raises(ValueError):
         tasks.validate_contract(root, name, text)
+
+
+@pytest.fixture
+def deploy_gate(tmp_path, monkeypatch):
+    name = "tasks/deploy.md"
+    text = (
+        "## Task contract\n- Task type: `infrastructure`\n- Task status: `running`\n"
+        "- Infrastructure phase: `deploy`\n"
+        f"## Modified files\n- `{name}`\n## Allowed paths\n- `{name}`\n"
+        "## Validation scope\n- `dev/cde/ec2`\n"
+    )
+    tasks.start(tmp_path, name, text)
+    monkeypatch.setenv(tasks.SELECTOR, name)
+    inventory = tmp_path / "issues/dev/cde/issues.md"
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text(
+        "### ec2\n1. ERROR: broken Framework comparison\n", encoding="utf-8"
+    )
+    return tmp_path, name, text, inventory, {("dev", "cde", "ec2")}
+
+
+@pytest.mark.parametrize(
+    "inventory,count",
+    [
+        ("### ec2\n1. ERROR: broken\n", 1),
+        ("### ec2\n1. ERROR: broken\n2. CRITICAL: broken\n3. WARNING: unresolved\n", 3),
+        ("### Unknown owner\n7. ERROR: unknown\n", 1),
+        ("malformed inventory", 1),
+        ("未解決issueなし\n", 0),
+    ],
+)
+def check_deploy_issue_policy(deploy_gate, inventory, count):
+    root, name, text, path, scope = deploy_gate
+    path.write_text(inventory, encoding="utf-8")
+    original = path.read_bytes()
+    warnings = []
+    assert not issue_gate.task_issue_errors(root, scope, warn=warnings.append)
+    require_no_issues(root, scope)
+    issue_gate.require_target_no_issues(root, ("dev", "cde"))
+    findings = Findings(root)
+    task = TaskValidation(root, findings)
+    task.task_type, task.contract_text = "infrastructure", text
+    task.check_issue_gate()
+    assert not findings.errors and len(findings.warnings) == bool(count)
+    assert len(warnings) == bool(count)
+    if count:
+        message = warnings[0]
+        assert f"Unresolved issues: {count}" in message
+        assert "WARNING (non-blocking)" in message and "dev/cde/ec2" in message
+        assert "blocks task" not in message and "stop target work" not in message
+        assert issue_errors(
+            root, scope
+        )  # Diagnostics still detect the same unresolved issues.
+    assert path.read_bytes() == original and (root / name).read_text() == text
+
+
+@pytest.mark.parametrize(
+    "error",
+    [OSError("read denied"), UnicodeError("bad encoding"), RuntimeError("parser bug")],
+)
+def check_deploy_diagnostic_failure(deploy_gate, error):
+    root, _, _, _, scope = deploy_gate
+    warnings = []
+    with mock.patch.object(issue_gate, "unresolved_services", side_effect=error):
+        require_no_issues(root, scope, warn=warnings.append)
+        issue_gate.require_target_no_issues(root, ("dev", "cde"))
+        findings = Findings(root)
+        task = TaskValidation(root, findings)
+        task.task_type = "infrastructure"
+        task.check_issue_gate()
+        assert not findings.errors and findings.warnings
+    assert "Issue diagnostics failures: 1" in warnings[0] and str(error) in warnings[0]
+
+
+@pytest.mark.parametrize(
+    "task_type,phase",
+    [
+        ("infrastructure", "implement"),
+        ("infrastructure", "update"),
+        ("infrastructure", "destroy"),
+        ("design", None),
+        ("migration", None),
+        ("governance", None),
+    ],
+)
+def check_other_tasks_keep_issue_gate(deploy_gate, task_type, phase):
+    root, name, text, _, scope = deploy_gate
+    text = text.replace("Task type: `infrastructure`", f"Task type: `{task_type}`")
+    text = text.replace(
+        "- Infrastructure phase: `deploy`\n",
+        f"- Infrastructure phase: `{phase}`\n" if phase else "",
+    )
+    (root / name).write_text(text, encoding="utf-8")
+    warnings = []
+    with pytest.raises(ValueError, match="unresolved issue"):
+        require_no_issues(root, scope, warn=warnings.append)
+    assert not warnings
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        (
+            "- Task type: `infrastructure`",
+            "- Task type: `infrastructure`\n- Task type: `design`",
+        ),
+        ("- Task type: `infrastructure`\n", ""),
+        ("- Task type: `infrastructure`", "- Task type: `design`"),
+        (
+            "- Infrastructure phase: `deploy`",
+            "- Infrastructure phase: `deploy`\n- Infrastructure phase: `update`",
+        ),
+        ("- Infrastructure phase: `deploy`\n", ""),
+        ("- Infrastructure phase: `deploy`", "- Infrastructure phase: deploy"),
+        ("- `dev/cde/ec2`", "- `all`"),
+        ("## Validation scope", "## Missing scope"),
+        ("## Task contract", "## Task contract\n## Task contract"),
+    ],
+)
+def check_deploy_contract_errors_remain_blocking(deploy_gate, old, new):
+    root, name, text, _, scope = deploy_gate
+    (root / name).write_text(text.replace(old, new), encoding="utf-8")
+    warnings = []
+    with pytest.raises(ValueError):
+        require_no_issues(root, scope, warn=warnings.append)
+    assert not warnings
+
+
+@pytest.mark.parametrize(
+    "scope,target",
+    [
+        ({("dev", "cde", "s3")}, None),
+        (None, None),
+        (set(), None),
+        ({("dev", "cde", "ec2")}, ("stg", "cde")),
+    ],
+)
+def check_deploy_scope_errors_remain_blocking(deploy_gate, scope, target):
+    root, _, _, _, _ = deploy_gate
+    with pytest.raises(ValueError, match="Validation scope"):
+        require_no_issues(root, scope, target=target)
+
+
+@pytest.mark.parametrize("use_task", [True, False])
+@pytest.mark.parametrize("content", [b"### ec2\n1. ERROR: failure\n", b"\xff", b""])
+def check_deploy_cli(deploy_gate, monkeypatch, capsys, use_task, content):
+    root, _, _, path, _ = deploy_gate
+    path.write_bytes(content)
+    argv = [
+        "issue_gate.py",
+        "--repository-root",
+        str(root),
+        "--environment",
+        "dev",
+        "--target-directory",
+        "cde",
+        "--service",
+        "ec2",
+    ]
+    monkeypatch.setattr(sys, "argv", argv + (["--task"] if use_task else []))
+    assert issue_gate.main() == (0 if use_task or not content else 1)
+    output = capsys.readouterr()
+    if use_task and content:
+        assert "WARNING (non-blocking)" in output.err and "PASS" not in output.out
+    elif not content:
+        assert "PASS" in output.out
+
+
+def check_deploy_cli_invalid_scope(deploy_gate, monkeypatch, capsys):
+    root, _, _, _, _ = deploy_gate
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "issue_gate.py",
+            "--repository-root",
+            str(root),
+            "--environment",
+            "dev",
+            "--target-directory",
+            "cde",
+            "--service",
+            "s3",
+            "--task",
+        ],
+    )
+    assert issue_gate.main() == 1
+    assert "outside active task validation scope" in capsys.readouterr().err
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from functools import partial
 from pathlib import Path
 
 import deploy.contracts as _imports_deploy_contracts
@@ -385,7 +386,11 @@ class TaskValidation:
                 scope = (
                     set()
                 )  # Framework-wide validation does not target consumer services.
-            require_no_issues(self.root, scope)
+            require_no_issues(
+                self.root,
+                scope,
+                warn=partial(self.findings.warn, code="deploy.issue_gate"),
+            )
         except (OSError, ValueError) as error:
             self.check(False, str(error))
 

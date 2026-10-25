@@ -15,10 +15,20 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 
 ## Unresolved issue gate
 
+For a validated `Task type: infrastructure` / `Infrastructure phase: deploy` contract,
+the Issue Gate is diagnostic and reporting only. Regardless of Issue severity, cause,
+content, ownership, count or diagnostic/read failure, it never stops Deploy execution,
+resume, Observed synchronization or Task completion. Report non-blocking WARNINGs at
+meaningful boundaries and in final validation; leave `issues.md` unchanged. Contract,
+Validation scope, AWS identity/permissions, input snapshots, deletion/replacement
+approval, atomic publication and AWS API failures retain their existing safety checks.
+Other Task types and infrastructure phases retain their ordinary Issue Gate.
+
 Follow [issue-gate](issue-gate.md) for stop decisions, investigation/repair/save-only task exceptions, and rechecks.
 Model → Markdown/JSON generation is independent of Issues. Integrated write validation
-publishes valid services before the Task Issue Gate; Issues still fail the Task's final
-result and completion. Model/IaC changes and deploy/AWS mutation retain their gates.
+publishes valid services before the Task Issue Gate; Issues still fail non-Deploy Tasks' final
+result and completion. Deploy uses the reporting policy above; other Model/IaC changes
+and AWS mutation retain their gates.
 
 ## Local loop
 
@@ -113,9 +123,10 @@ selected contract once under the publication lock, and saves only changed valida
 Unresolved Issues do not block this generation/publication. Preserve each successful
 service's outputs alongside failed services' saved artifacts; report actual generation
 failures and reference NOT_RUN separately, with neither treated as complete generation
-success. The subsequent Task Issue Gate can fail validation without discarding successful
+success. The subsequent non-Deploy Task Issue Gate can fail validation without discarding successful
 publications or counting Issues as generation failures. Common integrity failures still
-stop all saves; Model/IaC modification and deploy gates remain unchanged.
+stop all saves; Model/IaC modification gates remain unchanged except for the Deploy
+reporting policy above.
 It then refreshes Git changed paths once for output-dependent Task conditions and
 `changed`/`exists`/`absent` Acceptance. Registered content checks reuse their exact
 scope/candidate PASS or FAIL; NOT_RUN checks run before publication. Unknown check IDs

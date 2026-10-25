@@ -162,6 +162,22 @@ def check_identity_failure_precedes_preparation(tmp_path):
         aws.assert_not_called()
 
 
+def check_preparation_delegates_issue_policy(tmp_path):
+    scope = ["dev/cde/ec2"]
+    task = "tasks/prepared.md"
+    text = (
+        "## Task contract\n- Task type: `infrastructure`\n- Task status: `running`\n"
+        "- Infrastructure phase: `deploy`\n## Validation scope\n- `dev/cde/ec2`\n"
+        f"## Modified files\n- `{task}`\n## Allowed paths\n- `{task}`\n"
+    )
+    with patch.object(M._imports_issue_gate, "require_no_issues") as policy:
+        M.report_issues(tmp_path, task, text, scope)
+    args, kwargs = policy.call_args
+    assert args == (tmp_path, {("dev", "cde", "ec2")})
+    assert kwargs["snapshot"].text == text
+    assert kwargs["warn"] is M._imports_issue_gate.print_warning
+
+
 pytestmark = pytest.mark.usefixtures("catalog_display_fixture")
 
 if __name__ == "__main__":

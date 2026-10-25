@@ -1,4 +1,4 @@
-"""Stop unrelated work on services with unresolved target-local issues."""
+"""Gate unresolved target-local issues; Deploy contracts diagnose and report only."""
 
 import argparse
 import re
@@ -13,6 +13,7 @@ from task_contract_core import (
     TaskSnapshot,
     issue_remediation_scope,
     model_operation,
+    section,
     status,
     task_read_scope,
     task_snapshot,
@@ -41,8 +42,8 @@ def remediation_scope(
     return set(issue_remediation_scope(snapshot.text))
 
 
-def issue_errors(root: Path, scope, *, remediation=(), target=None) -> list[str]:
-    errors = []
+def _issue_diagnostics(root, scope, *, remediation=(), target=None, tolerant=False):
+    issues, failures = [], []
     paths = (
         input_select(root / "issues", "*/*/issues.md")
         if scope is None
@@ -52,8 +53,6 @@ def issue_errors(root: Path, scope, *, remediation=(), target=None) -> list[str]
         )
     )
     for path in sorted(paths):
-        if not input_is_file(path):
-            continue
         identity = path.parent.relative_to(root / "issues").parts
         if target is not None and identity != target:
             continue
@@ -68,21 +67,85 @@ def issue_errors(root: Path, scope, *, remediation=(), target=None) -> list[str]
         )
         if selected == set():
             continue
-        for number, services in unresolved_services(root, path):
-            if not services:
-                errors.append(
-                    f"unresolved issue service is ambiguous: {path.relative_to(root)}: issue {number}; stop target work"
-                )
+        try:
+            if not input_is_file(path):
                 continue
-            for service in sorted(services):
-                entry = (*identity, service)
-                if (
-                    selected is None or service in selected
-                ) and entry not in remediation:
-                    errors.append(
-                        f"unresolved issue blocks task: {'/'.join(entry)}: {path.relative_to(root)}: issue {number}; only investigation or explicit Issue remediation is allowed"
-                    )
+            records = unresolved_services(root, path)
+        except Exception as error:
+            if not tolerant:
+                raise
+            failures.append(
+                f"{path.relative_to(root)}: {type(error).__name__}: {error}"
+            )
+            continue
+        for number, services in records:
+            affected = {
+                service
+                for service in services
+                if (selected is None or service in selected)
+                and (*identity, service) not in remediation
+            }
+            if affected or not services:
+                issues.append((path.relative_to(root), number, affected))
+    return issues, failures
+
+
+def issue_errors(root: Path, scope, *, remediation=(), target=None) -> list[str]:
+    issues, _ = _issue_diagnostics(root, scope, remediation=remediation, target=target)
+    errors = []
+    for path, number, services in issues:
+        if not services:
+            errors.append(
+                f"unresolved issue service is ambiguous: {path}: issue {number}; stop target work"
+            )
+        for service in sorted(services):
+            entry = (*path.parent.parts[1:], service)
+            errors.append(
+                f"unresolved issue blocks task: {'/'.join(entry)}: {path}: issue {number}; only investigation or explicit Issue remediation is allowed"
+            )
     return errors
+
+
+def _deploy_policy(root, snapshot, scope, target):
+    if snapshot is None:
+        return False
+    validate_contract(root, snapshot.name, snapshot.text, check_paths=False)
+    lines = section(snapshot.text, "## Task contract")
+    types = [line for line in lines if line.startswith("- Task type:")]
+    phases = [line for line in lines if line.startswith("- Infrastructure phase:")]
+    if not phases and types != ["- Task type: `infrastructure`"]:
+        return False
+    if (
+        types != ["- Task type: `infrastructure`"]
+        or len(phases) != 1
+        or phases[0]
+        not in {
+            f"- Infrastructure phase: `{phase}`"
+            for phase in ("implement", "deploy", "update", "destroy")
+        }
+    ):
+        raise ValueError(
+            "Issue Gate requires exactly one valid infrastructure Task type/phase"
+        )
+    if phases != ["- Infrastructure phase: `deploy`"]:
+        return False
+    declared = snapshot.scope
+    if (
+        not declared
+        or scope is None
+        or not scope
+        or not scope <= declared
+        or target is not None
+        and not any(entry[:2] == target for entry in scope)
+    ):
+        raise ValueError(
+            "Deploy Issue Gate requires explicit matching service Validation scope"
+        )
+    return True
+
+
+def print_warning(message):
+    print(message, file=sys.stderr)
 
 
 @task_read_scope
@@ -94,8 +157,9 @@ def task_issue_errors(
     task_file=None,
     contract_file=None,
     snapshot: TaskSnapshot | None = None,
+    warn=None,
 ) -> list[str]:
-    """Waive existing issues only for explicit scoped deletion/identity rewrite contracts.
+    """Apply validated Deploy reporting or the existing scoped Model deletion exception.
 
     contract_file permits the read-only issue check before a suspended task resumes.
     Model/reference validation and write authorization remain at their own boundaries.
@@ -110,6 +174,27 @@ def task_issue_errors(
     )
     if snapshot is not None and snapshot.root != root:
         raise ValueError("task snapshot belongs to another repository")
+    if _deploy_policy(root, snapshot, scope, target):
+        try:
+            issues, failures = _issue_diagnostics(
+                root, scope, target=target, tolerant=True
+            )
+        except Exception as error:
+            issues, failures = [], [f"{type(error).__name__}: {error}"]
+        if warn is not None and (issues or failures):
+            details = [
+                f"{path}: issue {number}; services: {', '.join(sorted(services)) or 'unknown'}"
+                for path, number, services in issues
+            ]
+            warn(
+                "Deploy Issue Gate: WARNING (non-blocking)\n"
+                + "Scope: "
+                + ", ".join("/".join(entry) for entry in sorted(scope))
+                + "\n"
+                + f"Unresolved issues: {len(issues)}\nIssue diagnostics failures: {len(failures)}\n"
+                + "\n".join([*details, *failures, "Deploy continues."])
+            )
+        return []
     if snapshot is not None:
         text = snapshot.text
         operation = model_operation(text)
@@ -165,6 +250,7 @@ def require_no_issues(
     task_file=None,
     contract_file=None,
     snapshot: TaskSnapshot | None = None,
+    warn=None,
 ) -> None:
     errors = task_issue_errors(
         root,
@@ -173,6 +259,7 @@ def require_no_issues(
         task_file=task_file,
         contract_file=contract_file,
         snapshot=snapshot,
+        warn=warn,
     )
     if errors:
         raise ValueError("\n- ".join(errors))
@@ -180,15 +267,23 @@ def require_no_issues(
 
 @task_read_scope
 def require_target_no_issues(
-    root: Path, target: tuple[str, str], *, snapshot: TaskSnapshot | None = None
+    root: Path,
+    target: tuple[str, str],
+    *,
+    snapshot: TaskSnapshot | None = None,
+    warn=None,
 ) -> None:
-    if not input_is_file(root / "issues" / target[0] / target[1] / "issues.md"):
-        return
+    try:
+        if not input_is_file(root / "issues" / target[0] / target[1] / "issues.md"):
+            return
+    except Exception:
+        pass  # The common policy classifies diagnostic failures after Task validation.
     snapshot = snapshot or task_snapshot(root, required=False)
     scope = snapshot.scope if snapshot is not None else None
     if scope is not None and not any(entry[:2] == target for entry in scope):
+        _deploy_policy(root, snapshot, scope, target)
         scope = None  # An unrelated contract cannot bypass a target's issues.
-    require_no_issues(root, scope, target=target, snapshot=snapshot)
+    require_no_issues(root, scope, target=target, snapshot=snapshot, warn=warn)
 
 
 def main() -> int:
@@ -212,6 +307,7 @@ def main() -> int:
         (args.environment, args.target_directory, service) for service in args.service
     }
     root = args.repository_root.resolve()
+    warnings = []
     try:
         if args.task:
             contract = _dependency_validation_scope.active_scope(root)
@@ -220,14 +316,19 @@ def main() -> int:
                     "requested services are outside active task validation scope"
                 )
         errors = (
-            task_issue_errors(root, scope) if args.task else issue_errors(root, scope)
+            task_issue_errors(root, scope, warn=warnings.append)
+            if args.task
+            else issue_errors(root, scope)
         )
     except (OSError, ValueError) as error:
         errors = [str(error)]
     if errors:
         print("Issue gate: FAIL\n- " + "\n- ".join(errors), file=sys.stderr)
         return 1
-    print("Issue gate: PASS")
+    if warnings:
+        print_warning("\n".join(warnings))
+    else:
+        print("Issue gate: PASS")
     return 0
 
 

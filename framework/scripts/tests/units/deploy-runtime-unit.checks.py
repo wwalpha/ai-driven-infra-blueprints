@@ -63,7 +63,7 @@ from support.cloudformation_deploy_fixtures import (
 )
 from support.model_sources import allocate_fixture as allocate
 from support.model_v2_fixtures import deploy_properties_fixture
-from task_contract_core import selected_task
+from task_contract_core import selected_task, task_snapshot
 from utils.aws import cloudformation as cfn
 from utils.aws import secretsmanager as secrets
 from utils.aws.client import AwsError
@@ -4635,6 +4635,45 @@ def check_deploy_observed_baseline_advances_only_proven_outputs(
                 {scope.path: output},
                 intended,
             )
+
+
+def check_issue_policy_mutation_and_recovery(tmp_path, monkeypatch, capsys):
+    task = tmp_path / "tasks/deploy.md"
+    task.parent.mkdir()
+    task.write_text(
+        "## Task contract\n- Task type: `infrastructure`\n- Task status: `running`\n"
+        "- Infrastructure phase: `deploy`\n- Runtime recovery: `allowed`\n"
+        "## Validation scope\n- `dev/cde/ec2`\n"
+        "## Modified files\n- `tasks/deploy.md`\n## Allowed paths\n- `tasks/deploy.md`\n",
+        encoding="utf-8",
+    )
+    inventory = tmp_path / "issues/dev/cde/issues.md"
+    inventory.parent.mkdir(parents=True)
+    inventory.write_text("### ec2\n1. ERROR: unresolved\n", encoding="utf-8")
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
+    backend = M.create_runtime(tmp_path, "dev", "cde", TARGET)
+    backend.guard = _bind_framework_callback(task_snapshot, tmp_path)
+    with patch.object(cfn, "execute_change_set", return_value={}) as mutation:
+        backend.aws("execute_change_set", ChangeSetName="change")
+        backend.aws("execute_change_set", ChangeSetName="change")
+        assert mutation.call_count == 2
+        assert (
+            not capsys.readouterr().err
+        )  # Guards do not repeat boundary warnings per AWS call.
+        with patch.object(
+            backend, "guard", side_effect=ValueError("input snapshot changed")
+        ):
+            with pytest.raises(ValueError, match="input snapshot changed"):
+                backend.aws("execute_change_set", ChangeSetName="change")
+        assert mutation.call_count == 2
+    state = {"stackStatus": "ROLLBACK_COMPLETE"}
+    with patch.object(backend, "cleanup_failed_create", return_value=True) as cleanup:
+        assert backend.repair({"name": "A"}, state)
+        cleanup.assert_called_once()
+    assert "WARNING (non-blocking)" in capsys.readouterr().err
+    state = {"stackStatus": "DELETE_FAILED"}
+    assert not backend.repair({"name": "A"}, state)
+    assert "unsafe rollback state" in state["reason"]
 
 
 if __name__ == "__main__":

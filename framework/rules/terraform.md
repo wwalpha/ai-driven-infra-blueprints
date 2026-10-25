@@ -4,6 +4,16 @@
 
 Follow [issue-gate](issue-gate.md) for target service stops and exceptions.
 
+For a validated `Task type: infrastructure` / `Infrastructure phase: deploy` contract,
+the Issue Gate is diagnostic and reporting only. Regardless of Issue severity, cause,
+content, ownership, count or diagnostic/read failure, it never stops Deploy execution,
+resume, Observed synchronization or Task completion. Report non-blocking WARNINGs at
+meaningful boundaries and in final validation; leave `issues.md` unchanged. Contract,
+Validation scope, AWS identity/permissions, input snapshots, deletion/replacement
+approval, atomic publication and AWS API failures retain their existing safety checks.
+Other Task types and infrastructure phases retain their ordinary Issue Gate.
+
+
 - Create, change, and execute Terraform only in `infrastructure` tasks.
 - Infrastructure task design inputs are approved authoritative model properties entries and required parts/referenced models. Obtain design values from `desired.row.*`, JSON bodies from `desired.row.*.document`, identity/references from metadata such as `desired.resource.*`, and current non-ARN identifiers from `observed.*`. In ordinary deploy, do not additionally read generated service Markdown/service-owned JSON bodies. Resolve saved Markdown Resource links using the common Model resolver and consumer scope; stop for unknown, unmatched, or ambiguous mappings, without generated Markdown body fallback.
 - Retain generated artifact existence verification, existing hash monitoring, generated artifact validation by sync-model/local loop, and stop conditions. For explicit display defect/mismatch investigation, only necessary corresponding portions may be read. Do not continue deploy after mismatch or automatically repair IaC/intended design.

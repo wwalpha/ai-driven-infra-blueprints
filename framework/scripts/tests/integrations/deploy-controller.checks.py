@@ -32,7 +32,10 @@ from support.deploy_repair_fixtures import (
     ordinary_delivery,
 )
 from support.pytest_cli import run
-from task_contract_core import selected_task
+from task_contract import complete
+from task_contract_core import selected_task, status
+from validation.findings import Findings
+from validation.task import TaskValidation
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -150,8 +153,13 @@ def check_ordered_delivery_and_observed(tmp_path, monkeypatch):
     root = seed(tmp_path / "project", session, "ordered-delivery")
     monkeypatch.chdir(root)
     monkeypatch.setenv("BLUEPRINT_TASK_FILE", "tasks/deploy.md")
+    inventory = root / f"issues/dev/{ACCOUNT}/issues.md"
+    inventory.parent.mkdir(parents=True)
+    original = "### ec2\n1. ERROR: Framework diagnostic\n### Unknown owner\n2. CRITICAL: unresolved\n"
+    inventory.write_text(original, encoding="utf-8")
     aws_state(aws, delivery=True)
     assert invoke(root, session, aws) == 0
+    assert inventory.read_text(encoding="utf-8") == original
     saved, provider = json.loads(session.read_text()), json.loads(aws.read_text())
     calls = provider["calls"]
     first_create = next(
@@ -184,6 +192,15 @@ def check_ordered_delivery_and_observed(tmp_path, monkeypatch):
         session,
         {name: s["executionEvidence"] for name, s in saved["states"].items()},
     )
+
+    findings = Findings(root)
+    task = TaskValidation(root, findings)
+    task.task_type = "infrastructure"
+    task.check_issue_gate()
+    assert not findings.errors and findings.warnings
+    complete(root, "tasks/deploy.md")
+    assert status((root / "tasks/deploy.md").read_text()) == "completed"
+    assert inventory.read_text(encoding="utf-8") == original
 
 
 def check_delivery_failure_stops_execution(tmp_path, monkeypatch):

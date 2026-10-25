@@ -2,6 +2,15 @@
 
 ## Normal startup
 
+For a validated `Task type: infrastructure` / `Infrastructure phase: deploy` contract,
+the Issue Gate is diagnostic and reporting only. Regardless of Issue severity, cause,
+content, ownership, count or diagnostic/read failure, it never stops Deploy execution,
+resume, Observed synchronization or Task completion. Report non-blocking WARNINGs at
+meaningful boundaries and in final validation; leave `issues.md` unchanged. Contract,
+Validation scope, AWS identity/permissions, input snapshots, deletion/replacement
+approval, atomic publication and AWS API failures retain their existing safety checks.
+Other Task types and infrastructure phases retain their ordinary Issue Gate.
+
 Human指定のenvironment/alias、resource/execution account、Region/profile、StackNameとservice IDsを確定する。未確定ならenvironment→複数target時のalias→account→scopeの順に一問ずつ確認し、同じproject.json targetの候補だけ示す。唯一targetにaliasを要求しない。configured awsProfileを使い、未設定時のみ明示profile/default chainを使う。不一致・認証失敗で別credentialへ切り替えない。
 
 Read before changing filesの必須本文と対象入力、Task候補を漏れなく読む。hash一致を未読範囲の読了証明にしない。生成物の存在・内容hash・scope・変更検知・機械検証を維持し、generated viewへのfallbackや値の推測をしない。設計変更・scenario実行は禁止。
@@ -19,7 +28,7 @@ aliasなしは--aws-account-id。preparation.jsonのdocuments（<=6,000文字/ch
 <fixed-python> framework/scripts/deploy_preparation.py --run-controller <external-preparation.json>
 ```
 
-全Stackに一つのcontroller/sessionを使う。preparationはAWSなし。controllerが認証、Task/Issue/入力guard、既存Stack所有権、配送barrier、ValidateTemplate、ChangeSet、承認・実行・poll・drain・成功後同期を担当する。同じpreflight/APIをAgent側で重複実行しない。通常起動/Create/ExecuteはRemoveを含め全体mapping/lintなし。失敗修復/bootstrap/未同期SUCCESSだけ必要ownerと参照を解決する。DeployOrder/並行数を保ち、失敗時は新規開始を止めpeerをdrainする。SUCCESSは再実行しない。
+全Stackに一つのcontroller/sessionを使う。preparationはAWSなし。controllerが認証、Task/入力guard、Issue診断・警告、既存Stack所有権、配送barrier、ValidateTemplate、ChangeSet、承認・実行・poll・drain・成功後同期を担当する。同じpreflight/APIをAgent側で重複実行しない。通常起動/Create/ExecuteはRemoveを含め全体mapping/lintなし。失敗修復/bootstrap/未同期SUCCESSだけ必要ownerと参照を解決する。DeployOrder/並行数を保ち、失敗時は新規開始を止めpeerをdrainする。SUCCESSは再実行しない。
 
 ## Read before changing files
 

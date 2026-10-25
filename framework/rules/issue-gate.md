@@ -9,6 +9,15 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 
 ## Unresolved issue gate
 
+For a validated `Task type: infrastructure` / `Infrastructure phase: deploy` contract,
+the Issue Gate is diagnostic and reporting only. Regardless of Issue severity, cause,
+content, ownership, count or diagnostic/read failure, it never stops Deploy execution,
+resume, Observed synchronization or Task completion. Report non-blocking WARNINGs at
+meaningful boundaries and in final validation; leave `issues.md` unchanged. Contract,
+Validation scope, AWS identity/permissions, input snapshots, deletion/replacement
+approval, atomic publication and AWS API failures retain their existing safety checks.
+Other Task types and infrastructure phases retain their ordinary Issue Gate.
+
 - Every numbered issue (such as `1.`) in `issues/<environment>/<alias-or-account>/issues.md`
   is unresolved. A missing or empty file means there are no unresolved issues. Remove an
   item when revalidation provides evidence of resolution within a Human-requested
@@ -18,9 +27,9 @@ are separate, and issues runs only when explicitly requested. Other workflows re
 - Identify the owning service from `### service-id`, an `issue-service` comment, or a
   link to Model properties or a detailed design for the same target. Do not infer it
   from an AWS display name. Unknown ownership or a malformed inventory with neither
-  numbered issues nor a zero-issue declaration stops work for the entire target.
+  numbered issues nor a zero-issue declaration stops ordinary non-Deploy work for the entire target.
 - An unresolved issue for an environment/target/service blocks the start or continuation
-  of ordinary consultation, design/save, implement, deploy/apply, scenario and migration
+  of ordinary consultation, design/save, implement, update/apply, destroy, scenario and migration
   work. It does not block other targets or services. Explicitly list every affected
   service in Validation scope and stop if any is blocked. Distinguish the overall
   validation scope from the targets actually changed. Framework-only governance and
@@ -54,8 +63,9 @@ Common integrity violations still stop the whole publication. Never edit or reso
 
 The integrated validator evaluates the Task Issue Gate after generation/publication,
 independently of the generation result. Successful publications remain saved even when
-Issues fail the Task. This exception grants no Model/IaC change authority and does not
-waive pre-task/resume, Task completion/integration, remediation or deploy/AWS mutation gates.
+Issues fail a non-Deploy Task. Generation grants no Model/IaC change authority and does
+not waive pre-task/resume, completion/integration, remediation or AWS safety checks.
+Deploy Issue diagnostics follow the reporting-only policy above.
 
 ## Issue and notice classification
 
@@ -157,7 +167,8 @@ separate and keep their existing permissions.
 Do not automatically resume other suspended Tasks. The separately preauthorized
 CloudFormation external-repair implement handoff retains its own contract and permits
 only the supervising LLM to resume its matching original deploy Task; it does not use
-Issue remediation or waive Issue Gate.
+Issue remediation. The parent Deploy reports Issues only; the implement child retains
+its ordinary blocking Issue Gate.
 
 ## Check timing
 
@@ -175,6 +186,11 @@ the Human-specified scope and proceed through the existing remediation workflow.
 python framework/scripts/issue_gate.py --environment <environment> --target-directory <alias-or-account-id> --service <service-id>
 ```
 
+Deploy preparation, registration, contexts, mutation/recovery guards, Observed writers,
+repair checkpoints and Task validation/completion use the same validated Task policy.
+Use `--task` for Deploy checks; the CLI without `--task` retains the ordinary blocking gate.
+Diagnostic failures are WARNINGs only for that Deploy contract. Final Task validation
+records them with `Findings.warn()`; Issues alone do not fail or suspend the Task.
 The Task validator and deploy context use the common decision.
 AWS read-only context only verifies authentication for authorized investigation; it does
 not authorize Issue remediation or continuation of another Task. Before an ordinarily

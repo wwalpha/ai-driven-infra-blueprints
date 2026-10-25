@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from issue_gate import require_target_no_issues
+from issue_gate import print_warning, require_target_no_issues
 from utils.aws.identity import (
     IdentityError,
     execution_account,
@@ -33,7 +33,7 @@ def check_deploy_context(
     if not read_only:
         try:
             require_target_no_issues(
-                root, (environment, alias or target["awsAccountId"])
+                root, (environment, alias or target["awsAccountId"]), warn=print_warning
             )
         except (OSError, ValueError) as error:
             raise DeployContextError(str(error)) from error

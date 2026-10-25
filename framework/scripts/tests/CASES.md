@@ -259,7 +259,7 @@ NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync 
 | design_catalog `main` のMapping・命名規則・Schema書換え依存経路 | 現行QuickSight表示・Macie Schema正常値と異常値23件、S3リンクlabel・bucketCriteria/JSON競合 |
 | design_layout `check_workflow` の架空Resource/Layout変更 | 現行layout、正常/異常文書、group child・参照・親移動 |
 | blueprint-loop のRule変更・移動シナリオ | Model/Task/IaCのscope、空白検証、Frameworkコード変更の回帰選択 |
-| deploy_preparation `check_stale_and_conflicts[input]` | issue/runtime/契約候補/Model/生成物の変更・削除 |
+| deploy_preparation `check_stale_and_conflicts[input]` | Issue追加は警告・登録継続、runtime/契約候補/Model/生成物の変更・削除は拒否 |
 | cloudformation-deploy `check_session_cli` のRule変更条件 | IaC/Model/契約/コード・project変更、resume・保存保護 |
 | aws_mapping `check_runtime_cache`、`check_runtime_failures[parse]` | root/scopeの再利用、独立したread/runtime例外 |
 | aws_mapping `check_readonly_defaults` のMapping default差替え | Field.copy_defaultのstandalone埋込互換性 |
@@ -818,7 +818,7 @@ supportファイル数は共通fixture/補助のみ。UT台帳には別途unitte
 | `unknown/cloudformation-naming.checks.py:180` | `check_fixtures` | IT | [integrations/cloudformation-naming.checks.py](integrations/cloudformation-naming.checks.py#L217) | direct / 1 | 複数コンポーネント、参照または永続化の連携 | 配置/共有fixture分離 |
 | `integrations/cloudtrail-input-reference.checks.py:20` | `check` | IT | [integrations/cloudtrail-input-reference.checks.py](integrations/cloudtrail-input-reference.checks.py#L30) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 変更不要 |
 | `unknown/deploy_preparation.checks.py:105` | `check_preparation` | IT | [integrations/deploy_preparation.checks.py](integrations/deploy_preparation.checks.py#L48) | direct / 1 | CLI/subprocessまたはGitとの連携 | 配置/共有fixture分離 |
-| `unknown/deploy_preparation.checks.py:184` | `check_stale_and_conflicts` | IT | [integrations/deploy_preparation.checks.py](integrations/deploy_preparation.checks.py#L140) | direct / 1 | issue/runtime/契約候補/Model/生成Markdown・JSONの変更と削除を拒否（Framework入力条件を削除） | 配置/共有fixture分離 |
+| `unknown/deploy_preparation.checks.py:184` | `check_stale_and_conflicts` | IT | [integrations/deploy_preparation.checks.py](integrations/deploy_preparation.checks.py#L140) | direct / 1 | Issue追加は警告で登録継続、runtime/契約候補/Model/生成Markdown・JSONの変更と削除を拒否 | 配置/共有fixture分離 |
 | `unknown/deploy_preparation.checks.py:233` | `check_generated_boundaries` | IT | [integrations/deploy_preparation.checks.py](integrations/deploy_preparation.checks.py#L181) | direct / 1 | Adapter・取得・比較の連携 | 配置/共有fixture分離 |
 | `unknown/deploy_preparation.checks.py:309` | `check_service_generated_equality` | IT | [integrations/deploy_preparation.checks.py](integrations/deploy_preparation.checks.py#L250) | direct / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
 | `unknown/design_document.checks.py:96` | `check_snapshot` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py#L93) | module / 1 | Model/文書の生成・保存・再読込または同期 | 配置/共有fixture分離 |
@@ -3791,3 +3791,27 @@ Existing partial-comparison UTs retain confirmed sibling differences and reject 
 | F4 | `units/worktree-model-guard-unit.checks.py::check_git_baseline_fail_closed` | Required Task baseline and committed forbidden path collection; ordinary baseline fallback retained |
 | F4 Git/Worktree | `integrations/worktree_task.checks.py::check_incomplete_and_git_safety` | Existing case extended: committed Framework, staged IaC, unstaged Skill, untracked Framework, unmanaged baseline rejection and resolved ordinary Issue completion |
 | F5 | `units/issue_gate-unit.checks.py::check_remediation_authority_fields` | Six authority fields reject case variants, duplicates and conflicting values |
+
+
+## Deploy Issue Gate reporting policy
+
+Common policy conditions belong to UT; existing IT cases exercise real component connections.
+
+| Origin | Case | Level | Entry | Execution | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `deploy-issues::policy` | `check_deploy_issue_policy` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py) | pytest / 5 | ERROR・複数重大度・所有不明・不正inventory・Issueなし、件数/番号とWARNING、原文保全、最終Findings非ERROR | Synthetic inventory |
+| `deploy-issues::diagnostics` | `check_deploy_diagnostic_failure` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py) | pytest / 3 | 読取り・文字コード・parser障害はWARNINGで継続 | Injected diagnostic failures |
+| `deploy-issues::others` | `check_other_tasks_keep_issue_gate` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py) | pytest / 6 | implement/update/destroy/design/migration/governanceの停止維持 | Synthetic contracts |
+| `deploy-issues::contracts` | `check_deploy_contract_errors_remain_blocking` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py) | pytest / 9 | type/phase/section重複・欠落・不整合、all/欠落scopeを拒否 | Synthetic invalid contracts |
+| `deploy-issues::scope` | `check_deploy_scope_errors_remain_blocking` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py) | pytest / 4 | 不一致/空/allのscopeと異なるtargetを拒否 | Synthetic scope |
+| `deploy-issues::cli` | `check_deploy_cli` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py) | pytest / 6 | --taskのWARNING/通常CLIのFAIL、IssueなしPASS、文字コード障害 | CLI main with synthetic argv |
+| `deploy-issues::cli-scope` | `check_deploy_cli_invalid_scope` | UT | [units/issue_gate-unit.checks.py](units/issue_gate-unit.checks.py) | pytest / 1 | CLIの対象外scopeは非0終了 | Synthetic argv |
+| `deploy-issues::preparation` | `check_preparation_delegates_issue_policy` | UT | [units/deploy_preparation-unit.checks.py](units/deploy_preparation-unit.checks.py) | pytest / 1 | 準備候補の検証済みSnapshotとscope・警告出力を共通Policyへ委譲 | Synthetic candidate |
+| `deploy-issues::runtime` | `check_issue_policy_mutation_and_recovery` | UT | [units/deploy-runtime-unit.checks.py](units/deploy-runtime-unit.checks.py) | pytest / 1 | mutation継続・APIごとの警告重複なし・recovery継続、入力guard/危険rollback状態は停止 | Mock SDK / real policy |
+
+Existing IT `deploy_preparation::check_preparation` now prepares/registers with an ERROR
+Issue present; `check_stale_and_conflicts` permits only Issue additions and retains the
+other input guards. Existing `deploy-controller::check_ordered_delivery_and_observed`
+retains ERROR/unknown-owner Issues throughout the real controller, AWS SDK boundary,
+Observed collection/publication, generated-view synchronization, warning validation and
+Task completion. Other controller failures and resumable publication checks stay unchanged.

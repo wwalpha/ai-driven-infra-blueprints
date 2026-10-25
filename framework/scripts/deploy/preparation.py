@@ -142,8 +142,27 @@ def candidate(root, task, env, directory, target, stacks, services):
     return "\n".join(lines), sources, scope, generated_views
 
 
+def report_issues(root, task, text, scope):
+    raw = text.encode("utf-8")
+    snapshot = _imports_task_contract.TaskSnapshot(
+        name=task,
+        root=root,
+        path=root / task,
+        text=text,
+        raw=raw,
+        raw_digest=hashlib.sha256(raw).hexdigest(),
+        selector=(None, None),
+    )
+    _imports_task_contract.validate_contract(root, task, text)
+    _imports_issue_gate.require_no_issues(
+        root,
+        {tuple(value.split("/")) for value in scope},
+        snapshot=snapshot,
+        warn=_imports_issue_gate.print_warning,
+    )
+
+
 def prepare(root, args, run, timing):
-    issue_errors = _imports_issue_gate.issue_errors
     TASK_NAME = _imports_task_contract.TASK_NAME
     contracts = _imports_task_contract.contracts
     safe_path = _imports_task_contract.safe_path
@@ -179,9 +198,6 @@ def prepare(root, args, run, timing):
             args.stack,
             services,
         )
-        errors = issue_errors(root, {tuple(value.split("/")) for value in scope})
-        if errors:
-            raise ValueError("\n".join(errors))
         execution_inputs = set(
             deployment_input_paths(root, args.environment, directory, target, units)
         )
@@ -213,6 +229,7 @@ def prepare(root, args, run, timing):
         if args.task_file in records:
             raise ValueError("task already exists; resume the existing task/session")
         contract = run / "contract.md"
+        report_issues(root, args.task_file, text, scope)
         contract.write_text(text, encoding="utf-8")
     with timing.phase("documentRead"):
         prompt = definition_root(root) / "framework/prompts/codex/04_deploy.md"
@@ -383,7 +400,6 @@ def model_input_paths(root, scope):
 
 
 def register(root, path, timing):
-    issue_errors = _imports_issue_gate.issue_errors
     plan = json.loads(path.read_text(encoding="utf-8"))
     if plan["repository"] != str(root) or plan["runtime"]["python"] != sys.executable:
         raise ValueError(
@@ -422,11 +438,9 @@ def register(root, path, timing):
         if contract.is_relative_to(root) or sha(contract) != plan["contractDigest"]:
             raise ValueError("contract candidate changed; prepare again")
     with timing.phase("contractRegistration"):
-        errors = issue_errors(
-            root, {tuple(value.split("/")) for value in plan["scope"]}
+        report_issues(
+            root, plan["taskFile"], contract.read_text(encoding="utf-8"), plan["scope"]
         )
-        if errors:
-            raise ValueError("\n".join(errors))
         result = subprocess.run(
             [
                 sys.executable,

@@ -50,6 +50,11 @@ def check_preparation():
         base = Path(directory).resolve()
         root = base / "repo"
         fixture(root)
+        inventory = root / "issues/dev/123456789012/issues.md"
+        inventory.parent.mkdir(parents=True)
+        inventory.write_text(
+            "### ec2\n1. ERROR: Framework diagnostic\n", encoding="utf-8"
+        )
         original = {
             p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()
         }
@@ -307,13 +312,10 @@ def check_stale_and_conflicts():
                 result = invoke(
                     ["--repository-root", str(root), "--register", str(path)]
                 )
-                assert result == 1, reason
-            assert (
-                json.loads((run / "timing.jsonl").read_text().splitlines()[-1])[
-                    "result"
-                ]
-                == "FAIL"
-            )
+                assert result == (0 if reason == "issue" else 1), reason
+            assert json.loads((run / "timing.jsonl").read_text().splitlines()[-1])[
+                "result"
+            ] == ("PASS" if reason == "issue" else "FAIL")
 
 
 def _callback_check_generated_boundaries_load_with_artifacts(real_load, /, *args):

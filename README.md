@@ -153,6 +153,15 @@ The DLL path is an example; use the directory containing your installed DLLs. A 
 
 ## Task stops due to unresolved issues
 
+For a validated `Task type: infrastructure` / `Infrastructure phase: deploy` contract,
+the Issue Gate is diagnostic and reporting only. Regardless of Issue severity, cause,
+content, ownership, count or diagnostic/read failure, it never stops Deploy execution,
+resume, Observed synchronization or Task completion. Report non-blocking WARNINGs at
+meaningful boundaries and in final validation; leave `issues.md` unchanged. Contract,
+Validation scope, AWS identity/permissions, input snapshots, deletion/replacement
+approval, atomic publication and AWS API failures retain their existing safety checks.
+Other Task types and infrastructure phases retain their ordinary Issue Gate.
+
 Treat [issue gate](framework/rules/issue-gate.md) as authoritative for stop conditions and repair/save-only task exceptions.
 
 Model → Markdown/JSON generation is independent of unresolved Issues. Standalone
@@ -160,8 +169,8 @@ Model → Markdown/JSON generation is independent of unresolved Issues. Standalo
 service and retain successful publications; failed services keep their saved artifacts.
 Reports distinguish generation failures and reference NOT_RUN from successful services.
 The integrated validator saves valid outputs before evaluating the Task Issue Gate;
-unresolved Issues still fail Task validation/completion. Model/IaC changes and deploy/AWS
-mutation retain their existing Issue Gates. Generation never edits or resolves `issues.md`.
+unresolved Issues still fail non-Deploy Task validation/completion. Deploy uses the
+reporting-only policy above; other Model/IaC changes and AWS mutation retain their gates. Generation never edits or resolves `issues.md`.
 
 ## Local issues scan
 
