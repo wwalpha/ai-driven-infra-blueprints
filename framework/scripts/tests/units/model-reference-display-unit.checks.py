@@ -439,36 +439,115 @@ def check_service_notes_are_outside_resource_display(
     assert model_reference_tables(path, markdown, tuple(values.items()), FRAMEWORK)
 
 
-@pytest.mark.parametrize("change", ["attribute", "policy", "row", "trailing"])
-def check_resource_differences_survive_service_notes(noted_policies, change):
+@pytest.mark.parametrize("change", ["attribute", "policy", "row"])
+@pytest.mark.parametrize("last", [False, True])
+@pytest.mark.parametrize("note_changed", [False, True])
+def check_resource_differences_survive_service_notes(
+    noted_policies, change, last, note_changed
+):
     path, _, values = noted_policies
     markdown = generate_markdown(path, values, FRAMEWORK)
+    before, after = markdown.split(
+        "<!-- resource-logical-id: IAM_ManagedPolicy_002 -->"
+    )
+    target = after if last else before
     changed = {
-        "attribute": markdown.replace("`synthetic-policy`", "`edited-policy`"),
-        "policy": markdown.replace("kms:Decrypt", "kms:Encrypt", 1),
-        "row": markdown.replace("合成JSON", "改変された行", 1),
-        "trailing": markdown + "未知の末尾テキスト\n",
+        "attribute": target.replace(
+            "`second-policy`" if last else "`synthetic-policy`", "`edited-policy`"
+        ),
+        "policy": target.replace("kms:Decrypt", "kms:Encrypt", 1),
+        "row": target.replace("合成JSON", "改変された行", 1),
     }[change]
+    changed = "<!-- resource-logical-id: IAM_ManagedPolicy_002 -->".join(
+        (before, changed) if last else (changed, after)
+    )
+    if note_changed:
+        changed = changed.replace("もう一つの注記", "変更した注記")
     assert changed != markdown
     recovered = model_resource_reference_tables(path, changed, values, FRAMEWORK)
-    assert [error is not None for _, _, error in recovered] == (
-        [False, True] if change == "trailing" else [True, False]
-    )
-    with pytest.raises(ValueError, match="Model expected display"):
+    assert [error is not None for _, _, error in recovered] == [not last, last]
+    with pytest.raises(ValueError, match="Model expected display") as caught:
         model_reference_tables(path, changed, tuple(values.items()), FRAMEWORK)
+    if note_changed:
+        assert any(
+            item["savedDisplay"] == "変更した注記"
+            and item["expectedDisplay"] == "もう一つの注記"
+            for item in caught.value.positions
+        )
 
 
-@pytest.mark.parametrize("change", ["changed", "deleted", "unknown_heading"])
-def check_service_note_differences_remain_document_failures(noted_policies, change):
-    path, _, values = noted_policies
+@pytest.mark.parametrize(
+    "change",
+    ["changed", "deleted", "multiline", "unknown_heading", "trailing"],
+)
+@pytest.mark.parametrize("model_changed", [False, True])
+def check_service_note_differences_remain_document_failures(
+    noted_policies, change, model_changed
+):
+    path, scope, values = noted_policies
     markdown = generate_markdown(path, values, FRAMEWORK)
     changed = {
         "changed": markdown.replace("もう一つの注記", "改変した注記"),
         "deleted": markdown.replace("\nもう一つの注記", ""),
+        "multiline": markdown.replace("複数行の説明", "変更した説明\n追加の説明"),
         "unknown_heading": markdown + "\n## 未知の末尾テキスト\n",
+        "trailing": markdown + "未知の末尾テキスト\n",
     }[change]
+    if model_changed:
+        if change in {"deleted", "trailing"}:
+            values = {
+                k: v for k, v in values.items() if not k.startswith("desired.note.")
+            }
+        elif change == "multiline":
+            values = {**values, "desired.note.001.text": "変更した注記\n追加の説明"}
+        else:
+            values = {**values, "desired.note.002.text": "変更した注記"}
+        changed = markdown
+        if change == "unknown_heading":
+            changed += "\n## 未知の末尾テキスト\n"
+        elif change == "trailing":
+            changed += "未知の末尾テキスト\n"
+    recovered = model_resource_reference_tables(path, changed, values, FRAMEWORK)
+    assert len(recovered) == 2
+    assert all(error is None for _, _, error in recovered)
     with pytest.raises(ValueError, match="Model expected display"):
         model_reference_tables(path, changed, tuple(values.items()), FRAMEWORK)
+    path.parent.mkdir(parents=True)
+    path.write_text(changed, encoding="utf-8")
+    expected = generate_markdown(path, values, FRAMEWORK)
+    plan = SimpleNamespace(
+        root=scope.root,
+        read_inputs={},
+        expected_outputs={path: {path: expected}},
+        failure_records=[],
+        saved={},
+    )
+    _compare_generation(plan)
+    assert "generation.mismatch" in {item.code for item in plan.failure_records}
+    assert not plan.saved
+    validator = Validator(
+        scope.root, {("qa", "team", "iam")}, definitions_root=FRAMEWORK
+    )
+    validator.schema_catalog = DesignSchemaCatalog(FRAMEWORK)
+    with patch("validation.design_tables.design_model_values", return_value=values):
+        validator.check_design_tables(
+            *validator.check_design_service_ownership([path]), paths=[path]
+        )
+    assert validator.findings.status == "FAIL"
+    assert {item["resource"] for item in validator.findings.unverified} == {"document"}
+
+
+def check_ambiguous_service_note_resource_identity_is_not_accepted(noted_policies):
+    path, _, values = noted_policies
+    markdown = generate_markdown(path, values, FRAMEWORK)
+    ambiguous = (
+        markdown
+        + '\n<!-- resource-logical-id: IAM_ManagedPolicy_002 -->\n<a id="saved-002"></a>\n\n### IAM.ManagedPolicy: second-policy\n'
+    )
+    with pytest.raises(ValueError, match="duplicate saved Resource anchor"):
+        model_resource_reference_tables(path, ambiguous, values, FRAMEWORK)
+    with pytest.raises(ValueError):
+        model_reference_tables(path, ambiguous, tuple(values.items()), FRAMEWORK)
 
 
 def check_grouped_rows_keep_identity_and_references(tmp_path):
@@ -530,8 +609,9 @@ def check_grouped_rows_keep_identity_and_references(tmp_path):
 
 
 @pytest.mark.parametrize("tamper", ["none", "parent", "child"])
+@pytest.mark.parametrize("note_changed", [False, True])
 def check_grouped_resource_recovery_keeps_parent_and_children_together(
-    tmp_path, tamper
+    tmp_path, tamper, note_changed
 ):
     with mapping_alias(FRAMEWORK, tmp_path):
         project(tmp_path)
@@ -559,6 +639,8 @@ def check_grouped_resource_recovery_keeps_parent_and_children_together(
         write_model(scope.path, values)
         path = tmp_path / "docs/designs/qa/team/lambda.md"
         markdown = generate_markdown(path, values, FRAMEWORK)
+        if note_changed:
+            values["desired.note.002.text"] = "変更した注記"
         del values["desired.resource.002.parentProperty"]
         write_model(scope.path, values)
         if tamper == "parent":

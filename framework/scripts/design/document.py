@@ -297,16 +297,10 @@ def model_resource_groups(path, source):
 
 
 def model_resource_reference_tables(path, text, values, root):
-    """Recover only complete Resource groups proven equal by the existing renderer."""
+    """Recover renderer-proven Resource bodies; suffix integrity is document-wide."""
     source = dict(values)
     resources, groups = model_resource_groups(path, source)
     lines = text.splitlines()
-    notes = _model_render.service_note_markdown(source)
-    if notes:
-        # The first newline terminates the preceding Resource's last line.
-        suffix = (notes + "\n").splitlines()[1:]
-        if lines[-len(suffix) :] == suffix:
-            lines = lines[: -len(suffix)]
     blocks = resource_blocks(_dependency_design_layout.resource_heading_lines(lines))
     saved = {}
     for block in blocks:
@@ -355,10 +349,17 @@ def model_resource_reference_tables(path, text, values, root):
                 raise ValueError(
                     "Markdown Resource logicalId/anchor differs from Model: " + anchor
                 )
-            if saved[anchor][1] != expected_blocks[0]:
+            actual, wanted = saved[anchor][1], expected_blocks[0]
+            matches_body = actual == wanted
+            if anchor == next(reversed(saved)) and actual[
+                len(wanted) : len(wanted) + 1
+            ] == [""]:
+                # Prove the entire rendered body; leave suffix ownership to document validation.
+                matches_body = actual[: len(wanted)] == wanted
+            if not matches_body:
                 saved_text, expected_text = (
-                    "\n".join(saved[anchor][1]),
-                    "\n".join(expected_blocks[0]),
+                    "\n".join(actual),
+                    "\n".join(wanted),
                 )
                 require_saved_identity(saved_text, expected_text)
                 raise DisplayMismatchError(path, saved_text, expected_text)
