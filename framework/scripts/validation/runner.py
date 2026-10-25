@@ -256,7 +256,6 @@ def _callback_Validator_check_scoped_designs_source_checks(
         path, analysis.authoritative, self.root, definitions_root=self.definitions_root
     )
     self.findings.include_diagnostics(independent)
-    self.findings.reference_errors.extend(independent.reference_errors)
     for diagnostic in (*analysis.warnings, *independent.warnings):
         self.findings.warn(diagnostic)
     self.checks += independent.checks
@@ -745,10 +744,18 @@ class Validator:
                 isolate=True,
             )
             self.findings.include_diagnostics(generator.findings)
-            self.findings.reference_errors.extend(generator.findings.reference_errors)
-            self.warnings.extend(generator.warnings)
-            self.findings.processing_errors.extend(generator.findings.processing_errors)
-            self.findings.unverified.extend(generator.findings.unverified)
+            for warning in generator.warnings:
+                self.findings.warn(warning)
+            self.findings.processing_errors.extend(
+                item
+                for item in generator.findings.processing_errors
+                if item not in self.findings.processing_errors
+            )
+            self.findings.unverified.extend(
+                item
+                for item in generator.findings.unverified
+                if item not in self.findings.unverified
+            )
         # Generated equality is covered by each service record; keep target counts stable.
         if self.check_display:
             self.checks += len({entry[:2] for entry in generation_scope})
@@ -827,13 +834,17 @@ class Validator:
                 validator = results[_state_check_scoped_designs_351.entry]
                 self.checks += validator.checks
                 self.findings.include_diagnostics(validator.findings)
-                self.findings.reference_errors.extend(
-                    validator.findings.reference_errors
+                for warning in validator.warnings:
+                    self.findings.warn(warning)
+                self.findings.unverified.extend(
+                    item
+                    for item in validator.findings.unverified
+                    if item not in self.findings.unverified
                 )
-                self.warnings.extend(validator.warnings)
-                self.findings.unverified.extend(validator.findings.unverified)
                 self.findings.processing_errors.extend(
-                    validator.findings.processing_errors
+                    item
+                    for item in validator.findings.processing_errors
+                    if item not in self.findings.processing_errors
                 )
                 for result in validator.findings.results.values():
                     self.findings.results[

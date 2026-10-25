@@ -335,7 +335,13 @@ def check_display_and_stable_design(tmp_path, models, observed, expected):
         execution_document(document, tmp_path, scope=consumer, warnings=warnings)
         == document
     )
-    assert warnings == []
+    assert [warning["category"] for warning in warnings] == (
+        ["REFERENCE_UNRESOLVED"]
+        if observed is None
+        else ["REFERENCE_PENDING_DEPLOY"]
+        if observed == "PENDING_DEPLOY"
+        else []
+    )
     displayed = reference_display(policy, consumer.path, tmp_path)
     assert (
         json.loads(displayed["desired.row.001-002.document"])["Statement"][0][
@@ -350,8 +356,11 @@ def check_display_and_stable_design(tmp_path, models, observed, expected):
     with pytest.raises(ValueError, match="Model reference"):
         validate_aws_document(json.dumps(document))
     broken = {"Statement": [{"Effect": "Allow", "Resource": {"Ref": "Missing"}}]}
-    project_document(broken, warnings=warnings)
-    assert [warning["code"] for warning in warnings] == ["json.intrinsic.unresolved"]
+    intrinsic_warnings = []
+    project_document(broken, warnings=intrinsic_warnings)
+    assert [warning["code"] for warning in intrinsic_warnings] == [
+        "json.intrinsic.unresolved"
+    ]
 
 
 def check_every_markdown_fallback_and_schema(tmp_path, models):

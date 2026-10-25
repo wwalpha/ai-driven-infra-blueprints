@@ -6,7 +6,7 @@ from pathlib import Path
 
 from model.core import ReferenceDiagnosticError
 
-from .diagnostics import Diagnostic, relative_path
+from .diagnostics import Diagnostic, relative_path, service_scope
 
 
 class FindingsError(ValueError):
@@ -89,6 +89,7 @@ class Findings:
         self.unverified = []
         self.processing_errors = []
         self.reference_errors = []
+        self.reference_error_positions = {}
         self.diagnostics = []
         self.diagnostic_errors = {}
         self.checks = 0
@@ -209,12 +210,15 @@ class Findings:
         )
 
     def include_diagnostics(self, findings):
-        offset = len(self.errors)
-        self.diagnostic_errors.update(
-            (offset + index, identity)
-            for index, identity in findings.diagnostic_errors.items()
-        )
-        self.errors.extend(findings.errors)
+        for index, error in enumerate(findings.errors):
+            if index in findings.reference_error_positions:
+                self.warn(findings.reference_error_positions[index])
+            else:
+                if index in findings.diagnostic_errors:
+                    self.diagnostic_errors[len(self.errors)] = (
+                        findings.diagnostic_errors[index]
+                    )
+                self.errors.append(error)
         for diagnostic in findings.diagnostics:
             if not any(
                 item.identity == diagnostic.identity for item in self.diagnostics
@@ -246,8 +250,34 @@ class Findings:
             "FRAMEWORK_UNSUPPORTED",
         }:
             diagnostic = {**condition, **details}
-            if diagnostic not in self.reference_errors:
+            identity = Diagnostic.create(
+                self.canonical_root,
+                code=diagnostic["code"],
+                check_id="model.references",
+                service=service_scope(self.canonical_root, diagnostic.get("model")),
+                source_path=diagnostic.get("model"),
+                location=diagnostic.get("modelKey"),
+                cause_key=json.dumps(
+                    [
+                        diagnostic.get(field)
+                        for field in (
+                            "category",
+                            "resourceLogicalId",
+                            "pointer",
+                            "targetLogicalId",
+                            "attribute",
+                        )
+                    ]
+                    if diagnostic.get("model") and diagnostic.get("modelKey")
+                    else diagnostic,
+                    sort_keys=True,
+                ),
+                message=diagnostic["message"],
+            ).identity
+            if identity not in self.diagnostic_errors.values():
                 self.reference_errors.append(diagnostic)
+                self.reference_error_positions[len(self.errors)] = diagnostic
+                self.diagnostic_errors[len(self.errors)] = identity
                 message = json.dumps(diagnostic, ensure_ascii=False)
                 if diagnostic["category"] == "FRAMEWORK_UNSUPPORTED":
                     self.processing_errors.append(

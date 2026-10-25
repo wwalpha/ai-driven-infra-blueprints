@@ -11,6 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import model.projection as projection
 import pytest
 import sync_runtime
 from issues.artifact import validation_status
@@ -39,8 +40,10 @@ from support.model_reference_fixtures import (
 )
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
+from utils.input_cache import input_context
 from utils.script_loader import module
 from validation.findings import Findings
+from validation.runner import Validator
 
 if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
@@ -532,6 +535,40 @@ def test_real_input_validation_does_not_invent_pending_errors(models):
         consumer.path, role, consumer.root, definitions_root=FRAMEWORK
     )
     assert not findings.errors, findings.errors
+    assert findings.status == "NOT_RUN" and len(findings.unverified) == 1
+    assert findings.result("model.json-settings", None).status == "NOT_RUN"
+
+
+@pytest.mark.parametrize("field", ["value", "document"])
+def test_input_and_generation_share_reference_evaluation(models, field):
+    _, _, consumer, role, document = models
+    model_key = f"desired.row.070-004.{field}"
+    if field == "value":
+        role.pop("desired.row.070-004.document")
+        role[model_key] = "`" + json.dumps(document) + "`"
+    with (
+        input_context(),
+        patch.object(
+            projection, "reference_value", wraps=projection.reference_value
+        ) as evaluate,
+    ):
+        checked = []
+        validate_json_settings(role, consumer.path, warnings=checked)
+        assert evaluate.call_count == 1
+        with pytest.raises(ReferenceResolutionError) as generated:
+            generated_document(
+                document,
+                consumer.root,
+                resolver=reference_resolver(role, consumer, consumer.root),
+                scope=consumer,
+                logical_id="IAM_Role_070",
+                property_name="IAM.Role.Policies[].PolicyDocument",
+                model_key=model_key,
+            )
+        assert evaluate.call_count == 1
+    assert checked == generated.value.diagnostics
+    assert checked[0]["modelKey"] == model_key
+    assert checked[0]["pointer"] == "/Statement/6/Resource"
 
 
 def test_reference_wait_findings_are_not_pass(models):
@@ -621,6 +658,26 @@ def test_real_generation_and_issues_scan_keep_reference_categories(models, state
         "MODEL_REF_TARGET_MISSING" in record["message"] and "diagnostic" not in record
         for record in artifact["ordinary"]
     )
+    validator = Validator(consumer.root, {("qa", "team", "iam")}, workers=1)
+    validator.check_scoped_designs()
+    assert len(validator.findings.reference_errors) == int(invalid), (
+        validator.findings.reference_errors
+    )
+    assert len(
+        [
+            w
+            for w in validator.warnings
+            if w.get("category") == "REFERENCE_PENDING_DEPLOY"
+        ]
+    ) == int(state != "producer-invalid"), validator.warnings
+    assert len(
+        [
+            item
+            for item in validator.findings.unverified
+            if item.get("category") == "REFERENCE_PENDING_DEPLOY"
+        ]
+    ) == int(state != "producer-invalid")
+    assert len(validator.findings.reference_error_positions) == int(invalid)
 
 
 def test_pending_cli_is_not_reported_as_generation_failure(models):
@@ -684,7 +741,14 @@ def test_unknown_validation_exception_is_fail(models):
             producerModel=str(consumer.path.with_name("kms.properties")),
         )
     )
-    assert findings.reference_errors and not reference_issues(
+    findings.warn(
+        ModelNeedsFixError(
+            "another violation location is unknown",
+            model=str(consumer.path),
+            producerModel=str(consumer.path.with_name("kms.properties")),
+        )
+    )
+    assert len(findings.reference_errors) == 2 and not reference_issues(
         findings, SimpleNamespace(root=consumer.root), ["iam", "kms"]
     )
 

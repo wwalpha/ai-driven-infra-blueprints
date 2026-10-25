@@ -1,5 +1,6 @@
 """Derived execution/display fields; never serialize these into Model authority."""
 
+import copy
 import json
 import re
 from contextlib import contextmanager
@@ -16,8 +17,13 @@ from design.catalog import design_material_files
 from design.layout_schema import RESOURCE
 from design.services.definitions.registry import HIDDEN_PROPERTIES
 from utils.aws_catalogs import catalog_outputs as catalog_outputs
-from utils.input_cache import input_is_file, input_text, memoized
-from utils.json_format import document_sha256, policy_json, validate_aws_document
+from utils.input_cache import input_is_file, input_text, memo_table, memoized
+from utils.json_format import (
+    document_sha256,
+    fingerprint,
+    policy_json,
+    validate_aws_document,
+)
 from utils.reference_contracts import reference_attribute as reference_attribute
 
 import model.identity as _dependency_model_identity
@@ -425,9 +431,8 @@ def _resolved_document_value(resolutions, node):
     return resolutions[node].value
 
 
-def generated_document(
+def document_references(
     document,
-    root,
     *,
     resolver,
     scope,
@@ -435,11 +440,28 @@ def generated_document(
     logical_id=None,
     model_key=None,
     context=None,
-    warnings=None,
+    excluded_references=(),
 ):
-    """Materialize confirmed Model references only in the generated artifact."""
+    """Evaluate typed references without generating a display or document."""
+    cache = memo_table()
+    key = (
+        document_references,
+        resolver.reads,
+        scope,
+        fingerprint(dict(resolver.models[scope.path].authoritative)),
+        fingerprint(document),
+        property_name,
+        logical_id,
+        model_key,
+        fingerprint(context),
+        tuple(excluded_references),
+    )
+    if cache is not None and key in cache:
+        return copy.deepcopy(cache[key])
     resolutions, diagnostics = {}, []
     for node in nodes(document, errors=diagnostics):
+        if node.pointer in excluded_references:
+            continue
         try:
             result = reference_value(
                 resolver,
@@ -465,7 +487,36 @@ def generated_document(
             resourceLogicalId=logical_id,
             property=property_name,
             modelKey=model_key,
+            source=f"docs/designs/{scope.environment}/{scope.target}/{scope.service}.md",
+            scope=f"{scope.environment}/{scope.target}/{scope.service}",
         )
+    if cache is not None:
+        cache[key] = copy.deepcopy((resolutions, diagnostics))
+    return resolutions, diagnostics
+
+
+def generated_document(
+    document,
+    root,
+    *,
+    resolver,
+    scope,
+    property_name=None,
+    logical_id=None,
+    model_key=None,
+    context=None,
+    warnings=None,
+):
+    """Materialize confirmed Model references only in the generated artifact."""
+    resolutions, diagnostics = document_references(
+        document,
+        resolver=resolver,
+        scope=scope,
+        property_name=property_name,
+        logical_id=logical_id,
+        model_key=model_key,
+        context=context,
+    )
     require_reference_diagnostics(diagnostics)
     resolved = project(document, partial(_resolved_document_value, resolutions))
     return execution_document(

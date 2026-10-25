@@ -48,14 +48,13 @@ import model.render as _imports_model_render
 import model.sources as _imports_model_sources
 from model.core import (
     LINK,
-    ReferenceDiagnosticError,
     ReferenceResolutionError,
     entries,
     properties,
     require_reference_diagnostics,
     stack_model,
 )
-from model.reference_nodes import context_at, nodes, receiving_property, resolve
+from model.reference_nodes import context_at, nodes, receiving_property
 
 NAMING_EXEMPT_PROPERTIES = {
     "Config.ConfigurationRecorder.Name",
@@ -152,49 +151,31 @@ def validate_json_settings(
                         "JSON Model references in .value require the existing JSON backtick notation"
                     )
                 continue
-            row_diagnostics = []
-            for node in nodes(value, errors=row_diagnostics):
-                if (row_id, field, node.pointer) in excluded_references:
-                    continue
-                if resolver is None:
-                    scope = _imports_model_sources.scope_for(path)
-                    resolver = _imports_model_projection.reference_resolver(
-                        values if reference_values is None else reference_values,
-                        scope,
-                        scope.root,
-                    )
-                field_name = receiving_property(row["property"], node.pointer)
-                context = reference_context_for(
-                    values, row_id, row, value, node.pointer, scope.root
+            if resolver is None:
+                scope = _imports_model_sources.scope_for(path)
+                resolver = _imports_model_projection.reference_resolver(
+                    values if reference_values is None else reference_values,
+                    scope,
+                    scope.root,
                 )
-                try:
-                    resolve(
-                        node,
-                        scope,
-                        resolver,
-                        field=field_name,
-                        property_name=row["property"],
-                        context=context,
-                    )
-                except ReferenceDiagnosticError as error:
-                    row_diagnostics.extend(
-                        dict(
-                            d,
-                            pointer=node.pointer,
-                            targetLogicalId=node.logical_id,
-                            attribute=node.attribute,
-                        )
-                        for d in error.diagnostics
-                    )
-            for diagnostic in row_diagnostics:
-                diagnostic.update(
-                    model=str(path),
-                    modelKey=f"desired.row.{row_id}.{field}",
-                    property=row["property"],
-                    resourceLogicalId=values.get(
-                        f"desired.resource.{row_id.rpartition('-')[0]}.logicalId"
-                    ),
-                )
+            _, row_diagnostics = _imports_model_projection.document_references(
+                value,
+                resolver=resolver,
+                scope=scope,
+                property_name=row["property"],
+                logical_id=values.get(
+                    f"desired.resource.{row_id.rpartition('-')[0]}.logicalId"
+                ),
+                model_key=f"desired.row.{row_id}.{field}",
+                context=reference_context_for(
+                    values, row_id, row, value, "", scope.root
+                ),
+                excluded_references=tuple(
+                    pointer
+                    for identity, source_field, pointer in excluded_references
+                    if (identity, source_field) == (row_id, field)
+                ),
+            )
             diagnostics.extend(row_diagnostics)
             if row_diagnostics:
                 continue
@@ -218,7 +199,11 @@ def validate_json_settings(
                 property_name=row["property"],
             )
 
-    require_reference_diagnostics(diagnostics)
+    try:
+        require_reference_diagnostics(diagnostics)
+    except ReferenceResolutionError as error:
+        if warnings is not None:
+            warnings.extend(error.diagnostics)
 
 
 @memoized
@@ -697,6 +682,14 @@ def codebuild_reference_errors(path, values, *, findings=None):
     return errors
 
 
+def _callback_check_model_inputs_json_settings(values, path, findings, prohibited):
+    validate_json_settings(
+        values, path, warnings=findings.warnings, excluded_references=prohibited
+    )
+    for warning in findings.warnings:
+        findings.warn(warning)
+
+
 def _callback_check_model_inputs_structure(
     resource_row_index, validate_model_keys, values, /
 ):
@@ -925,8 +918,12 @@ def _check_model_inputs(
     findings.evaluate(
         "model.json-settings",
         None,
-        lambda: validate_json_settings(
-            values, path, warnings=findings.warnings, excluded_references=prohibited
+        _bind_framework_callback(
+            _callback_check_model_inputs_json_settings,
+            values,
+            path,
+            findings,
+            prohibited,
         ),
     )
     if entries(values, "desired.stack."):

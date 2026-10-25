@@ -35,7 +35,6 @@ from model.format import JSON_LINK
 from model.importing.scope import scoped as import_scoped
 from model.importing.scope import selected as import_selection
 from model.projection import design_target, resource_row_scope
-from model.reference_nodes import nodes
 from model.references import _json as model_json
 from model.render import generate_files as generate_files
 from model.render import render_validated_model as markdown_for
@@ -337,10 +336,7 @@ def generate_views(
                     raw, structured = model_json(
                         f"desired.row.{identity}.value", row["value"]
                     )
-                    node_errors = []
-                    if structured and (
-                        any(nodes(raw, errors=node_errors)) or node_errors
-                    ):
+                    if structured:
                         try:
                             _imports_model_projection.generated_document(
                                 raw,
@@ -365,8 +361,9 @@ def generate_views(
                         f"authoritative JSON document missing: {path.name}: {identity}"
                     )
                 try:
+                    raw_document = policy_json(row["document"])
                     document = _imports_model_projection.generated_document(
-                        policy_json(row["document"]),
+                        raw_document,
                         root,
                         property_name=row["property"],
                         scope=model.scope,
@@ -375,6 +372,9 @@ def generate_views(
                             f"desired.resource.{identity.rpartition('-')[0]}.logicalId"
                         ),
                         model_key=f"desired.row.{identity}.document",
+                        context=_imports_model_validation.reference_context_for(
+                            values, identity, row, raw_document, "", root
+                        ),
                         warnings=warnings,
                     )
                 except ReferenceDiagnosticError as error:
