@@ -2626,6 +2626,11 @@ def check_issues_ignores_display_equality(tmp_path, reference_design, display):
     validators, warnings = [], []
     with (
         patch.object(
+            validation_runner.design,
+            "check_policy_tables",
+            side_effect=AssertionError("policy display equality must not run"),
+        ),
+        patch.object(
             sync_runtime,
             "compare_generation",
             side_effect=AssertionError("generation equality must not run"),

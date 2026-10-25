@@ -1267,6 +1267,8 @@ class Validator:
         )
 
     def check_policy_tables(self) -> None:
+        if not self.check_display:
+            return
         return self.findings.evaluate(
             "framework.policy-tables",
             self.scope,
