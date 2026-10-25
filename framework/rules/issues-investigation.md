@@ -63,14 +63,34 @@ never silently call it resolved. Do not modify or delete a confirmed fact withou
 Human authorization. New facts require actual Human confirmation and an explicitly
 authorized Task file change, not a Review suggestion.
 
-Review may remove obsolete `related_issues` records only with a current complete
+Only an explicit Human request may authorize removal of obsolete `related_issues`.
+Record its actual request context in the Task Goal and the exact authorized records
+in the same Task, independently of the Review:
+
+```markdown
+## Human-requested confirmation cleanup
+- {"environment":"dev","target":"cde","confirmation_id":"human-name-1","record_id":"obsolete-note"}
+```
+
+Each entry has exactly these four fields. Record only targets requested by the Human;
+an LLM Review entry alone is not Human consent. No approval ledger or token is created.
+The general Allowed paths / Modified files contain only `issues.md`, `iac-issues.md`
+and the selected Task. Adding the Human file to either declaration forfeits the
+report-only exception; it never grants cleanup or direct-edit authority.
+
+The requested records must also appear in the validated Review with a current complete
 PASS check covering that service and concrete reason/evidence, with no remaining
 Issue, conflict, processing failure or unverified coverage affecting that confirmation
 scope. Independent services may still fail; their incomplete status remains visible. This cleanup does not
-change the fact, scope, exceptions, evidence or unrelated records. Its exact Human
-file path must be in Allowed paths and Modified files. Publication applies only
-those reviewed record removals to the current Human file under the publication lock,
-preserving raw facts even when the Scan displays masked values.
+change confirmation ID, service, fact, scope, exceptions, evidence, other confirmations
+or unrelated records. Only `save_scan()` obtains this bounded cleanup authority;
+`save_authority()` permits reports only. Publication requires the records to exist
+in the current strict-YAML-validated Human file and applies only those reviewed
+removals under the publication lock, preserving raw facts even when the Scan displays
+masked values. Both reports and the necessary Human file share `atomic_files()` and
+full rollback on failure. Without cleanup the Human file is never rewritten.
+Ordinary Human fact creation/edit/deletion requires a separately Human-authorized
+independent Task with its ordinary permissions and Issue Gate.
 
 ## Commands and complete Review
 
@@ -91,7 +111,8 @@ python3 framework/scripts/issues_scan.py --task-file tasks/save-local-issues.md 
 
 Register the migration contract before any repository write. Declare all authorized
 services and exact report paths, its own Task, Requirement IDs and `exists:` Acceptance.
-Add the Human file only when its separately authorized cleanup is requested. Complete
+Keep the Human file out of both path declarations; record separately requested cleanup
+in the dedicated Task section above. Complete
 final validation under [Validation policy](loop-engineering.md#validation-policy).
 Actual validation errors are FAIL, even when diagnostic reports were saved.
 

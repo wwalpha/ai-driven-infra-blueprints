@@ -91,7 +91,9 @@ def check_snapshot_replaces_inventory(tmp_path):
     original = deepcopy(data)
     with (
         task(tmp_path, data["services"]),
-        patch.object(Path, "read_text", BoundCallback(forbid_report_text, Path.read_text)),
+        patch.object(
+            Path, "read_text", BoundCallback(forbid_report_text, Path.read_text)
+        ),
     ):
         outputs, snapshot = save_scan(tmp_path, data, review_for(data))
     text = outputs[0].read_text()
@@ -118,7 +120,10 @@ def check_snapshot_replaces_inventory(tmp_path):
 
 def check_human_exception_and_conflict(tmp_path):
     data = reviewed_artifact(tmp_path)
-    with task(tmp_path, ["s3"]):
+    path = tmp_path / "issues/dev/123456789012/human-confirmations.yaml"
+    write(path, "# Current Human file must not be read or rewritten without cleanup\n")
+    original = path.read_bytes()
+    with task(tmp_path, ["s3"], cleanup=[("human-1", "obsolete")]):
         outputs, snapshot = save_scan(tmp_path, data, human_decision(data))
         assert "latest naming diagnostic" not in outputs[0].read_text()
         assert "未解決issueなし" in outputs[0].read_text()
@@ -129,6 +134,7 @@ def check_human_exception_and_conflict(tmp_path):
     assert "latest naming diagnostic" in outputs[0].read_text()
     assert "検証: 未完了" in outputs[0].read_text()
     assert issue_errors(tmp_path, {("dev", "123456789012", "s3")})
+    assert path.read_bytes() == original
 
 
 @pytest.mark.parametrize(
@@ -185,25 +191,76 @@ def check_human_cleanup_preserves_facts(tmp_path):
     human = deepcopy(data["human_confirmations"])
     # Raw facts are retained even if the Scan has masked the displayed fact.
     human["confirmations"][0]["fact"] += " raw value"
+    human["confirmations"][0]["related_issues"].append(
+        dict(id="keep", message="unrelated record")
+    )
+    other = confirmation()
+    other["id"] = "other-human"
+    human["confirmations"].append(other)
     write(path, json.dumps(human))
-    reports = [
-        "issues/dev/123456789012/" + name for name in ("issues.md", "iac-issues.md")
-    ]
     with task(tmp_path, data["services"]):
-        with pytest.raises(ValueError, match="Allowed paths"):
+        with pytest.raises(ValueError, match="explicit Human request"):
             save_scan(tmp_path, data, review)
     assert human_confirmations(tmp_path, "dev", "123456789012") == human
     with task(
         tmp_path,
         data["services"],
-        allowed=[*reports, path.relative_to(tmp_path).as_posix()],
+        cleanup=[("human-1", "obsolete")],
     ):
         outputs, snapshot = save_scan(tmp_path, data, review)
     assert len(outputs) == 3
     expected = deepcopy(human)
-    expected["confirmations"][0]["related_issues"] = []
+    expected["confirmations"][0]["related_issues"].pop(0)
     assert human_confirmations(tmp_path, "dev", "123456789012") == expected
     assert data["human_confirmations"]["confirmations"][0]["related_issues"]
+    assert issue_errors(tmp_path, {("dev", "123456789012", "s3")})
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["confirmation", "record", "environment", "target", "malformed", "missing_current"],
+)
+def check_cleanup_authority(tmp_path, fault):
+    data = reviewed_artifact(tmp_path)
+    review = human_decision(data)
+    review["confirmation_cleanup"] = [
+        dict(
+            confirmation_id="human-1",
+            record_id="obsolete",
+            reason="obsolete",
+            check_id="check",
+            evidence="completed check",
+        )
+    ]
+    human = deepcopy(data["human_confirmations"])
+    if fault == "missing_current":
+        human["confirmations"][0]["related_issues"] = []
+    path = tmp_path / "issues/dev/123456789012/human-confirmations.yaml"
+    write(path, json.dumps(human))
+    original = path.read_bytes()
+    with (
+        task(tmp_path, ["s3"], cleanup=[("human-1", "obsolete")]),
+        patch("issues.publication.atomic_files") as publish,
+    ):
+        contract = tmp_path / "tasks/save.md"
+        text = contract.read_text()
+        if fault != "missing_current":
+            prefix, entry = text.split("## Human-requested confirmation cleanup\n")
+            request = json.loads(entry.strip().removeprefix("- "))
+            field = {"confirmation": "confirmation_id", "record": "record_id"}.get(
+                fault, fault
+            )
+            request[field] = "other"
+            contract.write_text(
+                prefix
+                + "## Human-requested confirmation cleanup\n- "
+                + json.dumps(request)
+                + "\n"
+            )
+        with pytest.raises(ValueError):
+            save_scan(tmp_path, data, review)
+        publish.assert_not_called()
+    assert path.read_bytes() == original
 
 
 @pytest.mark.parametrize(
@@ -216,7 +273,10 @@ def check_human_cleanup_preserves_facts(tmp_path):
         "current_issue",
         "duplicate",
         "unknown_record",
-        "fact_edit",
+        "fact",
+        "scope",
+        "exceptions",
+        "service",
     ],
 )
 def check_cleanup_requires_evidence(tmp_path, fault):
@@ -247,7 +307,7 @@ def check_cleanup_requires_evidence(tmp_path, fault):
     elif fault == "unknown_record":
         cleanup["record_id"] = "other"
     else:
-        cleanup["fact"] = "changed fact"
+        cleanup[fault] = "unauthorized edit"
     with pytest.raises(ValueError):
         review_snapshot(data, review)
 
@@ -340,7 +400,7 @@ def check_atomic_rollback(tmp_path, selected, after):
         task(
             tmp_path,
             ["s3"],
-            allowed=[path.relative_to(tmp_path).as_posix() for path in original],
+            cleanup=[("human-1", "obsolete")],
         ),
         patch(
             "utils.file_operations.os.replace",

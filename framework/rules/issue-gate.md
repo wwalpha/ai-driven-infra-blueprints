@@ -37,8 +37,11 @@ Other Task types and infrastructure phases retain their ordinary Issue Gate.
   exception and the save-only exception are permitted. Retain the existing Task type,
   design boundaries and AWS permissions.
 - Issue investigation and saving use `migration`. A save-only task whose Allowed paths
-  and changes contain only the explicitly service-scoped `issues.md`/`iac-issues.md` and explicitly authorized human-confirmations.yaml related-record cleanup plus
+  and changes contain only the explicitly service-scoped `issues.md`/`iac-issues.md` plus
   its own Task is not stopped by existing issues and needs no independent worktree.
+  Explicit Human-requested, Review-validated related-record cleanup may join only
+  `save_scan()`'s atomic publication; the Human file is not a general Allowed paths /
+  Modified files entry. See [cleanup authority](issues-investigation.md#independent-human-confirmations).
   Report actual validation ERRORs as FAIL. `iac-issues.md` contains nonblocking
   Model-to-IaC comparisons, does not count as unresolved issues and needs no Issue
   remediation declaration. Do not save or delete IaC state. Other migration, Model,

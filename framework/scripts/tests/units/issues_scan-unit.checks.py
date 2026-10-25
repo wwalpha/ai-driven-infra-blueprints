@@ -1411,7 +1411,8 @@ def check_save_authority_rejections(tmp_path, state, scope, allowed, saveonly):
 
 
 @pytest.mark.parametrize(
-    "filename", ["other.md", "../issues.md", "../../other/issues.md"]
+    "filename",
+    ["other.md", "../issues.md", "../../other/issues.md", "human-confirmations.yaml"],
 )
 def check_save_authority_limits_real_destinations(tmp_path, filename):
     with _exports_support_issues_scan_fixtures.task(tmp_path, ["s3"]):
@@ -1423,6 +1424,18 @@ def check_save_authority_limits_real_destinations(tmp_path, filename):
             tmp_path, "dev", "123456789012", ["s3"], ["issues.md", "iac-issues.md"]
         )
         assert [path.name for path in allowed] == ["issues.md", "iac-issues.md"]
+    with _exports_support_issues_scan_fixtures.task(
+        tmp_path,
+        ["s3"],
+        allowed=[
+            "issues/dev/123456789012/issues.md",
+            "issues/dev/123456789012/human-confirmations.yaml",
+        ],
+    ):
+        with pytest.raises(ValueError, match="save-only exception"):
+            publication.save_authority(
+                tmp_path, "dev", "123456789012", ["s3"], ["issues.md"]
+            )
 
 
 def check_causal_report_grouping():

@@ -270,7 +270,7 @@ def fixture(root, stacks=1, services=("s3", "cloudwatch-logs", "sqs"), parts=Fal
 
 
 @contextmanager
-def task(root, services, name="save", allowed=None):
+def task(root, services, name="save", allowed=None, cleanup=()):
     reports = [
         "issues/dev/123456789012/issues.md",
         "issues/dev/123456789012/iac-issues.md",
@@ -282,6 +282,20 @@ def task(root, services, name="save", allowed=None):
     )
     for heading in ("Allowed paths", "Modified files"):
         text += "\n## " + heading + "\n\n" + "".join(f"- `{file}`\n" for file in files)
+    if cleanup:
+        text += "\n## Human-requested confirmation cleanup\n" + "".join(
+            "- "
+            + json.dumps(
+                dict(
+                    environment="dev",
+                    target="123456789012",
+                    confirmation_id=confirmation,
+                    record_id=record,
+                )
+            )
+            + "\n"
+            for confirmation, record in cleanup
+        )
     write(root / f"tasks/{name}.md", text)
     previous = os.environ.get(SELECTOR)
     os.environ[SELECTOR] = f"tasks/{name}.md"

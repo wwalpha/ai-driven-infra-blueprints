@@ -7,11 +7,13 @@ from task_contract_core import (
     issues_save_only,
     paths_in,
     safe_path,
+    section,
     status,
     task_read_scope,
     task_snapshot,
 )
 from utils.file_operations import atomic_files
+from utils.json_format import strict_json
 from validation_scope import active_scope
 
 from .artifact import validate_artifact
@@ -35,6 +37,8 @@ def save_authority(root, environment, directory, services, filenames):
         raise ValueError(
             "save-only exception does not permit model/IaC/unscoped outputs"
         )
+    if any(name not in {"issues.md", "iac-issues.md"} for name in filenames):
+        raise ValueError("report authority permits only issues.md/iac-issues.md")
     paths = [
         safe_path(root, f"issues/{environment}/{directory}/{name}")
         for name in filenames
@@ -46,6 +50,34 @@ def save_authority(root, environment, directory, services, filenames):
     ):
         raise ValueError("report is outside Allowed paths or Modified files")
     return paths
+
+
+def require_cleanup_authority(root, data, cleanup):
+    entries = section(
+        task_snapshot(root).text, "## Human-requested confirmation cleanup"
+    )
+    requested = []
+    fields = {"environment", "target", "confirmation_id", "record_id"}
+    for line in entries:
+        entry = strict_json(line.removeprefix("- "))
+        if (
+            not line.startswith("- ")
+            or not isinstance(entry, dict)
+            or set(entry) != fields
+        ):
+            raise ValueError("invalid Human-requested confirmation cleanup entry")
+        requested.append(entry)
+    for confirmation, record in cleanup:
+        if (
+            dict(
+                environment=data["environment"],
+                target=data["target"],
+                confirmation_id=confirmation,
+                record_id=record,
+            )
+            not in requested
+        ):
+            raise ValueError("cleanup requires an explicit Human request in the Task")
 
 
 def render_snapshot(root, snapshot):
@@ -72,15 +104,23 @@ def save_scan(root, artifact, review):
     snapshot = review_snapshot(artifact, review)
     data = json.loads(snapshot.data)
     reports = render_snapshot(root, snapshot)
-    names = ["issues.md", "iac-issues.md"]
-    if snapshot.cleanup:
-        names.append("human-confirmations.yaml")
     with model_sources.publication_lock(root, read_only=True):
         paths = save_authority(
-            root, data["environment"], data["target"], data["services"], names
+            root,
+            data["environment"],
+            data["target"],
+            data["services"],
+            ["issues.md", "iac-issues.md"],
         )
         contents = dict(zip(paths[:2], reports, strict=True))
         if snapshot.cleanup:
+            require_cleanup_authority(root, data, snapshot.cleanup)
+            paths.append(
+                safe_path(
+                    root,
+                    f"issues/{data['environment']}/{data['target']}/human-confirmations.yaml",
+                )
+            )
             # Apply only reviewed record removals to the current file, retaining raw Human facts.
             human = human_confirmations(root, data["environment"], data["target"])
             pending = set(snapshot.cleanup)

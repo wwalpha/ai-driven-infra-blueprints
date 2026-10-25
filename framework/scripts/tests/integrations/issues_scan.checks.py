@@ -55,7 +55,9 @@ def check_scan_publish_mismatch(tmp_path):
     write(root / "issues/dev/123456789012/iac-issues.md", "obsolete comparison")
     with (
         patch("socket.socket", side_effect=AssertionError("network forbidden")),
-        patch.object(Path, "read_text", BoundCallback(forbid_report_text, Path.read_text)),
+        patch.object(
+            Path, "read_text", BoundCallback(forbid_report_text, Path.read_text)
+        ),
     ):
         artifact = json.loads(
             json.dumps(

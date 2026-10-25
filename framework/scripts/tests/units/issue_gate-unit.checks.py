@@ -571,6 +571,20 @@ def check_investigation_report_conditions(tmp_path):
             ("migration", investigation, "model/dev/cde/ec2.properties"),
             ("migration", investigation + "- `infra/**`\n", report),
             ("migration", investigation, "infra/dev/cde/ec2.yaml"),
+            ("migration", investigation, "issues/dev/cde/human-confirmations.yaml"),
+            (
+                "migration",
+                investigation + "- `issues/dev/cde/human-confirmations.yaml`\n",
+                report,
+            ),
+            (
+                "migration",
+                investigation.replace(
+                    "## Modified files\n",
+                    "## Modified files\n- `issues/dev/cde/human-confirmations.yaml`\n",
+                ),
+                report,
+            ),
             ("migration", investigation, f"issues/prod/cde/{name}"),
             (
                 "migration",
@@ -589,6 +603,19 @@ def check_investigation_report_conditions(tmp_path):
             instance.task_type, instance.changed_paths = task_type, {changed}
             instance.check_issue_gate()
             assert instance.errors, (task_type, allowed, changed)
+    human = "issues/dev/cde/human-confirmations.yaml"
+    independent = contract.replace("Task type: `design`", "Task type: `migration`")
+    independent = independent.replace(
+        "- `tasks/example.md`", f"- `tasks/example.md`\n- `{human}`"
+    )
+    tasks.validate_contract(root, "tasks/example.md", independent)
+    active.write_text(independent)
+    assert not tasks.issues_save_only(root)
+    path.write_text("未解決issueなし\n")
+    instance = validator.Validator(root)
+    instance.task_type, instance.changed_paths = "migration", {human}
+    instance.check_issue_gate()
+    assert not instance.errors  # Independent Human editing retains ordinary authority.
 
 
 def check_remediation_scope_inputs(tmp_path):
