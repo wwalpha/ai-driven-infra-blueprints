@@ -25,6 +25,7 @@ import validation_scope as _dependency_validation_scope
 from model.core import ReferenceResolutionError
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_text, memoized
+from validation.findings import Findings, FindingsError
 
 import design.layout as _dependency_design_layout
 import design.services.ec2.security_groups as _dependency_security_group_tables
@@ -40,9 +41,12 @@ def model_reference_tables(path, text, values, root):
     model_path = (
         path.parents[4] / "model" / path.relative_to(path.parents[4] / "docs/designs")
     ).with_suffix(".properties")
-    prohibited = _model_validation.codebuild_reference_errors(model_path, source)
+    findings = Findings(path.parents[4])
+    prohibited = _model_validation.codebuild_reference_errors(
+        model_path, source, findings=findings
+    )
     if prohibited:
-        raise ValueError("\n".join(prohibited.values()))
+        raise FindingsError(findings)
     if not any(
         item.references for item in _model_display.reference_rows(source).values()
     ):
@@ -178,11 +182,12 @@ def model_resource_reference_tables(path, text, values, root):
                 / "model"
                 / path.relative_to(path.parents[4] / "docs/designs")
             ).with_suffix(".properties")
+            findings = Findings(path.parents[4])
             prohibited = _model_validation.codebuild_reference_errors(
-                model_path, selected
+                model_path, selected, findings=findings
             )
             if prohibited:
-                raise ValueError("\n".join(prohibited.values()))
+                raise FindingsError(findings)
             tables = []
             expected = _model_render.generate_markdown(
                 path, selected, root, reference_tables=tables

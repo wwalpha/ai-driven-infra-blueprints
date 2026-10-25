@@ -329,25 +329,10 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     )
     ordinary.extend(structured)
     judgments.extend(unknown)
-    structured_messages = {
-        diagnostic.message for diagnostic in validator.findings.diagnostics
-    }
-    # The existing PLAINTEXT normalizer supplies display aliases only; ownership stays typed.
-    for diagnostic in validator.findings.diagnostics:
-        if diagnostic.code == "codebuild.plaintext-reference":
-            with scan_stage(stages, "diagnostics.codebuild-plaintext", scope):
-                structured_messages.update(
-                    codebuild_plaintext_diagnostics(diagnostic.message, comparison)
-                )
     seen = {item["id"] for item in [*ordinary, *judgments]}
-    for message in dict.fromkeys(errors):
-        if (
-            message in structured_messages
-            or message in reference_messages
-            or any(
-                message == item["message"]
-                for item in validator.findings.processing_errors
-            )
+    for message in dict.fromkeys(validator.findings.unstructured_errors):
+        if message in reference_messages or any(
+            message == item["message"] for item in validator.findings.processing_errors
         ):
             continue
         diagnostic_messages = []
@@ -357,10 +342,6 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             with scan_stage(stages, "diagnostics.issue-candidates", scope):
                 # Legacy strings contain no authoritative ownership evidence.
                 owner = None
-                # Model diagnostics retain their identity across View error context wrappers.
-                diagnostic = re.sub(r"^[^\n]*?: (?=Model=)", "", diagnostic)
-                if diagnostic in structured_messages:
-                    continue
                 key = identifier(diagnostic)
                 if key in seen:
                     continue

@@ -642,7 +642,7 @@ def validate_resource_identities(
                 )
 
 
-def codebuild_reference_errors(path, values):
+def codebuild_reference_errors(path, values, *, findings=None):
     """Check source references before resolution or display can fail."""
     errors = {}
     rows = entries(values, "desired.row.")
@@ -681,6 +681,19 @@ def codebuild_reference_errors(path, values):
                             f"Model={path}, Resource={resource['logicalId']} ({identity}), "
                             f"Name={context.get('Name', '')}, Type=PLAINTEXT, Property={field}: {error}"
                         )
+    if findings is not None:
+        for (row, source_field, pointer), message in errors.items():
+            findings.add_diagnostic(
+                Diagnostic.create(
+                    findings.canonical_root,
+                    code="codebuild.plaintext-reference",
+                    check_id="model.reference-policy",
+                    service=service_scope(findings.canonical_root, path),
+                    source_path=path,
+                    location=f"desired.row.{row}.{source_field}{pointer}",
+                    message=message,
+                )
+            )
     return errors
 
 
@@ -861,19 +874,7 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
     )
     if findings.evaluate("model.structure", None, structure).errors:
         return findings
-    prohibited = codebuild_reference_errors(model_path, values)
-    for (row, field, pointer), message in prohibited.items():
-        findings.add_diagnostic(
-            Diagnostic.create(
-                root,
-                code="codebuild.plaintext-reference",
-                check_id="model.reference-policy",
-                service=service_scope(root, model_path),
-                source_path=model_path,
-                location=f"desired.row.{row}.{field}{pointer}",
-                message=message,
-            )
-        )
+    prohibited = codebuild_reference_errors(model_path, values, findings=findings)
     findings.evaluate(
         "model.json-settings",
         None,

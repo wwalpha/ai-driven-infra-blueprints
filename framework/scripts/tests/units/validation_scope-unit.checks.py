@@ -26,6 +26,11 @@ if not __debug__:
     raise SystemExit("Focused checks require assertions; run without -O")
 
 
+def generation_diagnostic(root, scope, *, findings, **kwargs):
+    findings.check(False, "consumer missing: stg/team/config")
+    return tuple(findings.errors)
+
+
 @pytest.mark.parametrize(
     "scope", [None, {("stg", "team", "config"), ("dev", "team", "config")}]
 )
@@ -35,7 +40,7 @@ def check_internal_generation_dispatch(tmp_path, scope, workers):
         patch.object(
             sync_runtime,
             "compare_generation",
-            return_value=("consumer missing: stg/team/config",),
+            side_effect=generation_diagnostic,
         ) as compare,
         patch.object(
             subprocess, "run", side_effect=AssertionError("Python subprocess")
@@ -139,7 +144,7 @@ def check_invalid_design_artifact(tmp_path):
     artifact.write_text("bad JSON")
     validator = VALIDATOR.Validator(tmp_path, {("dev", "cde", "ec2")})
     validator.accounts = {("dev", "cde"): {}}
-    validator.check_design_artifacts([view])
+    validator.check_design_artifacts()
     assert any("invalid design JSON" in error for error in validator.errors)
 
 

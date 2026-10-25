@@ -23,6 +23,7 @@ from design.layout import (
 )
 from design.layout_schema import DETAILS_HEADING, GROUPED
 from design.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
+from design.services.codebuild import PlaintextReferenceError
 from design.services.definitions.cloudtrail import CLOUDTRAIL_DATA_RESOURCE
 from design.services.definitions.codebuild import CODEBUILD_FORMAL_VARIABLE
 from design.services.definitions.codepipeline import CODEPIPELINE_STAGE
@@ -51,7 +52,13 @@ from .design import (
     normalized,
     unquoted,
 )
-from .diagnostics import Diagnostic, service_scope
+from .diagnostics import (
+    Diagnostic,
+    json_reference,
+    plaintext_diagnostics,
+    service_scope,
+)
+from .findings import FindingsError
 
 
 def unavailable_semantics(
@@ -81,6 +88,11 @@ def unavailable_semantics(
     result.metadata = dict(complete=False, reason="view", path=relative, phase=phase)
     if isinstance(error, ReferenceResolutionError):
         findings.warn(error, source=str(path))
+    elif isinstance(error, FindingsError):
+        findings.include_diagnostics(error.findings)
+    elif isinstance(error, PlaintextReferenceError):
+        for diagnostic in plaintext_diagnostics(findings.canonical_root, path, error):
+            findings.add_diagnostic(diagnostic)
     elif saved_reference:
         findings.warn(
             False,
@@ -88,7 +100,7 @@ def unavailable_semantics(
             code="design.links_unverified",
             path=relative,
         )
-    elif not any(str(error) in existing for existing in findings.errors):
+    else:
         findings.check(False, f"invalid grouped design: {relative}: {error}")
 
 
@@ -101,11 +113,18 @@ def check_local_links(
         if raw.startswith(("http://", "https://", "mailto:")):
             continue
         target_text, separator, fragment = raw.partition("#")
+        if target_text.endswith(".json"):
+            target = json_reference(root, source, target_text, findings)
+            if target is None:
+                continue
+        else:
+            target = (
+                source if not target_text else source.parent / target_text
+            ).resolve()
         findings.check(
             not Path(target_text).is_absolute(),
             f"design link must be relative: {findings.relative(source)}: {raw}",
         )
-        target = (source if not target_text else source.parent / target_text).resolve()
         if target in unavailable or outside_design(root, target):
             continue
         exists = input_is_file(target)
@@ -1003,23 +1022,42 @@ def check_design_links(
 
 
 def check_design_artifacts(
-    paths: list[Path] | None = None,
     *,
+    scope,
     accounts,
     findings,
     markdown_design_artifacts,
     root,
 ) -> None:
     base = root / "docs" / "designs"
-    artifacts = (
-        {path.resolve() for path in input_select(base, "*.json", recursive=True)}
-        if paths is None
-        else {
-            artifact.resolve()
-            for path in paths
-            for artifact in input_select(path.with_suffix(""), "*.json", recursive=True)
-        }
+    directories = (
+        [base]
+        if scope is None
+        else [
+            base / env / directory / service
+            for env, directory, service in sorted(scope)
+        ]
     )
+    artifacts = set()
+    for directory in directories:
+        for path in input_select(directory, "*.json", recursive=True):
+            artifact = path.resolve()
+            if not artifact.is_relative_to(base.resolve()) or (
+                scope is not None
+                and tuple(artifact.relative_to(base.resolve()).parts[:3]) not in scope
+            ):
+                findings.add_diagnostic(
+                    Diagnostic.create(
+                        root,
+                        code="design.artifact.placement",
+                        check_id="design.artifacts",
+                        service=None,
+                        source_path=path,
+                        message=f"design JSON artifact resolves outside inspection scope: {findings.relative(path)}",
+                    )
+                )
+                continue
+            artifacts.add(artifact)
     for artifact in sorted(artifacts):
         relative = artifact.relative_to(base)
         findings.check(
@@ -1041,10 +1079,18 @@ def check_design_artifacts(
             LOWER_KEBAB_PATTERN.fullmatch(artifact.stem) is not None,
             f"invalid design JSON artifact ID: {findings.relative(artifact)}",
         )
-        findings.check(
-            input_is_file(artifact.parent.parent / f"{relative.parts[2]}.md"),
-            f"design JSON artifact has no owning service Markdown: {findings.relative(artifact)}",
-        )
+        owning_markdown = artifact.parent.with_suffix(".md")
+        if not input_is_file(owning_markdown):
+            findings.add_diagnostic(
+                Diagnostic.create(
+                    root,
+                    code="design.artifact.owner-missing",
+                    check_id="design.artifacts",
+                    service=None,
+                    target_path=artifact,
+                    message=f"design JSON artifact has no owning service Markdown: {findings.relative(artifact)}",
+                )
+            )
         try:
             content = json.loads(input_text(artifact, encoding="utf-8"))
         except json.JSONDecodeError as error:
@@ -1073,8 +1119,12 @@ def check_design_artifacts(
                 )
             )
     for artifact in sorted(artifacts - references.keys()):
-        owner = service_scope(root, artifact)
         owning_markdown = artifact.parent.with_suffix(".md")
+        owner = (
+            service_scope(root, owning_markdown)
+            if input_is_file(owning_markdown)
+            else None
+        )
         if input_is_file(
             owning_markdown
         ) and not markdown_design_artifacts.complete.get(

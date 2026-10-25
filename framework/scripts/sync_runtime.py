@@ -94,11 +94,7 @@ def generation_failure(
         for diagnostic in checked.diagnostics:
             if not any(item.identity == diagnostic.identity for item in failures):
                 failures.append(diagnostic)
-        remaining = [
-            error
-            for error in checked.errors
-            if error not in {d.message for d in checked.diagnostics}
-        ]
+        remaining = checked.unstructured_errors
         if not remaining:
             return
         message = ValueError("\n- ".join(remaining))

@@ -175,6 +175,9 @@ def _callback_Validator_check_unavailable_design(self, entry, info, /):
             ),
             isolate=True,
         )
+    self.findings.evaluate(
+        "design.artifacts", scope, self.check_design_artifacts, isolate=True
+    )
     reason = info.get("reason", "expansion")
     source = self.findings.result("design.model-inputs", scope)
     if source.errors:
@@ -240,12 +243,6 @@ def _callback_Validator_check_scoped_designs_source_checks(
         return
     independent = check_model_inputs(
         path, analysis.authoritative, self.root, definitions_root=self.definitions_root
-    )
-    # Generation may already contain these source diagnostics in its aggregate error.
-    self.errors.extend(
-        error
-        for error in independent.errors
-        if not any(error in existing for existing in self.errors)
     )
     self.findings.include_diagnostics(independent)
     self.findings.reference_errors.extend(independent.reference_errors)
@@ -733,7 +730,6 @@ class Validator:
             )
             self.findings.include_diagnostics(generator.findings)
             self.findings.reference_errors.extend(generator.findings.reference_errors)
-            self.errors.extend(generator.errors)
             self.warnings.extend(generator.warnings)
             self.findings.processing_errors.extend(generator.findings.processing_errors)
             self.findings.unverified.extend(generator.findings.unverified)
@@ -817,7 +813,6 @@ class Validator:
                 self.findings.reference_errors.extend(
                     validator.findings.reference_errors
                 )
-                self.errors.extend(validator.errors)
                 self.warnings.extend(validator.warnings)
                 self.findings.unverified.extend(validator.findings.unverified)
                 self.findings.processing_errors.extend(
@@ -960,7 +955,7 @@ class Validator:
             else nullcontext()
         )
         with context:
-            errors = compare_generation(
+            compare_generation(
                 self.root,
                 self.scope,
                 jobs=self.workers,
@@ -968,9 +963,6 @@ class Validator:
                 findings=self.findings,
             )
         self.checks += 1
-        for error in errors:
-            if error not in self.errors:
-                self.check(False, error)
         return self.findings.result(
             "framework.generated-service-model", self.scope
         ).metadata
@@ -1042,7 +1034,7 @@ class Validator:
             service_metadata, catalog_types, catalog_property_owners, identifier_outputs
         )
         self.check_design_links(identifier_outputs, markdown_paths)
-        self.check_design_artifacts(None if self.scope is None else markdown_paths)
+        self.check_design_artifacts()
 
     def check_structure(self) -> None:
         return framework_contracts.check_structure(
@@ -1388,9 +1380,9 @@ class Validator:
             candidate_paths=candidate_paths,
         )
 
-    def check_design_artifacts(self, paths: list[Path] | None = None) -> None:
+    def check_design_artifacts(self) -> None:
         return design_links.check_design_artifacts(
-            paths,
+            scope=self.scope,
             accounts=self.accounts,
             findings=self.findings,
             markdown_design_artifacts=self.markdown_design_artifacts,

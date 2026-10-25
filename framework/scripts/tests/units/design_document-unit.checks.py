@@ -609,7 +609,7 @@ def check_saved_typed_reference_display_difference(project_workspace):
 def check_view_failure_isolation(tmp_path, phase):
     source = tmp_path / "docs/designs/dev/team/codebuild.md"
     source.parent.mkdir(parents=True)
-    source.write_text("# 合成\n[missing](missing.json)\n", encoding="utf-8")
+    source.write_text("# 合成\n[missing](codebuild/missing.json)\n", encoding="utf-8")
     findings = Findings(tmp_path)
     owner, method = {
         "view-build": (documents.DesignDocument, "view"),

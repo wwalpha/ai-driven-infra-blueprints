@@ -29,6 +29,7 @@ from design.catalog import (
 )
 from design.layout_schema import CHILD, GROUPED, STACK_DESIGN
 from design.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
+from design.services.codebuild import PlaintextReferenceError
 from design.services.definitions.ec2 import SECURITY_GROUP_TYPES
 from design.services.definitions.registry import HIDDEN_PROPERTIES, POLICY_FORMATS
 from model.core import (
@@ -40,6 +41,9 @@ from model.core import (
 from utils.cloudformation.schema import material_files, snapshot_errors
 from utils.input_cache import input_scope, input_text, memoized
 from utils.project_targets import LOWER_KEBAB_PATTERN
+
+from .diagnostics import plaintext_diagnostics
+from .findings import FindingsError
 
 TABLE_HEADER = "| No. | Property | Value | Source / Comment |"
 TABLE_ALIGNMENT = "| ---: | --- | --- | --- |"
@@ -510,6 +514,15 @@ def check_resource_names(
             }
         except ReferenceResolutionError as error:
             findings.warn(error)
+            continue
+        except FindingsError as error:
+            findings.include_diagnostics(error.findings)
+            continue
+        except PlaintextReferenceError as error:
+            for diagnostic in plaintext_diagnostics(
+                findings.canonical_root, path, error
+            ):
+                findings.add_diagnostic(diagnostic)
             continue
         except (OSError, ValueError) as error:
             findings.check(

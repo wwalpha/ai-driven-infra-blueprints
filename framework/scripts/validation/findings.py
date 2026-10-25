@@ -6,7 +6,7 @@ from pathlib import Path
 
 from model.core import ReferenceDiagnosticError
 
-from .diagnostics import Diagnostic
+from .diagnostics import Diagnostic, relative_path
 
 
 class FindingsError(ValueError):
@@ -90,6 +90,7 @@ class Findings:
         self.processing_errors = []
         self.reference_errors = []
         self.diagnostics = []
+        self.diagnostic_errors = {}
         self.checks = 0
         self.results = {}
         self.candidate = object()
@@ -190,13 +191,30 @@ class Findings:
             retained.extend(item for item in unverified if item not in retained)
         return finish_result(result)
 
-    def add_diagnostic(self, diagnostic: Diagnostic):
+    @property
+    def unstructured_errors(self):
+        return [
+            error
+            for index, error in enumerate(self.errors)
+            if index not in self.diagnostic_errors
+        ]
+
+    def add_diagnostic(self, diagnostic: Diagnostic, *, display_error=None):
         if any(item.identity == diagnostic.identity for item in self.diagnostics):
             return
         self.diagnostics.append(diagnostic)
-        self.check(False, diagnostic.message)
+        self.diagnostic_errors[len(self.errors)] = diagnostic.identity
+        self.check(
+            False, diagnostic.message if display_error is None else display_error
+        )
 
     def include_diagnostics(self, findings):
+        offset = len(self.errors)
+        self.diagnostic_errors.update(
+            (offset + index, identity)
+            for index, identity in findings.diagnostic_errors.items()
+        )
+        self.errors.extend(findings.errors)
         for diagnostic in findings.diagnostics:
             if not any(
                 item.identity == diagnostic.identity for item in self.diagnostics
@@ -267,9 +285,7 @@ class Findings:
 
     def relative(self, path: Path) -> str:
         if path not in self.relative_paths:
-            self.relative_paths[path] = (
-                path.resolve().relative_to(self.canonical_root).as_posix()
-            )
+            self.relative_paths[path] = relative_path(self.canonical_root, path)
         return self.relative_paths[path]
 
     def report_findings(self) -> None:

@@ -16,8 +16,6 @@ def service_scope(root, path):
         parts = path.relative_to(directory).parts
         if len(parts) == 3 and path.suffix == suffix:
             return (*parts[:2], path.stem)
-        if base == "docs/designs" and len(parts) == 4 and path.suffix == ".json":
-            return tuple(parts[:3])
     return None
 
 
@@ -31,6 +29,53 @@ def relative_path(root, path):
         if path.is_relative_to(root.resolve())
         else str(path)
     )
+
+
+def json_reference(root, source, raw, findings):
+    target = None
+    try:
+        target = (source.parent / raw).resolve()
+        reason = (
+            "JSON link must be relative"
+            if Path(raw).is_absolute()
+            else "JSON link is outside repository"
+            if not target.is_relative_to(root.resolve())
+            else "design JSON artifact must be stored under owning service"
+            if target.parent != source.with_suffix("").resolve()
+            else None
+        )
+    except (OSError, ValueError) as error:
+        reason = f"invalid JSON link path: {error}"
+    if reason is None:
+        return target
+    findings.add_diagnostic(
+        Diagnostic.create(
+            root,
+            code="design.artifact.placement",
+            check_id="design.artifacts",
+            service=service_scope(root, source),
+            source_path=source,
+            target_path=target,
+            location=raw,
+            message=f"{reason}: {findings.relative(source)}: {raw}",
+        )
+    )
+    return None
+
+
+def plaintext_diagnostics(root, path, error):
+    return [
+        Diagnostic.create(
+            root,
+            code="codebuild.plaintext-reference",
+            check_id="design.tables",
+            service=service_scope(root, path),
+            source_path=path,
+            location=f"{position['anchor']}/{position['property']}/{position['name']}",
+            message=f"{relative_path(root, path)}: {position['message']}",
+        )
+        for position in error.positions
+    ]
 
 
 @dataclass(frozen=True)

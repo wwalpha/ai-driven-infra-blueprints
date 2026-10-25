@@ -731,6 +731,7 @@ def check_scan_accepts_input_changes(tmp_path, input_name):
     validator = SimpleNamespace(
         checks=1,
         findings=SimpleNamespace(
+            unstructured_errors=[],
             reference_errors=[],
             diagnostics=[],
             processing_errors=[],
@@ -835,7 +836,12 @@ def check_view_read_failure_policy(tmp_path):
     generated = []
     source_checks = Mock(
         return_value=SimpleNamespace(
-            errors=[], warnings=[], reference_errors=[], diagnostics=[], checks=7
+            errors=[],
+            warnings=[],
+            reference_errors=[],
+            diagnostics=[],
+            diagnostic_errors={},
+            checks=7,
         )
     )
     ownership = _bind_framework_callback(
@@ -966,6 +972,7 @@ def check_dependency_view_failure_branches(tmp_path, monkeypatch, failure):
         cache=cache,
         service_cache_pending=[("pending", 3)] if dependent else [],
         findings=SimpleNamespace(
+            unstructured_errors=[],
             reference_errors=[],
             diagnostics=[],
             processing_errors=[],
@@ -1587,7 +1594,12 @@ def check_service_worker_isolation(tmp_path, failure):
     original = validation_runner._callback_Validator_check_scoped_designs_validate
     source = Mock(
         return_value=SimpleNamespace(
-            errors=[], warnings=[], reference_errors=[], diagnostics=[], checks=3
+            errors=[],
+            warnings=[],
+            reference_errors=[],
+            diagnostics=[],
+            diagnostic_errors={},
+            checks=3,
         )
     )
     with (

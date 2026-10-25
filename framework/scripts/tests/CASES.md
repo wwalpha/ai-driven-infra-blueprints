@@ -3724,3 +3724,14 @@ verification_targets復元・resolved互換ProjectionのUTを削除した。部�
 
 | `report-task::git` | `check_report_commit_independence` | UT | [units/task-contract-unit.checks.py](units/task-contract-unit.checks.py) | pytest / 3 | Report-only保存は他TaskのGit変更を保持し、通常Taskは変更範囲を検証 | Synthetic Git |
 | `generation-model::guards` | `check_generation_preserves_model_guards` | UT | [units/import-model-unit.checks.py](units/import-model-unit.checks.py) | pytest / 3 | IssueがあってもAllowed paths・Validation scope・参照整合性エラーは拒否 | Synthetic Models |
+
+## v1025v12 Validation / Issue Scan regression
+
+| Origin | Case | Level | Entry | Execution | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `validation-diagnostics::scoped-orphans` | `check_scoped_orphans_without_markdown` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 6 | Markdownに依存しない全体/単一/複数Scope列挙、別Markdownによる所有誤判定とScope外JSON混入の防止、所有不明judgments | Synthetic JSON |
+| `validation-diagnostics::unavailable-orphans` | `check_unavailable_services_still_scan_orphans` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 1 | 親子ValidatorでMarkdown欠落時も孤立JSONを検出、未検証情報を保持 | Synthetic JSON |
+| `validation-diagnostics::invalid-links` | `check_invalid_json_links_continue_without_external_reads` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 4 | サービス外/リポジトリ外/絶対/外部symlinkの配置違反、正常参照継続、外部ファイル非読込、正常索引への不正パス非登録 | Synthetic Markdown/JSON |
+| `validation-diagnostics::child-correspondence` | `check_child_validator_keeps_diagnostic_correspondence` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 1 | 親子統合で診断IDと表示エラー対応を維持、独立した文字列エラーを保持 | Synthetic Findings |
+| `validation-diagnostics::candidate-correspondence` | `check_candidate_failure_preserves_each_artifact_diagnostic` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 2 | FindingsError集約でwrapper付き表示も同一診断として保持 | Existing UT extended |
+| `validation-diagnostics::scan-correspondence` | `check_scan_artifact_keeps_diagnostics_and_incomplete_metadata` | UT | [units/validation-diagnostics-unit.checks.py](units/validation-diagnostics-unit.checks.py) | pytest / 8 | 同文/ラッパー/親子伝搬/独立同文/ReferenceDiagnostic/PLAINTEXTで二重Issueを防止、v4と未検証metadataを保持 | Existing UT extended |

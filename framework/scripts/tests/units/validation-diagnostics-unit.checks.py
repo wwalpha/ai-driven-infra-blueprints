@@ -19,6 +19,7 @@ from issues.runner import validation_issues
 from model.core import ReferenceResolutionError
 from support.pytest_cli import run
 from validation import design_tables
+from validation import runner as validator_runner
 from validation.design_links import check_design_artifacts as validate_artifacts
 from validation.design_links import check_local_links as validate_links
 from validation.diagnostics import ArtifactReferences, Diagnostic, service_scope
@@ -156,7 +157,7 @@ def check_artifact_differences(tmp_path, missing, extra):
         {("dev", "team", "iam")},
         partial(
             validate_artifacts,
-            [view],
+            scope={("dev", "team", "iam")},
             accounts={("dev", "team"): {}},
             findings=findings,
             markdown_design_artifacts=index,
@@ -195,7 +196,7 @@ def check_incomplete_collection_preserves_missing_and_independent_service(tmp_pa
         None,
         partial(
             validate_artifacts,
-            [view, independent],
+            scope={("dev", "team", "iam"), ("dev", "team", "s3")},
             accounts={("dev", "team"): {}},
             findings=findings,
             markdown_design_artifacts=index,
@@ -210,6 +211,187 @@ def check_incomplete_collection_preserves_missing_and_independent_service(tmp_pa
     }
     assert findings.diagnostics[1].service[2] == "s3"
     assert findings.unverified[0]["target_path"].endswith("unknown.json")
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [None, {("dev", "team", "s3")}, {("dev", "team", "s3"), ("dev", "team", "sqs")}],
+)
+@pytest.mark.parametrize("other_markdown", [False, True])
+def check_scoped_orphans_without_markdown(tmp_path, scope, other_markdown):
+    entries = [
+        ("dev", "team", "s3"),
+        ("dev", "team", "sqs"),
+        ("stg", "team", "s3"),
+        ("dev", "other", "s3"),
+    ]
+    for entry in entries:
+        artifact = tmp_path / "docs/designs" / Path(*entry) / "orphan.json"
+        artifact.parent.mkdir(parents=True)
+        artifact.write_text("{}", encoding="utf-8")
+    if other_markdown:
+        (tmp_path / "docs/designs/dev/team/iam.md").write_text(
+            "# IAM\n", encoding="utf-8"
+        )
+    validator = Validator(tmp_path, scope)
+    validator.accounts = {entry[:2]: {} for entry in entries}
+    validator.check_design_artifacts()
+    selected = entries if scope is None else sorted(scope)
+    assert len(validator.findings.diagnostics) == 2 * len(selected)
+    assert not validator.findings.processing_errors
+    assert all(d.service is None for d in validator.findings.diagnostics)
+    assert {d.target_path for d in validator.findings.diagnostics} == {
+        f"docs/designs/{'/'.join(entry)}/orphan.json" for entry in selected
+    }
+    assert {d.code for d in validator.findings.diagnostics} == {
+        "design.artifact.owner-missing",
+        "design.artifact.unreferenced",
+    }
+    ordinary, judgments = validation_issues(
+        validator.findings, comparison(tmp_path), ["s3", "sqs", "iam"]
+    )
+    assert not ordinary and len(judgments) == len(validator.findings.diagnostics)
+
+
+def check_unavailable_services_still_scan_orphans(tmp_path):
+    scope = {("dev", "team", service) for service in ("s3", "sqs")}
+    errors = {}
+    for env, directory, service in scope:
+        view = tmp_path / "docs/designs" / env / directory / f"{service}.md"
+        artifact = view.with_suffix("") / "orphan.json"
+        artifact.parent.mkdir(parents=True)
+        artifact.write_text("{}", encoding="utf-8")
+        errors[view] = "missing Markdown"
+    validator = Validator(tmp_path, scope, workers=1)
+    validator.accounts = {("dev", "team"): {}}
+    with (
+        patch.object(Validator, "check_design_service_ownership"),
+        patch.object(Validator, "check_stack_designs"),
+        patch.object(Validator, "check_source_inputs"),
+        patch.object(Validator, "check_observed_values"),
+    ):
+        validator.check_scoped_designs(view_errors=errors)
+    assert len(validator.findings.diagnostics) == 4
+    assert all(d.service is None for d in validator.findings.diagnostics)
+    assert not validator.findings.processing_errors
+    assert validator.findings.unverified
+
+
+def read_inside(root, reader, path, *args, **kwargs):
+    assert path.resolve().is_relative_to(root.resolve()), path
+    return reader(path, *args, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    ["../sqs/foreign.json", "../../../../../../outside.json", "absolute", "symlink"],
+)
+def check_invalid_json_links_continue_without_external_reads(tmp_path, invalid):
+    view, index = artifacts_fixture(tmp_path)
+    valid = view.with_suffix("") / "valid.json"
+    valid.parent.mkdir()
+    valid.write_text("{}", encoding="utf-8")
+    outside = tmp_path.parent / "outside.json"
+    outside.write_text("{}", encoding="utf-8")
+    if invalid == "absolute":
+        invalid = str(outside)
+    elif invalid == "symlink":
+        (valid.parent / "escaped.json").symlink_to(outside)
+        invalid = "iam/escaped.json"
+    text = (
+        '# IAM\n\n## リソース詳細\n\n<a id="iam-policy"></a>\n\n### IAM.ManagedPolicy: Policy\n\n'
+        "| No. | Property | Value | Source / Comment |\n| ---: | --- | --- | --- |\n"
+        f"| 1 | IAM.ManagedPolicy.PolicyDocument | [JSON]({invalid}) | 不正パス |\n"
+        "| 2 | IAM.ManagedPolicy.PolicyDocument | [JSON](iam/valid.json) | 正常パス |\n"
+    )
+    view.write_text(text, encoding="utf-8")
+    validator = Validator(tmp_path, {("dev", "team", "iam")})
+    validator.accounts = {("dev", "team"): {}}
+    validator.markdown_design_artifacts = index
+    with (
+        patch.object(design_tables, "design_model_values", return_value={}),
+        patch.object(design_tables, "bound_resource_anchors", return_value={}),
+        patch.object(
+            design_tables._design_document, "model_reference_tables", return_value=[]
+        ),
+        patch.object(
+            design_tables,
+            "validation_rows",
+            side_effect=lambda rows, *args, **kwargs: rows,
+        ),
+        patch(
+            "validation.design_links.input_text",
+            side_effect=partial(read_inside, tmp_path, design_tables.input_text),
+        ) as reads,
+    ):
+        validator.check_design_tables({}, set(), {}, {}, [view])
+        validate_links(
+            view,
+            text,
+            anchors={},
+            unavailable=set(),
+            findings=validator.findings,
+            root=tmp_path,
+            design_index=None,
+        )
+        validator.check_design_artifacts()
+    placements = [
+        d
+        for d in validator.findings.diagnostics
+        if d.code == "design.artifact.placement" and d.location == invalid
+    ]
+    assert len(placements) == 1
+    diagnostic = placements[0]
+    assert diagnostic.source_path == "docs/designs/dev/team/iam.md"
+    assert diagnostic.service == ("dev", "team", "iam")
+    assert invalid in diagnostic.message
+    assert set(index.sources) == {valid}
+    assert index.complete[view] is True
+    assert reads.call_count == 1
+    assert not validator.findings.processing_errors
+    assert not any(
+        d.code == "design.artifact.missing" for d in validator.findings.diagnostics
+    )
+    assert validator.findings.relative(outside) == str(outside)
+
+
+def check_child_validator_keeps_diagnostic_correspondence(tmp_path):
+    parent = Validator(
+        tmp_path, {("dev", "team", "s3"), ("dev", "team", "sqs")}, workers=1
+    )
+    parent.schema_catalog = object()
+    with (
+        patch.object(Validator, "check_design_service_ownership"),
+        patch.object(Validator, "check_stack_designs"),
+        patch.object(Validator, "check_generated_service_models"),
+        patch.object(
+            validator_runner,
+            "_callback_Validator_check_scoped_designs_validate",
+            side_effect=partial(diagnostic_child, tmp_path),
+        ),
+    ):
+        parent.check_scoped_designs()
+    assert len(parent.findings.diagnostics) == 2
+    assert parent.findings.unstructured_errors == ["independent s3", "independent sqs"]
+    assert len(parent.errors) == 4
+
+
+def diagnostic_child(root, parent, snapshot, scope):
+    validator = Validator(root, scope)
+    service = next(iter(scope))
+    validator.findings.add_diagnostic(
+        Diagnostic.create(
+            root,
+            code="generation.mismatch",
+            check_id="generated",
+            service=service,
+            source_path=f"model/{'/'.join(service)}.properties",
+            message="confirmed mismatch",
+        ),
+        display_error="wrapper: confirmed mismatch",
+    )
+    validator.check(False, "independent " + service[2])
+    return validator
 
 
 @pytest.mark.parametrize("stage", ["reference", "security-group"])
@@ -246,7 +428,7 @@ def check_expansion_failure_does_not_claim_unreferenced(tmp_path, stage):
     validator.findings.evaluate(
         "design.artifacts",
         validator.scope,
-        partial(validator.check_design_artifacts, [view]),
+        validator.check_design_artifacts,
     )
     assert index.complete[view] is False
     assert not validator.findings.diagnostics
@@ -352,7 +534,7 @@ def check_missing_link_and_artifact_are_one_diagnostic(tmp_path):
         design_index=None,
     )
     validate_artifacts(
-        [view],
+        scope={("dev", "team", "iam")},
         accounts={("dev", "team"): {}},
         findings=findings,
         markdown_design_artifacts=index,
@@ -397,7 +579,8 @@ def check_policy_fail_retains_other_service_unverified_scope(tmp_path):
     assert result.metadata["unverified"] == [{"code": "reference-wait"}]
 
 
-def check_candidate_failure_preserves_each_artifact_diagnostic(tmp_path):
+@pytest.mark.parametrize("wrapped", [False, True])
+def check_candidate_failure_preserves_each_artifact_diagnostic(tmp_path, wrapped):
     view = tmp_path / "docs/designs/dev/team/iam.md"
     stage = tmp_path / "stage"
     findings = Findings(stage)
@@ -411,7 +594,8 @@ def check_candidate_failure_preserves_each_artifact_diagnostic(tmp_path):
                 source_path="docs/designs/dev/team/iam.md",
                 target_path=f"docs/designs/dev/team/iam/{name}",
                 message=f"missing {name}",
-            )
+            ),
+            display_error=("wrapper: " if wrapped else "") + f"missing {name}",
         )
     failures, generated = [], {view: []}
     with (
@@ -433,19 +617,39 @@ def mechanical_fixture(validator, *args, validator_out, **kwargs):
     return validator.errors, validator.checks, ""
 
 
-def check_scan_artifact_keeps_diagnostics_and_incomplete_metadata(tmp_path):
+@pytest.mark.parametrize("wrapped", [False, True])
+@pytest.mark.parametrize(
+    "code", ["generation.mismatch", "codebuild.plaintext-reference"]
+)
+@pytest.mark.parametrize("independent", ["independent failure", "confirmed mismatch"])
+def check_scan_artifact_keeps_diagnostics_and_incomplete_metadata(
+    tmp_path, wrapped, code, independent
+):
     findings = Findings(tmp_path)
     diagnostic = Diagnostic.create(
         tmp_path,
-        code="generation.mismatch",
+        code=code,
         check_id="framework.generated-service-model",
         service=("dev", "team", "s3"),
         source_path="model/dev/team/s3.properties",
         target_path="docs/designs/dev/team/s3.md",
         message="confirmed mismatch",
     )
-    findings.add_diagnostic(diagnostic)
-    findings.errors.append("wrapper: " + diagnostic.message)
+    child = Findings(tmp_path)
+    child.add_diagnostic(
+        diagnostic,
+        display_error=("wrapper: " if wrapped else "") + diagnostic.message,
+    )
+    child.check(False, independent)
+    findings.include_diagnostics(child)
+    reference = dict(
+        category="MODEL_NEEDS_FIX",
+        code="REFERENCE_TEST",
+        model="model/dev/team/s3.properties",
+        message="reference failure",
+        fixModels=["model/dev/team/s3.properties"],
+    )
+    findings.warn(reference)
     findings.result(
         "framework.generated-service-model", {("dev", "team", "s3")}
     ).metadata.update(
@@ -498,13 +702,15 @@ def check_scan_artifact_keeps_diagnostics_and_incomplete_metadata(tmp_path):
         ),
     ):
         first = scan_runner.scan(tmp_path, "dev", "team", ["s3"])
+    assert len(first["ordinary"]) == 2
+    assert [item["message"] for item in first["judgments"]] == [independent]
     assert first["version"] == 4
     assert (
-        first["ordinary"][0]["diagnostic"]["source_path"]
+        first["ordinary"][1]["diagnostic"]["source_path"]
         == "model/dev/team/s3.properties"
     )
     assert (
-        first["ordinary"][0]["id"]
+        first["ordinary"][1]["id"]
         == validation_issues(findings, source, ["s3"])[0][0]["id"]
     )
     result = first["check_results"][0]

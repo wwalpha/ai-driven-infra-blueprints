@@ -225,7 +225,7 @@ def validate_views(
                 candidate_paths=candidate_paths,
             ),
         )
-        evaluate("design.artifacts", lambda: validator.check_design_artifacts(services))
+        evaluate("design.artifacts", validator.check_design_artifacts)
         evaluate(
             "design.observed",
             lambda: validator.check_observed_values(

@@ -64,7 +64,8 @@ from .design import (
     resource_property_path,
     unquoted,
 )
-from .diagnostics import Diagnostic, service_scope
+from .diagnostics import json_reference, plaintext_diagnostics, service_scope
+from .findings import FindingsError
 
 # Preserve shared fixtures and compatibility exports under their historical names.
 properties = _exports_model_core.properties
@@ -234,7 +235,9 @@ def check_markdown_iam_policy_artifacts(
         property_name = properties[index]
         link = VALUE_LINK_PATTERN.fullmatch(row[2])
         if property_name == "AssumeRolePolicyDocument" and link:
-            artifact = (path.parent / link.group(1)).resolve()
+            artifact = json_reference(root, path, link.group(1), findings)
+            if artifact is None:
+                continue
             expected = iam_role_policy_artifact_filename(logical_id)
             findings.check(
                 artifact.name == expected,
@@ -273,7 +276,9 @@ def check_markdown_iam_policy_artifacts(
         )
         if policy_name in {"", "UNSET", "PENDING_DEPLOY"}:
             continue
-        artifact = (path.parent / link.group(1)).resolve()
+        artifact = json_reference(root, path, link.group(1), findings)
+        if artifact is None:
+            continue
         expected = iam_role_policy_artifact_filename(logical_id, policy_name)
         findings.check(
             artifact.name == expected,
@@ -310,19 +315,13 @@ def design_dependency_not_run(
         reason = "reference"
     elif isinstance(error, Exception):
         reason = "expansion"
-        if isinstance(error, PlaintextReferenceError):
-            for position in error.positions:
-                findings.add_diagnostic(
-                    Diagnostic.create(
-                        findings.canonical_root,
-                        code="codebuild.plaintext-reference",
-                        check_id="design.tables",
-                        service=service_scope(findings.canonical_root, path),
-                        source_path=path,
-                        location=f"{position['anchor']}/{position['property']}/{position['name']}",
-                        message=f"{findings.relative(path)}: {position['message']}",
-                    )
-                )
+        if isinstance(error, FindingsError):
+            findings.include_diagnostics(error.findings)
+        elif isinstance(error, PlaintextReferenceError):
+            for diagnostic in plaintext_diagnostics(
+                findings.canonical_root, path, error
+            ):
+                findings.add_diagnostic(diagnostic)
         else:
             findings.check(False, f"{stage}: {findings.relative(path)}: {error}")
     entry = dict(
@@ -914,20 +913,20 @@ def check_design_tables(
                                 f"Security Group VpcId must link to its VPC: {findings.relative(path)}: {current_logical_id}",
                             )
                         if is_json_link:
-                            artifact = (path.parent / artifact_link).resolve()
-                            expected_directory = path.with_suffix("").resolve()
-                            findings.check(
-                                artifact.parent == expected_directory,
-                                f"design JSON artifact must be stored under owning service: {findings.relative(path)}: {artifact_link}",
+                            artifact = json_reference(
+                                root, path, artifact_link, findings
                             )
+                            if artifact is None:
+                                continue
                             findings.check(
                                 LOWER_KEBAB_PATTERN.fullmatch(artifact.stem)
                                 is not None,
                                 f"invalid design JSON artifact path: {findings.relative(path)}: {artifact_link}",
                             )
-                            markdown_design_artifacts.add(
-                                artifact, path, service_scope(root, path)
-                            )
+                            if LOWER_KEBAB_PATTERN.fullmatch(artifact.stem) is not None:
+                                markdown_design_artifacts.add(
+                                    artifact, path, service_scope(root, path)
+                                )
                 if current_resource_type in catalog_types:
                     if (
                         schema_catalog is not None
@@ -1078,9 +1077,11 @@ def check_api_design_rows(
         link = VALUE_LINK_PATTERN.fullmatch(raw)
         try:
             if link and link.group(1).endswith(".json") and node["type"] == "object":
-                artifact = (path.parent / link.group(1)).resolve()
-                if artifact.parent != path.with_suffix("").resolve():
-                    raise ValueError("API JSON artifact must belong to this service")
+                artifact = json_reference(
+                    findings.canonical_root, path, link.group(1), findings
+                )
+                if artifact is None:
+                    continue
                 value = json.loads(input_text(artifact, encoding="utf-8"))
             else:
                 if LINK_PATTERN.fullmatch(raw):
