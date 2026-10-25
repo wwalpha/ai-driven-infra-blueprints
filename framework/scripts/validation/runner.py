@@ -9,6 +9,7 @@ import subprocess as subprocess
 import sys as sys
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, nullcontext
+from dataclasses import replace
 from functools import partial as _bind_framework_callback
 from pathlib import Path
 from types import SimpleNamespace as _CallbackState
@@ -117,9 +118,18 @@ def _callback_Validator_check_scoped_designs_validate(self, snapshot, /, scope):
         validator.generated_models_checked = True
         validator.unavailable_views = self.unavailable_views
         validator.view_reader = self.view_reader
-        validator.check_designs()
-        validator.check_observed_values(
-            scoped_files(self.root, "model", ".properties", scope)
+        validator.findings.evaluate(
+            "design.service", scope, validator.check_designs, isolate=True
+        )
+        if validator.findings.processing_errors:
+            validator.check_source_inputs(next(iter(scope)))
+        validator.findings.evaluate(
+            "design.observed-values",
+            scope,
+            lambda: validator.check_observed_values(
+                scoped_files(self.root, "model", ".properties", scope)
+            ),
+            isolate=True,
         )
     return validator
 
@@ -146,6 +156,26 @@ def _callback_Validator_check_scoped_designs_source_checks(
     )
     self.warnings.extend((*analysis.warnings, *independent.warnings))
     self.checks += independent.checks
+
+
+def service_result(parent, entry, handler):
+    try:
+        return handler()
+    except Exception as error:
+        validator = Validator(
+            parent.root, {entry}, definitions_root=parent.definitions_root
+        )
+        validator.accounts = parent.accounts
+        validator.schema_catalog = parent.schema_catalog
+        validator.findings.processing_failure("design.worker", {entry}, error)
+        validator.check_source_inputs(entry)
+        validator.findings.evaluate(
+            "design.observed-values",
+            {entry},
+            validator.check_observed_values,
+            isolate=True,
+        )
+        return validator
 
 
 class Validator:
@@ -525,10 +555,22 @@ class Validator:
         finally:
             plan.close()
 
+    def check_source_inputs(self, entry):
+        return self.findings.evaluate(
+            "design.model-inputs",
+            {entry},
+            _bind_framework_callback(
+                _callback_Validator_check_scoped_designs_source_checks,
+                _CallbackState(entry=entry),
+                _imports_model_validation.check_model_inputs,
+                _imports_model_sources.load_model,
+                self,
+            ),
+            isolate=True,
+        )
+
     def check_scoped_designs(self, *, view_errors=None, view_reader=None) -> None:
         _state_check_scoped_designs_351 = _CallbackState()
-        load_model = _imports_model_sources.load_model
-        check_model_inputs = _imports_model_validation.check_model_inputs
         selected_task = _imports_task_contract.selected_task
         task_revision = _imports_task_contract.task_revision
         self.unavailable_views = view_errors if view_errors is not None else {}
@@ -546,13 +588,19 @@ class Validator:
                 )
             )
         # These whole-scope checks must also run when individual services are reused.
-        self.check_design_service_ownership(
-            [p for p in self.design_files() if p not in self.unavailable_views]
+        self.findings.evaluate(
+            "design.ownership",
+            self.scope,
+            lambda: self.check_design_service_ownership(
+                [p for p in self.design_files() if p not in self.unavailable_views]
+            ),
+            isolate=True,
         )
         self.findings.evaluate(
             "design.stacks",
             self.scope,
             lambda: {"stack_definitions": self.check_stack_designs()},
+            isolate=True,
         )
         keys = {}
         reused = {}
@@ -584,9 +632,16 @@ class Validator:
         )
         generator.accounts = self.accounts
         if missing - unreadable:
-            generator.check_generated_service_models()
+            generator.findings.evaluate(
+                "design.generation",
+                generation_scope,
+                generator.check_generated_service_models,
+                isolate=True,
+            )
             self.errors.extend(generator.errors)
             self.warnings.extend(generator.warnings)
+            self.findings.processing_errors.extend(generator.findings.processing_errors)
+            self.findings.unverified.extend(generator.findings.unverified)
         # Generated equality is covered by each service record; keep target counts stable.
         self.checks += len({entry[:2] for entry in generation_scope})
 
@@ -604,18 +659,7 @@ class Validator:
         skipped = {tuple(entry.split("/")) for entry in unavailable}
         # Only View checks are unavailable; source checks remain independent.
         for _state_check_scoped_designs_351.entry in sorted(skipped):
-            source_checks = _bind_framework_callback(
-                _callback_Validator_check_scoped_designs_source_checks,
-                _state_check_scoped_designs_351,
-                check_model_inputs,
-                load_model,
-                self,
-            )
-            self.findings.evaluate(
-                "design.model-inputs",
-                {_state_check_scoped_designs_351.entry},
-                source_checks,
-            )
+            self.check_source_inputs(_state_check_scoped_designs_351.entry)
         missing -= skipped
         captured = contract_snapshot(self.root)
         selected_name, selected_text = task_revision(self.root)
@@ -634,14 +678,22 @@ class Validator:
         with ThreadPoolExecutor(
             max_workers=min(self.workers, len(missing) or 1)
         ) as executor:
-            mapper = map if self.workers == 1 or len(missing) == 1 else executor.map
-            results = dict(
-                zip(
-                    sorted(missing),
-                    mapper(validate, [{entry} for entry in sorted(missing)]),
-                    strict=False,
-                )
-            )
+            if self.workers == 1 or len(missing) == 1:
+                results = {
+                    entry: service_result(
+                        self, entry, _bind_framework_callback(validate, {entry})
+                    )
+                    for entry in sorted(missing)
+                }
+            else:
+                futures = {
+                    entry: executor.submit(validate, {entry})
+                    for entry in sorted(missing)
+                }
+                results = {
+                    entry: service_result(self, entry, future.result)
+                    for entry, future in futures.items()
+                }
         successful = []
         for _state_check_scoped_designs_351.entry in sorted(self.scope):
             if _state_check_scoped_designs_351.entry in skipped:
@@ -666,8 +718,14 @@ class Validator:
                 self.checks += validator.checks
                 self.errors.extend(validator.errors)
                 self.warnings.extend(validator.warnings)
-                if view_errors is not None:
-                    self.findings.unverified.extend(validator.findings.unverified)
+                self.findings.unverified.extend(validator.findings.unverified)
+                self.findings.processing_errors.extend(
+                    validator.findings.processing_errors
+                )
+                for result in validator.findings.results.values():
+                    self.findings.results[
+                        result.check_id, result.scope, self.findings.candidate
+                    ] = replace(result, candidate=self.findings.candidate)
             if self.cache and keys[_state_check_scoped_designs_351.entry] is not None:
                 try:
                     unchanged = keys[
@@ -724,7 +782,7 @@ class Validator:
         ]
         policy.status = (
             "FAIL"
-            if any(not p.model_completion_allowed for p in policies)
+            if any(p.status == "FAIL" for p in policies)
             else "NOT_RUN"
             if skipped or any(p.status == "NOT_RUN" for p in policies)
             else "PASS"
@@ -732,7 +790,11 @@ class Validator:
         if policy.status == "NOT_RUN":
             policy.metadata = {
                 "complete": False,
-                "reason": "view-read" if unreadable else "reference",
+                "reason": "processing"
+                if self.findings.processing_errors
+                else "view-read"
+                if unreadable
+                else "reference",
                 "unverified": unavailable,
             }
         policy.warnings = tuple(w for p in policies for w in p.warnings)

@@ -11,6 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 from design.services.codebuild import codebuild_display_row, codebuild_formal_rows
 from issue_gate import issue_errors, unresolved_services
+from issues.artifact import scan_exit_code, validate_artifact
+from issues.cli import main as issues_main
 from issues.publication import save_scan
 from issues.runner import scan
 from model.core import entries
@@ -259,13 +261,39 @@ def test_non_plaintext_round_trip(kind):
     assert reference_error(PREFIX + "[].Value", {"Type": kind}) is None
 
 
-@pytest.mark.parametrize("unreadable_view", [False, True])
-def test_scan_save_owns_codebuild_and_deduplicates(tmp_path, unreadable_view):
+@pytest.mark.parametrize(
+    "unreadable_view,typed", [(False, False), (True, False), (False, True)]
+)
+def test_scan_save_owns_codebuild_and_deduplicates(tmp_path, unreadable_view, typed):
     with mapping_alias(FRAMEWORK, tmp_path):
         _, template = fixture(tmp_path, services=("s3",))
         path = tmp_path / "model/dev/123456789012/codebuild.properties"
         view = tmp_path / "docs/designs/dev/123456789012/codebuild.md"
-        values = values_for([("BUCKET", "PLAINTEXT", "`bucket-app-dev-data1`")])
+        values = values_for(
+            [("BUILD_BUCKET_NAME", "PLAINTEXT", "`bucket-app-dev-data1`")]
+        )
+        if typed:
+            role = {
+                "desired.service.iam.serviceId": "iam",
+                "desired.service.iam.ownedCatalogResourceTypes": "IAM.Role",
+                "desired.service.identity.lastAllocated": '{"IAM.Role":1}',
+                "desired.resource.001.resourceType": "IAM.Role",
+                "desired.resource.001.logicalId": "IAM_Role_001",
+                "desired.resource.001.anchor": "role",
+                "desired.resource.001.resourceMode": "IMPORT",
+                "desired.row.001-001.property": "IAM.Role.RoleName",
+                "desired.row.001-001.value": "`role`",
+                "desired.row.001-001.comment": "合成Role",
+            }
+            write_model(path.with_name("iam.properties"), role)
+            role_key = next(
+                key.removesuffix("property") + "value"
+                for key, value in values.items()
+                if value == "CodeBuild.Project.ServiceRole"
+            )
+            values[role_key] = (
+                '`{"$modelRef":{"logicalId":"IAM_Role_001","attribute":"Arn"}}`'
+            )
         values["desired.resource.001.cfn-logicalId"] = "cfn-stack-app-dev-data1-Build"
         write_model(path, values)
         write(view, markdown_for(view, values, tmp_path))
@@ -279,6 +307,8 @@ def test_scan_save_owns_codebuild_and_deduplicates(tmp_path, unreadable_view):
             "[bucket-app-dev-data1](s3.md#s3-bucket-app-dev-data1)"
         )
         write_model(path, values)
+        with pytest.raises(ValueError, match=REASON):
+            markdown_for(view, values, tmp_path)
         # The same symbolic bucket is also the IaC value; equality cannot waive policy.
         template["Resources"]["Build"] = {
             "Type": "AWS::CodeBuild::Project",
@@ -291,7 +321,7 @@ def test_scan_save_owns_codebuild_and_deduplicates(tmp_path, unreadable_view):
                     "Image": "image",
                     "EnvironmentVariables": [
                         {
-                            "Name": "BUCKET",
+                            "Name": "BUILD_BUCKET_NAME",
                             "Type": "PLAINTEXT",
                             "Value": {"Ref": "Bucket"},
                         }
@@ -309,13 +339,68 @@ def test_scan_save_owns_codebuild_and_deduplicates(tmp_path, unreadable_view):
             view.write_bytes(b"\xff")
         services = ["s3", "codebuild"]
         for _iteration in range(2):
-            artifact = scan(tmp_path, "dev", "123456789012", services, jobs=1)
+            if typed:
+                artifact_path = tmp_path.parent / "scan.json"
+                with patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "issues",
+                        "--repository-root",
+                        str(tmp_path),
+                        "scan",
+                        "--environment",
+                        "dev",
+                        "--target-directory",
+                        "123456789012",
+                        "--service",
+                        "s3",
+                        "--service",
+                        "codebuild",
+                        "--jobs",
+                        "2",
+                        "--artifact",
+                        str(artifact_path),
+                    ],
+                ):
+                    status = issues_main()
+                artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+                validate_artifact(artifact)
+                assert status == scan_exit_code(artifact) != 0
+            else:
+                artifact = scan(tmp_path, "dev", "123456789012", services, jobs=1)
+            assert any(
+                item["service"] == "s3" and item["category"] == "matched"
+                for item in artifact["iac"]
+            )
+            assert artifact["cfn_lint"]["jobs"] and all(
+                job["completed"] for job in artifact["cfn_lint"]["jobs"]
+            )
+            assert any(
+                result["scope"] == ["dev/123456789012/s3"] and result["checks"] > 0
+                for result in artifact["check_results"]
+            )
+            if typed:
+                assert any(
+                    result["check_id"] == "design.service"
+                    and result["scope"] == ["dev/123456789012/s3"]
+                    and result["status"] == "PASS"
+                    and result["complete"]
+                    for result in artifact["check_results"]
+                )
+                assert any(
+                    result["check_id"] == "design.links"
+                    and result["scope"] == ["dev/123456789012/codebuild"]
+                    and result["status"] == "NOT_RUN"
+                    and not result["complete"]
+                    for result in artifact["check_results"]
+                )
             errors = [
                 item for item in artifact["ordinary"] if REASON in item["message"]
             ]
             assert len(errors) == 1, artifact["ordinary"]
             assert errors[0]["service"] == "codebuild"
-            assert not any(
+            assert typed or not any(
                 REASON in str(item)
                 for channel in ("warnings", "unverified")
                 for item in artifact[channel]

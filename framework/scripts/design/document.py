@@ -18,6 +18,7 @@ import model.identity as _model_identity
 import model.projection as _imports_model_projection
 import model.render as _model_render
 import model.sources as _imports_model_sources
+import model.validation as _model_validation
 import validation_scope as _dependency_validation_scope
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_text, memoized
@@ -35,6 +36,12 @@ def model_reference_tables(path, text, values, root):
         item.references for item in _model_display.reference_rows(source).values()
     ):
         return ()
+    model_path = (
+        path.parents[4] / "model" / path.relative_to(path.parents[4] / "docs/designs")
+    ).with_suffix(".properties")
+    prohibited = _model_validation.codebuild_reference_errors(model_path, source)
+    if prohibited:
+        raise ValueError("\n".join(prohibited.values()))
     tables = []
     expected = _model_render.generate_markdown(
         path, source, root, reference_tables=tables
@@ -55,6 +62,7 @@ class DesignView:
     )
     modes: dict[str, str] = field(default_factory=dict, repr=False, compare=False)
     reference_tables: tuple = field(default=(), repr=False, compare=False)
+    document: object = field(default=None, repr=False, compare=False)
     _lock: object = field(default_factory=RLock, repr=False, compare=False)
 
     @cached_property
@@ -74,7 +82,7 @@ class DesignView:
             bound_anchors=self.bound_anchors,
             root=self.root,
             modes=self.modes,
-            reference_tables=self.reference_tables,
+            reference_tables=self.semantic_reference_tables,
         )
         return tuple(lines), children
 
@@ -92,7 +100,7 @@ class DesignView:
                 ),
                 self.root,
                 modes=self.modes,
-                reference_tables=self.reference_tables,
+                reference_tables=self.semantic_reference_tables,
             )
         )
 
@@ -100,6 +108,14 @@ class DesignView:
     def display_lines(self) -> tuple[str, ...]:
         with self._lock:
             return self._display_lines
+
+    @property
+    def semantic_reference_tables(self):
+        return (
+            self.document.reference_tables
+            if self.document is not None
+            else self.reference_tables
+        )
 
 
 @dataclass(frozen=True)
@@ -152,7 +168,7 @@ class DesignDocument:
                         )
                     },
                     self.modes,
-                    self.reference_tables,
+                    document=self,
                 )
             return self._parses[lines]
 

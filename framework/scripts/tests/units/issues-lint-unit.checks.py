@@ -36,6 +36,7 @@ from utils.cfn_lint import (
 )
 from utils.cfn_lint_worker import child
 from utils.iac_values import safe_value
+from validation.findings import Findings
 from validation.runner import Validator
 
 if not __debug__:
@@ -396,7 +397,7 @@ def _callback_check_scan_cache_guard_order_aggregation(events, /, *args, **kwarg
 
 
 def _callback_check_scan_cache_guard_order_lint(
-    _state_check_scan_cache_guard_order_256, /, _
+    _state_check_scan_cache_guard_order_256, /, _, **kwargs
 ):
     if _state_check_scan_cache_guard_order_256.failure == "changed":
         (_state_check_scan_cache_guard_order_256.root / "docs/designs/dev/team").mkdir(
@@ -458,11 +459,7 @@ def check_scan_changes_without_cache():
                 service_key=lambda _: "service-key",
             )
             validator = SimpleNamespace(
-                findings=SimpleNamespace(
-                    unverified=[],
-                    results={},
-                    result=lambda *_: SimpleNamespace(metadata={}),
-                ),
+                findings=Findings(_state_check_scan_cache_guard_order_256.root),
                 cache=cache,
                 checks=20,
                 service_cache_pending=[("new-key", 20)],
@@ -510,16 +507,8 @@ def check_scan_changes_without_cache():
                 patch("issues.cfn_lint.run_lint", side_effect=lint),
                 patch("issues.runner.aggregate", side_effect=aggregation),
             ):
-                if _state_check_scan_cache_guard_order_256.failure in (
-                    "exception",
-                    "interrupt",
-                ):
-                    expected = (
-                        RuntimeError
-                        if _state_check_scan_cache_guard_order_256.failure
-                        == "exception"
-                        else KeyboardInterrupt
-                    )
+                if _state_check_scan_cache_guard_order_256.failure == "interrupt":
+                    expected = KeyboardInterrupt
                     with pytest.raises(expected):
                         scan(
                             _state_check_scan_cache_guard_order_256.root,
@@ -536,6 +525,9 @@ def check_scan_changes_without_cache():
                         ["codepipeline"],
                     )
                     assert result["version"] == 3 and result["checks"] == 20
+                    assert bool(result["processing_errors"]) == (
+                        _state_check_scan_cache_guard_order_256.failure == "exception"
+                    )
                     assert events == ["aggregation"] and not cache.save.called
                     assert (
                         not {"fingerprint", "service_keys", "lint_dependencies"}
@@ -583,8 +575,10 @@ def check_plan_without_stack(kinds, needs_stack):
     assert all(item["reason"] for item in coverage)
 
 
-@pytest.mark.parametrize("with_matches", [False, True])
-def check_processing_coverage_keeps_matches(with_matches):
+@pytest.mark.parametrize(
+    "with_matches,interrupted", [(False, False), (True, False), (True, True)]
+)
+def check_processing_coverage_keeps_matches(with_matches, interrupted):
     failure = dict(code="schema_unavailable", resource_type="AWS::S3::Bucket")
     matches = [
         {"Rule": {"Id": "E3002"}, "Level": "Error", "Message": "property error"},
@@ -614,8 +608,22 @@ def check_processing_coverage_keeps_matches(with_matches):
         patch("issues.cfn_lint.plan", return_value=([job], [])),
         patch("issues.cfn_lint.lint_session"),
         patch("issues.cfn_lint.validate_template", return_value=result),
-        patch("issues.cfn_lint.owner", return_value=("s3", False)),
+        patch(
+            "issues.cfn_lint.owner",
+            side_effect=[("s3", False), RuntimeError("interrupted classification")]
+            if interrupted
+            else None,
+            return_value=("s3", False),
+        ),
     ):
+        retained = {}
+        if interrupted:
+            with pytest.raises(RuntimeError, match="interrupted classification"):
+                run_lint(comparison, result=retained)
+            assert retained["status"] == "incomplete"
+            assert retained["ordinary"][0]["message"] == "property error"
+            assert retained["processing_errors"][0]["code"] == "schema_unavailable"
+            return
         lint = run_lint(comparison)
     assert (
         lint["status"] == "incomplete" and lint["coverage"][0]["status"] == "unverified"

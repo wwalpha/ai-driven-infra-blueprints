@@ -34,6 +34,7 @@ class Findings:
         self.errors = []
         self.warnings = []
         self.unverified = []
+        self.processing_errors = []
         self.checks = 0
         self.results = {}
         self.candidate = object()
@@ -53,7 +54,7 @@ class Findings:
             key, CheckResult(check_id, scope, self.candidate)
         )
 
-    def evaluate(self, check_id, scope, handler):
+    def evaluate(self, check_id, scope, handler, *, isolate=False):
         scope = None if scope is None else frozenset(scope)
         key = (check_id, scope, self.candidate)
         result = self.result(check_id, scope)
@@ -81,7 +82,16 @@ class Findings:
             result.checks = self.checks - checks
             result.status = "FAIL" if result.errors else "NOT_RUN"
             return result
-        except (OSError, ValueError, KeyError, TypeError) as error:
+        except Exception as error:
+            if isolate:
+                self.processing_failure(check_id, scope, error)
+                result.errors = tuple(self.errors[before:])
+                result.warnings = tuple(self.warnings[warning_start:])
+                result.checks = self.checks - checks
+                result.metadata = dict(complete=False, reason="processing")
+                return result
+            if not isinstance(error, (OSError, ValueError, KeyError, TypeError)):
+                raise
             self.check(False, str(error))
             metadata = None
         result.errors = tuple(self.errors[before:])
@@ -96,13 +106,28 @@ class Findings:
         )
         if isinstance(metadata, dict):
             result.metadata = metadata
-        if result.status == "NOT_RUN":
+        if len(self.unverified) > incomplete_start:
             result.metadata.update(
                 complete=False,
                 reason="reference",
                 unverified=self.unverified[incomplete_start:],
             )
         return result
+
+    def processing_failure(self, check_id, scope, error):
+        failure = dict(
+            code="mechanical.processing",
+            phase=check_id,
+            scope=["/".join(entry) for entry in sorted(scope or [])],
+            exception=type(error).__name__,
+            message=f"{check_id}: {error}",
+        )
+        self.processing_errors.append(failure)
+        self.unverified.append(dict(failure, complete=False))
+        self.check(False, failure["message"])
+        result = self.result(check_id, scope)
+        result.status = "NOT_RUN"
+        result.metadata = dict(complete=False, reason="processing")
 
     def warn(self, condition, message=None, *, code="reference.validation", **details):
         if message is not None:

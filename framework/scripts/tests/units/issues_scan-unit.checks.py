@@ -20,6 +20,7 @@ import support.issues_scan_fixtures as _exports_support_issues_scan_fixtures
 import support.issues_scan_fixtures as _retained_fixture_protected_sources
 import support.issues_scan_fixtures as _retained_fixture_scan_project
 import sync_runtime
+import validation.runner as validation_runner
 from comparison.deferral import (
     CATEGORIES,
     DesiredPendingDeployExcluded,
@@ -69,6 +70,7 @@ from support.issues_scan_fixtures import pytestmark as pytestmark
 from task_contract_core import contract_snapshot
 from utils.function_wrapper import BoundCallback as _bind_framework_callback
 from utils.input_cache import input_context
+from validation.findings import Findings
 from validation.runner import Validator
 
 if not __debug__:
@@ -736,6 +738,7 @@ def check_scan_accepts_input_changes(tmp_path, input_name):
     validator = SimpleNamespace(
         checks=1,
         findings=SimpleNamespace(
+            processing_errors=[],
             unverified=[],
             results={},
             result=Mock(return_value=SimpleNamespace(metadata={})),
@@ -1236,8 +1239,12 @@ def check_view_read_failure_policy(tmp_path):
             == "NOT_RUN"
         )
         default = Validator(root, validator.scope, workers=1)
-        with pytest.raises(UnicodeDecodeError):
-            default.check_scoped_designs()
+        default.check_scoped_designs()
+        assert any(
+            error["exception"] == "UnicodeDecodeError"
+            for error in default.findings.processing_errors
+        )
+        assert any("independent sqs diagnostic" in error for error in default.errors)
     assert sources.load_model is sync_runtime.load_model is real_load_model
     bad.write_bytes(b"changed bytes")
     assert view_text(comparison, bad, phase="review-prose") == "changed bytes"
@@ -1325,6 +1332,7 @@ def check_dependency_view_failure_branches(tmp_path, monkeypatch, failure):
         cache=cache,
         service_cache_pending=[("pending", 3)] if dependent else [],
         findings=SimpleNamespace(
+            processing_errors=[],
             unverified=[],
             results={},
             result=Mock(return_value=SimpleNamespace(metadata={})),
@@ -1415,7 +1423,15 @@ def interrupt_comparison(comparison, exception):
 
 @pytest.mark.parametrize(
     "exception",
-    [ReferenceResolutionError, OSError, ValueError, KeyError, ImportError, TypeError],
+    [
+        ReferenceResolutionError,
+        OSError,
+        ValueError,
+        KeyError,
+        ImportError,
+        TypeError,
+        RuntimeError,
+    ],
 )
 def check_scan_exception_classification(tmp_path, exception):
     comparison = Comparison.__new__(Comparison)
@@ -1431,11 +1447,7 @@ def check_scan_exception_classification(tmp_path, exception):
     comparison.track = Mock()
     validator = SimpleNamespace(
         checks=1,
-        findings=SimpleNamespace(
-            unverified=[],
-            results={},
-            result=Mock(return_value=SimpleNamespace(metadata={})),
-        ),
+        findings=Findings(tmp_path),
         finalize_service_cache=Mock(),
     )
     lint = dict(
@@ -1487,11 +1499,139 @@ def check_scan_exception_classification(tmp_path, exception):
     assert any(
         warning["code"] == "reference.unresolved" for warning in artifact["warnings"]
     ) == (exception is ReferenceResolutionError)
+    assert any(
+        item["code"] == "iac.comparison_unverified" for item in artifact["unverified"]
+    )
+    assert any(
+        result["check_id"] == "iac.comparison"
+        and result["status"] == "NOT_RUN"
+        and not result["complete"]
+        for result in artifact["check_results"]
+    )
 
 
 def mechanical_result(validator, *args, **kwargs):
     kwargs["validator_out"].append(validator)
     return [], 1, ""
+
+
+def interrupted_mechanical(root, scope, *, validator_out, **kwargs):
+    validator = Validator(root, scope)
+    validator_out.append(validator)
+    validator.check(False, "model/dev/123456789012/s3.properties: retained diagnostic")
+    raise RuntimeError("interrupted mechanical stage")
+
+
+@pytest.mark.parametrize("stage", ["mechanical", "models", "lint"])
+def check_scan_stage_failures(tmp_path, stage):
+    _exports_support_issues_scan_fixtures.fixture(tmp_path, services=("s3",))
+    owner, method = {
+        "mechanical": (scan_runner, "mechanical"),
+        "models": (Validator, "check_model_files"),
+        "lint": (scan_runner._imports_issues_cfn_lint, "run_lint"),
+    }[stage]
+    failure = (
+        interrupted_mechanical
+        if stage == "mechanical"
+        else RuntimeError("interrupted stage")
+    )
+    artifact_path = tmp_path.parent / "partial-scan.json"
+    with (
+        patch.object(owner, method, side_effect=failure),
+        patch.object(
+            sys,
+            "argv",
+            [
+                "issues",
+                "--repository-root",
+                str(tmp_path),
+                "scan",
+                "--environment",
+                "dev",
+                "--target-directory",
+                "123456789012",
+                "--service",
+                "s3",
+                "--artifact",
+                str(artifact_path),
+            ],
+        ),
+    ):
+        assert issues_main() == 2
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    validate_artifact(artifact)
+    assert artifact["validation_status"] == "ERROR"
+    assert len(artifact["processing_errors"]) == 1
+    assert artifact["unverified"]
+    assert any(
+        result["status"] == "NOT_RUN" and not result["complete"]
+        for result in artifact["check_results"]
+    )
+    assert any(record["category"] == "matched" for record in artifact["iac"])
+    if stage != "lint":
+        assert artifact["cfn_lint"]["jobs"][0]["completed"]
+    if stage == "mechanical":
+        assert (
+            len(artifact["ordinary"]) == 1
+            and "retained diagnostic" in artifact["ordinary"][0]["message"]
+        )
+    assert not any(
+        "interrupted" in record["message"] for record in artifact["ordinary"]
+    )
+
+
+def interrupted_service(instance):
+    service = next(iter(instance.scope))[2]
+    instance.check(
+        False, f"model/dev/team/{service}.properties: retained {service} diagnostic"
+    )
+    if service == "s3":
+        raise RuntimeError("unexpected service failure")
+
+
+def interrupted_worker(original, instance, snapshot, scope):
+    if next(iter(scope))[2] == "s3":
+        raise RuntimeError("unexpected worker failure")
+    return original(instance, snapshot, scope)
+
+
+@pytest.mark.parametrize("failure", ["service", "worker"])
+def check_service_worker_isolation(tmp_path, failure):
+    scope = {("dev", "team", service) for service in ("s3", "sqs")}
+    validator = Validator(tmp_path, scope, workers=2)
+    validator.cache = SimpleNamespace(service_key=str, load=lambda _: None)
+    original = validation_runner._callback_Validator_check_scoped_designs_validate
+    source = Mock(return_value=SimpleNamespace(errors=[], warnings=[], checks=3))
+    with (
+        patch.object(Validator, "check_design_service_ownership"),
+        patch.object(Validator, "check_stack_designs", return_value={}),
+        patch.object(Validator, "check_generated_service_models"),
+        patch.object(Validator, "check_designs", interrupted_service),
+        patch.object(Validator, "check_observed_values") as observed,
+        patch.object(
+            sources,
+            "load_model",
+            return_value=SimpleNamespace(authoritative={}, warnings=[]),
+        ),
+        patch("model.validation.check_model_inputs", source),
+        patch.object(
+            validation_runner,
+            "_callback_Validator_check_scoped_designs_validate",
+            original if failure == "service" else partial(interrupted_worker, original),
+        ),
+    ):
+        validator.check_scoped_designs()
+    assert any("retained sqs diagnostic" in error for error in validator.errors)
+    assert any("retained s3 diagnostic" in error for error in validator.errors) == (
+        failure == "service"
+    )
+    assert observed.call_count == 2 and source.call_count == 1
+    assert len(validator.findings.processing_errors) == 1
+    assert validator.findings.unverified and not validator.service_cache_pending
+    assert (
+        validator.findings.result("design." + failure, {("dev", "team", "s3")}).status
+        == "NOT_RUN"
+    )
 
 
 @pytest.mark.parametrize(

@@ -316,18 +316,6 @@ def check_links():
         alias_error = (
             "S3 KMSMasterKeyID must display the referenced KMS alias name: " + location
         )
-        invalid = (
-            missing
-            + [
-                alias_error + ("alias/two" if n % 2 == 0 else "alias/three")
-                for n in range(80)
-            ]
-            + [
-                "identifier reference does not match observed target: "
-                + location
-                + "S3.Bucket.SourceKeyId: 1234abcd-12ab-34cd-56ef-1234567890ab"
-            ]
-        )
         internal = (
             [
                 "design link must not display internal logical ID: "
@@ -353,20 +341,26 @@ def check_links():
                 ref.replace(
                     "resource-logical-id: KeyHidden", "resource-logical-id: Bad!"
                 ),
-                invalid,
-                416,
+                [
+                    "invalid grouped design: docs/designs/dev/account/kms.md: resource logical ID metadata must precede its anchor and heading",
+                    *missing,
+                ],
+                254,
             ),
             (
                 text,
                 ref.replace("kms-keytwo", "kms-keyone"),
-                ["duplicate resource anchor", *invalid[:-1]],
-                415,
+                ["duplicate resource anchor", *missing],
+                253,
             ),
             (
                 text,
                 ref.replace("logical-id: AliasTwo", "logical-id: AliasOne"),
-                invalid,
-                416,
+                [
+                    "invalid grouped design: docs/designs/dev/account/kms.md: invalid or duplicate grouped logical ID/anchor: AliasOne",
+                    *missing,
+                ],
+                254,
             ),
             (text, "<!-- resource-mode: kms-keyone CREATE -->\n" + ref, missing, 416),
             (text, "<!-- resource-mode: kms-keyone IMPORT -->\n" + ref, missing, 416),
@@ -382,7 +376,7 @@ def check_links():
                     + "resource logical ID metadata must precede its anchor and heading",
                     *missing,
                 ],
-                417,
+                252,
             ),
             (
                 text.replace("| 1 | BucketName", "| 1 | KMS.Alias.AliasName"),
@@ -393,7 +387,7 @@ def check_links():
                     + "grouped resource has wrong parent: KMS.Alias: S3.Bucket",
                     *missing,
                 ],
-                417,
+                252,
             ),
         ]
         validator = module.Validator(root)
@@ -582,18 +576,70 @@ def check_saved_typed_reference_display_difference(project_workspace):
     assert not findings.errors, findings.errors
     assert target.read_bytes() == before
     # The same saved typed reference still requires exact display in read-only validation.
-    with pytest.raises(
-        ValueError, match="Markdown differs from Model expected display"
-    ):
+    strict = Findings(root)
+    with patch.object(
+        documents, "model_reference_tables", wraps=documents.model_reference_tables
+    ) as render:
+        document = DesignIndex(reference_models.FRAMEWORK).get(target)
+        assert document.headings.lines
+        render.assert_not_called()
+        with pytest.raises(
+            ValueError, match="Markdown differs from Model expected display"
+        ):
+            _ = document.headings.expanded
+    _imports_validation_design_links.check_design_links(
+        {},
+        [source],
+        design_sources={source: {}},
+        findings=strict,
+        root=root,
+        scope=None,
+        definitions_root=reference_models.FRAMEWORK,
+    )
+    assert any(
+        "Markdown differs from Model expected display" in error
+        for error in strict.errors
+    )
+    assert strict.unverified and target.read_bytes() == before
+
+
+@pytest.mark.parametrize("phase", ["view-build", "view-expand", "view-display"])
+def check_view_failure_isolation(tmp_path, phase):
+    source = tmp_path / "docs/designs/dev/team/codebuild.md"
+    source.parent.mkdir(parents=True)
+    source.write_text("# 合成\n[missing](missing.json)\n", encoding="utf-8")
+    findings = Findings(tmp_path)
+    owner, method = {
+        "view-build": (documents.DesignDocument, "view"),
+        "view-expand": (documents, "expanded_design"),
+        "view-display": (documents, "model_reference_tables"),
+    }[phase]
+    with patch.object(owner, method, side_effect=ValueError("synthetic invalid View")):
         _imports_validation_design_links.check_design_links(
             {},
             [source],
-            design_sources={source: {}},
-            findings=Findings(root),
-            root=root,
+            findings=findings,
+            root=tmp_path,
             scope=None,
-            definitions_root=reference_models.FRAMEWORK,
+            design_sources={source: {}},
         )
+    assert sum("synthetic invalid View" in error for error in findings.errors) == 1
+    assert any("broken design link" in error for error in findings.errors)
+    assert findings.unverified == [
+        dict(
+            code="design.links_unverified",
+            path="docs/designs/dev/team/codebuild.md",
+            service="codebuild",
+            phase=phase,
+            exception="ValueError",
+            message="synthetic invalid View",
+            complete=False,
+        )
+    ]
+    assert (
+        findings.result("design.links", {("dev", "team", "codebuild")}).status
+        == "NOT_RUN"
+    )
 
 
 if __name__ == "__main__":

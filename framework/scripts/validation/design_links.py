@@ -53,6 +53,40 @@ from .design import (
 )
 
 
+def unavailable_semantics(
+    findings, failures, path, error, phase, *, saved_reference=False
+):
+    """Retain one file failure; callers may still check saved links and anchors."""
+    relative = findings.relative(path)
+    if path in failures:
+        return
+    failures.add(path)
+    findings.unverified.append(
+        dict(
+            code="design.links_unverified",
+            path=relative,
+            service=path.stem,
+            phase=phase,
+            exception=type(error).__name__,
+            message=str(error),
+            complete=False,
+        )
+    )
+    result = findings.result("design.links", {(*path.parent.parts[-2:], path.stem)})
+    result.metadata = dict(complete=False, reason="view", path=relative, phase=phase)
+    if isinstance(error, ReferenceResolutionError):
+        findings.warn(error, source=str(path))
+    elif saved_reference:
+        findings.warn(
+            False,
+            f"saved design reference semantics unavailable: {relative}: {error}",
+            code="design.links_unverified",
+            path=relative,
+        )
+    elif not any(str(error) in existing for existing in findings.errors):
+        findings.check(False, f"invalid grouped design: {relative}: {error}")
+
+
 def check_local_links(
     source, text, *, anchors, unavailable, findings, root, design_index
 ) -> None:
@@ -299,6 +333,7 @@ def check_design_links(
     definitions_root = definitions_root or root
     design_index = design_index or DesignIndex(definitions_root)
     source_values = {}
+    failed_views = set()
     for source in design_files(root=root, scope=scope) if paths is None else paths:
         source_values[source] = (design_sources or {}).get(source)
         if source_values[source] is None:
@@ -375,28 +410,32 @@ def check_design_links(
         except ReferenceResolutionError as error:
             findings.warn(error, source=str(source))
         except (OSError, ValueError) as error:
-            findings.check(
-                False,
-                f"invalid IMPORT physical reference: {findings.relative(source)}: {error}",
+            unavailable_semantics(
+                findings, failed_views, source, error, "import-reference"
             )
     authority_values = source_values
     references = {path.resolve() for path in sources}
     fragments = {}
     consumers = {}
-    unavailable = set(unavailable_views or {})
+    unreadable = set(unavailable_views or {})
+    unavailable = set(unreadable)
     visible_text = {}
+    source_semantics = {}
     for source in sources:
         document = design_index.get(source)
         try:
             semantic = validation_lines(
                 document.raw.display_lines, source_values[source], definitions_root
             )
+            source_semantics[source] = semantic
             visible_text[source] = (
                 document.visible_text
                 if semantic is document.raw.display_lines
                 else re.sub(r"<!--.*?-->", "", "\n".join(semantic), flags=re.DOTALL)
             )
-        except ValueError:
+        except (ReferenceResolutionError, ValueError) as error:
+            unavailable_semantics(findings, failed_views, source, error, "view-display")
+            unavailable.add(source.resolve())
             visible_text[source] = document.visible_text
     for source in sources:
         for raw in LINK_PATTERN.findall(visible_text[source]):
@@ -422,6 +461,7 @@ def check_design_links(
                 )
                 if text is None:
                     unavailable.add(path)
+                    unreadable.add(path)
                     findings.unverified.append(
                         dict(
                             code="design.links_unavailable",
@@ -434,7 +474,7 @@ def check_design_links(
                     )
                 else:
                     design_index.get(path, text=text)
-    references -= unavailable
+    references -= unreadable
     anchors = {path: design_index.get(path).anchors for path in references}
     resources: dict[tuple[Path, str], tuple[str, dict[str, str]]] = {}
     configured_names: dict[tuple[Path, str], dict[str, str]] = {}
@@ -454,25 +494,39 @@ def check_design_links(
     )
     source_paths = {path.resolve() for path in sources}
     for path in sorted(references):
+        if path in unavailable:
+            continue
         document = design_index.get(path)
         saved_reference = (
             candidate_paths is not None
             and path not in source_paths
             and path not in candidate_paths
         )
-        if saved_reference:
-            lines = reference_lines(
+        try:
+            if saved_reference:
+                lines = reference_lines(
+                    path,
+                    fragments.get(path, set()),
+                    lines=resource_heading_lines(list(document.lines)),
+                )
+                view = DesignView(tuple(lines), definitions_root)
+            else:
+                view = (
+                    document.headings
+                    if path in source_paths
+                    else document.view(frozenset(fragments.get(path, set())))
+                )
+        except (ReferenceResolutionError, ValueError) as error:
+            unavailable_semantics(
+                findings,
+                failed_views,
                 path,
-                fragments.get(path, set()),
-                lines=resource_heading_lines(list(document.lines)),
+                error,
+                "view-build",
+                saved_reference=saved_reference,
             )
-            view = DesignView(tuple(lines), definitions_root)
-        else:
-            view = (
-                document.headings
-                if path in source_paths
-                else document.view(frozenset(fragments.get(path, set())))
-            )
+            unavailable.add(path)
+            continue
         source_lines = view.lines
         try:
             identities = view.logical_ids
@@ -506,21 +560,16 @@ def check_design_links(
                     if value != child["logicalId"]:
                         hidden_ids[path.resolve(), anchor] = child["logicalId"]
         except (ReferenceResolutionError, ValueError) as error:
-            if saved_reference:
-                findings.warn(
-                    False,
-                    f"saved design reference semantics unavailable: {findings.relative(path)}: {error}",
-                    code="design.links_unverified",
-                    path=findings.relative(path),
-                )
-                continue
-            if isinstance(error, ReferenceResolutionError):
-                findings.warn(error, source=str(path))
-                continue
-            if path in source_paths:
-                findings.check(
-                    False, f"invalid grouped design: {findings.relative(path)}: {error}"
-                )
+            unavailable_semantics(
+                findings,
+                failed_views,
+                path,
+                error,
+                "view-expand",
+                saved_reference=saved_reference,
+            )
+            unavailable.add(path)
+            continue
         for line in lines:
             if anchor := ANCHOR_PATTERN.fullmatch(line):
                 pending_anchor = anchor.group(1)
@@ -544,6 +593,17 @@ def check_design_links(
                 ):
                     resources[current][1][cells[1]] = unquoted(cells[2])
     for source in sources:
+        check_local_links(
+            source,
+            visible_text[source],
+            anchors=anchors,
+            unavailable=unreadable,
+            findings=findings,
+            root=root,
+            design_index=design_index,
+        )
+        if source.resolve() in unavailable:
+            continue
         source_anchor = ""
         for line in visible_text[source].splitlines():
             if anchor := ANCHOR_PATTERN.fullmatch(line):
@@ -606,15 +666,6 @@ def check_design_links(
                         label == name or identifier_reference,
                         f"nameless resource link must display resource type or observed identifier: {findings.relative(source)}: {label}",
                     )
-        check_local_links(
-            source,
-            visible_text[source],
-            anchors=anchors,
-            unavailable=unavailable,
-            findings=findings,
-            root=root,
-            design_index=design_index,
-        )
         document = design_index.get(source)
         observed_references = set()
         automatic_references = set()
@@ -750,7 +801,7 @@ def check_design_links(
                     f"CodePipeline Configuration.{key} must display the referenced {expected[0]} name: {findings.relative(source)}: {value}",
                 )
         list_resource_type = ""
-        for line in document.headings.lines:
+        for line in resource_heading_lines(list(document.lines)):
             if heading := RESOURCE_HEADING_PATTERN.fullmatch(line):
                 list_resource_type = heading.group(1)
             elif line.startswith("#"):
@@ -787,18 +838,7 @@ def check_design_links(
                 ),
                 f"{('CloudTrail DataResources' if cloudtrail else 'Subnet/Security Group list')} must link to a {expected} in the same target: {findings.relative(source)}: {cells[2]}",
             )
-        try:
-            source_lines = validation_lines(
-                document.raw.display_lines, values, definitions_root
-            )
-        except ReferenceResolutionError as error:
-            findings.warn(error, source=str(source))
-            continue
-        except ValueError as error:
-            findings.check(
-                False,
-                f"invalid Security Group tables: {findings.relative(source)}: {error}",
-            )
+        source_lines = source_semantics[source]
         variable_type = ""
         source_anchor = ""
         reference_kind = ""

@@ -200,12 +200,13 @@ def check_boundaries():
             ) as child,
         ):
             first.scope = scope
-            try:
-                first.check_scoped_designs()
-            except RuntimeError as error:
-                assert str(error) == "child failed"
-            else:
-                raise AssertionError("child failure was hidden")
+            first.check_scoped_designs()
+            assert any(
+                error["exception"] == "RuntimeError"
+                and "child failed" in error["message"]
+                for error in first.findings.processing_errors
+            )
+            assert first.findings.result("design.service", scope).status == "NOT_RUN"
             ownership.assert_called_once()
             stacks.assert_called_once()
             child.assert_called_once_with()

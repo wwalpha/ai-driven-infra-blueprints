@@ -210,7 +210,7 @@ def owner(comparison, job, match):
     return None, False
 
 
-def run_lint(comparison):
+def run_lint(comparison, *, result=None):
     jobs, coverage = plan(comparison)
     channels = {
         name: []
@@ -223,6 +223,8 @@ def run_lint(comparison):
             "processing_errors",
         )
     }
+    retained = {} if result is None else result
+    retained.update(jobs=jobs, coverage=coverage, status="incomplete", **channels)
     with lint_session(comparison.root) as session:
         for job in jobs:
             job["diagnostic_ids"] = []
@@ -316,15 +318,13 @@ def run_lint(comparison):
     for item in coverage:
         if item["status"] in {"unverified", "input_missing", "excluded_by_config"}:
             channels["unverified"].append(dict(code="lint.coverage", **item))
-    return dict(
-        jobs=jobs,
-        coverage=coverage,
-        status="not_applicable"
+    retained["status"] = (
+        "not_applicable"
         if not jobs
         and coverage
         and all(c["status"] == "not_applicable" for c in coverage)
         else "incomplete"
         if channels["unverified"]
-        else "checked",
-        **channels,
+        else "checked"
     )
+    return retained

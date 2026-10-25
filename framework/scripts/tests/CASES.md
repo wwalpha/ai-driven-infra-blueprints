@@ -1,11 +1,19 @@
 # UT / IT 全ケース台帳
 
+## Issues Scan failure isolation
+
+| 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
+|---|---|---|---|---|---|---|
+| `issues-isolation::view` | `check_view_failure_isolation` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 3 | View構築・展開・表示ValueErrorのファイル別隔離、原因とNOT_RUN、独立した保存済みリンク検査 | 追加 |
+| `issues-isolation::stage` | `check_scan_stage_failures` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 3 | mechanical全体/Model段階/lintの想定外障害、既存診断保持、独立比較/lint継続、CLIのartifact v3保存とERROR終了 | 追加 |
+| `issues-isolation::worker` | `check_service_worker_isolation` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | service内部/workerの想定外例外、別service結果回収、既存診断とModel/observed検査、非cacheとNOT_RUN | 追加 |
+
 ## Markdown生成と保存済み参照の検証責務
 
 | 元ID | 現在の関数 | 分類 | 現在の場所 | 入口 / 展開数 | 検証責務 | 区分 |
 |---|---|---|---|---|---|---|
 | `saved-markdown-links::boundary` | `check_candidate_saved_reference_boundary` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 3 | 現行/旧reference-rows/旧reference-value参照先の局所解析、意味検証不能の警告、候補の旧形式拒否、対象外Markdown不変 | 追加 |
-| `saved-markdown-links::typed-display` | `check_saved_typed_reference_display_difference` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 1 | typed Model参照を含む保存済みCodePipelineの表示差分をwrite候補の参照先として許容し、read-onlyでは厳密拒否 | 追加 |
+| `saved-markdown-links::typed-display` | `check_saved_typed_reference_display_difference` | UT | [units/design_document-unit.checks.py](units/design_document-unit.checks.py) | pytest / 1 | typed Model参照を含む保存済みCodePipelineの表示差分をwrite候補の参照先として許容し、read-onlyではERROR/NOT_RUNへ隔離。headings単独は生成せず、展開では厳密拒否 | 追加 |
 | `saved-markdown-links::new-warning` | `check_saved_link_snapshot_and_new_warnings` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 1 | 旧形式参照元の軽量Snapshot、既存破損の除外、新規anchor破損と保存先限定警告、コメント内リンク除外、対象外不変 | 追加 |
 | `saved-markdown-links::fallback` | `check_publication_legacy_fallback` | UT | [units/sync-model-unit.checks.py](units/sync-model-unit.checks.py) | pytest / 2 | JSON書込み失敗注入による既存Markdown/JSON復元、部分成功維持、依存候補Rollback分岐と最終参照状態。候補ValidatorはMock | 追加 |
 
@@ -153,13 +161,13 @@ NUL解析・特殊文字・3分類・Git失敗は共通UTへ集約する。sync 
 | `issues-artifact::check_artifact_index_and_status` | `check_artifact_index_and_status` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L96) | pytest / 1 | 一次集計・page先行・未対応形式拒否・status・bounded notice・review照合 | Issues Artifact v3 |
 | `issues-v2::check_pending_notices_replace_warnings` | `check_pending_notices_replace_warnings` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L127) | pytest / 1 | 未検証時も今回診断へ置換・Human注記保持・再保存安定 | Issues Artifact v3 |
 | `issues-v2::check_deferred_cache_finalization` | `check_deferred_cache_finalization` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L137) | pytest / 1 | 最終入力確認まで候補保留・変更時不採用 | Issues Artifact v3 |
-| `issues-v2::check_scan_changes_without_cache` | `check_scan_changes_without_cache` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L237) | pytest / 1 | codepipeline.md変更中も集計完了・PASS cacheと監視artifactフィールドなし・例外/中断を保持 | Issues Artifact v3 |
+| `issues-v2::check_scan_changes_without_cache` | `check_scan_changes_without_cache` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L237) | pytest / 1 | codepipeline.md変更中も集計完了・PASS cacheと監視artifactフィールドなし・例外をERRORへ隔離し中断は伝播 | Issues Artifact v3 |
 | `issues-v2::check_worker_protocol_and_fatal` | `check_worker_protocol_and_fatal` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L153) | pytest / 1 | protocol拒否・共通runtime失敗後not_run | Issues Artifact v3 |
 | `issues-v2::check_cli_equivalence` | `check_cli_equivalence` | IT | [integrations/issues-lint.checks.py](integrations/issues-lint.checks.py#L63) | pytest / 2 | 固定版CLIの正常/異常代表各1入力、Rule/Level/Location/MessageとRegion一致 | Issues Artifact v3 |
 | `issues-v2::check_plan_without_stack` | `check_plan_without_stack` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L279) | pytest / 4 | IMPORT/API-only先行分類・混在CREATE未検証・Stack loader回数 | Issues Artifact v3 |
-| `issues-v2::check_processing_coverage_keeps_matches` | `check_processing_coverage_keeps_matches` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L295) | pytest / 2 | schema障害時の診断0件/混在の未完了coverageと通常/未知type診断保持・exit 2 | Issues Artifact v3 |
+| `issues-v2::check_processing_coverage_keeps_matches` | `check_processing_coverage_keeps_matches` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L295) | pytest / 3 | schema障害時の診断0件/混在の未完了coverageと通常/未知type診断保持・exit 2・分類途中例外でも取得済診断を保持 | Issues Artifact v3 |
 | `issues-v2::check_notice_resolution_and_update_series` | `check_notice_resolution_and_update_series` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py#L317) | pytest / 1 | T1〜T4今回診断置換・処理エラー/未検証/not_applicable時の過去False/Information除去・ordinary解消ID・別scope/Human保全・save-results非再実行 | Issues Artifact v3 |
-| `issues-v2::check_view_read_failure_policy` | `check_view_read_failure_policy` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py#L541) | pytest / 1 | issues局所View障害・独立service/source診断・実チェック件数・非cache・変更後再読取許容・通常Validator伝播 | Issues Artifact v3 |
+| `issues-v2::check_view_read_failure_policy` | `check_view_read_failure_policy` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py#L541) | pytest / 1 | issues局所View障害・独立service/source診断・実チェック件数・非cache・変更後再読取許容・通常Validatorの読取障害隔離 | Issues Artifact v3 |
 | `issues-v4::check_child_builtin_packets_preserve_progress` | `check_child_builtin_packets_preserve_progress` | UT | [units/issues-lint-unit.checks.py](units/issues-lint-unit.checks.py#L190) | pytest / 2 | JSON組込み型へのIPC正規化・途中例外でも取得済み全channel/dependencies保持 | Issues residual repair |
 | `issues-v4::check_notice_fenced_roundtrip` | `check_notice_fenced_roundtrip` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py#L362) | pytest / 2 | headerless owner/ID/Gate・backtick/tildeコード例・別scope・normal/notice/save-results解消往復 | Issues residual repair |
 | `issues-tail::check_notice_tail_order_and_materials` | `check_notice_tail_order_and_materials` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py#L404) | pytest / 4 | 通常のみ/警告/参照警告/両方・複数scope混在診断の末尾順序・再保存安定・ID/Human材料/ownership/Gate保全 | Issues末尾警告 |
@@ -2932,7 +2940,7 @@ ITの `check_single_target_cache` / `check_template_consumers`（2ケース）�
 | `issues19::check_cloudtrail_comparison` | `check_cloudtrail_comparison` | IT | [integrations/issues_scan.checks.py](integrations/issues_scan.checks.py#L147) | pytest / 1 | 実Model/CFn読込→EventSelectors親子所属と重複要素→matched | 統合 |
 | `issues19::check_cross_service_reference` | `check_cross_service_reference` | IT | [integrations/issues_scan.checks.py](integrations/issues_scan.checks.py#L172) | pytest / 1 | 2 Stackで共有Templateを一度decode、独立parameter評価・実KMS/Logs Model→Export/Import→Reference・正本非変更 | 統合 |
 | `issues19::check_condition_provenance` | `check_condition_provenance` | IT | [integrations/issues_scan.checks.py](integrations/issues_scan.checks.py#L201) | pytest / 1 | 実Condition/parameter-file→行/key/source付き診断→Report/Summary/Detail | 統合 |
-| `issues19::check_scan_exception_classification` | `check_scan_exception_classification` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py#L660) | pytest / 6 | scan exception classification | 未保証分のみ小入力へ移設 |
+| `issues19::check_scan_exception_classification` | `check_scan_exception_classification` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py#L660) | pytest / 7 | scan exception classification、RuntimeErrorと既存診断保持、IaCのNOT_RUN/未検証記録 | 未保証分のみ小入力へ移設 |
 | `issues19::check_save_authority_rejections` | `check_save_authority_rejections` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py#L705) | pytest / 5 | save authority rejections | 未保証分のみ小入力へ移設 |
 | `issues19::check_save_review_rejections` | `check_save_review_rejections` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py#L727) | pytest / 6 | save review rejections | 未保証分のみ小入力へ移設 |
 | `issues19::check_saved_input_bytes_and_revision_independence` | `check_saved_input_bytes_and_revision_independence` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 5 | Markdown/Model/IaC等の変更・短縮後もScan時の根拠行と既存Reviewで保存、Git参照なし | 未保証分のみ小入力へ移設 |
@@ -2991,7 +2999,7 @@ CloudFormation共通入力判定は `units/cloudformation-inputs-unit.checks.py`
 | `check_nested_membership` | 重複削除: 既存 `comparison_core-unit` のexplicit/implicit配列構築・順序/重複と `test_issues_iac::test_formal_pipeline_membership_and_configuration_context` の親子context/独立property比較に集約。 |
 | `check_cloudtrail_membership` | IT維持: 実Model/TemplateのEventSelectors比較は `check_cloudtrail_comparison`。UT移設: 親移動/重複不足/余分parent/type変更・不完全配列と独立IsLogging差分は `test_cloudtrail_membership_comparison`。重複削除: 行順不変/不足・重複rowは既存comparison_core。 |
 | `check_condition_diagnostics` | IT維持: parameter-file→false→行/key/cause→集計/Report/Detailは `check_condition_provenance`。UT移設: true/default/And/Or/Not/If/Sub・missing/cycle/non-boolean/unknown・NoEcho/名前secret/numeric・Region/StackName provenanceはcomparison_core、inline child条件は `test_inactive_inline_policy_provenance`、偽resultのproven cause拒否は `check_causal_report_grouping`。 |
-| `check_scan_workflow` | UT移設: 例外6種類のcategory/途中5レコード保持/末尾incomplete/summary/report/group membership/全channel masking/reference warningは `check_scan_exception_classification`。IT維持: 旧directの結合経路は7フローへ、sequential_reportsのCLI mergeは `check_cli_save_results`。 |
+| `check_scan_workflow` | UT移設: 例外7種類のcategory/途中5レコード保持/末尾incomplete/summary/report/group membership/全channel masking/reference warningは `check_scan_exception_classification`。IT維持: 旧directの結合経路は7フローへ、sequential_reportsのCLI mergeは `check_cli_save_results`。 |
 | `check_summary_detail_cli` | IT維持: `check_detail_cli`。重複削除: 1000件pagination/全ID/未表示分の取得は既存 `check_summary_scale`、CLIには3件だけ使用。 |
 | `check_arn_array_reference_forms` | UT移設: `test_managed_policy_attachment_edges` / `test_unknown_reference_property_never_infers_from_name` / `test_formal_return_attributes`、一要素arrayの受信側属性は `test_receiver_contracts`。重複削除: 型付きidentity/Arn form/不明anchor/PENDINGは既存reference-evidence/test_issues_iacとreceiver UTへ集約。 |
 | `check_eventbridge_reference_literals` | UT移設: partition/region/account/qualifier/service/name/別resource/属性/欠落/inactive対応は `test_eventbridge_literal_requires_exact_lambda_identity`。重複削除: 順序/多重度/selected subset/maskingはcomparison_coreと既存reference-evidence、S3 literalはissues_policy_equivalence IT。 |
@@ -3732,7 +3740,7 @@ QuickSightの既存UT行と移管元行が同じ所有関数を重複登録し�
 | JSON context | `test_container_references_use_exact_context` | 2 | Value/document structured and Markdown references use their own array object's Type |
 | Display restoration | `test_markdown_rejects_plaintext_link` | 4 | Explicit/missing PLAINTEXT marker rejects links in CREATE/IMPORT |
 | Non-PLAINTEXT | `test_non_plaintext_round_trip` | 2 | PARAMETER_STORE/SECRETS_MANAGER display round trip is preserved |
-| Issues connection | `test_scan_save_owns_codebuild_and_deduplicates` | 2 | Real multi-service scan → ordinary CodeBuild Issue → numbered issues.md → Issue gate; readable/unreadable Markdown and repeat scan/save create no duplicate |
+| Issues connection | `test_scan_save_owns_codebuild_and_deduplicates` | 3 | Multi-service scan → ordinary CodeBuild Issue → numbered issues.md → Issue gate; readable/unreadable Markdown and valid typed IAM.Role + BUILD_BUCKET_NAME PLAINTEXT Resource link; no duplicate; independent S3 comparison/lint, CLI artifact v3 persistence and strict generation rejection |
 | Structured display | `test_structured_reference_display_is_rejected` | 2 | Projected typed Resource values remain forbidden for PLAINTEXT in CREATE/IMPORT |
 | Valid producers | `test_non_plaintext_model_links_pass` | 2 | Authoritative Model passes correct SSM.Parameter/SecretsManager.Secret links |
 

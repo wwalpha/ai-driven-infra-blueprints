@@ -4,6 +4,7 @@ import re
 import time
 import uuid
 from contextlib import redirect_stdout
+from functools import partial
 
 from model.core import ReferenceResolutionError
 from task_contract_core import task_read_scope
@@ -39,16 +40,25 @@ def mechanical(
     validator_module = module("validate-blueprint.py", "issues_validator")
     validator = validator_module.Validator(root, scope, fresh=fresh, workers=jobs)
     validator.schema_catalog = catalog
-    output = io.StringIO()
-    with redirect_stdout(output):
-        validator.check_project_topology()
-        validator.check_validation_scope()
-        validator.check_model_files()
-        # Continue diagnosable checks even when model/Markdown equality fails.
-        validator.check_scoped_designs(view_errors=view_errors, view_reader=view_reader)
-        validator.check_iac_selection()
     if validator_out is not None:
         validator_out.append(validator)
+    output = io.StringIO()
+    with redirect_stdout(output):
+        for check_id, handler in (
+            ("mechanical.topology", validator.check_project_topology),
+            ("mechanical.scope", validator.check_validation_scope),
+            ("mechanical.models", validator.check_model_files),
+            (
+                "mechanical.designs",
+                partial(
+                    validator.check_scoped_designs,
+                    view_errors=view_errors,
+                    view_reader=view_reader,
+                ),
+            ),
+            ("mechanical.iac-selection", validator.check_iac_selection),
+        ):
+            validator.findings.evaluate(check_id, scope, handler, isolate=True)
     if warnings is not None:
         warnings.extend(validator.warnings)
     return validator.errors, validator.checks, output.getvalue()
@@ -80,21 +90,38 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     warnings = list(comparison.warnings)
     begin = time.perf_counter()
     validators = []
-    errors, checks, diagnostics = mechanical(
-        root,
-        scope,
-        fresh=fresh,
-        jobs=jobs,
-        catalog=comparison.catalog,
-        warnings=warnings,
-        validator_out=validators,
-        view_errors=comparison.view_errors,
-        view_reader=lambda path, **kwargs: view_text(comparison, path, **kwargs),
-    )
+    try:
+        errors, _, diagnostics = mechanical(
+            root,
+            scope,
+            fresh=fresh,
+            jobs=jobs,
+            catalog=comparison.catalog,
+            warnings=warnings,
+            validator_out=validators,
+            view_errors=comparison.view_errors,
+            view_reader=partial(view_text, comparison),
+        )
+    except Exception as error:
+        if not validators:
+            validators.append(
+                module("validate-blueprint.py", "issues_validator").Validator(
+                    root, scope
+                )
+            )
+        validator = validators[0]
+        validator.findings.processing_failure("mechanical", scope, error)
+        errors, diagnostics = validator.errors, ""
+        warnings.extend(validator.warnings)
     mechanical_seconds = time.perf_counter() - begin
     ordinary, judgments = [], []
     validator = validators[0]
+    seen = set()
     for message in dict.fromkeys(errors):
+        if any(
+            message == item["message"] for item in validator.findings.processing_errors
+        ):
+            continue
         found = [
             service
             for service in services
@@ -105,11 +132,17 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
         owner = (
             found[0] if len(found) == 1 else services[0] if len(services) == 1 else None
         )
+        # Model diagnostics retain their identity across View error context wrappers.
+        diagnostic = re.sub(r"^[^\n]*?: (?=Model=)", "", message)
+        key = identifier(diagnostic)
+        if key in seen:
+            continue
+        seen.add(key)
         candidate = {
-            "id": identifier(message),
+            "id": key,
             "service": owner,
-            "message": safe_text(comparison.redacted(message)),
-            "key": identifier(message),
+            "message": safe_text(comparison.redacted(diagnostic)),
+            "key": key,
             "verification_targets": [
                 target
                 for result in validator.findings.results.values()
@@ -166,9 +199,11 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
                     }
                 )
     begin = time.perf_counter()
+    comparison_failure = None
     try:
         iac = comparison.run()
     except ReferenceResolutionError as error:
+        comparison_failure = error
         warnings.append(comparison.redacted(error.diagnostic))
         iac = list(comparison.results) + [
             {
@@ -182,7 +217,8 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             }
             for service in services
         ]
-    except (OSError, ValueError, KeyError, ImportError, TypeError) as error:
+    except Exception as error:
+        comparison_failure = error
         iac = list(comparison.results) + [
             {
                 "category": "error",
@@ -194,11 +230,49 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             }
             for service in services
         ]
+    if comparison_failure is not None:
+        result = validator.findings.result("iac.comparison", scope)
+        result.metadata = dict(complete=False, reason="comparison-interrupted")
+        validator.findings.unverified.append(
+            dict(
+                code="iac.comparison_unverified",
+                phase="iac.comparison",
+                scope=["/".join(entry) for entry in sorted(scope)],
+                exception=type(comparison_failure).__name__,
+                message=str(comparison_failure),
+                complete=False,
+            )
+        )
     warnings.extend(w for w in comparison.warnings if w not in warnings)
     iac_seconds = time.perf_counter() - begin
     run_lint = _imports_issues_cfn_lint.run_lint
     begin = time.perf_counter()
-    lint = run_lint(comparison)
+    lint = dict(
+        jobs=[],
+        coverage=[],
+        status="incomplete",
+        **{
+            name: []
+            for name in (
+                "ordinary",
+                "judgments",
+                "warnings",
+                "information",
+                "unverified",
+                "processing_errors",
+            )
+        },
+    )
+    try:
+        lint = run_lint(comparison, result=lint)
+    except Exception as error:
+        validator.findings.processing_failure("cfn-lint", scope, error)
+        covered = {item.get("job_id") for item in lint["coverage"]}
+        lint["coverage"].extend(
+            dict(job_id=job["id"], status="unverified", reason="lint stage interrupted")
+            for job in lint["jobs"]
+            if job["id"] not in covered
+        )
     lint_seconds = time.perf_counter() - begin
     ordinary.extend(lint.pop("ordinary"))
     judgments.extend(lint.pop("judgments"))
@@ -244,6 +318,7 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             {"code": "mechanical.view_unverified", "scope": entry, "details": info}
         )
     processing = lint.pop("processing_errors")
+    processing.extend(validator.findings.processing_errors)
     processing.extend(view_errors)
     # Stage failures are distinct from the number of affected comparison records.
     stage_errors = {}
