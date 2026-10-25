@@ -499,7 +499,11 @@ def check_service_generated_equality():
                 try:
                     sync.sync(root, False, "dev", "123456789012", services=["iam"])
                 except ValueError as error:
-                    assert "generated Markdown is stale or missing" in str(error)
+                    kind = "Markdown" if path.suffix == ".md" else "JSON"
+                    assert (
+                        f"generated {kind} is stale or missing: {path.relative_to(root)}"
+                        in str(error)
+                    ), error
                 else:
                     raise AssertionError("service generated mismatch accepted")
                 path.write_text(original, encoding="utf-8")
