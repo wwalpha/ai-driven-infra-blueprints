@@ -115,7 +115,6 @@ class Diagnostic:
     affected_services: tuple = ()
     location: str | None = None
     details: dict = field(default_factory=dict)
-    check_ids: tuple = ()
 
     @classmethod
     def create(cls, root, *, source_path=None, target_path=None, **details):
@@ -137,6 +136,7 @@ class Diagnostic:
         )
         if self.code == "design.display.mismatch":
             return (
+                self.check_id,
                 *identity,
                 *(
                     self.details.get(key)
@@ -148,9 +148,6 @@ class Diagnostic:
     def record(self):
         record = asdict(self)
         record.pop("details")
-        record.pop("check_ids")
-        if self.code == "design.display.mismatch":
-            record["check_ids"] = sorted({self.check_id, *self.check_ids})
         if self.details:
             record.update(self.details)
             record.update(

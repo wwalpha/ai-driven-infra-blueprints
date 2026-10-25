@@ -207,23 +207,7 @@ class Findings:
         ]
 
     def _retain_diagnostic(self, diagnostic):
-        position = self.diagnostic_positions.get(diagnostic.identity)
-        if position is not None:
-            existing = self.diagnostics[position]
-            if diagnostic.code == "design.display.mismatch":
-                checks = tuple(
-                    sorted(
-                        {
-                            existing.check_id,
-                            *existing.check_ids,
-                            diagnostic.check_id,
-                            *diagnostic.check_ids,
-                        }
-                    )
-                )
-                self.diagnostics[position] = replace(
-                    existing, check_id=checks[0], check_ids=checks
-                )
+        if diagnostic.identity in self.diagnostic_positions:
             return False
         self.diagnostic_positions[diagnostic.identity] = len(self.diagnostics)
         self.diagnostics.append(diagnostic)

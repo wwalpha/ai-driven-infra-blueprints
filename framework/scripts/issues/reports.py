@@ -43,8 +43,9 @@ def issue_content(root, path, record):
     )
 
 
-def display_content(record, artifact):
-    first = record["diagnostic"]
+def display_content(records, artifact):
+    diagnostics = [item["diagnostic"] for item in records]
+    first = diagnostics[0]
     cause = first["cause_key"]
     dependencies = [
         item for item in artifact["unverified"] if cause in item.get("cause_keys", [])
@@ -62,10 +63,10 @@ def display_content(record, artifact):
         f"保存先: {brief(first['sourcePath'])}。"
         f"対象: {brief(first['resourceLogicalId'])} / {brief(first['anchor'])} / {brief(first['property'])}。"
         f"表示差分: {brief(first['savedDisplay'])} → {brief(first['expectedDisplay'])}。"
-        "対象件数: 1。原診断件数: 1。"
-        f"原診断ID: {first['diagnosticId']}。"
-        f"Review ID: {record['id']}。"
-        f"関連検証経路: {', '.join(first['check_ids'])}。"
+        f"対象件数: 1。原診断件数: {len(records)}。"
+        f"原診断ID: {', '.join(item['diagnosticId'] for item in diagnostics[:MAX_EXAMPLES])}。"
+        f"Review ID: {', '.join(item['id'] for item in records[:MAX_EXAMPLES])}。"
+        f"関連検証経路: {brief(', '.join(sorted({item['check_id'] for item in diagnostics})))}。"
         f"派生NOT_RUN: {len(dependencies)}件 / {brief(scopes[:MAX_EXAMPLES])}。"
         "全対象・全原診断・未検証範囲は同じScan artifactのordinary／unverifiedを参照。"
     )
@@ -103,16 +104,30 @@ def ordinary_report(root, artifact):
         }
         if records:
             lines.extend([f"### {service}", ""])
-            items, display = [], []
+            items, display = [], {}
             for _, item in sorted(records.items()):
                 if item.get("diagnostic", {}).get("code") == "design.display.mismatch":
-                    display.append(item)
+                    diagnostic = item["diagnostic"]
+                    cause = tuple(
+                        diagnostic.get(field)
+                        for field in (
+                            "cause_key",
+                            "sourcePath",
+                            "target_path",
+                            "location",
+                            "resourceLogicalId",
+                            "anchor",
+                            "property",
+                            "occurrence",
+                        )
+                    )
+                    display.setdefault(cause, []).append(item)
                 else:
                     items.append(issue_content(root, path, item))
-            for item in display[:MAX_GROUPS]:
+            for group in list(display.values())[:MAX_GROUPS]:
                 items.append(
-                    display_content(item, artifact)
-                    + f" <!-- issue-id: {issue_key(root, item)} -->"
+                    display_content(group, artifact)
+                    + f" <!-- issue-id: {issue_key(root, group[0])} -->"
                 )
             lines.extend(f"{number}. {item}\n" for number, item in enumerate(items, 1))
             if display:

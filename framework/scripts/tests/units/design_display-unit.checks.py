@@ -25,8 +25,9 @@ from design.document import (
     model_resource_reference_tables,
     require_saved_identity,
 )
-from issues.aggregate import MAX_GROUPS
-from issues.artifact import detail_payload
+from issues.aggregate import MAX_EXAMPLES, MAX_GROUPS
+from issues.artifact import detail_payload, validate_artifact
+from issues.publication import render_snapshot
 from issues.reports import ordinary_report
 from issues.review import review_snapshot
 from issues.runner import validation_issues
@@ -44,7 +45,12 @@ from support.pytest_cli import run
 from utils.aws_mappings import mapping_alias
 from utils.input_cache import input_context
 from validation import design, design_links, design_tables
-from validation.diagnostics import ArtifactReferences, Diagnostic, display_diagnostics
+from validation.diagnostics import (
+    ArtifactReferences,
+    Diagnostic,
+    display_diagnostics,
+    stable_id,
+)
 from validation.findings import Findings, finish_result
 
 if not __debug__:
@@ -446,24 +452,64 @@ def collected(pipeline):
     return findings, scanned
 
 
-def test_cause_identity_keeps_all_routes_review_snapshot_and_human(pipeline):
+@pytest.mark.parametrize("artifact_format", ["current", "v16"])
+def test_cause_identity_keeps_all_routes_review_snapshot_and_human(
+    pipeline, artifact_format
+):
     root, _, path, _, _ = pipeline
     findings, artifact = collected(pipeline)
+    if artifact_format == "v16":
+        for record, diagnostic in zip(
+            artifact["ordinary"], findings.diagnostics, strict=True
+        ):
+            # v16 IDs included the check but predated the extra display identity fields.
+            key = stable_id(
+                (
+                    diagnostic.check_id,
+                    diagnostic.code,
+                    diagnostic.service,
+                    diagnostic.source_path,
+                    diagnostic.target_path,
+                    diagnostic.location,
+                    diagnostic.cause_key,
+                )
+            )
+            record.update(id=key, key=key)
+            record["diagnostic"]["diagnosticId"] = key
+    validate_artifact(artifact)
     before = deepcopy(artifact)
     report = ordinary_report(root, artifact)
     assert artifact == before
     assert "build-project" not in json.dumps(artifact) and "build-project" not in report
-    assert len(artifact["ordinary"]) == 4
+    assert len(artifact["ordinary"]) == 16
     assert "表示差分: 原因4件（表示4件" in report
     assert report.count("対象件数: 1") == 4
     for item in artifact["ordinary"]:
         assert item["diagnostic"]["diagnosticId"] in report
-    assert len({item["id"] for item in artifact["ordinary"]}) == 4
+    assert len({item["id"] for item in artifact["ordinary"]}) == 16
+    assert (
+        len({item["diagnostic"]["diagnosticId"] for item in artifact["ordinary"]}) == 16
+    )
+    assert len({item["diagnostic"]["cause_key"] for item in artifact["ordinary"]}) == 4
+    assert report.count("原診断件数: 4") == 4
     routes = {"tables", "links", "identity", "design.tables.CodePipeline_Pipeline_001"}
     for item in artifact["ordinary"]:
-        assert set(item["diagnostic"]["check_ids"]) == routes
-        assert item["diagnostic"]["checkId"] == min(routes)
-        assert all(route in report for route in routes)
+        assert "check_ids" not in item["diagnostic"]
+        assert item["diagnostic"]["checkId"] == item["diagnostic"]["check_id"]
+        assert item["diagnostic"]["check_id"] in routes
+    for line in report.splitlines():
+        if "原診断件数:" not in line:
+            continue
+        members = [
+            item
+            for item in artifact["ordinary"]
+            if item["diagnostic"]["cause_key"] in line
+        ]
+        assert len(members) == 4
+        assert {item["diagnostic"]["check_id"] for item in members} == routes
+        assert all(route in line for route in routes)
+        assert all(item["diagnostic"]["diagnosticId"] in line for item in members)
+        assert all(item["id"] in line for item in members)
     fields = {
         "cause_key",
         "service",
@@ -474,14 +520,13 @@ def test_cause_identity_keeps_all_routes_review_snapshot_and_human(pipeline):
         "expectedDisplay",
         "sourcePath",
         "checkId",
-        "check_ids",
         "diagnosticId",
     }
     assert all(fields <= item["diagnostic"].keys() for item in artifact["ordinary"])
     page = detail_payload(artifact, "ordinary", limit=50)
-    assert page["total"] == len(page["items"]) == 4
+    assert page["total"] == len(page["items"]) == 16
     review = review_for(artifact)
-    assert len(review["diagnostic_decisions"]) == 4
+    assert len(review["diagnostic_decisions"]) == 16
     assert {item["id"] for item in review["diagnostic_decisions"]} == {
         item["id"] for item in artifact["ordinary"]
     }
@@ -489,10 +534,52 @@ def test_cause_identity_keeps_all_routes_review_snapshot_and_human(pipeline):
     partial["diagnostic_decisions"].pop()
     with pytest.raises(ValueError, match="all current diagnostics require review"):
         review_snapshot(artifact, partial)
-    snapshot = json.loads(review_snapshot(artifact, review).data)
+    reviewed = review_snapshot(artifact, review)
+    rendered = render_snapshot(root, reviewed)[0]
+    assert rendered.count("原診断件数: 4") == 4
+    assert all(
+        item["diagnostic"]["diagnosticId"] in rendered for item in artifact["ordinary"]
+    )
+    snapshot = json.loads(reviewed.data)
+    assert len(snapshot["ordinary"]) == 16
     assert snapshot["ordinary"] == json.loads(json.dumps(artifact["ordinary"]))
     assert snapshot["human_confirmations"] == artifact["human_confirmations"]
     assert snapshot["unverified"] == artifact["unverified"]
+    selected = next(
+        item
+        for item in artifact["ordinary"]
+        if item["property"]
+        == artifact["human_confirmations"]["confirmations"][0]["scope"]["property"]
+    )
+    human = deepcopy(artifact)
+    human["human_confirmations"]["confirmations"][0]["exceptions"] = [
+        dict(
+            rule=selected["rule"],
+            diagnostic_id=selected["id"],
+            condition="Human exception",
+        )
+    ]
+    decision = next(
+        item for item in review["diagnostic_decisions"] if item["id"] == selected["id"]
+    )
+    decision.update(
+        outcome="excluded",
+        confirmation_id="human",
+        target=dict(resource=selected["resource"], property=selected["property"]),
+        evidence="Human confirmed this original diagnostic",
+    )
+    excluded = json.loads(review_snapshot(human, review).data)
+    assert len(excluded["ordinary"]) == 15
+    assert (
+        sum(
+            item["diagnostic"]["cause_key"] == selected["diagnostic"]["cause_key"]
+            for item in excluded["ordinary"]
+        )
+        == 3
+    )
+    assert before == artifact
+    if artifact_format == "v16":
+        return
     reordered = Findings(root)
     for diagnostic in reversed(findings.diagnostics):
         reordered.add_diagnostic(replace(diagnostic, message="表示文章を変更"))
@@ -523,12 +610,16 @@ def test_report_limit_keeps_all_artifact_members(pipeline):
     template = artifact["ordinary"][0]
     artifact["ordinary"] = []
     for number in range(MAX_GROUPS + 3):
-        record = deepcopy(template)
-        record.update(id=f"raw-{number}", key=f"raw-{number}")
-        record["diagnostic"].update(
-            cause_key=f"cause-{number}", diagnosticId=f"diagnostic-{number}"
-        )
-        artifact["ordinary"].append(record)
+        for route in range(MAX_EXAMPLES + 2):
+            record = deepcopy(template)
+            record.update(id=f"raw-{number}-{route}", key=f"raw-{number}-{route}")
+            record["diagnostic"].update(
+                cause_key=f"cause-{number}",
+                diagnosticId=f"diagnostic-{number}-{route}.",
+                check_id=f"check-{route}",
+                checkId=f"check-{route}",
+            )
+            artifact["ordinary"].append(record)
         artifact["unverified"].append(
             dict(
                 code="design.tables.dependency",
@@ -542,6 +633,14 @@ def test_report_limit_keeps_all_artifact_members(pipeline):
     report = ordinary_report(root, artifact)
     assert report.count("対象件数: 1") == MAX_GROUPS
     assert "表示差分: 原因19件（表示16件" in report
+    assert report.count(f"原診断件数: {MAX_EXAMPLES + 2}") == MAX_GROUPS
+    assert (
+        sum(
+            item["diagnostic"]["diagnosticId"] in report
+            for item in artifact["ordinary"]
+        )
+        == MAX_GROUPS * MAX_EXAMPLES
+    )
     section = report.split("## 未検証範囲\n\n", 1)[1].split("\n## ", 1)[0]
     assert [
         json.loads(unescape(line[2:]))
@@ -549,9 +648,13 @@ def test_report_limit_keeps_all_artifact_members(pipeline):
         if line.startswith("- ")
     ] == artifact["unverified"]
     assert len(artifact["unverified"]) == MAX_GROUPS + 4
-    assert (
-        len(detail_payload(artifact, "ordinary", limit=50)["items"]) == MAX_GROUPS + 3
-    )
+    total = (MAX_GROUPS + 3) * (MAX_EXAMPLES + 2)
+    pages = [
+        detail_payload(artifact, "ordinary", offset=i, limit=50)
+        for i in range(0, total, 50)
+    ]
+    assert all(page["total"] == total for page in pages)
+    assert [item for page in pages for item in page["items"]] == artifact["ordinary"]
     assert artifact == before
 
 
@@ -566,6 +669,7 @@ def test_display_routes_merge_across_findings(pipeline, reverse):
         child = Findings(root)
         for diagnostic in display_diagnostics(root, path, error, route):
             child.add_diagnostic(diagnostic)
+            child.add_diagnostic(diagnostic)
             ids.add(diagnostic.identity)
         result = parent.evaluate(
             route,
@@ -573,14 +677,13 @@ def test_display_routes_merge_across_findings(pipeline, reverse):
             partial(parent.include_diagnostics, child),
         )
         assert result.status == "FAIL"
-        assert len(result.errors) == (
-            4 if route == (routes[-1] if reverse else routes[0]) else 0
-        )
-    assert len(parent.diagnostics) == len(ids) == 4
-    assert len(parent.errors) == 4 and not parent.unstructured_errors
-    for diagnostic in parent.diagnostics:
-        assert set(diagnostic.record()["check_ids"]) == set(routes)
-        assert diagnostic.check_id == min(routes)
+        assert len(result.errors) == 4
+        parent.include_diagnostics(child)
+    assert len(parent.diagnostics) == len(ids) == 16
+    assert len(parent.errors) == 16 and not parent.unstructured_errors
+    assert len({d.record()["diagnosticId"] for d in parent.diagnostics}) == 16
+    assert len({d.cause_key for d in parent.diagnostics}) == 4
+    assert {d.check_id for d in parent.diagnostics} == set(routes)
 
 
 @pytest.mark.parametrize(
@@ -591,6 +694,7 @@ def test_display_routes_merge_across_findings(pipeline, reverse):
         "target_path",
         "location",
         "cause_key",
+        "check_id",
         "resourceLogicalId",
         "anchor",
         "property",
@@ -613,6 +717,8 @@ def test_distinct_display_causes_stay_independent(tmp_path, field):
             anchor="saved",
             property="Name",
             occurrence=1,
+            savedDisplay="saved",
+            expectedDisplay="expected",
         ),
     )
     if field in original.details:
@@ -636,6 +742,13 @@ def test_distinct_display_causes_stay_independent(tmp_path, field):
     )
     records, unknown = validation_issues(findings, comparison, ["s3", "sqs"])
     assert not unknown and len(records) == len({item["id"] for item in records}) == 2
+    artifact = snapshot_artifact(
+        tmp_path, ["s3", "sqs"], ordinary=records, target="team"
+    )
+    artifact["environment"] = "qa"
+    report = ordinary_report(tmp_path, artifact)
+    assert report.count("対象件数: 1") == (1 if field == "check_id" else 2)
+    assert all(item["diagnostic"]["diagnosticId"] in report for item in records)
 
 
 def test_generation_keeps_unrelated_markdown_and_json(pipeline):
