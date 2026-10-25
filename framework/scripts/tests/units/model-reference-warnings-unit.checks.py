@@ -236,7 +236,7 @@ def check_reference_view_retained_but_io_still_fails(tmp_path, monkeypatch):
     io_fail = _check_reference_view_retained_but_io_still_fails_io_fail
     monkeypatch.setattr(runtime, "markdown_for", io_fail)
     runtime.generate_views(stage, root, {path: {}}, failures, definitions_root=root)
-    assert failures and "write denied" in failures[0]
+    assert failures and "write denied" in failures[0].message
 
 
 def _callback_check_completion_only_waives_reference_not_run_mixed(findings, /):
@@ -324,7 +324,9 @@ def check_generation_metadata_reaches_findings(tmp_path, monkeypatch):
     assert runtime.compare_generation(tmp_path, plan.scope, findings=findings) == ()
     metadata = findings.result("framework.generated-service-model", plan.scope).metadata
     assert metadata["complete"] is False
-    assert metadata["unverified"]["dev/target/service"]["retainedView"] == str(path)
+    assert metadata["unavailable_services"]["dev/target/service"][
+        "retainedView"
+    ] == str(path)
     assert findings.warnings
 
 
@@ -480,7 +482,7 @@ def check_generation_warning_keeps_independent_error(tmp_path, monkeypatch):
         )
         == {}
     )
-    assert any("Name must appear exactly once" in error for error in failures)
+    assert any("Name must appear exactly once" in error.message for error in failures)
     assert warnings and not unverified
     assert not (stage / path.relative_to(root)).exists()
 
@@ -490,7 +492,7 @@ def _callback_check_unavailable_service_keeps_source_errors_and_no_cache_generat
 ):
     result = self.findings.result("framework.generated-service-model", scope)
     result.metadata = {
-        "unverified": {
+        "unavailable_services": {
             "dev/target/codebuild": {
                 "status": "NOT_RUN",
                 "reason": "reference",

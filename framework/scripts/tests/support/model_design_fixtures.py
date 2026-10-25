@@ -168,14 +168,14 @@ def roundtrip(path, values, root):
     expected = markdown_for(path, values, project_root, definitions_root=root)
     path.write_text(expected, encoding="utf-8")
     plan = SimpleNamespace(
-        root=path.parent,
+        root=project_root,
         read_inputs={},
         expected_outputs={path: {path: expected}},
-        failures=[],
+        failure_records=[],
         saved={},
     )
     sync_runtime._compare_generation(plan)
-    assert not plan.failures, plan.failures
+    assert not plan.failure_records, plan.failure_records
     return expected
 
 

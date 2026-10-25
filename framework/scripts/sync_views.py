@@ -13,7 +13,7 @@ from design.layout_schema import STACK_DESIGN
 from utils.aws_mappings import definition_root
 from utils.input_cache import input_scope
 from validation.design_links import check_local_links
-from validation.findings import Findings
+from validation.findings import Findings, FindingsError
 
 _saved_design_validation = ContextVar("saved_design_validation", default=None)
 
@@ -238,5 +238,5 @@ def validate_views(
             ),
         )
     if validator.errors:
-        raise ValueError("\n- ".join(validator.errors))
+        raise FindingsError(validator.findings)
     return validator.findings

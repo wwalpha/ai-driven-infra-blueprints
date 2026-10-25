@@ -13,7 +13,7 @@ from task_contract_core import task_read_scope
 from utils.input_cache import input_scope
 from utils.reference_contracts import reference_error
 from utils.script_loader import module
-from validation.findings import Findings
+from validation.findings import Findings, check_metadata, finish_result
 
 import issues.artifact as _imports_issues_artifact
 import issues.cfn_lint as _imports_issues_cfn_lint
@@ -177,6 +177,29 @@ def codebuild_plaintext_diagnostics(message, comparison):
     return result
 
 
+def validation_issues(findings, comparison, services):
+    ordinary, judgments = {}, {}
+    for diagnostic in findings.diagnostics:
+        key = identifier(diagnostic.identity)
+        owner = diagnostic.service
+        service = (
+            owner[2]
+            if owner is not None
+            and owner[:2] == (comparison.environment, comparison.directory)
+            and owner[2] in services
+            else None
+        )
+        candidate = dict(
+            id=key,
+            key=key,
+            service=service,
+            message=safe_text(comparison.redacted(diagnostic.message)),
+            diagnostic=comparison.redacted(diagnostic.record()),
+        )
+        (ordinary if service else judgments).setdefault(key, candidate)
+    return list(ordinary.values()), list(judgments.values())
+
+
 def reference_issues(findings, comparison, services, *, scope=None):
     """Use the existing stable identifier on Model position/code, independent of prose."""
     records = {}
@@ -301,10 +324,30 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             json.dumps(d, ensure_ascii=False)
             for d in validator.findings.reference_errors
         }
-    seen = set()
+    structured, unknown = validation_issues(
+        validator.findings, comparison, all_services
+    )
+    ordinary.extend(structured)
+    judgments.extend(unknown)
+    structured_messages = {
+        diagnostic.message for diagnostic in validator.findings.diagnostics
+    }
+    # The existing PLAINTEXT normalizer supplies display aliases only; ownership stays typed.
+    for diagnostic in validator.findings.diagnostics:
+        if diagnostic.code == "codebuild.plaintext-reference":
+            with scan_stage(stages, "diagnostics.codebuild-plaintext", scope):
+                structured_messages.update(
+                    codebuild_plaintext_diagnostics(diagnostic.message, comparison)
+                )
+    seen = {item["id"] for item in [*ordinary, *judgments]}
     for message in dict.fromkeys(errors):
-        if message in reference_messages or any(
-            message == item["message"] for item in validator.findings.processing_errors
+        if (
+            message in structured_messages
+            or message in reference_messages
+            or any(
+                message == item["message"]
+                for item in validator.findings.processing_errors
+            )
         ):
             continue
         diagnostic_messages = []
@@ -312,23 +355,12 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
             diagnostic_messages = codebuild_plaintext_diagnostics(message, comparison)
         for diagnostic in diagnostic_messages:
             with scan_stage(stages, "diagnostics.issue-candidates", scope):
-                found = [
-                    service
-                    for service in services
-                    if re.search(
-                        r"/" + re.escape(service) + r"(?:\.md|\.properties|/)",
-                        diagnostic,
-                    )
-                ]
-                owner = (
-                    found[0]
-                    if len(found) == 1
-                    else services[0]
-                    if len(services) == 1
-                    else None
-                )
+                # Legacy strings contain no authoritative ownership evidence.
+                owner = None
                 # Model diagnostics retain their identity across View error context wrappers.
                 diagnostic = re.sub(r"^[^\n]*?: (?=Model=)", "", diagnostic)
+                if diagnostic in structured_messages:
+                    continue
                 key = identifier(diagnostic)
                 if key in seen:
                     continue
@@ -478,9 +510,12 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
                         "message": "saved View checks unavailable",
                     }
                 )
+    check_metadata(
+        validator.findings.result("framework.generated-service-model", scope).metadata
+    )
     for entry, info in (
         validator.findings.result("framework.generated-service-model", scope)
-        .metadata.get("unverified", {})
+        .metadata.get("unavailable_services", {})
         .items()
     ):
         unverified.append(
@@ -558,15 +593,17 @@ def scan(root, environment, directory, services, *, fresh=False, jobs=4):
     ):
         artifact[key] = comparison.redacted(artifact[key])
     artifact["checks"] = validator.checks + stages.checks
+    for result in [*validator.findings.results.values(), *stages.results.values()]:
+        finish_result(result)
     artifact["check_results"] = [
         dict(
             id=identifier([result.check_id, sorted(result.scope or [])]),
             check_id=result.check_id,
             scope=["/".join(entry) for entry in sorted(result.scope or [])],
             status=result.status,
-            complete=result.status == "PASS"
-            and result.metadata.get("complete") is not False
-            and not result.metadata.get("unverified"),
+            complete=result.metadata.get("complete", result.status == "PASS"),
+            unavailable_services=result.metadata.get("unavailable_services", {}),
+            unverified=result.metadata.get("unverified", []),
             checks=result.checks,
             # Only this complete service check validates the selected setting tables.
             # Other checks (including lint) have no proven per-setting PASS coverage.

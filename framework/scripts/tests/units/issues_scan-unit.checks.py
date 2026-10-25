@@ -733,6 +733,7 @@ def check_scan_accepts_input_changes(tmp_path, input_name):
         checks=1,
         findings=SimpleNamespace(
             reference_errors=[],
+            diagnostics=[],
             processing_errors=[],
             unverified=[],
             results={},
@@ -835,7 +836,7 @@ def check_view_read_failure_policy(tmp_path):
     generated = []
     source_checks = Mock(
         return_value=SimpleNamespace(
-            errors=[], warnings=[], reference_errors=[], checks=7
+            errors=[], warnings=[], reference_errors=[], diagnostics=[], checks=7
         )
     )
     ownership = _bind_framework_callback(
@@ -967,6 +968,7 @@ def check_dependency_view_failure_branches(tmp_path, monkeypatch, failure):
         service_cache_pending=[("pending", 3)] if dependent else [],
         findings=SimpleNamespace(
             reference_errors=[],
+            diagnostics=[],
             processing_errors=[],
             unverified=[],
             results={},
@@ -1362,12 +1364,15 @@ def check_reference_diagnostic_isolation(tmp_path, stage):
     else:
         assert not artifact["processing_errors"]
     assert "retained machine output" in artifact["machine_diagnostics"]
-    candidates = artifact["ordinary"]
+    candidates = [
+        *artifact["ordinary"],
+        *(item for item in artifact["judgments"] if "message" in item),
+    ]
     assert len({item["id"] for item in candidates}) == len(candidates)
     for message in () if stage == "plaintext" else (messages[0], messages[-1]):
         assert (
             sum(
-                item["id"] == identifier(message) and item["service"] == "s3"
+                item["id"] == identifier(message) and item["service"] is None
                 for item in candidates
             )
             == 1
@@ -1472,7 +1477,9 @@ def check_scan_stage_failures(tmp_path, stage):
     if stage != "lint":
         assert artifact["cfn_lint"]["jobs"][0]["completed"]
     assert any(
-        "retained diagnostic" in item["message"] for item in artifact["ordinary"]
+        "retained diagnostic" in item["message"]
+        for item in artifact["judgments"]
+        if "message" in item
     )
     assert not any(
         "interrupted" in record["message"] for record in artifact["ordinary"]
@@ -1581,7 +1588,7 @@ def check_service_worker_isolation(tmp_path, failure):
     original = validation_runner._callback_Validator_check_scoped_designs_validate
     source = Mock(
         return_value=SimpleNamespace(
-            errors=[], warnings=[], reference_errors=[], checks=3
+            errors=[], warnings=[], reference_errors=[], diagnostics=[], checks=3
         )
     )
     with (

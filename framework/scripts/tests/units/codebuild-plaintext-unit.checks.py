@@ -369,7 +369,11 @@ def test_issues_retains_mixed_causes_and_resource_dependencies(tmp_path):
         )
         artifact = scan(tmp_path, "dev", "123456789012", ["codebuild"], jobs=1)
         validate_artifact(artifact)
-        messages = [item["message"] for item in artifact["ordinary"]]
+        messages = [
+            item["message"]
+            for item in [*artifact["ordinary"], *artifact["judgments"]]
+            if "message" in item
+        ]
         assert any(REASON in message for message in messages), messages
         assert any(
             "TimeoutInMinutes" in message and "provider schema violation" in message

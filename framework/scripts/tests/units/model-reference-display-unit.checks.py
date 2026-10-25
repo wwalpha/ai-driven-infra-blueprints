@@ -229,17 +229,17 @@ def check_obsolete_metadata_requires_regeneration(pipeline, marker):
         root=root,
         read_inputs={},
         expected_outputs={path: {path: current}},
-        failures=[],
+        failure_records=[],
         saved={},
     )
     _compare_generation(plan)
-    assert plan.failures and not plan.saved
+    assert plan.failure_records and not plan.saved
     with pytest.raises(ValueError, match="obsolete Model reference metadata"):
         expanded_display_rows(legacy.splitlines(), FRAMEWORK)
     path.write_text(current, encoding="utf-8")
-    plan.failures.clear()
+    plan.failure_records.clear()
     _compare_generation(plan)
-    assert not plan.failures and path in plan.saved
+    assert not plan.failure_records and path in plan.saved
 
 
 def check_snapshot_candidate_and_definition_roots(pipeline):

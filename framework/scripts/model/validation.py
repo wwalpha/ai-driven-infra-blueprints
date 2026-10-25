@@ -32,6 +32,7 @@ from utils.input_cache import input_is_file, memoized
 from utils.input_cache import input_scope as input_scope
 from utils.json_format import policy_json
 from utils.reference_contracts import action_contexts, reference_error, row_contexts
+from validation.diagnostics import Diagnostic, service_scope
 
 import model.core as _imports_model_core
 import model.files as _imports_model_files
@@ -861,8 +862,18 @@ def check_model_inputs(path, values, root, *, definitions_root=None):
     if findings.evaluate("model.structure", None, structure).errors:
         return findings
     prohibited = codebuild_reference_errors(model_path, values)
-    for message in prohibited.values():
-        findings.check(False, message)
+    for (row, field, pointer), message in prohibited.items():
+        findings.add_diagnostic(
+            Diagnostic.create(
+                root,
+                code="codebuild.plaintext-reference",
+                check_id="model.reference-policy",
+                service=service_scope(root, model_path),
+                source_path=model_path,
+                location=f"desired.row.{row}.{field}{pointer}",
+                message=message,
+            )
+        )
     findings.evaluate(
         "model.json-settings",
         None,

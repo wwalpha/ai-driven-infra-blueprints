@@ -32,6 +32,7 @@ from design.layout_schema import (
 )
 from design.layout_schema import RESOURCE as RESOURCE_HEADING_PATTERN
 from design.policy_tables import iam_role_policy_artifact_filename
+from design.services.codebuild import PlaintextReferenceError
 from design.services.definitions.ec2 import SECURITY_GROUP_TYPES
 from design.services.definitions.registry import REQUIRED_NAME_TAG_TYPES
 from design.services.ec2.security_groups import security_group_table_lines, table_at
@@ -63,6 +64,7 @@ from .design import (
     resource_property_path,
     unquoted,
 )
+from .diagnostics import Diagnostic, service_scope
 
 # Preserve shared fixtures and compatibility exports under their historical names.
 properties = _exports_model_core.properties
@@ -308,7 +310,21 @@ def design_dependency_not_run(
         reason = "reference"
     elif isinstance(error, Exception):
         reason = "expansion"
-        findings.check(False, f"{stage}: {findings.relative(path)}: {error}")
+        if isinstance(error, PlaintextReferenceError):
+            for position in error.positions:
+                findings.add_diagnostic(
+                    Diagnostic.create(
+                        findings.canonical_root,
+                        code="codebuild.plaintext-reference",
+                        check_id="design.tables",
+                        service=service_scope(findings.canonical_root, path),
+                        source_path=path,
+                        location=f"{position['anchor']}/{position['property']}/{position['name']}",
+                        message=f"{findings.relative(path)}: {position['message']}",
+                    )
+                )
+        else:
+            findings.check(False, f"{stage}: {findings.relative(path)}: {error}")
     entry = dict(
         code="design.tables.dependency",
         reason=reason,
@@ -532,6 +548,8 @@ def check_design_tables(
 ) -> None:
     definitions_root = definitions_root or root
     for path in design_files(root=root, scope=scope) if paths is None else paths:
+        markdown_design_artifacts.start(path)
+        incomplete_start = len(findings.unverified)
         lines = resource_heading_lines(input_text(path, encoding="utf-8").splitlines())
         check_raw_design_tables(path, lines, findings=findings)
         try:
@@ -907,7 +925,9 @@ def check_design_tables(
                                 is not None,
                                 f"invalid design JSON artifact path: {findings.relative(path)}: {artifact_link}",
                             )
-                            markdown_design_artifacts.add(artifact)
+                            markdown_design_artifacts.add(
+                                artifact, path, service_scope(root, path)
+                            )
                 if current_resource_type in catalog_types:
                     if (
                         schema_catalog is not None
@@ -1028,6 +1048,8 @@ def check_design_tables(
                         markdown_iam_policy_artifacts=markdown_iam_policy_artifacts,
                         root=root,
                     )
+        if available_anchors is None and len(findings.unverified) == incomplete_start:
+            markdown_design_artifacts.finish(path)
 
 
 def check_api_design_rows(

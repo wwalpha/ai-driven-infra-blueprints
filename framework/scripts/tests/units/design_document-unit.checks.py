@@ -276,14 +276,16 @@ def check_snapshot():
         ):
             source.write_text(changed, encoding="utf-8")
             plan = SimpleNamespace(
-                root=source.parent,
+                root=project_root,
                 read_inputs={},
                 expected_outputs={source: {source: alias_text}},
-                failures=[],
+                failure_records=[],
                 saved={},
             )
             _compare_generation(plan)
-            assert plan.failures == ["generated Markdown is stale or missing: s3.md"]
+            assert [d.message for d in plan.failure_records] == [
+                "generated Markdown is stale or missing: docs/designs/dev/account/s3.md"
+            ]
         resource_modes = _imports_design_layout.resource_modes
         for mode in ("CREATE", "IMPORT"):
             source.write_text(
@@ -624,7 +626,7 @@ def check_view_failure_isolation(tmp_path, phase):
             design_sources={source: {}},
         )
     assert sum("synthetic invalid View" in error for error in findings.errors) == 1
-    assert any("broken design link" in error for error in findings.errors)
+    assert any(d.code == "design.artifact.missing" for d in findings.diagnostics)
     assert findings.unverified == [
         dict(
             code="design.links_unverified",

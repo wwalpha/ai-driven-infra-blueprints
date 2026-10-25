@@ -81,7 +81,43 @@ from utils.input_cache import (
 )
 from utils.input_cache import memo_table as memo_table
 from utils.json_format import policy_json
+from validation.diagnostics import Diagnostic, service_scope
+from validation.findings import FindingsError
 from validation_scope import scoped_files
+
+
+def generation_failure(
+    root, failures, code, path, message, *, target=None, affected=()
+):
+    if isinstance(message, FindingsError):
+        checked = message.findings
+        for diagnostic in checked.diagnostics:
+            if not any(item.identity == diagnostic.identity for item in failures):
+                failures.append(diagnostic)
+        remaining = [
+            error
+            for error in checked.errors
+            if error not in {d.message for d in checked.diagnostics}
+        ]
+        if not remaining:
+            return
+        message = ValueError("\n- ".join(remaining))
+    if isinstance(message, Exception):
+        message = (
+            f"{path.relative_to(root)}: {message}" if path is not None else str(message)
+        )
+    diagnostic = Diagnostic.create(
+        root,
+        code=code,
+        check_id="framework.generated-service-model",
+        service=service_scope(root, path),
+        source_path=path,
+        target_path=target,
+        message=message,
+        affected_services=tuple(sorted(affected)),
+    )
+    if not any(item.identity == diagnostic.identity for item in failures):
+        failures.append(diagnostic)
 
 
 def local_design_links(root, path, texts):
@@ -265,11 +301,9 @@ def generate_views(
     *,
     warnings=None,
     unavailable=None,
-    reference_failures=None,
 ):
     warnings = warnings if warnings is not None else []
     unavailable = unavailable if unavailable is not None else {}
-    reference_failures = reference_failures if reference_failures is not None else set()
     definitions_root = definitions_root or definition_root(root)
     total(len(destinations))
     generated = {}
@@ -363,20 +397,35 @@ def generate_views(
                         f"conflicting authoritative JSON documents: {artifact.name}"
                     )
                 artifacts[artifact] = content
+            for diagnostic in independent.diagnostics:
+                if not any(item.identity == diagnostic.identity for item in failures):
+                    failures.append(diagnostic)
             reference_messages = {
                 json.dumps(d, ensure_ascii=False)
                 for d in getattr(independent, "reference_errors", ())
             }
             other_errors = [
-                error for error in independent.errors if error not in reference_messages
+                error
+                for error in independent.errors
+                if error not in reference_messages
+                and error
+                not in {diagnostic.message for diagnostic in independent.diagnostics}
             ]
             if other_errors and diagnostics:
-                failures.append(
-                    f"{path.relative_to(root)}: " + "\n- ".join(other_errors)
+                generation_failure(
+                    root,
+                    failures,
+                    "generation.render",
+                    path,
+                    f"{path.relative_to(root)}: " + "\n- ".join(other_errors),
                 )
             require_reference_diagnostics(diagnostics)
             if other_errors:
                 raise ValueError("\n- ".join(other_errors))
+            if independent.diagnostics:
+                restore_view(stage, root, path)
+                advance()
+                continue
             validate_kms_policy_accounts(values, design_target(staged, stage))
             save_files(artifacts)
             staged.parent.mkdir(parents=True, exist_ok=True)
@@ -393,8 +442,9 @@ def generate_views(
             )
             if not isinstance(error, ReferenceResolutionError):
                 message = f"{path.relative_to(root)}: {error}"
-                failures.append(message)
-                reference_failures.add(message)
+                generation_failure(
+                    root, failures, "generation.reference", path, message
+                )
             if len(failures) == failure_start:
                 unavailable[path] = {
                     "reason": "reference",
@@ -407,7 +457,13 @@ def generate_views(
             generated.pop(path, None)
             restore_view(stage, root, path)
         except (OSError, ValueError, KeyError, TypeError) as error:
-            failures.append(f"{path.relative_to(root)}: {error}")
+            generation_failure(
+                root,
+                failures,
+                "generation.render",
+                path,
+                f"{path.relative_to(root)}: {error}",
+            )
             restore_view(stage, root, path)
         advance()
     for path in list(generated):
@@ -427,8 +483,9 @@ def generate_views(
             )
             if not isinstance(error, ReferenceResolutionError):
                 message = f"{path.relative_to(root)}: {error}"
-                failures.append(message)
-                reference_failures.add(message)
+                generation_failure(
+                    root, failures, "generation.reference", path, message
+                )
             if len(failures) == failure_start:
                 unavailable[path] = {
                     "reason": "reference",
@@ -441,7 +498,13 @@ def generate_views(
             generated.pop(path, None)
             restore_view(stage, root, path)
         except (OSError, ValueError, KeyError, TypeError) as error:
-            failures.append(f"{path.relative_to(root)}: {error}")
+            generation_failure(
+                root,
+                failures,
+                "generation.render",
+                path,
+                f"{path.relative_to(root)}: {error}",
+            )
             del generated[path]
             restore_view(stage, root, path)
     return generated
@@ -485,7 +548,7 @@ def _callback_validate_candidates_validate(
                 if validation is not None:
                     validation[path] = return_value
         except (OSError, ValueError, KeyError, TypeError) as error:
-            return path, f"{path.relative_to(root)}: {error}"
+            return path, error
         return path, None
 
 
@@ -547,7 +610,14 @@ def validate_candidates(
                 if _state_validate_candidates_260.context.errors:
                     # Ownership/stack checks concern the fixed whole scope, not repeated services.
                     for error in _state_validate_candidates_260.context.errors:
-                        failures.append(error)
+                        generation_failure(
+                            root,
+                            failures,
+                            "generation.candidate",
+                            None,
+                            error,
+                            affected={service_scope(root, p) for p in generated},
+                        )
                     rejected = [
                         p
                         for p in generated
@@ -572,7 +642,9 @@ def validate_candidates(
                 for path, error in mapper(validate, sorted(generated)):
                     advance()
                     if error:
-                        failures.append(error)
+                        generation_failure(
+                            root, failures, "generation.candidate", path, error
+                        )
                         rejected.append(path)
             if not rejected:
                 break
@@ -756,18 +828,21 @@ class Generation:
     lifetime: ExitStack
     destinations: dict = field(default_factory=dict)
     generated: dict = field(default_factory=dict)
-    failures: list = field(default_factory=list)
+    failure_records: list = field(default_factory=list)
     validation: dict = field(default_factory=dict)
     read_inputs: dict = field(default_factory=dict)
     saved: dict = field(default_factory=dict)
     expected_outputs: dict = field(default_factory=dict)
     warnings: dict = field(default_factory=dict)
     reference_warnings: list = field(default_factory=list)
-    reference_failures: set = field(default_factory=set)
     unavailable: dict = field(default_factory=dict)
     candidate: object = field(default_factory=object)
     accounts: object = None
     definitions_root: Path | None = None
+
+    @property
+    def failures(self):
+        return [diagnostic.message for diagnostic in self.failure_records]
 
     @property
     def generated_scope(self):
@@ -859,14 +934,25 @@ def prepare_generation(
                     plan.reference_warnings.extend(
                         dict(d, model=str(path)) for d in error.diagnostics
                     )
-                    plan.reference_failures.add(message)
-                plan.failures.append(message)
+                generation_failure(
+                    root,
+                    plan.failure_records,
+                    "generation.reference"
+                    if isinstance(error, ReferenceDiagnosticError)
+                    else "generation.model",
+                    path,
+                    message,
+                )
         for path in sorted(
             set(markdown_paths)
             - {(docs / p.relative_to(models)).with_suffix(".md") for p in model_paths}
         ):
-            plan.failures.append(
-                f"authoritative properties Model inputs missing: {path.relative_to(root)}"
+            generation_failure(
+                root,
+                plan.failure_records,
+                "generation.model_missing",
+                path,
+                f"authoritative properties Model inputs missing: {path.relative_to(root)}",
             )
         services = None if scope is None else [entry[2] for entry in scope]
         plan.saved_paths, plan.baseline_links = stage_inputs(
@@ -894,11 +980,10 @@ def prepare_generation(
             stage,
             root,
             plan.destinations,
-            plan.failures,
+            plan.failure_records,
             definitions_root=definitions_root,
             warnings=plan.reference_warnings,
             unavailable=plan.unavailable,
-            reference_failures=plan.reference_failures,
         )
         return plan
     except BaseException:
@@ -912,7 +997,7 @@ def validate_generation(plan, *, jobs=4, write=True):
         plan.root,
         plan.generated,
         plan.destinations,
-        plan.failures,
+        plan.failure_records,
         jobs,
         write,
         *([plan.validation, plan.accounts] if write else []),
@@ -1020,7 +1105,13 @@ def publish_generation(plan):
                     )
                 plan.saved[path] = originals
             except (OSError, ValueError, KeyError, TypeError) as error:
-                plan.failures.append(f"{path.relative_to(root)}: {error}")
+                generation_failure(
+                    root,
+                    plan.failure_records,
+                    "generation.publish",
+                    path,
+                    error,
+                )
                 if journal.is_file():
                     raise ValueError(
                         f"publication rollback incomplete; recovery journal retained: {journal}: {error}"
@@ -1064,7 +1155,13 @@ def publish_generation(plan):
                         w for w in findings.warnings if w not in plan.reference_warnings
                     )
                 except (OSError, ValueError, KeyError, TypeError) as error:
-                    plan.failures.append(f"{path.relative_to(root)}: {error}")
+                    generation_failure(
+                        root,
+                        plan.failure_records,
+                        "generation.publish",
+                        path,
+                        error,
+                    )
                     rejected.append(path)
             if not rejected:
                 break
@@ -1088,8 +1185,8 @@ def generation_unavailable(plan):
         path: info
         for path, info in plan.unavailable.items()
         if not any(
-            error.startswith(f"{path.relative_to(plan.root)}:")
-            for error in plan.failures
+            diagnostic.service == service_scope(plan.root, path)
+            for diagnostic in plan.failure_records
         )
     }
 
@@ -1104,12 +1201,13 @@ def generation_metadata(plan):
         else "PASS",
         "failures": list(plan.failures),
         "generated": sorted("/".join(scope) for scope in plan.generated_scope),
-        "unverified": {
+        "unavailable_services": {
             "/".join(
                 (*p.relative_to(plan.root / "docs/designs").parts[:2], p.stem)
             ): info
-            for p, info in generation_unavailable(plan).items()
+            for p, info in plan.unavailable.items()
         },
+        "unverified": [],
         "warnings": plan.reference_warnings,
     }
 
@@ -1233,16 +1331,23 @@ def _compare_generation(plan):
             + ", ".join(str(p) for p in changed)
         )
     for path, expected in plan.expected_outputs.items():
-        stale = [
-            str(p.relative_to(root))
-            for p, text in expected.items()
-            if not p.is_file() or p.read_bytes() != text.encode("utf-8")
-        ]
-        if stale:
-            plan.failures.append(
-                "generated Markdown is stale or missing: " + ", ".join(stale)
-            )
-        else:
+        stale = False
+        source = (root / "model" / path.relative_to(root / "docs/designs")).with_suffix(
+            ".properties"
+        )
+        for target, text in expected.items():
+            if not target.is_file() or target.read_bytes() != text.encode("utf-8"):
+                stale = True
+                kind = "Markdown" if target.suffix == ".md" else "JSON"
+                generation_failure(
+                    root,
+                    plan.failure_records,
+                    "generation.mismatch",
+                    source,
+                    f"generated {kind} is stale or missing: {target.relative_to(root)}",
+                    target=target,
+                )
+        if not stale:
             plan.saved[path] = {}
 
 
@@ -1266,10 +1371,13 @@ def compare_generation(
             findings.result("framework.generated-service-model", scope).metadata.update(
                 generation_metadata(plan)
             )
+            for diagnostic in plan.failure_records:
+                if diagnostic.code != "generation.reference":
+                    findings.add_diagnostic(diagnostic)
         return tuple(
-            error
-            for error in plan.failures
-            if findings is None or error not in plan.reference_failures
+            diagnostic.message
+            for diagnostic in plan.failure_records
+            if findings is None or diagnostic.code != "generation.reference"
         )
     finally:
         plan.close()

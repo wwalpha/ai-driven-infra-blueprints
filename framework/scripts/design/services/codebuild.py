@@ -19,9 +19,10 @@ from design.services.definitions.codebuild import (
 class PlaintextReferenceError(ValueError):
     """A prohibited reference, retained separately from other display errors."""
 
-    def __init__(self, message, *, lines=None):
+    def __init__(self, message, *, lines=None, positions=()):
         super().__init__(message)
         self.lines = lines
+        self.positions = positions
 
 
 def adjust_display_order(kind, order):
@@ -104,7 +105,10 @@ def codebuild_formal_rows(cells, names, *, mode="CREATE", typed=False):
         )
     ):
         raise PlaintextReferenceError(
-            f"Name={name}, Type={variable_type}, Property={CODEBUILD_FORMAL_VARIABLE}Value: {error}"
+            f"Name={name}, Type={variable_type}, Property={CODEBUILD_FORMAL_VARIABLE}Value: {error}",
+            positions=(
+                {"name": name, "property": CODEBUILD_FORMAL_VARIABLE + "Value"},
+            ),
         )
     if marker and not linked and mode != "IMPORT" and not typed:
         raise ReferenceResolutionError(

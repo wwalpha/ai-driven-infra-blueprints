@@ -837,8 +837,12 @@ def check_integrated_generation_before_issue_gate(tmp_path, inventory, outcome, 
             plan.generated[rejected] = [second]
             plan.expected_outputs[rejected] = {rejected: "new KMS\n"}
         elif outcome == "partial":
-            plan.failures.append(
-                f"{rejected.relative_to(tmp_path)}: missing required property"
+            sync_runtime.generation_failure(
+                tmp_path,
+                plan.failure_records,
+                "generation.render",
+                rejected,
+                f"{rejected.relative_to(tmp_path)}: missing required property",
             )
         elif outcome == "not_run":
             plan.unavailable[rejected] = {
@@ -1198,7 +1202,7 @@ def check_generate_views_missing_authoritative_json(tmp_path, shared_framework):
             definitions_root=shared_framework.parent,
         )
     assert generated == {}
-    assert failures == [
+    assert [d.message for d in failures] == [
         "docs/designs/dev/team/iam.md: authoritative JSON document missing: iam.md: 009-002"
     ]
     assert {
@@ -1232,14 +1236,14 @@ def check_readonly_stale_views(tmp_path):
             root=tmp_path,
             read_inputs={source: before[source]},
             expected_outputs={path: {path: expected}},
-            failures=[],
+            failure_records=[],
             saved={},
         )
         sync_runtime._compare_generation(plan)
         if content == expected:
-            assert plan.saved == {path: {}} and not plan.failures
+            assert plan.saved == {path: {}} and not plan.failure_records
         else:
-            assert plan.failures == [
+            assert [d.message for d in plan.failure_records] == [
                 "generated Markdown is stale or missing: docs/designs/dev/team/logs.md"
             ]
             assert not plan.saved
@@ -1249,11 +1253,11 @@ def check_readonly_stale_views(tmp_path):
         root=tmp_path,
         read_inputs={},
         expected_outputs={path: {path: expected}},
-        failures=[],
+        failure_records=[],
         saved={},
     )
     sync_runtime._compare_generation(plan)
-    assert plan.failures and not path.exists()
+    assert plan.failure_records and not path.exists()
 
 
 def check_saved_link_snapshot_and_new_warnings(tmp_path, capsys):
@@ -1283,6 +1287,7 @@ def check_saved_link_snapshot_and_new_warnings(tmp_path, capsys):
     plan = SimpleNamespace(
         root=root,
         saved={target: {}},
+        failure_records=[],
         failures=[],
         reference_warnings=[],
         unavailable={},
@@ -1336,22 +1341,24 @@ def check_publication_legacy_fallback(tmp_path, reject_saved):
     with closing(sync_runtime.GenerationInputs(root)) as snapshot:
         for path in original:
             snapshot.read(path)
-        plan = SimpleNamespace(
+        plan = sync_runtime.Generation(
             root=root,
             stage=stage,
             snapshot=snapshot,
+            scope=None,
+            model_paths=[],
+            markdown_paths=[],
+            lifetime=ExitStack(),
             expected_outputs=expected,
             saved={},
             generated={good: [], failed: []},
-            failures=[],
+            failure_records=[],
             validation={},
             candidate=object(),
             destinations={good: {}, failed: {}},
             accounts={},
             definitions_root=root,
-            saved_paths=[good, failed],
             warnings={},
-            baseline_links={},
             reference_warnings=[],
         )
         fail_write = _bind_framework_callback(
@@ -1367,6 +1374,7 @@ def check_publication_legacy_fallback(tmp_path, reject_saved):
         validation = (
             ValueError("fixture dependent candidate invalid") if reject_saved else None
         )
+        plan.saved_paths, plan.baseline_links = [good, failed], {}
         with (
             patch.object(Path, "write_text", autospec=True, side_effect=fail_write),
             patch.object(sync_views, "validation_context", return_value=context),
@@ -1490,6 +1498,7 @@ def check_failure_counts(tmp_path, capsys, extra_inputs, write, unavailable):
         root=tmp_path,
         saved=saved,
         failures=failures,
+        failure_records=[],
         model_paths=model_paths,
         markdown_paths=paths,
         reference_warnings=[],
@@ -1507,10 +1516,14 @@ def check_failure_counts(tmp_path, capsys, extra_inputs, write, unavailable):
             path: {"reason": "reference", "status": "NOT_RUN", "retainedView": None}
             for path in (reference, paths[0])
         }
+    for path, message in zip(paths, plan.failures, strict=False):
+        sync_runtime.generation_failure(
+            tmp_path, plan.failure_records, "generation.render", path, message
+        )
     metadata = sync_runtime.generation_metadata(plan)
     assert metadata["status"] == "FAIL"
-    assert set(metadata["unverified"]) == (
-        {"dev/team/unresolved"} if unavailable else set()
+    assert set(metadata["unavailable_services"]) == (
+        {"dev/team/unresolved", "dev/team/service-00"} if unavailable else set()
     )
     with pytest.raises(ValueError) as error:
         sync_runtime.report_generation(plan)

@@ -321,7 +321,9 @@ def test_sync_failure_retains_service_and_continues(fixture, tmp_path):
     with (
         patch(
             "model.validation.check_model_inputs",
-            return_value=SimpleNamespace(errors=(), warnings=(), unverified=False),
+            return_value=SimpleNamespace(
+                errors=(), warnings=(), diagnostics=[], unverified=False
+            ),
         ),
         patch.object(sync_runtime, "markdown_for", return_value="# Generated\n"),
         patch.object(sync_runtime, "rendered_design", return_value="# Generated\n"),

@@ -240,9 +240,9 @@ def check_standalone_generation(tmp_path):
             failures,
             definitions_root=FRAMEWORK,
         )
-        assert not generated and any("Fn::GetAtt" in error for error in failures), (
-            failures
-        )
+        assert not generated and any(
+            "Fn::GetAtt" in error.message for error in failures
+        ), failures
         assert (stage / artifact.relative_to(root)).read_bytes() == before[artifact]
         assert not (
             stage / artifact.with_name("second.json").relative_to(root)

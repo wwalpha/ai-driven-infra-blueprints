@@ -1018,11 +1018,11 @@ def check_delivery(tmp_path):
         root=root,
         read_inputs={},
         expected_outputs={design: {design: template_view}},
-        failures=[],
+        failure_records=[],
         saved={},
     )
     __import__("sync_runtime")._compare_generation(plan)
-    assert plan.failures == [
+    assert [d.message for d in plan.failure_records] == [
         "generated Markdown is stale or missing: docs/designs/dev/123456789012/cloudformation-stacks.md"
     ]
     only_artifacts = {

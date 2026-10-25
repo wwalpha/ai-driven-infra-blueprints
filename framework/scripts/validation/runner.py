@@ -49,7 +49,8 @@ from validation import (
 from validation.design import REQUIRED_NAME_PROPERTIES as REQUIRED_NAME_PROPERTIES
 from validation.design import TABLE_ALIGNMENT as TABLE_ALIGNMENT
 from validation.design import TABLE_HEADER as TABLE_HEADER
-from validation.findings import Findings
+from validation.diagnostics import ArtifactReferences
+from validation.findings import Findings, check_metadata, finish_result
 from validation.framework_contracts import (
     CODEX_PROMPT_FILENAME_PATTERN as CODEX_PROMPT_FILENAME_PATTERN,
 )
@@ -74,9 +75,9 @@ def owned_field(owner, name):
 def _callback_Validator_generate_and_validate_generated(plan, self, snapshot, /):
     for diagnostic in plan.reference_warnings:
         self.findings.warn(diagnostic)
-    for error in plan.failures:
-        if error not in plan.reference_failures:
-            self.check(False, error)
+    for diagnostic in plan.failure_records:
+        if diagnostic.code != "generation.reference":
+            self.findings.add_diagnostic(diagnostic)
     for findings in plan.validation.values():
         if findings is not None:
             self.checks += findings.checks
@@ -246,6 +247,7 @@ def _callback_Validator_check_scoped_designs_source_checks(
         for error in independent.errors
         if not any(error in existing for existing in self.errors)
     )
+    self.findings.include_diagnostics(independent)
     self.findings.reference_errors.extend(independent.reference_errors)
     for diagnostic in (*analysis.warnings, *independent.warnings):
         self.findings.warn(diagnostic)
@@ -338,7 +340,7 @@ class Validator:
         self.accounts: dict[tuple[str, str], dict[str, str]] = {}
         self.scenario_ids: set[str] = set()
         self.result_files: dict[str, list[Path]] = {}
-        self.markdown_design_artifacts: set[Path] = set()
+        self.markdown_design_artifacts = ArtifactReferences()
         self.markdown_iam_policy_artifacts: dict[tuple[str, str, str, str], Path] = {}
         self.schema_catalog: DesignSchemaCatalog | None = None
 
@@ -485,7 +487,7 @@ class Validator:
         return self.report()
 
     def report(self):
-        return int(bool(self.errors))
+        return int(self.findings.status != "PASS")
 
     def display_report(self):
         if self.errors:
@@ -495,7 +497,7 @@ class Validator:
             self.report_findings()
             return 1
 
-        result = "PASS"
+        result = self.findings.status
         print(f"Blueprint repository validation: {result} ({self.checks} checks)")
         if self.task_type:
             print(f"- task type: {self.task_type}")
@@ -510,7 +512,7 @@ class Validator:
             f"- validation scope: {'all' if self.scope is None else ', '.join('/'.join(item) for item in sorted(self.scope)) or 'framework'}"
         )
         self.report_findings()
-        return 0
+        return self.report()
 
     def generate_and_validate(self, snapshot, registered):
         planned_outputs = _imports_sync_runtime.planned_outputs
@@ -626,8 +628,9 @@ class Validator:
                 )
                 generation.status = "FAIL"
                 generation.errors = tuple(plan.failures)
-                for error in publication_errors:
-                    self.check(False, error)
+                for diagnostic in plan.failure_records[before_publication:]:
+                    self.findings.add_diagnostic(diagnostic)
+                generation.metadata.update(complete=False, status="FAIL")
                 # The original scope's policy/content result belongs to the old candidate.
                 # Post-save Acceptance observes NOT_RUN/FAIL without invoking handlers.
             if (
@@ -732,6 +735,7 @@ class Validator:
                 generator.check_generated_service_models,
                 isolate=True,
             )
+            self.findings.include_diagnostics(generator.findings)
             self.findings.reference_errors.extend(generator.findings.reference_errors)
             self.errors.extend(generator.errors)
             self.warnings.extend(generator.warnings)
@@ -743,7 +747,8 @@ class Validator:
         generation_info = generator.findings.result(
             "framework.generated-service-model", generation_scope
         ).metadata
-        unavailable = dict(generation_info.get("unverified", {}))
+        check_metadata(generation_info)
+        unavailable = generation_info.get("unavailable_services", {}).copy()
         unavailable.update(
             {
                 "/".join(entry): dict(reason="view-read", complete=False)
@@ -812,6 +817,7 @@ class Validator:
             else:
                 validator = results[_state_check_scoped_designs_351.entry]
                 self.checks += validator.checks
+                self.findings.include_diagnostics(validator.findings)
                 self.findings.reference_errors.extend(
                     validator.findings.reference_errors
                 )
@@ -876,8 +882,9 @@ class Validator:
             generator.findings.result(
                 "framework.generated-service-model", generation_scope
             ).metadata,
-            unverified=unavailable,
+            unavailable_services=unavailable,
         )
+        finish_result(generation)
         policy = self.findings.result("framework.policy-tables", self.scope)
         policies = [
             validator.findings.result("framework.policy-tables", {entry})
@@ -890,7 +897,18 @@ class Validator:
             if skipped or any(p.status == "NOT_RUN" for p in policies)
             else "PASS"
         )
-        if policy.status == "NOT_RUN":
+        policy_unavailable = unavailable.copy()
+        for result in policies:
+            check_metadata(result.metadata)
+            policy_unavailable.update(result.metadata.get("unavailable_services", {}))
+        incomplete_policy = bool(skipped) or any(
+            p.status == "NOT_RUN"
+            or p.metadata.get("complete") is False
+            or p.metadata.get("unverified")
+            or p.metadata.get("unavailable_services")
+            for p in policies
+        )
+        if incomplete_policy:
             reason = "reference"
             if failed or any(
                 info.get("reason") != "reference" for info in unavailable.values()
@@ -903,10 +921,14 @@ class Validator:
             policy.metadata = {
                 "complete": False,
                 "reason": reason,
-                "unverified": unavailable,
+                "unavailable_services": policy_unavailable,
+                "unverified": [
+                    item for p in policies for item in p.metadata.get("unverified", [])
+                ],
             }
         policy.warnings = tuple(w for p in policies for w in p.warnings)
         policy.errors = tuple(error for p in policies for error in p.errors)
+        finish_result(policy)
         self.generated_models_checked = True
 
     def finalize_service_cache(self, current_common_key):
@@ -949,7 +971,10 @@ class Validator:
                 definitions_root=self.definitions_root,
                 findings=self.findings,
             )
-        self.check(not errors, "\n".join(errors) or "generated service models match")
+        self.checks += 1
+        for error in errors:
+            if error not in self.errors:
+                self.check(False, error)
         return self.findings.result(
             "framework.generated-service-model", self.scope
         ).metadata

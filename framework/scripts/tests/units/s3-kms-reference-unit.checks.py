@@ -27,6 +27,7 @@ from utils.reference_contracts import S3_KMS_MASTER_KEY_ID as PROP
 from utils.source_reads import FileReads
 from validation.design_links import check_design_links as validate_links
 from validation.design_tables import check_design_tables as validate_tables
+from validation.diagnostics import ArtifactReferences
 from validation.findings import Findings
 
 if not __debug__:
@@ -204,7 +205,7 @@ def check_authority_display_and_references(project_workspace):
             [view],
             design_sources={view: bucket},
             findings=findings,
-            markdown_design_artifacts=set(),
+            markdown_design_artifacts=ArtifactReferences(),
             markdown_iam_policy_artifacts=set(),
             root=scope.root,
             schema_catalog=catalog,
@@ -223,11 +224,11 @@ def check_authority_display_and_references(project_workspace):
         root=scope.root,
         read_inputs=before,
         expected_outputs={view: {view: files[view]}},
-        failures=[],
+        failure_records=[],
         saved={},
     )
     _compare_generation(plan)
-    assert not plan.failures and view in plan.saved
+    assert not plan.failure_records and view in plan.saved
 
 
 def check_iac_matrix(project_workspace):

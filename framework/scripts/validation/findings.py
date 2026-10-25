@@ -6,6 +6,59 @@ from pathlib import Path
 
 from model.core import ReferenceDiagnosticError
 
+from .diagnostics import Diagnostic
+
+
+class FindingsError(ValueError):
+    def __init__(self, findings):
+        super().__init__("\n- ".join(findings.errors))
+        self.findings = findings
+
+
+def check_metadata(metadata):
+    unavailable = metadata.get("unavailable_services", {})
+    unverified = metadata.get("unverified", [])
+    if not isinstance(unavailable, dict) or any(
+        not isinstance(key, str) or not isinstance(value, dict)
+        for key, value in unavailable.items()
+    ):
+        raise TypeError("unavailable_services must be dict[str, dict]")
+    if not isinstance(unverified, list) or any(
+        not isinstance(item, dict) for item in unverified
+    ):
+        raise TypeError("unverified must be list[dict]")
+    if "complete" in metadata and not isinstance(metadata["complete"], bool):
+        raise TypeError("complete must be bool")
+    if "status" in metadata and metadata["status"] not in {"PASS", "FAIL", "NOT_RUN"}:
+        raise ValueError("invalid validation status")
+    return unavailable, unverified
+
+
+def finish_result(result):
+    unavailable, unverified = check_metadata(result.metadata)
+    incomplete = (
+        result.status == "NOT_RUN"
+        or result.metadata.get("complete") is False
+        or result.metadata.get("status") == "NOT_RUN"
+        or bool(unavailable or unverified)
+    )
+    result.status = (
+        "FAIL"
+        if result.errors
+        or result.status == "FAIL"
+        or result.metadata.get("status") == "FAIL"
+        else "NOT_RUN"
+        if incomplete
+        else "PASS"
+    )
+    result.metadata.update(
+        status=result.status,
+        complete=not incomplete,
+        unavailable_services=unavailable,
+        unverified=unverified,
+    )
+    return result
+
 
 @dataclass
 class CheckResult:
@@ -36,9 +89,33 @@ class Findings:
         self.unverified = []
         self.processing_errors = []
         self.reference_errors = []
+        self.diagnostics = []
         self.checks = 0
         self.results = {}
         self.candidate = object()
+
+    @property
+    def status(self):
+        results = [
+            result
+            for result in self.results.values()
+            if result.candidate is self.candidate
+        ]
+        if self.errors or any(
+            result.status == "FAIL" or result.metadata.get("status") == "FAIL"
+            for result in results
+        ):
+            return "FAIL"
+        if self.unverified or any(
+            result.status == "NOT_RUN"
+            or result.metadata.get("status") == "NOT_RUN"
+            or result.metadata.get("complete") is False
+            or result.metadata.get("unavailable_services")
+            or result.metadata.get("unverified")
+            for result in results
+        ):
+            return "NOT_RUN"
+        return "PASS"
 
     def bind_candidate(self, candidate, common_checks):
         previous = self.candidate
@@ -61,7 +138,7 @@ class Findings:
         result = self.result(check_id, scope)
         if result.status != "NOT_RUN":
             return result
-        result = CheckResult(check_id, scope, self.candidate)
+        result = CheckResult(check_id, scope, self.candidate, status="PASS")
         self.results[key] = result
         incomplete_start = len(self.unverified)
         before, checks, warning_start = (
@@ -71,44 +148,27 @@ class Findings:
         )
         try:
             metadata = handler()
+            if isinstance(metadata, CheckResult):
+                metadata = dict(metadata.metadata, status=metadata.status)
+            if isinstance(metadata, dict):
+                check_metadata(metadata)
+                result.metadata.update(metadata)
+            check_metadata(result.metadata)
         except ReferenceDiagnosticError as error:
             self.warn(error)
-            result.metadata = {
-                "complete": False,
-                "reason": "reference",
-                "unverified": [check_id],
-            }
-            result.warnings = tuple(self.warnings[warning_start:])
-            result.errors = tuple(self.errors[before:])
-            result.checks = self.checks - checks
-            result.status = "FAIL" if result.errors else "NOT_RUN"
-            return result
+            result.metadata.update(complete=False, reason="reference")
         except Exception as error:
-            if isolate:
-                self.processing_failure(check_id, scope, error)
-                result.errors = tuple(self.errors[before:])
-                result.warnings = tuple(self.warnings[warning_start:])
-                result.checks = self.checks - checks
-                result.metadata = dict(complete=False, reason="processing")
-                return result
-            if not isinstance(error, (OSError, ValueError, KeyError, TypeError)):
+            if not isolate and not isinstance(
+                error, (OSError, ValueError, KeyError, TypeError)
+            ):
                 raise
-            self.check(False, str(error))
-            metadata = None
+            self.processing_failure(check_id, scope, error)
+            result.metadata.update(complete=False, reason="processing")
         result.errors = tuple(self.errors[before:])
         result.warnings = tuple(self.warnings[warning_start:])
         result.checks = self.checks - checks
-        result.status = (
-            "FAIL"
-            if result.errors
-            else "NOT_RUN"
-            if len(self.unverified) > incomplete_start
-            else "PASS"
-        )
-        if isinstance(metadata, dict):
-            result.metadata = metadata
-        if len(self.unverified) > incomplete_start:
-            unverified = self.unverified[incomplete_start:]
+        unverified = self.unverified[incomplete_start:]
+        if unverified:
             reason = "reference"
             if any(
                 item.get("reason") != "reference"
@@ -117,11 +177,31 @@ class Findings:
                 for item in unverified
             ):
                 reason = "dependency"
-            result.metadata.update(complete=False, reason=reason)
-            # Generation's service map is consumed by the runner; diagnostics stay in Findings.
-            if not isinstance(result.metadata.get("unverified"), dict):
-                result.metadata["unverified"] = unverified
-        return result
+            result.metadata.update(
+                complete=False,
+                reason=(
+                    result.metadata.get("reason", reason)
+                    if reason == "reference"
+                    or result.metadata.get("reason") == "processing"
+                    else reason
+                ),
+            )
+            retained = result.metadata.setdefault("unverified", [])
+            retained.extend(item for item in unverified if item not in retained)
+        return finish_result(result)
+
+    def add_diagnostic(self, diagnostic: Diagnostic):
+        if any(item.identity == diagnostic.identity for item in self.diagnostics):
+            return
+        self.diagnostics.append(diagnostic)
+        self.check(False, diagnostic.message)
+
+    def include_diagnostics(self, findings):
+        for diagnostic in findings.diagnostics:
+            if not any(
+                item.identity == diagnostic.identity for item in self.diagnostics
+            ):
+                self.diagnostics.append(diagnostic)
 
     def processing_failure(self, check_id, scope, error):
         failure = dict(

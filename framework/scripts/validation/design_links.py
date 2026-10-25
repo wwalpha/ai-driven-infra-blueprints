@@ -51,6 +51,7 @@ from .design import (
     normalized,
     unquoted,
 )
+from .diagnostics import Diagnostic, service_scope
 
 
 def unavailable_semantics(
@@ -108,9 +109,22 @@ def check_local_links(
         if target in unavailable or outside_design(root, target):
             continue
         exists = input_is_file(target)
-        (findings.warn if target.suffix == ".md" else findings.check)(
-            exists, f"broken design link: {findings.relative(source)}: {raw}"
-        )
+        if target.suffix == ".json" and not exists:
+            findings.add_diagnostic(
+                Diagnostic.create(
+                    root,
+                    code="design.artifact.missing",
+                    check_id="design.artifacts",
+                    service=service_scope(root, source),
+                    source_path=source,
+                    target_path=target,
+                    message=f"design JSON artifact is missing: {findings.relative(source)}: {findings.relative(target)}",
+                )
+            )
+        else:
+            (findings.warn if target.suffix == ".md" else findings.check)(
+                exists, f"broken design link: {findings.relative(source)}: {raw}"
+            )
         if separator and exists:
             known = (
                 design_index.get(target).anchors
@@ -1042,7 +1056,49 @@ def check_design_artifacts(
             isinstance(content, dict),
             f"design JSON artifact root must be an object: {findings.relative(artifact)}",
         )
-    findings.check(
-        artifacts == markdown_design_artifacts,
-        "design JSON artifacts must match Markdown links",
-    )
+    references = markdown_design_artifacts.sources
+    for artifact in sorted(references.keys() - artifacts):
+        if input_is_file(artifact):
+            continue
+        for source, owner in sorted(references[artifact].items()):
+            findings.add_diagnostic(
+                Diagnostic.create(
+                    root,
+                    code="design.artifact.missing",
+                    check_id="design.artifacts",
+                    service=owner,
+                    source_path=source,
+                    target_path=artifact,
+                    message=f"design JSON artifact is missing: {findings.relative(source)}: {findings.relative(artifact)}",
+                )
+            )
+    for artifact in sorted(artifacts - references.keys()):
+        owner = service_scope(root, artifact)
+        owning_markdown = artifact.parent.with_suffix(".md")
+        if input_is_file(
+            owning_markdown
+        ) and not markdown_design_artifacts.complete.get(
+            owning_markdown.resolve(), False
+        ):
+            findings.unverified.append(
+                dict(
+                    code="design.artifact.references_unverified",
+                    reason="dependency",
+                    service="/".join(owner) if owner else None,
+                    target_path=findings.relative(artifact),
+                    complete=False,
+                    owning_markdown=findings.relative(owning_markdown),
+                    message="Markdown JSON reference collection is incomplete",
+                )
+            )
+            continue
+        findings.add_diagnostic(
+            Diagnostic.create(
+                root,
+                code="design.artifact.unreferenced",
+                check_id="design.artifacts",
+                service=owner,
+                target_path=artifact,
+                message=f"design JSON artifact is unreferenced: {findings.relative(artifact)}",
+            )
+        )

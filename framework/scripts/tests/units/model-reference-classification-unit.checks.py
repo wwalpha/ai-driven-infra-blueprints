@@ -457,7 +457,9 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
     with (
         patch(
             "model.validation.check_model_inputs",
-            return_value=SimpleNamespace(errors=(), warnings=(), unverified=()),
+            return_value=SimpleNamespace(
+                errors=(), warnings=(), diagnostics=[], unverified=()
+            ),
         ),
         patch.object(sync_runtime, "markdown_for", return_value="# Generated\n"),
         patch.object(sync_runtime, "rendered_design", return_value="# Generated\n"),
@@ -498,7 +500,8 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
         root=root,
         generated_scope={("qa", "team", "s3")},
         generated=generated,
-        failures=failures,
+        failure_records=failures,
+        failures=[d.message for d in failures],
         unavailable=unavailable,
         reference_warnings=warnings,
         warnings={},
@@ -512,7 +515,7 @@ def test_generation_keeps_failed_service_and_saves_healthy_service(models, state
         metadata["status"] == ("FAIL" if invalid else "NOT_RUN")
         and not metadata["complete"]
     )
-    assert len(metadata["unverified"]) == int(not invalid)
+    assert len(metadata["unavailable_services"]) == int(not invalid)
     assert metadata["warnings"] == warnings
     with pytest.raises(
         ValueError,
