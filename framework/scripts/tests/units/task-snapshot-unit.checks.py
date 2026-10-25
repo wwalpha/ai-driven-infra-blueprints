@@ -261,15 +261,15 @@ def check_deploy_mutation_io_and_live_denial(tmp_path, monkeypatch):
     with (
         patch.object(session, "design_digest", return_value="design"),
         patch.object(session, "model_input_manifest", return_value={}),
-        patch.object(guards.SERVICES["s3"], "put_object", return_value={}),
+        patch.object(guards.SERVICES["s3"], "put_object", return_value={}) as mutation,
         TaskIO() as io,
     ):
         for _ in range(10):
             guards.call(runtime, "s3", "put_object", {})
         assert io == {"reads": 10}
         issues.write_text("### s3\n1. unresolved issue\n")
-        with pytest.raises(Blocked, match="unresolved issue"):
-            guards.call(runtime, "s3", "put_object", {})
+        guards.call(runtime, "s3", "put_object", {})
+        assert io == {"reads": 11} and mutation.call_count == 11
         issues.write_text("未解決issueなし")
         for replacement in ["`completed`", "`suspend`"]:
             text = task_text("one").replace("`running`", replacement)
@@ -298,6 +298,7 @@ def check_deploy_mutation_io_and_live_denial(tmp_path, monkeypatch):
                     guards.call(runtime, "s3", "put_object", {})
             finally:
                 fixed.close()
+        assert mutation.call_count == 11
 
 
 def worker_designs(validator):

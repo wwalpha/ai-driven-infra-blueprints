@@ -3815,3 +3815,7 @@ other input guards. Existing `deploy-controller::check_ordered_delivery_and_obse
 retains ERROR/unknown-owner Issues throughout the real controller, AWS SDK boundary,
 Observed collection/publication, generated-view synchronization, warning validation and
 Task completion. Other controller failures and resumable publication checks stay unchanged.
+
+The existing `task-snapshot::check_deploy_mutation_io_and_live_denial` UT retains its
+Task-read budget and all live status/permission/scope/account/snapshot denials. Issue
+changes alone now permit the eleventh mutation without an additional Task read.
