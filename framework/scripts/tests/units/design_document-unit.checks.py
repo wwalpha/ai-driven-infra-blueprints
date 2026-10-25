@@ -15,8 +15,8 @@ from types import SimpleNamespace
 import design.layout as _imports_design_layout
 import model.projection as _imports_model_projection
 import pytest
-import support.model_sources as _imports_support_model_sources
 import support.model_reference_fixtures as reference_models
+import support.model_sources as _imports_support_model_sources
 import sync_runtime as _imports_sync_runtime
 import validation.design_links as _imports_validation_design_links
 from support.design_document_fixtures import (
