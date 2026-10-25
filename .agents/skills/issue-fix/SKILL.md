@@ -12,7 +12,7 @@ description: Investigate existing issues.md for a specified AWS Blueprint enviro
 - Environment、Target は必須。Service と Issue ID は任意。省略時は指定 Target の全 Service、対象 Service の全 Issue を選ぶ。
 - [project-configuration](../../../framework/rules/project-configuration.md#topology) と `project.json` で Environment/Target を一意に確認する。Target directory は alias 優先、なければ awsAccountId。awsExecutionAccountId をパスに使わない。未登録・曖昧な対象は確認が済むまで停止し、別環境へ広げない。
 - 入力は `issues/<environment>/<target-directory>/issues.md`。存在しなければ報告して停止し、新規生成しない。`iac-issues.md` は読み込まない。
-- 現在の Service 見出しと Issue ID を照合する。ID がない旧記述は Service と項目位置・内容で対象を示し、曖昧な指定や見つからない ID を推測で対応付けない。Issue ID を Resource の固定 ID や diagnostic_id と同一視しない。
+- 現在の Service 見出しと、既存 `issues/reports.py` が生成する正式な Issue ID を照合する。ID が存在しない、または一致しない場合は対象を確定できないと報告し、Service・項目位置・文章から推測して対応付けない。Issue ID を Resource の固定 ID や diagnostic_id と同一視しない。
 - Issue 一覧の読み取りだけなら契約不要。Skill 呼び出しだけで未確定の修正値、例外、識別子変更や次 Task を承認されたとは扱わない。
 
 ## 読み込む規約
@@ -21,7 +21,7 @@ description: Investigate existing issues.md for a specified AWS Blueprint enviro
 
 変更前に [Local loop / Validation policy](../../../framework/rules/loop-engineering.md#local-loop)、[Validation scope](../../../framework/rules/loop-engineering.md#validation-scope) と、選択した委譲先 Skill の mandatory/conditional Read および完了条件を読む。Model 修正には [update](../update/SKILL.md) とその正本 [05_update](../../../framework/prompts/codex/05_update.md) の Ordinary Model correction を使う。参照限定操作時だけ [model-retarget](../model-retarget/SKILL.md) と [Standalone reference contract](../../../framework/rules/task-contract.md#standalone-model-reference-retarget) を追加する。
 
-View 同期時は [Properties-first generation](../../../framework/rules/model-information.md#properties-first-updates-and-display-generation)、[Model helper API](../../../framework/docs/model-helper-integration.md)、既存 [sync-model.py](../../../framework/scripts/sync-model.py) の現在の引数・保存ガード、および [Other task completion](../../../framework/rules/loop-engineering.md#other-task-completion) を確認する。Human ファイル保存にも同完了条件を使う。命名問題では [Naming rules](../../../framework/rules/aws-resource-naming.md) と該当 namespace の規則、観測値の問題では [observed-values](../../../framework/rules/observed-values.md) を追加する。
+View 同期時は [Properties-first generation](../../../framework/rules/model-information.md#properties-first-updates-and-display-generation)、[Model helper API](../../../framework/docs/model-helper-integration.md)、既存 [sync_runtime.py](../../../framework/scripts/sync_runtime.py) の `compare_generation` と内部の Task 依存・副作用・実行コンテキスト、[sync-model.py](../../../framework/scripts/sync-model.py) の現在の引数・保存ガード、[task_contract_core.py](../../../framework/scripts/task_contract_core.py) の Task 選択・scope、および [Other task completion](../../../framework/rules/loop-engineering.md#other-task-completion) を確認する。Human ファイル保存にも同完了条件を使う。命名問題では [Naming rules](../../../framework/rules/aws-resource-naming.md) と該当 namespace の規則、観測値の問題では [observed-values](../../../framework/rules/observed-values.md) を追加する。
 
 変更 Task の作成・検証・統合は [worktree](../worktree/SKILL.md) に従う。[issues](../issues/SKILL.md) は再報告が明示依頼された別 Task のみで使う。独自 Python/CLI、重複する読み込み・参照解決・修正・保存処理を追加しない。
 
@@ -30,7 +30,7 @@ View 同期時は [Properties-first generation](../../../framework/rules/model-i
 1. 選択した Issue ごとに、Service / Resource / Property / Issue 内容 / 診断根拠 / Human 判断の要否 / 修正対象ファイル / 修正可能性を整理する。Issue が集約している対象を落とさず、診断件数と Resource 数を区別する。記載時点の根拠と現在確認した根拠を区別し、Issue の記述だけで修正を決定しない。
 2. `model/<environment>/<target-directory>/<service>.properties` と実際の parts を `model.sources.load_model` で読む。キーの所在は既存 CLI の `trace <service.properties> <key>` で特定する。既存 `model.references` の usages/incoming/diagnose と Model 検証を必要範囲で使い、固定 Resource/Row/Stack ID、logicalId、placementName、参照先・型・Property、必要な incoming Consumer を確認する。同名や同じ物理値だけで参照先を断定しない。
 3. 旧 Model が不正なら、その失敗を示して ordinary correction の `model.sources.edit_base` による候補修正経路を検討する。旧 Model 全体の有効性や旧 identity/layout の不変を通常修正の前提にしない。専用操作の raw 保持比較が必要な場合は `model.sources.raw_model` を使い、その操作の保持条件を守る。読み取り失敗を「問題なし」にしない。
-4. `issues` は生成表示の完全同期を検査しない。Model の正当性とは別に、対象を指定した既存の読み取り専用 `sync-model.py` または共通 Validator の同期検証で Markdown/JSON の古さを確認する。生成 View は正本として読まず、保存された表示との差を確認する用途に限る。read dependency だけでは変更権限を得ない。
+4. `issues` は生成表示の完全同期を検査しない。Model の正当性とは別に、Task 未登録の読み取り専用調査では既存 API `sync_runtime.compare_generation(root, scope, findings=findings)` で Markdown/JSON の同期差を確認する。repository root を作業ディレクトリとし、`root` はその絶対 `Path`、`scope` は明示した Environment / Target directory / Service の tuple の集合（例: `{(environment, target_directory, service_id)}`）、`findings` は既存 `validation.findings.Findings(root)` とする。既存の Python 実行環境で `framework/scripts` のモジュールを読み込み、無関係な Task selector や IMPORT コンテキストを引き継がない。内部の Task 読取りは任意で、`prepare_generation(write=False)` が一時ディレクトリだけに候補を作り、検証・比較後に破棄する。repository の Model・Markdown/JSON・Task は書き換えず、Task の登録や `active_scope(root)` を必要としない。戻り値の診断だけでなく Findings の `framework.generated-service-model` の metadata（status/complete/unavailable_services）と警告も確認し、比較不能・NOT_RUN を同期済みにしない。`sync-model.py` は明示 scope 付きでも `active_scope(root)` を要求するため、Task 未登録の比較には使わない。`--all` による全件比較や Task ガード回避は行わず、書込みは Phase 4 の登録済み Task と既存 `sync-model.py --write` に限る。生成 View は正本として読まず、保存された表示との差を確認する用途に限る。read dependency だけでは変更権限を得ない。
 
 各対象に次の主分類を一つ付け、理由と不足入力を残す。同じ Issue の Model 修正と付随生成は二重計上しない。
 
@@ -43,7 +43,7 @@ View 同期時は [Properties-first generation](../../../framework/rules/model-i
 | 未確定・修正不可 | 欠ける根拠、未対応の形式、失敗したチェックを報告 |
 | 対象外 | 選択範囲外、現在は原因が存在しないもの、正常な待機等を理由付きで報告 |
 
-`PENDING_DEPLOY`、正常な deferred/excluded、Warning だけを根拠に自動修正しない。欠落・空文字・PENDING_DEPLOY を同一視せず、未実行/比較不能を一致としない。Model/IaC 不一致は入口で対象外と説明し、上記の分類・修正件数から除外して別途件数を示す。差分の方向判断や IaC 比較のための Scan を開始しない。
+`PENDING_DEPLOY`、正常な deferred/excluded、Warning だけを根拠に自動修正しない。欠落・空文字・PENDING_DEPLOY を同一視せず、未実行/比較不能を一致としない。Model/IaC 差分は調査・修正対象外とし、分類・件数集計に含めない。差分の方向判断や IaC 比較のための Scan を開始しない。
 
 ## Phase 2: Human の判断を確認する
 
@@ -95,7 +95,8 @@ View-only 契約・生成・保存が拒否されたら、その理由と未対�
 - Model 修正は `update`、条件を満たす参照限定修正はその親から `model-retarget`、Human ファイル変更と View-only 同期はそれぞれ独立した承認済み `migration`。Task type/Goal が異なる作業を混ぜない。
 - 各変更 Task は `worktree` の管理下で最初の repository 変更として登録する。自契約、実際の入口/parts、生成物、必要な変更 Consumer の exact paths を Modified files/Allowed paths に登録し、影響 Consumer を Validation scope に含める。読み取りだけの producer を書き込み対象にしない。
 - 同一責務・同一スコープで一括対応できる Issue はまとめる。Resource ごとに不必要な Task/worktree/commit を作らない。
-- 調査・候補整理は次 Task の実行許可ではない。既存契約が許さない次 Task は自動開始しない。別の Goal/種類への移行が必要なら、今回の範囲と次の具体的候補を示し、既に明示された承認がなければ待つ。完了後に別 Task や次フェーズへ自動移行しない。
+- Human が具体的な変更内容を明示承認した複数 Task・Phase は、[Validation policy の Task transition](../../../framework/rules/loop-engineering.md#validation-policy) に従って順次実行できる。各 Task は別の契約と worktree で既存の検証・完了・commit・ローカル統合・cleanup を終え、前 Task の完了条件を全て満たしてから次の承認済み Task へ進む。失敗・未完了のまま次 Task へ進まず、既存の停止・明示再開・Retry 制御を維持する。前 Task で同期が完了するなど後続 Task が不要になった場合は重複実行せず、その結果を報告する。
+- 調査・候補整理や issue-fix の実行依頼だけでは、未確定の変更内容・次 Task への包括承認にならない。未承認の変更や新しい Goal を追加しない。承認範囲外の変更・Task が必要になった場合は、具体的な候補と影響を示して Human に確認し、承認されるまで実行しない。
 - 編集を終えてから生成・検証を実行する。同一 worktree の入力・契約・生成先を並行編集せず、publication lock、最終入力比較、rollback を既存 API に任せる。入力変更を検出したら保存を止め、外部変更を保持する。
 
 ## Phase 6: 検証と完了
@@ -120,7 +121,7 @@ View-only 契約・生成・保存が拒否されたら、その理由と未対�
 | 対象外 | N |
 | 検証失敗 | N |
 
-修正済み項目は Issue / Service / Resource / Property / 変更前後・変更内容 / 使用 Skill を示す。Human ファイル保存のみの結果、source/View/検証/統合の実施状態、除外した Model/IaC 差分件数、Framework 疑いの根拠、未実施範囲・残存リスクと必要な次の Human 判断もチャットで報告する。恒久的な実行履歴や独自 sidecar は作らない。
+修正済み項目は Issue / Service / Resource / Property / 変更前後・変更内容 / 使用 Skill を示す。Human ファイル保存のみの結果、source/View/検証/統合の実施状態、Framework 疑いの根拠、未実施範囲・残存リスクと必要な次の Human 判断もチャットで報告する。恒久的な実行履歴や独自 sidecar は作らない。
 
 ## 禁止事項
 
