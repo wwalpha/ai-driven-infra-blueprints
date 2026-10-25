@@ -273,8 +273,6 @@ and change only the proved expression under a separately authorized Model Task.
 指定6 suiteに加えてDesign Document/Route53 Import Expressionを削除し、サービス契約13補助登録とValidator補助10登録を整理した。
 値/型/Schema/Enum/比較/警告/Cacheの細かな条件は既存UT内の直接検証に置く。UTファイルやRunnerは新設しない。
 
-[Assertion対応表](IT_UT_MIGRATION.tsv)には、元ケース、元検証地点、ループ/分岐、U/I/D、重複根拠、最終所有関数と統合境界を残す。
-静的監査地点は実行coverageや固有Assertion数ではない。元条件の具体値は開始時commitのFixture/parametrizeも参照する。
 全68残存ITの境界、追加UT、削除根拠、Phase結果は[CASES.md](CASES.md#framework-it-to-ut-migration-74252f5-baseline)に記録する。
 
 ITは実CLI、複数保存Model/環境の参照と依存Snapshot、実Git/Worktree、Task/Controller、Publication/Atomicity/Recoveryを所有する。

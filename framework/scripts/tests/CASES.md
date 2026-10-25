@@ -3401,7 +3401,7 @@ All patterns use the common evaluator and authored temporary Models. An incomple
 
 ## Framework IT to UT migration (74252f5 baseline)
 
-Baselineは76 suite・313登録・431条件。構文上のAssertion/例外確認地点と入力ループの対応は [監査表](IT_UT_MIGRATION.tsv) を参照する。実行条件数とAssertion地点数は異なる。
+Baselineは76 suite・313登録・431条件。実行条件数とAssertion地点数は異なる。
 
 Phase 1ではMapping Fake比較、Macie Schemaと表示、QuickSight往復、回帰認証の異常条件を既存UTへ移管。Runtime discovery/read不変性は既存Model Templatesのcreation/layout/snapshot ITが所有し、Loader破損/読取失敗はModel Files UTが所有する。PassCacheの単体入力条件はUT、Producer partsとConsumer依存・環境隔離はAttribute Reference ITへ移す。
 
@@ -3410,9 +3410,7 @@ Service契約は既存Model Parameter Inputs UTでサービスごとの小さい
 ### Phase 0–5の確定構造
 
 元データは開始時commit `74252f50d16ea252b66ab5bfddd477e6861fa0ac`。参考1024v12の312/430に対し、実コードは313登録/431条件だった。
-最終ITは68 suite・236登録・311条件（補助登録込み）。Suite内のループ条件は登録条件数とは別に監査表に記録する。
-監査表は全313旧登録を含む4,687行（I 3,281 / U 1,329 / D 77）。同じHelperを異なる登録から呼ぶ地点も含むため、固有Assertion件数や実行coverage値ではない。
-元検証地点は開始時commitの行番号。入力条件欄・元関数/callback・元ケースを合わせて参照し、変数で渡すFixtureやparametrizeの内容は同commitの該当定義で確認できる。
+最終ITは68 suite・236登録・311条件（補助登録込み）。
 最終所有先の全ファイル/関数の存在を静的確認する。登録到達性/完了Receiptの最終証拠は公式CIに委ねる。
 
 - 8 suite削除: aws_mapping_compare、design_catalog、quicksight-display、regression_guard、runtime-model、validation_cache、design_document、route53-import-expression。
@@ -3423,43 +3421,42 @@ Service契約は既存Model Parameter Inputs UTでサービスごとの小さい
 - 元Model Design 7関数の構成とAssertion predicateは維持（CIの実エラー表示だけを追加）。Worktree専用Fixtureを業務ITへ再導入しない。
 - 旧ITの期待値2箇所は現実装と既存UTに合わせて補正した。custom EventBusが証明可能ならdefault-bus ARNはFalse、KMS KeyArn未証明の例外理由は`KMS ARN requires a proven KeyId`。Production比較ロジックは変更しない。
 
-Dは同じ保証の繰返しと、Productionを呼ばず固定Fixture文字列だけを確認する地点を区別して根拠欄に記載する。
 異なる異常入力によるPublication遮断・Rollback/Recovery、別プロセスのimport/排他、実Task/複数Model参照は、入力だけのUTと同一保証と扱わない。
 
 ### 分割で追加した既存UT内の検証
 
 | Case ID | Function | Layer | Source | Execution / Count | Contract | Scope |
 | --- | --- | --- | --- | --- | --- | --- |
-| `it-ut-migration::cloudformation-deploy-unit.checks::check_deployment_input_conditions` | `check_deployment_input_conditions` | UT | [units/cloudformation-deploy-unit.checks.py](units/cloudformation-deploy-unit.checks.py#L182) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::design_layout-unit.checks::check_config_firehose_references` | `check_config_firehose_references` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py#L1104) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::issues_api_only-unit.checks::check_api_record_classification` | `check_api_record_classification` | UT | [units/issues_api_only-unit.checks.py](units/issues_api_only-unit.checks.py#L52) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::lambda_permission-unit.checks::check_permission_inputs` | `check_permission_inputs` | UT | [units/lambda_permission-unit.checks.py](units/lambda_permission-unit.checks.py#L46) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::model-format-v2.checks::check_context_topology_inputs` | `check_context_topology_inputs` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py#L711) | pytest / 4 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::model_design-unit.checks::check_rotation_inputs` | `check_rotation_inputs` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#L1269) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::model_files-unit.checks::check_saved_anchor_inputs` | `check_saved_anchor_inputs` | UT | [units/model_files-unit.checks.py](units/model_files-unit.checks.py#L103) | pytest / 5 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::model_files-unit.checks::check_resource_reading_inputs` | `check_resource_reading_inputs` | UT | [units/model_files-unit.checks.py](units/model_files-unit.checks.py#L128) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::model_files-unit.checks::check_part_boundaries` | `check_part_boundaries` | UT | [units/model_files-unit.checks.py](units/model_files-unit.checks.py#L286) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::model_parameter_inputs-unit.checks::check_kms` | `check_kms` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L168) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::model_parameter_inputs-unit.checks::check_security_group` | `check_security_group` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L180) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::model_parameter_inputs-unit.checks::check_route53` | `check_route53` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L189) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::model_parameter_inputs-unit.checks::check_iam` | `check_iam` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L205) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::model_parameter_inputs-unit.checks::check_s3` | `check_s3` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L222) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::model_parameter_inputs-unit.checks::check_glue` | `check_glue` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L229) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::model_parameter_inputs-unit.checks::check_lambda` | `check_lambda` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L246) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::model_parameter_inputs-unit.checks::check_eventbridge` | `check_eventbridge` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L262) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::model_parameter_inputs-unit.checks::check_codepipeline` | `check_codepipeline` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L288) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::model_parameter_inputs-unit.checks::check_responsibilities` | `check_responsibilities` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L307) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::model_parameter_inputs-unit.checks::check_log_group_native_scalars` | `check_log_group_native_scalars` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L329) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::policy_tables-unit.checks::check_iam` | `check_iam` | UT | [units/policy_tables-unit.checks.py](units/policy_tables-unit.checks.py#L119) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::producer-identifier-reference-unit.checks::check_producer_name_conditions` | `check_producer_name_conditions` | UT | [units/producer-identifier-reference-unit.checks.py](units/producer-identifier-reference-unit.checks.py#L134) | pytest / 7 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::producer-identifier-reference-unit.checks::check_identifier_value_conditions` | `check_identifier_value_conditions` | UT | [units/producer-identifier-reference-unit.checks.py](units/producer-identifier-reference-unit.checks.py#L159) | pytest / 4 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::producer-identifier-reference-unit.checks::check_link_reference_ignores_name_rows` | `check_link_reference_ignores_name_rows` | UT | [units/producer-identifier-reference-unit.checks.py](units/producer-identifier-reference-unit.checks.py#L169) | pytest / 3 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::producer-identifier-reference-unit.checks::check_context_and_stack_declarations` | `check_context_and_stack_declarations` | UT | [units/producer-identifier-reference-unit.checks.py](units/producer-identifier-reference-unit.checks.py#L188) | pytest / 6 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::resource_mode-unit.checks::check_resource_mode_conditions` | `check_resource_mode_conditions` | UT | [units/resource_mode-unit.checks.py](units/resource_mode-unit.checks.py#L82) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::security_group_tables-unit.checks::check_table_conditions` | `check_table_conditions` | UT | [units/security_group_tables-unit.checks.py](units/security_group_tables-unit.checks.py#L146) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::task::check_task_type_inputs` | `check_task_type_inputs` | UT | [units/validation_checks/task.py](units/validation_checks/task.py#L262) | direct_group / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::validation_scope-unit.checks::check_unknown_scope_inputs` | `check_unknown_scope_inputs` | UT | [units/validation_scope-unit.checks.py](units/validation_scope-unit.checks.py#L70) | pytest / 3 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
-| `it-ut-migration::validation_scope-unit.checks::check_invalid_design_artifact` | `check_invalid_design_artifact` | UT | [units/validation_scope-unit.checks.py](units/validation_scope-unit.checks.py#L81) | pytest / 1 | 入力/Schema/比較/診断。元条件と所有先は監査表を参照 | 合成値/小Fixtureのみ |
+| `it-ut-migration::cloudformation-deploy-unit.checks::check_deployment_input_conditions` | `check_deployment_input_conditions` | UT | [units/cloudformation-deploy-unit.checks.py](units/cloudformation-deploy-unit.checks.py#L182) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::design_layout-unit.checks::check_config_firehose_references` | `check_config_firehose_references` | UT | [units/design_layout-unit.checks.py](units/design_layout-unit.checks.py#L1104) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::issues_api_only-unit.checks::check_api_record_classification` | `check_api_record_classification` | UT | [units/issues_api_only-unit.checks.py](units/issues_api_only-unit.checks.py#L52) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::lambda_permission-unit.checks::check_permission_inputs` | `check_permission_inputs` | UT | [units/lambda_permission-unit.checks.py](units/lambda_permission-unit.checks.py#L46) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::model-format-v2.checks::check_context_topology_inputs` | `check_context_topology_inputs` | UT | [units/model-format-v2.checks.py](units/model-format-v2.checks.py#L711) | pytest / 4 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::model_design-unit.checks::check_rotation_inputs` | `check_rotation_inputs` | UT | [units/model_design-unit.checks.py](units/model_design-unit.checks.py#L1269) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::model_files-unit.checks::check_saved_anchor_inputs` | `check_saved_anchor_inputs` | UT | [units/model_files-unit.checks.py](units/model_files-unit.checks.py#L103) | pytest / 5 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::model_files-unit.checks::check_resource_reading_inputs` | `check_resource_reading_inputs` | UT | [units/model_files-unit.checks.py](units/model_files-unit.checks.py#L128) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::model_files-unit.checks::check_part_boundaries` | `check_part_boundaries` | UT | [units/model_files-unit.checks.py](units/model_files-unit.checks.py#L286) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::model_parameter_inputs-unit.checks::check_kms` | `check_kms` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L168) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::model_parameter_inputs-unit.checks::check_security_group` | `check_security_group` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L180) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::model_parameter_inputs-unit.checks::check_route53` | `check_route53` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L189) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::model_parameter_inputs-unit.checks::check_iam` | `check_iam` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L205) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::model_parameter_inputs-unit.checks::check_s3` | `check_s3` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L222) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::model_parameter_inputs-unit.checks::check_glue` | `check_glue` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L229) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::model_parameter_inputs-unit.checks::check_lambda` | `check_lambda` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L246) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::model_parameter_inputs-unit.checks::check_eventbridge` | `check_eventbridge` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L262) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::model_parameter_inputs-unit.checks::check_codepipeline` | `check_codepipeline` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L288) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::model_parameter_inputs-unit.checks::check_responsibilities` | `check_responsibilities` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L307) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::model_parameter_inputs-unit.checks::check_log_group_native_scalars` | `check_log_group_native_scalars` | UT | [units/model_parameter_inputs-unit.checks.py](units/model_parameter_inputs-unit.checks.py#L329) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::policy_tables-unit.checks::check_iam` | `check_iam` | UT | [units/policy_tables-unit.checks.py](units/policy_tables-unit.checks.py#L119) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::producer-identifier-reference-unit.checks::check_producer_name_conditions` | `check_producer_name_conditions` | UT | [units/producer-identifier-reference-unit.checks.py](units/producer-identifier-reference-unit.checks.py#L134) | pytest / 7 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::producer-identifier-reference-unit.checks::check_identifier_value_conditions` | `check_identifier_value_conditions` | UT | [units/producer-identifier-reference-unit.checks.py](units/producer-identifier-reference-unit.checks.py#L159) | pytest / 4 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::producer-identifier-reference-unit.checks::check_link_reference_ignores_name_rows` | `check_link_reference_ignores_name_rows` | UT | [units/producer-identifier-reference-unit.checks.py](units/producer-identifier-reference-unit.checks.py#L169) | pytest / 3 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::producer-identifier-reference-unit.checks::check_context_and_stack_declarations` | `check_context_and_stack_declarations` | UT | [units/producer-identifier-reference-unit.checks.py](units/producer-identifier-reference-unit.checks.py#L188) | pytest / 6 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::resource_mode-unit.checks::check_resource_mode_conditions` | `check_resource_mode_conditions` | UT | [units/resource_mode-unit.checks.py](units/resource_mode-unit.checks.py#L82) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::security_group_tables-unit.checks::check_table_conditions` | `check_table_conditions` | UT | [units/security_group_tables-unit.checks.py](units/security_group_tables-unit.checks.py#L146) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::task::check_task_type_inputs` | `check_task_type_inputs` | UT | [units/validation_checks/task.py](units/validation_checks/task.py#L262) | direct_group / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::validation_scope-unit.checks::check_unknown_scope_inputs` | `check_unknown_scope_inputs` | UT | [units/validation_scope-unit.checks.py](units/validation_scope-unit.checks.py#L70) | pytest / 3 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
+| `it-ut-migration::validation_scope-unit.checks::check_invalid_design_artifact` | `check_invalid_design_artifact` | UT | [units/validation_scope-unit.checks.py](units/validation_scope-unit.checks.py#L81) | pytest / 1 | 入力/Schema/比較/診断 | 合成値/小Fixtureのみ |
 | `it-ut-migration::ReferenceValueTests::test_kms_forms_and_arn_values` | `ReferenceValueTests.test_kms_forms_and_arn_values` | UT | [units/test_issues_iac.py](units/test_issues_iac.py) | unittest / 1 | ARN/Expression/Action比較の直接入力矩形 | 一時in-memory Comparison |
 | `it-ut-migration::ReferenceValueTests::test_policy_action_and_expression_values` | `ReferenceValueTests.test_policy_action_and_expression_values` | UT | [units/test_issues_iac.py](units/test_issues_iac.py) | unittest / 1 | ARN/Expression/Action比較の直接入力矩形 | 一時in-memory Comparison |
 
@@ -3539,7 +3536,7 @@ Dは同じ保証の繰返しと、Productionを呼ばず固定Fixture文字列�
 
 | Phase | 実装結果 | 検証 |
 | --- | --- | --- |
-| 0 | 313登録・431条件を再確認。Helper/callback/埋込プロセスを含む監査表、最終所有先と統合境界を作成 | 所有先の静的存在確認。実行到達性はCIで検証 |
+| 0 | 313登録・431条件を再確認。最終所有先と統合境界を整理 | 所有先の静的存在確認。実行到達性はCIで検証 |
 | 1 | 6指定Suiteとservice_contractsを分離、不要IT/Helper削除 | 関連UT PASS後に全UT再検証 |
 | 2 | Referenceの異常入力を共通UTに集約、保存/参照/依存Hash・他環境不変をITに保持 | 関連UT PASS後に全UT再検証 |
 | 3 | Design/Model/Comparison/Deploy/Validationの入力矩形を既存UTへ移管、間接呼出し解消 | 関連UT PASS後に全UT再検証 |
@@ -3567,7 +3564,7 @@ Runtime Modelの列挙/読取/Hash/環境隔離は個別の既存IT/UT所有先�
 CI #136は全UT PASS（183.6秒）、IT 67/68 PASS。stale Viewの入口はwriteであり、read-onlyは先にPrincipal.AWS検証へ進むことを実測し、Fixtureの事前確認をwriteへ修正した。7ケースの元拒否Assertionは維持する。
 
 公式CI [#137](https://github.com/wwalpha/ai-driven-infra-blueprints/actions/runs/40117696173)は実装候補 `455b13f50f02a8118ac55f7ba56adcb7c311cae2` でUT 90/90・IT 68/68 PASS、236登録のReceipt到達性エラー0。UT 137.7秒、IT runner本体236.702秒、UT＋IT 374.402秒（準備時間を除く）。IT 10秒目標は未達で、正常Beforeの欠落により改善率は判定しない。
-QuickSightの既存UT行と移管元行が同じ所有関数を重複登録していたため、既存UT行だけを残した。移管元のAssertion対応は監査表に保持する。最終Headの公式結果はPR checksで確認する。
+QuickSightの既存UT行と移管元行が同じ所有関数を重複登録していたため、既存UT行だけを残した。最終Headの公式結果はPR checksで確認する。
 
 最新ローカル基準e91ea79のReference契約と統合する際は、同Taskの全UT/台帳追加を保持する。移管UTのImportValue Fixtureは実Outputs経由のscope付き索引を使用し、KMSの生成ID未証明拒否も現行共通契約の理由で確認する。Productionの変更は継承のみで、今回Taskからは編集しない。
 
