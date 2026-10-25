@@ -283,11 +283,11 @@ def check_observed_failure_drains_peers_and_resumes(tmp_path, monkeypatch):
     saved = json.loads(session.read_text())
     assert "pendingObserved" not in saved
     assert saved["pendingGeneration"]
-    assert all(saved["states"][name]["status"] == "SUCCESS" for name in (FIRST, SECOND))
-    assert saved["states"][FIRST]["observedSynced"]
-    assert not saved["states"][SECOND].get("observedSynced")
-    assert saved["states"][THIRD]["status"] == "NOT_STARTED"
-    assert THIRD not in json.loads(aws.read_text())["changes"]
+    assert all(
+        state["status"] == "SUCCESS" and state["observedSynced"]
+        for state in saved["states"].values()
+    )
+    assert THIRD in json.loads(aws.read_text())["changes"]
     evidence = {
         name: saved["states"][name]["executionEvidence"] for name in (FIRST, SECOND)
     }
@@ -302,16 +302,16 @@ def check_observed_failure_drains_peers_and_resumes(tmp_path, monkeypatch):
     assert {
         name: at_failure["executionEvidence"][name] for name in evidence
     } == evidence
-    failure = saved["observedFailures"][0]
-    assert failure == {
-        "stage": "GENERATION",
-        "cause": "0 services succeeded; 1 services failed; 0 services NOT_RUN; 1 diagnostics\n"
-        f"- docs/designs/dev/{ACCOUNT}/ec2.md: injected design I/O failure",
-    }
+    assert "injected design I/O failure" in saved["generationError"]
+    assert not any(
+        name in saved
+        for name in ("observedError", "observedRecoveryError", "observedFailures")
+    )
+    assert set(saved["pendingGeneration"]) == {f"docs/designs/dev/{ACCOUNT}/ec2.md"}
     resumed = child_run(root, session, aws, ["--resume"])
     assert resumed.returncode == 0, resumed.stdout + resumed.stderr
     after = json.loads(session.read_text())
-    assert after["observedFailures"][0] == failure
+    assert "generationError" not in after and not after["pendingGeneration"]
     assert_published(root, session, evidence)
     assert_single_execution(aws, after["states"])
 

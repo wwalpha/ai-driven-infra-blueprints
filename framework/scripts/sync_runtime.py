@@ -604,23 +604,33 @@ def validate_candidates(
                 )
                 validation[None] = _state_validate_candidates_260.context.findings
                 if _state_validate_candidates_260.context.errors:
-                    # Ownership/stack checks concern the fixed whole scope, not repeated services.
-                    for error in _state_validate_candidates_260.context.errors:
-                        generation_failure(
-                            root,
-                            failures,
-                            "generation.candidate",
-                            None,
-                            error,
-                            affected={service_scope(root, p) for p in generated},
+                    findings = _state_validate_candidates_260.context.findings
+                    generation_failure(
+                        root,
+                        failures,
+                        "generation.candidate",
+                        None,
+                        FindingsError(findings),
+                        affected={service_scope(root, p) for p in generated},
+                    )
+                    affected = {
+                        service
+                        for diagnostic in findings.diagnostics
+                        for service in (
+                            diagnostic.service,
+                            *diagnostic.affected_services,
                         )
+                        if service is not None
+                    }
                     rejected = [
                         p
                         for p in generated
-                        if any(
-                            p.relative_to(root).as_posix() in e
-                            for e in _state_validate_candidates_260.context.errors
+                        if findings.unstructured_errors
+                        or any(
+                            d.service is None and not d.affected_services
+                            for d in findings.diagnostics
                         )
+                        or service_scope(root, p) in affected
                     ]
                     if not rejected:
                         rejected = list(generated)

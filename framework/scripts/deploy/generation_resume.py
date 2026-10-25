@@ -6,7 +6,6 @@ from pathlib import Path
 
 import sync_runtime
 from generation_inputs import GenerationInputs
-from model.core import ReferenceResolutionError
 from model.identity import Resolver
 from model.sources import publication_lock, safe, scope_for
 from task_contract_core import task_read_scope
@@ -88,9 +87,11 @@ def enqueue(backend, plan):
 
 
 @task_read_scope
-def validate(root, session, target, environment, directory):
+def validate(root, session, target, environment, directory, views=None):
     identity = observed._identity(root, session, target, environment, directory)
     for view, record in session.get("pendingGeneration", {}).items():
+        if views is not None and view not in views:
+            continue
         if (
             {k: v for k, v in record["identity"].items() if k != "infraManifest"}
             != {k: v for k, v in identity.items() if k != "infraManifest"}
@@ -138,12 +139,15 @@ def recover_journal(root, session, target, environment, directory, record):
     observed.verify_generated_journal(root, owners[0], record)
 
 
-def reconcile(root, session, target, environment, directory):
+def reconcile(root, session, target, environment, directory, views=None):
     recovery = partial(recover_journal, root, session, target, environment, directory)
     with publication_lock(root, recovery_check=recovery):
-        validate(root, session, target, environment, directory)
-        for record in session.get("pendingGeneration", {}).values():
-            observed.check_generated(root, record)
+        validate(root, session, target, environment, directory, views)
+        return {
+            view: observed.check_generated(root, record)
+            for view, record in session.get("pendingGeneration", {}).items()
+            if views is None or view in views
+        }
 
 
 def producers(backend, view, info, stage, resolver):
@@ -217,20 +221,86 @@ def ready(session, record):
     return all(p["observedSynced"] for p in record["producers"])
 
 
+def revision(session, record):
+    """In-process invalidation only; a fresh backend/session always recovers evidence."""
+    return (
+        record,
+        {
+            p: session["modelInputManifest"].get(p)
+            for p in record["waitingModelManifest"]
+        },
+        session["taskDigest"],
+        session["inputDigest"],
+        session.get("inputRevision", 0),
+        [
+            bool(producer_state(session, p["stack"]).get("observedSynced"))
+            for p in record["producers"]
+        ],
+    )
+
+
+def failed_services(generation, selected):
+    failed = {}
+    if generation.failures and not generation.failure_records:
+        raise Blocked("generation failure has no structured service ownership")
+    for diagnostic in generation.failure_records:
+        affected = set(diagnostic.affected_services)
+        if diagnostic.service is not None:
+            affected.add(diagnostic.service)
+        for view in selected:
+            identity = (*Path(view).parts[2:4], Path(view).stem)
+            if not affected or identity in affected:
+                failed.setdefault(view, []).append(diagnostic.message)
+    return failed
+
+
 def run(backend):
     root, session = backend.root, backend.session
-    reconcile(root, session, backend.target, backend.environment, backend.directory)
     backend.guard()
     pending = session["pendingGeneration"]
+    if getattr(backend, "_generation_session", None) is not session:
+        backend._generation_session = session
+        backend._generation_checks = {}
+    checked = backend._generation_checks
+    changed = {
+        view
+        for view, record in pending.items()
+        if checked.get(view) != revision(session, record)
+    }
+    if not changed:
+        return
+    recovered = getattr(backend, "generation_recovery", {})
+    current = {}
+    for view in changed:
+        evidence = recovered.pop(view, None)
+        if evidence is not None and evidence[0] == revision(session, pending[view]):
+            current[view] = evidence[1]
+    if changed - current.keys():
+        current.update(
+            reconcile(
+                root,
+                session,
+                backend.target,
+                backend.environment,
+                backend.directory,
+                changed - current.keys(),
+            )
+        )
     selected = []
-    for view, record in list(pending.items()):
-        _, after = observed.generated_manifests(root, record)
-        current = observed.check_generated(root, record)
-        if record["generated"]["outputs"] is not None and current == after:
+    for view in sorted(changed):
+        record = pending[view]
+        outputs = record["generated"]["outputs"]
+        if outputs is not None and current[view] == observed.manifest(
+            {p: text.encode("utf-8") for p, text in outputs.items()}
+        ):
             # Exact saved candidates already committed before interruption need no rendering.
             del pending[view]
         elif ready(session, record):
             selected.append(view)
+        else:
+            checked[view] = copy.deepcopy(revision(session, record))
+    if not pending:
+        session.pop("generationError", None)
     backend.save()
     if not selected:
         return
@@ -247,16 +317,15 @@ def run(backend):
             )
             try:
                 sync_runtime.validate_generation(generation)
-                if generation.failures:
-                    raise Blocked(
-                        "design generation failed: " + str(generation.failures)
-                    )
+                failed = failed_services(generation, selected)
                 resolver = Resolver(root)
                 deferred = {
                     path.relative_to(root).as_posix(): producers(
                         backend, path, info, generation.stage, resolver
                     )
-                    for path, info in generation.unavailable.items()
+                    for path, info in sync_runtime.generation_unavailable(
+                        generation
+                    ).items()
                 }
                 if not set(deferred) <= set(selected):
                     raise Blocked("generation returned an unselected service")
@@ -267,7 +336,7 @@ def run(backend):
                     }
                     for path, files in generation.expected_outputs.items()
                 }
-                if set(candidates) != set(selected) - set(deferred):
+                if set(candidates) != set(selected) - set(deferred) - set(failed):
                     raise Blocked("generation candidate service set changed")
                 for view, candidate in candidates.items():
                     generated = pending[view]["generated"]
@@ -288,6 +357,8 @@ def run(backend):
                     record.update(
                         producers=dependencies, reason="REFERENCE_PENDING_DEPLOY"
                     )
+                for view, reasons in failed.items():
+                    pending[view]["reason"] = "FAILED: " + "; ".join(reasons)
                 for view, candidate in candidates.items():
                     pending[view]["generated"].update(
                         outputs=candidate, stage="CANDIDATE"
@@ -323,31 +394,63 @@ def run(backend):
                     backend.target,
                     backend.environment,
                     backend.directory,
+                    set(candidates),
                 )
-                sync_runtime.publish_generation(generation)
+                publication_error = None
                 try:
-                    sync_runtime.report_generation(generation)
-                except ReferenceResolutionError as error:
-                    if (
-                        not deferred
-                        or error.diagnostic["category"] != "REFERENCE_PENDING_DEPLOY"
-                    ):
-                        raise
-                if generation.failures:
-                    raise Blocked(
-                        "design publication failed: " + str(generation.failures)
-                    )
-                for view, candidate in candidates.items():
-                    if observed.check_generated(
-                        root, pending[view]
-                    ) != observed.manifest(
-                        {p: t.encode("utf-8") for p, t in candidate.items()}
-                    ):
-                        raise Blocked(
-                            "observed generated publication did not produce the saved candidate"
-                        )
+                    sync_runtime.publish_generation(generation)
+                except Exception as error:
+                    publication_error = error
+                failed = failed_services(generation, selected)
+                for view in candidates:
+                    if root / view not in generation.saved:
+                        continue
+                    candidate = candidates[view]
+                    try:
+                        if observed.check_generated(
+                            root, pending[view]
+                        ) != observed.manifest(
+                            {p: t.encode("utf-8") for p, t in candidate.items()}
+                        ):
+                            raise Blocked(
+                                "observed generated publication did not produce the saved candidate"
+                            )
+                    except (Blocked, OSError, ValueError) as error:
+                        publication_error = publication_error or error
+                        continue
                     del pending[view]
+                backend.save()
+                if publication_error is not None:
+                    raise publication_error
+                for view in candidates.keys() & pending.keys():
+                    record = pending[view]
+                    current = observed.check_generated(root, record)
+                    before, _ = observed.generated_manifests(root, record)
+                    if current != before:
+                        raise Blocked(
+                            "failed publication did not restore originals: " + view
+                        )
+                    record["generated"].update(outputs=None, stage="PREPARED")
+                    record.update(candidateManifest=None, candidateSelections=[])
+                    record["reason"] = "FAILED: " + "; ".join(
+                        failed.get(view, ["publication did not save candidate"])
+                    )
+                for view in selected:
+                    if view in pending:
+                        pending[view]["waitingModelManifest"] = copy.deepcopy(
+                            session["modelInputManifest"]
+                        )
+                        checked[view] = copy.deepcopy(revision(session, pending[view]))
+                if any(r["reason"].startswith("FAILED:") for r in pending.values()):
+                    session["generationError"] = describe(session)
+                else:
+                    session.pop("generationError", None)
                 backend.guard()
                 backend.save()
+                try:
+                    sync_runtime.report_generation(generation)
+                except ValueError:
+                    if not generation.failures and not deferred:
+                        raise
             finally:
                 generation.close()

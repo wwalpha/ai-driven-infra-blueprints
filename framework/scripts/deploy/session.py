@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import re
@@ -122,6 +123,7 @@ def _callback_run_session_sync_once(backend, save, session, units, /):
     if not unsynced and not session.get("pendingGeneration"):
         return True
     started = time.perf_counter()
+    stage = "OBSERVED"
     try:
         if hasattr(backend, "guard"):
             backend.guard()
@@ -130,22 +132,27 @@ def _callback_run_session_sync_once(backend, save, session, units, /):
             for record in session.get("pendingGeneration", {}).values()
         ):
             # Finish an interrupted candidate before another Model transaction changes inputs.
+            stage = "GENERATION"
             generation_resume.run(backend)
         if unsynced:
+            stage = "OBSERVED"
             outputs = sync_successful(backend, unsynced, session["states"])
             if hasattr(backend, "after_observed"):
                 backend.after_observed(outputs or {})
             session.pop("pendingObserved", None)
         if session.get("pendingGeneration"):
+            stage = "GENERATION"
             generation_resume.run(backend)
-        session.pop("generationError", None)
+        if not session.get("pendingGeneration"):
+            session.pop("generationError", None)
         session.pop("observedError", None)
         session.pop("observedRecoveryError", None)
         return True
     except Exception as error:
         backend.sync_failed = True
-        if session.get("pendingGeneration"):
+        if stage == "GENERATION":
             session["generationError"] = str(error)
+            return False
         session.setdefault("observedError", str(error))
         session["observedRecoveryError"] = str(error)
         failure = {
@@ -368,6 +375,7 @@ def run(
     persist = None
     handoff_lock = None
     model_scope = None
+    generation_recovery = {}
     invocation_started = time.perf_counter()
     try:
         if state_path.is_relative_to(root):
@@ -450,9 +458,20 @@ def run(
                 and session.get("pendingGeneration")
                 and not getattr(args, "observe_only", False)
             ):
-                generation_resume.reconcile(
+                recovered = generation_resume.reconcile(
                     root, session, target, args.environment, directory
                 )
+                generation_recovery = {
+                    view: (
+                        copy.deepcopy(
+                            generation_resume.revision(
+                                session, session["pendingGeneration"][view]
+                            )
+                        ),
+                        current,
+                    )
+                    for view, current in recovered.items()
+                }
                 save_session(state_path, session)
             if session is None:
                 session = {"modelInputManifest": {}}
@@ -638,6 +657,7 @@ def run(
                 session["declaredConsumers"] = {}
             handoff.bind(root, state_path, session)
             backend.session = session
+            backend.generation_recovery = generation_recovery
             contract = initial_task.text
             if (
                 "- External IaC repair: `allowed`" in contract.splitlines()

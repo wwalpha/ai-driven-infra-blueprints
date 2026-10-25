@@ -37,6 +37,8 @@ from support.pytest_cli import run
 from task_contract_core import selected_task
 from utils.aws_mappings import mapping_alias
 from utils.cloudformation.inputs import Blocked
+from validation.diagnostics import Diagnostic
+from validation.findings import Findings
 
 from model import dependency_index, sources
 
@@ -186,7 +188,7 @@ def resolved_producer(backend, logical, scope):
     )
 
 
-def invoke(backend, generation):
+def invoke(backend, generation, publish=publish_candidate):
     with (
         patch.object(
             M.sync_runtime,
@@ -200,9 +202,7 @@ def invoke(backend, generation):
         patch.object(
             M.sync_runtime, "report_generation", wraps=M.sync_runtime.report_generation
         ),
-        patch.object(
-            M.sync_runtime, "publish_generation", side_effect=publish_candidate
-        ),
+        patch.object(M.sync_runtime, "publish_generation", side_effect=publish),
         patch.object(
             M.Resolver,
             "resolve_logical",
@@ -211,6 +211,245 @@ def invoke(backend, generation):
     ):
         M.run(backend)
     return prepare
+
+
+def fail_service(generation, view=None, *, affected=(), message="fixture failure"):
+    M.sync_runtime.generation_failure(
+        generation.root,
+        generation.failure_records,
+        "generation.render",
+        view,
+        message,
+        affected=affected,
+    )
+    generation.failures = [d.message for d in generation.failure_records]
+
+
+@pytest.mark.parametrize("revision", ["model", "repair"])
+def check_failed_service_does_not_reject_successes(owned, revision):
+    backend, views, saved = owned
+    backend.session["modelInputManifest"]["model/dev/team/kms.properties"] = "old-input"
+    generation = generation_for(backend, views)
+    failed = views["kms"]
+    old = {p: p.read_bytes() for p in generation.expected_outputs.pop(failed)}
+    fail_service(
+        generation, failed, message="iam appears here but kms owns the failure"
+    )
+    invoke(backend, generation)
+    key = failed.relative_to(backend.root).as_posix()
+    assert set(backend.session["pendingGeneration"]) == {key}
+    assert set(generation.saved) == {views["iam"], views["athena"]}
+    assert all(p.read_bytes() == raw for p, raw in old.items())
+    assert backend.session["pendingGeneration"][key]["reason"].startswith("FAILED:")
+    assert "kms owns" in backend.session["generationError"]
+    assert saved[-1]["pendingGeneration"] == backend.session["pendingGeneration"]
+    assert backend.session["states"]["early"] == {
+        "status": "SUCCESS",
+        "observedSynced": True,
+    }
+    assert not M.complete(backend.session)
+    with (
+        patch.object(M.observed, "check_generated") as check,
+        patch.object(M.sync_runtime, "prepare_generation") as prepare,
+    ):
+        for _ in range(10):
+            M.run(backend)
+        check.assert_not_called()
+        prepare.assert_not_called()
+    if revision == "repair":
+        backend.session["inputRevision"] = 1
+    else:
+        backend.session["modelInputManifest"]["model/dev/team/kms.properties"] = (
+            "authorized-repair-revision"
+        )
+    retry = generation_for(backend, {"kms": failed})
+    prepare = invoke(backend, retry)
+    assert prepare.call_args.args[1] == {("dev", "team", "kms")}
+    assert not backend.session["pendingGeneration"]
+    assert "generationError" not in backend.session
+
+
+@pytest.mark.parametrize("rollback", [False, True])
+def check_publication_results_and_rollback_are_service_scoped(owned, rollback):
+    backend, views, _ = owned
+    generation = generation_for(backend, views)
+    original = {p: p.read_bytes() for p in generation.expected_outputs[views["kms"]]}
+
+    def publish(plan):
+        for view, files in plan.expected_outputs.items():
+            if view == views["kms"] or rollback and view == views["iam"]:
+                fail_service(plan, view, message="publication rolled back")
+            else:
+                for path, text in files.items():
+                    path.write_text(text, encoding="utf-8")
+                plan.saved[view] = {}
+
+    invoke(backend, generation, publish)
+    expected = {views["kms"], *([views["iam"]] if rollback else [])}
+    assert set(backend.session["pendingGeneration"]) == {
+        p.relative_to(backend.root).as_posix() for p in expected
+    }
+    assert all(p.read_bytes() == raw for p, raw in original.items())
+    assert all(
+        r["generated"]["outputs"] is None
+        for r in backend.session["pendingGeneration"].values()
+    )
+
+
+def check_fatal_publication_preserves_already_saved_successes(owned):
+    backend, views, saved = owned
+    generation = generation_for(backend, views)
+
+    def publish(plan):
+        for view in (views["iam"], views["athena"]):
+            for path, text in plan.expected_outputs[view].items():
+                path.write_text(text, encoding="utf-8")
+            plan.saved[view] = {}
+        raise OSError("journal retained for kms")
+
+    with pytest.raises(OSError, match="journal retained"):
+        invoke(backend, generation, publish)
+    assert set(saved[-1]["pendingGeneration"]) == {
+        views["kms"].relative_to(backend.root).as_posix()
+    }
+    assert backend.session["states"]["early"]["observedSynced"]
+
+
+@pytest.mark.parametrize("evidence", ["saved-only", "bytes-only", "corrupt"])
+def check_publication_requires_saved_result_and_exact_bytes(owned, evidence):
+    backend, views, _ = owned
+    generation = generation_for(backend, views)
+
+    def publish(plan):
+        if evidence != "saved-only":
+            publish_candidate(plan)
+        if evidence == "bytes-only":
+            plan.saved.clear()
+        elif evidence == "saved-only":
+            plan.saved.update({v: {} for v in views.values()})
+        else:
+            views["iam"].write_bytes(b"foreign edit")
+
+    with pytest.raises(Blocked):
+        invoke(backend, generation, publish)
+    assert backend.session["pendingGeneration"]
+
+
+def check_waiting_services_do_no_repeated_file_work(owned):
+    backend, views, _ = owned
+    invoke(backend, generation_for(backend, views, deferred=views))
+    with (
+        patch.object(M.observed, "check_generated") as check,
+        patch.object(M.observed, "generated_manifests") as manifests,
+        patch.object(M.sync_runtime, "prepare_generation") as prepare,
+        patch.object(M, "producers") as producers,
+        patch.object(M, "ready") as ready,
+    ):
+        for _ in range(10):
+            M.run(backend)
+        backend.session["states"]["build"]["status"] = "RUNNING"
+        M.run(backend)
+        for mocked in (check, manifests, prepare, producers, ready):
+            mocked.assert_not_called()
+    backend.session["states"]["build"].update(status="SUCCESS", observedSynced=True)
+    invoke(backend, generation_for(backend, views))
+    assert not backend.session["pendingGeneration"]
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def check_fresh_resume_rechecks_and_retries_once(owned, failed):
+    backend, views, saved = owned
+    generation = generation_for(backend, views, deferred=() if failed else views)
+    if failed:
+        generation.expected_outputs.clear()
+        fail_service(generation, affected={("dev", "team", s) for s in views})
+    invoke(backend, generation)
+    backend.session = json.loads(json.dumps(saved[-1]))
+    backend.save = partial(save_copy, saved, backend.session)
+    with patch.object(
+        M.observed, "check_generated", wraps=M.observed.check_generated
+    ) as check:
+        invoke(
+            backend, generation_for(backend, views, deferred=() if failed else views)
+        )
+        assert check.call_count >= 3
+        count = check.call_count
+        M.run(backend)
+        assert check.call_count == count
+
+
+def check_startup_recovery_is_reused_by_first_run(owned):
+    backend, views, _ = owned
+    invoke(backend, generation_for(backend, views, deferred=views))
+    backend.session = copy.deepcopy(backend.session)
+    recovered = M.reconcile(
+        backend.root,
+        backend.session,
+        backend.target,
+        backend.environment,
+        backend.directory,
+    )
+    backend.generation_recovery = {
+        view: (
+            copy.deepcopy(
+                M.revision(backend.session, backend.session["pendingGeneration"][view])
+            ),
+            current,
+        )
+        for view, current in recovered.items()
+    }
+    with (
+        patch.object(M.observed, "check_generated") as check,
+        patch.object(M.observed, "generated_manifests") as manifests,
+        patch.object(M, "reconcile") as reconcile,
+    ):
+        M.run(backend)
+        M.run(backend)
+        check.assert_not_called()
+        manifests.assert_not_called()
+        reconcile.assert_not_called()
+
+
+@pytest.mark.parametrize("identified", [False, True])
+def check_common_validation_uses_structured_ownership(owned, identified):
+    backend, views, _ = owned
+    stage = backend.root.parent / "stage"
+    generated = {v: [] for v in views.values()}
+    failures, validation = [], {}
+    findings = Findings(backend.root)
+    if identified:
+        findings.add_diagnostic(
+            Diagnostic.create(
+                backend.root,
+                code="fixture.common",
+                check_id="design.ownership",
+                service=("dev", "team", "kms"),
+                source_path=None,
+                message=str(views["iam"]) + " is text, not ownership",
+            )
+        )
+    else:
+        findings.errors.append(str(views["kms"]) + " unknown scope")
+    contexts = [SimpleNamespace(findings=findings, errors=findings.errors)]
+    if identified:
+        contexts.append(SimpleNamespace(findings=Findings(backend.root), errors=[]))
+    with (
+        patch.object(
+            M.sync_runtime.sync_views, "validation_context", side_effect=contexts
+        ),
+        patch.object(
+            M.sync_runtime.sync_views,
+            "validate_views",
+            return_value=Findings(backend.root),
+        ),
+        patch.object(M.sync_runtime, "restore_view"),
+        patch.object(M.sync_runtime, "DesignIndex"),
+    ):
+        M.sync_runtime.validate_candidates(
+            stage, backend.root, generated, {}, failures, 1, True, validation
+        )
+    assert set(generated) == ({views["iam"], views["athena"]} if identified else set())
+    assert failures
 
 
 def check_partial_generation_then_dependency_completion(owned):
@@ -437,6 +676,53 @@ def mark_observed(backend, units, states):
     return None
 
 
+def check_service_failure_keeps_observed_barriers_and_final_pending(owned):
+    backend, views, _ = owned
+    runtime = Fake()
+    runtime.__dict__.update(backend.__dict__)
+    runtime.session["states"]["early"].pop("observedSynced")
+    generation = generation_for(runtime, views)
+    generation.expected_outputs.pop(views["kms"])
+    fail_service(generation, views["kms"])
+    with (
+        patch.object(controller, "sync_successful", side_effect=mark_observed),
+        patch.object(
+            M.sync_runtime,
+            "generation_context",
+            return_value=nullcontext(SimpleNamespace(contents={}, selections={})),
+        ),
+        patch.object(
+            M.sync_runtime, "prepare_generation", return_value=generation
+        ) as prepare,
+        patch.object(M.sync_runtime, "validate_generation"),
+        patch.object(
+            M.sync_runtime, "publish_generation", side_effect=publish_candidate
+        ),
+    ):
+        assert (
+            controller.run_session(
+                runtime.units,
+                1,
+                runtime.session,
+                runtime,
+                runtime.save,
+                sleep=lambda _: None,
+            )
+            == "STOPPED"
+        )
+    prepare.assert_called_once()
+    assert starts(runtime) == ["build", "release"]
+    assert all(
+        s["status"] == "SUCCESS" and s["observedSynced"]
+        for s in runtime.session["states"].values()
+    )
+    assert "kms" in runtime.session["generationError"]
+    assert not any(
+        name in runtime.session
+        for name in ("observedError", "observedRecoveryError", "observedFailures")
+    )
+
+
 @pytest.mark.parametrize("pause", [False, True])
 def check_order_10_to_60_and_complete(owned, pause):
     backend, views, _ = owned
@@ -623,9 +909,16 @@ def check_waiting_identity_survives_later_stack_input_claim(owned):
     backend, views, _ = owned
     invoke(backend, generation_for(backend, views, ["iam"]))
     backend.session["infraManifest"]["infra/build.yaml"] = "claimed-for-later-stack"
-    with patch.object(M.sync_runtime, "prepare_generation") as prepare:
+    backend.session["modelInputManifest"]["model/dev/team/unrelated.properties"] = (
+        "first-consumption"
+    )
+    with (
+        patch.object(M.sync_runtime, "prepare_generation") as prepare,
+        patch.object(M.observed, "check_generated") as check,
+    ):
         M.run(backend)
     prepare.assert_not_called()
+    check.assert_not_called()
 
 
 def check_pending_generation_deduplicates_new_observations(owned):
