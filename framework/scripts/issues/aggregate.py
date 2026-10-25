@@ -24,13 +24,14 @@ MAX_FIELDS = 10
 
 
 def pending_deploy_count(records):
-    # Parent/child propagation of one consumer/producer cause is one exclusion.
+    # Parent/child propagation of one property cause is one exclusion.
     return len(
         {
             (item["service"], item["resource"], identifier(item["cause"]))
             for item in records
             if item["category"] == "excluded"
-            and item.get("cause", {}).get("kind") == "import-reference-excluded"
+            and item.get("cause", {}).get("kind")
+            in {"import-reference-excluded", "desired-value-excluded"}
             and item["cause"]["phase"] == "pending_deploy"
         }
     )

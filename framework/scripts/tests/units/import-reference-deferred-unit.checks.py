@@ -11,11 +11,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import pytest
 from comparison.deferral import (
     CATEGORIES,
+    DesiredPendingDeployExcluded,
     ImportReferenceDeferred,
     defer_import_reference,
     failure_category,
     validate_cause,
 )
+from comparison.values import desired_value
 from issues.aggregate import iac_summary
 from support.pytest_cli import run
 from utils.cloudformation.inputs import Blocked
@@ -69,6 +71,68 @@ def test_other_failures_are_not_normal_waits():
     ):
         with pytest.raises(ValueError, match="cause"):
             validate_cause(cause)
+
+
+@pytest.mark.parametrize("raw", ["PENDING_DEPLOY", "`PENDING_DEPLOY`"])
+def test_direct_pending_deploy_cause(raw):
+    prop = "Route53.RecordSet.AliasTarget.DNSName"
+    prepared = desired_value(
+        "route53",
+        {"property": prop, "value": raw},
+        "Route53.RecordSet",
+        local_comparison=True,
+        desired_reference=Mock(),
+        property_schema=Mock(),
+        evaluate=Mock(),
+        model_path=Path("synthetic.properties"),
+    )
+    error = prepared.error
+    assert isinstance(error, DesiredPendingDeployExcluded)
+    assert isinstance(error, Blocked) and not isinstance(error, ImportReferenceDeferred)
+    assert failure_category(error) == "excluded"
+    assert error.iac_cause == dict(
+        kind="desired-value-excluded",
+        phase="pending_deploy",
+        consumer_property=prop,
+    )
+    validate_cause(error.iac_cause)
+
+
+@pytest.mark.parametrize("fault", ["phase", "missing", "empty", "type", "extra"])
+def test_direct_pending_deploy_cause_schema(fault):
+    cause = DesiredPendingDeployExcluded(
+        "Route53.RecordSet.AliasTarget.DNSName"
+    ).iac_cause
+    if fault == "phase":
+        cause["phase"] = "unobserved"
+    elif fault == "missing":
+        del cause["consumer_property"]
+    elif fault == "empty":
+        cause["consumer_property"] = " "
+    elif fault == "type":
+        cause["consumer_property"] = []
+    else:
+        cause["producer"] = {}
+    with pytest.raises(ValueError, match="cause"):
+        validate_cause(cause)
+
+
+def test_pending_deploy_in_document_is_unchanged():
+    prepared = desired_value(
+        "route53",
+        {
+            "property": "Route53.RecordSet.AliasTarget",
+            "value": "ignored",
+            "document": '{"DNSName":"PENDING_DEPLOY"}',
+        },
+        "Route53.RecordSet",
+        local_comparison=True,
+        desired_reference=Mock(),
+        property_schema=Mock(),
+        evaluate=Mock(),
+        model_path=Path("synthetic.json"),
+    )
+    assert prepared.require_value() == {"DNSName": "PENDING_DEPLOY"}
 
 
 @pytest.mark.parametrize(

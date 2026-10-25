@@ -21,7 +21,7 @@ from utils.json_format import policy_json as strict_json
 from utils.reference_contracts import reference_context
 
 from . import registry
-from .deferral import ImportReferenceDeferred
+from .deferral import DesiredPendingDeployExcluded, ImportReferenceDeferred
 
 _CALLBACK_DEFAULT = object()
 
@@ -299,7 +299,9 @@ def _desired_value(
         return [symbol] if node.get("type") == "array" else symbol
     else:
         value = literal(raw)
-        if value in {"UNSET", "PENDING_DEPLOY", "TBD", "TODO", "未確定"}:
+        if value == "PENDING_DEPLOY":
+            raise DesiredPendingDeployExcluded(row["property"])
+        if value in {"UNSET", "TBD", "TODO", "未確定"}:
             raise Blocked("desired value is unresolved")
         node = property_schema(
             kind, re.sub(r"\[\d+\]", "[]", row["property"].removeprefix(kind + "."))

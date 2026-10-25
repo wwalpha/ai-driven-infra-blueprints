@@ -20,7 +20,11 @@ import support.issues_scan_fixtures as _exports_support_issues_scan_fixtures
 import support.issues_scan_fixtures as _retained_fixture_protected_sources
 import support.issues_scan_fixtures as _retained_fixture_scan_project
 import sync_runtime
-from comparison.deferral import CATEGORIES, ImportReferenceDeferred
+from comparison.deferral import (
+    CATEGORIES,
+    DesiredPendingDeployExcluded,
+    ImportReferenceDeferred,
+)
 from comparison.inputs import Inputs
 from issue_gate import issue_errors, unresolved_services
 from issues.aggregate import MAX_GROUPS, comparison_status, iac_actions
@@ -2421,6 +2425,103 @@ def check_pending_deploy_parent_child_count_and_issue_separation():
         text not in report
         for text in ("vpc/004", "VpcConfig", "SubnetId", "approved handoff")
     )
+
+
+def direct_pending_artifact(count=1):
+    records = [
+        dict(
+            category="excluded",
+            service="route53",
+            resource="003",
+            property="Route53.RecordSet.AliasTarget." + prop,
+            reason="desired value comparison excluded: pending_deploy",
+            cause=DesiredPendingDeployExcluded(
+                "Route53.RecordSet.AliasTarget." + prop
+            ).iac_cause,
+        )
+        for prop in ("DNSName", "HostedZoneId")[:count]
+    ]
+    return dict(deferred_artifact(0), **aggregate(records, "dev", "cde", ["route53"]))
+
+
+@pytest.mark.parametrize("count", [1, 2])
+def check_direct_pending_deploy_reports_and_dedup(count, tmp_path):
+    artifact = direct_pending_artifact(count)
+    records = artifact["iac"]
+    records.append(dict(records[0], property="Route53.RecordSet.AliasTarget"))
+    records += deferred_artifact(1, "pending_deploy")["iac"]
+    artifact.update(aggregate(records, "dev", "cde", ["route53", "codebuild"]))
+    validate_artifact(artifact)
+    view = summary(artifact)
+    assert artifact["version"] == 3
+    assert view["iac_pending_deploy_excluded"] == count + 1
+    assert view["iac_excluded"] == count + 2
+    assert view["iac_uncompared"] == view["iac_deferred"] == 0
+    assert not artifact["overview"]["comparison_incomplete"]
+    assert (
+        artifact["overview"]["issue_count"]
+        == sum(artifact["overview"]["categories"].values())
+        == 0
+    )
+    assert not artifact["iac_issues"]
+    assert all(meta["issue_id"] is None for meta in artifact["record_meta"])
+    for saved_artifact in (None, artifact):
+        report = iac_report(
+            "dev", "cde", ["route53", "codebuild"], records, artifact=saved_artifact
+        )
+        assert f"PENDING_DEPLOY（比較対象外） {count + 1}件" in report
+        assert "問題: 0件" in report and "未比較 0項目" in report
+        assert all(
+            text not in report
+            for text in ("DNSName", "HostedZoneId", "### ISSUE-", "| ISSUE-")
+        )
+    ordinary = normal_merge(
+        tmp_path,
+        tmp_path / "issues/dev/cde/issues.md",
+        "dev",
+        "cde",
+        ["route53"],
+        artifact["ordinary"],
+        [],
+        [],
+    )
+    assert "未解決issueなし" in ordinary and "比較未完了" not in ordinary
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "phase",
+        "missing-property",
+        "empty-property",
+        "property-type",
+        "extra-field",
+        "category",
+        "count",
+        "kind",
+    ],
+)
+def check_direct_pending_deploy_artifact_rejects_invalid_causes(fault):
+    artifact = direct_pending_artifact()
+    cause = artifact["iac"][0]["cause"]
+    if fault == "phase":
+        cause["phase"] = "unobserved"
+    elif fault == "missing-property":
+        del cause["consumer_property"]
+    elif fault == "empty-property":
+        cause["consumer_property"] = ""
+    elif fault == "property-type":
+        cause["consumer_property"] = []
+    elif fault == "extra-field":
+        cause["producer"] = {}
+    elif fault == "category":
+        artifact["iac"][0]["category"] = "uncompared"
+    elif fault == "count":
+        artifact["overview"]["pending_deploy_excluded"] = 0
+    else:
+        cause["kind"] = "import-reference-excluded"
+    with pytest.raises(ValueError):
+        validate_artifact(artifact)
 
 
 @pytest.mark.parametrize("phase", ["unobserved", "pending_deploy"])

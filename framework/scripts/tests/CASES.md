@@ -3720,3 +3720,16 @@ QuickSightの既存UT行と移管元行が同じ所有関数を重複登録し�
 | Valid producers | `test_non_plaintext_model_links_pass` | 2 | Authoritative Model passes correct SSM.Parameter/SecretsManager.Secret links |
 
 Existing partial-comparison UTs retain confirmed sibling differences and reject matches for prohibited references. Their comparison rejection reason is PLAINTEXT prohibition; authoritative Model validation owns the blocking ordinary Issue.
+
+## desired直接値PENDING_DEPLOYの正常除外
+
+| Origin | Case | Level | Entry | Execution | Contract | Inputs |
+| --- | --- | --- | --- | --- | --- | --- |
+| `direct-pending::cause` | `test_direct_pending_deploy_cause` | UT | [units/import-reference-deferred-unit.checks.py](units/import-reference-deferred-unit.checks.py) | pytest / 2 | 直接値専用Blocked原因・対象property・excluded分類、コード表記の正規化 | Synthetic desired values |
+| `direct-pending::schema` | `test_direct_pending_deploy_cause_schema` | UT | [units/import-reference-deferred-unit.checks.py](units/import-reference-deferred-unit.checks.py) | pytest / 5 | 不正phase・欠落/空/型違いproperty・余剰fieldの拒否 | Synthetic causes |
+| `direct-pending::document` | `test_pending_deploy_in_document_is_unchanged` | UT | [units/import-reference-deferred-unit.checks.py](units/import-reference-deferred-unit.checks.py) | pytest / 1 | document内文字列は直接値の専用除外へ変えない | Synthetic document |
+| `direct-pending::route53` | `test_route53_direct_pending_deploy_classification` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 12 | dev/stg cde Resource003 DNSNameの除外1件・Issue0、未確定4値と通常差分の維持 | Synthetic Models/IaC |
+| `direct-pending::siblings` | `test_direct_pending_deploy_preserves_sibling_comparison` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 8 | 同Resourceの2直接値を2件、親内/別親の一致・差分・真の未比較を維持 | Synthetic Models/IaC |
+| `direct-pending::actual` | `test_direct_pending_deploy_retains_actual_sibling_failures` | UT | [units/reference-evidence-unit.checks.py](units/reference-evidence-unit.checks.py) | pytest / 2 | 除外先IaC未解決値の無視と別propertyの未解決参照維持 | Synthetic Models/IaC |
+| `direct-pending::reports` | `check_direct_pending_deploy_reports_and_dedup` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 2 | 異property独立件数・親子重複排除・IMPORT件数維持・Artifact v3・issues/reportのIssue0 | Synthetic records |
+| `direct-pending::artifact` | `check_direct_pending_deploy_artifact_rejects_invalid_causes` | UT | [units/issues_scan-unit.checks.py](units/issues_scan-unit.checks.py) | pytest / 8 | 原因schema・分類・除外件数の不整合を拒否、互換分岐なし | Synthetic Artifact v3 |

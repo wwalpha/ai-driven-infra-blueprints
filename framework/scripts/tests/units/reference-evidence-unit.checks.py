@@ -5280,6 +5280,151 @@ def test_import_wait_preserves_known_json_difference(shape, observed):
     assert "subnet-first" in json.dumps(batch.display_differences)
 
 
+@pytest.mark.parametrize("environment", ["dev", "stg"])
+@pytest.mark.parametrize(
+    "desired,category",
+    [
+        ("PENDING_DEPLOY", "excluded"),
+        ("UNSET", "uncompared"),
+        ("TODO", "uncompared"),
+        ("TBD", "uncompared"),
+        ("未確定", "uncompared"),
+        ("desired.example", "difference"),
+    ],
+)
+def test_route53_direct_pending_deploy_classification(environment, desired, category):
+    comparison = fixture()
+    comparison.environment, comparison.directory = environment, "cde"
+    resource(
+        comparison,
+        "route53",
+        "003",
+        "Route53.RecordSet",
+        "Alias",
+        [("AliasTarget.DNSName", desired, None)],
+        properties={"AliasTarget": {"DNSName": "actual.example"}},
+    )
+    document = comparison.stack_inputs["producer"][0]
+    batch = comparison.compare_rows(
+        "route53",
+        "003",
+        comparison.resources["route53"]["003"],
+        "producer",
+        "Alias",
+        ROOT / "synthetic.yaml",
+        document["Resources"]["Alias"],
+        document,
+    )
+    assert batch.failure is None
+    assert {item["category"] for item in batch.records} == {category}, batch.records
+    data = aggregate(batch.records, environment, "cde", ["route53"])
+    if category == "excluded":
+        assert len(batch.records) == 1
+        assert batch.records[0]["cause"] == dict(
+            kind="desired-value-excluded",
+            phase="pending_deploy",
+            consumer_property="Route53.RecordSet.AliasTarget.DNSName",
+        )
+        assert data["overview"]["issue_count"] == 0
+        assert data["overview"]["pending_deploy_excluded"] == 1
+        assert not data["overview"]["comparison_incomplete"]
+    else:
+        assert data["overview"]["issue_count"] > 0
+        assert data["overview"]["pending_deploy_excluded"] == 0
+
+
+@pytest.mark.parametrize("sibling", ["Name", "AliasTarget.HostedZoneId"])
+@pytest.mark.parametrize(
+    "desired,category",
+    [
+        ("PENDING_DEPLOY", "excluded"),
+        ("fixed", "matched"),
+        ("different", "difference"),
+        ("TODO", "uncompared"),
+    ],
+)
+def test_direct_pending_deploy_preserves_sibling_comparison(sibling, desired, category):
+    comparison = fixture()
+    resource(
+        comparison,
+        "route53",
+        "003",
+        "Route53.RecordSet",
+        "Alias",
+        [("AliasTarget.DNSName", "PENDING_DEPLOY", None), (sibling, desired, None)],
+        properties={
+            "Name": "fixed",
+            "AliasTarget": {"DNSName": "actual.example", "HostedZoneId": "fixed"},
+        },
+    )
+    document = comparison.stack_inputs["producer"][0]
+    batch = comparison.compare_rows(
+        "route53",
+        "003",
+        comparison.resources["route53"]["003"],
+        "producer",
+        "Alias",
+        ROOT / "synthetic.yaml",
+        document["Resources"]["Alias"],
+        document,
+    )
+    assert batch.failure is None
+    assert {item["category"] for item in batch.records} == {"excluded", category}
+    data = aggregate(batch.records, "dev", "cde", ["route53"])
+    assert data["overview"]["pending_deploy_excluded"] == (
+        2 if category == "excluded" else 1
+    )
+    assert data["overview"]["records"]["uncompared"] == (
+        1 if category == "uncompared" else 0
+    )
+    assert data["overview"]["issue_count"] == (
+        1 if category in {"difference", "uncompared"} else 0
+    )
+    assert all(
+        "DNSName" not in item["property"]
+        for item in batch.records
+        if item["category"] != "excluded"
+    )
+
+
+@pytest.mark.parametrize("unknown", ["DNSName", "HostedZoneId"])
+def test_direct_pending_deploy_retains_actual_sibling_failures(unknown):
+    comparison = fixture()
+    actual = {"DNSName": "actual.example", "HostedZoneId": "fixed"}
+    actual[unknown] = {"Ref": "Missing"}
+    resource(
+        comparison,
+        "route53",
+        "003",
+        "Route53.RecordSet",
+        "Alias",
+        [
+            ("AliasTarget.DNSName", "PENDING_DEPLOY", None),
+            ("AliasTarget.HostedZoneId", "fixed", None),
+        ],
+        properties={"AliasTarget": actual},
+    )
+    document = comparison.stack_inputs["producer"][0]
+    batch = comparison.compare_rows(
+        "route53",
+        "003",
+        comparison.resources["route53"]["003"],
+        "producer",
+        "Alias",
+        ROOT / "synthetic.yaml",
+        document["Resources"]["Alias"],
+        document,
+    )
+    assert batch.failure is None
+    assert {item["category"] for item in batch.records} == {
+        "excluded",
+        "uncompared" if unknown == "HostedZoneId" else "matched",
+    }
+    view = aggregate(batch.records, "dev", "cde", ["route53"])["overview"]
+    assert view["pending_deploy_excluded"] == 1
+    assert view["records"]["uncompared"] == (1 if unknown == "HostedZoneId" else 0)
+
+
 def evaluate_actual_wait(original, error, stack, value, *args):
     if value == {"Ref": "External"}:
         raise error

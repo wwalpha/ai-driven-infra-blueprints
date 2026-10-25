@@ -9,6 +9,16 @@ CATEGORIES = ("matched", "difference", "deferred", "uncompared", "error", "exclu
 PHASES = ("unobserved", "pending_deploy", "awaiting_handoff")
 
 
+class DesiredPendingDeployExcluded(Blocked):
+    def __init__(self, consumer_property):
+        self.iac_cause = dict(
+            kind="desired-value-excluded",
+            phase="pending_deploy",
+            consumer_property=consumer_property,
+        )
+        super().__init__("desired value comparison excluded: pending_deploy")
+
+
 class ImportReferenceDeferred(Blocked):
     def __init__(
         self, phase, service, identity, resource_type, attribute, consumer_property
@@ -38,6 +48,8 @@ class ImportReferenceDeferred(Blocked):
 
 
 def failure_category(error):
+    if isinstance(error, DesiredPendingDeployExcluded):
+        return "excluded"
     if isinstance(error, ImportReferenceDeferred):
         return (
             "excluded" if error.iac_cause["phase"] == "pending_deploy" else "deferred"
@@ -77,6 +89,15 @@ def defer_import_reference(inputs, symbol, resource, consumer_property):
 
 
 def validate_cause(cause):
+    if isinstance(cause, dict) and cause.get("kind") == "desired-value-excluded":
+        if (
+            set(cause) != {"kind", "phase", "consumer_property"}
+            or cause["phase"] != "pending_deploy"
+            or not isinstance(cause["consumer_property"], str)
+            or not cause["consumer_property"].strip()
+        ):
+            raise ValueError("invalid desired PENDING_DEPLOY comparison cause")
+        return
     if (
         not isinstance(cause, dict)
         or cause.get("kind")

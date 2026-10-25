@@ -22,7 +22,11 @@ from utils.type_contracts import JsonObject, JsonValue
 from . import evaluation, registry
 from . import resource as resource_rules
 from . import rows as row_rules
-from .deferral import ImportReferenceDeferred, failure_category
+from .deferral import (
+    DesiredPendingDeployExcluded,
+    ImportReferenceDeferred,
+    failure_category,
+)
 from .inputs import Inputs
 from .result import RowResult, record, setting_result
 from .values import ValueDecision, compare_values, unverified
@@ -605,6 +609,8 @@ class Comparison(Inputs):
                             owner,
                             template,
                         )
+                        if isinstance(error, DesiredPendingDeployExcluded):
+                            continue
                         value = Expression("Unverified", [])
                 if "." not in short and not short.endswith("[]"):
                     settings.exact.add(short)
@@ -670,6 +676,8 @@ class Comparison(Inputs):
             **details,
         )
         settings.result.records.append(item)
+        if isinstance(error, DesiredPendingDeployExcluded):
+            return
         key = re.sub(r"\[\d*\]", "", prop.removeprefix(kind + ".").split(".", 1)[0])
         settings.incomplete.setdefault(key, []).append(self.redacted(item))
 

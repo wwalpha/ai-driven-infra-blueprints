@@ -238,6 +238,10 @@ def validate_artifact(artifact):
             raise ValueError("invalid comparison category")
         counts[item["category"]] += 1
         cause = item.get("cause", {})
+        if cause.get("kind") == "desired-value-excluded":
+            validate_cause(cause)
+            if item["category"] != "excluded":
+                raise ValueError("invalid desired PENDING_DEPLOY comparison category")
         if item["category"] == "deferred" or cause.get("kind") in {
             "import-reference-excluded",
             "import-reference-deferred",
