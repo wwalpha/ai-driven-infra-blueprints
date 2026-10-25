@@ -130,7 +130,7 @@ def mismatch(pipeline):
 
 
 @pytest.mark.parametrize("equal", [False, True])
-def test_normal_scan_checks_saved_display_once(pipeline, equal):
+def test_scan_ignores_display_sync_and_keeps_independent_checks(pipeline, equal):
     root, _, path, _, expected = pipeline
     if equal:
         path.write_text(expected, encoding="utf-8")
@@ -166,32 +166,16 @@ def test_normal_scan_checks_saved_display_once(pipeline, equal):
         for item in artifact["ordinary"]
         if item.get("diagnostic", {}).get("code") == "design.display.mismatch"
     ]
-    assert bool(display) is not equal
-    if equal:
-        return
-    assert artifact["validation_status"] == "FAIL"
-    assert any(
-        item["property"] == "Stages[2].Actions[1].Configuration.ProjectName"
-        and item["service"] == "codepipeline"
-        for item in display
-    )
-    assert all(item["id"] == item["diagnostic"]["diagnosticId"] for item in display)
-    assert len({item["id"] for item in display}) == len(display)
-    assert len({item["diagnostic"]["cause_key"] for item in display}) == 4
+    assert not display
     assert not any(
         item.get("diagnostic", {}).get("code")
         in {"design.identity.invalid", "MODEL_REF_TARGET_MISSING"}
         for item in artifact["ordinary"]
     )
-    assert any(
-        item["status"] == "FAIL" and item["check_id"] == "design.service"
+    assert not any(
+        entry.get("cause_keys")
         for item in artifact["check_results"]
-    )
-    assert any(
-        item["status"] == "NOT_RUN"
-        and item["unverified"]
-        and any(entry.get("cause_keys") for entry in item["unverified"])
-        for item in artifact["check_results"]
+        for entry in item["unverified"]
     )
     validate_artifact(artifact)
     review = review_for(artifact)
@@ -200,9 +184,6 @@ def test_normal_scan_checks_saved_display_once(pipeline, equal):
         for item in artifact["judgments"]
         if "message" in item
     }
-    assert {item["id"] for item in display} <= {
-        item["id"] for item in review["diagnostic_decisions"]
-    }
     snapshot = review_snapshot(artifact, review)
     saved = json.loads(snapshot.data)
     assert all(
@@ -210,8 +191,18 @@ def test_normal_scan_checks_saved_display_once(pipeline, equal):
         for item in json.loads(json.dumps(artifact["ordinary"]))
     )
     report = render_snapshot(root, snapshot)[0]
-    assert "表示差分: 原因4件（表示4件" in report
-    assert all(item["diagnostic"]["diagnosticId"] in report for item in display)
+    assert "表示差分:" not in report
+    strict = Findings(root)
+    design.check_resource_names(
+        {path: ("codepipeline", ("CodePipeline.Pipeline",))},
+        [path],
+        design_sources={path: pipeline[1]},
+        findings=strict,
+        root=root,
+        scope={("qa", "team", "codepipeline")},
+        definitions_root=FRAMEWORK,
+    )
+    assert any(d.code == "design.display.mismatch" for d in strict.diagnostics) != equal
 
 
 def test_pipeline_display_is_not_identity_or_missing_producer(pipeline):
@@ -993,8 +984,9 @@ def test_adjacent_independent_comment_differences_are_separate(pipeline):
 
 
 @pytest.mark.parametrize("check_display", [True, False])
-@pytest.mark.parametrize("difference", ["row", "heading"])
-def test_name_display_comparison_can_be_disabled(tmp_path, check_display, difference):
+@pytest.mark.parametrize("heading", ["QuickSight", "Quicksight"])
+@pytest.mark.parametrize("row", ["QuickSight", "Quicksight"])
+def test_name_display_and_internal_consistency(tmp_path, check_display, heading, row):
     with mapping_alias(FRAMEWORK, tmp_path):
         scope, values = resource(
             tmp_path,
@@ -1008,15 +1000,10 @@ def test_name_display_comparison_can_be_disabled(tmp_path, check_display, differ
         path = tmp_path / "docs/designs/qa/team/quicksight.md"
         path.parent.mkdir(parents=True)
         expected = generate_markdown(path, values, FRAMEWORK)
-        text = expected.replace(
-            "`QuickSight`"
-            if difference == "row"
-            else "### QuickSight.DataSource: QuickSight",
-            "`Quicksight`"
-            if difference == "row"
-            else "### QuickSight.DataSource: Quicksight",
+        text = expected.replace("`QuickSight`", f"`{row}`").replace(
+            "### QuickSight.DataSource: QuickSight",
+            f"### QuickSight.DataSource: {heading}",
         )
-        assert text != expected
         path.write_text(text, encoding="utf-8")
         findings = Findings(tmp_path)
         with patch.object(
@@ -1034,9 +1021,106 @@ def test_name_display_comparison_can_be_disabled(tmp_path, check_display, differ
                 definitions_root=FRAMEWORK,
                 check_display=check_display,
             )
-        assert findings.status == ("FAIL" if check_display else "PASS"), findings.errors
+        fails = (
+            heading != "QuickSight" or row != "QuickSight"
+            if check_display
+            else heading != row
+        )
+        assert findings.status == ("FAIL" if fails else "PASS"), findings.errors
         if not check_display:
             presentation.assert_not_called()
+
+
+@pytest.mark.parametrize("case", ["missing", "hidden", "label", "generated", "tag"])
+@pytest.mark.parametrize("different", [False, True])
+def test_saved_name_evidence_excludes_model_fallback(tmp_path, case, different):
+    kind = {
+        "missing": "QuickSight.DataSource",
+        "hidden": "QuickSight.DataSource",
+        "label": "GuardDuty.Detector",
+        "generated": "GuardDuty.Detector",
+        "tag": "EC2.Instance",
+    }[case]
+    service = kind.split(".")[0].lower()
+    with mapping_alias(FRAMEWORK, tmp_path):
+        _, values = resource(tmp_path, service, kind, attribute="Name")
+        values["desired.row.001-001.value"] = "`saved-name`"
+        rows = []
+        heading = "saved-name"
+        if case == "missing":
+            values["desired.resource.001.resourceMode"] = "IMPORT"
+        elif case in {"label", "generated"}:
+            values["desired.row.001-001.property"] = kind + ".Id"
+            values["desired.row.001-001.value"] = "[self](#saved-001)"
+            heading = kind
+            if case == "label":
+                values["display.resource.001.label"] = "selected-label"
+                heading = "selected-label"
+        elif case == "tag":
+            values["desired.row.001-001.property"] = kind + ".Tags[].Key"
+            values["desired.row.001-001.value"] = "`Name`"
+            values["desired.row.001-002.property"] = kind + ".Tags[].Value"
+            values["desired.row.001-002.value"] = "`saved-name`"
+            values["desired.row.001-002.comment"] = "名称"
+            rows = [
+                "| 1 | Tags[].Key | `Name` | タグ |",
+                "| 2 | Tags[].Value | `saved-name` | 名称 |",
+            ]
+        if different:
+            heading = "different-heading"
+        path = tmp_path / f"docs/designs/qa/team/{service}.md"
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            "\n".join(
+                [
+                    "<!-- resource-logical-id: " + kind.replace(".", "_") + "_001 -->",
+                    '<a id="saved-001"></a>',
+                    f"### {kind}: {heading}",
+                    "| No. | Property | Value | Source / Comment |",
+                    "| ---: | --- | --- | --- |",
+                    *rows,
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        findings = Findings(tmp_path)
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch.object(
+                    design._imports_model_render,
+                    "resource_presentation",
+                    side_effect=AssertionError("Scan must not derive Model display"),
+                )
+            )
+            if case == "hidden":
+                stack.enter_context(
+                    patch.object(
+                        design._imports_aws_mapping_display,
+                        "_validation_projection",
+                        return_value={
+                            key: value
+                            for key, value in values.items()
+                            if not key.startswith("desired.row.001-001.")
+                        },
+                    )
+                )
+            design.check_resource_names(
+                {path: (service, (kind,))},
+                [path],
+                design_sources={path: values},
+                findings=findings,
+                root=tmp_path,
+                scope={("qa", "team", service)},
+                definitions_root=FRAMEWORK,
+                check_display=False,
+            )
+        assert not findings.processing_errors
+        assert any("heading must display" in error for error in findings.errors) == (
+            case == "tag" and different
+        ), findings.errors
+        if case == "hidden":
+            assert not findings.errors, findings.errors
 
 
 if __name__ == "__main__":

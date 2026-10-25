@@ -433,6 +433,14 @@ def _callback_check_resource_names_check_name(
                 mode,
                 counts[resource_type],
             )
+        # Only saved rows can establish a contradiction, never hidden Model rows.
+        saved_name = (
+            _dependency_design_layout.resource_display_name(
+                resource_type, rows, display, mode, root=definitions_root
+            )
+            if configured is not None
+            else None
+        )
     except ReferenceResolutionError as error:
         findings.warn(error)
         return
@@ -444,8 +452,12 @@ def _callback_check_resource_names_check_name(
         f"resource display name must be confirmed: {findings.relative(path)}: {resource_type}",
     )
     findings.check(
-        (not check_display and bool(values)) or name is None or display == name,
+        not check_display or name is None or display == name,
         f"resource heading must display {'resource name' if configured is not None else 'authoritative display label'}: {findings.relative(path)}: {resource_type}: {display} != {name}",
+    )
+    findings.check(
+        saved_name is None or display == saved_name,
+        f"resource heading must display saved resource name: {findings.relative(path)}: {resource_type}: {display} != {saved_name}",
     )
     if name is None:
         findings.check(

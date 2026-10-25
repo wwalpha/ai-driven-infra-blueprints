@@ -2611,7 +2611,7 @@ def reference_design(tmp_path):
     return model, view, values, key
 
 
-@pytest.mark.parametrize("display", ["link", "plain", "extra-prose"])
+@pytest.mark.parametrize("display", ["link", "plain", "label", "extra-prose"])
 def check_issues_checks_saved_display_without_generation(
     tmp_path, reference_design, display
 ):
@@ -2621,6 +2621,11 @@ def check_issues_checks_saved_display_without_generation(
         text = text.replace(
             "| LoggingConfiguration.DestinationBucketName | [bucket-app-dev-data2](#s3-bucket-app-dev-data2) |",
             "| LoggingConfiguration.DestinationBucketName | `bucket-app-dev-data2` |",
+        )
+    elif display == "label":
+        text = text.replace(
+            "| LoggingConfiguration.DestinationBucketName | [bucket-app-dev-data2](#s3-bucket-app-dev-data2) |",
+            "| LoggingConfiguration.DestinationBucketName | [saved-label](#s3-bucket-app-dev-data2) |",
         )
     elif display == "extra-prose":
         text += "\n追加の説明文。\n"
@@ -2640,12 +2645,12 @@ def check_issues_checks_saved_display_without_generation(
             validator_out=validators,
             warnings=warnings,
         )
-    assert checks > 0 and bool(errors) == (display != "link") and not warnings
-    assert bool(validators[0].findings.unverified) == (display != "link")
-    assert any(
+    assert checks > 0 and not errors and not warnings, (errors, warnings)
+    assert not validators[0].findings.unverified
+    assert not any(
         item.code == "design.display.mismatch"
         for item in validators[0].findings.diagnostics
-    ) == (display != "link")
+    )
     assert not validators[0].findings.processing_errors
     assert not any(
         check_id == "framework.generated-service-model"
@@ -2722,14 +2727,27 @@ def check_issues_keeps_independent_validation(tmp_path, reference_design, fault)
 
 
 @pytest.mark.parametrize("processing", [False, True])
+@pytest.mark.parametrize(
+    "selection", ["cli", "environment", "implicit", "space", "missing"]
+)
 def check_save_cli_keeps_publication_scan_and_pending_validation_separate(
-    tmp_path, capsys, processing
+    tmp_path, capsys, monkeypatch, processing, selection
 ):
-    root = tmp_path / "repository"
+    root = tmp_path / ("repository space" if selection == "space" else "repository")
     root.mkdir()
     artifact, review = tmp_path / "scan.json", tmp_path / "review.json"
     artifact.write_text("{}", encoding="utf-8")
     review.write_text("{}", encoding="utf-8")
+    name = "save"
+    task_name = f"tasks/{name}.md"
+    with _exports_support_issues_scan_fixtures.task(root, ["s3"], name=name):
+        text = (root / task_name).read_text(encoding="utf-8")
+    if selection != "missing":
+        write(root / task_name, text)
+    monkeypatch.setenv("BLUEPRINT_TASK_FILE", "")
+    if selection == "environment":
+        monkeypatch.setenv("BLUEPRINT_TASK_FILE", task_name)
+    options = ["--task-file", task_name] if selection in {"cli", "space"} else []
     with (
         patch(
             "issues.publication.save_scan",
@@ -2740,7 +2758,7 @@ def check_save_cli_keeps_publication_scan_and_pending_validation_separate(
                 ],
                 SimpleNamespace(data="{}"),
             ),
-        ),
+        ) as saved,
         patch(
             "issues.artifact.summary",
             return_value={"validation_status": "ERROR" if processing else "FAIL"},
@@ -2753,6 +2771,7 @@ def check_save_cli_keeps_publication_scan_and_pending_validation_separate(
                 "issues",
                 "--repository-root",
                 str(root),
+                *options,
                 "save",
                 "--artifact",
                 str(artifact),
@@ -2761,16 +2780,24 @@ def check_save_cli_keeps_publication_scan_and_pending_validation_separate(
             ],
         ),
     ):
-        assert issues_main() == (2 if processing else 0)
+        assert issues_main() == (2 if processing or selection == "missing" else 0)
+    if selection == "missing":
+        saved.assert_not_called()
+        captured = capsys.readouterr()
+        assert not captured.out and "selected task contract required" in captured.err
+        return
     result = json.loads(capsys.readouterr().out)
     assert result["publication_status"] == "SAVED"
     assert result["validation_status"] == ("ERROR" if processing else "FAIL")
     assert result["post_save_validation"] == "NOT_RUN"
-    assert result["post_save_validation_command"] == "blueprint-loop.py --mode local"
+    assert result["post_save_validation_command"] == (
+        "blueprint-loop.py --mode local --task-file " + task_name
+    )
 
 
-@pytest.mark.parametrize("location", ["row", "heading"])
-def check_issues_quicksight_name_difference(tmp_path, location):
+@pytest.mark.parametrize("heading", ["QuickSight", "Quicksight"])
+@pytest.mark.parametrize("row", ["QuickSight", "Quicksight"])
+def check_issues_quicksight_name_difference(tmp_path, heading, row):
     with validation_runner._imports_utils_aws_mappings.mapping_alias(
         reference_fixtures.FRAMEWORK, tmp_path
     ):
@@ -2794,24 +2821,24 @@ def check_issues_quicksight_name_difference(tmp_path, location):
         )
         write(view, text)
         selected = {("qa", "team", "quicksight")}
-        before, _, _ = scan_runner.mechanical(tmp_path, selected, jobs=1)
         write(
             view,
-            text.replace(
-                "`QuickSight`"
-                if location == "row"
-                else "### QuickSight.DataSource: QuickSight",
-                "`Quicksight`"
-                if location == "row"
-                else "### QuickSight.DataSource: Quicksight",
+            text.replace("`QuickSight`", f"`{row}`").replace(
+                "### QuickSight.DataSource: QuickSight",
+                f"### QuickSight.DataSource: {heading}",
             ),
         )
         after, _, _ = scan_runner.mechanical(tmp_path, selected, jobs=1)
-    assert after != before
+        strict = Validator(tmp_path, selected, workers=1)
+        strict.design_sources = {view: values}
+        strict.check_resource_names(
+            {view: ("quicksight", ("QuickSight.DataSource",))}, [view]
+        )
+    assert any("heading must display" in error for error in after) == (heading != row)
     assert any(
-        "display name does not match" in error or "heading must display" in error
-        for error in after
-    )
+        "display" in error or "differs" in error or "generation" in error
+        for error in strict.errors
+    ) == (heading != "QuickSight" or row != "QuickSight")
 
 
 if __name__ == "__main__":

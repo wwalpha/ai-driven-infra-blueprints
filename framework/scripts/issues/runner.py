@@ -48,7 +48,6 @@ def mechanical(
         fresh=fresh,
         workers=jobs,
         check_display=False,
-        check_saved_display=True,
     )
     validator.schema_catalog = catalog
     if validator_out is not None:

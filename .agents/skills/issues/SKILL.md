@@ -44,9 +44,11 @@ External already acquired evidence may be included in the whole Scan Review, wit
 - Record inability to execute or compare as unverified scope with the check/target/specific error; do not infer an AWS resource problem instead. Record specific validation errors detected by executed checks as issues; do not treat unexecuted checks as successful.
 - Even if an undeployed generated ID is `PENDING_DEPLOY`, do not treat it as a missing reference if the design reference target resolves. For a validated IMPORT reference, `pending_deploy` is `excluded`, not missing, uncompared or repair-required. Record other items unconfirmed in this investigation in unverified scope.
 
-Issues runs existing saved document/Resource reference-display checks without
-generation/synchronization validation. Model/Markdown display differences are FAIL
-diagnostics; preserve every original diagnostic ID and aggregate only in Report by
+Issues uses `check_display=False` without Model/saved Markdown display synchronization
+or generation equality. Do not register display-only differences (string/link,
+link-label or JSON/policy presentation) as Issues. Retain saved Markdown internal
+consistency, reference destination validity and Resource identity checks. Preserve
+every actual diagnostic ID and aggregate only in Report by
 environment/target/service/cause_key. Retain dependent NOT_RUN reasons and scope.
 Retain independent Model schema/required values, typed
 `$modelRef` syntax/logicalId/attribute/target checks, invalid Resource references,
